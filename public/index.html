@@ -39,23 +39,6 @@
         <div id="Lobby-screen" class="hidden">
             <main class="lobby-grid">
                 <section class="left-column">
-                    <article class="panel share-panel">
-                        <div class="panel-title-row">
-                            <h2>Share this game</h2>
-                        </div>
-                        <div class="share-row">
-                            <input id="room-link" type="text" value="" readonly>
-                            <button id="copy-room-link" class="copy-btn" type="button">Copy</button>
-                        </div>
-                    </article>
-
-                    <article class="panel promo-panel" aria-label="Banner placeholder">
-                        <div class="promo-placeholder">
-                            <strong>Custom map placeholder</strong>
-                            <span>Add your Figma map selector here later.</span>
-                        </div>
-                    </article>
-
                     <article class="panel chat-panel">
                         <div class="panel-title-row">
                             <h2>Chat</h2>
@@ -68,6 +51,16 @@
                             <button type="submit">Send</button>
                         </form>
                         <p class="panel-footnote">Only game players can send chat messages.</p>
+                    </article>
+
+                    <article class="panel share-panel">
+                        <div class="panel-title-row">
+                            <h2>Share this game</h2>
+                        </div>
+                        <div class="share-row">
+                            <input id="room-link" type="text" value="" readonly>
+                            <button id="copy-room-link" class="copy-btn" type="button">Copy</button>
+                        </div>
                     </article>
                 </section>
 
@@ -97,16 +90,6 @@
                 </section>
 
                 <section class="right-column">
-                    <article class="panel map-panel">
-                        <div class="panel-title-row">
-                            <h2>Custom maps</h2>
-                        </div>
-                        <button class="map-placeholder" type="button">
-                            <strong>Map selector coming soon</strong>
-                            <span>Drop your Figma component here when it is ready.</span>
-                        </button>
-                    </article>
-
                     <article class="panel waiting-panel">
                         <div class="panel-title-row">
                             <h2>Waiting players</h2>
@@ -122,7 +105,7 @@
                             <h2>Lobby settings</h2>
                         </div>
                         <div class="settings-scroll">
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="maxPlayers">
                                 <div>
                                     <strong>Maximum players</strong>
                                     <p>4 players</p>
@@ -130,7 +113,7 @@
                                 <span class="setting-value">4</span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="privateRoom" aria-pressed="true">
                                 <div>
                                     <strong>Private room</strong>
                                     <p>Invite link only</p>
@@ -138,7 +121,7 @@
                                 <span class="setting-value setting-switch setting-switch--on"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="allowBots" aria-pressed="false">
                                 <div>
                                     <strong>Allow bots to join</strong>
                                     <p>Beta</p>
@@ -146,7 +129,7 @@
                                 <span class="setting-value setting-switch"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="onlyLoggedIn" aria-pressed="false">
                                 <div>
                                     <strong>Only logged-in users</strong>
                                     <p>Restrict access</p>
@@ -154,17 +137,17 @@
                                 <span class="setting-value setting-switch"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="boardMap">
                                 <div>
                                     <strong>Board map</strong>
                                     <p>Classic</p>
                                 </div>
-                                <span class="setting-value">Change map</span>
+                                <span class="setting-value">Browse maps</span>
                             </button>
 
                             <div class="settings-divider"></div>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="x2Rent" aria-pressed="false">
                                 <div>
                                     <strong>x2 rent on full-set properties</strong>
                                     <p>If a player owns a full property set, the base rent payment will be doubled</p>
@@ -172,39 +155,43 @@
                                 <span class="setting-value setting-switch"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="vacationCash" aria-pressed="false">
                                 <div>
                                     <strong>Vacation cash</strong>
-                                    <p>If a player lands on Vacation, all collected money from taxes and bank payments will be earned</p>
+                                    <p>If a player lands on Vacation, all collected money from taxes and bank payments
+                                        will be earned</p>
                                 </div>
                                 <span class="setting-value setting-switch"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="auction" aria-pressed="false">
                                 <div>
                                     <strong>Auction</strong>
-                                    <p>If someone skips purchasing the property landed on, it will be sold to the highest bidder</p>
+                                    <p>If someone skips purchasing the property landed on, it will be sold to the
+                                        highest bidder</p>
                                 </div>
                                 <span class="setting-value setting-switch"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="prisonRent" aria-pressed="false">
                                 <div>
                                     <strong>Don't collect rent while in prison</strong>
-                                    <p>Rent will not be collected when landing on properties whose owners are in prison</p>
+                                    <p>Rent will not be collected when landing on properties whose owners are in prison
+                                    </p>
                                 </div>
                                 <span class="setting-value setting-switch"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="mortgage" aria-pressed="false">
                                 <div>
                                     <strong>Mortgage</strong>
-                                    <p>Mortgage properties to earn 50% of their cost, but you won't get paid rent when players land on them</p>
+                                    <p>Mortgage properties to earn 50% of their cost, but you won't get paid rent when
+                                        players land on them</p>
                                 </div>
                                 <span class="setting-value setting-switch"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <button class="setting-row" type="button" data-setting="evenBuild" aria-pressed="true">
                                 <div>
                                     <strong>Even build</strong>
                                     <p>Houses and hotels must be built up and sold off evenly within a property set</p>
@@ -212,17 +199,44 @@
                                 <span class="setting-value setting-switch setting-switch--on"></span>
                             </button>
 
-                            <button class="setting-row" type="button">
+                            <div class="setting-row setting-row--select">
                                 <div>
                                     <strong>Starting cash</strong>
                                     <p>Adjust how much money players start the game with</p>
                                 </div>
-                                <span class="setting-value">$1500</span>
+                                <select id="starting-cash">
+                                    <option value="500">$500</option>
+                                    <option value="1000">$1000</option>
+                                    <option value="1500" selected>$1500</option>
+                                    <option value="2000">$2000</option>
+                                    <option value="2500">$2500</option>
+                                </select>
+                            </div>
+
+                            <button class="setting-row" type="button" data-setting="randomizeOrder" aria-pressed="true">
+                                <div>
+                                    <strong>Randomize player order</strong>
+                                    <p>Randomly reorder players at the beginning of the game</p>
+                                </div>
+                                <span class="setting-value setting-switch setting-switch--on"></span>
                             </button>
                         </div>
                     </article>
                 </section>
             </main>
+
+            <div id="map-modal" class="map-modal hidden" aria-hidden="true">
+                <div class="map-modal__backdrop" data-close-map></div>
+                <div class="map-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
+                    <button class="map-modal__close" type="button" aria-label="Close map placeholder"
+                        data-close-map>×</button>
+                    <h3 id="map-modal-title">Board Maps</h3>
+                    <div class="map-modal__placeholder">
+                        <p>Drop your custom map selector in here later.</p>
+                        <p>This is only a layout placeholder for now.</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>

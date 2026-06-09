@@ -28,7 +28,13 @@ io.on("connection", (socket) => {
         activePlayers[socket.id] = { name: name, color: "red" };
 
         socket.emit("welcome-message", name);
-        io.emit("update-players", Object.values(activePlayers));
+        io.emit(
+            "update-players",
+            Object.entries(activePlayers).map(([id, player]) => ({
+                id,
+                ...player,
+            }))
+        );
     });
 
 
@@ -39,7 +45,13 @@ io.on("connection", (socket) => {
             activePlayers[socket.id].color = color;
         }
 
-        io.emit("update-players", Object.values(activePlayers));
+        io.emit(
+            "update-players",
+            Object.entries(activePlayers).map(([id, player]) => ({
+                id,
+                ...player,
+            }))
+        );
     });
 
     socket.on("select-color", (color) => {
@@ -50,7 +62,13 @@ io.on("connection", (socket) => {
         console.log(`Spieler ${socket.id} hat die Verbindung getrennt.`);
 
         delete activePlayers[socket.id];
-        io.emit("update-players", Object.values(activePlayers));
+        io.emit(
+            "update-players",
+            Object.entries(activePlayers).map(([id, player]) => ({
+                id,
+                ...player,
+            }))
+        );
     });
     socket.on("send-message", (messageText) => {
         const sender = activePlayers[socket.id];

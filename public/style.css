@@ -150,11 +150,12 @@ button {
 }
 
 .lobby-grid {
-    height: 100vh;
+    min-height: 100vh;
     display: grid;
     grid-template-columns: minmax(310px, 1fr) minmax(320px, 1.1fr) minmax(360px, 1.05fr);
     gap: 12px;
     padding: 12px;
+    align-content: center;
 }
 
 .left-column,
@@ -163,24 +164,29 @@ button {
     min-width: 0;
     display: grid;
     gap: 12px;
+    align-self: center;
 }
 
 .left-column {
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: calc(100vh - 24px);
 }
 
 .center-column {
     align-content: center;
+    height: calc(100vh - 24px);
 }
 
 .right-column {
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: calc(100vh - 24px);
 }
 
 .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
+    background: #2a2140;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    box-shadow: none;
     min-width: 0;
 }
 
@@ -249,6 +255,7 @@ button {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 100%;
 }
 
 .chat-box {
@@ -257,8 +264,8 @@ button {
     min-height: 180px;
     padding: 12px;
     overflow-y: auto;
-    border-radius: 10px;
-    background: var(--panel-3);
+    border-radius: 8px;
+    background: #1c162b;
     border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -298,7 +305,7 @@ button {
 
 .chat-form button {
     padding: 0 16px;
-    border-radius: 9px;
+    border-radius: 8px;
     background: linear-gradient(90deg, var(--accent), var(--accent-2));
     color: #fff;
     font-weight: 700;
@@ -316,7 +323,7 @@ button {
     display: grid;
     align-content: center;
     padding: 22px;
-    background: linear-gradient(180deg, #2b2140, #1f1830);
+    background: #241c38;
 }
 
 .center-heading {
@@ -354,11 +361,13 @@ button {
     width: 54px;
     aspect-ratio: 1;
     border-radius: 50%;
-    border: 4px solid rgba(255, 255, 255, 0.06);
+    border: 0;
+    box-shadow: none;
 }
 
 .color.selected {
-    border-color: #fff;
+    outline: 3px solid rgba(255, 255, 255, 0.92);
+    outline-offset: 2px;
 }
 
 #color-red {
@@ -395,7 +404,7 @@ button {
 
 .join-btn {
     padding: 12px 18px;
-    border-radius: 9px;
+    border-radius: 8px;
     background: #6a4dd6;
     font-weight: 700;
 }
@@ -412,9 +421,9 @@ button {
     width: calc(100% - 32px);
     margin: 0 16px 16px;
     padding: 14px 16px;
-    border-radius: 10px;
-    background: #1c1727;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: #1c162b;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     display: grid;
     gap: 4px;
     text-align: left;
@@ -435,6 +444,7 @@ button {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 100%;
 }
 
 .player-list,
@@ -449,10 +459,10 @@ button {
 .player-list {
     display: grid;
     gap: 2px;
-    background: var(--panel-3);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
+    background: transparent;
+    border: 0;
     padding: 8px 10px;
+    flex: 1;
 }
 
 .player-item {
@@ -479,10 +489,10 @@ button {
 }
 
 .settings-scroll {
-    background: var(--panel-3);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
-    padding: 4px 0;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    flex: 1;
 }
 
 .setting-row {
@@ -495,7 +505,8 @@ button {
     text-align: left;
     background: transparent;
     color: var(--text);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    appearance: none;
 }
 
 .setting-row:last-child {
@@ -512,6 +523,19 @@ button {
     color: var(--muted);
     font-size: 0.82rem;
     line-height: 1.35;
+}
+
+.setting-row--select {
+    align-items: center;
+}
+
+.setting-row--select select {
+    min-width: 92px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #171221;
+    color: var(--text);
 }
 
 .setting-value {
@@ -550,8 +574,70 @@ button {
 
 .settings-divider {
     height: 1px;
-    margin: 6px 16px;
-    background: rgba(255, 255, 255, 0.08);
+    margin: 8px 16px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.map-modal {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    z-index: 50;
+}
+
+.map-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.62);
+}
+
+.map-modal__dialog {
+    position: relative;
+    width: min(920px, calc(100vw - 48px));
+    min-height: 420px;
+    padding: 26px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #1b1428;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.map-modal__dialog h3 {
+    font-size: 1.5rem;
+    margin-bottom: 22px;
+}
+
+.map-modal__close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: #fff;
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.map-modal__placeholder {
+    min-height: 320px;
+    display: grid;
+    place-items: center;
+    gap: 10px;
+    border-radius: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--muted);
+    text-align: center;
+    padding: 20px;
+}
+
+.map-modal__placeholder p:first-child {
+    color: var(--text);
+    font-size: 1rem;
 }
 
 ::-webkit-scrollbar {
