@@ -1,0 +1,164 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(180deg,
+            #12071f,
+            #090211);
+    overflow: hidden;
+}
+
+.container {
+    text-align: center;
+}
+
+.logo {
+    font-size: 5rem;
+    font-weight: 900;
+    color: white;
+    letter-spacing: -3px;
+}
+
+.logo span {
+    color: #9b8cff;
+}
+
+.logo small {
+    font-size: 3rem;
+    color: #7f72e8;
+}
+
+.subtitle {
+    margin-top: 10px;
+    color: #a99ddb;
+    font-size: 1.8rem;
+}
+
+.name-input {
+    margin-top: 70px;
+    width: 320px;
+    padding: 16px;
+    border: none;
+    border-radius: 10px;
+    background: #2a1d45;
+    color: white;
+    font-size: 1rem;
+    outline: none;
+}
+
+.play-btn {
+    margin-top: 20px;
+    width: 320px;
+    padding: 20px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(90deg,
+            #8b4cff,
+            #7a5cff);
+    color: white;
+    font-size: 2rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.play-btn:hover {
+    transform: translateY(-3px);
+}
+
+.buttons {
+    margin-top: 50px;
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.secondary-btn {
+    border: none;
+    background: #5f3fb5;
+    color: white;
+    padding: 14px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.secondary-btn:hover {
+    opacity: 0.9;
+}
+
+.hidden {
+    display: none;
+}
+
+.lobby-wrapper {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+}
+
+.left-column,
+.right-column,
+.center-column {
+    flex: 1;
+    padding: 20px;
+}
+
+.center-column {
+    flex: 2;
+}
+
+.color-grid {
+    display: flex;
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.color {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: gray;
+}
+
+.join-btn {
+    padding: 10px 20px;
+    font-size: 18px;
+    cursor: pointer;
+}
+
+.left-column input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 15px;
+}
+
+#color-red {
+    background: red;
+}
+
+#color-blue {
+    background: blue;
+}
+
+#color-green {
+    background: green;
+}
+
+#color-yellow {
+    background: yellow;
+}
+
+.selected {
+    border: 5px solid white;
+    box-shadow: 0 0 10px white;
+}

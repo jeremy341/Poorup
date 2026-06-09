@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POORUP.IO</title>
+    <link rel="stylesheet" href="style.css">
+    <meta name="description"
+        content="A real-time, multi-player, browser-based economics game similar to Monopoly, where players compete to dominate the market.">
+</head>
+
+<body>
+    <div id="landing-screen">
+        <div class="container">
+
+            <h1 class="logo">
+                POOR<span>UP</span><small>.IO</small>
+            </h1>
+
+            <p class="subtitle">Rule the economy</p>
+
+            <form>
+                <input type="text" placeholder="Username" class="name-input" required>
+                <section>
+                    <button class="play-btn">
+                        » Play
+                    </button>
+                </section>
+            </form>
+
+            <div class="buttons">
+                <button class="secondary-btn">👥 All rooms</button>
+                <button class="secondary-btn">🔑 Create a private game</button>
+            </div>
+
+        </div>
+    </div>
+    <div id="Lobby-screen" class="hidden">
+        <div class="lobby-wrapper">
+
+
+            <!-- left column -->
+            <div class="left-column">
+                <input type="text" value="http://localhost:3000/room/123" readonly>
+                <div class="chat-box">
+                    <p>hallo</p>
+                </div>
+                <ul id="player-list"></ul>
+            </div>
+
+            <!-- center column -->
+            <div class="center-column">
+                <h2 id="welcome-message"></h2>
+
+
+                <h3>Select your player appearance:</h3>
+
+
+                <div class="color-grid">
+                    <div class="color selected" id="color-red"></div>
+                    <div class="color" id="color-blue"></div>
+                    <div class="color" id="color-green"></div>
+                    <div class="color" id="color-yellow"></div>
+                </div>
+
+                <button class="join-btn">Join Game</button>
+            </div>
+
+            <!-- right column -->
+            <div class="right-column">
+                <select>
+                    <option value="1500">$1500</option>
+                    <option value="2000">$2000</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+</body>
+
+</html>
