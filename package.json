@@ -1,0 +1,25 @@
+{
+    "name": "poorup",
+    "version": "1.0.0",
+    "description": "A custom-built, real-time multiplayer board game inspired by classic property trading mechanics, featuring an expanded board, a unique credit/contract system, and server-side game logic. Built with Node.js, Socket.io, and a responsive frontend. Developed as a personal project to learn full-stack web architecture and game development basics.",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jeremy341/Poorup.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "bugs": {
+        "url": "https://github.com/jeremy341/Poorup/issues"
+    },
+    "homepage": "https://github.com/jeremy341/Poorup#readme",
+    "dependencies": {
+        "express": "^5.2.1",
+        "socket.io": "^4.8.3"
+    }
+}
