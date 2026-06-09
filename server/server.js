@@ -28,6 +28,7 @@ io.on("connection", (socket) => {
         activePlayers[socket.id] = { name: name, color: "red" };
 
         socket.emit("welcome-message", name);
+        io.emit("update-players", Object.values(activePlayers));
     });
 
 
@@ -51,8 +52,20 @@ io.on("connection", (socket) => {
         delete activePlayers[socket.id];
         io.emit("update-players", Object.values(activePlayers));
     });
+    socket.on("send-message", (messageText) => {
+        const sender = activePlayers[socket.id];
+        if (sender) {
+            io.emit("receive-message", {
+                name: sender.name,
+                color: sender.color,
+                message: messageText
+            });
+        }
+    });
 });
 
 server.listen(PORT, () => {
     console.log(`Server läuft auf http://localhost:${PORT}`);
 });
+
+

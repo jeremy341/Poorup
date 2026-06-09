@@ -11,69 +11,218 @@
 </head>
 
 <body>
-    <div id="landing-screen">
-        <div class="container">
+    <div class="app-shell">
+        <div id="landing-screen" class="landing-screen">
+            <div class="landing-card">
+                <h1 class="logo">
+                    POOR<span>UP</span><small>.IO</small>
+                </h1>
 
-            <h1 class="logo">
-                POOR<span>UP</span><small>.IO</small>
-            </h1>
+                <p class="subtitle">Rule the economy</p>
 
-            <p class="subtitle">Rule the economy</p>
+                <form id="join-form">
+                    <input type="text" id="name-input" placeholder="Username" class="name-input" required>
+                    <section>
+                        <button class="play-btn" type="submit">
+                            » Play
+                        </button>
+                    </section>
+                </form>
 
-            <form>
-                <input type="text" placeholder="Username" class="name-input" required>
-                <section>
-                    <button class="play-btn">
-                        » Play
-                    </button>
-                </section>
-            </form>
-
-            <div class="buttons">
-                <button class="secondary-btn">👥 All rooms</button>
-                <button class="secondary-btn">🔑 Create a private game</button>
+                <div class="buttons">
+                    <button class="secondary-btn" type="button">👥 All rooms</button>
+                    <button class="secondary-btn" type="button">🔑 Create a private game</button>
+                </div>
             </div>
-
         </div>
-    </div>
-    <div id="Lobby-screen" class="hidden">
-        <div class="lobby-wrapper">
 
+        <div id="Lobby-screen" class="hidden">
+            <main class="lobby-grid">
+                <section class="left-column">
+                    <article class="panel share-panel">
+                        <div class="panel-title-row">
+                            <h2>Share this game</h2>
+                        </div>
+                        <div class="share-row">
+                            <input id="room-link" type="text" value="" readonly>
+                            <button id="copy-room-link" class="copy-btn" type="button">Copy</button>
+                        </div>
+                    </article>
 
-            <!-- left column -->
-            <div class="left-column">
-                <input type="text" value="http://localhost:3000/room/123" readonly>
-                <div class="chat-box">
-                    <p>hallo</p>
-                </div>
-                <ul id="player-list"></ul>
-            </div>
+                    <article class="panel promo-panel" aria-label="Banner placeholder">
+                        <div class="promo-placeholder">
+                            <strong>Custom map placeholder</strong>
+                            <span>Add your Figma map selector here later.</span>
+                        </div>
+                    </article>
 
-            <!-- center column -->
-            <div class="center-column">
-                <h2 id="welcome-message"></h2>
+                    <article class="panel chat-panel">
+                        <div class="panel-title-row">
+                            <h2>Chat</h2>
+                        </div>
+                        <div class="chat-box">
+                            <div class="empty-state">No messages yet</div>
+                        </div>
+                        <form id="chat-form" class="chat-form">
+                            <input type="text" id="chat-input" placeholder="Type a message..." required>
+                            <button type="submit">Send</button>
+                        </form>
+                        <p class="panel-footnote">Only game players can send chat messages.</p>
+                    </article>
+                </section>
 
+                <section class="center-column">
+                    <article class="panel center-panel">
+                        <div class="panel-title-row center-heading">
+                            <h2 id="welcome-message">Waiting for players...</h2>
+                        </div>
 
-                <h3>Select your player appearance:</h3>
+                        <div class="appearance-stage">
+                            <p class="appearance-label">Select your player appearance:</p>
+                            <div class="color-grid">
+                                <button class="color selected" id="color-red" type="button" aria-label="Red"></button>
+                                <button class="color" id="color-blue" type="button" aria-label="Blue"></button>
+                                <button class="color" id="color-green" type="button" aria-label="Green"></button>
+                                <button class="color" id="color-yellow" type="button" aria-label="Yellow"></button>
+                                <button class="color" id="color-purple" type="button" aria-label="Purple"></button>
+                                <button class="color" id="color-orange" type="button" aria-label="Orange"></button>
+                                <button class="color" id="color-pink" type="button" aria-label="Pink"></button>
+                                <button class="color" id="color-teal" type="button" aria-label="Teal"></button>
+                            </div>
 
+                            <button class="join-btn" type="button">Join Game</button>
+                            <button class="store-btn" type="button">Get more appearances</button>
+                        </div>
+                    </article>
+                </section>
 
-                <div class="color-grid">
-                    <div class="color selected" id="color-red"></div>
-                    <div class="color" id="color-blue"></div>
-                    <div class="color" id="color-green"></div>
-                    <div class="color" id="color-yellow"></div>
-                </div>
+                <section class="right-column">
+                    <article class="panel map-panel">
+                        <div class="panel-title-row">
+                            <h2>Custom maps</h2>
+                        </div>
+                        <button class="map-placeholder" type="button">
+                            <strong>Map selector coming soon</strong>
+                            <span>Drop your Figma component here when it is ready.</span>
+                        </button>
+                    </article>
 
-                <button class="join-btn">Join Game</button>
-            </div>
+                    <article class="panel waiting-panel">
+                        <div class="panel-title-row">
+                            <h2>Waiting players</h2>
+                            <span class="info-chip" id="player-count">0 joined</span>
+                        </div>
+                        <ul id="player-list" class="player-list">
+                            <li class="empty-state">No players joined yet</li>
+                        </ul>
+                    </article>
 
-            <!-- right column -->
-            <div class="right-column">
-                <select>
-                    <option value="1500">$1500</option>
-                    <option value="2000">$2000</option>
-                </select>
-            </div>
+                    <article class="panel settings-panel">
+                        <div class="panel-title-row">
+                            <h2>Lobby settings</h2>
+                        </div>
+                        <div class="settings-scroll">
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Maximum players</strong>
+                                    <p>4 players</p>
+                                </div>
+                                <span class="setting-value">4</span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Private room</strong>
+                                    <p>Invite link only</p>
+                                </div>
+                                <span class="setting-value setting-switch setting-switch--on"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Allow bots to join</strong>
+                                    <p>Beta</p>
+                                </div>
+                                <span class="setting-value setting-switch"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Only logged-in users</strong>
+                                    <p>Restrict access</p>
+                                </div>
+                                <span class="setting-value setting-switch"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Board map</strong>
+                                    <p>Classic</p>
+                                </div>
+                                <span class="setting-value">Change map</span>
+                            </button>
+
+                            <div class="settings-divider"></div>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>x2 rent on full-set properties</strong>
+                                    <p>If a player owns a full property set, the base rent payment will be doubled</p>
+                                </div>
+                                <span class="setting-value setting-switch"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Vacation cash</strong>
+                                    <p>If a player lands on Vacation, all collected money from taxes and bank payments will be earned</p>
+                                </div>
+                                <span class="setting-value setting-switch"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Auction</strong>
+                                    <p>If someone skips purchasing the property landed on, it will be sold to the highest bidder</p>
+                                </div>
+                                <span class="setting-value setting-switch"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Don't collect rent while in prison</strong>
+                                    <p>Rent will not be collected when landing on properties whose owners are in prison</p>
+                                </div>
+                                <span class="setting-value setting-switch"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Mortgage</strong>
+                                    <p>Mortgage properties to earn 50% of their cost, but you won't get paid rent when players land on them</p>
+                                </div>
+                                <span class="setting-value setting-switch"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Even build</strong>
+                                    <p>Houses and hotels must be built up and sold off evenly within a property set</p>
+                                </div>
+                                <span class="setting-value setting-switch setting-switch--on"></span>
+                            </button>
+
+                            <button class="setting-row" type="button">
+                                <div>
+                                    <strong>Starting cash</strong>
+                                    <p>Adjust how much money players start the game with</p>
+                                </div>
+                                <span class="setting-value">$1500</span>
+                            </button>
+                        </div>
+                    </article>
+                </section>
+            </main>
         </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>
