@@ -1,25 +1,30 @@
 {
-    "name": "poorup",
-    "version": "1.0.0",
-    "description": "A custom-built, real-time multiplayer board game inspired by classic property trading mechanics, featuring an expanded board, a unique credit/contract system, and server-side game logic. Built with Node.js, Socket.io, and a responsive frontend. Developed as a personal project to learn full-stack web architecture and game development basics.",
-    "main": "index.js",
-    "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/jeremy341/Poorup.git"
-    },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
-    "type": "commonjs",
-    "bugs": {
-        "url": "https://github.com/jeremy341/Poorup/issues"
-    },
-    "homepage": "https://github.com/jeremy341/Poorup#readme",
-    "dependencies": {
-        "express": "^5.2.1",
-        "socket.io": "^4.8.3"
-    }
+  "name": "poorup",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "socket.io-client": "^4.8.3",
+    "tailwindcss": "^4.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "vite": "^8.0.12"
+  }
 }
