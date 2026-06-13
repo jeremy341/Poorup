@@ -3,14 +3,16 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "start": "node server/server.js"
+    "start": "node server/server.js",
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "serve": "npm run build && npm start"
   },
   "dependencies": {
     "express": "^4.21.0",
     "socket.io": "^4.8.3"
   },
-  "description": "",
-  "main": "index.js",
+  "description": "Multiplayer board game",
   "devDependencies": {},
   "repository": {
     "type": "git",
