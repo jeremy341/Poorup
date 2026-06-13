@@ -8,5 +8,20 @@
   "dependencies": {
     "express": "^4.21.0",
     "socket.io": "^4.8.3"
-  }
+  },
+  "description": "",
+  "main": "index.js",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeremy341/Poorup.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/jeremy341/Poorup/issues"
+  },
+  "homepage": "https://github.com/jeremy341/Poorup#readme"
 }
