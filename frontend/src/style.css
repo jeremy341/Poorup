@@ -27,7 +27,12 @@ body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  overflow: auto
+  overflow: auto;
+}
+
+#app {
+  min-height: 100vh;
+  width: 100%;
 }
 
 .hidden {
@@ -260,7 +265,16 @@ select {
   flex: 1;
   color: var(--text);
   font-size: 14px;
-  line-height: 1.6
+  line-height: 1.6;
+}
+
+.chat-line {
+  padding: 4px 0;
+  word-break: break-word;
+}
+
+.chat-line + .chat-line {
+  border-top: 1px solid rgba(230, 216, 200, 0.6);
 }
 
 .chat-input {
@@ -325,7 +339,12 @@ select {
   border: none;
   padding: 0;
   position: relative;
-  overflow: visible
+  overflow: visible;
+  transition: filter 0.2s ease;
+}
+
+.board-panel.blurred {
+  filter: blur(4px);
 }
 
 .board-content {
@@ -428,16 +447,6 @@ select {
   transform: translateX(-50%);
   display: flex;
   gap: 10px;
-  z-index: 5
-}
-
-.property-actions {
-  position: absolute;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
   z-index: 5
 }
 
@@ -669,7 +678,24 @@ select {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 20px
+  margin-top: 20px;
+}
+
+.auction-bid-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.auction-bid-field input {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fffaf4;
+  color: var(--text);
 }
 
 @media (max-width:1000px) {
@@ -698,11 +724,11 @@ select {
     max-width: 100%
   }
 
-  .event-feed-overlay {
+  .activity-log {
     right: 12px;
     bottom: 12px;
     width: 100%;
-    max-width: calc(100% - 36px)
+    max-width: calc(100% - 36px);
   }
 }
 

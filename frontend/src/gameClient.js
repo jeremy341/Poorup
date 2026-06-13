@@ -1,59 +1,95 @@
 import { io } from 'socket.io-client';
 
 const BOARD_POSITIONS = [
-  { left: 90, top: 90 }, { left: 75, top: 90 }, { left: 60, top: 90 }, { left: 45, top: 90 }, { left: 30, top: 90 }, { left: 15, top: 90 },
+  { left: 90, top: 90 }, { left: 75, top: 90 }, { left: 60, top: 90 }, { left: 45, top: 90 },
+  { left: 30, top: 90 }, { left: 15, top: 90 },
   { left: 5, top: 75 }, { left: 5, top: 60 }, { left: 5, top: 45 }, { left: 5, top: 30 },
-  { left: 15, top: 15 }, { left: 30, top: 10 }, { left: 45, top: 10 }, { left: 60, top: 10 }, { left: 75, top: 10 },
-  { left: 90, top: 15 }, { left: 95, top: 30 }, { left: 95, top: 45 }, { left: 95, top: 60 }, { left: 95, top: 75 },
+  { left: 15, top: 15 }, { left: 30, top: 10 }, { left: 45, top: 10 }, { left: 60, top: 10 },
+  { left: 75, top: 10 },
+  { left: 90, top: 15 }, { left: 95, top: 30 }, { left: 95, top: 45 }, { left: 95, top: 60 },
+  { left: 95, top: 75 },
   { left: 85, top: 90 }, { left: 70, top: 90 }, { left: 55, top: 90 }, { left: 40, top: 90 }
 ];
 
-const colors = ['#111827', '#ef4444', '#f59e0b', '#84cc16', '#06b6d4', '#6366f1', '#a78bfa', '#fb7185'];
+const PLAYER_COLORS = [
+  '#111827', '#ef4444', '#f59e0b', '#84cc16', '#06b6d4', '#6366f1', '#a78bfa', '#fb7185'
+];
 
 export function initGameClient() {
-  const landingScreen = document.getElementById('landing-screen');
-  const mainWorkspace = document.getElementById('main-workspace');
-  const landingForm = document.getElementById('landing-form');
-  const nicknameInput = document.getElementById('nickname-input');
-  const roomCodeInput = document.getElementById('room-code-input');
-  const createBtn = document.getElementById('create-btn');
-  const chatMessages = document.getElementById('chat-messages');
-  const chatInput = document.getElementById('chat-input');
-  const colorGrids = document.querySelectorAll('.color-grid');
-  const setupOverlay = document.getElementById('setup-overlay');
-  const overlayContinueBtn = document.getElementById('overlay-continue-btn');
-  const boardPanel = document.querySelector('.board-panel');
-  const boardImage = document.getElementById('board-image');
-  const playerList = document.getElementById('player-list');
-  const activityList = document.getElementById('activity-list');
-  const activityLog = document.getElementById('activity-log');
-  const roomCodeBlock = document.getElementById('room-code');
-  const roomCodeValue = document.getElementById('room-code-value');
-  const copyRoomBtn = document.getElementById('copy-room-btn');
-  const turnBanner = document.getElementById('turn-banner');
-  const purchaseModal = document.getElementById('purchase-modal');
-  const purchaseName = document.getElementById('purchase-property-name');
-  const purchaseCost = document.getElementById('purchase-property-cost');
-  const purchaseConfirmBtn = document.getElementById('purchase-confirm-btn');
-  const purchaseDeclineBtn = document.getElementById('purchase-decline-btn');
-  const startGameBtn = document.getElementById('start-game-btn');
-  const centerStartBtn = document.getElementById('center-start-btn');
-  const startGameOverlay = document.getElementById('start-game-overlay');
-  const rollDiceBtn = document.getElementById('roll-dice-btn');
-  const buyPropertyBtn = document.getElementById('buy-property-btn');
-  const auctionPropertyBtn = document.getElementById('auction-property-btn');
-  const endTurnBtn = document.getElementById('end-turn-btn');
-  const turnActions = document.getElementById('turn-actions');
-  const propertyActions = document.getElementById('property-actions');
+  const elements = {
+    landingScreen: document.getElementById('landing-screen'),
+    mainWorkspace: document.getElementById('main-workspace'),
+    landingForm: document.getElementById('landing-form'),
+    nicknameInput: document.getElementById('nickname-input'),
+    roomCodeInput: document.getElementById('room-code-input'),
+    createBtn: document.getElementById('create-btn'),
+    chatMessages: document.getElementById('chat-messages'),
+    chatInput: document.getElementById('chat-input'),
+    colorGrids: document.querySelectorAll('.color-grid'),
+    setupOverlay: document.getElementById('setup-overlay'),
+    overlayContinueBtn: document.getElementById('overlay-continue-btn'),
+    boardPanel: document.querySelector('.board-panel'),
+    boardImage: document.getElementById('board-image'),
+    playerList: document.getElementById('player-list'),
+    activityList: document.getElementById('activity-list'),
+    activityLog: document.getElementById('activity-log'),
+    roomCodeBlock: document.getElementById('room-code'),
+    roomCodeValue: document.getElementById('room-code-value'),
+    copyRoomBtn: document.getElementById('copy-room-btn'),
+    turnBanner: document.getElementById('turn-banner'),
+    purchaseModal: document.getElementById('purchase-modal'),
+    purchaseName: document.getElementById('purchase-property-name'),
+    purchaseCost: document.getElementById('purchase-property-cost'),
+    purchaseConfirmBtn: document.getElementById('purchase-confirm-btn'),
+    purchaseDeclineBtn: document.getElementById('purchase-decline-btn'),
+    auctionModal: document.getElementById('auction-modal'),
+    auctionPropertyName: document.getElementById('auction-property-name'),
+    auctionCurrentBid: document.getElementById('auction-current-bid'),
+    auctionBidInput: document.getElementById('auction-bid-input'),
+    auctionBidBtn: document.getElementById('auction-bid-btn'),
+    startGameBtn: document.getElementById('start-game-btn'),
+    centerStartBtn: document.getElementById('center-start-btn'),
+    startGameOverlay: document.getElementById('start-game-overlay'),
+    rollDiceBtn: document.getElementById('roll-dice-btn'),
+    endTurnBtn: document.getElementById('end-turn-btn'),
+    turnActions: document.getElementById('turn-actions')
+  };
 
-  const settingsInputs = Array.from(document.querySelectorAll('.setting-toggle input, .custom-select[data-setting]'));
+  const required = [
+    'landingScreen', 'mainWorkspace', 'landingForm', 'nicknameInput', 'roomCodeInput',
+    'chatMessages', 'chatInput', 'boardPanel', 'boardImage', 'playerList', 'turnBanner',
+    'rollDiceBtn', 'endTurnBtn', 'turnActions'
+  ];
 
-  let selectedColor = colors[5];
+  for (const key of required) {
+    if (!elements[key]) {
+      console.error(`Missing required UI element: ${key}`);
+      return () => {};
+    }
+  }
+
+  const settingsInputs = Array.from(
+    document.querySelectorAll('.setting-toggle input, .custom-select[data-setting]')
+  );
+
+  let selectedColor = PLAYER_COLORS[5];
   let currentPurchase = null;
-  const localState = { room: null, game: null, clientId: null, isHost: false, currentPlayerIsMe: false };
+  const localState = {
+    room: null,
+    game: null,
+    clientId: null,
+    isHost: false,
+    currentPlayerIsMe: false
+  };
   const gameState = { started: false, currentPlayerId: null };
 
   const socket = io();
+  const disposers = [];
+
+  function on(target, event, handler, options) {
+    target.addEventListener(event, handler, options);
+    disposers.push(() => target.removeEventListener(event, handler, options));
+  }
 
   function getClientId() {
     const existing = localStorage.getItem('poorup-client-id');
@@ -64,7 +100,10 @@ export function initGameClient() {
   }
 
   function escapeHtml(text) {
-    return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   function emit(event, payload = {}, callback) {
@@ -77,48 +116,48 @@ export function initGameClient() {
     const line = document.createElement('div');
     line.className = 'chat-line';
     line.textContent = who ? `${who}: ${text}` : text;
-    chatMessages.appendChild(line);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    elements.chatMessages.appendChild(line);
+    elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
   }
 
   function appendActivity(text) {
+    if (!elements.activityList || !elements.activityLog) return;
     const line = document.createElement('div');
     line.className = 'activity-line';
     line.textContent = text;
-    activityList.prepend(line);
-    if (activityList.childElementCount > 20) {
-      activityList.removeChild(activityList.lastElementChild);
+    elements.activityList.prepend(line);
+    if (elements.activityList.childElementCount > 20) {
+      elements.activityList.removeChild(elements.activityList.lastElementChild);
     }
-    if (activityLog.classList.contains('hidden')) {
-      activityLog.classList.remove('hidden');
-    }
+    elements.activityLog.classList.remove('hidden');
   }
 
   function showOverlay() {
-    setupOverlay.classList.remove('hidden');
-    boardPanel.classList.add('blurred');
+    elements.setupOverlay?.classList.remove('hidden');
+    elements.boardPanel.classList.add('blurred');
   }
 
   function hideOverlay() {
-    setupOverlay.classList.add('hidden');
-    boardPanel.classList.remove('blurred');
+    elements.setupOverlay?.classList.add('hidden');
+    elements.boardPanel.classList.remove('blurred');
   }
 
   function setRoomCode(code) {
+    if (!elements.roomCodeBlock || !elements.roomCodeValue) return;
     if (!code) {
-      roomCodeBlock.classList.add('hidden');
+      elements.roomCodeBlock.classList.add('hidden');
       return;
     }
-    roomCodeValue.textContent = code;
-    roomCodeBlock.classList.remove('hidden');
+    elements.roomCodeValue.textContent = code;
+    elements.roomCodeBlock.classList.remove('hidden');
   }
 
   function showModal(modal) {
-    modal.classList.remove('hidden');
+    modal?.classList.remove('hidden');
   }
 
   function hideModal(modal) {
-    modal.classList.add('hidden');
+    modal?.classList.add('hidden');
   }
 
   function getPlayerColor(player) {
@@ -126,14 +165,14 @@ export function initGameClient() {
   }
 
   function setPlayerList(players, currentPlayerId, turnOrder) {
-    playerList.innerHTML = '';
+    elements.playerList.innerHTML = '';
     if (!players.length) {
-      playerList.textContent = 'No players yet';
+      elements.playerList.textContent = 'No players yet';
       return;
     }
 
-    let orderedPlayers = [...players];
-    if (turnOrder && turnOrder.length > 0) {
+    const orderedPlayers = [...players];
+    if (turnOrder?.length) {
       orderedPlayers.sort((a, b) => {
         const aIndex = turnOrder.indexOf(a.id);
         const bIndex = turnOrder.indexOf(b.id);
@@ -147,64 +186,65 @@ export function initGameClient() {
       const card = document.createElement('div');
       card.className = `player-card${player.id === currentPlayerId ? ' active' : ''}`;
       const avatarColor = getPlayerColor(player);
+      const status = player.bankrupt ? 'Bankrupt' : player.disconnected ? 'Away' : 'Ready';
       card.innerHTML = `
         <div class="player-avatar" style="background:${avatarColor}"></div>
         <div class="player-info">
           <div class="player-name">${escapeHtml(player.nickname)}${player.isHost ? ' • Host' : ''}</div>
-          <div class="player-meta">$${player.cash} • ${player.bankrupt ? 'Bankrupt' : player.disconnected ? 'Away' : 'Ready'}</div>
+          <div class="player-meta">$${player.cash} • ${status}</div>
         </div>
       `;
-      playerList.appendChild(card);
+      elements.playerList.appendChild(card);
     });
   }
 
   function updateTurnButtons() {
-    if (!gameState.started) {
-      rollDiceBtn.classList.add('hidden');
-      buyPropertyBtn.classList.add('hidden');
-      auctionPropertyBtn.classList.add('hidden');
-      endTurnBtn.classList.add('hidden');
+    if (!gameState.started || !localState.currentPlayerIsMe) {
+      elements.rollDiceBtn.classList.add('hidden');
+      elements.endTurnBtn.classList.add('hidden');
+      elements.turnActions.classList.add('hidden');
       return;
     }
 
-    if (localState.currentPlayerIsMe) {
-      rollDiceBtn.classList.remove('hidden');
-      turnActions.classList.remove('hidden');
-    } else {
-      rollDiceBtn.classList.add('hidden');
-      buyPropertyBtn.classList.add('hidden');
-      auctionPropertyBtn.classList.add('hidden');
-      endTurnBtn.classList.add('hidden');
-      turnActions.classList.add('hidden');
-      propertyActions.classList.add('hidden');
-    }
+    elements.rollDiceBtn.classList.remove('hidden');
+    elements.endTurnBtn.classList.remove('hidden');
+    elements.turnActions.classList.remove('hidden');
   }
 
   function setTurnBanner(game) {
-    if (!game || !game.started) {
-      turnBanner.textContent = 'Waiting for the game to start.';
-      rollDiceBtn.classList.add('hidden');
-      buyPropertyBtn.classList.add('hidden');
-      auctionPropertyBtn.classList.add('hidden');
-      endTurnBtn.classList.add('hidden');
+    if (!game?.started) {
+      elements.turnBanner.textContent = 'Waiting for the game to start.';
+      elements.rollDiceBtn.classList.add('hidden');
+      elements.endTurnBtn.classList.add('hidden');
+      elements.turnActions.classList.add('hidden');
       return;
     }
+
     const current = game.players.find(player => player.id === game.currentPlayerId);
-    turnBanner.textContent = current ? `${current.nickname}'s turn` : 'Waiting for next turn';
+    elements.turnBanner.textContent = current
+      ? `${current.nickname}'s turn`
+      : 'Waiting for next turn';
+
     const localPlayer = game.players.find(player => player.clientId === localState.clientId);
-    localState.currentPlayerIsMe = !!(current && localPlayer && current.id === localPlayer.id);
+    localState.currentPlayerIsMe = Boolean(
+      current && localPlayer && current.id === localPlayer.id
+    );
     updateTurnButtons();
   }
 
   function setTokens(players) {
     const tokenLayer = document.getElementById('token-layer');
+    if (!tokenLayer) return;
+
     tokenLayer.innerHTML = '';
     const positions = {};
+
     players.forEach(player => {
       positions[player.position] = positions[player.position] || [];
       positions[player.position].push(player);
     });
-    Object.entries(positions).forEach(([, playersOnTile]) => {
+
+    Object.values(positions).forEach(playersOnTile => {
       playersOnTile.forEach((player, index) => {
         const position = BOARD_POSITIONS[player.position % BOARD_POSITIONS.length] || { left: 50, top: 50 };
         const token = document.createElement('div');
@@ -223,46 +263,66 @@ export function initGameClient() {
   function renderSettings(settings, isHost) {
     if (!settings) return;
 
-    const toggleInputs = Array.from(document.querySelectorAll('.setting-toggle input'));
-    const selectElements = Array.from(document.querySelectorAll('.custom-select[data-setting]'));
-    const allInputs = [...toggleInputs, ...selectElements];
-
-    allInputs.forEach(input => {
+    document.querySelectorAll('.setting-toggle input, .custom-select[data-setting]').forEach(input => {
       const key = input.dataset.setting;
       if (!key) return;
       if (input.type === 'checkbox') {
         input.checked = Boolean(settings[key]);
       } else if (input.tagName === 'SELECT') {
-        input.value = settings[key];
+        input.value = String(settings[key]);
       }
       input.disabled = !isHost;
     });
   }
 
+  function renderAuction(auction, game) {
+    if (!elements.auctionModal) return;
+
+    if (!auction?.active) {
+      hideModal(elements.auctionModal);
+      return;
+    }
+
+    const localPlayer = game?.players?.find(player => player.clientId === localState.clientId);
+    const canBid = Boolean(localPlayer && !localPlayer.bankrupt && !localPlayer.disconnected);
+
+    elements.auctionPropertyName.textContent = auction.tileName || 'Property';
+    elements.auctionCurrentBid.textContent = `Current bid: $${auction.highestBid || 0}`;
+    elements.auctionBidInput.min = String((auction.highestBid || 0) + 1);
+    elements.auctionBidInput.value = String((auction.highestBid || 0) + 1);
+    elements.auctionBidInput.disabled = !canBid;
+    elements.auctionBidBtn.disabled = !canBid;
+    showModal(elements.auctionModal);
+  }
+
   function renderGameState(state) {
     if (!state) return;
+
     gameState.started = state.game.started;
     gameState.currentPlayerId = state.game.currentPlayerId;
 
     setPlayerList(state.room.players, state.game.currentPlayerId, state.game.turnOrder);
     setTurnBanner(state.game);
     setTokens(state.game.players);
+    renderAuction(state.game.auction, state.game);
 
     if (state.room.started) {
-      startGameBtn.classList.add('hidden');
-      startGameOverlay.classList.add('hidden');
+      elements.startGameBtn?.classList.add('hidden');
+      elements.startGameOverlay?.classList.add('hidden');
     } else if (localState.isHost) {
-      startGameBtn.classList.remove('hidden');
-      startGameOverlay.classList.remove('hidden');
+      elements.startGameBtn?.classList.remove('hidden');
+      elements.startGameOverlay?.classList.remove('hidden');
     } else {
-      startGameBtn.classList.add('hidden');
-      startGameOverlay.classList.add('hidden');
+      elements.startGameBtn?.classList.add('hidden');
+      elements.startGameOverlay?.classList.add('hidden');
     }
+
     syncPanelHeights();
   }
 
   function renderRoomState(state) {
-    if (!state) return;
+    if (!state?.room || !state?.game) return;
+
     localState.room = state.room;
     localState.game = state.game;
 
@@ -270,9 +330,11 @@ export function initGameClient() {
       localState.clientId = getClientId();
     }
 
-    const currentPlayer = state.room.players.find(p => p.clientId === localState.clientId);
-    localState.isHost = (currentPlayer?.isHost === true) ||
-      (currentPlayer && state.room.hostId && currentPlayer.id === state.room.hostId);
+    const currentPlayer = state.room.players.find(player => player.clientId === localState.clientId);
+    localState.isHost = Boolean(
+      currentPlayer?.isHost ||
+      (currentPlayer && state.room.hostId && currentPlayer.id === state.room.hostId)
+    );
 
     setRoomCode(state.room.roomCode);
     renderSettings(state.room.settings, localState.isHost);
@@ -280,11 +342,12 @@ export function initGameClient() {
   }
 
   function syncPanelHeights() {
-    const height = boardImage?.getBoundingClientRect()?.height;
+    const height = elements.boardImage.getBoundingClientRect().height;
     if (!height || height < 100) {
       setTimeout(syncPanelHeights, 50);
       return;
     }
+
     const chatPanel = document.querySelector('.chat-panel');
     const propsPanel = document.querySelector('.properties-panel');
     if (chatPanel) chatPanel.style.height = `${height}px`;
@@ -293,30 +356,33 @@ export function initGameClient() {
 
   function openPurchaseModal(data) {
     currentPurchase = data;
-    purchaseName.textContent = data.name;
-    purchaseCost.textContent = `Cost: $${data.price}`;
-    showModal(purchaseModal);
+    if (!elements.purchaseModal) return;
+    elements.purchaseName.textContent = data.name;
+    elements.purchaseCost.textContent = `Cost: $${data.price}`;
+    showModal(elements.purchaseModal);
   }
 
   function closePurchaseModal() {
     currentPurchase = null;
-    hideModal(purchaseModal);
+    hideModal(elements.purchaseModal);
   }
 
   function joinRoom() {
-    const nickname = nicknameInput.value.trim();
-    const roomCode = roomCodeInput.value.trim();
+    const nickname = elements.nicknameInput.value.trim();
+    const roomCode = elements.roomCodeInput.value.trim().toUpperCase();
+
     if (!nickname) {
-      nicknameInput.focus();
+      elements.nicknameInput.focus();
       return;
     }
     if (!roomCode) {
       appendChat('Please enter a room code to join.', 'System');
       return;
     }
+
     emit('join-room', { nickname, color: selectedColor, roomCode }, response => {
-      if (!response.success) {
-        appendChat(response.error || 'Unable to join room.', 'System');
+      if (!response?.success) {
+        appendChat(response?.error || 'Unable to join room.', 'System');
         return;
       }
       showLobbyScreen();
@@ -325,10 +391,10 @@ export function initGameClient() {
   }
 
   function createRoom() {
-    const nickname = nicknameInput.value.trim() || 'Host';
+    const nickname = elements.nicknameInput.value.trim() || 'Host';
     emit('create-room', { nickname, color: selectedColor }, response => {
-      if (!response.success) {
-        appendChat(response.error || 'Unable to create room.', 'System');
+      if (!response?.success) {
+        appendChat(response?.error || 'Unable to create room.', 'System');
         return;
       }
       showLobbyScreen();
@@ -337,17 +403,41 @@ export function initGameClient() {
   }
 
   function showLobbyScreen() {
-    landingScreen.classList.add('hidden');
-    mainWorkspace.classList.remove('hidden');
+    elements.landingScreen.classList.add('hidden');
+    elements.mainWorkspace.classList.remove('hidden');
     showOverlay();
     appendChat('entered the room.', 'System');
   }
 
   function renderColors() {
-    colorGrids.forEach(grid => {
+    elements.colorGrids.forEach(grid => {
       grid.querySelectorAll('button').forEach(button => {
         button.classList.toggle('active', button.style.background === selectedColor);
       });
+    });
+  }
+
+  function placeAuctionBid() {
+    if (!elements.auctionBidInput) return;
+    const amount = Number(elements.auctionBidInput.value);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      appendChat('Enter a valid bid amount.', 'System');
+      return;
+    }
+
+    emit('auction-bid', { amount }, response => {
+      if (!response?.success) {
+        appendChat(response?.error || 'Could not place bid.', 'System');
+      }
+    });
+  }
+
+  function startGame() {
+    if (!localState.isHost) return;
+    emit('start-game', {}, response => {
+      if (!response?.success) {
+        appendChat(response?.error || 'Could not start game.', 'System');
+      }
     });
   }
 
@@ -367,165 +457,153 @@ export function initGameClient() {
     appendChat(text, 'System');
   });
 
-  socket.on('purchase-offer', data => {
-    openPurchaseModal(data);
-  });
+  socket.on('purchase-offer', openPurchaseModal);
 
-  landingForm.addEventListener('submit', event => {
+  on(elements.landingForm, 'submit', event => {
     event.preventDefault();
     joinRoom();
   });
 
-  createBtn?.addEventListener('click', createRoom);
+  if (elements.createBtn) {
+    on(elements.createBtn, 'click', createRoom);
+  }
 
-  chatInput.addEventListener('keydown', event => {
+  on(elements.chatInput, 'keydown', event => {
     if (event.key !== 'Enter') return;
-    const text = chatInput.value.trim();
+    const text = elements.chatInput.value.trim();
     if (!text) return;
     appendChat(text, 'You');
     emit('send-chat', { text }, () => {});
-    chatInput.value = '';
+    elements.chatInput.value = '';
   });
 
-  overlayContinueBtn.addEventListener('click', () => {
-    hideOverlay();
-    chatInput.focus();
-  });
+  if (elements.overlayContinueBtn) {
+    on(elements.overlayContinueBtn, 'click', () => {
+      hideOverlay();
+      elements.chatInput.focus();
+    });
+  }
 
-  colorGrids.forEach(grid => {
+  elements.colorGrids.forEach(grid => {
     grid.innerHTML = '';
-    colors.forEach(color => {
+    PLAYER_COLORS.forEach(color => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'color-circle';
       button.style.background = color;
-      button.addEventListener('click', () => {
+      button.setAttribute('aria-label', `Select color ${color}`);
+      on(button, 'click', () => {
         selectedColor = color;
         renderColors();
       });
-      if (selectedColor === color) {
-        button.classList.add('active');
-      }
+      if (selectedColor === color) button.classList.add('active');
       grid.appendChild(button);
     });
   });
 
   renderColors();
 
-  copyRoomBtn.addEventListener('click', () => {
-    const text = roomCodeValue.textContent;
-    if (navigator.clipboard && text) {
-      navigator.clipboard.writeText(text);
-    }
-  });
-
-  centerStartBtn.addEventListener('click', () => {
-    if (localState.isHost) {
-      emit('start-game', {}, response => {
-        if (!response.success) {
-          appendChat(response.error || 'Could not start game.', 'System');
-        }
-      });
-    }
-  });
-
-  startGameBtn.addEventListener('click', () => {
-    if (localState.isHost) {
-      emit('start-game', {}, response => {
-        if (!response.success) {
-          appendChat(response.error || 'Could not start game.', 'System');
-        }
-      });
-    }
-  });
-
-  rollDiceBtn.addEventListener('click', () => {
-    if (localState.currentPlayerIsMe) {
-      emit('roll-dice', {}, response => {
-        if (!response.success) {
-          appendChat(response.error || 'Unable to roll.', 'System');
-        }
-      });
-    }
-  });
-
-  buyPropertyBtn.addEventListener('click', () => {
-    if (!currentPurchase || !localState.currentPlayerIsMe) return;
-    emit('purchase-property', { tileIndex: currentPurchase.tileIndex }, response => {
-      if (!response.success) {
-        appendChat(response.error || 'Could not complete purchase.', 'System');
+  if (elements.copyRoomBtn) {
+    on(elements.copyRoomBtn, 'click', () => {
+      const text = elements.roomCodeValue?.textContent;
+      if (navigator.clipboard && text) {
+        navigator.clipboard.writeText(text);
       }
-      closePurchaseModal();
+    });
+  }
+
+  if (elements.centerStartBtn) on(elements.centerStartBtn, 'click', startGame);
+  if (elements.startGameBtn) on(elements.startGameBtn, 'click', startGame);
+
+  on(elements.rollDiceBtn, 'click', () => {
+    if (!localState.currentPlayerIsMe) return;
+    emit('roll-dice', {}, response => {
+      if (!response?.success) {
+        appendChat(response?.error || 'Unable to roll.', 'System');
+      }
     });
   });
 
-  auctionPropertyBtn.addEventListener('click', () => {
-    if (!currentPurchase || !localState.currentPlayerIsMe) return;
-    emit('decline-property', { tileIndex: currentPurchase.tileIndex }, response => {
-      if (!response.success) {
-        appendChat(response.error || 'Could not start auction.', 'System');
+  on(elements.endTurnBtn, 'click', () => {
+    if (!localState.currentPlayerIsMe) return;
+    emit('end-turn', {}, response => {
+      if (!response?.success) {
+        appendChat(response?.error || 'Could not end turn.', 'System');
       }
-      closePurchaseModal();
     });
   });
 
-  purchaseConfirmBtn.addEventListener('click', () => {
-    if (!currentPurchase) return;
-    emit('purchase-property', { tileIndex: currentPurchase.tileIndex }, response => {
-      if (!response.success) {
-        appendChat(response.error || 'Could not complete purchase.', 'System');
-      }
-      closePurchaseModal();
-    });
-  });
-
-  purchaseDeclineBtn.addEventListener('click', () => {
-    if (!currentPurchase) return;
-    emit('decline-property', { tileIndex: currentPurchase.tileIndex }, response => {
-      if (!response.success) {
-        appendChat(response.error || 'Could not decline property.', 'System');
-      }
-      closePurchaseModal();
-    });
-  });
-
-  endTurnBtn.addEventListener('click', () => {
-    if (localState.currentPlayerIsMe) {
-      emit('end-turn', {}, response => {
-        if (!response.success) {
-          appendChat(response.error || 'Could not end turn.', 'System');
+  if (elements.purchaseConfirmBtn) {
+    on(elements.purchaseConfirmBtn, 'click', () => {
+      if (!currentPurchase) return;
+      emit('purchase-property', { tileIndex: currentPurchase.tileIndex }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not complete purchase.', 'System');
         }
+        closePurchaseModal();
       });
-    }
-  });
+    });
+  }
+
+  if (elements.purchaseDeclineBtn) {
+    on(elements.purchaseDeclineBtn, 'click', () => {
+      if (!currentPurchase) return;
+      emit('decline-property', { tileIndex: currentPurchase.tileIndex }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not decline property.', 'System');
+        }
+        closePurchaseModal();
+      });
+    });
+  }
+
+  if (elements.auctionBidBtn) {
+    on(elements.auctionBidBtn, 'click', placeAuctionBid);
+  }
+
+  if (elements.auctionBidInput) {
+    on(elements.auctionBidInput, 'keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        placeAuctionBid();
+      }
+    });
+  }
 
   settingsInputs.forEach(input => {
-    input.addEventListener('change', () => {
+    on(input, 'change', () => {
       if (!localState.isHost) return;
       const key = input.dataset.setting;
       if (!key) return;
       const value = input.type === 'checkbox' ? input.checked : input.value;
       emit('set-setting', { key, value }, response => {
-        if (!response.success) {
-          appendChat(response.error || 'Unable to update setting.', 'System');
+        if (!response?.success) {
+          appendChat(response?.error || 'Unable to update setting.', 'System');
         }
       });
     });
   });
 
-  boardImage.addEventListener('load', syncPanelHeights);
-  if (boardImage.complete) {
+  on(elements.boardImage, 'load', syncPanelHeights);
+  if (elements.boardImage.complete) {
     setTimeout(syncPanelHeights, 100);
   }
 
-  window.addEventListener('resize', () => {
+  const onResize = () => {
     clearTimeout(window.syncPanelTimeout);
     window.syncPanelTimeout = setTimeout(syncPanelHeights, 100);
-  });
+  };
+  on(window, 'resize', onResize);
 
-  chatInput?.focus();
+  elements.chatInput.focus();
 
   return () => {
+    disposers.forEach(dispose => dispose());
+    socket.off('connect');
+    socket.off('update-state');
+    socket.off('chat-message');
+    socket.off('system-message');
+    socket.off('purchase-offer');
     socket.disconnect();
   };
 }

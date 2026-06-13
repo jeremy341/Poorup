@@ -79,10 +79,6 @@ onUnmounted(() => {
           </div>
           <div id="turn-actions" class="turn-actions hidden">
             <button id="roll-dice-btn" class="btn btn-primary" type="button">Roll Dice</button>
-          </div>
-          <div id="property-actions" class="property-actions hidden">
-            <button id="buy-property-btn" class="btn btn-primary" type="button">Buy Property</button>
-            <button id="auction-property-btn" class="btn btn-secondary" type="button">Auction</button>
             <button id="end-turn-btn" class="btn btn-muted" type="button">End Turn</button>
           </div>
         </div>
@@ -207,6 +203,23 @@ onUnmounted(() => {
       <div class="modal-actions">
         <button id="purchase-confirm-btn" class="btn" type="button">Buy</button>
         <button id="purchase-decline-btn" class="btn btn-muted" type="button">Decline</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="auction-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-title">Property auction</div>
+      <div class="modal-body">
+        <p id="auction-property-name">Property</p>
+        <p id="auction-current-bid">Current bid: $0</p>
+        <label class="auction-bid-field" for="auction-bid-input">
+          Your bid
+          <input id="auction-bid-input" type="number" min="1" step="1" />
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="auction-bid-btn" class="btn" type="button">Place Bid</button>
       </div>
     </div>
   </div>
