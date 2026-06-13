@@ -1,89 +1,179 @@
-const express = require("express");
-const path = require("path");
-const http = require("http");
-const { Server } = require("socket.io");
-let activePlayers = {};
+const express = require('express');
+const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
+const { RoomManager } = require('./gameLogic');
 
-
-
-// Express App
 const app = express();
-const PORT = 3005;
-
-// HTTP Server um Express wrappen
 const server = http.createServer(app);
-
-// Socket.io auf denselben Server
-const io = new Server(server);
-
-// statische Dateien
-app.use(express.static(path.join(__dirname, "../public")));
-
-// Socket Verbindung
-io.on("connection", (socket) => {
-
-    socket.on("join-game", (name) => {
-        console.log(`Spieler ${name} game-joined!`);
-
-        activePlayers[socket.id] = { name: name, color: "red" };
-
-        socket.emit("welcome-message", name);
-        io.emit(
-            "update-players",
-            Object.entries(activePlayers).map(([id, player]) => ({
-                id,
-                ...player,
-            }))
-        );
-    });
-
-
-    socket.on("join-room", (color) => {
-        console.log(`Spieler ${socket.id} joined room with color ${color}`);
-
-        if (activePlayers[socket.id]) {
-            activePlayers[socket.id].color = color;
-        }
-
-        io.emit(
-            "update-players",
-            Object.entries(activePlayers).map(([id, player]) => ({
-                id,
-                ...player,
-            }))
-        );
-    });
-
-    socket.on("select-color", (color) => {
-        console.log(`Ein Spieler hat die Farbe ${color} gewählt!`);
-    });
-
-    socket.on("disconnect", () => {
-        console.log(`Spieler ${socket.id} hat die Verbindung getrennt.`);
-
-        delete activePlayers[socket.id];
-        io.emit(
-            "update-players",
-            Object.entries(activePlayers).map(([id, player]) => ({
-                id,
-                ...player,
-            }))
-        );
-    });
-    socket.on("send-message", (messageText) => {
-        const sender = activePlayers[socket.id];
-        if (sender) {
-            io.emit("receive-message", {
-                name: sender.name,
-                color: sender.color,
-                message: messageText
-            });
-        }
-    });
+const io = new Server(server, {
+  cors: { origin: '*' }
 });
 
+app.use(express.static(path.join(__dirname, '../public')));
+
+const roomManager = new RoomManager();
+
+function emitRoomState(room) {
+  if (!room) return;
+  io.in(room.roomCode).emit('update-state', {
+    room: room.getRoomSummary(),
+    game: room.game.getGameSummary()
+  });
+}
+
+io.on('connection', (socket) => {
+  console.log('A socket connected:', socket.id);
+
+  socket.on('restore-session', ({ clientId }) => {
+    const room = roomManager.restoreConnection(clientId, socket.id);
+    if (room) {
+      socket.join(room.roomCode);
+      emitRoomState(room);
+      socket.emit('system-message', { text: 'Reconnected to your room.' });
+    }
+  });
+
+  socket.on('create-room', (payload, callback) => {
+    const { nickname, color, clientId } = payload || {};
+    if (!nickname) {
+      return callback?.({ success: false, error: 'Nickname is required.' });
+    }
+    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color });
+    socket.join(room.roomCode);
+    emitRoomState(room);
+    socket.emit('system-message', { text: 'Room created. Waiting for players...' });
+    callback?.({ success: true, roomCode: room.roomCode });
+  });
+
+  socket.on('join-room', (payload, callback) => {
+    const { roomCode, nickname, color, clientId } = payload || {};
+    if (!roomCode) {
+      return callback?.({ success: false, error: 'Room code is required.' });
+    }
+    if (!nickname) {
+      return callback?.({ success: false, error: 'Nickname is required.' });
+    }
+    const room = roomManager.getRoom(roomCode);
+    if (!room) {
+      return callback?.({ success: false, error: 'Room not found.' });
+    }
+    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color });
+    if (!result.success) {
+      return callback?.({ success: false, error: result.error });
+    }
+    socket.join(room.roomCode);
+    emitRoomState(room);
+    io.in(room.roomCode).emit('system-message', { text: `${nickname} joined the room.` });
+    callback?.({ success: true, roomCode: room.roomCode });
+  });
+
+  socket.on('set-setting', ({ key, value }, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const player = room.getPlayerBySocket(socket.id);
+    if (!player || room.hostId !== player.id) {
+      return callback?.({ success: false, error: 'Only the host can change settings.' });
+    }
+    room.setRoomSetting(key, value);
+    emitRoomState(room);
+    callback?.({ success: true });
+  });
+
+  socket.on('start-game', (_, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const player = room.getPlayerBySocket(socket.id);
+    if (!player || room.hostId !== player.id) {
+      return callback?.({ success: false, error: 'Only the host can start the game.' });
+    }
+    const result = room.startGame();
+    if (!result.success) {
+      return callback?.({ success: false, error: result.error });
+    }
+    emitRoomState(room);
+    io.in(room.roomCode).emit('system-message', { text: 'The game has started.' });
+    callback?.({ success: true });
+  });
+
+  socket.on('roll-dice', (_, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.rollDice(socket.id);
+    emitRoomState(room);
+    if (result?.purchaseOffer) {
+      socket.emit('purchase-offer', result.purchaseOffer);
+    }
+    if (result?.auctionStarted) {
+      io.in(room.roomCode).emit('system-message', { text: 'Auction started for the declined property.' });
+    }
+    if (result?.message) {
+      io.in(room.roomCode).emit('system-message', { text: result.message });
+    }
+    callback?.({ success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('purchase-property', ({ tileIndex }, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.purchaseProperty(socket.id, tileIndex);
+    emitRoomState(room);
+    if (result?.message) {
+      io.in(room.roomCode).emit('system-message', { text: result.message });
+    }
+    callback?.({ success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('decline-property', ({ tileIndex }, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.declineProperty(socket.id, tileIndex);
+    emitRoomState(room);
+    if (result?.message) {
+      io.in(room.roomCode).emit('system-message', { text: result.message });
+    }
+    callback?.({ success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('auction-bid', ({ amount }, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.placeAuctionBid(socket.id, amount);
+    emitRoomState(room);
+    if (result?.message) {
+      io.in(room.roomCode).emit('system-message', { text: result.message });
+    }
+    callback?.({ success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('end-turn', (_, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.endTurn(socket.id);
+    emitRoomState(room);
+    callback?.({ success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('send-chat', ({ text }, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const player = room.getPlayerBySocket(socket.id);
+    io.in(room.roomCode).emit('chat-message', { text, nickname: player?.nickname || 'Guest' });
+    callback?.({ success: true });
+  });
+
+  socket.on('disconnect', () => {
+    const room = roomManager.disconnectPlayer(socket.id);
+    if (room) {
+      emitRoomState(room);
+      io.in(room.roomCode).emit('system-message', { text: 'A player disconnected. Their turn will be skipped if needed.' });
+    }
+    console.log('Socket disconnected:', socket.id);
+  });
+});
+
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-    console.log(`Server läuft auf http://localhost:${PORT}`);
+  console.log('✅ Server is running!');
+  console.log('👉 Visit http://localhost:' + PORT);
 });
-
-
