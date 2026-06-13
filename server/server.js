@@ -10,7 +10,14 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-app.use(express.static(path.join(__dirname, '../public')));
+const frontendDist = path.join(__dirname, '../frontend/dist');
+app.use(express.static(frontendDist));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/socket.io')) return next();
+  res.sendFile(path.join(frontendDist, 'index.html'), err => {
+    if (err) next(err);
+  });
+});
 
 const roomManager = new RoomManager();
 
