@@ -27,8 +27,14 @@ body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  overflow: auto
+  overflow: auto;
 }
+
+#app {
+  min-height: 100vh;
+  width: 100%;
+}
+
 
 .hidden {
   display: none !important
@@ -127,14 +133,20 @@ select {
 
 .topbar {
   height: 56px;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  background: transparent
+  background: transparent;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10
 }
 
 .topbar .brand.small {
+  padding-top: 40%;
   font-weight: 700;
   font-size: 18px
 }
@@ -158,16 +170,21 @@ select {
 
 .workspace {
   position: relative;
-  min-height: calc(100vh - 56px)
+  min-height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center
 }
 
 .layout {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(520px, 720px) minmax(280px, 1fr);
   gap: 18px;
-  padding: 18px 20px;
+  padding: 18px 24px;
   align-items: start;
   max-width: 1400px;
+  width: 100%;
   margin: 0 auto
 }
 
@@ -191,11 +208,7 @@ select {
   height: 12px
 }
 
-.panel-actions {
-  padding: 18px 20px;
-  display: flex;
-  justify-content: flex-end
-}
+
 
 .setup-overlay {
   position: absolute;
@@ -260,7 +273,16 @@ select {
   flex: 1;
   color: var(--text);
   font-size: 14px;
-  line-height: 1.6
+  line-height: 1.6;
+}
+
+.chat-line {
+  padding: 4px 0;
+  word-break: break-word;
+}
+
+.chat-line+.chat-line {
+  border-top: 1px solid rgba(230, 216, 200, 0.6);
 }
 
 .chat-input {
@@ -325,7 +347,12 @@ select {
   border: none;
   padding: 0;
   position: relative;
-  overflow: visible
+  overflow: visible;
+  transition: filter 0.2s ease;
+}
+
+.board-panel.blurred {
+  filter: blur(4px);
 }
 
 .board-content {
@@ -366,45 +393,7 @@ select {
   z-index: 10;
 }
 
-.activity-log {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  width: 260px;
-  max-height: 260px;
-  padding: 14px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 18px;
-  overflow: auto;
-  box-shadow: 0 20px 50px rgba(34, 28, 20, 0.12)
-}
 
-.activity-header {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--text);
-  margin-bottom: 10px;
-  letter-spacing: .05em
-}
-
-.activity-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #40372d
-}
-
-.activity-line {
-  padding: 8px 0;
-  border-bottom: 1px solid #e6d8c8
-}
-
-.activity-line:last-child {
-  border-bottom: none
-}
 
 .start-game-overlay {
   position: absolute;
@@ -428,16 +417,6 @@ select {
   transform: translateX(-50%);
   display: flex;
   gap: 10px;
-  z-index: 5
-}
-
-.property-actions {
-  position: absolute;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
   z-index: 5
 }
 
@@ -474,19 +453,7 @@ select {
   filter: brightness(0.95)
 }
 
-.turn-banner {
-  position: absolute;
-  left: 18px;
-  top: 18px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 18px 40px rgba(34, 28, 20, 0.12)
-}
+
 
 .properties-panel {
   min-width: 300px;
@@ -669,7 +636,24 @@ select {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 20px
+  margin-top: 20px;
+}
+
+.auction-bid-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.auction-bid-field input {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fffaf4;
+  color: var(--text);
 }
 
 @media (max-width:1000px) {
@@ -698,12 +682,7 @@ select {
     max-width: 100%
   }
 
-  .event-feed-overlay {
-    right: 12px;
-    bottom: 12px;
-    width: 100%;
-    max-width: calc(100% - 36px)
-  }
+
 }
 
 @media (max-width:740px) {
