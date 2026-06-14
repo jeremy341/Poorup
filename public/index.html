@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Poorup — Multiplayer Board</title>
+    <link rel="stylesheet" href="/style.css" />
+    <!-- Load socket.io-client library served by socket.io server -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script defer src="/gameClient.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <div id="landing-screen" class="landing">
+        <div class="landing-card">
+          <h1 class="brand">Poorup</h1>
+          <p class="muted">Enter nickname to create or join a room.</p>
+          <form id="landing-form" class="landing-form">
+            <input id="nickname-input" type="text" placeholder="Nickname" required autocomplete="off" />
+            <input id="room-code-input" type="text" placeholder="Room code (join only)" autocomplete="off" />
+            <div class="button-row">
+              <button id="join-btn" class="btn" type="submit">Join Room</button>
+              <button id="create-btn" class="btn" type="button">Create Room</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="main-workspace" class="workspace hidden">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="brand small">Poorup</div>
+            <div id="room-code" class="room-code hidden">
+              Room: <span id="room-code-value">----</span>
+              <button id="copy-room-btn" class="btn btn-compact" type="button">Copy</button>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <button class="icon-btn" id="help-btn" type="button" aria-label="Help">?</button>
+          </div>
+        </header>
+
+        <div id="setup-overlay" class="setup-overlay hidden">
+          <div class="overlay-card">
+            <div class="overlay-title">Choose your player appearance</div>
+            <div class="overlay-subtitle">Pick a color before entering the lobby.</div>
+            <div class="overlay-color-grid color-grid"></div>
+            <button id="overlay-continue-btn" class="btn overlay-btn" type="button">Enter Lobby</button>
+          </div>
+        </div>
+
+        <main class="layout">
+          <aside class="panel left chat-panel">
+            <div class="panel-header">Players</div>
+            <div id="player-list" class="player-list">No players yet</div>
+            <div class="panel-divider"></div>
+            <div class="panel-header">Chat</div>
+            <div id="chat-messages" class="chat-messages">No messages yet</div>
+            <div class="chat-input">
+              <input id="chat-input" type="text" placeholder="Type a message" />
+            </div>
+          </aside>
+
+          <section class="panel board-panel">
+            <div class="board-content">
+              <img id="board-image" src="/assets/playingfield-beige.svg" alt="Board layout" />
+              <div id="token-layer" class="token-layer"></div>
+
+              <div id="start-game-overlay" class="start-game-overlay hidden">
+                <button id="center-start-btn" class="btn btn-large" type="button">Start Game</button>
+              </div>
+              <div id="turn-actions" class="turn-actions hidden">
+                <button id="roll-dice-btn" class="btn btn-primary" type="button">Roll Dice</button>
+                <button id="end-turn-btn" class="btn btn-muted" type="button">End Turn</button>
+              </div>
+            </div>
+          </section>
+
+          <aside class="panel right properties-panel">
+            <div class="panel-header">Game settings</div>
+
+            <div class="property-list">
+              <label class="property-row">
+                <span>Maximum players</span>
+                <select id="player-count" class="custom-select" data-setting="maxPlayers">
+                  <option value="2">2</option>
+                  <option value="4" selected>4</option>
+                  <option value="6">6</option>
+                  <option value="8">8</option>
+                </select>
+              </label>
+              <div class="divider-line"></div>
+              <label class="property-row">
+                <span>Starting cash</span>
+                <select id="starting-cash" class="custom-select" data-setting="startingCash">
+                  <option value="500">$500</option>
+                  <option value="1000">$1000</option>
+                  <option value="1500" selected>$1500</option>
+                  <option value="2000">$2000</option>
+                  <option value="2500">$2500</option>
+                  <option value="3000">$3000</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="panel-divider"></div>
+            <div class="panel-title">Game rules</div>
+            <div class="settings-list">
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Private room</div>
+                  <div class="toggle-note">Accessible using the room code only.</div>
+                </div>
+                <input id="setting-private-room" type="checkbox" data-setting="privateRoom" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Allow bots to join</div>
+                  <div class="toggle-note">Bots can join if there are available slots.</div>
+                </div>
+                <input id="setting-allow-bots" type="checkbox" data-setting="allowBots" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Vacation cash</div>
+                  <div class="toggle-note">Tax and bank payments land in Vacation until collected.</div>
+                </div>
+                <input id="setting-vacation-cash" type="checkbox" data-setting="vacationCash" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Auction</div>
+                  <div class="toggle-note">Declined properties can be sold to the highest bidder.</div>
+                </div>
+                <input id="setting-auction" type="checkbox" data-setting="auction" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Even build</div>
+                  <div class="toggle-note">House/hotel builds must remain even by set.</div>
+                </div>
+                <input id="setting-even-build" type="checkbox" data-setting="evenBuild" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Mortgage</div>
+                  <div class="toggle-note">Mortgage properties and stop rent until released.</div>
+                </div>
+                <input id="setting-mortgage" type="checkbox" data-setting="mortgage" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Randomize player order</div>
+                  <div class="toggle-note">Shuffle turn order when the game begins.</div>
+                </div>
+                <input id="setting-randomize" type="checkbox" data-setting="randomizePlayerOrder" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+
+              <label class="setting-toggle">
+                <div>
+                  <div class="toggle-title">Don't collect rent while in prison</div>
+                  <div class="toggle-note">Owners in jail do not collect rent.</div>
+                </div>
+                <input id="setting-no-rent-in-prison" type="checkbox" data-setting="noRentWhileInPrison" class="toggle-input" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </aside>
+        </main>
+      </div>
+
+      <div id="purchase-modal" class="modal hidden">
+        <div class="modal-card">
+          <div class="modal-title">Purchase property</div>
+          <div class="modal-body">
+            <p id="purchase-property-name">Property</p>
+            <p id="purchase-property-cost">Cost</p>
+            <p class="modal-note">Would you like to buy this property now or let it go to auction?</p>
+          </div>
+          <div class="modal-actions">
+            <button id="purchase-confirm-btn" class="btn" type="button">Buy</button>
+            <button id="purchase-decline-btn" class="btn btn-muted" type="button">Decline</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="auction-modal" class="modal hidden">
+        <div class="modal-card">
+          <div class="modal-title">Property auction</div>
+          <div class="modal-body">
+            <p id="auction-property-name">Property</p>
+            <p id="auction-current-bid">Current bid: $0</p>
+            <label class="auction-bid-field" for="auction-bid-input">
+              Your bid
+              <input id="auction-bid-input" type="number" min="1" step="1" />
+            </label>
+          </div>
+          <div class="modal-actions">
+            <button id="auction-bid-btn" class="btn" type="button">Place Bid</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,5 +1,3 @@
-import { io } from 'socket.io-client';
-
 const BOARD_POSITIONS = [
   { left: 90, top: 90 }, { left: 75, top: 90 }, { left: 60, top: 90 }, { left: 45, top: 90 },
   { left: 30, top: 90 }, { left: 15, top: 90 },
@@ -15,7 +13,7 @@ const PLAYER_COLORS = [
   '#111827', '#ef4444', '#f59e0b', '#84cc16', '#06b6d4', '#6366f1', '#a78bfa', '#fb7185'
 ];
 
-export function initGameClient() {
+function initGameClient() {
   const elements = {
     landingScreen: document.getElementById('landing-screen'),
     mainWorkspace: document.getElementById('main-workspace'),
@@ -31,12 +29,10 @@ export function initGameClient() {
     boardPanel: document.querySelector('.board-panel'),
     boardImage: document.getElementById('board-image'),
     playerList: document.getElementById('player-list'),
-    activityList: document.getElementById('activity-list'),
-    activityLog: document.getElementById('activity-log'),
     roomCodeBlock: document.getElementById('room-code'),
     roomCodeValue: document.getElementById('room-code-value'),
     copyRoomBtn: document.getElementById('copy-room-btn'),
-    turnBanner: document.getElementById('turn-banner'),
+    turnBanner: null,
     purchaseModal: document.getElementById('purchase-modal'),
     purchaseName: document.getElementById('purchase-property-name'),
     purchaseCost: document.getElementById('purchase-property-cost'),
@@ -47,7 +43,7 @@ export function initGameClient() {
     auctionCurrentBid: document.getElementById('auction-current-bid'),
     auctionBidInput: document.getElementById('auction-bid-input'),
     auctionBidBtn: document.getElementById('auction-bid-btn'),
-    startGameBtn: document.getElementById('start-game-btn'),
+
     centerStartBtn: document.getElementById('center-start-btn'),
     startGameOverlay: document.getElementById('start-game-overlay'),
     rollDiceBtn: document.getElementById('roll-dice-btn'),
@@ -57,7 +53,7 @@ export function initGameClient() {
 
   const required = [
     'landingScreen', 'mainWorkspace', 'landingForm', 'nicknameInput', 'roomCodeInput',
-    'chatMessages', 'chatInput', 'boardPanel', 'boardImage', 'playerList', 'turnBanner',
+    'chatMessages', 'chatInput', 'boardPanel', 'boardImage', 'playerList',
     'rollDiceBtn', 'endTurnBtn', 'turnActions'
   ];
 
@@ -121,15 +117,7 @@ export function initGameClient() {
   }
 
   function appendActivity(text) {
-    if (!elements.activityList || !elements.activityLog) return;
-    const line = document.createElement('div');
-    line.className = 'activity-line';
-    line.textContent = text;
-    elements.activityList.prepend(line);
-    if (elements.activityList.childElementCount > 20) {
-      elements.activityList.removeChild(elements.activityList.lastElementChild);
-    }
-    elements.activityLog.classList.remove('hidden');
+    // Activity log removed from UI; messages go to chat only
   }
 
   function showOverlay() {
@@ -213,7 +201,6 @@ export function initGameClient() {
 
   function setTurnBanner(game) {
     if (!game?.started) {
-      elements.turnBanner.textContent = 'Waiting for the game to start.';
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
       elements.turnActions.classList.add('hidden');
@@ -221,10 +208,6 @@ export function initGameClient() {
     }
 
     const current = game.players.find(player => player.id === game.currentPlayerId);
-    elements.turnBanner.textContent = current
-      ? `${current.nickname}'s turn`
-      : 'Waiting for next turn';
-
     const localPlayer = game.players.find(player => player.clientId === localState.clientId);
     localState.currentPlayerIsMe = Boolean(
       current && localPlayer && current.id === localPlayer.id
@@ -307,13 +290,10 @@ export function initGameClient() {
     renderAuction(state.game.auction, state.game);
 
     if (state.room.started) {
-      elements.startGameBtn?.classList.add('hidden');
       elements.startGameOverlay?.classList.add('hidden');
     } else if (localState.isHost) {
-      elements.startGameBtn?.classList.remove('hidden');
       elements.startGameOverlay?.classList.remove('hidden');
     } else {
-      elements.startGameBtn?.classList.add('hidden');
       elements.startGameOverlay?.classList.add('hidden');
     }
 
@@ -513,7 +493,7 @@ export function initGameClient() {
   }
 
   if (elements.centerStartBtn) on(elements.centerStartBtn, 'click', startGame);
-  if (elements.startGameBtn) on(elements.startGameBtn, 'click', startGame);
+
 
   on(elements.rollDiceBtn, 'click', () => {
     if (!localState.currentPlayerIsMe) return;
@@ -607,3 +587,7 @@ export function initGameClient() {
     socket.disconnect();
   };
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  initGameClient();
+});
