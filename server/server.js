@@ -10,11 +10,11 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-const frontendDist = path.join(__dirname, '../frontend/dist');
-app.use(express.static(frontendDist));
+const publicPath = path.join(__dirname, '../public');
+app.use(express.static(publicPath));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/socket.io')) return next();
-  res.sendFile(path.join(frontendDist, 'index.html'), err => {
+  res.sendFile(path.join(publicPath, 'index.html'), err => {
     if (err) next(err);
   });
 });

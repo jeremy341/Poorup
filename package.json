@@ -4,9 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node server/server.js",
-    "dev": "npm run dev --prefix frontend",
-    "build": "npm run build --prefix frontend",
-    "serve": "npm run build && npm start"
+    "dev": "node server/server.js"
   },
   "dependencies": {
     "express": "^4.21.0",
