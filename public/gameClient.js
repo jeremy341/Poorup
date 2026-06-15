@@ -1,13 +1,27 @@
-const BOARD_POSITIONS = [
-  { left: 90, top: 90 }, { left: 75, top: 90 }, { left: 60, top: 90 }, { left: 45, top: 90 },
-  { left: 30, top: 90 }, { left: 15, top: 90 },
-  { left: 5, top: 75 }, { left: 5, top: 60 }, { left: 5, top: 45 }, { left: 5, top: 30 },
-  { left: 15, top: 15 }, { left: 30, top: 10 }, { left: 45, top: 10 }, { left: 60, top: 10 },
-  { left: 75, top: 10 },
-  { left: 90, top: 15 }, { left: 95, top: 30 }, { left: 95, top: 45 }, { left: 95, top: 60 },
-  { left: 95, top: 75 },
-  { left: 85, top: 90 }, { left: 70, top: 90 }, { left: 55, top: 90 }, { left: 40, top: 90 }
-];
+function generateBoardPositions() {
+  const positions = [];
+  const boardSize = 1180;
+  const cornerCenter = 70;
+  const lastCornerCenter = boardSize - cornerCenter;
+  const sideCenters = Array.from({ length: 9 }, (_, index) => 190 + (index * 100));
+  const toPercent = value => Number(((value / boardSize) * 100).toFixed(2));
+  const pushPosition = (left, top) => {
+    positions.push({ left: toPercent(left), top: toPercent(top) });
+  };
+
+  pushPosition(cornerCenter, cornerCenter);
+  sideCenters.forEach(left => pushPosition(left, cornerCenter));
+  pushPosition(lastCornerCenter, cornerCenter);
+  sideCenters.forEach(top => pushPosition(lastCornerCenter, top));
+  pushPosition(lastCornerCenter, lastCornerCenter);
+  sideCenters.slice().reverse().forEach(left => pushPosition(left, lastCornerCenter));
+  pushPosition(cornerCenter, lastCornerCenter);
+  sideCenters.slice().reverse().forEach(top => pushPosition(cornerCenter, top));
+
+  return positions;
+}
+
+const BOARD_POSITIONS = generateBoardPositions();
 
 const PLAYER_COLORS = [
   '#111827', '#ef4444', '#f59e0b', '#84cc16', '#06b6d4', '#6366f1', '#a78bfa', '#fb7185'
@@ -32,7 +46,16 @@ function initGameClient() {
     roomCodeBlock: document.getElementById('room-code'),
     roomCodeValue: document.getElementById('room-code-value'),
     copyRoomBtn: document.getElementById('copy-room-btn'),
-    turnBanner: null,
+    turnBanner: document.getElementById('turn-banner'),
+    turnBannerTitle: document.getElementById('turn-banner-title'),
+    turnBannerSubtitle: document.getElementById('turn-banner-subtitle'),
+    diceDisplay: document.getElementById('dice-display'),
+    vacationDisplay: document.getElementById('vacation-display'),
+    vacationBalance: document.getElementById('vacation-balance'),
+    boardOwnershipLayer: document.getElementById('board-ownership-layer'),
+    rightSidebar: document.querySelector('.right-panel'),
+    propertiesWindow: document.querySelector('.properties-panel'),
+    settingsWindow: document.getElementById('settings-window'),
     purchaseModal: document.getElementById('purchase-modal'),
     purchaseName: document.getElementById('purchase-property-name'),
     purchaseCost: document.getElementById('purchase-property-cost'),
@@ -48,7 +71,12 @@ function initGameClient() {
     startGameOverlay: document.getElementById('start-game-overlay'),
     rollDiceBtn: document.getElementById('roll-dice-btn'),
     endTurnBtn: document.getElementById('end-turn-btn'),
-    turnActions: document.getElementById('turn-actions')
+    turnActions: document.getElementById('turn-actions'),
+    myPropertiesList: document.getElementById('my-properties-list'),
+    helpBtn: document.getElementById('help-btn'),
+    helpModal: document.getElementById('help-modal'),
+    helpCloseBtn: document.getElementById('help-close-btn'),
+    toastStack: document.getElementById('toast-stack')
   };
 
   const required = [
@@ -77,7 +105,13 @@ function initGameClient() {
     isHost: false,
     currentPlayerIsMe: false
   };
-  const gameState = { started: false, currentPlayerId: null };
+  const gameState = {
+    started: false,
+    currentPlayerId: null,
+    lastDice: [0, 0],
+    auctionActive: false,
+    awaitingDecision: false
+  };
 
   const socket = io();
   const disposers = [];
@@ -120,6 +154,26 @@ function initGameClient() {
     // Activity log removed from UI; messages go to chat only
   }
 
+  function formatDice(lastDice) {
+    if (!Array.isArray(lastDice) || lastDice.length !== 2) {
+      return 'Dice: --';
+    }
+    const [a, b] = lastDice;
+    if (!a && !b) return 'Dice: --';
+    return `Dice: ${a} + ${b} = ${a + b}`;
+  }
+
+  function showToast(text, type = 'info') {
+    if (!elements.toastStack) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = text;
+    elements.toastStack.appendChild(toast);
+    window.setTimeout(() => {
+      toast.remove();
+    }, 3500);
+  }
+
   function showOverlay() {
     elements.setupOverlay?.classList.remove('hidden');
     elements.boardPanel.classList.add('blurred');
@@ -148,7 +202,34 @@ function initGameClient() {
     modal?.classList.add('hidden');
   }
 
+  function syncAppearanceSelection(color, nickname) {
+    return new Promise(resolve => {
+      emit('set-player-appearance', { color, nickname }, response => {
+        resolve(Boolean(response?.success));
+      });
+    });
+  }
+
+  function applyLocalColorPreview(color) {
+    const preferredCard = localState.clientId
+      ? elements.playerList.querySelector(`[data-client-id="${localState.clientId}"] .player-avatar`)
+      : null;
+    const fallbackCard = elements.playerList.querySelector('.player-card .player-avatar');
+    const localCard = preferredCard || fallbackCard;
+    if (localCard) localCard.style.background = color;
+
+    const preferredToken = localState.clientId
+      ? document.querySelector(`#token-layer [data-client-id="${localState.clientId}"]`)
+      : null;
+    const fallbackToken = document.querySelector('#token-layer .player-token');
+    const localToken = preferredToken || fallbackToken;
+    if (localToken) localToken.style.background = color;
+  }
+
   function getPlayerColor(player) {
+    if (player?.clientId && player.clientId === localState.clientId && selectedColor) {
+      return selectedColor;
+    }
     return player.color || '#84cc16';
   }
 
@@ -172,14 +253,26 @@ function initGameClient() {
 
     orderedPlayers.forEach(player => {
       const card = document.createElement('div');
-      card.className = `player-card${player.id === currentPlayerId ? ' active' : ''}`;
-      const avatarColor = getPlayerColor(player);
+      const isActive = player.id === currentPlayerId;
       const status = player.bankrupt ? 'Bankrupt' : player.disconnected ? 'Away' : 'Ready';
+      card.className = [
+        'player-card',
+        isActive ? 'active' : '',
+        player.bankrupt ? 'bankrupt' : '',
+        player.disconnected ? 'away' : ''
+      ].filter(Boolean).join(' ');
+      card.dataset.clientId = player.clientId || '';
+      const avatarColor = getPlayerColor(player);
       card.innerHTML = `
         <div class="player-avatar" style="background:${avatarColor}"></div>
         <div class="player-info">
           <div class="player-name">${escapeHtml(player.nickname)}${player.isHost ? ' • Host' : ''}</div>
           <div class="player-meta">$${player.cash} • ${status}</div>
+          <div class="player-badges">
+            ${player.inJail ? '<span class="player-badge">In Jail</span>' : ''}
+            ${isActive ? '<span class="player-badge">Current Turn</span>' : ''}
+            ${player.disconnected ? '<span class="player-badge">Disconnected</span>' : ''}
+          </div>
         </div>
       `;
       elements.playerList.appendChild(card);
@@ -187,7 +280,7 @@ function initGameClient() {
   }
 
   function updateTurnButtons() {
-    if (!gameState.started || !localState.currentPlayerIsMe) {
+    if (!gameState.started || !localState.currentPlayerIsMe || gameState.auctionActive || gameState.awaitingDecision) {
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
       elements.turnActions.classList.add('hidden');
@@ -199,8 +292,15 @@ function initGameClient() {
     elements.turnActions.classList.remove('hidden');
   }
 
-  function setTurnBanner(game) {
+  function setTurnBanner(game, vacationPool = 0) {
     if (!game?.started) {
+      const waitingText = localState.isHost
+        ? 'You are the host.'
+        : 'Waiting for the host to start the game.';
+      if (elements.turnBannerTitle) elements.turnBannerTitle.textContent = 'Lobby';
+      if (elements.turnBannerSubtitle) elements.turnBannerSubtitle.textContent = waitingText;
+      if (elements.diceDisplay) elements.diceDisplay.textContent = 'Dice: --';
+      if (elements.vacationDisplay) elements.vacationDisplay.textContent = `Vacation: $${vacationPool}`;
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
       elements.turnActions.classList.add('hidden');
@@ -212,7 +312,88 @@ function initGameClient() {
     localState.currentPlayerIsMe = Boolean(
       current && localPlayer && current.id === localPlayer.id
     );
+    if (elements.turnBannerTitle) {
+      elements.turnBannerTitle.textContent = current
+        ? (localState.currentPlayerIsMe ? 'Your turn' : `${current.nickname}'s turn`)
+        : 'Game in progress';
+    }
+    if (elements.turnBannerSubtitle) {
+      const subtitle = localState.currentPlayerIsMe
+        ? 'Roll the dice, resolve the tile, then end your turn.'
+        : 'Watch the active player and wait for your turn.';
+      elements.turnBannerSubtitle.textContent = subtitle;
+    }
+    if (elements.diceDisplay) {
+      elements.diceDisplay.textContent = formatDice(game.lastDice);
+    }
+    if (elements.vacationDisplay) {
+      elements.vacationDisplay.textContent = `Vacation: $${vacationPool}`;
+    }
     updateTurnButtons();
+  }
+
+  function renderBoardOwnership(tiles, players) {
+    if (!elements.boardOwnershipLayer) return;
+
+    elements.boardOwnershipLayer.innerHTML = '';
+    if (!Array.isArray(tiles) || !tiles.length) return;
+
+    const playerById = new Map((players || []).map(player => [player.id, player]));
+
+    tiles.forEach(tile => {
+      if (!tile.ownerId || (tile.type !== 'property' && tile.type !== 'utility')) {
+        return;
+      }
+
+      const owner = playerById.get(tile.ownerId);
+      if (!owner) return;
+
+      const position = BOARD_POSITIONS[tile.index % BOARD_POSITIONS.length] || { left: 50, top: 50 };
+      const marker = document.createElement('div');
+      const edge = Math.floor(tile.index / 10);
+      const offsetMap = [
+        { left: 0, top: -4 },
+        { left: 4, top: 0 },
+        { left: 0, top: 4 },
+        { left: -4, top: 0 }
+      ];
+      const offset = offsetMap[edge] || { left: 0, top: 0 };
+      marker.className = 'ownership-marker';
+      marker.title = `${owner.nickname} owns ${tile.name}`;
+      marker.textContent = owner.nickname.charAt(0).toUpperCase();
+      marker.style.left = `${position.left + offset.left}%`;
+      marker.style.top = `${position.top + offset.top}%`;
+      marker.style.background = getPlayerColor(owner);
+      elements.boardOwnershipLayer.appendChild(marker);
+    });
+  }
+
+  function renderMyProperties(tiles, players) {
+    if (!elements.myPropertiesList) return;
+
+    const localPlayer = players?.find(player => player.clientId === localState.clientId);
+    const ownedTiles = (tiles || [])
+      .filter(tile => localPlayer && localPlayer.properties?.includes(tile.index))
+      .sort((a, b) => a.index - b.index);
+
+    elements.myPropertiesList.innerHTML = '';
+    if (!ownedTiles.length) {
+      elements.myPropertiesList.innerHTML = '<p class="muted" style="padding: 10px;">You do not own any properties yet.</p>';
+      return;
+    }
+
+    ownedTiles.forEach(tile => {
+      const item = document.createElement('div');
+      item.className = 'property-row';
+      item.innerHTML = `
+        <span>
+          ${escapeHtml(tile.name)}
+          <small class="muted" style="display:block; margin: 4px 0 0;">${escapeHtml(tile.group || tile.type)}${tile.mortgaged ? ' • Mortgaged' : ''}</small>
+        </span>
+        <strong>$${tile.rent || 0}</strong>
+      `;
+      elements.myPropertiesList.appendChild(item);
+    });
   }
 
   function setTokens(players) {
@@ -230,17 +411,36 @@ function initGameClient() {
     Object.values(positions).forEach(playersOnTile => {
       playersOnTile.forEach((player, index) => {
         const position = BOARD_POSITIONS[player.position % BOARD_POSITIONS.length] || { left: 50, top: 50 };
+        const offset = getTokenOffset(index, playersOnTile.length);
         const token = document.createElement('div');
         token.className = 'player-token';
+        token.dataset.clientId = player.clientId || '';
         token.textContent = player.nickname.charAt(0).toUpperCase();
         token.style.left = `${position.left}%`;
         token.style.top = `${position.top}%`;
-        const offset = (index - (playersOnTile.length - 1) / 2) * 18;
-        token.style.transform = `translate(calc(-50% + ${offset}px), -50%)`;
+        token.style.transform = `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`;
         token.style.background = getPlayerColor(player);
         tokenLayer.appendChild(token);
       });
     });
+  }
+
+  function getTokenOffset(index, total) {
+    if (total <= 1) return { x: 0, y: 0 };
+
+    const spacing = 16;
+    const offsets = [
+      { x: -spacing, y: -spacing },
+      { x: spacing, y: -spacing },
+      { x: -spacing, y: spacing },
+      { x: spacing, y: spacing },
+      { x: 0, y: -spacing * 1.6 },
+      { x: 0, y: spacing * 1.6 },
+      { x: -spacing * 1.6, y: 0 },
+      { x: spacing * 1.6, y: 0 }
+    ];
+
+    return offsets[index % offsets.length];
   }
 
   function renderSettings(settings, isHost) {
@@ -283,11 +483,26 @@ function initGameClient() {
 
     gameState.started = state.game.started;
     gameState.currentPlayerId = state.game.currentPlayerId;
+    gameState.lastDice = state.game.lastDice || [0, 0];
+    gameState.auctionActive = Boolean(state.game.auction?.active);
+    gameState.awaitingDecision = Boolean(currentPurchase);
 
     setPlayerList(state.room.players, state.game.currentPlayerId, state.game.turnOrder);
-    setTurnBanner(state.game);
+    setTurnBanner(state.game, state.game.vacationPool || 0);
     setTokens(state.game.players);
+    renderBoardOwnership(state.game.tiles, state.game.players);
+    renderMyProperties(state.game.tiles, state.game.players);
     renderAuction(state.game.auction, state.game);
+    if (elements.vacationBalance) {
+      elements.vacationBalance.textContent = `$${state.game.vacationPool || 0}`;
+    }
+
+    if (elements.settingsWindow) {
+      elements.settingsWindow.classList.toggle('hidden', state.room.started);
+    }
+    if (elements.propertiesWindow) {
+      elements.propertiesWindow.classList.toggle('hidden', !state.room.started);
+    }
 
     if (state.room.started) {
       elements.startGameOverlay?.classList.add('hidden');
@@ -332,19 +547,24 @@ function initGameClient() {
     const propsPanel = document.querySelector('.properties-panel');
     if (chatPanel) chatPanel.style.height = `${height}px`;
     if (propsPanel) propsPanel.style.height = `${height}px`;
+    if (elements.rightSidebar) elements.rightSidebar.style.height = `${height}px`;
   }
 
   function openPurchaseModal(data) {
     currentPurchase = data;
+    gameState.awaitingDecision = true;
     if (!elements.purchaseModal) return;
     elements.purchaseName.textContent = data.name;
     elements.purchaseCost.textContent = `Cost: $${data.price}`;
     showModal(elements.purchaseModal);
+    updateTurnButtons();
   }
 
   function closePurchaseModal() {
     currentPurchase = null;
+    gameState.awaitingDecision = false;
     hideModal(elements.purchaseModal);
+    updateTurnButtons();
   }
 
   function joinRoom() {
@@ -392,7 +612,7 @@ function initGameClient() {
   function renderColors() {
     elements.colorGrids.forEach(grid => {
       grid.querySelectorAll('button').forEach(button => {
-        button.classList.toggle('active', button.style.background === selectedColor);
+        button.classList.toggle('active', button.dataset.color === selectedColor);
       });
     });
   }
@@ -435,6 +655,7 @@ function initGameClient() {
   socket.on('system-message', ({ text }) => {
     appendActivity(text);
     appendChat(text, 'System');
+    showToast(text, 'info');
   });
 
   socket.on('purchase-offer', openPurchaseModal);
@@ -459,8 +680,11 @@ function initGameClient() {
 
   if (elements.overlayContinueBtn) {
     on(elements.overlayContinueBtn, 'click', () => {
-      hideOverlay();
-      elements.chatInput.focus();
+      const nickname = elements.nicknameInput.value.trim();
+      syncAppearanceSelection(selectedColor, nickname).finally(() => {
+        hideOverlay();
+        elements.chatInput.focus();
+      });
     });
   }
 
@@ -471,10 +695,16 @@ function initGameClient() {
       button.type = 'button';
       button.className = 'color-circle';
       button.style.background = color;
+      button.dataset.color = color;
       button.setAttribute('aria-label', `Select color ${color}`);
       on(button, 'click', () => {
         selectedColor = color;
         renderColors();
+        applyLocalColorPreview(color);
+        if (localState.room && localState.game) {
+          renderGameState({ room: localState.room, game: localState.game });
+        }
+        syncAppearanceSelection(color, elements.nicknameInput.value.trim());
       });
       if (selectedColor === color) button.classList.add('active');
       grid.appendChild(button);
@@ -493,6 +723,26 @@ function initGameClient() {
   }
 
   if (elements.centerStartBtn) on(elements.centerStartBtn, 'click', startGame);
+
+  if (elements.helpBtn && elements.helpModal) {
+    on(elements.helpBtn, 'click', () => {
+      showModal(elements.helpModal);
+    });
+  }
+
+  if (elements.helpCloseBtn && elements.helpModal) {
+    on(elements.helpCloseBtn, 'click', () => {
+      hideModal(elements.helpModal);
+    });
+  }
+
+  if (elements.helpModal) {
+    on(elements.helpModal, 'click', event => {
+      if (event.target === elements.helpModal) {
+        hideModal(elements.helpModal);
+      }
+    });
+  }
 
 
   on(elements.rollDiceBtn, 'click', () => {
@@ -519,6 +769,9 @@ function initGameClient() {
       emit('purchase-property', { tileIndex: currentPurchase.tileIndex }, response => {
         if (!response?.success) {
           appendChat(response?.error || 'Could not complete purchase.', 'System');
+          showToast(response?.error || 'Could not complete purchase.', 'error');
+        } else {
+          showToast('Property purchased.', 'success');
         }
         closePurchaseModal();
       });
@@ -531,6 +784,9 @@ function initGameClient() {
       emit('decline-property', { tileIndex: currentPurchase.tileIndex }, response => {
         if (!response?.success) {
           appendChat(response?.error || 'Could not decline property.', 'System');
+          showToast(response?.error || 'Could not decline property.', 'error');
+        } else {
+          showToast('Property declined.', 'warning');
         }
         closePurchaseModal();
       });
@@ -568,6 +824,13 @@ function initGameClient() {
   if (elements.boardImage.complete) {
     setTimeout(syncPanelHeights, 100);
   }
+
+  on(document, 'keydown', event => {
+    if (event.key !== 'Escape') return;
+    hideModal(elements.purchaseModal);
+    hideModal(elements.auctionModal);
+    hideModal(elements.helpModal);
+  });
 
   const onResize = () => {
     clearTimeout(window.syncPanelTimeout);

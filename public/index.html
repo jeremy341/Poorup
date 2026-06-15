@@ -65,6 +65,7 @@
           <section class="panel board-panel">
             <div class="board-content">
               <img id="board-image" src="/assets/playingfield-beige.svg" alt="Board layout" />
+              <div id="board-ownership-layer" class="ownership-layer"></div>
               <div id="token-layer" class="token-layer"></div>
 
               <div id="start-game-overlay" class="start-game-overlay hidden">
@@ -75,110 +76,121 @@
                 <button id="end-turn-btn" class="btn btn-muted" type="button">End Turn</button>
               </div>
             </div>
+            <div id="turn-banner" class="turn-banner">
+              <div class="turn-banner-copy">
+                <div id="turn-banner-title" class="turn-banner-title">Waiting for game</div>
+                <div id="turn-banner-subtitle" class="turn-banner-subtitle">Join a room to get started.</div>
+              </div>
+              <div class="turn-banner-stats">
+                <div id="dice-display" class="stat-pill">Dice: --</div>
+                <div id="vacation-display" class="stat-pill">Vacation: $0</div>
+              </div>
+            </div>
           </section>
 
-          <aside class="panel right properties-panel">
-            <div class="panel-header">Game settings</div>
-
-            <div class="property-list">
-              <label class="property-row">
-                <span>Maximum players</span>
-                <select id="player-count" class="custom-select" data-setting="maxPlayers">
-                  <option value="2">2</option>
-                  <option value="4" selected>4</option>
-                  <option value="6">6</option>
-                  <option value="8">8</option>
-                </select>
-              </label>
-              <div class="divider-line"></div>
-              <label class="property-row">
-                <span>Starting cash</span>
-                <select id="starting-cash" class="custom-select" data-setting="startingCash">
-                  <option value="500">$500</option>
-                  <option value="1000">$1000</option>
-                  <option value="1500" selected>$1500</option>
-                  <option value="2000">$2000</option>
-                  <option value="2500">$2500</option>
-                  <option value="3000">$3000</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="panel-divider"></div>
-            <div class="panel-title">Game rules</div>
-            <div class="settings-list">
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Private room</div>
-                  <div class="toggle-note">Accessible using the room code only.</div>
+          <aside class="sidebar-stack right-panel">
+            <section class="panel sidebar-window properties-panel">
+              <div class="panel-header">Your Properties</div>
+              <div class="panel-subheader">
+                Properties you own appear here as you buy them.
+              </div>
+              <div id="my-properties-list" class="property-list property-scroll">
+                <p class="muted" style="padding: 10px;">You don't own any properties yet.</p>
+              </div>
+              <div class="panel-divider"></div>
+              <div class="panel-header">Vacation pool</div>
+              <div class="property-list">
+                <div class="property-row">
+                  <span>Current balance</span>
+                  <strong id="vacation-balance">$0</strong>
                 </div>
-                <input id="setting-private-room" type="checkbox" data-setting="privateRoom" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+              </div>
+            </section>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Allow bots to join</div>
-                  <div class="toggle-note">Bots can join if there are available slots.</div>
-                </div>
-                <input id="setting-allow-bots" type="checkbox" data-setting="allowBots" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+            <section id="settings-window" class="panel sidebar-window settings-panel">
+              <div class="panel-header">Game settings</div>
+              <div class="property-list">
+                <label class="property-row">
+                  <span>Maximum players</span>
+                  <select id="player-count" class="custom-select" data-setting="maxPlayers">
+                    <option value="2">2</option>
+                    <option value="4" selected>4</option>
+                    <option value="6">6</option>
+                    <option value="8">8</option>
+                  </select>
+                </label>
+                <div class="divider-line"></div>
+                <label class="property-row">
+                  <span>Starting cash</span>
+                  <select id="starting-cash" class="custom-select" data-setting="startingCash">
+                    <option value="500">$500</option>
+                    <option value="1000">$1000</option>
+                    <option value="1500" selected>$1500</option>
+                    <option value="2000">$2000</option>
+                    <option value="2500">$2500</option>
+                    <option value="3000">$3000</option>
+                  </select>
+                </label>
+              </div>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Vacation cash</div>
-                  <div class="toggle-note">Tax and bank payments land in Vacation until collected.</div>
-                </div>
-                <input id="setting-vacation-cash" type="checkbox" data-setting="vacationCash" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+              <div class="panel-divider"></div>
+              <div class="panel-title">Game rules</div>
+              <div class="settings-list">
+                <label class="setting-toggle">
+                  <div>
+                    <div class="toggle-title">Vacation cash</div>
+                    <div class="toggle-note">Tax and bank payments land in Vacation until collected.</div>
+                  </div>
+                  <input id="setting-vacation-cash" type="checkbox" data-setting="vacationCash" class="toggle-input" />
+                  <span class="toggle-slider"></span>
+                </label>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Auction</div>
-                  <div class="toggle-note">Declined properties can be sold to the highest bidder.</div>
-                </div>
-                <input id="setting-auction" type="checkbox" data-setting="auction" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+                <label class="setting-toggle">
+                  <div>
+                    <div class="toggle-title">Auction</div>
+                    <div class="toggle-note">Declined properties can be sold to the highest bidder.</div>
+                  </div>
+                  <input id="setting-auction" type="checkbox" data-setting="auction" class="toggle-input" />
+                  <span class="toggle-slider"></span>
+                </label>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Even build</div>
-                  <div class="toggle-note">House/hotel builds must remain even by set.</div>
-                </div>
-                <input id="setting-even-build" type="checkbox" data-setting="evenBuild" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+                <label class="setting-toggle">
+                  <div>
+                    <div class="toggle-title">Even build</div>
+                    <div class="toggle-note">House/hotel builds must remain even by set.</div>
+                  </div>
+                  <input id="setting-even-build" type="checkbox" data-setting="evenBuild" class="toggle-input" />
+                  <span class="toggle-slider"></span>
+                </label>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Mortgage</div>
-                  <div class="toggle-note">Mortgage properties and stop rent until released.</div>
-                </div>
-                <input id="setting-mortgage" type="checkbox" data-setting="mortgage" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+                <label class="setting-toggle">
+                  <div>
+                    <div class="toggle-title">Mortgage</div>
+                    <div class="toggle-note">Mortgage properties and stop rent until released.</div>
+                  </div>
+                  <input id="setting-mortgage" type="checkbox" data-setting="mortgage" class="toggle-input" />
+                  <span class="toggle-slider"></span>
+                </label>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Randomize player order</div>
-                  <div class="toggle-note">Shuffle turn order when the game begins.</div>
-                </div>
-                <input id="setting-randomize" type="checkbox" data-setting="randomizePlayerOrder" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+                <label class="setting-toggle">
+                  <div>
+                    <div class="toggle-title">Randomize player order</div>
+                    <div class="toggle-note">Shuffle turn order when the game begins.</div>
+                  </div>
+                  <input id="setting-randomize" type="checkbox" data-setting="randomizePlayerOrder" class="toggle-input" />
+                  <span class="toggle-slider"></span>
+                </label>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Don't collect rent while in prison</div>
-                  <div class="toggle-note">Owners in jail do not collect rent.</div>
-                </div>
-                <input id="setting-no-rent-in-prison" type="checkbox" data-setting="noRentWhileInPrison" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
+                <label class="setting-toggle">
+                  <div>
+                    <div class="toggle-title">Don't collect rent while in prison</div>
+                    <div class="toggle-note">Owners in jail do not collect rent.</div>
+                  </div>
+                  <input id="setting-no-rent-in-prison" type="checkbox" data-setting="noRentWhileInPrison" class="toggle-input" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </section>
           </aside>
         </main>
       </div>
@@ -214,6 +226,23 @@
           </div>
         </div>
       </div>
+
+      <div id="help-modal" class="modal hidden">
+        <div class="modal-card modal-card-wide">
+          <div class="modal-title">How to play</div>
+          <div class="modal-body help-body">
+            <p>Roll on your turn, then resolve the tile you land on.</p>
+            <p>Buy properties when they are offered, or let them go to auction if the room allows it.</p>
+            <p>Vacation cash collects taxes and some bank payments until someone lands on Vacation.</p>
+            <p>You must roll before ending your turn.</p>
+          </div>
+          <div class="modal-actions">
+            <button id="help-close-btn" class="btn" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
     </div>
   </body>
 </html>

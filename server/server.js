@@ -20,6 +20,7 @@ app.get('*', (req, res, next) => {
 });
 
 const roomManager = new RoomManager();
+const auctionTimers = new Map();
 
 function emitRoomState(room) {
   if (!room) return;
@@ -27,6 +28,26 @@ function emitRoomState(room) {
     room: room.getRoomSummary(),
     game: room.game.getGameSummary()
   });
+}
+
+function clearAuctionTimer(room) {
+  const timer = auctionTimers.get(room.roomCode);
+  if (timer) {
+    clearTimeout(timer);
+  }
+  auctionTimers.delete(room.roomCode);
+}
+
+function scheduleAuctionFinish(room) {
+  if (!room?.game?.auction?.active) return;
+  clearAuctionTimer(room);
+  const timer = setTimeout(() => {
+    room.game.finishAuction();
+    emitRoomState(room);
+    io.in(room.roomCode).emit('system-message', { text: 'Auction ended.' });
+    clearAuctionTimer(room);
+  }, 15000);
+  auctionTimers.set(room.roomCode, timer);
 }
 
 io.on('connection', (socket) => {
@@ -87,6 +108,19 @@ io.on('connection', (socket) => {
     callback?.({ success: true });
   });
 
+  socket.on('set-player-appearance', ({ color, nickname }, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) {
+      return callback?.({ success: false, error: 'Room not found.' });
+    }
+    const result = room.game.setPlayerAppearance(socket.id, { color, nickname });
+    if (!result.success) {
+      return callback?.(result);
+    }
+    emitRoomState(room);
+    callback?.({ success: true });
+  });
+
   socket.on('start-game', (_, callback) => {
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
@@ -112,7 +146,8 @@ io.on('connection', (socket) => {
       socket.emit('purchase-offer', result.purchaseOffer);
     }
     if (result?.auctionStarted) {
-      io.in(room.roomCode).emit('system-message', { text: 'Auction started for the declined property.' });
+      scheduleAuctionFinish(room);
+      io.in(room.roomCode).emit('system-message', { text: 'Auction started.' });
     }
     if (result?.message) {
       io.in(room.roomCode).emit('system-message', { text: result.message });
@@ -135,6 +170,9 @@ io.on('connection', (socket) => {
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const result = room.declineProperty(socket.id, tileIndex);
+    if (room.game.auction?.active) {
+      scheduleAuctionFinish(room);
+    }
     emitRoomState(room);
     if (result?.message) {
       io.in(room.roomCode).emit('system-message', { text: result.message });

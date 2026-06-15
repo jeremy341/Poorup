@@ -60,7 +60,7 @@ const CARD_DECK = [
   { text: 'Advance to Start and collect $200', action: 'collectStart' },
   { text: 'Pay $100 for renovation', action: 'pay', amount: 100 },
   { text: 'Collect $150 from bank', action: 'collect', amount: 150 },
-  { text: 'Go to Vacation', action: 'move', tileIndex: 18 },
+  { text: 'Go to Vacation', action: 'move', tileIndex: 20 },
   { text: 'Go directly to Jail', action: 'goToJail' },
   { text: 'Receive $100 from each player', action: 'collectFromEach', amount: 100 }
 ];
@@ -127,6 +127,8 @@ class GameState {
     this.players = [];
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
+    this.hasRolled = false;
+    this.pendingPurchaseOffer = null;
     this.started = false;
     this.feed = [];
     this.auction = null;
@@ -166,6 +168,20 @@ class GameState {
     return this.players.find(player => player.id === id);
   }
 
+  setPlayerAppearance(socketId, { color, nickname } = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    if (!player) {
+      return { success: false, error: 'Player not found.' };
+    }
+    if (color) {
+      player.color = color;
+    }
+    if (nickname && !this.started) {
+      player.nickname = nickname;
+    }
+    return { success: true };
+  }
+
   getTile(index) {
     return this.tiles.find(tile => tile.index === index);
   }
@@ -192,6 +208,7 @@ class GameState {
     }
     this.turnOrder = active.map(p => p.id);
     this.currentPlayerId = this.turnOrder[0] || null;
+    this.hasRolled = false;
   }
 
   getCurrentPlayer() {
@@ -227,6 +244,7 @@ class GameState {
     }
     const dice = rollDice();
     this.lastDice = dice;
+    this.hasRolled = true;
     const move = dice[0] + dice[1];
     this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
     return this.movePlayer(player, move);
@@ -235,6 +253,7 @@ class GameState {
   handleJailRoll(player) {
     const dice = rollDice();
     this.lastDice = dice;
+    this.hasRolled = true;
     if (dice[0] === dice[1]) {
       player.inJail = false;
       this.feedMessage(`${player.nickname} rolled doubles and escaped jail!`);
@@ -299,6 +318,7 @@ class GameState {
         this.nextTurn();
         return { success: true };
       }
+      this.pendingPurchaseOffer = { playerId: player.id, tileIndex: tile.index };
       return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
     }
     if (tile.ownerId === player.id) {
@@ -349,6 +369,7 @@ class GameState {
   handleUtilityTile(player, tile) {
     if (tile.ownerId === null) {
       if (player.cash >= tile.price) {
+        this.pendingPurchaseOffer = { playerId: player.id, tileIndex: tile.index };
         return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
       }
       this.feedMessage(`${player.nickname} cannot afford ${tile.name}.`);
@@ -367,8 +388,8 @@ class GameState {
   handleChanceTile(player) {
     const card = this.drawCard();
     this.feedMessage(`${player.nickname} drew a card: ${card.text}`);
-    this.applyCard(player, card);
-    return { success: true };
+    const result = this.applyCard(player, card);
+    return result || { success: true };
   }
 
   drawCard() {
@@ -395,8 +416,7 @@ class GameState {
       case 'move':
         player.position = card.tileIndex;
         this.feedMessage(`${player.nickname} moved to ${this.getTile(card.tileIndex).name}.`);
-        this.applyTile(player, this.getTile(card.tileIndex));
-        return;
+        return this.applyTile(player, this.getTile(card.tileIndex));
       case 'goToJail':
         player.position = this.tiles.find(tile => tile.type === 'jail').index;
         player.inJail = true;
@@ -430,6 +450,7 @@ class GameState {
       nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
     }
     this.currentPlayerId = nextPlayer ? nextPlayer.id : null;
+    this.hasRolled = false;
     if (this.currentPlayerId) {
       this.feedMessage(`${this.getPlayerById(this.currentPlayerId).nickname}'s turn.`);
     }
@@ -486,6 +507,13 @@ class GameState {
     if (!player || !tile || tile.ownerId !== null) {
       return { success: false, error: 'Property is no longer available.' };
     }
+    if (
+      !this.pendingPurchaseOffer ||
+      this.pendingPurchaseOffer.playerId !== player.id ||
+      this.pendingPurchaseOffer.tileIndex !== tileIndex
+    ) {
+      return { success: false, error: 'There is no active purchase offer for this property.' };
+    }
     if (player.cash < tile.price) {
       return { success: false, error: 'Insufficient cash to purchase this property.' };
     }
@@ -493,6 +521,7 @@ class GameState {
     tile.ownerId = player.id;
     player.properties.push(tile.index);
     this.feedMessage(`${player.nickname} purchased ${tile.name} for $${tile.price}.`);
+    this.pendingPurchaseOffer = null;
     this.nextTurn();
     return { success: true };
   }
@@ -503,6 +532,14 @@ class GameState {
     if (!player || !tile || tile.ownerId !== null) {
       return { success: false, error: 'Property is no longer available.' };
     }
+    if (
+      !this.pendingPurchaseOffer ||
+      this.pendingPurchaseOffer.playerId !== player.id ||
+      this.pendingPurchaseOffer.tileIndex !== tileIndex
+    ) {
+      return { success: false, error: 'There is no active purchase offer for this property.' };
+    }
+    this.pendingPurchaseOffer = null;
     if (this.settings.auction) {
       this.startAuction(tile, player.id);
       return { success: true, message: 'Auction started for the declined property.' };
@@ -517,12 +554,6 @@ class GameState {
     this.auction = new AuctionState(tile, initiatingPlayerId);
     this.auction.participants = participants;
     this.feedMessage(`Auction started for ${tile.name}. Players may place bids.`);
-    if (this.auctionTimeout) {
-      clearTimeout(this.auctionTimeout);
-    }
-    this.auctionTimeout = setTimeout(() => {
-      this.finishAuction();
-    }, 15000);
   }
 
   placeAuctionBid(socketId, amount) {
@@ -576,6 +607,15 @@ class GameState {
     const player = this.getPlayerBySocket(socketId);
     if (!player || player.id !== this.currentPlayerId) {
       return { success: false, error: 'Only the active player can end the turn.' };
+    }
+    if (!this.hasRolled) {
+      return { success: false, error: 'You must roll the dice before ending your turn.' };
+    }
+    if (this.auction?.active) {
+      return { success: false, error: 'Finish the active auction before ending the turn.' };
+    }
+    if (this.pendingPurchaseOffer?.playerId === player.id) {
+      return { success: false, error: 'Resolve the property offer before ending the turn.' };
     }
     this.nextTurn();
     return { success: true };
