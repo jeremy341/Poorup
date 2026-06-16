@@ -111,16 +111,6 @@
               <div class="panel-header">Game settings</div>
               <div class="property-list">
                 <label class="property-row">
-                  <span>Maximum players</span>
-                  <select id="player-count" class="custom-select" data-setting="maxPlayers">
-                    <option value="2">2</option>
-                    <option value="4" selected>4</option>
-                    <option value="6">6</option>
-                    <option value="8">8</option>
-                  </select>
-                </label>
-                <div class="divider-line"></div>
-                <label class="property-row">
                   <span>Starting cash</span>
                   <select id="starting-cash" class="custom-select" data-setting="startingCash">
                     <option value="500">$500</option>
@@ -195,12 +185,15 @@
         </main>
       </div>
 
-      <div id="purchase-modal" class="modal hidden">
-        <div class="modal-card">
-          <div class="modal-title">Purchase property</div>
+      <div id="purchase-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="purchase-modal-title">
+        <div class="modal-card purchase-modal-card">
+          <div id="purchase-modal-title" class="modal-title">Purchase property</div>
           <div class="modal-body">
-            <p id="purchase-property-name">Property</p>
-            <p id="purchase-property-cost">Cost</p>
+            <div id="purchase-property-name" class="purchase-property-name">Property</div>
+            <div class="purchase-summary">
+              <span class="purchase-summary-label">Cost</span>
+              <strong id="purchase-property-cost" class="purchase-summary-value">Cost</strong>
+            </div>
             <p class="modal-note">Would you like to buy this property now or let it go to auction?</p>
           </div>
           <div class="modal-actions">
@@ -210,26 +203,108 @@
         </div>
       </div>
 
-      <div id="auction-modal" class="modal hidden">
-        <div class="modal-card">
-          <div class="modal-title">Property auction</div>
+      <div id="auction-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="auction-modal-title">
+        <div class="modal-card auction-modal-card">
+          <div id="auction-modal-title" class="modal-title">Property auction</div>
           <div class="modal-body">
-            <p id="auction-property-name">Property</p>
-            <p id="auction-current-bid">Current bid: $0</p>
-            <label class="auction-bid-field" for="auction-bid-input">
-              Your bid
-              <input id="auction-bid-input" type="number" min="1" step="1" />
-            </label>
-          </div>
-          <div class="modal-actions">
-            <button id="auction-bid-btn" class="btn" type="button">Place Bid</button>
+            <div id="auction-property-name" class="auction-property-name">Property</div>
+            <div class="auction-summary">
+              <span id="auction-current-bid">Current bid: $0</span>
+              <span id="auction-countdown" class="auction-countdown">5.0s left</span>
+            </div>
+            <div class="auction-meter" aria-hidden="true">
+              <div id="auction-meter-fill" class="auction-meter-fill"></div>
+            </div>
+            <p id="auction-status" class="modal-note auction-state-note">Choose a bid step to raise the offer.</p>
+            <div class="auction-bid-choices">
+              <button id="auction-bid-2-btn" class="btn btn-primary auction-bid-step" type="button">+$2</button>
+              <button id="auction-bid-10-btn" class="btn btn-primary auction-bid-step" type="button">+$10</button>
+              <button id="auction-bid-100-btn" class="btn btn-primary auction-bid-step" type="button">+$100</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div id="help-modal" class="modal hidden">
+      <div id="property-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="property-modal-title">
+        <div class="modal-card property-modal-card">
+          <div id="property-modal-title" class="modal-title">Property details</div>
+          <div class="modal-body">
+            <div id="property-modal-name" class="property-modal-name">Property</div>
+            <div class="property-modal-summary">
+              <span id="property-modal-group">Group</span>
+              <span id="property-modal-status">Status</span>
+            </div>
+            <div>
+              <div class="panel-title">Potential rent</div>
+              <div id="property-modal-rents" class="property-rent-grid"></div>
+            </div>
+            <div>
+              <div class="panel-title">Buildings</div>
+              <div id="property-modal-houses" class="property-house-strip"></div>
+            </div>
+            <p id="property-modal-note" class="modal-note"></p>
+          </div>
+          <div class="modal-actions property-modal-actions">
+            <button id="property-build-btn" class="btn" type="button">Build house</button>
+            <button id="property-sell-btn" class="btn btn-muted" type="button">Sell house</button>
+            <button id="property-mortgage-btn" class="btn btn-muted" type="button">Mortgage</button>
+            <button id="property-close-btn" class="btn btn-muted" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="trade-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="trade-modal-title">
+        <div class="modal-card trade-modal-card">
+          <div id="trade-modal-title" class="modal-title">Trade properties</div>
+          <div class="modal-body trade-modal-body">
+            <section class="trade-side">
+              <div class="trade-side-header">
+                <div class="trade-side-title">You</div>
+                <div id="trade-offer-cash-total" class="trade-side-total">$0</div>
+              </div>
+              <label class="trade-cash-field" for="trade-offer-cash">
+                Cash to offer
+                <input id="trade-offer-cash" type="number" min="0" step="1" value="0" />
+              </label>
+              <div id="trade-offer-properties" class="trade-property-list"></div>
+            </section>
+            <div class="trade-divider" aria-hidden="true">⇄</div>
+            <section class="trade-side">
+              <div class="trade-side-header">
+                <div class="trade-side-title">Request from <span id="trade-target-title">Player</span></div>
+                <div id="trade-request-cash-total" class="trade-side-total">$0</div>
+              </div>
+              <label class="trade-cash-field" for="trade-request-cash">
+                Cash to request
+                <input id="trade-request-cash" type="number" min="0" step="1" value="0" />
+              </label>
+              <div id="trade-request-properties" class="trade-property-list"></div>
+            </section>
+          </div>
+          <div class="modal-actions">
+            <button id="trade-send-btn" class="btn" type="button">Send trade</button>
+            <button id="trade-close-btn" class="btn btn-muted" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="incoming-trade-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="incoming-trade-modal-title">
         <div class="modal-card modal-card-wide">
-          <div class="modal-title">How to play</div>
+          <div id="incoming-trade-modal-title" class="modal-title">Incoming trade</div>
+          <div class="modal-body">
+            <p id="incoming-trade-summary">A player wants to trade with you.</p>
+            <div id="incoming-trade-details" class="trade-incoming-details"></div>
+          </div>
+          <div class="modal-actions">
+            <button id="incoming-trade-accept-btn" class="btn" type="button">Accept</button>
+            <button id="incoming-trade-decline-btn" class="btn btn-muted" type="button">Decline</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="help-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+        <div class="modal-card modal-card-wide">
+          <div id="help-modal-title" class="modal-title">How to play</div>
           <div class="modal-body help-body">
             <p>Roll on your turn, then resolve the tile you land on.</p>
             <p>Buy properties when they are offered, or let them go to auction if the room allows it.</p>

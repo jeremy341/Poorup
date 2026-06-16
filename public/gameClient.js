@@ -146,6 +146,7 @@ function initGameClient() {
     lastDice: [0, 0],
     auctionActive: false,
     awaitingDecision: false,
+    extraRollPending: false,
     pendingTrade: null,
     selectedPropertyIndex: null
   };
@@ -176,13 +177,34 @@ function initGameClient() {
   }
 
   function getClientId() {
-    const namePrefix = 'poorup-client-id:';
-    if (window.name && window.name.startsWith(namePrefix)) {
-      return window.name.slice(namePrefix.length);
+    const storageKey = 'poorup-client-id';
+    try {
+      const existing = window.sessionStorage.getItem(storageKey);
+      if (existing) {
+        return existing;
+      }
+      const namePrefix = 'poorup-client-id:';
+      if (window.name && window.name.startsWith(namePrefix)) {
+        const fromName = window.name.slice(namePrefix.length);
+        window.sessionStorage.setItem(storageKey, fromName);
+        return fromName;
+      }
+      const generated = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? `client-${crypto.randomUUID()}`
+        : `client-${Math.random().toString(36).slice(2, 11)}`;
+      window.sessionStorage.setItem(storageKey, generated);
+      return generated;
+    } catch (error) {
+      const namePrefix = 'poorup-client-id:';
+      if (window.name && window.name.startsWith(namePrefix)) {
+        return window.name.slice(namePrefix.length);
+      }
+      const generated = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? `client-${crypto.randomUUID()}`
+        : `client-${Math.random().toString(36).slice(2, 11)}`;
+      window.name = `${namePrefix}${generated}`;
+      return generated;
     }
-    const generated = `client-${Math.random().toString(36).slice(2, 11)}`;
-    window.name = `${namePrefix}${generated}`;
-    return generated;
   }
 
   function escapeHtml(text) {
@@ -238,6 +260,11 @@ function initGameClient() {
   function hideOverlay() {
     elements.setupOverlay?.classList.add('hidden');
     elements.boardPanel.classList.remove('blurred');
+  }
+
+  function showWorkspace() {
+    elements.landingScreen.classList.add('hidden');
+    elements.mainWorkspace.classList.remove('hidden');
   }
 
   function setRoomCode(code) {
@@ -460,11 +487,14 @@ function initGameClient() {
     }
 
     elements.rollDiceBtn.classList.remove('hidden');
-    elements.endTurnBtn.classList.remove('hidden');
+    elements.endTurnBtn.classList.toggle('hidden', Boolean(gameState.extraRollPending));
     elements.turnActions.classList.remove('hidden');
   }
 
   function setTurnBanner(game, vacationPool = 0) {
+    if (elements.vacationBalance) {
+      elements.vacationBalance.textContent = formatMoney(vacationPool);
+    }
     if (!game?.started) {
       const waitingText = localState.isHost
         ? 'You are the host.'
@@ -491,7 +521,9 @@ function initGameClient() {
     }
     if (elements.turnBannerSubtitle) {
       const subtitle = localState.currentPlayerIsMe
-        ? 'Roll the dice, resolve the tile, then end your turn.'
+        ? (gameState.extraRollPending
+          ? 'Roll again. Doubles gave you an extra turn.'
+          : 'Roll the dice, resolve the tile, then end your turn.')
         : 'Watch the active player and wait for your turn.';
       elements.turnBannerSubtitle.textContent = subtitle;
     }
@@ -580,7 +612,9 @@ function initGameClient() {
   function renderTradePanel(players, tiles) {
     if (!elements.tradePlayerList) return;
     const localPlayer = players?.find(player => player.clientId === localState.clientId);
-    const eligiblePlayers = (players || []).filter(player => player.id !== localPlayer?.id && !player.bankrupt);
+    const eligiblePlayers = (players || []).filter(player => (
+      player.id !== localPlayer?.id && !player.bankrupt && !player.disconnected
+    ));
 
     elements.tradePlayerList.innerHTML = '';
     if (!eligiblePlayers.length) {
@@ -960,8 +994,29 @@ function initGameClient() {
     gameState.currentPlayerId = state.game.currentPlayerId;
     gameState.lastDice = state.game.lastDice || [0, 0];
     gameState.auctionActive = Boolean(state.game.auction?.active);
-    gameState.awaitingDecision = Boolean(currentPurchase);
+    gameState.awaitingDecision = Boolean(currentPurchase || state.game.pendingPurchaseOffer);
+    gameState.extraRollPending = Boolean(state.game.extraRollPending);
     gameState.pendingTrade = state.game.pendingTrade || null;
+
+    const localPlayer = state.room.players.find(player => player.clientId === localState.clientId);
+    const pendingPurchase = state.game.pendingPurchaseOffer;
+    if (
+      pendingPurchase &&
+      localPlayer &&
+      pendingPurchase.playerId === localPlayer.id &&
+      state.game.currentPlayerId === localPlayer.id
+    ) {
+      const purchaseTile = state.game.tiles.find(tile => tile.index === pendingPurchase.tileIndex);
+      if (purchaseTile && (!currentPurchase || currentPurchase.tileIndex !== purchaseTile.index)) {
+        openPurchaseModal({
+          tileIndex: purchaseTile.index,
+          name: purchaseTile.name,
+          price: purchaseTile.price
+        });
+      }
+    } else if (!pendingPurchase && currentPurchase) {
+      closePurchaseModal();
+    }
 
     setPlayerList(state.room.players, state.game.currentPlayerId, state.game.turnOrder);
     setTurnBanner(state.game, state.game.vacationPool || 0);
@@ -995,6 +1050,13 @@ function initGameClient() {
       elements.startGameOverlay?.classList.add('hidden');
     }
 
+    if (elements.centerStartBtn) {
+      const activePlayers = (state.room.players || []).filter(player => !player.bankrupt && !player.disconnected).length;
+      const canStart = localState.isHost && !state.room.started && activePlayers >= 2;
+      elements.centerStartBtn.disabled = !canStart;
+      elements.centerStartBtn.title = canStart ? 'Start the game' : 'Need at least 2 players to start';
+    }
+
     syncPanelHeights();
   }
 
@@ -1007,6 +1069,10 @@ function initGameClient() {
 
     localState.room = state.room;
     localState.game = state.game;
+
+    if (elements.mainWorkspace.classList.contains('hidden')) {
+      showWorkspace();
+    }
 
     if (!localState.clientId) {
       localState.clientId = getClientId();
@@ -1109,8 +1175,7 @@ function initGameClient() {
   }
 
   function showLobbyScreen() {
-    elements.landingScreen.classList.add('hidden');
-    elements.mainWorkspace.classList.remove('hidden');
+    showWorkspace();
     showOverlay();
     appendChat('entered the room.', 'System');
   }

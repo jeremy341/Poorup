@@ -1,8 +1,5 @@
 const DEFAULT_ROOM_SETTINGS = {
   maxPlayers: 4,
-  privateRoom: false,
-  allowBots: false,
-  boardMap: 'classic',
   doubleRent: false,
   vacationCash: true,
   auction: true,
@@ -105,8 +102,10 @@ class Player {
     this.id = `${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
     this.clientId = clientId || this.id;
     this.socketId = socketId;
-    this.nickname = nickname || 'Player';
-    this.color = color || '#84cc16';
+    const safeNickname = typeof nickname === 'string' ? nickname.trim().slice(0, 24) : '';
+    const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#84cc16';
+    this.nickname = safeNickname || 'Player';
+    this.color = safeColor;
     this.isHost = isHost;
     this.isBot = isBot;
     this.cash = DEFAULT_ROOM_SETTINGS.startingCash;
@@ -146,6 +145,9 @@ class GameState {
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
     this.hasRolled = false;
+    this.consecutiveDoubles = 0;
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
     this.pendingPurchaseOffer = null;
     this.started = false;
     this.feed = [];
@@ -166,6 +168,33 @@ class GameState {
     this.players.push(player);
     this.feedMessage(`${player.nickname} joined the room.`);
     return player;
+  }
+
+  resetForNewGame() {
+    this.tiles = cloneTiles();
+    this.currentPlayerId = null;
+    this.turnOrder = [];
+    this.lastDice = [0, 0];
+    this.hasRolled = false;
+    this.consecutiveDoubles = 0;
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
+    this.pendingPurchaseOffer = null;
+    this.started = false;
+    this.feed = [];
+    this.auction = null;
+    this.pendingTrade = null;
+    this.vacationPool = 0;
+    this.cardDeck = [...CARD_DECK];
+
+    this.players.forEach(player => {
+      player.cash = this.settings.startingCash;
+      player.position = 0;
+      player.properties = [];
+      player.inJail = false;
+      player.bankrupt = false;
+      player.ready = false;
+    });
   }
 
   removePlayerBySocket(socketId) {
@@ -192,11 +221,14 @@ class GameState {
     if (!player) {
       return { success: false, error: 'Player not found.' };
     }
-    if (color) {
+    if (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) {
       player.color = color;
     }
-    if (nickname && !this.started) {
-      player.nickname = nickname;
+    if (typeof nickname === 'string' && !this.started) {
+      const safeNickname = nickname.trim().slice(0, 24);
+      if (safeNickname) {
+        player.nickname = safeNickname;
+      }
     }
     return { success: true };
   }
@@ -250,6 +282,9 @@ class GameState {
     const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
     if (!groupTiles.length) return false;
     if (groupTiles.some(entry => entry.mortgaged)) return false;
+    if (!this.settings.evenBuild) {
+      return (tile.houseCount || 0) < 5;
+    }
     const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
     const minLevel = Math.min(...houseLevels);
     return (tile.houseCount || 0) === minLevel && (tile.houseCount || 0) < 5;
@@ -260,6 +295,9 @@ class GameState {
     if (tile.ownerId !== player.id) return false;
     const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
     if (!groupTiles.length) return false;
+    if (!this.settings.evenBuild) {
+      return (tile.houseCount || 0) > 0;
+    }
     const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
     const maxLevel = Math.max(...houseLevels);
     return (tile.houseCount || 0) === maxLevel && (tile.houseCount || 0) > 0;
@@ -267,6 +305,7 @@ class GameState {
 
   canMortgageTile(player, tile) {
     if (!player || !tile || tile.ownerId !== player.id) return false;
+    if (!this.settings.mortgage) return false;
     if (tile.type !== 'property' && tile.type !== 'utility') return false;
     if ((tile.houseCount || 0) > 0) return false;
     if (tile.mortgaged) return false;
@@ -303,7 +342,7 @@ class GameState {
   }
 
   canJoin() {
-    return this.players.filter(player => !player.isBot && !player.bankrupt).length < this.settings.maxPlayers;
+    return this.players.filter(player => !player.isBot && !player.bankrupt && !player.disconnected).length < this.settings.maxPlayers;
   }
 
   activePlayers() {
@@ -311,7 +350,7 @@ class GameState {
   }
 
   configureStartOrder() {
-    const active = [...this.players].filter(p => !p.bankrupt);
+    const active = [...this.players].filter(p => !p.bankrupt && !p.disconnected);
     if (this.settings.randomizePlayerOrder) {
       active.sort(() => Math.random() - 0.5);
     }
@@ -328,9 +367,10 @@ class GameState {
     if (this.started) {
       return { success: false, error: 'Game has already started.' };
     }
-    if (this.activePlayers().length < 2) {
+    if (this.players.filter(player => !player.disconnected).length < 2) {
       return { success: false, error: 'At least two players are required.' };
     }
+    this.resetForNewGame();
     this.started = true;
     this.configureStartOrder();
     this.feedMessage('The game begins. Players take turns clockwise.');
@@ -354,6 +394,24 @@ class GameState {
     const dice = rollDice();
     this.lastDice = dice;
     this.hasRolled = true;
+    this.turnAllowsExtraRoll = dice[0] === dice[1];
+    this.extraRollPending = this.turnAllowsExtraRoll;
+    if (this.turnAllowsExtraRoll) {
+      this.consecutiveDoubles += 1;
+    } else {
+      this.consecutiveDoubles = 0;
+    }
+    if (this.consecutiveDoubles >= 3) {
+      player.position = this.tiles.find(tile => tile.type === 'jail').index;
+      player.inJail = true;
+      this.consecutiveDoubles = 0;
+      this.turnAllowsExtraRoll = false;
+      this.extraRollPending = false;
+      this.hasRolled = false;
+      this.feedMessage(`${player.nickname} rolled three doubles and was sent to Jail.`);
+      this.nextTurn();
+      return { success: true };
+    }
     const move = dice[0] + dice[1];
     this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
     return this.movePlayer(player, move);
@@ -363,17 +421,20 @@ class GameState {
     const dice = rollDice();
     this.lastDice = dice;
     this.hasRolled = true;
+    this.turnAllowsExtraRoll = false;
+    this.extraRollPending = false;
+    this.consecutiveDoubles = 0;
     if (dice[0] === dice[1]) {
       player.inJail = false;
       this.feedMessage(`${player.nickname} rolled doubles and escaped jail!`);
-      return this.movePlayer(player, dice[0] + dice[1]);
+      return this.movePlayer(player, dice[0] + dice[1], { allowExtraRoll: false });
     }
     this.feedMessage(`${player.nickname} failed to roll doubles in jail.`);
     this.nextTurn();
     return { success: true, message: 'You remain in jail and the turn has passed.' };
   }
 
-  movePlayer(player, steps) {
+  movePlayer(player, steps, options = {}) {
     const oldPosition = player.position;
     player.position = (player.position + steps) % this.tiles.length;
     if (player.position < oldPosition) {
@@ -381,45 +442,58 @@ class GameState {
       this.feedMessage(`${player.nickname} passed Start and collected $200.`);
     }
     const tile = this.getTile(player.position);
-    return this.applyTile(player, tile);
+    return this.applyTile(player, tile, options);
   }
 
-  applyTile(player, tile) {
+  resolveTurnAfterAction({ allowExtraRoll = true } = {}) {
+    if (allowExtraRoll && this.turnAllowsExtraRoll) {
+      this.extraRollPending = true;
+      this.hasRolled = false;
+      return { retainedTurn: true };
+    }
+
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
+    this.nextTurn();
+    return { retainedTurn: false };
+  }
+
+  applyTile(player, tile, options = {}) {
     switch (tile.type) {
       case 'start':
         this.feedMessage(`${player.nickname} landed on Start.`);
-        this.nextTurn();
+        this.resolveTurnAfterAction(options);
         return { success: true };
       case 'property':
-        return this.handlePropertyTile(player, tile);
+        return this.handlePropertyTile(player, tile, options);
       case 'tax':
-        return this.handleTaxTile(player, tile);
+        return this.handleTaxTile(player, tile, options);
       case 'chance':
-        return this.handleChanceTile(player);
+        return this.handleChanceTile(player, options);
       case 'jail':
         this.feedMessage(`${player.nickname} is visiting Jail.`);
-        this.nextTurn();
+        this.resolveTurnAfterAction(options);
         return { success: true };
       case 'goToJail':
         player.position = this.tiles.find(tileItem => tileItem.type === 'jail').index;
         player.inJail = true;
         this.feedMessage(`${player.nickname} was sent to Jail.`);
-        this.nextTurn();
+        this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
         return { success: true };
       case 'vacation':
-        return this.handleVacationTile(player);
+        return this.handleVacationTile(player, options);
       case 'utility':
-        return this.handleUtilityTile(player, tile);
+        return this.handleUtilityTile(player, tile, options);
       default:
-        this.nextTurn();
+        this.resolveTurnAfterAction(options);
         return { success: true };
     }
   }
 
-  handlePropertyTile(player, tile) {
+  handlePropertyTile(player, tile, options = {}) {
     if (tile.mortgaged) {
       this.feedMessage(`${player.nickname} landed on a mortgaged property and paid no rent.`);
-      this.nextTurn();
+      this.resolveTurnAfterAction(options);
       return { success: true };
     }
     if (tile.ownerId === null) {
@@ -429,7 +503,7 @@ class GameState {
           this.startAuction(tile, player.id);
           return { success: true, auctionStarted: true };
         }
-        this.nextTurn();
+        this.resolveTurnAfterAction(options);
         return { success: true };
       }
       this.pendingPurchaseOffer = { playerId: player.id, tileIndex: tile.index };
@@ -437,26 +511,26 @@ class GameState {
     }
     if (tile.ownerId === player.id) {
       this.feedMessage(`${player.nickname} landed on their own property.`);
-      this.nextTurn();
+      this.resolveTurnAfterAction(options);
       return { success: true };
     }
     const owner = this.getPlayerById(tile.ownerId);
     if (!owner || owner.bankrupt) {
-      this.nextTurn();
+      this.resolveTurnAfterAction(options);
       return { success: true };
     }
     if (owner.inJail && this.settings.noRentWhileInPrison) {
       this.feedMessage(`${player.nickname} landed on ${owner.nickname}'s property, but rent is not collected while the owner is in jail.`);
-      this.nextTurn();
+      this.resolveTurnAfterAction(options);
       return { success: true };
     }
     const rent = this.calculateRent(tile);
     this.transferMoney(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`);
-    this.nextTurn();
+    this.resolveTurnAfterAction(options);
     return { success: true };
   }
 
-  handleTaxTile(player, tile) {
+  handleTaxTile(player, tile, options = {}) {
     const amount = tile.amount || 0;
     if (this.settings.vacationCash) {
       this.vacationPool += amount;
@@ -464,11 +538,11 @@ class GameState {
     } else {
       this.deductMoney(player, amount, `${player.nickname} paid $${amount} in tax.`);
     }
-    this.nextTurn();
+    this.resolveTurnAfterAction(options);
     return { success: true };
   }
 
-  handleVacationTile(player) {
+  handleVacationTile(player, options = {}) {
     if (this.vacationPool > 0) {
       player.cash += this.vacationPool;
       this.feedMessage(`${player.nickname} collected $${this.vacationPool} from Vacation cash.`);
@@ -476,14 +550,14 @@ class GameState {
     } else {
       this.feedMessage(`${player.nickname} landed on Vacation.`);
     }
-    this.nextTurn();
+    this.resolveTurnAfterAction(options);
     return { success: true };
   }
 
-  handleUtilityTile(player, tile) {
+  handleUtilityTile(player, tile, options = {}) {
     if (tile.mortgaged) {
       this.feedMessage(`${player.nickname} landed on a mortgaged utility and paid no rent.`);
-      this.nextTurn();
+      this.resolveTurnAfterAction(options);
       return { success: true };
     }
     if (tile.ownerId === null) {
@@ -496,22 +570,22 @@ class GameState {
         this.startAuction(tile, player.id);
         return { success: true, auctionStarted: true };
       }
-      this.nextTurn();
+      this.resolveTurnAfterAction(options);
       return { success: true };
     }
     if (tile.ownerId !== player.id) {
       const owner = this.getPlayerById(tile.ownerId);
-      const rent = tile.rent || 20;
+      const rent = this.calculateRent(tile);
       this.transferMoney(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`);
     }
-    this.nextTurn();
+    this.resolveTurnAfterAction(options);
     return { success: true };
   }
 
-  handleChanceTile(player) {
+  handleChanceTile(player, options = {}) {
     const card = this.drawCard();
     this.feedMessage(`${player.nickname} drew a card: ${card.text}`);
-    const result = this.applyCard(player, card);
+    const result = this.applyCard(player, card, options);
     return result || { success: true };
   }
 
@@ -523,9 +597,10 @@ class GameState {
     return this.cardDeck.splice(index, 1)[0];
   }
 
-  applyCard(player, card) {
+  applyCard(player, card, options = {}) {
     switch (card.action) {
       case 'collectStart':
+        player.position = 0;
         player.cash += 200;
         this.feedMessage(`${player.nickname} collected $200 from Start.`);
         break;
@@ -539,12 +614,13 @@ class GameState {
       case 'move':
         player.position = card.tileIndex;
         this.feedMessage(`${player.nickname} moved to ${this.getTile(card.tileIndex).name}.`);
-        return this.applyTile(player, this.getTile(card.tileIndex));
+        return this.applyTile(player, this.getTile(card.tileIndex), options);
       case 'goToJail':
         player.position = this.tiles.find(tile => tile.type === 'jail').index;
         player.inJail = true;
         this.feedMessage(`${player.nickname} was sent to Jail by a card.`);
-        break;
+        this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
+        return;
       case 'collectFromEach':
         const alive = this.activePlayers();
         alive.forEach(other => {
@@ -556,10 +632,13 @@ class GameState {
       default:
         break;
     }
-    this.nextTurn();
+    this.resolveTurnAfterAction(options);
   }
 
   nextTurn() {
+    this.pendingPurchaseOffer = null;
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
     const active = this.players.filter(player => !player.bankrupt && !player.disconnected);
     if (active.length <= 1) {
       this.endGame();
@@ -607,6 +686,9 @@ class GameState {
 
   handleBankruptcy(player) {
     player.bankrupt = true;
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
+    this.consecutiveDoubles = 0;
     player.properties.forEach(propertyIndex => {
       const tile = this.getTile(propertyIndex);
       if (tile) {
@@ -645,7 +727,7 @@ class GameState {
     player.properties.push(tile.index);
     this.feedMessage(`${player.nickname} purchased ${tile.name} for $${tile.price}.`);
     this.pendingPurchaseOffer = null;
-    this.nextTurn();
+    this.resolveTurnAfterAction();
     return { success: true };
   }
 
@@ -668,7 +750,7 @@ class GameState {
       return { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
     }
     this.feedMessage(`${player.nickname} declined to buy ${tile.name}.`);
-    this.nextTurn();
+    this.resolveTurnAfterAction();
     return { success: true };
   }
 
@@ -723,14 +805,14 @@ class GameState {
     auction.active = false;
     if (!auction.highestBidderId) {
       this.feedMessage(`No bids were placed for ${auction.propertyTile.name}. The property remains unsold.`);
-      this.nextTurn();
+      this.resolveTurnAfterAction();
       this.auction = null;
       return;
     }
     const winner = this.getPlayerById(auction.highestBidderId);
     if (!winner || winner.bankrupt || winner.disconnected || winner.cash < auction.highestBid) {
       this.feedMessage(`Auction ended without a valid winner.`);
-      this.nextTurn();
+      this.resolveTurnAfterAction();
       this.auction = null;
       return;
     }
@@ -743,7 +825,7 @@ class GameState {
     if (winner.cash < 0) {
       this.handleBankruptcy(winner);
     }
-    this.nextTurn();
+    this.resolveTurnAfterAction();
     this.auction = null;
   }
 
@@ -921,6 +1003,9 @@ class GameState {
     if (!this.hasRolled) {
       return { success: false, error: 'You must roll the dice before ending your turn.' };
     }
+    if (this.extraRollPending || this.turnAllowsExtraRoll) {
+      return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    }
     if (this.auction?.active) {
       return { success: false, error: 'Finish the active auction before ending the turn.' };
     }
@@ -940,6 +1025,13 @@ class GameState {
     }
     this.started = false;
     this.currentPlayerId = null;
+    this.hasRolled = false;
+    this.pendingPurchaseOffer = null;
+    this.auction = null;
+    this.pendingTrade = null;
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
+    this.consecutiveDoubles = 0;
   }
 
   getGameSummary() {
@@ -947,6 +1039,8 @@ class GameState {
       started: this.started,
       currentPlayerId: this.currentPlayerId,
       turnOrder: this.turnOrder || [],
+      extraRollPending: this.extraRollPending,
+      pendingPurchaseOffer: this.pendingPurchaseOffer,
       lastDice: this.lastDice,
       tiles: this.tiles.map(tile => ({
         index: tile.index,
@@ -1013,8 +1107,15 @@ class Room {
     if (existing) {
       existing.socketId = playerInfo.socketId;
       existing.disconnected = false;
-      existing.nickname = playerInfo.nickname || existing.nickname;
-      existing.color = playerInfo.color || existing.color;
+      if (typeof playerInfo.nickname === 'string') {
+        const safeNickname = playerInfo.nickname.trim().slice(0, 24);
+        if (safeNickname) {
+          existing.nickname = safeNickname;
+        }
+      }
+      if (typeof playerInfo.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(playerInfo.color)) {
+        existing.color = playerInfo.color;
+      }
       return { success: true, player: existing };
     }
     if (!this.game.canJoin()) {
@@ -1035,14 +1136,28 @@ class Room {
   }
 
   setRoomSetting(key, value) {
-    if (Object.prototype.hasOwnProperty.call(this.settings, key)) {
-      this.settings[key] = value;
-      this.game.settings[key] = value;
-      if (key === 'startingCash') {
-        this.game.players.forEach(player => {
-          player.cash = Number(value);
-        });
-      }
+    if (this.game.started || !Object.prototype.hasOwnProperty.call(this.settings, key)) {
+      return;
+    }
+
+    if (key === 'maxPlayers') {
+      return;
+    } else if (key === 'startingCash') {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return;
+      value = Math.max(0, Math.floor(parsed));
+    } else if (typeof this.settings[key] === 'boolean') {
+      value = value === true || value === 'true' || value === 1 || value === '1';
+    } else if (typeof value === 'string') {
+      value = value.trim();
+    }
+
+    this.settings[key] = value;
+    this.game.settings[key] = value;
+    if (key === 'startingCash') {
+      this.game.players.forEach(player => {
+        player.cash = Number(value);
+      });
     }
   }
 
@@ -1131,7 +1246,12 @@ class RoomManager {
   }
 
   restoreConnection(clientId, socketId) {
-    const room = [...this.rooms.values()].find(roomItem => roomItem.game.getPlayerByClient(clientId));
+    const room =
+      [...this.rooms.values()].find(roomItem => {
+        const player = roomItem.game.getPlayerByClient(clientId);
+        return player && !player.disconnected;
+      }) ||
+      [...this.rooms.values()].find(roomItem => roomItem.game.getPlayerByClient(clientId));
     if (!room) return null;
     const player = room.game.getPlayerByClient(clientId);
     if (!player) return null;

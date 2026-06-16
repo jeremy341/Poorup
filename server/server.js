@@ -25,6 +25,57 @@ const disconnectTimers = new Map();
 const AUCTION_DURATION_MS = 5000;
 const DISCONNECT_GRACE_MS = 10000;
 
+function normalizeNickname(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 24);
+}
+
+function normalizeRoomCode(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().toUpperCase().slice(0, 6);
+}
+
+function normalizeColor(value) {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
+}
+
+function normalizeChatText(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 250);
+}
+
+function emitPendingInteractions(room, socket, player) {
+  if (!room || !socket || !player) return;
+
+  const purchase = room.game.pendingPurchaseOffer;
+  if (purchase && purchase.playerId === player.id && room.game.currentPlayerId === player.id) {
+    const tile = room.game.getTile(purchase.tileIndex);
+    if (tile) {
+      socket.emit('purchase-offer', {
+        tileIndex: tile.index,
+        name: tile.name,
+        price: tile.price
+      });
+    }
+  }
+
+  if (room.game.pendingTrade && room.game.pendingTrade.toPlayerId === player.id) {
+    socket.emit('trade-offer', { trade: room.game.pendingTrade });
+  }
+}
+
+function reassignHostIfNeeded(room, departedPlayerId) {
+  if (!room) return;
+  if (room.hostId !== departedPlayerId) return;
+  const available = room.game.players.find(p => !p.disconnected && !p.bankrupt && p.id !== departedPlayerId);
+  if (available) {
+    room.hostId = available.id;
+  }
+  room.game.players.forEach(player => {
+    player.isHost = player.id === room.hostId;
+  });
+}
+
 function emitRoomState(room) {
   if (!room) return;
   io.in(room.roomCode).emit('update-state', {
@@ -69,13 +120,9 @@ function scheduleDisconnect(room, socketId) {
       return;
     }
     currentPlayer.disconnected = true;
+    currentPlayer.socketId = null;
     roomManager.socketRoom.delete(socketId);
-    if (currentRoom.hostId === currentPlayer.id) {
-      const available = currentRoom.game.players.find(p => !p.disconnected && !p.bankrupt && p.id !== currentPlayer.id);
-      if (available) {
-        currentRoom.hostId = available.id;
-      }
-    }
+    reassignHostIfNeeded(currentRoom, currentPlayer.id);
     if (
       currentRoom.game.pendingTrade &&
       (currentRoom.game.pendingTrade.fromPlayerId === currentPlayer.id || currentRoom.game.pendingTrade.toPlayerId === currentPlayer.id)
@@ -108,37 +155,41 @@ function scheduleAuctionFinish(room) {
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
-  socket.on('restore-session', ({ clientId }) => {
+  socket.on('restore-session', (payload = {}) => {
+    const { clientId } = payload;
     clearDisconnectTimer(clientId);
     const room = roomManager.restoreConnection(clientId, socket.id);
     if (room) {
       // Leave any other game rooms this socket might be in
-      for (const r of socket.rooms) {
+      for (const r of [...socket.rooms]) {
         if (r !== socket.id && r !== room.roomCode) {
           socket.leave(r);
         }
       }
       socket.join(room.roomCode);
       emitRoomState(room);
+      emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
       socket.emit('system-message', { text: 'Reconnected to your room.' });
     }
   });
 
   socket.on('create-room', (payload, callback) => {
-    const { nickname, color, clientId } = payload || {};
+    const { clientId } = payload || {};
+    const nickname = normalizeNickname(payload?.nickname);
+    const color = normalizeColor(payload?.color);
     if (!nickname) {
       return callback?.({ success: false, error: 'Nickname is required.' });
     }
     clearDisconnectTimer(clientId);
 
     // Leave any previous game rooms so we don't receive ghost updates
-    for (const r of socket.rooms) {
+    for (const r of [...socket.rooms]) {
       if (r !== socket.id) {
         socket.leave(r);
       }
     }
 
-    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color });
+    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color: color || undefined });
     socket.join(room.roomCode);
     emitRoomState(room);
     socket.emit('system-message', { text: 'Room created. Waiting for players...' });
@@ -146,7 +197,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join-room', (payload, callback) => {
-    const { roomCode, nickname, color, clientId } = payload || {};
+    const roomCode = normalizeRoomCode(payload?.roomCode);
+    const nickname = normalizeNickname(payload?.nickname);
+    const color = normalizeColor(payload?.color);
+    const { clientId } = payload || {};
     if (!roomCode) {
       return callback?.({ success: false, error: 'Room code is required.' });
     }
@@ -160,7 +214,7 @@ io.on('connection', (socket) => {
     }
 
     // Leave any previous game rooms so we don't receive ghost updates
-    for (const r of socket.rooms) {
+    for (const r of [...socket.rooms]) {
       if (r !== socket.id) {
         socket.leave(r);
       }
@@ -175,34 +229,45 @@ io.on('connection', (socket) => {
         emitRoomState(oldRoom);
       } else if (oldPlayer) {
         oldPlayer.disconnected = true;
+        oldPlayer.socketId = null;
+        reassignHostIfNeeded(oldRoom, oldPlayer.id);
+        if (oldRoom.game.currentPlayerId === oldPlayer.id) {
+          oldRoom.game.nextTurn();
+        }
         emitRoomState(oldRoom);
       }
     }
 
-    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color });
+    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color: color || undefined });
     if (!result.success) {
       return callback?.({ success: false, error: result.error });
     }
     roomManager.socketRoom.set(socket.id, room);
     socket.join(room.roomCode);
     emitRoomState(room);
+    emitPendingInteractions(room, socket, result.player);
     io.in(room.roomCode).emit('system-message', { text: `${nickname} joined the room.` });
     callback?.({ success: true, roomCode: room.roomCode });
   });
 
-  socket.on('set-setting', ({ key, value }, callback) => {
+  socket.on('set-setting', (payload = {}, callback) => {
+    const { key, value } = payload;
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
     if (!player || room.hostId !== player.id) {
       return callback?.({ success: false, error: 'Only the host can change settings.' });
     }
+    if (room.game.started) {
+      return callback?.({ success: false, error: 'Game settings can only be changed before the game starts.' });
+    }
     room.setRoomSetting(key, value);
     emitRoomState(room);
     callback?.({ success: true });
   });
 
-  socket.on('set-player-appearance', ({ color, nickname }, callback) => {
+  socket.on('set-player-appearance', (payload = {}, callback) => {
+    const { color, nickname } = payload;
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) {
       return callback?.({ success: false, error: 'Room not found.' });
@@ -249,7 +314,8 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('purchase-property', ({ tileIndex }, callback) => {
+  socket.on('purchase-property', (payload = {}, callback) => {
+    const { tileIndex } = payload;
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const result = room.purchaseProperty(socket.id, tileIndex);
@@ -260,7 +326,8 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('decline-property', ({ tileIndex }, callback) => {
+  socket.on('decline-property', (payload = {}, callback) => {
+    const { tileIndex } = payload;
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const result = room.declineProperty(socket.id, tileIndex);
@@ -274,7 +341,8 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('auction-bid', ({ amount }, callback) => {
+  socket.on('auction-bid', (payload = {}, callback) => {
+    const { amount } = payload;
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const result = room.placeAuctionBid(socket.id, amount);
@@ -296,7 +364,8 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('manage-property', ({ tileIndex, action }, callback) => {
+  socket.on('manage-property', (payload = {}, callback) => {
+    const { tileIndex, action } = payload;
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const result = room.manageProperty(socket.id, { tileIndex, action });
@@ -329,10 +398,14 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error, accepted: result?.accepted });
   });
 
-  socket.on('send-chat', ({ text }, callback) => {
+  socket.on('send-chat', (payload = {}, callback) => {
+    const text = normalizeChatText(payload.text);
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
+    if (!text) {
+      return callback?.({ success: false, error: 'Message cannot be empty.' });
+    }
     io.in(room.roomCode).emit('chat-message', { text, nickname: player?.nickname || 'Guest' });
     callback?.({ success: true });
   });
