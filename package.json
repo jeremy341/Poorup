@@ -11,7 +11,6 @@
     "socket.io": "^4.8.3"
   },
   "description": "Multiplayer board game",
-  "devDependencies": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jeremy341/Poorup.git"
@@ -23,5 +22,6 @@
   "bugs": {
     "url": "https://github.com/jeremy341/Poorup/issues"
   },
-  "homepage": "https://github.com/jeremy341/Poorup#readme"
+  "homepage": "https://github.com/jeremy341/Poorup#readme",
+  "devDependencies": {}
 }
