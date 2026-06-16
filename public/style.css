@@ -181,7 +181,7 @@ select {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(520px, 720px) minmax(280px, 1fr);
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(240px, 280px);
   gap: 18px;
   padding: 18px 24px;
   align-items: start;
@@ -551,8 +551,8 @@ select {
 
 
 .properties-panel {
-  min-width: 300px;
-  overflow: auto;
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column
 }
@@ -561,8 +561,8 @@ select {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  min-width: 300px;
-  overflow-y: auto;
+  min-width: 0;
+  overflow: visible;
   align-self: stretch;
   min-height: 0
 }
@@ -580,7 +580,7 @@ select {
 }
 
 .property-scroll {
-  max-height: 300px;
+  max-height: 250px;
   overflow-y: auto
 }
 
@@ -597,6 +597,18 @@ select {
   align-items: center;
   padding: 14px 0;
   font-size: 14px
+}
+
+.property-row-clickable {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.property-row-clickable:hover {
+  color: var(--primary);
 }
 
 .property-row span {
@@ -731,11 +743,12 @@ select {
 }
 
 .modal-card {
-  width: min(420px, 100%);
+  width: min(440px, 100%);
   background: var(--panel);
-  border-radius: 20px;
-  padding: 24px;
-  box-shadow: 0 24px 80px rgba(34, 28, 20, 0.16)
+  border-radius: 18px;
+  padding: 26px;
+  box-shadow: 0 24px 80px rgba(34, 28, 20, 0.16);
+  border: 1px solid rgba(230, 216, 200, 0.9)
 }
 
 .modal-card-wide {
@@ -745,7 +758,8 @@ select {
 .modal-title {
   font-size: 18px;
   font-weight: 700;
-  margin-bottom: 10px
+  margin-bottom: 14px;
+  line-height: 1.2
 }
 
 .modal-body p {
@@ -758,11 +772,153 @@ select {
   font-size: 13px
 }
 
+.purchase-modal-card .modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.purchase-property-name {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 0;
+}
+
+.purchase-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f6efe7;
+  border: 1px solid var(--border);
+}
+
+.purchase-summary-label {
+  color: var(--Undertext);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.purchase-summary-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 20px;
+}
+
+.purchase-modal-card .modal-actions .btn {
+  flex: 1;
+}
+
+.auction-modal-card {
+  width: min(520px, 100%);
+}
+
+.auction-modal-card .modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.auction-property-name {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 0;
+}
+
+.auction-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f6efe7;
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auction-countdown {
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.auction-meter {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e6d8c8;
+  border: 1px solid rgba(230, 216, 200, 0.95);
+  display: block;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.auction-meter-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c96a2b 0%, #de7c3b 50%, #f59e0b 100%);
+  transform-origin: left center;
+  transform: scaleX(1);
+  transition: transform 0.1s linear, filter 0.2s ease, background 0.2s ease;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.auction-modal-card.is-critical .auction-countdown {
+  color: #b91c1c;
+}
+
+.auction-modal-card.is-critical .auction-meter {
+  border-color: rgba(185, 28, 28, 0.25);
+}
+
+.auction-modal-card.is-critical .auction-meter-fill {
+  background: linear-gradient(90deg, #b91c1c 0%, #ef4444 55%, #f97316 100%);
+  filter: saturate(1.08);
+}
+
+.auction-modal-card.is-critical #auction-status,
+.auction-modal-card.is-critical .modal-note {
+  color: #8c2a2a;
+}
+
+.auction-bid-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.auction-bid-step {
+  padding: 12px 14px;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.auction-bid-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.auction-state-note {
+  min-height: 18px;
 }
 
 .auction-bid-field {
@@ -780,6 +936,237 @@ select {
   border-radius: 10px;
   background: #fffaf4;
   color: var(--text);
+}
+
+.trade-panel {
+  min-width: 0;
+}
+
+.trade-player-list {
+  padding: 0 14px 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.trade-player-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255, 250, 244, 0.98);
+  cursor: pointer;
+  text-align: left;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.trade-player-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(201, 106, 43, 0.45);
+  box-shadow: 0 12px 24px rgba(34, 28, 20, 0.08);
+}
+
+.trade-player-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.trade-player-copy span {
+  color: var(--Undertext);
+}
+
+.property-modal-card,
+.trade-modal-card {
+  width: min(860px, 100%);
+}
+
+.property-modal-card .modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.property-modal-name {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.property-modal-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f6efe7;
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.property-rent-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.rent-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fffaf4;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.property-house-strip {
+  display: flex;
+  gap: 8px;
+}
+
+.house-pip {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #f5f1ea;
+  color: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.house-pip.filled {
+  background: var(--accent);
+  color: #fff;
+  border-color: rgba(201, 106, 43, 0.4);
+}
+
+.property-modal-actions {
+  flex-wrap: wrap;
+}
+
+.property-modal-actions .btn {
+  flex: 1 1 180px;
+}
+
+.trade-modal-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.trade-side {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: #f6efe7;
+  border: 1px solid var(--border);
+}
+
+.trade-side-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trade-side-title {
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.trade-side-total {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(201, 106, 43, 0.14);
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.trade-cash-field {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.trade-cash-field input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fffaf4;
+}
+
+.trade-property-list {
+  display: grid;
+  gap: 8px;
+  min-height: 160px;
+}
+
+.trade-property-chip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #fffaf4;
+  cursor: pointer;
+  text-align: left;
+}
+
+.trade-property-chip.selected {
+  border-color: rgba(201, 106, 43, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(201, 106, 43, 0.22);
+}
+
+.trade-property-chip span {
+  font-weight: 700;
+}
+
+.trade-property-chip small {
+  color: var(--Undertext);
+}
+
+.trade-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.trade-incoming-details {
+  display: grid;
+  gap: 10px;
+}
+
+.incoming-trade-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f6efe7;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.incoming-trade-row span {
+  color: var(--Undertext);
+  font-weight: 700;
 }
 
 .help-body {
@@ -878,6 +1265,14 @@ select {
   .room-code {
     flex-wrap: wrap;
     justify-content: flex-start
+  }
+
+  .trade-modal-body {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-divider {
+    transform: rotate(90deg);
   }
 }
 

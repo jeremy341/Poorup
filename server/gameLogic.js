@@ -13,6 +13,20 @@ const DEFAULT_ROOM_SETTINGS = {
   startingCash: 1500
 };
 
+const AUCTION_DURATION_MS = 5000;
+const AUCTION_BID_COOLDOWN_MS = 300;
+const PROPERTY_HOUSE_COST_BY_GROUP = {
+  Brown: 50,
+  'Light Blue': 50,
+  Pink: 100,
+  Orange: 100,
+  Red: 150,
+  Yellow: 150,
+  Green: 200,
+  'Dark Blue': 200
+};
+const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
+
 const DEFAULT_TILES = [
   { index: 0, name: 'Start', type: 'start' },
   { index: 1, name: 'Salvador', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#92400e' },
@@ -83,7 +97,7 @@ function rollDice() {
 }
 
 function cloneTiles() {
-  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false }));
+  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0 }));
 }
 
 class Player {
@@ -113,6 +127,10 @@ class AuctionState {
     this.highestBidderId = null;
     this.participants = [];
     this.startingPlayerId = startingPlayerId;
+    this.startedAt = Date.now();
+    this.endsAt = Date.now() + AUCTION_DURATION_MS;
+    this.cooldownUntil = 0;
+    this.lastBidAt = 0;
   }
 }
 
@@ -132,6 +150,7 @@ class GameState {
     this.started = false;
     this.feed = [];
     this.auction = null;
+    this.pendingTrade = null;
     this.vacationPool = 0;
     this.cardDeck = [...CARD_DECK];
   }
@@ -184,6 +203,96 @@ class GameState {
 
   getTile(index) {
     return this.tiles.find(tile => tile.index === index);
+  }
+
+  getGroupTiles(group) {
+    return this.tiles.filter(tile => tile.group === group && tile.type === 'property');
+  }
+
+  getPropertyHouseCost(tile) {
+    return PROPERTY_HOUSE_COST_BY_GROUP[tile?.group] || 0;
+  }
+
+  getPropertyRent(tile) {
+    const baseRent = tile.rent || 0;
+    if (tile.mortgaged) {
+      return 0;
+    }
+    if (tile.type === 'property') {
+      const level = Math.max(0, Math.min(5, tile.houseCount || 0));
+      if (level > 0) {
+        return Math.floor(baseRent * PROPERTY_RENT_MULTIPLIERS[level]);
+      }
+      if (tile.group && this.settings.doubleRent && this.hasFullSet(tile.ownerId, tile.group)) {
+        return baseRent * 2;
+      }
+    }
+    if (tile.type === 'utility') {
+      const owner = this.getPlayerById(tile.ownerId);
+      if (!owner) return baseRent || 20;
+      const ownedUtilities = this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id).length;
+      const diceTotal = Math.max(2, (this.lastDice?.[0] || 0) + (this.lastDice?.[1] || 0));
+      return diceTotal * (ownedUtilities >= 2 ? 10 : 4);
+    }
+    return baseRent;
+  }
+
+  isTradeableTile(tile) {
+    if (!tile || !tile.ownerId) return false;
+    if (tile.mortgaged) return false;
+    return (tile.type === 'property' || tile.type === 'utility') && (tile.houseCount || 0) === 0;
+  }
+
+  canBuildOnTile(player, tile) {
+    if (!player || !tile || tile.type !== 'property') return false;
+    if (tile.ownerId !== player.id || tile.mortgaged) return false;
+    if (!this.hasFullSet(player.id, tile.group)) return false;
+    const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
+    if (!groupTiles.length) return false;
+    if (groupTiles.some(entry => entry.mortgaged)) return false;
+    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
+    const minLevel = Math.min(...houseLevels);
+    return (tile.houseCount || 0) === minLevel && (tile.houseCount || 0) < 5;
+  }
+
+  canSellFromTile(player, tile) {
+    if (!player || !tile || tile.type !== 'property') return false;
+    if (tile.ownerId !== player.id) return false;
+    const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
+    if (!groupTiles.length) return false;
+    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
+    const maxLevel = Math.max(...houseLevels);
+    return (tile.houseCount || 0) === maxLevel && (tile.houseCount || 0) > 0;
+  }
+
+  canMortgageTile(player, tile) {
+    if (!player || !tile || tile.ownerId !== player.id) return false;
+    if (tile.type !== 'property' && tile.type !== 'utility') return false;
+    if ((tile.houseCount || 0) > 0) return false;
+    if (tile.mortgaged) return false;
+    if (tile.type === 'property') {
+      const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
+      if (groupTiles.some(entry => (entry.houseCount || 0) > 0)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  canUnmortgageTile(player, tile) {
+    return Boolean(player && tile && tile.ownerId === player.id && tile.mortgaged);
+  }
+
+  applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
+    tile.ownerId = toPlayer ? toPlayer.id : null;
+    tile.mortgaged = false;
+    tile.houseCount = 0;
+    if (fromPlayer) {
+      fromPlayer.properties = fromPlayer.properties.filter(propertyIndex => propertyIndex !== tile.index);
+    }
+    if (toPlayer) {
+      toPlayer.properties.push(tile.index);
+    }
   }
 
   feedMessage(text) {
@@ -308,6 +417,11 @@ class GameState {
   }
 
   handlePropertyTile(player, tile) {
+    if (tile.mortgaged) {
+      this.feedMessage(`${player.nickname} landed on a mortgaged property and paid no rent.`);
+      this.nextTurn();
+      return { success: true };
+    }
     if (tile.ownerId === null) {
       if (player.cash < tile.price) {
         this.feedMessage(`${player.nickname} cannot afford ${tile.name}.`);
@@ -367,12 +481,21 @@ class GameState {
   }
 
   handleUtilityTile(player, tile) {
+    if (tile.mortgaged) {
+      this.feedMessage(`${player.nickname} landed on a mortgaged utility and paid no rent.`);
+      this.nextTurn();
+      return { success: true };
+    }
     if (tile.ownerId === null) {
       if (player.cash >= tile.price) {
         this.pendingPurchaseOffer = { playerId: player.id, tileIndex: tile.index };
         return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
       }
       this.feedMessage(`${player.nickname} cannot afford ${tile.name}.`);
+      if (this.settings.auction) {
+        this.startAuction(tile, player.id);
+        return { success: true, auctionStarted: true };
+      }
       this.nextTurn();
       return { success: true };
     }
@@ -457,11 +580,7 @@ class GameState {
   }
 
   calculateRent(tile) {
-    let amount = tile.rent || 0;
-    if (tile.group && this.settings.doubleRent && this.hasFullSet(tile.ownerId, tile.group)) {
-      amount *= 2;
-    }
-    return amount;
+    return this.getPropertyRent(tile);
   }
 
   hasFullSet(ownerId, group) {
@@ -492,6 +611,8 @@ class GameState {
       const tile = this.getTile(propertyIndex);
       if (tile) {
         tile.ownerId = null;
+        tile.houseCount = 0;
+        tile.mortgaged = false;
       }
     });
     player.properties = [];
@@ -519,6 +640,8 @@ class GameState {
     }
     player.cash -= tile.price;
     tile.ownerId = player.id;
+    tile.mortgaged = false;
+    tile.houseCount = 0;
     player.properties.push(tile.index);
     this.feedMessage(`${player.nickname} purchased ${tile.name} for $${tile.price}.`);
     this.pendingPurchaseOffer = null;
@@ -542,7 +665,7 @@ class GameState {
     this.pendingPurchaseOffer = null;
     if (this.settings.auction) {
       this.startAuction(tile, player.id);
-      return { success: true, message: 'Auction started for the declined property.' };
+      return { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
     }
     this.feedMessage(`${player.nickname} declined to buy ${tile.name}.`);
     this.nextTurn();
@@ -561,14 +684,33 @@ class GameState {
     if (!player || !this.auction || !this.auction.active) {
       return { success: false, error: 'No auction is active.' };
     }
+    const now = Date.now();
+    if (player.bankrupt || player.disconnected) {
+      return { success: false, error: 'You cannot bid right now.' };
+    }
+    if (this.auction.participants.length && !this.auction.participants.includes(player.id)) {
+      return { success: false, error: 'You are not part of this auction.' };
+    }
+    if (this.auction.cooldownUntil && now < this.auction.cooldownUntil) {
+      return { success: false, error: 'Please wait a moment before bidding again.' };
+    }
+    if (!Number.isFinite(amount) || amount % 1 !== 0) {
+      return { success: false, error: 'Bid must be a whole number.' };
+    }
     if (amount <= this.auction.highestBid) {
       return { success: false, error: 'Bid must be higher than the current bid.' };
     }
     if (amount > player.cash) {
       return { success: false, error: 'Insufficient funds for this bid.' };
     }
+    if (this.auction.highestBid > 0 && this.auction.highestBidderId === player.id) {
+      return { success: false, error: 'Another player must raise the bid first.' };
+    }
     this.auction.highestBid = amount;
     this.auction.highestBidderId = player.id;
+    this.auction.lastBidAt = now;
+    this.auction.cooldownUntil = now + AUCTION_BID_COOLDOWN_MS;
+    this.auction.endsAt = now + AUCTION_DURATION_MS;
     this.feedMessage(`${player.nickname} bid $${amount}.`);
     return { success: true };
   }
@@ -586,7 +728,7 @@ class GameState {
       return;
     }
     const winner = this.getPlayerById(auction.highestBidderId);
-    if (!winner) {
+    if (!winner || winner.bankrupt || winner.disconnected || winner.cash < auction.highestBid) {
       this.feedMessage(`Auction ended without a valid winner.`);
       this.nextTurn();
       this.auction = null;
@@ -594,6 +736,8 @@ class GameState {
     }
     winner.cash -= auction.highestBid;
     auction.propertyTile.ownerId = winner.id;
+    auction.propertyTile.mortgaged = false;
+    auction.propertyTile.houseCount = 0;
     winner.properties.push(auction.propertyTile.index);
     this.feedMessage(`${winner.nickname} won the auction for ${auction.propertyTile.name} at $${auction.highestBid}.`);
     if (winner.cash < 0) {
@@ -601,6 +745,172 @@ class GameState {
     }
     this.nextTurn();
     this.auction = null;
+  }
+
+  manageProperty(socketId, { tileIndex, action } = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    const tile = this.getTile(tileIndex);
+    if (!player || !tile) {
+      return { success: false, error: 'Property not found.' };
+    }
+    if (tile.ownerId !== player.id) {
+      return { success: false, error: 'You do not own this property.' };
+    }
+
+    if (action === 'build-house') {
+      if (!this.canBuildOnTile(player, tile)) {
+        return { success: false, error: 'You cannot build on this property right now.' };
+      }
+      const cost = this.getPropertyHouseCost(tile);
+      if (player.cash < cost) {
+        return { success: false, error: 'Insufficient cash to build a house.' };
+      }
+      player.cash -= cost;
+      tile.houseCount = (tile.houseCount || 0) + 1;
+      const label = tile.houseCount >= 5 ? 'hotel' : 'house';
+      this.feedMessage(`${player.nickname} built a ${label} on ${tile.name}.`);
+      return { success: true };
+    }
+
+    if (action === 'sell-house') {
+      if (!this.canSellFromTile(player, tile)) {
+        return { success: false, error: 'You cannot sell a house from this property right now.' };
+      }
+      const cost = this.getPropertyHouseCost(tile);
+      tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
+      player.cash += Math.floor(cost / 2);
+      const label = tile.houseCount >= 5 ? 'hotel' : 'house';
+      this.feedMessage(`${player.nickname} sold a ${label} from ${tile.name}.`);
+      return { success: true };
+    }
+
+    if (action === 'mortgage') {
+      if (!this.canMortgageTile(player, tile)) {
+        return { success: false, error: 'You cannot mortgage this property right now.' };
+      }
+      tile.mortgaged = true;
+      const amount = Math.floor((tile.price || 0) / 2);
+      player.cash += amount;
+      this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
+      return { success: true };
+    }
+
+    if (action === 'unmortgage') {
+      if (!this.canUnmortgageTile(player, tile)) {
+        return { success: false, error: 'You cannot unmortgage this property right now.' };
+      }
+      const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
+      if (player.cash < cost) {
+        return { success: false, error: 'Insufficient cash to unmortgage this property.' };
+      }
+      player.cash -= cost;
+      tile.mortgaged = false;
+      this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
+      return { success: true };
+    }
+
+    return { success: false, error: 'Unknown property action.' };
+  }
+
+  proposeTrade(socketId, offer = {}) {
+    const fromPlayer = this.getPlayerBySocket(socketId);
+    const toPlayer = this.getPlayerById(offer.toPlayerId);
+    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id) {
+      return { success: false, error: 'Choose a valid trade partner.' };
+    }
+    if (fromPlayer.bankrupt || fromPlayer.disconnected || toPlayer.bankrupt || toPlayer.disconnected) {
+      return { success: false, error: 'Both players must be active to trade.' };
+    }
+
+    const giveCash = Math.max(0, Number(offer.giveCash || 0));
+    const requestCash = Math.max(0, Number(offer.requestCash || 0));
+    const givePropertyIndexes = Array.isArray(offer.givePropertyIndexes) ? offer.givePropertyIndexes.map(Number) : [];
+    const requestPropertyIndexes = Array.isArray(offer.requestPropertyIndexes) ? offer.requestPropertyIndexes.map(Number) : [];
+
+    if (!Number.isFinite(giveCash) || !Number.isFinite(requestCash)) {
+      return { success: false, error: 'Cash values must be valid numbers.' };
+    }
+
+    const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
+    const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
+
+    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
+      return { success: false, error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.' };
+    }
+    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
+      return { success: false, error: 'The requested properties are not available for trade.' };
+    }
+    if (fromPlayer.cash < giveCash) {
+      return { success: false, error: 'You do not have enough cash for this offer.' };
+    }
+
+    const trade = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromPlayerId: fromPlayer.id,
+      fromPlayerName: fromPlayer.nickname,
+      toPlayerId: toPlayer.id,
+      toPlayerName: toPlayer.nickname,
+      giveCash,
+      requestCash,
+      givePropertyIndexes,
+      requestPropertyIndexes,
+      createdAt: Date.now()
+    };
+
+    this.pendingTrade = trade;
+    this.feedMessage(`${fromPlayer.nickname} sent a trade offer to ${toPlayer.nickname}.`);
+    return { success: true, trade };
+  }
+
+  respondToTrade(socketId, { tradeId, accept } = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    if (!player || !this.pendingTrade || this.pendingTrade.id !== tradeId) {
+      return { success: false, error: 'No matching trade offer was found.' };
+    }
+    const trade = this.pendingTrade;
+    if (trade.toPlayerId !== player.id) {
+      return { success: false, error: 'Only the receiving player can respond to this trade.' };
+    }
+
+    if (!accept) {
+      this.feedMessage(`${player.nickname} declined the trade offer.`);
+      this.pendingTrade = null;
+      return { success: true, accepted: false };
+    }
+
+    const fromPlayer = this.getPlayerById(trade.fromPlayerId);
+    const toPlayer = this.getPlayerById(trade.toPlayerId);
+    if (!fromPlayer || !toPlayer || fromPlayer.bankrupt || toPlayer.bankrupt) {
+      this.pendingTrade = null;
+      return { success: false, error: 'The trade is no longer valid.' };
+    }
+    if (fromPlayer.cash < trade.giveCash || toPlayer.cash < trade.requestCash) {
+      this.pendingTrade = null;
+      return { success: false, error: 'One of the players no longer has enough cash.' };
+    }
+
+    const giveTiles = trade.givePropertyIndexes.map(index => this.getTile(index));
+    const requestTiles = trade.requestPropertyIndexes.map(index => this.getTile(index));
+    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
+      this.pendingTrade = null;
+      return { success: false, error: 'One of the offered properties is no longer tradable.' };
+    }
+    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
+      this.pendingTrade = null;
+      return { success: false, error: 'One of the requested properties is no longer tradable.' };
+    }
+
+    fromPlayer.cash -= trade.giveCash;
+    toPlayer.cash += trade.giveCash;
+    toPlayer.cash -= trade.requestCash;
+    fromPlayer.cash += trade.requestCash;
+
+    giveTiles.forEach(tile => this.applyPropertyOwnershipChange(fromPlayer, toPlayer, tile));
+    requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
+
+    this.pendingTrade = null;
+    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
+    return { success: true, accepted: true };
   }
 
   endTurn(socketId) {
@@ -648,7 +958,9 @@ class GameState {
         rent: tile.rent,
         color: tile.color,
         amount: tile.amount,
-        mortgaged: tile.mortgaged
+        mortgaged: tile.mortgaged,
+        houseCount: tile.houseCount || 0,
+        houseCost: this.getPropertyHouseCost(tile)
       })),
       players: this.players.map(player => ({
         id: player.id,
@@ -672,8 +984,14 @@ class GameState {
         tileName: this.auction.propertyTile.name,
         highestBid: this.auction.highestBid,
         highestBidderId: this.auction.highestBidderId,
-        participants: this.auction.participants
+        participants: this.auction.participants,
+        startedAt: this.auction.startedAt,
+        endsAt: this.auction.endsAt,
+        cooldownUntil: this.auction.cooldownUntil,
+        lastBidAt: this.auction.lastBidAt,
+        durationMs: AUCTION_DURATION_MS
       } : null,
+      pendingTrade: this.pendingTrade,
       vacationPool: this.vacationPool
     };
   }
@@ -748,6 +1066,18 @@ class Room {
     return this.game.placeAuctionBid(socketId, amount);
   }
 
+  manageProperty(socketId, payload) {
+    return this.game.manageProperty(socketId, payload);
+  }
+
+  proposeTrade(socketId, payload) {
+    return this.game.proposeTrade(socketId, payload);
+  }
+
+  respondToTrade(socketId, payload) {
+    return this.game.respondToTrade(socketId, payload);
+  }
+
   endTurn(socketId) {
     return this.game.endTurn(socketId);
   }
@@ -814,16 +1144,7 @@ class RoomManager {
   disconnectPlayer(socketId) {
     const room = this.getRoomBySocket(socketId);
     if (!room) return null;
-    const player = room.getPlayerBySocket(socketId);
-    if (player) {
-      player.disconnected = true;
-    }
-    if (room.hostId === player?.id) {
-      const available = room.game.players.find(p => !p.disconnected && !p.bankrupt && p.id !== player.id);
-      if (available) {
-        room.hostId = available.id;
-      }
-    }
+    this.socketRoom.delete(socketId);
     return room;
   }
 }

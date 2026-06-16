@@ -21,12 +21,16 @@ app.get('*', (req, res, next) => {
 
 const roomManager = new RoomManager();
 const auctionTimers = new Map();
+const disconnectTimers = new Map();
+const AUCTION_DURATION_MS = 5000;
+const DISCONNECT_GRACE_MS = 10000;
 
 function emitRoomState(room) {
   if (!room) return;
   io.in(room.roomCode).emit('update-state', {
     room: room.getRoomSummary(),
-    game: room.game.getGameSummary()
+    game: room.game.getGameSummary(),
+    serverTime: Date.now()
   });
 }
 
@@ -38,15 +42,66 @@ function clearAuctionTimer(room) {
   auctionTimers.delete(room.roomCode);
 }
 
+function clearDisconnectTimer(clientId) {
+  const timer = disconnectTimers.get(clientId);
+  if (timer) {
+    clearTimeout(timer);
+    disconnectTimers.delete(clientId);
+  }
+}
+
+function scheduleDisconnect(room, socketId) {
+  if (!room) return;
+  const player = room.getPlayerBySocket(socketId);
+  if (!player) return;
+  clearDisconnectTimer(player.clientId);
+  const timer = setTimeout(() => {
+    disconnectTimers.delete(player.clientId);
+    if (player.socketId !== socketId) {
+      return;
+    }
+    const currentRoom = roomManager.getRoom(room.roomCode);
+    if (!currentRoom) {
+      return;
+    }
+    const currentPlayer = currentRoom.game.getPlayerByClient(player.clientId);
+    if (!currentPlayer || currentPlayer.socketId !== socketId) {
+      return;
+    }
+    currentPlayer.disconnected = true;
+    roomManager.socketRoom.delete(socketId);
+    if (currentRoom.hostId === currentPlayer.id) {
+      const available = currentRoom.game.players.find(p => !p.disconnected && !p.bankrupt && p.id !== currentPlayer.id);
+      if (available) {
+        currentRoom.hostId = available.id;
+      }
+    }
+    if (
+      currentRoom.game.pendingTrade &&
+      (currentRoom.game.pendingTrade.fromPlayerId === currentPlayer.id || currentRoom.game.pendingTrade.toPlayerId === currentPlayer.id)
+    ) {
+      currentRoom.game.pendingTrade = null;
+    }
+    if (currentRoom.game.currentPlayerId === currentPlayer.id) {
+      currentRoom.game.nextTurn();
+    }
+    emitRoomState(currentRoom);
+    io.in(currentRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname} disconnected.` });
+  }, DISCONNECT_GRACE_MS);
+  disconnectTimers.set(player.clientId, timer);
+}
+
 function scheduleAuctionFinish(room) {
   if (!room?.game?.auction?.active) return;
   clearAuctionTimer(room);
+  const endsAt = room.game.auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
+  const delay = Math.max(0, endsAt - Date.now());
   const timer = setTimeout(() => {
     room.game.finishAuction();
     emitRoomState(room);
     io.in(room.roomCode).emit('system-message', { text: 'Auction ended.' });
     clearAuctionTimer(room);
-  }, 15000);
+  }, delay);
   auctionTimers.set(room.roomCode, timer);
 }
 
@@ -54,8 +109,15 @@ io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
   socket.on('restore-session', ({ clientId }) => {
+    clearDisconnectTimer(clientId);
     const room = roomManager.restoreConnection(clientId, socket.id);
     if (room) {
+      // Leave any other game rooms this socket might be in
+      for (const r of socket.rooms) {
+        if (r !== socket.id && r !== room.roomCode) {
+          socket.leave(r);
+        }
+      }
       socket.join(room.roomCode);
       emitRoomState(room);
       socket.emit('system-message', { text: 'Reconnected to your room.' });
@@ -67,6 +129,15 @@ io.on('connection', (socket) => {
     if (!nickname) {
       return callback?.({ success: false, error: 'Nickname is required.' });
     }
+    clearDisconnectTimer(clientId);
+
+    // Leave any previous game rooms so we don't receive ghost updates
+    for (const r of socket.rooms) {
+      if (r !== socket.id) {
+        socket.leave(r);
+      }
+    }
+
     const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color });
     socket.join(room.roomCode);
     emitRoomState(room);
@@ -82,14 +153,37 @@ io.on('connection', (socket) => {
     if (!nickname) {
       return callback?.({ success: false, error: 'Nickname is required.' });
     }
+    clearDisconnectTimer(clientId);
     const room = roomManager.getRoom(roomCode);
     if (!room) {
       return callback?.({ success: false, error: 'Room not found.' });
     }
+
+    // Leave any previous game rooms so we don't receive ghost updates
+    for (const r of socket.rooms) {
+      if (r !== socket.id) {
+        socket.leave(r);
+      }
+    }
+
+    // Remove player from any old room they were in via restore-session
+    const oldRoom = roomManager.getRoomBySocket(socket.id);
+    if (oldRoom && oldRoom.roomCode !== room.roomCode) {
+      const oldPlayer = oldRoom.getPlayerBySocket(socket.id);
+      if (oldPlayer && !oldRoom.game.started) {
+        oldRoom.game.removePlayerBySocket(socket.id);
+        emitRoomState(oldRoom);
+      } else if (oldPlayer) {
+        oldPlayer.disconnected = true;
+        emitRoomState(oldRoom);
+      }
+    }
+
     const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color });
     if (!result.success) {
       return callback?.({ success: false, error: result.error });
     }
+    roomManager.socketRoom.set(socket.id, room);
     socket.join(room.roomCode);
     emitRoomState(room);
     io.in(room.roomCode).emit('system-message', { text: `${nickname} joined the room.` });
@@ -170,7 +264,7 @@ io.on('connection', (socket) => {
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const result = room.declineProperty(socket.id, tileIndex);
-    if (room.game.auction?.active) {
+    if (result?.auctionStarted) {
       scheduleAuctionFinish(room);
     }
     emitRoomState(room);
@@ -184,6 +278,9 @@ io.on('connection', (socket) => {
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
     const result = room.placeAuctionBid(socket.id, amount);
+    if (result?.success && room.game.auction?.active) {
+      scheduleAuctionFinish(room);
+    }
     emitRoomState(room);
     if (result?.message) {
       io.in(room.roomCode).emit('system-message', { text: result.message });
@@ -199,6 +296,39 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
+  socket.on('manage-property', ({ tileIndex, action }, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.manageProperty(socket.id, { tileIndex, action });
+    emitRoomState(room);
+    if (result?.message) {
+      io.in(room.roomCode).emit('system-message', { text: result.message });
+    }
+    callback?.({ success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('propose-trade', (payload, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.proposeTrade(socket.id, payload);
+    emitRoomState(room);
+    if (result?.success && result.trade) {
+      const target = room.game.getPlayerById(result.trade.toPlayerId);
+      if (target?.socketId) {
+        io.to(target.socketId).emit('trade-offer', { trade: result.trade });
+      }
+    }
+    callback?.({ success: result?.success ?? false, error: result?.error, trade: result?.trade });
+  });
+
+  socket.on('respond-trade', (payload, callback) => {
+    const room = roomManager.getRoomBySocket(socket.id);
+    if (!room) return;
+    const result = room.respondToTrade(socket.id, payload);
+    emitRoomState(room);
+    callback?.({ success: result?.success ?? false, error: result?.error, accepted: result?.accepted });
+  });
+
   socket.on('send-chat', ({ text }, callback) => {
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) return;
@@ -210,8 +340,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const room = roomManager.disconnectPlayer(socket.id);
     if (room) {
-      emitRoomState(room);
-      io.in(room.roomCode).emit('system-message', { text: 'A player disconnected. Their turn will be skipped if needed.' });
+      scheduleDisconnect(room, socket.id);
     }
     console.log('Socket disconnected:', socket.id);
   });
