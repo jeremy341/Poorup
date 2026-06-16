@@ -1,17 +1,34 @@
-const BOARD_POSITIONS = [
-  { left: 90, top: 90 }, { left: 75, top: 90 }, { left: 60, top: 90 }, { left: 45, top: 90 },
-  { left: 30, top: 90 }, { left: 15, top: 90 },
-  { left: 5, top: 75 }, { left: 5, top: 60 }, { left: 5, top: 45 }, { left: 5, top: 30 },
-  { left: 15, top: 15 }, { left: 30, top: 10 }, { left: 45, top: 10 }, { left: 60, top: 10 },
-  { left: 75, top: 10 },
-  { left: 90, top: 15 }, { left: 95, top: 30 }, { left: 95, top: 45 }, { left: 95, top: 60 },
-  { left: 95, top: 75 },
-  { left: 85, top: 90 }, { left: 70, top: 90 }, { left: 55, top: 90 }, { left: 40, top: 90 }
-];
+function generateBoardPositions() {
+  const positions = [];
+  const boardSize = 1180;
+  const cornerCenter = 70;
+  const lastCornerCenter = boardSize - cornerCenter;
+  const sideCenters = Array.from({ length: 9 }, (_, index) => 190 + (index * 100));
+  const toPercent = value => Number(((value / boardSize) * 100).toFixed(2));
+  const pushPosition = (left, top) => {
+    positions.push({ left: toPercent(left), top: toPercent(top) });
+  };
+
+  pushPosition(cornerCenter, cornerCenter);
+  sideCenters.forEach(left => pushPosition(left, cornerCenter));
+  pushPosition(lastCornerCenter, cornerCenter);
+  sideCenters.forEach(top => pushPosition(lastCornerCenter, top));
+  pushPosition(lastCornerCenter, lastCornerCenter);
+  sideCenters.slice().reverse().forEach(left => pushPosition(left, lastCornerCenter));
+  pushPosition(cornerCenter, lastCornerCenter);
+  sideCenters.slice().reverse().forEach(top => pushPosition(cornerCenter, top));
+
+  return positions;
+}
+
+const BOARD_POSITIONS = generateBoardPositions();
+const TOKEN_SIZE = 30;
 
 const PLAYER_COLORS = [
   '#111827', '#ef4444', '#f59e0b', '#84cc16', '#06b6d4', '#6366f1', '#a78bfa', '#fb7185'
 ];
+const AUCTION_DURATION_MS = 5000;
+const AUCTION_PRESS_DELAY_MS = 300;
 
 function initGameClient() {
   const elements = {
@@ -32,23 +49,69 @@ function initGameClient() {
     roomCodeBlock: document.getElementById('room-code'),
     roomCodeValue: document.getElementById('room-code-value'),
     copyRoomBtn: document.getElementById('copy-room-btn'),
-    turnBanner: null,
+    turnBanner: document.getElementById('turn-banner'),
+    turnBannerTitle: document.getElementById('turn-banner-title'),
+    turnBannerSubtitle: document.getElementById('turn-banner-subtitle'),
+    diceDisplay: document.getElementById('dice-display'),
+    vacationDisplay: document.getElementById('vacation-display'),
+    vacationBalance: document.getElementById('vacation-balance'),
+    boardOwnershipLayer: document.getElementById('board-ownership-layer'),
+    rightSidebar: document.querySelector('.right-panel'),
+    propertiesWindow: document.querySelector('.properties-panel'),
+    settingsWindow: document.getElementById('settings-window'),
     purchaseModal: document.getElementById('purchase-modal'),
     purchaseName: document.getElementById('purchase-property-name'),
     purchaseCost: document.getElementById('purchase-property-cost'),
     purchaseConfirmBtn: document.getElementById('purchase-confirm-btn'),
     purchaseDeclineBtn: document.getElementById('purchase-decline-btn'),
     auctionModal: document.getElementById('auction-modal'),
+    auctionModalCard: document.querySelector('#auction-modal .auction-modal-card'),
     auctionPropertyName: document.getElementById('auction-property-name'),
     auctionCurrentBid: document.getElementById('auction-current-bid'),
-    auctionBidInput: document.getElementById('auction-bid-input'),
-    auctionBidBtn: document.getElementById('auction-bid-btn'),
+    auctionCountdown: document.getElementById('auction-countdown'),
+    auctionMeterFill: document.getElementById('auction-meter-fill'),
+    auctionStatus: document.getElementById('auction-status'),
+    auctionBid2Btn: document.getElementById('auction-bid-2-btn'),
+    auctionBid10Btn: document.getElementById('auction-bid-10-btn'),
+    auctionBid100Btn: document.getElementById('auction-bid-100-btn'),
+    propertyModal: document.getElementById('property-modal'),
+    propertyModalName: document.getElementById('property-modal-name'),
+    propertyModalGroup: document.getElementById('property-modal-group'),
+    propertyModalStatus: document.getElementById('property-modal-status'),
+    propertyModalRents: document.getElementById('property-modal-rents'),
+    propertyModalHouses: document.getElementById('property-modal-houses'),
+    propertyModalNote: document.getElementById('property-modal-note'),
+    propertyBuildBtn: document.getElementById('property-build-btn'),
+    propertySellBtn: document.getElementById('property-sell-btn'),
+    propertyMortgageBtn: document.getElementById('property-mortgage-btn'),
+    propertyCloseBtn: document.getElementById('property-close-btn'),
+    tradePlayerList: document.getElementById('trade-player-list'),
+    tradeModal: document.getElementById('trade-modal'),
+    tradeOfferCash: document.getElementById('trade-offer-cash'),
+    tradeRequestCash: document.getElementById('trade-request-cash'),
+    tradeOfferCashTotal: document.getElementById('trade-offer-cash-total'),
+    tradeRequestCashTotal: document.getElementById('trade-request-cash-total'),
+    tradeTargetTitle: document.getElementById('trade-target-title'),
+    tradeOfferProperties: document.getElementById('trade-offer-properties'),
+    tradeRequestProperties: document.getElementById('trade-request-properties'),
+    tradeSendBtn: document.getElementById('trade-send-btn'),
+    tradeCloseBtn: document.getElementById('trade-close-btn'),
+    incomingTradeModal: document.getElementById('incoming-trade-modal'),
+    incomingTradeSummary: document.getElementById('incoming-trade-summary'),
+    incomingTradeDetails: document.getElementById('incoming-trade-details'),
+    incomingTradeAcceptBtn: document.getElementById('incoming-trade-accept-btn'),
+    incomingTradeDeclineBtn: document.getElementById('incoming-trade-decline-btn'),
 
     centerStartBtn: document.getElementById('center-start-btn'),
     startGameOverlay: document.getElementById('start-game-overlay'),
     rollDiceBtn: document.getElementById('roll-dice-btn'),
     endTurnBtn: document.getElementById('end-turn-btn'),
-    turnActions: document.getElementById('turn-actions')
+    turnActions: document.getElementById('turn-actions'),
+    myPropertiesList: document.getElementById('my-properties-list'),
+    helpBtn: document.getElementById('help-btn'),
+    helpModal: document.getElementById('help-modal'),
+    helpCloseBtn: document.getElementById('help-close-btn'),
+    toastStack: document.getElementById('toast-stack')
   };
 
   const required = [
@@ -73,11 +136,37 @@ function initGameClient() {
   const localState = {
     room: null,
     game: null,
-    clientId: null,
+    clientId: getClientId(),
     isHost: false,
     currentPlayerIsMe: false
   };
-  const gameState = { started: false, currentPlayerId: null };
+  const gameState = {
+    started: false,
+    currentPlayerId: null,
+    lastDice: [0, 0],
+    auctionActive: false,
+    awaitingDecision: false,
+    extraRollPending: false,
+    pendingTrade: null,
+    selectedPropertyIndex: null
+  };
+  let auctionUiState = null;
+  let auctionUiGame = null;
+  let auctionUiTicker = null;
+  let auctionUiPressLockUntil = 0;
+  let serverTimeOffset = 0;
+  let propertyUiState = null;
+  let tradeUiState = {
+    targetPlayerId: null,
+    selectedOfferPropertyIndexes: new Set(),
+    selectedRequestPropertyIndexes: new Set(),
+    offerCash: 0,
+    requestCash: 0
+  };
+
+  function getServerNow() {
+    return Date.now() + serverTimeOffset;
+  }
 
   const socket = io();
   const disposers = [];
@@ -88,11 +177,34 @@ function initGameClient() {
   }
 
   function getClientId() {
-    const existing = localStorage.getItem('poorup-client-id');
-    if (existing) return existing;
-    const generated = `client-${Math.random().toString(36).slice(2, 11)}`;
-    localStorage.setItem('poorup-client-id', generated);
-    return generated;
+    const storageKey = 'poorup-client-id';
+    try {
+      const existing = window.sessionStorage.getItem(storageKey);
+      if (existing) {
+        return existing;
+      }
+      const namePrefix = 'poorup-client-id:';
+      if (window.name && window.name.startsWith(namePrefix)) {
+        const fromName = window.name.slice(namePrefix.length);
+        window.sessionStorage.setItem(storageKey, fromName);
+        return fromName;
+      }
+      const generated = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? `client-${crypto.randomUUID()}`
+        : `client-${Math.random().toString(36).slice(2, 11)}`;
+      window.sessionStorage.setItem(storageKey, generated);
+      return generated;
+    } catch (error) {
+      const namePrefix = 'poorup-client-id:';
+      if (window.name && window.name.startsWith(namePrefix)) {
+        return window.name.slice(namePrefix.length);
+      }
+      const generated = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? `client-${crypto.randomUUID()}`
+        : `client-${Math.random().toString(36).slice(2, 11)}`;
+      window.name = `${namePrefix}${generated}`;
+      return generated;
+    }
   }
 
   function escapeHtml(text) {
@@ -120,6 +232,26 @@ function initGameClient() {
     // Activity log removed from UI; messages go to chat only
   }
 
+  function formatDice(lastDice) {
+    if (!Array.isArray(lastDice) || lastDice.length !== 2) {
+      return 'Dice: --';
+    }
+    const [a, b] = lastDice;
+    if (!a && !b) return 'Dice: --';
+    return `Dice: ${a} + ${b} = ${a + b}`;
+  }
+
+  function showToast(text, type = 'info') {
+    if (!elements.toastStack) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = text;
+    elements.toastStack.appendChild(toast);
+    window.setTimeout(() => {
+      toast.remove();
+    }, 3500);
+  }
+
   function showOverlay() {
     elements.setupOverlay?.classList.remove('hidden');
     elements.boardPanel.classList.add('blurred');
@@ -128,6 +260,11 @@ function initGameClient() {
   function hideOverlay() {
     elements.setupOverlay?.classList.add('hidden');
     elements.boardPanel.classList.remove('blurred');
+  }
+
+  function showWorkspace() {
+    elements.landingScreen.classList.add('hidden');
+    elements.mainWorkspace.classList.remove('hidden');
   }
 
   function setRoomCode(code) {
@@ -148,8 +285,151 @@ function initGameClient() {
     modal?.classList.add('hidden');
   }
 
+  function stopAuctionTicker() {
+    if (auctionUiTicker) {
+      clearInterval(auctionUiTicker);
+      auctionUiTicker = null;
+    }
+  }
+
+  function getAuctionBidLockMessage(auction, localPlayer, now, canAffordAny) {
+    if (!auction || !localPlayer) return 'You can place the next bid.';
+    if (auction.cooldownUntil && now < auction.cooldownUntil) {
+      return 'Hold on a moment before bidding again.';
+    }
+    if (auction.highestBid > 0 && auction.highestBidderId === localPlayer.id) {
+      return 'Wait for another player to raise the bid.';
+    }
+    if (!canAffordAny) {
+      return 'You cannot afford any of the bid steps.';
+    }
+    return 'Choose a bid step to raise the offer.';
+  }
+
+  function getAuctionLeaderLabel(auction, game) {
+    if (!auction?.highestBidderId) {
+      return 'No bids yet';
+    }
+    const leader = game?.players?.find(player => player.id === auction.highestBidderId);
+    return leader ? `${leader.nickname} leads` : 'Current leader';
+  }
+
+  function formatMoney(amount) {
+    return `$${Math.max(0, Math.round(Number(amount) || 0))}`;
+  }
+
+  function getPropertyHouseCost(tile) {
+    const costs = {
+      Brown: 50,
+      'Light Blue': 50,
+      Pink: 100,
+      Orange: 100,
+      Red: 150,
+      Yellow: 150,
+      Green: 200,
+      'Dark Blue': 200
+    };
+    return costs[tile?.group] || 0;
+  }
+
+  function getRentPreview(tile, level, ownerHasFullSet = false) {
+    const baseRent = tile?.rent || 0;
+    if (!tile || tile.mortgaged) return 0;
+    if (tile.type === 'utility') {
+      return baseRent;
+    }
+    const multipliers = [1, 5, 15, 45, 80, 125];
+    if (level > 0) {
+      return Math.floor(baseRent * multipliers[Math.min(level, multipliers.length - 1)]);
+    }
+    return ownerHasFullSet ? baseRent * 2 : baseRent;
+  }
+
+  function isTradeableTile(tile) {
+    return Boolean(tile && (tile.type === 'property' || tile.type === 'utility') && !tile.mortgaged && (tile.houseCount || 0) === 0);
+  }
+
+  function canPlaceAuctionBid(auction, localPlayer, now, step) {
+    if (!auction?.active) return false;
+    if (!localPlayer || localPlayer.bankrupt || localPlayer.disconnected) return false;
+    if (auction.cooldownUntil && now < auction.cooldownUntil) return false;
+    if (now < auctionUiPressLockUntil) return false;
+    if (auction.highestBid > 0 && auction.highestBidderId === localPlayer.id) return false;
+    if (Number.isFinite(step) && localPlayer.cash < (auction.highestBid || 0) + step) return false;
+    return true;
+  }
+
+  function refreshAuctionUi() {
+    if (!auctionUiState || !auctionUiGame || !elements.auctionModal || elements.auctionModal.classList.contains('hidden')) {
+      return;
+    }
+
+    const auction = auctionUiState;
+    const now = getServerNow();
+    const remainingMs = Math.max(0, (auction.endsAt || (now + AUCTION_DURATION_MS)) - now);
+    const totalMs = auction.durationMs || AUCTION_DURATION_MS;
+    const percent = totalMs > 0 ? Math.max(0, Math.min(1, remainingMs / totalMs)) : 0;
+    const seconds = (remainingMs / 1000).toFixed(1);
+    const isCritical = remainingMs <= 1500;
+    const localPlayer = auctionUiGame?.players?.find(player => player.clientId === localState.clientId);
+    const canBid2 = canPlaceAuctionBid(auction, localPlayer, now, 2);
+    const canBid10 = canPlaceAuctionBid(auction, localPlayer, now, 10);
+    const canBid100 = canPlaceAuctionBid(auction, localPlayer, now, 100);
+    const canAffordAny = canBid2 || canBid10 || canBid100;
+
+    if (elements.auctionCountdown) {
+      elements.auctionCountdown.textContent = `${seconds}s left`;
+    }
+    if (elements.auctionMeterFill) {
+      elements.auctionMeterFill.style.transform = `scaleX(${percent})`;
+    }
+    if (elements.auctionModalCard) {
+      elements.auctionModalCard.classList.toggle('is-critical', isCritical);
+    }
+    if (elements.auctionCurrentBid) {
+      elements.auctionCurrentBid.textContent = `Current bid: $${auction.highestBid || 0}`;
+    }
+    if (elements.auctionStatus) {
+      const leader = getAuctionLeaderLabel(auction, auctionUiGame);
+      elements.auctionStatus.textContent = `${leader} • ${getAuctionBidLockMessage(auction, localPlayer, now, canAffordAny)}`;
+    }
+    if (elements.auctionBid2Btn) elements.auctionBid2Btn.disabled = !canBid2;
+    if (elements.auctionBid10Btn) elements.auctionBid10Btn.disabled = !canBid10;
+    if (elements.auctionBid100Btn) elements.auctionBid100Btn.disabled = !canBid100;
+  }
+
+  function startAuctionTicker() {
+    stopAuctionTicker();
+    refreshAuctionUi();
+    auctionUiTicker = setInterval(refreshAuctionUi, 100);
+  }
+
+  function syncAppearanceSelection(color, nickname) {
+    return new Promise(resolve => {
+      emit('set-player-appearance', { color, nickname }, response => {
+        resolve(Boolean(response?.success));
+      });
+    });
+  }
+
+  function applyLocalColorPreview(color) {
+    const preferredCard = localState.clientId
+      ? elements.playerList.querySelector(`[data-client-id="${localState.clientId}"] .player-avatar`)
+      : null;
+    const fallbackCard = elements.playerList.querySelector('.player-card .player-avatar');
+    const localCard = preferredCard || fallbackCard;
+    if (localCard) localCard.style.background = color;
+
+    const preferredToken = localState.clientId
+      ? document.querySelector(`#token-layer [data-client-id="${localState.clientId}"]`)
+      : null;
+    const fallbackToken = document.querySelector('#token-layer .player-token');
+    const localToken = preferredToken || fallbackToken;
+    if (localToken) localToken.style.background = color;
+  }
+
   function getPlayerColor(player) {
-    return player.color || '#84cc16';
+    return player?.color || '#84cc16';
   }
 
   function setPlayerList(players, currentPlayerId, turnOrder) {
@@ -172,14 +452,26 @@ function initGameClient() {
 
     orderedPlayers.forEach(player => {
       const card = document.createElement('div');
-      card.className = `player-card${player.id === currentPlayerId ? ' active' : ''}`;
-      const avatarColor = getPlayerColor(player);
+      const isActive = player.id === currentPlayerId;
       const status = player.bankrupt ? 'Bankrupt' : player.disconnected ? 'Away' : 'Ready';
+      card.className = [
+        'player-card',
+        isActive ? 'active' : '',
+        player.bankrupt ? 'bankrupt' : '',
+        player.disconnected ? 'away' : ''
+      ].filter(Boolean).join(' ');
+      card.dataset.clientId = player.clientId || '';
+      const avatarColor = getPlayerColor(player);
       card.innerHTML = `
         <div class="player-avatar" style="background:${avatarColor}"></div>
         <div class="player-info">
           <div class="player-name">${escapeHtml(player.nickname)}${player.isHost ? ' • Host' : ''}</div>
           <div class="player-meta">$${player.cash} • ${status}</div>
+          <div class="player-badges">
+            ${player.inJail ? '<span class="player-badge">In Jail</span>' : ''}
+            ${isActive ? '<span class="player-badge">Current Turn</span>' : ''}
+            ${player.disconnected ? '<span class="player-badge">Disconnected</span>' : ''}
+          </div>
         </div>
       `;
       elements.playerList.appendChild(card);
@@ -187,7 +479,7 @@ function initGameClient() {
   }
 
   function updateTurnButtons() {
-    if (!gameState.started || !localState.currentPlayerIsMe) {
+    if (!gameState.started || !localState.currentPlayerIsMe || gameState.auctionActive || gameState.awaitingDecision) {
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
       elements.turnActions.classList.add('hidden');
@@ -195,12 +487,22 @@ function initGameClient() {
     }
 
     elements.rollDiceBtn.classList.remove('hidden');
-    elements.endTurnBtn.classList.remove('hidden');
+    elements.endTurnBtn.classList.toggle('hidden', Boolean(gameState.extraRollPending));
     elements.turnActions.classList.remove('hidden');
   }
 
-  function setTurnBanner(game) {
+  function setTurnBanner(game, vacationPool = 0) {
+    if (elements.vacationBalance) {
+      elements.vacationBalance.textContent = formatMoney(vacationPool);
+    }
     if (!game?.started) {
+      const waitingText = localState.isHost
+        ? 'You are the host.'
+        : 'Waiting for the host to start the game.';
+      if (elements.turnBannerTitle) elements.turnBannerTitle.textContent = 'Lobby';
+      if (elements.turnBannerSubtitle) elements.turnBannerSubtitle.textContent = waitingText;
+      if (elements.diceDisplay) elements.diceDisplay.textContent = 'Dice: --';
+      if (elements.vacationDisplay) elements.vacationDisplay.textContent = `Vacation: $${vacationPool}`;
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
       elements.turnActions.classList.add('hidden');
@@ -212,7 +514,369 @@ function initGameClient() {
     localState.currentPlayerIsMe = Boolean(
       current && localPlayer && current.id === localPlayer.id
     );
+    if (elements.turnBannerTitle) {
+      elements.turnBannerTitle.textContent = current
+        ? (localState.currentPlayerIsMe ? 'Your turn' : `${current.nickname}'s turn`)
+        : 'Game in progress';
+    }
+    if (elements.turnBannerSubtitle) {
+      const subtitle = localState.currentPlayerIsMe
+        ? (gameState.extraRollPending
+          ? 'Roll again. Doubles gave you an extra turn.'
+          : 'Roll the dice, resolve the tile, then end your turn.')
+        : 'Watch the active player and wait for your turn.';
+      elements.turnBannerSubtitle.textContent = subtitle;
+    }
+    if (elements.diceDisplay) {
+      elements.diceDisplay.textContent = formatDice(game.lastDice);
+    }
+    if (elements.vacationDisplay) {
+      elements.vacationDisplay.textContent = `Vacation: $${vacationPool}`;
+    }
     updateTurnButtons();
+  }
+
+  function renderBoardOwnership(tiles, players) {
+    if (!elements.boardOwnershipLayer) return;
+
+    elements.boardOwnershipLayer.innerHTML = '';
+    if (!Array.isArray(tiles) || !tiles.length) return;
+
+    const playerById = new Map((players || []).map(player => [player.id, player]));
+
+    tiles.forEach(tile => {
+      if (!tile.ownerId || (tile.type !== 'property' && tile.type !== 'utility')) {
+        return;
+      }
+
+      const owner = playerById.get(tile.ownerId);
+      if (!owner) return;
+
+      const position = BOARD_POSITIONS[tile.index % BOARD_POSITIONS.length] || { left: 50, top: 50 };
+      const marker = document.createElement('div');
+      const edge = Math.floor(tile.index / 10);
+      const offsetMap = [
+        { left: 0, top: -4 },
+        { left: 4, top: 0 },
+        { left: 0, top: 4 },
+        { left: -4, top: 0 }
+      ];
+      const offset = offsetMap[edge] || { left: 0, top: 0 };
+      marker.className = 'ownership-marker';
+      marker.title = `${owner.nickname} owns ${tile.name}`;
+      marker.textContent = owner.nickname.charAt(0).toUpperCase();
+      marker.style.left = `${position.left + offset.left}%`;
+      marker.style.top = `${position.top + offset.top}%`;
+      marker.style.background = getPlayerColor(owner);
+      elements.boardOwnershipLayer.appendChild(marker);
+    });
+  }
+
+  function renderMyProperties(tiles, players) {
+    if (!elements.myPropertiesList) return;
+
+    const localPlayer = players?.find(player => player.clientId === localState.clientId);
+    const ownedTiles = (tiles || [])
+      .filter(tile => localPlayer && localPlayer.properties?.includes(tile.index))
+      .sort((a, b) => a.index - b.index);
+
+    elements.myPropertiesList.innerHTML = '';
+    if (!ownedTiles.length) {
+      elements.myPropertiesList.innerHTML = '<p class="muted" style="padding: 10px;">You do not own any properties yet.</p>';
+      return;
+    }
+
+    ownedTiles.forEach(tile => {
+      const item = document.createElement('div');
+      item.className = 'property-row property-row-clickable';
+      item.tabIndex = 0;
+      item.dataset.tileIndex = String(tile.index);
+      item.innerHTML = `
+        <span>
+          ${escapeHtml(tile.name)}
+          <small class="muted" style="display:block; margin: 4px 0 0;">${escapeHtml(tile.group || tile.type)}${tile.mortgaged ? ' • Mortgaged' : ''}</small>
+        </span>
+        <strong>${tile.type === 'property' ? `H${tile.houseCount || 0}` : escapeHtml(tile.type)}</strong>
+      `;
+      item.addEventListener('click', () => openPropertyModal(tile.index));
+      item.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openPropertyModal(tile.index);
+        }
+      });
+      elements.myPropertiesList.appendChild(item);
+    });
+  }
+
+  function renderTradePanel(players, tiles) {
+    if (!elements.tradePlayerList) return;
+    const localPlayer = players?.find(player => player.clientId === localState.clientId);
+    const eligiblePlayers = (players || []).filter(player => (
+      player.id !== localPlayer?.id && !player.bankrupt && !player.disconnected
+    ));
+
+    elements.tradePlayerList.innerHTML = '';
+    if (!eligiblePlayers.length) {
+      elements.tradePlayerList.innerHTML = '<p class="muted" style="padding: 10px;">No trade partners are available yet.</p>';
+      return;
+    }
+
+    const ownedCounts = new Map();
+    (tiles || []).forEach(tile => {
+      if (!tile.ownerId) return;
+      ownedCounts.set(tile.ownerId, (ownedCounts.get(tile.ownerId) || 0) + 1);
+    });
+
+    eligiblePlayers.forEach(player => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'trade-player-card';
+      card.dataset.playerId = player.id;
+      card.innerHTML = `
+        <div class="player-avatar" style="background:${getPlayerColor(player)}"></div>
+        <div class="trade-player-copy">
+          <strong>${escapeHtml(player.nickname)}</strong>
+          <span>${formatMoney(player.cash)} • ${ownedCounts.get(player.id) || 0} properties</span>
+        </div>
+      `;
+      card.addEventListener('click', () => openTradeModal(player.id));
+      elements.tradePlayerList.appendChild(card);
+    });
+  }
+
+  function renderPropertyModal(game, players) {
+    if (!elements.propertyModal || !propertyUiState) return;
+    const tile = game?.tiles?.find(entry => entry.index === propertyUiState.tileIndex);
+    const localPlayer = players?.find(player => player.clientId === localState.clientId);
+    if (!tile || !localPlayer || tile.ownerId !== localPlayer.id) {
+      closePropertyModal();
+      return;
+    }
+
+    const ownsTile = tile.ownerId === localPlayer.id;
+    const fullSet = tile.group ? game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === localPlayer.id).length === game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property').length : false;
+    const houseCost = tile.houseCost || getPropertyHouseCost(tile);
+    const currentLevel = tile.houseCount || 0;
+    const sellValue = Math.floor(houseCost / 2);
+    const rentRows = [];
+    const previewLevels = [0, 1, 2, 3, 4, 5];
+
+    if (elements.propertyModalName) elements.propertyModalName.textContent = tile.name;
+    if (elements.propertyModalGroup) {
+      const status = tile.type === 'utility' ? 'Utility' : tile.group || tile.type;
+      elements.propertyModalGroup.textContent = `${status} • ${formatMoney(tile.price || 0)}`;
+    }
+    if (elements.propertyModalStatus) {
+      elements.propertyModalStatus.textContent = tile.mortgaged
+        ? 'Mortgaged'
+        : currentLevel >= 5
+          ? 'Hotel built'
+          : currentLevel > 0
+            ? `${currentLevel} house${currentLevel === 1 ? '' : 's'}`
+            : 'No buildings yet';
+    }
+    if (elements.propertyModalNote) {
+      elements.propertyModalNote.textContent = tile.type === 'property'
+        ? 'Build evenly across the color group, one step at a time.'
+        : 'Utilities cannot be improved, but they can still be mortgaged or traded.';
+    }
+
+    if (elements.propertyModalRents) {
+      elements.propertyModalRents.innerHTML = '';
+      previewLevels.forEach(level => {
+        const row = document.createElement('div');
+        row.className = 'rent-row';
+        row.innerHTML = `
+          <span>${level === 0 ? 'Base' : level === 5 ? 'Hotel' : `${level} house${level === 1 ? '' : 's'}`}</span>
+          <strong>${formatMoney(getRentPreview(tile, level, fullSet))}</strong>
+        `;
+        elements.propertyModalRents.appendChild(row);
+      });
+    }
+
+    if (elements.propertyModalHouses) {
+      elements.propertyModalHouses.innerHTML = Array.from({ length: 5 }, (_, index) => {
+        const filled = index < Math.min(currentLevel, 5);
+        return `<span class="house-pip ${filled ? 'filled' : ''}">${currentLevel >= 5 && index === 4 ? 'H' : ''}</span>`;
+      }).join('');
+    }
+
+    if (elements.propertyBuildBtn) {
+      const canBuild = ownsTile && tile.type === 'property' && !tile.mortgaged && fullSet && currentLevel < 5;
+      elements.propertyBuildBtn.disabled = !canBuild;
+      elements.propertyBuildBtn.textContent = currentLevel >= 4 ? 'Build hotel' : 'Build house';
+    }
+    if (elements.propertySellBtn) {
+      const canSell = ownsTile && tile.type === 'property' && currentLevel > 0;
+      elements.propertySellBtn.disabled = !canSell;
+      elements.propertySellBtn.textContent = currentLevel >= 5 ? 'Sell hotel' : 'Sell house';
+    }
+    if (elements.propertyMortgageBtn) {
+      const canMortgage = ownsTile && !tile.mortgaged && currentLevel === 0;
+      const canUnmortgage = ownsTile && tile.mortgaged;
+      elements.propertyMortgageBtn.disabled = !canMortgage && !canUnmortgage;
+      elements.propertyMortgageBtn.textContent = tile.mortgaged ? `Unmortgage ${formatMoney(Math.ceil((tile.price || 0) / 2 * 1.1))}` : `Mortgage ${formatMoney(Math.floor((tile.price || 0) / 2))}`;
+    }
+  }
+
+  function openPropertyModal(tileIndex) {
+    propertyUiState = { tileIndex };
+    showModal(elements.propertyModal);
+    renderPropertyModal(localState.game, localState.room?.players);
+  }
+
+  function closePropertyModal() {
+    propertyUiState = null;
+    hideModal(elements.propertyModal);
+  }
+
+  function getTradeablePropertyIndexes(player, tiles) {
+    if (!player || !Array.isArray(tiles)) return [];
+    return tiles
+      .filter(tile => tile.ownerId === player.id && isTradeableTile(tile))
+      .map(tile => tile.index);
+  }
+
+  function updateTradeModalTotals() {
+    if (elements.tradeOfferCashTotal) {
+      elements.tradeOfferCashTotal.textContent = formatMoney(tradeUiState.offerCash);
+    }
+    if (elements.tradeRequestCashTotal) {
+      elements.tradeRequestCashTotal.textContent = formatMoney(tradeUiState.requestCash);
+    }
+  }
+
+  function renderTradeModal(game, players) {
+    if (!elements.tradeModal || !tradeUiState.targetPlayerId) return;
+    const localPlayer = players?.find(player => player.clientId === localState.clientId);
+    const targetPlayer = players?.find(player => player.id === tradeUiState.targetPlayerId);
+    if (!localPlayer || !targetPlayer) {
+      closeTradeModal();
+      return;
+    }
+
+    if (elements.tradeTargetTitle) {
+      elements.tradeTargetTitle.textContent = targetPlayer.nickname;
+    }
+    if (elements.tradeOfferCash) {
+      elements.tradeOfferCash.value = String(tradeUiState.offerCash);
+    }
+    if (elements.tradeRequestCash) {
+      elements.tradeRequestCash.value = String(tradeUiState.requestCash);
+    }
+    updateTradeModalTotals();
+
+    const localTiles = game?.tiles?.filter(tile => tile.ownerId === localPlayer.id) || [];
+    const targetTiles = game?.tiles?.filter(tile => tile.ownerId === targetPlayer.id) || [];
+    const localTradeable = localTiles.filter(isTradeableTile);
+    const targetTradeable = targetTiles.filter(isTradeableTile);
+
+    if (elements.tradeOfferProperties) {
+      elements.tradeOfferProperties.innerHTML = '';
+      if (!localTradeable.length) {
+        elements.tradeOfferProperties.innerHTML = '<p class="muted">No tradeable properties.</p>';
+      } else {
+        localTradeable.forEach(tile => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = `trade-property-chip ${tradeUiState.selectedOfferPropertyIndexes.has(tile.index) ? 'selected' : ''}`;
+          chip.innerHTML = `
+            <span>${escapeHtml(tile.name)}</span>
+            <small>${formatMoney(tile.price || 0)}</small>
+          `;
+          chip.addEventListener('click', () => {
+            if (tradeUiState.selectedOfferPropertyIndexes.has(tile.index)) {
+              tradeUiState.selectedOfferPropertyIndexes.delete(tile.index);
+            } else {
+              tradeUiState.selectedOfferPropertyIndexes.add(tile.index);
+            }
+            renderTradeModal(game, players);
+          });
+          elements.tradeOfferProperties.appendChild(chip);
+        });
+      }
+    }
+
+    if (elements.tradeRequestProperties) {
+      elements.tradeRequestProperties.innerHTML = '';
+      if (!targetTradeable.length) {
+        elements.tradeRequestProperties.innerHTML = '<p class="muted">No tradeable properties.</p>';
+      } else {
+        targetTradeable.forEach(tile => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = `trade-property-chip ${tradeUiState.selectedRequestPropertyIndexes.has(tile.index) ? 'selected' : ''}`;
+          chip.innerHTML = `
+            <span>${escapeHtml(tile.name)}</span>
+            <small>${formatMoney(tile.price || 0)}</small>
+          `;
+          chip.addEventListener('click', () => {
+            if (tradeUiState.selectedRequestPropertyIndexes.has(tile.index)) {
+              tradeUiState.selectedRequestPropertyIndexes.delete(tile.index);
+            } else {
+              tradeUiState.selectedRequestPropertyIndexes.add(tile.index);
+            }
+            renderTradeModal(game, players);
+          });
+          elements.tradeRequestProperties.appendChild(chip);
+        });
+      }
+    }
+
+    if (elements.tradeSendBtn) {
+      const hasSomething = tradeUiState.selectedOfferPropertyIndexes.size || tradeUiState.selectedRequestPropertyIndexes.size || tradeUiState.offerCash > 0 || tradeUiState.requestCash > 0;
+      elements.tradeSendBtn.disabled = !hasSomething;
+    }
+  }
+
+  function openTradeModal(targetPlayerId) {
+    tradeUiState = {
+      targetPlayerId,
+      selectedOfferPropertyIndexes: new Set(),
+      selectedRequestPropertyIndexes: new Set(),
+      offerCash: 0,
+      requestCash: 0
+    };
+    showModal(elements.tradeModal);
+    renderTradeModal(localState.game, localState.room?.players);
+  }
+
+  function closeTradeModal() {
+    tradeUiState = {
+      targetPlayerId: null,
+      selectedOfferPropertyIndexes: new Set(),
+      selectedRequestPropertyIndexes: new Set(),
+      offerCash: 0,
+      requestCash: 0
+    };
+    hideModal(elements.tradeModal);
+  }
+
+  function openIncomingTradeModal(trade) {
+    if (!trade) return;
+    gameState.pendingTrade = trade;
+    const players = localState.room?.players || [];
+    const fromPlayer = players.find(player => player.id === trade.fromPlayerId);
+    const toPlayer = players.find(player => player.id === trade.toPlayerId);
+    if (elements.incomingTradeSummary) {
+      elements.incomingTradeSummary.textContent = `${fromPlayer?.nickname || 'A player'} wants to trade with ${toPlayer?.nickname || 'you'}`;
+    }
+    if (elements.incomingTradeDetails) {
+      const gameTiles = localState.game?.tiles || [];
+      const giveNames = trade.givePropertyIndexes.map(index => gameTiles.find(tile => tile.index === index)?.name || `#${index}`);
+      const requestNames = trade.requestPropertyIndexes.map(index => gameTiles.find(tile => tile.index === index)?.name || `#${index}`);
+      elements.incomingTradeDetails.innerHTML = `
+        <div class="incoming-trade-row"><span>They offer</span><strong>${formatMoney(trade.giveCash)} cash${giveNames.length ? ` and ${giveNames.join(', ')}` : ''}</strong></div>
+        <div class="incoming-trade-row"><span>They request</span><strong>${formatMoney(trade.requestCash)} cash${requestNames.length ? ` and ${requestNames.join(', ')}` : ''}</strong></div>
+      `;
+    }
+    showModal(elements.incomingTradeModal);
+  }
+
+  function closeIncomingTradeModal() {
+    gameState.pendingTrade = null;
+    hideModal(elements.incomingTradeModal);
   }
 
   function setTokens(players) {
@@ -220,27 +884,73 @@ function initGameClient() {
     if (!tokenLayer) return;
 
     tokenLayer.innerHTML = '';
-    const positions = {};
+    const positions = new Map();
 
     players.forEach(player => {
-      positions[player.position] = positions[player.position] || [];
-      positions[player.position].push(player);
+      const key = player.position % BOARD_POSITIONS.length;
+      const list = positions.get(key) || [];
+      list.push(player);
+      positions.set(key, list);
     });
 
-    Object.values(positions).forEach(playersOnTile => {
+    positions.forEach((playersOnTile, tileIndex) => {
+      const position = BOARD_POSITIONS[tileIndex] || { left: 50, top: 50 };
+      const offsets = getTokenOffsets(playersOnTile.length);
       playersOnTile.forEach((player, index) => {
-        const position = BOARD_POSITIONS[player.position % BOARD_POSITIONS.length] || { left: 50, top: 50 };
+        const offset = offsets[index % offsets.length];
         const token = document.createElement('div');
         token.className = 'player-token';
+        token.dataset.clientId = player.clientId || '';
         token.textContent = player.nickname.charAt(0).toUpperCase();
         token.style.left = `${position.left}%`;
         token.style.top = `${position.top}%`;
-        const offset = (index - (playersOnTile.length - 1) / 2) * 18;
-        token.style.transform = `translate(calc(-50% + ${offset}px), -50%)`;
+        token.style.transform = `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`;
         token.style.background = getPlayerColor(player);
         tokenLayer.appendChild(token);
       });
     });
+  }
+
+  function getTokenOffsets(total) {
+    if (total <= 1) return [{ x: 0, y: 0 }];
+
+    const spacing = Math.max(10, Math.min(18, Math.floor(TOKEN_SIZE / 2) + 2));
+    const compact = Math.max(8, Math.floor(spacing * 0.75));
+
+    if (total === 2) {
+      return [
+        { x: -spacing, y: 0 },
+        { x: spacing, y: 0 }
+      ];
+    }
+
+    if (total === 3) {
+      return [
+        { x: -spacing, y: -compact },
+        { x: spacing, y: -compact },
+        { x: 0, y: spacing }
+      ];
+    }
+
+    if (total === 4) {
+      return [
+        { x: -spacing, y: -spacing },
+        { x: spacing, y: -spacing },
+        { x: -spacing, y: spacing },
+        { x: spacing, y: spacing }
+      ];
+    }
+
+    return [
+      { x: -spacing, y: -spacing },
+      { x: spacing, y: -spacing },
+      { x: -spacing, y: spacing },
+      { x: spacing, y: spacing },
+      { x: 0, y: -spacing * 1.6 },
+      { x: 0, y: spacing * 1.6 },
+      { x: -spacing * 1.6, y: 0 },
+      { x: spacing * 1.6, y: 0 }
+    ];
   }
 
   function renderSettings(settings, isHost) {
@@ -262,20 +972,19 @@ function initGameClient() {
     if (!elements.auctionModal) return;
 
     if (!auction?.active) {
+      auctionUiState = null;
+      auctionUiGame = null;
+      auctionUiPressLockUntil = 0;
+      stopAuctionTicker();
       hideModal(elements.auctionModal);
       return;
     }
 
-    const localPlayer = game?.players?.find(player => player.clientId === localState.clientId);
-    const canBid = Boolean(localPlayer && !localPlayer.bankrupt && !localPlayer.disconnected);
-
+    auctionUiState = auction;
+    auctionUiGame = game;
     elements.auctionPropertyName.textContent = auction.tileName || 'Property';
-    elements.auctionCurrentBid.textContent = `Current bid: $${auction.highestBid || 0}`;
-    elements.auctionBidInput.min = String((auction.highestBid || 0) + 1);
-    elements.auctionBidInput.value = String((auction.highestBid || 0) + 1);
-    elements.auctionBidInput.disabled = !canBid;
-    elements.auctionBidBtn.disabled = !canBid;
     showModal(elements.auctionModal);
+    startAuctionTicker();
   }
 
   function renderGameState(state) {
@@ -283,11 +992,55 @@ function initGameClient() {
 
     gameState.started = state.game.started;
     gameState.currentPlayerId = state.game.currentPlayerId;
+    gameState.lastDice = state.game.lastDice || [0, 0];
+    gameState.auctionActive = Boolean(state.game.auction?.active);
+    gameState.awaitingDecision = Boolean(currentPurchase || state.game.pendingPurchaseOffer);
+    gameState.extraRollPending = Boolean(state.game.extraRollPending);
+    gameState.pendingTrade = state.game.pendingTrade || null;
+
+    const localPlayer = state.room.players.find(player => player.clientId === localState.clientId);
+    const pendingPurchase = state.game.pendingPurchaseOffer;
+    if (
+      pendingPurchase &&
+      localPlayer &&
+      pendingPurchase.playerId === localPlayer.id &&
+      state.game.currentPlayerId === localPlayer.id
+    ) {
+      const purchaseTile = state.game.tiles.find(tile => tile.index === pendingPurchase.tileIndex);
+      if (purchaseTile && (!currentPurchase || currentPurchase.tileIndex !== purchaseTile.index)) {
+        openPurchaseModal({
+          tileIndex: purchaseTile.index,
+          name: purchaseTile.name,
+          price: purchaseTile.price
+        });
+      }
+    } else if (!pendingPurchase && currentPurchase) {
+      closePurchaseModal();
+    }
 
     setPlayerList(state.room.players, state.game.currentPlayerId, state.game.turnOrder);
-    setTurnBanner(state.game);
+    setTurnBanner(state.game, state.game.vacationPool || 0);
     setTokens(state.game.players);
+    renderBoardOwnership(state.game.tiles, state.game.players);
+    renderMyProperties(state.game.tiles, state.game.players);
+    renderTradePanel(state.room.players, state.game.tiles);
+    renderPropertyModal(state.game, state.room.players);
     renderAuction(state.game.auction, state.game);
+    if (state.game.pendingTrade) {
+      const localPlayer = state.room.players.find(player => player.clientId === localState.clientId);
+      if (localPlayer && state.game.pendingTrade.toPlayerId === localPlayer.id) {
+        openIncomingTradeModal(state.game.pendingTrade);
+      }
+    } else {
+      closeIncomingTradeModal();
+    }
+
+    if (elements.settingsWindow) {
+      elements.settingsWindow.classList.toggle('hidden', state.room.started);
+    }
+    if (elements.propertiesWindow) {
+      elements.propertiesWindow.classList.toggle('hidden', !state.room.started);
+    }
 
     if (state.room.started) {
       elements.startGameOverlay?.classList.add('hidden');
@@ -297,14 +1050,29 @@ function initGameClient() {
       elements.startGameOverlay?.classList.add('hidden');
     }
 
+    if (elements.centerStartBtn) {
+      const activePlayers = (state.room.players || []).filter(player => !player.bankrupt && !player.disconnected).length;
+      const canStart = localState.isHost && !state.room.started && activePlayers >= 2;
+      elements.centerStartBtn.disabled = !canStart;
+      elements.centerStartBtn.title = canStart ? 'Start the game' : 'Need at least 2 players to start';
+    }
+
     syncPanelHeights();
   }
 
   function renderRoomState(state) {
     if (!state?.room || !state?.game) return;
 
+    if (state.serverTime) {
+      serverTimeOffset = state.serverTime - Date.now();
+    }
+
     localState.room = state.room;
     localState.game = state.game;
+
+    if (elements.mainWorkspace.classList.contains('hidden')) {
+      showWorkspace();
+    }
 
     if (!localState.clientId) {
       localState.clientId = getClientId();
@@ -319,6 +1087,25 @@ function initGameClient() {
     setRoomCode(state.room.roomCode);
     renderSettings(state.room.settings, localState.isHost);
     renderGameState(state);
+
+    // Update which colors are available, but do NOT call syncAppearanceSelection here
+    // to avoid a feedback loop (render → sync → server broadcast → render → sync …).
+    // The server-synced color will be sent when the user explicitly picks a color or
+    // clicks Continue on the setup overlay.
+    const takenByOthers = new Set();
+    state.room.players.forEach(p => {
+      if (p.clientId !== localState.clientId && p.color) {
+        takenByOthers.add(p.color);
+      }
+    });
+
+    if (takenByOthers.has(selectedColor)) {
+      const freeColor = PLAYER_COLORS.find(c => !takenByOthers.has(c));
+      if (freeColor) {
+        selectedColor = freeColor;
+      }
+    }
+    renderColors();
   }
 
   function syncPanelHeights() {
@@ -332,19 +1119,24 @@ function initGameClient() {
     const propsPanel = document.querySelector('.properties-panel');
     if (chatPanel) chatPanel.style.height = `${height}px`;
     if (propsPanel) propsPanel.style.height = `${height}px`;
+    if (elements.rightSidebar) elements.rightSidebar.style.height = `${height}px`;
   }
 
   function openPurchaseModal(data) {
     currentPurchase = data;
+    gameState.awaitingDecision = true;
     if (!elements.purchaseModal) return;
     elements.purchaseName.textContent = data.name;
     elements.purchaseCost.textContent = `Cost: $${data.price}`;
     showModal(elements.purchaseModal);
+    updateTurnButtons();
   }
 
   function closePurchaseModal() {
     currentPurchase = null;
+    gameState.awaitingDecision = false;
     hideModal(elements.purchaseModal);
+    updateTurnButtons();
   }
 
   function joinRoom() {
@@ -383,32 +1175,49 @@ function initGameClient() {
   }
 
   function showLobbyScreen() {
-    elements.landingScreen.classList.add('hidden');
-    elements.mainWorkspace.classList.remove('hidden');
+    showWorkspace();
     showOverlay();
     appendChat('entered the room.', 'System');
   }
 
   function renderColors() {
+    const takenByOthers = new Set();
+    if (localState.room && localState.room.players) {
+      localState.room.players.forEach(p => {
+        if (p.clientId !== localState.clientId && p.color) {
+          takenByOthers.add(p.color);
+        }
+      });
+    }
+
     elements.colorGrids.forEach(grid => {
       grid.querySelectorAll('button').forEach(button => {
-        button.classList.toggle('active', button.style.background === selectedColor);
+        const color = button.dataset.color;
+        const isTaken = takenByOthers.has(color);
+        button.disabled = isTaken;
+        if (isTaken) {
+          button.style.opacity = '0.3';
+          button.style.cursor = 'not-allowed';
+        } else {
+          button.style.opacity = '1';
+          button.style.cursor = 'pointer';
+        }
+        button.classList.toggle('active', color === selectedColor);
       });
     });
   }
 
-  function placeAuctionBid() {
-    if (!elements.auctionBidInput) return;
-    const amount = Number(elements.auctionBidInput.value);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      appendChat('Enter a valid bid amount.', 'System');
-      return;
-    }
+  function placeAuctionBid(step) {
+    if (!auctionUiState) return;
+    const amount = (auctionUiState.highestBid || 0) + step;
+    auctionUiPressLockUntil = getServerNow() + AUCTION_PRESS_DELAY_MS;
+    refreshAuctionUi();
 
     emit('auction-bid', { amount }, response => {
       if (!response?.success) {
         appendChat(response?.error || 'Could not place bid.', 'System');
       }
+      window.setTimeout(refreshAuctionUi, AUCTION_PRESS_DELAY_MS);
     });
   }
 
@@ -421,10 +1230,15 @@ function initGameClient() {
     });
   }
 
-  socket.on('connect', () => {
+  function handleConnect() {
     localState.clientId = getClientId();
     emit('restore-session', {}, () => {});
-  });
+  }
+
+  if (socket.connected) {
+    handleConnect();
+  }
+  socket.on('connect', handleConnect);
 
   socket.on('update-state', renderRoomState);
 
@@ -435,9 +1249,13 @@ function initGameClient() {
   socket.on('system-message', ({ text }) => {
     appendActivity(text);
     appendChat(text, 'System');
+    showToast(text, 'info');
   });
 
   socket.on('purchase-offer', openPurchaseModal);
+  socket.on('trade-offer', ({ trade }) => {
+    openIncomingTradeModal(trade);
+  });
 
   on(elements.landingForm, 'submit', event => {
     event.preventDefault();
@@ -459,8 +1277,11 @@ function initGameClient() {
 
   if (elements.overlayContinueBtn) {
     on(elements.overlayContinueBtn, 'click', () => {
-      hideOverlay();
-      elements.chatInput.focus();
+      const nickname = elements.nicknameInput.value.trim();
+      syncAppearanceSelection(selectedColor, nickname).finally(() => {
+        hideOverlay();
+        elements.chatInput.focus();
+      });
     });
   }
 
@@ -471,10 +1292,16 @@ function initGameClient() {
       button.type = 'button';
       button.className = 'color-circle';
       button.style.background = color;
+      button.dataset.color = color;
       button.setAttribute('aria-label', `Select color ${color}`);
       on(button, 'click', () => {
         selectedColor = color;
         renderColors();
+        applyLocalColorPreview(color);
+        if (localState.room && localState.game) {
+          renderGameState({ room: localState.room, game: localState.game });
+        }
+        syncAppearanceSelection(color, elements.nicknameInput.value.trim());
       });
       if (selectedColor === color) button.classList.add('active');
       grid.appendChild(button);
@@ -494,6 +1321,172 @@ function initGameClient() {
 
   if (elements.centerStartBtn) on(elements.centerStartBtn, 'click', startGame);
 
+  if (elements.helpBtn && elements.helpModal) {
+    on(elements.helpBtn, 'click', () => {
+      showModal(elements.helpModal);
+    });
+  }
+
+  if (elements.helpCloseBtn && elements.helpModal) {
+    on(elements.helpCloseBtn, 'click', () => {
+      hideModal(elements.helpModal);
+    });
+  }
+
+  if (elements.helpModal) {
+    on(elements.helpModal, 'click', event => {
+      if (event.target === elements.helpModal) {
+        hideModal(elements.helpModal);
+      }
+    });
+  }
+
+  if (elements.propertyModal) {
+    on(elements.propertyModal, 'click', event => {
+      if (event.target === elements.propertyModal) {
+        closePropertyModal();
+      }
+    });
+  }
+
+  if (elements.tradeModal) {
+    on(elements.tradeModal, 'click', event => {
+      if (event.target === elements.tradeModal) {
+        closeTradeModal();
+      }
+    });
+  }
+
+  if (elements.incomingTradeModal) {
+    on(elements.incomingTradeModal, 'click', event => {
+      if (event.target === elements.incomingTradeModal) {
+        closeIncomingTradeModal();
+      }
+    });
+  }
+
+  if (elements.auctionBid2Btn) {
+    on(elements.auctionBid2Btn, 'click', () => placeAuctionBid(2));
+  }
+  if (elements.auctionBid10Btn) {
+    on(elements.auctionBid10Btn, 'click', () => placeAuctionBid(10));
+  }
+  if (elements.auctionBid100Btn) {
+    on(elements.auctionBid100Btn, 'click', () => placeAuctionBid(100));
+  }
+
+  if (elements.propertyBuildBtn) {
+    on(elements.propertyBuildBtn, 'click', () => {
+      if (!propertyUiState) return;
+      emit('manage-property', { tileIndex: propertyUiState.tileIndex, action: 'build-house' }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not build a house.', 'System');
+          showToast(response?.error || 'Could not build a house.', 'error');
+        }
+      });
+    });
+  }
+
+  if (elements.propertySellBtn) {
+    on(elements.propertySellBtn, 'click', () => {
+      if (!propertyUiState) return;
+      emit('manage-property', { tileIndex: propertyUiState.tileIndex, action: 'sell-house' }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not sell a house.', 'System');
+          showToast(response?.error || 'Could not sell a house.', 'error');
+        }
+      });
+    });
+  }
+
+  if (elements.propertyMortgageBtn) {
+    on(elements.propertyMortgageBtn, 'click', () => {
+      if (!propertyUiState) return;
+      const tile = localState.game?.tiles?.find(entry => entry.index === propertyUiState.tileIndex);
+      const action = tile?.mortgaged ? 'unmortgage' : 'mortgage';
+      emit('manage-property', { tileIndex: propertyUiState.tileIndex, action }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not update mortgage status.', 'System');
+          showToast(response?.error || 'Could not update mortgage status.', 'error');
+        }
+      });
+    });
+  }
+
+  if (elements.propertyCloseBtn) {
+    on(elements.propertyCloseBtn, 'click', closePropertyModal);
+  }
+
+  if (elements.tradeOfferCash) {
+    on(elements.tradeOfferCash, 'input', () => {
+      const value = Number(elements.tradeOfferCash.value);
+      tradeUiState.offerCash = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+      updateTradeModalTotals();
+    });
+  }
+
+  if (elements.tradeRequestCash) {
+    on(elements.tradeRequestCash, 'input', () => {
+      const value = Number(elements.tradeRequestCash.value);
+      tradeUiState.requestCash = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+      updateTradeModalTotals();
+    });
+  }
+
+  if (elements.tradeCloseBtn) {
+    on(elements.tradeCloseBtn, 'click', closeTradeModal);
+  }
+
+  if (elements.tradeSendBtn) {
+    on(elements.tradeSendBtn, 'click', () => {
+      if (!tradeUiState.targetPlayerId) return;
+      emit('propose-trade', {
+        toPlayerId: tradeUiState.targetPlayerId,
+        giveCash: tradeUiState.offerCash,
+        requestCash: tradeUiState.requestCash,
+        givePropertyIndexes: [...tradeUiState.selectedOfferPropertyIndexes],
+        requestPropertyIndexes: [...tradeUiState.selectedRequestPropertyIndexes]
+      }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not send trade.', 'System');
+          showToast(response?.error || 'Could not send trade.', 'error');
+          return;
+        }
+        showToast('Trade sent.', 'success');
+        closeTradeModal();
+      });
+    });
+  }
+
+  if (elements.incomingTradeAcceptBtn) {
+    on(elements.incomingTradeAcceptBtn, 'click', () => {
+      if (!gameState.pendingTrade) return;
+      emit('respond-trade', { tradeId: gameState.pendingTrade.id, accept: true }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not accept trade.', 'System');
+          showToast(response?.error || 'Could not accept trade.', 'error');
+        } else {
+          showToast('Trade accepted.', 'success');
+        }
+        closeIncomingTradeModal();
+      });
+    });
+  }
+
+  if (elements.incomingTradeDeclineBtn) {
+    on(elements.incomingTradeDeclineBtn, 'click', () => {
+      if (!gameState.pendingTrade) return;
+      emit('respond-trade', { tradeId: gameState.pendingTrade.id, accept: false }, response => {
+        if (!response?.success) {
+          appendChat(response?.error || 'Could not decline trade.', 'System');
+          showToast(response?.error || 'Could not decline trade.', 'error');
+        } else {
+          showToast('Trade declined.', 'warning');
+        }
+        closeIncomingTradeModal();
+      });
+    });
+  }
 
   on(elements.rollDiceBtn, 'click', () => {
     if (!localState.currentPlayerIsMe) return;
@@ -519,6 +1512,9 @@ function initGameClient() {
       emit('purchase-property', { tileIndex: currentPurchase.tileIndex }, response => {
         if (!response?.success) {
           appendChat(response?.error || 'Could not complete purchase.', 'System');
+          showToast(response?.error || 'Could not complete purchase.', 'error');
+        } else {
+          showToast('Property purchased.', 'success');
         }
         closePurchaseModal();
       });
@@ -531,22 +1527,12 @@ function initGameClient() {
       emit('decline-property', { tileIndex: currentPurchase.tileIndex }, response => {
         if (!response?.success) {
           appendChat(response?.error || 'Could not decline property.', 'System');
+          showToast(response?.error || 'Could not decline property.', 'error');
+        } else {
+          showToast('Property declined.', 'warning');
         }
         closePurchaseModal();
       });
-    });
-  }
-
-  if (elements.auctionBidBtn) {
-    on(elements.auctionBidBtn, 'click', placeAuctionBid);
-  }
-
-  if (elements.auctionBidInput) {
-    on(elements.auctionBidInput, 'keydown', event => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        placeAuctionBid();
-      }
     });
   }
 
@@ -569,6 +1555,18 @@ function initGameClient() {
     setTimeout(syncPanelHeights, 100);
   }
 
+  on(document, 'keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (gameState.auctionActive) return;
+    hideModal(elements.purchaseModal);
+    hideModal(elements.auctionModal);
+    hideModal(elements.helpModal);
+    closePropertyModal();
+    closeTradeModal();
+    closeIncomingTradeModal();
+    stopAuctionTicker();
+  });
+
   const onResize = () => {
     clearTimeout(window.syncPanelTimeout);
     window.syncPanelTimeout = setTimeout(syncPanelHeights, 100);
@@ -578,12 +1576,14 @@ function initGameClient() {
   elements.chatInput.focus();
 
   return () => {
+    stopAuctionTicker();
     disposers.forEach(dispose => dispose());
     socket.off('connect');
     socket.off('update-state');
     socket.off('chat-message');
     socket.off('system-message');
     socket.off('purchase-offer');
+    socket.off('trade-offer');
     socket.disconnect();
   };
 }
