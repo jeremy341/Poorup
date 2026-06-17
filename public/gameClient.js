@@ -27,6 +27,16 @@ const TOKEN_SIZE = 30;
 const PLAYER_COLORS = [
   '#111827', '#ef4444', '#f59e0b', '#84cc16', '#06b6d4', '#6366f1', '#a78bfa', '#fb7185'
 ];
+const COLOR_NAMES = {
+  '#111827': 'Charcoal',
+  '#ef4444': 'Red',
+  '#f59e0b': 'Amber',
+  '#84cc16': 'Lime',
+  '#06b6d4': 'Cyan',
+  '#6366f1': 'Indigo',
+  '#a78bfa': 'Lavender',
+  '#fb7185': 'Rose'
+};
 const AUCTION_DURATION_MS = 5000;
 const AUCTION_PRESS_DELAY_MS = 300;
 
@@ -38,6 +48,7 @@ function initGameClient() {
     nicknameInput: document.getElementById('nickname-input'),
     roomCodeInput: document.getElementById('room-code-input'),
     createBtn: document.getElementById('create-btn'),
+    joinBtn: document.getElementById('join-btn'),
     chatMessages: document.getElementById('chat-messages'),
     chatInput: document.getElementById('chat-input'),
     colorGrids: document.querySelectorAll('.color-grid'),
@@ -62,6 +73,7 @@ function initGameClient() {
     purchaseModal: document.getElementById('purchase-modal'),
     purchaseName: document.getElementById('purchase-property-name'),
     purchaseCost: document.getElementById('purchase-property-cost'),
+    purchaseModalNote: document.getElementById('purchase-modal-note'),
     purchaseConfirmBtn: document.getElementById('purchase-confirm-btn'),
     purchaseDeclineBtn: document.getElementById('purchase-decline-btn'),
     auctionModal: document.getElementById('auction-modal'),
@@ -86,6 +98,7 @@ function initGameClient() {
     propertyMortgageBtn: document.getElementById('property-mortgage-btn'),
     propertyCloseBtn: document.getElementById('property-close-btn'),
     tradePlayerList: document.getElementById('trade-player-list'),
+    tradeWindow: document.getElementById('trade-window'),
     tradeModal: document.getElementById('trade-modal'),
     tradeOfferCash: document.getElementById('trade-offer-cash'),
     tradeRequestCash: document.getElementById('trade-request-cash'),
@@ -105,8 +118,19 @@ function initGameClient() {
     centerStartBtn: document.getElementById('center-start-btn'),
     startGameOverlay: document.getElementById('start-game-overlay'),
     rollDiceBtn: document.getElementById('roll-dice-btn'),
+    payJailBtn: document.getElementById('pay-jail-btn'),
+    declareBankruptcyBtn: document.getElementById('declare-bankruptcy-btn'),
     endTurnBtn: document.getElementById('end-turn-btn'),
     turnActions: document.getElementById('turn-actions'),
+    myCashDisplay: document.getElementById('my-cash-display'),
+    myCashValue: document.getElementById('my-cash-value'),
+    activeRulesStrip: document.getElementById('active-rules-strip'),
+    gameFeedPanel: document.getElementById('game-feed-panel'),
+    gameFeedList: document.getElementById('game-feed-list'),
+    purchaseMyCash: document.getElementById('purchase-my-cash'),
+    winnerModal: document.getElementById('winner-modal'),
+    winnerModalMessage: document.getElementById('winner-modal-message'),
+    winnerCloseBtn: document.getElementById('winner-close-btn'),
     myPropertiesList: document.getElementById('my-properties-list'),
     helpBtn: document.getElementById('help-btn'),
     helpModal: document.getElementById('help-modal'),
@@ -144,12 +168,16 @@ function initGameClient() {
     started: false,
     currentPlayerId: null,
     lastDice: [0, 0],
+    hasRolled: false,
     auctionActive: false,
     awaitingDecision: false,
     extraRollPending: false,
     pendingTrade: null,
     selectedPropertyIndex: null
   };
+  let localRollPending = false;
+  let hadConnectionLoss = false;
+  let lastShownWinner = null;
   let auctionUiState = null;
   let auctionUiGame = null;
   let auctionUiTicker = null;
@@ -328,11 +356,24 @@ function initGameClient() {
     return costs[tile?.group] || 0;
   }
 
-  function getRentPreview(tile, level, ownerHasFullSet = false) {
+  function getRentPreview(tile, level, ownerHasFullSet = false, game = null) {
     const baseRent = tile?.rent || 0;
     if (!tile || tile.mortgaged) return 0;
     if (tile.type === 'utility') {
-      return baseRent;
+      const lastDice = game?.lastDice;
+      if (Array.isArray(lastDice) && lastDice.length === 2 && (lastDice[0] || lastDice[1])) {
+        const diceTotal = Math.max(2, lastDice[0] + lastDice[1]);
+        const owner = game?.players?.find(player => player.id === tile.ownerId);
+        const ownedUtilities = (game?.tiles || []).filter(entry => entry.type === 'utility' && entry.ownerId === owner?.id).length;
+        return diceTotal * (ownedUtilities >= 2 ? 10 : 4);
+      }
+      return 'Varies by dice roll';
+    }
+    if (tile.type === 'railroad') {
+      const owner = game?.players?.find(player => player.id === tile.ownerId);
+      const ownedRailroads = (game?.tiles || []).filter(entry => entry.type === 'railroad' && entry.ownerId === owner?.id).length;
+      const tiers = [25, 50, 100, 200];
+      return tiers[Math.min(Math.max(ownedRailroads, 1), tiers.length) - 1];
     }
     const multipliers = [1, 5, 15, 45, 80, 125];
     if (level > 0) {
@@ -341,8 +382,41 @@ function initGameClient() {
     return ownerHasFullSet ? baseRent * 2 : baseRent;
   }
 
+  function canBuildOnTileClient(player, tile, game, settings) {
+    if (!player || !tile || tile.type !== 'property') return false;
+    if (tile.ownerId !== player.id || tile.mortgaged) return false;
+    const groupTiles = (game?.tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === player.id);
+    const fullGroup = (game?.tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property');
+    if (!groupTiles.length || groupTiles.length !== fullGroup.length) return false;
+    if (groupTiles.some(entry => entry.mortgaged)) return false;
+    if (!settings?.evenBuild) {
+      return (tile.houseCount || 0) < 5;
+    }
+    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
+    const minLevel = Math.min(...houseLevels);
+    return (tile.houseCount || 0) === minLevel && (tile.houseCount || 0) < 5;
+  }
+
+  function canSellFromTileClient(player, tile, game, settings) {
+    if (!player || !tile || tile.type !== 'property') return false;
+    if (tile.ownerId !== player.id) return false;
+    const groupTiles = (game?.tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === player.id);
+    if (!groupTiles.length) return false;
+    if (!settings?.evenBuild) {
+      return (tile.houseCount || 0) > 0;
+    }
+    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
+    const maxLevel = Math.max(...houseLevels);
+    return (tile.houseCount || 0) === maxLevel && (tile.houseCount || 0) > 0;
+  }
+
+  function setLandingBusy(busy) {
+    if (elements.joinBtn) elements.joinBtn.disabled = busy;
+    if (elements.createBtn) elements.createBtn.disabled = busy;
+  }
+
   function isTradeableTile(tile) {
-    return Boolean(tile && (tile.type === 'property' || tile.type === 'utility') && !tile.mortgaged && (tile.houseCount || 0) === 0);
+    return Boolean(tile && (tile.type === 'property' || tile.type === 'utility' || tile.type === 'railroad') && !tile.mortgaged && (tile.houseCount || 0) === 0);
   }
 
   function canPlaceAuctionBid(auction, localPlayer, now, step) {
@@ -449,10 +523,16 @@ function initGameClient() {
     orderedPlayers.forEach(player => {
       const card = document.createElement('div');
       const isActive = player.id === currentPlayerId;
-      const status = player.bankrupt ? 'Bankrupt' : player.disconnected ? 'Away' : 'Ready';
+      const isMe = player.clientId === localState.clientId;
+      const status = player.bankrupt
+        ? 'Bankrupt'
+        : player.disconnected
+          ? 'Away'
+          : (gameState.started ? 'Playing' : 'Ready');
       card.className = [
         'player-card',
         isActive ? 'active' : '',
+        isMe ? 'is-me' : '',
         player.bankrupt ? 'bankrupt' : '',
         player.disconnected ? 'away' : ''
       ].filter(Boolean).join(' ');
@@ -475,16 +555,46 @@ function initGameClient() {
   }
 
   function updateTurnButtons() {
+    const localPlayer = localState.game?.players?.find(player => player.clientId === localState.clientId);
+    const pendingPayment = localState.game?.pendingPayment;
+    const owesDebt = Boolean(
+      pendingPayment &&
+      localPlayer &&
+      pendingPayment.playerId === localPlayer.id
+    );
+
     if (!gameState.started || !localState.currentPlayerIsMe || gameState.auctionActive || gameState.awaitingDecision) {
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
+      elements.payJailBtn?.classList.add('hidden');
+      elements.declareBankruptcyBtn?.classList.add('hidden');
       elements.turnActions.classList.add('hidden');
       return;
     }
 
+    if (owesDebt) {
+      elements.rollDiceBtn.classList.add('hidden');
+      elements.endTurnBtn.classList.add('hidden');
+      elements.payJailBtn?.classList.add('hidden');
+      elements.declareBankruptcyBtn?.classList.remove('hidden');
+      elements.turnActions.classList.remove('hidden');
+      return;
+    }
+
+    elements.declareBankruptcyBtn?.classList.add('hidden');
     elements.rollDiceBtn.classList.remove('hidden');
     elements.endTurnBtn.classList.toggle('hidden', Boolean(gameState.extraRollPending));
     elements.turnActions.classList.remove('hidden');
+    const canRoll = !localRollPending && (!gameState.hasRolled || gameState.extraRollPending);
+    elements.rollDiceBtn.disabled = !canRoll;
+    const canEndTurn = gameState.hasRolled && !gameState.extraRollPending;
+    elements.endTurnBtn.disabled = !canEndTurn;
+
+    const showJailPay = Boolean(localPlayer?.inJail && !gameState.hasRolled);
+    if (elements.payJailBtn) {
+      elements.payJailBtn.classList.toggle('hidden', !showJailPay);
+      elements.payJailBtn.disabled = !showJailPay || (localPlayer?.cash || 0) < 50;
+    }
   }
 
   function setTurnBanner(game, vacationPool = 0) {
@@ -498,7 +608,7 @@ function initGameClient() {
       if (elements.turnBannerTitle) elements.turnBannerTitle.textContent = 'Lobby';
       if (elements.turnBannerSubtitle) elements.turnBannerSubtitle.textContent = waitingText;
       if (elements.diceDisplay) elements.diceDisplay.textContent = 'Dice: --';
-      if (elements.vacationDisplay) elements.vacationDisplay.textContent = `Vacation: $${vacationPool}`;
+      if (elements.vacationDisplay) elements.vacationDisplay.textContent = `Vacation: ${formatMoney(vacationPool)}`;
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
       elements.turnActions.classList.add('hidden');
@@ -511,25 +621,96 @@ function initGameClient() {
       current && localPlayer && current.id === localPlayer.id
     );
     if (elements.turnBannerTitle) {
-      elements.turnBannerTitle.textContent = current
-        ? (localState.currentPlayerIsMe ? 'Your turn' : `${current.nickname}'s turn`)
-        : 'Game in progress';
+      if (current?.disconnected) {
+        elements.turnBannerTitle.textContent = `Waiting for ${current.nickname}`;
+      } else {
+        elements.turnBannerTitle.textContent = current
+          ? (localState.currentPlayerIsMe ? 'Your turn' : `${current.nickname}'s turn`)
+          : 'Game in progress';
+      }
     }
     if (elements.turnBannerSubtitle) {
-      const subtitle = localState.currentPlayerIsMe
-        ? (gameState.extraRollPending
+      let subtitle;
+      if (current?.disconnected) {
+        subtitle = 'Waiting for them to reconnect…';
+      } else if (localState.currentPlayerIsMe) {
+        subtitle = gameState.extraRollPending
           ? 'Roll again. Doubles gave you an extra turn.'
-          : 'Roll the dice, resolve the tile, then end your turn.')
-        : 'Watch the active player and wait for your turn.';
+          : 'Roll the dice, resolve the tile, then end your turn.';
+      } else {
+        subtitle = 'Watch the active player and wait for your turn.';
+      }
       elements.turnBannerSubtitle.textContent = subtitle;
     }
     if (elements.diceDisplay) {
       elements.diceDisplay.textContent = formatDice(game.lastDice);
     }
     if (elements.vacationDisplay) {
-      elements.vacationDisplay.textContent = `Vacation: $${vacationPool}`;
+      elements.vacationDisplay.textContent = `Vacation: ${formatMoney(vacationPool)}`;
+    }
+    if (elements.myCashDisplay && elements.myCashValue) {
+      if (game?.started && localPlayer) {
+        elements.myCashDisplay.classList.remove('hidden');
+        elements.myCashValue.textContent = formatMoney(localPlayer.cash);
+      } else {
+        elements.myCashDisplay.classList.add('hidden');
+      }
+    }
+    if (localState.currentPlayerIsMe && localPlayer?.inJail && elements.turnBannerSubtitle && !localState.game?.pendingPayment) {
+      const jailTurns = localPlayer.jailTurns || 0;
+      elements.turnBannerSubtitle.textContent = `In jail — roll doubles, pay $50, or wait (turn ${jailTurns}/3).`;
+    }
+    const pendingPayment = localState.game?.pendingPayment;
+    if (localState.currentPlayerIsMe && pendingPayment?.playerId === localPlayer?.id && elements.turnBannerSubtitle) {
+      elements.turnBannerSubtitle.textContent = `You owe ${formatMoney(pendingPayment.amountRemaining)}. Mortgage or sell buildings, or declare bankruptcy.`;
     }
     updateTurnButtons();
+  }
+
+  function renderActiveRules(settings) {
+    if (!elements.activeRulesStrip) return;
+    if (!settings || !gameState.started) {
+      elements.activeRulesStrip.classList.add('hidden');
+      elements.activeRulesStrip.textContent = '';
+      return;
+    }
+    const labels = [];
+    if (settings.doubleRent) labels.push('Double rent');
+    if (settings.vacationCash) labels.push('Vacation cash');
+    if (settings.auction) labels.push('Auctions');
+    if (settings.evenBuild) labels.push('Even build');
+    if (settings.mortgage) labels.push('Mortgage');
+    if (settings.randomizePlayerOrder) labels.push('Random order');
+    if (settings.noRentWhileInPrison) labels.push('No rent in jail');
+    elements.activeRulesStrip.textContent = labels.length
+      ? `Active rules: ${labels.join(' • ')}`
+      : 'Standard rules';
+    elements.activeRulesStrip.classList.remove('hidden');
+  }
+
+  function renderGameFeed(feed) {
+    if (!elements.gameFeedPanel || !elements.gameFeedList) return;
+    if (!gameState.started || !Array.isArray(feed) || !feed.length) {
+      elements.gameFeedPanel.classList.add('hidden');
+      elements.gameFeedList.innerHTML = '';
+      return;
+    }
+    elements.gameFeedPanel.classList.remove('hidden');
+    elements.gameFeedList.innerHTML = feed
+      .slice(0, 20)
+      .map(entry => `<div class="game-feed-item">${escapeHtml(entry.text)}</div>`)
+      .join('');
+  }
+
+  function maybeShowWinnerModal(game, room) {
+    if (!elements.winnerModal || !elements.winnerModalMessage) return;
+    const winner = game?.lastWinner;
+    if (!winner || room?.started) return;
+    const key = `${winner.id}-${winner.nickname}`;
+    if (lastShownWinner === key) return;
+    lastShownWinner = key;
+    elements.winnerModalMessage.textContent = `${winner.nickname} wins the game!`;
+    showModal(elements.winnerModal);
   }
 
   function renderBoardOwnership(tiles, players) {
@@ -541,7 +722,7 @@ function initGameClient() {
     const playerById = new Map((players || []).map(player => [player.id, player]));
 
     tiles.forEach(tile => {
-      if (!tile.ownerId || (tile.type !== 'property' && tile.type !== 'utility')) {
+      if (!tile.ownerId || (tile.type !== 'property' && tile.type !== 'utility' && tile.type !== 'railroad')) {
         return;
       }
 
@@ -641,6 +822,41 @@ function initGameClient() {
     });
   }
 
+  function getPropertyActionNote(player, tile, game, settings) {
+    if (!player || !tile) return '';
+    if (tile.type === 'railroad' || tile.type === 'utility') {
+      if (tile.mortgaged) return 'This tile is mortgaged.';
+      return 'Railroads and utilities cannot be developed, but they can be mortgaged or traded.';
+    }
+    const groupTiles = (game?.tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property');
+    const ownedInGroup = groupTiles.filter(entry => entry.ownerId === player.id);
+    if (ownedInGroup.length !== groupTiles.length) {
+      return 'You need the full color set before building.';
+    }
+    if (ownedInGroup.some(entry => entry.mortgaged)) {
+      return 'You cannot build while any property in this set is mortgaged.';
+    }
+    if (settings?.evenBuild) {
+      const levels = ownedInGroup.map(entry => entry.houseCount || 0);
+      const minLevel = Math.min(...levels);
+      const maxLevel = Math.max(...levels);
+      if ((tile.houseCount || 0) > minLevel) {
+        return 'Even build: add houses to the least-developed properties in this set first.';
+      }
+      if ((tile.houseCount || 0) < maxLevel) {
+        return 'Even build: sell houses from the most-developed properties in this set first.';
+      }
+    }
+    if ((tile.houseCount || 0) >= 5) {
+      return 'This property already has a hotel.';
+    }
+    const houseCost = tile.houseCost || getPropertyHouseCost(tile);
+    if (player.cash < houseCost) {
+      return `You need ${formatMoney(houseCost)} to build here.`;
+    }
+    return 'Build evenly across the color group, one step at a time.';
+  }
+
   function renderPropertyModal(game, players) {
     if (!elements.propertyModal || !propertyUiState) return;
     const tile = game?.tiles?.find(entry => entry.index === propertyUiState.tileIndex);
@@ -660,7 +876,11 @@ function initGameClient() {
 
     if (elements.propertyModalName) elements.propertyModalName.textContent = tile.name;
     if (elements.propertyModalGroup) {
-      const status = tile.type === 'utility' ? 'Utility' : tile.group || tile.type;
+      const status = tile.type === 'utility'
+        ? 'Utility'
+        : tile.type === 'railroad'
+          ? 'Airport'
+          : tile.group || tile.type;
       elements.propertyModalGroup.textContent = `${status} • ${formatMoney(tile.price || 0)}`;
     }
     if (elements.propertyModalStatus) {
@@ -673,9 +893,7 @@ function initGameClient() {
             : 'No buildings yet';
     }
     if (elements.propertyModalNote) {
-      elements.propertyModalNote.textContent = tile.type === 'property'
-        ? 'Build evenly across the color group, one step at a time.'
-        : 'Utilities cannot be improved, but they can still be mortgaged or traded.';
+      elements.propertyModalNote.textContent = getPropertyActionNote(localPlayer, tile, game, settings);
     }
 
     if (elements.propertyModalRents) {
@@ -685,7 +903,7 @@ function initGameClient() {
         row.className = 'rent-row';
         row.innerHTML = `
           <span>${level === 0 ? 'Base' : level === 5 ? 'Hotel' : `${level} house${level === 1 ? '' : 's'}`}</span>
-          <strong>${formatMoney(getRentPreview(tile, level, fullSet))}</strong>
+          <strong>${typeof getRentPreview(tile, level, fullSet, game) === 'string' ? getRentPreview(tile, level, fullSet, game) : formatMoney(getRentPreview(tile, level, fullSet, game))}</strong>
         `;
         elements.propertyModalRents.appendChild(row);
       });
@@ -698,13 +916,15 @@ function initGameClient() {
       }).join('');
     }
 
+    const settings = localState.room?.settings || {};
+
     if (elements.propertyBuildBtn) {
-      const canBuild = ownsTile && tile.type === 'property' && !tile.mortgaged && fullSet && currentLevel < 5;
+      const canBuild = canBuildOnTileClient(localPlayer, tile, game, settings);
       elements.propertyBuildBtn.disabled = !canBuild;
       elements.propertyBuildBtn.textContent = currentLevel >= 4 ? 'Build hotel' : 'Build house';
     }
     if (elements.propertySellBtn) {
-      const canSell = ownsTile && tile.type === 'property' && currentLevel > 0;
+      const canSell = canSellFromTileClient(localPlayer, tile, game, settings);
       elements.propertySellBtn.disabled = !canSell;
       elements.propertySellBtn.textContent = currentLevel >= 5 ? 'Sell hotel' : 'Sell house';
     }
@@ -777,6 +997,7 @@ function initGameClient() {
           const chip = document.createElement('button');
           chip.type = 'button';
           chip.className = `trade-property-chip ${tradeUiState.selectedOfferPropertyIndexes.has(tile.index) ? 'selected' : ''}`;
+          chip.setAttribute('aria-pressed', tradeUiState.selectedOfferPropertyIndexes.has(tile.index) ? 'true' : 'false');
           chip.innerHTML = `
             <span>${escapeHtml(tile.name)}</span>
             <small>${formatMoney(tile.price || 0)}</small>
@@ -803,6 +1024,7 @@ function initGameClient() {
           const chip = document.createElement('button');
           chip.type = 'button';
           chip.className = `trade-property-chip ${tradeUiState.selectedRequestPropertyIndexes.has(tile.index) ? 'selected' : ''}`;
+          chip.setAttribute('aria-pressed', tradeUiState.selectedRequestPropertyIndexes.has(tile.index) ? 'true' : 'false');
           chip.innerHTML = `
             <span>${escapeHtml(tile.name)}</span>
             <small>${formatMoney(tile.price || 0)}</small>
@@ -873,6 +1095,36 @@ function initGameClient() {
   function closeIncomingTradeModal() {
     gameState.pendingTrade = null;
     hideModal(elements.incomingTradeModal);
+  }
+
+  function declineIncomingTrade() {
+    if (!gameState.pendingTrade) {
+      closeIncomingTradeModal();
+      return;
+    }
+    const tradeId = gameState.pendingTrade.id;
+    emit('respond-trade', { tradeId, accept: false }, response => {
+      if (!response?.success) {
+        showToast(response?.error || 'Could not decline trade.', 'error');
+        return;
+      }
+      showToast('Trade declined.', 'warning');
+      closeIncomingTradeModal();
+    });
+  }
+
+  function declinePurchaseViaEscape() {
+    if (!currentPurchase) {
+      closePurchaseModal();
+      return;
+    }
+    emit('decline-property', { tileIndex: currentPurchase.tileIndex }, response => {
+      if (!response?.success) {
+        showToast(response?.error || 'Could not decline property.', 'error');
+        return;
+      }
+      closePurchaseModal();
+    });
   }
 
   function setTokens(players) {
@@ -989,10 +1241,16 @@ function initGameClient() {
     gameState.started = state.game.started;
     gameState.currentPlayerId = state.game.currentPlayerId;
     gameState.lastDice = state.game.lastDice || [0, 0];
+    gameState.hasRolled = Boolean(state.game.hasRolled);
     gameState.auctionActive = Boolean(state.game.auction?.active);
     gameState.awaitingDecision = Boolean(currentPurchase || state.game.pendingPurchaseOffer);
     gameState.extraRollPending = Boolean(state.game.extraRollPending);
     gameState.pendingTrade = state.game.pendingTrade || null;
+    localRollPending = false;
+
+    renderGameFeed(state.game.feed);
+    renderActiveRules(state.room.settings);
+    maybeShowWinnerModal(state.game, state.room);
 
     const localPlayer = state.room.players.find(player => player.clientId === localState.clientId);
     const pendingPurchase = state.game.pendingPurchaseOffer;
@@ -1037,9 +1295,13 @@ function initGameClient() {
     if (elements.propertiesWindow) {
       elements.propertiesWindow.classList.toggle('hidden', !state.room.started);
     }
+    if (elements.tradeWindow) {
+      elements.tradeWindow.classList.toggle('hidden', !state.room.started);
+    }
 
     if (state.room.started) {
       elements.startGameOverlay?.classList.add('hidden');
+      hideModal(elements.winnerModal);
     } else if (localState.isHost) {
       elements.startGameOverlay?.classList.remove('hidden');
     } else {
@@ -1121,8 +1383,30 @@ function initGameClient() {
     gameState.awaitingDecision = true;
     if (!elements.purchaseModal) return;
     elements.purchaseName.textContent = data.name;
-    elements.purchaseCost.textContent = `Cost: $${data.price}`;
+    elements.purchaseCost.textContent = formatMoney(data.price);
+    const localPlayer = localState.game?.players?.find(player => player.clientId === localState.clientId);
+    const myCash = localPlayer?.cash || 0;
+    if (elements.purchaseMyCash) {
+      elements.purchaseMyCash.textContent = formatMoney(myCash);
+      elements.purchaseMyCash.classList.toggle('insufficient', myCash < data.price);
+    }
+    const auctionEnabled = Boolean(localState.room?.settings?.auction);
+    if (elements.purchaseModalNote) {
+      if (myCash < data.price) {
+        elements.purchaseModalNote.textContent = auctionEnabled
+          ? 'You cannot afford this property. Declining will start an auction.'
+          : 'You cannot afford this property.';
+      } else {
+        elements.purchaseModalNote.textContent = auctionEnabled
+          ? 'Would you like to buy this property now or let it go to auction?'
+          : 'Would you like to buy this property now?';
+      }
+    }
+    if (elements.purchaseConfirmBtn) {
+      elements.purchaseConfirmBtn.disabled = myCash < data.price;
+    }
     showModal(elements.purchaseModal);
+    elements.purchaseConfirmBtn?.focus();
     updateTurnButtons();
   }
 
@@ -1142,13 +1426,15 @@ function initGameClient() {
       return;
     }
     if (!roomCode) {
-      appendChat('Please enter a room code to join.', 'System');
+      showToast('Please enter a room code to join.', 'error');
       return;
     }
 
+    setLandingBusy(true);
     emit('join-room', { nickname, color: selectedColor, roomCode }, response => {
+      setLandingBusy(false);
       if (!response?.success) {
-        appendChat(response?.error || 'Unable to join room.', 'System');
+        showToast(response?.error || 'Unable to join room.', 'error');
         return;
       }
       showLobbyScreen();
@@ -1158,9 +1444,11 @@ function initGameClient() {
 
   function createRoom() {
     const nickname = elements.nicknameInput.value.trim() || 'Host';
+    setLandingBusy(true);
     emit('create-room', { nickname, color: selectedColor }, response => {
+      setLandingBusy(false);
       if (!response?.success) {
-        appendChat(response?.error || 'Unable to create room.', 'System');
+        showToast(response?.error || 'Unable to create room.', 'error');
         return;
       }
       showLobbyScreen();
@@ -1171,7 +1459,7 @@ function initGameClient() {
   function showLobbyScreen() {
     showWorkspace();
     showOverlay();
-    appendChat('entered the room.', 'System');
+    appendChat('You entered the room.', 'System');
   }
 
   function renderColors() {
@@ -1227,12 +1515,25 @@ function initGameClient() {
   function handleConnect() {
     localState.clientId = getClientId();
     emit('restore-session', {}, () => {});
+    if (hadConnectionLoss) {
+      showToast('Reconnected to the server.', 'success');
+      hadConnectionLoss = false;
+    }
   }
 
   if (socket.connected) {
     handleConnect();
   }
   socket.on('connect', handleConnect);
+
+  socket.on('disconnect', () => {
+    hadConnectionLoss = true;
+    showToast('Connection lost. Reconnecting…', 'warning');
+  });
+
+  socket.on('connect_error', () => {
+    showToast('Unable to reach the server. Retrying…', 'error');
+  });
 
   socket.on('update-state', renderRoomState);
 
@@ -1242,7 +1543,10 @@ function initGameClient() {
 
   socket.on('system-message', ({ text }) => {
     appendChat(text, 'System');
-    showToast(text, 'info');
+    const important = /wins the game|bankrupt|Auction|disconnected|reconnected|started|trade/i.test(text);
+    if (important) {
+      showToast(text, 'info');
+    }
   });
 
   socket.on('purchase-offer', openPurchaseModal);
@@ -1271,9 +1575,13 @@ function initGameClient() {
   if (elements.overlayContinueBtn) {
     on(elements.overlayContinueBtn, 'click', () => {
       const nickname = elements.nicknameInput.value.trim();
-      syncAppearanceSelection(selectedColor, nickname).finally(() => {
-        hideOverlay();
-        elements.chatInput.focus();
+      syncAppearanceSelection(selectedColor, nickname).then(success => {
+        if (success) {
+          hideOverlay();
+          elements.chatInput.focus();
+        } else {
+          showToast('Could not save your appearance. Please try again.', 'error');
+        }
       });
     });
   }
@@ -1286,7 +1594,7 @@ function initGameClient() {
       button.className = 'color-circle';
       button.style.background = color;
       button.dataset.color = color;
-      button.setAttribute('aria-label', `Select color ${color}`);
+      button.setAttribute('aria-label', `Select ${COLOR_NAMES[color] || 'player'} color`);
       on(button, 'click', () => {
         selectedColor = color;
         renderColors();
@@ -1304,10 +1612,21 @@ function initGameClient() {
   renderColors();
 
   if (elements.copyRoomBtn) {
-    on(elements.copyRoomBtn, 'click', () => {
+    on(elements.copyRoomBtn, 'click', async () => {
       const text = elements.roomCodeValue?.textContent;
-      if (navigator.clipboard && text) {
-        navigator.clipboard.writeText(text);
+      if (!text || text === '----') {
+        showToast('No room code to copy.', 'error');
+        return;
+      }
+      try {
+        if (navigator.clipboard) {
+          await navigator.clipboard.writeText(text);
+          showToast('Room code copied.', 'success');
+        } else {
+          showToast(`Room code: ${text}`, 'info');
+        }
+      } catch (error) {
+        showToast('Could not copy room code.', 'error');
       }
     });
   }
@@ -1351,10 +1670,36 @@ function initGameClient() {
   }
 
   if (elements.incomingTradeModal) {
-    on(elements.incomingTradeModal, 'click', event => {
-      if (event.target === elements.incomingTradeModal) {
-        closeIncomingTradeModal();
-      }
+    // Backdrop clicks intentionally do nothing — use Decline to avoid misclicks.
+  }
+
+  if (elements.winnerCloseBtn && elements.winnerModal) {
+    on(elements.winnerCloseBtn, 'click', () => {
+      hideModal(elements.winnerModal);
+    });
+  }
+
+  if (elements.payJailBtn) {
+    on(elements.payJailBtn, 'click', () => {
+      emit('pay-jail-fine', {}, response => {
+        if (!response?.success) {
+          showToast(response?.error || 'Could not pay jail fine.', 'error');
+        } else {
+          showToast('You paid the jail fine.', 'success');
+        }
+      });
+    });
+  }
+
+  if (elements.declareBankruptcyBtn) {
+    on(elements.declareBankruptcyBtn, 'click', () => {
+      emit('declare-bankruptcy', {}, response => {
+        if (!response?.success) {
+          showToast(response?.error || 'Could not declare bankruptcy.', 'error');
+        } else {
+          showToast('You declared bankruptcy.', 'warning');
+        }
+      });
     });
   }
 
@@ -1482,16 +1827,21 @@ function initGameClient() {
   }
 
   on(elements.rollDiceBtn, 'click', () => {
-    if (!localState.currentPlayerIsMe) return;
+    if (!localState.currentPlayerIsMe || elements.rollDiceBtn.disabled) return;
+    localRollPending = true;
+    elements.rollDiceBtn.disabled = true;
     emit('roll-dice', {}, response => {
+      localRollPending = false;
       if (!response?.success) {
         appendChat(response?.error || 'Unable to roll.', 'System');
+        showToast(response?.error || 'Unable to roll.', 'error');
       }
+      updateTurnButtons();
     });
   });
 
   on(elements.endTurnBtn, 'click', () => {
-    if (!localState.currentPlayerIsMe) return;
+    if (!localState.currentPlayerIsMe || elements.endTurnBtn.disabled) return;
     emit('end-turn', {}, response => {
       if (!response?.success) {
         appendChat(response?.error || 'Could not end turn.', 'System');
@@ -1506,9 +1856,9 @@ function initGameClient() {
         if (!response?.success) {
           appendChat(response?.error || 'Could not complete purchase.', 'System');
           showToast(response?.error || 'Could not complete purchase.', 'error');
-        } else {
-          showToast('Property purchased.', 'success');
+          return;
         }
+        showToast('Property purchased.', 'success');
         closePurchaseModal();
       });
     });
@@ -1552,13 +1902,17 @@ function initGameClient() {
   on(document, 'keydown', event => {
     if (event.key !== 'Escape') return;
     if (gameState.auctionActive) return;
-    hideModal(elements.purchaseModal);
-    hideModal(elements.auctionModal);
+    if (currentPurchase) {
+      declinePurchaseViaEscape();
+      return;
+    }
+    if (gameState.pendingTrade && elements.incomingTradeModal && !elements.incomingTradeModal.classList.contains('hidden')) {
+      declineIncomingTrade();
+      return;
+    }
     hideModal(elements.helpModal);
     closePropertyModal();
     closeTradeModal();
-    closeIncomingTradeModal();
-    stopAuctionTicker();
   });
 
   const onResize = () => {
@@ -1566,8 +1920,6 @@ function initGameClient() {
     window.syncPanelTimeout = setTimeout(syncPanelHeights, 100);
   };
   on(window, 'resize', onResize);
-
-  elements.chatInput.focus();
 
   return () => {
     stopAuctionTicker();

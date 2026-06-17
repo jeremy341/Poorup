@@ -26,6 +26,31 @@ const AUCTION_DURATION_MS = 5000;
 const DISCONNECT_GRACE_MS = 10000;
 const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
+const CHAT_COOLDOWN_MS = 500;
+
+const chatLastSent = new Map();
+
+function reply(callback, payload) {
+  if (typeof callback === 'function') {
+    callback(payload);
+  }
+}
+
+function getRoomForSocket(socket, callback) {
+  const room = roomManager.getRoomBySocket(socket.id);
+  if (!room) {
+    reply(callback, { success: false, error: 'Room not found.' });
+    return null;
+  }
+  return room;
+}
+
+function clearDisconnectTimersForRoom(room) {
+  if (!room) return;
+  room.game.players.forEach(player => {
+    clearDisconnectTimer(player.clientId);
+  });
+}
 
 setInterval(() => {
   const now = Date.now();
@@ -37,6 +62,7 @@ setInterval(() => {
       } else if (now - room.emptySince > EMPTY_ROOM_GRACE_PERIOD_MS) {
         console.log(`Garbage collecting empty room: ${roomCode}`);
         clearAuctionTimer(room);
+        clearDisconnectTimersForRoom(room);
         roomManager.rooms.delete(roomCode);
       }
     } else {
@@ -148,16 +174,17 @@ function scheduleDisconnect(room, socketId) {
       (currentRoom.game.pendingTrade.fromPlayerId === currentPlayer.id || currentRoom.game.pendingTrade.toPlayerId === currentPlayer.id)
     ) {
       currentRoom.game.pendingTrade = null;
+      io.in(currentRoom.roomCode).emit('system-message', { text: 'A pending trade was cancelled due to disconnect.' });
+    }
+    if (currentRoom.game.currentPlayerId === currentPlayer.id) {
+      currentRoom.game.pendingPurchaseOffer = null;
+      currentRoom.game.skipDisconnectedCurrentPlayer();
     }
     if (currentRoom.game.auction && currentRoom.game.auction.active && currentRoom.game.auction.highestBidderId === currentPlayer.id) {
       currentRoom.game.auction.highestBidderId = null;
       currentRoom.game.auction.highestBid = 0;
       io.in(currentRoom.roomCode).emit('system-message', { text: `The highest bidder disconnected. The bid is reset.` });
-      // Reschedule so the auction timer fires correctly after the bid reset
       scheduleAuctionFinish(currentRoom);
-    }
-    if (currentRoom.game.currentPlayerId === currentPlayer.id) {
-      currentRoom.game.nextTurn();
     }
     emitRoomState(currentRoom);
     io.in(currentRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname} disconnected.` });
@@ -167,27 +194,32 @@ function scheduleDisconnect(room, socketId) {
 
 function scheduleAuctionFinish(room) {
   if (!room?.game?.auction?.active) return;
+  const roomCode = room.roomCode;
   clearAuctionTimer(room);
   const endsAt = room.game.auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
   const delay = Math.max(0, endsAt - Date.now());
   const timer = setTimeout(() => {
-    room.game.finishAuction();
-    emitRoomState(room);
-    io.in(room.roomCode).emit('system-message', { text: 'Auction ended.' });
-    clearAuctionTimer(room);
+    const currentRoom = roomManager.getRoom(roomCode);
+    if (!currentRoom?.game?.auction?.active) {
+      clearAuctionTimer({ roomCode });
+      return;
+    }
+    currentRoom.game.finishAuction();
+    emitRoomState(currentRoom);
+    io.in(roomCode).emit('system-message', { text: 'Auction ended.' });
+    clearAuctionTimer(currentRoom);
   }, delay);
-  auctionTimers.set(room.roomCode, timer);
+  auctionTimers.set(roomCode, timer);
 }
 
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
-  socket.on('restore-session', (payload = {}) => {
+  socket.on('restore-session', (payload = {}, callback) => {
     const { clientId } = payload;
     clearDisconnectTimer(clientId);
     const room = roomManager.restoreConnection(clientId, socket.id);
     if (room) {
-      // Leave any other game rooms this socket might be in
       for (const r of [...socket.rooms]) {
         if (r !== socket.id && r !== room.roomCode) {
           socket.leave(r);
@@ -197,7 +229,10 @@ io.on('connection', (socket) => {
       emitRoomState(room);
       emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
       socket.emit('system-message', { text: 'Reconnected to your room.' });
+      reply(callback, { success: true, roomCode: room.roomCode });
+      return;
     }
+    reply(callback, { success: false, error: 'No active session found.' });
   });
 
   socket.on('create-room', (payload, callback) => {
@@ -208,6 +243,16 @@ io.on('connection', (socket) => {
       return callback?.({ success: false, error: 'Nickname is required.' });
     }
     clearDisconnectTimer(clientId);
+
+    const previousRoom = roomManager.getRoomByClient(clientId);
+    const departedPlayerId = previousRoom?.game.getPlayerByClient(clientId)?.id;
+    const oldRoom = roomManager.leaveRoomByClient(clientId, socket.id);
+    if (oldRoom) {
+      if (departedPlayerId) {
+        reassignHostIfNeeded(oldRoom, departedPlayerId);
+      }
+      emitRoomState(oldRoom);
+    }
 
     // Leave any previous game rooms so we don't receive ghost updates
     for (const r of [...socket.rooms]) {
@@ -258,9 +303,6 @@ io.on('connection', (socket) => {
         oldPlayer.disconnected = true;
         oldPlayer.socketId = null;
         reassignHostIfNeeded(oldRoom, oldPlayer.id);
-        if (oldRoom.game.currentPlayerId === oldPlayer.id) {
-          oldRoom.game.nextTurn();
-        }
         emitRoomState(oldRoom);
       }
     }
@@ -279,7 +321,7 @@ io.on('connection', (socket) => {
 
   socket.on('set-setting', (payload = {}, callback) => {
     const { key, value } = payload;
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
     if (!player || room.hostId !== player.id) {
@@ -308,7 +350,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start-game', (_, callback) => {
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
     if (!player || room.hostId !== player.id) {
@@ -324,7 +366,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('roll-dice', (_, callback) => {
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.rollDice(socket.id);
     emitRoomState(room);
@@ -343,7 +385,7 @@ io.on('connection', (socket) => {
 
   socket.on('purchase-property', (payload = {}, callback) => {
     const { tileIndex } = payload;
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.purchaseProperty(socket.id, tileIndex);
     emitRoomState(room);
@@ -355,7 +397,7 @@ io.on('connection', (socket) => {
 
   socket.on('decline-property', (payload = {}, callback) => {
     const { tileIndex } = payload;
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.declineProperty(socket.id, tileIndex);
     if (result?.auctionStarted) {
@@ -370,7 +412,7 @@ io.on('connection', (socket) => {
 
   socket.on('auction-bid', (payload = {}, callback) => {
     const { amount } = payload;
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.placeAuctionBid(socket.id, amount);
     if (result?.success && room.game.auction?.active) {
@@ -384,7 +426,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('end-turn', (_, callback) => {
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.endTurn(socket.id);
     emitRoomState(room);
@@ -393,7 +435,7 @@ io.on('connection', (socket) => {
 
   socket.on('manage-property', (payload = {}, callback) => {
     const { tileIndex, action } = payload;
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.manageProperty(socket.id, { tileIndex, action });
     emitRoomState(room);
@@ -404,7 +446,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('propose-trade', (payload, callback) => {
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.proposeTrade(socket.id, payload);
     emitRoomState(room);
@@ -418,23 +460,48 @@ io.on('connection', (socket) => {
   });
 
   socket.on('respond-trade', (payload, callback) => {
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.respondToTrade(socket.id, payload);
     emitRoomState(room);
     callback?.({ success: result?.success ?? false, error: result?.error, accepted: result?.accepted });
   });
 
+  socket.on('pay-jail-fine', (_, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.payJailFine(socket.id);
+    emitRoomState(room);
+    if (result?.message) {
+      io.in(room.roomCode).emit('system-message', { text: result.message });
+    }
+    reply(callback, { success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('declare-bankruptcy', (_, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.declareBankruptcy(socket.id);
+    emitRoomState(room);
+    reply(callback, { success: result?.success ?? false, error: result?.error });
+  });
+
   socket.on('send-chat', (payload = {}, callback) => {
     const text = normalizeChatText(payload.text);
-    const room = roomManager.getRoomBySocket(socket.id);
+    const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
     if (!text) {
-      return callback?.({ success: false, error: 'Message cannot be empty.' });
+      return reply(callback, { success: false, error: 'Message cannot be empty.' });
     }
+    const now = Date.now();
+    const lastSent = chatLastSent.get(socket.id) || 0;
+    if (now - lastSent < CHAT_COOLDOWN_MS) {
+      return reply(callback, { success: false, error: 'Please wait before sending another message.' });
+    }
+    chatLastSent.set(socket.id, now);
     io.in(room.roomCode).emit('chat-message', { text, nickname: player?.nickname || 'Guest' });
-    callback?.({ success: true });
+    reply(callback, { success: true });
   });
 
   socket.on('disconnect', () => {

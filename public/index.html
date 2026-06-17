@@ -5,6 +5,9 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Poorup — Multiplayer Board</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/style.css" />
     <!-- Load socket.io-client library served by socket.io server -->
     <script src="/socket.io/socket.io.js"></script>
@@ -56,9 +59,9 @@
             <div id="player-list" class="player-list">No players yet</div>
             <div class="panel-divider"></div>
             <div class="panel-header">Chat</div>
-            <div id="chat-messages" class="chat-messages">No messages yet</div>
+            <div id="chat-messages" class="chat-messages"></div>
             <div class="chat-input">
-              <input id="chat-input" type="text" placeholder="Type a message" />
+              <input id="chat-input" type="text" placeholder="Type a message" aria-label="Chat message" />
             </div>
           </aside>
 
@@ -73,6 +76,8 @@
               </div>
               <div id="turn-actions" class="turn-actions hidden">
                 <button id="roll-dice-btn" class="btn btn-primary" type="button">Roll Dice</button>
+                <button id="pay-jail-btn" class="btn btn-muted hidden" type="button">Pay $50 Jail Fine</button>
+                <button id="declare-bankruptcy-btn" class="btn btn-danger hidden" type="button">Declare Bankruptcy</button>
                 <button id="end-turn-btn" class="btn btn-muted" type="button">End Turn</button>
               </div>
             </div>
@@ -80,11 +85,17 @@
               <div class="turn-banner-copy">
                 <div id="turn-banner-title" class="turn-banner-title">Waiting for game</div>
                 <div id="turn-banner-subtitle" class="turn-banner-subtitle">Join a room to get started.</div>
+                <div id="my-cash-display" class="my-cash-display hidden">Your balance: <strong id="my-cash-value">$0</strong></div>
               </div>
               <div class="turn-banner-stats">
                 <div id="dice-display" class="stat-pill">Dice: --</div>
                 <div id="vacation-display" class="stat-pill">Vacation: $0</div>
               </div>
+            </div>
+            <div id="active-rules-strip" class="active-rules-strip hidden" aria-label="Active game rules"></div>
+            <div id="game-feed-panel" class="game-feed-panel hidden">
+              <div class="panel-header">Game log</div>
+              <div id="game-feed-list" class="game-feed-list"></div>
             </div>
           </section>
 
@@ -105,6 +116,12 @@
                   <strong id="vacation-balance">$0</strong>
                 </div>
               </div>
+            </section>
+
+            <section class="panel sidebar-window trade-panel hidden" id="trade-window">
+              <div class="panel-header">Trade</div>
+              <div class="panel-subheader">Select a player to propose a trade.</div>
+              <div id="trade-player-list" class="trade-player-list"></div>
             </section>
 
             <section id="settings-window" class="panel sidebar-window settings-panel">
@@ -203,9 +220,13 @@
             <div id="purchase-property-name" class="purchase-property-name">Property</div>
             <div class="purchase-summary">
               <span class="purchase-summary-label">Cost</span>
-              <strong id="purchase-property-cost" class="purchase-summary-value">Cost</strong>
+              <strong id="purchase-property-cost" class="purchase-summary-value">$0</strong>
             </div>
-            <p class="modal-note">Would you like to buy this property now or let it go to auction?</p>
+            <div class="purchase-summary">
+              <span class="purchase-summary-label">Your cash</span>
+              <strong id="purchase-my-cash" class="purchase-summary-value">$0</strong>
+            </div>
+            <p id="purchase-modal-note" class="modal-note">Would you like to buy this property now?</p>
           </div>
           <div class="modal-actions">
             <button id="purchase-confirm-btn" class="btn" type="button">Buy</button>
@@ -313,14 +334,30 @@
         </div>
       </div>
 
+      <div id="winner-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-modal-title">
+        <div class="modal-card winner-modal-card">
+          <div id="winner-modal-title" class="modal-title">Game over</div>
+          <div class="modal-body">
+            <p id="winner-modal-message" class="winner-message">A player has won!</p>
+          </div>
+          <div class="modal-actions">
+            <button id="winner-close-btn" class="btn" type="button">Back to lobby</button>
+          </div>
+        </div>
+      </div>
+
       <div id="help-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
         <div class="modal-card modal-card-wide">
           <div id="help-modal-title" class="modal-title">How to play</div>
           <div class="modal-body help-body">
-            <p>Roll on your turn, then resolve the tile you land on.</p>
-            <p>Buy properties when they are offered, or let them go to auction if the room allows it.</p>
-            <p>Vacation cash collects taxes and some bank payments until someone lands on Vacation.</p>
-            <p>You must roll before ending your turn.</p>
+            <p>Roll on your turn, then resolve the tile you land on. You must roll before ending your turn.</p>
+            <p>Buy properties when offered, or let them go to auction if the room allows it.</p>
+            <p>Build houses evenly across a color set. Mortgages stop rent until you unmortgage at 110% of the mortgage value.</p>
+            <p>Airports charge tiered rent ($25–$200) based on how many you own. Utilities charge dice × 4 or × 10.</p>
+            <p>In jail: roll doubles, pay $50 before rolling, or leave automatically after 3 failed turns if you can afford the fine.</p>
+            <p>If you cannot pay rent or tax, mortgage or sell buildings to raise cash. Otherwise declare bankruptcy.</p>
+            <p>Vacation cash collects taxes until someone lands on Vacation.</p>
+            <p>Trade cash and deed-free properties from the Trade panel during the game.</p>
           </div>
           <div class="modal-actions">
             <button id="help-close-btn" class="btn" type="button">Close</button>
