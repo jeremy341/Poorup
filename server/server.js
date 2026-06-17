@@ -24,6 +24,26 @@ const auctionTimers = new Map();
 const disconnectTimers = new Map();
 const AUCTION_DURATION_MS = 5000;
 const DISCONNECT_GRACE_MS = 10000;
+const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
+const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [roomCode, room] of roomManager.rooms.entries()) {
+    const hasConnected = room.game.players.some(p => !p.disconnected);
+    if (!hasConnected) {
+      if (!room.emptySince) {
+        room.emptySince = now;
+      } else if (now - room.emptySince > EMPTY_ROOM_GRACE_PERIOD_MS) {
+        console.log(`Garbage collecting empty room: ${roomCode}`);
+        clearAuctionTimer(room);
+        roomManager.rooms.delete(roomCode);
+      }
+    } else {
+      room.emptySince = null;
+    }
+  }
+}, EMPTY_ROOM_GC_INTERVAL_MS);
 
 function normalizeNickname(value) {
   if (typeof value !== 'string') return '';
@@ -128,6 +148,11 @@ function scheduleDisconnect(room, socketId) {
       (currentRoom.game.pendingTrade.fromPlayerId === currentPlayer.id || currentRoom.game.pendingTrade.toPlayerId === currentPlayer.id)
     ) {
       currentRoom.game.pendingTrade = null;
+    }
+    if (currentRoom.game.auction && currentRoom.game.auction.active && currentRoom.game.auction.highestBidderId === currentPlayer.id) {
+      currentRoom.game.auction.highestBidderId = null;
+      currentRoom.game.auction.highestBid = 0;
+      io.in(currentRoom.roomCode).emit('system-message', { text: `The highest bidder disconnected. The bid is reset.` });
     }
     if (currentRoom.game.currentPlayerId === currentPlayer.id) {
       currentRoom.game.nextTurn();

@@ -128,6 +128,15 @@
               <div class="settings-list">
                 <label class="setting-toggle">
                   <div>
+                    <div class="toggle-title">Double rent</div>
+                    <div class="toggle-note">Charge double rent when owning a full color set.</div>
+                  </div>
+                  <input id="setting-double-rent" type="checkbox" data-setting="doubleRent" class="toggle-input" />
+                  <span class="toggle-slider"></span>
+                </label>
+
+                <label class="setting-toggle">
+                  <div>
                     <div class="toggle-title">Vacation cash</div>
                     <div class="toggle-note">Tax and bank payments land in Vacation until collected.</div>
                   </div>
@@ -184,6 +193,8 @@
           </aside>
         </main>
       </div>
+
+
 
       <div id="purchase-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="purchase-modal-title">
         <div class="modal-card purchase-modal-card">
