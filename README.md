@@ -2,7 +2,7 @@
 
 Poorup is a multiplayer board game inspired by Monopoly, playable entirely in the browser with no downloads or accounts required. Players join a shared room using a room code, buy and trade properties, build houses and hotels, and try to bankrupt each other. The game runs in real time using WebSockets.
 
-I built this project to get hands-on experience with real-time web development, server-side game logic, and managing shared state across multiple clients. I also wanted something I could actually play with friends online.
+I built this project to get hands-on experience with real-time web development, server-side game logic, and managing shared state across multiple clients. I also wanted something I could actually play with friends online well even though Richup.io is still the better alternative.
 
 ## Overview
 
@@ -62,5 +62,5 @@ The host can configure the following before starting:
 - Handling edge cases in multiplayer: disconnects mid-turn, disconnects during an active auction, host leaving, reconnects
 - Structuring a server-side rules engine that is the single source of truth while keeping the client purely for rendering
 - Memory management on long-running Node.js servers (room garbage collection, clearing timers on disconnect)
-- Building a complete UI from scratch with vanilla CSS including responsive layouts, modals, animations, and accessibility
-- The importance of separating game logic from networking code to keep things testable and maintainable
+- Building a complete UI  with vanilla CSS including responsive layouts, modals, animations, and accessibility but also need AI for help
+- The importance of separating game logic from networking code to keep things testable and maintainable if not causing many bugs
