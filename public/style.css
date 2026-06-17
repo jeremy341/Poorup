@@ -3,7 +3,7 @@
   --panel: #fffaf4;
   --hover: #f2ece3;
   --text: #2a2116;
-  --Undertext: #7b6d5d;
+  --undertext: #7b6d5d;
   --primary: #c96a2b;
   --secondary: #f0dfcf;
   --accent: #de7c3b;
@@ -79,7 +79,7 @@ input {
 }
 
 .muted {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 14px;
   margin-bottom: 20px
 }
@@ -151,12 +151,6 @@ input {
   min-height: 34px
 }
 
-.btn-compact {
-  padding: 8px 12px;
-  font-size: 13px;
-  min-height: 34px
-}
-
 .btn-muted {
   background: #f5f3ef;
   color: var(--text);
@@ -180,7 +174,7 @@ input {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 9999;
+  z-index: 10;
   margin-top: 30px;
 }
 
@@ -195,7 +189,7 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px
 }
 
@@ -204,7 +198,7 @@ input {
   border: 1px solid var(--border);
   padding: 8px;
   border-radius: 8px;
-  color: var(--Undertext);
+  color: var(--undertext);
   cursor: pointer;
   min-height: 44px;
   min-width: 44px;
@@ -264,7 +258,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 20
+  z-index: 50
 }
 
 .setup-overlay.hidden {
@@ -288,7 +282,7 @@ input {
 }
 
 .overlay-subtitle {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 14px;
   margin-bottom: 24px
 }
@@ -321,6 +315,12 @@ input {
   color: var(--text);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.chat-messages:empty::before {
+  content: 'No messages yet';
+  color: var(--undertext);
+  display: block;
 }
 
 .chat-line {
@@ -386,7 +386,7 @@ input {
 }
 
 .player-meta {
-  color: var(--Undertext)
+  color: var(--undertext)
 }
 
 .player-badges {
@@ -537,9 +537,94 @@ input {
 }
 
 .turn-banner-subtitle {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   line-height: 1.35
+}
+
+.my-cash-display {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--text)
+}
+
+.my-cash-display strong {
+  color: #166534
+}
+
+.active-rules-strip {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(230, 216, 200, 0.8);
+  font-size: 12px;
+  color: var(--undertext);
+  line-height: 1.4
+}
+
+.game-feed-panel {
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 16px;
+  background: rgba(255, 250, 244, 0.94);
+  border: 1px solid rgba(230, 216, 200, 0.9);
+  overflow: hidden
+}
+
+.game-feed-list {
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px
+}
+
+.game-feed-item {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--undertext)
+}
+
+.player-card.is-me .player-name::after {
+  content: ' (you)';
+  font-weight: 600;
+  color: #166534
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: #b91c1c
+}
+
+.btn-danger:hover {
+  background: #b91c1c
+}
+
+.winner-modal-card {
+  text-align: center
+}
+
+.winner-message {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0
+}
+
+.purchase-summary-value.insufficient {
+  color: #dc2626
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-token,
+  .auction-meter-fill,
+  .toast {
+    transition: none !important;
+    animation: none !important
+  }
 }
 
 .turn-banner-stats {
@@ -577,20 +662,6 @@ input {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed
-}
-
-.btn-secondary {
-  background: var(--secondary);
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 12px 16px;
-  border-radius: 10px;
-  font-weight: 600;
-  cursor: pointer
-}
-
-.btn-secondary:hover:not(:disabled) {
-  filter: brightness(0.95)
 }
 
 
@@ -636,7 +707,7 @@ input {
 
 .panel-subheader {
   padding: 0 20px 16px 20px;
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   line-height: 1.45
 }
@@ -679,6 +750,19 @@ input {
   font-weight: 600
 }
 
+.property-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.property-row-rent {
+  font-weight: 700;
+  color: var(--text);
+}
+
 .divider-line {
   height: 1px;
   background: #e6d8c8;
@@ -697,7 +781,7 @@ input {
 
 .panel-title {
   font-weight: 700;
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   padding: 18px 20px
 }
@@ -734,7 +818,7 @@ input {
 
 .toggle-note {
   font-size: 13px;
-  color: var(--Undertext);
+  color: var(--undertext);
   line-height: 1.4;
   white-space: normal;
   word-break: break-word;
@@ -803,7 +887,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 100;
   padding: 20px
 }
 
@@ -835,7 +919,7 @@ input {
 }
 
 .modal-note {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px
 }
 
@@ -863,7 +947,7 @@ input {
 }
 
 .purchase-summary-label {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
@@ -993,23 +1077,6 @@ input {
   min-height: 18px;
 }
 
-.auction-bid-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.auction-bid-field input {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fffaf4;
-  color: var(--text);
-}
-
 .trade-panel {
   min-width: 0;
 }
@@ -1048,7 +1115,7 @@ input {
 }
 
 .trade-player-copy span {
-  color: var(--Undertext);
+  color: var(--undertext);
 }
 
 .property-modal-card,
@@ -1094,6 +1161,26 @@ input {
   background: #fffaf4;
   border: 1px solid var(--border);
   font-size: 13px;
+}
+
+.rent-row.current {
+  background: #fff3e6;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(201, 106, 43, 0.15);
+}
+
+.property-modal-current-rent {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff3e6;
+  border: 1px solid rgba(201, 106, 43, 0.25);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.property-modal-current-rent strong {
+  color: var(--accent);
 }
 
 .property-house-strip {
@@ -1208,7 +1295,7 @@ input {
 }
 
 .trade-property-chip small {
-  color: var(--Undertext);
+  color: var(--undertext);
 }
 
 .trade-divider {
@@ -1237,7 +1324,7 @@ input {
 }
 
 .incoming-trade-row span {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-weight: 700;
 }
 
@@ -1253,7 +1340,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 60;
+  z-index: 110;
   width: min(320px, calc(100vw - 32px));
   pointer-events: none
 }
@@ -1284,26 +1371,6 @@ input {
 
 .toast.error {
   background: rgba(140, 38, 38, 0.96)
-}
-
-.lobby-note {
-  position: absolute;
-  left: 50%;
-  top: 78px;
-  transform: translateX(-50%);
-  z-index: 7;
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(255, 250, 244, 0.94);
-  border: 1px solid rgba(230, 216, 200, 0.9);
-  color: var(--Undertext);
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 12px 28px rgba(34, 28, 20, 0.1)
-}
-
-.player-card.in-turn {
-  border-color: rgba(201, 106, 43, 0.55)
 }
 
 .player-card.bankrupt {
@@ -1380,6 +1447,17 @@ input {
 }
 
 @media (max-width:740px) {
+  html,
+  body {
+    overflow: auto;
+  }
+
+  #app {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .landing-card {
     padding: 24px
   }
