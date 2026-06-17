@@ -23,7 +23,9 @@ npm start
 
 Then open `http://localhost:8080` in your browser.
 
-## Tech stack
+**Live demo:** [poorup.onrender.com](https://poorup.onrender.com) (free tier may take ~30s to wake up)
+
+For a portfolio-style write-up (features, challenges, testing), see [SHOWCASE.md](SHOWCASE.md).
 
 | Layer | Technology |
 |---|---|
@@ -65,6 +67,24 @@ The host can configure the following before starting:
 - Building a complete UI  with vanilla CSS including responsive layouts, modals, animations, and accessibility but also need AI for help
 - The importance of separating game logic from networking code to keep things testable and maintainable if not causing many bugs
 
-## How to run
+MIT License
 
-https://poorup.onrender.com vist this link
+Copyright (c) 2026 jeremy341
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
