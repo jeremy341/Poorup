@@ -153,6 +153,8 @@ function scheduleDisconnect(room, socketId) {
       currentRoom.game.auction.highestBidderId = null;
       currentRoom.game.auction.highestBid = 0;
       io.in(currentRoom.roomCode).emit('system-message', { text: `The highest bidder disconnected. The bid is reset.` });
+      // Reschedule so the auction timer fires correctly after the bid reset
+      scheduleAuctionFinish(currentRoom);
     }
     if (currentRoom.game.currentPlayerId === currentPlayer.id) {
       currentRoom.game.nextTurn();

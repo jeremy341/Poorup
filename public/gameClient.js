@@ -1263,7 +1263,7 @@ function initGameClient() {
     if (event.key !== 'Enter') return;
     const text = elements.chatInput.value.trim();
     if (!text) return;
-    appendChat(text, 'You');
+    // Don't echo locally — the server will broadcast chat-message back to everyone
     emit('send-chat', { text }, () => {});
     elements.chatInput.value = '';
   });

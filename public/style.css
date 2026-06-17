@@ -3,7 +3,7 @@
   --panel: #fffaf4;
   --hover: #f2ece3;
   --text: #2a2116;
-  --Undertext: #7b6d5d;
+  --undertext: #7b6d5d;
   --primary: #c96a2b;
   --secondary: #f0dfcf;
   --accent: #de7c3b;
@@ -79,7 +79,7 @@ input {
 }
 
 .muted {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 14px;
   margin-bottom: 20px
 }
@@ -195,7 +195,7 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px
 }
 
@@ -204,7 +204,7 @@ input {
   border: 1px solid var(--border);
   padding: 8px;
   border-radius: 8px;
-  color: var(--Undertext);
+  color: var(--undertext);
   cursor: pointer;
   min-height: 44px;
   min-width: 44px;
@@ -288,7 +288,7 @@ input {
 }
 
 .overlay-subtitle {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 14px;
   margin-bottom: 24px
 }
@@ -386,7 +386,7 @@ input {
 }
 
 .player-meta {
-  color: var(--Undertext)
+  color: var(--undertext)
 }
 
 .player-badges {
@@ -537,7 +537,7 @@ input {
 }
 
 .turn-banner-subtitle {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   line-height: 1.35
 }
@@ -636,7 +636,7 @@ input {
 
 .panel-subheader {
   padding: 0 20px 16px 20px;
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   line-height: 1.45
 }
@@ -697,7 +697,7 @@ input {
 
 .panel-title {
   font-weight: 700;
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   padding: 18px 20px
 }
@@ -734,7 +734,7 @@ input {
 
 .toggle-note {
   font-size: 13px;
-  color: var(--Undertext);
+  color: var(--undertext);
   line-height: 1.4;
   white-space: normal;
   word-break: break-word;
@@ -835,7 +835,7 @@ input {
 }
 
 .modal-note {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px
 }
 
@@ -863,7 +863,7 @@ input {
 }
 
 .purchase-summary-label {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
@@ -1048,7 +1048,7 @@ input {
 }
 
 .trade-player-copy span {
-  color: var(--Undertext);
+  color: var(--undertext);
 }
 
 .property-modal-card,
@@ -1208,7 +1208,7 @@ input {
 }
 
 .trade-property-chip small {
-  color: var(--Undertext);
+  color: var(--undertext);
 }
 
 .trade-divider {
@@ -1237,7 +1237,7 @@ input {
 }
 
 .incoming-trade-row span {
-  color: var(--Undertext);
+  color: var(--undertext);
   font-weight: 700;
 }
 
@@ -1296,7 +1296,7 @@ input {
   border-radius: 999px;
   background: rgba(255, 250, 244, 0.94);
   border: 1px solid rgba(230, 216, 200, 0.9);
-  color: var(--Undertext);
+  color: var(--undertext);
   font-size: 13px;
   font-weight: 700;
   box-shadow: 0 12px 28px rgba(34, 28, 20, 0.1)
@@ -1380,6 +1380,17 @@ input {
 }
 
 @media (max-width:740px) {
+  html,
+  body {
+    overflow: auto;
+  }
+
+  #app {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .landing-card {
     padding: 24px
   }

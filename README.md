@@ -23,7 +23,9 @@ npm start
 
 Then open `http://localhost:8080` in your browser.
 
-## Tech stack
+**Live demo:** [poorup.onrender.com](https://poorup.onrender.com) (free tier may take ~30s to wake up)
+
+For a portfolio-style write-up (features, challenges, testing), see [SHOWCASE.md](SHOWCASE.md).
 
 | Layer | Technology |
 |---|---|
@@ -64,7 +66,3 @@ The host can configure the following before starting:
 - Memory management on long-running Node.js servers (room garbage collection, clearing timers on disconnect)
 - Building a complete UI  with vanilla CSS including responsive layouts, modals, animations, and accessibility but also need AI for help
 - The importance of separating game logic from networking code to keep things testable and maintainable if not causing many bugs
-
-## How to run
-
-https://poorup.onrender.com vist this link
