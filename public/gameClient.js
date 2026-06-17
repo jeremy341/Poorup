@@ -228,10 +228,6 @@ function initGameClient() {
     elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
   }
 
-  function appendActivity(text) {
-    // Activity log removed from UI; messages go to chat only
-  }
-
   function formatDice(lastDice) {
     if (!Array.isArray(lastDice) || lastDice.length !== 2) {
       return 'Dice: --';
@@ -1116,9 +1112,7 @@ function initGameClient() {
     }
 
     const chatPanel = document.querySelector('.chat-panel');
-    const propsPanel = document.querySelector('.properties-panel');
     if (chatPanel) chatPanel.style.height = `${height}px`;
-    if (propsPanel) propsPanel.style.height = `${height}px`;
     if (elements.rightSidebar) elements.rightSidebar.style.height = `${height}px`;
   }
 
@@ -1247,7 +1241,6 @@ function initGameClient() {
   });
 
   socket.on('system-message', ({ text }) => {
-    appendActivity(text);
     appendChat(text, 'System');
     showToast(text, 'info');
   });
