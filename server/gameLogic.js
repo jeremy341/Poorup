@@ -23,6 +23,9 @@ const PROPERTY_HOUSE_COST_BY_GROUP = {
   'Dark Blue': 200
 };
 const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
+const RAILROAD_RENT = [25, 50, 100, 200];
+const JAIL_FINE = 50;
+const JAIL_MAX_TURNS = 3;
 
 const DEFAULT_TILES = [
   { index: 0, name: 'Start', type: 'start' },
@@ -30,41 +33,41 @@ const DEFAULT_TILES = [
   { index: 2, name: 'Treasure', type: 'chance' },
   { index: 3, name: 'Rio', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#92400e' },
   { index: 4, name: 'Earnings Tax', type: 'tax', amount: 200 },
-  { index: 5, name: 'ACC Airport', type: 'utility', price: 200 },
+  { index: 5, name: 'ACC Airport', type: 'railroad', price: 200 },
   { index: 6, name: 'Accra', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#38bdf8' },
   { index: 7, name: 'Surprise?', type: 'chance' },
   { index: 8, name: 'Tema', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#38bdf8' },
   { index: 9, name: 'Kumasi', type: 'property', group: 'Light Blue', price: 120, rent: 16, color: '#38bdf8' },
-  { index: 10, name: 'Passing By', type: 'jail' }, // Top Right Corner
-  { index: 11, name: 'Pattaya', type: 'property', group: 'Pink', price: 140 },
+  { index: 10, name: 'Passing By', type: 'jail' },
+  { index: 11, name: 'Pattaya', type: 'property', group: 'Pink', price: 140, rent: 10, color: '#ec4899' },
   { index: 12, name: 'Electric Company', type: 'utility', price: 150 },
-  { index: 13, name: 'Chiang Mai', type: 'property', group: 'Pink', price: 140 },
-  { index: 14, name: 'Bangkok', type: 'property', group: 'Pink', price: 160 },
-  { index: 15, name: 'BKK Airport', type: 'utility', price: 200 },
-  { index: 16, name: 'Kyoto', type: 'property', group: 'Orange', price: 180 },
+  { index: 13, name: 'Chiang Mai', type: 'property', group: 'Pink', price: 140, rent: 12, color: '#ec4899' },
+  { index: 14, name: 'Bangkok', type: 'property', group: 'Pink', price: 160, rent: 14, color: '#ec4899' },
+  { index: 15, name: 'BKK Airport', type: 'railroad', price: 200 },
+  { index: 16, name: 'Kyoto', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#f97316' },
   { index: 17, name: 'Treasure', type: 'chance' },
-  { index: 18, name: 'Osaka', type: 'property', group: 'Orange', price: 180 },
-  { index: 19, name: 'Tokyo', type: 'property', group: 'Orange', price: 200 },
-  { index: 20, name: 'Vacation', type: 'vacation' }, // Bottom Right Corner
-  { index: 21, name: 'Eindhoven', type: 'property', group: 'Red', price: 220 },
+  { index: 18, name: 'Osaka', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#f97316' },
+  { index: 19, name: 'Tokyo', type: 'property', group: 'Orange', price: 200, rent: 16, color: '#f97316' },
+  { index: 20, name: 'Vacation', type: 'vacation' },
+  { index: 21, name: 'Eindhoven', type: 'property', group: 'Red', price: 220, rent: 18, color: '#ef4444' },
   { index: 22, name: 'Surprise?', type: 'chance' },
-  { index: 23, name: 'Rotterdam', type: 'property', group: 'Red', price: 220 },
-  { index: 24, name: 'Amsterdam', type: 'property', group: 'Red', price: 240 },
-  { index: 25, name: 'AMS Airport', type: 'utility', price: 200 },
-  { index: 26, name: 'Calgary', type: 'property', group: 'Yellow', price: 260 },
-  { index: 27, name: 'Vancouver', type: 'property', group: 'Yellow', price: 260 },
+  { index: 23, name: 'Rotterdam', type: 'property', group: 'Red', price: 220, rent: 18, color: '#ef4444' },
+  { index: 24, name: 'Amsterdam', type: 'property', group: 'Red', price: 240, rent: 20, color: '#ef4444' },
+  { index: 25, name: 'AMS Airport', type: 'railroad', price: 200 },
+  { index: 26, name: 'Calgary', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#eab308' },
+  { index: 27, name: 'Vancouver', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#eab308' },
   { index: 28, name: 'Water Company', type: 'utility', price: 150 },
-  { index: 29, name: 'Toronto', type: 'property', group: 'Yellow', price: 280 },
-  { index: 30, name: 'Go to Prison', type: 'goToJail' }, // Bottom Left Corner
-  { index: 31, name: 'Bern', type: 'property', group: 'Green', price: 300 },
-  { index: 32, name: 'Geneva', type: 'property', group: 'Green', price: 300 },
+  { index: 29, name: 'Toronto', type: 'property', group: 'Yellow', price: 280, rent: 24, color: '#eab308' },
+  { index: 30, name: 'Go to Prison', type: 'goToJail' },
+  { index: 31, name: 'Bern', type: 'property', group: 'Green', price: 300, rent: 26, color: '#22c55e' },
+  { index: 32, name: 'Geneva', type: 'property', group: 'Green', price: 300, rent: 26, color: '#22c55e' },
   { index: 33, name: 'Treasure', type: 'chance' },
-  { index: 34, name: 'Zurich', type: 'property', group: 'Green', price: 320 },
-  { index: 35, name: 'MB Airport', type: 'utility', price: 200 },
+  { index: 34, name: 'Zurich', type: 'property', group: 'Green', price: 320, rent: 28, color: '#22c55e' },
+  { index: 35, name: 'MB Airport', type: 'railroad', price: 200 },
   { index: 36, name: 'Surprise?', type: 'chance' },
-  { index: 37, name: 'Downtown', type: 'property', group: 'Dark Blue', price: 350 },
+  { index: 37, name: 'Downtown', type: 'property', group: 'Dark Blue', price: 350, rent: 35, color: '#1d4ed8' },
   { index: 38, name: 'Premium Tax', type: 'tax', amount: 100 },
-  { index: 39, name: 'Marina Bay', type: 'property', group: 'Dark Blue', price: 400 }
+  { index: 39, name: 'Marina Bay', type: 'property', group: 'Dark Blue', price: 400, rent: 50, color: '#1d4ed8' }
 ];
 
 const CARD_DECK = [
@@ -93,6 +96,14 @@ function rollDice() {
   return [randomInt(1, 6), randomInt(1, 6)];
 }
 
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
 function cloneTiles() {
   return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0 }));
 }
@@ -112,6 +123,7 @@ class Player {
     this.position = 0;
     this.properties = [];
     this.inJail = false;
+    this.jailTurns = 0;
     this.bankrupt = false;
     this.disconnected = false;
     this.ready = false;
@@ -153,6 +165,9 @@ class GameState {
     this.feed = [];
     this.auction = null;
     this.pendingTrade = null;
+    this.pendingPayment = null;
+    this.pendingPaymentTurnOptions = null;
+    this.lastWinner = null;
     this.vacationPool = 0;
     this.cardDeck = [...CARD_DECK];
   }
@@ -162,6 +177,7 @@ class GameState {
     player.position = 0;
     player.properties = [];
     player.inJail = false;
+    player.jailTurns = 0;
     player.bankrupt = false;
     player.disconnected = false;
     player.ready = false;
@@ -184,6 +200,9 @@ class GameState {
     this.feed = [];
     this.auction = null;
     this.pendingTrade = null;
+    this.pendingPayment = null;
+    this.pendingPaymentTurnOptions = null;
+    this.lastWinner = null;
     this.vacationPool = 0;
     this.cardDeck = [...CARD_DECK];
 
@@ -192,6 +211,7 @@ class GameState {
       player.position = 0;
       player.properties = [];
       player.inJail = false;
+      player.jailTurns = 0;
       player.bankrupt = false;
       player.ready = false;
     });
@@ -199,6 +219,13 @@ class GameState {
 
   removePlayerBySocket(socketId) {
     const index = this.players.findIndex(player => player.socketId === socketId);
+    if (index !== -1) {
+      this.players.splice(index, 1);
+    }
+  }
+
+  removePlayerByClient(clientId) {
+    const index = this.players.findIndex(player => player.clientId === clientId);
     if (index !== -1) {
       this.players.splice(index, 1);
     }
@@ -266,13 +293,19 @@ class GameState {
       const diceTotal = Math.max(2, (this.lastDice?.[0] || 0) + (this.lastDice?.[1] || 0));
       return diceTotal * (ownedUtilities >= 2 ? 10 : 4);
     }
+    if (tile.type === 'railroad') {
+      const owner = this.getPlayerById(tile.ownerId);
+      if (!owner) return RAILROAD_RENT[0];
+      const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id).length;
+      return RAILROAD_RENT[Math.min(Math.max(ownedRailroads, 1), RAILROAD_RENT.length) - 1];
+    }
     return baseRent;
   }
 
   isTradeableTile(tile) {
     if (!tile || !tile.ownerId) return false;
     if (tile.mortgaged) return false;
-    return (tile.type === 'property' || tile.type === 'utility') && (tile.houseCount || 0) === 0;
+    return (tile.type === 'property' || tile.type === 'utility' || tile.type === 'railroad') && (tile.houseCount || 0) === 0;
   }
 
   canBuildOnTile(player, tile) {
@@ -306,7 +339,7 @@ class GameState {
   canMortgageTile(player, tile) {
     if (!player || !tile || tile.ownerId !== player.id) return false;
     if (!this.settings.mortgage) return false;
-    if (tile.type !== 'property' && tile.type !== 'utility') return false;
+    if (tile.type !== 'property' && tile.type !== 'utility' && tile.type !== 'railroad') return false;
     if ((tile.houseCount || 0) > 0) return false;
     if (tile.mortgaged) return false;
     if (tile.type === 'property') {
@@ -342,6 +375,9 @@ class GameState {
   }
 
   canJoin() {
+    if (this.started) {
+      return false;
+    }
     return this.players.filter(player => !player.isBot && !player.bankrupt && !player.disconnected).length < this.settings.maxPlayers;
   }
 
@@ -349,10 +385,18 @@ class GameState {
     return this.players.filter(player => !player.bankrupt && !player.disconnected);
   }
 
+  nonBankruptPlayers() {
+    return this.players.filter(player => !player.bankrupt);
+  }
+
+  connectedNonBankruptPlayers() {
+    return this.players.filter(player => !player.bankrupt && !player.disconnected);
+  }
+
   configureStartOrder() {
     const active = [...this.players].filter(p => !p.bankrupt && !p.disconnected);
     if (this.settings.randomizePlayerOrder) {
-      active.sort(() => Math.random() - 0.5);
+      shuffleArray(active);
     }
     this.turnOrder = active.map(p => p.id);
     this.currentPlayerId = this.turnOrder[0] || null;
@@ -388,8 +432,14 @@ class GameState {
     if (player.id !== this.currentPlayerId) {
       return { success: false, error: 'It is not your turn.' };
     }
+    if (this.pendingPayment?.playerId === player.id) {
+      return { success: false, error: 'Settle your debt before rolling.' };
+    }
     if (player.inJail) {
       return this.handleJailRoll(player);
+    }
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You have already rolled this turn.' };
     }
     const dice = rollDice();
     this.lastDice = dice;
@@ -404,6 +454,7 @@ class GameState {
     if (this.consecutiveDoubles >= 3) {
       player.position = this.tiles.find(tile => tile.type === 'jail').index;
       player.inJail = true;
+      player.jailTurns = 0;
       this.consecutiveDoubles = 0;
       this.turnAllowsExtraRoll = false;
       this.extraRollPending = false;
@@ -418,6 +469,9 @@ class GameState {
   }
 
   handleJailRoll(player) {
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You have already rolled this turn.' };
+    }
     const dice = rollDice();
     this.lastDice = dice;
     this.hasRolled = true;
@@ -426,12 +480,52 @@ class GameState {
     this.consecutiveDoubles = 0;
     if (dice[0] === dice[1]) {
       player.inJail = false;
+      player.jailTurns = 0;
       this.feedMessage(`${player.nickname} rolled doubles and escaped jail!`);
       return this.movePlayer(player, dice[0] + dice[1], { allowExtraRoll: false });
     }
-    this.feedMessage(`${player.nickname} failed to roll doubles in jail.`);
+    player.jailTurns = (player.jailTurns || 0) + 1;
+    if (player.jailTurns >= JAIL_MAX_TURNS) {
+      if (player.cash >= JAIL_FINE) {
+        player.cash -= JAIL_FINE;
+        player.inJail = false;
+        player.jailTurns = 0;
+        this.feedMessage(`${player.nickname} paid $${JAIL_FINE} to leave jail after ${JAIL_MAX_TURNS} turns.`);
+        return this.movePlayer(player, dice[0] + dice[1], { allowExtraRoll: false });
+      }
+      this.feedMessage(`${player.nickname} could not pay the jail fine and remains in jail.`);
+    } else {
+      this.feedMessage(`${player.nickname} failed to roll doubles in jail (turn ${player.jailTurns}/${JAIL_MAX_TURNS}).`);
+    }
     this.nextTurn();
     return { success: true, message: 'You remain in jail and the turn has passed.' };
+  }
+
+  payJailFine(socketId) {
+    const player = this.getPlayerBySocket(socketId);
+    if (!player) {
+      return { success: false, error: 'Player not found.' };
+    }
+    if (!this.started) {
+      return { success: false, error: 'Game has not started.' };
+    }
+    if (player.id !== this.currentPlayerId) {
+      return { success: false, error: 'It is not your turn.' };
+    }
+    if (!player.inJail) {
+      return { success: false, error: 'You are not in jail.' };
+    }
+    if (this.hasRolled) {
+      return { success: false, error: 'You have already rolled this turn.' };
+    }
+    if (player.cash < JAIL_FINE) {
+      return { success: false, error: `You need $${JAIL_FINE} to pay the jail fine.` };
+    }
+    player.cash -= JAIL_FINE;
+    player.inJail = false;
+    player.jailTurns = 0;
+    this.feedMessage(`${player.nickname} paid $${JAIL_FINE} to leave jail.`);
+    return { success: true, message: 'You left jail. Roll the dice to move.' };
   }
 
   movePlayer(player, steps, options = {}) {
@@ -477,6 +571,7 @@ class GameState {
       case 'goToJail':
         player.position = this.tiles.find(tileItem => tileItem.type === 'jail').index;
         player.inJail = true;
+        player.jailTurns = 0;
         this.feedMessage(`${player.nickname} was sent to Jail.`);
         this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
         return { success: true };
@@ -484,6 +579,8 @@ class GameState {
         return this.handleVacationTile(player, options);
       case 'utility':
         return this.handleUtilityTile(player, tile, options);
+      case 'railroad':
+        return this.handleRailroadTile(player, tile, options);
       default:
         this.resolveTurnAfterAction(options);
         return { success: true };
@@ -491,8 +588,40 @@ class GameState {
   }
 
   handlePropertyTile(player, tile, options = {}) {
+    return this.handleBuyableTile(player, tile, options, 'property');
+  }
+
+  handleTaxTile(player, tile, options = {}) {
+    const amount = tile.amount || 0;
+    if (this.settings.vacationCash) {
+      this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in tax into Vacation cash.`, options, {
+        onPaid: paid => { this.vacationPool += paid; }
+      });
+    } else {
+      this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in tax.`, options);
+    }
+    return { success: true };
+  }
+
+  handleVacationTile(player, options = {}) {
+    if (!options.skipVacationCollect && this.vacationPool > 0) {
+      player.cash += this.vacationPool;
+      this.feedMessage(`${player.nickname} collected $${this.vacationPool} from Vacation cash.`);
+      this.vacationPool = 0;
+    } else {
+      this.feedMessage(`${player.nickname} landed on Vacation.`);
+    }
+    this.resolveTurnAfterAction(options);
+    return { success: true };
+  }
+
+  handleRailroadTile(player, tile, options = {}) {
+    return this.handleBuyableTile(player, tile, options, 'railroad');
+  }
+
+  handleBuyableTile(player, tile, options = {}, label = 'property') {
     if (tile.mortgaged) {
-      this.feedMessage(`${player.nickname} landed on a mortgaged property and paid no rent.`);
+      this.feedMessage(`${player.nickname} landed on a mortgaged ${label} and paid no rent.`);
       this.resolveTurnAfterAction(options);
       return { success: true };
     }
@@ -510,7 +639,7 @@ class GameState {
       return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
     }
     if (tile.ownerId === player.id) {
-      this.feedMessage(`${player.nickname} landed on their own property.`);
+      this.feedMessage(`${player.nickname} landed on their own ${label}.`);
       this.resolveTurnAfterAction(options);
       return { success: true };
     }
@@ -520,66 +649,17 @@ class GameState {
       return { success: true };
     }
     if (owner.inJail && this.settings.noRentWhileInPrison) {
-      this.feedMessage(`${player.nickname} landed on ${owner.nickname}'s property, but rent is not collected while the owner is in jail.`);
+      this.feedMessage(`${player.nickname} landed on ${owner.nickname}'s ${label}, but rent is not collected while the owner is in jail.`);
       this.resolveTurnAfterAction(options);
       return { success: true };
     }
     const rent = this.calculateRent(tile);
-    this.transferMoney(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`);
-    this.resolveTurnAfterAction(options);
-    return { success: true };
-  }
-
-  handleTaxTile(player, tile, options = {}) {
-    const amount = tile.amount || 0;
-    if (this.settings.vacationCash) {
-      this.vacationPool += amount;
-      this.feedMessage(`${player.nickname} paid $${amount} in tax into Vacation cash.`);
-    } else {
-      this.deductMoney(player, amount, `${player.nickname} paid $${amount} in tax.`);
-    }
-    this.resolveTurnAfterAction(options);
-    return { success: true };
-  }
-
-  handleVacationTile(player, options = {}) {
-    if (this.vacationPool > 0) {
-      player.cash += this.vacationPool;
-      this.feedMessage(`${player.nickname} collected $${this.vacationPool} from Vacation cash.`);
-      this.vacationPool = 0;
-    } else {
-      this.feedMessage(`${player.nickname} landed on Vacation.`);
-    }
-    this.resolveTurnAfterAction(options);
+    this.chargePlayer(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`, options);
     return { success: true };
   }
 
   handleUtilityTile(player, tile, options = {}) {
-    if (tile.mortgaged) {
-      this.feedMessage(`${player.nickname} landed on a mortgaged utility and paid no rent.`);
-      this.resolveTurnAfterAction(options);
-      return { success: true };
-    }
-    if (tile.ownerId === null) {
-      if (player.cash >= tile.price) {
-        this.pendingPurchaseOffer = { playerId: player.id, tileIndex: tile.index };
-        return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
-      }
-      this.feedMessage(`${player.nickname} cannot afford ${tile.name}.`);
-      if (this.settings.auction) {
-        this.startAuction(tile, player.id);
-        return { success: true, auctionStarted: true };
-      }
-      this.resolveTurnAfterAction(options);
-      return { success: true };
-    }
-    if (tile.ownerId !== player.id) {
-      const owner = this.getPlayerById(tile.ownerId);
-      const rent = this.calculateRent(tile);
-      this.transferMoney(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`);
-    }
-    this.resolveTurnAfterAction(options);
-    return { success: true };
+    return this.handleBuyableTile(player, tile, options, 'utility');
   }
 
   handleChanceTile(player, options = {}) {
@@ -605,30 +685,38 @@ class GameState {
         this.feedMessage(`${player.nickname} collected $200 from Start.`);
         break;
       case 'pay':
-        this.deductMoney(player, card.amount, `${player.nickname} paid $${card.amount}.`);
-        break;
+        this.chargePlayer(player, null, card.amount, `${player.nickname} paid $${card.amount}.`, options);
+        return;
       case 'collect':
         player.cash += card.amount;
         this.feedMessage(`${player.nickname} collected $${card.amount}.`);
         break;
-      case 'move':
+      case 'move': {
+        const destTile = this.getTile(card.tileIndex);
+        if (!destTile) break;
         player.position = card.tileIndex;
-        this.feedMessage(`${player.nickname} moved to ${this.getTile(card.tileIndex).name}.`);
-        return this.applyTile(player, this.getTile(card.tileIndex), options);
+        this.feedMessage(`${player.nickname} moved to ${destTile.name}.`);
+        const moveOptions = destTile.type === 'vacation'
+          ? { ...options, skipVacationCollect: true }
+          : options;
+        return this.applyTile(player, destTile, moveOptions);
+      }
       case 'goToJail':
         player.position = this.tiles.find(tile => tile.type === 'jail').index;
         player.inJail = true;
+        player.jailTurns = 0;
         this.feedMessage(`${player.nickname} was sent to Jail by a card.`);
         this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
         return;
-      case 'collectFromEach':
+      case 'collectFromEach': {
         const alive = this.activePlayers();
         alive.forEach(other => {
           if (other.id !== player.id) {
-            this.transferMoney(other, player, card.amount, `${other.nickname} paid $${card.amount} to ${player.nickname}.`);
+            this.chargePlayer(other, player, card.amount, `${other.nickname} paid $${card.amount} to ${player.nickname}.`, options);
           }
         });
         break;
+      }
       default:
         break;
     }
@@ -639,23 +727,30 @@ class GameState {
     this.pendingPurchaseOffer = null;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
-    const active = this.players.filter(player => !player.bankrupt && !player.disconnected);
-    if (active.length <= 1) {
+    const nonBankrupt = this.nonBankruptPlayers();
+    if (nonBankrupt.length <= 1) {
       this.endGame();
       return;
     }
     const currentIndex = this.turnOrder.indexOf(this.currentPlayerId);
-    let nextIndex = (currentIndex + 1) % this.turnOrder.length;
+    let nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % this.turnOrder.length;
     let nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
-    while (nextPlayer && (nextPlayer.bankrupt || nextPlayer.disconnected)) {
+    let attempts = 0;
+    while (nextPlayer && (nextPlayer.bankrupt || nextPlayer.disconnected) && attempts < this.turnOrder.length) {
       nextIndex = (nextIndex + 1) % this.turnOrder.length;
       nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
+      attempts += 1;
     }
-    this.currentPlayerId = nextPlayer ? nextPlayer.id : null;
+    if (!nextPlayer || nextPlayer.bankrupt || nextPlayer.disconnected) {
+      const waiting = this.getPlayerById(this.currentPlayerId);
+      if (waiting && !waiting.bankrupt) {
+        this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
+      }
+      return;
+    }
+    this.currentPlayerId = nextPlayer.id;
     this.hasRolled = false;
-    if (this.currentPlayerId) {
-      this.feedMessage(`${this.getPlayerById(this.currentPlayerId).nickname}'s turn.`);
-    }
+    this.feedMessage(`${nextPlayer.nickname}'s turn.`);
   }
 
   calculateRent(tile) {
@@ -667,40 +762,137 @@ class GameState {
     return groupTiles.every(tile => tile.ownerId === ownerId);
   }
 
+  chargePlayer(player, creditor, amount, message, turnOptions = {}, hooks = {}) {
+    if (!player || amount <= 0) {
+      this.resolveTurnAfterAction(turnOptions);
+      return;
+    }
+    if (player.cash >= amount) {
+      player.cash -= amount;
+      if (creditor) {
+        creditor.cash += amount;
+      }
+      this.feedMessage(message);
+      if (hooks.onPaid) hooks.onPaid(amount);
+      this.resolveTurnAfterAction(turnOptions);
+      return;
+    }
+    const partial = player.cash;
+    if (partial > 0) {
+      player.cash = 0;
+      if (creditor) {
+        creditor.cash += partial;
+      }
+      this.feedMessage(`${player.nickname} paid $${partial} toward the debt.`);
+      if (hooks.onPaid) hooks.onPaid(partial);
+    }
+    const remaining = amount - partial;
+    this.pendingPayment = {
+      playerId: player.id,
+      creditorId: creditor ? creditor.id : null,
+      amountRemaining: remaining,
+      reason: message
+    };
+    this.pendingPaymentTurnOptions = turnOptions;
+    this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
+  }
+
+  trySettlePendingPayment() {
+    if (!this.pendingPayment) return false;
+    const player = this.getPlayerById(this.pendingPayment.playerId);
+    if (!player || player.bankrupt) {
+      this.pendingPayment = null;
+      this.pendingPaymentTurnOptions = null;
+      return false;
+    }
+    if (player.cash < this.pendingPayment.amountRemaining) {
+      return false;
+    }
+    const creditor = this.pendingPayment.creditorId
+      ? this.getPlayerById(this.pendingPayment.creditorId)
+      : null;
+    const amount = this.pendingPayment.amountRemaining;
+    player.cash -= amount;
+    if (creditor) {
+      creditor.cash += amount;
+    }
+    this.feedMessage(`${player.nickname} paid the remaining $${amount}.`);
+    const turnOptions = this.pendingPaymentTurnOptions || {};
+    this.pendingPayment = null;
+    this.pendingPaymentTurnOptions = null;
+    this.resolveTurnAfterAction(turnOptions);
+    return true;
+  }
+
+  declareBankruptcy(socketId) {
+    const player = this.getPlayerBySocket(socketId);
+    if (!player) {
+      return { success: false, error: 'Player not found.' };
+    }
+    if (!this.pendingPayment || this.pendingPayment.playerId !== player.id) {
+      return { success: false, error: 'You have no outstanding debt to settle.' };
+    }
+    const creditor = this.pendingPayment.creditorId
+      ? this.getPlayerById(this.pendingPayment.creditorId)
+      : null;
+    this.pendingPayment = null;
+    this.pendingPaymentTurnOptions = null;
+    this.handleBankruptcy(player, creditor);
+    if (player.id === this.currentPlayerId) {
+      this.nextTurn();
+    }
+    return { success: true };
+  }
+
   transferMoney(from, to, amount, message) {
+    if (!from || !to || amount <= 0) {
+      return;
+    }
     from.cash -= amount;
     to.cash += amount;
     this.feedMessage(message);
-    if (from.cash < 0) {
-      this.handleBankruptcy(from);
-    }
   }
 
   deductMoney(player, amount, message) {
-    player.cash -= amount;
-    this.feedMessage(message);
-    if (player.cash < 0) {
-      this.handleBankruptcy(player);
-    }
+    this.chargePlayer(player, null, amount, message, {});
   }
 
-  handleBankruptcy(player) {
+  handleBankruptcy(player, creditor = null) {
     player.bankrupt = true;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.consecutiveDoubles = 0;
-    player.properties.forEach(propertyIndex => {
+    if (this.pendingPayment?.playerId === player.id) {
+      this.pendingPayment = null;
+      this.pendingPaymentTurnOptions = null;
+    }
+    if (creditor && player.cash > 0) {
+      creditor.cash += player.cash;
+      player.cash = 0;
+    }
+    const properties = [...player.properties];
+    properties.forEach(propertyIndex => {
       const tile = this.getTile(propertyIndex);
-      if (tile) {
+      if (!tile) return;
+      if (creditor && !creditor.bankrupt) {
+        this.applyPropertyOwnershipChange(player, creditor, tile);
+      } else {
         tile.ownerId = null;
         tile.houseCount = 0;
         tile.mortgaged = false;
+        player.properties = player.properties.filter(index => index !== propertyIndex);
       }
     });
     player.properties = [];
-    this.feedMessage(`${player.nickname} is bankrupt and removed from the game.`);
-    if (this.activePlayers().length <= 1) {
+    if (creditor) {
+      this.feedMessage(`${player.nickname} is bankrupt. Assets transferred to ${creditor.nickname}.`);
+    } else {
+      this.feedMessage(`${player.nickname} is bankrupt and removed from the game.`);
+    }
+    if (this.nonBankruptPlayers().length <= 1) {
       this.endGame();
+    } else if (player.id === this.currentPlayerId) {
+      this.nextTurn();
     }
   }
 
@@ -839,6 +1031,16 @@ class GameState {
       return { success: false, error: 'You do not own this property.' };
     }
 
+    if (action === 'build-house' || action === 'sell-house') {
+      if (player.id !== this.currentPlayerId) {
+        return { success: false, error: 'You can only build or sell during your turn.' };
+      }
+      if (this.hasRolled && !this.extraRollPending) {
+        return { success: false, error: 'You can only build or sell before rolling the dice.' };
+      }
+    }
+
+    let result;
     if (action === 'build-house') {
       if (!this.canBuildOnTile(player, tile)) {
         return { success: false, error: 'You cannot build on this property right now.' };
@@ -851,22 +1053,19 @@ class GameState {
       tile.houseCount = (tile.houseCount || 0) + 1;
       const label = tile.houseCount >= 5 ? 'hotel' : 'house';
       this.feedMessage(`${player.nickname} built a ${label} on ${tile.name}.`);
-      return { success: true };
-    }
-
-    if (action === 'sell-house') {
+      result = { success: true };
+    } else if (action === 'sell-house') {
       if (!this.canSellFromTile(player, tile)) {
         return { success: false, error: 'You cannot sell a house from this property right now.' };
       }
       const cost = this.getPropertyHouseCost(tile);
+      const wasHotel = (tile.houseCount || 0) >= 5;
       tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
       player.cash += Math.floor(cost / 2);
-      const label = tile.houseCount >= 5 ? 'hotel' : 'house';
+      const label = wasHotel ? 'hotel' : 'house';
       this.feedMessage(`${player.nickname} sold a ${label} from ${tile.name}.`);
-      return { success: true };
-    }
-
-    if (action === 'mortgage') {
+      result = { success: true };
+    } else if (action === 'mortgage') {
       if (!this.canMortgageTile(player, tile)) {
         return { success: false, error: 'You cannot mortgage this property right now.' };
       }
@@ -874,10 +1073,8 @@ class GameState {
       const amount = Math.floor((tile.price || 0) / 2);
       player.cash += amount;
       this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
-      return { success: true };
-    }
-
-    if (action === 'unmortgage') {
+      result = { success: true };
+    } else if (action === 'unmortgage') {
       if (!this.canUnmortgageTile(player, tile)) {
         return { success: false, error: 'You cannot unmortgage this property right now.' };
       }
@@ -888,10 +1085,15 @@ class GameState {
       player.cash -= cost;
       tile.mortgaged = false;
       this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
-      return { success: true };
+      result = { success: true };
+    } else {
+      return { success: false, error: 'Unknown property action.' };
     }
 
-    return { success: false, error: 'Unknown property action.' };
+    if (result?.success && this.pendingPayment?.playerId === player.id) {
+      this.trySettlePendingPayment();
+    }
+    return result;
   }
 
   proposeTrade(socketId, offer = {}) {
@@ -902,6 +1104,9 @@ class GameState {
     }
     if (fromPlayer.bankrupt || fromPlayer.disconnected || toPlayer.bankrupt || toPlayer.disconnected) {
       return { success: false, error: 'Both players must be active to trade.' };
+    }
+    if (this.pendingTrade) {
+      return { success: false, error: 'Another trade is already pending.' };
     }
 
     const giveCash = Math.max(0, Number(offer.giveCash || 0));
@@ -962,7 +1167,7 @@ class GameState {
 
     const fromPlayer = this.getPlayerById(trade.fromPlayerId);
     const toPlayer = this.getPlayerById(trade.toPlayerId);
-    if (!fromPlayer || !toPlayer || fromPlayer.bankrupt || toPlayer.bankrupt) {
+    if (!fromPlayer || !toPlayer || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.disconnected || toPlayer.disconnected) {
       this.pendingTrade = null;
       return { success: false, error: 'The trade is no longer valid.' };
     }
@@ -1012,12 +1217,26 @@ class GameState {
     if (this.pendingPurchaseOffer?.playerId === player.id) {
       return { success: false, error: 'Resolve the property offer before ending the turn.' };
     }
+    if (this.pendingPayment?.playerId === player.id) {
+      return { success: false, error: 'Settle your debt before ending the turn.' };
+    }
     this.nextTurn();
     return { success: true };
   }
 
+  skipDisconnectedCurrentPlayer() {
+    const current = this.getCurrentPlayer();
+    if (!current || !current.disconnected || current.bankrupt) {
+      return;
+    }
+    this.pendingPurchaseOffer = null;
+    this.feedMessage(`${current.nickname} was skipped due to disconnect.`);
+    this.nextTurn();
+  }
+
   endGame() {
-    const winner = this.activePlayers()[0];
+    const winner = this.connectedNonBankruptPlayers()[0] || this.nonBankruptPlayers()[0];
+    this.lastWinner = winner ? { id: winner.id, nickname: winner.nickname } : null;
     if (winner) {
       this.feedMessage(`${winner.nickname} is the last player remaining and wins the game!`);
     } else {
@@ -1039,8 +1258,11 @@ class GameState {
       started: this.started,
       currentPlayerId: this.currentPlayerId,
       turnOrder: this.turnOrder || [],
+      hasRolled: this.hasRolled,
       extraRollPending: this.extraRollPending,
       pendingPurchaseOffer: this.pendingPurchaseOffer,
+      pendingPayment: this.pendingPayment,
+      lastWinner: this.lastWinner,
       lastDice: this.lastDice,
       tiles: this.tiles.map(tile => ({
         index: tile.index,
@@ -1063,6 +1285,7 @@ class GameState {
         cash: player.cash,
         position: player.position,
         inJail: player.inJail,
+        jailTurns: player.jailTurns || 0,
         bankrupt: player.bankrupt,
         disconnected: player.disconnected,
         isHost: player.isHost,
@@ -1117,6 +1340,9 @@ class Room {
         existing.color = playerInfo.color;
       }
       return { success: true, player: existing };
+    }
+    if (this.game.started) {
+      return { success: false, error: 'Game is already in progress.' };
     }
     if (!this.game.canJoin()) {
       return { success: false, error: 'Room is full.' };
@@ -1197,6 +1423,14 @@ class Room {
     return this.game.endTurn(socketId);
   }
 
+  payJailFine(socketId) {
+    return this.game.payJailFine(socketId);
+  }
+
+  declareBankruptcy(socketId) {
+    return this.game.declareBankruptcy(socketId);
+  }
+
   getRoomSummary() {
     return {
       roomCode: this.roomCode,
@@ -1210,6 +1444,7 @@ class Room {
         cash: player.cash,
         position: player.position,
         inJail: player.inJail,
+        jailTurns: player.jailTurns || 0,
         bankrupt: player.bankrupt,
         disconnected: player.disconnected,
         isHost: player.isHost,
@@ -1265,6 +1500,31 @@ class RoomManager {
     const room = this.getRoomBySocket(socketId);
     if (!room) return null;
     this.socketRoom.delete(socketId);
+    return room;
+  }
+
+  getRoomByClient(clientId) {
+    if (!clientId) return null;
+    return [...this.rooms.values()].find(roomItem => roomItem.game.getPlayerByClient(clientId)) || null;
+  }
+
+  leaveRoomByClient(clientId, socketId) {
+    const room = this.getRoomByClient(clientId);
+    if (!room) return null;
+    const player = room.game.getPlayerByClient(clientId);
+    if (!player) return null;
+    if (socketId) {
+      this.socketRoom.delete(socketId);
+    }
+    if (!room.game.started) {
+      room.game.removePlayerByClient(clientId);
+      if (room.game.players.length === 0) {
+        this.rooms.delete(room.roomCode);
+      }
+    } else {
+      player.disconnected = true;
+      player.socketId = null;
+    }
     return room;
   }
 }
