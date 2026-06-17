@@ -750,6 +750,19 @@ input {
   font-weight: 600
 }
 
+.property-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.property-row-rent {
+  font-weight: 700;
+  color: var(--text);
+}
+
 .divider-line {
   height: 1px;
   background: #e6d8c8;
@@ -1148,6 +1161,26 @@ input {
   background: #fffaf4;
   border: 1px solid var(--border);
   font-size: 13px;
+}
+
+.rent-row.current {
+  background: #fff3e6;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(201, 106, 43, 0.15);
+}
+
+.property-modal-current-rent {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff3e6;
+  border: 1px solid rgba(201, 106, 43, 0.25);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.property-modal-current-rent strong {
+  color: var(--accent);
 }
 
 .property-house-strip {

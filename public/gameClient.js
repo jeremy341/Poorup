@@ -90,6 +90,7 @@ function initGameClient() {
     propertyModalName: document.getElementById('property-modal-name'),
     propertyModalGroup: document.getElementById('property-modal-group'),
     propertyModalStatus: document.getElementById('property-modal-status'),
+    propertyModalCurrentRent: document.getElementById('property-modal-current-rent'),
     propertyModalRents: document.getElementById('property-modal-rents'),
     propertyModalHouses: document.getElementById('property-modal-houses'),
     propertyModalNote: document.getElementById('property-modal-note'),
@@ -356,7 +357,12 @@ function initGameClient() {
     return costs[tile?.group] || 0;
   }
 
-  function getRentPreview(tile, level, ownerHasFullSet = false, game = null) {
+  function formatRentPreview(value) {
+    if (typeof value === 'string') return value;
+    return formatMoney(value);
+  }
+
+  function getRentPreview(tile, level, ownerHasFullSet = false, game = null, settings = null) {
     const baseRent = tile?.rent || 0;
     if (!tile || tile.mortgaged) return 0;
     if (tile.type === 'utility') {
@@ -379,7 +385,9 @@ function initGameClient() {
     if (level > 0) {
       return Math.floor(baseRent * multipliers[Math.min(level, multipliers.length - 1)]);
     }
-    return ownerHasFullSet ? baseRent * 2 : baseRent;
+    const roomSettings = settings || localState.room?.settings || {};
+    const doubleBase = ownerHasFullSet && roomSettings.doubleRent;
+    return doubleBase ? baseRent * 2 : baseRent;
   }
 
   function canBuildOnTileClient(player, tile, game, settings) {
@@ -763,7 +771,16 @@ function initGameClient() {
       return;
     }
 
+    const settings = localState.room?.settings || {};
+    const game = localState.game;
+
     ownedTiles.forEach(tile => {
+      const fullSet = tile.group
+        ? (tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === localPlayer.id).length
+          === (tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property').length
+        : false;
+      const currentRent = formatRentPreview(getRentPreview(tile, tile.houseCount || 0, fullSet, game, settings));
+      const buildingLabel = tile.type === 'property' ? ` · H${tile.houseCount || 0}` : '';
       const item = document.createElement('div');
       item.className = 'property-row property-row-clickable';
       item.tabIndex = 0;
@@ -773,7 +790,7 @@ function initGameClient() {
           ${escapeHtml(tile.name)}
           <small class="muted" style="display:block; margin: 4px 0 0;">${escapeHtml(tile.group || tile.type)}${tile.mortgaged ? ' • Mortgaged' : ''}</small>
         </span>
-        <strong>${tile.type === 'property' ? `H${tile.houseCount || 0}` : escapeHtml(tile.type)}</strong>
+        <span class="property-row-meta"><strong class="property-row-rent">${currentRent}</strong>${buildingLabel ? `<span class="muted">${buildingLabel}</span>` : ''}</span>
       `;
       item.addEventListener('click', () => openPropertyModal(tile.index));
       item.addEventListener('keydown', event => {
@@ -866,12 +883,11 @@ function initGameClient() {
       return;
     }
 
+    const settings = localState.room?.settings || {};
     const ownsTile = tile.ownerId === localPlayer.id;
     const fullSet = tile.group ? game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === localPlayer.id).length === game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property').length : false;
     const houseCost = tile.houseCost || getPropertyHouseCost(tile);
     const currentLevel = tile.houseCount || 0;
-    const sellValue = Math.floor(houseCost / 2);
-    const rentRows = [];
     const previewLevels = [0, 1, 2, 3, 4, 5];
 
     if (elements.propertyModalName) elements.propertyModalName.textContent = tile.name;
@@ -892,6 +908,10 @@ function initGameClient() {
             ? `${currentLevel} house${currentLevel === 1 ? '' : 's'}`
             : 'No buildings yet';
     }
+    if (elements.propertyModalCurrentRent) {
+      const currentRent = getRentPreview(tile, currentLevel, fullSet, game, settings);
+      elements.propertyModalCurrentRent.innerHTML = `Current rent: <strong>${formatRentPreview(currentRent)}</strong>`;
+    }
     if (elements.propertyModalNote) {
       elements.propertyModalNote.textContent = getPropertyActionNote(localPlayer, tile, game, settings);
     }
@@ -899,11 +919,13 @@ function initGameClient() {
     if (elements.propertyModalRents) {
       elements.propertyModalRents.innerHTML = '';
       previewLevels.forEach(level => {
+        const rentValue = getRentPreview(tile, level, fullSet, game, settings);
+        const isCurrent = tile.type === 'property' ? level === currentLevel : level === 0;
         const row = document.createElement('div');
-        row.className = 'rent-row';
+        row.className = `rent-row${isCurrent ? ' current' : ''}`;
         row.innerHTML = `
           <span>${level === 0 ? 'Base' : level === 5 ? 'Hotel' : `${level} house${level === 1 ? '' : 's'}`}</span>
-          <strong>${typeof getRentPreview(tile, level, fullSet, game) === 'string' ? getRentPreview(tile, level, fullSet, game) : formatMoney(getRentPreview(tile, level, fullSet, game))}</strong>
+          <strong>${formatRentPreview(rentValue)}</strong>
         `;
         elements.propertyModalRents.appendChild(row);
       });
@@ -915,8 +937,6 @@ function initGameClient() {
         return `<span class="house-pip ${filled ? 'filled' : ''}">${currentLevel >= 5 && index === 4 ? 'H' : ''}</span>`;
       }).join('');
     }
-
-    const settings = localState.room?.settings || {};
 
     if (elements.propertyBuildBtn) {
       const canBuild = canBuildOnTileClient(localPlayer, tile, game, settings);
