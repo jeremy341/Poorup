@@ -1543,6 +1543,7 @@ function initGameClient() {
     });
   });
 
+
   on(elements.boardImage, 'load', syncPanelHeights);
   if (elements.boardImage.complete) {
     setTimeout(syncPanelHeights, 100);

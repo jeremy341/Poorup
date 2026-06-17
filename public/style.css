@@ -34,6 +34,8 @@ body {
   height: 100vh;
   width: 100%;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 
@@ -213,12 +215,12 @@ input {
 
 .workspace {
   position: relative;
-  height: calc(100vh - 56px);
+  flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  overflow: hidden
+  overflow: hidden;
 }
 
 .layout {
@@ -229,10 +231,7 @@ input {
   align-items: stretch;
   max-width: 1400px;
   width: 100%;
-  height: 100%;
   margin: 0 auto;
-  min-height: 0;
-  overflow: hidden
 }
 
 .panel {
@@ -415,8 +414,6 @@ input {
   position: relative;
   overflow: visible;
   transition: filter 0.2s ease;
-  min-height: 0;
-  height: 100%
 }
 
 .board-panel.blurred {
