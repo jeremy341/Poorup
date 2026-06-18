@@ -571,7 +571,7 @@ function initGameClient() {
       pendingPayment.playerId === localPlayer.id
     );
 
-    if (!gameState.started || !localState.currentPlayerIsMe || gameState.auctionActive || gameState.awaitingDecision) {
+    if (!gameState.started) {
       elements.rollDiceBtn.classList.add('hidden');
       elements.endTurnBtn.classList.add('hidden');
       elements.payJailBtn?.classList.add('hidden');
@@ -590,6 +590,15 @@ function initGameClient() {
     }
 
     elements.declareBankruptcyBtn?.classList.add('hidden');
+
+    if (!localState.currentPlayerIsMe || gameState.auctionActive || gameState.awaitingDecision) {
+      elements.rollDiceBtn.classList.add('hidden');
+      elements.endTurnBtn.classList.add('hidden');
+      elements.payJailBtn?.classList.add('hidden');
+      elements.turnActions.classList.add('hidden');
+      return;
+    }
+
     elements.rollDiceBtn.classList.remove('hidden');
     elements.endTurnBtn.classList.toggle('hidden', Boolean(gameState.extraRollPending));
     elements.turnActions.classList.remove('hidden');
@@ -659,17 +668,22 @@ function initGameClient() {
     if (elements.myCashDisplay && elements.myCashValue) {
       if (game?.started && localPlayer) {
         elements.myCashDisplay.classList.remove('hidden');
-        elements.myCashValue.textContent = formatMoney(localPlayer.cash);
+        const pendingPayment = game.pendingPayment;
+        const owesDebt = pendingPayment?.playerId === localPlayer.id;
+        const cashLabel = formatMoney(localPlayer.cash);
+        elements.myCashValue.textContent = owesDebt
+          ? `${cashLabel} · Owe ${formatMoney(pendingPayment.amountRemaining)}`
+          : cashLabel;
       } else {
         elements.myCashDisplay.classList.add('hidden');
       }
     }
-    if (localState.currentPlayerIsMe && localPlayer?.inJail && elements.turnBannerSubtitle && !localState.game?.pendingPayment) {
+    if (localState.currentPlayerIsMe && localPlayer?.inJail && elements.turnBannerSubtitle && !game?.pendingPayment) {
       const jailTurns = localPlayer.jailTurns || 0;
       elements.turnBannerSubtitle.textContent = `In jail — roll doubles, pay $50, or wait (turn ${jailTurns}/3).`;
     }
-    const pendingPayment = localState.game?.pendingPayment;
-    if (localState.currentPlayerIsMe && pendingPayment?.playerId === localPlayer?.id && elements.turnBannerSubtitle) {
+    const pendingPayment = game?.pendingPayment;
+    if (pendingPayment?.playerId === localPlayer?.id && elements.turnBannerSubtitle) {
       elements.turnBannerSubtitle.textContent = `You owe ${formatMoney(pendingPayment.amountRemaining)}. Mortgage or sell buildings, or declare bankruptcy.`;
     }
     updateTurnButtons();
@@ -839,8 +853,23 @@ function initGameClient() {
     });
   }
 
+  function canMortgageOnTileClient(player, tile, game) {
+    if (!player || !tile || tile.ownerId !== player.id) return false;
+    if (tile.mortgaged) return false;
+    if ((tile.houseCount || 0) > 0) return false;
+    if (!['property', 'utility', 'railroad'].includes(tile.type)) return false;
+    if (tile.type === 'property') {
+      const groupTiles = (game?.tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === player.id);
+      if (groupTiles.some(entry => (entry.houseCount || 0) > 0)) return false;
+    }
+    return true;
+  }
+
   function getPropertyActionNote(player, tile, game, settings) {
     if (!player || !tile) return '';
+    if (game?.pendingPayment?.playerId === player.id) {
+      return 'Settle your debt: sell buildings or mortgage properties to raise cash.';
+    }
     if (tile.type === 'railroad' || tile.type === 'utility') {
       if (tile.mortgaged) return 'This tile is mortgaged.';
       return 'Railroads and utilities cannot be developed, but they can be mortgaged or traded.';
@@ -885,6 +914,7 @@ function initGameClient() {
 
     const settings = localState.room?.settings || {};
     const ownsTile = tile.ownerId === localPlayer.id;
+    const settlingDebt = game?.pendingPayment?.playerId === localPlayer.id;
     const fullSet = tile.group ? game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === localPlayer.id).length === game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property').length : false;
     const houseCost = tile.houseCost || getPropertyHouseCost(tile);
     const currentLevel = tile.houseCount || 0;
@@ -939,7 +969,7 @@ function initGameClient() {
     }
 
     if (elements.propertyBuildBtn) {
-      const canBuild = canBuildOnTileClient(localPlayer, tile, game, settings);
+      const canBuild = !settlingDebt && canBuildOnTileClient(localPlayer, tile, game, settings);
       elements.propertyBuildBtn.disabled = !canBuild;
       elements.propertyBuildBtn.textContent = currentLevel >= 4 ? 'Build hotel' : 'Build house';
     }
@@ -949,8 +979,8 @@ function initGameClient() {
       elements.propertySellBtn.textContent = currentLevel >= 5 ? 'Sell hotel' : 'Sell house';
     }
     if (elements.propertyMortgageBtn) {
-      const canMortgage = ownsTile && !tile.mortgaged && currentLevel === 0;
-      const canUnmortgage = ownsTile && tile.mortgaged;
+      const canMortgage = ownsTile && canMortgageOnTileClient(localPlayer, tile, game);
+      const canUnmortgage = ownsTile && tile.mortgaged && !settlingDebt;
       elements.propertyMortgageBtn.disabled = !canMortgage && !canUnmortgage;
       elements.propertyMortgageBtn.textContent = tile.mortgaged ? `Unmortgage ${formatMoney(Math.ceil((tile.price || 0) / 2 * 1.1))}` : `Mortgage ${formatMoney(Math.floor((tile.price || 0) / 2))}`;
     }
@@ -1713,6 +1743,9 @@ function initGameClient() {
 
   if (elements.declareBankruptcyBtn) {
     on(elements.declareBankruptcyBtn, 'click', () => {
+      if (!window.confirm('Declare bankruptcy? You will be removed from the game and your assets will be transferred to your creditor.')) {
+        return;
+      }
       emit('declare-bankruptcy', {}, response => {
         if (!response?.success) {
           showToast(response?.error || 'Could not declare bankruptcy.', 'error');
