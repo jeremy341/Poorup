@@ -1002,22 +1002,24 @@ class GameState {
       return;
     }
     const winner = this.getPlayerById(auction.highestBidderId);
-    if (!winner || winner.bankrupt || winner.disconnected || winner.cash < auction.highestBid) {
+    if (!winner || winner.bankrupt || winner.disconnected) {
       this.feedMessage(`Auction ended without a valid winner.`);
       this.resolveTurnAfterAction();
       this.auction = null;
       return;
     }
-    winner.cash -= auction.highestBid;
     auction.propertyTile.ownerId = winner.id;
     auction.propertyTile.mortgaged = false;
     auction.propertyTile.houseCount = 0;
     winner.properties.push(auction.propertyTile.index);
     this.feedMessage(`${winner.nickname} won the auction for ${auction.propertyTile.name} at $${auction.highestBid}.`);
-    if (winner.cash < 0) {
-      this.handleBankruptcy(winner);
-    }
-    this.resolveTurnAfterAction();
+    this.chargePlayer(
+      winner,
+      null,
+      auction.highestBid,
+      `${winner.nickname} paid $${auction.highestBid} for ${auction.propertyTile.name}.`,
+      {}
+    );
     this.auction = null;
   }
 
@@ -1031,12 +1033,18 @@ class GameState {
       return { success: false, error: 'You do not own this property.' };
     }
 
+    const settlingDebt = this.pendingPayment?.playerId === player.id;
+
     if (action === 'build-house' || action === 'sell-house') {
-      if (player.id !== this.currentPlayerId) {
-        return { success: false, error: 'You can only build or sell during your turn.' };
-      }
-      if (this.hasRolled && !this.extraRollPending) {
-        return { success: false, error: 'You can only build or sell before rolling the dice.' };
+      if (!settlingDebt) {
+        if (player.id !== this.currentPlayerId) {
+          return { success: false, error: 'You can only build or sell during your turn.' };
+        }
+        if (this.hasRolled && !this.extraRollPending) {
+          return { success: false, error: 'You can only build or sell before rolling the dice.' };
+        }
+      } else if (action === 'build-house') {
+        return { success: false, error: 'You cannot build while settling a debt.' };
       }
     }
 
@@ -1121,6 +1129,10 @@ class GameState {
     const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
     const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
 
+    if (!giveCash && !requestCash && !givePropertyIndexes.length && !requestPropertyIndexes.length) {
+      return { success: false, error: 'Choose at least one cash or property item to include in the trade.' };
+    }
+
     if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
       return { success: false, error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.' };
     }
@@ -1197,6 +1209,9 @@ class GameState {
 
     this.pendingTrade = null;
     this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
+    if (this.pendingPayment?.playerId === fromPlayer.id || this.pendingPayment?.playerId === toPlayer.id) {
+      this.trySettlePendingPayment();
+    }
     return { success: true, accepted: true };
   }
 
@@ -1530,3 +1545,4 @@ class RoomManager {
 }
 
 module.exports = { RoomManager };
+
