@@ -1129,6 +1129,10 @@ class GameState {
     const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
     const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
 
+    if (!giveCash && !requestCash && !givePropertyIndexes.length && !requestPropertyIndexes.length) {
+      return { success: false, error: 'Choose at least one cash or property item to include in the trade.' };
+    }
+
     if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
       return { success: false, error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.' };
     }
@@ -1541,3 +1545,4 @@ class RoomManager {
 }
 
 module.exports = { RoomManager };
+
