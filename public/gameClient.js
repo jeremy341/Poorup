@@ -263,7 +263,7 @@ function initGameClient() {
     }
     const [a, b] = lastDice;
     if (!a && !b) return 'Dice: --';
-    return `Dice: ${a} + ${b} = ${a + b}`;
+    return `Dice: ${a + b}`;
   }
 
   function showToast(text, type = 'info') {
@@ -381,21 +381,23 @@ function initGameClient() {
   function getRentPreview(tile, level, ownerHasFullSet = false, game = null, settings = null) {
     const baseRent = tile?.rent || 0;
     if (!tile || tile.mortgaged) return 0;
-    if (tile.type === 'utility') {
+    if (tile.type === "utility") {
       const lastDice = game?.lastDice;
       if (Array.isArray(lastDice) && lastDice.length === 2 && (lastDice[0] || lastDice[1])) {
         const diceTotal = Math.max(2, lastDice[0] + lastDice[1]);
         const owner = game?.players?.find(player => player.id === tile.ownerId);
-        const ownedUtilities = (game?.tiles || []).filter(entry => entry.type === 'utility' && entry.ownerId === owner?.id).length;
-        return diceTotal * (ownedUtilities >= 2 ? 10 : 4);
+        const ownedUtilities = (game?.tiles || []).filter(entry => entry.type === "utility" && entry.ownerId === owner?.id).length;
+        const utilityCount = Math.min(Math.max(level || ownedUtilities || 1, 1), 2);
+        return diceTotal * (utilityCount >= 2 ? 10 : 4);
       }
-      return 'Varies by dice roll';
+      return "Varies by dice roll";
     }
-    if (tile.type === 'railroad') {
+    if (tile.type === "railroad") {
       const owner = game?.players?.find(player => player.id === tile.ownerId);
-      const ownedRailroads = (game?.tiles || []).filter(entry => entry.type === 'railroad' && entry.ownerId === owner?.id).length;
+      const ownedRailroads = (game?.tiles || []).filter(entry => entry.type === "railroad" && entry.ownerId === owner?.id).length;
       const tiers = [25, 50, 100, 200];
-      return tiers[Math.min(Math.max(ownedRailroads, 1), tiers.length) - 1];
+      const railroadCount = Math.min(Math.max(level || ownedRailroads || 1, 1), tiers.length);
+      return tiers[railroadCount - 1];
     }
     const multipliers = [1, 5, 15, 45, 80, 125];
     if (level > 0) {
@@ -882,41 +884,45 @@ function initGameClient() {
   }
 
   function getPropertyActionNote(player, tile, game, settings) {
-    if (!player || !tile) return '';
+    if (!player || !tile) return "";
     if (game?.pendingPayment?.playerId === player.id) {
-      return 'Settle your debt: sell buildings or mortgage properties to raise cash.';
+      return "Settle your debt: sell buildings or mortgage properties to raise cash.";
     }
-    if (tile.type === 'railroad' || tile.type === 'utility') {
-      if (tile.mortgaged) return 'This tile is mortgaged.';
-      return 'Railroads and utilities cannot be developed, but they can be mortgaged or traded.';
+    if (tile.type === "railroad") {
+      if (tile.mortgaged) return "This airport is mortgaged.";
+      return "Airports cannot be developed. Rent increases as you own more airports: 1 = $25, 2 = $50, 3 = $100, 4 = $200.";
     }
-    const groupTiles = (game?.tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property');
+    if (tile.type === "utility") {
+      if (tile.mortgaged) return "This utility is mortgaged.";
+      return "Utilities cannot be developed. Rent is 4x the dice total with one utility and 10x with both.";
+    }
+    const groupTiles = (game?.tiles || []).filter(entry => entry.group === tile.group && entry.type === "property");
     const ownedInGroup = groupTiles.filter(entry => entry.ownerId === player.id);
     if (ownedInGroup.length !== groupTiles.length) {
-      return 'You need the full color set before building.';
+      return "You need the full color set before building.";
     }
     if (ownedInGroup.some(entry => entry.mortgaged)) {
-      return 'You cannot build while any property in this set is mortgaged.';
+      return "You cannot build while any property in this set is mortgaged.";
     }
     if (settings?.evenBuild) {
       const levels = ownedInGroup.map(entry => entry.houseCount || 0);
       const minLevel = Math.min(...levels);
       const maxLevel = Math.max(...levels);
       if ((tile.houseCount || 0) > minLevel) {
-        return 'Even build: add houses to the least-developed properties in this set first.';
+        return "Even build: add houses to the least-developed properties in this set first.";
       }
       if ((tile.houseCount || 0) < maxLevel) {
-        return 'Even build: sell houses from the most-developed properties in this set first.';
+        return "Even build: sell houses from the most-developed properties in this set first.";
       }
     }
     if ((tile.houseCount || 0) >= 5) {
-      return 'This property already has a hotel.';
+      return "This property already has a hotel.";
     }
     const houseCost = tile.houseCost || getPropertyHouseCost(tile);
     if (player.cash < houseCost) {
       return `You need ${formatMoney(houseCost)} to build here.`;
     }
-    return 'Build evenly across the color group, one step at a time.';
+    return "Build evenly across the color group, one step at a time.";
   }
 
   function renderPropertyModal(game, players) {
@@ -931,31 +937,44 @@ function initGameClient() {
     const settings = localState.room?.settings || {};
     const ownsTile = tile.ownerId === localPlayer.id;
     const settlingDebt = game?.pendingPayment?.playerId === localPlayer.id;
-    const fullSet = tile.group ? game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property' && entry.ownerId === localPlayer.id).length === game?.tiles?.filter(entry => entry.group === tile.group && entry.type === 'property').length : false;
+    const isRailroad = tile.type === "railroad";
+    const isUtility = tile.type === "utility";
+    const isSpecialTile = isRailroad || isUtility;
+    const specialMax = isRailroad ? 4 : isUtility ? 2 : 0;
+    const specialOwnedCount = isRailroad
+      ? (game?.tiles || []).filter(entry => entry.type === "railroad" && entry.ownerId === localPlayer.id).length
+      : isUtility
+        ? (game?.tiles || []).filter(entry => entry.type === "utility" && entry.ownerId === localPlayer.id).length
+        : 0;
+    const fullSet = tile.group ? game?.tiles?.filter(entry => entry.group === tile.group && entry.type === "property" && entry.ownerId === localPlayer.id).length === game?.tiles?.filter(entry => entry.group === tile.group && entry.type === "property").length : false;
     const houseCost = tile.houseCost || getPropertyHouseCost(tile);
     const currentLevel = tile.houseCount || 0;
-    const previewLevels = [0, 1, 2, 3, 4, 5];
+    const previewLevels = isRailroad ? [1, 2, 3, 4] : isUtility ? [1, 2] : [0, 1, 2, 3, 4, 5];
 
     if (elements.propertyModalName) elements.propertyModalName.textContent = tile.name;
     if (elements.propertyModalGroup) {
-      const status = tile.type === 'utility'
-        ? 'Utility'
-        : tile.type === 'railroad'
-          ? 'Airport'
+      const status = isUtility
+        ? "Utility"
+        : isRailroad
+          ? "Airport"
           : tile.group || tile.type;
       elements.propertyModalGroup.textContent = `${status} • ${formatMoney(tile.price || 0)}`;
     }
     if (elements.propertyModalStatus) {
       elements.propertyModalStatus.textContent = tile.mortgaged
-        ? 'Mortgaged'
-        : currentLevel >= 5
-          ? 'Hotel built'
-          : currentLevel > 0
-            ? `${currentLevel} house${currentLevel === 1 ? '' : 's'}`
-            : 'No buildings yet';
+        ? "Mortgaged"
+        : isRailroad
+          ? `${specialOwnedCount} of 4 airports owned`
+          : isUtility
+            ? `${specialOwnedCount} of 2 utilities owned`
+            : currentLevel >= 5
+              ? "Hotel built"
+              : currentLevel > 0
+                ? `${currentLevel} house${currentLevel === 1 ? "" : "s"}`
+                : "No buildings yet";
     }
     if (elements.propertyModalCurrentRent) {
-      const currentRent = getRentPreview(tile, currentLevel, fullSet, game, settings);
+      const currentRent = getRentPreview(tile, isSpecialTile ? specialOwnedCount : currentLevel, fullSet, game, settings);
       elements.propertyModalCurrentRent.innerHTML = `Current rent: <strong>${formatRentPreview(currentRent)}</strong>`;
     }
     if (elements.propertyModalNote) {
@@ -963,14 +982,14 @@ function initGameClient() {
     }
 
     if (elements.propertyModalRents) {
-      elements.propertyModalRents.innerHTML = '';
+      elements.propertyModalRents.innerHTML = "";
       previewLevels.forEach(level => {
         const rentValue = getRentPreview(tile, level, fullSet, game, settings);
-        const isCurrent = tile.type === 'property' ? level === currentLevel : level === 0;
-        const row = document.createElement('div');
-        row.className = `rent-row${isCurrent ? ' current' : ''}`;
+        const isCurrent = isSpecialTile ? level === specialOwnedCount : level === currentLevel;
+        const row = document.createElement("div");
+        row.className = `rent-row${isCurrent ? " current" : ""}`;
         row.innerHTML = `
-          <span>${level === 0 ? 'Base' : level === 5 ? 'Hotel' : `${level} house${level === 1 ? '' : 's'}`}</span>
+          <span>${isRailroad || isUtility ? `${level} owned` : level === 0 ? "Base" : level === 5 ? "Hotel" : `${level} house${level === 1 ? "" : "s"}`}</span>
           <strong>${formatRentPreview(rentValue)}</strong>
         `;
         elements.propertyModalRents.appendChild(row);
@@ -978,21 +997,34 @@ function initGameClient() {
     }
 
     if (elements.propertyModalHouses) {
-      elements.propertyModalHouses.innerHTML = Array.from({ length: 5 }, (_, index) => {
-        const filled = index < Math.min(currentLevel, 5);
-        return `<span class="house-pip ${filled ? 'filled' : ''}">${currentLevel >= 5 && index === 4 ? 'H' : ''}</span>`;
-      }).join('');
+      if (elements.propertyModalHouses.previousElementSibling) {
+        elements.propertyModalHouses.previousElementSibling.textContent = isSpecialTile ? "Ownership" : "Buildings";
+      }
+      if (isSpecialTile) {
+        elements.propertyModalHouses.innerHTML = `<div class="property-ownership-summary"><strong>${specialOwnedCount}</strong><span>of ${specialMax} owned</span></div>`;
+      } else {
+        elements.propertyModalHouses.innerHTML = Array.from({ length: 5 }, (_, index) => {
+          const filled = index < Math.min(currentLevel, 5);
+          return `<span class="house-pip ${filled ? "filled" : ""}">${currentLevel >= 5 && index === 4 ? "H" : ""}</span>`;
+        }).join("");
+      }
     }
 
     if (elements.propertyBuildBtn) {
-      const canBuild = !settlingDebt && canBuildOnTileClient(localPlayer, tile, game, settings);
-      elements.propertyBuildBtn.disabled = !canBuild;
-      elements.propertyBuildBtn.textContent = currentLevel >= 4 ? 'Build hotel' : 'Build house';
+      const canBuild = !isSpecialTile && !settlingDebt && canBuildOnTileClient(localPlayer, tile, game, settings);
+      elements.propertyBuildBtn.classList.toggle("hidden", isSpecialTile);
+      if (!isSpecialTile) {
+        elements.propertyBuildBtn.disabled = !canBuild;
+        elements.propertyBuildBtn.textContent = currentLevel >= 4 ? "Build hotel" : "Build house";
+      }
     }
     if (elements.propertySellBtn) {
-      const canSell = canSellFromTileClient(localPlayer, tile, game, settings);
-      elements.propertySellBtn.disabled = !canSell;
-      elements.propertySellBtn.textContent = currentLevel >= 5 ? 'Sell hotel' : 'Sell house';
+      const canSell = !isSpecialTile && canSellFromTileClient(localPlayer, tile, game, settings);
+      elements.propertySellBtn.classList.toggle("hidden", isSpecialTile);
+      if (!isSpecialTile) {
+        elements.propertySellBtn.disabled = !canSell;
+        elements.propertySellBtn.textContent = currentLevel >= 5 ? "Sell hotel" : "Sell house";
+      }
     }
     if (elements.propertyMortgageBtn) {
       const canMortgage = ownsTile && canMortgageOnTileClient(localPlayer, tile, game);
@@ -2026,5 +2058,6 @@ function initGameClient() {
 document.addEventListener('DOMContentLoaded', () => {
   initGameClient();
 });
+
 
 

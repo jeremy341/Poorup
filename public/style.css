@@ -1242,6 +1242,25 @@ input {
   gap: 8px;
 }
 
+.property-ownership-summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #f6efe7;
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.property-ownership-summary strong {
+  color: var(--accent);
+  font-size: 16px;
+}
+
+
 .house-pip {
   width: 18px;
   height: 18px;
