@@ -66,9 +66,9 @@ input {
   width: min(380px, 100%);
   padding: 32px;
   border-radius: 10px;
-  background: rgba(255, 250, 244, 0.96);
+  background: var(--panel);
   box-shadow: 0 24px 80px rgba(34, 28, 20, 0.12);
-  border: 1px solid rgba(230, 216, 200, 0.85);
+  border: var(--border);
   text-align: center
 }
 
@@ -96,7 +96,7 @@ input {
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fffaf4;
+  background: var(--bg);
   color: var(--text)
 }
 
@@ -217,7 +217,8 @@ input {
   justify-content: flex-start;
   padding-top: 96px;
   align-items: center;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .layout {
@@ -273,7 +274,7 @@ input {
   width: min(520px, calc(100% - 40px));
   padding: 32px 28px;
   border-radius: 24px;
-  background: rgba(255, 250, 244, 0.96);
+  background: var(--bg);
   box-shadow: 0 24px 80px rgba(34, 28, 20, 0.14);
   border: 1px solid rgba(230, 216, 200, 0.8);
   text-align: center
@@ -592,7 +593,6 @@ input {
   margin-top: 10px;
   border-radius: 10px;
   background: var(--bg);
-  border: 1px solid rgba(230, 216, 200, 0.9);
   overflow: hidden;
   margin-top: 5px;
   margin-bottom: 10px;
@@ -670,7 +670,7 @@ input {
 .stat-pill {
   padding: 8px 10px;
   border-radius: 999px;
-  background: #f6efe7;
+  background: #ffffff;
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 12px;
@@ -705,7 +705,8 @@ input {
   display: flex;
   flex-direction: column;
   background-color: var(--bg);
-  box-shadow: 0 10px 40px rgba(34, 28, 20, 0.12);
+  box-shadow: 0 8px 40px rgba(34, 28, 20, 0.12);
+  min-height: 0;
 
 }
 
@@ -718,6 +719,8 @@ input {
   align-self: center;
   min-height: 0;
   height: 100%;
+  box-shadow: 0 18px 40px rgba(34, 28, 20, 0.12);
+  backdrop-filter: blur(10px)
 }
 
 .sidebar-window {
@@ -728,15 +731,10 @@ input {
   flex-direction: column;
 }
 
-.properties-panel,
-.settings-panel {
-  min-height: 0;
-}
-
-.properties-panel {}
-
 .settings-panel {
   overflow-y: auto;
+  min-height: 0;
+  background-color: var(--bg);
 }
 
 .panel-subheader {
@@ -1115,6 +1113,7 @@ input {
 
 .trade-panel {
   min-width: 0;
+  background-color: var(--bg);
 }
 
 .trade-player-list {
@@ -1131,7 +1130,7 @@ input {
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: rgba(255, 250, 244, 0.98);
+  background: #ffffff;
   cursor: pointer;
   text-align: left;
   transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
@@ -1427,11 +1426,6 @@ input {
     overflow: visible;
   }
 
-  .workspace {
-    height: auto;
-    padding-top: 80px;
-    overflow: visible
-  }
 
   .topbar {
     margin-top: 12px;
@@ -1449,7 +1443,8 @@ input {
 
   .turn-banner {
     flex-direction: column;
-    align-items: flex-start
+    align-items: flex-start;
+    border: 1px solid var(--border)
   }
 
   .turn-banner-stats {

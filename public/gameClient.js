@@ -1011,6 +1011,7 @@ function initGameClient() {
     if (elements.tradeRequestCashTotal) {
       elements.tradeRequestCashTotal.textContent = formatMoney(tradeUiState.requestCash);
     }
+    updateTradeSendButtonState();
   }
 
   function hasTradeSelection() {
@@ -1020,6 +1021,15 @@ function initGameClient() {
       tradeUiState.offerCash > 0 ||
       tradeUiState.requestCash > 0
     );
+  }
+
+  function updateTradeSendButtonState() {
+    if (!elements.tradeSendBtn) return;
+    const hasSelection = hasTradeSelection();
+    elements.tradeSendBtn.disabled = !hasSelection;
+    elements.tradeSendBtn.title = hasSelection
+      ? 'Send this trade offer'
+      : 'Choose at least one cash or property item on either side of the trade.';
   }
 
   function renderTradeModal(game, players) {
@@ -1101,12 +1111,7 @@ function initGameClient() {
       }
     }
 
-    if (elements.tradeSendBtn) {
-      elements.tradeSendBtn.disabled = !hasTradeSelection();
-      elements.tradeSendBtn.title = hasTradeSelection()
-        ? 'Send this trade offer'
-        : 'Choose at least one cash or property item to include in the trade.';
-    }
+    updateTradeSendButtonState();
   }
 
   function openTradeModal(targetPlayerId) {
@@ -1843,7 +1848,7 @@ function initGameClient() {
     on(elements.tradeSendBtn, 'click', () => {
       if (!tradeUiState.targetPlayerId) return;
       if (!hasTradeSelection()) {
-        showToast('Choose at least one cash or property item to include in the trade.', 'error');
+        showToast('Choose at least one cash or property item on either side of the trade.', 'error');
         return;
       }
       emit('propose-trade', {
