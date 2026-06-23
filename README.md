@@ -25,7 +25,7 @@ Then open `http://localhost:8080` in your browser.
 
 **Live demo:** [poorup.onrender.com](https://poorup.onrender.com) (free tier may take ~30s to wake up)
 
-For a portfolio-style write-up (features, challenges, testing), see [SHOWCASE.md](SHOWCASE.md).
+For Instructions see [Instructions.md](Instructions.md).
 
 | Layer | Technology |
 |---|---|
