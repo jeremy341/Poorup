@@ -754,7 +754,8 @@ input {
   padding: 0 18px 10px 18px;
   display: flex;
   flex-direction: column;
-  gap: 0 background: var(--bg);
+  gap: 0;
+  background: var(--bg);
 }
 
 .property-row {
@@ -785,7 +786,7 @@ input {
 .property-row-meta {
   display: flex;
   align-items: baseline;
-  gap: 0;
+  gap: 15px;
   flex-shrink: 0;
   text-align: right;
 }
@@ -922,7 +923,16 @@ input {
   align-items: center;
   justify-content: center;
   z-index: 100;
-  padding: 20px
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity;
+}
+
+.modal.is-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .modal-card {
@@ -933,7 +943,16 @@ input {
   box-shadow: 0 24px 80px rgba(34, 28, 20, 0.16);
   border: 1px solid rgba(230, 216, 200, 0.9);
   max-height: calc(100vh - 40px);
-  overflow: auto
+  overflow: auto;
+  opacity: 0;
+  transform: translateY(8px) scale(0.99);
+  transition: opacity 160ms cubic-bezier(0.22, 1, 0.36, 1), transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.modal.is-visible .modal-card {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .modal-card-wide {

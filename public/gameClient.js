@@ -303,13 +303,29 @@ function initGameClient() {
   }
 
   function showModal(modal) {
-    modal?.classList.remove('hidden');
+    if (!modal) return;
+    if (modal._hideTimer) {
+      clearTimeout(modal._hideTimer);
+      modal._hideTimer = null;
+    }
+    modal.classList.remove('hidden');
+    modal.offsetWidth;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        modal.classList.add('is-visible');
+      });
+    });
   }
 
   function hideModal(modal) {
-    modal?.classList.add('hidden');
+    if (!modal) return;
+    modal.classList.remove('is-visible');
+    if (modal._hideTimer) clearTimeout(modal._hideTimer);
+    modal._hideTimer = window.setTimeout(() => {
+      modal.classList.add('hidden');
+      modal._hideTimer = null;
+    }, 160);
   }
-
   function stopAuctionTicker() {
     if (auctionUiTicker) {
       clearInterval(auctionUiTicker);
@@ -794,7 +810,7 @@ function initGameClient() {
           === (tiles || []).filter(entry => entry.group === tile.group && entry.type === 'property').length
         : false;
       const currentRent = formatRentPreview(getRentPreview(tile, tile.houseCount || 0, fullSet, game, settings));
-      const buildingLabel = tile.type === 'property' ? ` · H${tile.houseCount || 0}` : '';
+      const buildingLabel = tile.type === 'property' ? `H${tile.houseCount || 0}` : '';
       const item = document.createElement('div');
       item.className = 'property-row property-row-clickable';
       item.tabIndex = 0;
@@ -804,7 +820,7 @@ function initGameClient() {
           ${escapeHtml(tile.name)}
           <small class="muted" style="display:block; margin: 4px 0 0;">${escapeHtml(tile.group || tile.type)}${tile.mortgaged ? ' • Mortgaged' : ''}</small>
         </span>
-        <span class="property-row-meta"><strong class="property-row-rent">${currentRent}</strong>${buildingLabel ? `<span class="muted">${buildingLabel}</span>` : ''}</span>
+        <span class="property-row-meta"><strong class="property-row-rent">${currentRent}</strong>${buildingLabel ? `<span class="property-row-houses muted">${buildingLabel}</span>` : ''}</span>
       `;
       item.addEventListener('click', () => openPropertyModal(tile.index));
       item.addEventListener('keydown', event => {
@@ -2010,4 +2026,5 @@ function initGameClient() {
 document.addEventListener('DOMContentLoaded', () => {
   initGameClient();
 });
+
 
