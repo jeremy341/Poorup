@@ -23,7 +23,7 @@ npm start
 
 Then open `http://localhost:8080` in your browser.
 
-**Live demo:** [poorup.onrender.com](https://poorup.onrender.com) (free tier may take ~30s to wake up)
+**Live demo:** https://poorup.jeremy-d.hackclub.app/
 
 For Instructions see [Instructions.md](Instructions.md).
 
