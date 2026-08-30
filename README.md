@@ -7,7 +7,7 @@ I built this project to get hands-on experience with real-time web development, 
 ## Overview
 
 - Real-time multiplayer using Socket.IO
-- Custom game board with properties, airports, tax squares, and surprise cards
+- 40-space custom game board with properties, airports, tax squares, and surprise cards
 - Full Monopoly-style rules: buying, renting, building, mortgaging, trading, and going to prison
 - Auction system for declined properties
 - Room-based lobby with host controls and configurable game settings
@@ -43,8 +43,9 @@ server/
 
 public/
   index.html      — Single-page app shell
-  style.css       — All styling
-  gameClient.js   — Client-side socket logic and UI rendering
+  styles.css      — Supplied pixel-parlor design system and responsive layout
+  main.js         — Client-side interactions, rendering, and Socket.IO bridge (40-space board)
+  assets/         — Protected SVG references and local fonts
 ```
 
 ## Game settings
