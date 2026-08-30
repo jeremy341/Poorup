@@ -43,8 +43,9 @@ server/
 
 public/
   index.html      — Single-page app shell
-  style.css       — All styling
-  gameClient.js   — Client-side socket logic and UI rendering
+  styles.css      — Supplied pixel-parlor design system and responsive layout
+  main.js         — Client-side interactions, rendering, and Socket.IO bridge
+  assets/         — Protected SVG references and local fonts
 ```
 
 ## Game settings

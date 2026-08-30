@@ -3,10 +3,16 @@ const DEFAULT_ROOM_SETTINGS = {
   doubleRent: false,
   vacationCash: true,
   auction: true,
+  trading: true,
+  doubleGo: false,
   noRentWhileInPrison: false,
   mortgage: true,
   evenBuild: true,
   randomizePlayerOrder: false,
+  houseLimit: 32,
+  hotelLimit: 12,
+  turnTimer: 0,
+  bankruptMode: 'elim',
   startingCash: 1500
 };
 
@@ -16,11 +22,13 @@ const PROPERTY_HOUSE_COST_BY_GROUP = {
   Brown: 50,
   'Light Blue': 50,
   Pink: 100,
+  Magenta: 100,
   Orange: 100,
   Red: 150,
   Yellow: 150,
   Green: 200,
-  'Dark Blue': 200
+  'Dark Blue': 200,
+  Blue: 200
 };
 const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
 const RAILROAD_RENT = [25, 50, 100, 200];
@@ -28,53 +36,45 @@ const JAIL_FINE = 50;
 const JAIL_MAX_TURNS = 3;
 
 const DEFAULT_TILES = [
-  { index: 0, name: 'Start', type: 'start' },
-  { index: 1, name: 'Salvador', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#92400e' },
-  { index: 2, name: 'Treasure', type: 'chance' },
-  { index: 3, name: 'Rio', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#92400e' },
-  { index: 4, name: 'Earnings Tax', type: 'tax', amount: 200 },
-  { index: 5, name: 'ACC Airport', type: 'railroad', price: 200 },
-  { index: 6, name: 'Accra', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#38bdf8' },
-  { index: 7, name: 'Surprise?', type: 'chance' },
-  { index: 8, name: 'Tema', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#38bdf8' },
-  { index: 9, name: 'Kumasi', type: 'property', group: 'Light Blue', price: 120, rent: 16, color: '#38bdf8' },
-  { index: 10, name: 'Passing By', type: 'jail' },
-  { index: 11, name: 'Pattaya', type: 'property', group: 'Pink', price: 140, rent: 10, color: '#ec4899' },
-  { index: 12, name: 'Electric Company', type: 'utility', price: 150 },
-  { index: 13, name: 'Chiang Mai', type: 'property', group: 'Pink', price: 140, rent: 12, color: '#ec4899' },
-  { index: 14, name: 'Bangkok', type: 'property', group: 'Pink', price: 160, rent: 14, color: '#ec4899' },
-  { index: 15, name: 'BKK Airport', type: 'railroad', price: 200 },
-  { index: 16, name: 'Kyoto', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#f97316' },
-  { index: 17, name: 'Treasure', type: 'chance' },
-  { index: 18, name: 'Osaka', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#f97316' },
-  { index: 19, name: 'Tokyo', type: 'property', group: 'Orange', price: 200, rent: 16, color: '#f97316' },
-  { index: 20, name: 'Vacation', type: 'vacation' },
-  { index: 21, name: 'Eindhoven', type: 'property', group: 'Red', price: 220, rent: 18, color: '#ef4444' },
-  { index: 22, name: 'Surprise?', type: 'chance' },
-  { index: 23, name: 'Rotterdam', type: 'property', group: 'Red', price: 220, rent: 18, color: '#ef4444' },
-  { index: 24, name: 'Amsterdam', type: 'property', group: 'Red', price: 240, rent: 20, color: '#ef4444' },
-  { index: 25, name: 'AMS Airport', type: 'railroad', price: 200 },
-  { index: 26, name: 'Calgary', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#eab308' },
-  { index: 27, name: 'Vancouver', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#eab308' },
-  { index: 28, name: 'Water Company', type: 'utility', price: 150 },
-  { index: 29, name: 'Toronto', type: 'property', group: 'Yellow', price: 280, rent: 24, color: '#eab308' },
-  { index: 30, name: 'Go to Prison', type: 'goToJail' },
-  { index: 31, name: 'Bern', type: 'property', group: 'Green', price: 300, rent: 26, color: '#22c55e' },
-  { index: 32, name: 'Geneva', type: 'property', group: 'Green', price: 300, rent: 26, color: '#22c55e' },
-  { index: 33, name: 'Treasure', type: 'chance' },
-  { index: 34, name: 'Zurich', type: 'property', group: 'Green', price: 320, rent: 28, color: '#22c55e' },
-  { index: 35, name: 'MB Airport', type: 'railroad', price: 200 },
-  { index: 36, name: 'Surprise?', type: 'chance' },
-  { index: 37, name: 'Downtown', type: 'property', group: 'Dark Blue', price: 350, rent: 35, color: '#1d4ed8' },
-  { index: 38, name: 'Premium Tax', type: 'tax', amount: 100 },
-  { index: 39, name: 'Marina Bay', type: 'property', group: 'Dark Blue', price: 400, rent: 50, color: '#1d4ed8' }
+  { index: 0, name: 'GO', type: 'start' },
+  { index: 1, name: 'CHEST', type: 'chest' },
+  { index: 2, name: 'STATES AVENUE', type: 'property', group: 'Light Blue', price: 140, rent: 10, color: '#3e7d7b' },
+  { index: 3, name: 'ST. CHARLES PLACE', type: 'property', group: 'Light Blue', price: 140, rent: 10, color: '#3e7d7b' },
+  { index: 4, name: 'READING RAILROAD', type: 'railroad', price: 200 },
+  { index: 5, name: 'ORIENTAL AVENUE', type: 'property', group: 'Light Blue', price: 100, rent: 6, color: '#3e7d7b' },
+  { index: 6, name: 'CHANCE', type: 'chance' },
+  { index: 7, name: 'VERMONT AVENUE', type: 'property', group: 'Light Blue', price: 100, rent: 6, color: '#3e7d7b' },
+  { index: 8, name: 'CONNECTICUT AVENUE', type: 'property', group: 'Light Blue', price: 120, rent: 8, color: '#3e7d7b' },
+  { index: 9, name: 'JUST VISITING', type: 'jail' },
+  { index: 10, name: 'BALTIC STREET', type: 'property', group: 'Green', price: 180, rent: 14, color: '#4b853d' },
+  { index: 11, name: 'WATER WORKS', type: 'utility', price: 150 },
+  { index: 12, name: 'UNION SQUARE', type: 'property', group: 'Light Blue', price: 180, rent: 14, color: '#3e7d7b' },
+  { index: 13, name: 'CEDAR AVENUE', type: 'property', group: 'Light Blue', price: 200, rent: 16, color: '#3e7d7b' },
+  { index: 14, name: 'CHEST', type: 'chest' },
+  { index: 15, name: 'ELM STREET', type: 'property', group: 'Magenta', price: 200, rent: 16, color: '#a04e6f' },
+  { index: 16, name: 'FREE PARKING', type: 'parking' },
+  { index: 17, name: 'VINE STREET', type: 'property', group: 'Brown', price: 220, rent: 18, color: '#7b5029' },
+  { index: 18, name: 'MILLER AVENUE', type: 'property', group: 'Brown', price: 220, rent: 18, color: '#7b5029' },
+  { index: 19, name: 'BREWERY WAY', type: 'property', group: 'Brown', price: 240, rent: 20, color: '#7b5029' },
+  { index: 20, name: 'INCOME TAX', type: 'tax', amount: 200 },
+  { index: 21, name: 'OAK BOULEVARD', type: 'property', group: 'Magenta', price: 260, rent: 22, color: '#a04e6f' },
+  { index: 22, name: 'MAPLE DRIVE', type: 'property', group: 'Magenta', price: 260, rent: 22, color: '#a04e6f' },
+  { index: 23, name: 'CHANCE', type: 'chance' },
+  { index: 24, name: 'PINE ROAD', type: 'property', group: 'Magenta', price: 280, rent: 24, color: '#a04e6f' },
+  { index: 25, name: 'GO TO VACATION', type: 'vacation' },
+  { index: 26, name: 'SUNSET BOULEVARD', type: 'property', group: 'Red', price: 300, rent: 26, color: '#87231e' },
+  { index: 27, name: 'CHEST', type: 'chest' },
+  { index: 28, name: 'WILLOW LANE', type: 'property', group: 'Red', price: 300, rent: 26, color: '#87231e' },
+  { index: 29, name: 'ELECTRIC COMPANY', type: 'utility', price: 150 },
+  { index: 30, name: 'CHANCE', type: 'chance' },
+  { index: 31, name: 'RIVER ROAD', type: 'property', group: 'Blue', price: 320, rent: 28, color: '#286ea1' }
 ];
 
 const CARD_DECK = [
   { text: 'Advance to Start and collect $200', action: 'collectStart' },
   { text: 'Pay $100 for renovation', action: 'pay', amount: 100 },
   { text: 'Collect $150 from bank', action: 'collect', amount: 150 },
-  { text: 'Go to Vacation', action: 'move', tileIndex: 20 },
+  { text: 'Go to Vacation', action: 'move', tileIndex: 25 },
   { text: 'Go directly to Jail', action: 'goToJail' },
   { text: 'Receive $100 from each player', action: 'collectFromEach', amount: 100 }
 ];
@@ -114,7 +114,7 @@ class Player {
     this.clientId = clientId || this.id;
     this.socketId = socketId;
     const safeNickname = typeof nickname === 'string' ? nickname.trim().slice(0, 24) : '';
-    const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#84cc16';
+    const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#35a653';
     this.nickname = safeNickname || 'Player';
     this.color = safeColor;
     this.isHost = isHost;
@@ -567,6 +567,24 @@ class GameState {
       case 'jail':
         this.feedMessage(`${player.nickname} is visiting Jail.`);
         this.resolveTurnAfterAction(options);
+        return { success: true };
+      case 'parking':
+        if (this.vacationPool > 0) {
+          player.cash += this.vacationPool;
+          this.feedMessage(`${player.nickname} swept the Vacation pool for $${this.vacationPool}.`);
+          this.vacationPool = 0;
+        } else {
+          this.feedMessage(`${player.nickname} took a breather at Free Parking.`);
+        }
+        this.resolveTurnAfterAction(options);
+        return { success: true };
+      case 'goToVacation':
+        player.position = this.tiles.find(tileItem => tileItem.type === 'jail').index;
+        player.inJail = false;
+        player.jailTurns = 0;
+        this.vacationPool += 50;
+        this.feedMessage(`${player.nickname} was sent on Vacation and added $50 to the pool.`);
+        this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
         return { success: true };
       case 'goToJail':
         player.position = this.tiles.find(tileItem => tileItem.type === 'jail').index;
@@ -1382,8 +1400,10 @@ class Room {
     }
 
     if (key === 'maxPlayers') {
-      return;
-    } else if (key === 'startingCash') {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return;
+      value = Math.max(2, Math.min(4, Math.floor(parsed)));
+    } else if (['startingCash', 'houseLimit', 'hotelLimit', 'turnTimer'].includes(key)) {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) return;
       value = Math.max(0, Math.floor(parsed));
@@ -1544,5 +1564,5 @@ class RoomManager {
   }
 }
 
-module.exports = { RoomManager };
+export { RoomManager };
 

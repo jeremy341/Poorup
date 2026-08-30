@@ -1,0 +1,137 @@
+{
+  "meta": {
+    "name": "Poorup",
+    "source": "Derived from supplied 1672\u00d7941 screenshot",
+    "baseGrid": 4
+  },
+  "colors": {
+    "bg.canvas": "#01070A",
+    "bg.chrome": "#020A0D",
+    "surface.panel": "#071314",
+    "surface.panelRaised": "#09191A",
+    "surface.panelDeep": "#030C10",
+    "surface.boardTile": "#061011",
+    "surface.boardCenter": "#031D1E",
+    "surface.input": "#061216",
+    "gold.050": "#F0D9AC",
+    "gold.100": "#E8D3AB",
+    "gold.300": "#CFA75F",
+    "gold.400": "#C88F2E",
+    "gold.500": "#9B783D",
+    "gold.700": "#5C5033",
+    "gold.800": "#3A382A",
+    "text.primary": "#E8D3AB",
+    "text.secondary": "#A79D7D",
+    "text.muted": "#777564",
+    "red.action": "#AF2A21",
+    "red.bright": "#D74438",
+    "green.status": "#35A653",
+    "blue.player": "#286EA1",
+    "property.brown": "#7B5029",
+    "property.cyan": "#3E7D7B",
+    "property.magenta": "#A04E6F",
+    "property.red": "#87231E",
+    "property.green": "#4B853D",
+    "property.blue": "#286EA1",
+    "olive.icon": "#78894F"
+  },
+  "spacing": {
+    "0.5": 2,
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 20,
+    "6": 24,
+    "8": 32,
+    "10": 40
+  },
+  "radii": {
+    "xs": 2,
+    "sm": 3
+  },
+  "strokes": {
+    "hairline": {
+      "width": 1,
+      "color": "#3A382A"
+    },
+    "default": {
+      "width": 1,
+      "color": "#5C5033"
+    },
+    "strong": {
+      "width": 2,
+      "color": "#6B5A36"
+    },
+    "active": {
+      "width": 2,
+      "color": "#C88F2E"
+    },
+    "board": {
+      "width": 2,
+      "color": "#9B783D"
+    }
+  },
+  "typography": {
+    "display.brand": {
+      "size": 46,
+      "lineHeight": 46,
+      "weight": 800,
+      "trackingEm": 0.01
+    },
+    "display.boardLogo": {
+      "size": 72,
+      "lineHeight": 68,
+      "weight": 900,
+      "trackingEm": 0.03
+    },
+    "heading.section": {
+      "size": 16,
+      "lineHeight": 19,
+      "weight": 700,
+      "trackingEm": 0.04
+    },
+    "heading.panel": {
+      "size": 15,
+      "lineHeight": 18,
+      "weight": 700,
+      "trackingEm": 0.03
+    },
+    "label.control": {
+      "size": 13,
+      "lineHeight": 16,
+      "weight": 700,
+      "trackingEm": 0.02
+    },
+    "body.normal": {
+      "size": 15,
+      "lineHeight": 22,
+      "weight": 500,
+      "trackingEm": 0
+    },
+    "body.compact": {
+      "size": 13,
+      "lineHeight": 18,
+      "weight": 500,
+      "trackingEm": 0
+    },
+    "money.large": {
+      "size": 42,
+      "lineHeight": 42,
+      "weight": 700,
+      "trackingEm": 0
+    },
+    "cta.large": {
+      "size": 36,
+      "lineHeight": 36,
+      "weight": 600,
+      "trackingEm": 0.01
+    },
+    "board.tile": {
+      "size": 12,
+      "lineHeight": 14,
+      "weight": 700,
+      "trackingEm": 0.02
+    }
+  }
+}

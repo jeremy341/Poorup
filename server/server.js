@@ -1,8 +1,12 @@
-const express = require('express');
-const path = require('path');
-const http = require('http');
-const { Server } = require('socket.io');
-const { RoomManager } = require('./gameLogic');
+import express from 'express';
+import path from 'path';
+import http from 'http';
+import { fileURLToPath } from 'url';
+import { Server } from 'socket.io';
+import { RoomManager } from './gameLogic.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
@@ -10,6 +14,8 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
+// The supplied 22;12 project is the production static UI. Keep the protected
+// SVG references in public/assets and serve the copied HTML/CSS/JS directly.
 const publicPath = path.join(__dirname, '../public');
 app.use(express.static(publicPath));
 app.get('*', (req, res, next) => {

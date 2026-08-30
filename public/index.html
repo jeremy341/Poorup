@@ -1,381 +1,587 @@
 <!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>Poorup — After-Hours Game Parlor</title>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <div class="scanlines"></div>
 
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Poorup — Multiplayer Board</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/style.css" />
-  <!-- Load socket.io-client library served by socket.io server -->
-  <script src="/socket.io/socket.io.js"></script>
-  <script defer src="/gameClient.js"></script>
-</head>
-
-<body>
-  <div id="app">
-    <div id="landing-screen" class="landing">
-      <div class="landing-card">
-        <h1 class="brand">Poorup</h1>
-        <p class="muted">Enter nickname to create or join a room.</p>
-        <form id="landing-form" class="landing-form">
-          <input id="nickname-input" type="text" placeholder="Nickname" required autocomplete="off" />
-          <input id="room-code-input" type="text" placeholder="Room code (join only)" autocomplete="off" />
-          <div class="button-row">
-            <button id="join-btn" class="btn" type="submit">Join Room</button>
-            <button id="create-btn" class="btn" type="button">Create Room</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <div id="main-workspace" class="workspace hidden">
-      <header class="topbar">
-        <div class="topbar-left">
-          <div class="brand small">Poorup</div>
-          <div id="room-code" class="room-code hidden">
-            Room: <span id="room-code-value">----</span>
-            <button id="copy-room-btn" class="btn btn-compact" type="button">Copy</button>
+    <!-- ============================ HOME VIEW ============================ -->
+    <div class="view" id="view-home">
+      <header class="hdr">
+        <div class="hdr-brand">
+          <span data-sprite="logo" data-size="4"></span>
+          <div class="hdr-brand-text">
+            <div class="hdr-wordmark">Poorup</div>
+            <div class="t-micro ink-3 hdr-sub">after-hours parlor</div>
           </div>
         </div>
-        <div class="topbar-right">
-          <button class="icon-btn" id="help-btn" type="button" aria-label="Help">?</button>
+
+        <div class="hdr-meta t-micro ink-3">
+          <span class="g5">node</span><span>west-2</span>
+          <span class="sep">/</span>
+          <span class="g5">up</span><span>4d 12h 07m</span>
+          <span class="sep">/</span>
+          <span class="g5">lat</span><span>38ms</span>
+        </div>
+
+        <div class="hdr-right">
+          <div class="online">
+            <span class="dot dot-green blink"></span>
+            <span class="t-label f12 ink">214 online</span>
+          </div>
+          <button class="you-chip you-chip-btn" type="button" id="open-profile-btn" title="Edit profile [P]">
+            <span class="you-chip-av" id="home-you-avatar"></span>
+            <span class="you-chip-text">
+              <span class="t-micro g400">you are</span>
+              <span class="t-label f12 g300" id="home-you-name">guest_4412</span>
+            </span>
+          </button>
+          <button class="btn-dark hdr-rules" type="button" id="browse-rooms-btn" title="Browse rooms [B]">
+            <span class="t-label f12">BROWSE ROOMS</span>
+            <span class="t-micro g800">[ B ]</span>
+          </button>
         </div>
       </header>
 
-      <div id="setup-overlay" class="setup-overlay hidden">
-        <div class="overlay-card">
-          <div class="overlay-title">Choose your player appearance</div>
-          <div class="overlay-subtitle">Pick a color before entering the lobby.</div>
-          <div class="overlay-color-grid color-grid"></div>
-          <button id="overlay-continue-btn" class="btn overlay-btn" type="button">Enter Lobby</button>
+      <main class="home-main">
+        <!-- title screen -->
+        <section class="title-screen noise vignette">
+          <svg
+            class="skyline"
+            viewBox="0 0 88 36"
+            preserveAspectRatio="none"
+            shape-rendering="crispEdges"
+            aria-hidden="true"
+            id="home-skyline"
+          ></svg>
+
+          <div class="title-grid title-grid-clean">
+            <div class="ts-left">
+              <div class="ts-kicker t-micro ink-3"><span class="g5">//</span> POORUP v2.4.1 — insert coin</div>
+
+              <div class="ts-word"><h1 class="wordmark wm-hero">Poorup</h1></div>
+
+              <div class="ts-rule">
+                <span class="rule-line"></span>
+                <p class="t-label f11 g-muted trk16">FOUR SEATS · ONE BANK · NO REFUNDS</p>
+              </div>
+
+              <p class="t-body ts-copy">
+                Roll, buy the block, charge rent, feed the vacation pot. Last wallet standing keeps the
+                table. Usually around twelve minutes, sometimes a vendetta.
+              </p>
+
+              <div class="ts-actions">
+                <button class="cta-red ts-cta" type="button" data-enter>
+                  <span data-sprite="dice" data-size="4"></span>
+                  <span class="cta-text">Take a seat</span>
+                </button>
+                <button class="btn-dark ts-join" type="button" id="open-rooms-btn">
+                  <span class="t-label f13">Browse rooms</span>
+                  <span class="t-micro g800">[ B ]</span>
+                </button>
+                <button class="btn-dark ts-join is-hidden" type="button" id="resume-btn">
+                  <span class="t-label f13">Resume round</span>
+                  <span class="t-micro g800">SAVE FOUND</span>
+                </button>
+              </div>
+
+              <div class="open-chair">
+                <div class="chair-av" id="chair-avatar"></div>
+                <div class="chair-text">
+                  <div class="t-micro g400">open chair · west seat</div>
+                  <div class="t-label f13 g100 chair-name" id="chair-name">that's you, guest_4412</div>
+                </div>
+                <span class="chair-flag">
+                  <span class="dot dot-red blink"></span>
+                  <span class="t-micro g300">free</span>
+                </span>
+                <button class="btn-dark chair-edit" type="button" id="chair-edit-btn">
+                  <span class="t-label f11">EDIT</span>
+                </button>
+              </div>
+
+              <form class="home-code-form" id="join-form">
+                <label class="t-micro g400" for="room-join">or enter a room code</label>
+                <div class="home-code-row">
+                  <input id="room-join" class="field join-input" placeholder="7K4-QZ9" maxlength="8" />
+                  <button type="submit" class="btn-dark join-btn-sm"><span class="t-label f12">JOIN</span></button>
+                </div>
+              </form>
+            </div>
+
+            <div class="ts-right ts-right-clean">
+              <div class="mini-board noise">
+                <div class="mini-grid" id="mini-grid">
+                  <div class="mini-center">
+                    <h2 class="wordmark wm-mini">Poorup</h2>
+                    <span class="t-micro g800 mini-ver">v2.4.1</span>
+                  </div>
+                </div>
+              </div>
+              <div class="home-stats">
+                <div class="home-stat"><span class="t-micro ink-3">LIVE TABLES</span><span class="t-label f13 g100" id="home-live-count">3</span></div>
+                <div class="home-stat"><span class="t-micro ink-3">OPEN SEATS</span><span class="t-label f13 green" id="home-open-seats">5</span></div>
+                <div class="home-stat"><span class="t-micro ink-3">START BANK</span><span class="t-label f13 g300">$1,500</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <div class="ticker">
+        <span class="t-micro tk"><span class="g400">SAT</span><span class="g-muted">03:14</span></span>
+        <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">online</span><span class="g-muted">214</span></span>
+        <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">tables</span><span class="g-muted">open</span></span>
+        <span class="t-micro tk tk-right"><span data-sprite="crown" data-size="2"></span>press [B] to browse rooms</span>
+        <span class="cursor-block"></span>
+      </div>
+    </div>
+
+    <!-- room browser -->
+    <div class="popup is-hidden" id="rooms-modal">
+      <button class="popup-scrim" id="rooms-scrim" aria-label="Close rooms"></button>
+      <div class="popup-card rooms-card panel noise" id="rooms-card">
+        <div class="rooms-body">
+          <div class="rooms-head">
+            <div>
+              <div class="t-micro g400">PARLOR DIRECTORY</div>
+              <h2 class="t-section g100 rooms-title">Available Rooms</h2>
+            </div>
+            <button class="btn-dark" id="rooms-close" type="button"><span class="t-label f11">CLOSE</span></button>
+          </div>
+          <p class="t-body ink-2 rooms-copy">Pick a live table, join with an open seat, or host your own.</p>
+          <div class="rooms-filters">
+            <button class="btn-dark rooms-filter is-active" type="button" data-filter="all"><span class="t-label f11">ALL</span></button>
+            <button class="btn-dark rooms-filter" type="button" data-filter="open"><span class="t-label f11">OPEN</span></button>
+            <button class="btn-dark rooms-filter" type="button" data-filter="live"><span class="t-label f11">LIVE</span></button>
+          </div>
+          <div class="rooms-list thin-scroll" id="rooms-list"></div>
+          <div class="rooms-foot">
+            <button class="cta-red rooms-host" type="button" id="rooms-host">
+              <span class="cta-text f20">Host New Table</span>
+            </button>
+          </div>
+          <div class="rooms-create is-hidden" id="rooms-create">
+            <div class="rc-head">
+              <div>
+                <div class="t-micro g400">HOST A TABLE</div>
+                <h3 class="t-section g100 rc-title">Create Room</h3>
+              </div>
+              <button class="btn-dark" type="button" id="rc-back"><span class="t-label f11">BACK</span></button>
+            </div>
+            <label class="rc-field">
+              <span class="t-label f12 g-muted">Table Name</span>
+              <input class="field rc-input" id="rc-name" maxlength="14" placeholder="AFTER HOURS" />
+            </label>
+            <div class="rc-toggles">
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="t-label f12 g100">Private Room</span>
+                  <span class="setting-desc">Hidden from the directory list.</span>
+                </div>
+                <button class="tog" id="rc-private" data-tog="private" type="button"><span class="tog-label">OFF</span></button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">
+                  <span class="t-label f12 g100">Spectators</span>
+                  <span class="setting-desc">Others may watch, not play.</span>
+                </div>
+                <button class="tog" id="rc-spectators" data-tog="spectators" type="button"><span class="tog-label">OFF</span></button>
+              </div>
+            </div>
+            <button class="cta-red rc-create" type="button" id="rc-create-btn"><span class="cta-text f20">Create & Enter</span></button>
+          </div>
         </div>
       </div>
+    </div>
 
-      <main class="layout">
-        <aside class="panel left chat-panel">
-          <div class="panel-header">Players</div>
-          <div id="player-list" class="player-list">No players yet</div>
-          <div class="panel-divider"></div>
-          <div class="panel-header">Chat</div>
-          <div id="chat-messages" class="chat-messages"></div>
-          <div class="chat-input">
-            <input id="chat-input" type="text" placeholder="Type a message" aria-label="Chat message" />
+    <!-- ============================ PROFILE VIEW ============================ -->
+    <div class="view is-hidden" id="view-profile">
+      <header class="hdr">
+        <button class="hdr-brand profile-back" id="profile-back-btn" aria-label="Back to home">
+          <span class="profile-back-arrow">‹</span>
+          <span data-sprite="logo" data-size="4"></span>
+          <div class="hdr-brand-text">
+            <div class="hdr-wordmark">Poorup</div>
+            <div class="t-micro ink-3 hdr-sub">profile editor</div>
           </div>
-        </aside>
+        </button>
+        <div class="hdr-right">
+          <button class="btn-dark hdr-rules" type="button" id="profile-cancel-btn">
+            <span class="t-label f12">CANCEL</span>
+          </button>
+          <button class="cta-red profile-save-btn" type="button" id="profile-save-btn">
+            <span class="cta-text" style="font-size:20px">Save Profile</span>
+          </button>
+        </div>
+      </header>
 
-        <section class="panel board-panel">
-          <div id="game-feed-panel" class="game-feed-panel hidden">
-            <div class="panel-header">Game log</div>
-            <div id="game-feed-list" class="game-feed-list"></div>
-          </div>
-          <div class="board-content">
-            <img id="board-image" src="/assets/playingfield-beige.svg" alt="Board layout" />
-            <div id="board-ownership-layer" class="ownership-layer"></div>
-            <div id="token-layer" class="token-layer"></div>
+      <main class="profile-main">
+        <div class="divider">
+          <span class="t-micro g400">╞</span>
+          <span class="t-label f12 g400">create your player</span>
+          <span class="hair"></span>
+          <span class="t-micro g800">╡</span>
+        </div>
 
-            <div id="start-game-overlay" class="start-game-overlay hidden">
-              <button id="center-start-btn" class="btn btn-large" type="button">Start Game</button>
+        <div class="profile-grid">
+          <!-- left: name + color + palette -->
+          <section class="panel noise pad16">
+            <div class="section-title">
+              <span data-sprite="diamond" data-size="3"></span>
+              <h2 class="t-section g300">Identity</h2>
             </div>
-            <div id="turn-actions" class="turn-actions hidden">
-              <button id="roll-dice-btn" class="btn btn-primary" type="button">Roll Dice</button>
-              <button id="pay-jail-btn" class="btn btn-muted hidden" type="button">Pay $50 Jail Fine</button>
-              <button id="declare-bankruptcy-btn" class="btn btn-danger hidden" type="button">Declare
-                Bankruptcy</button>
-              <button id="end-turn-btn" class="btn btn-muted" type="button">End Turn</button>
-            </div>
-          </div>
-          <div id="turn-banner" class="turn-banner">
-            <div class="turn-banner-copy">
-              <div id="turn-banner-title" class="turn-banner-title">Waiting for game</div>
-              <div id="turn-banner-subtitle" class="turn-banner-subtitle">Join a room to get started.</div>
-              <div id="my-cash-display" class="my-cash-display hidden">Your balance: <strong
-                  id="my-cash-value">$0</strong></div>
-            </div>
-            <div class="turn-banner-stats">
-              <div id="dice-display" class="stat-pill">Dice: --</div>
-              <div id="vacation-display" class="stat-pill">Vacation: $0</div>
-            </div>
-          </div>
 
+            <label class="profile-field">
+              <span class="t-label f12 g-muted profile-label">Display Name</span>
+              <input id="profile-name" class="field" maxlength="12" placeholder="MARLOWE" />
+            </label>
 
-        </section>
+            <div class="profile-field">
+              <span class="t-label f12 g-muted profile-label">Token Color</span>
+              <div class="profile-swatches" id="profile-swatches"></div>
+              <div class="profile-custom-color">
+                <span class="t-micro ink-3">custom</span>
+                <input type="color" id="profile-color-picker" class="color-input" value="#d74438" />
+              </div>
+            </div>
 
-        <aside class="sidebar-stack right-panel">
-          <section class="panel sidebar-window properties-panel">
-            <div class="panel-header">Your Properties</div>
-            <div class="panel-subheader">
-              Properties you own appear here as you buy them.
+            <div class="profile-field">
+              <span class="t-label f12 g-muted profile-label">Live Preview</span>
+              <div class="profile-preview-row">
+                <div class="profile-preview-av" id="profile-preview-av"></div>
+                <div class="profile-preview-info">
+                  <div class="t-label f13" id="profile-preview-name" style="color:#d74438">MARLOWE</div>
+                  <div class="t-micro ink-3">$1,500 · seat preview</div>
+                </div>
+              </div>
             </div>
-            <div id="my-properties-list" class="property-list property-scroll">
-              <p class="muted" style="padding: 10px;">You don't own any properties yet.</p>
-            </div>
-            <div class="panel-divider"></div>
           </section>
 
-          <section class="panel sidebar-window trade-panel hidden" id="trade-window">
-            <div class="panel-header">Trade</div>
-            <div class="panel-subheader">Select a player to propose a trade.</div>
-            <div id="trade-player-list" class="trade-player-list"></div>
-          </section>
-
-          <section id="settings-window" class="panel sidebar-window settings-panel">
-            <div class="panel-header">Game settings</div>
-            <div class="property-list">
-              <label class="property-row">
-                <span>Starting cash</span>
-                <select id="starting-cash" class="custom-select" data-setting="startingCash">
-                  <option value="500">$500</option>
-                  <option value="1000">$1000</option>
-                  <option value="1500" selected>$1500</option>
-                  <option value="2000">$2000</option>
-                  <option value="2500">$2500</option>
-                  <option value="3000">$3000</option>
-                </select>
-              </label>
+          <!-- right: pixel face editor -->
+          <section class="panel noise pad16">
+            <div class="section-title">
+              <span data-sprite="diamond" data-size="3"></span>
+              <h2 class="t-section g300">Draw Your Face</h2>
+              <span class="t-micro ink-3 face-hint">CLICK OR DRAG TO PAINT</span>
             </div>
 
-            <div class="panel-divider"></div>
-            <div class="panel-title">Game rules</div>
-            <div class="settings-list">
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Double rent</div>
-                  <div class="toggle-note">Charge double rent when owning a full color set.</div>
-                </div>
-                <input id="setting-double-rent" type="checkbox" data-setting="doubleRent" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+            <div class="face-editor-row">
+              <div class="face-canvas-wrap">
+                <div class="face-canvas" id="face-canvas"></div>
+              </div>
 
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Vacation cash</div>
-                  <div class="toggle-note">Tax and bank payments land in Vacation until collected.</div>
+              <div class="face-tools">
+                <div class="face-palette" id="face-palette"></div>
+                <div class="face-custom-color">
+                  <span class="t-micro ink-3">custom ink</span>
+                  <input type="color" id="face-color-picker" class="color-input" value="#f0d9ac" />
                 </div>
-                <input id="setting-vacation-cash" type="checkbox" data-setting="vacationCash" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
-
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Auction</div>
-                  <div class="toggle-note">Declined properties can be sold to the highest bidder.</div>
-                </div>
-                <input id="setting-auction" type="checkbox" data-setting="auction" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
-
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Even build</div>
-                  <div class="toggle-note">House/hotel builds must remain even by set.</div>
-                </div>
-                <input id="setting-even-build" type="checkbox" data-setting="evenBuild" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
-
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Mortgage</div>
-                  <div class="toggle-note">Mortgage properties and stop rent until released.</div>
-                </div>
-                <input id="setting-mortgage" type="checkbox" data-setting="mortgage" class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
-
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Randomize player order</div>
-                  <div class="toggle-note">Shuffle turn order when the game begins.</div>
-                </div>
-                <input id="setting-randomize" type="checkbox" data-setting="randomizePlayerOrder"
-                  class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
-
-              <label class="setting-toggle">
-                <div>
-                  <div class="toggle-title">Don't collect rent while in prison</div>
-                  <div class="toggle-note">Owners in jail do not collect rent.</div>
-                </div>
-                <input id="setting-no-rent-in-prison" type="checkbox" data-setting="noRentWhileInPrison"
-                  class="toggle-input" />
-                <span class="toggle-slider"></span>
-              </label>
+                <button class="btn-dark face-tool-btn is-active" id="face-tool-paint" type="button">
+                  <span class="t-label f11">PAINT</span>
+                </button>
+                <button class="btn-dark face-tool-btn" id="face-tool-erase" type="button">
+                  <span class="t-label f11">ERASER</span>
+                </button>
+                <button class="btn-dark face-tool-btn" id="face-clear-btn" type="button">
+                  <span class="t-label f11">CLEAR</span>
+                </button>
+                <button class="btn-dark face-tool-btn" id="face-default-btn" type="button">
+                  <span class="t-label f11">DEFAULT FACE</span>
+                </button>
+              </div>
             </div>
+            <p class="t-micro ink-3 face-footnote">8×8 PIXEL GRID · SAVED TO THIS BROWSER</p>
           </section>
-        </aside>
+        </div>
       </main>
     </div>
 
+    <!-- ============================ GAME VIEW ============================ -->
+    <div class="view is-hidden" id="view-game">
+      <header class="topnav">
+        <button class="topnav-brand" id="brand-home" aria-label="Back to home">
+          <span data-sprite="logo" data-size="4"></span>
+          <div class="hdr-brand-text">
+            <div class="hdr-wordmark tn-word">Poorup</div>
+            <div class="t-micro ink-3 hdr-sub">After-Hours Game Parlor</div>
+          </div>
+        </button>
 
+        <div class="tn-div"></div>
 
-    <div id="purchase-modal" class="modal hidden" role="dialog" aria-modal="true"
-      aria-labelledby="purchase-modal-title">
-      <div class="modal-card purchase-modal-card">
-        <div id="purchase-modal-title" class="modal-title">Purchase property</div>
-        <div class="modal-body">
-          <div id="purchase-property-name" class="purchase-property-name">Property</div>
-          <div class="purchase-summary">
-            <span class="purchase-summary-label">Cost</span>
-            <strong id="purchase-property-cost" class="purchase-summary-value">$0</strong>
+        <div class="tn-group">
+          <div class="room-badge">
+            <span class="t-label f12 g400">ROOM</span>
+            <span class="t-label f13 ink" id="tn-room">----</span>
           </div>
-          <div class="purchase-summary">
-            <span class="purchase-summary-label">Your cash</span>
-            <strong id="purchase-my-cash" class="purchase-summary-value">$0</strong>
+          <div class="online">
+            <span class="dot dot-green blink"></span>
+            <span class="t-label f12 ink" id="tn-online">1 ONLINE</span>
           </div>
-          <p id="purchase-modal-note" class="modal-note">Would you like to buy this property now?</p>
-        </div>
-        <div class="modal-actions">
-          <button id="purchase-confirm-btn" class="btn" type="button">Buy</button>
-          <button id="purchase-decline-btn" class="btn btn-muted" type="button">Decline</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="auction-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="auction-modal-title">
-      <div class="modal-card auction-modal-card">
-        <div id="auction-modal-title" class="modal-title">Property auction</div>
-        <div class="modal-body">
-          <div id="auction-property-name" class="auction-property-name">Property</div>
-          <div class="auction-summary">
-            <span id="auction-current-bid">Current bid: $0</span>
-            <span id="auction-countdown" class="auction-countdown">5.0s left</span>
-          </div>
-          <div class="auction-meter" aria-hidden="true">
-            <div id="auction-meter-fill" class="auction-meter-fill"></div>
-          </div>
-          <p id="auction-status" class="modal-note auction-state-note">Choose a bid step to raise the offer.</p>
-          <div class="auction-bid-choices">
-            <button id="auction-bid-2-btn" class="btn btn-primary auction-bid-step" type="button">+$2</button>
-            <button id="auction-bid-10-btn" class="btn btn-primary auction-bid-step" type="button">+$10</button>
-            <button id="auction-bid-100-btn" class="btn btn-primary auction-bid-step" type="button">+$100</button>
+          <div class="tn-lobby">
+            <span class="t-label f12 ink-3">LOBBY</span>
+            <span class="t-label f12 g-muted" id="tn-lobby">AFTER HOURS ----</span>
           </div>
         </div>
-      </div>
-    </div>
 
-    <div id="property-modal" class="modal hidden" role="dialog" aria-modal="true"
-      aria-labelledby="property-modal-title">
-      <div class="modal-card property-modal-card">
-        <div id="property-modal-title" class="modal-title">Property details</div>
-        <div class="modal-body">
-          <div id="property-modal-name" class="property-modal-name">Property</div>
-          <div class="property-modal-summary">
-            <span id="property-modal-group">Group</span>
-            <span id="property-modal-status">Status</span>
+        <div class="tn-right">
+          <div class="tn-turn">
+            <span class="t-label f11 ink-3">TURN</span>
+            <span class="t-label f13 g300" id="tn-turnlabel">SETUP</span>
           </div>
-          <div id="property-modal-current-rent" class="property-modal-current-rent">Current rent: <strong>$0</strong>
-          </div>
-          <div>
-            <div class="panel-title">Potential rent</div>
-            <div id="property-modal-rents" class="property-rent-grid"></div>
-          </div>
-          <div>
-            <div class="panel-title">Buildings</div>
-            <div id="property-modal-houses" class="property-house-strip"></div>
-          </div>
-          <p id="property-modal-note" class="modal-note"></p>
+          <button class="btn-dark hdr-rules" type="button" id="log-toggle-btn" title="Event log [L]">
+            <span class="t-label f12">LOG</span>
+          </button>
+          <button class="btn-dark hdr-rules fn-only" type="button" id="focus-btn" title="Focus board">
+            <span class="t-label f12">FOCUS</span>
+          </button>
+          <button class="btn-dark hdr-rules fn-only" type="button" id="panels-btn" title="Panels">
+            <span class="t-label f12">PANELS</span>
+          </button>
         </div>
-        <div class="modal-actions property-modal-actions">
-          <button id="property-build-btn" class="btn" type="button">Build house</button>
-          <button id="property-sell-btn" class="btn btn-muted" type="button">Sell house</button>
-          <button id="property-mortgage-btn" class="btn btn-muted" type="button">Mortgage</button>
-          <button id="property-close-btn" class="btn btn-muted" type="button">Close</button>
-        </div>
-      </div>
-    </div>
+      </header>
 
-    <div id="trade-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="trade-modal-title">
-      <div class="modal-card trade-modal-card">
-        <div id="trade-modal-title" class="modal-title">Trade properties</div>
-        <div class="modal-body trade-modal-body">
-          <section class="trade-side">
-            <div class="trade-side-header">
-              <div class="trade-side-title">You</div>
-              <div id="trade-offer-cash-total" class="trade-side-total">$0</div>
+      <main class="game-main">
+        <!-- LEFT RAIL -->
+        <div class="rail-left">
+          <section class="panel noise pad12">
+            <div class="section-title">
+              <span data-sprite="diamond" data-size="3"></span>
+              <h2 class="t-section g300">Players</h2>
+              <span class="hair"></span>
+              <span data-sprite="diamond" data-size="3"></span>
             </div>
-            <label class="trade-cash-field" for="trade-offer-cash">
-              Cash to offer
-              <input id="trade-offer-cash" type="number" min="0" step="1" value="0" />
-            </label>
-            <div id="trade-offer-properties" class="trade-property-list"></div>
+            <div class="player-list" id="player-list"></div>
           </section>
-          <div class="trade-divider" aria-hidden="true">⇄</div>
-          <section class="trade-side">
-            <div class="trade-side-header">
-              <div class="trade-side-title">Request from <span id="trade-target-title">Player</span></div>
-              <div id="trade-request-cash-total" class="trade-side-total">$0</div>
+
+          <section class="panel noise pad12 chat-panel">
+            <div class="section-title">
+              <span data-sprite="diamond" data-size="3"></span>
+              <h2 class="t-section g300">Parlor Chat</h2>
+              <span class="hair"></span>
+              <span data-sprite="diamond" data-size="3"></span>
             </div>
-            <label class="trade-cash-field" for="trade-request-cash">
-              Cash to request
-              <input id="trade-request-cash" type="number" min="0" step="1" value="0" />
-            </label>
-            <div id="trade-request-properties" class="trade-property-list"></div>
+            <div class="chat-body thin-scroll" id="chat-body"></div>
+            <form class="chat-form" id="chat-form">
+              <input class="field chat-input" id="chat-input" placeholder="Join the room to chat…" maxlength="120" disabled />
+              <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
+                <span data-sprite="send" data-size="3"></span>
+              </button>
+            </form>
           </section>
         </div>
-        <div class="modal-actions">
-          <button id="trade-send-btn" class="btn" type="button">Send trade</button>
-          <button id="trade-close-btn" class="btn btn-muted" type="button">Cancel</button>
+
+        <!-- CENTER -->
+        <div class="rail-center">
+          <div class="board-area">
+            <div class="board-holder">
+              <div class="board-frame noise vignette" id="board-frame">
+                <div class="board-grid" id="board-grid">
+                  <div class="center-field noise" id="center-field">
+                    <svg class="skyline center-skyline" viewBox="0 0 88 36" shape-rendering="crispEdges" aria-hidden="true" id="board-skyline"></svg>
+                    <div class="cf-inner">
+                      <div class="cf-logo-row">
+                        <span class="cf-orn">✚</span>
+                        <div class="cf-rules"><h1 class="wordmark wm-board">Poorup</h1></div>
+                        <span class="cf-orn">✚</span>
+                      </div>
+                      <p class="t-label cf-sub"><span class="g300">✦</span> After-Hours Game Parlor <span class="g300">✦</span></p>
+                    </div>
+                    <div class="deck deck-chest"><span data-sprite="chest" data-size="5"></span></div>
+                    <div class="deck deck-chance"><span class="q-mark q-lg">?</span></div>
+                  </div>
+                </div>
+                <div class="token-layer" id="token-layer" aria-hidden="true"></div>
+              </div>
+
+
+
+              <!-- setup overlay -->
+              <div class="setup-wrap" id="setup-wrap">
+                <div class="setup-scrim"></div>
+                <div class="setup-card panel noise">
+                  <div class="section-title">
+                    <span data-sprite="diamond" data-size="3"></span>
+                    <h2 class="t-section g300">Choose Your Player Appearance</h2>
+                    <span class="t-micro ink-3 su-tag">SETUP</span>
+                  </div>
+                  <p class="t-body ink-2 su-copy">Pick a color before entering the lobby.</p>
+
+                  <div class="su-grid" id="su-grid"></div>
+
+                  <div class="su-fields">
+                    <label class="su-field">
+                      <span class="t-label f12 g-muted su-lab">Alias</span>
+                      <input class="field" id="su-alias" maxlength="12" placeholder="MARLOWE" />
+                    </label>
+                    <label class="su-field">
+                      <span class="t-label f12 g-muted su-lab">Room Code</span>
+                      <input class="field" id="su-room" maxlength="8" placeholder="7K4-QZ9" />
+                    </label>
+                  </div>
+
+                  <div class="su-bank">
+                    <div>
+                      <div class="t-label f12 g400">Starting Bank</div>
+                      <div class="t-label su-bank-val green">$1,500</div>
+                    </div>
+                    <div class="su-bank-right">
+                      <div class="t-micro ink-3">4 SEATS · LOW-LIGHT TABLE</div>
+                      <div class="t-label f12 g-muted su-bank-room" id="su-bank-room">ROOM ----</div>
+                    </div>
+                  </div>
+
+                  <div class="su-actions">
+                    <button class="cta-red su-start" id="su-start" type="button">
+                      <span class="cta-text f28">Enter Parlor</span>
+                    </button>
+                    <button class="btn-dark su-spec" type="button"><span class="t-label f12">Spectate</span></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+
+          <div class="hud" id="hud">
+            <div class="hud-cell noise">
+              <span class="t-label f11 g400" id="hud-turn-label">Waiting For Game</span>
+              <div class="hud-body">
+                <span data-sprite="arrow" data-size="4"></span>
+                <div>
+                  <span class="hud-name" id="hud-name">Stand By</span>
+                  <span class="t-body ink-3 hud-note" id="hud-note">Join a room to get started.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hud-cell noise">
+              <span class="t-label f11 g400">Cash On Hand</span>
+              <div class="hud-body hud-split">
+                <span class="t-money green" id="hud-cash">$0</span>
+                <span data-sprite="note" data-size="4"></span>
+              </div>
+            </div>
+
+            <div class="hud-cell noise">
+              <span class="t-label f11 g400">Dice</span>
+              <div class="hud-body hud-dice" id="hud-dice"></div>
+            </div>
+
+            <div class="hud-cell noise">
+              <span class="t-label f11 g400">Vacation Pool</span>
+              <div class="hud-body hud-pool">
+                <span data-sprite="palm" data-size="5"></span>
+                <div>
+                  <div class="t-money pool-val green" id="hud-pool">$0</div>
+                  <div class="pool-swatches">
+                    <span style="background:#d74438"></span><span style="background:#286ea1"></span>
+                    <span style="background:#d9a62f"></span><span style="background:#35a653"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button class="cta-red hud-roll noise" id="roll-btn" disabled>
+              <span data-sprite="dice" data-size="4"></span>
+              <span class="cta-text" id="roll-label">Join First</span>
+            </button>
+          </div>
         </div>
-      </div>
+
+        <!-- RIGHT RAIL — game mode (holdings) -->
+        <section class="panel noise right-rail" id="right-rail-game">
+          <div class="rr-head">
+            <span data-sprite="diamond" data-size="3"></span>
+            <h2 class="t-section g300">Holdings</h2>
+            <span class="t-micro ink-3 rr-count" id="rr-count">0 DEEDS</span>
+          </div>
+          <div class="tabs" id="tabs">
+            <button class="tab is-active" data-tab="deeds"><span class="t-label f12">MY DEEDS</span><span class="tab-underline"></span></button>
+            <button class="tab" data-tab="trade"><span class="t-label f12">TRADE</span><span class="tab-underline"></span></button>
+            <button class="tab" data-tab="log"><span class="t-label f12">LOG</span><span class="tab-underline"></span></button>
+          </div>
+          <div class="rr-body thin-scroll" id="rr-body"></div>
+          <div class="rr-foot">
+            <button class="btn-dark rr-manage"><span class="t-label f13">MANAGE PORTFOLIO</span></button>
+          </div>
+        </section>
+
+        <!-- RIGHT RAIL — lobby mode (settings) -->
+        <section class="panel noise right-rail is-hidden" id="right-rail-lobby">
+          <div class="rr-head">
+            <span data-sprite="diamond" data-size="3"></span>
+            <h2 class="t-section g300">Game Settings</h2>
+          </div>
+          <div class="rr-body thin-scroll" id="lobby-settings-body">
+            <!-- rendered by JS -->
+          </div>
+          <div class="rr-foot">
+            <button class="cta-red lobby-start-btn" id="lobby-start-btn">
+              <span class="cta-text" style="font-size:24px">Start Round</span>
+            </button>
+          </div>
+        </section>
+      </main>
     </div>
 
-    <div id="incoming-trade-modal" class="modal hidden" role="dialog" aria-modal="true"
-      aria-labelledby="incoming-trade-modal-title">
-      <div class="modal-card modal-card-wide">
-        <div id="incoming-trade-modal-title" class="modal-title">Incoming trade</div>
-        <div class="modal-body">
-          <p id="incoming-trade-summary">A player wants to trade with you.</p>
-          <div id="incoming-trade-details" class="trade-incoming-details"></div>
-        </div>
-        <div class="modal-actions">
-          <button id="incoming-trade-accept-btn" class="btn" type="button">Accept</button>
-          <button id="incoming-trade-decline-btn" class="btn btn-muted" type="button">Decline</button>
-        </div>
-      </div>
+    <!-- tile popup -->
+    <div class="popup is-hidden" id="popup">
+      <button class="popup-scrim" id="popup-scrim" aria-label="Close tile popup"></button>
+      <div class="popup-card panel noise" id="popup-card"></div>
     </div>
 
-    <div id="winner-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="winner-modal-title">
-      <div class="modal-card winner-modal-card">
-        <div id="winner-modal-title" class="modal-title">Game over</div>
-        <div class="modal-body">
-          <p id="winner-modal-message" class="winner-message">A player has won!</p>
-        </div>
-        <div class="modal-actions">
-          <button id="winner-close-btn" class="btn" type="button">Back to lobby</button>
-        </div>
-      </div>
+    <!-- trade popup -->
+    <div class="popup is-hidden" id="trade-modal">
+      <button class="popup-scrim" id="trade-scrim" aria-label="Close trade"></button>
+      <div class="popup-card trade-card panel noise" id="trade-card"></div>
     </div>
 
-    <div id="help-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
-      <div class="modal-card modal-card-wide">
-        <div id="help-modal-title" class="modal-title">How to play</div>
-        <div class="modal-body help-body">
-          <p>Roll on your turn, then resolve the tile you land on. You must roll before ending your turn.</p>
-          <p>Buy properties when offered, or let them go to auction if the room allows it.</p>
-          <p>Build houses evenly across a color set. Mortgages stop rent until you unmortgage at 110% of the mortgage
-            value.</p>
-          <p>Airports charge tiered rent ($25–$200) based on how many you own. Utilities charge dice × 4 or × 10.</p>
-          <p>In jail: roll doubles, pay $50 before rolling, or leave automatically after 3 failed turns if you can
-            afford the fine.</p>
-          <p>If you cannot pay rent or tax, mortgage or sell buildings to raise cash, or trade with other players. You
-            are only eliminated when you press Declare Bankruptcy.</p>
-          <p>Vacation cash collects taxes until someone lands on Vacation.</p>
-          <p>Trade cash and deed-free properties from the Trade panel during the game.</p>
-        </div>
-        <div class="modal-actions">
-          <button id="help-close-btn" class="btn" type="button">Close</button>
-        </div>
-      </div>
+    <!-- forced buy / auction choice -->
+    <div class="popup is-hidden" id="choice-modal">
+      <button class="popup-scrim" id="choice-scrim" aria-label="Close"></button>
+      <div class="popup-card choice-card panel noise" id="choice-card"></div>
     </div>
 
-    <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
-  </div>
-</body>
+    <!-- live auction (locked, no dismiss) -->
+    <div class="popup is-hidden" id="auction-modal">
+      <div class="popup-scrim popup-scrim-locked"></div>
+      <div class="popup-card auction-card panel noise" id="auction-card"></div>
+    </div>
 
+    <!-- trade offer inbox -->
+    <div class="popup is-hidden" id="offer-modal">
+      <button class="popup-scrim" id="offer-scrim" aria-label="Close offer"></button>
+      <div class="popup-card offer-card panel noise" id="offer-card"></div>
+    </div>
+
+    <!-- bankruptcy / game over -->
+    <div class="popup is-hidden" id="bankruptcy-modal">
+      <div class="popup-scrim popup-scrim-locked"></div>
+      <div class="popup-card choice-card panel noise" id="bankruptcy-card"></div>
+    </div>
+
+    <!-- event log drawer -->
+    <aside class="log-drawer" id="log-drawer" aria-hidden="true">
+      <div class="log-drawer-head">
+        <div class="section-title" style="margin-bottom:0">
+          <span data-sprite="diamond" data-size="3"></span>
+          <h2 class="t-section g300">Event Log</h2>
+        </div>
+        <button class="btn-dark" id="drawer-close" type="button"><span class="t-label f11">CLOSE</span></button>
+      </div>
+      <div class="log-drawer-body thin-scroll" id="drawer-body"></div>
+      <div class="log-drawer-foot"><span class="t-micro ink-3" id="drawer-count">0 ENTRIES</span></div>
+    </aside>
+
+    <script src="/main.js" defer></script>
+  </body>
 </html>
-
