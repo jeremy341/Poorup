@@ -7,7 +7,7 @@ I built this project to get hands-on experience with real-time web development, 
 ## Overview
 
 - Real-time multiplayer using Socket.IO
-- 40-space custom game board with properties, airports, tax squares, and surprise cards
+- Custom game board with properties, airports, tax squares, and surprise cards
 - Full Monopoly-style rules: buying, renting, building, mortgaging, trading, and going to prison
 - Auction system for declined properties
 - Room-based lobby with host controls and configurable game settings
@@ -23,9 +23,9 @@ npm start
 
 Then open `http://localhost:8080` in your browser.
 
-**Live demo:** [poorup.onrender.com](https://poorup.onrender.com) (free tier may take ~30s to wake up)
+**Live demo:** https://poorup.jeremy-d.hackclub.app/
 
-For a portfolio-style write-up (features, challenges, testing), see [SHOWCASE.md](SHOWCASE.md).
+For Instructions see [Instructions.md](Instructions.md).
 
 | Layer | Technology |
 |---|---|
@@ -43,9 +43,8 @@ server/
 
 public/
   index.html      — Single-page app shell
-  styles.css      — Supplied pixel-parlor design system and responsive layout
-  main.js         — Client-side interactions, rendering, and Socket.IO bridge (40-space board)
-  assets/         — Protected SVG references and local fonts
+  style.css       — All styling
+  gameClient.js   — Client-side socket logic and UI rendering
 ```
 
 ## Game settings
