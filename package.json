@@ -1,27 +1,14 @@
 {
   "name": "poorup",
-  "private": false,
-  "version": "1.0.0",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "start": "node server/server.js",
-    "dev": "node server/server.js"
+    "dev": "node server/server.js",
+    "start": "node server/server.js"
   },
   "dependencies": {
     "express": "^4.21.0",
     "socket.io": "^4.8.3"
-  },
-  "description": "Multiplayer board game",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/jeremy341/Poorup.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "MIT",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/jeremy341/Poorup/issues"
-  },
-  "homepage": "https://github.com/jeremy341/Poorup#readme",
-  "devDependencies": {}
+  }
 }
