@@ -1,13 +1,8 @@
-import express from 'express';
-import path from 'path';
-import http from 'http';
-import { fileURLToPath } from 'url';
-import { Server } from 'socket.io';
-import { RoomManager } from './gameLogic.js';
-import { AccountStore } from './accountStore.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const express = require('express');
+const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
+const { RoomManager } = require('./gameLogic');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,8 +10,6 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-// The supplied plain-client project is the production static UI. Keep the
-// protected SVG references in public/assets and serve the HTML/CSS/JS directly.
 const publicPath = path.join(__dirname, '../public');
 app.use(express.static(publicPath));
 app.get('*', (req, res, next) => {
@@ -27,7 +20,6 @@ app.get('*', (req, res, next) => {
 });
 
 const roomManager = new RoomManager();
-const accountStore = new AccountStore();
 const auctionTimers = new Map();
 const disconnectTimers = new Map();
 const AUCTION_DURATION_MS = 5000;
@@ -86,16 +78,7 @@ function normalizeNickname(value) {
 
 function normalizeRoomCode(value) {
   if (typeof value !== 'string') return '';
-  return value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
-}
-
-function normalizeRoomName(value) {
-  if (typeof value !== 'string') return 'AFTER HOURS';
-  return value.trim().replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 24) || 'AFTER HOURS';
-}
-
-function normalizeVisibility(value) {
-  return value === 'private' ? 'private' : 'public';
+  return value.trim().toUpperCase().slice(0, 6);
 }
 
 function normalizeColor(value) {
@@ -105,10 +88,6 @@ function normalizeColor(value) {
 function normalizeChatText(value) {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, 250);
-}
-
-function accountFromPayload(payload = {}) {
-  return accountStore.sessionAccount(payload.sessionToken);
 }
 
 function emitPendingInteractions(room, socket, player) {
@@ -145,10 +124,6 @@ function reassignHostIfNeeded(room, departedPlayerId) {
 
 function emitRoomState(room) {
   if (!room) return;
-  if (room.game.lastWinner && !room.statsRecorded) {
-    accountStore.recordGameResults(room.game.players, room.game.lastWinner.id);
-    room.statsRecorded = true;
-  }
   io.in(room.roomCode).emit('update-state', {
     room: room.getRoomSummary(),
     game: room.game.getGameSummary(),
@@ -240,40 +215,6 @@ function scheduleAuctionFinish(room) {
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
-  socket.on('account-register', (payload = {}, callback) => {
-    const result = accountStore.register(payload);
-    reply(callback, result);
-  });
-
-  socket.on('account-login', (payload = {}, callback) => {
-    const result = accountStore.login(payload);
-    reply(callback, result);
-  });
-
-  socket.on('account-restore', (payload = {}, callback) => {
-    const result = accountStore.restore(payload.sessionToken);
-    reply(callback, result);
-  });
-
-  socket.on('account-logout', (payload = {}, callback) => {
-    reply(callback, accountStore.logout(payload.sessionToken));
-  });
-
-  socket.on('account-update', (payload = {}, callback) => {
-    const result = accountStore.updateProfile(payload.sessionToken, payload);
-    if (!result.success) return reply(callback, result);
-    const room = roomManager.getRoomBySocket(socket.id);
-    const player = room?.getPlayerBySocket(socket.id);
-    if (player && !room.game.started && player.accountId === result.account.id) {
-      room.game.setPlayerAppearance(socket.id, {
-        nickname: result.account.displayName,
-        color: result.account.color,
-      });
-      emitRoomState(room);
-    }
-    reply(callback, result);
-  });
-
   socket.on('restore-session', (payload = {}, callback) => {
     const { clientId } = payload;
     clearDisconnectTimer(clientId);
@@ -294,27 +235,12 @@ io.on('connection', (socket) => {
     reply(callback, { success: false, error: 'No active session found.' });
   });
 
-  socket.on('list-rooms', (_, callback) => {
-    reply(callback, { success: true, rooms: roomManager.listPublicRooms() });
-  });
-
   socket.on('create-room', (payload, callback) => {
     const { clientId } = payload || {};
-    const account = accountFromPayload(payload);
-    const nickname = normalizeNickname(account?.displayName || payload?.nickname);
-    const color = normalizeColor(account?.color || payload?.color);
-    const accountId = account?.id || null;
-    const roomName = normalizeRoomName(payload?.roomName);
-    const visibility = normalizeVisibility(payload?.visibility);
-    const requestedRoomCode = visibility === 'private' ? normalizeRoomCode(payload?.roomCode) : '';
+    const nickname = normalizeNickname(payload?.nickname);
+    const color = normalizeColor(payload?.color);
     if (!nickname) {
       return callback?.({ success: false, error: 'Nickname is required.' });
-    }
-    if (visibility === 'private' && requestedRoomCode.length !== 6) {
-      return callback?.({ success: false, error: 'Private rooms need a unique 6-character invite code.' });
-    }
-    if (requestedRoomCode && roomManager.getRoom(requestedRoomCode)) {
-      return callback?.({ success: false, error: 'That private room code is already in use. Choose another.' });
     }
     clearDisconnectTimer(clientId);
 
@@ -335,7 +261,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color: color || undefined, accountId, roomName, visibility, roomCode: requestedRoomCode || undefined });
+    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color: color || undefined });
     socket.join(room.roomCode);
     emitRoomState(room);
     socket.emit('system-message', { text: 'Room created. Waiting for players...' });
@@ -344,10 +270,8 @@ io.on('connection', (socket) => {
 
   socket.on('join-room', (payload, callback) => {
     const roomCode = normalizeRoomCode(payload?.roomCode);
-    const account = accountFromPayload(payload);
-    const nickname = normalizeNickname(account?.displayName || payload?.nickname);
-    const color = normalizeColor(account?.color || payload?.color);
-    const accountId = account?.id || null;
+    const nickname = normalizeNickname(payload?.nickname);
+    const color = normalizeColor(payload?.color);
     const { clientId } = payload || {};
     if (!roomCode) {
       return callback?.({ success: false, error: 'Room code is required.' });
@@ -383,7 +307,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color: color || undefined, accountId });
+    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color: color || undefined });
     if (!result.success) {
       return callback?.({ success: false, error: result.error });
     }
@@ -456,9 +380,6 @@ io.on('connection', (socket) => {
     if (result?.message) {
       io.in(room.roomCode).emit('system-message', { text: result.message });
     }
-    if (result?.cardReveal) {
-      socket.emit('card-reveal', result.cardReveal);
-    }
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
@@ -501,17 +422,6 @@ io.on('connection', (socket) => {
     if (result?.message) {
       io.in(room.roomCode).emit('system-message', { text: result.message });
     }
-    callback?.({ success: result?.success ?? false, error: result?.error });
-  });
-
-  socket.on('auction-pass', (_, callback) => {
-    const room = getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.passAuction(socket.id);
-    if (result?.success && room.game.auction?.active) {
-      scheduleAuctionFinish(room);
-    }
-    emitRoomState(room);
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
