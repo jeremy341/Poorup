@@ -22,13 +22,12 @@ const PROPERTY_HOUSE_COST_BY_GROUP = {
   Brown: 50,
   'Light Blue': 50,
   Pink: 100,
-  Magenta: 100,
   Orange: 100,
+  Magenta: 100,
   Red: 150,
   Yellow: 150,
   Green: 200,
-  'Dark Blue': 200,
-  Blue: 200
+  'Dark Blue': 200
 };
 const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
 const RAILROAD_RENT = [25, 50, 100, 200];
@@ -36,45 +35,53 @@ const JAIL_FINE = 50;
 const JAIL_MAX_TURNS = 3;
 
 const DEFAULT_TILES = [
-  { index: 0, name: 'GO', type: 'start' },
-  { index: 1, name: 'CHEST', type: 'chest' },
-  { index: 2, name: 'STATES AVENUE', type: 'property', group: 'Light Blue', price: 140, rent: 10, color: '#3e7d7b' },
-  { index: 3, name: 'ST. CHARLES PLACE', type: 'property', group: 'Light Blue', price: 140, rent: 10, color: '#3e7d7b' },
-  { index: 4, name: 'READING RAILROAD', type: 'railroad', price: 200 },
-  { index: 5, name: 'ORIENTAL AVENUE', type: 'property', group: 'Light Blue', price: 100, rent: 6, color: '#3e7d7b' },
-  { index: 6, name: 'CHANCE', type: 'chance' },
-  { index: 7, name: 'VERMONT AVENUE', type: 'property', group: 'Light Blue', price: 100, rent: 6, color: '#3e7d7b' },
-  { index: 8, name: 'CONNECTICUT AVENUE', type: 'property', group: 'Light Blue', price: 120, rent: 8, color: '#3e7d7b' },
-  { index: 9, name: 'JUST VISITING', type: 'jail' },
-  { index: 10, name: 'BALTIC STREET', type: 'property', group: 'Green', price: 180, rent: 14, color: '#4b853d' },
-  { index: 11, name: 'WATER WORKS', type: 'utility', price: 150 },
-  { index: 12, name: 'UNION SQUARE', type: 'property', group: 'Light Blue', price: 180, rent: 14, color: '#3e7d7b' },
-  { index: 13, name: 'CEDAR AVENUE', type: 'property', group: 'Light Blue', price: 200, rent: 16, color: '#3e7d7b' },
-  { index: 14, name: 'CHEST', type: 'chest' },
-  { index: 15, name: 'ELM STREET', type: 'property', group: 'Magenta', price: 200, rent: 16, color: '#a04e6f' },
-  { index: 16, name: 'FREE PARKING', type: 'parking' },
-  { index: 17, name: 'VINE STREET', type: 'property', group: 'Brown', price: 220, rent: 18, color: '#7b5029' },
-  { index: 18, name: 'MILLER AVENUE', type: 'property', group: 'Brown', price: 220, rent: 18, color: '#7b5029' },
-  { index: 19, name: 'BREWERY WAY', type: 'property', group: 'Brown', price: 240, rent: 20, color: '#7b5029' },
-  { index: 20, name: 'INCOME TAX', type: 'tax', amount: 200 },
-  { index: 21, name: 'OAK BOULEVARD', type: 'property', group: 'Magenta', price: 260, rent: 22, color: '#a04e6f' },
-  { index: 22, name: 'MAPLE DRIVE', type: 'property', group: 'Magenta', price: 260, rent: 22, color: '#a04e6f' },
-  { index: 23, name: 'CHANCE', type: 'chance' },
-  { index: 24, name: 'PINE ROAD', type: 'property', group: 'Magenta', price: 280, rent: 24, color: '#a04e6f' },
-  { index: 25, name: 'GO TO VACATION', type: 'vacation' },
-  { index: 26, name: 'SUNSET BOULEVARD', type: 'property', group: 'Red', price: 300, rent: 26, color: '#87231e' },
-  { index: 27, name: 'CHEST', type: 'chest' },
-  { index: 28, name: 'WILLOW LANE', type: 'property', group: 'Red', price: 300, rent: 26, color: '#87231e' },
-  { index: 29, name: 'ELECTRIC COMPANY', type: 'utility', price: 150 },
-  { index: 30, name: 'CHANCE', type: 'chance' },
-  { index: 31, name: 'RIVER ROAD', type: 'property', group: 'Blue', price: 320, rent: 28, color: '#286ea1' }
+  { index: 0, name: 'Start', type: 'start' },
+  { index: 1, name: 'Salvador', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#7b5029' },
+  { index: 2, name: 'Treasure', type: 'chest' },
+  { index: 3, name: 'Rio', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#7b5029' },
+  { index: 4, name: 'Earnings Tax', type: 'tax', amount: 200 },
+  { index: 5, name: 'ACC Airport', type: 'railroad', price: 200, rent: 25 },
+  { index: 6, name: 'Accra', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#3e7d7b' },
+  { index: 7, name: 'Surprise?', type: 'chance' },
+  { index: 8, name: 'Tema', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#3e7d7b' },
+  { index: 9, name: 'Kumasi', type: 'property', group: 'Light Blue', price: 120, rent: 16, color: '#3e7d7b' },
+  { index: 10, name: 'Passing By', type: 'jail' },
+  { index: 11, name: 'Pattaya', type: 'property', group: 'Pink', price: 140, rent: 10, color: '#a04e6f' },
+  { index: 12, name: 'Electric Company', type: 'utility', price: 150, rent: 12 },
+  { index: 13, name: 'Chiang Mai', type: 'property', group: 'Pink', price: 140, rent: 12, color: '#a04e6f' },
+  { index: 14, name: 'Bangkok', type: 'property', group: 'Pink', price: 160, rent: 14, color: '#a04e6f' },
+  { index: 15, name: 'BKK Airport', type: 'railroad', price: 200, rent: 25 },
+  { index: 16, name: 'Kyoto', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#b96d2a' },
+  { index: 17, name: 'Treasure', type: 'chest' },
+  { index: 18, name: 'Osaka', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#b96d2a' },
+  { index: 19, name: 'Tokyo', type: 'property', group: 'Orange', price: 200, rent: 16, color: '#b96d2a' },
+  { index: 20, name: 'Vacation', type: 'vacation' },
+  { index: 21, name: 'Eindhoven', type: 'property', group: 'Red', price: 220, rent: 18, color: '#87231e' },
+  { index: 22, name: 'Surprise?', type: 'chance' },
+  { index: 23, name: 'Rotterdam', type: 'property', group: 'Red', price: 220, rent: 18, color: '#87231e' },
+  { index: 24, name: 'Amsterdam', type: 'property', group: 'Red', price: 240, rent: 20, color: '#87231e' },
+  { index: 25, name: 'AMS Airport', type: 'railroad', price: 200, rent: 25 },
+  { index: 26, name: 'Calgary', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#b18a2e' },
+  { index: 27, name: 'Vancouver', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#b18a2e' },
+  { index: 28, name: 'Water Company', type: 'utility', price: 150, rent: 12 },
+  { index: 29, name: 'Toronto', type: 'property', group: 'Yellow', price: 280, rent: 24, color: '#b18a2e' },
+  { index: 30, name: 'Go to Prison', type: 'goToJail' },
+  { index: 31, name: 'Bern', type: 'property', group: 'Green', price: 300, rent: 26, color: '#4b853d' },
+  { index: 32, name: 'Geneva', type: 'property', group: 'Green', price: 300, rent: 26, color: '#4b853d' },
+  { index: 33, name: 'Treasure', type: 'chest' },
+  { index: 34, name: 'Zurich', type: 'property', group: 'Green', price: 320, rent: 28, color: '#4b853d' },
+  { index: 35, name: 'MB Airport', type: 'railroad', price: 200, rent: 25 },
+  { index: 36, name: 'Surprise?', type: 'chance' },
+  { index: 37, name: 'Downtown', type: 'property', group: 'Dark Blue', price: 350, rent: 35, color: '#286ea1' },
+  { index: 38, name: 'Premium Tax', type: 'tax', amount: 100 },
+  { index: 39, name: 'Marina Bay', type: 'property', group: 'Dark Blue', price: 400, rent: 50, color: '#286ea1' }
 ];
 
 const CARD_DECK = [
   { text: 'Advance to Start and collect $200', action: 'collectStart' },
   { text: 'Pay $100 for renovation', action: 'pay', amount: 100 },
   { text: 'Collect $150 from bank', action: 'collect', amount: 150 },
-  { text: 'Go to Vacation', action: 'move', tileIndex: 25 },
+  { text: 'Go to Vacation', action: 'move', tileIndex: 20 },
   { text: 'Go directly to Jail', action: 'goToJail' },
   { text: 'Receive $100 from each player', action: 'collectFromEach', amount: 100 }
 ];
@@ -109,7 +116,7 @@ function cloneTiles() {
 }
 
 class Player {
-  constructor({ clientId, socketId, nickname, color, isHost = false, isBot = false }) {
+  constructor({ clientId, socketId, nickname, color, accountId = null, isHost = false, isBot = false }) {
     this.id = `${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
     this.clientId = clientId || this.id;
     this.socketId = socketId;
@@ -117,6 +124,7 @@ class Player {
     const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#35a653';
     this.nickname = safeNickname || 'Player';
     this.color = safeColor;
+    this.accountId = accountId || null;
     this.isHost = isHost;
     this.isBot = isBot;
     this.cash = DEFAULT_ROOM_SETTINGS.startingCash;
@@ -142,6 +150,7 @@ class AuctionState {
     this.endsAt = Date.now() + AUCTION_DURATION_MS;
     this.cooldownUntil = 0;
     this.lastBidAt = 0;
+    this.passedPlayerIds = [];
   }
 }
 
@@ -684,7 +693,15 @@ class GameState {
     const card = this.drawCard();
     this.feedMessage(`${player.nickname} drew a card: ${card.text}`);
     const result = this.applyCard(player, card, options);
-    return result || { success: true };
+    const cash = card.action === 'pay'
+      ? -(Number(card.amount) || 0)
+      : card.action === 'collect' || card.action === 'collectStart'
+        ? Number(card.amount) || 200
+        : 0;
+    return {
+      ...(result || { success: true }),
+      cardReveal: { tileIndex: player.position, text: card.text, cash }
+    };
   }
 
   drawCard() {
@@ -983,6 +1000,9 @@ class GameState {
     if (this.auction.participants.length && !this.auction.participants.includes(player.id)) {
       return { success: false, error: 'You are not part of this auction.' };
     }
+    if (this.auction.passedPlayerIds.includes(player.id)) {
+      return { success: false, error: 'You have passed on this auction.' };
+    }
     if (this.auction.cooldownUntil && now < this.auction.cooldownUntil) {
       return { success: false, error: 'Please wait a moment before bidding again.' };
     }
@@ -1004,6 +1024,29 @@ class GameState {
     this.auction.cooldownUntil = now + AUCTION_BID_COOLDOWN_MS;
     this.auction.endsAt = now + AUCTION_DURATION_MS;
     this.feedMessage(`${player.nickname} bid $${amount}.`);
+    return { success: true };
+  }
+
+  passAuction(socketId) {
+    const player = this.getPlayerBySocket(socketId);
+    if (!player || !this.auction || !this.auction.active) {
+      return { success: false, error: 'No auction is active.' };
+    }
+    if (this.auction.participants.length && !this.auction.participants.includes(player.id)) {
+      return { success: false, error: 'You are not part of this auction.' };
+    }
+    if (this.auction.highestBidderId === player.id) {
+      return { success: false, error: 'The current high bidder cannot pass.' };
+    }
+    if (!this.auction.passedPlayerIds.includes(player.id)) {
+      this.auction.passedPlayerIds.push(player.id);
+      this.feedMessage(`${player.nickname} passed on the auction.`);
+    }
+    const remaining = this.auction.participants.filter(id => !this.auction.passedPlayerIds.includes(id));
+    if (this.auction.highestBidderId && remaining.length <= 1) {
+      this.finishAuction();
+      return { success: true, finished: true };
+    }
     return { success: true };
   }
 
@@ -1325,7 +1368,8 @@ class GameState {
         properties: player.properties,
         ready: player.ready,
         isBot: player.isBot,
-        clientId: player.clientId
+        clientId: player.clientId,
+        accountId: player.accountId || null
       })),
       feed: this.feed,
       auction: this.auction ? {
@@ -1339,6 +1383,7 @@ class GameState {
         endsAt: this.auction.endsAt,
         cooldownUntil: this.auction.cooldownUntil,
         lastBidAt: this.auction.lastBidAt,
+        passedPlayerIds: this.auction.passedPlayerIds,
         durationMs: AUCTION_DURATION_MS
       } : null,
       pendingTrade: this.pendingTrade,
@@ -1348,8 +1393,11 @@ class GameState {
 }
 
 class Room {
-  constructor(hostPlayer) {
-    this.roomCode = createRoomCode();
+  constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
+    this.roomCode = roomCode || createRoomCode();
+    this.roomName = roomName;
+    this.visibility = visibility;
+    this.statsRecorded = false;
     this.hostId = hostPlayer.id;
     this.settings = { ...DEFAULT_ROOM_SETTINGS };
     this.game = new GameState(this.settings);
@@ -1372,6 +1420,7 @@ class Room {
       if (typeof playerInfo.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(playerInfo.color)) {
         existing.color = playerInfo.color;
       }
+      if (playerInfo.accountId) existing.accountId = playerInfo.accountId;
       return { success: true, player: existing };
     }
     if (this.game.started) {
@@ -1423,7 +1472,9 @@ class Room {
   }
 
   startGame() {
-    return this.game.startGame();
+    const result = this.game.startGame();
+    if (result?.success) this.statsRecorded = false;
+    return result;
   }
 
   rollDice(socketId) {
@@ -1440,6 +1491,10 @@ class Room {
 
   placeAuctionBid(socketId, amount) {
     return this.game.placeAuctionBid(socketId, amount);
+  }
+
+  passAuction(socketId) {
+    return this.game.passAuction(socketId);
   }
 
   manageProperty(socketId, payload) {
@@ -1469,6 +1524,9 @@ class Room {
   getRoomSummary() {
     return {
       roomCode: this.roomCode,
+      roomName: this.roomName,
+      visibility: this.visibility,
+      capacity: this.settings.maxPlayers,
       hostId: this.hostId,
       settings: this.settings,
       players: this.game.players.map(player => ({
@@ -1484,10 +1542,26 @@ class Room {
         disconnected: player.disconnected,
         isHost: player.isHost,
         ready: player.ready,
-        isBot: player.isBot
+        isBot: player.isBot,
+        accountId: player.accountId || null
       })),
       started: this.game.started,
       vacationPool: this.game.vacationPool
+    };
+  }
+
+  getDirectorySummary() {
+    const active = this.game.players.filter(player => !player.disconnected && !player.bankrupt);
+    const started = this.game.started;
+    return {
+      code: this.roomCode,
+      name: this.roomName,
+      seats: active.length,
+      cap: this.settings.maxPlayers,
+      bank: `$${Number(this.settings.startingCash).toLocaleString()}`,
+      state: started ? 'live' : 'open',
+      visibility: this.visibility,
+      note: started ? 'round live' : 'waiting for players'
     };
   }
 }
@@ -1500,7 +1574,7 @@ class RoomManager {
 
   createRoom(hostInfo) {
     const player = new Player({ ...hostInfo, isHost: true });
-    const room = new Room(player);
+    const room = new Room(player, { roomName: hostInfo.roomName, visibility: hostInfo.visibility, roomCode: hostInfo.roomCode });
     this.rooms.set(room.roomCode, room);
     this.socketRoom.set(hostInfo.socketId, room);
     return room;
@@ -1541,6 +1615,12 @@ class RoomManager {
   getRoomByClient(clientId) {
     if (!clientId) return null;
     return [...this.rooms.values()].find(roomItem => roomItem.game.getPlayerByClient(clientId)) || null;
+  }
+
+  listPublicRooms() {
+    return [...this.rooms.values()]
+      .filter(room => room.visibility === 'public' && room.game.players.some(player => !player.disconnected && !player.bankrupt))
+      .map(room => room.getDirectorySummary());
   }
 
   leaveRoomByClient(clientId, socketId) {

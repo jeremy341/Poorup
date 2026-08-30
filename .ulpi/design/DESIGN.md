@@ -37,7 +37,7 @@ Retro terminal / late-night arcade / pixel board game. Compact rectangular geome
 - Player rows are 66px minimum, active rows use a 2px gold outline and directional marker.
 - Chat is terminal-like rows on the deep surface, not speech bubbles.
 - Properties use compact rows with a semantic color strip and readable rent values.
-- Board is the visual anchor; the `23;26` plain client owns the 32-space visual grid and the live client overlays server interaction state.
+- Board is the visual anchor; the plain client owns the 40-space visual grid and the live client overlays server interaction state.
 
 ## Motion and accessibility
 
@@ -48,7 +48,7 @@ Retro terminal / late-night arcade / pixel board game. Compact rectangular geome
 
 ## Board contract
 
-- Gameplay presentation uses the supplied `public/assets/poorup_board_1to1_figma_master.svg` asset byte-for-byte. The server remains on its 0–39 contract while transparent client overlays preserve live interaction without rewriting the master artwork.
+- Gameplay presentation uses the HTML/CSS board renderer with the supplied visual language. The server remains authoritative for its 0–39 contract while native buttons and client-rendered tokens layer above the 40-space grid.
 - `public/assets/legacy-board-40.svg` is the protected rollback/reference copy; its artwork is not reused in the generated board.
 - Landing atmosphere uses `public/assets/poorup_board_exact_tilted.svg`.
 - The server remains authoritative for live tile indexes 0–39. Transparent native hit targets and client-rendered tokens layer above the generated artwork.

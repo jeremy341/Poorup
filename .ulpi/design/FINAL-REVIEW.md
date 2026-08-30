@@ -16,8 +16,8 @@ because this project already has the relevant local frontend and motion suite.
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | ZIP visual language | Pass | Pixelify/Pixel Operator stack, supplied dark palette, stepped borders, split rails, five-cell HUD, setup overlay, tables/log topology, and custom SVG glyphs are implemented in the vanilla renderer. |
-| Board fidelity | Pass | The `23;26` plain-client composition is rendered with its complete 32-space board UI; protected 40-space SVG references remain in `public/assets` for future board work. |
-| Large desktop | Pass | 1920×1080 board `1180×832`, rails visible, HUD `5` cells, no overflow. 2560×1440 board `1240×1200`, rails visible, HUD `5` cells, no overflow. |
+| Board fidelity | Pass | The plain-client composition now renders all 40 legacy spaces in an 11×11 HTML/CSS board; protected SVG references remain in `public/assets`. |
+| Large desktop | Pass | 1920×1080 and 2560×1440 retain a square board, visible rails, HUD `5` cells, and no overflow. |
 | Real multiplayer | Pass | Two-tab create/join/setup/start flow, live Socket.IO turn updates, roll, purchase decision, chat, and tile sheet were exercised. |
 | Accessibility | Pass | Axe CLI reports `0 violations`; native controls, labels, live region, modal focus capture/restoration, Escape handling, inert backgrounds, focus-visible styles, and forced-colors rules are present. |
 | Motion | Pass | No `transition: all`, no `scale(0)`, no ungated hover movement; token travel uses `transform` at 220ms, hover is pointer-gated, and reduced-motion variants are present. |
@@ -26,6 +26,6 @@ because this project already has the relevant local frontend and motion suite.
 
 ## Scope note
 
-The current live server/client contract is the 32-space `23;26` board model; the protected legacy 40-space SVGs remain available as rollback/reference assets.
+The current live server/client contract is the 40-space legacy Poorup board model; protected SVGs remain available as rollback/reference assets.
 Non-ZIP controls remain in the DOM for compatibility but are hidden or disabled in
 `REFERENCE_UI_ONLY` mode until a later gameplay pass enables them.

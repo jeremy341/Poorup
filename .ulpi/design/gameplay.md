@@ -34,7 +34,7 @@ Use the supplied system in `DESIGN.md`. The Figma master board is the focal mome
 ## Responsive Contract
 
 - 1920x1080: both rails visible; the supplied 960x670 master artwork is fitted into the board frame without page scroll.
-- 2560x1440: workspace expands across the desktop while the supplied master artwork remains the focal center visual.
+- 2560x1440: workspace expands across the desktop while the 40-space HTML/CSS board remains the focal center visual.
 - Below 1000px: retain the existing stacked fallback without redesign expansion.
 
 ## Acceptance Criteria

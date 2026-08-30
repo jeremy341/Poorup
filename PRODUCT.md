@@ -27,10 +27,11 @@ Poorup combines a complete server-authoritative property game with account-free 
 
 ## Capabilities and Constraints
 
-- Real-time rooms, host controls, chat, auctions, purchases, building, mortgaging, trading, bankruptcy, winning, and reconnect support.
+- Real-time rooms, host controls, chat, auctions, purchases, building, mortgaging, trading, bankruptcy, winning, and reconnect support. Public tables are discovered in the directory; private tables use a host-chosen six-character invite code.
+- Optional accounts persist a stable username, display name, pixel identity, and server-recorded games/wins; guest play remains available without sign-in.
 - Server-side game logic remains the source of truth and existing Socket.IO contracts remain stable.
 - Frontend remains vanilla HTML, CSS, and JavaScript.
-- Board presentation uses the supplied 23;26 pixel-parlor composition while live Socket.IO state remains server-authoritative.
+- Board presentation uses the supplied pixel-parlor visual language in a 40-space HTML/CSS renderer while live Socket.IO state remains server-authoritative.
 - Smaller screens keep the existing functional fallback but are not part of this redesign's visual acceptance target.
 
 ## Brand Commitments
@@ -42,6 +43,7 @@ Poorup combines a complete server-authoritative property game with account-free 
 ## Evidence on Hand
 
 - Working multiplayer implementation in `server/` with the plain client in `public/main.js`.
+- The latest supplied archive adds a profile library, room tabs, sound toggle, card reveals, deed detail, auction pass UI, turn timer, and game-over surface; these remain available in the plain client.
 - Existing board topology and content in `public/assets/playingfield-beige.svg`.
 - Current landing and game-shell accessibility improvements live in `public/index.html` and `public/styles.css`.
 - No testimonials, usage numbers, customer logos, or external performance claims are available and none may be fabricated.
