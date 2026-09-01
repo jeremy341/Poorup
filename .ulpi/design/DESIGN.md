@@ -49,6 +49,5 @@ Retro terminal / late-night arcade / pixel board game. Compact rectangular geome
 ## Board contract
 
 - Gameplay presentation uses the HTML/CSS board renderer with the supplied visual language. The server remains authoritative for its 0–39 contract while native buttons and client-rendered tokens layer above the 40-space grid.
-- `public/assets/legacy-board-40.svg` is the protected rollback/reference copy; its artwork is not reused in the generated board.
-- Landing atmosphere uses `public/assets/poorup_board_exact_tilted.svg`.
+- `public/assets/legacy-board-40.svg` is the protected rollback/reference copy; its artwork is not reused in the HTML/CSS board renderer.
 - The server remains authoritative for live tile indexes 0–39. Transparent native hit targets and client-rendered tokens layer above the generated artwork.

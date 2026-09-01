@@ -33,6 +33,20 @@ function sanitizeAvatarGrid(value) {
   );
 }
 
+function sanitizeHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => entry && typeof entry === 'object')
+    .slice(0, 50)
+    .map((entry) => ({
+      playedAt: typeof entry.playedAt === 'string' ? entry.playedAt : null,
+      result: entry.result === 'WIN' ? 'WIN' : 'ROUND',
+      won: entry.won === true || entry.result === 'WIN',
+      endingCash: Math.max(0, Number(entry.endingCash) || 0),
+      properties: Math.max(0, Number(entry.properties) || 0),
+    }));
+}
+
 function publicAccount(account) {
   if (!account) return null;
   return {
@@ -42,6 +56,7 @@ function publicAccount(account) {
     color: account.color,
     avatarGrid: account.avatarGrid,
     stats: { ...account.stats },
+    history: sanitizeHistory(account.history),
     createdAt: account.createdAt,
   };
 }
@@ -83,6 +98,7 @@ export class AccountStore {
             wins: Number(account.stats?.wins) || 0,
             bankruptcies: Number(account.stats?.bankruptcies) || 0,
           },
+          history: sanitizeHistory(account.history),
         });
       });
     } catch {
@@ -140,6 +156,7 @@ export class AccountStore {
       passwordSalt: salt,
       passwordHash: hashPassword(password, salt),
       stats: { gamesPlayed: 0, wins: 0, bankruptcies: 0 },
+      history: [],
       createdAt: new Date().toISOString(),
     };
     this.accounts.set(handle, account);
@@ -198,6 +215,13 @@ export class AccountStore {
       account.stats.gamesPlayed += 1;
       if (player.id === winnerId) account.stats.wins += 1;
       if (player.bankrupt) account.stats.bankruptcies += 1;
+      account.history = [{
+        playedAt: new Date().toISOString(),
+        result: player.id === winnerId ? 'WIN' : 'ROUND',
+        won: player.id === winnerId,
+        endingCash: Math.max(0, Number(player.cash) || 0),
+        properties: Array.isArray(player.properties) ? player.properties.length : 0,
+      }, ...sanitizeHistory(account.history)].slice(0, 50);
       changed = true;
     });
     if (changed) this.persist();

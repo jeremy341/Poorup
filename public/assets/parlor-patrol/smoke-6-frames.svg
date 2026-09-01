@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="64" viewBox="0 0 80 64" shape-rendering="crispEdges" role="img" aria-labelledby="smoke-title smoke-desc">
+  <title id="smoke-title">Parlor Patrol pixel smoke</title>
+  <desc id="smoke-desc">Six stepped teal smoke frames for a tagged helicopter leaving the skyline.</desc>
+  <style>
+    .frame { opacity: 0; animation: show-smoke .72s steps(1, end) infinite; }
+    .frame-00 { animation-delay: 0s; }
+    .frame-01 { animation-delay: -.12s; }
+    .frame-02 { animation-delay: -.24s; }
+    .frame-03 { animation-delay: -.36s; }
+    .frame-04 { animation-delay: -.48s; }
+    .frame-05 { animation-delay: -.6s; }
+    @keyframes show-smoke {
+      0%, 16.65% { opacity: 1; }
+      16.66%, 100% { opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .frame { animation: none; }
+      .frame-00 { opacity: 1; }
+    }
+  </style>
+  <g id="frame-00" class="frame frame-00"><rect x="31" y="39" width="18" height="9" fill="#3e7d7b" /><rect x="35" y="32" width="10" height="8" fill="#123d4b" /><rect x="38" y="27" width="5" height="5" fill="#286ea1" /></g>
+  <g id="frame-01" class="frame frame-01"><rect x="28" y="41" width="23" height="9" fill="#3e7d7b" /><rect x="31" y="33" width="14" height="9" fill="#123d4b" /><rect x="37" y="25" width="9" height="8" fill="#286ea1" /><rect x="42" y="20" width="5" height="5" fill="#3e7d7b" /></g>
+  <g id="frame-02" class="frame frame-02"><rect x="24" y="43" width="30" height="9" fill="#3e7d7b" /><rect x="29" y="34" width="16" height="10" fill="#123d4b" /><rect x="35" y="25" width="12" height="9" fill="#286ea1" /><rect x="40" y="16" width="8" height="9" fill="#3e7d7b" /><rect x="48" y="11" width="5" height="5" fill="#123d4b" /></g>
+  <g id="frame-03" class="frame frame-03"><rect x="19" y="45" width="38" height="8" fill="#3e7d7b" /><rect x="26" y="35" width="20" height="11" fill="#123d4b" /><rect x="32" y="26" width="14" height="9" fill="#286ea1" /><rect x="38" y="17" width="12" height="9" fill="#3e7d7b" /><rect x="47" y="9" width="8" height="8" fill="#123d4b" /><rect x="54" y="5" width="5" height="4" fill="#3e7d7b" /></g>
+  <g id="frame-04" class="frame frame-04"><rect x="14" y="47" width="48" height="7" fill="#3e7d7b" /><rect x="22" y="37" width="24" height="10" fill="#123d4b" /><rect x="28" y="28" width="16" height="9" fill="#286ea1" /><rect x="35" y="18" width="13" height="10" fill="#3e7d7b" /><rect x="45" y="10" width="12" height="8" fill="#123d4b" /><rect x="54" y="4" width="8" height="6" fill="#3e7d7b" /></g>
+  <g id="frame-05" class="frame frame-05"><rect x="10" y="49" width="56" height="6" fill="#123d4b" /><rect x="18" y="39" width="28" height="10" fill="#3e7d7b" /><rect x="24" y="29" width="18" height="10" fill="#123d4b" /><rect x="31" y="20" width="15" height="9" fill="#3e7d7b" /><rect x="42" y="11" width="15" height="9" fill="#123d4b" /><rect x="53" y="4" width="10" height="7" fill="#3e7d7b" /></g>
+</svg>

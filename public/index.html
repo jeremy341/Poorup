@@ -27,6 +27,18 @@
           <span class="g5">poorup</span><span>live table service</span>
         </div>
 
+        <nav class="home-nav" id="home-nav" aria-label="Parlor navigation">
+          <button class="home-nav-tab is-active" id="home-play-tab" type="button" data-home-tab="play" aria-current="page">
+            <span class="t-label f11">PLAY</span>
+          </button>
+          <button class="home-nav-tab" id="home-rooms-tab" type="button" data-home-tab="rooms">
+            <span class="t-label f11">ROOMS</span>
+          </button>
+          <button class="home-nav-tab" id="home-profile-tab" type="button" data-home-tab="profile">
+            <span class="t-label f11">PROFILE</span>
+          </button>
+        </nav>
+
         <div class="hdr-right">
           <div class="online">
             <span class="dot dot-green blink"></span>
@@ -39,8 +51,11 @@
               <span class="t-label f12 g300" id="home-you-name">guest_4412</span>
             </span>
           </button>
-          <button class="btn-dark hdr-rules" type="button" id="sound-toggle-btn" title="Toggle sound">
+          <button class="btn-dark hdr-rules" type="button" id="sound-toggle-btn" title="Toggle sound effects" aria-pressed="false">
             <span class="t-label f12" id="sound-toggle-label">SOUND OFF</span>
+          </button>
+          <button class="btn-dark hdr-rules" type="button" id="music-toggle-btn" title="Toggle parlor music" aria-pressed="false">
+            <span class="t-label f12" id="music-toggle-label">MUSIC OFF</span>
           </button>
         </div>
       </header>
@@ -48,17 +63,59 @@
       <main class="home-main">
         <!-- title screen -->
         <section class="title-screen noise vignette">
-          <svg
-            class="skyline"
-            viewBox="0 0 88 36"
-            preserveAspectRatio="none"
-            shape-rendering="crispEdges"
-            aria-hidden="true"
-            id="home-skyline"
-          ></svg>
+          <div class="home-house-drift" aria-hidden="true">
+            <div class="home-house-drift-track">
+              <svg
+                class="skyline"
+                viewBox="0 0 88 36"
+                preserveAspectRatio="none"
+                shape-rendering="crispEdges"
+                aria-hidden="true"
+                id="home-skyline"
+              ></svg>
+              <svg
+                class="skyline"
+                viewBox="0 0 88 36"
+                preserveAspectRatio="none"
+                shape-rendering="crispEdges"
+                aria-hidden="true"
+                id="home-skyline-copy"
+              ></svg>
+            </div>
+          </div>
 
-          <div class="title-grid title-grid-clean">
-            <div class="ts-left">
+          <div class="home-sky-atmosphere" role="group" aria-label="Parlor Patrol">
+            <time class="home-local-time" id="home-local-time" datetime="" aria-label="Local time">--:--</time>
+            <output class="home-patrol-score" id="home-patrol-score" aria-label="Parlor Patrol score" aria-live="polite">000</output>
+            <span class="sr-live" id="home-patrol-status" role="status" aria-live="polite" aria-atomic="true">STANDBY · FLY-BYS OCCASIONAL</span>
+            <button class="home-helicopter" id="home-helicopter" type="button" aria-label="Tag the police helicopter" aria-hidden="true" tabindex="-1">
+              <img class="home-helicopter-art" id="home-helicopter-art" src="/assets/parlor-patrol/helicopter-16-frames.svg" alt="" width="128" height="64" />
+            </button>
+            <span class="home-patrol-effect home-patrol-impact" id="home-patrol-impact" aria-hidden="true"><img src="/assets/parlor-patrol/impact-8-frames.svg" alt="" width="64" height="64" /></span>
+            <span class="home-patrol-effect home-patrol-smoke" id="home-patrol-smoke" aria-hidden="true"><img src="/assets/parlor-patrol/smoke-6-frames.svg" alt="" width="80" height="64" /></span>
+          </div>
+
+          <!-- Home-stage Night Shift mode. Reuses the Home clock and score. -->
+          <section class="night-shift is-hidden" id="night-shift" role="region" aria-labelledby="night-shift-title" aria-describedby="night-shift-description" aria-hidden="true">
+            <div class="night-shift-hud" aria-label="Night Shift status">
+              <div class="night-shift-readout">
+                <output class="night-shift-wave" id="night-wave" aria-label="Current Night Shift wave">01</output>
+                <div class="night-shift-hearts" id="night-hearts" aria-label="3 hearts remaining"></div>
+              </div>
+              <button class="btn-dark night-shift-exit" type="button" id="night-exit"><span class="t-label f11">EXIT MODE</span></button>
+            </div>
+            <div class="night-shift-wave-banner" id="night-wave-banner" aria-hidden="true">WAVE 01</div>
+            <h2 class="sr-live" id="night-shift-title">Night Shift</h2>
+            <p class="sr-live" id="night-shift-description">Tag the fly-bys before they reach the border.</p>
+            <div class="night-shift-targets" id="night-targets"></div>
+            <div class="night-shift-effects" id="night-effects" aria-hidden="true"></div>
+            <span class="sr-live" id="night-status" role="status" aria-live="polite" aria-atomic="true"></span>
+          </section>
+
+          <audio id="home-music" class="home-music" preload="metadata" loop src="/assets/audio/pondering-the-cosmos.mp3"></audio>
+
+          <div class="title-grid title-grid-clean parlor-desk-grid">
+            <div class="ts-left parlor-statement">
               <div class="ts-kicker t-micro ink-3"><span class="g5">//</span> POORUP v2.4.1 — insert coin</div>
 
               <div class="ts-word"><h1 class="wordmark wm-hero">Poorup</h1></div>
@@ -72,28 +129,21 @@
                 Roll, buy the block, charge rent, feed the vacation pot. Last wallet standing keeps the
                 table. Usually around twelve minutes, sometimes a vendetta.
               </p>
-
-              <div class="ts-actions">
-                <button class="cta-red ts-cta" type="button" id="open-create-btn" title="Create a room">
-                  <span data-sprite="dice" data-size="4"></span>
-                  <span class="cta-text">Create Room</span>
-                </button>
-                <button class="btn-dark ts-join" type="button" id="open-rooms-btn" title="Browse public rooms">
-                  <span class="t-label f13">Browse rooms</span>
-                  <span class="t-micro g800">[ B ]</span>
-                </button>
-                <button class="btn-dark ts-join" type="button" id="quick-table-btn" title="Create a default-rules room">
-                  <span class="t-label f13">Quick table</span>
-                  <span class="t-micro g800">[ C ]</span>
-                </button>
-                <button class="btn-dark ts-join is-hidden" type="button" id="resume-btn">
-                  <span class="t-label f13">Resume round</span>
-                  <span class="t-micro g800">SAVE FOUND</span>
-                </button>
+              <div class="home-signal-line" aria-label="Poorup facts">
+                <span class="home-signal"><span class="t-micro ink-3">ENTRY</span><span class="t-label f11 g100">NO ACCOUNT</span></span>
+                <span class="home-signal"><span class="t-micro ink-3">SYNC</span><span class="t-label f11 green">REAL-TIME</span></span>
+                <span class="home-signal"><span class="t-micro ink-3">LOBBIES</span><span class="t-label f11 g300">40 LOBBIES</span></span>
               </div>
+            </div>
 
-              <div class="local-note ts-local-note" id="home-status-note"><span class="dot dot-green blink"></span><span class="t-micro ink-3">LIVE SERVER · CREATE OR JOIN A ROOM · NO ACCOUNT REQUIRED</span></div>
-
+            <div class="home-entry-desk panel noise">
+              <div class="entry-desk-head"><div class="t-micro g400">PARLOR ENTRY</div><div class="t-label f14 g100">ENTER THE PARLOR</div></div>
+              <div class="ts-actions">
+                <button class="cta-red ts-cta" type="button" id="open-create-btn" title="Create a room"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Create Room</span></button>
+                <button class="cta-red ts-cta" type="button" id="open-join-btn" title="Join an existing room"><span data-sprite="arrow" data-size="4"></span><span class="cta-text">Join Room</span></button>
+                <button class="btn-dark ts-quick" type="button" id="quick-table-btn" title="Create a default-rules room"><span class="t-label f13">Quick table</span><span class="t-micro g800">[ C ]</span></button>
+                <button class="btn-dark ts-join is-hidden" type="button" id="resume-btn"><span class="t-label f13">Resume round</span><span class="t-micro g800">SAVE FOUND</span></button>
+              </div>
               <div class="open-chair">
                 <div class="chair-av" id="chair-avatar"></div>
                 <div class="chair-text">
@@ -105,7 +155,7 @@
                   <span class="t-micro g300">free</span>
                 </span>
                 <button class="btn-dark chair-edit" type="button" id="chair-edit-btn">
-                  <span class="t-label f11">PROFILES</span>
+                  <span class="t-label f11">EDIT IDENTITY</span>
                 </button>
               </div>
 
@@ -115,29 +165,6 @@
                 <p class="home-alias-error" id="home-alias-error" role="alert" aria-live="polite"></p>
               </form>
 
-              <form class="home-code-form" id="join-form">
-                <label class="t-micro g400" for="room-join">join an existing room</label>
-                <div class="home-code-row">
-                  <input id="room-join" class="field join-input" placeholder="ABC123" maxlength="6" autocomplete="off" />
-                  <button type="submit" class="btn-dark join-btn-sm"><span class="t-label f12">JOIN</span></button>
-                </div>
-              </form>
-            </div>
-
-            <div class="ts-right ts-right-clean">
-              <div class="mini-board noise">
-                <div class="mini-grid" id="mini-grid">
-                  <div class="mini-center">
-                    <h2 class="wordmark wm-mini">Poorup</h2>
-                    <span class="t-micro g800 mini-ver">v2.4.1</span>
-                  </div>
-                </div>
-              </div>
-              <div class="home-stats">
-                <div class="home-stat"><span class="t-micro ink-3">ROOM ENTRY</span><span class="t-label f13 g100">NO ACCOUNT</span></div>
-                <div class="home-stat"><span class="t-micro ink-3">TURN SYNC</span><span class="t-label f13 green">REAL-TIME</span></div>
-                <div class="home-stat"><span class="t-micro ink-3">BOARD</span><span class="t-label f13 g300">40 SPACES</span></div>
-              </div>
             </div>
           </div>
         </section>
@@ -148,7 +175,6 @@
         <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">live table service</span></span>
         <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">no account required</span></span>
         <span class="t-micro tk tk-right"><span data-sprite="crown" data-size="2"></span>press [B] to browse rooms</span>
-        <span class="cursor-block"></span>
       </div>
     </div>
 
@@ -168,6 +194,7 @@
           <div class="rm-tabs" id="rm-tabs" role="tablist" aria-label="Room actions">
             <button class="rm-tab is-active" id="rm-tab-browse" type="button" data-rm-tab="browse" role="tab" aria-selected="true" aria-controls="rm-panel-browse"><span class="t-label f12">BROWSE ROOMS</span></button>
             <button class="rm-tab" id="rm-tab-create" type="button" data-rm-tab="create" role="tab" aria-selected="false" aria-controls="rm-panel-create"><span class="t-label f12">CREATE ROOM</span></button>
+            <button class="rm-tab" id="rm-tab-join" type="button" data-rm-tab="join" role="tab" aria-selected="false" aria-controls="rm-panel-join"><span class="t-label f12">JOIN ROOM</span></button>
           </div>
 
           <!-- BROWSE TAB PANEL -->
@@ -179,11 +206,6 @@
               <button class="btn-dark rooms-filter" type="button" data-filter="live"><span class="t-label f11">LIVE</span></button>
             </div>
             <div class="rooms-list thin-scroll" id="rooms-list"></div>
-            <div class="rooms-foot">
-              <button class="cta-red rooms-host" type="button" id="rooms-host-btn">
-                <span class="cta-text f20">Create Custom Room ›</span>
-              </button>
-            </div>
           </div>
 
           <!-- CREATE TAB PANEL -->
@@ -227,6 +249,25 @@
             </div>
           </div>
 
+          <!-- JOIN TAB PANEL -->
+          <div class="rm-panel is-hidden" id="rm-panel-join" role="tabpanel" aria-labelledby="rm-tab-join">
+            <p class="t-body ink-2 rooms-copy" id="join-room-description">Enter the room code and the name you want to use at the table.</p>
+            <form class="rc-form" id="join-form">
+              <label class="rc-field" for="room-join">
+                <span class="t-label f12 g-muted">Room Code</span>
+                <input class="field rc-input rc-room-code" id="room-join" maxlength="6" minlength="6" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" required />
+              </label>
+              <label class="rc-field" id="join-nickname-field" for="join-nickname">
+                <span class="t-label f12 g-muted">Player Name</span>
+                <input class="field rc-input" id="join-nickname" maxlength="12" autocomplete="nickname" placeholder="MARLOWE" required />
+              </label>
+              <p class="account-form-error" id="join-form-error" role="alert" aria-live="assertive"></p>
+              <button class="cta-red rc-create-btn" type="submit" id="join-room-submit">
+                <span class="cta-text f20">Join Room</span>
+              </button>
+            </form>
+          </div>
+
         </div>
       </div>
     </div>
@@ -234,7 +275,7 @@
     <!-- ============================ PROFILE VIEW ============================ -->
     <div class="view is-hidden" id="view-profile">
       <header class="hdr">
-        <button class="hdr-brand profile-back" id="profile-back-btn" aria-label="Back to home">
+        <button class="hdr-brand profile-back" id="profile-back-btn" type="button" aria-label="Back to home">
           <span class="profile-back-arrow">‹</span>
           <span data-sprite="logo" data-size="4"></span>
           <div class="hdr-brand-text">
@@ -250,139 +291,114 @@
             <span class="t-label f12">CANCEL</span>
           </button>
           <button class="cta-red profile-save-btn" type="button" id="profile-save-btn">
-            <span class="cta-text" style="font-size:20px">Save Profile</span>
+            <span class="cta-text profile-save-label">Save Profile</span>
           </button>
         </div>
       </header>
 
       <main class="profile-main">
-        <div class="divider">
-          <span class="t-micro g400">╞</span>
-          <span class="t-label f12 g400">create your player</span>
-          <span class="hair"></span>
-          <span class="t-micro g800">╡</span>
-        </div>
-
-        <section class="panel noise pad16 account-panel" id="account-panel">
-          <div class="account-panel-head">
-            <div>
-              <div class="t-micro g400">PLAYER ACCOUNT</div>
-              <div class="t-label f12 g100" id="account-panel-title">Guest mode</div>
+        <section class="profile-hero panel noise" aria-labelledby="profile-hero-name">
+          <div class="profile-hero-main">
+            <div class="profile-hero-avatar" id="profile-hero-avatar" aria-hidden="true"></div>
+            <div class="profile-hero-copy">
+              <div class="t-micro g400">PLAYER IDENTITY</div>
+              <h1 class="profile-hero-name" id="profile-hero-name">PLAYER</h1>
+              <div class="profile-hero-handle t-body ink-2" id="profile-hero-handle">GUEST MODE</div>
+              <div class="profile-hero-state t-micro" id="profile-hero-state">LOCAL PLAYER · READY FOR THE NEXT TABLE</div>
             </div>
-            <span class="t-micro account-badge" id="account-panel-badge">LOCAL ONLY</span>
+            <button class="btn-dark profile-hero-account" id="profile-hero-account-btn" type="button"><span class="t-label f11">ACCOUNT</span></button>
           </div>
-          <div id="account-guest-state">
-            <p class="t-body ink-2 account-copy">Save your identity and stats across rooms while keeping guest play account-free.</p>
-            <div class="account-actions">
-              <button class="cta-red account-action-btn" type="button" id="account-register-btn"><span class="cta-text cta-text-sm">Create Account</span></button>
-              <button class="btn-dark account-action-btn" type="button" id="account-login-btn"><span class="t-label f12">Sign In</span></button>
-            </div>
-          </div>
-          <div class="is-hidden" id="account-signed-state">
-            <div class="account-identity-row">
-              <div class="account-avatar" id="account-avatar"></div>
-              <div class="account-identity-copy">
-                <span class="t-label f14 g100" id="account-display-name">PLAYER</span>
-                <span class="t-micro g400" id="account-username">@player</span>
-              </div>
-              <button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button>
-            </div>
-            <div class="account-stats" aria-label="Player statistics">
-              <div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div>
-              <div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div>
-              <div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div>
-            </div>
-            <p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your display name and face below.</p>
+          <div class="profile-stat-rail" aria-label="Player statistics">
+            <div class="profile-stat"><span class="t-micro ink-3">GAMES</span><strong class="t-label f20 g100" id="profile-stat-games">0</strong></div>
+            <div class="profile-stat"><span class="t-micro ink-3">WINS</span><strong class="t-label f20 green" id="profile-stat-wins">0</strong></div>
+            <div class="profile-stat"><span class="t-micro ink-3">WIN RATE</span><strong class="t-label f20 g300" id="profile-stat-rate">0%</strong></div>
+            <div class="profile-stat"><span class="t-micro ink-3">BANKRUPTCIES</span><strong class="t-label f20 g-muted" id="profile-stat-bankruptcies">0</strong></div>
+            <div class="profile-stat profile-stat-joined"><span class="t-micro ink-3">JOINED</span><strong class="t-label f12 g-muted" id="profile-stat-joined">GUEST</strong></div>
           </div>
         </section>
 
-        <section class="panel noise pad16 profile-library-panel" id="profile-library">
-          <div class="pl-head">
-            <div>
-              <div class="t-micro g400">PLAYER DESIGNS</div>
-              <div class="t-label f12 g100">Saved profiles</div>
-            </div>
-            <button class="btn-dark pl-new" type="button" id="pl-new-btn"><span class="t-label f11">+ NEW DESIGN</span></button>
+        <nav class="profile-tabs" id="profile-tabs" role="tablist" aria-label="Profile sections">
+          <button class="profile-tab" id="profile-tab-overview" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-overview" data-profile-tab="overview"><span class="t-label f11">OVERVIEW</span></button>
+          <button class="profile-tab" id="profile-tab-stats" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-stats" data-profile-tab="stats"><span class="t-label f11">STATISTICS</span></button>
+          <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
+          <button class="profile-tab" id="profile-tab-history" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-history" data-profile-tab="history"><span class="t-label f11">HISTORY</span></button>
+          <button class="profile-tab" id="profile-tab-account" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-account" data-profile-tab="account"><span class="t-label f11">ACCOUNT &amp; PREFERENCES</span></button>
+        </nav>
+
+        <section class="profile-tab-panel is-hidden" id="profile-panel-overview" role="tabpanel" aria-labelledby="profile-tab-overview" tabindex="0">
+          <div class="profile-overview-grid">
+            <section class="panel noise pad16 profile-overview-card">
+              <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Your table identity</h2></div>
+              <div class="profile-overview-person">
+                <div class="profile-overview-avatar" id="profile-overview-avatar" aria-hidden="true"></div>
+                <div><div class="t-label f14 g100" id="profile-overview-name">PLAYER</div><div class="t-micro ink-3" id="profile-overview-mode">GUEST MODE</div></div>
+              </div>
+              <p class="t-body ink-2 profile-overview-copy" id="profile-overview-copy">This is the name, color, and pixel face other players see at the table.</p>
+              <button class="cta-red profile-overview-edit" id="profile-overview-edit-btn" type="button"><span class="cta-text cta-text-sm">Edit player design</span></button>
+            </section>
+            <section class="panel noise pad16 profile-overview-card profile-overview-note">
+              <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Parlor record</h2></div>
+              <p class="t-body ink-2">Your record is updated after a completed server game. Guest play stays local until you choose to create an account.</p>
+              <div class="profile-overview-facts">
+                <div><span class="t-micro ink-3">STATUS</span><span class="t-label f12 green" id="profile-overview-status">READY</span></div>
+                <div><span class="t-micro ink-3">SYNC</span><span class="t-label f12 g100" id="profile-overview-sync">LOCAL ONLY</span></div>
+              </div>
+            </section>
           </div>
-          <div class="pl-list" id="pl-list"></div>
         </section>
 
-        <div class="profile-grid">
-          <!-- left: name + color + palette -->
-          <section class="panel noise pad16">
-            <div class="section-title">
-              <span data-sprite="diamond" data-size="3"></span>
-              <h2 class="t-section g300">Identity</h2>
-            </div>
+        <section class="profile-tab-panel is-hidden" id="profile-panel-stats" role="tabpanel" aria-labelledby="profile-tab-stats" tabindex="0">
+          <div id="profile-statistics-content"></div>
+        </section>
 
-            <label class="profile-field">
-              <span class="t-label f12 g-muted profile-label">Display Name</span>
-              <input id="profile-name" class="field" maxlength="12" placeholder="MARLOWE" />
-            </label>
-
-            <div class="profile-field">
-              <span class="t-label f12 g-muted profile-label">Token Color</span>
-              <div class="profile-swatches" id="profile-swatches"></div>
-              <div class="profile-custom-color">
-                <span class="t-micro ink-3">custom</span>
-                <input type="color" id="profile-color-picker" class="color-input" value="#d74438" />
-              </div>
+        <section class="profile-tab-panel" id="profile-panel-designs" role="tabpanel" aria-labelledby="profile-tab-designs" tabindex="0">
+          <section class="panel noise pad16 profile-library-panel" id="profile-library">
+            <div class="pl-head">
+              <div><div class="t-micro g400">PLAYER DESIGNS</div><div class="t-label f12 g100">Saved profiles</div></div>
+              <div class="pl-head-actions"><button class="cta-red pl-save" type="button" id="pl-save-btn"><span class="cta-text cta-text-sm">SAVE DESIGN</span></button><button class="btn-dark pl-new" type="button" id="pl-new-btn"><span class="t-label f11">+ NEW DESIGN</span></button></div>
             </div>
-
-            <div class="profile-field">
-              <span class="t-label f12 g-muted profile-label">Live Preview</span>
-              <div class="profile-preview-row">
-                <div class="profile-preview-av" id="profile-preview-av"></div>
-                <div class="profile-preview-info">
-                  <div class="t-label f13" id="profile-preview-name" style="color:#d74438">MARLOWE</div>
-                  <div class="t-micro ink-3">$1,500 · seat preview</div>
-                </div>
-              </div>
-            </div>
+            <p class="t-micro profile-save-status" id="profile-save-status" role="status" aria-live="polite"></p>
+            <div class="pl-list" id="pl-list"></div>
           </section>
 
-          <!-- right: pixel face editor -->
-          <section class="panel noise pad16">
-            <div class="section-title">
-              <span data-sprite="diamond" data-size="3"></span>
-              <h2 class="t-section g300">Draw Your Face</h2>
-              <span class="t-micro ink-3 face-hint">CLICK OR DRAG TO PAINT</span>
-            </div>
+          <div class="profile-grid">
+            <section class="panel noise pad16">
+              <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Identity</h2></div>
+              <label class="profile-field"><span class="t-label f12 g-muted profile-label">Design Name</span><input id="profile-name" class="field" maxlength="12" placeholder="MIDNIGHT SET" /></label>
+              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Token Color</span><div class="profile-swatches" id="profile-swatches"></div><div class="profile-custom-color"><span class="t-micro ink-3">custom</span><input type="color" id="profile-color-picker" class="color-input" value="#d74438" /></div></div>
+              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Live Preview</span><div class="profile-preview-row"><div class="profile-preview-av" id="profile-preview-av"></div><div class="profile-preview-info"><div class="t-label f13" id="profile-preview-name" style="color:#d74438">MARLOWE</div><div class="t-micro ink-3">$1,500 · seat preview</div></div></div></div>
+            </section>
+            <section class="panel noise pad16">
+              <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Draw Your Face</h2><span class="t-micro ink-3 face-hint">CLICK OR DRAG TO PAINT</span></div>
+              <div class="face-editor-row"><div class="face-canvas-wrap"><div class="face-canvas" id="face-canvas"></div></div><div class="face-tools"><div class="face-palette" id="face-palette"></div><div class="face-custom-color"><span class="t-micro ink-3">custom ink</span><input type="color" id="face-color-picker" class="color-input" value="#f0d9ac" /></div><button class="btn-dark face-tool-btn is-active" id="face-tool-paint" type="button"><span class="t-label f11">PAINT</span></button><button class="btn-dark face-tool-btn" id="face-tool-erase" type="button"><span class="t-label f11">ERASER</span></button><button class="btn-dark face-tool-btn" id="face-clear-btn" type="button"><span class="t-label f11">CLEAR</span></button><button class="btn-dark face-tool-btn" id="face-default-btn" type="button"><span class="t-label f11">DEFAULT FACE</span></button></div></div>
+              <p class="t-micro ink-3 face-footnote">8×8 PIXEL GRID · SAVED TO THIS BROWSER</p>
+            </section>
+          </div>
+        </section>
 
-            <div class="face-editor-row">
-              <div class="face-canvas-wrap">
-                <div class="face-canvas" id="face-canvas"></div>
-              </div>
+        <section class="profile-tab-panel is-hidden" id="profile-panel-history" role="tabpanel" aria-labelledby="profile-tab-history" tabindex="0">
+          <div id="profile-history-content"></div>
+        </section>
 
-              <div class="face-tools">
-                <div class="face-palette" id="face-palette"></div>
-                <div class="face-custom-color">
-                  <span class="t-micro ink-3">custom ink</span>
-                  <input type="color" id="face-color-picker" class="color-input" value="#f0d9ac" />
-                </div>
-                <button class="btn-dark face-tool-btn is-active" id="face-tool-paint" type="button">
-                  <span class="t-label f11">PAINT</span>
-                </button>
-                <button class="btn-dark face-tool-btn" id="face-tool-erase" type="button">
-                  <span class="t-label f11">ERASER</span>
-                </button>
-                <button class="btn-dark face-tool-btn" id="face-clear-btn" type="button">
-                  <span class="t-label f11">CLEAR</span>
-                </button>
-                <button class="btn-dark face-tool-btn" id="face-default-btn" type="button">
-                  <span class="t-label f11">DEFAULT FACE</span>
-                </button>
-              </div>
-            </div>
-            <p class="t-micro ink-3 face-footnote">8×8 PIXEL GRID · SAVED TO THIS BROWSER</p>
+        <section class="profile-tab-panel is-hidden" id="profile-panel-account" role="tabpanel" aria-labelledby="profile-tab-account" tabindex="0">
+          <section class="panel noise pad16 account-panel" id="account-panel">
+            <div class="account-panel-head"><div><div class="t-micro g400">PLAYER ACCOUNT</div><div class="t-label f12 g100" id="account-panel-title">Guest mode</div></div><span class="t-micro account-badge" id="account-panel-badge">LOCAL ONLY</span></div>
+            <div id="account-guest-state"><p class="t-body ink-2 account-copy">Save your identity and stats across rooms while keeping guest play account-free.</p><div class="account-actions"><button class="cta-red account-action-btn" type="button" id="account-register-btn"><span class="cta-text cta-text-sm">Create Account</span></button><button class="btn-dark account-action-btn" type="button" id="account-login-btn"><span class="t-label f12">Sign In</span></button></div></div>
+            <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p></div>
           </section>
-        </div>
+          <section class="panel noise pad16 profile-preferences"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Preferences</h2></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Table sound</span><span class="t-micro ink-3">UI cues, trades, hits, and actions.</span></div><span class="t-label f11 g-muted" id="profile-sound-state">SOUND OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Parlor music</span><span class="t-micro ink-3">The soundtrack continues while you play.</span></div><span class="t-label f11 g-muted" id="profile-music-state">MUSIC OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Guest play</span><span class="t-micro ink-3">No account is required to create or join a room.</span></div><span class="t-label f11 green">AVAILABLE</span></div></section>
+        </section>
       </main>
     </div>
 
     <div class="popup is-hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" aria-describedby="account-modal-description" aria-hidden="true">
       <button class="popup-scrim" id="account-scrim" aria-label="Close account dialog"></button>
       <div class="popup-card account-card panel noise" id="account-card"></div>
+    </div>
+
+    <div class="popup is-hidden" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" aria-hidden="true">
+      <button class="popup-scrim" id="confirm-scrim" aria-label="Cancel confirmation"></button>
+      <div class="popup-card panel noise confirm-card" id="confirm-card"></div>
     </div>
 
     <!-- ============================ GAME VIEW ============================ -->
@@ -495,14 +511,22 @@
                     <h2 class="t-section g300" id="setup-title">Choose Your Player Appearance</h2>
                     <span class="t-micro ink-3 su-tag">SETUP</span>
                   </div>
-                  <p class="t-body ink-2 su-copy" id="setup-description">Pick a color before entering the lobby.</p>
+                  <p class="t-body ink-2 su-copy" id="setup-description">Your active design is ready for this table. Change it only if you want a different look.</p>
 
-                  <div class="su-tabs" id="su-tabs" role="tablist" aria-label="Appearance source">
-                    <button class="su-tab is-active" id="su-tab-preset" type="button" data-su-tab="preset" role="tab" aria-selected="true" aria-controls="su-grid"><span class="t-label f11">PRESET</span></button>
-                    <button class="su-tab" id="su-tab-custom" type="button" data-su-tab="custom" role="tab" aria-selected="false" aria-controls="su-grid"><span class="t-label f11">CUSTOM</span><span class="t-micro su-tab-count" id="su-custom-count">0/4</span></button>
+                  <section class="su-active-card" id="su-active-card" aria-live="polite"></section>
+                  <div class="su-active-actions is-hidden" id="su-active-actions">
+                    <button class="btn-dark is-hidden" id="su-reset-btn" type="button"><span class="t-label f11">USE ACTIVE DESIGN</span></button>
+                    <button class="btn-dark is-hidden" id="su-make-active-btn" type="button"><span class="t-label f11">MAKE ACTIVE</span></button>
                   </div>
 
-                  <div class="su-grid" id="su-grid" role="tabpanel" aria-labelledby="su-tab-preset" tabindex="0"></div>
+                  <div class="su-chooser" id="su-chooser">
+                    <div class="su-tabs" id="su-tabs" role="tablist" aria-label="Appearance source">
+                      <button class="su-tab is-active" id="su-tab-preset" type="button" data-su-tab="preset" role="tab" aria-selected="true" aria-controls="su-grid"><span class="t-label f11">PRESET</span></button>
+                      <button class="su-tab" id="su-tab-custom" type="button" data-su-tab="custom" role="tab" aria-selected="false" aria-controls="su-grid"><span class="t-label f11">CUSTOM</span><span class="t-micro su-tab-count" id="su-custom-count">0/4</span></button>
+                    </div>
+
+                    <div class="su-grid" id="su-grid" role="tabpanel" aria-labelledby="su-tab-preset" tabindex="0"></div>
+                  </div>
 
                   <div class="su-actions">
                     <button class="cta-red su-start" id="su-start" type="button">
@@ -573,13 +597,14 @@
         <section class="panel noise right-rail" id="right-rail-game">
           <div class="rr-head">
             <span data-sprite="diamond" data-size="3"></span>
-            <h2 class="t-section g300">Holdings</h2>
+            <h2 class="t-section g300" id="rr-title">Holdings</h2>
             <span class="t-micro ink-3 rr-count" id="rr-count">0 DEEDS</span>
           </div>
           <div class="tabs" id="tabs" role="tablist" aria-label="Holdings views">
             <button class="tab is-active" id="tab-deeds" role="tab" aria-selected="true" aria-controls="rr-body" data-tab="deeds"><span class="t-label f12">MY DEEDS</span><span class="tab-underline"></span></button>
             <button class="tab" id="tab-trade" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="trade"><span class="t-label f12">TRADE</span><span class="tab-underline"></span></button>
             <button class="tab" id="tab-log" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="log"><span class="t-label f12">LOG</span><span class="tab-underline"></span></button>
+            <button class="tab" id="tab-finance" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="finance"><span class="t-label f12">FINANCE</span><span class="tab-underline"></span></button>
           </div>
           <div class="rr-body thin-scroll" id="rr-body" role="tabpanel" aria-labelledby="tab-deeds" tabindex="0"></div>
           <div class="rr-foot">
@@ -639,6 +664,12 @@
     <div class="popup is-hidden" id="deed-modal" role="dialog" aria-modal="true" aria-labelledby="deed-card-title" aria-hidden="true">
       <button class="popup-scrim" id="deed-scrim" aria-label="Close deed"></button>
       <div class="popup-card deed-detail-card panel noise" id="deed-card-detail"></div>
+    </div>
+
+    <!-- financing UI model (server financing is intentionally not enabled yet) -->
+    <div class="popup is-hidden" id="financing-modal" role="dialog" aria-modal="true" aria-labelledby="financing-card-title" aria-describedby="financing-card-description" aria-hidden="true">
+      <button class="popup-scrim" id="financing-scrim" aria-label="Close financing preview"></button>
+      <div class="popup-card financing-card panel noise" id="financing-card"></div>
     </div>
 
     <!-- bankruptcy -->

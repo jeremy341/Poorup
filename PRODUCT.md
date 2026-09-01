@@ -44,7 +44,7 @@ Poorup combines a complete server-authoritative property game with account-free 
 
 - Working multiplayer implementation in `server/` with the plain client in `public/main.js`.
 - The latest supplied archive adds a profile library, room tabs, sound toggle, card reveals, deed detail, auction pass UI, turn timer, and game-over surface; these remain available in the plain client.
-- Existing board topology and content in `public/assets/playingfield-beige.svg`.
+- Existing board topology and content in the plain HTML/CSS board renderer; the protected legacy SVG copy is retained only for rollback.
 - Current landing and game-shell accessibility improvements live in `public/index.html` and `public/styles.css`.
 - No testimonials, usage numbers, customer logos, or external performance claims are available and none may be fabricated.
 

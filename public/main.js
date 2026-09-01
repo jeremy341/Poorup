@@ -242,6 +242,9 @@ const PROFILE_KEY = "poorup.profile.v1";   // legacy single profile
 const LIBRARY_KEY = "poorup.profiles.v1";  // array of saved profiles
 const ACCOUNT_SESSION_KEY = "poorup.account.session.v1";
 const GUEST_ALIAS_KEY = "poorup.guest.alias.v1";
+const ACTIVE_DESIGN_KEY = "poorup.active-design.v1";
+const SOUND_KEY = "poorup.sound.enabled.v1";
+const MUSIC_KEY = "poorup.music.enabled.v1";
 
 function sanitizeProfile(p) {
   if (!p || typeof p !== "object") return null;
@@ -253,12 +256,17 @@ function sanitizeProfile(p) {
       return typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) ? v : null;
     }),
   );
+  const designName = String(p.designName || p.name || "PLAYER").toUpperCase().slice(0, 12) || "PLAYER";
   return {
     id: typeof p.id === "string" ? p.id : `pf_${Math.random().toString(36).slice(2, 9)}`,
-    name: String(p.name || "PLAYER").toUpperCase().slice(0, 12),
+    designName,
     color: p.color,
     avatarGrid: grid,
   };
+}
+
+function profileDesignName(profile) {
+  return String(profile?.designName || profile?.name || "PLAYER").trim().toUpperCase().slice(0, 12) || "PLAYER";
 }
 
 function loadProfiles() {
@@ -282,6 +290,37 @@ function loadProfiles() {
     } catch { /* ignore */ }
   }
   return library;
+}
+
+function loadActiveDesignId(profiles = []) {
+  let raw = "";
+  try { raw = String(localStorage.getItem(ACTIVE_DESIGN_KEY) || ""); } catch { /* storage unavailable */ }
+  if (/^\d+$/.test(raw)) {
+    const preset = Number(raw);
+    if (preset >= 0 && preset < APPEARANCES.length) return preset;
+  }
+  if (raw && profiles.some((profile) => profile.id === raw)) return raw;
+  return profiles[0]?.id || 0;
+}
+
+function saveActiveDesignId(choice) {
+  try { localStorage.setItem(ACTIVE_DESIGN_KEY, String(choice)); } catch { /* storage unavailable */ }
+}
+
+function loadSoundPreference() {
+  try { return localStorage.getItem(SOUND_KEY) === "1"; } catch { return false; }
+}
+
+function saveSoundPreference(enabled) {
+  try { localStorage.setItem(SOUND_KEY, enabled ? "1" : "0"); } catch { /* storage unavailable */ }
+}
+
+function loadMusicPreference() {
+  try { return localStorage.getItem(MUSIC_KEY) === "1"; } catch { return false; }
+}
+
+function saveMusicPreference(enabled) {
+  try { localStorage.setItem(MUSIC_KEY, enabled ? "1" : "0"); } catch { /* storage unavailable */ }
 }
 
 function loadGuestAlias() {
@@ -318,6 +357,13 @@ function sanitizeAccountSession(value) {
         wins: Number(account.stats?.wins) || 0,
         bankruptcies: Number(account.stats?.bankruptcies) || 0,
       },
+      history: Array.isArray(account.history) ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50).map((entry) => ({
+        playedAt: typeof entry.playedAt === "string" ? entry.playedAt : null,
+        result: entry.result === "WIN" ? "WIN" : "ROUND",
+        won: entry.won === true || entry.result === "WIN",
+        endingCash: Math.max(0, Number(entry.endingCash) || 0),
+        properties: Math.max(0, Number(entry.properties) || 0),
+      })) : [],
     },
   };
 }
@@ -365,8 +411,13 @@ function upsertProfile(profile) {
 function deleteProfile(id) {
   state.profiles = state.profiles.filter((p) => p.id !== id);
   saveProfilesToStorage(state.profiles);
-  // if the active appearance pointed at this profile, reset to CRIMSON
-  if (typeof state.appearance === "string" && state.appearance === id) state.appearance = 0;
+  // If the active design was removed, fall back deterministically and persist
+  // the fallback so home, account, and the next lobby share one source of truth.
+  if (state.appearance === id) {
+    state.appearance = state.profiles[0]?.id || 0;
+    saveActiveDesignId(state.appearance);
+  }
+  if (state.tableAppearanceOverride === id) state.tableAppearanceOverride = null;
 }
 
 function getProfileById(id) {
@@ -381,7 +432,7 @@ function getAppearanceMeta(choice) {
     if (p) {
       return {
         label: "CUSTOM",
-        baseName: p.name || "PLAYER",
+        baseName: "PLAYER",
         color: p.color,
         textColor: p.color,
         avatarGrid: p.avatarGrid,
@@ -484,6 +535,9 @@ const state = {
   roomCode: "",
   alias: loadGuestAlias(),
   appearance: 0,
+  tableAppearanceOverride: null, // optional one-table override; null inherits active design
+  homeTab: "play",          // play | rooms | profile
+  profileTab: "designs",    // overview | stats | designs | history | account
   setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
   profiles: loadProfiles(),   // persisted array of saved player designs
   profileDraft: null,         // working copy while the profile editor is open
@@ -514,7 +568,8 @@ const state = {
   jail: {},             // { playerId: turnsRemaining }
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
-  sound: false,         // audio toggle
+  sound: loadSoundPreference(), // global effects toggle
+  music: loadMusicPreference(), // global soundtrack toggle
   quickJoin: false,     // "quick table" uses all-default rules
   settings: {
     maxPlayers:      4,       // 2 – 4
@@ -542,12 +597,13 @@ const state = {
    game state machine to a particular modal implementation.
    ============================================================ */
 const SURFACE_SELECTORS = [
-  "#rooms-modal", "#account-modal", "#setup-wrap", "#popup", "#trade-modal", "#choice-modal",
-  "#auction-modal", "#offer-modal", "#deed-modal", "#bankruptcy-modal",
+  "#rooms-modal", "#account-modal", "#confirm-modal", "#setup-wrap", "#popup", "#trade-modal", "#choice-modal",
+  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bankruptcy-modal",
   "#card-modal", "#gameover-modal",
 ];
 let surfaceReturnFocus = null;
 const surfaceInertNodes = new Set();
+let pendingConfirmation = null;
 
 function visibleSurfaces() {
   return SURFACE_SELECTORS
@@ -625,6 +681,7 @@ function closeSurface(selector) {
 }
 
 function closeAllSurfaces() {
+  pendingConfirmation = null;
   SURFACE_SELECTORS.forEach((selector) => {
     const surface = $(selector);
     if (surface) {
@@ -647,10 +704,9 @@ function focusSurface(selector, focusSelector) {
 }
 
 if (state.profiles.length) {
-  const first = state.profiles[0];
-  state.appearance = first.id;
-  state.alias = first.name || "PLAYER";
-  state.players = buildPlayers(first.id, state.alias);
+  state.appearance = loadActiveDesignId(state.profiles);
+  state.alias = loadGuestAlias();
+  state.players = buildPlayers(state.appearance, state.alias);
 }
 if (state.account) {
   state.alias = state.account.account.displayName;
@@ -658,6 +714,49 @@ if (state.account) {
 }
 
 try { localStorage.setItem("poorup-client-id", state.clientId); } catch { /* storage unavailable */ }
+
+function activeAppearance() {
+  return state.tableAppearanceOverride ?? state.appearance;
+}
+
+function syncLocalAppearance() {
+  const self = state.players.find((player) => player.id === "p1" || player.clientId === state.clientId);
+  if (!self) return;
+  const meta = getAppearanceMeta(activeAppearance());
+  self.color = meta.color;
+  self.textColor = meta.textColor;
+  self.avatarGrid = meta.avatarGrid || undefined;
+}
+
+function setActiveAppearance(choice) {
+  state.appearance = choice;
+  state.tableAppearanceOverride = null;
+  saveActiveDesignId(choice);
+  syncLocalAppearance();
+  applyProfileToHomeUI();
+  renderAccountPanel();
+  renderProfileLibrary();
+}
+
+function setTableAppearanceOverride(choice) {
+  state.tableAppearanceOverride = choice === state.appearance ? null : choice;
+  syncLocalAppearance();
+  renderPlayers();
+  renderSetup();
+  renderLobbyRail();
+  syncServerAppearance();
+}
+
+function clearTableAppearanceOverride() {
+  state.tableAppearanceOverride = null;
+  syncLocalAppearance();
+  renderPlayers();
+  renderSetup();
+  renderLobbyRail();
+  syncServerAppearance();
+}
+
+syncLocalAppearance();
 
 /* ============================================================
    LIVE SOCKET.IO ADAPTER
@@ -700,6 +799,7 @@ function serverTileFor(index) {
 function applyServerState(snapshot) {
   if (!snapshot?.room || !snapshot?.game) return;
   if (state.suppressRoomUpdates) return;
+  const previousPositions = new Map(state.players.map((player) => [player.id, Number(player.pos) || 0]));
   setConnectionStatus("online");
   const { room, game } = snapshot;
   state.roomCode = room.roomCode || state.roomCode;
@@ -727,6 +827,7 @@ function applyServerState(snapshot) {
     if (b.clientId === state.clientId) return 1;
     return turnOrder.indexOf(a.serverId) - turnOrder.indexOf(b.serverId);
   });
+  syncLocalAppearance();
   state.turnIndex = Math.max(0, state.players.findIndex((player) => player.serverId === game.currentPlayerId));
   state.dice = Array.isArray(game.lastDice) ? game.lastDice : [0, 0];
   state.pool = Number(game.vacationPool) || 0;
@@ -743,6 +844,11 @@ function applyServerState(snapshot) {
     Number(player.jailTurns) || 1,
   ]));
   state.phase = game.started ? "playing" : state.phase === "setup" ? "setup" : "lobby";
+  const movementPlans = state.phase === "playing"
+    ? state.players
+        .map((player) => ({ player, from: previousPositions.get(player.id), to: Number(player.pos) || 0 }))
+        .filter(({ from, to }) => from != null && from !== to && (to - from + TILE_COUNT) % TILE_COUNT <= 12)
+    : [];
   const turnKey = `${game.currentPlayerId || "none"}:${game.hasRolled ? "rolled" : "roll"}:${game.extraRollPending ? "extra" : "normal"}`;
   const turnChanged = state.previousTurnKey !== turnKey;
   state.previousTurnKey = turnKey;
@@ -767,6 +873,9 @@ function applyServerState(snapshot) {
   } : null;
   showView("game");
   renderAll();
+  if (movementPlans.length) {
+    requestAnimationFrame(() => movementPlans.forEach(({ player, from, to }) => startPieceWalk(player.id, from, to)));
+  }
   if (state.auction) {
     renderAuction();
     openSurface("#auction-modal", "#auction-pass");
@@ -942,6 +1051,203 @@ function accountRate(stats = {}) {
   return games ? `${Math.round(((Number(stats.wins) || 0) / games) * 100)}%` : "0%";
 }
 
+function profileDisplaySource() {
+  const account = state.account?.account || null;
+  const draft = state.profileDraft || null;
+  const selected = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
+  const profile = draft || selected || null;
+  const activeMeta = getAppearanceMeta(state.appearance);
+  const name = account?.displayName || state.alias || "PLAYER";
+  // The active saved design drives the avatar; account data only supplies a
+  // fallback when no local design exists. Account display name stays separate.
+  const color = draft?.color || profile?.color || account?.color || activeMeta.color || "#d74438";
+  const grid = draft?.grid || profile?.avatarGrid || account?.avatarGrid || null;
+  return { account, profile, name, color, grid, designName: profile ? profileDesignName(profile) : activeMeta.label };
+}
+
+/**
+ * Poorup-styled confirmation surface. Keep destructive actions inside the
+ * shared dialog controller so they inherit focus trapping, Escape handling,
+ * inert background behaviour, and focus restoration.
+ */
+function openConfirmModal({ title = "Confirm action", message = "", confirmLabel = "CONFIRM", onConfirm } = {}) {
+  const card = $("#confirm-card");
+  if (!card) return;
+  pendingConfirmation = typeof onConfirm === "function" ? onConfirm : null;
+  card.innerHTML = `
+    <div class="confirm-body">
+      <div class="confirm-head">
+        <div>
+          <div class="t-micro red">CONFIRM ACTION</div>
+          <h2 class="t-section g100" id="confirm-title">${esc(title)}</h2>
+        </div>
+        <span data-sprite="diamond" data-size="3" aria-hidden="true"></span>
+      </div>
+      <p class="t-body ink-2 confirm-message" id="confirm-description">${esc(message)}</p>
+      <div class="confirm-actions">
+        <button class="btn-dark" type="button" id="confirm-cancel"><span class="t-label f11">CANCEL</span></button>
+        <button class="cta-red" type="button" id="confirm-accept"><span class="cta-text cta-text-sm">${esc(confirmLabel)}</span></button>
+      </div>
+    </div>`;
+  hydrateSprites(card);
+  openSurface("#confirm-modal", "#confirm-cancel");
+  $("#confirm-scrim")?.addEventListener("click", closeConfirmModal);
+  $("#confirm-cancel")?.addEventListener("click", closeConfirmModal);
+  $("#confirm-accept")?.addEventListener("click", () => {
+    const action = pendingConfirmation;
+    pendingConfirmation = null;
+    closeSurface("#confirm-modal");
+    action?.();
+  });
+}
+
+function closeConfirmModal() {
+  pendingConfirmation = null;
+  closeSurface("#confirm-modal");
+}
+
+function renderProfileSummary() {
+  const source = profileDisplaySource();
+  const { account, name, color, grid } = source;
+  const safeName = String(name || "PLAYER").trim() || "PLAYER";
+  const displayName = safeName.toUpperCase();
+  const accountStats = account?.stats || {};
+  const stats = {
+    games: Number(accountStats.gamesPlayed) || 0,
+    wins: Number(accountStats.wins) || 0,
+    rate: accountRate(accountStats),
+    bankruptcies: Number(accountStats.bankruptcies) || 0,
+  };
+  const avatarMarkup = grid ? spriteFromGrid(grid, 6) : avatarHTML({ color }, 6, 0);
+
+  const heroAvatar = $("#profile-hero-avatar");
+  if (heroAvatar) heroAvatar.innerHTML = avatarMarkup;
+  const overviewAvatar = $("#profile-overview-avatar");
+  if (overviewAvatar) overviewAvatar.innerHTML = grid ? spriteFromGrid(grid, 5) : avatarHTML({ color }, 5, 0);
+  $("#profile-hero-name")?.replaceChildren(document.createTextNode(displayName));
+  $("#profile-overview-name")?.replaceChildren(document.createTextNode(displayName));
+  const handle = $("#profile-hero-handle");
+  if (handle) handle.textContent = account ? `@${account.username}` : "GUEST MODE";
+  const stateLabel = $("#profile-hero-state");
+  if (stateLabel) {
+    stateLabel.textContent = account ? "ACCOUNT PLAYER · STATS SYNCED AFTER COMPLETED ROUNDS" : "LOCAL PLAYER · READY FOR THE NEXT TABLE";
+    stateLabel.classList.toggle("is-account", Boolean(account));
+  }
+  const heroAction = $("#profile-hero-account-btn");
+  if (heroAction) heroAction.querySelector(".t-label").textContent = account ? "EDIT ACCOUNT" : "CREATE ACCOUNT";
+  $("#profile-stat-games")?.replaceChildren(document.createTextNode(String(stats.games)));
+  $("#profile-stat-wins")?.replaceChildren(document.createTextNode(String(stats.wins)));
+  $("#profile-stat-rate")?.replaceChildren(document.createTextNode(stats.rate));
+  $("#profile-stat-bankruptcies")?.replaceChildren(document.createTextNode(String(stats.bankruptcies)));
+  const joined = $("#profile-stat-joined");
+  if (joined) joined.textContent = account?.createdAt ? new Date(account.createdAt).toLocaleDateString(undefined, { month: "short", year: "numeric" }).toUpperCase() : "GUEST";
+  $("#profile-overview-mode")?.replaceChildren(document.createTextNode(account ? `@${account.username}` : "GUEST MODE"));
+  const overviewStatus = $("#profile-overview-status");
+  if (overviewStatus) overviewStatus.textContent = state.connectionStatus === "online" ? "READY" : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE").toUpperCase();
+  const overviewSync = $("#profile-overview-sync");
+  if (overviewSync) overviewSync.textContent = account ? "ACCOUNT SYNC" : "LOCAL ONLY";
+  const soundState = $("#profile-sound-state");
+  if (soundState) soundState.textContent = state.sound ? "SOUND ON" : "SOUND OFF";
+  const musicState = $("#profile-music-state");
+  if (musicState) musicState.textContent = state.music ? "MUSIC ON" : "MUSIC OFF";
+  renderProfileStatistics();
+  renderProfileHistory();
+}
+
+function formatStatDate(value) {
+  if (!value) return "ROUND";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "ROUND";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
+}
+
+function renderProfileStatistics() {
+  const root = $("#profile-statistics-content");
+  if (!root) return;
+  const account = state.account?.account || null;
+  const stats = account?.stats || {};
+  const games = Math.max(0, Number(stats.gamesPlayed) || 0);
+  const wins = Math.max(0, Math.min(games, Number(stats.wins) || 0));
+  const bankruptcies = Math.max(0, Number(stats.bankruptcies) || 0);
+  const history = Array.isArray(account?.history)
+    ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50)
+    : [];
+  const chronological = [...history].reverse().slice(-12);
+  const averageCash = history.length
+    ? Math.round(history.reduce((sum, entry) => sum + Math.max(0, Number(entry.endingCash) || 0), 0) / history.length)
+    : null;
+  const bestCash = history.length ? Math.max(...history.map((entry) => Math.max(0, Number(entry.endingCash) || 0))) : null;
+  const bestProperties = history.length ? Math.max(...history.map((entry) => Math.max(0, Number(entry.properties) || 0))) : null;
+  const winShare = games ? Math.round((wins / games) * 100) : 0;
+  const sourceLabel = account ? "ACCOUNT SYNC" : "LOCAL ONLY";
+  const record = (label, value, tone = "g100") => `<div class="stats-record"><span class="t-micro ink-3">${label}</span><strong class="t-label f16 ${tone}">${value}</strong></div>`;
+  const trendBars = chronological.length
+    ? chronological.map((entry, index) => {
+        const won = String(entry.result || "").toUpperCase() === "WIN" || entry.won === true;
+        const height = won ? 100 : 30;
+        const label = won ? "WIN" : "ROUND";
+        return `<div class="stats-bar-column"><span class="stats-bar-value t-micro ${won ? "green" : "ink-3"}">${label}</span><span class="stats-bar ${won ? "is-win" : "is-loss"}" style="--bar-height:${height}%" title="${formatStatDate(entry.playedAt)} · ${label}"></span><span class="stats-bar-label t-micro ink-3">${formatStatDate(entry.playedAt)}</span></div>`;
+      }).join("")
+    : `<div class="stats-chart-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">${account ? "NO ROUND HISTORY YET" : "ACCOUNT HISTORY UNAVAILABLE"}</strong><span class="t-micro ink-3">${account ? "Complete a server round to unlock this trend." : "Create an account to sync completed-round statistics."}</span></div>`;
+  const trendTable = chronological.length
+    ? `<table class="stats-data-table"><caption>Recent round results</caption><thead><tr><th scope="col">ROUND</th><th scope="col">RESULT</th><th scope="col">ENDING CASH</th><th scope="col">PROPERTIES</th></tr></thead><tbody>${chronological.map((entry, index) => { const won = String(entry.result || "").toUpperCase() === "WIN" || entry.won === true; return `<tr><th scope="row">${formatStatDate(entry.playedAt)} · ${String(index + 1).padStart(2, "0")}</th><td class="${won ? "green" : "ink-2"}">${won ? "WIN" : "ROUND"}</td><td>$${Math.max(0, Number(entry.endingCash) || 0).toLocaleString()}</td><td>${Math.max(0, Number(entry.properties) || 0)}</td></tr>`; }).join("")}</tbody></table>`
+    : "";
+
+  root.innerHTML = `<div class="stats-intro panel noise"><div><div class="t-micro g400">PERFORMANCE DECK</div><h2 class="t-section g100">Player Statistics</h2><p class="t-body ink-2">A readable record of the rounds you have finished, not a live ranking or a promise of future results.</p></div><span class="t-micro stats-source ${account ? "green" : "g300"}">${sourceLabel}</span></div>
+    <div class="stats-metric-grid" aria-label="Performance summary">${record("ROUNDS", account ? String(games) : "—")}${record("WINS", account ? String(wins) : "—", "green")}${record("WIN RATE", account ? `${winShare}%` : "—", "g300")}${record("BANKRUPTCIES", account ? String(bankruptcies) : "—", "g-muted")}</div>
+    <div class="stats-content-grid"><section class="panel noise pad16 stats-trend-panel" aria-labelledby="stats-trend-heading"><div class="stats-panel-head"><div><div class="t-micro g400">RECENT FORM</div><h3 class="t-section g100" id="stats-trend-heading">Win history</h3></div><span class="t-micro ink-3">LAST ${chronological.length || 0} ROUNDS</span></div><div class="stats-chart" role="img" aria-label="Win history chart showing ${wins} wins across ${games} completed rounds"><div class="stats-chart-y"><span class="t-micro ink-3">WIN</span><span class="t-micro ink-3">ROUND</span></div><div class="stats-chart-plot"><div class="stats-chart-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="stats-chart-bars">${trendBars}</div></div></div>${trendTable}</section><section class="panel noise pad16 stats-records-panel" aria-labelledby="stats-records-heading"><div class="stats-panel-head"><div><div class="t-micro g400">PARLOR RECORDS</div><h3 class="t-section g100" id="stats-records-heading">Personal bests</h3></div><span class="t-micro ink-3">VERIFIED ROUNDS</span></div><div class="stats-record-list">${record("AVG ENDING CASH", averageCash == null ? "—" : `$${averageCash.toLocaleString()}`)}${record("BEST CASH STACK", bestCash == null ? "—" : `$${bestCash.toLocaleString()}`, "green")}${record("MOST PROPERTIES", bestProperties == null ? "—" : String(bestProperties), "g300")}${record("DATA WINDOW", account ? (history.length ? `${history.length} ROUNDS` : "NO ROUNDS") : "ACCOUNT ONLY", "g-muted")}</div><p class="t-micro ink-3 stats-method">Values are calculated from completed server rounds. No estimates are shown.</p></section></div>`;
+  hydrateSprites(root);
+}
+
+function renderProfileHistory() {
+  const root = $("#profile-history-content");
+  if (!root) return;
+  const account = state.account?.account || null;
+  const history = Array.isArray(account?.history)
+    ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50)
+    : [];
+  if (!account || !history.length) {
+    root.innerHTML = `<section class="panel noise pad16 profile-empty-panel"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2></div><p class="t-body ink-2">${account ? "NO COMPLETED ROUNDS YET. YOUR FIRST FINISH WILL APPEAR HERE." : "SIGN IN TO KEEP A SERVER-SYNCED ROUND HISTORY."}</p><p class="t-micro ink-3">Only completed server rounds appear here. Guest play remains available without an account.</p></section>`;
+    hydrateSprites(root);
+    return;
+  }
+  root.innerHTML = `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${history.map((entry, index) => { const won = String(entry.result || "").toUpperCase() === "WIN" || entry.won === true; return `<div class="profile-history-row${won ? " is-win" : ""}"><span class="profile-history-index t-micro ink-3">${String(history.length - index).padStart(2, "0")}</span><div class="profile-history-main"><span class="t-label f12 ${won ? "green" : "g100"}">${won ? "WIN" : "ROUND COMPLETE"}</span><span class="t-micro ink-3">${formatStatDate(entry.playedAt)}</span></div><div class="profile-history-meta"><span class="t-micro ink-3">CASH</span><span class="t-label f11 g100">$${Math.max(0, Number(entry.endingCash) || 0).toLocaleString()}</span><span class="t-micro ink-3">DEEDS ${Math.max(0, Number(entry.properties) || 0)}</span></div></div>`; }).join("")}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Private-room results are visible only to participating accounts.</p></section>`;
+  hydrateSprites(root);
+}
+
+function setHomeTab(tab = "play") {
+  const next = ["play", "rooms", "profile"].includes(tab) ? tab : "play";
+  state.homeTab = next;
+  document.querySelectorAll("#home-nav [data-home-tab]").forEach((button) => {
+    const active = button.dataset.homeTab === next;
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function setProfileTab(tab = "designs", focus = false) {
+  const allowed = ["overview", "stats", "designs", "history", "account"];
+  const next = allowed.includes(tab) ? tab : "designs";
+  state.profileTab = next;
+  const root = $("#view-profile");
+  if (root) root.dataset.profileTab = next;
+  document.querySelectorAll("#profile-tabs [data-profile-tab]").forEach((button) => {
+    const active = button.dataset.profileTab === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll("#view-profile .profile-tab-panel").forEach((panel) => {
+    panel.classList.toggle("is-hidden", panel.id !== `profile-panel-${next}`);
+  });
+  renderProfileSummary();
+  if (focus) {
+    const panel = $(`#profile-panel-${next}`);
+    panel?.focus({ preventScroll: true });
+  }
+}
+
 function renderAccountPanel() {
   const signedIn = Boolean(state.account?.account);
   const guest = $("#account-guest-state");
@@ -952,10 +1258,12 @@ function renderAccountPanel() {
   const badge = $("#account-panel-badge");
   if (title) title.textContent = signedIn ? `@${state.account.account.username}` : "Guest mode";
   if (badge) badge.textContent = signedIn ? "ACCOUNT ACTIVE" : "LOCAL ONLY";
+  renderProfileSummary();
   if (!signedIn) return;
   const account = state.account.account;
+  const visual = profileDisplaySource();
   const avatar = $("#account-avatar");
-  if (avatar) avatar.innerHTML = account.avatarGrid ? spriteFromGrid(account.avatarGrid, 4) : avatarHTML(account, 4, 0);
+  if (avatar) avatar.innerHTML = visual.grid ? spriteFromGrid(visual.grid, 4) : avatarHTML({ color: visual.color }, 4, 0);
   $("#account-display-name")?.replaceChildren(document.createTextNode(account.displayName));
   $("#account-username")?.replaceChildren(document.createTextNode(`@${account.username}`));
   $("#account-games")?.replaceChildren(document.createTextNode(String(account.stats?.gamesPlayed || 0)));
@@ -975,26 +1283,31 @@ function updateAccountFromResponse(response) {
 
 function accountModalHTML(mode) {
   const register = mode === "register";
+  const edit = mode === "edit";
+  const account = state.account?.account || null;
+  const title = edit ? "Edit Account" : register ? "Create account" : "Sign in";
+  const description = edit
+    ? "Update the account display name used at every table. Your saved designs keep their own names."
+    : register
+      ? "Keep guest play free, or save your player identity and stats across rooms."
+      : "Sign in to load your saved display name, face, color, and game record.";
   return `
     <div class="account-modal-body">
       <div class="account-modal-head">
         <div>
           <div class="t-micro g400">POORUP IDENTITY</div>
-          <h2 class="t-section g100" id="account-modal-title">${register ? "Create account" : "Sign in"}</h2>
+          <h2 class="t-section g100" id="account-modal-title">${title}</h2>
         </div>
         <button class="btn-dark" id="account-modal-close" type="button"><span class="t-label f11">CLOSE</span></button>
       </div>
-      <p class="t-body ink-2" id="account-modal-description">${register ? "Keep guest play free, or save your player identity and stats across rooms." : "Sign in to load your saved display name, face, color, and game record."}</p>
-      <div class="account-modal-tabs" role="tablist" aria-label="Account actions">
-        <button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" role="tab" aria-selected="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button>
-        <button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" role="tab" aria-selected="${!register}"><span class="t-label f12">SIGN IN</span></button>
-      </div>
+      <p class="t-body ink-2" id="account-modal-description">${description}</p>
+      ${edit ? "" : `<div class="account-modal-tabs" role="tablist" aria-label="Account actions"><button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" role="tab" aria-selected="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" role="tab" aria-selected="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`}
       <form class="account-form" id="account-form">
-        <label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" name="username" maxlength="16" minlength="3" pattern="[A-Za-z0-9_]{3,16}" autocomplete="username" required placeholder="night_player" /></label>
-        ${register ? `<label class="account-field"><span class="t-label f12 g-muted">Display Name</span><input class="field" id="account-display-input" name="displayName" maxlength="18" autocomplete="nickname" required placeholder="Marlowe" /></label>` : ""}
-        <label class="account-field"><span class="t-label f12 g-muted">Password</span><input class="field" id="account-password-input" name="password" type="password" minlength="8" maxlength="72" autocomplete="${register ? "new-password" : "current-password"}" required placeholder="8 characters minimum" /></label>
+        ${edit ? `<label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" value="${esc(account?.username || "")}" readonly aria-readonly="true" /></label>` : `<label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" name="username" maxlength="16" minlength="3" pattern="[A-Za-z0-9_]{3,16}" autocomplete="username" required placeholder="night_player" /></label>`}
+        ${(register || edit) ? `<label class="account-field"><span class="t-label f12 g-muted">Display Name</span><input class="field" id="account-display-input" name="displayName" maxlength="18" autocomplete="nickname" required placeholder="Marlowe" value="${edit ? esc(account?.displayName || "") : ""}" /></label>` : ""}
+        ${edit ? "" : `<label class="account-field"><span class="t-label f12 g-muted">Password</span><input class="field" id="account-password-input" name="password" type="password" minlength="8" maxlength="72" autocomplete="${register ? "new-password" : "current-password"}" required placeholder="8 characters minimum" /></label>`}
         <p class="account-form-error" id="account-form-error" role="alert" aria-live="assertive"></p>
-        <button class="cta-red account-submit" type="submit"><span class="cta-text cta-text-sm">${register ? "Create Account" : "Sign In"}</span></button>
+        <button class="cta-red account-submit" type="submit"><span class="cta-text cta-text-sm">${edit ? "Save Account" : register ? "Create Account" : "Sign In"}</span></button>
       </form>
       <p class="t-micro ink-3 account-modal-foot">Guest play remains available without an account. Passwords are never shown in the game UI.</p>
     </div>`;
@@ -1005,7 +1318,7 @@ function openAccountModal(mode = "register") {
   const card = $("#account-card");
   if (!card) return;
   card.innerHTML = accountModalHTML(mode);
-  openSurface("#account-modal", "#account-username-input");
+  openSurface("#account-modal", mode === "edit" || mode === "register" ? "#account-display-input" : "#account-username-input");
   $("#account-modal-close")?.addEventListener("click", closeAccountModal);
   $("#account-tab-register")?.addEventListener("click", () => openAccountModal("register"));
   $("#account-tab-login")?.addEventListener("click", () => openAccountModal("login"));
@@ -1015,7 +1328,7 @@ function openAccountModal(mode = "register") {
     const payload = Object.fromEntries(new FormData(form).entries());
     const error = $("#account-form-error");
     if (error) error.textContent = "";
-    const eventName = accountModalMode === "register" ? "account-register" : "account-login";
+    const eventName = accountModalMode === "register" ? "account-register" : accountModalMode === "edit" ? "account-update" : "account-login";
     const submit = form.querySelector("button[type=submit]");
     if (submit) submit.disabled = true;
     emitServer(eventName, payload, (response) => {
@@ -1028,10 +1341,10 @@ function openAccountModal(mode = "register") {
       }
       updateAccountFromResponse(response);
       closeAccountModal();
-      say(accountModalMode === "register" ? "Account created. Your identity is saved." : "Signed in. Your identity is ready.");
+      say(accountModalMode === "register" ? "Account created. Your identity is saved." : accountModalMode === "edit" ? "Account name updated." : "Signed in. Your identity is ready.");
     });
   });
-  focusSurface("#account-modal", "#account-username-input");
+  focusSurface("#account-modal", mode === "edit" || mode === "register" ? "#account-display-input" : "#account-username-input");
 }
 
 function closeAccountModal() {
@@ -1042,11 +1355,12 @@ function logoutAccount() {
   const token = state.account?.sessionToken;
   if (token) emitServer("account-logout", { sessionToken: token }, () => {});
   saveAccountSession(null);
-  const fallback = state.profiles[0] || null;
-  state.appearance = fallback?.id || 0;
-  state.alias = fallback?.name || loadGuestAlias();
+  state.tableAppearanceOverride = null;
+  state.appearance = loadActiveDesignId(state.profiles);
+  saveActiveDesignId(state.appearance);
+  state.alias = loadGuestAlias();
   saveGuestAlias(state.alias);
-  state.players = buildPlayers(state.appearance, state.alias);
+  state.players = buildPlayers(activeAppearance(), state.alias);
   renderAccountPanel();
   applyProfileToHomeUI();
   renderProfileEditor();
@@ -1066,7 +1380,7 @@ const addCash = (id, delta) => {
    5. HOME SCREEN
    ============================================================ */
 const SKYLINE = [
-  [2, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
+  [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
   [33, 6, 7, 30], [41, 15, 5, 21], [47, 2, 8, 34], [56, 18, 5, 18], [62, 10, 6, 26],
   [69, 22, 5, 14], [75, 15, 6, 21], [82, 25, 5, 11],
 ];
@@ -1090,11 +1404,597 @@ function paintSkyline(el, data) {
   el.innerHTML = out;
 }
 
+const PATROL_BEST_KEY = "poorup.parlor-patrol.best.v1";
+let homeHelicopterTimer = null;
+let homeHelicopterFlightTimer = null;
+let homePatrolStatusTimer = null;
+let homeClockTimer = null;
+let patrolHitAudio = null;
+const patrolState = { score: 0, best: 0, active: false };
+try { patrolState.best = Number(localStorage.getItem(PATROL_BEST_KEY)) || 0; } catch { /* storage unavailable */ }
+
+function renderPatrolHud(status = "STANDBY · FLY-BYS OCCASIONAL") {
+  const score = $("#home-patrol-score");
+  const label = $("#home-patrol-status");
+  if (score) score.textContent = String(patrolState.score).padStart(3, "0");
+  if (label) label.textContent = status;
+}
+
+function renderHomeLocalTime() {
+  const clock = $("#home-local-time");
+  if (!clock) return;
+  const now = new Date();
+  clock.textContent = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  clock.dateTime = now.toISOString();
+}
+
+function startHomeClock() {
+  clearInterval(homeClockTimer);
+  renderHomeLocalTime();
+  homeClockTimer = setInterval(renderHomeLocalTime, 15000);
+}
+
+function stopHomeClock() {
+  clearInterval(homeClockTimer);
+  homeClockTimer = null;
+}
+
+function playPatrolHitSound() {
+  if (!state.sound) return;
+  try {
+    patrolHitAudio = patrolHitAudio || new Audio("/assets/audio/parlor-patrol/pixel-hit-pack-cc0.wav");
+    patrolHitAudio.volume = 0.32;
+    patrolHitAudio.currentTime = 0;
+    patrolHitAudio.play().catch(() => { /* browser gesture policy */ });
+  } catch { /* audio unavailable */ }
+}
+
+function clearPatrolEffect(selector) {
+  const effect = $(selector);
+  if (!effect) return;
+  effect.classList.remove("is-burst");
+  effect.style.removeProperty("left");
+  effect.style.removeProperty("top");
+}
+
+function hideHomeHelicopter() {
+  const helicopter = $("#home-helicopter");
+  if (!helicopter) return;
+  helicopter.classList.remove("is-flying", "is-hit", "home-helicopter-left");
+  const art = $("#home-helicopter-art");
+  if (art) art.src = "/assets/parlor-patrol/helicopter-16-frames.svg";
+  helicopter.setAttribute("aria-hidden", "true");
+  helicopter.tabIndex = -1;
+  helicopter.blur();
+}
+
+function stopHomeHelicopter() {
+  clearTimeout(homeHelicopterTimer);
+  clearTimeout(homeHelicopterFlightTimer);
+  clearTimeout(homePatrolStatusTimer);
+  homeHelicopterTimer = null;
+  homeHelicopterFlightTimer = null;
+  homePatrolStatusTimer = null;
+  patrolState.active = false;
+  hideHomeHelicopter();
+  clearPatrolEffect("#home-patrol-impact");
+  clearPatrolEffect("#home-patrol-smoke");
+}
+
+function scheduleHomeHelicopter(delay = 4000) {
+  clearTimeout(homeHelicopterTimer);
+  homeHelicopterTimer = null;
+  if (state.phase !== "home") return;
+  homeHelicopterTimer = setTimeout(() => {
+    if (state.phase !== "home") return;
+    const helicopter = $("#home-helicopter");
+    if (!helicopter) return;
+    patrolState.active = true;
+    const direction = Math.random() < 0.5 ? "left" : "right";
+    const art = $("#home-helicopter-art");
+    if (art) art.src = direction === "left"
+      ? "/assets/parlor-patrol/helicopter-left-16-frames.svg"
+      : "/assets/parlor-patrol/helicopter-16-frames.svg";
+    helicopter.classList.toggle("home-helicopter-left", direction === "left");
+    helicopter.style.top = `${[12, 17, 22, 27, 32][Math.floor(Math.random() * 5)]}%`;
+    helicopter.setAttribute("aria-hidden", "false");
+    helicopter.tabIndex = 0;
+    helicopter.classList.remove("is-hit", "is-flying");
+    void helicopter.offsetWidth;
+    helicopter.classList.add("is-flying");
+    renderPatrolHud("FLY-BY ACTIVE · CLICK TO TAG");
+    homeHelicopterFlightTimer = setTimeout(() => {
+      if (!patrolState.active) return;
+      patrolState.active = false;
+      hideHomeHelicopter();
+      renderPatrolHud("FLY-BY MISSED · NEXT ONE SOON");
+      homePatrolStatusTimer = setTimeout(() => renderPatrolHud(), 2200);
+      scheduleHomeHelicopter(12000);
+    }, REDUCED_MOTION ? 6000 : 18000);
+  }, delay);
+}
+
+function hitHomeHelicopter() {
+  if (!patrolState.active || state.phase !== "home") return;
+  const helicopter = $("#home-helicopter");
+  const atmosphere = $(".home-sky-atmosphere");
+  if (!helicopter || !atmosphere) return;
+  patrolState.active = false;
+  clearTimeout(homeHelicopterFlightTimer);
+  homeHelicopterFlightTimer = null;
+  const targetRect = helicopter.getBoundingClientRect();
+  const atmosphereRect = atmosphere.getBoundingClientRect();
+  const effectLeft = targetRect.left - atmosphereRect.left + targetRect.width / 2;
+  const effectTop = targetRect.top - atmosphereRect.top + targetRect.height / 2;
+  const impact = $("#home-patrol-impact");
+  const smoke = $("#home-patrol-smoke");
+  if (impact) {
+    impact.style.left = `${Math.round(effectLeft - 32)}px`;
+    impact.style.top = `${Math.round(effectTop - 32)}px`;
+    impact.classList.remove("is-burst");
+    void impact.offsetWidth;
+    impact.classList.add("is-burst");
+  }
+  if (smoke) {
+    smoke.style.left = `${Math.round(effectLeft - 40)}px`;
+    smoke.style.top = `${Math.round(effectTop - 30)}px`;
+    smoke.classList.remove("is-burst");
+    void smoke.offsetWidth;
+    smoke.classList.add("is-burst");
+  }
+  patrolState.score += 100;
+  patrolState.best = Math.max(patrolState.best, patrolState.score);
+  try { localStorage.setItem(PATROL_BEST_KEY, String(patrolState.best)); } catch { /* storage unavailable */ }
+  playPatrolHitSound();
+  hideHomeHelicopter();
+  renderPatrolHud(`TAGGED +100 · BEST ${String(patrolState.best).padStart(3, "0")}`);
+  homePatrolStatusTimer = setTimeout(() => renderPatrolHud(), 2400);
+  setTimeout(() => {
+    clearPatrolEffect("#home-patrol-impact");
+    clearPatrolEffect("#home-patrol-smoke");
+  }, 900);
+  scheduleHomeHelicopter(9000);
+}
+
+const NIGHT_SHIFT_WAVE_MS = 60000;
+const NIGHT_SHIFT_START_HEARTS = 3;
+const NIGHT_SHIFT_BEST_KEY = "poorup.night-shift.best.v1";
+let nightShiftWaveTimer = null;
+let nightShiftTickTimer = null;
+let nightShiftResultTimer = null;
+let nightShiftSpawnTimers = [];
+const nightShiftTargetTimers = new Map();
+let nightShiftPausedAt = 0;
+const nightShiftState = { active: false, wave: 0, score: 0, best: 0, endsAt: 0, targetSeq: 0, hearts: NIGHT_SHIFT_START_HEARTS };
+try { nightShiftState.best = Number(localStorage.getItem(NIGHT_SHIFT_BEST_KEY)) || 0; } catch { /* storage unavailable */ }
+
+function formatNightCountdown(ms) {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function renderNightShiftHud(message = "TAG THE FLY-BYS BEFORE THEY REACH THE BORDER") {
+  const wave = $("#night-wave");
+  const countdown = $("#home-local-time");
+  const score = $("#home-patrol-score");
+  const status = $("#night-status");
+  const description = $("#night-shift-description");
+  const nextWave = String(nightShiftState.wave).padStart(2, "0");
+  const nextCountdown = formatNightCountdown(Math.max(0, nightShiftState.endsAt - Date.now()));
+  const nextScore = String(nightShiftState.score).padStart(3, "0");
+  if (wave && wave.textContent !== nextWave) wave.textContent = nextWave;
+  if (countdown && countdown.textContent !== nextCountdown) countdown.textContent = nextCountdown;
+  if (score && score.textContent !== nextScore) score.textContent = nextScore;
+  if (status && status.textContent !== message) status.textContent = message;
+  if (description && !nightShiftState.active) description.textContent = message;
+  const hearts = $("#night-hearts");
+  if (hearts) {
+    const heartsLabel = `${nightShiftState.hearts} heart${nightShiftState.hearts === 1 ? "" : "s"} remaining`;
+    if (hearts.getAttribute("aria-label") !== heartsLabel) {
+      hearts.innerHTML = Array.from({ length: NIGHT_SHIFT_START_HEARTS }, (_, i) => `<img class="night-heart${i >= nightShiftState.hearts ? " is-empty" : ""}" src="/assets/parlor-patrol/heart.svg" alt="">`).join("");
+      hearts.setAttribute("aria-label", heartsLabel);
+    }
+  }
+}
+
+function clearNightShiftTimers() {
+  clearTimeout(nightShiftWaveTimer);
+  clearInterval(nightShiftTickTimer);
+  clearTimeout(nightShiftResultTimer);
+  nightShiftWaveTimer = null;
+  nightShiftTickTimer = null;
+  nightShiftResultTimer = null;
+  nightShiftSpawnTimers.forEach((timer) => clearTimeout(timer));
+  nightShiftSpawnTimers = [];
+  nightShiftTargetTimers.forEach(({ reveal, disable, miss }) => {
+    clearTimeout(reveal);
+    clearTimeout(disable);
+    clearTimeout(miss);
+  });
+  nightShiftTargetTimers.clear();
+}
+
+function clearNightShiftTargets() {
+  nightShiftTargetTimers.forEach(({ reveal, disable, miss }) => {
+    clearTimeout(reveal);
+    clearTimeout(disable);
+    clearTimeout(miss);
+  });
+  nightShiftTargetTimers.clear();
+  $("#night-targets")?.replaceChildren();
+  const effects = $("#night-effects");
+  effects?.querySelectorAll(".night-shift-dynamic").forEach((effect) => effect.remove());
+  effects?.querySelectorAll("[data-night-home-effect]").forEach((effect) => {
+    effect.classList.remove("is-burst");
+    effect.style.removeProperty("left");
+    effect.style.removeProperty("top");
+  });
+}
+
+function clearNightShiftTargetTimer(target) {
+  const id = target?.dataset?.targetId;
+  if (!id) return;
+  const timers = nightShiftTargetTimers.get(id);
+  if (!timers) return;
+  clearTimeout(timers.reveal);
+  clearTimeout(timers.disable);
+  clearTimeout(timers.miss);
+  nightShiftTargetTimers.delete(id);
+}
+
+function triggerNightShiftHomeEffect(x, y, kind) {
+  const effects = $("#night-effects");
+  if (!effects) return;
+  const smoke = kind === "home-smoke";
+  const selector = `[data-night-home-effect="${kind}"]`;
+  let effect = effects.querySelector(selector);
+  if (!effect) {
+    effect = document.createElement("span");
+    effect.className = `night-shift-effect night-shift-home-${smoke ? "smoke" : "impact"}`;
+    effect.dataset.nightHomeEffect = kind;
+    effect.innerHTML = smoke
+      ? '<img src="/assets/parlor-patrol/smoke-6-frames.svg" alt="" width="80" height="64">'
+      : '<img src="/assets/parlor-patrol/impact-8-frames.svg" alt="" width="64" height="64">';
+    effects.appendChild(effect);
+  }
+  const width = smoke ? 80 : 64;
+  const height = 64;
+  const maxX = Math.max(width / 2, effects.clientWidth - width / 2);
+  const maxY = Math.max(height / 2, effects.clientHeight - height / 2);
+  const visibleX = Math.max(width / 2, Math.min(maxX, x));
+  const visibleY = Math.max(height / 2, Math.min(maxY, y));
+  effect.style.left = `${Math.round(visibleX - (smoke ? 40 : 32))}px`;
+  effect.style.top = `${Math.round(visibleY - (smoke ? 30 : 32))}px`;
+  effect.classList.remove("is-burst");
+  // Match Home exactly: reset the class, force layout, then restart it.
+  void effect.offsetWidth;
+  effect.classList.add("is-burst");
+}
+
+function scheduleNightShiftTarget(target, duration) {
+  if (!target || REDUCED_MOTION) {
+    if (target) target.style.pointerEvents = "auto";
+    return;
+  }
+  const id = target.dataset.targetId;
+  const timers = { reveal: null, disable: null, miss: null };
+  const settle = () => {
+    if (document.hidden) {
+      timers.miss = setTimeout(settle, 500);
+      nightShiftTargetTimers.set(id, timers);
+      return;
+    }
+    if (target.isConnected && !target.dataset.hit) missNightShiftTarget(target);
+    nightShiftTargetTimers.delete(id);
+  };
+  target.style.pointerEvents = "none";
+  timers.reveal = setTimeout(() => {
+    if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "auto";
+  }, Math.round(duration * 0.16));
+  timers.disable = setTimeout(() => {
+    if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "none";
+  }, Math.round(duration * 0.94));
+  target.addEventListener("animationend", settle, { once: true });
+  timers.miss = setTimeout(settle, duration + 80);
+  nightShiftTargetTimers.set(id, timers);
+}
+
+function spawnNightShiftEffect(x, y, kind = "impact") {
+  const effects = $("#night-effects");
+  if (!effects) return;
+  if (kind === "home-impact" || kind === "home-smoke") {
+    triggerNightShiftHomeEffect(x, y, kind);
+    return;
+  }
+  const effect = document.createElement("span");
+  const isHomeImpact = kind === "home-impact";
+  const isHomeSmoke = kind === "home-smoke";
+  const isAircraftBurst = kind === "drone" || kind === "airplane";
+  effect.className = `night-shift-effect night-shift-dynamic ${isHomeImpact ? "night-shift-home-impact" : isHomeSmoke ? "night-shift-home-smoke" : isAircraftBurst ? "night-shift-aircraft-burst" : "is-burst"}`;
+  const size = kind === "airplane" ? 128 : isAircraftBurst ? 112 : 64;
+  const homeSize = isHomeSmoke ? [80, 64] : [64, 64];
+  const width = isHomeImpact || isHomeSmoke ? homeSize[0] : size;
+  const height = isHomeImpact || isHomeSmoke ? homeSize[1] : kind === "airplane" ? 112 : size;
+  effect.style.width = `${width}px`;
+  effect.style.height = `${height}px`;
+  effect.style.left = `${Math.round(x - width / 2)}px`;
+  effect.style.top = `${Math.round(y - height / 2)}px`;
+  const src = kind === "airplane"
+    ? "/assets/parlor-patrol/airplane-explosion-10-frames.svg"
+    : kind === "drone"
+      ? "/assets/parlor-patrol/drone-explosion-10-frames.svg"
+      : isHomeSmoke
+        ? "/assets/parlor-patrol/smoke-6-frames.svg"
+      : "/assets/parlor-patrol/impact-8-frames.svg";
+  effect.innerHTML = `<img src="${src}" alt="" width="${width}" height="${height}">`;
+  effects.appendChild(effect);
+  setTimeout(() => effect.remove(), isAircraftBurst ? 900 : isHomeSmoke ? 820 : isHomeImpact ? 600 : 720);
+}
+
+function spawnNightShiftTarget() {
+  if (!nightShiftState.active || state.phase !== "home") return;
+  if (document.hidden) {
+    const timer = setTimeout(spawnNightShiftTarget, 500);
+    nightShiftSpawnTimers.push(timer);
+    return;
+  }
+  const layer = $("#night-targets");
+  if (!layer) return;
+  // Alternate lanes so a short play session always exercises both edges.
+  const direction = nightShiftState.targetSeq % 2 === 0 ? "left" : "right";
+  const spawnNumber = nightShiftState.targetSeq;
+  const roll = Math.random();
+  const kind = nightShiftState.wave === 1 && spawnNumber === 2
+    ? "drone"
+    : nightShiftState.wave >= 4 && roll < 0.12
+    ? "airplane"
+    : nightShiftState.wave >= 3 && roll < 0.24
+      ? "beacon"
+      : nightShiftState.wave >= 2 && roll < 0.44
+        ? "drone"
+        : "helicopter";
+  const lane = [18, 25, 32, 39, 46, 53, 60][Math.floor(Math.random() * 7)];
+  const duration = kind === "airplane"
+    ? Math.max(2800, 5000 - nightShiftState.wave * 180)
+    : kind === "drone"
+      ? Math.max(3400, 5900 - nightShiftState.wave * 220)
+      : Math.max(4200, 7600 - nightShiftState.wave * 260);
+  const target = document.createElement("button");
+  target.type = "button";
+  const isDrop = kind === "beacon" || kind === "airplane";
+  target.className = isDrop ? "night-target night-target-drop night-target-beacon is-flight" : `night-target night-target-${direction} night-target-${kind} is-flight`;
+  if (kind === "airplane") target.classList.replace("night-target-beacon", "night-target-airplane");
+  if (isDrop) target.style.setProperty("--night-drop-left", `${[18, 32, 48, 64, 78][Math.floor(Math.random() * 5)]}%`);
+  else target.style.top = `${lane}%`;
+  target.style.setProperty("--night-flight-duration", `${duration}ms`);
+  target.dataset.direction = direction;
+  target.dataset.kind = kind;
+  target.dataset.targetId = String(++nightShiftState.targetSeq);
+  target.setAttribute("aria-label", `Tag Night Shift ${kind}, wave ${nightShiftState.wave}`);
+  const src = kind === "beacon"
+    ? "/assets/parlor-patrol/beacon-6-frames.svg"
+    : kind === "drone"
+      ? "/assets/parlor-patrol/drone-8-frames.svg"
+      : kind === "airplane"
+        ? "/assets/parlor-patrol/airplane-10-frames.svg"
+      : direction === "left"
+        ? "/assets/parlor-patrol/helicopter-left-16-frames.svg"
+        : "/assets/parlor-patrol/helicopter-16-frames.svg";
+  const size = kind === "beacon" ? [48, 48] : kind === "drone" ? [96, 64] : kind === "airplane" ? [112, 64] : [128, 64];
+  target.style.width = `${size[0]}px`;
+  target.style.height = `${size[1]}px`;
+  target.innerHTML = `<img src="${src}" alt="" width="${size[0]}" height="${size[1]}">`;
+  if (kind === "airplane" && direction === "left") target.querySelector("img")?.style.setProperty("transform", "scaleX(-1)");
+  // Pointer-down gives the arcade target immediate feedback before a moving
+  // button can travel between pointer press and the browser's click release.
+  target.addEventListener("pointerdown", (event) => hitNightShiftTarget(target, event));
+  target.addEventListener("click", (event) => hitNightShiftTarget(target, event));
+  layer.appendChild(target);
+  scheduleNightShiftTarget(target, duration);
+}
+
+function beginNightShiftWave() {
+  if (!nightShiftState.active) return;
+  clearNightShiftTargets();
+  nightShiftState.endsAt = Date.now() + NIGHT_SHIFT_WAVE_MS;
+  renderNightShiftHud(`WAVE ${String(nightShiftState.wave).padStart(2, "0")} · CLEAR THE SKYLINE`);
+  const banner = $("#night-wave-banner");
+  if (banner) {
+    banner.textContent = `WAVE ${String(nightShiftState.wave).padStart(2, "0")}`;
+    banner.classList.remove("is-announcing");
+    void banner.offsetWidth;
+    banner.classList.add("is-announcing");
+  }
+  const targetCount = Math.min(6 + nightShiftState.wave * 2, 24);
+  const interval = nightShiftState.wave === 1
+    ? 3000
+    : Math.max(850, 5000 - nightShiftState.wave * 220);
+  for (let i = 0; i < targetCount; i += 1) {
+    nightShiftSpawnTimers.push(setTimeout(spawnNightShiftTarget, i * interval));
+  }
+  nightShiftWaveTimer = setTimeout(() => {
+    if (!nightShiftState.active) return;
+    if (document.hidden) {
+      nightShiftWaveTimer = setTimeout(() => {
+        if (!nightShiftState.active) return;
+        nightShiftState.wave += 1;
+        beginNightShiftWave();
+      }, 500);
+      return;
+    }
+    nightShiftState.wave += 1;
+    beginNightShiftWave();
+  }, NIGHT_SHIFT_WAVE_MS);
+}
+
+function missNightShiftTarget(target) {
+  if (!target?.isConnected || target.dataset.hit || target.dataset.missed) return;
+  clearNightShiftTargetTimer(target);
+  target.dataset.missed = "1";
+  target.remove();
+  if (["helicopter", "drone", "airplane"].includes(target.dataset.kind)) {
+    nightShiftState.hearts = Math.max(0, nightShiftState.hearts - 1);
+    renderNightShiftHud(`${String(target.dataset.kind).toUpperCase()} ESCAPED · ${nightShiftState.hearts} HEART${nightShiftState.hearts === 1 ? "" : "S"} LEFT`);
+    if (nightShiftState.hearts <= 0) endNightShift("SHIFT LOST · NO HEARTS LEFT");
+  }
+}
+
+function endNightShift(message) {
+  if (!nightShiftState.active) return;
+  nightShiftState.active = false;
+  clearNightShiftTimers();
+  clearNightShiftTargets();
+  nightShiftState.best = Math.max(nightShiftState.best, nightShiftState.score);
+  try { localStorage.setItem(NIGHT_SHIFT_BEST_KEY, String(nightShiftState.best)); } catch { /* storage unavailable */ }
+  renderNightShiftHud(`${message} · FINAL ${String(nightShiftState.score).padStart(4, "0")} · ESC TO EXIT`);
+  const banner = $("#night-wave-banner");
+  if (banner) {
+    banner.textContent = message.includes("LOST") ? "SHIFT LOST" : "SHIFT CLEAR";
+    banner.classList.remove("is-announcing");
+    void banner.offsetWidth;
+    banner.classList.add("is-announcing");
+  }
+  nightShiftResultTimer = setTimeout(() => {
+    nightShiftResultTimer = null;
+    stopNightShift();
+  }, 2600);
+}
+
+function hitNightShiftTarget(target, event) {
+  if (!nightShiftState.active || state.phase !== "home" || !target?.isConnected || target.dataset.hit) return;
+  // Measure the transformed, live position before clearing the flight class.
+  // This mirrors Home's hit path and prevents effects from snapping back to
+  // the left/right/top spawn edge.
+  const rect = target.getBoundingClientRect();
+  const atmosphere = $("#night-shift");
+  const area = atmosphere?.getBoundingClientRect();
+  if (!area) return;
+  const pointerX = Number(event?.clientX) > 0 ? Number(event.clientX) : rect.left + rect.width / 2;
+  const pointerY = Number(event?.clientY) > 0 ? Number(event.clientY) : rect.top + rect.height / 2;
+  const hitX = pointerX - area.left;
+  const hitY = pointerY - area.top;
+  target.dataset.hit = "1";
+  clearNightShiftTargetTimer(target);
+  target.classList.remove("is-flight");
+  const direction = target.dataset.direction === "left" ? -1 : 1;
+  const kind = target.dataset.kind || "helicopter";
+  if (kind !== "helicopter") target.classList.add("is-popping");
+  const crashArt = target.querySelector("img");
+  if (kind !== "helicopter") {
+    if (crashArt) crashArt.style.transform = ["drone", "airplane"].includes(kind) && direction === -1 ? "scaleX(-1)" : "";
+    if (REDUCED_MOTION) {
+      target.style.opacity = "0";
+      spawnNightShiftEffect(hitX, hitY, kind);
+      setTimeout(() => target.remove(), 160);
+    } else {
+      target.animate([
+        { transform: "translate3d(0, 0, 0) scale(0.96)", opacity: 0.9 },
+        { transform: `translate3d(0, -8px, 0) scale(1.04)`, opacity: 0.95 },
+        { transform: "translate3d(0, 0, 0) scale(1.02)", opacity: 0 },
+      ], { duration: 360, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" });
+      setTimeout(() => {
+        if (!target.isConnected) return;
+        spawnNightShiftEffect(hitX, hitY, kind);
+        target.remove();
+      }, 280);
+    }
+  } else {
+    target.remove();
+    // Match the Home patrol feedback: a compact impact flash and a short
+    // stepped smoke trail begin at the exact point of the shot.
+    spawnNightShiftEffect(hitX, hitY, "home-impact");
+    spawnNightShiftEffect(hitX, hitY + 8, "home-smoke");
+  }
+  const points = kind === "helicopter"
+    ? 100 + nightShiftState.wave * 25
+    : kind === "drone"
+      ? 75 + nightShiftState.wave * 10
+      : kind === "airplane"
+        ? 180 + nightShiftState.wave * 20
+        : 50 + nightShiftState.wave * 5;
+  nightShiftState.score += points;
+  nightShiftState.best = Math.max(nightShiftState.best, nightShiftState.score);
+  try { localStorage.setItem(NIGHT_SHIFT_BEST_KEY, String(nightShiftState.best)); } catch { /* storage unavailable */ }
+  playPatrolHitSound();
+  renderNightShiftHud(`TAGGED +${points} · WAVE ${String(nightShiftState.wave).padStart(2, "0")}`);
+}
+
+function startNightShift() {
+  if (state.phase !== "home" || nightShiftState.active) return;
+  // A stale room session may still emit snapshots while the player is Home.
+  // Keep this local arcade layer isolated until the player explicitly joins again.
+  clearNightShiftTimers();
+  state.suppressRoomUpdates = true;
+  stopHomeHelicopter();
+  stopHomeClock();
+  nightShiftState.active = true;
+  nightShiftState.wave = 1;
+  nightShiftState.score = 0;
+  nightShiftState.hearts = NIGHT_SHIFT_START_HEARTS;
+  nightShiftState.targetSeq = 0;
+  renderPatrolHud("NIGHT SHIFT ACTIVE · CLEAR THE SKYLINE");
+  document.body.classList.add("night-shift-open");
+  const surface = $("#night-shift");
+  surface?.classList.remove("is-hidden");
+  surface?.setAttribute("aria-hidden", "false");
+  hydrateSprites(surface || document);
+  $("#night-exit")?.focus({ preventScroll: true });
+  nightShiftTickTimer = setInterval(() => renderNightShiftHud(), 200);
+  beginNightShiftWave();
+}
+
+function stopNightShift() {
+  clearNightShiftTimers();
+  nightShiftPausedAt = 0;
+  nightShiftState.active = false;
+  clearNightShiftTargets();
+  document.body.classList.remove("night-shift-open");
+  document.body.classList.remove("night-shift-paused");
+  $("#night-wave-banner")?.classList.remove("is-announcing");
+  $("#night-shift")?.classList.add("is-hidden");
+  $("#night-shift")?.setAttribute("aria-hidden", "true");
+  renderNightShiftHud("TAG THE FLY-BYS BEFORE THEY REACH THE BORDER");
+  if (state.phase === "home") {
+    startHomeClock();
+    renderPatrolHud();
+    scheduleHomeHelicopter(4000);
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!nightShiftState.active) return;
+  if (document.hidden) {
+    nightShiftPausedAt = Date.now();
+    document.body.classList.add("night-shift-paused");
+    return;
+  }
+  if (nightShiftPausedAt) {
+    nightShiftState.endsAt += Date.now() - nightShiftPausedAt;
+    nightShiftPausedAt = 0;
+  }
+  document.body.classList.remove("night-shift-paused");
+  renderNightShiftHud("NIGHT SHIFT RESUMED · CLEAR THE SKYLINE");
+});
+
+function syncHomeMusic() {
+  const music = $("#home-music");
+  if (!music) return;
+  music.volume = 0.16;
+  // The sound preference is global. Keep the same soundtrack running while
+  // the player moves from Home into setup, lobby, or the live table.
+  if (state.music) {
+    const playAttempt = music.play();
+    playAttempt?.catch(() => { /* autoplay policy; the next user gesture retries */ });
+  } else {
+    music.pause();
+  }
+}
+
 let roomsDirectory = [];
 let roomsLoading = false;
 let roomsFilter = "all";
 let drawerFilter = "all";
-let roomModalTab = "browse"; // "browse" | "create"
+let roomModalTab = "browse"; // "browse" | "create" | "join"
 let createRoomSettings = {
   name: "",
   visibility: "public", // "public" | "private"
@@ -1123,7 +2023,7 @@ function roomRowHTML(r) {
         <span class="t-label f12 room-code">${r.code}</span>
         <span class="t-label f13 room-name">${r.name}</span>
         <span class="t-micro g400" style="margin-left:4px">${visLabel}</span>
-        <span class="room-meta-item"><span class="st-dot" style="background:${roomStateColor(r.state)}"></span><span class="t-micro ink-3">${r.state}</span></span>
+        <span class="room-meta-item room-state-tag"><span class="st-dot" style="background:${roomStateColor(r.state)}"></span><span class="t-micro ink-3">${r.state}</span></span>
       </div>
       <div class="room-meta">
         <span class="t-micro ink-3 room-meta-item">SEATS ${r.seats}/${r.cap}</span>
@@ -1151,7 +2051,7 @@ function renderRoomsList() {
     ? `<div class="rooms-empty t-body">CHECKING PUBLIC TABLES…</div>`
     : rooms.length
     ? rooms.map(roomRowHTML).join("")
-    : `<div class="rooms-empty t-body">NO PUBLIC ROOMS RIGHT NOW. ENTER A CODE OR HOST A TABLE.</div>`;
+    : `<div class="rooms-empty t-body">NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE.</div>`;
 
   document.querySelectorAll(".rooms-filter").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.filter === roomsFilter);
@@ -1185,9 +2085,11 @@ function switchRoomModalTab(tab) {
   roomModalTab = tab;
   const isBrowse = tab === "browse";
   const isCreate = tab === "create";
+  const isJoin = tab === "join";
 
   const btnBrowse = $("#rm-tab-browse");
   const btnCreate = $("#rm-tab-create");
+  const btnJoin = $("#rm-tab-join");
   if (btnBrowse) {
     btnBrowse.classList.toggle("is-active", isBrowse);
     btnBrowse.setAttribute("aria-selected", String(isBrowse));
@@ -1196,19 +2098,43 @@ function switchRoomModalTab(tab) {
     btnCreate.classList.toggle("is-active", isCreate);
     btnCreate.setAttribute("aria-selected", String(isCreate));
   }
+  if (btnJoin) {
+    btnJoin.classList.toggle("is-active", isJoin);
+    btnJoin.setAttribute("aria-selected", String(isJoin));
+  }
 
   const panelBrowse = $("#rm-panel-browse");
   const panelCreate = $("#rm-panel-create");
+  const panelJoin = $("#rm-panel-join");
   if (panelBrowse) panelBrowse.classList.toggle("is-hidden", !isBrowse);
   if (panelCreate) panelCreate.classList.toggle("is-hidden", !isCreate);
+  if (panelJoin) panelJoin.classList.toggle("is-hidden", !isJoin);
 
   const titleText = $("#rooms-title-text");
-  if (titleText) titleText.textContent = isBrowse ? "Available Rooms" : "Create Custom Room";
+  if (titleText) titleText.textContent = isBrowse ? "Available Rooms" : isJoin ? "Join Room" : "Create Custom Room";
+  $("#rooms-modal")?.setAttribute("aria-describedby", isJoin ? "join-room-description" : "rooms-description");
 
   if (isBrowse) {
     renderRoomsList();
   } else if (isCreate) {
     updateCreateRoomUI();
+  } else if (isJoin) {
+    const code = $("#room-join");
+    const nickname = $("#join-nickname");
+    const nicknameField = $("#join-nickname-field");
+    const signedIn = Boolean(state.account?.account);
+    const description = $("#join-room-description");
+    if (code) code.value = String(code.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (nickname) {
+      nickname.value = signedIn ? state.account.account.displayName : (nickname.value || state.alias || "");
+      nickname.required = !signedIn;
+      nickname.disabled = signedIn;
+    }
+    nicknameField?.classList.toggle("is-hidden", signedIn);
+    if (description) description.textContent = signedIn
+      ? "Enter the room code. Your account display name will be used at the table."
+      : "Enter the room code and the name you want to use at the table.";
+    $("#join-form-error")?.replaceChildren();
   }
 }
 
@@ -1232,16 +2158,21 @@ function requestRoomsDirectory() {
 function openRoomsModal(tab = "browse") {
   roomsFilter = "all";
   switchRoomModalTab(tab);
-  openSurface("#rooms-modal", "#rooms-close");
+  openSurface("#rooms-modal", tab === "join" ? "#room-join" : "#rooms-close");
   if (tab === "browse") requestRoomsDirectory();
 }
 
 function closeRoomsModal() {
   closeSurface("#rooms-modal");
+  if (state.phase === "home") setHomeTab("play");
 }
 
 function renderHome() {
+  setHomeTab("play");
+  renderHomeLocalTime();
+  renderPatrolHud();
   paintSkyline($("#home-skyline"), SKYLINE);
+  paintSkyline($("#home-skyline-copy"), SKYLINE);
 
   // mini board
   const grid = $("#mini-grid");
@@ -1272,40 +2203,60 @@ function renderHome() {
 function renderProfileLibrary() {
   const list = $("#pl-list");
   const newBtn = $("#pl-new-btn");
+  const saveBtn = $("#pl-save-btn");
   const atCap = state.profiles.length >= MAX_PROFILES;
   if (newBtn) {
     newBtn.disabled = atCap;
     newBtn.querySelector(".t-label").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "+ NEW DESIGN";
   }
+  if (saveBtn) {
+    saveBtn.disabled = !state.profileDraft || atCap;
+    saveBtn.querySelector(".cta-text").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "SAVE DESIGN";
+  }
   if (!list) return;
   if (!state.profiles.length) {
-    list.innerHTML = `<p class="pl-empty">No custom designs yet — press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
-    return;
+    if (!state.profileDraft) {
+      list.innerHTML = `<p class="pl-empty">No custom designs yet — press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
+      return;
+    }
   }
   const activeId = typeof state.appearance === "string" ? state.appearance : null;
-  list.innerHTML = state.profiles.map((p, i) => `
-    <div class="pl-tile${p.id === activeId ? " is-active" : ""}">
-      <button class="pl-tile-select" type="button" data-profile-select="${p.id}" aria-pressed="${p.id === activeId}">
-        <span class="pl-tile-av">${avatarHTML(p, 3, i)}</span>
-        <span class="pl-tile-info">
-          <span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.name)}</span>
-          <span class="t-micro ink-3">${p.id === activeId ? "SELECTED" : "TAP TO SELECT"}</span>
-        </span>
-      </button>
-      <div class="pl-tile-actions">
-        <button class="btn-dark" type="button" data-profile-edit="${p.id}"><span class="t-label">EDIT</span></button>
-      </div>
-    </div>
-  `).join("");
+  const draft = state.profileDraft;
+  const draftCard = draft && !state.editingProfileId
+    ? { id: "draft", designName: draft.designName || "UNTITLED DESIGN", color: draft.color, avatarGrid: draft.grid, isDraft: true }
+    : null;
+  const cards = state.profiles.map((profile, i) => {
+    const editing = draft && state.editingProfileId === profile.id;
+    return {
+      ...profile,
+      designName: editing ? (draft.designName || "UNTITLED DESIGN") : profileDesignName(profile),
+      color: editing ? draft.color : profile.color,
+      avatarGrid: editing ? draft.grid : profile.avatarGrid,
+      isEditing: Boolean(editing),
+      seed: i,
+    };
+  });
+  if (draftCard) cards.unshift(draftCard);
+  list.innerHTML = cards.map((p, i) => {
+    const isDraft = Boolean(p.isDraft);
+    const selected = !isDraft && p.id === activeId;
+    const editing = Boolean(p.isEditing);
+    const entity = { color: p.color, avatarGrid: p.avatarGrid };
+    return `<div class="pl-tile${selected ? " is-active" : ""}${isDraft ? " is-draft" : ""}${editing ? " is-editing" : ""}">
+      ${isDraft ? `<div class="pl-tile-select pl-tile-draft" aria-label="Unsaved design preview"><span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span><span class="pl-tile-info"><span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.designName)}</span><span class="t-micro g400">UNSAVED DRAFT · LIVE PREVIEW</span></span></div>` : `<button class="pl-tile-select" type="button" data-profile-select="${p.id}" aria-pressed="${selected}"><span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span><span class="pl-tile-info"><span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.designName)}</span><span class="t-micro ink-3">${editing ? "EDITING · LIVE PREVIEW" : selected ? "ACTIVE DESIGN" : "TAP TO SELECT"}</span></span></button>`}
+      <div class="pl-tile-actions">${isDraft ? `<span class="t-micro g400 pl-draft-badge">DRAFT</span>` : `<button class="btn-dark" type="button" data-profile-edit="${p.id}"><span class="t-label">EDIT</span></button><button class="btn-dark pl-delete" type="button" data-profile-delete="${p.id}"><span class="t-label">DELETE</span></button>`}</div>
+    </div>`;
+  }).join("");
 }
 
 /** Reflect the saved profile (or the default guest identity) across the home screen. */
 function applyProfileToHomeUI() {
-  const p = typeof state.appearance === "string" ? getProfileById(state.appearance) : state.profiles[0] || null;
+  const p = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
   const account = state.account?.account || null;
-  const name = account?.displayName || state.alias || p?.name || "guest_4412";
-  const color = account?.color || p?.color || "#d74438";
-  const avatarSource = account?.avatarGrid ? account : p;
+  const name = account?.displayName || state.alias || "PLAYER";
+  const preset = getAppearanceMeta(state.appearance);
+  const color = p?.color || account?.color || preset.color || "#d74438";
+  const avatarSource = p || account;
 
   const homeName = $("#home-you-name");
   if (homeName) homeName.textContent = name;
@@ -1524,6 +2475,67 @@ function tileCenter(i) {
   };
 }
 
+const pieceWalks = new Map();
+const PIECE_WALK_STEP_MS = 130;
+
+function cancelPieceWalk(playerId) {
+  const walk = pieceWalks.get(playerId);
+  if (!walk) return;
+  walk.cancelled = true;
+  clearTimeout(walk.timer);
+  pieceWalks.delete(playerId);
+  const el = $("#token-layer")?.querySelector(`.piece[data-player="${playerId}"]`);
+  el?.classList.remove("is-moving", "is-hopping");
+}
+
+function pieceWalkPath(from, to) {
+  const distance = (to - from + TILE_COUNT) % TILE_COUNT;
+  if (!distance || distance > 12) return [];
+  return Array.from({ length: distance }, (_, index) => (from + index + 1) % TILE_COUNT);
+}
+
+function startPieceWalk(playerId, from, to) {
+  const path = pieceWalkPath(Number(from) || 0, Number(to) || 0);
+  const layer = $("#token-layer");
+  const el = layer?.querySelector(`.piece[data-player="${playerId}"]`);
+  if (!el || !path.length || REDUCED_MOTION) return;
+  cancelPieceWalk(playerId);
+  const start = tileCenter(Number(from) || 0);
+  if (!start) return;
+  const walk = { cancelled: false, index: 0, timer: null };
+  pieceWalks.set(playerId, walk);
+  el.classList.add("is-moving");
+  el.style.setProperty("--piece-x", `${Math.round(start.x)}px`);
+  el.style.setProperty("--piece-y", `${Math.round(start.y)}px`);
+
+  const advance = () => {
+    if (walk.cancelled || pieceWalks.get(playerId) !== walk) return;
+    const next = path[walk.index++];
+    const center = tileCenter(next);
+    if (!center) {
+      cancelPieceWalk(playerId);
+      placePieces();
+      return;
+    }
+    el.style.setProperty("--piece-x", `${Math.round(center.x)}px`);
+    el.style.setProperty("--piece-y", `${Math.round(center.y)}px`);
+    el.classList.remove("is-hopping");
+    void el.offsetWidth;
+    el.classList.add("is-hopping");
+    if (walk.index >= path.length) {
+      walk.timer = setTimeout(() => {
+        if (pieceWalks.get(playerId) !== walk) return;
+        pieceWalks.delete(playerId);
+        el.classList.remove("is-moving", "is-hopping");
+        placePieces();
+      }, PIECE_WALK_STEP_MS);
+      return;
+    }
+    walk.timer = setTimeout(advance, PIECE_WALK_STEP_MS);
+  };
+  walk.timer = setTimeout(advance, 16);
+}
+
 function ensurePieces() {
   const layer = $("#token-layer");
   if (!layer) return;
@@ -1555,6 +2567,10 @@ function placePieces(opts = {}) {
   const layer = $("#token-layer");
   if (!layer) return;
 
+  pieceWalks.forEach((_, playerId) => {
+    if (!state.players.some((player) => player.id === playerId)) cancelPieceWalk(playerId);
+  });
+
   const occupants = {};
   state.players.forEach((p) => {
     (occupants[p.pos] ||= []).push(p.id);
@@ -1570,6 +2586,10 @@ function placePieces(opts = {}) {
     const off = stack.length === 1 ? { x: 0, y: 0 } : STACK_OFF[idx] || { x: 0, y: 0 };
     const active = state.phase === "playing" && state.players[state.turnIndex]?.id === p.id;
     el.classList.toggle("is-active", active);
+    if (pieceWalks.has(p.id)) {
+      el.classList.add("is-moving");
+      return;
+    }
     el.classList.toggle("is-moving", movingId === p.id);
     if (hop && movingId === p.id) {
       el.classList.remove("is-hopping");
@@ -2144,10 +3164,285 @@ function tradePlayerRowHTML(p, seed) {
   </div>`;
 }
 
+let financingPreviewMode = "loan";
+let financingSurfaceMode = "offer";
+const financingPreviewDraft = {
+  propertyIndex: 21,
+  amount: 150,
+  loanRate: 20,
+  loanDuration: 20,
+  loanSchedule: "checkpoints",
+  equityShare: 10,
+  equityDuration: "permanent",
+  equityControl: "passive",
+  hybridRate: 10,
+  hybridDuration: 20,
+  hybridConversion: 25,
+};
+
+function dropdownHTML({ id, label, value, options, className = "" }) {
+  const selected = options.find((option) => String(option.value) === String(value)) || options[0];
+  return `<div class="parlor-dropdown ${className}" data-dropdown="${esc(id)}"><span class="t-label f11 g-muted">${esc(label)}</span><button class="parlor-dropdown-trigger field" id="${esc(id)}-trigger" type="button" aria-label="${esc(label)}" aria-haspopup="listbox" aria-expanded="false" aria-controls="${esc(id)}-menu"><span data-dropdown-value>${esc(selected?.label || "SELECT")}</span><span class="parlor-dropdown-caret" aria-hidden="true">▾</span></button><div class="parlor-dropdown-menu" id="${esc(id)}-menu" role="listbox" tabindex="-1" hidden>${options.map((option) => `<button class="parlor-dropdown-option" type="button" role="option" aria-selected="${String(option.value) === String(selected?.value)}" data-dropdown-value-option="${esc(option.value)}">${esc(option.label)}</button>`).join("")}</div></div>`;
+}
+
+function bindDropdowns(root, onSelect) {
+  if (!root) return;
+  const closeMenus = (except = null) => root.querySelectorAll(".parlor-dropdown").forEach((dropdown) => {
+    if (dropdown !== except) {
+      const trigger = dropdown.querySelector(".parlor-dropdown-trigger");
+      const menu = dropdown.querySelector(".parlor-dropdown-menu");
+      trigger?.setAttribute("aria-expanded", "false");
+      if (menu) menu.hidden = true;
+    }
+  });
+  root.querySelectorAll(".parlor-dropdown").forEach((dropdown) => {
+    const id = dropdown.dataset.dropdown;
+    const trigger = dropdown.querySelector(".parlor-dropdown-trigger");
+    const menu = dropdown.querySelector(".parlor-dropdown-menu");
+    if (!trigger || !menu) return;
+    const open = () => {
+      closeMenus(dropdown);
+      menu.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      menu.querySelector("[aria-selected=true]")?.focus({ preventScroll: true });
+    };
+    const close = () => {
+      menu.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+    };
+    trigger.addEventListener("click", () => (menu.hidden ? open() : close()));
+    trigger.addEventListener("keydown", (event) => {
+      if (["Enter", " ", "ArrowDown"].includes(event.key)) { event.preventDefault(); open(); }
+    });
+    menu.addEventListener("click", (event) => {
+      const option = event.target.closest("[data-dropdown-value-option]");
+      if (!option) return;
+      const value = option.dataset.dropdownValueOption;
+      dropdown.querySelectorAll("[data-dropdown-value-option]").forEach((candidate) => candidate.setAttribute("aria-selected", String(candidate === option)));
+      const valueEl = dropdown.querySelector("[data-dropdown-value]");
+      if (valueEl) valueEl.textContent = option.textContent;
+      close();
+      onSelect?.(id, value);
+      trigger.focus({ preventScroll: true });
+    });
+    menu.addEventListener("keydown", (event) => {
+      const options = [...menu.querySelectorAll("[data-dropdown-value-option]")];
+      const current = options.indexOf(document.activeElement);
+      if (event.key === "Escape") { event.preventDefault(); close(); trigger.focus({ preventScroll: true }); return; }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); options[(current + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length]?.focus({ preventScroll: true }); }
+      if (event.key === "Home" || event.key === "End") { event.preventDefault(); options[event.key === "Home" ? 0 : options.length - 1]?.focus({ preventScroll: true }); }
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); document.activeElement?.click(); }
+    });
+  });
+  if (!root.dataset.dropdownOutsideBound) {
+    root.addEventListener("click", (event) => { if (!event.target.closest(".parlor-dropdown")) closeMenus(); });
+    root.dataset.dropdownOutsideBound = "true";
+  }
+}
+
+function financingPropertyOptions() {
+  return TILES.filter((tile) => tile.kind === "property").map((tile) => ({ value: tile.i, label: `${tile.name} · $${tile.price}` }));
+}
+
+function financingPreviewCopy(mode = financingPreviewMode) {
+  const tile = TILES[Number(financingPreviewDraft.propertyIndex)] || TILES[21];
+  const amount = Math.max(1, Math.min(Number(financingPreviewDraft.amount) || 0, Number(tile.price) || 1));
+  const rent = Number(tile.rent) || Number(RENT_TABLE[tile.group]?.base) || 0;
+  if (mode === "equity") {
+    const share = Math.max(5, Math.min(100, Number(financingPreviewDraft.equityShare) || 10));
+    const lenderRent = Math.floor((rent * share) / 100);
+    const duration = financingPreviewDraft.equityDuration === "permanent" ? "FOREVER" : `${financingPreviewDraft.equityDuration} TURNS`;
+    const control = String(financingPreviewDraft.equityControl || "passive").toUpperCase();
+    return {
+      title: `${share}% OF ${tile.name}`,
+      metrics: [
+        ["CONTRIBUTION", `$${amount}`],
+        ["RENT SHARE", `${share}%`],
+        ["BASE RENT", `$${lenderRent} OF $${rent}`],
+        ["DURATION", duration],
+      ],
+      copy: `${share}% economic share in ${tile.name}. The investor receives ${share}% of collected rent and sale proceeds. Control: ${control}.`,
+      note: share === 100 ? "100% becomes a direct transfer or buyout. No hidden loan remains." : "Passive equity does not block building. Shared control requires the group consent rules.",
+    };
+  }
+  if (mode === "hybrid") {
+    const rate = Math.max(0, Math.min(100, Number(financingPreviewDraft.hybridRate) || 0));
+    const duration = Number(financingPreviewDraft.hybridDuration) || 20;
+    const conversion = Math.max(5, Math.min(100, Number(financingPreviewDraft.hybridConversion) || 25));
+    const maturity = amount + Math.round((amount * rate) / 100);
+    return {
+      title: `CONVERTIBLE NOTE · ${tile.name}`,
+      metrics: [
+        ["ADVANCE", `$${amount}`],
+        ["PREMIUM", `${rate}%`],
+        ["MATURITY", `$${maturity}`],
+        ["CONVERSION", `${conversion}%`],
+      ],
+      copy: `$${amount} at a ${rate}% premium for ${duration} turns. If the note defaults after its cure turn, the lender may convert the outstanding balance into ${conversion}% of ${tile.name}.`,
+      note: "Repayment and conversion are mutually exclusive. Interest stops when conversion happens.",
+    };
+  }
+  const rate = Math.max(0, Math.min(100, Number(financingPreviewDraft.loanRate) || 0));
+  const duration = Number(financingPreviewDraft.loanDuration) || 20;
+  const premium = Math.round((amount * rate) / 100);
+  const total = amount + premium;
+  const schedule = financingPreviewDraft.loanSchedule === "upfront" ? "UPFRONT" : financingPreviewDraft.loanSchedule === "maturity" ? "MATURITY" : "CHECKPOINTS";
+  return {
+    title: `SECURED LOAN · ${tile.name}`,
+    metrics: [
+      ["ADVANCE", `$${amount}`],
+      ["PREMIUM", `${rate}%`],
+      ["TOTAL DUE", `$${total}`],
+      ["TERM", `${duration} TURNS`],
+    ],
+    copy: `$${amount} advanced at a ${rate}% total premium for ${duration} turns. Repayment: ${schedule.toLowerCase()}. The named deed is collateral after the cure turn.`,
+    note: "The lender receives a fixed return. No rent or ownership share is attached to this mode.",
+  };
+}
+
+function financingPreviewHTML() {
+  const preview = financingPreviewCopy();
+  return `<div class="financing-preview-head"><span class="t-micro g400">CONTRACT PREVIEW</span><span class="t-label f12 g100">${esc(preview.title)}</span></div>
+    <div class="financing-metrics">${preview.metrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f13 g100">${esc(value)}</strong></div>`).join("")}</div>
+    <p class="t-body ink-2 financing-preview-copy">${esc(preview.copy)}</p>
+    <p class="t-micro ink-3 financing-preview-note">${esc(preview.note)}</p>`;
+}
+
+function financingModeFieldsHTML() {
+  if (financingPreviewMode === "equity") {
+    const permanent = financingPreviewDraft.equityDuration === "permanent";
+    const equityTurns = permanent ? 20 : Math.max(1, Number(financingPreviewDraft.equityDuration) || 20);
+    return `<div class="financing-field"><label class="t-label f11 g-muted" for="finance-equity-share">Economic share <output id="finance-equity-share-output">${financingPreviewDraft.equityShare}%</output></label><div class="financing-range"><input id="finance-equity-share" type="range" min="5" max="100" step="5" value="${financingPreviewDraft.equityShare}" /></div></div>
+      <div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-equity-duration" type="number" min="1" max="100" step="1" value="${equityTurns}" ${permanent ? "disabled" : ""} /><span aria-hidden="true">TURNS</span></div></label>${dropdownHTML({ id: "finance-equity-control", label: "Control", value: financingPreviewDraft.equityControl, options: [{ value: "passive", label: "PASSIVE" }, { value: "shared", label: "SHARED" }, { value: "controlling", label: "CONTROLLING" }] })}</div><label class="financing-check"><input id="finance-equity-permanent" type="checkbox" ${permanent ? "checked" : ""} /><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label>`;
+  }
+  if (financingPreviewMode === "hybrid") {
+    return `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Premium %</span><input class="field" id="finance-hybrid-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.hybridRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-hybrid-duration" type="number" min="1" max="100" step="1" value="${financingPreviewDraft.hybridDuration}" /><span aria-hidden="true">TURNS</span></div></label></div><div class="financing-field"><label class="t-label f11 g-muted" for="finance-hybrid-conversion">Default conversion share <output id="finance-hybrid-conversion-output">${financingPreviewDraft.hybridConversion}%</output></label><div class="financing-range"><input id="finance-hybrid-conversion" type="range" min="5" max="100" step="5" value="${financingPreviewDraft.hybridConversion}" /></div></div>`;
+  }
+  return `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Total premium %</span><input class="field" id="finance-loan-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.loanRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-loan-duration" type="number" min="1" max="100" step="1" value="${financingPreviewDraft.loanDuration}" /><span aria-hidden="true">TURNS</span></div></label></div>${dropdownHTML({ id: "finance-loan-schedule", label: "Repayment schedule", value: financingPreviewDraft.loanSchedule, options: [{ value: "upfront", label: "UPFRONT" }, { value: "checkpoints", label: "CHECKPOINTS" }, { value: "maturity", label: "MATURITY" }] })}`;
+}
+
+function financingSurfaceTabsHTML() {
+  const tabs = [
+    ["offer", "OFFER"],
+    ["contract", "CONTRACT"],
+    ["ownership", "CO-OWNERSHIP"],
+    ["default", "DEFAULT"],
+  ];
+  return `<div class="financing-surface-tabs" id="financing-surface-tabs" role="tablist" aria-label="Financing surfaces">${tabs.map(([value, label]) => `<button class="financing-surface-tab${financingSurfaceMode === value ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingSurfaceMode === value}" data-financing-surface="${value}"><span class="t-label f11">${label}</span></button>`).join("")}</div>`;
+}
+
+function financingSurfaceBodyHTML() {
+  if (financingSurfaceMode === "contract") {
+    return `<section class="financing-surface-body" aria-labelledby="financing-contract-heading"><div class="financing-surface-kicker"><span class="t-micro g400">EXAMPLE CONTRACT · UI MODEL</span><span class="t-label f11 green">ACTIVE · 12 TURNS LEFT</span></div><h3 class="t-section g100" id="financing-contract-heading">Secured loan · Eindhoven</h3><div class="financing-contract-grid"><div><span class="t-micro ink-3">BORROWER</span><strong class="t-label f13 g100">PLAYER</strong></div><div><span class="t-micro ink-3">LENDER</span><strong class="t-label f13 g100">PARTNER</strong></div><div><span class="t-micro ink-3">ADVANCE</span><strong class="t-label f13 g100">$150</strong></div><div><span class="t-micro ink-3">MATURITY</span><strong class="t-label f13 g100">$180</strong></div></div><div class="financing-checkpoints" aria-label="Repayment checkpoints"><span class="is-paid">TURN 5 · PAID</span><span class="is-paid">TURN 10 · PAID</span><span>TURN 15 · $38</span><span>TURN 20 · $105</span></div><p class="t-body ink-2 financing-surface-copy">The borrower keeps the deed while payments are current. The lender receives the agreed premium and the named deed remains collateral after the cure turn.</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-finance-surface="offer"><span class="t-label f11">OPEN OFFER</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">BUYOUT · SERVER LATER</span></button></div></section>`;
+  }
+  if (financingSurfaceMode === "ownership") {
+    return `<section class="financing-surface-body" aria-labelledby="financing-ownership-heading"><div class="financing-surface-kicker"><span class="t-micro g400">EXAMPLE CAP TABLE · UI MODEL</span><span class="t-label f11 g300">PASSIVE CONTROL</span></div><h3 class="t-section g100" id="financing-ownership-heading">Eindhoven · shared economics</h3><div class="financing-ownership-bar"><span class="financing-ownership-primary" style="width:70%"></span><span class="financing-ownership-secondary" style="width:30%"></span></div><div class="financing-owner-list"><div><span class="ownership-avatar ownership-avatar-primary"></span><span class="t-label f12 g100">PLAYER · 70%</span><span class="t-micro ink-3">CONTROL + RENT</span></div><div><span class="ownership-avatar ownership-avatar-secondary"></span><span class="t-label f12 g100">PARTNER · 30%</span><span class="t-micro ink-3">RENT + SALE SHARE</span></div></div><div class="financing-rights-grid"><div><span class="t-micro ink-3">BASE RENT $18</span><strong class="t-label f13 g100">$13 / $5</strong></div><div><span class="t-micro ink-3">BUILDING RIGHTS</span><strong class="t-label f13 green">OWNER CONTROL</strong></div><div><span class="t-micro ink-3">SALE PROCEEDS</span><strong class="t-label f13 g100">70% / 30%</strong></div><div><span class="t-micro ink-3">DURATION</span><strong class="t-label f13 g100">FOREVER</strong></div></div><p class="t-body ink-2 financing-surface-copy">A passive minority share does not block a complete street. Shared control is an explicit contract choice, not an accidental side effect of buying equity.</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">TRANSFER · SERVER LATER</span></button></div></section>`;
+  }
+  if (financingSurfaceMode === "default") {
+    return `<section class="financing-surface-body" aria-labelledby="financing-default-heading"><div class="financing-surface-kicker"><span class="t-micro red">CURE WINDOW · UI MODEL</span><span class="t-label f11 red">1 TURN LEFT</span></div><h3 class="t-section g100" id="financing-default-heading">Payment due · Eindhoven</h3><div class="financing-default-amount"><span class="t-micro ink-3">OUTSTANDING BALANCE</span><strong class="t-money red">$105</strong></div><div class="financing-default-actions"><button class="btn-dark" type="button" disabled><span class="t-label f11">PAY OUTSTANDING BALANCE</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">TAKE COLLATERAL</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">BANK AUCTION</span></button></div><p class="t-body ink-2 financing-surface-copy">If the cure turn expires, the lender chooses collateral transfer or bank auction. Interest stops when the contract resolves.</p></section>`;
+  }
+  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-property", label: "Property", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions"><button class="btn-dark" id="financing-cancel" type="button"><span class="t-label f11">CLOSE PREVIEW</span></button><button class="cta-red financing-disabled-action" type="button" disabled><span class="cta-text cta-text-sm">SERVER ACTIONS COMING LATER</span></button></div></section>`;
+}
+
+function syncFinancingRanges(root = $("#financing-card")) {
+  root?.querySelectorAll(".financing-range input[type=range]").forEach((input) => {
+    const min = Number(input.min) || 0;
+    const max = Number(input.max) || 100;
+    const value = Number(input.value) || min;
+    const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    input.parentElement?.style.setProperty("--range-progress", `${Math.max(0, Math.min(100, progress))}%`);
+  });
+}
+
+function renderFinancingModal() {
+  const card = $("#financing-card");
+  if (!card) return;
+  const modeLabels = { loan: "LOAN", equity: "EQUITY", hybrid: "HYBRID" };
+  const header = `<div class="financing-head"><div><div class="t-micro g400">PARLOR DEAL BUILDER · UI MODEL</div><h2 class="t-section g100" id="financing-card-title">Shape a ${modeLabels[financingPreviewMode]} deal</h2></div><span class="t-micro financing-badge">SERVER CONTRACT OFFLINE</span><button class="btn-dark financing-close" id="financing-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2 financing-description" id="financing-card-description">Preview the agreement both players would see. Nothing is sent and no game state changes in this UI model.</p>`;
+  card.innerHTML = `<div class="financing-body">${header}${financingSurfaceTabsHTML()}${financingSurfaceBodyHTML()}</div>`;
+  syncFinancingRanges(card);
+  const updatePreview = () => {
+    const preview = $("#financing-preview");
+    if (preview) preview.innerHTML = financingPreviewHTML();
+  };
+  $("#financing-close")?.addEventListener("click", closeFinancingModal);
+  $("#financing-cancel")?.addEventListener("click", closeFinancingModal);
+  $("#financing-surface-tabs")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-financing-surface]");
+    if (!button) return;
+    financingSurfaceMode = button.dataset.financingSurface;
+    renderFinancingModal();
+  });
+  if (!card.dataset.financingSurfaceBound) {
+    card.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-financing-surface]");
+      if (!button || event.target.closest("#financing-surface-tabs")) return;
+      financingSurfaceMode = button.dataset.financingSurface;
+      renderFinancingModal();
+    });
+    card.dataset.financingSurfaceBound = "true";
+  }
+  if (financingSurfaceMode === "offer") {
+    $("#financing-mode-tabs")?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-financing-mode]");
+      if (!button) return;
+      financingPreviewMode = button.dataset.financingMode;
+      renderFinancingModal();
+    });
+    if (!card.dataset.financingInputBound) {
+      card.addEventListener("input", (event) => {
+        const { id, value } = event.target;
+        if (id === "finance-amount") financingPreviewDraft.amount = Number(value) || 0;
+        if (id === "finance-loan-rate") financingPreviewDraft.loanRate = Number(value) || 0;
+        if (id === "finance-loan-duration") financingPreviewDraft.loanDuration = Number(value) || 20;
+        if (id === "finance-equity-share") { financingPreviewDraft.equityShare = Number(value) || 10; $("#finance-equity-share-output").textContent = `${financingPreviewDraft.equityShare}%`; }
+        if (id === "finance-equity-duration") financingPreviewDraft.equityDuration = value;
+        if (id === "finance-hybrid-rate") financingPreviewDraft.hybridRate = Number(value) || 0;
+        if (id === "finance-hybrid-duration") financingPreviewDraft.hybridDuration = Number(value) || 20;
+        if (id === "finance-hybrid-conversion") { financingPreviewDraft.hybridConversion = Number(value) || 25; $("#finance-hybrid-conversion-output").textContent = `${financingPreviewDraft.hybridConversion}%`; }
+        if (event.target.matches("input[type=range]")) syncFinancingRanges(card);
+        updatePreview();
+      });
+      card.dataset.financingInputBound = "true";
+    }
+    bindDropdowns(card, (id, value) => {
+      if (id === "finance-property") financingPreviewDraft.propertyIndex = Number(value);
+      if (id === "finance-loan-schedule") financingPreviewDraft.loanSchedule = value;
+      if (id === "finance-equity-control") financingPreviewDraft.equityControl = value;
+      updatePreview();
+    });
+  }
+  $("#finance-equity-permanent")?.addEventListener("change", (event) => {
+    const turnsInput = $("#finance-equity-duration");
+    financingPreviewDraft.equityDuration = event.target.checked ? "permanent" : Math.max(1, Number(turnsInput?.value) || 20);
+    renderFinancingModal();
+  });
+}
+
+function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null, surface = "offer") {
+  financingPreviewMode = ["loan", "equity", "hybrid"].includes(mode) ? mode : "loan";
+  financingSurfaceMode = ["offer", "contract", "ownership", "default"].includes(surface) ? surface : "offer";
+  if (propertyIndex != null && TILES[Number(propertyIndex)]?.kind === "property") financingPreviewDraft.propertyIndex = Number(propertyIndex);
+  renderFinancingModal();
+  openSurface("#financing-modal", "#financing-close");
+  if (trigger instanceof HTMLElement) surfaceReturnFocus = trigger;
+}
+
+function closeFinancingModal() {
+  closeSurface("#financing-modal");
+}
+
 function renderRightRail() {
   const owned = TILES.filter((t) => state.owners[t.i] === "p1");
 
-  $("#rr-count").textContent = `${owned.length} DEEDS`;
+  const title = $("#rr-title");
+  if (state.tab === "finance") {
+    if (title) title.textContent = "Financing";
+    $("#rr-count").textContent = "UI MODEL";
+  } else {
+    if (title) title.textContent = "Holdings";
+    $("#rr-count").textContent = `${owned.length} DEEDS`;
+  }
   document.querySelectorAll(".tab").forEach((tb) => {
     const selected = tb.dataset.tab === state.tab;
     tb.classList.toggle("is-active", selected);
@@ -2156,7 +3451,10 @@ function renderRightRail() {
   $("#rr-body")?.setAttribute("aria-labelledby", `tab-${state.tab}`);
 
   const body = $("#rr-body");
-  if (state.tab === "deeds") {
+  if (state.tab === "finance") {
+    body.innerHTML = `<div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PREVIEW</div><p class="t-body ink-2">Shape a fixed loan, a permanent equity share, or a hybrid conversion deal. The server contract is not enabled yet.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">NONE · UI MODEL</span></div><div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE DEALS</strong><span class="t-micro ink-3">Preview a contract, ownership split, or default resolution.</span></div><div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW OFFER</span></button><button class="btn-dark" type="button" data-finance-surface="contract"><span class="t-label f11">VIEW CONTRACT</span></button><button class="btn-dark" type="button" data-finance-surface="ownership"><span class="t-label f11">VIEW CO-OWNERSHIP</span></button><button class="btn-dark" type="button" data-finance-surface="default"><span class="t-label f11">PREVIEW DEFAULT</span></button></div>`;
+    hydrateSprites();
+  } else if (state.tab === "deeds") {
     body.innerHTML = owned.length
       ? owned
           .map((tile) =>
@@ -2188,7 +3486,26 @@ function renderSetup() {
   wrap.classList.toggle("is-hidden", state.phase !== "setup");
   if (state.phase !== "setup") return;
 
-  // lobby is read-only for profiles: pick an existing design only, never edit/create here.
+  const choice = activeAppearance();
+  const meta = getAppearanceMeta(choice);
+  const selectedProfile = typeof choice === "string" ? getProfileById(choice) : null;
+  const selectedName = selectedProfile ? profileDesignName(selectedProfile) : meta.label;
+  const sourceLabel = state.tableAppearanceOverride == null ? "ACTIVE DESIGN" : "THIS TABLE ONLY";
+  const activeProfile = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
+  const activeName = activeProfile ? profileDesignName(activeProfile) : getAppearanceMeta(state.appearance).label;
+  const activeIsDifferent = state.tableAppearanceOverride != null && state.tableAppearanceOverride !== state.appearance;
+
+  // The active design is the default. The chooser is deliberately opt-in so
+  // joining a table never asks the player to make the same identity decision twice.
+  const activeCard = $("#su-active-card");
+  if (activeCard) {
+    activeCard.innerHTML = `<div class="su-active-avatar">${avatarHTML({ color: meta.color, avatarGrid: meta.avatarGrid }, 4, 0)}</div><div class="su-active-copy"><span class="t-micro ${activeIsDifferent ? "g400" : "green"}">${sourceLabel}</span><strong class="t-label f14 su-active-name" style="color:${meta.textColor}">${esc(selectedName)}</strong><span class="t-micro ink-3">${activeIsDifferent ? `ACTIVE DESIGN · ${esc(activeName)}` : "READY TO ENTER THE PARLOR"}</span></div>`;
+  }
+  $("#su-active-actions")?.classList.toggle("is-hidden", !activeIsDifferent);
+  $("#su-reset-btn")?.classList.toggle("is-hidden", !activeIsDifferent);
+  $("#su-make-active-btn")?.classList.toggle("is-hidden", !activeIsDifferent);
+  $("#su-chooser")?.classList.remove("is-hidden");
+
   document.querySelectorAll(".su-tab").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.suTab === state.setupTab);
     btn.setAttribute("aria-selected", String(btn.dataset.suTab === state.setupTab));
@@ -2200,12 +3517,13 @@ function renderSetup() {
     $("#su-grid").innerHTML = state.profiles.length
       ? state.profiles
           .map((p, i) => {
-            const active = state.appearance === p.id;
+            const active = choice === p.id;
+            const status = active ? (activeIsDifferent ? "THIS TABLE" : "ACTIVE DESIGN") : p.id === state.appearance ? "ACTIVE DESIGN" : "AVAILABLE";
             return `<button type="button" class="su-opt su-opt-profile${active ? " is-active" : ""}" data-app="${p.id}">
               <div class="su-av">${avatarHTML(p, 5, i)}</div>
               <div>
-                <div class="t-label f13" style="color:${p.color}">${esc(p.name || "PROFILE")}</div>
-                <div class="t-micro ink-3 su-state">${active ? "SELECTED" : "TAP TO USE"}</div>
+              <div class="t-label f13" style="color:${p.color}">${esc(profileDesignName(p))}</div>
+                <div class="t-micro ink-3 su-state">${status}</div>
               </div>
             </button>`;
           })
@@ -2213,13 +3531,17 @@ function renderSetup() {
       : `<p class="su-empty-custom">No custom designs yet. Create one from the home screen, then pick it here.</p>`;
   } else {
     $("#su-grid").innerHTML = APPEARANCES.map(
-      (a, i) => `<button type="button" class="su-opt${i === state.appearance ? " is-active" : ""}" data-app="${i}">
+      (a, i) => {
+        const active = choice === i;
+        const status = active ? (activeIsDifferent ? "THIS TABLE" : "ACTIVE DESIGN") : state.appearance === i ? "ACTIVE DESIGN" : "AVAILABLE";
+        return `<button type="button" class="su-opt${active ? " is-active" : ""}" data-app="${i}">
         <div class="su-av">${avatarHTML(a, 5, i)}</div>
         <div>
           <div class="t-label f13" style="color:${a.textColor}">${a.label}</div>
-          <div class="t-micro ink-3 su-state">${i === state.appearance ? "SELECTED" : "AVAILABLE"}</div>
+          <div class="t-micro ink-3 su-state">${status}</div>
         </div>
-      </button>`,
+      </button>`;
+      },
     ).join("");
   }
 
@@ -2325,7 +3647,7 @@ function renderLobbyRail() {
     locked
       ? `<div class="settings-rule lobby-lock-note">
           <strong style="color:var(--gold-300)">FINISH SETUP TO CONTINUE</strong><br>
-          Choose your appearance and press "Enter Parlor" on the left to seat the table.
+          Your active design is ready. Press "Enter Parlor" on the left to seat the table, or change it there for this table only.
         </div>`
       : "",
     lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
@@ -2367,7 +3689,7 @@ function renderLobbyRail() {
 /** A lightweight, live preview of "you" while the setup overlay is still open,
  *  so the sidebar reflects the color/alias currently being chosen. */
 function buildPreviewSelf() {
-  const a = getAppearanceMeta(state.appearance);
+  const a = getAppearanceMeta(activeAppearance());
   return {
     id: "preview",
     name: (state.alias.trim() || a.baseName).toUpperCase(),
@@ -2388,54 +3710,73 @@ const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5
 /** Open editor. Pass a profile id to edit, or nothing to create a new one. */
 function openProfileEditor(fromPhase, profileId) {
   closeRoomsModal();
-  renderProfileLibrary();
   state.homeReturnView = fromPhase === "setup" ? "setup-return" : "home";
   state.editingProfileId = profileId || null;
   const existing = profileId ? getProfileById(profileId) : null;
   const account = state.account?.account;
-  const source = existing || (account?.avatarGrid ? account : null);
+  const source = existing;
   state.profileDraft = source
-    ? { name: source.name || source.displayName, color: source.color, grid: cloneFaceGrid(source.avatarGrid), tool: "paint", paintColor: source.color }
-    : { name: "", color: "#d74438", grid: faceGridFromPreset(0, "#d74438"), tool: "paint", paintColor: "#f0d9ac" };
+    ? { designName: profileDesignName(source), color: source.color, grid: cloneFaceGrid(source.avatarGrid), tool: "paint", paintColor: source.color }
+    : { designName: "", color: account?.color || "#d74438", grid: account?.avatarGrid ? cloneFaceGrid(account.avatarGrid) : faceGridFromPreset(0, account?.color || "#d74438"), tool: "paint", paintColor: "#f0d9ac" };
+  state.profileTab = "designs";
   renderProfileEditor();
   renderAccountPanel();
+  renderProfileLibrary();
   showView("profile");
+  setProfileTab(state.profileTab);
+}
+
+function announceProfileSave(message) {
+  const status = $("#profile-save-status");
+  if (status) status.textContent = message;
+}
+
+function saveProfileDesign({ asNew = false, stay = false } = {}) {
+  const d = state.profileDraft;
+  if (!d) return null;
+  const designName = String(d.designName || "").trim().slice(0, 12).toUpperCase() || "UNTITLED DESIGN";
+  const hasInk = d.grid.some((row) => row.some((c) => c));
+  const draftProfile = {
+    id: !asNew && state.editingProfileId ? state.editingProfileId : `pf_${Math.random().toString(36).slice(2, 9)}`,
+    designName,
+    color: d.color,
+    avatarGrid: hasInk ? d.grid : faceGridFromPreset(0, d.color),
+  };
+  const saved = upsertProfile(draftProfile);
+  if (saved === "limit") {
+    announceProfileSave(`You can only save up to ${MAX_PROFILES} designs. Delete one to make room.`);
+    return saved;
+  }
+  if (!saved) return null;
+  setActiveAppearance(saved.id);
+  if (state.account?.sessionToken) {
+    emitServer("account-update", {
+      sessionToken: state.account.sessionToken,
+      color: saved.color,
+      avatarGrid: saved.avatarGrid,
+    }, (response) => {
+      if (response?.success) updateAccountFromResponse(response);
+      else if (response?.error) {
+        const announcer = $("#error-announcer");
+        if (announcer) announcer.textContent = response.error;
+      }
+    });
+  }
+  if (stay) {
+    state.editingProfileId = saved.id;
+    state.profileDraft = { designName: profileDesignName(saved), color: saved.color, grid: cloneFaceGrid(saved.avatarGrid), tool: "paint", paintColor: saved.color };
+    renderProfileEditor();
+    renderProfileLibrary();
+    setProfileTab("designs");
+    announceProfileSave(`Saved "${designName}" as a new design.`);
+  }
+  return saved;
 }
 
 function closeProfileEditor(save) {
   if (save) {
-    const d = state.profileDraft;
-    const name = (d.name || "").trim().slice(0, 12).toUpperCase() || "PLAYER";
-    const hasInk = d.grid.some((row) => row.some((c) => c));
-    const draftProfile = {
-      id: state.editingProfileId || `pf_${Math.random().toString(36).slice(2, 9)}`,
-      name,
-      color: d.color,
-      avatarGrid: hasInk ? d.grid : faceGridFromPreset(0, d.color),
-    };
-    const saved = upsertProfile(draftProfile);
-    if (saved === "limit") {
-      alert(`You can only save up to ${MAX_PROFILES} custom designs. Delete one to make room.`);
-      return;
-    }
-    if (saved) {
-      state.appearance = saved.id;
-      state.alias = saved.name;
-      if (state.account?.sessionToken) {
-        emitServer("account-update", {
-          sessionToken: state.account.sessionToken,
-          displayName: saved.name,
-          color: saved.color,
-          avatarGrid: saved.avatarGrid,
-        }, (response) => {
-          if (response?.success) updateAccountFromResponse(response);
-          else if (response?.error) {
-            const announcer = $("#error-announcer");
-            if (announcer) announcer.textContent = response.error;
-          }
-        });
-      }
-    }
+    const saved = saveProfileDesign({ asNew: !state.editingProfileId });
+    if (saved === "limit" || !saved) return;
   }
   state.profileDraft = null;
   state.editingProfileId = null;
@@ -2468,14 +3809,14 @@ function renderProfileEditor() {
   const deleteBtn = $("#profile-delete-btn");
   if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
   const saveLabel = $("#profile-save-btn")?.querySelector(".cta-text");
-  if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Profile";
+  if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
 
   // identity swatches
   $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map(
     (c) => `<button type="button" class="profile-swatch${c.toLowerCase() === d.color.toLowerCase() ? " is-active" : ""}" style="background:${c}" data-color="${c}" title="${c}"></button>`,
   ).join("");
   $("#profile-color-picker").value = d.color;
-  $("#profile-name").value = d.name;
+  $("#profile-name").value = d.designName;
 
   // face palette
   $("#face-palette").innerHTML = FACE_PALETTE.map(
@@ -2496,6 +3837,7 @@ function renderProfileEditor() {
     .join("");
 
   updateProfilePreview();
+  renderProfileSummary();
 }
 
 function updateProfilePreview() {
@@ -2505,9 +3847,11 @@ function updateProfilePreview() {
   if (av) av.innerHTML = spriteFromGrid(d.grid, 6);
   const nameEl = $("#profile-preview-name");
   if (nameEl) {
-    nameEl.textContent = (d.name || "PLAYER").toUpperCase();
+    nameEl.textContent = (d.designName || "UNTITLED DESIGN").toUpperCase();
     nameEl.style.color = d.color;
   }
+  renderProfileLibrary();
+  renderProfileSummary();
 }
 
 function paintFaceCell(x, y) {
@@ -3455,7 +4799,8 @@ function renderTradeModal() {
         </div>
         <button class="btn-dark" id="trade-close"><span class="t-label f11">CLOSE</span></button>
       </div>
-      <p class="t-body ink-2 trade-copy">Select deeds from each side and set a cash amount to include, then send the offer.</p>
+      <p class="t-body ink-2 trade-copy">Select who should receive the offer, then choose deeds from each side and set a cash amount to include.</p>
+      ${dropdownHTML({ id: "trade-recipient", label: "Send trade to", value: state.tradeWith, className: "trade-recipient-dropdown", options: state.players.filter((p) => p.id !== "p1").map((p) => ({ value: p.id, label: p.name })) })}
 
       <div class="trade-cols">
         <div class="trade-side">
@@ -3518,6 +4863,17 @@ function renderTradeModal() {
   $("#trade-close").addEventListener("click", closeTradeModal);
   $("#trade-cancel").addEventListener("click", closeTradeModal);
   $("#trade-send").addEventListener("click", sendTrade);
+
+  bindDropdowns($("#trade-card"), (id, value) => {
+    if (id !== "trade-recipient" || !state.players.some((p) => p.id === value && p.id !== "p1")) return;
+    state.tradeWith = value;
+    state.tradeMyDeeds = new Set();
+    state.tradeTheirDeeds = new Set();
+    state.tradeMyCash = 0;
+    state.tradeTheirCash = 0;
+    renderTradeModal();
+    $("#trade-recipient-trigger")?.focus({ preventScroll: true });
+  });
 
   $("#trade-my-cash").addEventListener("input", (e) => {
     let v = Math.round(Number(e.target.value) || 0);
@@ -3727,6 +5083,7 @@ function openOfferModal(offer) {
         if (response?.success === false) {
           say(response.error || "Trade could not be accepted.");
           renderChat();
+          return;
         }
       });
       closeSurface("#offer-modal");
@@ -4079,16 +5436,26 @@ function resumeGame() {
    9. ROUTING + EVENTS
    ============================================================ */
 function showView(name) {
+  if (name !== "home" && nightShiftState.active) stopNightShift();
   $("#view-home").classList.toggle("is-hidden", name !== "home");
   $("#view-game").classList.toggle("is-hidden", name !== "game");
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
   window.scrollTo(0, 0);
   syncSurfaceA11y();
+  if (name === "home") {
+    startHomeClock();
+    scheduleHomeHelicopter();
+    syncHomeMusic();
+  } else {
+    stopHomeClock();
+    stopHomeHelicopter();
+    syncHomeMusic();
+  }
 }
 
 function syncServerAppearance() {
   if (!state.live) return;
-  const meta = getAppearanceMeta(state.appearance);
+  const meta = getAppearanceMeta(activeAppearance());
   emitServer("set-player-appearance", {
     nickname: state.alias.trim() || meta.baseName,
     color: meta.color,
@@ -4106,10 +5473,12 @@ function enterParlor(code) {
   state.suppressRoomUpdates = false;
   state.roomCode = requestedCode;
   state.phase = "setup";
+  state.tableAppearanceOverride = null;
+  state.setupTab = typeof state.appearance === "string" ? "custom" : "preset";
   // always start the setup/lobby screens from a clean board — otherwise a
   // finished game's deed ownership, houses and token positions would still
   // be visible behind the setup overlay after going home and rejoining.
-  state.players = buildPlayers(state.appearance, state.alias);
+  state.players = buildPlayers(activeAppearance(), state.alias);
   state.owners = {};
   state.houses = {};
   state.pool = 0;
@@ -4130,14 +5499,14 @@ function enterParlor(code) {
   clearInterval(auctionTimer);
   clearSave();
   closeAllSurfaces();
-  state.log = ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."];
+  state.log = ["ACTIVE DESIGN READY — ENTER THE PARLOR."];
   showView("game");
   renderAll();
   focusSurface("#setup-wrap", "#su-start");
   requestAnimationFrame(() => placePieces());
 
   if (state.live) {
-    const meta = getAppearanceMeta(state.appearance);
+    const meta = getAppearanceMeta(activeAppearance());
     const event = requestedCode ? "join-room" : "create-room";
     emitServer(event, {
       roomCode: requestedCode || undefined,
@@ -4176,7 +5545,7 @@ function enterLobby() {
     requestAnimationFrame(() => placePieces());
     return;
   }
-  state.players = buildPlayers(state.appearance, state.alias);
+  state.players = buildPlayers(activeAppearance(), state.alias);
   state.phase = "lobby";
   renderAll();
   requestAnimationFrame(() => placePieces());
@@ -4214,21 +5583,53 @@ function goHome() {
 }
 
 function bindEvents() {
+  // Home destinations. Play stays in the stage; rooms uses the existing
+  // server-backed directory surface; profile keeps the current editor flow.
+  $("#home-nav")?.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-home-tab]");
+    if (!button) return;
+    const tab = button.dataset.homeTab;
+    setHomeTab(tab);
+    if (tab === "rooms") openRoomsModal("browse");
+    if (tab === "profile") openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
+  });
+
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.
-  $("#join-form").addEventListener("submit", (e) => {
+  $("#join-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!requireGuestAlias()) return;
+    const codeInput = $("#room-join");
+    const nicknameInput = $("#join-nickname");
+    const error = $("#join-form-error");
+    const code = String(codeInput?.value || "").trim().toUpperCase();
+    const nickname = String(state.account?.account?.displayName || nicknameInput?.value || "").trim().toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      if (error) error.textContent = "ENTER A 6-CHARACTER ROOM CODE.";
+      codeInput?.focus({ preventScroll: true });
+      return;
+    }
+    if (!nickname) {
+      if (error) error.textContent = "ENTER THE PLAYER NAME FOR THIS ROOM.";
+      nicknameInput?.focus({ preventScroll: true });
+      return;
+    }
+    if (error) error.textContent = "";
+    state.alias = state.account?.account ? state.account.account.displayName : saveGuestAlias(nickname);
+    applyProfileToHomeUI();
     closeRoomsModal();
-    enterParlor($("#room-join").value.trim() || undefined);
+    enterParlor(code);
   });
-  $("#room-join").addEventListener("input", (e) => (e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)));
+  $("#room-join")?.addEventListener("input", (e) => (e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)));
+  $("#join-nickname")?.addEventListener("input", (e) => {
+    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
+    if ($("#join-form-error")) $("#join-form-error").textContent = "";
+  });
   $("#home-alias-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const input = $("#home-alias");
     state.alias = saveGuestAlias(input?.value || "");
     renderGuestAliasField(state.alias ? "" : "CREATE AN ALIAS BEFORE JOINING A TABLE.");
-    if (state.alias) $("#room-join")?.focus({ preventScroll: true });
+    if (state.alias) $("#open-join-btn")?.focus({ preventScroll: true });
   });
   $("#home-alias")?.addEventListener("input", (e) => {
     state.alias = String(e.target.value || "").toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
@@ -4243,6 +5644,7 @@ function bindEvents() {
   $("#open-rooms-btn")?.addEventListener("click", () => openRoomsModal("browse"));
   $("#create-room-btn")?.addEventListener("click", () => openRoomsModal("create"));
   $("#open-create-btn")?.addEventListener("click", () => openRoomsModal("create"));
+  $("#open-join-btn")?.addEventListener("click", () => openRoomsModal("join"));
   $("#rooms-close")?.addEventListener("click", closeRoomsModal);
   $("#rooms-scrim")?.addEventListener("click", closeRoomsModal);
 
@@ -4252,7 +5654,6 @@ function bindEvents() {
     if (!tabBtn) return;
     switchRoomModalTab(tabBtn.dataset.rmTab);
   });
-  $("#rooms-host-btn")?.addEventListener("click", () => switchRoomModalTab("create"));
 
   // rooms directory list interactions
   $("#rooms-list")?.addEventListener("click", (e) => {
@@ -4405,6 +5806,28 @@ function bindEvents() {
     openProfileEditor("home", activeId);
   };
   $("#open-profile-btn")?.addEventListener("click", openActiveProfileForEdit);
+  $("#profile-hero-account-btn")?.addEventListener("click", () => {
+    if (state.account?.account) openAccountModal("edit");
+    else openAccountModal("register");
+  });
+  $("#profile-overview-edit-btn")?.addEventListener("click", () => {
+    setProfileTab("designs");
+    $("#profile-name")?.focus({ preventScroll: true });
+  });
+  $("#profile-tabs")?.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-profile-tab]");
+    if (button) setProfileTab(button.dataset.profileTab);
+  });
+  $("#profile-tabs")?.addEventListener("keydown", (e) => {
+    const tabs = [...document.querySelectorAll("#profile-tabs [data-profile-tab]")];
+    const current = tabs.indexOf(e.target.closest("[data-profile-tab]"));
+    if (current < 0 || !["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    const nextIndex = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (current + (["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : -1) + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    setProfileTab(next.dataset.profileTab);
+    next.focus();
+  });
   $("#chair-edit-btn")?.addEventListener("click", () => {
     const activeId = typeof state.appearance === "string" ? state.appearance : null;
     openProfileEditor("home", activeId);
@@ -4416,22 +5839,44 @@ function bindEvents() {
     }
     openProfileEditor("home");
   });
+  $("#pl-save-btn")?.addEventListener("click", () => {
+    saveProfileDesign({ asNew: true, stay: true });
+  });
   $("#pl-list")?.addEventListener("click", (e) => {
+    const deleteBtn = e.target.closest("[data-profile-delete]");
+    if (deleteBtn) {
+      e.stopPropagation();
+      const id = deleteBtn.dataset.profileDelete;
+      const profile = getProfileById(id);
+      if (!profile) return;
+      openConfirmModal({
+        title: "Delete saved design?",
+        message: `Delete “${profileDesignName(profile)}”? This cannot be undone.`,
+        confirmLabel: "DELETE DESIGN",
+        onConfirm: () => {
+          if (state.editingProfileId === id) deleteCurrentProfile();
+          else {
+            deleteProfile(id);
+            renderProfileLibrary();
+            renderProfileSummary();
+          }
+        },
+      });
+      return;
+    }
     const editBtn = e.target.closest("[data-profile-edit]");
     if (editBtn) { e.stopPropagation(); openProfileEditor("home", editBtn.dataset.profileEdit); return; }
     const tile = e.target.closest("[data-profile-select]");
     if (tile) {
       const p = getProfileById(tile.dataset.profileSelect);
       if (p) {
-        state.appearance = p.id;
-        state.alias = p.name;
-        applyProfileToHomeUI();
-        renderProfileLibrary();
+        setActiveAppearance(p.id);
       }
     }
   });
   $("#account-register-btn")?.addEventListener("click", () => openAccountModal("register"));
   $("#account-login-btn")?.addEventListener("click", () => openAccountModal("login"));
+  $("#account-edit-btn")?.addEventListener("click", () => openAccountModal("edit"));
   $("#account-logout-btn")?.addEventListener("click", logoutAccount);
   $("#account-scrim")?.addEventListener("click", closeAccountModal);
 
@@ -4440,12 +5885,17 @@ function bindEvents() {
     if (!state.editingProfileId) return;
     const p = getProfileById(state.editingProfileId);
     if (!p) return;
-    if (confirm(`Delete profile "${p.name}"? This can't be undone.`)) deleteCurrentProfile();
+    openConfirmModal({
+      title: "Delete saved design?",
+      message: `Delete “${profileDesignName(p)}”? This cannot be undone.`,
+      confirmLabel: "DELETE DESIGN",
+      onConfirm: () => deleteCurrentProfile(),
+    });
   });
 
   // profile editor — identity
   $("#profile-name")?.addEventListener("input", (e) => {
-    state.profileDraft.name = e.target.value.toUpperCase().slice(0, 12);
+    state.profileDraft.designName = e.target.value.toUpperCase().slice(0, 12);
     updateProfilePreview();
   });
   $("#profile-swatches")?.addEventListener("click", (e) => {
@@ -4512,17 +5962,34 @@ function bindEvents() {
   $("#profile-cancel-btn")?.addEventListener("click", () => closeProfileEditor(false));
   $("#profile-back-btn")?.addEventListener("click", () => closeProfileEditor(false));
 
-  // sound toggle
-  const syncSoundBtn = () => {
-    const label = $("#sound-toggle-label");
-    if (label) label.textContent = state.sound ? "SOUND ON" : "SOUND OFF";
+  // Independent global audio controls: effects and soundtrack can be muted
+  // separately while the preference remains consistent across every view.
+  const syncAudioButtons = () => {
+    const soundLabel = $("#sound-toggle-label");
+    const musicLabel = $("#music-toggle-label");
+    if (soundLabel) soundLabel.textContent = state.sound ? "SOUND ON" : "SOUND OFF";
+    if (musicLabel) musicLabel.textContent = state.music ? "MUSIC ON" : "MUSIC OFF";
+    $("#sound-toggle-btn")?.setAttribute("aria-pressed", String(state.sound));
+    $("#music-toggle-btn")?.setAttribute("aria-pressed", String(state.music));
   };
-  syncSoundBtn();
+  syncAudioButtons();
   $("#sound-toggle-btn")?.addEventListener("click", () => {
     state.sound = !state.sound;
+    saveSoundPreference(state.sound);
     if (state.sound) playSound("trade");
-    syncSoundBtn();
+    syncAudioButtons();
+    syncHomeMusic();
+    renderProfileSummary();
   });
+  $("#music-toggle-btn")?.addEventListener("click", () => {
+    state.music = !state.music;
+    saveMusicPreference(state.music);
+    syncAudioButtons();
+    syncHomeMusic();
+    renderProfileSummary();
+  });
+  $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
+  $("#night-exit")?.addEventListener("click", stopNightShift);
 
   // quick table: starts a default-rules round immediately
   $("#quick-table-btn")?.addEventListener("click", () => {
@@ -4550,19 +6017,30 @@ function bindEvents() {
     state.setupTab = tabBtn.dataset.suTab;
     renderSetup();
   });
+  $("#su-reset-btn")?.addEventListener("click", () => {
+    clearTableAppearanceOverride();
+    focusSurface("#setup-wrap", "#su-start");
+  });
+  $("#su-make-active-btn")?.addEventListener("click", () => {
+    const choice = activeAppearance();
+    state.appearance = choice;
+    saveActiveDesignId(choice);
+    state.tableAppearanceOverride = null;
+    applyProfileToHomeUI();
+    renderAccountPanel();
+    renderProfileLibrary();
+    renderSetup();
+    renderLobbyRail();
+    syncServerAppearance();
+    focusSurface("#setup-wrap", "#su-start");
+  });
   $("#su-grid").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-app]");
     if (!btn) return;
     const raw = btn.dataset.app;
     // preset appearance = "0".."3"; custom profile ids look like "pf_xxxx"
-    state.appearance = /^\d+$/.test(raw) ? Number(raw) : raw;
-    const meta = getAppearanceMeta(state.appearance);
-    if (!state.account?.account && typeof state.appearance === "string") {
-      state.alias = meta.baseName;
-      saveGuestAlias(state.alias);
-    }
-    renderSetup();
-    renderLobbyRail();
+    const choice = /^\d+$/.test(raw) ? Number(raw) : raw;
+    setTableAppearanceOverride(choice);
   });
   $("#su-start").addEventListener("click", enterLobby);
 
@@ -4654,6 +6132,11 @@ function bindEvents() {
   // deeds tab: buy a vacant tile directly (kept for any future action buttons)
   // trade tab: open a trade with another player
   $("#rr-body").addEventListener("click", (e) => {
+    const financeButton = e.target.closest("[data-finance-open], [data-finance-surface]");
+    if (financeButton) {
+      openFinancingModal(financeButton.dataset.financeOpen || "loan", null, financeButton, financeButton.dataset.financeSurface || "offer");
+      return;
+    }
     const buyBtn = e.target.closest("[data-buy]");
     if (buyBtn && !buyBtn.disabled) { buyTile(TILES[Number(buyBtn.dataset.buy)]); return; }
     const tradeBtn = e.target.closest("[data-trade]");
@@ -4663,6 +6146,7 @@ function bindEvents() {
   // popup
   $("#popup-scrim").addEventListener("click", closePopup);
   $("#trade-scrim").addEventListener("click", closeTradeModal);
+  $("#financing-scrim").addEventListener("click", closeFinancingModal);
   $("#card-scrim").addEventListener("click", () => {
     state.card = null;
     closeSurface("#card-modal");
@@ -4671,6 +6155,12 @@ function bindEvents() {
   // keyboard
   window.addEventListener("keydown", (e) => {
     const tag = e.target?.tagName;
+    const homeVisible = !$("#view-home").classList.contains("is-hidden");
+    if (homeVisible && state.phase === "home" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "p" && tag !== "INPUT" && tag !== "TEXTAREA" && !visibleSurfaces().length) {
+      e.preventDefault();
+      startNightShift();
+      return;
+    }
     const activeSurface = syncSurfaceA11y();
     if (e.key === "Tab" && activeSurface) {
       const focusables = surfaceFocusable(activeSurface);
@@ -4687,6 +6177,15 @@ function bindEvents() {
       }
       return;
     }
+    const nightShiftOpen = !$("#night-shift").classList.contains("is-hidden");
+    if (nightShiftOpen) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        stopNightShift();
+        return;
+      }
+      if (e.key !== "Tab") return;
+    }
     if (state.phase === "setup" && e.key === "Escape") {
       e.preventDefault();
       goHome();
@@ -4695,6 +6194,10 @@ function bindEvents() {
     const roomsOpen = !$("#rooms-modal").classList.contains("is-hidden");
     const accountOpen = !$("#account-modal").classList.contains("is-hidden");
     if (accountOpen) { if (e.key === "Escape") closeAccountModal(); return; }
+    const confirmOpen = !$("#confirm-modal").classList.contains("is-hidden");
+    if (confirmOpen) { if (e.key === "Escape") closeConfirmModal(); return; }
+    const financingOpen = !$("#financing-modal").classList.contains("is-hidden");
+    if (financingOpen) { if (e.key === "Escape") closeFinancingModal(); return; }
     const choiceOpen = !$("#choice-modal").classList.contains("is-hidden");
     // auction modal is always locked
     if (state.auction) {
@@ -4734,6 +6237,7 @@ function bindEvents() {
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     if (state.phase === "home" && e.key.toLowerCase() === "b") {
       e.preventDefault();
+      setHomeTab("rooms");
       openRoomsModal("browse");
       return;
     }
@@ -4749,7 +6253,7 @@ function bindEvents() {
     }
     if (state.phase === "home" && e.key.toLowerCase() === "j") {
       e.preventDefault();
-      $("#room-join")?.focus();
+      openRoomsModal("join");
       return;
     }
     if (e.key.toLowerCase() === "l") {

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="112" height="64" viewBox="0 0 112 64" shape-rendering="crispEdges" role="img" aria-labelledby="airplane-title airplane-desc">
+  <title id="airplane-title">Night Shift pixel airplane</title>
+  <desc id="airplane-desc">Ten original pixel frames for a fast aircraft with a restrained navigation blink.</desc>
+  <style>
+    .frame { opacity: 0; animation: show-airplane 1s steps(1, end) infinite; }
+    .frame-00 { animation-delay: 0ms; }.frame-01 { animation-delay: -100ms; }.frame-02 { animation-delay: -200ms; }.frame-03 { animation-delay: -300ms; }.frame-04 { animation-delay: -400ms; }
+    .frame-05 { animation-delay: -500ms; }.frame-06 { animation-delay: -600ms; }.frame-07 { animation-delay: -700ms; }.frame-08 { animation-delay: -800ms; }.frame-09 { animation-delay: -900ms; }
+    @keyframes show-airplane { 0%, 9.99% { opacity: 1; } 10%, 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .frame { animation: none; } .frame-00 { opacity: 1; } }
+  </style>
+  <g id="airplane-body"><path d="M10 31h28V24h16l10-10h8v14h30v6H72v14h-8L54 38H38v-5H10z" fill="#030c10"/><path d="M18 30h38l12-10h2v12h30v2H68L56 34H18z" fill="#123d4b"/><path d="M42 26h16l8-8h4v9l-12 9H42z" fill="#3e7d7b"/><rect x="74" y="28" width="8" height="4" fill="#cfa75f"/><rect x="22" y="34" width="12" height="3" fill="#286ea1"/><rect x="52" y="40" width="8" height="3" fill="#9b783d"/></g>
+  <g id="frame-00" class="frame frame-00"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#d74438"/><rect x="12" y="39" width="12" height="3" fill="#c88f2e"/></g>
+  <g id="frame-01" class="frame frame-01"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#286ea1"/><rect x="12" y="39" width="16" height="3" fill="#c88f2e"/></g>
+  <g id="frame-02" class="frame frame-02"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#d74438"/><rect x="12" y="39" width="12" height="3" fill="#c88f2e"/></g>
+  <g id="frame-03" class="frame frame-03"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#286ea1"/><rect x="12" y="39" width="8" height="3" fill="#c88f2e"/></g>
+  <g id="frame-04" class="frame frame-04"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#d74438"/><rect x="12" y="39" width="6" height="3" fill="#c88f2e"/></g>
+  <g id="frame-05" class="frame frame-05"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#286ea1"/><rect x="12" y="39" width="8" height="3" fill="#c88f2e"/></g>
+  <g id="frame-06" class="frame frame-06"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#d74438"/><rect x="12" y="39" width="12" height="3" fill="#c88f2e"/></g>
+  <g id="frame-07" class="frame frame-07"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#286ea1"/><rect x="12" y="39" width="16" height="3" fill="#c88f2e"/></g>
+  <g id="frame-08" class="frame frame-08"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#d74438"/><rect x="12" y="39" width="12" height="3" fill="#c88f2e"/></g>
+  <g id="frame-09" class="frame frame-09"><use href="#airplane-body"/><rect x="88" y="27" width="6" height="5" fill="#286ea1"/><rect x="12" y="39" width="8" height="3" fill="#c88f2e"/></g>
+</svg>

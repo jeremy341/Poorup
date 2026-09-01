@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72" shape-rendering="crispEdges" role="img" aria-labelledby="debris-title debris-desc">
+  <title id="debris-title">Night Shift debris burst</title>
+  <desc id="debris-desc">Six original pixel frames of small gold, orange, and red impact shards.</desc>
+  <style>
+    .frame { opacity: 0; animation: show-debris 600ms steps(1, end) infinite; }
+    .frame-00 { animation-delay: 0ms; }.frame-01 { animation-delay: -100ms; }.frame-02 { animation-delay: -200ms; }.frame-03 { animation-delay: -300ms; }.frame-04 { animation-delay: -400ms; }.frame-05 { animation-delay: -500ms; }
+    @keyframes show-debris { 0%, 16.49% { opacity: 1; } 16.5%, 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .frame { animation: none; } .frame-00 { opacity: 1; } }
+  </style>
+  <g id="frame-00" class="frame frame-00"><rect x="34" y="34" width="4" height="4" fill="#f0d9ac"/><rect x="28" y="32" width="4" height="4" fill="#d74438"/><rect x="40" y="36" width="4" height="4" fill="#c88f2e"/></g>
+  <g id="frame-01" class="frame frame-01"><rect x="32" y="32" width="8" height="8" fill="#f0d9ac"/><rect x="20" y="30" width="6" height="4" fill="#d74438"/><rect x="46" y="36" width="6" height="4" fill="#c88f2e"/><rect x="34" y="18" width="4" height="8" fill="#d74438"/><rect x="34" y="46" width="4" height="8" fill="#286ea1"/></g>
+  <g id="frame-02" class="frame frame-02"><rect x="30" y="30" width="12" height="12" fill="#d74438"/><rect x="14" y="28" width="8" height="4" fill="#c88f2e"/><rect x="50" y="40" width="8" height="4" fill="#c88f2e"/><rect x="30" y="12" width="4" height="10" fill="#f0d9ac"/><rect x="40" y="50" width="4" height="10" fill="#286ea1"/></g>
+  <g id="frame-03" class="frame frame-03"><rect x="32" y="32" width="8" height="8" fill="#af2a21"/><rect x="10" y="26" width="8" height="4" fill="#c88f2e"/><rect x="54" y="42" width="8" height="4" fill="#c88f2e"/><rect x="28" y="10" width="4" height="8" fill="#d74438"/><rect x="42" y="54" width="4" height="8" fill="#286ea1"/></g>
+  <g id="frame-04" class="frame frame-04"><rect x="34" y="34" width="4" height="4" fill="#c88f2e"/><rect x="14" y="22" width="5" height="4" fill="#d74438"/><rect x="52" y="48" width="5" height="4" fill="#d74438"/><rect x="24" y="12" width="4" height="4" fill="#286ea1"/><rect x="46" y="56" width="4" height="4" fill="#286ea1"/></g>
+  <g id="frame-05" class="frame frame-05"><rect x="36" y="36" width="3" height="3" fill="#c88f2e"/><rect x="18" y="18" width="4" height="3" fill="#d74438"/><rect x="50" y="52" width="4" height="3" fill="#d74438"/><rect x="22" y="52" width="3" height="3" fill="#286ea1"/><rect x="54" y="18" width="3" height="3" fill="#286ea1"/></g>
+</svg>

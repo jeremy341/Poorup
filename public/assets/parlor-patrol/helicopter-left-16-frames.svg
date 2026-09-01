@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="64" viewBox="0 0 128 64" shape-rendering="crispEdges" role="img" aria-labelledby="title desc">
+  <title id="title">Parlor Patrol pixel helicopter, facing left</title>
+  <desc id="desc">Mirrored sixteen-frame pixel-art helicopter animation for right-to-left skyline flights.</desc>
+  <image href="/assets/parlor-patrol/helicopter-16-frames.svg" x="128" y="0" width="128" height="64" transform="scale(-1 1)" preserveAspectRatio="none" />
+</svg>
