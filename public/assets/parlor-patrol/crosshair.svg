@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" shape-rendering="crispEdges" role="img" aria-labelledby="crosshair-title crosshair-desc">
+  <title id="crosshair-title">Poorup pixel reticle cursor</title>
+  <desc id="crosshair-desc">A compact four-corner gold pixel reticle with a red center marker.</desc>
+  <!-- Four open brackets stay legible at 1× and leave the click hotspot clear. -->
+  <path fill="#f0d9ac" d="M2 2h9v3H5v6H2zM21 2h9v9h-3V5h-6zM2 21h3v6h6v3H2zM27 21h3v9h-9v-3h6z" />
+  <path fill="#3e7d7b" d="M10 10h3v3h-3zM19 10h3v3h-3zM10 19h3v3h-3zM19 19h3v3h-3z" />
+  <rect x="13" y="13" width="6" height="6" fill="#030c10" />
+  <rect x="14" y="14" width="4" height="4" fill="#d74438" />
+  <rect x="15" y="15" width="2" height="2" fill="#f0d9ac" />
+</svg>

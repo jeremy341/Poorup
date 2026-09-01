@@ -1,0 +1,64 @@
+{
+  "title": "Choose the upper-rail homepage",
+  "question": "Your steer is applied: the horizontal command rail sits above the board. Choose the version that best fits Poorup.",
+  "options": [
+    {
+      "id": "upper-rail-portal",
+      "label": "Upper-Rail Portal",
+      "kicker": "YOUR STEER",
+      "lineage": "command rail above a centered tabletop portal",
+      "thesis": "Put Create, Join, identity, and live facts in one upper rail, then let the board own the full stage below.",
+      "palette": ["#01070A", "#031D1E", "#F0D9AC", "#AF2A21"],
+      "materials": ["upper command rail", "large board frame", "skyline field"],
+      "viewport": "The rail stays visible at the top while the board scales from the remaining viewport height.",
+      "risk": "The rail must read as one deliberate instrument, not four unrelated cards.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "upper command rail", "x": 0, "y": 1, "w": 12, "h": 2, "accent": true},
+        {"label": "board portal", "x": 1, "y": 3, "w": 10, "h": 5, "accent": true}
+      ]}
+    },
+    {
+      "id": "upper-rail-split",
+      "label": "Upper-Rail Split",
+      "lineage": "upper action rail with board and entry columns",
+      "thesis": "Use the upper rail for the primary Create action and identity, then split the lower field between the board and a concise Join panel.",
+      "palette": ["#01070A", "#071314", "#CFA75F", "#AF2A21"],
+      "materials": ["ruled action rail", "board scene", "join ledger"],
+      "viewport": "A persistent top rail owns the first action; the board and join ledger share the field below without a center void.",
+      "risk": "The Join ledger needs a strict width cap so Create remains the obvious first move.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "upper rail", "x": 0, "y": 1, "w": 12, "h": 2, "accent": true},
+        {"label": "board scene", "x": 0, "y": 3, "w": 8, "h": 5, "accent": true},
+        {"label": "join ledger", "x": 8, "y": 3, "w": 4, "h": 5, "accent": false}
+      ]}
+    },
+    {
+      "id": "upper-rail-dispatch",
+      "label": "Upper-Rail Dispatch",
+      "lineage": "broadcast-style rail above a live room index",
+      "thesis": "Make the upper rail a dispatch strip for Create, Join, Rooms, and Profile, with the board and live directory below.",
+      "palette": ["#01070A", "#061011", "#E8D3AB", "#35A653"],
+      "materials": ["dispatch strip", "server-backed room rows", "board plate"],
+      "viewport": "The top strip establishes the route; a wide board plate and truthful room index fill the lower stage.",
+      "risk": "A live directory is useful only when empty and loading states are as clear as populated rows.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "dispatch strip", "x": 0, "y": 1, "w": 12, "h": 2, "accent": true},
+        {"label": "board plate", "x": 0, "y": 3, "w": 8, "h": 5, "accent": true},
+        {"label": "room index", "x": 8, "y": 3, "w": 4, "h": 5, "accent": false}
+      ]}
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "code", "toggle": false},
+  "canon": true,
+  "canonCard": {
+    "label": "Current composition",
+    "thesis": "Keep the existing stage and tune the spacing only.",
+    "palette": ["#01070A", "#031D1E", "#F0D9AC"],
+    "materials": ["current split grid", "mini-board", "entry cluster"],
+    "viewport": "The current layout remains the baseline if none of the upper-rail structures fit the team.",
+    "risk": "The measured empty center and capped visual anchor remain.",
+    "wireframe": {"cols": 12, "rows": 8, "regions": [{"label": "current stage", "x": 0, "y": 1, "w": 12, "h": 7, "accent": false}]}
+  },
+  "steer": true
+}

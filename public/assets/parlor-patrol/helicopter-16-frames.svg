@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="64" viewBox="0 0 128 64" shape-rendering="crispEdges" role="img" aria-labelledby="title desc">
+  <title id="title">Parlor Patrol pixel helicopter</title>
+  <desc id="desc">Sixteen overlaid pixel-art helicopter frames with a stepped rotor and alternating red and blue beacon.</desc>
+  <style>
+    .frame { opacity: 0; animation: show-frame 1.6s steps(1, end) infinite; }
+    .frame-00 { animation-delay: 0s; }
+    .frame-01 { animation-delay: -0.1s; }
+    .frame-02 { animation-delay: -0.2s; }
+    .frame-03 { animation-delay: -0.3s; }
+    .frame-04 { animation-delay: -0.4s; }
+    .frame-05 { animation-delay: -0.5s; }
+    .frame-06 { animation-delay: -0.6s; }
+    .frame-07 { animation-delay: -0.7s; }
+    .frame-08 { animation-delay: -0.8s; }
+    .frame-09 { animation-delay: -0.9s; }
+    .frame-10 { animation-delay: -1s; }
+    .frame-11 { animation-delay: -1.1s; }
+    .frame-12 { animation-delay: -1.2s; }
+    .frame-13 { animation-delay: -1.3s; }
+    .frame-14 { animation-delay: -1.4s; }
+    .frame-15 { animation-delay: -1.5s; }
+    @keyframes show-frame {
+      0%, 6.24% { opacity: 1; }
+      6.25%, 100% { opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .frame { animation: none; }
+      .frame-00 { opacity: 1; }
+    }
+  </style>
+  <defs>
+    <g id="helicopter-body">
+      <!-- shadow silhouette and tail boom -->
+      <path fill="#030c10" d="M24 30h11v-7h7v-5h32v3h12v3h9v4h7v10H91v4H36v-3H24z" />
+      <rect x="18" y="28" width="16" height="5" fill="#030c10" />
+      <rect x="12" y="25" width="12" height="3" fill="#030c10" />
+      <rect x="8" y="22" width="8" height="3" fill="#030c10" />
+      <!-- cabin and fuselage -->
+      <rect x="42" y="20" width="31" height="14" fill="#123d4b" />
+      <rect x="48" y="22" width="10" height="8" fill="#286ea1" />
+      <rect x="60" y="22" width="10" height="8" fill="#3e7d7b" />
+      <rect x="73" y="24" width="13" height="9" fill="#1b5360" />
+      <rect x="87" y="27" width="9" height="6" fill="#286ea1" />
+      <rect x="39" y="31" width="52" height="5" fill="#1b5360" />
+      <rect x="42" y="35" width="47" height="3" fill="#071314" />
+      <!-- tail fin, nose light, beacon housing -->
+      <path fill="#286ea1" d="M18 27h13v-6h4v11H18z" />
+      <rect x="28" y="29" width="7" height="4" fill="#d74438" />
+      <rect x="57" y="18" width="8" height="3" fill="#071314" />
+      <rect x="59" y="19" width="5" height="4" fill="#d74438" />
+      <rect x="90" y="28" width="7" height="4" fill="#f0d9ac" />
+      <!-- landing skids and mast -->
+      <rect x="48" y="38" width="3" height="7" fill="#5c5033" />
+      <rect x="77" y="38" width="3" height="7" fill="#5c5033" />
+      <rect x="40" y="45" width="48" height="3" fill="#f0d9ac" />
+      <rect x="45" y="42" width="3" height="3" fill="#9b783d" />
+      <rect x="78" y="42" width="3" height="3" fill="#9b783d" />
+      <rect x="60" y="12" width="4" height="8" fill="#9b783d" />
+      <rect x="61" y="10" width="2" height="3" fill="#f0d9ac" />
+    </g>
+  </defs>
+
+  <!-- Rotor sweep is the only silhouette change; the beacon alternates in four-frame beats. -->
+  <g id="frame-00" class="frame frame-00"><use href="#helicopter-body" /><rect x="25" y="7" width="76" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-01" class="frame frame-01"><use href="#helicopter-body" /><rect x="18" y="9" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-02" class="frame frame-02"><use href="#helicopter-body" /><rect x="12" y="11" width="102" height="3" fill="#cfa75f" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-03" class="frame frame-03"><use href="#helicopter-body" /><rect x="18" y="13" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-04" class="frame frame-04"><use href="#helicopter-body" /><rect x="25" y="7" width="76" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+  <g id="frame-05" class="frame frame-05"><use href="#helicopter-body" /><rect x="18" y="9" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+  <g id="frame-06" class="frame frame-06"><use href="#helicopter-body" /><rect x="12" y="11" width="102" height="3" fill="#cfa75f" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+  <g id="frame-07" class="frame frame-07"><use href="#helicopter-body" /><rect x="18" y="13" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+  <g id="frame-08" class="frame frame-08"><use href="#helicopter-body" /><rect x="25" y="7" width="76" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-09" class="frame frame-09"><use href="#helicopter-body" /><rect x="18" y="9" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-10" class="frame frame-10"><use href="#helicopter-body" /><rect x="12" y="11" width="102" height="3" fill="#cfa75f" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-11" class="frame frame-11"><use href="#helicopter-body" /><rect x="18" y="13" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#d74438" /></g>
+  <g id="frame-12" class="frame frame-12"><use href="#helicopter-body" /><rect x="25" y="7" width="76" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+  <g id="frame-13" class="frame frame-13"><use href="#helicopter-body" /><rect x="18" y="9" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+  <g id="frame-14" class="frame frame-14"><use href="#helicopter-body" /><rect x="12" y="11" width="102" height="3" fill="#cfa75f" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+  <g id="frame-15" class="frame frame-15"><use href="#helicopter-body" /><rect x="18" y="13" width="90" height="3" fill="#f0d9ac" /><rect x="58" y="19" width="7" height="4" fill="#286ea1" /></g>
+</svg>

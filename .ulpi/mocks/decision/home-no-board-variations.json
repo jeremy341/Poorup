@@ -1,0 +1,65 @@
+{
+  "title": "Choose a board-free Poorup homepage",
+  "question": "The board stays inside the game. Choose the homepage composition that should introduce the parlor.",
+  "options": [
+    {
+      "id": "parlor-desk",
+      "label": "Parlor Desk",
+      "kicker": "THE ROLL",
+      "lineage": "typographic entry desk with one focused action panel",
+      "thesis": "Put the Poorup statement on the left and a single Create / Join desk on the right, with identity kept close but subordinate.",
+      "palette": ["#01070A", "#071314", "#F0D9AC", "#AF2A21"],
+      "materials": ["ruled desk panel", "skyline horizon", "terminal form controls"],
+      "viewport": "A full-width two-zone stage uses desktop space without a board-shaped placeholder or an empty center.",
+      "risk": "Type scale and texture must provide the signature that the removed board used to provide.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "parlor statement", "x": 0, "y": 1, "w": 7, "h": 6, "accent": true},
+        {"label": "entry desk", "x": 7, "y": 1, "w": 5, "h": 6, "accent": true}
+      ]}
+    },
+    {
+      "id": "terminal-switchboard",
+      "label": "Terminal Switchboard",
+      "lineage": "numbered home routes with a live directory column",
+      "thesis": "Make Play, Rooms, Profile, and Rules real terminal routes beside one active command panel and truthful room discovery.",
+      "palette": ["#01070A", "#030C10", "#CFA75F", "#35A653"],
+      "materials": ["ANSI-like menu rail", "active command panel", "room index rows"],
+      "viewport": "A three-column control surface keeps navigation, action, and live directory visible at once.",
+      "risk": "The active panel needs a strong focal hierarchy so the menu does not overpower the entry action.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "route menu", "x": 0, "y": 1, "w": 3, "h": 6, "accent": false},
+        {"label": "active command", "x": 3, "y": 1, "w": 6, "h": 6, "accent": true},
+        {"label": "live directory", "x": 9, "y": 1, "w": 3, "h": 6, "accent": false}
+      ]}
+    },
+    {
+      "id": "ticket-booth",
+      "label": "Ticket Booth",
+      "lineage": "centered marquee with two ruled entry tickets",
+      "thesis": "Use a large after-hours marquee above two clear Create and Join tickets, then keep identity and status in one compact strip.",
+      "palette": ["#01070A", "#031D1E", "#E8D3AB", "#AF2A21"],
+      "materials": ["marquee type", "ruled tickets", "identity status strip"],
+      "viewport": "The entry pair stays centered and immediately visible while the skyline becomes a quiet horizon layer.",
+      "risk": "The ticket metaphor must remain native, readable, and action-first rather than decorative.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "marquee", "x": 2, "y": 1, "w": 8, "h": 2, "accent": true},
+        {"label": "create ticket", "x": 2, "y": 3, "w": 4, "h": 3, "accent": true},
+        {"label": "join ticket", "x": 6, "y": 3, "w": 4, "h": 3, "accent": false},
+        {"label": "identity and facts", "x": 2, "y": 6, "w": 8, "h": 2, "accent": false}
+      ]}
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "code", "toggle": false},
+  "canon": true,
+  "canonCard": {
+    "label": "Current composition",
+    "thesis": "Keep the board-shaped homepage and adjust spacing only.",
+    "palette": ["#01070A", "#031D1E", "#F0D9AC"],
+    "materials": ["mini-board", "split stage", "entry cluster"],
+    "viewport": "The current homepage remains the fallback if a board-free direction does not fit.",
+    "risk": "The board competes with the entry task and the desktop layout remains uneven.",
+    "wireframe": {"cols": 12, "rows": 8, "regions": [{"label": "current home", "x": 0, "y": 1, "w": 12, "h": 7, "accent": false}]}
+  },
+  "steer": true
+}

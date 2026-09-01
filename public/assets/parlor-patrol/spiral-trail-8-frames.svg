@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72" shape-rendering="crispEdges" role="img" aria-labelledby="spiral-title spiral-desc">
+  <title id="spiral-title">Night Shift spiral trail</title>
+  <desc id="spiral-desc">Eight subtle pixel rings for a helicopter crash path.</desc>
+  <style>
+    .frame { opacity: 0; animation: show-spiral 720ms steps(1, end) infinite; }
+    .frame-00 { animation-delay: 0ms; }.frame-01 { animation-delay: -90ms; }.frame-02 { animation-delay: -180ms; }.frame-03 { animation-delay: -270ms; }.frame-04 { animation-delay: -360ms; }.frame-05 { animation-delay: -450ms; }.frame-06 { animation-delay: -540ms; }.frame-07 { animation-delay: -630ms; }
+    @keyframes show-spiral { 0%, 12.49% { opacity: 1; } 12.5%, 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .frame { animation: none; } .frame-00 { opacity: 1; } }
+  </style>
+  <g id="frame-00" class="frame frame-00"><path d="M16 22h8v-6h24v6h8v8h6v16h-6v8h-8v6H24v-6h-8v-8h-6V30h6z" fill="none" stroke="#3e7d7b" stroke-width="3"/></g>
+  <g id="frame-01" class="frame frame-01"><path d="M14 20h12v-6h20v6h12v10h6v12h-6v10H46v6H26v-6H14V52H8V30h6z" fill="none" stroke="#3e7d7b" stroke-width="3"/></g>
+  <g id="frame-02" class="frame frame-02"><path d="M12 18h16v-4h16v4h16v12h4v12h-4v12H44v4H28v-4H12V50H6V30h6z" fill="none" stroke="#c88f2e" stroke-width="3"/></g>
+  <g id="frame-03" class="frame frame-03"><path d="M10 24h18v-8h16v8h18v8h4v8h-4v8H44v8H28v-8H10v-8H6v-8h4z" fill="none" stroke="#3e7d7b" stroke-width="3"/></g>
+  <g id="frame-04" class="frame frame-04"><path d="M18 28h14v-10h10v10h14v6h6v6h-6v6H42v10H32V46H18v-6h-6v-6h6z" fill="none" stroke="#286ea1" stroke-width="3"/></g>
+  <g id="frame-05" class="frame frame-05"><path d="M22 30h10v-8h8v8h10v6h8v4h-8v6H40v8h-8v-8H22v-6h-8v-4h8z" fill="none" stroke="#3e7d7b" stroke-width="3"/></g>
+  <g id="frame-06" class="frame frame-06"><path d="M26 34h8v-6h4v6h8v4h6v4h-6v4h-8v6h-4v-6h-8v-4h-6v-4h6z" fill="none" stroke="#c88f2e" stroke-width="3"/></g>
+  <g id="frame-07" class="frame frame-07"><path d="M30 36h6v-4h4v4h6v4h-6v4h-4v-4h-6z" fill="none" stroke="#3e7d7b" stroke-width="3"/></g>
+</svg>
