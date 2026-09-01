@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">Surprise</title>
+  <desc id="desc">A bright red pixel-art question mark with a dark shadow and warm highlight.</desc>
+  <path fill="#01070a" d="M44 8h40v4h12v8h8v8h8v36h-8v12h-8v8H84v8H76v4H48v-8h8v-8h12v-8h8v-8h8V44h-8v-8H52v8h-8v20H16V32h8V20h8v-8h12V8Zm4 100h28v20H48v-20Z"/>
+  <path fill="#d74438" d="M44 12h36v4h12v8h8v8h8v28H96v12H84v8H72v8H52V76h12v-8h8v-8h8V40H72v-8H48v8H36v20H20V32h8V20h8v-8h8Zm8 100h20v12H52v-12Z"/>
+  <path fill="#af2a21" d="M20 44h8V28h8v-8h12v8h-8v8h-8v24H20V44Zm52 20h12v8H72v8H60v8h-8V76h8v-8h12v-4Zm-20 52h20v8H52v-8Z"/>
+  <path fill="#f0d9ac" d="M48 12h24v4H48v-4Zm36 8h8v8h-8v-8Z"/>
+</svg>

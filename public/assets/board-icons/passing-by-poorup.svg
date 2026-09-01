@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="139" viewBox="0 0 140 139" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">Passing By corner tile</title>
+  <desc id="desc">The supplied combined Passing By and prison layout restyled in Poorup's dark teal and gold visual system.</desc>
+  <defs>
+    <clipPath id="tile-clip">
+      <rect width="140" height="139" rx="16"/>
+    </clipPath>
+    <linearGradient id="prison-depth" x1="43" y1="50" x2="43" y2="139" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0b2020"/>
+      <stop offset="1" stop-color="#031314"/>
+    </linearGradient>
+    <style>
+      @font-face {
+        font-family: "Pixelify Sans";
+        src: url("/assets/fonts/pixelify-sans-400.woff2") format("woff2");
+        font-weight: 400;
+      }
+    </style>
+  </defs>
+  <g clip-path="url(#tile-clip)">
+    <rect width="140" height="139" fill="#071314"/>
+    <rect x="1" y="1" width="138" height="137" rx="15" fill="none" stroke="#9b783d" stroke-width="2"/>
+    <rect x="5" y="5" width="130" height="129" rx="12" fill="none" stroke="#3a382a" stroke-width="1"/>
+    <text x="70" y="31" text-anchor="middle" fill="#e8d3ab" font-family="Pixelify Sans, monospace" font-size="15" font-weight="400" letter-spacing="0">Passing by</text>
+    <rect x="-2" y="50" width="90" height="90" fill="url(#prison-depth)"/>
+    <rect x="-2" y="50" width="90" height="4" fill="#5c5033"/>
+    <rect x="3" y="50" width="2" height="90" fill="#f0d9ac"/>
+    <rect x="9" y="50" width="2" height="90" fill="#e8d3ab"/>
+    <rect x="15" y="50" width="2" height="90" fill="#f0d9ac"/>
+    <rect x="21" y="50" width="2" height="90" fill="#e8d3ab"/>
+    <rect x="27" y="50" width="2" height="90" fill="#f0d9ac"/>
+    <rect x="33" y="50" width="2" height="90" fill="#e8d3ab"/>
+    <rect x="39" y="50" width="2" height="90" fill="#f0d9ac"/>
+    <rect x="45" y="50" width="2" height="90" fill="#e8d3ab"/>
+    <rect x="51" y="50" width="2" height="90" fill="#f0d9ac"/>
+    <rect x="57" y="50" width="2" height="90" fill="#e8d3ab"/>
+    <rect x="63" y="50" width="2" height="90" fill="#f0d9ac"/>
+    <rect x="69" y="50" width="2" height="90" fill="#e8d3ab"/>
+    <rect x="75" y="50" width="2" height="90" fill="#f0d9ac"/>
+    <rect x="81" y="50" width="2" height="90" fill="#e8d3ab"/>
+    <rect x="86" y="50" width="2" height="90" fill="#cfa75f"/>
+    <rect x="88" y="54" width="4" height="85" fill="#01070a" opacity="0.45"/>
+  </g>
+</svg>

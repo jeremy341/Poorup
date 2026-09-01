@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 176 220" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">Passing by corner tile</title>
+  <desc id="desc">A dark board corner tile with gold prison bars and a two-line Passing By label.</desc>
+  <rect x="13" y="8" width="150" height="204" fill="#01070a"/>
+  <path fill="#9b783d" d="M16 8h144v4h4v196h-4v4H16v-4h-4V12h4V8Z"/>
+  <rect x="18" y="12" width="140" height="196" fill="#071314"/>
+  <rect x="22" y="16" width="132" height="188" fill="#061011" stroke="#3a382a" stroke-width="2"/>
+  <rect x="46" y="58" width="6" height="70" fill="#e8d3ab"/>
+  <rect x="60" y="58" width="6" height="70" fill="#e8d3ab"/>
+  <rect x="74" y="58" width="6" height="70" fill="#e8d3ab"/>
+  <rect x="88" y="58" width="6" height="70" fill="#e8d3ab"/>
+  <rect x="102" y="58" width="6" height="70" fill="#e8d3ab"/>
+  <rect x="116" y="58" width="6" height="70" fill="#e8d3ab"/>
+  <rect x="130" y="58" width="6" height="70" fill="#e8d3ab"/>
+  <rect x="42" y="60" width="98" height="6" fill="#cfa75f"/>
+  <rect x="42" y="122" width="98" height="6" fill="#cfa75f"/>
+  <rect x="48" y="138" width="80" height="3" fill="#5c5033"/>
+  <text x="88" y="162" text-anchor="middle" fill="#cfa75f" font-family="monospace" font-size="16" font-weight="700" letter-spacing="1">PASSING</text>
+  <text x="88" y="181" text-anchor="middle" fill="#cfa75f" font-family="monospace" font-size="16" font-weight="700" letter-spacing="1">BY</text>
+</svg>
