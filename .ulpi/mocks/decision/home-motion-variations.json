@@ -1,0 +1,85 @@
+{
+  "title": "Choose Poorup homepage motion",
+  "question": "Pick one purposeful background treatment for the board-free Parlor Desk homepage. Nothing will be animated until you choose.",
+  "options": [
+    {
+      "id": "night-drive-pass",
+      "label": "Night Drive Pass",
+      "kicker": "RECOMMENDED",
+      "lineage": "one pixel vehicle crossing the skyline",
+      "thesis": "Give the after-hours parlor a rare, quiet sign of life: one vehicle passes behind the skyline when home appears, then the scene settles.",
+      "palette": ["#01070A", "#031D1E", "#CFA75F", "#35A653"],
+      "materials": ["low-contrast pixel vehicle", "static skyline", "soft horizon fade"],
+      "viewport": "A one-shot transform-only pass scales with the skyline at 1920 and 2560 without moving the entry desk or changing layout.",
+      "risk": "A loop would become decoration, so it runs once per home entry and becomes parked/static under reduced motion.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "parlor copy", "x": 1, "y": 1, "w": 5, "h": 4, "accent": true},
+        {"label": "entry desk", "x": 7, "y": 1, "w": 4, "h": 6, "accent": true},
+        {"label": "skyline vehicle path", "x": 1, "y": 5, "w": 6, "h": 1, "accent": false}
+      ]}
+    },
+    {
+      "id": "skyline-depth-shift",
+      "label": "Skyline Depth Shift",
+      "kicker": "POINTER ONLY",
+      "lineage": "fine-pointer parallax behind a fixed desk",
+      "thesis": "Let the skyline respond to the player’s pointer by a few pixels, adding physical depth while the actions stay locked and calm.",
+      "palette": ["#01070A", "#031D1E", "#F0D9AC", "#AF2A21"],
+      "materials": ["4–8px skyline offset", "fixed action desk", "quiet settle"],
+      "viewport": "The offset is capped in pixels, so it remains restrained on both desktop targets and disappears on touch/keyboard.",
+      "risk": "Pointer-follow can feel like a toy; it has no automatic motion and should remain an optional fine-pointer enhancement.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "fixed parlor copy", "x": 1, "y": 1, "w": 5, "h": 4, "accent": true},
+        {"label": "entry desk", "x": 7, "y": 1, "w": 4, "h": 6, "accent": true},
+        {"label": "responsive skyline layer", "x": 2, "y": 5, "w": 5, "h": 1, "accent": false}
+      ]}
+    },
+    {
+      "id": "window-signal-relay",
+      "label": "Window Signal Relay",
+      "kicker": "LIVE STATE",
+      "lineage": "skyline windows echo a connection event",
+      "thesis": "When the client becomes online again, a handful of windows light in a short deterministic relay, making the connection state feel present without replacing the status text.",
+      "palette": ["#01070A", "#031D1E", "#35A653", "#CFA75F"],
+      "materials": ["three-to-five lit windows", "stepped opacity", "online transition hook"],
+      "viewport": "The same SVG window coordinates scale with the skyline, so the relay stays aligned at both target sizes.",
+      "risk": "It must remain event-driven; random or infinite flicker would undermine trust and accessibility.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "parlor copy", "x": 1, "y": 1, "w": 5, "h": 4, "accent": true},
+        {"label": "entry desk", "x": 7, "y": 1, "w": 4, "h": 6, "accent": true},
+        {"label": "signal windows", "x": 2, "y": 5, "w": 5, "h": 1, "accent": false}
+      ]}
+    },
+    {
+      "id": "crt-horizon-sweep",
+      "label": "CRT Horizon Sweep",
+      "kicker": "ARRIVAL CUE",
+      "lineage": "one scan across the skyline on arrival",
+      "thesis": "Use a single 700–900ms horizon sweep when Home first appears or Profile returns, then let the parlor settle.",
+      "palette": ["#01070A", "#061011", "#F0D9AC", "#AF2A21"],
+      "materials": ["soft horizon scan", "one-shot arrival cue", "static reduced-motion end state"],
+      "viewport": "A clipped transform/opacity sweep stays inside the skyline layer and never changes page geometry.",
+      "risk": "Without a state transition to explain, it is mostly polish; it should not be replayed on every interaction.",
+      "wireframe": {"cols": 12, "rows": 8, "regions": [
+        {"label": "parlor copy", "x": 1, "y": 1, "w": 5, "h": 4, "accent": true},
+        {"label": "entry desk", "x": 7, "y": 1, "w": 4, "h": 6, "accent": true},
+        {"label": "horizon sweep", "x": 2, "y": 5, "w": 5, "h": 1, "accent": false}
+      ]}
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "code", "toggle": false},
+  "canon": true,
+  "canonCard": {
+    "label": "Keep the homepage still",
+    "thesis": "Ship the current quiet skyline with no new motion if none of the concepts earns its place.",
+    "palette": ["#01070A", "#031D1E", "#F0D9AC"],
+    "materials": ["static skyline", "scanlines", "fixed entry desk"],
+    "viewport": "The board-free Parlor Desk remains exactly as it is at both desktop targets.",
+    "risk": "The page stays calm but gives up the small sense of life requested for the after-hours setting.",
+    "wireframe": {"cols": 12, "rows": 8, "regions": [
+      {"label": "current parlor desk", "x": 0, "y": 1, "w": 12, "h": 7, "accent": false}
+    ]}
+  },
+  "steer": true
+}

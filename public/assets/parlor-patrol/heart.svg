@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="14" viewBox="0 0 16 14" shape-rendering="crispEdges" role="img" aria-labelledby="heart-title heart-desc">
+  <title id="heart-title">Night Shift life</title>
+  <desc id="heart-desc">A red pixel heart representing one remaining Night Shift life.</desc>
+  <path fill="#d74438" d="M3 1h4v2h2V1h4v2h2v5h-2v2h-2v2H5v-2H3V8H1V3h2z" />
+  <rect x="4" y="3" width="3" height="2" fill="#f0d9ac" />
+</svg>
