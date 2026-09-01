@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import { RoomManager } from './gameLogic.js';
 import { AccountStore } from './accountStore.js';
+import { SocialStore } from './socialStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,7 @@ app.get('*', (req, res, next) => {
 
 const roomManager = new RoomManager();
 const accountStore = new AccountStore();
+const socialStore = new SocialStore();
 const auctionTimers = new Map();
 const disconnectTimers = new Map();
 const AUCTION_DURATION_MS = 5000;
@@ -158,7 +160,13 @@ function reassignHostIfNeeded(room, departedPlayerId) {
 function emitRoomState(room) {
   if (!room) return;
   if (room.game.lastWinner && !room.statsRecorded) {
-    accountStore.recordGameResults(room.game.players, room.game.lastWinner.id);
+    accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, {
+      gameId: `match_${room.roomCode}_${room.game.startedAt || Date.now()}`,
+      durationSeconds: room.game.startedAt ? (Date.now() - room.game.startedAt) / 1000 : 0,
+      roundCount: room.game.roundNumber,
+      roomVisibility: room.visibility,
+      globalEvents: room.game.globalEventHistory?.map(event => event.title) || []
+    });
     room.statsRecorded = true;
   }
   io.in(room.roomCode).emit('update-state', {
@@ -166,6 +174,49 @@ function emitRoomState(room) {
     game: room.game.getGameSummary(),
     serverTime: Date.now()
   });
+}
+
+function accountForSocket(socket, payload = {}) {
+  const account = accountStore.sessionAccount(payload.sessionToken) || accountStore.getPublicAccountById(socket.data?.accountId);
+  if (account) socket.data.accountId = account.id;
+  return account;
+}
+
+function socketsForAccount(accountId) {
+  if (!accountId) return [];
+  return [...io.sockets.sockets.values()].filter(candidate => candidate.data?.accountId === accountId);
+}
+
+function emitSocialUpdate(accountId) {
+  const social = socialSummary(accountId);
+  socketsForAccount(accountId).forEach(candidate => candidate.emit('social-update', social));
+}
+
+function socialSummary(accountId) {
+  const raw = socialStore.listFor(accountId);
+  return {
+    friends: raw.friends.map(id => publicPlayerCard(id)).filter(Boolean),
+    requests: raw.requests.map(request => ({ ...request, from: publicPlayerCard(request.requesterId) })).filter(request => request.from),
+    outgoing: raw.outgoing.map(request => ({ ...request, to: publicPlayerCard(request.addresseeId) })).filter(request => request.to),
+    invites: raw.invites.map(invite => ({ id: invite.id, roomName: invite.roomName, visibility: invite.visibility, expiresAt: invite.expiresAt, sender: publicPlayerCard(invite.senderId) })).filter(invite => invite.sender),
+    notifications: raw.notifications
+  };
+}
+
+function notifyAccount(accountId, notification) {
+  if (!accountId) return;
+  socialStore.addNotification(accountId, notification);
+  socketsForAccount(accountId).forEach(candidate => candidate.emit('social-notification', notification));
+}
+
+function broadcastMythicalAchievement({ playerAccountId, playerDisplayName }) {
+  const payload = { kind: 'mythical-achievement', title: 'MYTHICAL ACHIEVEMENT', body: `${playerDisplayName || 'A player'} unlocked a MYTHICAL ACHIEVEMENT.`, playerDisplayName: playerDisplayName || 'A player', createdAt: new Date().toISOString() };
+  io.emit('mythical-achievement', payload);
+  notifyAccount(playerAccountId, { ...payload, body: 'Your Mythical achievement was verified and announced server-wide.' });
+}
+
+function publicPlayerCard(accountId) {
+  return accountStore.getPublicPlayerCard(accountId);
 }
 
 function clearAuctionTimer(room) {
@@ -254,26 +305,31 @@ io.on('connection', (socket) => {
 
   socket.on('account-register', (payload = {}, callback) => {
     const result = accountStore.register(payload);
+    if (result?.account?.id) socket.data.accountId = result.account.id;
     reply(callback, result);
   });
 
   socket.on('account-login', (payload = {}, callback) => {
     const result = accountStore.login(payload);
+    if (result?.account?.id) socket.data.accountId = result.account.id;
     reply(callback, result);
   });
 
   socket.on('account-restore', (payload = {}, callback) => {
     const result = accountStore.restore(payload.sessionToken);
+    if (result?.account?.id) socket.data.accountId = result.account.id;
     reply(callback, result);
   });
 
   socket.on('account-logout', (payload = {}, callback) => {
+    socket.data.accountId = null;
     reply(callback, accountStore.logout(payload.sessionToken));
   });
 
   socket.on('account-update', (payload = {}, callback) => {
     const result = accountStore.updateProfile(payload.sessionToken, payload);
     if (!result.success) return reply(callback, result);
+    socket.data.accountId = result.account.id;
     const room = roomManager.getRoomBySocket(socket.id);
     const player = room?.getPlayerBySocket(socket.id);
     if (player && !room.game.started && player.accountId === result.account.id) {
@@ -288,6 +344,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('restore-session', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
     const { clientId } = payload;
     clearDisconnectTimer(clientId);
     const room = roomManager.restoreConnection(clientId, socket.id);
@@ -298,6 +355,7 @@ io.on('connection', (socket) => {
         }
       }
       socket.join(room.roomCode);
+      if (account?.id) socket.data.accountId = account.id;
       emitRoomState(room);
       emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
       socket.emit('system-message', { text: 'Reconnected to your room.' });
@@ -318,6 +376,7 @@ io.on('connection', (socket) => {
     const color = normalizeColor(account?.color || payload?.color);
     const avatarGrid = normalizeAvatarGrid(account?.avatarGrid || payload?.avatarGrid);
     const accountId = account?.id || null;
+    if (accountId) socket.data.accountId = accountId;
     const roomName = normalizeRoomName(payload?.roomName);
     const visibility = normalizeVisibility(payload?.visibility);
     const requestedRoomCode = visibility === 'private' ? normalizeRoomCode(payload?.roomCode) : '';
@@ -363,6 +422,7 @@ io.on('connection', (socket) => {
     const color = normalizeColor(account?.color || payload?.color);
     const avatarGrid = normalizeAvatarGrid(account?.avatarGrid || payload?.avatarGrid);
     const accountId = account?.id || null;
+    if (accountId) socket.data.accountId = accountId;
     const { clientId } = payload || {};
     if (!roomCode) {
       return callback?.({ success: false, error: 'Room code is required.' });
@@ -584,6 +644,47 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error });
   });
 
+  socket.on('use-jail-free', (_, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.useJailFree(socket.id);
+    emitRoomState(room);
+    if (result?.message) io.in(room.roomCode).emit('system-message', { text: result.message });
+    reply(callback, { success: result?.success ?? false, error: result?.error });
+  });
+
+  socket.on('get-bank-loan-offer', (_, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const offer = room.getBankLoanOffer(socket.id);
+    reply(callback, { success: offer?.available ?? false, error: offer?.reason, offer });
+  });
+
+  socket.on('take-bank-loan', (_, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.takeBankLoan(socket.id);
+    emitRoomState(room);
+    if (result?.message) io.in(room.roomCode).emit('system-message', { text: result.message });
+    reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
+  });
+
+  socket.on('repay-bank-loan', (payload = {}, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.repayBankLoan(socket.id, payload);
+    emitRoomState(room);
+    reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
+  });
+
+  socket.on('vote-global-event', (payload = {}, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.voteGlobalEvent(socket.id, payload.choiceId);
+    emitRoomState(room);
+    reply(callback, { success: result?.success ?? false, error: result?.error });
+  });
+
   socket.on('declare-bankruptcy', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -608,6 +709,132 @@ io.on('connection', (socket) => {
     chatLastSent.set(socket.id, now);
     io.in(room.roomCode).emit('chat-message', { text, nickname: player?.nickname || 'Guest' });
     reply(callback, { success: true });
+  });
+
+  socket.on('get-social-data', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to use social features.' });
+    reply(callback, { success: true, social: socialSummary(account.id) });
+  });
+
+  socket.on('send-friend-request', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Create an account before sending friend requests.' });
+    const target = payload.targetAccountId
+      ? accountStore.getPublicAccountById(payload.targetAccountId)
+      : accountStore.findAccountByUsername(payload.username);
+    if (!target) return reply(callback, { success: false, error: 'Player not found.' });
+    const result = socialStore.requestFriend(account.id, target.id);
+    if (result.success) {
+      notifyAccount(target.id, { kind: 'friend-request', title: 'FRIEND REQUEST', body: `${account.displayName} sent you a friend request.`, metadata: { friendshipId: result.friendship.id, accountId: account.id } });
+      emitSocialUpdate(account.id);
+      emitSocialUpdate(target.id);
+    }
+    reply(callback, result);
+  });
+
+  socket.on('respond-friend-request', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to manage friend requests.' });
+    const result = socialStore.respondFriend(account.id, payload.friendshipId, payload.accept === true);
+    if (result.success) {
+      const otherId = result.friendship.requesterId;
+      const other = accountStore.getPublicAccountById(otherId);
+      notifyAccount(otherId, { kind: 'friend-response', title: result.friendship.status === 'accepted' ? 'FRIEND REQUEST ACCEPTED' : 'FRIEND REQUEST DECLINED', body: `${account.displayName} ${result.friendship.status === 'accepted' ? 'accepted' : 'declined'} your friend request.`, metadata: { accountId: account.id } });
+      emitSocialUpdate(account.id);
+      emitSocialUpdate(otherId);
+      result.other = other ? { accountId: other.id, displayName: other.displayName } : null;
+    }
+    reply(callback, result);
+  });
+
+  socket.on('remove-friend', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to manage friends.' });
+    const result = socialStore.removeFriend(account.id, payload.otherAccountId);
+    if (result.success) emitSocialUpdate(account.id), emitSocialUpdate(payload.otherAccountId);
+    reply(callback, result);
+  });
+
+  socket.on('block-player', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to manage blocks.' });
+    const result = socialStore.blockPlayer(account.id, payload.otherAccountId);
+    if (result.success) emitSocialUpdate(account.id), emitSocialUpdate(payload.otherAccountId);
+    reply(callback, result);
+  });
+
+  socket.on('report-player', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to report a player.' });
+    const result = socialStore.reportPlayer(account.id, payload.otherAccountId, payload.reason);
+    reply(callback, result);
+  });
+
+  socket.on('get-public-player-card', (payload = {}, callback) => {
+    const viewer = accountForSocket(socket, payload);
+    const target = payload.accountId ? accountStore.getPublicAccountById(payload.accountId) : accountStore.findAccountByUsername(payload.username);
+    if (!target) return reply(callback, { success: false, error: 'Player not found.' });
+    const card = publicPlayerCard(target.id);
+    const relationship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
+    reply(callback, { success: true, player: card, relationship: relationship ? relationship.status : 'none' });
+  });
+
+  socket.on('search-players', (payload = {}, callback) => {
+    const query = String(payload.query || '').trim().toLowerCase().slice(0, 32);
+    if (query.length < 2) return reply(callback, { success: true, players: [] });
+    const players = [...accountStore.accounts.values()]
+      .filter(account => account.username.includes(query) || account.displayName.toLowerCase().includes(query))
+      .slice(0, 20)
+      .map(account => ({ id: account.id, username: account.username, displayName: account.displayName, color: account.color, avatarGrid: account.avatarGrid }));
+    reply(callback, { success: true, players });
+  });
+
+  socket.on('get-match-history', (payload = {}, callback) => {
+    const viewer = accountForSocket(socket, payload);
+    const target = payload.accountId ? accountStore.getPublicAccountById(payload.accountId) : viewer;
+    if (!target) return reply(callback, { success: false, error: 'Player not found.' });
+    const allowed = viewer?.id === target.id || (viewer && socialStore.friendshipBetween(viewer.id, target.id)?.status === 'accepted');
+    if (!allowed) return reply(callback, { success: false, error: 'Match history is visible to the owner and accepted friends.' });
+    const history = viewer?.id === target.id
+      ? target.history || []
+      : (target.history || []).map(entry => ({ matchId: entry.matchId, playedAt: entry.playedAt, result: entry.result, won: entry.won, properties: entry.properties }));
+    reply(callback, { success: true, history });
+  });
+
+  socket.on('get-leaderboard', (payload = {}, callback) => {
+    const metric = ['wins', 'games', 'rate', 'achievements', 'bankruptcies'].includes(payload.metric) ? payload.metric : 'wins';
+    reply(callback, { success: true, metric, rows: accountStore.getLeaderboard(metric) });
+  });
+
+  socket.on('send-room-invite', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    const room = getRoomForSocket(socket, callback);
+    if (!account || !room) return;
+    const target = accountStore.getPublicAccountById(payload.targetAccountId);
+    if (!target) return reply(callback, { success: false, error: 'Player not found.' });
+    const result = socialStore.createInvite({ roomCode: room.roomCode, roomName: room.roomName, visibility: room.visibility, senderId: account.id, recipientId: target.id });
+    if (result.success) {
+      notifyAccount(target.id, { kind: 'room-invite', title: 'ROOM INVITE', body: `${account.displayName} invited you to ${room.roomName}.`, metadata: { inviteId: result.invite.id, roomName: room.roomName, visibility: room.visibility } });
+      emitSocialUpdate(account.id);
+      emitSocialUpdate(target.id);
+    }
+    reply(callback, result);
+  });
+
+  socket.on('respond-room-invite', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to manage room invites.' });
+    const result = socialStore.respondInvite(account.id, payload.inviteId, payload.accept === true);
+    if (result.success) emitSocialUpdate(account.id);
+    reply(callback, result);
+  });
+
+  socket.on('mark-notification-read', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to manage notifications.' });
+    const result = socialStore.markNotificationRead(account.id, payload.notificationId);
+    reply(callback, result);
   });
 
   socket.on('disconnect', () => {

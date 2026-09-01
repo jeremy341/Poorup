@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">Treasure chest</title>
+  <desc id="desc">A detailed dark teal and gold pixel-art treasure chest.</desc>
+  <path fill="#01070a" d="M20 28h8V20h72v8h8v8h8v72H12V36h8v-8Z"/>
+  <path fill="#3a382a" d="M28 20h72v8h8v28H20V28h8v-8Z"/>
+  <path fill="#9b783d" d="M28 24h64v4h8v8h8v16H20V36h8V24Z"/>
+  <path fill="#cfa75f" d="M36 28h48v4h8v8h4v8H32v-8h4V28Z"/>
+  <rect x="40" y="32" width="40" height="4" fill="#f0d9ac"/>
+  <path fill="#071314" d="M20 60h88v44H20V60Z"/>
+  <path fill="#0b2020" d="M28 64h72v32H28V64Z"/>
+  <rect x="28" y="68" width="72" height="8" fill="#113334"/>
+  <rect x="20" y="56" width="88" height="8" fill="#cfa75f"/>
+  <rect x="24" y="56" width="80" height="4" fill="#f0d9ac"/>
+  <rect x="28" y="80" width="72" height="8" fill="#09201d"/>
+  <rect x="28" y="96" width="72" height="8" fill="#5c5033"/>
+  <rect x="32" y="96" width="64" height="4" fill="#9b783d"/>
+  <path fill="#cfa75f" d="M52 52h24v12h8v28H44V64h8V52Z"/>
+  <rect x="56" y="56" width="16" height="12" fill="#f0d9ac"/>
+  <rect x="56" y="68" width="16" height="16" fill="#071314"/>
+  <rect x="60" y="72" width="8" height="12" fill="#c88f2e"/>
+  <rect x="20" y="68" width="8" height="28" fill="#5c5033"/>
+  <rect x="100" y="68" width="8" height="28" fill="#5c5033"/>
+  <rect x="24" y="104" width="20" height="8" fill="#3a382a"/>
+  <rect x="84" y="104" width="20" height="8" fill="#3a382a"/>
+</svg>

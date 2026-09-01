@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 128" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">Vault</title>
+  <desc id="desc">A detailed steel-blue pixel-art vault with a circular lock, handle, hinges, highlights, and feet.</desc>
+  <path fill="#01070a" d="M16 12h128v8h8v92h-8v8h-24v-8H40v8H16v-8H8V20h8v-8Z"/>
+  <rect x="16" y="16" width="128" height="92" fill="#40545d"/>
+  <path fill="#536b75" d="M20 16h112v4h8v80H28v-4h-8V16Z"/>
+  <path fill="#607984" d="M24 20h96v4h12v68h-8v8H24V20Z"/>
+  <path fill="#7694a0" d="M28 24h96v4H32v64h-4V24Z"/>
+  <rect x="30" y="28" width="94" height="64" fill="#506772"/>
+  <path fill="#5d747e" d="M34 32h86v56H34V32Z"/>
+  <path fill="#6c8590" d="M36 34h80v4H40v46h-4V34Z"/>
+  <path fill="#40545d" d="M96 72h20v16H88v-8h8v-8Z"/>
+  <path fill="#354952" d="M28 20h16v4H32v16h-4V20Zm88 8h8v16h-4V32h-4v-4Zm0 48h8v16h-12v-4h4V76Z"/>
+  <path fill="#01070a" d="M54 36h28v4h12v8h8v28h-8v8H82v4H54v-4H42v-8h-8V48h8v-8h12v-4Z"/>
+  <path fill="#354952" d="M56 40h24v4h12v8h4v20h-4v8H80v4H56v-4H46v-8h-4V52h4v-8h10v-4Z"/>
+  <path fill="#607984" d="M58 48h20v4h8v8h4v8h-4v8h-8v4H58v-4h-8v-8h-4v-8h4v-8h8v-4Z"/>
+  <path fill="#496572" d="M60 52h16v4h8v16h-8v4H60v-4h-8V56h8v-4Z"/>
+  <path fill="#536b75" d="M60 52h8v4h8v8h4v8h-4v4H60V52Z"/>
+  <rect x="64" y="40" width="6" height="10" fill="#01070a"/>
+  <rect x="64" y="78" width="6" height="8" fill="#01070a"/>
+  <rect x="40" y="60" width="8" height="6" fill="#01070a"/>
+  <rect x="88" y="60" width="8" height="6" fill="#01070a"/>
+  <path fill="#01070a" d="M22 42h8v12h8v16h-8v22h-8V70h-8V54h8V42Z"/>
+  <path fill="#354952" d="M24 44h4v12h6v12h-6v22h-4V68h-6V56h6V44Z"/>
+  <rect x="130" y="34" width="22" height="16" fill="#01070a"/>
+  <rect x="134" y="38" width="14" height="8" fill="#496572"/>
+  <rect x="130" y="78" width="22" height="16" fill="#01070a"/>
+  <rect x="134" y="82" width="14" height="8" fill="#496572"/>
+  <rect x="20" y="108" width="28" height="8" fill="#40545d"/>
+  <rect x="112" y="108" width="28" height="8" fill="#40545d"/>
+</svg>

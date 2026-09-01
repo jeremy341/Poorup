@@ -39,6 +39,7 @@ function sanitizeHistory(value) {
     .filter((entry) => entry && typeof entry === 'object')
     .slice(0, 50)
     .map((entry) => ({
+      matchId: typeof entry.matchId === 'string' ? entry.matchId : null,
       playedAt: typeof entry.playedAt === 'string' ? entry.playedAt : null,
       result: entry.result === 'WIN' ? 'WIN' : 'ROUND',
       won: entry.won === true || entry.result === 'WIN',
@@ -57,6 +58,7 @@ function publicAccount(account) {
     avatarGrid: account.avatarGrid,
     stats: { ...account.stats },
     history: sanitizeHistory(account.history),
+    achievements: Array.isArray(account.achievements) ? account.achievements.map(entry => ({ id: entry.id, unlockedAt: entry.unlockedAt || null })).slice(0, 100) : [],
     createdAt: account.createdAt,
   };
 }
@@ -99,6 +101,8 @@ export class AccountStore {
             bankruptcies: Number(account.stats?.bankruptcies) || 0,
           },
           history: sanitizeHistory(account.history),
+          achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
+          matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50) : [],
         });
       });
     } catch {
@@ -157,6 +161,8 @@ export class AccountStore {
       passwordHash: hashPassword(password, salt),
       stats: { gamesPlayed: 0, wins: 0, bankruptcies: 0 },
       history: [],
+      achievements: [],
+      matchHistory: [],
       createdAt: new Date().toISOString(),
     };
     this.accounts.set(handle, account);
@@ -206,7 +212,29 @@ export class AccountStore {
     return { success: true, account: publicAccount(account) };
   }
 
-  recordGameResults(players = [], winnerId = null) {
+  recordGameResults(players = [], winnerId = null, matchMeta = {}) {
+    const matchId = matchMeta.gameId || `match_${crypto.randomUUID()}`;
+    const participants = players.filter(player => player?.accountId).map(player => ({
+      accountId: player.accountId,
+      displayNameAtMatch: player.nickname,
+      colorAtMatch: player.color,
+      finalPlacement: player.id === winnerId ? 1 : null,
+      endingCash: Math.max(0, Number(player.cash) || 0),
+      propertyCount: Array.isArray(player.properties) ? player.properties.length : 0,
+      bankrupt: Boolean(player.bankrupt)
+    }));
+    const matchRecord = {
+      matchId,
+      completedAt: matchMeta.completedAt || new Date().toISOString(),
+      durationSeconds: Math.max(0, Number(matchMeta.durationSeconds) || 0),
+      roundCount: Math.max(0, Number(matchMeta.roundCount) || 0),
+      roomVisibility: matchMeta.roomVisibility === 'private' ? 'private' : 'public',
+      participants,
+      globalEvents: Array.isArray(matchMeta.globalEvents) ? matchMeta.globalEvents.slice(0, 20) : [],
+      eventCombinations: Array.isArray(matchMeta.eventCombinations) ? matchMeta.eventCombinations.slice(0, 10) : [],
+      tradesCompleted: Math.max(0, Number(matchMeta.tradesCompleted) || 0),
+      auctionsCompleted: Math.max(0, Number(matchMeta.auctionsCompleted) || 0)
+    };
     let changed = false;
     players.forEach((player) => {
       if (!player?.accountId) return;
@@ -216,14 +244,58 @@ export class AccountStore {
       if (player.id === winnerId) account.stats.wins += 1;
       if (player.bankrupt) account.stats.bankruptcies += 1;
       account.history = [{
+        matchId,
         playedAt: new Date().toISOString(),
         result: player.id === winnerId ? 'WIN' : 'ROUND',
         won: player.id === winnerId,
         endingCash: Math.max(0, Number(player.cash) || 0),
         properties: Array.isArray(player.properties) ? player.properties.length : 0,
       }, ...sanitizeHistory(account.history)].slice(0, 50);
+      account.matchHistory = [matchRecord, ...(account.matchHistory || []).filter(entry => entry.matchId !== matchId)].slice(0, 50);
       changed = true;
     });
     if (changed) this.persist();
+    return matchRecord;
+  }
+
+  getPublicAccountById(accountId) {
+    const account = [...this.accounts.values()].find(candidate => candidate.id === accountId);
+    return account ? publicAccount(account) : null;
+  }
+
+  findAccountByUsername(username) {
+    const handle = normalizeUsername(username);
+    return this.accounts.get(handle) || null;
+  }
+
+  getPublicPlayerCard(accountId) {
+    const account = this.getPublicAccountById(accountId);
+    if (!account) return null;
+    return {
+      id: account.id,
+      username: account.username,
+      displayName: account.displayName,
+      color: account.color,
+      avatarGrid: account.avatarGrid,
+      stats: account.stats,
+      achievements: account.achievements,
+      history: account.history.map(entry => ({ matchId: entry.matchId, playedAt: entry.playedAt, result: entry.result, won: entry.won, properties: entry.properties }))
+    };
+  }
+
+  getLeaderboard(metric = 'wins') {
+    const accounts = [...this.accounts.values()];
+    const rows = accounts.map(account => {
+      const stats = account.stats || {};
+      const achievements = Array.isArray(account.achievements) ? account.achievements : [];
+      const value = metric === 'games' ? Number(stats.gamesPlayed) || 0
+        : metric === 'rate' ? (Number(stats.gamesPlayed) ? Math.round(((Number(stats.wins) || 0) / Number(stats.gamesPlayed)) * 100) : 0)
+          : metric === 'achievements' ? achievements.length
+            : metric === 'bankruptcies' ? Number(stats.bankruptcies) || 0
+              : Number(stats.wins) || 0;
+      return { accountId: account.id, displayName: account.displayName, username: account.username, color: account.color, avatarGrid: account.avatarGrid, value, games: Number(stats.gamesPlayed) || 0, wins: Number(stats.wins) || 0, achievements: achievements.length };
+    });
+    rows.sort((a, b) => b.value - a.value || b.wins - a.wins || a.displayName.localeCompare(b.displayName));
+    return rows.slice(0, 100);
   }
 }

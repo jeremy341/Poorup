@@ -37,6 +37,12 @@
           <button class="home-nav-tab" id="home-profile-tab" type="button" data-home-tab="profile">
             <span class="t-label f11">PROFILE</span>
           </button>
+          <button class="home-nav-tab" id="home-rankings-tab" type="button" data-top-surface="rankings">
+            <span class="t-label f11">RANKINGS</span>
+          </button>
+          <button class="home-nav-tab" id="home-social-tab" type="button" data-top-surface="social">
+            <span class="t-label f11">SOCIAL</span>
+          </button>
         </nav>
 
         <div class="hdr-right">
@@ -51,11 +57,11 @@
               <span class="t-label f12 g300" id="home-you-name">guest_4412</span>
             </span>
           </button>
-          <button class="btn-dark hdr-rules" type="button" id="sound-toggle-btn" title="Toggle sound effects" aria-pressed="false">
-            <span class="t-label f12" id="sound-toggle-label">SOUND OFF</span>
+          <button class="btn-dark audio-toggle" type="button" id="sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false">
+            <img id="sound-toggle-icon" src="/assets/sound-off.svg" alt="" width="24" height="24">
           </button>
-          <button class="btn-dark hdr-rules" type="button" id="music-toggle-btn" title="Toggle parlor music" aria-pressed="false">
-            <span class="t-label f12" id="music-toggle-label">MUSIC OFF</span>
+          <button class="btn-dark audio-toggle" type="button" id="music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false">
+            <img id="music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24">
           </button>
         </div>
       </header>
@@ -322,6 +328,7 @@
           <button class="profile-tab" id="profile-tab-stats" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-stats" data-profile-tab="stats"><span class="t-label f11">STATISTICS</span></button>
           <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
           <button class="profile-tab" id="profile-tab-history" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-history" data-profile-tab="history"><span class="t-label f11">HISTORY</span></button>
+          <button class="profile-tab" id="profile-tab-achievements" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-achievements" data-profile-tab="achievements"><span class="t-label f11">ACHIEVEMENTS</span><span class="profile-tab-count" id="profile-achievement-count">0/47</span></button>
           <button class="profile-tab" id="profile-tab-account" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-account" data-profile-tab="account"><span class="t-label f11">ACCOUNT &amp; PREFERENCES</span></button>
         </nav>
 
@@ -380,6 +387,25 @@
           <div id="profile-history-content"></div>
         </section>
 
+        <section class="profile-tab-panel is-hidden" id="profile-panel-achievements" role="tabpanel" aria-labelledby="profile-tab-achievements" tabindex="0">
+          <section class="panel noise pad16 achievements-panel" aria-labelledby="achievements-heading">
+            <div class="achievements-intro"><div><div class="t-micro g400">PARLOR RECORDS · DISCOVERY</div><h2 class="t-section g100" id="achievements-heading">Achievements</h2><p class="t-body ink-2">Small decisions, strange headlines, and impossible recoveries. Every badge has a story.</p></div><div class="achievements-progress" id="achievements-progress" aria-live="polite"><strong class="t-label f20 g100" id="achievements-progress-value">0/47</strong></div></div>
+            <div class="achievements-filter-bar" id="achievements-filters" role="tablist" aria-label="Achievement filters">
+              <button class="achievement-filter is-active" type="button" role="tab" aria-selected="true" data-achievement-filter="all"><span class="t-label f11">ALL</span></button>
+              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="visible"><span class="t-label f11">TABLECRAFT</span></button>
+              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="global"><span class="t-label f11">GLOBAL EVENTS</span></button>
+              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="social"><span class="t-label f11">SOCIAL</span></button>
+              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="secret"><span class="t-label f11">SECRETS</span></button>
+              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="minigame"><span class="t-label f11">PATROL</span></button>
+            </div>
+            <div class="achievement-filter-controls">
+              <label class="achievement-filter-field"><span class="t-micro ink-3">WHEN EARNED</span><select class="setting-select achievement-filter-select" id="achievement-date-filter"><option value="all">ALL DATES</option><option value="recent">LAST 7 DAYS</option><option value="month">LAST 30 DAYS</option><option value="newest">NEWEST FIRST</option><option value="oldest">OLDEST FIRST</option></select></label>
+              <label class="achievement-filter-field"><span class="t-micro ink-3">RARITY</span><select class="setting-select achievement-filter-select" id="achievement-rarity-filter"><option value="all">ALL RARITIES</option><option value="common">COMMON</option><option value="uncommon">UNCOMMON</option><option value="rare">RARE</option><option value="epic">EPIC</option><option value="legendary">LEGENDARY</option><option value="mythical">MYTHICAL</option></select></label>
+            </div>
+            <div class="achievements-grid" id="achievements-grid"></div>
+          </section>
+        </section>
+
         <section class="profile-tab-panel is-hidden" id="profile-panel-account" role="tabpanel" aria-labelledby="profile-tab-account" tabindex="0">
           <section class="panel noise pad16 account-panel" id="account-panel">
             <div class="account-panel-head"><div><div class="t-micro g400">PLAYER ACCOUNT</div><div class="t-label f12 g100" id="account-panel-title">Guest mode</div></div><span class="t-micro account-badge" id="account-panel-badge">LOCAL ONLY</span></div>
@@ -391,6 +417,24 @@
       </main>
     </div>
 
+    <div class="view is-hidden" id="view-rankings">
+      <header class="hdr">
+        <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">global rankings</div></div></button>
+        <nav class="home-nav" aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button></nav>
+        <div class="hdr-right"><button class="btn-dark audio-toggle" type="button" id="rankings-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rankings-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
+      </header>
+      <main class="social-page-main" id="rankings-page-content"></main>
+    </div>
+
+    <div class="view is-hidden" id="view-social">
+      <header class="hdr">
+        <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">parlor social</div></div></button>
+        <nav class="home-nav" aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button></nav>
+        <div class="hdr-right"><button class="btn-dark audio-toggle" type="button" id="social-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="social-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
+      </header>
+      <main class="social-page-main" id="social-page-content"></main>
+    </div>
+
     <div class="popup is-hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" aria-describedby="account-modal-description" aria-hidden="true">
       <button class="popup-scrim" id="account-scrim" aria-label="Close account dialog"></button>
       <div class="popup-card account-card panel noise" id="account-card"></div>
@@ -399,6 +443,27 @@
     <div class="popup is-hidden" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" aria-hidden="true">
       <button class="popup-scrim" id="confirm-scrim" aria-label="Cancel confirmation"></button>
       <div class="popup-card panel noise confirm-card" id="confirm-card"></div>
+    </div>
+
+    <!-- achievement detail dialog -->
+    <div class="popup is-hidden" id="achievement-modal" role="dialog" aria-modal="true" aria-labelledby="achievement-detail-title" aria-describedby="achievement-detail-description" aria-hidden="true">
+      <button class="popup-scrim" id="achievement-scrim" aria-label="Close achievement details"></button>
+      <div class="popup-card panel noise achievement-detail-modal" id="achievement-detail-card"></div>
+    </div>
+
+    <div class="popup is-hidden" id="rankings-modal" role="dialog" aria-modal="true" aria-labelledby="rankings-title" aria-describedby="rankings-description" aria-hidden="true">
+      <button class="popup-scrim" id="rankings-scrim" aria-label="Close rankings"></button>
+      <div class="popup-card panel noise social-surface-card" id="rankings-card"></div>
+    </div>
+
+    <div class="popup is-hidden" id="social-modal" role="dialog" aria-modal="true" aria-labelledby="social-title" aria-describedby="social-description" aria-hidden="true">
+      <button class="popup-scrim" id="social-scrim" aria-label="Close social panel"></button>
+      <div class="popup-card panel noise social-surface-card" id="social-card"></div>
+    </div>
+
+    <div class="popup is-hidden" id="player-modal" role="dialog" aria-modal="true" aria-labelledby="player-modal-title" aria-describedby="player-modal-description" aria-hidden="true">
+      <button class="popup-scrim" id="player-scrim" aria-label="Close player profile"></button>
+      <div class="popup-card panel noise social-surface-card" id="player-card"></div>
     </div>
 
     <!-- ============================ GAME VIEW ============================ -->
@@ -415,10 +480,10 @@
         <div class="tn-div"></div>
 
         <div class="tn-group">
-          <div class="room-badge">
+          <button class="room-badge" id="tn-room-copy" type="button" aria-label="Copy room code">
             <span class="t-label f12 g400">ROOM</span>
             <span class="t-label f13 ink" id="tn-room">----</span>
-          </div>
+          </button>
           <span class="local-note tn-local" id="tn-connection-note"><span class="dot dot-green blink"></span><span class="t-micro ink-3">CONNECTING…</span></span>
           <div class="online">
             <span class="dot dot-green blink"></span>
@@ -444,6 +509,10 @@
           <button class="btn-dark hdr-rules fn-only" type="button" id="panels-btn" title="Panels">
             <span class="t-label f12">PANELS</span>
           </button>
+          <button class="btn-dark hdr-rules" type="button" id="game-rankings-btn" data-top-surface="rankings"><span class="t-label f12">RANKINGS</span></button>
+          <button class="btn-dark hdr-rules" type="button" id="game-social-btn" data-top-surface="social"><span class="t-label f12">SOCIAL</span></button>
+          <button class="btn-dark audio-toggle" type="button" id="game-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img id="game-sound-toggle-icon" src="/assets/sound-off.svg" alt="" width="24" height="24"></button>
+          <button class="btn-dark audio-toggle" type="button" id="game-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img id="game-music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24"></button>
         </div>
       </header>
 
@@ -480,6 +549,21 @@
         <!-- CENTER -->
         <div class="rail-center">
           <div class="board-area">
+            <section class="global-event-banner is-hidden" id="global-event-banner" aria-live="polite" aria-labelledby="global-event-title">
+              <div class="global-event-main">
+                <span class="global-event-mark" aria-hidden="true">!</span>
+                <div>
+                  <span class="t-micro g400" id="global-event-kicker">GLOBAL HEADLINE</span>
+                  <h2 class="t-section" id="global-event-title">No active event</h2>
+                  <p class="t-micro ink-2" id="global-event-copy"></p>
+                  <div class="global-event-effects" id="global-event-effects"></div>
+                </div>
+              </div>
+              <div class="global-event-meta">
+                <span class="t-micro ink-3" id="global-event-rounds"></span>
+                <div class="global-event-choices" id="global-event-choices"></div>
+              </div>
+            </section>
             <div class="board-holder">
               <div class="board-frame noise vignette" id="board-frame">
                 <div class="board-grid" id="board-grid">
@@ -552,8 +636,12 @@
                 <div>
                   <span class="hud-name" id="hud-name">Stand By</span>
                   <span class="t-body ink-3 hud-note" id="hud-note">Join a room to get started.</span>
+                  <span class="hud-loan-status is-hidden" id="hud-loan-status" aria-live="polite"></span>
                   <button class="btn-dark hud-jail-action is-hidden" id="pay-jail-fine" type="button">
                     <span class="t-label f11">PAY $50 TO LEAVE JAIL</span>
+                  </button>
+                  <button class="btn-dark hud-jail-action is-hidden" id="use-jail-free" type="button">
+                    <span class="t-label f11">USE GET OUT OF PRISON CARD</span>
                   </button>
                 </div>
               </div>
@@ -682,6 +770,22 @@
     <div class="popup is-hidden" id="card-modal" role="dialog" aria-modal="true" aria-labelledby="card-reveal-title" aria-hidden="true">
       <button class="popup-scrim" id="card-scrim" aria-label="Close card"></button>
       <div class="popup-card card-reveal panel noise" id="card-reveal"></div>
+    </div>
+
+    <!-- visual-only event card gallery (?preview=cards) -->
+    <div class="card-gallery is-hidden" id="card-gallery" role="dialog" aria-modal="true" aria-labelledby="card-gallery-title" aria-hidden="true">
+      <div class="card-gallery-scrim"></div>
+      <div class="card-gallery-shell panel noise">
+        <div class="card-gallery-head">
+          <div>
+            <span class="t-micro g400">DESIGN PREVIEW</span>
+            <h2 class="t-section" id="card-gallery-title">Event Cards</h2>
+            <p class="t-body ink-3">Every Surprise and Treasure card, shown in the new reveal style.</p>
+          </div>
+          <button class="btn-dark" id="card-gallery-close" type="button"><span class="t-label f11">CLOSE</span></button>
+        </div>
+        <div class="card-gallery-grid" id="card-gallery-grid"></div>
+      </div>
     </div>
 
     <!-- game over -->

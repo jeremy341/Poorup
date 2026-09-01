@@ -162,62 +162,172 @@ const GROUP_TARGETS = { brown: 2, cyan: 3, magenta: 3, orange: 3, red: 3, yellow
 const t = (i, name, kind, col, row, side, extra = {}) => ({ i, name, kind, col, row, side, ...extra });
 
 const TILES = [
-  t(0, "START", "corner-go", 11, 11, "bottom"),
-  t(1, "SALVADOR", "property", 10, 11, "bottom", { price: 60, rent: 10, group: "brown" }),
-  t(2, "TREASURE", "chest", 9, 11, "bottom"),
-  t(3, "RIO", "property", 8, 11, "bottom", { price: 60, rent: 10, group: "brown" }),
-  t(4, "EARNINGS TAX", "tax", 7, 11, "bottom", { price: 200 }),
-  t(5, "ACC AIRPORT", "railroad", 6, 11, "bottom", { price: 200, rent: 25 }),
-  t(6, "ACCRA", "property", 5, 11, "bottom", { price: 100, rent: 14, group: "cyan" }),
-  t(7, "SURPRISE?", "chance", 4, 11, "bottom"),
-  t(8, "TEMA", "property", 3, 11, "bottom", { price: 100, rent: 14, group: "cyan" }),
-  t(9, "KUMASI", "property", 2, 11, "bottom", { price: 120, rent: 16, group: "cyan" }),
-  t(10, "PASSING BY", "corner-jail", 1, 11, "bottom"),
-  t(11, "PATTAYA", "property", 1, 10, "left", { price: 140, rent: 10, group: "magenta" }),
-  t(12, "ELECTRIC COMPANY", "utility", 1, 9, "left", { price: 150, rent: 12 }),
-  t(13, "CHIANG MAI", "property", 1, 8, "left", { price: 140, rent: 12, group: "magenta" }),
-  t(14, "BANGKOK", "property", 1, 7, "left", { price: 160, rent: 14, group: "magenta" }),
-  t(15, "BKK AIRPORT", "railroad", 1, 6, "left", { price: 200, rent: 25 }),
-  t(16, "KYOTO", "property", 1, 5, "left", { price: 180, rent: 14, group: "orange" }),
-  t(17, "TREASURE", "chest", 1, 4, "left"),
-  t(18, "OSAKA", "property", 1, 3, "left", { price: 180, rent: 14, group: "orange" }),
-  t(19, "TOKYO", "property", 1, 2, "left", { price: 200, rent: 16, group: "orange" }),
-  t(20, "VACATION", "corner-vacation", 1, 1, "top"),
-  t(21, "EINDHOVEN", "property", 2, 1, "top", { price: 220, rent: 18, group: "red" }),
-  t(22, "SURPRISE?", "chance", 3, 1, "top"),
-  t(23, "ROTTERDAM", "property", 4, 1, "top", { price: 220, rent: 18, group: "red" }),
-  t(24, "AMSTERDAM", "property", 5, 1, "top", { price: 240, rent: 20, group: "red" }),
-  t(25, "AMS AIRPORT", "railroad", 6, 1, "top", { price: 200, rent: 25 }),
-  t(26, "CALGARY", "property", 7, 1, "top", { price: 260, rent: 22, group: "yellow" }),
-  t(27, "VANCOUVER", "property", 8, 1, "top", { price: 260, rent: 22, group: "yellow" }),
-  t(28, "WATER COMPANY", "utility", 9, 1, "top", { price: 150, rent: 12 }),
-  t(29, "TORONTO", "property", 10, 1, "top", { price: 280, rent: 24, group: "yellow" }),
-  t(30, "GO TO PRISON", "corner-go-jail", 11, 1, "top"),
-  t(31, "BERN", "property", 11, 2, "right", { price: 300, rent: 26, group: "green" }),
-  t(32, "GENEVA", "property", 11, 3, "right", { price: 300, rent: 26, group: "green" }),
-  t(33, "TREASURE", "chest", 11, 4, "right"),
-  t(34, "ZURICH", "property", 11, 5, "right", { price: 320, rent: 28, group: "green" }),
-  t(35, "MB AIRPORT", "railroad", 11, 6, "right", { price: 200, rent: 25 }),
-  t(36, "SURPRISE?", "chance", 11, 7, "right"),
-  t(37, "DOWNTOWN", "property", 11, 8, "right", { price: 350, rent: 35, group: "blue" }),
-  t(38, "PREMIUM TAX", "tax", 11, 9, "right", { price: 100 }),
-  t(39, "MARINA BAY", "property", 11, 10, "right", { price: 400, rent: 50, group: "blue" }),
+  t(0, "START", "corner-go", 1, 1, "top"),
+  t(1, "SALVADOR", "property", 2, 1, "top", { price: 60, rent: 10, group: "brown" }),
+  t(2, "TREASURE", "chest", 3, 1, "top"),
+  t(3, "RIO", "property", 4, 1, "top", { price: 60, rent: 10, group: "brown" }),
+  t(4, "EARNINGS TAX", "tax", 5, 1, "top", { price: 200 }),
+  t(5, "ACC AIRPORT", "railroad", 6, 1, "top", { price: 200, rent: 25 }),
+  t(6, "ACCRA", "property", 7, 1, "top", { price: 100, rent: 14, group: "cyan" }),
+  t(7, "SURPRISE?", "chance", 8, 1, "top"),
+  t(8, "TEMA", "property", 9, 1, "top", { price: 100, rent: 14, group: "cyan" }),
+  t(9, "KUMASI", "property", 10, 1, "top", { price: 120, rent: 16, group: "cyan" }),
+  t(10, "PASSING BY", "corner-jail", 11, 1, "top"),
+  t(11, "PATTAYA", "property", 11, 2, "right", { price: 140, rent: 10, group: "magenta" }),
+  t(12, "ELECTRIC COMPANY", "utility", 11, 3, "right", { price: 150, rent: 12 }),
+  t(13, "CHIANG MAI", "property", 11, 4, "right", { price: 140, rent: 12, group: "magenta" }),
+  t(14, "BANGKOK", "property", 11, 5, "right", { price: 160, rent: 14, group: "magenta" }),
+  t(15, "BKK AIRPORT", "railroad", 11, 6, "right", { price: 200, rent: 25 }),
+  t(16, "KYOTO", "property", 11, 7, "right", { price: 180, rent: 14, group: "orange" }),
+  t(17, "TREASURE", "chest", 11, 8, "right"),
+  t(18, "OSAKA", "property", 11, 9, "right", { price: 180, rent: 14, group: "orange" }),
+  t(19, "TOKYO", "property", 11, 10, "right", { price: 200, rent: 16, group: "orange" }),
+  t(20, "VACATION", "corner-vacation", 11, 11, "bottom"),
+  t(21, "EINDHOVEN", "property", 10, 11, "bottom", { price: 220, rent: 18, group: "red" }),
+  t(22, "SURPRISE?", "chance", 9, 11, "bottom"),
+  t(23, "ROTTERDAM", "property", 8, 11, "bottom", { price: 220, rent: 18, group: "red" }),
+  t(24, "AMSTERDAM", "property", 7, 11, "bottom", { price: 240, rent: 20, group: "red" }),
+  t(25, "AMS AIRPORT", "railroad", 6, 11, "bottom", { price: 200, rent: 25 }),
+  t(26, "CALGARY", "property", 5, 11, "bottom", { price: 260, rent: 22, group: "yellow" }),
+  t(27, "VANCOUVER", "property", 4, 11, "bottom", { price: 260, rent: 22, group: "yellow" }),
+  t(28, "WATER COMPANY", "utility", 3, 11, "bottom", { price: 150, rent: 12 }),
+  t(29, "TORONTO", "property", 2, 11, "bottom", { price: 280, rent: 24, group: "yellow" }),
+  t(30, "GO TO PRISON", "corner-go-jail", 1, 11, "bottom"),
+  t(31, "BERN", "property", 1, 10, "left", { price: 300, rent: 26, group: "green" }),
+  t(32, "GENEVA", "property", 1, 9, "left", { price: 300, rent: 26, group: "green" }),
+  t(33, "TREASURE", "chest", 1, 8, "left"),
+  t(34, "ZURICH", "property", 1, 7, "left", { price: 320, rent: 28, group: "green" }),
+  t(35, "MB AIRPORT", "railroad", 1, 6, "left", { price: 200, rent: 25 }),
+  t(36, "SURPRISE?", "chance", 1, 5, "left"),
+  t(37, "DOWNTOWN", "property", 1, 4, "left", { price: 400, rent: 35, group: "blue" }),
+  t(38, "PREMIUM TAX", "tax", 1, 3, "left", { price: 75 }),
+  t(39, "MARINA BAY", "property", 1, 2, "left", { price: 400, rent: 50, group: "blue" }),
 ];
 const TILE_COUNT = TILES.length;
+const START_TILE_INDEX = 0;
+const JAIL_TILE_INDEX = TILES.find((tile) => tile.kind === "corner-jail")?.i ?? 10;
 
 const CHANCE_EVENTS = [
-  { text: "BANK DIVIDEND — COLLECT $50", cash: 50 },
-  { text: "SPEEDING FINE — PAY $15", cash: -15 },
-  { text: "STREET REPAIRS — PAY $40", cash: -40 },
-  { text: "WON THE PARLOR RAFFLE — COLLECT $100", cash: 100 },
-  { text: "LATE NIGHT CAB — PAY $25", cash: -25 },
+  { text: "ADVANCE TO MARINA BAY", action: "moveTo", tileIndex: 39, cash: 0 },
+  { text: "ADVANCE TO START — COLLECT $200", action: "collectStart", cash: 200 },
+  { text: "ADVANCE TO AMSTERDAM", action: "moveTo", tileIndex: 24, cash: 0 },
+  { text: "ADVANCE TO PATTAYA", action: "moveTo", tileIndex: 11, cash: 0 },
+  { text: "ADVANCE TO THE NEXT AIRPORT — PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
+  { text: "ADVANCE TO THE NEXT AIRPORT — PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
+  { text: "ADVANCE TO THE NEXT UTILITY", action: "nearestUtility", cash: 0 },
+  { text: "BANK DIVIDEND — COLLECT $50", action: "collect", amount: 50, cash: 50 },
+  { text: "KEEP THIS CARD UNTIL NEEDED: GET OUT OF PRISON", action: "jailFree", cash: 0 },
+  { text: "MOVE BACK THREE SPACES", action: "moveBack", steps: 3, cash: 0 },
+  { text: "GO DIRECTLY TO PRISON", action: "goToJail", cash: 0 },
+  { text: "BUILDING REPAIRS — PAY $25 PER HOUSE, $100 PER HOTEL", action: "repairs", houseCost: 25, hotelCost: 100, cash: 0 },
+  { text: "SPEEDING FINE — PAY $15", action: "pay", amount: 15, cash: -15 },
+  { text: "ADVANCE TO ACC AIRPORT", action: "moveTo", tileIndex: 5, cash: 0 },
+  { text: "ELECTED CHAIRPERSON — PAY EACH PLAYER $50", action: "payEach", amount: 50, cash: 0 },
+  { text: "BUILDING LOAN MATURES — COLLECT $150", action: "collect", amount: 150, cash: 150 },
 ];
 const CHEST_EVENTS = [
-  { text: "OLD DEBT REPAID — COLLECT $75", cash: 75 },
-  { text: "DOCTOR'S FEE — PAY $50", cash: -50 },
-  { text: "SOLD A JUKEBOX — COLLECT $120", cash: 120 },
-  { text: "PARLOR TAB DUE — PAY $30", cash: -30 },
+  { text: "ADVANCE TO START — COLLECT $200", action: "collectStart", cash: 200 },
+  { text: "BANK ERROR — COLLECT $200", action: "collect", amount: 200, cash: 200 },
+  { text: "DOCTOR'S FEE — PAY $50", action: "pay", amount: 50, cash: -50 },
+  { text: "INVESTMENT SALE — COLLECT $50", action: "collect", amount: 50, cash: 50 },
+  { text: "KEEP THIS CARD UNTIL NEEDED: GET OUT OF PRISON", action: "jailFree", cash: 0 },
+  { text: "GO DIRECTLY TO PRISON", action: "goToJail", cash: 0 },
+  { text: "PARLOR SHOW — COLLECT $50 FROM EACH PLAYER", action: "collectFromEach", amount: 50, cash: 0 },
+  { text: "TAX REFUND — COLLECT $20", action: "collect", amount: 20, cash: 20 },
+  { text: "INSURANCE MATURES — COLLECT $100", action: "collect", amount: 100, cash: 100 },
+  { text: "HOSPITAL FEE — PAY $100", action: "pay", amount: 100, cash: -100 },
+  { text: "SCHOOL TAX — PAY $150", action: "pay", amount: 150, cash: -150 },
+  { text: "CONSULTING FEE — COLLECT $25", action: "collect", amount: 25, cash: 25 },
+  { text: "STREET REPAIRS — PAY $40 PER HOUSE, $115 PER HOTEL", action: "repairs", houseCost: 40, hotelCost: 115, cash: 0 },
+  { text: "HOLIDAY FUND MATURES — COLLECT $100", action: "collect", amount: 100, cash: 100 },
+  { text: "BEAUTY CONTEST — COLLECT $10", action: "collect", amount: 10, cash: 10 },
+  { text: "INHERITANCE — COLLECT $100", action: "collect", amount: 100, cash: 100 },
 ];
+
+function drawLocalCard(kind) {
+  const key = kind === "chance" ? "surpriseDeck" : "treasureDeck";
+  const source = kind === "chance" ? CHANCE_EVENTS : CHEST_EVENTS;
+  if (!state[key]?.length) state[key] = [...source];
+  const deck = state[key];
+  return deck.splice(Math.floor(Math.random() * deck.length), 1)[0];
+}
+
+const ACHIEVEMENT_STORAGE_KEY = "poorup.achievements.v1";
+const ACHIEVEMENTS = [
+  { id: "first-deed", category: "visible", title: "FIRST DEED", short: "Buy your first property.", detail: "Purchase any property in a completed server game.", rarity: "COMMON" },
+  { id: "full-street", category: "visible", title: "FULL STREET", short: "Complete a country group.", detail: "Own every property in one color group at the same time.", rarity: "UNCOMMON" },
+  { id: "even-builder", category: "visible", title: "EVEN BUILDER", short: "Build without breaking the street.", detail: "Build a complete group while following every even-build rule.", rarity: "UNCOMMON" },
+  { id: "auction-ghost", category: "visible", title: "AUCTION GHOST", short: "Win below the asking price.", detail: "Win an auction with a final bid below the deed’s listed price.", rarity: "RARE" },
+  { id: "clean-exit", category: "visible", title: "CLEAN EXIT", short: "Repay a bank loan early.", detail: "Repay a bank loan in full before its due round.", rarity: "UNCOMMON" },
+  { id: "collateral-damage", category: "visible", title: "COLLATERAL DAMAGE", short: "Learn what default costs.", detail: "Default on a bank loan and lose the collateral deed.", rarity: "RARE" },
+  { id: "bad-idea-good-timing", category: "visible", title: "BAD IDEA, GOOD TIMING", short: "Borrow from the edge.", detail: "Take emergency bank credit with less than $50 cash and survive the game.", rarity: "RARE" },
+  { id: "debt-free", category: "visible", title: "DEBT FREE", short: "Finish with clean books.", detail: "Complete a game with no active bank or player debt.", rarity: "UNCOMMON" },
+  { id: "prison-break", category: "visible", title: "PRISON BREAK", short: "Use the card, then win.", detail: "Use a Get Out of Prison card and win the same game.", rarity: "RARE" },
+  { id: "council-member", category: "global", title: "COUNCIL MEMBER", short: "Win a table election.", detail: "Cast the deciding vote in a City Election.", rarity: "UNCOMMON" },
+  { id: "public-works", category: "global", title: "PUBLIC WORKS", short: "Build through policy.", detail: "Build on the group selected by a Public Works policy.", rarity: "RARE" },
+  { id: "crisis-manager", category: "global", title: "CRISIS MANAGER", short: "Keep the table alive.", detail: "End a negative global event without going bankrupt.", rarity: "RARE" },
+  { id: "bubble-survivor", category: "secret", title: "BUBBLE SURVIVOR", short: "Keep your deed through the crash.", clue: "A developed street can outlive the headline.", detail: "Own developed property when Housing Bubble Pop ends and keep the deed.", rarity: "EPIC", secret: true },
+  { id: "short-the-street", category: "secret", title: "SHORT THE STREET", short: "Sell low, rebuild later.", clue: "Sometimes the best house is the one you sell first.", detail: "Sell a building during Housing Bubble Pop, then rebuild after recovery.", rarity: "EPIC", secret: true },
+  { id: "no-floor", category: "secret", title: "NO FLOOR", short: "Survive the double crisis.", clue: "The market can lose its floor without taking your wallet.", detail: "Survive Foreclosure Spiral without taking a second bank loan.", rarity: "LEGENDARY", secret: true },
+  { id: "moral-hazard", category: "secret", title: "MORAL HAZARD", short: "Take the rescue money.", clue: "A bailout feels different when you already owe the bank.", detail: "Receive a Bank Run bailout while holding an active loan.", rarity: "EPIC", secret: true },
+  { id: "grounded-tourist", category: "secret", title: "GROUNDED TOURIST", short: "Travel without a flight.", clue: "The airport can be closed while the city keeps paying.", detail: "Own an airport during Airport Strike and still collect a non-airport rent.", rarity: "RARE", secret: true },
+  { id: "stagflation-trader", category: "secret", title: "STAGFLATION TRADER", short: "Trade through the squeeze.", clue: "Make a deal while cash melts and debt grows.", detail: "Complete a trade during the Stagflation combination.", rarity: "EPIC", secret: true },
+  { id: "compromised-council", category: "secret", title: "COMPROMISED COUNCIL", short: "Choose the least-worst policy.", clue: "The vote is not the scandal. The response is.", detail: "Vote in Legitimacy Crisis and choose the policy that ends the audit.", rarity: "LEGENDARY", secret: true },
+  { id: "double-headline", category: "secret", title: "DOUBLE HEADLINE", short: "Trigger two crises.", clue: "One headline is luck. Two is a pattern.", detail: "Trigger two eligible global events through separate Surprise rolls in one game.", rarity: "LEGENDARY", secret: true },
+  { id: "last-wallet-standing", category: "visible", title: "LAST WALLET STANDING", short: "Be the final player.", detail: "Win a server-authoritative game.", rarity: "COMMON" },
+  { id: "no-refunds", category: "visible", title: "NO REFUNDS", short: "Win after the warning.", detail: "Win a game after reaching the bank-loan default warning.", rarity: "RARE" },
+  { id: "generous-lender", category: "social", title: "GENEROUS LENDER", short: "Help someone across the gap.", detail: "Give a player loan that is fully repaid.", rarity: "UNCOMMON" },
+  { id: "coalition-builder", category: "social", title: "COALITION BUILDER", short: "Turn opposition into leverage.", detail: "Complete a trade with a player you previously voted against.", rarity: "RARE" },
+  { id: "unanimous", category: "social", title: "UNANIMOUS", short: "Get the whole table aligned.", detail: "Be part of an election where every active player selects the same policy.", rarity: "RARE" },
+  { id: "patrol-rookie", category: "minigame", title: "PATROL ROOKIE", short: "Find your first rhythm.", detail: "Score 10 in Parlor Patrol.", rarity: "COMMON" },
+  { id: "patrol-regular", category: "minigame", title: "PATROL REGULAR", short: "Stay on the radio.", detail: "Score 50 in Parlor Patrol.", rarity: "UNCOMMON" },
+  { id: "patrol-ace", category: "minigame", title: "PATROL ACE", short: "Beat the street record.", detail: "Beat your saved personal best three times.", rarity: "RARE" },
+  { id: "clean-run", category: "minigame", title: "CLEAN RUN", short: "No misses, no excuses.", detail: "Finish a patrol run without missing a target.", rarity: "EPIC" },
+  { id: "rent-reaper", category: "visible", title: "RENT REAPER", short: "Collect from three players.", detail: "Collect rent from three different players in one round.", rarity: "RARE" },
+  { id: "liquidity-king", category: "visible", title: "LIQUIDITY KING", short: "Own the cash table.", detail: "Finish a game with more cash than every other player combined.", rarity: "EPIC" },
+  { id: "fire-sale", category: "global", title: "FIRE SALE", short: "Sell before the floor drops.", detail: "Sell three buildings during one global crisis.", rarity: "RARE" },
+  { id: "airport-hopper", category: "visible", title: "AIRPORT HOPPER", short: "Visit every airport.", detail: "Visit all four airports in one game.", rarity: "UNCOMMON" },
+  { id: "tax-evasion", category: "visible", title: "TAX EVASION", short: "Stay off the tax tiles.", detail: "Avoid every tax tile for an entire game.", rarity: "RARE" },
+  { id: "underdog", category: "visible", title: "THE UNDERDOG", short: "Come back from last.", detail: "Win after being last in cash at the halfway point.", rarity: "RARE" },
+  { id: "one-more-turn", category: "visible", title: "ONE MORE TURN", short: "Pay on the final cure round.", detail: "Survive a bank-loan warning and repay on the final cure round.", rarity: "EPIC" },
+  { id: "group-therapy", category: "social", title: "GROUP THERAPY", short: "Trade across three deeds.", detail: "Complete a trade involving three different properties.", rarity: "UNCOMMON" },
+  { id: "hostile-bidder", category: "visible", title: "HOSTILE BIDDER", short: "Win two auctions.", detail: "Win two auctions in one game.", rarity: "RARE" },
+  { id: "empty-streets", category: "visible", title: "EMPTY STREETS", short: "Win without a full group.", detail: "Win while owning no complete property group.", rarity: "EPIC" },
+  { id: "event-tourist", category: "global", title: "EVENT TOURIST", short: "Collect disasters.", detail: "Experience three different global events across your account history.", rarity: "RARE" },
+  { id: "crisis-investor", category: "global", title: "CRISIS INVESTOR", short: "Buy the fear discount.", detail: "Buy property during Housing Bubble Pop and profit after recovery.", rarity: "EPIC" },
+  { id: "public-enemy", category: "global", title: "PUBLIC ENEMY", short: "Survive the investigation vote.", detail: "Win an Anti-Monopoly Investigation vote against yourself.", rarity: "LEGENDARY" },
+  { id: "silent-partner", category: "social", title: "SILENT PARTNER", short: "Lend without collateral.", detail: "Complete a player-loan contract without owning the collateral.", rarity: "RARE" },
+  { id: "treasure-map", category: "visible", title: "TREASURE MAP", short: "Find every chest card.", detail: "Draw every Treasure card at least once across your account history.", rarity: "EPIC" },
+  { id: "41st-tile", category: "secret", title: "THE 41ST TILE", short: "Step outside the board.", clue: "There are forty tiles. You stepped on one more.", detail: "Trigger the hidden movement sequence, then win the game.", rarity: "MYTHICAL", secret: true },
+  { id: "null-player", category: "secret", title: "THE NULL PLAYER", short: "Continue from nothing.", clue: "Your wallet was empty. The turn continued. The table refuses to remember why.", detail: "Reach exactly $0, avoid bankruptcy, complete another turn, and win.", rarity: "MYTHICAL", secret: true },
+  { id: "black-ledger", category: "secret", title: "THE BLACK LEDGER", short: "Close the book yourself.", clue: "The bank closed the book. Something inside kept counting.", detail: "Survive a curated crisis combination after losing collateral, then win.", rarity: "MYTHICAL", secret: true },
+];
+
+function loadAchievementRecords() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ACHIEVEMENT_STORAGE_KEY) || "{}");
+    const records = new Map();
+    if (Array.isArray(raw)) {
+      raw.forEach((id) => { if (ACHIEVEMENTS.some((achievement) => achievement.id === id)) records.set(id, null); });
+      return records;
+    }
+    const source = raw?.records && typeof raw.records === "object" ? raw.records : raw;
+    Object.entries(source || {}).forEach(([id, unlockedAt]) => {
+      if (ACHIEVEMENTS.some((achievement) => achievement.id === id)) records.set(id, typeof unlockedAt === "string" ? unlockedAt : null);
+    });
+    return records;
+  } catch { return new Map(); }
+}
+
+const initialAchievementRecords = loadAchievementRecords();
+
+function saveUnlockedAchievements() {
+  try { localStorage.setItem(ACHIEVEMENT_STORAGE_KEY, JSON.stringify({ version: 2, records: Object.fromEntries(state.achievementRecords) })); } catch { /* storage unavailable */ }
+}
+
+function achievementIconHTML(id) {
+  return `<svg class="achievement-icon" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><use href="/assets/achievements.svg#achievement-${esc(id)}"></use></svg>`;
+}
 
 const APPEARANCES = [
   { label: "CRIMSON", baseName: "MARLOWE", color: "#d74438", textColor: "#d74438" },
@@ -490,8 +600,6 @@ function buildPlayers(choiceIndex, alias) {
   const rest = typeof choiceIndex === "number"
     ? APPEARANCES.filter((_, i) => i !== choiceIndex)
     : APPEARANCES.filter((a) => a.color.toLowerCase() !== selected.color.toLowerCase()).slice(0, 3);
-  const seed = [1420, 1680, 980];
-  const pos = [5, 12, 22];
   return [
     {
       id: "p1",
@@ -499,8 +607,9 @@ function buildPlayers(choiceIndex, alias) {
       color: selected.color,
       textColor: selected.textColor,
       cash: 1500,
-      pos: 0,
+      pos: START_TILE_INDEX,
       online: true,
+      jailFree: 0,
       avatarGrid: selected.avatarGrid || undefined,
     },
     ...rest.slice(0, 3).map((a, i) => ({
@@ -508,10 +617,11 @@ function buildPlayers(choiceIndex, alias) {
       name: a.baseName,
       color: a.color,
       textColor: a.textColor,
-      cash: seed[i],
-      pos: pos[i],
+      cash: [1420, 1680, 980][i],
+      pos: START_TILE_INDEX,
       online: i !== 2,
       bot: true,
+      jailFree: 0,
     })),
   ];
 }
@@ -533,6 +643,7 @@ const state = {
   previousTurnKey: "",
   phase: "home", // home | setup | lobby | playing
   roomCode: "",
+  roomVisibility: "private",
   alias: loadGuestAlias(),
   appearance: 0,
   tableAppearanceOverride: null, // optional one-table override; null inherits active design
@@ -540,6 +651,11 @@ const state = {
   profileTab: "designs",    // overview | stats | designs | history | account
   setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
   profiles: loadProfiles(),   // persisted array of saved player designs
+  achievementRecords: initialAchievementRecords,
+  unlockedAchievements: new Set(initialAchievementRecords.keys()),
+  achievementFilter: "all",
+  achievementDateFilter: "all",
+  achievementRarityFilter: "all",
   profileDraft: null,         // working copy while the profile editor is open
   editingProfileId: null,     // id of profile being edited (null = brand new)
   homeReturnView: "home",     // where the profile editor's back button should return to
@@ -566,6 +682,18 @@ const state = {
   auction: null,        // live auction state object
   deedDetail: null,     // tile index currently open in the deed/house manager
   jail: {},             // { playerId: turnsRemaining }
+  roundNumber: 0,
+  globalEvent: null,
+  social: { friends: [], requests: [], outgoing: [], invites: [], notifications: [] },
+  socialSearchResults: [],
+  socialTab: "friends",
+  leaderboard: { metric: "wins", rows: [], loading: false },
+  selectedPlayer: null,
+  selectedPlayerRelationship: "none",
+  selectedPlayerView: "profile",
+  selectedPlayerHistory: null,
+  surpriseDeck: [...CHANCE_EVENTS],
+  treasureDeck: [...CHEST_EVENTS],
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
   sound: loadSoundPreference(), // global effects toggle
@@ -584,6 +712,11 @@ const state = {
     turnTimer:       0,       // seconds per turn: 0=off, 30, 60, 120
     bankruptMode:    "elim",  // "elim" | "debt" (debt = give assets, stay in)
     bots:            0,        // reserved CPU seats; bot turns are added separately
+    bankLoans:       true,
+    bankLoanSeverity: "predatory",
+    globalEvents:    "rare",
+    globalEventDuration: 5,
+    globalEventMax:  1,
   },
   log: ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."],
   messages: [
@@ -598,9 +731,9 @@ const state = {
    game state machine to a particular modal implementation.
    ============================================================ */
 const SURFACE_SELECTORS = [
-  "#rooms-modal", "#account-modal", "#confirm-modal", "#setup-wrap", "#popup", "#trade-modal", "#choice-modal",
+  "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#choice-modal",
   "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bankruptcy-modal",
-  "#card-modal", "#gameover-modal",
+  "#card-modal", "#card-gallery", "#gameover-modal",
 ];
 let surfaceReturnFocus = null;
 const surfaceInertNodes = new Set();
@@ -777,6 +910,11 @@ const SERVER_SETTING_KEYS = {
   hotelLimit: "hotelLimit",
   turnTimer: "turnTimer",
   bankruptMode: "bankruptMode",
+  bankLoans: "bankLoans",
+  bankLoanSeverity: "bankLoanSeverity",
+  globalEvents: "globalEvents",
+  globalEventDuration: "globalEventDuration",
+  globalEventMax: "globalEventMax",
   bots: "bots",
 };
 
@@ -805,6 +943,7 @@ function applyServerState(snapshot) {
   setConnectionStatus("online");
   const { room, game } = snapshot;
   state.roomCode = room.roomCode || state.roomCode;
+  state.roomVisibility = room.visibility === "public" ? "public" : "private";
   state.hostId = room.hostId || null;
   state.serverTiles = Array.isArray(game.tiles) ? game.tiles : [];
   const remotePlayers = Array.isArray(game.players) ? game.players : room.players || [];
@@ -823,6 +962,9 @@ function applyServerState(snapshot) {
     pos: Number(player.position) || 0,
     online: !player.disconnected,
     bot: Boolean(player.isBot),
+    jailFree: Number(player.jailFreeCards) || 0,
+    bankLoan: player.bankLoan || null,
+    bankLoanOffer: player.bankLoanOffer || null,
     isHost: Boolean(player.isHost),
     avatarGrid: Array.isArray(player.avatarGrid) ? player.avatarGrid : null,
   })).sort((a, b) => {
@@ -833,6 +975,8 @@ function applyServerState(snapshot) {
   syncLocalAppearance();
   state.turnIndex = Math.max(0, state.players.findIndex((player) => player.serverId === game.currentPlayerId));
   state.dice = Array.isArray(game.lastDice) ? game.lastDice : [0, 0];
+  state.roundNumber = Number(game.roundNumber) || 0;
+  state.globalEvent = game.globalEvent || null;
   state.pool = Number(game.vacationPool) || 0;
   state.houses = Object.fromEntries(state.serverTiles.map((tile) => [tile.index, Number(tile.houseCount) || 0]));
   state.mortgaged = Object.fromEntries(state.serverTiles.filter((tile) => tile.mortgaged).map((tile) => [tile.index, true]));
@@ -928,6 +1072,23 @@ if (socket) {
   });
   socket.on("connect_error", () => setConnectionStatus("offline", true));
   socket.on("update-state", applyServerState);
+  socket.on("social-update", (social) => {
+    state.social = social || state.social;
+    renderSocialSurface("#social-page-content");
+    renderSocialSurface("#social-card");
+  });
+  socket.on("social-notification", (notification) => {
+    const list = state.social.notifications || [];
+    state.social.notifications = [notification, ...list.filter(item => item.id !== notification.id)].slice(0, 50);
+    announceSocialNotification(notification);
+    renderSocialSurface("#social-page-content");
+    renderSocialSurface("#social-card");
+  });
+  socket.on("mythical-achievement", (notification) => {
+    announceSocialNotification(notification);
+    state.social.notifications = [notification, ...(state.social.notifications || [])].slice(0, 50);
+    renderSocialSurface("#social-page-content");
+  });
   socket.on("system-message", ({ text }) => { say(text); renderChat(); });
   socket.on("chat-message", ({ nickname, text }) => {
     const sender = state.players.find((player) => player.name === String(nickname).toUpperCase());
@@ -943,7 +1104,7 @@ if (socket) {
   socket.on("card-reveal", (reveal) => {
     const tile = TILES[Number(reveal?.tileIndex) % TILE_COUNT];
     if (tile && (tile.kind === "chance" || tile.kind === "chest")) {
-      openCardReveal(tile, { text: reveal.text || "Card resolved.", cash: Number(reveal.cash) || 0 });
+      openCardReveal(tile, { text: reveal.text || "Card resolved.", action: reveal.action, cash: Number(reveal.cash) || 0 });
     }
   });
   socket.on("trade-offer", ({ trade }) => {
@@ -1155,6 +1316,7 @@ function renderProfileSummary() {
   if (musicState) musicState.textContent = state.music ? "MUSIC ON" : "MUSIC OFF";
   renderProfileStatistics();
   renderProfileHistory();
+  renderAchievements();
 }
 
 function formatStatDate(value) {
@@ -1218,6 +1380,105 @@ function renderProfileHistory() {
   hydrateSprites(root);
 }
 
+function renderAchievements() {
+  const root = $("#achievements-grid");
+  if (!root) return;
+  const unlocked = state.unlockedAchievements || new Set();
+  const total = ACHIEVEMENTS.length;
+  const unlockedCount = ACHIEVEMENTS.filter((achievement) => unlocked.has(achievement.id)).length;
+  $("#profile-achievement-count")?.replaceChildren(document.createTextNode(`${unlockedCount}/${total}`));
+  $("#achievements-progress-value")?.replaceChildren(document.createTextNode(`${unlockedCount}/${total}`));
+  document.querySelectorAll("#achievements-filters [data-achievement-filter]").forEach((button) => {
+    const active = button.dataset.achievementFilter === state.achievementFilter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  const dateSelect = $("#achievement-date-filter");
+  const raritySelect = $("#achievement-rarity-filter");
+  if (dateSelect) dateSelect.value = state.achievementDateFilter;
+  if (raritySelect) raritySelect.value = state.achievementRarityFilter;
+  const filter = state.achievementFilter;
+  const now = Date.now();
+  const dateFilter = state.achievementDateFilter;
+  const rarityFilter = state.achievementRarityFilter;
+  let visible = ACHIEVEMENTS.filter((achievement) => filter === "all" || achievement.category === filter || (filter === "secret" && achievement.secret));
+  visible = visible.filter((achievement) => rarityFilter === "all" || achievement.rarity.toLowerCase() === rarityFilter);
+  if (dateFilter === "recent" || dateFilter === "month") {
+    const windowMs = dateFilter === "recent" ? 7 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+    visible = visible.filter((achievement) => {
+      const recorded = Date.parse(state.achievementRecords?.get(achievement.id) || "");
+      return Number.isFinite(recorded) && now - recorded <= windowMs;
+    });
+  } else if (dateFilter === "newest" || dateFilter === "oldest") {
+    visible = [...visible].sort((a, b) => {
+      const aDate = Date.parse(state.achievementRecords?.get(a.id) || "") || (dateFilter === "newest" ? 0 : Number.MAX_SAFE_INTEGER);
+      const bDate = Date.parse(state.achievementRecords?.get(b.id) || "") || (dateFilter === "newest" ? 0 : Number.MAX_SAFE_INTEGER);
+      return dateFilter === "newest" ? bDate - aDate : aDate - bDate;
+    });
+  }
+  root.innerHTML = visible.map((achievement) => {
+    const isUnlocked = unlocked.has(achievement.id);
+    const isSecretLocked = Boolean(achievement.secret && !isUnlocked);
+    const title = isSecretLocked ? "SECRET ACHIEVEMENT" : achievement.title;
+    const short = isSecretLocked ? "A hidden parlor record" : achievement.short;
+    const stateLabel = isUnlocked ? "UNLOCKED" : isSecretLocked ? "HIDDEN" : "LOCKED";
+    return `<button class="achievement-card rarity-${achievement.rarity.toLowerCase()}${isUnlocked ? " is-unlocked" : ""}${isSecretLocked ? " is-secret" : ""}" type="button" data-achievement-id="${esc(achievement.id)}" aria-haspopup="dialog" aria-label="${esc(`${title}, ${stateLabel}. Open details.`)}"><span class="achievement-icon-wrap">${achievementIconHTML(achievement.id)}</span><span class="achievement-card-main"><span class="achievement-card-top"><span class="t-micro achievement-category">${achievement.category.toUpperCase()}</span><span class="t-micro achievement-rarity rarity-${achievement.rarity.toLowerCase()}">${achievement.rarity}</span></span><strong class="t-label f13 achievement-title">${esc(title)}</strong><span class="t-micro ink-3 achievement-short">${esc(short)}</span></span></button>`;
+  }).join("");
+  if (!visible.length) root.innerHTML = `<p class="t-body ink-3 achievements-empty">NO ACHIEVEMENTS IN THIS FILTER.</p>`;
+}
+
+function openAchievementModal(id, trigger = null) {
+  const achievement = ACHIEVEMENTS.find((entry) => entry.id === id);
+  if (!achievement) return;
+  const unlocked = state.unlockedAchievements.has(achievement.id);
+  const hidden = Boolean(achievement.secret && !unlocked);
+  const title = hidden ? "SECRET ACHIEVEMENT" : achievement.title;
+  const copy = hidden ? achievement.clue : achievement.detail;
+  const status = unlocked ? "UNLOCKED" : hidden ? "HIDDEN" : "LOCKED";
+  const recordedAt = state.achievementRecords?.get(achievement.id);
+  const accent = achievement.category === "global" ? "#d74438" : achievement.category === "social" ? "#286ea1" : achievement.category === "minigame" ? "#35a653" : "#d9a62f";
+  const card = $("#achievement-detail-card");
+  if (!card) return;
+  card.innerHTML = `<div class="achievement-modal-rail" style="--achievement-accent:${accent}"></div><div class="achievement-detail-body"><div class="achievement-detail-head"><div class="achievement-detail-icon rarity-${achievement.rarity.toLowerCase()}${hidden ? " is-locked" : ""}">${achievementIconHTML(achievement.id)}</div><div><div class="achievement-detail-kicker"><span class="t-micro g400">${esc(achievement.category.toUpperCase())}</span><span class="t-micro rarity-${achievement.rarity.toLowerCase()}">${esc(achievement.rarity)}</span></div><h2 class="t-section achievement-detail-title" id="achievement-detail-title">${esc(title)}</h2></div><span class="achievement-detail-state t-micro">${status}</span></div><div class="achievement-detail-copy"><p class="t-body ink-2" id="achievement-detail-description">${esc(copy)}</p><p class="t-micro achievement-detail-note">${unlocked ? `RECORDED ${recordedAt ? `· ${formatStatDate(recordedAt)}` : "IN YOUR PARLOR LOG"}` : hidden ? "UNLOCK CONDITION HIDDEN" : "KEEP PLAYING TO UNLOCK"}</p></div><button class="cta-red achievement-detail-close" id="achievement-detail-close" type="button"><span class="cta-text cta-text-sm">CLOSE DETAILS</span></button></div>`;
+  if (trigger instanceof HTMLElement) surfaceReturnFocus = trigger;
+  openSurface("#achievement-modal", "#achievement-detail-close");
+  $("#achievement-detail-close")?.addEventListener("click", closeAchievementModal);
+}
+
+function closeAchievementModal() {
+  closeSurface("#achievement-modal");
+}
+
+function setAchievementFilter(filter = "all") {
+  const allowed = ["all", "visible", "global", "social", "secret", "minigame"];
+  state.achievementFilter = allowed.includes(filter) ? filter : "all";
+  renderAchievements();
+}
+
+function setAchievementDateFilter(filter = "all") {
+  state.achievementDateFilter = ["all", "recent", "month", "newest", "oldest"].includes(filter) ? filter : "all";
+  renderAchievements();
+}
+
+function setAchievementRarityFilter(filter = "all") {
+  const allowed = ["all", "common", "uncommon", "rare", "epic", "legendary", "mythical"];
+  state.achievementRarityFilter = allowed.includes(filter) ? filter : "all";
+  renderAchievements();
+}
+
+function unlockAchievement(id) {
+  if (!ACHIEVEMENTS.some((achievement) => achievement.id === id)) return false;
+  if (state.unlockedAchievements.has(id)) return false;
+  state.unlockedAchievements.add(id);
+  state.achievementRecords.set(id, new Date().toISOString());
+  saveUnlockedAchievements();
+  renderAchievements();
+  const achievement = ACHIEVEMENTS.find((entry) => entry.id === id);
+  const announcer = $("#system-announcer");
+  if (announcer && achievement) announcer.textContent = `ACHIEVEMENT UNLOCKED: ${achievement.title}`;
+  return true;
+}
+
 function setHomeTab(tab = "play") {
   const next = ["play", "rooms", "profile"].includes(tab) ? tab : "play";
   state.homeTab = next;
@@ -1230,7 +1491,7 @@ function setHomeTab(tab = "play") {
 }
 
 function setProfileTab(tab = "designs", focus = false) {
-  const allowed = ["overview", "stats", "designs", "history", "account"];
+  const allowed = ["overview", "stats", "designs", "history", "achievements", "account"];
   const next = allowed.includes(tab) ? tab : "designs";
   state.profileTab = next;
   const root = $("#view-profile");
@@ -1634,6 +1895,113 @@ function clearNightShiftTargets() {
   });
 }
 
+function announceSocialNotification(notification) {
+  const text = notification?.body || notification?.title || "New social notification.";
+  const announcer = $("#system-announcer");
+  if (announcer) announcer.textContent = text;
+}
+
+function socialPlayerRowHTML(player, actionLabel = "VIEW") {
+  if (!player) return "";
+  const id = player.id || player.accountId;
+  return `<div class="social-player-row"><div class="social-player-avatar">${avatarHTML(player, 3, 0)}</div><div class="social-player-main"><strong class="t-label f12 g100">${esc(player.displayName || player.name || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(player.username || "guest")}</span></div><button class="btn-dark social-player-open" type="button" data-social-player="${esc(id)}"><span class="t-label f11">${actionLabel}</span></button></div>`;
+}
+
+function openSocialSurface(tab = "friends") {
+  state.socialTab = ["friends", "requests", "invites", "notifications"].includes(tab) ? tab : "friends";
+  showView("social");
+  renderSocialSurface("#social-page-content");
+  if (state.live) emitServer("get-social-data", {}, (response) => {
+    if (response?.success && response.social) {
+      state.social = response.social;
+      renderSocialSurface("#social-page-content");
+    }
+  });
+}
+
+function renderSocialSurface(target = "#social-card") {
+  const card = $(target) || $("#social-card");
+  if (!card) return;
+  const social = state.social || {};
+  const signedIn = Boolean(state.account?.account);
+  const tabs = [["friends", "FRIENDS"], ["requests", "REQUESTS"], ["invites", "INVITES"], ["notifications", "INBOX"]];
+  const count = (social.requests?.length || 0) + (social.invites?.length || 0);
+  let body = "";
+  if (!signedIn) {
+    body = `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p><button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button></div>`;
+  } else if (state.socialTab === "friends") {
+    body = social.friends?.length ? social.friends.map((player) => socialPlayerRowHTML(player)).join("") : `<p class="t-body ink-3 social-empty">NO FRIENDS YET. Search for a player or open someone from the table.</p>`;
+  } else if (state.socialTab === "requests") {
+    const incoming = social.requests?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.from, "VIEW")}<div class="social-request-actions"><button class="cta-red" type="button" data-social-request="accept" data-friendship-id="${esc(request.id)}"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-social-request="decline" data-friendship-id="${esc(request.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") || "";
+    const outgoing = social.outgoing?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.to, "VIEW")}<span class="t-micro ink-3">REQUEST SENT</span></div>`).join("") || "";
+    body = incoming || outgoing ? `${incoming}${outgoing}` : `<p class="t-body ink-3 social-empty">NO PENDING REQUESTS.</p>`;
+  } else if (state.socialTab === "invites") {
+    body = social.invites?.length ? social.invites.map((invite) => `<div class="social-invite-row"><div><strong class="t-label f12 g100">${esc(invite.roomName || "AFTER HOURS")}</strong><span class="t-micro ink-3">${String(invite.visibility || "public").toUpperCase()} ROOM · EXPIRES ${esc(String(invite.expiresAt || "").slice(0, 16))}</span></div><div class="social-request-actions"><button class="cta-red" type="button" data-social-invite="accept" data-invite-id="${esc(invite.id)}"><span class="cta-text cta-text-sm">JOIN</span></button><button class="btn-dark" type="button" data-social-invite="decline" data-invite-id="${esc(invite.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") : `<p class="t-body ink-3 social-empty">NO ROOM INVITES.</p>`;
+  } else {
+    body = social.notifications?.length ? social.notifications.map((notification) => `<div class="social-notification-row${notification.readAt ? "" : " is-unread"}"><div><strong class="t-label f12 g100">${esc(notification.title)}</strong><span class="t-body ink-2">${esc(notification.body)}</span><span class="t-micro ink-3">${esc(String(notification.createdAt || "").slice(0, 16))}</span></div>${notification.readAt ? "" : `<button class="btn-dark" type="button" data-notification-read="${esc(notification.id)}"><span class="t-label f11">READ</span></button>`}</div>`).join("") : `<p class="t-body ink-3 social-empty">NO NOTIFICATIONS.</p>`;
+  }
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PARLOR SOCIAL</div><h2 class="t-section g100" id="social-title">Social</h2><p class="t-body ink-2" id="social-description">Friends, invites, and recent players from one parlor surface.</p></div><button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="social-tabs" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}${id === "requests" && count ? ` · ${social.requests?.length || 0}` : ""}</span></button>`).join("")}</div><form class="social-search" id="social-search-form"><label class="sr-only" for="social-search-input">Search players</label><input class="field" id="social-search-input" name="player" autocomplete="off" placeholder="SEARCH PLAYER…" maxlength="32"><button class="btn-dark" type="submit"><span class="t-label f11">FIND</span></button></form><div class="social-search-results" id="social-search-results"></div><div class="social-surface-body thin-scroll">${body}</div>`;
+}
+
+function openRankingsSurface(metric = "wins") {
+  state.leaderboard.metric = ["wins", "games", "rate", "achievements", "bankruptcies"].includes(metric) ? metric : "wins";
+  showView("rankings");
+  renderRankingsSurface("#rankings-page-content");
+  if (state.live) {
+    state.leaderboard.loading = true;
+    emitServer("get-leaderboard", { metric: state.leaderboard.metric }, (response) => {
+      state.leaderboard.loading = false;
+      if (response?.success) state.leaderboard.rows = response.rows || [];
+      renderRankingsSurface("#rankings-page-content");
+    });
+  }
+}
+
+function renderRankingsSurface(target = "#rankings-card") {
+  const card = $(target) || $("#rankings-card");
+  if (!card) return;
+  const labels = { wins: "WINS", games: "GAMES", rate: "WIN RATE", achievements: "ACHIEVEMENTS", bankruptcies: "BANKRUPTCIES" };
+  const metrics = Object.entries(labels).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}"><span class="t-label f11">${label}</span></button>`).join("");
+  const rows = state.leaderboard.loading ? `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>` : state.leaderboard.rows?.length ? state.leaderboard.rows.map((row, index) => `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">${row.games} GAMES · ${row.wins} WINS</span></span><strong class="ranking-value t-label f16 green">${state.leaderboard.metric === "rate" ? `${row.value}%` : row.value}</strong></button>`).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PARLOR RECORDS · VERIFIED</div><h2 class="t-section g100" id="rankings-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-description">Scores come from completed server games and verified achievements.</p></div><button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="ranking-metrics" role="tablist" aria-label="Ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div>`;
+}
+
+function openPlayerSurface(playerId) {
+  const player = state.players.find((candidate) => String(candidate.serverId || candidate.id) === String(playerId));
+  state.selectedPlayer = player ? { ...player } : { id: playerId, accountId: playerId, displayName: "PLAYER", color: "#cfa75f" };
+  state.selectedPlayerRelationship = "none";
+  state.selectedPlayerView = "profile";
+  state.selectedPlayerHistory = null;
+  renderPlayerSurface();
+  openSurface("#player-modal", "#player-modal-close");
+  if (state.selectedPlayer.accountId && state.live) emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, (response) => {
+    if (response?.success && response.player) {
+      state.selectedPlayer = { ...state.selectedPlayer, ...response.player };
+      state.selectedPlayerRelationship = response.relationship;
+      renderPlayerSurface();
+    }
+  });
+}
+
+function renderPlayerSurface() {
+  const card = $("#player-card");
+  const player = state.selectedPlayer;
+  if (!card || !player) return;
+  const accountId = player.accountId || player.id;
+  if (state.selectedPlayerView === "history") {
+    const history = state.selectedPlayerHistory || [];
+    card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${esc(player.displayName || player.name)}</h2><p class="t-body ink-2" id="player-modal-description">Recent completed matches visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-list thin-scroll">${history.length ? history.map((entry) => `<div class="player-history-row"><span class="t-micro ink-3">${esc(String(entry.playedAt || "").slice(0, 10))}</span><strong class="t-label f12 ${entry.won ? "green" : "g100"}">${entry.won ? "WIN" : "ROUND"}</strong><span class="t-micro ink-3">${entry.properties || 0} DEEDS</span></div>`).join("") : `<p class="t-body ink-3 social-empty">NO SHARED MATCH HISTORY AVAILABLE.</p>`}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
+    return;
+  }
+  const friendStatus = state.selectedPlayerRelationship !== "none"
+    ? state.selectedPlayerRelationship
+    : (state.social.friends || []).some(friend => friend.id === accountId) ? "accepted" : "none";
+  const isSelf = player.id === "p1";
+  const canSocial = Boolean(player.accountId && !isSelf);
+  const friendLabel = friendStatus === "accepted" ? "FRIENDS" : friendStatus === "requested" ? "REQUEST SENT" : "SEND FRIEND REQUEST";
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${esc(player.displayName || player.name)}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${esc(player.displayName || player.name)}</strong><span class="t-micro ink-3">${player.online === false ? "OFFLINE" : "IN THIS ROOM"}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${player.stats?.gamesPlayed ?? "—"}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${player.stats?.wins ?? "—"}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${player.achievements?.length ?? "—"}</strong></div></div><div class="player-profile-actions"><button class="cta-red" type="button" data-player-action="friend" ${canSocial && friendStatus !== "accepted" && friendStatus !== "requested" ? "" : "disabled"}><span class="cta-text cta-text-sm">${friendLabel}</span></button><button class="btn-dark" type="button" data-player-action="invite" ${canSocial ? "" : "disabled"}><span class="t-label f11">INVITE TO ROOM</span></button><button class="btn-dark" type="button" data-player-action="history" ${canSocial ? "" : "disabled"}><span class="t-label f11">MATCH HISTORY</span></button><button class="btn-dark" type="button" data-player-action="block" ${canSocial ? "" : "disabled"}><span class="t-label f11">BLOCK</span></button><button class="btn-dark" type="button" data-player-action="report" ${canSocial ? "" : "disabled"}><span class="t-label f11">REPORT</span></button></div>`;
+}
+
 function clearNightShiftTargetTimer(target) {
   const id = target?.dataset?.targetId;
   if (!id) return;
@@ -2019,11 +2387,12 @@ function filteredRooms() {
 function roomRowHTML(r) {
   const full = r.seats >= r.cap;
   const open = r.cap - r.seats;
-  const visLabel = r.visibility === "private" ? "PRIVATE" : "PUBLIC";
+  const isPrivate = r.visibility === "private";
+  const visLabel = isPrivate ? "PRIVATE" : "PUBLIC · DIRECT JOIN";
   return `<div class="room-row">
     <div class="room-main">
       <div class="room-top">
-        <span class="t-label f12 room-code">${r.code}</span>
+        ${isPrivate ? `<span class="t-label f12 room-code">${r.code}</span>` : `<span class="t-label f12 room-code room-code-public">OPEN TABLE</span>`}
         <span class="t-label f13 room-name">${r.name}</span>
         <span class="t-micro g400" style="margin-left:4px">${visLabel}</span>
         <span class="room-meta-item room-state-tag"><span class="st-dot" style="background:${roomStateColor(r.state)}"></span><span class="t-micro ink-3">${r.state}</span></span>
@@ -2039,9 +2408,7 @@ function roomRowHTML(r) {
       <button class="btn-dark" data-join="${r.code}" ${full ? "disabled" : ""}>
         <span class="t-label f11">${full ? "FULL" : "JOIN"}</span>
       </button>
-      <button class="btn-dark" data-copy="${r.code}" title="Copy code">
-        <span class="t-label f11">COPY</span>
-      </button>
+      ${isPrivate ? `<button class="btn-dark" data-copy="${r.code}" title="Copy code"><span class="t-label f11">COPY</span></button>` : ""}
     </div>
   </div>`;
 }
@@ -2298,9 +2665,48 @@ function requireGuestAlias() {
 /* ============================================================
    6. GAME RENDERERS
    ============================================================ */
+async function copyRoomCode() {
+  if (state.roomVisibility === "public") return;
+  const code = String(state.roomCode || "").trim().toUpperCase();
+  if (!code) return;
+  let copied = false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code);
+      copied = true;
+    }
+  } catch { /* fall through to the legacy local fallback */ }
+  if (!copied) {
+    const helper = document.createElement("textarea");
+    helper.value = code;
+    helper.setAttribute("readonly", "");
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.appendChild(helper);
+    helper.select();
+    try { copied = document.execCommand("copy"); } catch { copied = false; }
+    helper.remove();
+  }
+  const badge = $("#tn-room-copy");
+  const announcer = $("#system-announcer");
+  if (copied) {
+    if (announcer) announcer.textContent = `ROOM CODE ${code} COPIED`;
+    badge?.classList.add("is-copied");
+    window.setTimeout(() => badge?.classList.remove("is-copied"), 1000);
+  } else if (announcer) {
+    announcer.textContent = "ROOM CODE COULD NOT BE COPIED";
+  }
+}
+
 function renderTopNav() {
-  $("#tn-room").textContent = state.roomCode || "----";
-  $("#tn-lobby").textContent = `AFTER HOURS ${state.roomCode || "----"}`;
+  const code = state.roomCode || "----";
+  const isPublic = state.roomVisibility === "public";
+  $("#tn-room").textContent = isPublic ? "PUBLIC" : code;
+  $("#tn-room-copy")?.classList.toggle("is-public", isPublic);
+  if ($("#tn-room-copy")) $("#tn-room-copy").disabled = isPublic;
+  $("#tn-room-copy")?.setAttribute("aria-label", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
+  $("#tn-room-copy")?.setAttribute("title", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
+  $("#tn-lobby").textContent = isPublic ? "AFTER HOURS · PUBLIC" : `AFTER HOURS ${state.roomCode || "----"}`;
   $("#tn-online").textContent = state.live
     ? (state.connectionStatus === "online" ? `${state.players.filter((p) => p.online).length} ONLINE` : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE"))
     : state.phase === "playing" ? `${state.players.length} SEATED` : "OFFLINE";
@@ -2318,7 +2724,8 @@ function renderPlayers() {
   $("#player-list").innerHTML = players
     .map((p, i) => {
       const active = i === state.turnIndex && state.phase === "playing";
-      return `<div class="player-row${active ? " is-active" : ""}">
+      const playerId = p.serverId || p.id;
+      return `<button class="player-row player-row-action${active ? " is-active" : ""}" type="button" data-player-id="${esc(playerId)}" aria-label="Open player card for ${esc(p.name)}">
         ${active ? `<span class="pr-arrow">${spriteHTML("arrow", 3)}</span>` : ""}
         <div class="pr-av">${avatarHTML(p, 4, i)}</div>
         <div class="pr-mid">
@@ -2332,7 +2739,7 @@ function renderPlayers() {
           <span class="pr-dot" style="background:${p.online ? "#35a653" : "#3a382a"};box-shadow:${p.online ? "0 0 5px rgb(53 166 83 / 60%)" : "none"}"></span>
           <span class="t-micro ink-3">${p.online ? (p.id === "p1" ? "YOU" : p.bot ? "CPU" : "ONLINE") : "AFK"}</span>
         </div>
-      </div>`;
+      </button>`;
     })
     .join("");
 }
@@ -2359,10 +2766,12 @@ function tileIconHTML(tile) {
   switch (tile.kind) {
     case "corner-parking": return spriteHTML("car", 4);
     case "corner-vacation": return spriteHTML("palm", 4);
-    case "chest": return spriteHTML("chest", 3);
-    case "railroad": return spriteHTML("train", 3);
+    case "chest": return `<img class="board-icon-mark board-icon-chest" src="/assets/board-icons/treasure-chest.svg" alt="Treasure">`;
+    case "railroad": return tile.name.includes("AIRPORT")
+      ? `<img class="airport-mark" src="/assets/airport-plane.svg" alt="Airport">`
+      : spriteHTML("train", 3);
     case "utility": return tile.name === "ELECTRIC COMPANY" ? spriteHTML("bulb", 3) : spriteHTML("faucet", 3);
-    case "chance": return `<span class="q-mark" style="font-size:18px">?</span>`;
+    case "chance": return `<img class="board-icon-mark board-icon-surprise" src="/assets/board-icons/surprise.svg" alt="Surprise">`;
     case "tax": return `<span class="q-mark g400" style="font-size:13px;color:#c88f2e">$</span>`;
     default: return "";
   }
@@ -2374,8 +2783,8 @@ function stripStyle(tile) {
   switch (tile.side) {
     case "bottom": return `background:${c};top:0;left:0;right:0;height:22%;border-bottom:1px solid #01070a`;
     case "top": return `background:${c};bottom:0;left:0;right:0;height:22%;border-top:1px solid #01070a`;
-    case "left": return `background:${c};top:0;bottom:0;right:0;width:20%;border-left:1px solid #01070a`;
-    case "right": return `background:${c};top:0;bottom:0;left:0;width:20%;border-right:1px solid #01070a`;
+    case "left": return `background:${c};top:0;bottom:0;right:0;width:22%;border-left:1px solid #01070a`;
+    case "right": return `background:${c};top:0;bottom:0;left:0;width:22%;border-right:1px solid #01070a`;
   }
   return "";
 }
@@ -2388,7 +2797,7 @@ function buildBoard() {
 
   TILES.forEach((tile) => {
     const el = document.createElement("button");
-    el.className = `tile side-${tile.side}`;
+    el.className = `tile side-${tile.side}${tile.group ? " has-strip" : ""}${tile.name.includes("AIRPORT") ? " airport-tile" : ""}`;
     el.dataset.tile = String(tile.i);
     el.style.gridColumn = String(tile.col);
     el.style.gridRow = String(tile.row);
@@ -2399,34 +2808,40 @@ function buildBoard() {
       el.classList.add("is-corner");
       if (tile.kind === "corner-go") {
         el.innerHTML = `<span class="go-big">GO</span>
-          <span class="t-tile" style="font-size:9px;color:#a79d7d">COLLECT</span>
-          <span class="t-tile" style="font-size:10px;color:#cfa75f">$200</span>`;
+          <span class="t-tile tile-name" style="color:#a79d7d">COLLECT</span>
+          <span class="t-tile tile-price" style="color:#cfa75f">$200</span>`;
       } else if (tile.kind === "corner-jail") {
-        el.innerHTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
-            ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#cfa75f"/>`).join("")}
-            <rect x="0" y="4" width="16" height="1.2" fill="#cfa75f"/></svg>
-          <span class="t-tile tile-name" style="font-size:9px">${words}</span>`;
+        el.innerHTML = `<span class="passing-by-corner-layout">
+          <span class="t-tile tile-name passing-by-corner-label">PASSING BY</span>
+          <span class="passing-by-prison-zone" aria-hidden="true">
+            <img class="passing-by-bars-art" src="/assets/board-icons/passing-by-bars.svg" alt="">
+          </span>
+          <span class="passing-by-token-anchor passing-by-token-anchor-pass" data-tile-anchor="passing" aria-hidden="true"></span>
+          <span class="passing-by-token-anchor passing-by-token-anchor-prison" data-tile-anchor="prison" aria-hidden="true"></span>
+        </span>`;
       } else if (tile.kind === "corner-go-jail") {
         el.innerHTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
             ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#d74438"/>`).join("")}
             <rect x="0" y="4" width="16" height="1.2" fill="#d74438"/></svg>
-          <span class="t-tile tile-name" style="font-size:9px;color:#d74438">${words}</span>`;
+          <span class="t-tile tile-name" style="color:#d74438">PRISON</span>`;
       } else {
-        el.innerHTML = `<span class="t-tile tile-name" style="font-size:9px">${words}</span>${tileIconHTML(tile)}`;
+        el.innerHTML = `<span class="t-tile tile-name">${words}</span>${tileIconHTML(tile)}`;
       }
     } else {
-      el.style.paddingTop = tile.side === "bottom" ? "24%" : "4px";
-      el.style.paddingBottom = tile.side === "top" ? "24%" : "4px";
-      el.style.paddingLeft = tile.side === "right" ? "22%" : "3px";
-      el.style.paddingRight = tile.side === "left" ? "22%" : "3px";
+      const verticalChest = (tile.side === "left" || tile.side === "right") && tile.kind === "chest";
+      const iconOnly = tile.kind === "chance";
+      const tileFace = iconOnly
+        ? `<span class="tile-face tile-face-special"><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`
+        : verticalChest
+          ? `<span class="tile-face tile-face-special"><span class="t-tile tile-name">${words}</span><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`
+        : tile.kind === "tax"
+          ? `<span class="tile-face"><span class="t-tile tile-name">${words}</span></span>`
+        : `<span class="tile-face"><span class="t-tile tile-name">${words}</span><span class="tile-icon">${tileIconHTML(tile)}</span>${tile.price != null
+          ? `<span class="t-tile tile-price">${tile.kind === "tax" ? `PAY $${tile.price}` : `$${tile.price}`}</span>`
+          : ""}</span>`;
       el.innerHTML =
         (tile.group ? `<span class="tile-strip" style="${stripStyle(tile)}"></span>` : "") +
-        `<span class="tile-owner" style="display:none"></span>` +
-        `<span class="t-tile tile-name">${words}</span>` +
-        `<span class="tile-icon">${tileIconHTML(tile)}</span>` +
-        (tile.price != null
-          ? `<span class="t-tile tile-price">${tile.kind === "tax" ? `PAY $${tile.price}` : `$${tile.price}`}</span>`
-          : "");
+        `<span class="tile-owner" style="display:none"></span>` + tileFace;
     }
 
     el.insertAdjacentHTML("beforeend", `<span class="tile-build side-${tile.side}"></span>`);
@@ -2471,17 +2886,23 @@ const STACK_OFF = [
   { x: 11, y: 8 },
 ];
 
-function tileCenter(i) {
+function tileCenter(i, zone = "passing") {
   const tile = document.querySelector(`.tile[data-tile="${i}"]`);
   const layer = $("#token-layer");
   if (!tile || !layer) return null;
-  const tr = tile.getBoundingClientRect();
+  const anchor = tile.querySelector(`[data-tile-anchor="${zone}"]`);
+  const tr = (anchor || tile).getBoundingClientRect();
   const lr = layer.getBoundingClientRect();
   if (!tr.width || !lr.width) return null;
   return {
     x: tr.left - lr.left + tr.width / 2,
     y: tr.top - lr.top + tr.height / 2,
   };
+}
+
+function playerTileCenter(player, i = player?.pos) {
+  const zone = Number(i) === JAIL_TILE_INDEX && state.jail?.[player?.id] ? "prison" : "passing";
+  return tileCenter(i, zone);
 }
 
 const pieceWalks = new Map();
@@ -2509,7 +2930,8 @@ function startPieceWalk(playerId, from, to) {
   const el = layer?.querySelector(`.piece[data-player="${playerId}"]`);
   if (!el || !path.length || REDUCED_MOTION) return;
   cancelPieceWalk(playerId);
-  const start = tileCenter(Number(from) || 0);
+  const player = state.players.find((entry) => entry.id === playerId);
+  const start = playerTileCenter(player, Number(from) || 0);
   if (!start) return;
   const walk = { cancelled: false, index: 0, timer: null };
   pieceWalks.set(playerId, walk);
@@ -2520,7 +2942,8 @@ function startPieceWalk(playerId, from, to) {
   const advance = () => {
     if (walk.cancelled || pieceWalks.get(playerId) !== walk) return;
     const next = path[walk.index++];
-    const center = tileCenter(next);
+    // A walk across the combined Passing By corner always uses the open lane.
+    const center = tileCenter(next, "passing");
     if (!center) {
       cancelPieceWalk(playerId);
       placePieces();
@@ -2588,7 +3011,7 @@ function placePieces(opts = {}) {
   state.players.forEach((p) => {
     const el = layer.querySelector(`.piece[data-player="${p.id}"]`);
     if (!el) return;
-    const c = tileCenter(p.pos);
+    const c = playerTileCenter(p);
     if (!c) return;
     const stack = occupants[p.pos] || [p.id];
     const idx = Math.max(0, stack.indexOf(p.id));
@@ -2657,6 +3080,7 @@ function renderHud() {
     nameEl.style.color = "#cfa75f";
     $("#hud-note").style.display = "block";
     $("#hud-note").textContent = "Set rules on the right, then press Start Round.";
+    $("#hud-loan-status")?.classList.add("is-hidden");
     $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
     $("#hud-pool").textContent = "$0";
     $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
@@ -2674,6 +3098,13 @@ function renderHud() {
   $("#hud-note").textContent = awaitingEnd
     ? "Buy, build or trade now, then end your turn."
     : "Join a room to get started.";
+  const loanStatus = $("#hud-loan-status");
+  const currentLoan = cur?.bankLoan;
+  if (loanStatus) {
+    const showLoan = !waiting && currentLoan && ["active", "due"].includes(currentLoan.status);
+    loanStatus.classList.toggle("is-hidden", !showLoan);
+    if (showLoan) loanStatus.textContent = `BANK DEBT · $${Number(currentLoan.remaining || 0).toLocaleString()} · DUE R${currentLoan.dueRound || "—"}`;
+  }
 
   $("#hud-cash").textContent = `$${waiting ? "0" : cur.cash.toLocaleString()}`;
   $("#hud-pool").textContent = `$${waiting ? 0 : state.pool}`;
@@ -2724,6 +3155,12 @@ function renderHud() {
     const canPayJail = !waiting && !isLobby && humanTurn && inJail && state.turnStage === "roll" && cur.cash >= 50;
     jailBtn.classList.toggle("is-hidden", !canPayJail);
     jailBtn.disabled = state.busy;
+  }
+  const jailCardBtn = $("#use-jail-free");
+  if (jailCardBtn) {
+    const canUseJailCard = !waiting && !isLobby && humanTurn && inJail && state.turnStage === "roll" && (cur.jailFree || 0) > 0;
+    jailCardBtn.classList.toggle("is-hidden", !canUseJailCard);
+    jailCardBtn.disabled = state.busy;
   }
 }
 
@@ -2906,24 +3343,72 @@ function closeDeedDetail() {
 /* ============================================================
    CHANCE / CHEST CARD REVEAL
    ============================================================ */
-function openCardReveal(tile, ev) {
-  const positive = ev.cash >= 0;
-  const kind = tile.kind === "chance" ? "CHANCE" : "CHEST";
+function cardFaceHTML(tile, ev, { index = null, total = null, buttonId = null } = {}) {
+  const amount = Number(ev.cash) || 0;
+  const kind = tile.kind === "chance" ? "SURPRISE" : "TREASURE";
   const color = tile.kind === "chance" ? "#d74438" : "#cfa75f";
-  $("#card-reveal").innerHTML = `
-    <div class="cr-rail" style="background:${color}"></div>
+  const variableAction = ["repairs", "payEach", "collectFromEach", "nearestRailroad", "nearestUtility"].includes(ev.action);
+  const amountLabel = amount > 0 ? `+$${amount}` : amount < 0 ? `−$${Math.abs(amount)}` : variableAction ? "VARIABLE" : "RESOLVED";
+  let outcomeLabel = "RESULT";
+  if (["repairs", "payEach"].includes(ev.action)) outcomeLabel = "PAID TOTAL";
+  else if (ev.action === "collectFromEach") outcomeLabel = "COLLECTED TOTAL";
+  else if (["nearestRailroad", "nearestUtility"].includes(ev.action)) outcomeLabel = "SUPPORT RENT";
+  else if (ev.action === "pay") outcomeLabel = "PAID";
+  else if (["collect", "collectStart"].includes(ev.action)) outcomeLabel = "COLLECTED";
+  const sequence = Number.isInteger(index) && Number.isInteger(total)
+    ? `${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`
+    : "JUST DRAWN";
+  const titleId = buttonId ? "card-reveal-title" : "";
+  return `<article class="cr-card" style="--cr-accent:${color}">
+    <div class="cr-rail"></div>
     <div class="cr-body">
-      <span class="cr-kind"><span class="t-micro g400">${kind}</span></span>
-      <h3 class="t-section cr-name" id="card-reveal-title">${esc(tile.name)}</h3>
-      <p class="t-body ink-2 cr-effect">${esc(ev.text)}</p>
-      <div class="cr-amount ${positive ? "positive" : "negative"}">${positive ? "+" : "−"}$${Math.abs(ev.cash)}</div>
-      <button class="cta-red cr-btn" id="cr-ok"><span class="cta-text cta-text-sm">OK</span></button>
-    </div>`;
+      <div class="cr-meta">
+        <span class="cr-kind"><span class="t-micro g400">${kind}</span></span>
+        <span class="cr-sequence t-micro ink-3">${sequence}</span>
+      </div>
+      <div class="cr-icon" aria-hidden="true">${tileIconHTML(tile)}</div>
+      <span class="cr-source t-micro ink-3">${kind} DECK · ${esc(tile.name)}</span>
+      <h3 class="t-section cr-name"${titleId ? ` id="${titleId}"` : ""}>${esc(ev.text)}</h3>
+      <div class="cr-rule" aria-hidden="true"></div>
+      <div class="cr-outcome">
+        <span class="cr-outcome-label t-micro ink-3">${outcomeLabel}</span>
+        <strong class="cr-amount ${amount > 0 ? "positive" : amount < 0 ? "negative" : "neutral"}">${amountLabel}</strong>
+      </div>
+      ${buttonId ? `<button class="cta-red cr-btn" id="${buttonId}"><span class="cta-text cta-text-sm">OK</span></button>` : ""}
+    </div>
+  </article>`;
+}
+
+function openCardReveal(tile, ev) {
+  $("#card-reveal").innerHTML = cardFaceHTML(tile, ev, { buttonId: "cr-ok" });
   openSurface("#card-modal", "#cr-ok");
   $("#cr-ok").addEventListener("click", () => {
     state.card = null;
     closeSurface("#card-modal");
   });
+}
+
+function closeCardGallery() {
+  const gallery = $("#card-gallery");
+  if (!gallery) return;
+  gallery.classList.add("is-hidden");
+  gallery.setAttribute("aria-hidden", "true");
+  syncSurfaceA11y();
+}
+
+function openCardGallery() {
+  const gallery = $("#card-gallery");
+  const grid = $("#card-gallery-grid");
+  if (!gallery || !grid) return;
+  const cards = [
+    ...CHANCE_EVENTS.map((event) => ({ tile: TILES.find((entry) => entry.kind === "chance"), event, kind: "chance" })),
+    ...CHEST_EVENTS.map((event) => ({ tile: TILES.find((entry) => entry.kind === "chest"), event, kind: "chest" })),
+  ];
+  grid.innerHTML = cards.map(({ tile, event }, index) => cardFaceHTML(tile, event, { index, total: cards.length })).join("");
+  gallery.classList.remove("is-hidden");
+  gallery.setAttribute("aria-hidden", "false");
+  syncSurfaceA11y();
+  requestAnimationFrame(() => $("#card-gallery-close")?.focus({ preventScroll: true }));
 }
 
 /** Rows for the rent ladder, current level highlighted. */
@@ -3100,7 +3585,7 @@ function deedCardHTML(tile, opts = {}) {
   const rail = tile.group ? GROUP_COLOR[tile.group] : tile.kind === "railroad" ? "#5c5033" : "#3e7d7b";
   const kindIcon =
     tile.kind === "railroad"
-      ? spriteHTML("train", 2)
+      ? (tile.name.includes("AIRPORT") ? `<img class="airport-mark airport-mark-card" src="/assets/airport-plane.svg" alt="Airport">` : spriteHTML("train", 2))
       : tile.kind === "utility"
         ? (tile.name === "ELECTRIC COMPANY" ? spriteHTML("bulb", 2) : spriteHTML("faucet", 2))
         : "";
@@ -3461,7 +3946,30 @@ function renderRightRail() {
 
   const body = $("#rr-body");
   if (state.tab === "finance") {
-    body.innerHTML = `<div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PREVIEW</div><p class="t-body ink-2">Shape a fixed loan, a permanent equity share, or a hybrid conversion deal. The server contract is not enabled yet.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">NONE · UI MODEL</span></div><div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE DEALS</strong><span class="t-micro ink-3">Preview a contract, ownership split, or default resolution.</span></div><div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW OFFER</span></button><button class="btn-dark" type="button" data-finance-surface="contract"><span class="t-label f11">VIEW CONTRACT</span></button><button class="btn-dark" type="button" data-finance-surface="ownership"><span class="t-label f11">VIEW CO-OWNERSHIP</span></button><button class="btn-dark" type="button" data-finance-surface="default"><span class="t-label f11">PREVIEW DEFAULT</span></button></div>`;
+    const me = state.players[0];
+    const loan = me?.bankLoan;
+    const offer = me?.bankLoanOffer;
+    const loanCopy = loan?.status === "defaulted"
+      ? "DEFAULTED · The bank has closed this credit line for the rest of the round."
+      : loan?.status === "paid"
+        ? `PAID IN ROUND ${loan.paidRound || "—"} · You may qualify for emergency credit again when cash is low.`
+        : loan
+          ? `Repay before round ${loan.dueRound}. The cure window ends after round ${loan.cureRound}.`
+          : offer?.available
+            ? "Emergency liquidity is available. Read every term before accepting."
+            : (offer?.reason || "Bank credit is unavailable right now.");
+    const bankActionDisabled = state.phase !== "playing" || state.turnIndex !== 0;
+    const loanAction = loan && ["active", "due"].includes(loan.status)
+      ? `<button class="cta-red finance-bank-action" type="button" data-bank-action="repay" ${bankActionDisabled ? "disabled" : ""}><span class="cta-text cta-text-sm">REPAY $${Number(loan.remaining || 0).toLocaleString()}</span></button>`
+      : offer?.available
+        ? `<button class="cta-red finance-bank-action" type="button" data-bank-action="take" ${bankActionDisabled ? "disabled" : ""}><span class="cta-text cta-text-sm">ACCEPT $${Number(offer.principal || 0).toLocaleString()}</span></button>`
+        : "";
+    const loanMetrics = loan
+      ? [["STATUS", String(loan.status).toUpperCase()], ["REMAINING", `$${Number(loan.remaining || 0).toLocaleString()}`], ["DUE ROUND", loan.dueRound || "—"], ["COLLATERAL", loan.collateralName || "NONE"]]
+      : offer?.available
+        ? [["ADVANCE", `$${Number(offer.principal || 0).toLocaleString()}`], ["TOTAL DUE", `$${Number(offer.totalDue || 0).toLocaleString()}`], ["DUE IN", `${offer.dueInRounds} ROUNDS`], ["COLLATERAL", offer.collateralName || "NONE"]]
+        : [];
+    body.innerHTML = `<section class="finance-bank panel noise" aria-labelledby="bank-credit-heading"><div class="finance-bank-head"><div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ${loan?.status === "defaulted" ? "red" : "g300"}">${loan ? String(loan.status).toUpperCase() : "NO DEBT"}</span></div>${loanMetrics.length ? `<div class="finance-bank-metrics">${loanMetrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${esc(String(value))}</strong></div>`).join("")}</div>` : ""}<p class="t-body ink-2 finance-bank-copy">${esc(loanCopy)}</p>${loanAction ? `<div class="finance-bank-actions">${loanAction}</div>` : ""}<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></section><div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PLAYER FINANCE</div><p class="t-body ink-2">Player loans and equity remain negotiated social contracts. Use the bank only when the collateral risk is worth the liquidity.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">PLAYER CONTRACTS · PREVIEW</span></div><div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE PLAYER DEALS</strong><span class="t-micro ink-3">Preview a contract, ownership split, or default resolution.</span></div><div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW TERMS</span></button><button class="btn-dark" type="button" data-finance-surface="contract"><span class="t-label f11">VIEW CONTRACT</span></button><button class="btn-dark" type="button" data-finance-surface="ownership"><span class="t-label f11">VIEW CO-OWNERSHIP</span></button><button class="btn-dark" type="button" data-finance-surface="default"><span class="t-label f11">VIEW DEFAULT</span></button></div>`;
     hydrateSprites();
   } else if (state.tab === "deeds") {
     body.innerHTML = owned.length
@@ -3562,6 +4070,7 @@ function renderAll() {
   renderChat();
   renderBoardState();
   placePieces();
+  renderGlobalEvent();
   renderHud();
   renderRightRail();
   renderSetup();
@@ -3576,9 +4085,62 @@ function renderAll() {
    ============================================================ */
 
 function tog(id, value) {
-  return `<button class="tog${value ? " is-on" : ""}" data-setting="${id}" aria-pressed="${value}" title="${id}">
-    <span class="tog-label">${value ? "ON" : "OFF"}</span>
-  </button>`;
+  const label = id.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+  return `<button class="tog${value ? " is-on" : ""}" data-setting="${id}" aria-label="${label}" aria-pressed="${value}" title="${label}"></button>`;
+}
+
+function renderGlobalEvent() {
+  const banner = $("#global-event-banner");
+  if (!banner) return;
+  const event = state.globalEvent;
+  const visible = state.phase === "playing" && event;
+  banner.classList.toggle("is-hidden", !visible);
+  if (!visible) return;
+  const accent = event.category === "CIVIC" ? "#d9a62f" : event.category === "INFRASTRUCTURE" ? "#286ea1" : "#d74438";
+  banner.style.setProperty("--event-accent", accent);
+  $("#global-event-kicker").textContent = event.phase === "voting" ? "TABLE VOTE" : `${event.category} · GLOBAL EVENT`;
+  $("#global-event-title").textContent = String(event.title || "GLOBAL EVENT");
+  $("#global-event-copy").textContent = String(event.summary || "The table is under a global effect.");
+  const effectLabels = {
+    rentMultiplier: "RENTS",
+    constructionBlocked: "BUILDING FROZEN",
+    buildingSaleMultiplier: "BUILDING SALES",
+    propertyValueMultiplier: "PROPERTY VALUE",
+    bankLoansBlocked: "BANK LOANS",
+    mortgagesBlocked: "MORTGAGES",
+    taxMultiplier: "TAXES",
+    buildingCostMultiplier: "BUILDING COST",
+    loanPremiumMultiplier: "LOAN PREMIUM",
+    airportRentMultiplier: "AIRPORT RENT",
+    airportCardsBlocked: "AIRPORT CARDS",
+    premiumRentMultiplier: "PREMIUM RENT",
+    leaderRentMultiplier: "LEADER RENT",
+  };
+  const effectEl = $("#global-event-effects");
+  if (effectEl) {
+    effectEl.innerHTML = Object.entries(event.effects || {}).map(([key, value]) => {
+      const label = effectLabels[key] || key.replaceAll(/([A-Z])/g, " $1").toUpperCase();
+      const shown = typeof value === "boolean"
+        ? (value ? "ON" : "OFF")
+        : (() => { const delta = Math.round((Number(value) - 1) * 100); return delta === 0 ? "100%" : `${delta > 0 ? "+" : ""}${delta}%`; })();
+      return `<span class="global-event-effect t-micro">${esc(label)} · ${esc(shown)}</span>`;
+    }).join("");
+  }
+  $("#global-event-rounds").textContent = event.phase === "voting"
+    ? "VOTE BEFORE NEXT ROUND"
+    : event.phase === "warning"
+      ? "ACTIVATES NEXT ROUND"
+      : `${event.roundsRemaining || 0} ROUNDS LEFT`;
+  const choices = $("#global-event-choices");
+  if (!choices) return;
+  if (event.phase !== "voting" || !Array.isArray(event.choices)) {
+    choices.innerHTML = "";
+    return;
+  }
+  const me = state.players[0];
+  const voterId = me?.serverId || me?.id;
+  const voted = Boolean(voterId && event.votes?.[voterId]);
+  choices.innerHTML = event.choices.map((choice) => `<button class="global-event-choice" type="button" data-global-choice="${esc(choice.id)}" ${voted ? "disabled" : ""} title="${esc(choice.description || "Cast your vote")}">${esc(choice.label)}</button>`).join("");
 }
 
 function stepper(id, value, min, max) {
@@ -3666,7 +4228,7 @@ function renderLobbyRail() {
     lobbySection("Table Rules", [
       settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
       settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
-      settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["3000","$3,000"]])),
+      settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
       settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
       settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
     ]),
@@ -3675,6 +4237,13 @@ function renderLobbyRail() {
       settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
       settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
       settingRow("Bankruptcy", "How to handle a bust player.", sel("bankruptMode", s.bankruptMode, [["elim","ELIMINATE"],["debt","DEBT DEAL"]])),
+      settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
+      settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
+    ]),
+    lobbySection("Global Events", [
+      settingRow("Event Mode", "Rare headlines with board-wide effects.", sel("globalEvents", s.globalEvents, [["off","OFF"],["rare","RARE"],["hardcore","HARDCORE"]])),
+      settingRow("Event Duration", "Rounds an event remains active.", sel("globalEventDuration", s.globalEventDuration, [["5","5 ROUNDS"],["10","10 ROUNDS"]])),
+      settingRow("Event Maximum", "Maximum global headlines in one game.", sel("globalEventMax", s.globalEventMax, [["1","1 EVENT"],["2","2 EVENTS"]])),
     ]),
     lobbySection("Building", [
       settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"]])),
@@ -3689,6 +4258,8 @@ function renderLobbyRail() {
       ${s.vacationPool ? "pool on" : "no pool"} ·
       ${s.trading ? "trading on" : "no trades"} ·
       ${s.auction ? "auction on" : "no auction"} ·
+      ${s.bankLoans ? `${String(s.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off"} ·
+      ${s.globalEvents === "off" ? "global events off" : `${String(s.globalEvents).toLowerCase()} events · ${s.globalEventDuration} rounds`} ·
       ${s.bots ? `${s.bots} bot${s.bots === 1 ? "" : "s"} reserved` : "no bots"} ·
       ${s.turnTimer ? s.turnTimer + "s timer" : "no timer"} ·
       ${s.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
@@ -3932,10 +4503,13 @@ function effectText(tile) {
 
 function popIconHTML(tile) {
   switch (tile.kind) {
-    case "railroad": return spriteHTML("train", 4);
+    case "railroad": return tile.name.includes("AIRPORT")
+      ? `<img class="airport-mark airport-mark-popup" src="/assets/airport-plane.svg" alt="Airport">`
+      : spriteHTML("train", 4);
     case "utility": return tile.name === "ELECTRIC COMPANY" ? spriteHTML("bulb", 4) : spriteHTML("faucet", 4);
-    case "chance": return `<span class="q-mark" style="font-size:28px">?</span>`;
-    case "chest": return spriteHTML("chest", 4);
+    case "chance": return `<img class="board-icon-mark board-icon-popup board-icon-surprise" src="/assets/board-icons/surprise.svg" alt="Surprise">`;
+    case "chest": return `<img class="board-icon-mark board-icon-popup board-icon-chest" src="/assets/board-icons/treasure-chest.svg" alt="Treasure">`;
+    case "tax": return "";
     case "corner-go": return `<span class="go-big" style="font-size:28px">GO</span>`;
     case "corner-go-jail": return `<span class="q-mark" style="font-size:22px;color:#d74438">PRISON</span>`;
     case "corner-parking": return spriteHTML("car", 5);
@@ -4057,6 +4631,120 @@ function onTileClick(tile) {
 /* ============================================================
    8. GAME LOGIC
    ============================================================ */
+function applyLocalCardEvent(idx, ev) {
+  const player = state.players[idx];
+  if (!player || !ev) return 0;
+  let cashDelta = 0;
+  const moveTo = (tileIndex) => {
+    player.pos = tileIndex;
+    state.highlight = tileIndex;
+    resolveLanding(idx, tileIndex);
+  };
+  const moveToSupport = (tile, multiplier) => {
+    if (!tile) return;
+    if (tile.i < player.pos) {
+      addCash(player.id, 200);
+      record(`${player.name} PASSED GO — COLLECT $200`);
+    }
+    player.pos = tile.i;
+    state.highlight = tile.i;
+    const ownerId = state.owners[tile.i];
+    if (ownerId && ownerId !== player.id) {
+      const base = rentFor(tile);
+      const amount = tile.kind === "utility"
+        ? (Number(state.dice[0]) + Number(state.dice[1])) * multiplier
+        : base * multiplier;
+      if (chargePayment(idx, amount, ownerId, `${player.name} PAID $${amount} SUPPORT RENT`)) cashDelta -= amount;
+      return;
+    }
+    resolveLanding(idx, tile.i);
+  };
+  switch (ev.action) {
+    case "collect":
+      addCash(player.id, ev.amount || 0);
+      cashDelta = ev.amount || 0;
+      break;
+    case "pay":
+      cashDelta = -(ev.amount || 0);
+      chargePayment(idx, ev.amount || 0, null, `${player.name} PAID $${ev.amount} FROM CARD`);
+      break;
+    case "collectStart":
+      {
+        const amount = Number(ev.amount ?? 200);
+        player.pos = START_TILE_INDEX;
+        addCash(player.id, amount);
+        cashDelta = amount;
+      }
+      break;
+    case "moveTo":
+      if (Number.isInteger(ev.tileIndex) && ev.tileIndex < player.pos) {
+        addCash(player.id, 200);
+        cashDelta += 200;
+        record(`${player.name} PASSED GO — COLLECT $200`);
+      }
+      moveTo(ev.tileIndex);
+      break;
+    case "moveBack":
+      moveTo((player.pos - (ev.steps || 3) + TILE_COUNT) % TILE_COUNT);
+      break;
+    case "goToJail":
+      player.pos = JAIL_TILE_INDEX;
+      state.jail[player.id] = 2;
+      break;
+    case "jailFree":
+      player.jailFree = (player.jailFree || 0) + 1;
+      break;
+    case "collectFromEach":
+      state.players.forEach((other) => {
+        if (other.id === player.id) return;
+        const paid = Math.min(other.cash, ev.amount || 0);
+        other.cash -= paid;
+        player.cash += paid;
+        cashDelta += paid;
+      });
+      break;
+    case "payEach":
+      state.players.forEach((other) => {
+        if (other.id === player.id) return;
+        const paid = Math.min(player.cash, ev.amount || 0);
+        player.cash -= paid;
+        other.cash += paid;
+        cashDelta -= paid;
+      });
+      break;
+    case "repairs": {
+      const houses = player.properties.reduce((sum, tileIndex) => {
+        const level = Number(state.houses[tileIndex]) || 0;
+        return sum + (level === HOTEL_LEVEL ? 0 : level);
+      }, 0);
+      const hotels = player.properties.reduce((sum, tileIndex) => sum + ((Number(state.houses[tileIndex]) || 0) === HOTEL_LEVEL ? 1 : 0), 0);
+      const total = houses * (ev.houseCost || 0) + hotels * (ev.hotelCost || 0);
+      cashDelta = -total;
+      if (total) chargePayment(idx, total, null, `${player.name} PAID $${total} IN BUILDING REPAIRS`);
+      break;
+    }
+    case "nearestRailroad": {
+      const destination = TILES.find((tile, offset) => offset > player.pos && tile.kind === "railroad")
+        || TILES.find((tile) => tile.kind === "railroad");
+      moveToSupport(destination, 2);
+      break;
+    }
+    case "nearestUtility": {
+      const destination = TILES.find((tile, offset) => offset > player.pos && tile.kind === "utility")
+        || TILES.find((tile) => tile.kind === "utility");
+      moveToSupport(destination, 10);
+      break;
+    }
+    default:
+      cashDelta = Number(ev.cash) || 0;
+      addCash(player.id, cashDelta);
+      break;
+  }
+  record(`${player.name} — ${ev.text}`);
+  say(`${player.name}: ${ev.text.toLowerCase()}`);
+  return cashDelta;
+}
+
 function resolveLanding(idx, pos) {
   const me = state.players[idx];
   const tile = TILES[pos];
@@ -4096,11 +4784,9 @@ function resolveLanding(idx, pos) {
   } else if (buyable && ownerId === me.id) {
     record(`${me.name} RESTED ON OWN LOT — ${tile.name}`);
   } else if (tile.kind === "chance" || tile.kind === "chest") {
-    const ev = pick(tile.kind === "chance" ? CHANCE_EVENTS : CHEST_EVENTS);
-    addCash(me.id, ev.cash);
-    record(`${tile.kind === "chance" ? "CHANCE" : "CHEST"} — ${ev.text}`);
-    say(`${me.name}: ${ev.text.toLowerCase()}`);
-    if (!me.bot) openCardReveal(tile, ev);
+    const ev = drawLocalCard(tile.kind);
+    const cash = applyLocalCardEvent(idx, ev);
+    if (!me.bot) openCardReveal(tile, { ...ev, cash });
   } else if (tile.kind === "tax") {
     const due = tile.price ?? 200;
     const paid = chargePayment(idx, due, null, `${me.name} PAID $${due} INCOME TAX${state.settings.vacationPool ? " TO THE POOL" : ""}`);
@@ -4115,7 +4801,7 @@ function resolveLanding(idx, pos) {
       record(`${me.name} LANDED ON VACATION`);
     }
   } else if (tile.kind === "corner-go-jail") {
-    me.pos = 10;
+    me.pos = JAIL_TILE_INDEX;
     state.jail[me.id] = 2;
     record(`${me.name} SENT TO PRISON`);
     say(`${me.name} was sent to prison.`);
@@ -4212,7 +4898,7 @@ async function runTurn(idx) {
   let passedGo = false;
   for (let s = 0; s < total; s++) {
     me.pos = (me.pos + 1) % TILE_COUNT;
-    if (me.pos === 0) passedGo = true;
+    if (me.pos === START_TILE_INDEX) passedGo = true;
     state.highlight = me.pos;
     renderBoardState();
     placePieces({ movingId: me.id, hop: true });
@@ -4223,7 +4909,7 @@ async function runTurn(idx) {
   if (passedGo) {
     addCash(me.id, 200);
     record(`${me.name} PASSED GO — COLLECT $200`);
-    if (me.pos === 0 && state.settings.doubleGo) {
+    if (me.pos === START_TILE_INDEX && state.settings.doubleGo) {
       addCash(me.id, 200);
       record(`${me.name} LANDED ON GO — DOUBLE PAY +$200`);
     }
@@ -4260,6 +4946,16 @@ async function runTurn(idx) {
     clearTimeout(botTimer);
     botTimer = setTimeout(() => endTurn(idx), 700);
   }
+}
+
+function useLocalJailFree() {
+  const me = state.players[0];
+  if (!me || !(me.jailFree > 0) || !(state.jail[me.id] > 0) || state.turnStage !== "roll") return;
+  me.jailFree -= 1;
+  delete state.jail[me.id];
+  record(`${me.name} USED A GET OUT OF PRISON CARD`);
+  say(`${me.name} used a Get Out of Prison card.`);
+  renderAll();
 }
 
 let botTimer = null;
@@ -4324,7 +5020,11 @@ function startGame() {
   state.players = state.players.slice(0, maxP);
   // apply starting cash from settings
   const startCash = Number(state.settings.startingCash);
-  state.players.forEach((p) => (p.cash = startCash));
+  state.players.forEach((p) => {
+    p.cash = startCash;
+    p.pos = START_TILE_INDEX;
+    p.jailFree = 0;
+  });
   // reset all volatile state
   state.turnIndex = 0;
   state.dice = [3, 5];
@@ -4347,6 +5047,8 @@ function startGame() {
   state.pendingBuyTile = null;
   state.auction = null;
   state.jail = {};
+  state.surpriseDeck = [...CHANCE_EVENTS];
+  state.treasureDeck = [...CHEST_EVENTS];
   state.card = null;
   state.gameOver = null;
   clearInterval(auctionTimer);
@@ -5152,6 +5854,26 @@ function rejectOpenOffer() {
    8d. MORTGAGE · BANKRUPTCY · SAVE · CPU
    ============================================================ */
 const SAVE_KEY = "poorup.save.v1";
+const SAVE_VERSION = 2;
+const LEGACY_TILE_INDEX_MAP = Object.freeze({ 0: 20, 10: 30, 20: 0, 30: 10 });
+
+function migrateSavedBoardLayout(saved) {
+  if (!saved || saved.v !== 1) return saved;
+  const remapIndexMap = (value) => Object.fromEntries(
+    Object.entries(value || {}).map(([key, entry]) => [LEGACY_TILE_INDEX_MAP[key] ?? key, entry]),
+  );
+  return {
+    ...saved,
+    v: SAVE_VERSION,
+    players: saved.players.map((player) => ({
+      ...player,
+      pos: LEGACY_TILE_INDEX_MAP[player.pos] ?? player.pos,
+    })),
+    owners: remapIndexMap(saved.owners),
+    houses: remapIndexMap(saved.houses),
+    mortgaged: remapIndexMap(saved.mortgaged),
+  };
+}
 
 function mortgageValue(tile) { return Math.floor((tile.price || 0) * 0.5); }
 function unmortgageCost(tile) { return Math.ceil((tile.price || 0) * 0.55); }
@@ -5399,7 +6121,7 @@ function saveGame() {
   if (state.phase !== "playing") return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      v: 1,
+      v: SAVE_VERSION,
       roomCode: state.roomCode,
       players: state.players,
       owners: state.owners,
@@ -5420,7 +6142,8 @@ function loadSavedGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    return s && s.v === 1 && Array.isArray(s.players) && s.players.length ? s : null;
+    if (!s || ![1, SAVE_VERSION].includes(s.v) || !Array.isArray(s.players) || !s.players.length) return null;
+    return s.v === 1 ? migrateSavedBoardLayout(s) : s;
   } catch { return null; }
 }
 
@@ -5465,6 +6188,8 @@ function showView(name) {
   $("#view-home").classList.toggle("is-hidden", name !== "home");
   $("#view-game").classList.toggle("is-hidden", name !== "game");
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
+  $("#view-rankings")?.classList.toggle("is-hidden", name !== "rankings");
+  $("#view-social")?.classList.toggle("is-hidden", name !== "social");
   window.scrollTo(0, 0);
   syncSurfaceA11y();
   if (name === "home") {
@@ -5498,6 +6223,7 @@ function enterParlor(code) {
   const requestedCode = String(code || "").trim().toUpperCase();
   state.suppressRoomUpdates = false;
   state.roomCode = requestedCode;
+  state.roomVisibility = state.pendingRoomMeta?.visibility || (requestedCode ? "private" : "public");
   state.phase = "setup";
   state.tableAppearanceOverride = null;
   state.setupTab = typeof state.appearance === "string" ? "custom" : "preset";
@@ -5598,6 +6324,7 @@ function goHome() {
   clearInterval(turnTimerInterval);
   turnTimerInterval = null;
   state.phase = "home";
+  state.roomVisibility = "private";
   state.suppressRoomUpdates = true;
   closeAllSurfaces();
   $("#log-drawer").classList.remove("is-open");
@@ -5620,6 +6347,80 @@ function bindEvents() {
     if (tab === "rooms") openRoomsModal("browse");
     if (tab === "profile") openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
   });
+  document.querySelectorAll("[data-top-surface]").forEach((button) => {
+    button.addEventListener("click", () => button.dataset.topSurface === "rankings" ? openRankingsSurface() : openSocialSurface());
+  });
+  document.querySelectorAll("[data-top-back]").forEach((button) => {
+    button.addEventListener("click", () => showView(button.dataset.topBack || "home"));
+  });
+  document.querySelectorAll("[data-home-tab]").forEach((button) => {
+    if (button.closest("#home-nav")) return;
+    button.addEventListener("click", () => {
+      if (button.dataset.homeTab === "profile") openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
+    });
+  });
+
+  $("#player-list")?.addEventListener("click", (event) => {
+    const player = event.target.closest("[data-player-id]");
+    if (player) openPlayerSurface(player.dataset.playerId);
+  });
+  const handleRankingClick = (event) => {
+    const metric = event.target.closest("[data-ranking-metric]");
+    if (metric) { openRankingsSurface(metric.dataset.rankingMetric); return; }
+    const player = event.target.closest("[data-ranking-player]");
+    if (player) openPlayerSurface(player.dataset.rankingPlayer);
+    if (event.target.closest("#rankings-close")) event.target.closest("#rankings-page-content") ? showView("home") : closeSurface("#rankings-modal");
+  };
+  $("#rankings-card")?.addEventListener("click", handleRankingClick);
+  $("#rankings-page-content")?.addEventListener("click", handleRankingClick);
+  const handleSocialClick = (event) => {
+    const tab = event.target.closest("[data-social-tab]");
+    if (tab) { state.socialTab = tab.dataset.socialTab; renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card"); return; }
+    const player = event.target.closest("[data-social-player]");
+    if (player) { openPlayerSurface(player.dataset.socialPlayer); return; }
+    const request = event.target.closest("[data-social-request]");
+    if (request) {
+      emitServer("respond-friend-request", { friendshipId: request.dataset.friendshipId, accept: request.dataset.socialRequest === "accept" }, () => {});
+      return;
+    }
+    const invite = event.target.closest("[data-social-invite]");
+    if (invite) {
+      emitServer("respond-room-invite", { inviteId: invite.dataset.inviteId, accept: invite.dataset.socialInvite === "accept" }, () => {});
+      return;
+    }
+    const notification = event.target.closest("[data-notification-read]");
+    if (notification) { emitServer("mark-notification-read", { notificationId: notification.dataset.notificationRead }, () => {}); return; }
+    if (event.target.closest("#social-close")) event.target.closest("#social-page-content") ? showView("home") : closeSurface("#social-modal");
+  };
+  $("#social-card")?.addEventListener("click", handleSocialClick);
+  $("#social-page-content")?.addEventListener("click", handleSocialClick);
+  const handleSocialSubmit = (event) => {
+    if (event.target.id !== "social-search-form") return;
+    event.preventDefault();
+    const input = event.target.querySelector("#social-search-input");
+    emitServer("search-players", { query: input?.value || "" }, (response) => {
+      state.socialSearchResults = response?.players || [];
+      const results = event.currentTarget.querySelector("#social-search-results");
+      if (results) results.innerHTML = state.socialSearchResults.length ? state.socialSearchResults.map(player => socialPlayerRowHTML(player, "VIEW")).join("") : `<p class="t-micro ink-3 social-empty">NO PLAYERS FOUND.</p>`;
+    });
+  };
+  $("#social-card")?.addEventListener("submit", handleSocialSubmit);
+  $("#social-page-content")?.addEventListener("submit", handleSocialSubmit);
+  $("#player-card")?.addEventListener("click", (event) => {
+    if (event.target.closest("#player-modal-close")) { closeSurface("#player-modal"); return; }
+    if (event.target.closest("#player-modal-back")) { state.selectedPlayerView = "profile"; renderPlayerSurface(); return; }
+    const action = event.target.closest("[data-player-action]");
+    if (!action || action.disabled || !state.selectedPlayer) return;
+    const targetId = state.selectedPlayer.accountId;
+    if (action.dataset.playerAction === "friend") emitServer("send-friend-request", { targetAccountId: targetId }, () => {});
+    if (action.dataset.playerAction === "invite") emitServer("send-room-invite", { targetAccountId: targetId }, () => {});
+    if (action.dataset.playerAction === "history") emitServer("get-match-history", { accountId: targetId }, (response) => { state.selectedPlayerHistory = response?.history || []; state.selectedPlayerView = "history"; renderPlayerSurface(); });
+    if (action.dataset.playerAction === "block") emitServer("block-player", { otherAccountId: targetId }, (response) => { if (response?.success !== false) closeSurface("#player-modal"); });
+    if (action.dataset.playerAction === "report") emitServer("report-player", { otherAccountId: targetId, reason: "player report from in-room card" }, (response) => { if (response?.success !== false) { announceSocialNotification({ body: "Report submitted to the parlor moderators." }); closeSurface("#player-modal"); } });
+  });
+  $("#social-scrim")?.addEventListener("click", () => closeSurface("#social-modal"));
+  $("#rankings-scrim")?.addEventListener("click", () => closeSurface("#rankings-modal"));
+  $("#player-scrim")?.addEventListener("click", () => closeSurface("#player-modal"));
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.
@@ -5866,6 +6667,17 @@ function bindEvents() {
     }
     openProfileEditor("home");
   });
+  $("#achievements-filters")?.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-achievement-filter]");
+    if (button) setAchievementFilter(button.dataset.achievementFilter);
+  });
+  $("#achievement-date-filter")?.addEventListener("change", (e) => setAchievementDateFilter(e.target.value));
+  $("#achievement-rarity-filter")?.addEventListener("change", (e) => setAchievementRarityFilter(e.target.value));
+  $("#achievements-grid")?.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-achievement-id]");
+    if (card) openAchievementModal(card.dataset.achievementId, card);
+  });
+  $("#achievement-scrim")?.addEventListener("click", closeAchievementModal);
   $("#pl-save-btn")?.addEventListener("click", () => {
     saveProfileDesign({ asNew: true, stay: true });
   });
@@ -5992,12 +6804,22 @@ function bindEvents() {
   // Independent global audio controls: effects and soundtrack can be muted
   // separately while the preference remains consistent across every view.
   const syncAudioButtons = () => {
-    const soundLabel = $("#sound-toggle-label");
-    const musicLabel = $("#music-toggle-label");
-    if (soundLabel) soundLabel.textContent = state.sound ? "SOUND ON" : "SOUND OFF";
-    if (musicLabel) musicLabel.textContent = state.music ? "MUSIC ON" : "MUSIC OFF";
-    $("#sound-toggle-btn")?.setAttribute("aria-pressed", String(state.sound));
-    $("#music-toggle-btn")?.setAttribute("aria-pressed", String(state.music));
+    const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
+    const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
+    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn")].forEach((button) => {
+      if (!button) return;
+      button.setAttribute("aria-pressed", String(state.sound));
+      button.setAttribute("aria-label", state.sound ? "Turn sound effects off" : "Turn sound effects on");
+      const icon = button.querySelector("img");
+      if (icon) icon.src = soundSrc;
+    });
+    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn")].forEach((button) => {
+      if (!button) return;
+      button.setAttribute("aria-pressed", String(state.music));
+      button.setAttribute("aria-label", state.music ? "Turn parlor music off" : "Turn parlor music on");
+      const icon = button.querySelector("img");
+      if (icon) icon.src = musicSrc;
+    });
   };
   syncAudioButtons();
   $("#sound-toggle-btn")?.addEventListener("click", () => {
@@ -6015,6 +6837,16 @@ function bindEvents() {
     syncHomeMusic();
     renderProfileSummary();
   });
+  $("#game-sound-toggle-btn")?.addEventListener("click", () => {
+    $("#sound-toggle-btn")?.click();
+  });
+  $("#game-music-toggle-btn")?.addEventListener("click", () => {
+    $("#music-toggle-btn")?.click();
+  });
+  $("#rankings-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
+  $("#rankings-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
+  $("#social-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
+  $("#social-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
   $("#night-exit")?.addEventListener("click", stopNightShift);
 
@@ -6036,6 +6868,7 @@ function bindEvents() {
 
   // game → home
   $("#brand-home").addEventListener("click", goHome);
+  $("#tn-room-copy").addEventListener("click", copyRoomCode);
 
   // setup overlay
   $("#su-tabs")?.addEventListener("click", (e) => {
@@ -6101,15 +6934,34 @@ function bindEvents() {
       return;
     }
   });
-  $("#lobby-settings-body").addEventListener("change", (e) => {
+  const applySettingField = (e) => {
     const sel = e.target.closest("[data-setting]");
-    if (sel && sel.tagName === "SELECT") {
+    if (sel && (sel.tagName === "SELECT" || sel.matches("input[data-setting]"))) {
       const key = sel.dataset.setting;
-      const numericKeys = ["startingCash", "houseLimit", "hotelLimit", "turnTimer"];
-      state.settings[key] = numericKeys.includes(key) ? Number(sel.value) : sel.value;
+      const numericKeys = ["startingCash", "houseLimit", "hotelLimit", "turnTimer", "globalEventDuration", "globalEventMax"];
+      if (numericKeys.includes(key)) {
+        if (sel.value.trim() === "") return;
+        const parsed = Number(sel.value);
+        if (!Number.isFinite(parsed) || parsed < 0) return;
+        state.settings[key] = Math.floor(parsed);
+      } else {
+        state.settings[key] = sel.value;
+      }
       if (state.live) updateServerSetting(key, state.settings[key]);
       renderLobbyRail();
     }
+  };
+  $("#lobby-settings-body").addEventListener("change", applySettingField);
+
+  $("#global-event-choices")?.addEventListener("click", (event) => {
+    const choice = event.target.closest("[data-global-choice]");
+    if (!choice || choice.disabled || !state.live) return;
+    emitServer("vote-global-event", { choiceId: choice.dataset.globalChoice }, (response) => {
+      if (response?.success === false) {
+        say(response.error || "Your vote could not be recorded.");
+        renderChat();
+      }
+    });
   });
 
   // lobby start round
@@ -6119,6 +6971,18 @@ function bindEvents() {
     emitServer("pay-jail-fine", {}, (response) => {
       if (response?.success === false) {
         say(response.error || "The jail fine could not be paid.");
+        renderChat();
+      }
+    });
+  });
+  $("#use-jail-free")?.addEventListener("click", () => {
+    if (!state.live) {
+      useLocalJailFree();
+      return;
+    }
+    emitServer("use-jail-free", {}, (response) => {
+      if (response?.success === false) {
+        say(response.error || "The card could not be used.");
         renderChat();
       }
     });
@@ -6165,6 +7029,17 @@ function bindEvents() {
   // deeds tab: buy a vacant tile directly (kept for any future action buttons)
   // trade tab: open a trade with another player
   $("#rr-body").addEventListener("click", (e) => {
+    const bankAction = e.target.closest("[data-bank-action]");
+    if (bankAction) {
+      const eventName = bankAction.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
+      emitServer(eventName, {}, (response) => {
+        if (response?.success === false) {
+          say(response.error || "The bank transaction could not be completed.");
+          renderChat();
+        }
+      });
+      return;
+    }
     const financeButton = e.target.closest("[data-finance-open], [data-finance-surface]");
     if (financeButton) {
       openFinancingModal(financeButton.dataset.financeOpen || "loan", null, financeButton, financeButton.dataset.financeSurface || "offer");
@@ -6184,6 +7059,8 @@ function bindEvents() {
     state.card = null;
     closeSurface("#card-modal");
   });
+  $("#card-gallery-close")?.addEventListener("click", closeCardGallery);
+  $("#card-gallery .card-gallery-scrim")?.addEventListener("click", closeCardGallery);
 
   // keyboard
   window.addEventListener("keydown", (e) => {
@@ -6229,8 +7106,18 @@ function bindEvents() {
     if (accountOpen) { if (e.key === "Escape") closeAccountModal(); return; }
     const confirmOpen = !$("#confirm-modal").classList.contains("is-hidden");
     if (confirmOpen) { if (e.key === "Escape") closeConfirmModal(); return; }
+    const achievementOpen = !$("#achievement-modal").classList.contains("is-hidden");
+    if (achievementOpen) { if (e.key === "Escape") closeAchievementModal(); return; }
+    const rankingsOpen = !$("#rankings-modal").classList.contains("is-hidden");
+    if (rankingsOpen) { if (e.key === "Escape") closeSurface("#rankings-modal"); return; }
+    const socialOpen = !$("#social-modal").classList.contains("is-hidden");
+    if (socialOpen) { if (e.key === "Escape") closeSurface("#social-modal"); return; }
+    const playerOpen = !$("#player-modal").classList.contains("is-hidden");
+    if (playerOpen) { if (e.key === "Escape") closeSurface("#player-modal"); return; }
     const financingOpen = !$("#financing-modal").classList.contains("is-hidden");
     if (financingOpen) { if (e.key === "Escape") closeFinancingModal(); return; }
+    const galleryOpen = !$("#card-gallery").classList.contains("is-hidden");
+    if (galleryOpen) { if (e.key === "Escape") closeCardGallery(); return; }
     const choiceOpen = !$("#choice-modal").classList.contains("is-hidden");
     // auction modal is always locked
     if (state.auction) {
@@ -6305,6 +7192,23 @@ function bindEvents() {
   });
 }
 
+// Visual-only card preview for design review. It never changes game state and
+// is enabled only with ?preview=surprise (or ?preview=treasure).
+function openCardPreviewFromUrl() {
+  const preview = new URLSearchParams(window.location.search).get("preview");
+  if (preview === "cards") {
+    requestAnimationFrame(openCardGallery);
+    return;
+  }
+  if (preview !== "surprise" && preview !== "treasure") return;
+  const kind = preview === "surprise" ? "chance" : "chest";
+  const tile = TILES.find((entry) => entry.kind === kind);
+  const deck = kind === "chance" ? CHANCE_EVENTS : CHEST_EVENTS;
+  const event = deck.find((entry) => entry.action === "moveTo") || deck[0];
+  if (!tile || !event) return;
+  requestAnimationFrame(() => openCardReveal(tile, { ...event, cash: Number(event.cash) || 0 }));
+}
+
 /* ============================================================
    10. INIT
    ============================================================ */
@@ -6314,3 +7218,4 @@ hydrateSprites();
 bindEvents();
 renderAll();
 showView("home");
+openCardPreviewFromUrl();
