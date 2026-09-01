@@ -14,6 +14,12 @@
   font-weight: 700;
 }
 @font-face {
+  font-family: "Jersey 15";
+  src: url("/assets/fonts/jersey15-regular.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 400;
+}
+@font-face {
   font-family: "IBM Plex Mono";
   src: url("/assets/fonts/ibm-plex-mono-500.woff2") format("woff2");
   font-display: swap;
@@ -74,7 +80,8 @@
   --font-display: "Pixelify Sans", "Courier New", monospace;
   --font-ui: "Pixelify Sans", "Courier New", monospace;
   --font-pixel: "Press Start 2P", "Courier New", monospace;
-  --font-body: "IBM Plex Mono", "Courier New", monospace;
+  --font-body: "Pixelify Sans", "Courier New", monospace;
+  --font-numeric: "Jersey 15", "Courier New", monospace;
   --cursor-reticle: url("/assets/parlor-patrol/crosshair.svg") 16 16;
 
   color-scheme: dark;
@@ -180,13 +187,13 @@ a:focus-visible {
    typography
    ============================================================ */
 .t-section {
-  font-family: var(--font-ui);
+  font-family: var(--font-display);
   font-size: 16px; line-height: 1.2; font-weight: 700;
   letter-spacing: 0.04em; text-transform: uppercase;
 }
 .t-label {
   font-family: var(--font-ui);
-  font-size: 13px; line-height: 1.2; font-weight: 700;
+  font-size: 13px; line-height: 1.2; font-weight: 400;
   letter-spacing: 0.02em; text-transform: uppercase;
 }
 .t-micro {
@@ -196,17 +203,39 @@ a:focus-visible {
 }
 .t-tile {
   font-family: var(--font-ui);
-  font-size: 12px; line-height: 1.15; font-weight: 600;
+  font-size: 12px; line-height: 1.15; font-weight: 400;
   letter-spacing: 0.02em; text-transform: uppercase;
 }
 .t-money {
-  font-family: var(--font-ui);
-  font-size: 40px; line-height: 1; font-weight: 700;
+  font-family: var(--font-numeric);
+  font-size: 40px; line-height: 1; font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 .t-body {
   font-family: var(--font-body);
   font-size: 13px; line-height: 1.45; font-weight: 400;
+}
+
+/* Numeric readouts use the lighter Jersey 15 glyphs so 2/8, 1/7, and tabular
+   values stay distinct without changing the Pixelify identity of labels. */
+.home-local-time,
+.home-patrol-score,
+.night-shift-wave,
+.pr-cash,
+.room-code,
+.dd-row-rent,
+.cr-amount,
+.auction-bid-val,
+.trade-deed-price,
+.hud-timer,
+.pool-val,
+.profile-stat strong,
+.stats-record strong,
+.stats-bar-value,
+.financing-number input,
+.financing-field output,
+.numeric {
+  font-family: var(--font-numeric);
 }
 
 .f11 { font-size: 11px; }
@@ -434,8 +463,8 @@ a:focus-visible {
 .home-local-time,
 .home-patrol-score {
   position: absolute; top: 5%; z-index: 3;
-  font-family: var(--font-display); font-size: clamp(22px, 2.6vw, 40px);
-  font-weight: 700; line-height: 1; letter-spacing: 0.04em;
+  font-family: var(--font-numeric); font-size: clamp(22px, 2.6vw, 40px);
+  font-weight: 400; line-height: 1; letter-spacing: 0.04em;
   color: var(--gold-050); text-shadow: 0 2px 0 rgb(0 0 0 / 55%);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -504,7 +533,7 @@ a:focus-visible {
 }
 .night-shift-wave {
   position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
-  font-family: var(--font-display); font-size: clamp(22px, 2.6vw, 40px);
+  font-family: var(--font-numeric); font-size: clamp(22px, 2.6vw, 40px);
   font-weight: 700; line-height: 1; letter-spacing: 0.04em;
   color: var(--gold-050); text-shadow: 0 2px 0 rgb(0 0 0 / 55%);
   font-variant-numeric: tabular-nums; pointer-events: none;
@@ -731,7 +760,7 @@ a:focus-visible {
 }
 .dd-row-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .dd-row-pips { display: flex; gap: 2px; align-items: center; min-width: 46px; }
-.dd-row-rent { font-family: var(--font-ui); font-size: 13px; font-weight: 700; color: var(--green-status); font-variant-numeric: tabular-nums; }
+.dd-row-rent { font-family: var(--font-numeric); font-size: 13px; font-weight: 700; color: var(--green-status); font-variant-numeric: tabular-nums; }
 .dd-row.is-current .dd-row-rent { color: var(--gold-050); }
 .dd-now { font-size: 6px; color: var(--gold-300); }
 
@@ -763,7 +792,7 @@ a:focus-visible {
 .cr-kind { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid var(--line-default); border-radius: 2px; }
 .cr-name { margin-top: 14px; font-size: 20px; line-height: 1.2; color: var(--gold-100); }
 .cr-effect { margin-top: 10px; }
-.cr-amount { margin-top: 14px; font-family: var(--font-ui); font-size: 30px; font-weight: 700; }
+.cr-amount { margin-top: 14px; font-family: var(--font-numeric); font-size: 30px; font-weight: 700; }
 .cr-amount.positive { color: var(--green-status); }
 .cr-amount.negative { color: var(--red-bright); }
 .cr-btn { margin-top: 18px; width: 100%; height: 48px; }
@@ -1525,7 +1554,7 @@ a:focus-visible {
 .trade-deed.is-mortgaged .trade-deed-name::after { content: " · MTG"; color: var(--red-bright); font-size: 9px; }
 .trade-deed-rail { width: 8px; height: 22px; flex-shrink: 0; border-radius: 1px; }
 .trade-deed-name { flex: 1; min-width: 0; font-family: var(--font-ui); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trade-deed-price { flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; font-weight: 700; color: var(--gold-300); }
+.trade-deed-price { flex-shrink: 0; font-family: var(--font-numeric); font-size: 12px; font-weight: 700; color: var(--gold-300); }
 .trade-deed-check { flex-shrink: 0; width: 14px; height: 14px; border: 1px solid var(--line-default); border-radius: 1px; }
 .trade-deed.is-selected .trade-deed-check { background: var(--gold-400); border-color: var(--gold-400); }
 .trade-cash-field { display: flex; flex-direction: column; gap: 6px; }
@@ -1587,7 +1616,7 @@ a:focus-visible {
   border: 1px solid var(--line-default);
   border-radius: 2px;
 }
-.auction-bid-val { font-family: var(--font-ui); font-size: 32px; font-weight: 700; color: var(--green-status); line-height: 1; font-variant-numeric: tabular-nums; }
+.auction-bid-val { font-family: var(--font-numeric); font-size: 32px; font-weight: 700; color: var(--green-status); line-height: 1; font-variant-numeric: tabular-nums; }
 .auction-leader { text-align: right; }
 .auction-leader-name { margin-top: 6px; font-size: 13px; }
 

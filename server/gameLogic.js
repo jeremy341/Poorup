@@ -13,6 +13,7 @@ const DEFAULT_ROOM_SETTINGS = {
   hotelLimit: 12,
   turnTimer: 0,
   bankruptMode: 'elim',
+  bots: 0,
   startingCash: 1500
 };
 
@@ -116,7 +117,7 @@ function cloneTiles() {
 }
 
 class Player {
-  constructor({ clientId, socketId, nickname, color, accountId = null, isHost = false, isBot = false }) {
+  constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false }) {
     this.id = `${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
     this.clientId = clientId || this.id;
     this.socketId = socketId;
@@ -124,6 +125,7 @@ class Player {
     const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#35a653';
     this.nickname = safeNickname || 'Player';
     this.color = safeColor;
+    this.avatarGrid = Array.isArray(avatarGrid) ? avatarGrid : null;
     this.accountId = accountId || null;
     this.isHost = isHost;
     this.isBot = isBot;
@@ -252,7 +254,7 @@ class GameState {
     return this.players.find(player => player.id === id);
   }
 
-  setPlayerAppearance(socketId, { color, nickname } = {}) {
+  setPlayerAppearance(socketId, { color, nickname, avatarGrid } = {}) {
     const player = this.getPlayerBySocket(socketId);
     if (!player) {
       return { success: false, error: 'Player not found.' };
@@ -265,6 +267,9 @@ class GameState {
       if (safeNickname) {
         player.nickname = safeNickname;
       }
+    }
+    if (avatarGrid === null || Array.isArray(avatarGrid)) {
+      player.avatarGrid = avatarGrid;
     }
     return { success: true };
   }
@@ -1420,6 +1425,9 @@ class Room {
       if (typeof playerInfo.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(playerInfo.color)) {
         existing.color = playerInfo.color;
       }
+      if (playerInfo.avatarGrid === null || Array.isArray(playerInfo.avatarGrid)) {
+        existing.avatarGrid = playerInfo.avatarGrid;
+      }
       if (playerInfo.accountId) existing.accountId = playerInfo.accountId;
       return { success: true, player: existing };
     }
@@ -1452,6 +1460,10 @@ class Room {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) return;
       value = Math.max(2, Math.min(4, Math.floor(parsed)));
+    } else if (key === 'bots') {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return;
+      value = Math.max(0, Math.min(this.settings.maxPlayers - 1, Math.floor(parsed)));
     } else if (['startingCash', 'houseLimit', 'hotelLimit', 'turnTimer'].includes(key)) {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) return;
@@ -1543,7 +1555,8 @@ class Room {
         isHost: player.isHost,
         ready: player.ready,
         isBot: player.isBot,
-        accountId: player.accountId || null
+        accountId: player.accountId || null,
+        avatarGrid: player.avatarGrid || null
       })),
       started: this.game.started,
       vacationPool: this.game.vacationPool

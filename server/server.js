@@ -102,6 +102,18 @@ function normalizeColor(value) {
   return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
 }
 
+function normalizeAvatarGrid(value) {
+  if (!Array.isArray(value) || value.length !== 8) return null;
+  const rows = value.map(row => {
+    if (!Array.isArray(row) || row.length !== 8) return null;
+    return row.map(cell => {
+      if (cell == null || cell === '') return null;
+      return typeof cell === 'string' && /^#[0-9a-fA-F]{6}$/.test(cell) ? cell.toLowerCase() : null;
+    });
+  });
+  return rows.some(row => row === null) ? null : rows;
+}
+
 function normalizeChatText(value) {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, 250);
@@ -268,6 +280,7 @@ io.on('connection', (socket) => {
       room.game.setPlayerAppearance(socket.id, {
         nickname: result.account.displayName,
         color: result.account.color,
+        avatarGrid: normalizeAvatarGrid(result.account.avatarGrid),
       });
       emitRoomState(room);
     }
@@ -303,6 +316,7 @@ io.on('connection', (socket) => {
     const account = accountFromPayload(payload);
     const nickname = normalizeNickname(account?.displayName || payload?.nickname);
     const color = normalizeColor(account?.color || payload?.color);
+    const avatarGrid = normalizeAvatarGrid(account?.avatarGrid || payload?.avatarGrid);
     const accountId = account?.id || null;
     const roomName = normalizeRoomName(payload?.roomName);
     const visibility = normalizeVisibility(payload?.visibility);
@@ -335,7 +349,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color: color || undefined, accountId, roomName, visibility, roomCode: requestedRoomCode || undefined });
+    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color: color || undefined, avatarGrid, accountId, roomName, visibility, roomCode: requestedRoomCode || undefined });
     socket.join(room.roomCode);
     emitRoomState(room);
     socket.emit('system-message', { text: 'Room created. Waiting for players...' });
@@ -347,6 +361,7 @@ io.on('connection', (socket) => {
     const account = accountFromPayload(payload);
     const nickname = normalizeNickname(account?.displayName || payload?.nickname);
     const color = normalizeColor(account?.color || payload?.color);
+    const avatarGrid = normalizeAvatarGrid(account?.avatarGrid || payload?.avatarGrid);
     const accountId = account?.id || null;
     const { clientId } = payload || {};
     if (!roomCode) {
@@ -383,7 +398,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color: color || undefined, accountId });
+    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color: color || undefined, avatarGrid, accountId });
     if (!result.success) {
       return callback?.({ success: false, error: result.error });
     }
@@ -413,11 +428,12 @@ io.on('connection', (socket) => {
 
   socket.on('set-player-appearance', (payload = {}, callback) => {
     const { color, nickname } = payload;
+    const avatarGrid = normalizeAvatarGrid(payload.avatarGrid);
     const room = roomManager.getRoomBySocket(socket.id);
     if (!room) {
       return callback?.({ success: false, error: 'Room not found.' });
     }
-    const result = room.game.setPlayerAppearance(socket.id, { color, nickname });
+    const result = room.game.setPlayerAppearance(socket.id, { color, nickname, avatarGrid });
     if (!result.success) {
       return callback?.(result);
     }

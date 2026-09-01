@@ -583,6 +583,7 @@ const state = {
     hotelLimit:      12,      // hotel bank 6 / 12 (unlimited)
     turnTimer:       0,       // seconds per turn: 0=off, 30, 60, 120
     bankruptMode:    "elim",  // "elim" | "debt" (debt = give assets, stay in)
+    bots:            0,        // reserved CPU seats; bot turns are added separately
   },
   log: ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."],
   messages: [
@@ -776,6 +777,7 @@ const SERVER_SETTING_KEYS = {
   hotelLimit: "hotelLimit",
   turnTimer: "turnTimer",
   bankruptMode: "bankruptMode",
+  bots: "bots",
 };
 
 function emitServer(event, payload = {}, callback) {
@@ -820,8 +822,9 @@ function applyServerState(snapshot) {
     cash: Number(player.cash) || 0,
     pos: Number(player.position) || 0,
     online: !player.disconnected,
-    bot: false,
+    bot: Boolean(player.isBot),
     isHost: Boolean(player.isHost),
+    avatarGrid: Array.isArray(player.avatarGrid) ? player.avatarGrid : null,
   })).sort((a, b) => {
     if (a.clientId === state.clientId) return -1;
     if (b.clientId === state.clientId) return 1;
@@ -2306,7 +2309,13 @@ function renderTopNav() {
 }
 
 function renderPlayers() {
-  $("#player-list").innerHTML = state.players
+  const seated = state.players.slice(0, state.settings.maxPlayers);
+  const existingBots = seated.filter((p) => p.bot).length;
+  const previewBots = state.phase === "setup" || state.phase === "lobby"
+    ? buildBotPreviewPlayers(Math.max(0, state.settings.bots - existingBots))
+    : [];
+  const players = [...seated, ...previewBots].slice(0, state.settings.maxPlayers);
+  $("#player-list").innerHTML = players
     .map((p, i) => {
       const active = i === state.turnIndex && state.phase === "playing";
       return `<div class="player-row${active ? " is-active" : ""}">
@@ -3641,7 +3650,10 @@ function renderLobbyRail() {
   if (!preGame) return;
 
   const s = state.settings;
-  const previewPlayers = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
+  const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
+  const existingBots = seated.filter((p) => p.bot).length;
+  const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
+  const previewPlayers = [...seated, ...botPreviews].slice(0, s.maxPlayers);
 
   $("#lobby-settings-body").innerHTML = [
     locked
@@ -3653,6 +3665,7 @@ function renderLobbyRail() {
     lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
     lobbySection("Table Rules", [
       settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
+      settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
       settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["3000","$3,000"]])),
       settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
       settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
@@ -3676,6 +3689,7 @@ function renderLobbyRail() {
       ${s.vacationPool ? "pool on" : "no pool"} ·
       ${s.trading ? "trading on" : "no trades"} ·
       ${s.auction ? "auction on" : "no auction"} ·
+      ${s.bots ? `${s.bots} bot${s.bots === 1 ? "" : "s"} reserved` : "no bots"} ·
       ${s.turnTimer ? s.turnTimer + "s timer" : "no timer"} ·
       ${s.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
     </div>`,
@@ -3724,6 +3738,17 @@ function openProfileEditor(fromPhase, profileId) {
   renderProfileLibrary();
   showView("profile");
   setProfileTab(state.profileTab);
+}
+
+function buildBotPreviewPlayers(count) {
+  const localBots = buildPlayers(activeAppearance(), state.alias).slice(1, 4);
+  return localBots.slice(0, Math.max(0, count)).map((bot, index) => ({
+    ...bot,
+    id: `bot-preview-${index + 1}`,
+    name: `BOT ${index + 1}`,
+    online: true,
+    bot: true,
+  }));
 }
 
 function announceProfileSave(message) {
@@ -5459,6 +5484,7 @@ function syncServerAppearance() {
   emitServer("set-player-appearance", {
     nickname: state.alias.trim() || meta.baseName,
     color: meta.color,
+    avatarGrid: meta.avatarGrid || null,
   }, (response) => {
     if (response?.success === false) {
       say(response.error || "Appearance could not be updated.");
@@ -5512,6 +5538,7 @@ function enterParlor(code) {
       roomCode: requestedCode || undefined,
       nickname: state.alias.trim() || meta.baseName,
       color: meta.color,
+      avatarGrid: meta.avatarGrid || null,
       ...(event === "create-room" && state.pendingRoomMeta ? state.pendingRoomMeta : {}),
     }, (response) => {
       if (response?.success === false) {
@@ -6060,9 +6087,15 @@ function bindEvents() {
     if (stepBtn && !stepBtn.disabled) {
       const key = stepBtn.dataset.step;
       const dir = Number(stepBtn.dataset.dir);
-      const limits = { maxPlayers: [2, 4] };
+      const limits = {
+        maxPlayers: [2, 4],
+        bots: [0, Math.max(0, Number(state.settings.maxPlayers) - 1)],
+      };
       const [mn, mx] = limits[key] || [0, 999];
       state.settings[key] = clamp((Number(state.settings[key]) || 0) + dir, mn, mx);
+      if (key === "maxPlayers") {
+        state.settings.bots = clamp(Number(state.settings.bots) || 0, 0, Math.max(0, state.settings.maxPlayers - 1));
+      }
       if (state.live) updateServerSetting(key, state.settings[key]);
       renderLobbyRail();
       return;
