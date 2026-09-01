@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="96" viewBox="0 0 128 96" shape-rendering="crispEdges" role="img" aria-labelledby="crash-title crash-desc">
+  <title id="crash-title">Parlor Patrol falling helicopter</title>
+  <desc id="crash-desc">Twelve stepped pixel frames of a tagged helicopter falling with fire and smoke.</desc>
+  <style>
+    .frame { opacity: 0; animation: show-crash 1.08s steps(1, end) infinite; }
+    .frame-00 { animation-delay: 0s; }
+    .frame-01 { animation-delay: -.09s; }
+    .frame-02 { animation-delay: -.18s; }
+    .frame-03 { animation-delay: -.27s; }
+    .frame-04 { animation-delay: -.36s; }
+    .frame-05 { animation-delay: -.45s; }
+    .frame-06 { animation-delay: -.54s; }
+    .frame-07 { animation-delay: -.63s; }
+    .frame-08 { animation-delay: -.72s; }
+    .frame-09 { animation-delay: -.81s; }
+    .frame-10 { animation-delay: -.9s; }
+    .frame-11 { animation-delay: -.99s; }
+    @keyframes show-crash {
+      0%, 8.32% { opacity: 1; }
+      8.33%, 100% { opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .frame { animation: none; }
+      .frame-00 { opacity: 1; }
+    }
+  </style>
+  <g id="frame-00" class="frame frame-00"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" /><rect x="54" y="65" width="16" height="7" fill="#d74438" /><rect x="58" y="72" width="8" height="8" fill="#cfa75f" /><rect x="45" y="80" width="6" height="5" fill="#3e7d7b" /></g>
+  <g id="frame-01" class="frame frame-01"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(12 64 32)" /><rect x="56" y="64" width="12" height="12" fill="#d74438" /><rect x="59" y="75" width="8" height="9" fill="#f0d9ac" /><rect x="43" y="83" width="7" height="5" fill="#3e7d7b" /></g>
+  <g id="frame-02" class="frame frame-02"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(25 64 32)" /><rect x="57" y="63" width="10" height="14" fill="#d74438" /><rect x="58" y="76" width="12" height="7" fill="#cfa75f" /><rect x="39" y="82" width="9" height="6" fill="#123d4b" /></g>
+  <g id="frame-03" class="frame frame-03"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(42 64 32)" /><rect x="60" y="62" width="7" height="16" fill="#d74438" /><rect x="56" y="77" width="12" height="7" fill="#f0d9ac" /><rect x="42" y="84" width="10" height="5" fill="#3e7d7b" /></g>
+  <g id="frame-04" class="frame frame-04"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(65 64 32)" /><rect x="60" y="60" width="8" height="18" fill="#cfa75f" /><rect x="58" y="77" width="7" height="9" fill="#d74438" /><rect x="47" y="85" width="10" height="5" fill="#123d4b" /></g>
+  <g id="frame-05" class="frame frame-05"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(88 64 32)" /><rect x="58" y="62" width="10" height="14" fill="#d74438" /><rect x="55" y="75" width="12" height="10" fill="#cfa75f" /><rect x="43" y="84" width="8" height="6" fill="#3e7d7b" /></g>
+  <g id="frame-06" class="frame frame-06"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(112 64 32)" /><rect x="55" y="62" width="13" height="13" fill="#d74438" /><rect x="58" y="74" width="8" height="10" fill="#f0d9ac" /><rect x="40" y="83" width="9" height="6" fill="#123d4b" /></g>
+  <g id="frame-07" class="frame frame-07"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(138 64 32)" /><rect x="54" y="61" width="14" height="12" fill="#d74438" /><rect x="60" y="72" width="6" height="11" fill="#cfa75f" /><rect x="43" y="82" width="7" height="7" fill="#3e7d7b" /></g>
+  <g id="frame-08" class="frame frame-08"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(165 64 32)" /><rect x="57" y="61" width="10" height="14" fill="#cfa75f" /><rect x="58" y="73" width="10" height="9" fill="#d74438" /><rect x="46" y="82" width="9" height="6" fill="#123d4b" /></g>
+  <g id="frame-09" class="frame frame-09"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(195 64 32)" /><rect x="58" y="61" width="8" height="15" fill="#d74438" /><rect x="56" y="74" width="12" height="8" fill="#f0d9ac" /><rect x="40" y="81" width="10" height="6" fill="#3e7d7b" /></g>
+  <g id="frame-10" class="frame frame-10"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(225 64 32)" /><rect x="56" y="62" width="11" height="14" fill="#d74438" /><rect x="60" y="75" width="7" height="9" fill="#cfa75f" /><rect x="43" y="83" width="8" height="5" fill="#123d4b" /></g>
+  <g id="frame-11" class="frame frame-11"><image href="/assets/parlor-patrol/helicopter-16-frames.svg" width="128" height="64" transform="rotate(255 64 32)" /><rect x="57" y="64" width="10" height="11" fill="#d74438" /><rect x="58" y="74" width="8" height="9" fill="#f0d9ac" /><rect x="46" y="82" width="7" height="5" fill="#3e7d7b" /></g>
+</svg>
