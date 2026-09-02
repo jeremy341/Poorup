@@ -309,6 +309,12 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
+  socket.on('check-username', (payload = {}, callback) => {
+    // Availability is a read-only hint for the form. Registration still
+    // performs the authoritative uniqueness check inside AccountStore.
+    reply(callback, accountStore.checkUsername(payload.username));
+  });
+
   socket.on('account-login', (payload = {}, callback) => {
     const result = accountStore.login(payload);
     if (result?.account?.id) socket.data.accountId = result.account.id;
@@ -782,9 +788,9 @@ io.on('connection', (socket) => {
 
   socket.on('search-players', (payload = {}, callback) => {
     const query = String(payload.query || '').trim().toLowerCase().slice(0, 32);
-    if (query.length < 2) return reply(callback, { success: true, players: [] });
+    if (query.length < 3) return reply(callback, { success: true, players: [] });
     const players = [...accountStore.accounts.values()]
-      .filter(account => account.username.includes(query) || account.displayName.toLowerCase().includes(query))
+      .filter(account => account.username.includes(query))
       .slice(0, 20)
       .map(account => ({ id: account.id, username: account.username, displayName: account.displayName, color: account.color, avatarGrid: account.avatarGrid }));
     reply(callback, { success: true, players });

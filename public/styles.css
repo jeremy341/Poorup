@@ -2058,6 +2058,13 @@ a:focus-visible {
 .account-modal-body > .t-body { margin-top: 12px; }
 .account-modal-tabs { display: grid; grid-template-columns: 1fr 1fr; margin-top: 16px; border-bottom: 1px solid var(--line-subtle); }
 .account-field { display: flex; flex-direction: column; gap: 7px; margin-top: 13px; }
+.account-username-status { min-height: 14px; color: var(--text-muted); }
+.account-username-status.is-checking { color: var(--gold-300); }
+.account-username-status.is-available { color: var(--green-status); }
+.account-username-status.is-taken,
+.account-username-status.is-invalid { color: var(--red-bright); }
+.account-field .field[aria-invalid="true"] { border-color: var(--red-bright); }
+.account-field .field[aria-invalid="false"] { border-color: var(--green-status); }
 .account-form-error { min-height: 18px; margin-top: 10px; color: var(--red-bright); font-family: var(--font-body); font-size: 12px; line-height: 1.4; }
 .account-submit { width: 100%; height: 50px; margin-top: 2px; }
 .account-modal-foot { margin-top: 12px; text-align: center; }

@@ -89,9 +89,14 @@ export class AccountStore {
       const entries = JSON.parse(raw);
       if (!Array.isArray(entries)) return;
       entries.forEach((account) => {
-        if (!account || !USERNAME_RE.test(account.username)) return;
-        this.accounts.set(account.username, {
+        const handle = normalizeUsername(account?.username);
+        // Normalize legacy records as they load and keep the Map invariant
+        // case-insensitive. If a malformed file contains duplicate handles,
+        // the first valid record remains the owner of that username.
+        if (!account || !USERNAME_RE.test(handle) || this.accounts.has(handle)) return;
+        this.accounts.set(handle, {
           ...account,
+          username: handle,
           displayName: normalizeDisplayName(account.displayName, account.username),
           color: normalizeColor(account.color),
           avatarGrid: sanitizeAvatarGrid(account.avatarGrid),
@@ -141,12 +146,8 @@ export class AccountStore {
 
   register({ username, displayName, password, color, avatarGrid } = {}) {
     const handle = normalizeUsername(username);
-    if (!USERNAME_RE.test(handle)) {
-      return { success: false, error: 'Username must be 3–16 characters: letters, numbers, or underscores.' };
-    }
-    if (this.accounts.has(handle)) {
-      return { success: false, error: 'That username is already taken.' };
-    }
+    const availability = this.checkUsername(handle);
+    if (!availability.available) return { success: false, error: availability.message };
     if (typeof password !== 'string' || password.length < 8 || password.length > 72) {
       return { success: false, error: 'Password must be 8–72 characters.' };
     }
@@ -169,6 +170,28 @@ export class AccountStore {
     const sessionToken = this.issueSession(account);
     this.persist();
     return { success: true, account: publicAccount(account), sessionToken };
+  }
+
+  checkUsername(username, currentAccountId = null) {
+    const handle = normalizeUsername(username);
+    if (!USERNAME_RE.test(handle)) {
+      return {
+        success: true,
+        available: false,
+        reason: 'invalid',
+        username: handle,
+        message: 'Username must be 3–16 characters: letters, numbers, or underscores.',
+      };
+    }
+    const existing = this.accounts.get(handle);
+    const available = !existing || (Boolean(currentAccountId) && existing.id === currentAccountId);
+    return {
+      success: true,
+      available,
+      reason: available ? 'available' : 'taken',
+      username: handle,
+      message: available ? 'Username is available.' : 'That username is already taken.',
+    };
   }
 
   login({ username, password } = {}) {
