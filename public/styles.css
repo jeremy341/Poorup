@@ -2629,6 +2629,16 @@ a:focus-visible {
   .home-nav { display: flex; }
 }
 
+@media (min-width: 768px) and (max-width: 1100px) {
+  /* Keep the six navigation destinations and audio controls reachable in a
+     compact header. Connection/profile context remains available inside the
+     destination pages and the game HUD. */
+  .hdr > .hdr-right .online,
+  .hdr > .hdr-right .you-chip { display: none; }
+  .home-nav { margin-left: 8px; }
+  .home-nav-tab { padding-inline: 10px; }
+}
+
 @media (min-width: 1280px) {
   .title-grid {
     grid-template-columns: minmax(540px, 0.82fr) minmax(560px, 1.18fr);
@@ -2643,12 +2653,21 @@ a:focus-visible {
   .ts-quick { min-height: 56px; padding: 0 18px; }
   .home-signal-line { max-width: 700px; }
   .profile-main { max-width: 2080px; padding: 24px 32px 52px; }
+  .social-page-main,
+  .rules-page-main { max-width: 2080px; padding: 24px 32px 52px; }
+  #view-rules .rules-shell { max-width: 2080px; }
+  .social-page-main > .ranking-list,
+  .social-page-main > .social-surface-body { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 10px; }
+  #view-rules .rules-book-spread { grid-template-columns: minmax(280px, 320px) minmax(0, 1fr); gap: 20px; }
+  #view-rules .rules-book-page-scroll { padding: clamp(20px, 2vw, 32px); }
 }
 
 @media (min-width: 2200px) {
   .title-grid { padding: 48px 64px; }
   .mini-board { width: clamp(560px, 28vw, 760px); }
   .profile-main { padding-inline: 48px; }
+  .social-page-main,
+  .rules-page-main { padding-inline: 48px; }
 }
 
 @media (max-width: 899px) {
