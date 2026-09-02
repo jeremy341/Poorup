@@ -321,4 +321,13 @@ export class AccountStore {
     rows.sort((a, b) => b.value - a.value || b.wins - a.wins || a.displayName.localeCompare(b.displayName));
     return rows.slice(0, 100);
   }
+
+  getLeaderboardSnapshot(metrics = ['wins', 'rate', 'games', 'achievements', 'bankruptcies']) {
+    const allowed = metrics.filter(metric => ['wins', 'rate', 'games', 'achievements', 'bankruptcies'].includes(metric));
+    const selected = allowed.length ? [...new Set(allowed)] : ['wins', 'rate', 'games', 'achievements', 'bankruptcies'];
+    return {
+      generatedAt: new Date().toISOString(),
+      metrics: Object.fromEntries(selected.map(metric => [metric, this.getLeaderboard(metric)])),
+    };
+  }
 }
