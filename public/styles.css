@@ -406,7 +406,7 @@ a:focus-visible {
 .tn-word { font-size: 34px; }
 .hdr-sub { margin-top: 5px; display: block; }
 
-.hdr-meta { display: none; align-items: center; gap: 4px; margin-left: 12px; }
+.hdr-meta { display: none; align-items: center; gap: 4px; margin-left: 12px; visibility: hidden; }
 .hdr-meta .sep { padding: 0 4px; color: var(--gold-800); }
 
 .hdr-right, .tn-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
@@ -2011,7 +2011,29 @@ a:focus-visible {
   .profile-back:hover .profile-back-arrow { transform: translateX(-3px); }
   .profile-swatch:hover { transform: translateY(-1px); }
 }
+@media (min-width: 768px) {
+  /* The arrow is a non-game back affordance. Reclaim its flex slot so the
+     shared navigation starts at the same x-position as the Home header. */
+  .profile-back,
+  #view-rankings .hdr-brand,
+  #view-social .hdr-brand { margin-right: -40px; }
+}
 .profile-save-btn { height: 40px; padding: 0 20px; }
+.profile-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--surface-panel-deep);
+  border-color: var(--line-board);
+}
+.profile-editor-actions-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.profile-editor-actions-copy .t-micro:last-child { color: var(--text-muted); }
+.profile-editor-actions-buttons { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.profile-editor-actions-buttons .profile-delete { margin-right: 0; }
+.profile-editor-actions-buttons .profile-save-btn { min-width: 154px; }
 
 .profile-main { width: 100%; max-width: 1100px; margin: 0 auto; padding: 14px 14px 32px; }
 .profile-library-panel { margin-bottom: 16px; }
@@ -2129,6 +2151,22 @@ a:focus-visible {
 
 @media (min-width: 900px) {
   .profile-grid { grid-template-columns: 0.85fr 1.15fr; }
+}
+
+@media (max-width: 640px) {
+  .profile-editor-actions {
+    position: sticky;
+    bottom: 8px;
+    z-index: 8;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    box-shadow: 0 -4px 12px rgb(0 0 0 / 32%);
+  }
+  .profile-editor-actions-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-editor-actions-buttons .profile-save-btn { grid-column: 1 / -1; width: 100%; }
+  .profile-editor-actions-buttons .btn-dark { width: 100%; }
 }
 
 /* ============================================================

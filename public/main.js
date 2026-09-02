@@ -1155,11 +1155,14 @@ function renderConnectionStatus() {
   const copy = CONNECTION_COPY[status] || CONNECTION_COPY.offline;
   const homeLabel = $("#home-connection-label");
   if (homeLabel) homeLabel.textContent = copy;
+  document.querySelectorAll("[data-global-connection-label]").forEach((label) => {
+    label.textContent = copy;
+  });
   const gameLabel = $("#tn-online");
   if (gameLabel && state.live) gameLabel.textContent = status === "online"
     ? `${state.players.filter((p) => p.online).length} ONLINE`
     : copy;
-  document.querySelectorAll("#view-home .online .dot, #home-status-note .dot").forEach((dot) => {
+  document.querySelectorAll("[data-global-online] .dot, #view-home .online .dot, #home-status-note .dot").forEach((dot) => {
     dot.classList.toggle("dot-green", status === "online");
     dot.classList.toggle("dot-red", status !== "online");
     dot.classList.toggle("blink", status === "online");
@@ -1482,11 +1485,27 @@ function unlockAchievement(id) {
 function setHomeTab(tab = "play") {
   const next = ["play", "rooms", "profile"].includes(tab) ? tab : "play";
   state.homeTab = next;
-  document.querySelectorAll("#home-nav [data-home-tab]").forEach((button) => {
+  document.querySelectorAll("[data-global-nav] [data-home-tab]").forEach((button) => {
     const active = button.dataset.homeTab === next;
     button.classList.toggle("is-active", active);
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
+  });
+}
+
+/** Keep the non-game app shell on one navigation contract. The game view has
+ * its own turn-aware topnav, so it intentionally does not participate here. */
+function syncGlobalNavigation(surface = "home") {
+  const activeHomeTab = surface === "home" ? state.homeTab : surface;
+  document.querySelectorAll("[data-global-nav]").forEach((nav) => {
+    nav.querySelectorAll("[data-home-tab], [data-top-surface]").forEach((button) => {
+      const active = button.dataset.homeTab
+        ? surface !== "rankings" && surface !== "social" && button.dataset.homeTab === activeHomeTab
+        : button.dataset.topSurface === surface;
+      button.classList.toggle("is-active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
   });
 }
 
@@ -2628,10 +2647,12 @@ function applyProfileToHomeUI() {
   const color = p?.color || account?.color || preset.color || "#d74438";
   const avatarSource = p || account;
 
-  const homeName = $("#home-you-name");
-  if (homeName) homeName.textContent = name;
-  const homeAv = $("#home-you-avatar");
-  if (homeAv) homeAv.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 3) : avatarHTML({ color }, 3, 0);
+  document.querySelectorAll("[data-global-you-name]").forEach((nameNode) => {
+    nameNode.textContent = name;
+  });
+  document.querySelectorAll("[data-global-you-avatar]").forEach((avatarNode) => {
+    avatarNode.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 3) : avatarHTML({ color }, 3, 0);
+  });
 
   const chairName = $("#chair-name");
   if (chairName) chairName.textContent = `that's you, ${name}`;
@@ -4406,6 +4427,8 @@ function renderProfileEditor() {
   if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
   const saveLabel = $("#profile-save-btn")?.querySelector(".cta-text");
   if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
+  const modeLabel = $("#profile-editor-mode");
+  if (modeLabel) modeLabel.textContent = state.editingProfileId ? "EDIT PLAYER DESIGN" : "NEW PLAYER DESIGN";
 
   // identity swatches
   $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map(
@@ -6190,6 +6213,7 @@ function showView(name) {
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
   $("#view-rankings")?.classList.toggle("is-hidden", name !== "rankings");
   $("#view-social")?.classList.toggle("is-hidden", name !== "social");
+  syncGlobalNavigation(name);
   window.scrollTo(0, 0);
   syncSurfaceA11y();
   if (name === "home") {
@@ -6356,7 +6380,18 @@ function bindEvents() {
   document.querySelectorAll("[data-home-tab]").forEach((button) => {
     if (button.closest("#home-nav")) return;
     button.addEventListener("click", () => {
-      if (button.dataset.homeTab === "profile") openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
+      const tab = button.dataset.homeTab;
+      if (tab === "profile") {
+        openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
+      } else if (tab === "rooms") {
+        showView("home");
+        setHomeTab("rooms");
+        openRoomsModal("browse");
+      } else if (tab === "play") {
+        showView("home");
+        setHomeTab("play");
+        renderHome();
+      }
     });
   });
 
@@ -6633,7 +6668,9 @@ function bindEvents() {
     const activeId = typeof state.appearance === "string" ? state.appearance : null;
     openProfileEditor("home", activeId);
   };
-  $("#open-profile-btn")?.addEventListener("click", openActiveProfileForEdit);
+  document.querySelectorAll("[data-global-profile-trigger]").forEach((button) => {
+    button.addEventListener("click", openActiveProfileForEdit);
+  });
   $("#profile-hero-account-btn")?.addEventListener("click", () => {
     if (state.account?.account) openAccountModal("edit");
     else openAccountModal("register");
@@ -6806,14 +6843,14 @@ function bindEvents() {
   const syncAudioButtons = () => {
     const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
     const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
-    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn")].forEach((button) => {
+    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#profile-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn")].forEach((button) => {
       if (!button) return;
       button.setAttribute("aria-pressed", String(state.sound));
       button.setAttribute("aria-label", state.sound ? "Turn sound effects off" : "Turn sound effects on");
       const icon = button.querySelector("img");
       if (icon) icon.src = soundSrc;
     });
-    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn")].forEach((button) => {
+    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#profile-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn")].forEach((button) => {
       if (!button) return;
       button.setAttribute("aria-pressed", String(state.music));
       button.setAttribute("aria-label", state.music ? "Turn parlor music off" : "Turn parlor music on");
@@ -6843,6 +6880,8 @@ function bindEvents() {
   $("#game-music-toggle-btn")?.addEventListener("click", () => {
     $("#music-toggle-btn")?.click();
   });
+  $("#profile-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
+  $("#profile-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
   $("#rankings-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
   $("#rankings-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
   $("#social-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
