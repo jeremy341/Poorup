@@ -2238,20 +2238,30 @@ function openRulesSurface(section = "start-here") {
   showView("rules");
   renderRulesSurface("#rules-page-content");
   requestAnimationFrame(() => {
-    const target = $(`#rules-${state.rulesSection}`);
+    const target = $("#rules-book-page-scroll");
+    const heading = $("#rules-book-page-heading");
     if (!target) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
-    target.querySelector("h2")?.focus({ preventScroll: true });
+    target.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+    heading?.focus({ preventScroll: true });
   });
 }
 
 function renderRulesSurface(target = "#rules-page-content") {
   const root = $(target);
   if (!root) return;
-  const active = rulesSectionById(state.rulesSection);
   const query = String(state.rulesQuery || "").trim().toLowerCase();
   const matches = (section) => !query || [section.label, section.title, section.summary, section.content].join(" ").toLowerCase().includes(query);
+  const filteredSections = RULES_SECTIONS.filter(matches);
+  const requested = rulesSectionById(state.rulesSection);
+  const active = matches(requested) ? requested : (filteredSections[0] || null);
+  if (active) state.rulesSection = active.id;
+  const activeIndex = active ? RULES_SECTIONS.findIndex((section) => section.id === active.id) : -1;
+  const previous = activeIndex > 0 ? RULES_SECTIONS[activeIndex - 1] : null;
+  const next = activeIndex >= 0 && activeIndex < RULES_SECTIONS.length - 1 ? RULES_SECTIONS[activeIndex + 1] : null;
+  const article = active
+    ? `<article class="rules-book-page noise" aria-labelledby="rules-book-page-heading"><div class="rules-book-page-scroll thin-scroll" id="rules-book-page-scroll"><div class="rules-article-head"><div><span class="t-micro g400">${active.kicker}</span><h2 class="t-section g100" id="rules-book-page-heading" tabindex="-1">${active.title}</h2><p class="t-body ink-2 rules-article-summary">${active.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${active.status.toLowerCase()}">${active.status}</span><span class="t-micro ink-3">${String(activeIndex + 1).padStart(2, "0")} / ${String(RULES_SECTIONS.length).padStart(2, "0")}</span></div></div><div class="rules-article-body">${active.content}</div></div><footer class="rules-book-page-footer"><button class="btn-dark rules-page-turn" type="button" data-rules-section="${previous?.id || ""}" ${previous ? "" : "disabled"} aria-label="Previous chapter"><span aria-hidden="true">‹</span><span class="t-label f11">${previous ? `PREVIOUS · ${previous.label}` : "FIRST CHAPTER"}</span></button><span class="t-micro ink-3">CHAPTER ${String(activeIndex + 1).padStart(2, "0")} · FIELD MANUAL</span><button class="btn-dark rules-page-turn" type="button" data-rules-section="${next?.id || ""}" ${next ? "" : "disabled"} aria-label="Next chapter"><span class="t-label f11">${next ? `NEXT · ${next.label}` : "LAST CHAPTER"}</span><span aria-hidden="true">›</span></button></footer></article>`
+    : `<article class="rules-book-page"><div class="rules-book-page-scroll"><div class="rules-empty"><span class="t-micro g400">NO MATCH IN THIS MANUAL</span><strong class="t-label f13 g100">Try another phrase.</strong></div></div></article>`;
   root.innerHTML = `<div class="rules-shell">
     <div class="rules-intro panel noise">
       <div class="rules-intro-icon"><img src="/assets/rules-book.svg" alt="" width="36" height="36"></div>
@@ -2259,14 +2269,14 @@ function renderRulesSurface(target = "#rules-page-content") {
       <div class="rules-intro-meta"><span class="t-micro ink-3">REFERENCE BUILD</span><strong class="t-label f12 g100">v2.4 · LIVE CONTRACTS</strong></div>
     </div>
     <div class="rules-toolbar panel noise" role="search"><label class="rules-search-label" for="rules-search"><span class="t-micro g400">FIND IN RULES</span><input class="field" id="rules-search" type="search" value="${esc(state.rulesQuery || "")}" placeholder="SEARCH THE FIELD MANUAL…" autocomplete="off"></label><span class="t-micro ink-3 rules-search-count" id="rules-search-count">${matches(RULES_SECTIONS).length} SECTIONS</span></div>
-    <div class="rules-layout">
-      <aside class="rules-index panel noise" aria-label="Rules sections"><div class="rules-index-head"><span class="t-micro g400">CONTENTS</span><span class="t-micro ink-3">${RULES_SECTIONS.length} CHAPTERS</span></div><nav class="rules-index-nav" aria-label="Rules chapters">${RULES_SECTIONS.map((section, index) => `<button class="rules-index-link${section.id === active.id ? " is-active" : ""}${matches(section) ? "" : " is-filtered"}" type="button" data-rules-section="${section.id}" aria-current="${section.id === active.id ? "page" : "false"}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span></button>`).join("")}</nav></aside>
-      <div class="rules-section-list" id="rules-section-list">${RULES_SECTIONS.map((section, index) => `<article class="rules-article panel noise${matches(section) ? "" : " is-filtered"}" id="rules-${section.id}" data-rules-card data-rules-title="${esc(`${section.label} ${section.title}`)}"><div class="rules-article-head"><div><span class="t-micro g400">${section.kicker}</span><h2 class="t-section g100" tabindex="-1">${section.title}</h2><p class="t-body ink-2 rules-article-summary">${section.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span><span class="t-micro ink-3">${String(index + 1).padStart(2, "0")}</span></div></div><div class="rules-article-body">${section.content}</div></article>`).join("")}${matches(active) ? "" : `<div class="rules-empty panel noise"><span class="t-micro g400">NO MATCH IN THIS MANUAL</span><strong class="t-label f13 g100">Try another phrase.</strong></div>`}</div>
+    <div class="rules-book-spread">
+      <aside class="rules-index panel noise" aria-label="Rules sections"><div class="rules-index-head"><span class="t-micro g400">CONTENTS</span><span class="t-micro ink-3">${RULES_SECTIONS.length} CHAPTERS</span></div><nav class="rules-index-nav" aria-label="Rules chapters">${RULES_SECTIONS.map((section, index) => `<button class="rules-index-link${section.id === active?.id ? " is-active" : ""}${matches(section) ? "" : " is-filtered"}" type="button" data-rules-section="${section.id}" aria-current="${section.id === active?.id ? "page" : "false"}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span></button>`).join("")}</nav></aside>
+      ${article}
     </div>
   </div>`;
   hydrateSprites(root);
   const count = root.querySelector("#rules-search-count");
-  if (count) count.textContent = `${RULES_SECTIONS.filter(matches).length} SECTIONS`;
+  if (count) count.textContent = `${filteredSections.length} SECTIONS`;
 }
 
 function openPlayerSurface(playerId) {
