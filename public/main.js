@@ -1155,11 +1155,14 @@ function renderConnectionStatus() {
   const copy = CONNECTION_COPY[status] || CONNECTION_COPY.offline;
   const homeLabel = $("#home-connection-label");
   if (homeLabel) homeLabel.textContent = copy;
+  document.querySelectorAll("[data-global-connection-label]").forEach((label) => {
+    label.textContent = copy;
+  });
   const gameLabel = $("#tn-online");
   if (gameLabel && state.live) gameLabel.textContent = status === "online"
     ? `${state.players.filter((p) => p.online).length} ONLINE`
     : copy;
-  document.querySelectorAll("#view-home .online .dot, #home-status-note .dot").forEach((dot) => {
+  document.querySelectorAll("[data-global-online] .dot, #view-home .online .dot, #home-status-note .dot").forEach((dot) => {
     dot.classList.toggle("dot-green", status === "online");
     dot.classList.toggle("dot-red", status !== "online");
     dot.classList.toggle("blink", status === "online");
@@ -1482,11 +1485,27 @@ function unlockAchievement(id) {
 function setHomeTab(tab = "play") {
   const next = ["play", "rooms", "profile"].includes(tab) ? tab : "play";
   state.homeTab = next;
-  document.querySelectorAll("#home-nav [data-home-tab]").forEach((button) => {
+  document.querySelectorAll("[data-global-nav] [data-home-tab]").forEach((button) => {
     const active = button.dataset.homeTab === next;
     button.classList.toggle("is-active", active);
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
+  });
+}
+
+/** Keep the non-game app shell on one navigation contract. The game view has
+ * its own turn-aware topnav, so it intentionally does not participate here. */
+function syncGlobalNavigation(surface = "home") {
+  const activeHomeTab = surface === "home" ? state.homeTab : surface;
+  document.querySelectorAll("[data-global-nav]").forEach((nav) => {
+    nav.querySelectorAll("[data-home-tab], [data-top-surface]").forEach((button) => {
+      const active = button.dataset.homeTab
+        ? surface !== "rankings" && surface !== "social" && button.dataset.homeTab === activeHomeTab
+        : button.dataset.topSurface === surface;
+      button.classList.toggle("is-active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
   });
 }
 
@@ -1545,6 +1564,8 @@ function updateAccountFromResponse(response) {
   applyProfileToHomeUI();
 }
 
+const ACCOUNT_USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
+
 function accountModalHTML(mode) {
   const register = mode === "register";
   const edit = mode === "edit";
@@ -1553,7 +1574,7 @@ function accountModalHTML(mode) {
   const description = edit
     ? "Update the account display name used at every table. Your saved designs keep their own names."
     : register
-      ? "Keep guest play free, or save your player identity and stats across rooms."
+      ? "Choose a unique username friends can find, then save your player identity and stats across rooms."
       : "Sign in to load your saved display name, face, color, and game record.";
   return `
     <div class="account-modal-body">
@@ -1567,7 +1588,7 @@ function accountModalHTML(mode) {
       <p class="t-body ink-2" id="account-modal-description">${description}</p>
       ${edit ? "" : `<div class="account-modal-tabs" role="tablist" aria-label="Account actions"><button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" role="tab" aria-selected="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" role="tab" aria-selected="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`}
       <form class="account-form" id="account-form">
-        ${edit ? `<label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" value="${esc(account?.username || "")}" readonly aria-readonly="true" /></label>` : `<label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" name="username" maxlength="16" minlength="3" pattern="[A-Za-z0-9_]{3,16}" autocomplete="username" required placeholder="night_player" /></label>`}
+        ${edit ? `<label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" value="${esc(account?.username || "")}" readonly aria-readonly="true" /></label>` : `<label class="account-field" id="account-username-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" name="username" maxlength="16" minlength="3" pattern="[A-Za-z0-9_]{3,16}" autocomplete="username"${register ? ` aria-describedby="account-username-status"` : ""} required placeholder="night_player" />${register ? `<span class="account-username-status t-micro ink-3" id="account-username-status" role="status" aria-live="polite">3–16 letters, numbers, or underscores</span>` : ""}</label>`}
         ${(register || edit) ? `<label class="account-field"><span class="t-label f12 g-muted">Display Name</span><input class="field" id="account-display-input" name="displayName" maxlength="18" autocomplete="nickname" required placeholder="Marlowe" value="${edit ? esc(account?.displayName || "") : ""}" /></label>` : ""}
         ${edit ? "" : `<label class="account-field"><span class="t-label f12 g-muted">Password</span><input class="field" id="account-password-input" name="password" type="password" minlength="8" maxlength="72" autocomplete="${register ? "new-password" : "current-password"}" required placeholder="8 characters minimum" /></label>`}
         <p class="account-form-error" id="account-form-error" role="alert" aria-live="assertive"></p>
@@ -1582,25 +1603,100 @@ function openAccountModal(mode = "register") {
   const card = $("#account-card");
   if (!card) return;
   card.innerHTML = accountModalHTML(mode);
-  openSurface("#account-modal", mode === "edit" || mode === "register" ? "#account-display-input" : "#account-username-input");
+  openSurface("#account-modal", mode === "edit" ? "#account-display-input" : "#account-username-input");
   $("#account-modal-close")?.addEventListener("click", closeAccountModal);
   $("#account-tab-register")?.addEventListener("click", () => openAccountModal("register"));
   $("#account-tab-login")?.addEventListener("click", () => openAccountModal("login"));
+  let usernameCheckTimer = null;
+  let usernameCheckVersion = 0;
+  let usernameAvailability = mode === "register" ? false : true;
+  let usernameCheckPending = false;
+  const usernameInput = $("#account-username-input");
+  const usernameStatus = $("#account-username-status");
+  const accountForm = $("#account-form");
+  const submit = accountForm?.querySelector("button[type=submit]");
+  const setUsernameStatus = (kind, message) => {
+    if (!usernameStatus) return;
+    usernameStatus.classList.remove("is-checking", "is-available", "is-taken", "is-invalid");
+    if (kind) usernameStatus.classList.add(`is-${kind}`);
+    usernameStatus.textContent = message;
+    usernameInput?.setAttribute("aria-invalid", String(kind === "taken" || kind === "invalid"));
+    usernameInput?.setAttribute("aria-busy", String(kind === "checking"));
+  };
+  const syncUsernameSubmit = () => {
+    if (submit && mode === "register") submit.disabled = usernameCheckPending || usernameAvailability === false;
+  };
+  const checkUsername = () => {
+    if (mode !== "register" || !usernameInput || !usernameStatus) return;
+    clearTimeout(usernameCheckTimer);
+    const value = usernameInput.value.trim();
+    const version = ++usernameCheckVersion;
+    if (!value) {
+      usernameAvailability = false;
+      usernameCheckPending = false;
+      setUsernameStatus("invalid", "[!] Enter a username to check.");
+      syncUsernameSubmit();
+      return;
+    }
+    if (!ACCOUNT_USERNAME_RE.test(value)) {
+      usernameAvailability = false;
+      usernameCheckPending = false;
+      setUsernameStatus("invalid", "[!] Use 3–16 letters, numbers, or underscores.");
+      syncUsernameSubmit();
+      return;
+    }
+    usernameAvailability = null;
+    usernameCheckPending = true;
+    setUsernameStatus("checking", "[·] Checking username availability…");
+    syncUsernameSubmit();
+    usernameCheckTimer = window.setTimeout(() => {
+      emitServer("check-username", { username: value }, (response) => {
+        if (version !== usernameCheckVersion || usernameInput.value.trim() !== value) return;
+        usernameCheckPending = false;
+        if (!response?.success) {
+          usernameAvailability = null;
+          setUsernameStatus("checking", "[·] Could not check now. The server will verify it on submit.");
+          syncUsernameSubmit();
+          return;
+        }
+        usernameAvailability = response.available === true;
+        setUsernameStatus(
+          response.available ? "available" : response.reason === "invalid" ? "invalid" : "taken",
+          response.available ? "[OK] Username is available." : `[X] ${response.message || "That username is already taken."}`,
+        );
+        syncUsernameSubmit();
+      });
+    }, 180);
+  };
+  usernameInput?.addEventListener("input", checkUsername);
+  checkUsername();
   $("#account-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const payload = Object.fromEntries(new FormData(form).entries());
     const error = $("#account-form-error");
     if (error) error.textContent = "";
+    if (accountModalMode === "register" && usernameAvailability === false) {
+      if (error) error.textContent = "Choose an available username before creating your account.";
+      usernameInput?.focus({ preventScroll: true });
+      return;
+    }
+    if (accountModalMode === "register" && usernameCheckPending) {
+      if (error) error.textContent = "Wait for the username availability check to finish.";
+      return;
+    }
     const eventName = accountModalMode === "register" ? "account-register" : accountModalMode === "edit" ? "account-update" : "account-login";
-    const submit = form.querySelector("button[type=submit]");
     if (submit) submit.disabled = true;
     emitServer(eventName, payload, (response) => {
       if (!response?.success) {
         if (error) error.textContent = response?.error || "Account action failed.";
+        if (accountModalMode === "register" && /already taken/i.test(String(response?.error || ""))) {
+          usernameAvailability = false;
+          setUsernameStatus("taken", "[X] That username is already taken.");
+        }
         const announcer = $("#error-announcer");
         if (announcer) announcer.textContent = response?.error || "Account action failed.";
-        if (submit) submit.disabled = false;
+        if (submit) submit.disabled = accountModalMode === "register" && usernameAvailability === false;
         return;
       }
       updateAccountFromResponse(response);
@@ -1608,7 +1704,7 @@ function openAccountModal(mode = "register") {
       say(accountModalMode === "register" ? "Account created. Your identity is saved." : accountModalMode === "edit" ? "Account name updated." : "Signed in. Your identity is ready.");
     });
   });
-  focusSurface("#account-modal", mode === "edit" || mode === "register" ? "#account-display-input" : "#account-username-input");
+  focusSurface("#account-modal", mode === "edit" ? "#account-display-input" : "#account-username-input");
 }
 
 function closeAccountModal() {
@@ -1930,7 +2026,7 @@ function renderSocialSurface(target = "#social-card") {
   if (!signedIn) {
     body = `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p><button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button></div>`;
   } else if (state.socialTab === "friends") {
-    body = social.friends?.length ? social.friends.map((player) => socialPlayerRowHTML(player)).join("") : `<p class="t-body ink-3 social-empty">NO FRIENDS YET. Search for a player or open someone from the table.</p>`;
+    body = social.friends?.length ? social.friends.map((player) => socialPlayerRowHTML(player)).join("") : `<p class="t-body ink-3 social-empty">NO FRIENDS YET. Search by username or open someone from the table.</p>`;
   } else if (state.socialTab === "requests") {
     const incoming = social.requests?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.from, "VIEW")}<div class="social-request-actions"><button class="cta-red" type="button" data-social-request="accept" data-friendship-id="${esc(request.id)}"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-social-request="decline" data-friendship-id="${esc(request.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") || "";
     const outgoing = social.outgoing?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.to, "VIEW")}<span class="t-micro ink-3">REQUEST SENT</span></div>`).join("") || "";
@@ -1940,7 +2036,7 @@ function renderSocialSurface(target = "#social-card") {
   } else {
     body = social.notifications?.length ? social.notifications.map((notification) => `<div class="social-notification-row${notification.readAt ? "" : " is-unread"}"><div><strong class="t-label f12 g100">${esc(notification.title)}</strong><span class="t-body ink-2">${esc(notification.body)}</span><span class="t-micro ink-3">${esc(String(notification.createdAt || "").slice(0, 16))}</span></div>${notification.readAt ? "" : `<button class="btn-dark" type="button" data-notification-read="${esc(notification.id)}"><span class="t-label f11">READ</span></button>`}</div>`).join("") : `<p class="t-body ink-3 social-empty">NO NOTIFICATIONS.</p>`;
   }
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PARLOR SOCIAL</div><h2 class="t-section g100" id="social-title">Social</h2><p class="t-body ink-2" id="social-description">Friends, invites, and recent players from one parlor surface.</p></div><button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="social-tabs" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}${id === "requests" && count ? ` · ${social.requests?.length || 0}` : ""}</span></button>`).join("")}</div><form class="social-search" id="social-search-form"><label class="sr-only" for="social-search-input">Search players</label><input class="field" id="social-search-input" name="player" autocomplete="off" placeholder="SEARCH PLAYER…" maxlength="32"><button class="btn-dark" type="submit"><span class="t-label f11">FIND</span></button></form><div class="social-search-results" id="social-search-results"></div><div class="social-surface-body thin-scroll">${body}</div>`;
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PARLOR SOCIAL</div><h2 class="t-section g100" id="social-title">Social</h2><p class="t-body ink-2" id="social-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="social-tabs" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}${id === "requests" && count ? ` · ${social.requests?.length || 0}` : ""}</span></button>`).join("")}</div><form class="social-search" id="social-search-form"><label class="sr-only" for="social-search-input">Search by username</label><input class="field" id="social-search-input" name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}"><button class="btn-dark" type="submit"><span class="t-label f11">FIND</span></button></form><div class="social-search-results" id="social-search-results"></div><div class="social-surface-body thin-scroll">${body}</div>`;
 }
 
 function openRankingsSurface(metric = "wins") {
@@ -2628,10 +2724,12 @@ function applyProfileToHomeUI() {
   const color = p?.color || account?.color || preset.color || "#d74438";
   const avatarSource = p || account;
 
-  const homeName = $("#home-you-name");
-  if (homeName) homeName.textContent = name;
-  const homeAv = $("#home-you-avatar");
-  if (homeAv) homeAv.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 3) : avatarHTML({ color }, 3, 0);
+  document.querySelectorAll("[data-global-you-name]").forEach((nameNode) => {
+    nameNode.textContent = name;
+  });
+  document.querySelectorAll("[data-global-you-avatar]").forEach((avatarNode) => {
+    avatarNode.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 3) : avatarHTML({ color }, 3, 0);
+  });
 
   const chairName = $("#chair-name");
   if (chairName) chairName.textContent = `that's you, ${name}`;
@@ -4406,6 +4504,8 @@ function renderProfileEditor() {
   if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
   const saveLabel = $("#profile-save-btn")?.querySelector(".cta-text");
   if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
+  const modeLabel = $("#profile-editor-mode");
+  if (modeLabel) modeLabel.textContent = state.editingProfileId ? "EDIT PLAYER DESIGN" : "NEW PLAYER DESIGN";
 
   // identity swatches
   $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map(
@@ -6190,6 +6290,7 @@ function showView(name) {
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
   $("#view-rankings")?.classList.toggle("is-hidden", name !== "rankings");
   $("#view-social")?.classList.toggle("is-hidden", name !== "social");
+  syncGlobalNavigation(name);
   window.scrollTo(0, 0);
   syncSurfaceA11y();
   if (name === "home") {
@@ -6356,7 +6457,18 @@ function bindEvents() {
   document.querySelectorAll("[data-home-tab]").forEach((button) => {
     if (button.closest("#home-nav")) return;
     button.addEventListener("click", () => {
-      if (button.dataset.homeTab === "profile") openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
+      const tab = button.dataset.homeTab;
+      if (tab === "profile") {
+        openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
+      } else if (tab === "rooms") {
+        showView("home");
+        setHomeTab("rooms");
+        openRoomsModal("browse");
+      } else if (tab === "play") {
+        showView("home");
+        setHomeTab("play");
+        renderHome();
+      }
     });
   });
 
@@ -6397,10 +6509,11 @@ function bindEvents() {
   const handleSocialSubmit = (event) => {
     if (event.target.id !== "social-search-form") return;
     event.preventDefault();
-    const input = event.target.querySelector("#social-search-input");
+    const form = event.target;
+    const input = form.querySelector("#social-search-input");
     emitServer("search-players", { query: input?.value || "" }, (response) => {
       state.socialSearchResults = response?.players || [];
-      const results = event.currentTarget.querySelector("#social-search-results");
+      const results = form.querySelector("#social-search-results");
       if (results) results.innerHTML = state.socialSearchResults.length ? state.socialSearchResults.map(player => socialPlayerRowHTML(player, "VIEW")).join("") : `<p class="t-micro ink-3 social-empty">NO PLAYERS FOUND.</p>`;
     });
   };
@@ -6633,7 +6746,9 @@ function bindEvents() {
     const activeId = typeof state.appearance === "string" ? state.appearance : null;
     openProfileEditor("home", activeId);
   };
-  $("#open-profile-btn")?.addEventListener("click", openActiveProfileForEdit);
+  document.querySelectorAll("[data-global-profile-trigger]").forEach((button) => {
+    button.addEventListener("click", openActiveProfileForEdit);
+  });
   $("#profile-hero-account-btn")?.addEventListener("click", () => {
     if (state.account?.account) openAccountModal("edit");
     else openAccountModal("register");
@@ -6806,14 +6921,14 @@ function bindEvents() {
   const syncAudioButtons = () => {
     const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
     const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
-    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn")].forEach((button) => {
+    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#profile-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn")].forEach((button) => {
       if (!button) return;
       button.setAttribute("aria-pressed", String(state.sound));
       button.setAttribute("aria-label", state.sound ? "Turn sound effects off" : "Turn sound effects on");
       const icon = button.querySelector("img");
       if (icon) icon.src = soundSrc;
     });
-    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn")].forEach((button) => {
+    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#profile-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn")].forEach((button) => {
       if (!button) return;
       button.setAttribute("aria-pressed", String(state.music));
       button.setAttribute("aria-label", state.music ? "Turn parlor music off" : "Turn parlor music on");
@@ -6843,6 +6958,8 @@ function bindEvents() {
   $("#game-music-toggle-btn")?.addEventListener("click", () => {
     $("#music-toggle-btn")?.click();
   });
+  $("#profile-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
+  $("#profile-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
   $("#rankings-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
   $("#rankings-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
   $("#social-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
