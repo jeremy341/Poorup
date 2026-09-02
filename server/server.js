@@ -813,6 +813,11 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, metric, rows: accountStore.getLeaderboard(metric) });
   });
 
+  socket.on('get-leaderboard-snapshot', (payload = {}, callback) => {
+    const snapshot = accountStore.getLeaderboardSnapshot();
+    reply(callback, { success: true, ...snapshot });
+  });
+
   socket.on('send-room-invite', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     const room = getRoomForSocket(socket, callback);

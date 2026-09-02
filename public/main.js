@@ -686,10 +686,11 @@ const state = {
   globalEvent: null,
   social: { friends: [], requests: [], outgoing: [], invites: [], notifications: [] },
   socialSearchResults: [],
+  socialSearchQuery: "",
   socialTab: "friends",
   rulesSection: "start-here",
   rulesQuery: "",
-  leaderboard: { metric: "wins", rows: [], loading: false },
+  leaderboard: { metric: "wins", rows: [], snapshots: {}, generatedAt: null, loading: false },
   selectedPlayer: null,
   selectedPlayerRelationship: "none",
   selectedPlayerView: "profile",
@@ -2005,6 +2006,13 @@ function socialPlayerRowHTML(player, actionLabel = "VIEW") {
   return `<div class="social-player-row"><div class="social-player-avatar">${avatarHTML(player, 3, 0)}</div><div class="social-player-main"><strong class="t-label f12 g100">${esc(player.displayName || player.name || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(player.username || "guest")}</span></div><button class="btn-dark social-player-open" type="button" data-social-player="${esc(id)}"><span class="t-label f11">${actionLabel}</span></button></div>`;
 }
 
+function socialRoomRosterHTML() {
+  const activeRoom = state.phase !== "home" && state.players?.length;
+  if (!activeRoom) return `<div class="social-context-empty"><span class="t-micro g400">NO ACTIVE ROOM</span><span class="t-body ink-2">Join a table to see the people currently sharing it.</span></div>`;
+  const roster = state.players.filter((player) => player.id !== "p1").slice(0, 8);
+  return roster.length ? roster.map((player) => socialPlayerRowHTML({ ...player, id: player.serverId || player.id }, player.bot ? "BOT" : "VIEW")).join("") : `<div class="social-context-empty"><span class="t-micro ink-3">ONLY YOU AT THE TABLE</span></div>`;
+}
+
 function openSocialSurface(tab = "friends") {
   state.socialTab = ["friends", "requests", "invites", "notifications"].includes(tab) ? tab : "friends";
   showView("social");
@@ -2022,8 +2030,11 @@ function renderSocialSurface(target = "#social-card") {
   if (!card) return;
   const social = state.social || {};
   const signedIn = Boolean(state.account?.account);
+  const pageSurface = card.id === "social-page-content";
+  const surfaceKey = pageSurface ? "page" : "modal";
   const tabs = [["friends", "FRIENDS"], ["requests", "REQUESTS"], ["invites", "INVITES"], ["notifications", "INBOX"]];
   const count = (social.requests?.length || 0) + (social.invites?.length || 0);
+  const pending = (social.requests?.length || 0) + (social.outgoing?.length || 0);
   let body = "";
   if (!signedIn) {
     body = `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p><button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button></div>`;
@@ -2038,7 +2049,11 @@ function renderSocialSurface(target = "#social-card") {
   } else {
     body = social.notifications?.length ? social.notifications.map((notification) => `<div class="social-notification-row${notification.readAt ? "" : " is-unread"}"><div><strong class="t-label f12 g100">${esc(notification.title)}</strong><span class="t-body ink-2">${esc(notification.body)}</span><span class="t-micro ink-3">${esc(String(notification.createdAt || "").slice(0, 16))}</span></div>${notification.readAt ? "" : `<button class="btn-dark" type="button" data-notification-read="${esc(notification.id)}"><span class="t-label f11">READ</span></button>`}</div>`).join("") : `<p class="t-body ink-3 social-empty">NO NOTIFICATIONS.</p>`;
   }
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PARLOR SOCIAL</div><h2 class="t-section g100" id="social-title">Social</h2><p class="t-body ink-2" id="social-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="social-tabs" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}${id === "requests" && count ? ` · ${social.requests?.length || 0}` : ""}</span></button>`).join("")}</div><form class="social-search" id="social-search-form"><label class="sr-only" for="social-search-input">Search by username</label><input class="field" id="social-search-input" name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}"><button class="btn-dark" type="submit"><span class="t-label f11">FIND</span></button></form><div class="social-search-results" id="social-search-results"></div><div class="social-surface-body thin-scroll">${body}</div>`;
+  const activeLabel = tabs.find(([id]) => id === state.socialTab)?.[1] || "FRIENDS";
+  const searchResults = state.socialSearchResults?.length
+    ? state.socialSearchResults.map((player) => socialPlayerRowHTML(player, "VIEW")).join("")
+    : "";
+  card.innerHTML = `<div class="social-page-shell ${pageSurface ? "is-page" : "is-modal"}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${social.friends?.length || 0}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${social.notifications?.filter((item) => !item.readAt).length || 0}</strong></div></div>${pageSurface ? "" : `<button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button>`}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${esc(state.socialSearchQuery || "")}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${signedIn ? "ACCOUNT SYNC" : "GUEST VIEW"}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${id === "friends" ? social.friends?.length || 0 : id === "requests" ? count : id === "invites" ? social.invites?.length || 0 : social.notifications?.filter((item) => !item.readAt).length || 0}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${signedIn ? "SERVER-SYNCED" : "READ-ONLY SEARCH"}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${state.phase === "home" ? "NO ROOM" : "IN ROOM"}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${state.phase === "home" ? "—" : esc(state.roomCode || "PUBLIC")}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${state.phase === "home" ? "—" : state.players.length}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
 }
 
 function openRankingsSurface(metric = "wins") {
@@ -2047,21 +2062,45 @@ function openRankingsSurface(metric = "wins") {
   renderRankingsSurface("#rankings-page-content");
   if (state.live) {
     state.leaderboard.loading = true;
-    emitServer("get-leaderboard", { metric: state.leaderboard.metric }, (response) => {
+    emitServer("get-leaderboard-snapshot", {}, (snapshot) => {
       state.leaderboard.loading = false;
-      if (response?.success) state.leaderboard.rows = response.rows || [];
+      if (snapshot?.success) {
+        state.leaderboard.snapshots = snapshot.metrics || {};
+        state.leaderboard.generatedAt = snapshot.generatedAt || null;
+        state.leaderboard.rows = state.leaderboard.snapshots[state.leaderboard.metric] || state.leaderboard.rows;
+      }
       renderRankingsSurface("#rankings-page-content");
     });
   }
 }
 
+const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENTS", bankruptcies: "BANKRUPTCIES" };
+
+function rankingValueLabel(metric, value) {
+  return metric === "rate" ? `${Number(value) || 0}%` : String(Number(value) || 0);
+}
+
+function rankingMetricColumnHTML(metric, rows) {
+  const label = RANKING_LABELS[metric];
+  const topRows = rows.slice(0, 3);
+  return `<section class="ranking-metric-column" aria-labelledby="ranking-column-${metric}"><div class="ranking-column-head"><div><span class="t-micro g400">${label}</span><strong class="t-label f12 g100" id="ranking-column-${metric}">${topRows.length ? `TOP ${topRows.length}` : "NO VERIFIED PLAYERS"}</strong></div><button class="btn-dark ranking-column-action" type="button" data-ranking-metric="${metric}" aria-label="View full ${label.toLowerCase()} ranking"><span class="t-label f11">VIEW</span></button></div><div class="ranking-column-list">${topRows.length ? topRows.map((row, index) => `<button class="ranking-mini-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-mini-place">${String(index + 1).padStart(2, "0")}</span><span class="ranking-mini-avatar">${avatarHTML(row, 2, index)}</span><span class="ranking-mini-name"><strong class="t-label f11 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)}</span></span><strong class="ranking-mini-value t-label f12 ${metric === "rate" ? "g300" : "green"}">${rankingValueLabel(metric, row.value)}</strong></button>`).join("") : `<span class="ranking-column-empty t-micro ink-3">NO VERIFIED DATA</span>`}</div></section>`;
+}
+
 function renderRankingsSurface(target = "#rankings-card") {
   const card = $(target) || $("#rankings-card");
   if (!card) return;
-  const labels = { wins: "WINS", games: "GAMES", rate: "WIN RATE", achievements: "ACHIEVEMENTS", bankruptcies: "BANKRUPTCIES" };
-  const metrics = Object.entries(labels).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}"><span class="t-label f11">${label}</span></button>`).join("");
-  const rows = state.leaderboard.loading ? `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>` : state.leaderboard.rows?.length ? state.leaderboard.rows.map((row, index) => `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">${row.games} GAMES · ${row.wins} WINS</span></span><strong class="ranking-value t-label f16 green">${state.leaderboard.metric === "rate" ? `${row.value}%` : row.value}</strong></button>`).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PARLOR RECORDS · VERIFIED</div><h2 class="t-section g100" id="rankings-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-description">Scores come from completed server games and verified achievements.</p></div><button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="ranking-metrics" role="tablist" aria-label="Ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div>`;
+  const pageSurface = card.id === "rankings-page-content";
+  const surfaceKey = pageSurface ? "page" : "modal";
+  const snapshots = state.leaderboard.snapshots || {};
+  const currentRows = snapshots[state.leaderboard.metric] || state.leaderboard.rows || [];
+  const selfId = state.account?.account?.id;
+  const selfIndex = selfId ? currentRows.findIndex((row) => row.accountId === selfId) : -1;
+  const selfRow = selfIndex >= 0 ? currentRows[selfIndex] : null;
+  const selfRank = selfRow ? `#${selfIndex + 1}` : "—";
+  const metrics = Object.entries(RANKING_LABELS).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}" aria-pressed="${state.leaderboard.metric === id}"><span class="t-label f11">${label}</span></button>`).join("");
+  const rows = state.leaderboard.loading ? `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>` : currentRows.length ? currentRows.map((row, index) => `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)} · ${row.games} GAMES · ${row.wins} WINS</span></span><strong class="ranking-value t-label f16 ${state.leaderboard.metric === "rate" ? "g300" : "green"}">${rankingValueLabel(state.leaderboard.metric, row.value)}</strong></button>`).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
+  const syncLabel = state.leaderboard.generatedAt ? `SYNCED ${new Date(state.leaderboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "WAITING FOR SERVER";
+  card.innerHTML = `<div class="rankings-page-shell ${pageSurface ? "is-page" : "is-modal"}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">A wide standings ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfRow ? "green" : "g-muted"}">${selfRank}</strong><span class="t-micro ink-3">${selfRow ? `${rankingValueLabel(state.leaderboard.metric, selfRow.value)} · ${RANKING_LABELS[state.leaderboard.metric]}` : "SIGN IN TO TRACK"}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${pageSurface ? "" : `<button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button>`}</section><section class="rankings-metric-deck" aria-label="Top players across every ranking">${Object.keys(RANKING_LABELS).map((metric) => rankingMetricColumnHTML(metric, snapshots[metric] || (metric === state.leaderboard.metric ? currentRows : []))).join("")}</section><div class="rankings-main-grid"><section class="rankings-ledger panel noise" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-ledger-head"><div><span class="t-micro g400">FULL PLAYER LEDGER</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3></div><span class="t-micro ink-3">SORTED DESCENDING</span></div><div class="ranking-metrics" role="tablist" aria-label="Primary ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate uses wins divided by completed games, rounded to the nearest whole percent.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">PLANNED ADD-ON</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">FUTURE LEDGER</span><span class="t-body ink-2">Casino net results, Market profit, and crisis survival will appear here only after those systems become live.</span></div></aside></div></div>`;
 }
 
 const RULES_SECTIONS = [
@@ -6718,13 +6757,15 @@ function bindEvents() {
     if (metric) { openRankingsSurface(metric.dataset.rankingMetric); return; }
     const player = event.target.closest("[data-ranking-player]");
     if (player) openPlayerSurface(player.dataset.rankingPlayer);
-    if (event.target.closest("#rankings-close")) event.target.closest("#rankings-page-content") ? showView("home") : closeSurface("#rankings-modal");
+    if (event.target.closest(".rankings-close, #rankings-close")) event.currentTarget?.id === "rankings-page-content" ? showView("home") : closeSurface("#rankings-modal");
   };
   $("#rankings-card")?.addEventListener("click", handleRankingClick);
   $("#rankings-page-content")?.addEventListener("click", handleRankingClick);
   const handleSocialClick = (event) => {
     const tab = event.target.closest("[data-social-tab]");
     if (tab) { state.socialTab = tab.dataset.socialTab; renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card"); return; }
+    const accountAction = event.target.closest("[data-social-action=account]");
+    if (accountAction) { openAccountModal("register"); return; }
     const player = event.target.closest("[data-social-player]");
     if (player) { openPlayerSurface(player.dataset.socialPlayer); return; }
     const request = event.target.closest("[data-social-request]");
@@ -6739,19 +6780,27 @@ function bindEvents() {
     }
     const notification = event.target.closest("[data-notification-read]");
     if (notification) { emitServer("mark-notification-read", { notificationId: notification.dataset.notificationRead }, () => {}); return; }
-    if (event.target.closest("#social-close")) event.target.closest("#social-page-content") ? showView("home") : closeSurface("#social-modal");
+    if (event.target.closest(".social-close, #social-close")) event.currentTarget?.id === "social-page-content" ? showView("home") : closeSurface("#social-modal");
   };
   $("#social-card")?.addEventListener("click", handleSocialClick);
   $("#social-page-content")?.addEventListener("click", handleSocialClick);
   const handleSocialSubmit = (event) => {
-    if (event.target.id !== "social-search-form") return;
+    if (!event.target.matches("[data-social-search-form]")) return;
     event.preventDefault();
     const form = event.target;
-    const input = form.querySelector("#social-search-input");
+    const input = form.querySelector("[data-social-search-input]");
+    state.socialSearchQuery = input?.value || "";
+    if (input) input.setAttribute("value", state.socialSearchQuery);
     emitServer("search-players", { query: input?.value || "" }, (response) => {
       state.socialSearchResults = response?.players || [];
-      const results = form.querySelector("#social-search-results");
+      const results = form.querySelector("[data-social-search-results]");
       if (results) results.innerHTML = state.socialSearchResults.length ? state.socialSearchResults.map(player => socialPlayerRowHTML(player, "VIEW")).join("") : `<p class="t-micro ink-3 social-empty">NO PLAYERS FOUND.</p>`;
+      if (input) {
+        input.value = state.socialSearchQuery;
+        input.setAttribute("value", state.socialSearchQuery);
+      }
+      const surface = form.closest("#social-page-content") ? "#social-page-content" : "#social-card";
+      renderSocialSurface(surface);
     });
   };
   $("#social-card")?.addEventListener("submit", handleSocialSubmit);

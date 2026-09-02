@@ -1766,6 +1766,96 @@ a:focus-visible {
 .ranking-player { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ranking-player strong, .ranking-player span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-value { font-variant-numeric: tabular-nums; }
+.rankings-page-shell, .social-page-shell { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.rankings-hero, .social-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 18px; padding: clamp(16px, 2vw, 24px); border-color: var(--line-board); background: var(--surface-panel); }
+.rankings-page-shell.is-modal .rankings-hero,
+.social-page-shell.is-modal .social-hero { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.rankings-hero-mark, .social-hero-mark { width: 54px; height: 54px; display: grid; place-items: center; background: var(--surface-panel-deep); border: 1px solid var(--line-active); box-shadow: var(--shadow-active); }
+.rankings-hero-mark img, .social-hero-mark img { width: 32px; height: 32px; image-rendering: pixelated; }
+.rankings-hero-copy, .social-hero-copy { min-width: 0; }
+.rankings-hero-copy h2, .social-hero-copy h2 { margin-top: 7px; color: var(--gold-050); }
+.rankings-hero-copy p, .social-hero-copy p { max-width: 70ch; margin-top: 9px; }
+.rankings-hero-stats, .social-hero-stats { display: grid; grid-template-columns: repeat(3, minmax(96px, 1fr)); gap: 7px; }
+.rankings-hero-stat, .social-hero-stats > div { display: flex; flex-direction: column; gap: 4px; min-height: 64px; padding: 8px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.rankings-hero-stat strong, .social-hero-stats strong { font-variant-numeric: tabular-nums; }
+.rankings-metric-deck { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 8px; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
+.ranking-metric-column { min-width: 0; padding: 11px; background: var(--surface-panel); border: 1px solid var(--line-subtle); box-shadow: inset 0 1px 0 rgb(232 211 171 / 4%); }
+.ranking-metric-column:first-child { border-color: var(--line-active); }
+.ranking-column-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-bottom: 9px; border-bottom: 1px solid var(--line-dark); }
+.ranking-column-head > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ranking-column-action { min-height: 28px; padding: 0 7px; }
+.ranking-column-list { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
+.ranking-mini-row { display: grid; grid-template-columns: 18px 28px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-width: 0; padding: 6px 5px; text-align: left; background: var(--surface-panel-deep); border: 1px solid transparent; }
+.ranking-mini-row:hover, .ranking-mini-row:focus-visible { background: var(--surface-panel-raised); border-color: var(--line-active); }
+.ranking-mini-place { color: var(--gold-400); font-family: var(--font-numeric); font-size: 9px; }
+.ranking-mini-avatar { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--line-subtle); }
+.ranking-mini-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ranking-mini-name strong, .ranking-mini-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-mini-value { font-variant-numeric: tabular-nums; }
+.ranking-column-empty { padding: 9px 5px; }
+.rankings-main-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(270px, 0.75fr); gap: 14px; flex: 1; min-height: 0; }
+.rankings-ledger, .rankings-context, .social-network-rail, .social-feed, .social-context { min-height: 0; overflow: hidden; }
+.rankings-ledger { display: flex; flex-direction: column; }
+.rankings-ledger-head, .social-feed-head, .social-rail-head, .social-context-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
+.rankings-ledger-head h3, .social-feed-head h3, .social-context-head h3 { margin-top: 6px; color: var(--gold-050); }
+.rankings-ledger .ranking-metrics { flex-shrink: 0; }
+.rankings-ledger .ranking-list { flex: 1; min-height: 0; max-height: none; padding: 10px 14px 14px; overflow-y: auto; }
+.rankings-context { display: flex; flex-direction: column; gap: 11px; padding: 16px; background: var(--surface-panel); border-color: var(--line-subtle); }
+.rankings-context h3 { margin-top: 5px; color: var(--gold-050); }
+.rankings-context-list { display: grid; gap: 7px; }
+.rankings-context-list > div { display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
+.rankings-context-foot { display: flex; flex-direction: column; gap: 6px; margin-top: auto; padding-top: 12px; border-top: 1px dashed var(--line-subtle); }
+.social-page-shell.is-page { height: 100%; }
+.social-search-band { flex-shrink: 0; padding: 12px 16px; background: var(--surface-panel-deep); border-color: var(--line-subtle); }
+.social-search-band .social-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 0; }
+.social-search-label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.social-search-label .field { width: 100%; }
+.social-search-submit { align-self: end; min-width: 84px; min-height: 44px; }
+.social-search-results { grid-column: 1 / -1; display: grid; gap: 6px; }
+.social-search-band .social-search-results { padding: 8px 0 0; }
+.social-network-grid { display: grid; grid-template-columns: minmax(210px, 0.7fr) minmax(0, 1.65fr) minmax(270px, 0.9fr); gap: 14px; flex: 1; min-height: 0; }
+.social-network-rail { padding: 12px; background: var(--surface-panel); border-color: var(--line-subtle); }
+.social-rail-head { padding: 2px 2px 10px; }
+.social-rail-nav { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.social-rail-nav .social-tab { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 42px; padding: 0 10px; text-align: left; }
+.social-tab-count { min-width: 21px; padding: 2px 5px; color: var(--gold-300); font-family: var(--font-numeric); font-size: 9px; text-align: center; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.social-tab.is-active .social-tab-count { color: var(--gold-050); border-color: var(--line-active); }
+.social-feed { display: flex; flex-direction: column; background: var(--surface-panel); border-color: var(--line-subtle); }
+.social-feed .social-surface-body { flex: 1; min-height: 0; max-height: none; padding: 12px 14px 16px; overflow-y: auto; }
+.social-context { display: flex; flex-direction: column; background: var(--surface-panel); border-color: var(--line-subtle); }
+.social-context-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 12px 14px 0; }
+.social-context-stats > div { display: flex; flex-direction: column; gap: 4px; padding: 8px 9px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
+.social-context-roster { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; overflow-y: auto; }
+.social-context-empty { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: var(--surface-panel-deep); border: 1px dashed var(--line-subtle); }
+.social-context-foot { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; border-top: 1px dashed var(--line-subtle); }
+#view-rankings, #view-social { min-height: 0; height: 100vh; overflow: hidden; }
+#view-rankings .social-page-main, #view-social .social-page-main { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.social-page-main > .social-page-shell { flex: 1; min-height: 0; }
+@media (max-width: 1100px) {
+  .rankings-hero, .social-hero,
+  .rankings-page-shell.is-modal .rankings-hero,
+  .social-page-shell.is-modal .social-hero { grid-template-columns: auto minmax(0, 1fr); }
+  .rankings-hero-stats { grid-column: 1 / -1; }
+  .social-hero-stats { grid-column: 1 / -1; }
+  .rankings-main-grid { grid-template-columns: 1fr; }
+  .rankings-context { max-height: 240px; }
+  .social-network-grid { grid-template-columns: minmax(210px, 0.75fr) minmax(0, 1.25fr); }
+  .social-context { grid-column: 1 / -1; max-height: 240px; }
+}
+@media (max-width: 640px) {
+  #view-rankings .social-page-main, #view-social .social-page-main { padding: 12px 10px 24px; }
+  .rankings-hero, .social-hero,
+  .rankings-page-shell.is-modal .rankings-hero,
+  .social-page-shell.is-modal .social-hero { grid-template-columns: 1fr; }
+  .rankings-hero-stats, .social-hero-stats { grid-column: auto; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .rankings-metric-deck { grid-template-columns: repeat(5, minmax(180px, 1fr)); }
+  .social-network-grid { grid-template-columns: 1fr; }
+  .social-network-rail { max-height: 190px; }
+  .social-context { grid-column: auto; max-height: 220px; }
+  .social-feed { min-height: 280px; }
+  .social-search-band .social-search { grid-template-columns: 1fr; }
+  .social-search-submit { width: 100%; }
+}
 .player-profile-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 0; }
 .player-profile-head > div:last-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .player-profile-avatar { width: 64px; height: 64px; display: grid; place-items: center; border: 1px solid var(--line-active); background: var(--surface-panel-deep); }
