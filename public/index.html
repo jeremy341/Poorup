@@ -23,11 +23,11 @@
           </div>
         </div>
 
-        <div class="hdr-meta t-micro ink-3" aria-label="Connection details">
+        <div class="hdr-meta t-micro ink-3" aria-hidden="true">
           <span class="g5">poorup</span><span>live table service</span>
         </div>
 
-        <nav class="home-nav" id="home-nav" aria-label="Parlor navigation">
+        <nav class="home-nav" id="home-nav" data-global-nav aria-label="Parlor navigation">
           <button class="home-nav-tab is-active" id="home-play-tab" type="button" data-home-tab="play" aria-current="page">
             <span class="t-label f11">PLAY</span>
           </button>
@@ -46,15 +46,15 @@
         </nav>
 
         <div class="hdr-right">
-          <div class="online">
-            <span class="dot dot-green blink"></span>
-            <span class="t-label f12 ink" id="home-connection-label">CONNECTING…</span>
-          </div>
-          <button class="you-chip you-chip-btn" type="button" id="open-profile-btn" title="Edit profile [P]">
-            <span class="you-chip-av" id="home-you-avatar"></span>
+            <div class="online" data-global-online>
+              <span class="dot dot-green blink"></span>
+              <span class="t-label f12 ink" id="home-connection-label" data-global-connection-label>CONNECTING…</span>
+            </div>
+          <button class="you-chip you-chip-btn" type="button" id="open-profile-btn" data-global-profile-trigger title="Edit profile [P]">
+            <span class="you-chip-av" id="home-you-avatar" data-global-you-avatar></span>
             <span class="you-chip-text">
               <span class="t-micro g400">you are</span>
-              <span class="t-label f12 g300" id="home-you-name">guest_4412</span>
+              <span class="t-label f12 g300" id="home-you-name" data-global-you-name>guest_4412</span>
             </span>
           </button>
           <button class="btn-dark audio-toggle" type="button" id="sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false">
@@ -289,15 +289,33 @@
             <div class="t-micro ink-3 hdr-sub">profile editor</div>
           </div>
         </button>
+        <div class="hdr-meta t-micro ink-3" aria-hidden="true">
+          <span class="g5">poorup</span><span>live table service</span>
+        </div>
+        <nav class="home-nav" data-global-nav aria-label="Parlor navigation">
+          <button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button>
+          <button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button>
+          <button class="home-nav-tab is-active" type="button" data-home-tab="profile" aria-current="page"><span class="t-label f11">PROFILE</span></button>
+          <button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button>
+          <button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button>
+        </nav>
         <div class="hdr-right">
-          <button class="btn-dark profile-delete is-hidden" type="button" id="profile-delete-btn">
-            <span class="t-label f12">DELETE</span>
+          <div class="online" data-global-online>
+            <span class="dot dot-green blink"></span>
+            <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span>
+          </div>
+          <button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile">
+            <span class="you-chip-av" data-global-you-avatar></span>
+            <span class="you-chip-text">
+              <span class="t-micro g400">you are</span>
+              <span class="t-label f12 g300" data-global-you-name>guest_4412</span>
+            </span>
           </button>
-          <button class="btn-dark hdr-rules" type="button" id="profile-cancel-btn">
-            <span class="t-label f12">CANCEL</span>
+          <button class="btn-dark audio-toggle" type="button" id="profile-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false">
+            <img src="/assets/sound-off.svg" alt="" width="24" height="24">
           </button>
-          <button class="cta-red profile-save-btn" type="button" id="profile-save-btn">
-            <span class="cta-text profile-save-label">Save Profile</span>
+          <button class="btn-dark audio-toggle" type="button" id="profile-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false">
+            <img src="/assets/music-off.svg" alt="" width="24" height="24">
           </button>
         </div>
       </header>
@@ -359,6 +377,24 @@
         </section>
 
         <section class="profile-tab-panel" id="profile-panel-designs" role="tabpanel" aria-labelledby="profile-tab-designs" tabindex="0">
+          <div class="profile-editor-actions panel noise" role="group" aria-label="Profile editor actions">
+            <div class="profile-editor-actions-copy">
+              <span class="t-micro g400">DESIGN WORKSPACE</span>
+              <span class="t-label f12 g100" id="profile-editor-mode">EDIT PLAYER DESIGN</span>
+              <span class="t-micro ink-3">Changes stay local until you save them.</span>
+            </div>
+            <div class="profile-editor-actions-buttons">
+              <button class="btn-dark profile-delete is-hidden" type="button" id="profile-delete-btn">
+                <span class="t-label f12">DELETE</span>
+              </button>
+              <button class="btn-dark hdr-rules" type="button" id="profile-cancel-btn">
+                <span class="t-label f12">CANCEL</span>
+              </button>
+              <button class="cta-red profile-save-btn" type="button" id="profile-save-btn">
+                <span class="cta-text profile-save-label">Save Profile</span>
+              </button>
+            </div>
+          </div>
           <section class="panel noise pad16 profile-library-panel" id="profile-library">
             <div class="pl-head">
               <div><div class="t-micro g400">PLAYER DESIGNS</div><div class="t-label f12 g100">Saved profiles</div></div>
@@ -418,19 +454,21 @@
     </div>
 
     <div class="view is-hidden" id="view-rankings">
-      <header class="hdr">
-        <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">global rankings</div></div></button>
-        <nav class="home-nav" aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button></nav>
-        <div class="hdr-right"><button class="btn-dark audio-toggle" type="button" id="rankings-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rankings-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
+        <header class="hdr">
+          <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">global rankings</div></div></button>
+        <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>live table service</span></div>
+        <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rankings" aria-current="page"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button></nav>
+        <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="rankings-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rankings-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
       </header>
       <main class="social-page-main" id="rankings-page-content"></main>
     </div>
 
     <div class="view is-hidden" id="view-social">
-      <header class="hdr">
-        <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">parlor social</div></div></button>
-        <nav class="home-nav" aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button></nav>
-        <div class="hdr-right"><button class="btn-dark audio-toggle" type="button" id="social-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="social-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
+        <header class="hdr">
+          <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">parlor social</div></div></button>
+        <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>live table service</span></div>
+        <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="social" aria-current="page"><span class="t-label f11">SOCIAL</span></button></nav>
+        <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="social-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="social-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
       </header>
       <main class="social-page-main" id="social-page-content"></main>
     </div>
