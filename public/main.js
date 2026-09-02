@@ -687,6 +687,8 @@ const state = {
   social: { friends: [], requests: [], outgoing: [], invites: [], notifications: [] },
   socialSearchResults: [],
   socialTab: "friends",
+  rulesSection: "start-here",
+  rulesQuery: "",
   leaderboard: { metric: "wins", rows: [], loading: false },
   selectedPlayer: null,
   selectedPlayerRelationship: "none",
@@ -2060,6 +2062,211 @@ function renderRankingsSurface(target = "#rankings-card") {
   const metrics = Object.entries(labels).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}"><span class="t-label f11">${label}</span></button>`).join("");
   const rows = state.leaderboard.loading ? `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>` : state.leaderboard.rows?.length ? state.leaderboard.rows.map((row, index) => `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">${row.games} GAMES · ${row.wins} WINS</span></span><strong class="ranking-value t-label f16 green">${state.leaderboard.metric === "rate" ? `${row.value}%` : row.value}</strong></button>`).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
   card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PARLOR RECORDS · VERIFIED</div><h2 class="t-section g100" id="rankings-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-description">Scores come from completed server games and verified achievements.</p></div><button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="ranking-metrics" role="tablist" aria-label="Ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div>`;
+}
+
+const RULES_SECTIONS = [
+  {
+    id: "start-here",
+    label: "START HERE",
+    kicker: "01 · QUICK BRIEF",
+    title: "One table. Forty spaces. Last wallet standing.",
+    status: "LIVE",
+    summary: "Poorup is a real-time property game for two to four players. Roll, move clockwise, make the next legal decision, and keep the table moving.",
+    content: `<div class="rules-callout"><strong class="t-label f13 g100">THE SHORT VERSION</strong><p class="t-body ink-2">Start on GO at space 0. Salvador is space 1. Every player takes a turn in order. Buy useful property, charge rent, manage cash, and survive the table longer than everyone else.</p></div><h3 class="t-section g300">A complete turn</h3><ol class="rules-steps"><li><span class="rules-step-number">01</span><div><strong class="t-label f12 g100">ROLL</strong><p class="t-body ink-2">The active player rolls the dice once. The server moves the token one space at a time.</p></div></li><li><span class="rules-step-number">02</span><div><strong class="t-label f12 g100">RESOLVE</strong><p class="t-body ink-2">Resolve the landed space, card, rent, tax, purchase, auction, or prison rule before ending the turn.</p></div></li><li><span class="rules-step-number">03</span><div><strong class="t-label f12 g100">CHOOSE</strong><p class="t-body ink-2">Buy, build, mortgage, trade, accept a loan, place a legal market action, or pass when the game allows it.</p></div></li><li><span class="rules-step-number">04</span><div><strong class="t-label f12 g100">END</strong><p class="t-body ink-2">Press End Turn only after every required decision is complete. The next player then becomes active.</p></div></li></ol><div class="rules-inline-note"><span class="t-micro g400">SOURCE OF TRUTH</span><span class="t-body ink-2">The server owns balances, movement, ownership, event outcomes, and settlement. The browser renders the latest snapshot.</span></div>`,
+  },
+  {
+    id: "board-tiles",
+    label: "BOARD & TILES",
+    kicker: "02 · THE MAP",
+    title: "Read the board clockwise",
+    status: "LIVE",
+    summary: "The board has forty spaces. The visual order and server index are the same, starting at GO space 0 and moving right across the top edge.",
+    content: `<div class="rules-board-order"><div><span class="t-micro g400">CLOCKWISE INDEX</span><strong class="t-label f20 g100">0 → 39</strong></div><div><span class="t-micro g400">CORNERS</span><strong class="t-label f12 g100">GO · PASSING BY / PRISON · VACATION · GO TO PRISON</strong></div></div><h3 class="t-section g300">Space families</h3><div class="rules-term-grid"><div><strong class="t-label f12 g100">PROPERTY</strong><p class="t-body ink-2">Buy deeds, collect rent, build evenly, and group properties by their color strip.</p></div><div><strong class="t-label f12 g100">SUPPORT</strong><p class="t-body ink-2">Airports, Electric Company, and Water Company use their own settlement rules.</p></div><div><strong class="t-label f12 g100">CARD</strong><p class="t-body ink-2">Surprise and Treasure draw from separate decks. Each card resolves on the server.</p></div><div><strong class="t-label f12 g100">TAX</strong><p class="t-body ink-2">Earnings Tax and Premium Tax remove cash. The active event can add a disclosed modifier.</p></div><div><strong class="t-label f12 g100">CORNER</strong><p class="t-body ink-2">GO pays on passage, Passing By has an outside lane and prison lane, Vacation uses the optional pool, and Go to Prison sends you to prison.</p></div><div><strong class="t-label f12 g100">NEUTRAL</strong><p class="t-body ink-2">Treasure, Surprise, and Vacation do not belong to a country group.</p></div></div>`,
+  },
+  {
+    id: "turn-flow",
+    label: "TURN FLOW",
+    kicker: "03 · TABLE RHYTHM",
+    title: "The next legal action is always the priority",
+    status: "LIVE",
+    summary: "Poorup uses a small state machine so movement never skips a purchase, card, auction, or payment decision.",
+    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. The server rejects stale or out-of-turn requests.</li><li>The turn timer, when enabled, advances through the same legal resolution path rather than skipping settlement.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
+  },
+  {
+    id: "cash-bank",
+    label: "CASH & BANK",
+    kicker: "04 · THE LEDGER",
+    title: "Every dollar has a reason",
+    status: "LIVE",
+    summary: "Cash is server-authoritative. The bank pays rewards, collects taxes, settles purchases, and records every important transfer in the log.",
+    content: `<h3 class="t-section g300">Cash rules</h3><ul class="rules-bullets"><li>Each player starts with the lobby's Starting Cash value.</li><li>Passing GO pays $200. Landing exactly on GO pays the configured Double GO amount when enabled.</li><li>Cash can move through rent, cards, taxes, prizes, trades, loans, builds, mortgages, and the Vacation pool.</li><li>Payments settle atomically. If available cash is insufficient, the game opens the legal debt or bankruptcy path instead of silently going negative.</li></ul><h3 class="t-section g300">Vacation pool</h3><p class="t-body ink-2">When Vacation Pool is on, configured taxes and penalties feed the center pool. Landing on Vacation claims the pool. The setting does not change the tile order or movement index.</p><div class="rules-warning"><span class="t-micro red">DO NOT ASSUME</span><span class="t-body ink-2">A visual cash number is not a permission to spend. The server checks current cash again when an action settles.</span></div>`,
+  },
+  {
+    id: "properties",
+    label: "PROPERTIES",
+    kicker: "05 · DEEDS",
+    title: "Build a group, then make it work",
+    status: "LIVE",
+    summary: "Properties are grouped by their color strip. The strip is the association; the name, price, and rotation are presentation only.",
+    content: `<h3 class="t-section g300">Buying</h3><p class="t-body ink-2">When you land on an unowned property, you can buy it at the printed price. If Auction is on and you pass, the deed can go to a server-run auction.</p><h3 class="t-section g300">Rent</h3><ul class="rules-bullets"><li>Rent depends on the deed, group ownership, and building level.</li><li>Owning every deed in a group activates the group's monopoly multiplier.</li><li>Mortgaged deeds do not collect normal rent until redeemed.</li><li>No Rent In Jail prevents an owner in prison from collecting rent during the configured turn.</li></ul><h3 class="t-section g300">Building</h3><p class="t-body ink-2">Build evenly across a complete group. Houses use the shared house bank. Four houses can become a hotel when a hotel is available. House and hotel limits are lobby settings.</p>`,
+  },
+  {
+    id: "support-spaces",
+    label: "SUPPORT SPACES",
+    kicker: "06 · AIRPORTS & UTILITIES",
+    title: "Support tiles amplify the table",
+    status: "LIVE",
+    summary: "Airports and utilities are independent support tiles. They are not country properties and do not change the board's physical dimensions.",
+    content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">AIRPORTS</strong><p class="t-body ink-2">ACC, BKK, AMS, and MB Airport are separate deeds priced at $200. Airport effects and rent are resolved by the server.</p></div><div><strong class="t-label f12 g100">ELECTRIC COMPANY</strong><p class="t-body ink-2">A utility deed whose charge is calculated from the dice result and ownership state.</p></div><div><strong class="t-label f12 g100">WATER COMPANY</strong><p class="t-body ink-2">A utility deed with the same support-tile settlement contract and its own printed price.</p></div><div><strong class="t-label f12 g100">COLOR STRIPS</strong><p class="t-body ink-2">Only property strips define country groups. Airports and utilities never inherit a country group.</p></div></div>`,
+  },
+  {
+    id: "cards",
+    label: "SURPRISE & TREASURE",
+    kicker: "07 · CARD DECKS",
+    title: "A draw is a decision, not decoration",
+    status: "LIVE",
+    summary: "Surprise and Treasure are separate decks with classic-style movement, cash, repairs, jail, and player interaction effects.",
+    content: `<h3 class="t-section g300">When a card appears</h3><p class="t-body ink-2">Landing on Surprise draws from the Surprise deck. Landing on Treasure draws from the Treasure deck. The server removes the card, resolves its action, and records the result.</p><h3 class="t-section g300">Card result patterns</h3><ul class="rules-bullets"><li>Move to a named space, with GO payment when the move passes GO.</li><li>Collect or pay a cash amount.</li><li>Collect from every player or pay every player.</li><li>Pay a repair amount per house or hotel based on your current buildings.</li><li>Go directly to prison or receive a Get Out of Prison card.</li><li>Return the card to the bottom of its deck after settlement.</li></ul><div class="rules-inline-note"><span class="t-micro g400">RESULT COPY</span><span class="t-body ink-2">Dynamic card results show the actual amount paid or received, not only the card's formula.</span></div>`,
+  },
+  {
+    id: "trade-auction",
+    label: "TRADES & AUCTIONS",
+    kicker: "08 · NEGOTIATION",
+    title: "Make deals without losing the ledger",
+    status: "LIVE",
+    summary: "Trading is player-driven, while auctions are server-timed. Both systems lock the assets they are settling before cash changes hands.",
+    content: `<h3 class="t-section g300">Trades</h3><ul class="rules-bullets"><li>Trading must be enabled in the room settings.</li><li>Choose deeds and cash, send the offer, and wait for the recipient's decision.</li><li>Both players must still own the offered deeds and have the offered cash when accepted.</li><li>Houses and hotels must be resolved according to the deed rules before a property can move.</li></ul><h3 class="t-section g300">Auctions</h3><ul class="rules-bullets"><li>An auction starts when a buyer passes an unowned deed and Auction is enabled.</li><li>Players bid with available cash. The timer and leading bid are visible to the table.</li><li>The winner pays the final bid atomically or the server advances to the next valid bidder.</li><li>Disconnects and late bids cannot create a second winner.</li></ul>`,
+  },
+  {
+    id: "build-mortgage",
+    label: "BUILD & MORTGAGE",
+    kicker: "09 · ASSET CONTROL",
+    title: "Liquidity has a cost",
+    status: "LIVE",
+    summary: "Build when a group is complete and mortgage only when you understand the recovery cost. The deed manager keeps both actions visible.",
+    content: `<h3 class="t-section g300">Houses and hotels</h3><p class="t-body ink-2">Construction is even across a group, limited by the shared bank, and blocked when a global event freezes building. A hotel replaces four houses on the same deed.</p><h3 class="t-section g300">Mortgage</h3><ul class="rules-bullets"><li>Mortgage releases emergency cash but disables normal rent.</li><li>Redeeming a mortgage costs the mortgage value plus the configured interest.</li><li>Bank-loan collateral locks cannot be mortgaged or traded until the loan is settled.</li><li>Bankruptcy settlement liquidates or transfers assets through the server's declared order.</li></ul>`,
+  },
+  {
+    id: "prison-vacation",
+    label: "PRISON & CORNERS",
+    kicker: "10 · CORNER RULES",
+    title: "Passing by is two lanes in one corner",
+    status: "LIVE",
+    summary: "The Passing By / Prison corner is one board space with an outside lane and an interior prison lane. Landing on it and passing it are different outcomes.",
+    content: `<div class="rules-callout"><strong class="t-label f13 g100">PASSING BY LANE</strong><p class="t-body ink-2">A player who simply passes the corner continues around the outside lane. They are not in prison.</p><strong class="t-label f13 g100">PRISON LANE</strong><p class="t-body ink-2">A player sent to prison or landing on the prison area is shown inside the bars. Their movement and rent rules follow the prison state.</p></div><h3 class="t-section g300">Leaving prison</h3><ul class="rules-bullets"><li>Pay the configured fine.</li><li>Use a Get Out of Prison card.</li><li>Roll the required doubles path when the rules allow it.</li></ul><p class="t-body ink-2">Go to Prison sends the player directly to prison without collecting a passage reward. Vacation is a neutral corner and can hold the optional pool.</p>`,
+  },
+  {
+    id: "loans",
+    label: "LOANS & BANKRUPTCY",
+    kicker: "11 · FINANCING",
+    title: "Borrow only when the table can carry it",
+    status: "LIVE",
+    summary: "Player loans and bank loans are separate contracts. Both are recorded, visible, and resolved before a player can quietly spend beyond their means.",
+    content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, premium, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan or equity deal is a social contract recorded in the room history. The server validates the transfer, but players negotiate the terms.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">Elimination removes a busted player from the active turn order. Debt Deal mode can transfer assets and keep the player in the table when the room setting allows it.</p>`,
+  },
+  {
+    id: "global-events",
+    label: "GLOBAL EVENTS",
+    kicker: "12 · HEADLINES",
+    title: "Rare headlines change the weather",
+    status: "LIVE",
+    summary: "Global Events are optional, server-authoritative, and shared by the whole table. They scale with round progress instead of exposing a pile of tuning sliders.",
+    content: `<h3 class="t-section g300">Lifecycle</h3><div class="rules-code-flow"><span>ELIGIBLE</span><i>→</i><span>WARNING</span><i>→</i><span>ACTIVE</span><i>→</i><span>RECOVERY</span><i>→</i><span>ENDED</span></div><ul class="rules-bullets"><li>Early rounds establish the economy. Negative crises are not eligible immediately.</li><li>A warning appears before a negative modifier activates.</li><li>One event normally runs at a time. Curated combinations are capped and named.</li><li>Duration, rarity, and severity derive from round progress and event tier.</li><li>The banner, event log, and reconnect snapshot show the same remaining-round count.</li></ul><h3 class="t-section g300">What events can touch</h3><p class="t-body ink-2">Events may affect rent, construction, taxes, loans, support tiles, casino limits, market prices, volatility, and recovery. They never silently change a committed transaction.</p><div class="rules-warning"><span class="t-micro red">FAIRNESS RULE</span><span class="t-body ink-2">A casino event can change a disclosed limit or fee. It cannot secretly change the red, black, or green odds.</span></div>`,
+  },
+  {
+    id: "casino-market",
+    label: "CASINO & MARKET",
+    kicker: "13 · ECONOMY ADD-ONS",
+    title: "Optional systems, clearly marked",
+    status: "PLANNED",
+    summary: "The Casino and fictional Market are designed as optional room add-ons. Their contracts are documented now and will be marked LIVE only after server settlement ships.",
+    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. It uses fictional board money only. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. Players buy and sell without margin, shorting, options, or real-world securities. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems are OFF by default in classic rooms.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">PLANNED · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
+  },
+  {
+    id: "bots",
+    label: "BOTS",
+    kicker: "14 · DECISIONS",
+    title: "CPU seats follow the same contracts",
+    status: "LIVE",
+    summary: "Bots are reserved seats in the lobby and use the same server rules as human players. They are not allowed to bypass turn gates or money checks.",
+    content: `<ul class="rules-bullets"><li>Bots buy, pass, build, mortgage, trade, and bid according to a bounded risk profile.</li><li>A bot preserves a cash buffer for rent, taxes, and known obligations.</li><li>Bots never borrow money to gamble and cannot see private player information.</li><li>Bot decisions are resolved through the same action events, making them visible in the log and replayable in tests.</li><li>Future AI decision providers remain behind a deterministic fallback so a provider outage cannot stall a table.</li></ul>`,
+  },
+  {
+    id: "social-profile",
+    label: "SOCIAL & PROFILES",
+    kicker: "15 · PARLOR PEOPLE",
+    title: "Stay in the table while you connect",
+    status: "LIVE",
+    summary: "Social and profile surfaces are independent top-level pages, while in-game player cards keep friend actions inside the game shell.",
+    content: `<h3 class="t-section g300">Profiles</h3><p class="t-body ink-2">A profile contains public identity, selected design, statistics, match history, and achievements. Passwords and private account data never appear on another player's public card.</p><h3 class="t-section g300">Friends</h3><ul class="rules-bullets"><li>Search uses the unique username, not the display name.</li><li>Friend requests, blocks, reports, and room invites are server records.</li><li>Clicking an in-game player opens a read-only card with social actions. The player stays in the lobby or round.</li><li>Match history is private to its owner and accepted friends.</li></ul><h3 class="t-section g300">Rankings</h3><p class="t-body ink-2">Rankings are global, read-only projections of completed server games, wins, win rate, achievements, and bankruptcies.</p>`,
+  },
+  {
+    id: "achievements",
+    label: "ACHIEVEMENTS",
+    kicker: "16 · RECORDS",
+    title: "Badges remember the strange plays",
+    status: "LIVE",
+    summary: "Achievements are grouped by tablecraft, global events, social play, secrets, and Patrol. Mythical achievements are rare and announced globally.",
+    content: `<ul class="rules-bullets"><li>Click an achievement to open its readable detail dialog.</li><li>Filter by category, when earned, and rarity without leaving the Profile page.</li><li>Rarity uses text and color: Common, Uncommon, Rare, Epic, Legendary, and Mythical.</li><li>Mythical unlocks create a room-wide announcement to every player in the current room, not a global broadcast across unrelated rooms.</li><li>Achievement progress is never a hidden cash requirement and does not change the rules of a live match.</li></ul>`,
+  },
+  {
+    id: "lobby-settings",
+    label: "LOBBY SETTINGS",
+    kicker: "17 · HOST CONTROL",
+    title: "Every switch has a consequence",
+    status: "LIVE",
+    summary: "Hosts configure the table before the first round. The active rules snapshot stays visible in the lobby so nobody has to guess what changed.",
+    content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats at the table.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme premium tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">Off, Rare, or Hardcore event prototype today. The planned contract collapses this to ON/OFF with derived scaling.</span></div><div><strong class="t-label f12 g100">House / Hotel Limit</strong><span class="t-body ink-2">Shared bank supply for construction.</span></div><div><strong class="t-label f12 g100">Turn Timer</strong><span class="t-body ink-2">Off, 30 seconds, 60 seconds, or 2 minutes.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Eliminate a busted player or resolve a debt deal.</span></div></div>`,
+  },
+  {
+    id: "reconnect-accessibility",
+    label: "RECONNECT & ACCESS",
+    kicker: "18 · TRUST",
+    title: "The table should survive the real world",
+    status: "LIVE",
+    summary: "Poorup is designed for a remote game night: reconnects, clear announcements, keyboard navigation, and reduced motion are part of the rules surface.",
+    content: `<h3 class="t-section g300">Reconnect</h3><p class="t-body ink-2">A reconnect receives the latest server snapshot, room membership, turn stage, open obligation, event banner, and player appearance. It does not replay settled cash or card transactions.</p><h3 class="t-section g300">Accessibility</h3><ul class="rules-bullets"><li>All actions use native buttons, links, inputs, or selects.</li><li>Focus rings remain visible and blocking surfaces manage keyboard focus.</li><li>State is not communicated by color alone. Labels, symbols, and status text accompany color.</li><li>Reduced-motion preferences disable decorative movement while preserving state changes.</li><li>Audio effects and music are independent, global toggles with accessible names.</li></ul>`,
+  },
+];
+
+function rulesSectionById(id) {
+  return RULES_SECTIONS.find((section) => section.id === id) || RULES_SECTIONS[0];
+}
+
+function openRulesSurface(section = "start-here") {
+  state.rulesSection = rulesSectionById(section).id;
+  showView("rules");
+  renderRulesSurface("#rules-page-content");
+  requestAnimationFrame(() => {
+    const target = $(`#rules-${state.rulesSection}`);
+    if (!target) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    target.querySelector("h2")?.focus({ preventScroll: true });
+  });
+}
+
+function renderRulesSurface(target = "#rules-page-content") {
+  const root = $(target);
+  if (!root) return;
+  const active = rulesSectionById(state.rulesSection);
+  const query = String(state.rulesQuery || "").trim().toLowerCase();
+  const matches = (section) => !query || [section.label, section.title, section.summary, section.content].join(" ").toLowerCase().includes(query);
+  root.innerHTML = `<div class="rules-shell">
+    <div class="rules-intro panel noise">
+      <div class="rules-intro-icon"><img src="/assets/rules-book.svg" alt="" width="36" height="36"></div>
+      <div class="rules-intro-copy"><div class="t-micro g400">AFTER-HOURS FIELD MANUAL</div><h1 class="t-section g100" id="rules-page-title">Poorup Rules</h1><p class="t-body ink-2">A readable guide to the board, the economy, the people, and the systems that keep a table fair.</p></div>
+      <div class="rules-intro-meta"><span class="t-micro ink-3">REFERENCE BUILD</span><strong class="t-label f12 g100">v2.4 · LIVE CONTRACTS</strong></div>
+    </div>
+    <div class="rules-toolbar panel noise" role="search"><label class="rules-search-label" for="rules-search"><span class="t-micro g400">FIND IN RULES</span><input class="field" id="rules-search" type="search" value="${esc(state.rulesQuery || "")}" placeholder="SEARCH THE FIELD MANUAL…" autocomplete="off"></label><span class="t-micro ink-3 rules-search-count" id="rules-search-count">${matches(RULES_SECTIONS).length} SECTIONS</span></div>
+    <div class="rules-layout">
+      <aside class="rules-index panel noise" aria-label="Rules sections"><div class="rules-index-head"><span class="t-micro g400">CONTENTS</span><span class="t-micro ink-3">${RULES_SECTIONS.length} CHAPTERS</span></div><nav class="rules-index-nav" aria-label="Rules chapters">${RULES_SECTIONS.map((section, index) => `<button class="rules-index-link${section.id === active.id ? " is-active" : ""}${matches(section) ? "" : " is-filtered"}" type="button" data-rules-section="${section.id}" aria-current="${section.id === active.id ? "page" : "false"}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span></button>`).join("")}</nav></aside>
+      <div class="rules-section-list" id="rules-section-list">${RULES_SECTIONS.map((section, index) => `<article class="rules-article panel noise${matches(section) ? "" : " is-filtered"}" id="rules-${section.id}" data-rules-card data-rules-title="${esc(`${section.label} ${section.title}`)}"><div class="rules-article-head"><div><span class="t-micro g400">${section.kicker}</span><h2 class="t-section g100" tabindex="-1">${section.title}</h2><p class="t-body ink-2 rules-article-summary">${section.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span><span class="t-micro ink-3">${String(index + 1).padStart(2, "0")}</span></div></div><div class="rules-article-body">${section.content}</div></article>`).join("")}${matches(active) ? "" : `<div class="rules-empty panel noise"><span class="t-micro g400">NO MATCH IN THIS MANUAL</span><strong class="t-label f13 g100">Try another phrase.</strong></div>`}</div>
+    </div>
+  </div>`;
+  hydrateSprites(root);
+  const count = root.querySelector("#rules-search-count");
+  if (count) count.textContent = `${RULES_SECTIONS.filter(matches).length} SECTIONS`;
 }
 
 function openPlayerSurface(playerId) {
@@ -6290,6 +6497,7 @@ function showView(name) {
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
   $("#view-rankings")?.classList.toggle("is-hidden", name !== "rankings");
   $("#view-social")?.classList.toggle("is-hidden", name !== "social");
+  $("#view-rules")?.classList.toggle("is-hidden", name !== "rules");
   syncGlobalNavigation(name);
   window.scrollTo(0, 0);
   syncSurfaceA11y();
@@ -6449,7 +6657,11 @@ function bindEvents() {
     if (tab === "profile") openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
   });
   document.querySelectorAll("[data-top-surface]").forEach((button) => {
-    button.addEventListener("click", () => button.dataset.topSurface === "rankings" ? openRankingsSurface() : openSocialSurface());
+    button.addEventListener("click", () => {
+      if (button.dataset.topSurface === "rankings") openRankingsSurface();
+      else if (button.dataset.topSurface === "social") openSocialSurface();
+      else if (button.dataset.topSurface === "rules") openRulesSurface();
+    });
   });
   document.querySelectorAll("[data-top-back]").forEach((button) => {
     button.addEventListener("click", () => showView(button.dataset.topBack || "home"));
@@ -6469,6 +6681,21 @@ function bindEvents() {
         setHomeTab("play");
         renderHome();
       }
+    });
+  });
+  $("#rules-page-content")?.addEventListener("click", (event) => {
+    const chapter = event.target.closest("[data-rules-section]");
+    if (chapter) openRulesSurface(chapter.dataset.rulesSection);
+  });
+  $("#rules-page-content")?.addEventListener("input", (event) => {
+    if (event.target.id !== "rules-search") return;
+    const value = event.target.value;
+    state.rulesQuery = value;
+    renderRulesSurface("#rules-page-content");
+    requestAnimationFrame(() => {
+      const input = $("#rules-search");
+      input?.focus({ preventScroll: true });
+      input?.setSelectionRange(value.length, value.length);
     });
   });
 
@@ -6921,14 +7148,14 @@ function bindEvents() {
   const syncAudioButtons = () => {
     const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
     const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
-    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#profile-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn")].forEach((button) => {
+    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#profile-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn"), $("#rules-sound-toggle-btn")].forEach((button) => {
       if (!button) return;
       button.setAttribute("aria-pressed", String(state.sound));
       button.setAttribute("aria-label", state.sound ? "Turn sound effects off" : "Turn sound effects on");
       const icon = button.querySelector("img");
       if (icon) icon.src = soundSrc;
     });
-    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#profile-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn")].forEach((button) => {
+    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#profile-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn"), $("#rules-music-toggle-btn")].forEach((button) => {
       if (!button) return;
       button.setAttribute("aria-pressed", String(state.music));
       button.setAttribute("aria-label", state.music ? "Turn parlor music off" : "Turn parlor music on");
@@ -6964,6 +7191,8 @@ function bindEvents() {
   $("#rankings-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
   $("#social-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
   $("#social-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
+  $("#rules-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
+  $("#rules-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
   $("#night-exit")?.addEventListener("click", stopNightShift);
 
