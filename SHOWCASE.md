@@ -19,6 +19,11 @@ Features include:
 - Configurable game rules per room (double rent, vacation cash, even build, auction, mortgage, randomized turn order, no rent in jail)
 - Reconnect support — if you disconnect mid-turn, you can rejoin and resume
 - In-game chat
+- Optional server-settled Casino and fictional Market tabs
+- Round-scaled Global Events with warning, recovery, and curated combinations
+- Server-backed social graph, public player cards, recent players, and match history
+- Achievements with verified unlock records and rarity-aware rankings
+- Server-controlled CPU seats with selectable bot personalities
 - Automatic room cleanup when everyone leaves
 
 ---
