@@ -2220,6 +2220,7 @@ a:focus-visible {
   /* The arrow is a non-game back affordance. Reclaim its flex slot so the
      shared navigation starts at the same x-position as the Home header. */
   .profile-back,
+  #view-rules .hdr-brand,
   #view-rankings .hdr-brand,
   #view-social .hdr-brand { margin-right: -40px; }
 }
