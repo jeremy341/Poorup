@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server/server.js",
-    "start": "node server/server.js"
+    "start": "node server/server.js",
+    "test": "node server/gameLogic.test.js"
   },
   "dependencies": {
     "express": "^4.21.0",
