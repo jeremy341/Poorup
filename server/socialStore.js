@@ -72,7 +72,9 @@ export class SocialStore {
     if (!fromId || !toId || fromId === toId) return { success: false, error: 'Choose another player.' };
     if (this.areBlocked(fromId, toId)) return { success: false, error: 'This player is unavailable.' };
     const existing = this.friendshipBetween(fromId, toId);
-    if (existing) return { success: false, error: existing.status === 'accepted' ? 'You are already friends.' : 'A friend request is already pending.' };
+    if (existing?.status === 'accepted') return { success: false, error: 'You are already friends.' };
+    if (existing?.status === 'requested') return { success: false, error: 'A friend request is already pending.' };
+    if (existing) this.friendships = this.friendships.filter(entry => entry.id !== existing.id);
     const friendship = { id: id('friend'), requesterId: fromId, addresseeId: toId, status: 'requested', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     this.friendships.push(friendship);
     this.persist();
@@ -86,6 +88,14 @@ export class SocialStore {
     friendship.updatedAt = new Date().toISOString();
     this.persist();
     return { success: true, friendship };
+  }
+
+  cancelFriendRequest(accountId, friendshipId) {
+    const index = this.friendships.findIndex(entry => entry.id === friendshipId && entry.requesterId === accountId && entry.status === 'requested');
+    if (index < 0) return { success: false, error: 'That friend request is no longer pending.' };
+    this.friendships.splice(index, 1);
+    this.persist();
+    return { success: true, canceled: true };
   }
 
   removeFriend(accountId, otherId) {
@@ -125,7 +135,7 @@ export class SocialStore {
   }
 
   createInvite({ roomCode, roomName, visibility, senderId, recipientId }) {
-    if (!senderId || !recipientId || this.areBlocked(senderId, recipientId)) return { success: false, error: 'This player is unavailable.' };
+    if (!senderId || !recipientId || senderId === recipientId || this.areBlocked(senderId, recipientId)) return { success: false, error: 'This player is unavailable.' };
     const existing = this.invites.find(invite => invite.roomCode === roomCode && invite.senderId === senderId && invite.recipientId === recipientId && invite.status === 'pending');
     if (existing) return { success: false, error: 'This room invite is already pending.' };
     const invite = { id: id('invite'), roomCode, roomName, visibility, senderId, recipientId, status: 'pending', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
@@ -137,10 +147,20 @@ export class SocialStore {
   respondInvite(accountId, inviteId, accept) {
     const invite = this.invites.find(entry => entry.id === inviteId && entry.recipientId === accountId && entry.status === 'pending');
     if (!invite) return { success: false, error: 'That room invite has expired.' };
+    if (Date.parse(invite.expiresAt || '') <= Date.now()) {
+      invite.status = 'expired';
+      invite.updatedAt = new Date().toISOString();
+      this.persist();
+      return { success: false, error: 'That room invite has expired.' };
+    }
     invite.status = accept ? 'accepted' : 'declined';
     invite.updatedAt = new Date().toISOString();
     this.persist();
     return { success: true, invite };
+  }
+
+  getInvite(accountId, inviteId) {
+    return this.invites.find(entry => entry.id === inviteId && entry.recipientId === accountId && entry.status === 'pending') || null;
   }
 
   addNotification(accountId, notification) {
