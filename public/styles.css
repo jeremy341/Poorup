@@ -48,6 +48,9 @@
   --surface-board-center: #031d1e;
   --surface-input: #061216;
   --surface-button-dark: #081516;
+  --surface-error: #170807;
+  --line-error: #af2a21;
+  --text-error: #f0b1a6;
 
   --gold-050: #f0d9ac;
   --gold-100: #e8d3ab;
@@ -1363,6 +1366,9 @@ a:focus-visible {
 }
 .su-opt-profile .su-av { border-color: var(--gold-500); }
 .su-state { margin-top: 6px; display: block; }
+.su-opt.is-taken { border-style: dashed; border-color: var(--line-dark); background: var(--surface-panel-deep); }
+.su-opt.is-taken .su-av { filter: grayscale(1); opacity: 0.45; border-color: var(--line-dark); }
+.su-opt.is-taken .su-state { color: var(--red-bright); }
 
 .su-opt-profile-wrap {
   display: flex; align-items: center; gap: 8px;
@@ -1762,12 +1768,21 @@ a:focus-visible {
 .social-notification-row .t-body { font-size: 12px; }
 .social-notification-row.is-unread { border-color: var(--line-active); }
 .toast-stack { position: fixed; z-index: 75; top: 78px; right: 18px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; width: min(360px, calc(100vw - 36px)); pointer-events: none; }
-.parlor-toast { width: 100%; padding: 11px 13px; background: var(--surface-panel); border: 1px solid var(--line-active); box-shadow: 0 10px 28px rgb(0 0 0 / 48%); animation: parlor-toast-in 180ms steps(3, end) both; }
 .parlor-toast.is-mythical { border-color: #18d6d0; box-shadow: 2px 0 0 rgb(231 76 207 / 62%), 0 10px 28px rgb(0 0 0 / 48%); }
 .parlor-toast-title { display: block; color: var(--gold-050); }
 .parlor-toast-body { display: block; margin-top: 5px; color: var(--text-secondary); font-family: var(--font-body); font-size: 12px; line-height: 1.35; }
-@keyframes parlor-toast-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
-@media (prefers-reduced-motion: reduce) { .parlor-toast { animation: none; } }
+.parlor-toast { position: relative; width: 100%; padding: 11px 32px 11px 13px; background: var(--surface-panel); border: 1px solid var(--line-active); box-shadow: 0 10px 28px rgb(0 0 0 / 48%); animation: parlor-toast-in 180ms steps(3, end) backwards; pointer-events: auto; cursor: pointer; }
+.parlor-toast-close { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; padding: 0; display: grid; place-items: center; color: var(--text-muted); border: 1px solid transparent; border-radius: 2px; }
+.parlor-toast-close:hover, .parlor-toast-close:focus-visible { color: var(--gold-050); border-color: var(--line-default); background: var(--surface-panel-raised); }
+.parlor-toast.is-error { border-color: var(--line-error); background: var(--surface-error); box-shadow: 0 10px 28px rgb(0 0 0 / 55%), inset 0 0 0 1px rgb(175 42 33 / 22%); }
+.parlor-toast-glyph { flex-shrink: 0; width: 12px; height: 12px; margin-top: 2px; color: var(--red-bright); }
+.parlor-toast-glyph svg { display: block; width: 100%; height: 100%; }
+.parlor-toast.is-error > .t-label { display: flex; align-items: flex-start; gap: 8px; color: var(--text-error); }
+/* stack lift: older siblings shift up + shrink as they sink away (Kowalski pattern) */
+.parlor-toast { transform: translateY(calc(-14px * var(--toasts-before, 0))) scale(calc(1 - 0.05 * var(--toasts-before, 0))); }
+@keyframes parlor-toast-in { from { opacity: 0; transform: translateX(12px); } }
+@keyframes parlor-toast-out { to { opacity: 0; transform: translateX(10px); } }
+@media (prefers-reduced-motion: reduce) { .parlor-toast { animation: none; transform: none; } .parlor-toast.is-leaving { opacity: 0; } }
 .social-signin-note { display: grid; gap: 10px; padding: 16px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .social-signin-note button { min-height: 42px; }
 .social-empty { padding: 24px 8px; text-align: center; }
@@ -2278,6 +2293,7 @@ a:focus-visible {
 .account-field .field[aria-invalid="true"] { border-color: var(--red-bright); }
 .account-field .field[aria-invalid="false"] { border-color: var(--green-status); }
 .account-form-error { min-height: 18px; margin-top: 10px; color: var(--red-bright); font-family: var(--font-body); font-size: 12px; line-height: 1.4; }
+.account-form-error:not(:empty) { padding: 7px 9px; background: var(--surface-error); border: 1px solid var(--line-error); }
 .account-submit { width: 100%; height: 50px; margin-top: 2px; }
 .account-modal-foot { margin-top: 12px; text-align: center; }
 .account-privacy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
