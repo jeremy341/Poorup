@@ -59,6 +59,18 @@ Closed the deferred UI items and three user-reported bugs.
 
 **Verification (phase 4):** `npm test` = **9 suites — 9 passed** (contract 10 added). Two-tab live proof of #B3 against a fresh server on :8091 (private room `TST01A`): 8/8 — turn holds after landing with "End Turn" label, explicit END passes the dice, second player's turn identical, zero page errors. Full UI-round suite (`.local-verify-ui.mjs`, two tabs, private room `UI0001`): **17/17** — S1 picker TAKEN both directions + seat-colour alignment, S2 error toast (border/glyph/close/announcer) + stack lift 0..3 + click-dismiss, S3 popup blocked at home with notice + still opens mid-game, S4 night shift + hint, #12 real-hidden-tab freeze + result-countdown survives hidden window and fires on resume, no page errors. Note: guest "empty roomCode" triaged as **not a bug** — `create-room`/`join-room` acks intentionally return `roomCode: null` for public rooms (`server.js:782`); joins use the browse directory.
 
+
+---
+
+## Fix Status — 2026-09-03 (phase 5: "hearts appear at random" in Night Shift)
+
+User report: while playing Night Shift ("parlor mode") hearts kept blanking at seemingly random moments. Reproduced live and root-caused to the #12 freeze from phase 3 being **half-wired**:
+
+- The `night-shift-paused` body class — whose CSS rule (`styles.css:639-641`) pauses in-flight `.night-target` animations — was *removed* by the resume/stop coordinators but never *added* on hide. Aircraft kept flying (and escaping off-screen) while the window was hidden; the probe measured transforms advancing ~900px/2s during a fake-hide with `animationPlayState: "running"`.
+- `settle()`'s hidden guard swallowed the `animationend` of any craft that finished off-screen (once-listener consumed, event dropped), and the resume re-arm (`main.js` coordinator) then scheduled a fresh miss backstop for the **full** flight duration (`setTimeout(timers.settle, timers.backstop)`) instead of the remaining time.
+- Net symptom, measured pre-fix: first heart lost **260 ms** after returning to the tab — a phantom escape with nothing on screen — then more at +3 s and +8.5 s, untethered from any visible aircraft. Reads exactly like "hearts appearing at random".
+
+**Fix (`public/main.js`):** hide now adds `night-shift-paused` (CSS freeze finally wired up) and records each target's elapsed backstop time (`missStartedAt`/`missElapsed`); a flight that genuinely ended while hidden records `endedWhileHidden` and settles **immediately on resume** instead of dropping the event; remaining backstops re-arm for `backstop − elapsed` (min 250 ms). Post-fix probe: transforms byte-identical at hide+2 s/+4 s with `animationPlayState: "paused"`; first loss now 4.1 s after resume — an aircraft visibly completing its route on screen — then natural ~3 s cadence; zero page errors. `node --check` + `npm test` 9/9 green.
 ---
 
 ## Agent 1: Private Room Create → Join via Code
