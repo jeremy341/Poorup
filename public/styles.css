@@ -490,6 +490,11 @@ a:focus-visible {
 }
 .home-local-time { left: clamp(32px, 5vw, 88px); }
 .home-patrol-score { right: clamp(32px, 5vw, 88px); text-align: right; }
+.home-patrol-hint {
+  position: absolute; top: calc(5% + 52px); right: clamp(32px, 5vw, 88px); z-index: 3; text-align: right;
+  font-family: var(--font-numeric); font-size: clamp(10px, 1vw, 13px); letter-spacing: 0.06em;
+  color: var(--gold-muted); text-shadow: 0 2px 0 rgb(0 0 0 / 55%); pointer-events: none;
+}
 .home-helicopter {
   position: absolute; top: 18%; left: -160px; z-index: 4;
   display: block; width: 128px; height: 64px; padding: 0;
@@ -623,6 +628,7 @@ a:focus-visible {
 }
 .night-shift-open #view-home .parlor-statement,
 .night-shift-open #view-home .home-entry-desk,
+.night-shift-open #view-home .home-patrol-hint,
 .night-shift-open #log-drawer {
   visibility: hidden;
   pointer-events: none;

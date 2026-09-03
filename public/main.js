@@ -8138,6 +8138,21 @@ function bindEvents() {
       startNightShift();
       return;
     }
+    // Shift+P is the primary Night Shift door: it works from any parlor page
+    // and with modals open (the shift always belongs to Home, so go back
+    // first). Typing contexts and Ctrl/Meta/Alt chords stay untouched —
+    // Ctrl+P remains the browser's print shortcut everywhere else.
+    if (
+      state.phase === "home" && !nightShiftState.active
+      && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
+      && e.key.toLowerCase() === "p"
+      && tag !== "INPUT" && tag !== "TEXTAREA" && !e.target?.isContentEditable
+    ) {
+      e.preventDefault();
+      if (!homeVisible || visibleSurfaces().length) goHome();
+      startNightShift();
+      return;
+    }
     const activeSurface = syncSurfaceA11y();
     if (e.key === "Tab" && activeSurface) {
       const focusables = surfaceFocusable(activeSurface);

@@ -8,8 +8,9 @@ remain isolated from the Socket.IO game state and are only active on Home. A
 fly-by starts after about 4 seconds, then short cooldowns keep later passes
 active without turning the skyline into a constant stream.
 
-`Ctrl+P` starts Night Shift from Home. It keeps the moving skyline visible while
-the ordinary Home controls become hidden and inert. The transparent arcade layer
+`Shift+P` starts Night Shift from any parlor page, returning Home first when you were
+elsewhere. It keeps the moving skyline visible while the ordinary Home controls
+become hidden and inert. The transparent arcade layer
 runs infinite 60-second waves with an independent score, countdown, and
 three-heart life system. Hostile helicopters, drones, and airplanes that leave
 the screen cost a heart; beacons are optional bonus targets. Escape or
