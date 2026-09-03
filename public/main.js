@@ -1062,7 +1062,7 @@ function applyServerState(snapshot) {
   const turnKey = `${game.currentPlayerId || "none"}:${game.hasRolled ? "rolled" : "roll"}:${game.extraRollPending ? "extra" : "normal"}`;
   const turnChanged = state.previousTurnKey !== turnKey;
   state.previousTurnKey = turnKey;
-  state.turnStage = game.hasRolled && !game.extraRollPending ? "end" : "roll";
+  state.turnStage = (game.hasRolled && !game.extraRollPending) || game.awaitingEndTurn ? "end" : "roll";
   state.busy = false;
   state.rolling = false;
   state.log = (game.feed || []).map((entry) => typeof entry === "string" ? entry : entry.text).filter(Boolean).slice(0, 40);

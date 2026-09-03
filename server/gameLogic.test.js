@@ -439,6 +439,69 @@ async function run() {
   console.log('legacy smoke checks passed.');
 }
 
+// Contract 10: live turns hold for an explicit endTurn after the landing resolves.
+async function testExplicitEndTurn() {
+  const nodeCrypto = (await import('crypto')).default;
+  const original = nodeCrypto.randomInt;
+  // Queue the next die faces: rollDice draws randomInt(1, 7) twice.
+  const diceQueue = [];
+  nodeCrypto.randomInt = (min, max) => (min === 1 && max === 7 && diceQueue.length ? diceQueue.shift() : original(min, max));
+  try {
+    const room = makeRoom();
+    room.startGame();
+    const a = room.game.players[0];
+    const b = room.game.players[1];
+    assert.equal(room.game.currentPlayerId, a.id);
+
+    // Ending before rolling is rejected.
+    assert.equal(room.endTurn('socket-a').success, false);
+
+    // Land on Passing By (tile 10, jail visit): 7 + 1 + 2. The turn must HOLD.
+    a.position = 7;
+    diceQueue.push(1, 2);
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(a.position, 10);
+    assert.equal(room.game.awaitingEndTurn, true);
+    assert.equal(room.game.currentPlayerId, a.id, 'turn must not auto-advance');
+    assert.equal(room.game.getGameSummary().awaitingEndTurn, true);
+
+    // Only the active player may end.
+    assert.equal(room.endTurn('socket-b').success, false);
+    const ended = room.endTurn('socket-a');
+    assert.equal(ended.success, true);
+    assert.equal(room.game.currentPlayerId, b.id);
+    assert.equal(room.game.awaitingEndTurn, false);
+    assert.equal(room.game.hasRolled, false);
+
+    // Doubles retain the turn for the forced re-roll: no hold, no ending.
+    room.game.getTile(15).ownerId = b.id; // BKK Airport — B's own tile, a plain landing
+    b.position = 4;
+    diceQueue.push(3, 3); // 4 + 6 = 10 → jail visit with doubles pending
+    assert.equal(room.rollDice('socket-b').success, true);
+    assert.equal(room.game.awaitingEndTurn, false);
+    assert.equal(room.game.extraRollPending, true);
+    assert.equal(room.game.currentPlayerId, b.id);
+    assert.equal(room.endTurn('socket-b').success, false, 'doubles force the re-roll');
+    diceQueue.push(2, 3); // 10 + 5 = 15 → own railroad → plain landing → hold
+    assert.equal(room.rollDice('socket-b').success, true);
+    assert.equal(room.game.awaitingEndTurn, true);
+    assert.equal(room.endTurn('socket-b').success, true);
+
+    // Jail stay: failing to roll doubles holds the turn instead of passing it.
+    assert.equal(room.game.currentPlayerId, a.id);
+    a.inJail = true;
+    a.jailTurns = 0;
+    diceQueue.push(1, 3);
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(room.game.awaitingEndTurn, true, 'jail stay must hold for an explicit end');
+    assert.equal(room.game.currentPlayerId, a.id);
+    assert.equal(room.endTurn('socket-a').success, true);
+    assert.equal(room.game.currentPlayerId, b.id);
+  } finally {
+    nodeCrypto.randomInt = original;
+  }
+}
+
 const CONTRACT_SUITES = [
   ['contract 7 — createRoom generated codes never overwrite', testCreateRoomCodeCollision],
   ['contract 6 — join/create color collision auto-assign', testJoinColorUniqueness],
@@ -446,7 +509,8 @@ const CONTRACT_SUITES = [
   ['contract 4 — Room.hasConnectedHumans', testHasConnectedHumans],
   ['contract 5 — listPublicRooms browse purity', testListPublicRooms],
   ['contract 8 — getGameSummary players[] avatarGrid', testGameSummaryAvatarGrid],
-  ['contract 9 — leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame]
+  ['contract 9 — leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame],
+  ['contract 10 — explicit end-turn hold after landing', testExplicitEndTurn]
 ];
 
 let passedCount = 0;

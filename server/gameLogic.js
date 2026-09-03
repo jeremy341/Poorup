@@ -517,6 +517,7 @@ class GameState {
     this.consecutiveDoubles = 0;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
+    this.awaitingEndTurn = false;
     this.pendingPurchaseOffer = null;
     this.started = false;
     this.startedAt = null;
@@ -630,6 +631,7 @@ class GameState {
     this.consecutiveDoubles = 0;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
+    this.awaitingEndTurn = false;
     this.pendingPurchaseOffer = null;
     this.started = false;
     this.startedAt = Date.now();
@@ -1231,6 +1233,7 @@ class GameState {
     this.turnOrder = active.map(p => p.id);
     this.currentPlayerId = this.turnOrder[0] || null;
     this.hasRolled = false;
+    this.awaitingEndTurn = false;
   }
 
   getCurrentPlayer() {
@@ -1328,8 +1331,8 @@ class GameState {
     } else {
       this.feedMessage(`${player.nickname} failed to roll doubles in jail (turn ${player.jailTurns}/${JAIL_MAX_TURNS}).`);
     }
-    this.nextTurn();
-    return { success: true, message: 'You remain in jail and the turn has passed.' };
+    this.awaitingEndTurn = true;
+    return { success: true, message: 'You remain in jail. End your turn when ready.' };
   }
 
   payJailFine(socketId) {
@@ -1525,7 +1528,10 @@ class GameState {
 
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
-    this.nextTurn();
+    // Explicit end-of-turn: the landing resolved, but the dice only pass when
+    // the active player ends the turn (endTurn below). Bots and the AFK
+    // watchdog reach the same door via room.endTurn()/nextTurn().
+    this.awaitingEndTurn = true;
     return { retainedTurn: false };
   }
 
@@ -2227,6 +2233,7 @@ class GameState {
     this.pendingPurchaseOffer = null;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
+    this.awaitingEndTurn = false;
     const nonBankrupt = this.nonBankruptPlayers();
     if (nonBankrupt.length <= 1) {
       this.endGame();
@@ -2843,11 +2850,11 @@ class GameState {
     if (!player || player.id !== this.currentPlayerId) {
       return { success: false, error: 'Only the active player can end the turn.' };
     }
-    if (!this.hasRolled) {
-      return { success: false, error: 'You must roll the dice before ending your turn.' };
-    }
     if (this.extraRollPending || this.turnAllowsExtraRoll) {
       return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    }
+    if (!this.awaitingEndTurn) {
+      return { success: false, error: 'Resolve your roll before ending the turn.' };
     }
     if (this.auction?.active) {
       return { success: false, error: 'Finish the active auction before ending the turn.' };
@@ -2966,6 +2973,7 @@ class GameState {
     this.pendingTrade = null;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
+    this.awaitingEndTurn = false;
     this.consecutiveDoubles = 0;
   }
 
@@ -2976,6 +2984,7 @@ class GameState {
       turnOrder: this.turnOrder || [],
       hasRolled: this.hasRolled,
       extraRollPending: this.extraRollPending,
+      awaitingEndTurn: this.awaitingEndTurn,
       pendingPurchaseOffer: this.pendingPurchaseOffer,
       pendingPayment: this.pendingPayment,
       lastWinner: this.lastWinner,

@@ -332,6 +332,11 @@ function scheduleBotTurn(room) {
       result = room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
     } else if (room.game.auction?.active) {
       result = room.runBotAction(bot.id, actor => room.passAuction(actor));
+    } else if (room.game.awaitingEndTurn) {
+      // The landing resolved but the turn now holds for an explicit end.
+      // Bots end immediately; humans use the END TURN button (or the AFK
+      // watchdog after 180s).
+      result = room.runBotAction(bot.id, actor => room.endTurn(actor));
     } else if (!room.game.hasRolled) {
       const candidates = room.game.getBotCandidates(bot);
       const decision = await botAdvisor.chooseAction({
