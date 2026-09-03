@@ -781,6 +781,13 @@ const SURFACE_SELECTORS = [
   "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bankruptcy-modal",
   "#card-modal", "#card-gallery", "#gameover-modal",
 ];
+
+/* Table popups belong only to a live game — blocked while parked at parlor home. */
+const GAME_POPUP = new Set([
+  "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal",
+  "#auction-modal", "#financing-modal", "#gameover-modal", "#bankruptcy-modal",
+]);
+let nextTableNoticeAt = 0;
 let surfaceReturnFocus = null;
 const surfaceInertNodes = new Set();
 let pendingConfirmation = null;
@@ -832,6 +839,13 @@ function syncSurfaceA11y() {
 
 function openSurface(selector, focusSelector) {
   const surface = $(selector);
+  if (GAME_POPUP.has(selector) && state.phase === "home") {
+    if (Date.now() >= nextTableNoticeAt) {
+      nextTableNoticeAt = Date.now() + 8000;
+      parlorNotice("TABLE NOTICE", "That notice belongs to the table — it can be opened during a game.");
+    }
+    return;
+  }
   if (!surface) return;
   const wasVisible = !surface.classList.contains("is-hidden");
   if (!visibleSurfaces().length && document.activeElement instanceof HTMLElement) surfaceReturnFocus = document.activeElement;
@@ -1012,6 +1026,7 @@ function applyServerState(snapshot) {
     cash: Number(player.cash) || 0,
     pos: Number(player.position) || 0,
     online: !player.disconnected,
+    bankrupt: Boolean(player.bankrupt),
     bot: Boolean(player.isBot),
     jailFree: Number(player.jailFreeCards) || 0,
     bankLoan: player.bankLoan || null,
@@ -1025,7 +1040,6 @@ function applyServerState(snapshot) {
     if (b.clientId === state.clientId) return 1;
     return turnOrder.indexOf(a.serverId) - turnOrder.indexOf(b.serverId);
   });
-  syncLocalAppearance();
   state.turnIndex = Math.max(0, state.players.findIndex((player) => player.serverId === game.currentPlayerId));
   state.dice = Array.isArray(game.lastDice) ? game.lastDice : [0, 0];
   state.roundNumber = Number(game.roundNumber) || 0;
@@ -2081,6 +2095,7 @@ const NIGHT_SHIFT_BEST_KEY = "poorup.night-shift.best.v1";
 let nightShiftWaveTimer = null;
 let nightShiftTickTimer = null;
 let nightShiftResultTimer = null;
+let nightShiftResultEndsAt = 0;
 let nightShiftSpawnTimers = [];
 let nightShiftWaveHeld = false;
 const nightShiftTargetTimers = new Map();
@@ -2136,6 +2151,24 @@ function clearNightShiftTimers() {
   nightShiftTargetTimers.clear();
 }
 
+function scheduleNightShiftResult() {
+  clearTimeout(nightShiftResultTimer);
+  nightShiftResultTimer = null;
+  if (!nightShiftResultEndsAt) return;
+  const remaining = nightShiftResultEndsAt - Date.now();
+  if (remaining <= 0) {
+    nightShiftResultEndsAt = 0;
+    stopNightShift();
+    return;
+  }
+  if (document.hidden) return;
+  nightShiftResultTimer = setTimeout(() => {
+    nightShiftResultTimer = null;
+    nightShiftResultEndsAt = 0;
+    stopNightShift();
+  }, remaining);
+}
+
 function clearNightShiftTargets() {
   nightShiftTargetTimers.forEach(({ reveal, disable, miss }) => {
     clearTimeout(reveal);
@@ -2153,30 +2186,69 @@ function clearNightShiftTargets() {
   });
 }
 
-function announceSocialNotification(notification) {
-  const text = notification?.body || notification?.title || "New social notification.";
-  const announcer = $("#system-announcer");
-  if (announcer) announcer.textContent = text;
+function announceSocialNotification(n) {
+  const kind = String(n?.kind || "");
+  const isError = kind === "parlor-error";
+  const label = String(n?.title || "Parlor Notice").toUpperCase();
+  const detail = String(n?.message || n?.body || "").replace(/\s+/g, " ");
+  const systemAnnouncer = $("#system-announcer");
+  if (systemAnnouncer) systemAnnouncer.textContent = detail ? `${label}. ${detail}` : label;
+  if (isError) {
+    const errorAnnouncer = $("#error-announcer");
+    if (errorAnnouncer) errorAnnouncer.textContent = detail ? `${label}. ${detail}` : label;
+  }
   const stack = $("#toast-stack");
   if (!stack) return;
   const toast = document.createElement("div");
-  toast.className = `parlor-toast${notification?.kind === "mythical-achievement" ? " is-mythical" : ""}`;
+  toast.className = `parlor-toast${kind === "mythical-achievement" ? " is-mythical" : ""}${isError ? " is-error" : ""}`;
   const title = document.createElement("strong");
   title.className = "t-label f11 parlor-toast-title";
-  title.textContent = String(notification?.title || "PARLOR NOTICE");
+  if (isError) {
+    const glyph = document.createElement("span");
+    glyph.className = "parlor-toast-glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.innerHTML = '<svg viewBox="0 0 12 12" focusable="false" shape-rendering="crispEdges"><path fill="currentColor" fill-rule="evenodd" d="M5 1h2l1 2 1 2 1 2 1 2 1 3H0l1-3 1-2 1-2 1-2zM5 4h2v3H5zm0 4h2v2H5z"/></svg>';
+    title.appendChild(glyph);
+  }
+  title.append(document.createTextNode(label));
   const body = document.createElement("span");
-  body.className = "parlor-toast-body";
-  body.textContent = String(text);
-  toast.append(title, body);
+  body.className = "t-body f12 parlor-toast-body";
+  body.textContent = detail;
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "parlor-toast-close";
+  dismiss.tabIndex = -1;
+  dismiss.setAttribute("aria-hidden", "true");
+  dismiss.textContent = "\u00d7";
+  const dismissToast = () => {
+    if (!toast.isConnected || toast.classList.contains("is-leaving")) return;
+    clearTimeout(toast._autoTimer);
+    toast.classList.add("is-leaving");
+    syncToastStack();
+    setTimeout(() => toast.remove(), 160);
+  };
+  toast.append(title, body, dismiss);
+  toast.addEventListener("click", dismissToast);
+  dismiss.addEventListener("click", (event) => {
+    event.stopPropagation();
+    dismissToast();
+  });
   stack.append(toast);
-  while (stack.children.length > 4) stack.firstElementChild?.remove();
-  window.setTimeout(() => toast.remove(), notification?.kind === "mythical-achievement" ? 6500 : 4200);
+  while (stack.children.length > 4) stack.firstElementChild.remove();
+  syncToastStack();
+  toast._autoTimer = setTimeout(dismissToast, isError || kind === "mythical-achievement" ? 6500 : 4200);
 }
 
-/** Visible toast for room/connection failures — say() only writes into the
-    in-game chat transcript, which is invisible from the home screen. */
-function parlorNotice(title, text) {
-  announceSocialNotification({ title: String(title || "PARLOR NOTICE"), body: String(text || "Something went wrong.") });
+function syncToastStack() {
+  const stack = $("#toast-stack");
+  if (!stack) return;
+  Array.from(stack.children)
+    .filter((toast) => !toast.classList.contains("is-leaving"))
+    .forEach((toast, index) => toast.style.setProperty("--toasts-before", String(index)));
+}
+
+function parlorNotice(title, message) {
+  announceSocialNotification({ kind: "parlor-error", title, message });
 }
 
 function socialPlayerRowHTML(player, actionLabel = "VIEW") {
@@ -2892,10 +2964,8 @@ function endNightShift(message) {
     void banner.offsetWidth;
     banner.classList.add("is-announcing");
   }
-  nightShiftResultTimer = setTimeout(() => {
-    nightShiftResultTimer = null;
-    stopNightShift();
-  }, 2600);
+  nightShiftResultEndsAt = Date.now() + 2600;
+  scheduleNightShiftResult();
 }
 
 function hitNightShiftTarget(target, event) {
@@ -2999,6 +3069,7 @@ function stopNightShift() {
   nightShiftState.active = false;
   state.suppressRoomUpdates = nightShiftSuppressSnapshot;
   clearNightShiftTargets();
+  nightShiftResultEndsAt = 0;
   document.body.classList.remove("night-shift-open");
   document.body.classList.remove("night-shift-paused");
   $("#night-wave-banner")?.classList.remove("is-announcing");
@@ -3013,10 +3084,13 @@ function stopNightShift() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (!nightShiftState.active) return;
   if (document.hidden) {
     nightShiftPausedAt = Date.now();
-    document.body.classList.add("night-shift-paused");
+    if (!nightShiftState.active) {
+      clearTimeout(nightShiftResultTimer);
+      nightShiftResultTimer = null;
+      return;
+    }
     // Freeze the run: cancel every armed cadence timer but keep the queue
     // entries and the wave deadline so play resumes from the exact pause.
     if (nightShiftWaveTimer !== null) {
@@ -3030,6 +3104,11 @@ document.addEventListener("visibilitychange", () => {
     nightShiftTargetTimers.forEach((timers) => {
       if (timers.miss !== null) { clearTimeout(timers.miss); timers.miss = null; }
     });
+    return;
+  }
+  if (!nightShiftState.active) {
+    // Result countdown parked while hidden — re-arm for its remaining time.
+    if (nightShiftResultEndsAt) scheduleNightShiftResult();
     return;
   }
   if (nightShiftPausedAt) {
@@ -3047,9 +3126,9 @@ document.addEventListener("visibilitychange", () => {
     nightShiftTargetTimers.forEach((timers) => {
       if (timers.settle && timers.miss === null) timers.miss = setTimeout(timers.settle, timers.backstop);
     });
+    document.body.classList.remove("night-shift-paused");
+    renderNightShiftHud("NIGHT SHIFT RESUMED · CLEAR THE SKYLINE");
   }
-  document.body.classList.remove("night-shift-paused");
-  renderNightShiftHud("NIGHT SHIFT RESUMED · CLEAR THE SKYLINE");
 });
 
 function syncHomeMusic() {
@@ -4785,8 +4864,19 @@ function renderSetup() {
   wrap.classList.toggle("is-hidden", state.phase !== "setup");
   if (state.phase !== "setup") return;
 
-  const choice = activeAppearance();
+  // Server is authoritative for identity: if the table auto-assigned a
+  // different colour than the local design, the picker must show the seat
+  // colour as the active row, not the (rejected) design choice.
+  const seat = state.players.find((p) => p.clientId === state.clientId);
+  const seatColor = String(seat?.color || "").toLowerCase();
+  const seatPreset = APPEARANCES.findIndex((a) => String(a.color).toLowerCase() === seatColor);
+  const choice = seatPreset >= 0 ? seatPreset : activeAppearance();
   const meta = getAppearanceMeta(choice);
+  const takenColors = new Set(
+    state.players
+      .filter((p) => p.clientId !== state.clientId && p.online !== false && !p.bankrupt)
+      .map((p) => String(p.color || "").toLowerCase()),
+  );
   const selectedProfile = typeof choice === "string" ? getProfileById(choice) : null;
   const selectedName = selectedProfile ? profileDesignName(selectedProfile) : meta.label;
   const sourceLabel = state.tableAppearanceOverride == null ? "ACTIVE DESIGN" : "THIS TABLE ONLY";
@@ -4829,21 +4919,23 @@ function renderSetup() {
           .join("")
       : `<p class="su-empty-custom">No custom designs yet. Create one from the home screen, then pick it here.</p>`;
   } else {
-    $("#su-grid").innerHTML = APPEARANCES.map(
-      (a, i) => {
-        const active = choice === i;
-        const status = active ? (activeIsDifferent ? "THIS TABLE" : "ACTIVE DESIGN") : state.appearance === i ? "ACTIVE DESIGN" : "AVAILABLE";
-        return `<button type="button" class="su-opt${active ? " is-active" : ""}" data-app="${i}">
-        <div class="su-av">${avatarHTML(a, 5, i)}</div>
-        <div>
-          <div class="t-label f13" style="color:${a.textColor}">${a.label}</div>
-          <div class="t-micro ink-3 su-state">${status}</div>
-        </div>
-      </button>`;
-      },
-    ).join("");
+    $("#su-grid").innerHTML = APPEARANCES.map((a, i) => {
+      const active = choice === i;
+      const taken = !active && takenColors.has(String(a.color).toLowerCase());
+      const status = active
+        ? (activeIsDifferent ? "THIS TABLE" : "ACTIVE DESIGN")
+        : taken
+          ? "TAKEN"
+          : state.appearance === i ? "ACTIVE DESIGN" : "AVAILABLE";
+      return `<button type="button" class="su-opt${active ? " is-active" : ""}${taken ? " is-taken" : ""}" data-app="${i}"${taken ? " disabled aria-disabled=\"true\" title=\"This colour is taken at the table\"" : ""}>
+      <div class="su-av">${avatarHTML(a, 5, i)}</div>
+      <div>
+        <div class="t-label f13" style="color:${taken ? "var(--text-muted)" : a.textColor}">${a.label}</div>
+        <div class="t-micro ink-3 su-state">${status}</div>
+      </div>
+    </button>`;
+    }).join("");
   }
-
 }
 
 function renderAll() {
@@ -7869,6 +7961,7 @@ function bindEvents() {
   $("#su-grid").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-app]");
     if (!btn) return;
+    if (btn.disabled) return;
     const raw = btn.dataset.app;
     // preset appearance = "0".."3"; custom profile ids look like "pf_xxxx"
     const choice = /^\d+$/.test(raw) ? Number(raw) : raw;
