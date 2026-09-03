@@ -1,11 +1,15 @@
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import { RoomManager } from './gameLogic.js';
 import { AccountStore } from './accountStore.js';
 import { SocialStore } from './socialStore.js';
+import { MatchStore } from './matchStore.js';
+import { AchievementStore } from './achievementStore.js';
+import { createBotAdvisor } from './botAdvisor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,15 +34,50 @@ app.get('*', (req, res, next) => {
 const roomManager = new RoomManager();
 const accountStore = new AccountStore();
 const socialStore = new SocialStore();
+const matchStore = new MatchStore();
+const achievementStore = new AchievementStore();
+const botAdvisor = createBotAdvisor();
 const auctionTimers = new Map();
 const disconnectTimers = new Map();
 const AUCTION_DURATION_MS = 5000;
 const DISCONNECT_GRACE_MS = 10000;
+// C8: AFK turn watchdog cadence. A connected-but-idle seat stalls a started
+// game forever (the disconnect-grace skip only fires on real disconnects), so
+// each turn owner gets a bounded budget; the timeout is env-tunable for tests.
+const TURN_AFK_CHECK_INTERVAL_MS = 15 * 1000;
+const TURN_AFK_TIMEOUT_MS = Number(process.env.TURN_AFK_TIMEOUT_MS || 180000);
 const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
 const CHAT_COOLDOWN_MS = 500;
+const ROOMS_UPDATED_DEBOUNCE_MS = 750;
 
 const chatLastSent = new Map();
+const botTimers = new Map();
+const botDecisionLocks = new Set();
+const auctionBotTimers = new Map();
+const mythicalAnnouncementKeys = new Set();
+const socialRateBuckets = new Map();
+const patrolRuns = new Map();
+const SOCIAL_RATE_WINDOW_MS = 60 * 1000;
+const SOCIAL_RATE_LIMIT = 30;
+// Night Shift can continue through several one-minute waves. Keep one signed
+// run token alive long enough for a normal session without making it durable.
+const PATROL_RUN_MAX_MS = 10 * 60 * 1000;
+let roomsUpdatedTimer = null;
+
+function allowSocialAction(accountId, action) {
+  if (!accountId) return false;
+  const key = `${accountId}:${action}`;
+  const now = Date.now();
+  const recent = (socialRateBuckets.get(key) || []).filter(timestamp => now - timestamp < SOCIAL_RATE_WINDOW_MS);
+  if (recent.length >= SOCIAL_RATE_LIMIT) {
+    socialRateBuckets.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  socialRateBuckets.set(key, recent);
+  return true;
+}
 
 function reply(callback, payload) {
   if (typeof callback === 'function') {
@@ -61,19 +100,43 @@ function clearDisconnectTimersForRoom(room) {
     clearDisconnectTimer(player.clientId);
   });
 }
+// Shared teardown for rooms removed outside of the normal lifecycle (GC and
+// stale private-code reclaim): clears every timer keyed by this room and
+// drops it from the live map.
+function destroyRoom(room) {
+  if (!room) return;
+  const roomCode = room.roomCode;
+  clearAuctionTimer(room);
+  clearDisconnectTimersForRoom(room);
+  clearTimeout(auctionBotTimers.get(roomCode));
+  auctionBotTimers.delete(roomCode);
+  clearTimeout(botTimers.get(roomCode));
+  botTimers.delete(roomCode);
+  botDecisionLocks.delete(roomCode);
+  roomManager.rooms.delete(roomCode);
+}
+
+// One debounced push keeps public-room browsers current without emitting per
+// create/join/leave/start burst.
+function scheduleRoomsUpdated() {
+  clearTimeout(roomsUpdatedTimer);
+  roomsUpdatedTimer = setTimeout(() => {
+    roomsUpdatedTimer = null;
+    io.emit('rooms-updated', { rooms: roomManager.listPublicRooms() });
+  }, ROOMS_UPDATED_DEBOUNCE_MS);
+}
 
 setInterval(() => {
   const now = Date.now();
   for (const [roomCode, room] of roomManager.rooms.entries()) {
-    const hasConnected = room.game.players.some(p => !p.disconnected);
-    if (!hasConnected) {
+    // Bots and ghost seats must not keep a room alive (audit finding 14).
+    if (!room.hasConnectedHumans()) {
       if (!room.emptySince) {
         room.emptySince = now;
       } else if (now - room.emptySince > EMPTY_ROOM_GRACE_PERIOD_MS) {
         console.log(`Garbage collecting empty room: ${roomCode}`);
-        clearAuctionTimer(room);
-        clearDisconnectTimersForRoom(room);
-        roomManager.rooms.delete(roomCode);
+        destroyRoom(room);
+        scheduleRoomsUpdated();
       }
     } else {
       room.emptySince = null;
@@ -143,6 +206,9 @@ function emitPendingInteractions(room, socket, player) {
   if (room.game.pendingTrade && room.game.pendingTrade.toPlayerId === player.id) {
     socket.emit('trade-offer', { trade: room.game.pendingTrade });
   }
+  if (room.game.pendingPlayerContract && room.game.pendingPlayerContract.toPlayerId === player.id) {
+    socket.emit('player-contract-offer', { contract: room.game.pendingPlayerContract });
+  }
 }
 
 function reassignHostIfNeeded(room, departedPlayerId) {
@@ -160,20 +226,192 @@ function reassignHostIfNeeded(room, departedPlayerId) {
 function emitRoomState(room) {
   if (!room) return;
   if (room.game.lastWinner && !room.statsRecorded) {
-    accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, {
+    const matchRecord = accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, {
       gameId: `match_${room.roomCode}_${room.game.startedAt || Date.now()}`,
       durationSeconds: room.game.startedAt ? (Date.now() - room.game.startedAt) / 1000 : 0,
       roundCount: room.game.roundNumber,
       roomVisibility: room.visibility,
-      globalEvents: room.game.globalEventHistory?.map(event => event.title) || []
+      globalEvents: [
+        ...(room.game.globalEventHistory || []).map(event => event.title),
+        ...(room.game.globalEvent && !(room.game.globalEventHistory || []).some(event => event.id === room.game.globalEvent.id) ? [room.game.globalEvent.title] : [])
+      ].slice(0, 20),
+      eventCombinations: [
+        ...(room.game.globalEventHistory || []).filter(event => event.comboId).map(event => event.comboId),
+        ...(room.game.globalEvent?.comboId && !(room.game.globalEventHistory || []).some(event => event.comboId === room.game.globalEvent.comboId) ? [room.game.globalEvent.comboId] : [])
+      ].slice(0, 10),
+      tradesCompleted: room.game.tradesCompleted || 0,
+      auctionsCompleted: room.game.auctionsCompleted || 0,
+      casino: room.game.players.map(player => ({ accountId: player.accountId, bets: (player.casinoLedger || []).length, net: Number(player.casinoNet) || 0 })),
+      market: room.game.players.map(player => ({ accountId: player.accountId, positions: Object.fromEntries(Object.entries(player.marketPositions || {}).map(([id, position]) => [id, { quantity: Number(position.quantity) || 0, realizedPnl: Number(position.realizedPnl) || 0 }])) })),
+      playerContracts: room.game.playerContracts.map(contract => ({
+        id: contract.id,
+        kind: contract.kind,
+        fromPlayerId: contract.fromPlayerId,
+        toPlayerId: contract.toPlayerId,
+        fromAccountId: room.game.getPlayerById(contract.fromPlayerId)?.accountId || null,
+        toAccountId: room.game.getPlayerById(contract.toPlayerId)?.accountId || null,
+        amount: contract.amount,
+        premiumRate: contract.premiumRate,
+        equityShare: contract.equityShare,
+        collateralTileIndex: contract.collateralTileIndex ?? null,
+        status: contract.status
+      }))
+    });
+    matchStore.record(matchRecord);
+    achievementStore.evaluateMatch(matchRecord, accountId => accountStore.getMatchHistory(accountId))
+      .forEach(candidate => recordVerifiedAchievement(candidate, matchRecord.matchId));
+    // Refresh the owner’s private profile immediately after settlement so
+    // completed-game stats, history, and achievement counts are current while
+    // the player is still in the game shell.
+    room.game.players.forEach(player => {
+      if (!player.accountId) return;
+      const snapshot = accountStore.getAccountSnapshot(player.accountId);
+      if (snapshot) socketsForAccount(player.accountId).forEach(candidateSocket => candidateSocket.emit('account-sync', { account: snapshot }));
     });
     room.statsRecorded = true;
   }
-  io.in(room.roomCode).emit('update-state', {
-    room: room.getRoomSummary(),
-    game: room.game.getGameSummary(),
-    serverTime: Date.now()
+  const roomSummary = room.getRoomSummary();
+  const serverTime = Date.now();
+  // Game summaries now carry owner-only loan and contract terms. Emit a
+  // viewer-scoped projection so another seat can see that a loan exists
+  // without receiving its collateral, premium, or repayment schedule.
+  io.sockets.sockets.forEach(candidate => {
+    if (!candidate.rooms.has(room.roomCode)) return;
+    const viewer = room.getPlayerBySocket(candidate.id);
+    candidate.emit('update-state', {
+      room: roomSummary,
+      game: room.game.getGameSummary(viewer?.id || null),
+      serverTime
+    });
   });
+  scheduleBotTurn(room);
+  scheduleBotAuction(room);
+}
+
+function scheduleBotTurn(room) {
+  if (!room?.game.started) return;
+  const currentPlayer = room.game.getCurrentPlayer();
+  const votingBot = room.game.globalEvent?.phase === 'voting'
+    ? room.game.players.find(player => player.isBot && !player.bankrupt && !player.disconnected && !room.game.globalEvent.votes?.[player.id])
+    : null;
+  const pendingBot = room.game.pendingTrade
+    ? room.game.getPlayerById(room.game.pendingTrade.toPlayerId)
+    : room.game.pendingPlayerContract
+      ? room.game.getPlayerById(room.game.pendingPlayerContract.toPlayerId)
+      : null;
+  const bot = votingBot || (pendingBot?.isBot ? pendingBot : null) || currentPlayer;
+  if (!bot?.isBot || bot.bankrupt || bot.disconnected || botTimers.has(room.roomCode) || botDecisionLocks.has(room.roomCode)) return;
+  const timer = setTimeout(async () => {
+    botTimers.delete(room.roomCode);
+    botDecisionLocks.add(room.roomCode);
+    try {
+    const current = room.game.getCurrentPlayer();
+    const isVote = room.game.globalEvent?.phase === 'voting';
+    const isPendingResponse = room.game.pendingTrade?.toPlayerId === bot.id || room.game.pendingPlayerContract?.toPlayerId === bot.id;
+    if (!isVote && !isPendingResponse && (!current?.isBot || current.id !== bot.id || current.bankrupt || current.disconnected)) return;
+    let result;
+    if (room.game.globalEvent?.phase === 'voting' && !room.game.globalEvent.votes?.[bot.id]) {
+      const preferred = bot.personality === 'builder' ? 'public-works' : bot.personality === 'speculator' ? 'bank-first' : 'low-tax';
+      const policy = room.game.globalEvent.choices?.find(choice => choice.id === preferred) || room.game.globalEvent.choices?.[0];
+      result = policy ? room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, policy.id)) : { success: false };
+    } else if (room.game.pendingTrade?.toPlayerId === bot.id) {
+      const trade = room.game.pendingTrade;
+      const giveValue = Number(trade.giveCash || 0) + (trade.givePropertyIndexes || []).reduce((sum, index) => sum + Number(room.game.getTile(index)?.price || 0), 0);
+      const askValue = Number(trade.requestCash || 0) + (trade.requestPropertyIndexes || []).reduce((sum, index) => sum + Number(room.game.getTile(index)?.price || 0), 0);
+      const accepted = giveValue >= askValue * (bot.personality === 'shark' ? 1.1 : 0.8);
+      result = room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: trade.id, accept: accepted }));
+    } else if (room.game.pendingPlayerContract?.toPlayerId === bot.id) {
+      const offer = room.game.pendingPlayerContract;
+      const lender = room.game.getPlayerById(offer.fromPlayerId);
+      const acceptable = offer.kind === 'equity'
+        ? bot.personality !== 'survivor' || Number(offer.amount) <= bot.cash * 0.35
+        : Number(offer.totalDue || offer.amount) <= bot.cash * (bot.personality === 'speculator' ? 1.25 : 0.8)
+          && Boolean(lender && !lender.bankrupt);
+      result = room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, acceptable));
+    } else if (room.game.pendingPayment?.playerId === bot.id) {
+      result = room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
+    } else if (room.game.auction?.active) {
+      result = room.runBotAction(bot.id, actor => room.passAuction(actor));
+    } else if (!room.game.hasRolled) {
+      const candidates = room.game.getBotCandidates(bot);
+      const decision = await botAdvisor.chooseAction({
+        candidates,
+        personality: bot.personality,
+        event: room.game.globalEvent
+      });
+      if (room.game.getCurrentPlayer()?.id !== bot.id) return;
+      const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
+      if (candidate?.kind === 'trade') {
+        const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, candidate));
+        result = proposal;
+        if (proposal?.success) {
+          const rolled = room.runBotAction(bot.id, actor => room.rollDice(actor));
+          if (rolled?.success) result = rolled;
+        }
+      } else if (candidate?.kind === 'market') {
+        result = room.runBotAction(bot.id, actor => room.tradeMarket(actor, candidate.instrumentId, candidate.side, candidate.quantity, 'bot-market-' + room.roomCode + '-' + room.game.roundNumber));
+      } else if (candidate?.kind === 'casino') {
+        result = room.runBotAction(bot.id, actor => room.placeCasinoBet(actor, candidate.color, candidate.stake, 'bot-casino-' + room.roomCode + '-' + room.game.roundNumber));
+      } else if (candidate?.kind === 'build' && bot.cash >= candidate.cost + 200) {
+        result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'build-house' }));
+      } else if (candidate?.kind === 'mortgage') {
+        result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'mortgage' }));
+      } else if (candidate?.kind === 'loan' && bot.personality === 'speculator') {
+        result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
+      } else {
+        result = room.runBotAction(bot.id, actor => room.rollDice(actor));
+      }
+    } else {
+      result = room.runBotAction(bot.id, actor => room.rollDice(actor));
+      if (result?.purchaseOffer) {
+        const tile = room.game.getTile(result.purchaseOffer.tileIndex);
+        const canBuy = tile && bot.cash >= Number(tile.price || 0) + 120;
+        result = room.runBotAction(bot.id, actor => canBuy
+          ? room.purchaseProperty(actor, tile.index)
+          : room.declineProperty(actor, tile.index));
+      }
+    }
+    if (result?.purchaseOffer) {
+      const tile = room.game.getTile(result.purchaseOffer.tileIndex);
+      const canBuy = tile && bot.cash >= Number(tile.price || 0) + 120;
+      result = room.runBotAction(bot.id, actor => canBuy
+        ? room.purchaseProperty(actor, tile.index)
+        : room.declineProperty(actor, tile.index));
+    }
+    emitRoomState(room);
+    } finally {
+      botDecisionLocks.delete(room.roomCode);
+      scheduleBotTurn(room);
+      scheduleBotAuction(room);
+    }
+  }, 650);
+  botTimers.set(room.roomCode, timer);
+}
+
+function scheduleBotAuction(room) {
+  if (!room?.game.auction?.active) return;
+  const key = room.roomCode;
+  if (auctionBotTimers.has(key)) return;
+  const bot = room.game.players.find(player => player.isBot
+    && room.game.auction.participants.includes(player.id)
+    && !room.game.auction.passedPlayerIds.includes(player.id)
+    && room.game.auction.highestBidderId !== player.id
+    && !player.bankrupt
+    && !player.disconnected);
+  if (!bot) return;
+  const timer = setTimeout(() => {
+    auctionBotTimers.delete(key);
+    if (!room.game.auction?.active) return;
+    const auction = room.game.auction;
+    const minimum = Math.max(auction.highestBid + 1, auction.highestBid + (bot.personality === 'shark' ? 20 : 10));
+    const reserve = bot.personality === 'shark' ? 60 : 120;
+    const shouldBid = bot.cash >= minimum + reserve && (bot.personality === 'builder' || bot.personality === 'shark' || bot.cash > room.game.settings.startingCash * 0.7);
+    const result = room.runBotAction(bot.id, actor => shouldBid
+      ? room.placeAuctionBid(actor, minimum)
+      : room.passAuction(actor));
+    emitRoomState(room);
+  }, 450);
+  auctionBotTimers.set(key, timer);
 }
 
 function accountForSocket(socket, payload = {}) {
@@ -194,12 +432,35 @@ function emitSocialUpdate(accountId) {
 
 function socialSummary(accountId) {
   const raw = socialStore.listFor(accountId);
+  const seen = new Set();
+  const recentPlayers = [];
+  const recentMatches = matchStore.listForAccount(accountId, 50);
+  const fallbackMatches = recentMatches.length ? recentMatches : accountStore.getMatchHistory(accountId);
+  const recentCutoff = Math.max(Date.now() - 30 * 24 * 60 * 60 * 1000, Date.parse(accountStore.getRecentClearedAt(accountId) || '') || 0);
+  fallbackMatches.filter(record => Date.parse(record.completedAt || '') >= recentCutoff).forEach(record => {
+    record.participants.forEach(participant => {
+      if (!participant.accountId || participant.accountId === accountId || seen.has(participant.accountId)) return;
+      const player = accountStore.getPublicAccountById(participant.accountId);
+      if (!player) return;
+      seen.add(participant.accountId);
+      recentPlayers.push({
+        id: player.id,
+        username: player.username,
+        displayName: player.displayName,
+        color: player.color,
+        avatarGrid: player.avatarGrid,
+        lastPlayedAt: record.completedAt,
+        matchId: record.matchId
+      });
+    });
+  });
   return {
-    friends: raw.friends.map(id => publicPlayerCard(id)).filter(Boolean),
-    requests: raw.requests.map(request => ({ ...request, from: publicPlayerCard(request.requesterId) })).filter(request => request.from),
-    outgoing: raw.outgoing.map(request => ({ ...request, to: publicPlayerCard(request.addresseeId) })).filter(request => request.to),
-    invites: raw.invites.map(invite => ({ id: invite.id, roomName: invite.roomName, visibility: invite.visibility, expiresAt: invite.expiresAt, sender: publicPlayerCard(invite.senderId) })).filter(invite => invite.sender),
-    notifications: raw.notifications
+    friends: raw.friends.map(id => publicPlayerCard(id, accountId)).filter(Boolean),
+    requests: raw.requests.map(request => ({ ...request, from: publicPlayerCard(request.requesterId, accountId) })).filter(request => request.from),
+    outgoing: raw.outgoing.map(request => ({ ...request, to: publicPlayerCard(request.addresseeId, accountId) })).filter(request => request.to),
+    invites: raw.invites.map(invite => ({ id: invite.id, roomName: invite.roomName, visibility: invite.visibility, expiresAt: invite.expiresAt, sender: publicPlayerCard(invite.senderId, accountId) })).filter(invite => invite.sender),
+    notifications: raw.notifications,
+    recentPlayers: recentPlayers.slice(0, 20)
   };
 }
 
@@ -209,14 +470,50 @@ function notifyAccount(accountId, notification) {
   socketsForAccount(accountId).forEach(candidate => candidate.emit('social-notification', notification));
 }
 
-function broadcastMythicalAchievement({ playerAccountId, playerDisplayName }) {
+function recordVerifiedAchievement(candidate, gameId) {
+  if (!candidate?.accountId || !candidate.achievementId) return false;
+  const unlock = achievementStore.unlock({
+    accountId: candidate.accountId,
+    achievementId: candidate.achievementId,
+    gameId,
+    evidenceHash: crypto.createHash('sha256').update(`${gameId}:${candidate.achievementId}:${candidate.accountId}`).digest('hex')
+  });
+  if (!unlock.created) return false;
+  const stored = accountStore.recordAchievement(candidate.accountId, {
+    id: unlock.record.achievementId,
+    unlockedAt: unlock.record.unlockedAt
+  });
+  if (!stored.created) return false;
+  const payload = {
+    kind: 'achievement-unlocked',
+    achievementId: unlock.record.achievementId,
+    title: candidate.title,
+    rarity: candidate.rarity,
+    body: candidate.body,
+    createdAt: unlock.record.unlockedAt
+  };
+  socketsForAccount(candidate.accountId).forEach(candidateSocket => candidateSocket.emit('achievement-unlocked', payload));
+  notifyAccount(candidate.accountId, payload);
+  if (candidate.rarity === 'MYTHICAL') {
+    broadcastMythicalAchievement({ playerAccountId: candidate.accountId, playerDisplayName: accountStore.getPublicAccountById(candidate.accountId)?.displayName || 'A player', unlockKey: `${gameId}:${candidate.achievementId}:${candidate.accountId}` });
+  }
+  return true;
+}
+
+function broadcastMythicalAchievement({ playerAccountId, playerDisplayName, unlockKey }) {
+  if (unlockKey && mythicalAnnouncementKeys.has(unlockKey)) return;
+  if (unlockKey) mythicalAnnouncementKeys.add(unlockKey);
   const payload = { kind: 'mythical-achievement', title: 'MYTHICAL ACHIEVEMENT', body: `${playerDisplayName || 'A player'} unlocked a MYTHICAL ACHIEVEMENT.`, playerDisplayName: playerDisplayName || 'A player', createdAt: new Date().toISOString() };
   io.emit('mythical-achievement', payload);
   notifyAccount(playerAccountId, { ...payload, body: 'Your Mythical achievement was verified and announced server-wide.' });
 }
 
-function publicPlayerCard(accountId) {
-  return accountStore.getPublicPlayerCard(accountId);
+function publicPlayerCard(accountId, viewerId = null) {
+  const card = accountStore.getPublicPlayerCard(accountId);
+  if (!card || !viewerId || viewerId === accountId) return card;
+  const viewerFriends = new Set(socialStore.listFor(viewerId).friends);
+  const targetFriends = new Set(socialStore.listFor(accountId).friends);
+  return { ...card, mutualFriends: [...viewerFriends].filter(id => targetFriends.has(id)).length };
 }
 
 function clearAuctionTimer(room) {
@@ -276,6 +573,8 @@ function scheduleDisconnect(room, socketId) {
     }
     emitRoomState(currentRoom);
     io.in(currentRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname} disconnected.` });
+    // A room that just lost its last human may leave the directory.
+    scheduleRoomsUpdated();
   }, DISCONNECT_GRACE_MS);
   disconnectTimers.set(player.clientId, timer);
 }
@@ -299,6 +598,56 @@ function scheduleAuctionFinish(room) {
   }, delay);
   auctionTimers.set(roomCode, timer);
 }
+
+// Expire an AFK turn the way the disconnect-grace expiry cleans up its seat
+// (see scheduleDisconnect): cancel any pending trade touching the idle player
+// with a system notice, drop the pending purchase offer, and clear an
+// outstanding payment obligation, then advance the turn. nextTurn() is the
+// reusable helper for a still-connected player — skipDisconnectedCurrentPlayer
+// is gated on player.disconnected and no-ops here.
+function expireAfkTurn(room, game, player) {
+  if (
+    game.pendingTrade &&
+    (game.pendingTrade.fromPlayerId === player.id || game.pendingTrade.toPlayerId === player.id)
+  ) {
+    game.pendingTrade = null;
+    io.in(room.roomCode).emit('system-message', { text: 'A pending trade was cancelled due to turn timeout.' });
+  }
+  game.pendingPurchaseOffer = null;
+  if (game.pendingPayment?.playerId === player.id) {
+    game.pendingPayment = null;
+    game.pendingPaymentTurnOptions = null;
+  }
+  game.feedMessage(`${player.nickname} ran out of time.`);
+  game.nextTurn();
+  io.in(room.roomCode).emit('system-message', { text: `${player.nickname} ran out of time. Turn skipped.` });
+  emitRoomState(room);
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const room of roomManager.rooms.values()) {
+    const game = room.game;
+    // Fire only for a started game with no live auction and a connected,
+    // non-bankrupt turn owner — a disconnected seat is the grace path's
+    // problem; anything else keeps the watch timestamp fresh.
+    const current = game?.started && !game.auction?.active ? game.getCurrentPlayer() : null;
+    if (!current || current.bankrupt || current.disconnected) {
+      room.turnWatch = null;
+      continue;
+    }
+    const watch = room.turnWatch;
+    if (!watch || watch.player !== current.id) {
+      room.turnWatch = { player: current.id, at: now };
+      continue;
+    }
+    if (now - watch.at < TURN_AFK_TIMEOUT_MS) continue;
+    // Clear the watch before firing so the same turn ownership can never be
+    // skipped twice; the new turn owner gets a fresh window next tick.
+    room.turnWatch = null;
+    expireAfkTurn(room, game, current);
+  }
+}, TURN_AFK_CHECK_INTERVAL_MS);
 
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
@@ -365,7 +714,7 @@ io.on('connection', (socket) => {
       emitRoomState(room);
       emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
       socket.emit('system-message', { text: 'Reconnected to your room.' });
-      reply(callback, { success: true, roomCode: room.roomCode });
+      reply(callback, { success: true, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
       return;
     }
     reply(callback, { success: false, error: 'No active session found.' });
@@ -392,8 +741,15 @@ io.on('connection', (socket) => {
     if (visibility === 'private' && requestedRoomCode.length !== 6) {
       return callback?.({ success: false, error: 'Private rooms need a unique 6-character invite code.' });
     }
-    if (requestedRoomCode && roomManager.getRoom(requestedRoomCode)) {
-      return callback?.({ success: false, error: 'That private room code is already in use. Choose another.' });
+    const existingRoom = requestedRoomCode ? roomManager.getRoom(requestedRoomCode) : null;
+    if (existingRoom) {
+      // A room with no connected humans must not lock its private code for
+      // the full GC grace period — reclaim it and let the creator take over.
+      if (!existingRoom.hasConnectedHumans()) {
+        destroyRoom(existingRoom);
+      } else {
+        return callback?.({ success: false, error: 'That private room code is already in use. Choose another.' });
+      }
     }
     clearDisconnectTimer(clientId);
 
@@ -418,7 +774,36 @@ io.on('connection', (socket) => {
     socket.join(room.roomCode);
     emitRoomState(room);
     socket.emit('system-message', { text: 'Room created. Waiting for players...' });
-    callback?.({ success: true, roomCode: room.roomCode });
+    callback?.({ success: true, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
+    scheduleRoomsUpdated();
+  });
+
+  socket.on('leave-room', (payload = {}, callback) => {
+    const { clientId } = payload || {};
+    if (!clientId) {
+      return callback?.({ success: false, error: 'A client session is required to leave.' });
+    }
+    clearDisconnectTimer(clientId);
+    const currentRoom = roomManager.getRoomByClient(clientId);
+    const departing = currentRoom?.game.getPlayerByClient(clientId) || null;
+    const departedId = departing?.id;
+    const nickname = departing?.nickname || 'A player';
+    const wasPublic = currentRoom?.visibility === 'public';
+    const oldRoom = roomManager.leaveRoomByClient(clientId, socket.id);
+    if (oldRoom) {
+      // Reassign the host on lobby AND started rooms — the older cleanup
+      // copies only did it in one branch and left orphan lobbies.
+      if (departedId) {
+        reassignHostIfNeeded(oldRoom, departedId);
+      }
+      socket.leave(oldRoom.roomCode);
+      emitRoomState(oldRoom);
+      io.in(oldRoom.roomCode).emit('system-message', { text: `${nickname} left the room.` });
+      if (wasPublic) {
+        scheduleRoomsUpdated();
+      }
+    }
+    callback?.({ success: true });
   });
 
   socket.on('join-room', (payload, callback) => {
@@ -455,6 +840,8 @@ io.on('connection', (socket) => {
       const oldPlayer = oldRoom.getPlayerBySocket(socket.id);
       if (oldPlayer && !oldRoom.game.started) {
         oldRoom.game.removePlayerBySocket(socket.id);
+        // Lobby hosts that leave must hand the room over, or Start stays dead.
+        reassignHostIfNeeded(oldRoom, oldPlayer.id);
         emitRoomState(oldRoom);
       } else if (oldPlayer) {
         oldPlayer.disconnected = true;
@@ -473,7 +860,8 @@ io.on('connection', (socket) => {
     emitRoomState(room);
     emitPendingInteractions(room, socket, result.player);
     io.in(room.roomCode).emit('system-message', { text: `${nickname} joined the room.` });
-    callback?.({ success: true, roomCode: room.roomCode });
+    callback?.({ success: true, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
+    scheduleRoomsUpdated();
   });
 
   socket.on('set-setting', (payload = {}, callback) => {
@@ -490,6 +878,10 @@ io.on('connection', (socket) => {
     room.setRoomSetting(key, value);
     emitRoomState(room);
     callback?.({ success: true });
+    if (room.visibility === 'public') {
+      // Seat counts / settings show in the public directory.
+      scheduleRoomsUpdated();
+    }
   });
 
   socket.on('set-player-appearance', (payload = {}, callback) => {
@@ -500,11 +892,12 @@ io.on('connection', (socket) => {
       return callback?.({ success: false, error: 'Room not found.' });
     }
     const result = room.game.setPlayerAppearance(socket.id, { color, nickname, avatarGrid });
-    if (!result.success) {
-      return callback?.(result);
+    // gameLogic owns appearance-uniqueness rejection; forward its exact
+    // { success, error? } shape so the client can surface the reason.
+    if (result?.success) {
+      emitRoomState(room);
     }
-    emitRoomState(room);
-    callback?.({ success: true });
+    callback?.(result);
   });
 
   socket.on('start-game', (_, callback) => {
@@ -521,6 +914,7 @@ io.on('connection', (socket) => {
     emitRoomState(room);
     io.in(room.roomCode).emit('system-message', { text: 'The game has started.' });
     callback?.({ success: true });
+    scheduleRoomsUpdated();
   });
 
   socket.on('roll-dice', (_, callback) => {
@@ -639,6 +1033,93 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error, accepted: result?.accepted });
   });
 
+  socket.on('propose-player-contract', (payload = {}, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.proposePlayerContract(socket.id, payload);
+    emitRoomState(room);
+    if (result?.success && result.contract) {
+      const target = room.game.getPlayerById(result.contract.toPlayerId);
+      if (target?.socketId) io.to(target.socketId).emit('player-contract-offer', { contract: result.contract });
+    }
+    reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
+  });
+
+  socket.on('start-patrol-run', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to sync Parlor Patrol achievements.' });
+    if (!allowSocialAction(account.id, 'patrol-run')) return reply(callback, { success: false, error: 'Too many patrol runs. Try again in a minute.' });
+    const runToken = crypto.randomBytes(24).toString('base64url');
+    patrolRuns.set(runToken, { accountId: account.id, socketId: socket.id, startedAt: Date.now(), submitted: false });
+    reply(callback, { success: true, runToken });
+  });
+
+  socket.on('finish-patrol-run', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    const runToken = String(payload.runToken || '').trim();
+    const run = patrolRuns.get(runToken);
+    if (!account || !run || run.accountId !== account.id || run.socketId !== socket.id || run.submitted) {
+      return reply(callback, { success: false, error: 'That patrol run is no longer available.' });
+    }
+    const elapsed = Date.now() - run.startedAt;
+    if (elapsed < 500 || elapsed > PATROL_RUN_MAX_MS + 30 * 1000) {
+      patrolRuns.delete(runToken);
+      return reply(callback, { success: false, error: 'That patrol run expired before it could be verified.' });
+    }
+    const submittedScore = Math.max(0, Math.min(100000, Math.floor(Number(payload.score) || 0)));
+    // Night Shift cannot score faster than one resolved target every quarter
+    // second. Clamp impossible client claims instead of letting a forged
+    // leaderboard result become an account achievement.
+    const maxPlausibleScore = Math.min(100000, Math.max(0, Math.ceil(Math.min(elapsed, PATROL_RUN_MAX_MS) / 250) * 300));
+    const score = Math.min(submittedScore, maxPlausibleScore);
+    const misses = Math.max(0, Math.min(999, Math.floor(Number(payload.misses) || 0)));
+    run.submitted = true;
+    patrolRuns.delete(runToken);
+    const result = accountStore.recordPatrolResult(account.id, { score, misses });
+    if (!result.success) return reply(callback, result);
+    const candidates = [];
+    if (score >= 10) candidates.push({ accountId: account.id, achievementId: 'patrol-rookie', title: 'PATROL ROOKIE', rarity: 'COMMON', body: 'You scored 10 in Parlor Patrol.' });
+    if (score >= 50) candidates.push({ accountId: account.id, achievementId: 'patrol-regular', title: 'PATROL REGULAR', rarity: 'UNCOMMON', body: 'You scored 50 in Parlor Patrol.' });
+    if (score > 0 && misses === 0) candidates.push({ accountId: account.id, achievementId: 'clean-run', title: 'CLEAN RUN', rarity: 'EPIC', body: 'You finished a patrol run without missing a hostile target.' });
+    if (result.aceRuns >= 3) candidates.push({ accountId: account.id, achievementId: 'patrol-ace', title: 'PATROL ACE', rarity: 'RARE', body: 'You beat your saved personal best three times.' });
+    candidates.forEach(candidate => recordVerifiedAchievement(candidate, `patrol_${runToken}`));
+    const snapshot = accountStore.getAccountSnapshot(account.id);
+    if (snapshot) socket.emit('account-sync', { account: snapshot });
+    reply(callback, { success: true, score, misses, best: result.best, aceRuns: result.aceRuns });
+  });
+
+  socket.on('respond-player-contract', (payload = {}, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.respondPlayerContract(socket.id, payload.accept === true, payload.requestId);
+    emitRoomState(room);
+    if (result?.success && result.contract) {
+      const other = room.game.getPlayerById(result.contract.fromPlayerId);
+      if (other?.socketId) io.to(other.socketId).emit('player-contract-update', { contract: result.contract });
+    }
+    reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract, accepted: result?.accepted });
+  });
+
+  socket.on('repay-player-contract', (payload = {}, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.repayPlayerContract(socket.id, payload);
+    emitRoomState(room);
+    reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
+  });
+
+  socket.on('cancel-player-contract', (_, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const contract = room.game.pendingPlayerContract;
+    const player = room.getPlayerBySocket(socket.id);
+    if (!contract || !player || contract.fromPlayerId !== player.id) return reply(callback, { success: false, error: 'No pending contract to cancel.' });
+    room.game.pendingPlayerContract = null;
+    room.game.feedMessage(player.nickname + ' canceled the player contract.');
+    emitRoomState(room);
+    reply(callback, { success: true });
+  });
+
   socket.on('pay-jail-fine', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -666,10 +1147,10 @@ io.on('connection', (socket) => {
     reply(callback, { success: offer?.available ?? false, error: offer?.reason, offer });
   });
 
-  socket.on('take-bank-loan', (_, callback) => {
+  socket.on('take-bank-loan', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
-    const result = room.takeBankLoan(socket.id);
+    const result = room.takeBankLoan(socket.id, payload.requestId);
     emitRoomState(room);
     if (result?.message) io.in(room.roomCode).emit('system-message', { text: result.message });
     reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
@@ -681,6 +1162,30 @@ io.on('connection', (socket) => {
     const result = room.repayBankLoan(socket.id, payload);
     emitRoomState(room);
     reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
+  });
+
+  socket.on('get-economy-snapshot', (_, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const player = room.getPlayerBySocket(socket.id);
+    reply(callback, { success: Boolean(player), error: player ? undefined : 'Player not found.', economy: player ? room.game.economySnapshot(player.id) : null });
+  });
+
+  socket.on('place-casino-bet', (payload = {}, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.placeCasinoBet(socket.id, payload.color, payload.stake, payload.requestId);
+    emitRoomState(room);
+    if (result?.success) io.in(room.roomCode).emit('system-message', { text: `${room.game.getPlayerBySocket(socket.id)?.nickname || 'Player'} settled a casino spin.` });
+    reply(callback, { success: result?.success ?? false, error: result?.error, result: result?.result, economy: result?.economy });
+  });
+
+  socket.on('market-order', (payload = {}, callback) => {
+    const room = getRoomForSocket(socket, callback);
+    if (!room) return;
+    const result = room.tradeMarket(socket.id, payload.instrumentId, payload.side, payload.quantity, payload.requestId);
+    emitRoomState(room);
+    reply(callback, { success: result?.success ?? false, error: result?.error, order: result?.order, economy: result?.economy });
   });
 
   socket.on('vote-global-event', (payload = {}, callback) => {
@@ -707,13 +1212,16 @@ io.on('connection', (socket) => {
     if (!text) {
       return reply(callback, { success: false, error: 'Message cannot be empty.' });
     }
+    if (player?.accountId && room.game.players.some(other => other.accountId && other.id !== player.id && socialStore.areBlocked(player.accountId, other.accountId))) {
+      return reply(callback, { success: false, error: 'You cannot message a blocked player in this room.' });
+    }
     const now = Date.now();
     const lastSent = chatLastSent.get(socket.id) || 0;
     if (now - lastSent < CHAT_COOLDOWN_MS) {
       return reply(callback, { success: false, error: 'Please wait before sending another message.' });
     }
     chatLastSent.set(socket.id, now);
-    io.in(room.roomCode).emit('chat-message', { text, nickname: player?.nickname || 'Guest' });
+    io.in(room.roomCode).emit('chat-message', { text, nickname: player?.nickname || 'Guest', senderId: player?.id || null });
     reply(callback, { success: true });
   });
 
@@ -723,13 +1231,49 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, social: socialSummary(account.id) });
   });
 
+  socket.on('get-self-profile', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to view your profile.' });
+    reply(callback, { success: true, account: accountStore.getAccountSnapshot(account.id) });
+  });
+
+  socket.on('get-friends', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to view friends.' });
+    const social = socialSummary(account.id);
+    reply(callback, { success: true, friends: social.friends, requests: social.requests, outgoing: social.outgoing });
+  });
+
+  socket.on('get-friend-requests', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to view friend requests.' });
+    const social = socialSummary(account.id);
+    reply(callback, { success: true, requests: social.requests, outgoing: social.outgoing });
+  });
+
+  socket.on('get-notifications', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to view notifications.' });
+    reply(callback, { success: true, notifications: socialStore.listFor(account.id).notifications });
+  });
+
   socket.on('send-friend-request', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Create an account before sending friend requests.' });
+    if (!allowSocialAction(account.id, 'friend-request')) return reply(callback, { success: false, error: 'Too many requests. Try again in a minute.' });
     const target = payload.targetAccountId
       ? accountStore.getPublicAccountById(payload.targetAccountId)
       : accountStore.findAccountByUsername(payload.username);
     if (!target) return reply(callback, { success: false, error: 'Player not found.' });
+    const targetAccount = accountStore.getAccountById(target.id);
+    const relationship = socialStore.friendshipBetween(account.id, target.id);
+    if (targetAccount?.privacy?.friendRequests === 'nobody') return reply(callback, { success: false, error: 'This player is not accepting friend requests.' });
+    if (targetAccount?.privacy?.friendRequests === 'friends') {
+      const viewerGraph = socialStore.listFor(account.id);
+      const targetGraph = socialStore.listFor(target.id);
+      const mutual = viewerGraph.friends.some(friendId => targetGraph.friends.includes(friendId));
+      if (!mutual && relationship?.status !== 'accepted') return reply(callback, { success: false, error: 'This player accepts requests from friends of friends.' });
+    }
     const result = socialStore.requestFriend(account.id, target.id);
     if (result.success) {
       notifyAccount(target.id, { kind: 'friend-request', title: 'FRIEND REQUEST', body: `${account.displayName} sent you a friend request.`, metadata: { friendshipId: result.friendship.id, accountId: account.id } });
@@ -781,16 +1325,26 @@ io.on('connection', (socket) => {
     const viewer = accountForSocket(socket, payload);
     const target = payload.accountId ? accountStore.getPublicAccountById(payload.accountId) : accountStore.findAccountByUsername(payload.username);
     if (!target) return reply(callback, { success: false, error: 'Player not found.' });
-    const card = publicPlayerCard(target.id);
+    if (viewer && viewer.id !== target.id && socialStore.areBlocked(viewer.id, target.id)) return reply(callback, { success: false, error: 'This player is unavailable.' });
+    const card = publicPlayerCard(target.id, viewer?.id || null);
     const relationship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
-    reply(callback, { success: true, player: card, relationship: relationship ? relationship.status : 'none' });
+    const canSeePrivateMatches = viewer?.id === target.id || relationship?.status === 'accepted';
+    const canSeeRecentMatches = canSeePrivateMatches || target.privacy?.history === 'public';
+    reply(callback, {
+      success: true,
+      player: card ? { ...card, historyPrivate: !canSeeRecentMatches || card.historyPrivate, historyFriendsOnly: !canSeeRecentMatches && card.historyFriendsOnly, recentMatches: accountStore.getPublicMatchSummaries(target.id, canSeePrivateMatches, 5) } : card,
+      relationship: relationship ? relationship.status : 'none'
+    });
   });
 
   socket.on('search-players', (payload = {}, callback) => {
+    const viewer = accountForSocket(socket, payload);
+    if (viewer && !allowSocialAction(viewer.id, 'player-search')) return reply(callback, { success: false, error: 'Too many searches. Try again in a minute.' });
     const query = String(payload.query || '').trim().toLowerCase().slice(0, 32);
     if (query.length < 3) return reply(callback, { success: true, players: [] });
+    const exact = payload.exact === true;
     const players = [...accountStore.accounts.values()]
-      .filter(account => account.username.includes(query))
+      .filter(account => (exact ? account.username === query : account.username.includes(query)) && (!viewer || account.id === viewer.id || !socialStore.areBlocked(viewer.id, account.id)))
       .slice(0, 20)
       .map(account => ({ id: account.id, username: account.username, displayName: account.displayName, color: account.color, avatarGrid: account.avatarGrid }));
     reply(callback, { success: true, players });
@@ -798,32 +1352,119 @@ io.on('connection', (socket) => {
 
   socket.on('get-match-history', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
-    const target = payload.accountId ? accountStore.getPublicAccountById(payload.accountId) : viewer;
+    const target = payload.accountId ? accountStore.getAccountById(payload.accountId) : viewer;
     if (!target) return reply(callback, { success: false, error: 'Player not found.' });
-    const allowed = viewer?.id === target.id || (viewer && socialStore.friendshipBetween(viewer.id, target.id)?.status === 'accepted');
+    const friendship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
+    const canSeePrivateHistory = viewer?.id === target.id || friendship?.status === 'accepted';
+    const allowed = canSeePrivateHistory || target.privacy?.history === 'public';
     if (!allowed) return reply(callback, { success: false, error: 'Match history is visible to the owner and accepted friends.' });
+    if (viewer?.id !== target.id && target.privacy?.history === 'private') return reply(callback, { success: false, error: 'This player keeps match history private.' });
+    const records = matchStore.listForAccount(target.id);
+    const effectiveRecords = (records.length ? records : accountStore.getMatchHistory(target.id))
+      .filter(record => canSeePrivateHistory || record.roomVisibility !== 'private');
     const history = viewer?.id === target.id
-      ? target.history || []
-      : (target.history || []).map(entry => ({ matchId: entry.matchId, playedAt: entry.playedAt, result: entry.result, won: entry.won, properties: entry.properties }));
+      ? effectiveRecords
+      : effectiveRecords.map(record => ({
+        matchId: record.matchId,
+        completedAt: record.completedAt,
+        roundCount: record.roundCount,
+        roomVisibility: record.roomVisibility,
+        participants: record.participants.map(participant => ({
+          displayNameAtMatch: participant.displayNameAtMatch,
+          finalPlacement: participant.finalPlacement,
+          propertyCount: participant.propertyCount,
+          bankrupt: participant.bankrupt,
+          isViewedPlayer: participant.accountId === target.id,
+          sharedWithViewer: Boolean(viewer?.id && record.participants.some(entry => entry.accountId === viewer.id))
+        })),
+        globalEvents: record.globalEvents,
+        eventCombinations: record.eventCombinations,
+        tradesCompleted: record.tradesCompleted,
+        auctionsCompleted: record.auctionsCompleted
+      }));
     reply(callback, { success: true, history });
   });
 
+  socket.on('get-recent-players', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to view recent players.' });
+    const seen = new Set();
+    const recent = [];
+    const recentCutoff = Math.max(Date.now() - 30 * 24 * 60 * 60 * 1000, Date.parse(accountStore.getRecentClearedAt(account.id) || '') || 0);
+    const recentMatches = matchStore.listForAccount(account.id, 50);
+    const fallbackMatches = recentMatches.length ? recentMatches : accountStore.getMatchHistory(account.id);
+    fallbackMatches.filter(record => Date.parse(record.completedAt || '') >= recentCutoff).forEach(record => {
+      record.participants.forEach(participant => {
+        if (!participant.accountId || participant.accountId === account.id || seen.has(participant.accountId)) return;
+        const player = accountStore.getPublicAccountById(participant.accountId);
+        if (!player) return;
+        seen.add(participant.accountId);
+        recent.push({
+          id: player.id,
+          username: player.username,
+          displayName: player.displayName,
+          color: player.color,
+          avatarGrid: player.avatarGrid,
+          lastPlayedAt: record.completedAt,
+          matchId: record.matchId
+        });
+      });
+    });
+    reply(callback, { success: true, players: recent.slice(0, 20) });
+  });
+
+  socket.on('clear-recent-players', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to clear recent players.' });
+    const result = accountStore.clearRecentPlayers(payload.sessionToken);
+    if (result.success) emitSocialUpdate(account.id);
+    reply(callback, result);
+  });
+
+  socket.on('cancel-friend-request', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to manage friend requests.' });
+    const result = socialStore.cancelFriendRequest(account.id, payload.friendshipId);
+    if (result.success) emitSocialUpdate(account.id);
+    reply(callback, result);
+  });
+
   socket.on('get-leaderboard', (payload = {}, callback) => {
-    const metric = ['wins', 'games', 'rate', 'achievements', 'bankruptcies'].includes(payload.metric) ? payload.metric : 'wins';
-    reply(callback, { success: true, metric, rows: accountStore.getLeaderboard(metric) });
+    const viewer = accountForSocket(socket, payload);
+    const metric = ['wins', 'games', 'rate', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'].includes(payload.metric) ? payload.metric : 'wins';
+    const scope = ['all', 'month', 'friends'].includes(payload.scope) ? payload.scope : 'all';
+    const options = { since: scope === 'month' ? Date.now() - (30 * 24 * 60 * 60 * 1000) : null };
+    if (scope === 'friends') {
+      if (!viewer) return reply(callback, { success: false, error: 'Sign in to view friend rankings.' });
+      const graph = socialStore.listFor(viewer.id);
+      options.accountIds = [viewer.id, ...graph.friends];
+    }
+    reply(callback, { success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options) });
   });
 
   socket.on('get-leaderboard-snapshot', (payload = {}, callback) => {
-    const snapshot = accountStore.getLeaderboardSnapshot();
-    reply(callback, { success: true, ...snapshot });
+    const viewer = accountForSocket(socket, payload);
+    const scope = ['all', 'month', 'friends'].includes(payload.scope) ? payload.scope : 'all';
+    const options = { since: scope === 'month' ? Date.now() - (30 * 24 * 60 * 60 * 1000) : null };
+    if (scope === 'friends') {
+      if (!viewer) return reply(callback, { success: false, error: 'Sign in to view friend rankings.' });
+      const graph = socialStore.listFor(viewer.id);
+      options.accountIds = [viewer.id, ...graph.friends];
+    }
+    const snapshot = accountStore.getLeaderboardSnapshot(undefined, options);
+    reply(callback, { success: true, scope, ...snapshot });
   });
 
   socket.on('send-room-invite', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     const room = getRoomForSocket(socket, callback);
     if (!account || !room) return;
+    if (!allowSocialAction(account.id, 'room-invite')) return reply(callback, { success: false, error: 'Too many invites. Try again in a minute.' });
     const target = accountStore.getPublicAccountById(payload.targetAccountId);
     if (!target) return reply(callback, { success: false, error: 'Player not found.' });
+    const targetAccount = accountStore.getAccountById(target.id);
+    if (targetAccount?.privacy?.roomInvites === 'nobody') return reply(callback, { success: false, error: 'This player is not accepting room invites.' });
+    if (socialStore.friendshipBetween(account.id, target.id)?.status !== 'accepted') return reply(callback, { success: false, error: 'Room invites are available to accepted friends.' });
     const result = socialStore.createInvite({ roomCode: room.roomCode, roomName: room.roomName, visibility: room.visibility, senderId: account.id, recipientId: target.id });
     if (result.success) {
       notifyAccount(target.id, { kind: 'room-invite', title: 'ROOM INVITE', body: `${account.displayName} invited you to ${room.roomName}.`, metadata: { inviteId: result.invite.id, roomName: room.roomName, visibility: room.visibility } });
@@ -836,6 +1477,53 @@ io.on('connection', (socket) => {
   socket.on('respond-room-invite', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage room invites.' });
+    const invite = socialStore.getInvite(account.id, payload.inviteId);
+    if (payload.accept === true) {
+      if (!invite) return reply(callback, { success: false, error: 'That room invite has expired.' });
+      const room = roomManager.getRoom(invite.roomCode);
+      if (!room) return reply(callback, { success: false, error: 'That room no longer exists.' });
+      if (room.game.started) return reply(callback, { success: false, error: 'That round has already started.' });
+      if (!room.game.canJoin()) return reply(callback, { success: false, error: 'That room is full.' });
+      const clientId = String(payload.clientId || '').trim();
+      if (!clientId) return reply(callback, { success: false, error: 'A client session is required to join.' });
+      const oldRoom = roomManager.getRoomBySocket(socket.id);
+      if (oldRoom && oldRoom.roomCode !== room.roomCode) {
+        const oldPlayer = oldRoom.getPlayerBySocket(socket.id);
+        if (oldPlayer && !oldRoom.game.started) {
+          oldRoom.game.removePlayerBySocket(socket.id);
+          reassignHostIfNeeded(oldRoom, oldPlayer.id);
+          emitRoomState(oldRoom);
+        } else if (oldPlayer) {
+          oldPlayer.disconnected = true;
+          oldPlayer.socketId = null;
+          reassignHostIfNeeded(oldRoom, oldPlayer.id);
+          emitRoomState(oldRoom);
+        }
+      }
+      for (const existingRoom of [...socket.rooms]) {
+        if (existingRoom !== socket.id) socket.leave(existingRoom);
+      }
+      const joined = room.addOrReconnectPlayer({
+        clientId,
+        socketId: socket.id,
+        nickname: account.displayName,
+        color: account.color,
+        avatarGrid: normalizeAvatarGrid(account.avatarGrid),
+        accountId: account.id
+      });
+      if (!joined.success) return reply(callback, { success: false, error: joined.error });
+      roomManager.socketRoom.set(socket.id, room);
+      socket.join(room.roomCode);
+      const result = socialStore.respondInvite(account.id, payload.inviteId, true);
+      if (result.success) {
+        emitSocialUpdate(account.id);
+        emitRoomState(room);
+        io.in(room.roomCode).emit('system-message', { text: account.displayName + ' joined from a room invite.' });
+        emitPendingInteractions(room, socket, joined.player);
+        return reply(callback, { ...result, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
+      }
+      return reply(callback, result);
+    }
     const result = socialStore.respondInvite(account.id, payload.inviteId, payload.accept === true);
     if (result.success) emitSocialUpdate(account.id);
     reply(callback, result);
@@ -845,10 +1533,12 @@ io.on('connection', (socket) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage notifications.' });
     const result = socialStore.markNotificationRead(account.id, payload.notificationId);
+    if (result.success) emitSocialUpdate(account.id);
     reply(callback, result);
   });
 
   socket.on('disconnect', () => {
+    patrolRuns.forEach((run, token) => { if (run.socketId === socket.id) patrolRuns.delete(token); });
     const room = roomManager.disconnectPlayer(socket.id);
     if (room) {
       scheduleDisconnect(room, socket.id);

@@ -11,6 +11,7 @@
     <div class="scanlines"></div>
     <div class="sr-live" id="system-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
+    <div class="toast-stack" id="toast-stack" aria-hidden="true"></div>
 
     <!-- ============================ HOME VIEW ============================ -->
     <div class="view" id="view-home">
@@ -350,7 +351,7 @@
           <button class="profile-tab" id="profile-tab-stats" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-stats" data-profile-tab="stats"><span class="t-label f11">STATISTICS</span></button>
           <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
           <button class="profile-tab" id="profile-tab-history" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-history" data-profile-tab="history"><span class="t-label f11">HISTORY</span></button>
-          <button class="profile-tab" id="profile-tab-achievements" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-achievements" data-profile-tab="achievements"><span class="t-label f11">ACHIEVEMENTS</span><span class="profile-tab-count" id="profile-achievement-count">0/47</span></button>
+          <button class="profile-tab" id="profile-tab-achievements" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-achievements" data-profile-tab="achievements"><span class="t-label f11">ACHIEVEMENTS</span><span class="profile-tab-count" id="profile-achievement-count">0/52</span></button>
           <button class="profile-tab" id="profile-tab-account" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-account" data-profile-tab="account"><span class="t-label f11">ACCOUNT &amp; PREFERENCES</span></button>
         </nav>
 
@@ -429,7 +430,7 @@
 
         <section class="profile-tab-panel is-hidden" id="profile-panel-achievements" role="tabpanel" aria-labelledby="profile-tab-achievements" tabindex="0">
           <section class="panel noise pad16 achievements-panel" aria-labelledby="achievements-heading">
-            <div class="achievements-intro"><div><div class="t-micro g400">PARLOR RECORDS · DISCOVERY</div><h2 class="t-section g100" id="achievements-heading">Achievements</h2><p class="t-body ink-2">Small decisions, strange headlines, and impossible recoveries. Every badge has a story.</p></div><div class="achievements-progress" id="achievements-progress" aria-live="polite"><strong class="t-label f20 g100" id="achievements-progress-value">0/47</strong></div></div>
+            <div class="achievements-intro"><div><div class="t-micro g400">PARLOR RECORDS · DISCOVERY</div><h2 class="t-section g100" id="achievements-heading">Achievements</h2><p class="t-body ink-2">Small decisions, strange headlines, and impossible recoveries. Every badge has a story.</p></div><div class="achievements-progress" id="achievements-progress" aria-live="polite"><strong class="t-label f20 g100" id="achievements-progress-value">0/52</strong></div></div>
             <div class="achievements-filter-bar" id="achievements-filters" role="tablist" aria-label="Achievement filters">
               <button class="achievement-filter is-active" type="button" role="tab" aria-selected="true" data-achievement-filter="all"><span class="t-label f11">ALL</span></button>
               <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="visible"><span class="t-label f11">TABLECRAFT</span></button>
@@ -745,6 +746,8 @@
             <button class="tab" id="tab-trade" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="trade"><span class="t-label f12">TRADE</span><span class="tab-underline"></span></button>
             <button class="tab" id="tab-log" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="log"><span class="t-label f12">LOG</span><span class="tab-underline"></span></button>
             <button class="tab" id="tab-finance" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="finance"><span class="t-label f12">FINANCE</span><span class="tab-underline"></span></button>
+            <button class="tab" id="tab-casino" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="casino"><span class="t-label f12">CASINO</span><span class="tab-underline"></span></button>
+            <button class="tab" id="tab-market" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="market"><span class="t-label f12">MARKET</span><span class="tab-underline"></span></button>
           </div>
           <div class="rr-body thin-scroll" id="rr-body" role="tabpanel" aria-labelledby="tab-deeds" tabindex="0"></div>
           <div class="rr-foot">
