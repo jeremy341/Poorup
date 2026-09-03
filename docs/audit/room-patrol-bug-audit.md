@@ -1,7 +1,7 @@
 # Room/Patrol Bug Audit — 2026-09-03
 
 **Method:** 8 parallel read-only scout agents + parent spot-verification of load-bearing quotes. Zero code/UI changes; this file is the only artifact.
-**Stack ground truth:** Node + Express + Socket.IO (`server/server.js` 1430 lines, `server/gameLogic.js` 3379 lines, in-memory `Map` rooms — **no Supabase/DB/RLS exists in this repo**). Client is the single file `public/main.js` (8124 lines) + `public/index.html`. `state.live` is hardcoded `true` (`main.js:663`, zero writes) so every `!state.live` "offline" branch is dead code.
+**Stack ground truth:** Node + Express + Socket.IO (`server/server.js` 1560 lines, `server/gameLogic.js` 3461 lines, in-memory `Map` rooms — **no Supabase/DB/RLS exists in this repo**). Client is the single file `public/main.js` (8397 lines) + `public/index.html`. `state.live` is hardcoded `true` (`main.js:663`, zero writes) so every `!state.live` "offline" branch is dead code. *(Line counts refreshed 2026-09-03 after phase 4; original audit cited 1430/3379/8124.)*
 
 ---
 
@@ -16,7 +16,7 @@
 | 5 | Public browse stale-by-design: fetched once on modal open, never pushed/refreshed | high | CONFIRMED | `main.js:3156-3161` vs `main.js:3115-3116`; no push `server.js:645-647` | FIXED (`rooms-updated` push + tab-click refresh + 5s loading timeout) |
 | 6 | Stale-room code lockout: dead room reserves a private code ~11 min; re-create fails invisibly | high | CONFIRMED (code) | `server.js:666-668` + GC `server.js:97-119` + grace `server.js:43-45` | FIXED (instant reclaim when room has no connected humans) |
 | 7 | Reconnect: `restore-session` ack swallowed by empty callback → "ONLINE" + frozen room after restart/GC | high | CONFIRMED | `main.js:1126`, `main.js:6873`; reject `server.js:643` | FIXED (shared handler: visible notice + status + re-join) |
-| 8 | Zero icon/color/nickname uniqueness — all players default to CRIMSON; no grey-out anywhere | high | CONFIRMED | `gameLogic.js:743-763` (no guard), `main.js:4743-4755` (picker), `main.js:677` + `accountStore.js:38-40` (default collision) | FIXED server-side (guard + auto-assign free preset); picker grey-out DEFERRED-UI |
+| 8 | Zero icon/color/nickname uniqueness — all players default to CRIMSON; no grey-out anywhere | high | CONFIRMED | `gameLogic.js:743-763` (no guard), `main.js:4743-4755` (picker), `main.js:677` + `accountStore.js:38-40` (default collision) | FIXED (server guard + auto-assign; picker TAKEN grey-out + disabled; seat colour authoritative in UI) |
 | 9 | Side-channel events ignore the mute — game modals pop over the homescreen, actionable | high | CONFIRMED | `main.js:1182-1214` ungated; popups `position:fixed` siblings `index.html:783-833`, `styles.css:1633` | FIXED at root (seat now released on Home; server stops delivering) |
 | 10 | Two tabs of one browser profile share `clientId` → seat hijack, first tab errors | high (if test used one profile) | CONFIRMED | `main.js:664` + `gameLogic.js:3051-3053` | FIXED (per-tab `clientId` via sessionStorage; no legacy migration) |
 | 11 | Night-shift heart row renders empty at start (label-dedupe skips first paint) → "hearts lost randomly" | medium | CONFIRMED | `main.js:2093-2096` vs `index.html:113` | FIXED (forced first paint) |
@@ -46,6 +46,31 @@ The four deferred functional findings + two phase-2 verification gaps + AFK stal
 
 **Verification (phase 3):** `node --check` all changed files OK; unit suite re-run green (8/8); live server boot OK; night-shift block exercised in a `node:vm` virtual-clock harness — 18/18 assertions (hidden-window freeze + exactly-one resume step + normal wave advance; reject→toast→retry→success latch); AFK watchdog smoke at `TURN_AFK_TIMEOUT_MS=100`: exactly one skip per turn ownership 30.02s apart, correct system-message, turn order advanced A→B.
 
+## Fix Status — 2026-09-03 (phase 4: UI round + user-reported bugs)
+
+Closed the deferred UI items and three user-reported bugs.
+
+**User-reported:**
+- **Rules-tab nav shift (#B1):** the `‹` back-arrow span inside `<button class="hdr-brand">` on Rules pushed the shared nav right vs Home's plain `<div>` brand; added `#view-rules .hdr-brand` to the existing `margin-right: -40px` parity rule (`styles.css:2241`). Probe: nav starts at x=362 on all five surfaces.
+- **Ctrl+P opened browser print instead of Night Shift (#B2):** Ctrl+P is the browser's native print chord and cannot be reliably intercepted mid-page. Night Shift moved to **Shift+P** as the primary door (`main.js:8231-8246`: home phase, not already active, no ctrl/meta/alt, not typing; goes home first if a surface is open, then starts). The Ctrl+P handler remains as a bonus where it does fire. Hint text updated (`index.html:100` "SHIFT+P · NIGHT SHIFT"; patrol README). Keybind probe 8/8.
+- **Turns auto-ended without pressing END TURN (#B3):** server-side hold — `Game.awaitingEndTurn` set in `resolveTurnAfterAction` (`gameLogic.js:1529`) instead of calling `nextTurn()`; cleared in `nextTurn()`; exposed in the snapshot; `endTurn` gate reordered so doubles get the "roll again" error before the generic hold error (`gameLogic.js:2848-2857`); jail-stay holds too. Bot scheduler ends its own turn when awaiting (`server.js:335-339`). Client maps `awaitingEndTurn` → `turnStage "end"` (`main.js:1079`) so the button reads "End Turn". Intentional auto-advances preserved: 3-doubles→jail, bankruptcy, leave/disconnect skips, AFK watchdog. New contract test 10 (`gameLogic.test.js:442-509`) covers pre-roll reject, landing hold, end advances, doubles re-roll, jail-stay hold. Local (offline) mode already waited; untouched.
+
+**UI round:** restored three accidentally-deleted toast rules (`.parlor-toast.is-mythical`, `-title`, `-body`) and tokenized the error palette — `--surface-error`/`--line-error`/`--text-error` in `:root` (`styles.css:51-53`); no raw hex outside `:root` for toasts. Icon-picker grey-out shipped (audit #8 UI half): TAKEN presets render dashed/greyscale/disabled (`main.js:4875-4879,4919-4933`, `styles.css:1369-1371`); `applyServerState` no longer clobbers server-assigned seat colours (`syncLocalAppearance()` call removed — server uniqueness guard + auto-assign are authoritative; the picker derives the active row from the seat colour). Popup-over-home block: `GAME_POPUP` set gated in `openSurface` with a throttled TABLE NOTICE toast (`main.js:786-793,842-848`).
+
+**Verification (phase 4):** `npm test` = **9 suites — 9 passed** (contract 10 added). Two-tab live proof of #B3 against a fresh server on :8091 (private room `TST01A`): 8/8 — turn holds after landing with "End Turn" label, explicit END passes the dice, second player's turn identical, zero page errors. Full UI-round suite (`.local-verify-ui.mjs`, two tabs, private room `UI0001`): **17/17** — S1 picker TAKEN both directions + seat-colour alignment, S2 error toast (border/glyph/close/announcer) + stack lift 0..3 + click-dismiss, S3 popup blocked at home with notice + still opens mid-game, S4 night shift + hint, #12 real-hidden-tab freeze + result-countdown survives hidden window and fires on resume, no page errors. Note: guest "empty roomCode" triaged as **not a bug** — `create-room`/`join-room` acks intentionally return `roomCode: null` for public rooms (`server.js:782`); joins use the browse directory.
+
+
+---
+
+## Fix Status — 2026-09-03 (phase 5: "hearts appear at random" in Night Shift)
+
+User report: while playing Night Shift ("parlor mode") hearts kept blanking at seemingly random moments. Reproduced live and root-caused to the #12 freeze from phase 3 being **half-wired**:
+
+- The `night-shift-paused` body class — whose CSS rule (`styles.css:639-641`) pauses in-flight `.night-target` animations — was *removed* by the resume/stop coordinators but never *added* on hide. Aircraft kept flying (and escaping off-screen) while the window was hidden; the probe measured transforms advancing ~900px/2s during a fake-hide with `animationPlayState: "running"`.
+- `settle()`'s hidden guard swallowed the `animationend` of any craft that finished off-screen (once-listener consumed, event dropped), and the resume re-arm (`main.js` coordinator) then scheduled a fresh miss backstop for the **full** flight duration (`setTimeout(timers.settle, timers.backstop)`) instead of the remaining time.
+- Net symptom, measured pre-fix: first heart lost **260 ms** after returning to the tab — a phantom escape with nothing on screen — then more at +3 s and +8.5 s, untethered from any visible aircraft. Reads exactly like "hearts appearing at random".
+
+**Fix (`public/main.js`):** hide now adds `night-shift-paused` (CSS freeze finally wired up) and records each target's elapsed backstop time (`missStartedAt`/`missElapsed`); a flight that genuinely ended while hidden records `endedWhileHidden` and settles **immediately on resume** instead of dropping the event; remaining backstops re-arm for `backstop − elapsed` (min 250 ms). Post-fix probe: transforms byte-identical at hide+2 s/+4 s with `animationPlayState: "paused"`; first loss now 4.1 s after resume — an aircraft visibly completing its route on screen — then natural ~3 s cadence; zero page errors. `node --check` + `npm test` 9/9 green.
 ---
 
 ## Agent 1: Private Room Create → Join via Code
