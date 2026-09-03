@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 const DEFAULT_ROOM_SETTINGS = {
   maxPlayers: 4,
   doubleRent: false,
@@ -14,16 +16,31 @@ const DEFAULT_ROOM_SETTINGS = {
   turnTimer: 0,
   bankruptMode: 'elim',
   bots: 0,
+  botPersonality: 'survivor',
   startingCash: 1500,
   bankLoans: true,
   bankLoanSeverity: 'predatory',
-  globalEvents: 'rare',
+  // Global headlines are intentionally a single on/off rule. Rarity,
+  // severity, duration, and combinations are derived from the game clock.
+  globalEvents: false,
+  casino: false,
+  market: false,
+  // Kept for backwards-compatible snapshots only; client values are ignored.
   globalEventDuration: 5,
   globalEventMax: 1
 };
 
 const AUCTION_DURATION_MS = 5000;
 const AUCTION_BID_COOLDOWN_MS = 300;
+const CASINO_MAX_BET = 500;
+const MARKET_FEE_RATE = 0.02;
+const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+const MARKET_INSTRUMENTS = [
+  ['brazil', 'BRAZIL', 100], ['ghana', 'GHANA', 100], ['thailand', 'THAILAND', 100],
+  ['japan', 'JAPAN', 100], ['netherlands', 'NETHERLANDS', 100], ['canada', 'CANADA', 100],
+  ['switzerland', 'SWITZERLAND', 100], ['singapore', 'SINGAPORE', 100],
+  ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
+].map(([id, name, price]) => ({ id, name, price }));
 const PROPERTY_HOUSE_COST_BY_GROUP = {
   Brown: 50,
   'Light Blue': 50,
@@ -41,7 +58,7 @@ const JAIL_FINE = 50;
 const JAIL_MAX_TURNS = 3;
 const START_TILE_INDEX = 0;
 const GLOBAL_EVENT_COOLDOWN_ROUNDS = 3;
-const GLOBAL_EVENT_MIN_ROUND = 4;
+const GLOBAL_EVENT_MIN_ROUND = 3;
 const BANK_LOAN_PRINCIPAL = 300;
 const BANK_LOAN_TERM_ROUNDS = 3;
 
@@ -53,7 +70,7 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'Property values are sliding. Construction is frozen while the market clears.',
     weight: 1,
     eligible: game => game.totalBuildings() >= 18,
-    effects: { rentMultiplier: 0.65, constructionBlocked: true, buildingSaleMultiplier: 0.4, propertyValueMultiplier: 0.8 }
+    effects: { rentMultiplier: 0.65, constructionBlocked: true, buildingSaleMultiplier: 0.4, propertyValueMultiplier: 0.8, marketPriceMultiplier: 0.65, marketVolatility: 1.5, casinoMaxBet: 300 }
   },
   {
     id: 'credit-freeze',
@@ -62,7 +79,7 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'Lenders stop taking risk. New mortgages and bank loans are unavailable.',
     weight: 1,
     eligible: game => game.players.some(player => player.bankLoan?.status === 'active' || player.bankLoan?.status === 'due') || game.tiles.some(tile => tile.mortgaged),
-    effects: { bankLoansBlocked: true, mortgagesBlocked: true }
+    effects: { bankLoansBlocked: true, mortgagesBlocked: true, marketPriceMultiplier: 0.8, tradingEnabled: false, casinoMaxBet: 350 }
   },
   {
     id: 'inflation-spiral',
@@ -71,7 +88,7 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'Cash is losing buying power. Taxes and construction cost more.',
     weight: 1,
     eligible: game => game.totalCash() >= game.settings.startingCash * Math.max(2, game.activePlayers().length) * 1.1,
-    effects: { taxMultiplier: 1.4, buildingCostMultiplier: 1.35, loanPremiumMultiplier: 1.25 }
+    effects: { taxMultiplier: 1.4, buildingCostMultiplier: 1.35, loanPremiumMultiplier: 1.25, marketPriceMultiplier: 1.1, casinoEntryFee: 5 }
   },
   {
     id: 'city-election',
@@ -94,7 +111,7 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'Flights are grounded. Airport rent and airport card movement are disrupted.',
     weight: 1,
     eligible: game => game.tiles.some(tile => tile.type === 'railroad' && tile.ownerId),
-    effects: { airportRentMultiplier: 0, airportCardsBlocked: true }
+    effects: { airportRentMultiplier: 0, airportCardsBlocked: true, marketPriceMultiplier: 0.85 }
   },
   {
     id: 'tourism-boom',
@@ -103,7 +120,7 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'Visitors flood the city. Airports and premium districts surge.',
     weight: 1,
     eligible: () => true,
-    effects: { airportRentMultiplier: 1.75, premiumRentMultiplier: 1.3 }
+    effects: { airportRentMultiplier: 1.75, premiumRentMultiplier: 1.3, marketPriceMultiplier: 1.15 }
   },
   {
     id: 'anti-monopoly',
@@ -112,8 +129,139 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'The dominant portfolio is under review and its rent is temporarily capped.',
     weight: 1,
     eligible: game => game.players.some(player => game.playerGroups(player).length >= 2),
-    effects: { leaderRentMultiplier: 0.6 }
+    choices: [
+      { id: 'enforce', label: 'ENFORCE THE AUDIT', description: 'Cap the leader’s rent while the investigation runs.' },
+      { id: 'dismiss', label: 'DISMISS THE AUDIT', description: 'End the inquiry now and keep the table moving.' }
+    ],
+    effects: { leaderRentMultiplier: 0.6, marketPriceMultiplier: 0.9 }
+  },
+  {
+    id: 'interest-rate-shock',
+    title: 'INTEREST RATE SHOCK',
+    category: 'ECONOMIC',
+    summary: 'Debt becomes heavier. Existing bank loans carry a disclosed premium.',
+    weight: 1,
+    eligible: game => game.players.filter(player => ['active', 'due'].includes(player.bankLoan?.status)).length >= 2,
+    effects: { loanPremiumMultiplier: 1.35 }
+  },
+  {
+    id: 'energy-crisis',
+    title: 'ENERGY CRISIS',
+    category: 'INFRASTRUCTURE',
+    summary: 'Utilities are suddenly valuable while construction costs climb.',
+    weight: 1,
+    eligible: game => game.tiles.some(tile => tile.type === 'utility' && tile.ownerId),
+    effects: { utilityRentMultiplier: 1.5, buildingCostMultiplier: 1.2, marketPriceMultiplier: 1.1 }
+  },
+  {
+    id: 'rent-control',
+    title: 'RENT CONTROL ORDINANCE',
+    category: 'CIVIC',
+    summary: 'The council caps the most concentrated rents and returns a small stipend.',
+    weight: 1,
+    eligible: game => game.players.some(player => game.playerGroups(player).length >= 1),
+    effects: { rentCap: 80, rentControlStipend: 25 }
+  },
+  {
+    id: 'public-works',
+    title: 'PUBLIC WORKS BOOM',
+    category: 'CIVIC',
+    summary: 'A construction package opens a temporary path to development.',
+    weight: 1,
+    eligible: game => game.roundNumber >= 5 && game.totalBuildings() < 18,
+    effects: { buildingCostMultiplier: 0.65, buildingLimitPerTurn: 1 }
+  },
+  {
+    id: 'labor-strike',
+    title: 'LABOR STRIKE',
+    category: 'CIVIC',
+    summary: 'Developed properties pay maintenance while the table negotiates.',
+    weight: 1,
+    eligible: game => game.totalBuildings() >= 8,
+    effects: { buildingMaintenance: 20 }
+  },
+  {
+    id: 'currency-devaluation',
+    title: 'CURRENCY DEVALUATION',
+    category: 'ECONOMIC',
+    summary: 'Cash reserves lose a small, visible percentage overnight.',
+    weight: 1,
+    eligible: game => game.totalCash() >= game.settings.startingCash * Math.max(3, game.activePlayers().length) * 1.25,
+    effects: { cashMultiplier: 0.92 }
+  },
+  {
+    id: 'supply-chain',
+    title: 'SUPPLY CHAIN BREAKDOWN',
+    category: 'INFRASTRUCTURE',
+    summary: 'Materials are scarce. Construction is limited and more expensive.',
+    weight: 1,
+    eligible: game => game.totalBuildings() >= 4 && game.roundNumber >= 5,
+    effects: { buildingCostMultiplier: 1.4, buildingLimitPerTurn: 1, marketPriceMultiplier: 0.9 }
+  },
+  {
+    id: 'debt-amnesty',
+    title: 'DEBT AMNESTY',
+    category: 'ECONOMIC',
+    summary: 'Borrowers can settle early at a discount, but the bank remembers.',
+    weight: 1,
+    eligible: game => game.players.some(player => ['active', 'due'].includes(player.bankLoan?.status)),
+    effects: { loanSettlementMultiplier: 0.8, loanPremiumMultiplier: 1.15 }
+  },
+  {
+    id: 'convention-week',
+    title: 'CONVENTION WEEK',
+    category: 'INFRASTRUCTURE',
+    summary: 'One city group gets a short, noisy demand spike.',
+    weight: 1,
+    eligible: game => game.roundNumber >= 6,
+    effects: { premiumRentMultiplier: 1.2 }
+  },
+  {
+    id: 'tax-audit',
+    title: 'TAX SCANDAL AUDIT',
+    category: 'CIVIC',
+    summary: 'A visible settlement is reviewed by the parlor authority.',
+    weight: 1,
+    eligible: game => game.roundNumber >= 5,
+    effects: { taxMultiplier: 1.15 }
+  },
+  {
+    id: 'bank-run',
+    title: 'BANK RUN',
+    category: 'ECONOMIC',
+    summary: 'Bank actions slow down while liquidity is counted.',
+    weight: 1,
+    eligible: game => game.players.filter(player => player.cash < game.settings.startingCash * 0.35 && !player.bankrupt).length >= 2,
+    choices: [
+      { id: 'emergency-bailout', label: 'EMERGENCY BAILOUT', description: 'The bank advances a small rescue payment to distressed players, but active loans gain a surcharge.' },
+      { id: 'let-the-ledger-run', label: 'LET THE LEDGER RUN', description: 'No rescue payment. The bank keeps the queue closed until liquidity returns.' }
+    ],
+    effects: { bankActionsBlocked: true, auctionBlocked: true, marketPriceMultiplier: 0.75, tradingEnabled: false, casinoMaxBet: 250 }
+  },
+  {
+    id: 'transit-shutdown',
+    title: 'TRANSIT SHUTDOWN',
+    category: 'INFRASTRUCTURE',
+    summary: 'Support routes are restricted for one cycle while operators negotiate.',
+    weight: 1,
+    eligible: game => game.roundNumber >= 5 && game.tiles.some(tile => tile.type === 'railroad' && tile.ownerId),
+    effects: { airportCardsBlocked: true, airportRentMultiplier: 0.5, marketPriceMultiplier: 0.85 }
   }
+];
+
+const GLOBAL_EVENT_COMBINATIONS = [
+  { id: 'foreclosure-spiral', required: ['housing-bubble', 'credit-freeze'], title: 'FORECLOSURE SPIRAL', summary: 'The property crash meets a locked credit market.', effects: { constructionBlocked: true, bankLoansBlocked: true, mortgagesBlocked: true, rentMultiplier: 0.55 }, duration: 8 },
+  { id: 'stagflation', required: ['inflation-spiral', 'interest-rate-shock'], title: 'STAGFLATION', summary: 'Cash loses power while debt grows heavier.', effects: { taxMultiplier: 1.35, buildingCostMultiplier: 1.5, loanPremiumMultiplier: 1.5, rentMultiplier: 0.8 }, duration: 8 },
+  { id: 'travel-chaos', required: ['airport-strike', 'tourism-boom'], title: 'TRAVEL CHAOS', summary: 'The city is full, but every flight is grounded.', effects: { airportRentMultiplier: 0, premiumRentMultiplier: 1.55, airportCardsBlocked: true }, duration: 7 },
+  { id: 'legitimacy-crisis', required: ['city-election', 'tax-audit'], title: 'LEGITIMACY CRISIS', summary: 'The policy vote is now part of the investigation.', choices: [
+    { id: 'publish-audit', label: 'PUBLISH THE AUDIT', description: 'Expose the books and keep the policy under review.' },
+    { id: 'bury-audit', label: 'Bury the audit', description: 'End the investigation quietly and accept the political fallout.' }
+  ], effects: { taxMultiplier: 1.35, rentCap: 90, tradingEnabled: false }, duration: 7 },
+  { id: 'construction-shutdown', required: ['supply-chain', 'energy-crisis'], title: 'CONSTRUCTION SHUTDOWN', summary: 'No materials, no power, no new buildings.', effects: { constructionBlocked: true, buildingCostMultiplier: 1.75, utilityRentMultiplier: 1.75 }, duration: 8 },
+  { id: 'moral-hazard', required: ['bank-run', 'debt-amnesty'], title: 'TOO BIG TO FAIL', summary: 'The bailout arrives, but the ledger keeps the premium.', choices: [
+    { id: 'emergency-bailout', label: 'EMERGENCY BAILOUT', description: 'Rescue distressed borrowers and carry a visible future premium.' },
+    { id: 'let-the-ledger-run', label: 'LET THE LEDGER RUN', description: 'Refuse the rescue and keep the bank queue closed.' }
+  ], effects: { bankActionsBlocked: true, loanPremiumMultiplier: 1.6 }, duration: 7 }
 ];
 
 const DEFAULT_TILES = [
@@ -198,16 +346,38 @@ const TREASURE_DECK = [
 ];
 
 function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return crypto.randomInt(min, max + 1);
+}
+
+function randomFloat() {
+  return crypto.randomInt(0, 1_000_000) / 1_000_000;
 }
 
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
   for (let i = 0; i < 6; i += 1) {
-    code += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+    code += alphabet.charAt(randomInt(0, alphabet.length - 1));
   }
   return code;
+}
+
+// The four default appearance presets, in server assignment order.
+const APPEARANCE_PRESET_COLORS = ['#d74438', '#286ea1', '#d9a62f', '#35a653'];
+
+// Resolves a requested seat color against colors taken by connected
+// non-bankrupt players (the player's own seat excluded). A collision becomes
+// the first free preset; if no preset is free the requested color is kept.
+function resolveFreeAppearanceColor(players, requestedColor, self = null) {
+  if (typeof requestedColor !== 'string' || !requestedColor) return requestedColor;
+  const taken = new Set(
+    players
+      .filter(player => player !== self && !player.disconnected && !player.bankrupt && typeof player.color === 'string')
+      .map(player => player.color.toLowerCase())
+  );
+  if (!taken.has(requestedColor.toLowerCase())) return requestedColor;
+  const free = APPEARANCE_PRESET_COLORS.find(color => !taken.has(color.toLowerCase()));
+  return free || requestedColor;
 }
 
 function rollDice() {
@@ -216,19 +386,23 @@ function rollDice() {
 
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(0, i);
     [array[i], array[j]] = [array[j], array[i]];
   }
   return array;
 }
 
 function cloneTiles() {
-  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0 }));
+  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0, equityShares: [] }));
+}
+
+function freshMarketQuotes() {
+  return Object.fromEntries(MARKET_INSTRUMENTS.map(instrument => [instrument.id, instrument.price]));
 }
 
 class Player {
-  constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false }) {
-    this.id = `${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
+    this.id = crypto.randomUUID();
     this.clientId = clientId || this.id;
     this.socketId = socketId;
     const safeNickname = typeof nickname === 'string' ? nickname.trim().slice(0, 24) : '';
@@ -239,6 +413,7 @@ class Player {
     this.accountId = accountId || null;
     this.isHost = isHost;
     this.isBot = isBot;
+    this.personality = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'].includes(personality) ? personality : 'survivor';
     this.cash = DEFAULT_ROOM_SETTINGS.startingCash;
     this.position = START_TILE_INDEX;
     this.properties = [];
@@ -246,6 +421,65 @@ class Player {
     this.jailTurns = 0;
     this.jailFreeCards = 0;
     this.bankLoan = null;
+    this.casinoNet = 0;
+    this.casinoLedger = [];
+    this.casinoMaxStake = 0;
+    this.casinoTotalStaked = 0;
+    this.casinoAllIn = false;
+    this.casinoOneDollar = false;
+    this.casinoBetsThisRound = 0;
+    this.marketPositions = {};
+    this.marketTrades = 0;
+    this.marketActionsThisTurn = 0;
+    this.crisisMarketBuys = {};
+    this.crisisMarketProfit = false;
+    this.playerContractIds = [];
+    this.auctionWins = 0;
+    this.rentCollected = 0;
+    this.globalEventsExperienced = 0;
+    this.globalEventsSurvived = 0;
+    this.fullGroups = new Set();
+    this.airportVisits = new Set();
+    this.taxTilesVisited = new Set();
+    this.rentPayerIds = new Set();
+    this.rentPayersThisRound = new Set();
+    this.maxRentPayersInRound = 0;
+    this.auctionUnderListWins = 0;
+    this.loanWarningSeen = false;
+    this.badIdeaLoan = false;
+    this.prisonBreak = false;
+    this.bankLoanCount = 0;
+    this.boughtDuringHousingBubble = false;
+    this.soldBuildingsDuringHousingBubble = 0;
+    this.bubbleSurvivor = false;
+    this.rebuiltAfterHousingBubble = false;
+    this.foreclosureNoSecondLoan = false;
+    this.housingBubbleEnded = false;
+    this.airportOwnedDuringStrike = false;
+    this.nonAirportRentDuringStrike = false;
+    this.tradesDuringCombo = 0;
+    this.groupTherapyTrade = false;
+    this.unanimousVote = false;
+    this.publicEnemy = false;
+    this.compromisedCouncil = false;
+    this.coalitionTrade = false;
+    this.lastVoteChoice = null;
+    this.bailoutReceived = false;
+    this.moralHazard = false;
+    this.zeroCashReached = false;
+    this.collateralLost = false;
+    this.comboExperienced = false;
+    this.buildActionsThisTurn = 0;
+    this.evenBuilds = 0;
+    this.councilWins = 0;
+    this.publicWorksBuilds = 0;
+    this.cardDraws = { surprise: 0, treasure: 0 };
+    this.treasureCardsSeen = new Set();
+    this.underdogAtHalfway = false;
+    this.oneMoreTurn = false;
+    this.taxAuditCount = 0;
+    this.moveCount = 0;
+    this.hiddenMovementSequence = false;
     this.bankrupt = false;
     this.disconnected = false;
     this.ready = false;
@@ -289,6 +523,11 @@ class GameState {
     this.feed = [];
     this.auction = null;
     this.pendingTrade = null;
+    this.pendingPlayerContract = null;
+    this.playerContracts = [];
+    this.contractTransactions = new Map();
+    this.tradesCompleted = 0;
+    this.auctionsCompleted = 0;
     this.pendingPayment = null;
     this.pendingPaymentTurnOptions = null;
     this.lastWinner = null;
@@ -298,6 +537,13 @@ class GameState {
     this.globalEventHistory = [];
     this.globalEventCooldown = 0;
     this.globalEventsTriggered = 0;
+    this.midpointMarked = false;
+    this.casinoLastResult = null;
+    this.casinoLedger = [];
+    this.marketLedger = [];
+    this.economyTransactions = new Map();
+    this.marketQuotes = freshMarketQuotes();
+    this.marketRound = 0;
     this.surpriseDeck = [...SURPRISE_DECK];
     this.treasureDeck = [...TREASURE_DECK];
   }
@@ -308,6 +554,65 @@ class GameState {
     player.properties = [];
     player.inJail = false;
     player.jailTurns = 0;
+    player.casinoNet = 0;
+    player.casinoLedger = [];
+    player.casinoMaxStake = 0;
+    player.casinoTotalStaked = 0;
+    player.casinoAllIn = false;
+    player.casinoOneDollar = false;
+    player.casinoBetsThisRound = 0;
+    player.marketPositions = {};
+    player.marketTrades = 0;
+    player.marketActionsThisTurn = 0;
+    player.crisisMarketBuys = {};
+    player.crisisMarketProfit = false;
+    player.playerContractIds = [];
+    player.auctionWins = 0;
+    player.rentCollected = 0;
+    player.globalEventsExperienced = 0;
+    player.globalEventsSurvived = 0;
+    player.fullGroups = new Set();
+    player.airportVisits = new Set();
+    player.taxTilesVisited = new Set();
+    player.rentPayerIds = new Set();
+    player.rentPayersThisRound = new Set();
+    player.maxRentPayersInRound = 0;
+    player.auctionUnderListWins = 0;
+    player.loanWarningSeen = false;
+    player.badIdeaLoan = false;
+    player.prisonBreak = false;
+    player.bankLoanCount = 0;
+    player.boughtDuringHousingBubble = false;
+    player.soldBuildingsDuringHousingBubble = 0;
+    player.bubbleSurvivor = false;
+    player.rebuiltAfterHousingBubble = false;
+    player.foreclosureNoSecondLoan = false;
+    player.housingBubbleEnded = false;
+    player.airportOwnedDuringStrike = false;
+    player.nonAirportRentDuringStrike = false;
+    player.tradesDuringCombo = 0;
+    player.groupTherapyTrade = false;
+    player.unanimousVote = false;
+    player.publicEnemy = false;
+    player.compromisedCouncil = false;
+    player.coalitionTrade = false;
+    player.lastVoteChoice = null;
+    player.bailoutReceived = false;
+    player.moralHazard = false;
+    player.zeroCashReached = false;
+    player.collateralLost = false;
+    player.comboExperienced = false;
+    player.buildActionsThisTurn = 0;
+    player.evenBuilds = 0;
+    player.councilWins = 0;
+    player.publicWorksBuilds = 0;
+    player.cardDraws = { surprise: 0, treasure: 0 };
+    player.treasureCardsSeen = new Set();
+    player.underdogAtHalfway = false;
+    player.oneMoreTurn = false;
+    player.taxAuditCount = 0;
+    player.moveCount = 0;
+    player.hiddenMovementSequence = false;
     player.bankrupt = false;
     player.disconnected = false;
     player.ready = false;
@@ -331,6 +636,11 @@ class GameState {
     this.feed = [];
     this.auction = null;
     this.pendingTrade = null;
+    this.pendingPlayerContract = null;
+    this.playerContracts = [];
+    this.contractTransactions = new Map();
+    this.tradesCompleted = 0;
+    this.auctionsCompleted = 0;
     this.pendingPayment = null;
     this.pendingPaymentTurnOptions = null;
     this.lastWinner = null;
@@ -340,6 +650,13 @@ class GameState {
     this.globalEventHistory = [];
     this.globalEventCooldown = 0;
     this.globalEventsTriggered = 0;
+    this.midpointMarked = false;
+    this.casinoLastResult = null;
+    this.casinoLedger = [];
+    this.marketLedger = [];
+    this.economyTransactions = new Map();
+    this.marketQuotes = freshMarketQuotes();
+    this.marketRound = 0;
     this.surpriseDeck = [...SURPRISE_DECK];
     this.treasureDeck = [...TREASURE_DECK];
 
@@ -351,6 +668,65 @@ class GameState {
       player.jailTurns = 0;
       player.jailFreeCards = 0;
       player.bankLoan = null;
+      player.casinoNet = 0;
+      player.casinoLedger = [];
+      player.casinoMaxStake = 0;
+      player.casinoTotalStaked = 0;
+      player.casinoAllIn = false;
+      player.casinoOneDollar = false;
+      player.casinoBetsThisRound = 0;
+      player.marketPositions = {};
+      player.marketTrades = 0;
+      player.marketActionsThisTurn = 0;
+      player.crisisMarketBuys = {};
+      player.crisisMarketProfit = false;
+      player.playerContractIds = [];
+      player.auctionWins = 0;
+      player.rentCollected = 0;
+      player.globalEventsExperienced = 0;
+      player.globalEventsSurvived = 0;
+      player.fullGroups = new Set();
+      player.airportVisits = new Set();
+      player.taxTilesVisited = new Set();
+      player.rentPayerIds = new Set();
+      player.rentPayersThisRound = new Set();
+      player.maxRentPayersInRound = 0;
+      player.auctionUnderListWins = 0;
+      player.loanWarningSeen = false;
+      player.badIdeaLoan = false;
+      player.prisonBreak = false;
+      player.bankLoanCount = 0;
+      player.boughtDuringHousingBubble = false;
+      player.soldBuildingsDuringHousingBubble = 0;
+      player.bubbleSurvivor = false;
+      player.rebuiltAfterHousingBubble = false;
+      player.foreclosureNoSecondLoan = false;
+      player.housingBubbleEnded = false;
+      player.airportOwnedDuringStrike = false;
+      player.nonAirportRentDuringStrike = false;
+      player.tradesDuringCombo = 0;
+      player.groupTherapyTrade = false;
+      player.unanimousVote = false;
+      player.publicEnemy = false;
+      player.compromisedCouncil = false;
+      player.coalitionTrade = false;
+      player.lastVoteChoice = null;
+      player.bailoutReceived = false;
+      player.moralHazard = false;
+      player.zeroCashReached = false;
+      player.collateralLost = false;
+      player.comboExperienced = false;
+      player.buildActionsThisTurn = 0;
+      player.evenBuilds = 0;
+      player.councilWins = 0;
+      player.publicWorksBuilds = 0;
+      player.cardDraws = { surprise: 0, treasure: 0 };
+      player.treasureCardsSeen = new Set();
+      player.underdogAtHalfway = false;
+      player.oneMoreTurn = false;
+      player.taxAuditCount = 0;
+      player.moveCount = 0;
+      player.hiddenMovementSequence = false;
       player.bankrupt = false;
       player.ready = false;
     });
@@ -387,8 +763,22 @@ class GameState {
     if (!player) {
       return { success: false, error: 'Player not found.' };
     }
-    if (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) {
-      player.color = color;
+    const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
+    if (safeColor) {
+      // Color is the appearance identity: another connected non-bankrupt
+      // player using it means the icon is taken at this table. Custom
+      // avatarGrids may still differ as long as colors differ.
+      const clash = this.players.some(other =>
+        other !== player &&
+        !other.disconnected &&
+        !other.bankrupt &&
+        typeof other.color === 'string' &&
+        other.color.toLowerCase() === safeColor.toLowerCase()
+      );
+      if (clash) {
+        return { success: false, error: 'That icon is already taken at this table.' };
+      }
+      player.color = safeColor;
     }
     if (typeof nickname === 'string' && !this.started) {
       const safeNickname = nickname.trim().slice(0, 24);
@@ -423,6 +813,198 @@ class GameState {
     return [...new Set(player.properties.map(index => this.getTile(index)?.group).filter(Boolean))];
   }
 
+  refreshPlayerGroups(player) {
+    if (!player) return;
+    if (!(player.fullGroups instanceof Set)) player.fullGroups = new Set();
+    const complete = this.playerGroups(player).filter(group => this.hasFullSet(player.id, group));
+    complete.forEach(group => player.fullGroups.add(group));
+  }
+
+  playerContractById(contractId) {
+    return this.playerContracts.find(contract => contract.id === contractId) || null;
+  }
+
+  playerContractSummary(viewerPlayerId = null) {
+    const nameFor = id => this.getPlayerById(id)?.nickname || 'PLAYER';
+    const project = contract => {
+      const own = Boolean(viewerPlayerId) && (contract.fromPlayerId === viewerPlayerId || contract.toPlayerId === viewerPlayerId);
+      const names = { fromPlayerName: nameFor(contract.fromPlayerId), toPlayerName: nameFor(contract.toPlayerId) };
+      if (own) return { ...contract, ...names };
+      return { id: contract.id, kind: contract.kind, status: contract.status, createdRound: contract.createdRound, ...names };
+    };
+    return {
+      pending: this.pendingPlayerContract ? project(this.pendingPlayerContract) : null,
+      active: this.playerContracts.filter(contract => ['active', 'due'].includes(contract.status)).map(project)
+    };
+  }
+
+  proposePlayerContract(socketId, offer = {}) {
+    const fromPlayer = this.getPlayerBySocket(socketId);
+    const toPlayer = this.getPlayerById(offer.toPlayerId);
+    const kind = ['loan', 'equity'].includes(String(offer.kind)) ? String(offer.kind) : 'loan';
+    const amount = Math.floor(Number(offer.amount));
+    const requestId = String(offer.requestId || '').trim().slice(0, 100);
+    const transactionKey = requestId ? (fromPlayer?.id + ':contract:' + requestId) : null;
+    if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
+    const durationRounds = Math.max(1, Math.min(20, Math.floor(Number(offer.durationRounds) || 3)));
+    const premiumRate = Math.max(0, Math.min(100, Number(offer.premiumRate) || 0));
+    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.disconnected || toPlayer.disconnected) return { success: false, error: 'Choose two active players.' };
+    if (fromPlayer.id !== this.currentPlayerId) return { success: false, error: 'Player contracts are proposed during your turn.' };
+    if (this.pendingPayment || this.auction || this.pendingPurchaseOffer || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the current table obligation first.' };
+    if (!Number.isInteger(amount) || amount < 1 || fromPlayer.cash < amount) return { success: false, error: 'The lender does not have enough cash for that offer.' };
+    const contract = {
+      id: 'contract_' + crypto.randomUUID(),
+      kind,
+      fromPlayerId: fromPlayer.id,
+      toPlayerId: toPlayer.id,
+      amount,
+      premiumRate,
+      durationRounds,
+      createdRound: this.roundNumber,
+      status: 'pending',
+      collateralTileIndex: null,
+      equityShare: 0,
+      equityControl: 'passive'
+    };
+    if (kind === 'loan') {
+      const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
+      const collateral = collateralIndex == null ? null : this.getTile(collateralIndex);
+      if (collateral && (collateral.ownerId !== toPlayer.id || !this.isTradeableTile(collateral))) return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
+      contract.totalDue = amount + Math.ceil(amount * (premiumRate / 100));
+      contract.remaining = contract.totalDue;
+      contract.dueRound = this.roundNumber + durationRounds;
+      contract.cureRound = contract.dueRound + 1;
+      contract.collateralTileIndex = collateral?.index ?? null;
+    } else {
+      const property = this.getTile(Number(offer.propertyIndex));
+      const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
+      if (!property || property.type !== 'property' || property.ownerId !== toPlayer.id || property.mortgaged || property.houseCount > 0) return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
+      const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+      if (existingShare + share > 100) return { success: false, error: 'That property has no remaining equity to sell.' };
+      contract.propertyIndex = property.index;
+      contract.equityShare = share;
+      contract.equityControl = ['passive', 'shared', 'controlling'].includes(offer.equityControl) ? offer.equityControl : 'passive';
+      contract.expiresRound = offer.permanent ? null : this.roundNumber + durationRounds;
+    }
+    this.pendingPlayerContract = contract;
+    this.feedMessage(fromPlayer.nickname + ' sent a ' + kind + ' contract to ' + toPlayer.nickname + '.');
+    const result = { success: true, contract };
+    if (transactionKey) this.contractTransactions.set(transactionKey, result);
+    return result;
+  }
+
+  respondPlayerContract(socketId, accept, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const transactionKey = requestId ? (player?.id + ':contract-response:' + String(requestId).slice(0, 100)) : null;
+    if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
+    const contract = this.pendingPlayerContract;
+    if (!player || !contract || contract.toPlayerId !== player.id) return { success: false, error: 'No matching player contract was found.' };
+    if (!accept) {
+      this.pendingPlayerContract = null;
+      this.feedMessage(player.nickname + ' declined the player contract.');
+      const result = { success: true, accepted: false };
+      if (transactionKey) this.contractTransactions.set(transactionKey, result);
+      return result;
+    }
+    const lender = this.getPlayerById(contract.fromPlayerId);
+    if (!lender || lender.bankrupt || lender.disconnected || lender.cash < contract.amount) {
+      this.pendingPlayerContract = null;
+      return { success: false, error: 'The lender can no longer fund that contract.' };
+    }
+    if (contract.kind === 'equity') {
+      const property = this.getTile(contract.propertyIndex);
+      if (!property || property.ownerId !== player.id || property.mortgaged || property.houseCount > 0) {
+        this.pendingPlayerContract = null;
+        return { success: false, error: 'The equity property is no longer available.' };
+      }
+      const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+      if (existingShare + contract.equityShare > 100) {
+        this.pendingPlayerContract = null;
+        return { success: false, error: 'The property has no remaining equity.' };
+      }
+      property.equityShares = [...(property.equityShares || []), { holderId: lender.id, share: contract.equityShare, contractId: contract.id, control: contract.equityControl }];
+    }
+    lender.cash -= contract.amount;
+    player.cash += contract.amount;
+    contract.status = 'active';
+    contract.acceptedRound = this.roundNumber;
+    this.playerContracts.push(contract);
+    lender.playerContractIds.push(contract.id);
+    player.playerContractIds.push(contract.id);
+    this.pendingPlayerContract = null;
+    this.feedMessage(lender.nickname + ' and ' + player.nickname + ' activated a ' + contract.kind + ' contract.');
+    const result = { success: true, accepted: true, contract };
+    if (transactionKey) this.contractTransactions.set(transactionKey, result);
+    return result;
+  }
+
+  repayPlayerContract(socketId, { contractId, amount, requestId } = {}) {
+    const borrower = this.getPlayerBySocket(socketId);
+    const transactionKey = requestId ? (borrower?.id + ':contract-repay:' + String(requestId).slice(0, 100)) : null;
+    if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
+    const contract = this.playerContractById(contractId);
+    const lender = contract ? this.getPlayerById(contract.fromPlayerId) : null;
+    if (!borrower || !contract || contract.kind !== 'loan' || contract.toPlayerId !== borrower.id || !['active', 'due'].includes(contract.status)) return { success: false, error: 'That loan is not available to repay.' };
+    const requested = amount == null ? contract.remaining : Math.floor(Number(amount));
+    const payment = Math.min(Math.max(0, requested), contract.remaining);
+    if (!payment || borrower.cash < payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
+    borrower.cash -= payment;
+    if (lender) lender.cash += payment;
+    contract.remaining -= payment;
+    if (contract.remaining <= 0) {
+      contract.remaining = 0;
+      contract.status = 'paid';
+      contract.paidRound = this.roundNumber;
+    }
+    this.feedMessage(borrower.nickname + ' repaid $' + payment + ' on a player loan.');
+    const result = { success: true, contract };
+    if (transactionKey) this.contractTransactions.set(transactionKey, result);
+    return result;
+  }
+
+  processPlayerContracts() {
+    this.playerContracts.forEach(contract => {
+      if (contract.kind === 'equity' && contract.status === 'active' && contract.expiresRound && this.roundNumber >= contract.expiresRound) {
+        const property = this.getTile(contract.propertyIndex);
+        if (property) property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
+        contract.status = 'expired';
+        return;
+      }
+      if (contract.kind !== 'loan' || !['active', 'due'].includes(contract.status)) return;
+      if (contract.status === 'active' && this.roundNumber >= contract.dueRound) {
+        contract.status = 'due';
+        const borrower = this.getPlayerById(contract.toPlayerId);
+        if (borrower) {
+          borrower.loanWarningSeen = true;
+          this.feedMessage(borrower.nickname + ' owes $' + contract.remaining + ' on a player loan.');
+        }
+      } else if (contract.status === 'due' && this.roundNumber > contract.cureRound) {
+        const borrower = this.getPlayerById(contract.toPlayerId);
+        const lender = this.getPlayerById(contract.fromPlayerId);
+        const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
+        if (borrower && lender && collateral?.ownerId === borrower.id) this.applyPropertyOwnershipChange(borrower, lender, collateral);
+        if (borrower && contract.collateralTileIndex != null) borrower.collateralLost = true;
+        contract.status = 'defaulted';
+        contract.defaultedRound = this.roundNumber;
+        this.feedMessage((borrower?.nickname || 'PLAYER') + ' defaulted on a player loan.');
+      }
+    });
+  }
+
+  settleEquityShares(tile, owner, amountPaid) {
+    if (!tile?.equityShares?.length || !owner || amountPaid <= 0) return;
+    tile.equityShares.forEach(share => {
+      const contract = this.playerContractById(share.contractId);
+      const holder = this.getPlayerById(share.holderId);
+      if (!contract || contract.status !== 'active' || !holder || holder.bankrupt) return;
+      const payout = Math.min(owner.cash, Math.floor(amountPaid * (Number(share.share) / 100)));
+      if (payout <= 0) return;
+      owner.cash -= payout;
+      holder.cash += payout;
+      contract.rentCollected = (contract.rentCollected || 0) + payout;
+    });
+  }
+
   globalEventDefinition(id) {
     return GLOBAL_EVENT_DEFINITIONS.find(event => event.id === id) || null;
   }
@@ -431,8 +1013,15 @@ class GameState {
     return this.globalEvent?.phase === 'active' && this.globalEvent.id === id;
   }
 
+  activeEventEffects() {
+    return this.globalEvent?.phase === 'active' ? (this.globalEvent.effects || {}) : {};
+  }
+
   isConstructionBlocked() {
-    return this.globalEventActive('housing-bubble');
+    return this.globalEvent?.phase === 'active' && Boolean(this.globalEvent.effects?.constructionBlocked)
+      || this.globalEventActive('housing-bubble')
+      || this.globalEventActive('bank-run')
+      || this.globalEventActive('supply-chain');
   }
 
   isLoanCollateral(player, tile) {
@@ -440,20 +1029,29 @@ class GameState {
       && Number(player.bankLoan.collateralTileIndex) === Number(tile?.index);
   }
 
+  isPlayerContractCollateral(player, tile) {
+    return Boolean(player && tile && this.playerContracts?.some(contract =>
+      contract.kind === 'loan'
+      && ['active', 'due'].includes(contract.status)
+      && contract.toPlayerId === player.id
+      && Number(contract.collateralTileIndex) === Number(tile.index)
+    ));
+  }
+
   highestCollateralProperty(player) {
     return player?.properties
       ?.map(index => this.getTile(index))
-      .filter(tile => tile && tile.type === 'property' && !tile.mortgaged && !(tile.houseCount > 0))
+      .filter(tile => tile && tile.type === 'property' && !tile.mortgaged && !(tile.houseCount > 0) && !this.isPlayerContractCollateral(player, tile))
       .sort((a, b) => (b.price || 0) - (a.price || 0))[0] || null;
   }
 
   getPropertyHouseCost(tile) {
     const base = PROPERTY_HOUSE_COST_BY_GROUP[tile?.group] || 0;
-    if (this.globalEventActive('inflation-spiral')) return Math.ceil(base * 1.35);
     if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works') {
       return Math.max(1, Math.floor(base * 0.65));
     }
-    return base;
+    const multiplier = Number(this.activeEventEffects().buildingCostMultiplier);
+    return Number.isFinite(multiplier) && multiplier > 0 ? Math.max(1, Math.ceil(base * multiplier)) : base;
   }
 
   getPropertyRent(tile) {
@@ -493,16 +1091,28 @@ class GameState {
     if (this.globalEventActive('airport-strike') && tile.type === 'railroad') rent = 0;
     if (this.globalEventActive('tourism-boom') && tile.type === 'railroad') rent *= 1.75;
     if (this.globalEventActive('tourism-boom') && tile.group === 'Dark Blue') rent *= 1.3;
-    if (this.globalEventActive('anti-monopoly') && tile.ownerId === this.globalEvent.targetPlayerId) rent *= 0.6;
+    if (this.globalEventActive('anti-monopoly') && this.globalEvent.resolvedChoice !== 'dismiss' && tile.ownerId === this.globalEvent.targetPlayerId) rent *= 0.6;
+    if (this.globalEventActive('energy-crisis') && tile.type === 'utility') rent *= 1.5;
+    const airportMultiplier = Number(this.activeEventEffects().airportRentMultiplier);
+    if (Number.isFinite(airportMultiplier) && tile.type === 'railroad' && !this.globalEventActive('airport-strike')) rent *= airportMultiplier;
+    const utilityMultiplier = Number(this.activeEventEffects().utilityRentMultiplier);
+    if (Number.isFinite(utilityMultiplier) && tile.type === 'utility' && !this.globalEventActive('energy-crisis')) rent *= utilityMultiplier;
+    const premiumMultiplier = Number(this.activeEventEffects().premiumRentMultiplier);
+    if (Number.isFinite(premiumMultiplier) && tile.group === 'Dark Blue' && !this.globalEventActive('tourism-boom')) rent *= premiumMultiplier;
+    const rentMultiplier = Number(this.activeEventEffects().rentMultiplier);
+    if (Number.isFinite(rentMultiplier) && rentMultiplier > 0 && !this.globalEventActive('housing-bubble')) rent *= rentMultiplier;
     if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works' && tile.type === 'property') rent *= 0.75;
+    const cap = Number(this.activeEventEffects().rentCap);
+    if (Number.isFinite(cap) && cap > 0) rent = Math.min(rent, cap);
     return Math.max(0, Math.floor(rent));
   }
 
   isTradeableTile(tile) {
     if (!tile || !tile.ownerId) return false;
     if (tile.mortgaged) return false;
+    if (tile.equityShares?.length) return false;
     const owner = this.getPlayerById(tile.ownerId);
-    if (owner && this.isLoanCollateral(owner, tile)) return false;
+    if (owner && (this.isLoanCollateral(owner, tile) || this.isPlayerContractCollateral(owner, tile))) return false;
     return (tile.type === 'property' || tile.type === 'utility' || tile.type === 'railroad') && (tile.houseCount || 0) === 0;
   }
 
@@ -538,8 +1148,9 @@ class GameState {
   canMortgageTile(player, tile) {
     if (!player || !tile || tile.ownerId !== player.id) return false;
     if (!this.settings.mortgage) return false;
-    if (this.globalEventActive('credit-freeze')) return false;
-    if (this.isLoanCollateral(player, tile)) return false;
+    if (this.globalEventActive('credit-freeze') || this.globalEventActive('bank-run') || this.activeEventEffects().mortgagesBlocked) return false;
+    if (this.isLoanCollateral(player, tile) || this.isPlayerContractCollateral(player, tile)) return false;
+    if (tile.equityShares?.length) return false;
     if (tile.type !== 'property' && tile.type !== 'utility' && tile.type !== 'railroad') return false;
     if ((tile.houseCount || 0) > 0) return false;
     if (tile.mortgaged) return false;
@@ -553,18 +1164,36 @@ class GameState {
   }
 
   canUnmortgageTile(player, tile) {
-    return Boolean(player && tile && tile.ownerId === player.id && tile.mortgaged) && !this.globalEventActive('housing-bubble');
+    return Boolean(player && tile && tile.ownerId === player.id && tile.mortgaged)
+      && !this.globalEventActive('housing-bubble')
+      && !this.globalEventActive('credit-freeze')
+      && !this.globalEventActive('bank-run')
+      && !this.isPlayerContractCollateral(player, tile);
   }
 
   applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
+    (tile.equityShares || []).forEach(share => {
+      const contract = this.playerContractById(share.contractId);
+      if (contract && contract.status === 'active') {
+        contract.status = 'terminated';
+        contract.terminatedRound = this.roundNumber;
+      }
+    });
     tile.ownerId = toPlayer ? toPlayer.id : null;
     tile.mortgaged = false;
     tile.houseCount = 0;
+    tile.equityShares = [];
     if (fromPlayer) {
       fromPlayer.properties = fromPlayer.properties.filter(propertyIndex => propertyIndex !== tile.index);
+      // A bubble-survivor deed must remain in the original owner's hands
+      // through recovery; transferring it invalidates that achievement fact.
+      if (fromPlayer.bubbleSurvivor && fromPlayer.housingBubbleEnded) {
+        fromPlayer.bubbleSurvivor = fromPlayer.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0);
+      }
     }
     if (toPlayer) {
       toPlayer.properties.push(tile.index);
+      this.refreshPlayerGroups(toPlayer);
     }
   }
 
@@ -736,6 +1365,7 @@ class GameState {
     if (!player.inJail || !(player.jailFreeCards > 0)) return { success: false, error: 'You do not have a Get Out of Prison card.' };
     if (this.hasRolled) return { success: false, error: 'You have already rolled this turn.' };
     player.jailFreeCards -= 1;
+    player.prisonBreak = true;
     player.inJail = false;
     player.jailTurns = 0;
     this.feedMessage(`${player.nickname} used a Get Out of Prison card.`);
@@ -746,6 +1376,8 @@ class GameState {
     const severity = this.settings.bankLoanSeverity === 'extreme' ? 'extreme' : this.settings.bankLoanSeverity === 'fair' ? 'fair' : 'predatory';
     let premiumRate = severity === 'extreme' ? 0.8 : severity === 'fair' ? 0.2 : 0.5;
     if (this.globalEventActive('inflation-spiral')) premiumRate *= 1.25;
+    const loanPremiumMultiplier = Number(this.activeEventEffects().loanPremiumMultiplier);
+    if (Number.isFinite(loanPremiumMultiplier) && loanPremiumMultiplier > 0) premiumRate *= loanPremiumMultiplier;
     if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'bank-first') premiumRate *= 0.8;
     const principal = BANK_LOAN_PRINCIPAL;
     const totalDue = principal + Math.ceil(principal * premiumRate);
@@ -766,7 +1398,7 @@ class GameState {
   getBankLoanOffer(player) {
     if (!player || !this.settings.bankLoans) return { available: false, reason: 'Bank lending is disabled.' };
     if (!this.started) return { available: false, reason: 'The game has not started.' };
-    if (this.globalEventActive('credit-freeze')) return { available: false, reason: 'Credit is frozen by the active global event.' };
+    if (this.globalEventActive('credit-freeze') || this.globalEventActive('bank-run') || this.activeEventEffects().bankLoansBlocked || this.activeEventEffects().bankActionsBlocked) return { available: false, reason: 'Credit is frozen by the active global event.' };
     if (player.id !== this.currentPlayerId) return { available: false, reason: 'Bank credit is available during your turn.' };
     if (player.bankLoan?.status === 'active' || player.bankLoan?.status === 'due') return { available: false, reason: 'You already have an active bank loan.' };
     if (player.bankLoan?.status === 'defaulted') return { available: false, reason: 'Bank credit is suspended after your previous default.' };
@@ -775,10 +1407,15 @@ class GameState {
     return { available: true, ...terms };
   }
 
-  takeBankLoan(socketId) {
+  takeBankLoan(socketId, requestId = null) {
     const player = this.getPlayerBySocket(socketId);
+    const key = this.transactionKey(player?.id, 'bank-loan', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
     const offer = this.getBankLoanOffer(player);
     if (!offer.available) return { success: false, error: offer.reason };
+    if (player.cash < 50) player.badIdeaLoan = true;
+    player.bankLoanCount = (player.bankLoanCount || 0) + 1;
     player.cash += offer.principal;
     player.bankLoan = {
       status: 'active',
@@ -792,20 +1429,28 @@ class GameState {
       severity: offer.severity
     };
     this.feedMessage(`${player.nickname} accepted a $${offer.principal} bank loan. $${offer.totalDue} is due by round ${offer.dueRound}.`);
-    return { success: true, loan: player.bankLoan };
+    return this.cacheTransaction(key, { success: true, loan: player.bankLoan });
   }
 
-  repayBankLoan(socketId, { amount } = {}) {
-    const player = this.getPlayerBySocket(socketId);
+  repayBankLoan(socketId, { amount, requestId } = {}) {
+   const player = this.getPlayerBySocket(socketId);
+    const key = this.transactionKey(player?.id, 'bank-repay', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
     if (!player || player.id !== this.currentPlayerId) return { success: false, error: 'It is not your turn.' };
     const loan = player.bankLoan;
     if (!loan || !['active', 'due'].includes(loan.status)) return { success: false, error: 'You have no bank loan to repay.' };
     const requested = amount == null ? loan.remaining : Math.floor(Number(amount));
     if (!Number.isFinite(requested) || requested <= 0) return { success: false, error: 'Enter a valid repayment amount.' };
-    const payment = Math.min(requested, loan.remaining);
+    const amnesty = this.globalEventActive('debt-amnesty') && requested >= loan.remaining;
+    if (loan.status === 'due' && this.roundNumber === loan.cureRound) player.oneMoreTurn = true;
+    const settlementMultiplier = Number(this.activeEventEffects().loanSettlementMultiplier);
+    const discountedDue = Number.isFinite(settlementMultiplier) && settlementMultiplier > 0 ? Math.ceil(loan.remaining * settlementMultiplier) : loan.remaining;
+    const payment = Math.min(amnesty ? discountedDue : requested, loan.remaining);
     if (player.cash < payment) return { success: false, error: `You need $${payment} to make this repayment.` };
     player.cash -= payment;
     loan.remaining -= payment;
+    if (amnesty) loan.remaining = 0;
     if (loan.remaining <= 0) {
       loan.remaining = 0;
       loan.status = 'paid';
@@ -814,7 +1459,7 @@ class GameState {
     } else {
       this.feedMessage(`${player.nickname} repaid $${payment} on the bank loan. $${loan.remaining} remains.`);
     }
-    return { success: true, loan };
+    return this.cacheTransaction(key, { success: true, loan });
   }
 
   processBankLoans() {
@@ -823,6 +1468,7 @@ class GameState {
       if (!loan || player.bankrupt || !['active', 'due'].includes(loan.status)) return;
       if (loan.status === 'active' && this.roundNumber >= loan.dueRound) {
         loan.status = 'due';
+        player.loanWarningSeen = true;
         this.feedMessage(`${player.nickname}'s bank loan is due: $${loan.remaining}. One cure round remains.`);
       } else if (loan.status === 'due' && this.roundNumber > loan.cureRound) {
         this.defaultBankLoan(player);
@@ -839,6 +1485,7 @@ class GameState {
       collateral.mortgaged = false;
       collateral.houseCount = 0;
       player.properties = player.properties.filter(index => index !== collateral.index);
+      player.collateralLost = true;
       this.feedMessage(`${player.nickname} defaulted. The bank seized ${collateral.name}.`);
     } else {
       this.feedMessage(`${player.nickname} defaulted on an unsecured bank loan.`);
@@ -849,6 +1496,11 @@ class GameState {
   }
 
   movePlayer(player, steps, options = {}) {
+    player.moveCount = (player.moveCount || 0) + 1;
+    if (player.moveCount === 41) {
+      player.hiddenMovementSequence = true;
+      this.feedMessage(`${player.nickname} stepped on the 41st movement. The ledger skipped a line.`);
+    }
     const oldPosition = player.position;
     player.position = (player.position + steps) % this.tiles.length;
     const distanceToStart = (START_TILE_INDEX - oldPosition + this.tiles.length) % this.tiles.length || this.tiles.length;
@@ -857,6 +1509,10 @@ class GameState {
       this.feedMessage(`${player.nickname} passed Start and collected $200.`);
     }
     const tile = this.getTile(player.position);
+    if (tile?.type === 'railroad') {
+      if (!(player.airportVisits instanceof Set)) player.airportVisits = new Set();
+      player.airportVisits.add(tile.index);
+    }
     return this.applyTile(player, tile, options);
   }
 
@@ -876,6 +1532,7 @@ class GameState {
   advanceRound() {
     this.roundNumber += 1;
     if (this.globalEventCooldown > 0) this.globalEventCooldown -= 1;
+    this.markMidpointFacts();
 
     if (this.globalEvent?.phase === 'voting' && this.roundNumber > this.globalEvent.voteRound) {
       this.resolveGlobalEventVote();
@@ -883,52 +1540,90 @@ class GameState {
       this.globalEvent.phase = 'active';
       this.globalEvent.startedRound = this.roundNumber;
       this.globalEvent.roundsRemaining = this.globalEvent.durationRounds;
+      this.applyGlobalEventActivationSettlements();
       this.feedMessage(`${this.globalEvent.title} is now active for ${this.globalEvent.durationRounds} rounds.`);
     } else if (this.globalEvent?.phase === 'active') {
+      this.applyGlobalEventActivationSettlements();
+      this.collectBuildingMaintenance();
       this.globalEvent.roundsRemaining -= 1;
       if (this.globalEvent.roundsRemaining <= 0) {
-        const ended = this.globalEvent;
-        this.globalEventHistory.unshift({ id: ended.id, title: ended.title, endedRound: this.roundNumber });
-        this.globalEventHistory = this.globalEventHistory.slice(0, 8);
-        this.feedMessage(`${ended.title} has ended. The table enters recovery.`);
-        this.globalEvent = null;
-        this.globalEventCooldown = GLOBAL_EVENT_COOLDOWN_ROUNDS;
+        if (this.globalEvent.id === 'housing-bubble') {
+          this.activePlayers().forEach(player => {
+            if (player.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0)) player.bubbleSurvivor = true;
+            player.housingBubbleEnded = true;
+          });
+        }
+        this.activePlayers().forEach(player => {
+          player.globalEventsSurvived = (player.globalEventsSurvived || 0) + 1;
+        });
+        this.globalEvent.phase = 'recovery';
+        this.globalEvent.roundsRemaining = 1;
+        this.feedMessage(`${this.globalEvent.title} has ended. The table enters recovery.`);
       }
+    } else if (this.globalEvent?.phase === 'recovery') {
+      const ended = this.globalEvent;
+      this.globalEventHistory.unshift({ id: ended.id, title: ended.title, comboId: ended.comboId || null, startedRound: ended.startedRound, endedRound: this.roundNumber });
+      this.globalEventHistory = this.globalEventHistory.slice(0, 8);
+      this.globalEvent = null;
+      this.globalEventCooldown = GLOBAL_EVENT_COOLDOWN_ROUNDS;
     }
 
     this.processBankLoans();
+    this.processPlayerContracts();
     this.maybeTriggerGlobalEvent();
+    this.advanceMarket();
+    this.players.forEach(player => {
+      player.rentPayersThisRound = new Set();
+      player.casinoBetsThisRound = 0;
+    });
   }
 
   maybeTriggerGlobalEvent(source = 'round') {
-    if (!this.started || this.settings.globalEvents === 'off' || this.globalEvent || this.globalEventCooldown > 0) return;
+    const enabled = this.settings.globalEvents === true || this.settings.globalEvents === 1 || this.settings.globalEvents === 'true' || this.settings.globalEvents === 'on' || this.settings.globalEvents === 'rare' || this.settings.globalEvents === 'hardcore';
+    if (!this.started || !enabled || this.globalEvent || this.globalEventCooldown > 0) return;
     if (this.roundNumber < GLOBAL_EVENT_MIN_ROUND) return;
-    const maxEvents = Math.max(1, Number(this.settings.globalEventMax) || 1);
-    if (this.globalEventsTriggered >= maxEvents) return;
+    const previous = this.globalEventHistory[0];
+    const combo = this.globalEventsTriggered === 1 && source === 'surprise' && previous && !previous.comboId
+      ? GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.required.includes(previous.id))
+      : null;
+    // One headline per match is the safe default. A second headline is only
+    // possible when it completes a named, curated combination.
+    if (this.globalEventsTriggered >= 1 && !combo) return;
     const eligible = GLOBAL_EVENT_DEFINITIONS.filter(event => event.eligible(this));
-    if (!eligible.length) return;
-    const chance = source === 'surprise'
-      ? (this.settings.globalEvents === 'hardcore' ? 0.1 : 0.05)
-      : (this.settings.globalEvents === 'hardcore' ? 0.045 : 0.018);
-    if (Math.random() >= chance) return;
-    const totalWeight = eligible.reduce((sum, event) => sum + (event.weight || 1), 0);
-    let roll = Math.random() * totalWeight;
-    const selected = eligible.find(event => (roll -= (event.weight || 1)) <= 0) || eligible[eligible.length - 1];
-    this.activateGlobalEvent(selected);
+    const comboEventId = combo?.required.find(id => id !== previous.id);
+    const eventPool = combo ? eligible.filter(event => event.id === comboEventId) : eligible;
+    if (!eventPool.length) return;
+    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
+    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
+    const boundaryChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.025 : 0.04;
+    const surpriseChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.05 : 0.07;
+    const chance = source === 'surprise' ? surpriseChance : boundaryChance;
+    if (randomFloat() >= chance) return;
+    const totalWeight = eventPool.reduce((sum, event) => sum + (event.weight || 1), 0);
+    let roll = randomFloat() * totalWeight;
+    const selected = eventPool.find(event => (roll -= (event.weight || 1)) <= 0) || eventPool[eventPool.length - 1];
+    this.activateGlobalEvent(selected, combo);
   }
 
-  activateGlobalEvent(definition) {
-    const duration = Math.max(5, Math.min(10, Number(this.settings.globalEventDuration) || 5));
-    const choices = definition.choices?.map(choice => ({ ...choice })) || null;
-    const leader = definition.id === 'anti-monopoly'
+  activateGlobalEvent(definition, combo = null) {
+    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
+    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
+    const duration = combo?.duration || (definition.id === 'housing-bubble'
+      ? (progress > 0.6 ? 8 : 7)
+      : (progress > 0.6 ? 7 : 6));
+    const choices = (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
+    const leader = !combo && definition.id === 'anti-monopoly'
       ? [...this.players].sort((a, b) => this.playerGroups(b).length - this.playerGroups(a).length)[0]
       : null;
+    const auditTarget = !combo && definition.id === 'tax-audit'
+      ? [...this.activePlayers()].sort((a, b) => (Number(b.cash) || 0) - (Number(a.cash) || 0))[0]
+      : null;
     this.globalEvent = {
-      id: definition.id,
-      title: definition.title,
-      category: definition.category,
-      summary: definition.summary,
-      effects: { ...(definition.effects || {}) },
+      id: combo?.id || definition.id,
+      title: combo?.title || definition.title,
+      category: combo ? 'COMBINATION' : definition.category,
+      summary: combo?.summary || definition.summary,
+      effects: { ...(definition.effects || {}), ...(combo?.effects || {}) },
       phase: choices ? 'voting' : 'warning',
       startedRound: this.roundNumber,
       voteRound: choices ? this.roundNumber : null,
@@ -937,12 +1632,22 @@ class GameState {
       choices,
       votes: {},
       resolvedChoice: null,
-      targetPlayerId: leader?.id || null
+      targetPlayerId: leader?.id || auditTarget?.id || null
     };
+    this.globalEvent.comboId = combo?.id || null;
+    if (combo) this.activePlayers().forEach(player => { player.comboExperienced = true; });
+    if (definition.id === 'airport-strike') {
+      this.activePlayers().forEach(player => {
+        if (player.properties.some(index => this.getTile(index)?.type === 'railroad')) player.airportOwnedDuringStrike = true;
+      });
+    }
+    this.activePlayers().forEach(player => {
+      player.globalEventsExperienced = (player.globalEventsExperienced || 0) + 1;
+    });
     this.globalEventsTriggered += 1;
     this.feedMessage(choices
-      ? `${definition.title} is live. The table votes before the next round.`
-      : `${definition.title} is building. The table has one round to prepare.`);
+      ? `${this.globalEvent.title} is live. The table votes before the next round.`
+      : `${this.globalEvent.title} is building. The table has one round to prepare.`);
   }
 
   resolveGlobalEventVote() {
@@ -952,10 +1657,27 @@ class GameState {
     Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
     const top = Math.max(...Object.values(counts), 0);
     const winners = Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
-    event.resolvedChoice = winners.length ? winners[Math.floor(Math.random() * winners.length)] : event.choices?.[0]?.id || null;
+    event.resolvedChoice = winners.length ? winners[randomInt(0, winners.length - 1)] : event.choices?.[0]?.id || null;
+    const allVotedSame = this.activePlayers().length > 0
+      && this.activePlayers().every(player => event.votes?.[player.id] === event.resolvedChoice);
+    this.activePlayers().forEach(player => {
+      if (event.votes?.[player.id]) player.lastVoteChoice = event.votes[player.id];
+      if (event.votes?.[player.id] === event.resolvedChoice) player.councilWins = (player.councilWins || 0) + 1;
+      if (allVotedSame) player.unanimousVote = true;
+    });
+    if (event.id === 'anti-monopoly' && event.targetPlayerId) {
+      const target = this.getPlayerById(event.targetPlayerId);
+      if (target && event.resolvedChoice === 'enforce' && event.votes?.[target.id] !== 'enforce') target.publicEnemy = true;
+    }
+    if (event.id === 'legitimacy-crisis' && event.resolvedChoice === 'bury-audit') {
+      this.activePlayers().forEach(player => {
+        if (event.votes?.[player.id] === 'bury-audit') player.compromisedCouncil = true;
+      });
+    }
     event.phase = 'active';
     event.startedRound = this.roundNumber;
     event.roundsRemaining = event.durationRounds;
+    this.applyGlobalEventActivationSettlements();
     this.feedMessage(`${event.title} resolved: ${String(event.resolvedChoice || '').replaceAll('-', ' ').toUpperCase()}.`);
   }
 
@@ -973,7 +1695,234 @@ class GameState {
     return { success: true };
   }
 
+  applyGlobalEventActivationSettlements() {
+    const event = this.globalEvent;
+    if (!event || event.phase !== 'active' || event.settlementApplied) return;
+    event.settlementApplied = true;
+    const stipend = Number(event.effects?.rentControlStipend);
+    if (Number.isFinite(stipend) && stipend > 0) {
+      this.activePlayers().filter(player => player.properties.length > 0).forEach(player => {
+        player.cash += stipend;
+        this.feedMessage(`${player.nickname} received a $${stipend} rent-control stipend.`);
+      });
+    }
+    const cashMultiplier = Number(event.effects?.cashMultiplier);
+    if (Number.isFinite(cashMultiplier) && cashMultiplier > 0 && cashMultiplier < 1) {
+      this.activePlayers().forEach(player => {
+        player.cash = Math.max(0, Math.floor(player.cash * cashMultiplier));
+        if (player.cash === 0) player.zeroCashReached = true;
+      });
+      this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
+    }
+    if (['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout') {
+      const threshold = this.settings.startingCash * 0.5;
+      const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
+      this.activePlayers().filter(player => player.cash < threshold || ['active', 'due'].includes(player.bankLoan?.status)).forEach(player => {
+        player.cash += rescue;
+        player.bailoutReceived = true;
+        if (['active', 'due'].includes(player.bankLoan?.status)) player.moralHazard = true;
+        this.feedMessage(`${player.nickname} received a $${rescue} emergency bailout.`);
+      });
+    }
+    if (event.id === 'tax-audit' && event.targetPlayerId) {
+      const target = this.getPlayerById(event.targetPlayerId);
+      if (target && !target.bankrupt) {
+        const amount = Math.min(target.cash, Math.max(25, Math.floor(target.cash * 0.1)));
+        if (amount <= 0) return;
+        target.cash -= amount;
+        if (this.settings.vacationCash) this.vacationPool += amount;
+        if (target.cash === 0) target.zeroCashReached = true;
+        target.taxAuditCount = (target.taxAuditCount || 0) + 1;
+        this.feedMessage(`${target.nickname} paid $${amount} after the tax scandal audit.`);
+      }
+    }
+  }
+
+  collectBuildingMaintenance() {
+    const maintenance = Number(this.activeEventEffects().buildingMaintenance);
+    if (!Number.isFinite(maintenance) || maintenance <= 0) return;
+    this.activePlayers().forEach(player => {
+      const buildings = player.properties.reduce((sum, index) => {
+        const level = Number(this.getTile(index)?.houseCount) || 0;
+        if (level >= 5) return sum + 4;
+        return sum + Math.max(0, level);
+      }, 0);
+      if (!buildings) return;
+      const due = buildings * Math.floor(maintenance);
+      const paid = Math.min(player.cash, due);
+      player.cash -= paid;
+      if (player.cash === 0) player.zeroCashReached = true;
+      if (paid === due) this.feedMessage(`${player.nickname} paid $${paid} in labor-strike maintenance.`);
+      else this.feedMessage(`${player.nickname} could only pay $${paid} of $${due} in labor-strike maintenance.`);
+    });
+  }
+
+  markMidpointFacts() {
+    if (this.midpointMarked) return;
+    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
+    if (this.roundNumber < Math.ceil(expectedRounds / 2)) return;
+    const active = this.activePlayers();
+    if (!active.length) return;
+    const lowestCash = Math.min(...active.map(player => Number(player.cash) || 0));
+    active.filter(player => Number(player.cash) === lowestCash).forEach(player => { player.underdogAtHalfway = true; });
+    this.midpointMarked = true;
+  }
+
+  casinoLimits() {
+    const effects = this.activeEventEffects();
+    const maxBet = Number(effects.casinoMaxBet);
+    const entryFee = Number(effects.casinoEntryFee);
+    return {
+      maxBet: Number.isFinite(maxBet) && maxBet > 0 ? Math.min(CASINO_MAX_BET, Math.floor(maxBet)) : CASINO_MAX_BET,
+      entryFee: Number.isFinite(entryFee) && entryFee > 0 ? Math.floor(entryFee) : 0
+    };
+  }
+
+  transactionKey(playerId, kind, requestId) {
+    const value = String(requestId || '').trim().slice(0, 100);
+    return value ? `${playerId}:${kind}:${value}` : null;
+  }
+
+  cachedTransaction(key) {
+    return key ? this.economyTransactions.get(key) || null : null;
+  }
+
+  cacheTransaction(key, result) {
+    if (key) this.economyTransactions.set(key, result);
+    return result;
+  }
+
+  economySnapshot(playerId = null) {
+    const player = playerId ? this.getPlayerById(playerId) : null;
+    const casinoLimits = this.casinoLimits();
+    return {
+      casino: {
+        enabled: Boolean(this.settings.casino),
+        maxBet: casinoLimits.maxBet,
+        entryFee: casinoLimits.entryFee,
+        lastResult: this.casinoLastResult ? { ...this.casinoLastResult } : null,
+        net: Number(player?.casinoNet) || 0
+      },
+      market: {
+        enabled: Boolean(this.settings.market),
+        round: this.marketRound,
+        feeRate: MARKET_FEE_RATE,
+        quotes: { ...this.marketQuotes },
+        positions: { ...(player?.marketPositions || {}) }
+      }
+    };
+  }
+
+  placeCasinoBet(socketId, color, stake, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const choice = String(color || '').toLowerCase();
+    const amount = Math.floor(Number(stake));
+    const key = this.transactionKey(player?.id, 'casino', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    if (!this.settings.casino) return { success: false, error: 'Casino access is off for this room.' };
+    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Casino access is unavailable right now.' };
+    if (this.pendingPayment || this.auction || this.pendingPurchaseOffer || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the table obligation before betting.' };
+    if (!['red', 'black', 'green'].includes(choice)) return { success: false, error: 'Choose red, black, or green.' };
+    const limits = this.casinoLimits();
+    if (!Number.isInteger(amount) || amount < 1 || amount > limits.maxBet) return { success: false, error: `Stake must be between $1 and ${limits.maxBet}.` };
+    if (player.bankLoan && ['active', 'due'].includes(player.bankLoan.status)) return { success: false, error: 'Loan-backed cash cannot enter the casino.' };
+    if (player.cash < amount + limits.entryFee) return { success: false, error: 'You do not have enough available cash for the stake and event fee.' };
+    const cashBefore = player.cash;
+
+    const pocket = randomInt(0, 36);
+    const resultColor = pocket === 0 ? 'green' : ROULETTE_RED.has(pocket) ? 'red' : 'black';
+    const won = choice === resultColor;
+    const payout = choice === 'green' ? 35 : 1;
+    const net = won ? amount * payout - limits.entryFee : -amount - limits.entryFee;
+    player.cash -= amount + limits.entryFee;
+    if (won) player.cash += amount + (amount * payout);
+    player.casinoNet += net;
+    player.casinoMaxStake = Math.max(player.casinoMaxStake || 0, amount);
+    player.casinoTotalStaked = (player.casinoTotalStaked || 0) + amount;
+    player.casinoAllIn = player.casinoAllIn || amount + limits.entryFee >= cashBefore;
+    player.casinoOneDollar = player.casinoOneDollar || amount === 1;
+    player.casinoBetsThisRound = (player.casinoBetsThisRound || 0) + 1;
+    const ledgerEntry = { transactionId: key || crypto.randomUUID(), roundNumber: this.roundNumber, color: choice, pocket, resultColor, stake: amount, net, createdAt: new Date().toISOString() };
+    this.casinoLedger = [{ ...ledgerEntry, playerId: player.id }, ...this.casinoLedger].slice(0, 200);
+    player.casinoLedger = [ledgerEntry, ...(player.casinoLedger || [])].slice(0, 50);
+    this.casinoLastResult = { playerId: player.id, color: choice, pocket, resultColor, net, roundNumber: this.roundNumber };
+    this.feedMessage(`${player.nickname} bet $${amount} on ${choice.toUpperCase()} and ${won ? 'won' : 'lost'} $${Math.abs(net)}.`);
+    return this.cacheTransaction(key, { success: true, result: { ...ledgerEntry, balanceAfter: player.cash }, economy: this.economySnapshot(player.id) });
+  }
+
+  advanceMarket() {
+    if (!this.settings.market) return;
+    this.marketRound += 1;
+    const volatility = Number(this.activeEventEffects().marketVolatility);
+    const spread = Number.isFinite(volatility) && volatility > 0 ? 0.06 * volatility : 0.06;
+    Object.keys(this.marketQuotes).forEach((id) => {
+      const drift = (randomFloat() * (spread * 2)) - spread;
+      const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
+      const modifier = Number.isFinite(eventMultiplier) && eventMultiplier > 0 ? eventMultiplier : 1;
+      this.marketQuotes[id] = Math.max(10, Math.round(this.marketQuotes[id] * (1 + drift) * modifier));
+    });
+  }
+
+  tradeMarket(socketId, instrumentId, side, quantity, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const id = String(instrumentId || '').toLowerCase();
+    const direction = String(side || '').toLowerCase();
+    const amount = Math.floor(Number(quantity));
+    const key = this.transactionKey(player?.id, 'market', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const instrument = MARKET_INSTRUMENTS.find(entry => entry.id === id);
+    if (!this.settings.market) return { success: false, error: 'Market access is off for this room.' };
+    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Market access is unavailable right now.' };
+    if (player.id !== this.currentPlayerId) return { success: false, error: 'Market orders are available during your turn.' };
+    if ((player.marketActionsThisTurn || 0) >= 1) return { success: false, error: 'You have already placed a market order this turn.' };
+    if (this.pendingPayment || this.auction || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the table obligation before trading.' };
+    if (this.activeEventEffects().tradingEnabled === false) return { success: false, error: 'Market trading is paused by the active global event.' };
+    if (!instrument || !['buy', 'sell'].includes(direction)) return { success: false, error: 'Choose a valid market order.' };
+    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
+    const quote = Number(this.marketQuotes[id]) || instrument.price;
+    const gross = quote * amount;
+    const fee = Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
+    const position = player.marketPositions[id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
+    if (direction === 'buy') {
+      const total = gross + fee;
+      if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
+      player.cash -= total;
+      position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
+      position.quantity += amount;
+      const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
+      if (this.globalEvent?.phase === 'active' && Number.isFinite(eventMultiplier) && eventMultiplier < 1) {
+        player.crisisMarketBuys[id] ||= { quote, roundNumber: this.roundNumber };
+      }
+    } else {
+      if (position.quantity < amount) return { success: false, error: 'You do not hold enough of this index.' };
+      player.cash += gross - fee;
+      position.realizedPnl += (quote - position.averageCost) * amount - fee;
+      position.quantity -= amount;
+      if (player.crisisMarketBuys?.[id] && quote > Number(player.crisisMarketBuys[id].quote || 0) && this.globalEvent?.phase !== 'active') {
+        player.crisisMarketProfit = true;
+        delete player.crisisMarketBuys[id];
+      }
+      if (!position.quantity) position.averageCost = 0;
+    }
+    player.marketPositions[id] = position;
+    player.marketTrades = (player.marketTrades || 0) + 1;
+    player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
+    this.marketLedger = [{ transactionId: key || crypto.randomUUID(), roundNumber: this.roundNumber, playerId: player.id, instrumentId: id, side: direction, quantity: amount, quote, fee, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
+    this.feedMessage(`${player.nickname} ${direction === 'buy' ? 'bought' : 'sold'} ${amount} ${instrument.name} index unit${amount === 1 ? '' : 's'}.`);
+    return this.cacheTransaction(key, { success: true, order: { instrumentId: id, side: direction, quantity: amount, quote, fee, total: direction === 'buy' ? gross + fee : gross - fee }, economy: this.economySnapshot(player.id) });
+  }
+
   applyTile(player, tile, options = {}) {
+    if (tile?.type === 'railroad') {
+      if (!(player.airportVisits instanceof Set)) player.airportVisits = new Set();
+      player.airportVisits.add(tile.index);
+    }
+    if (tile?.type === 'tax') {
+      if (!(player.taxTilesVisited instanceof Set)) player.taxTilesVisited = new Set();
+      player.taxTilesVisited.add(tile.index);
+    }
     switch (tile.type) {
       case 'start':
         this.feedMessage(`${player.nickname} landed on Start.`);
@@ -1033,8 +1982,14 @@ class GameState {
   }
 
   handleTaxTile(player, tile, options = {}) {
+    if (!(player.taxTilesVisited instanceof Set)) player.taxTilesVisited = new Set();
+    player.taxTilesVisited.add(tile.index);
     let amount = tile.amount || 0;
     if (this.globalEventActive('inflation-spiral')) amount = Math.ceil(amount * 1.4);
+    const taxMultiplier = Number(this.activeEventEffects().taxMultiplier);
+    if (Number.isFinite(taxMultiplier) && taxMultiplier > 0 && !this.globalEventActive('inflation-spiral')) {
+      amount = Math.ceil(amount * taxMultiplier);
+    }
     if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax') amount = Math.max(1, Math.floor(amount * 0.6));
     if (this.settings.vacationCash) {
       this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in tax into Vacation cash.`, options, {
@@ -1072,8 +2027,8 @@ class GameState {
       if (player.cash < tile.price) {
         this.feedMessage(`${player.nickname} cannot afford ${tile.name}.`);
         if (this.settings.auction) {
-          this.startAuction(tile, player.id);
-          return { success: true, auctionStarted: true };
+          const auction = this.startAuction(tile, player.id);
+          return auction?.success === false ? auction : { success: true, auctionStarted: true };
         }
         this.resolveTurnAfterAction(options);
         return { success: true };
@@ -1095,10 +2050,12 @@ class GameState {
       this.feedMessage(`${player.nickname} landed on ${owner.nickname}'s ${label}, but rent is not collected while the owner is in jail.`);
       this.resolveTurnAfterAction(options);
       return { success: true };
-    }
+   }
     const rent = this.calculateRent(tile);
-    this.chargePlayer(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`, options);
-    return { success: true };
+    if (this.globalEventActive('airport-strike') && owner.properties.some(index => this.getTile(index)?.type === 'railroad')) owner.airportOwnedDuringStrike = true;
+    if (this.globalEventActive('airport-strike') && tile.type !== 'railroad') owner.nonAirportRentDuringStrike = true;
+    this.chargePlayer(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`, options, { onPaid: paid => this.settleEquityShares(tile, owner, paid), equityTileIndex: tile.index, equityOwnerId: owner.id });
+   return { success: true };
   }
 
   handleUtilityTile(player, tile, options = {}) {
@@ -1107,6 +2064,12 @@ class GameState {
 
   handleChanceTile(player, options = {}, deckName = 'surprise') {
     const card = this.drawCard(deckName);
+    player.cardDraws ||= { surprise: 0, treasure: 0 };
+    player.cardDraws[deckName] = (player.cardDraws[deckName] || 0) + 1;
+    if (deckName === 'treasure') {
+      if (!(player.treasureCardsSeen instanceof Set)) player.treasureCardsSeen = new Set();
+      player.treasureCardsSeen.add(String(card.text || '').trim());
+    }
     this.feedMessage(`${player.nickname} drew a card: ${card.text}`);
     const cashBefore = player.cash;
     const positionBefore = player.position;
@@ -1181,7 +2144,7 @@ class GameState {
       case 'nearestRailroad':
       case 'nearestUtility': {
         const wantedType = card.action === 'nearestRailroad' ? 'railroad' : 'utility';
-        if (wantedType === 'railroad' && this.globalEventActive('airport-strike')) {
+        if (wantedType === 'railroad' && (this.globalEventActive('airport-strike') || this.activeEventEffects().airportCardsBlocked)) {
           this.feedMessage(`${player.nickname} drew an airport movement card, but the strike grounded every flight.`);
           this.resolveTurnAfterAction(options);
           return { success: true };
@@ -1289,6 +2252,8 @@ class GameState {
     if (!this.started) return;
     this.currentPlayerId = nextPlayer.id;
     this.hasRolled = false;
+    nextPlayer.buildActionsThisTurn = 0;
+    nextPlayer.marketActionsThisTurn = 0;
     this.feedMessage(`${nextPlayer.nickname}'s turn.`);
   }
 
@@ -1308,8 +2273,15 @@ class GameState {
     }
     if (player.cash >= amount) {
       player.cash -= amount;
+      if (player.cash === 0) player.zeroCashReached = true;
       if (creditor) {
         creditor.cash += amount;
+        creditor.rentCollected = (creditor.rentCollected || 0) + amount;
+        creditor.rentPayerIds ||= new Set();
+        creditor.rentPayerIds.add(player.id);
+        creditor.rentPayersThisRound ||= new Set();
+        creditor.rentPayersThisRound.add(player.id);
+        creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
       }
       this.feedMessage(message);
       if (hooks.onPaid) hooks.onPaid(amount);
@@ -1319,8 +2291,15 @@ class GameState {
     const partial = player.cash;
     if (partial > 0) {
       player.cash = 0;
+      player.zeroCashReached = true;
       if (creditor) {
         creditor.cash += partial;
+        creditor.rentCollected = (creditor.rentCollected || 0) + partial;
+        creditor.rentPayerIds ||= new Set();
+        creditor.rentPayerIds.add(player.id);
+        creditor.rentPayersThisRound ||= new Set();
+        creditor.rentPayersThisRound.add(player.id);
+        creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
       }
       this.feedMessage(`${player.nickname} paid $${partial} toward the debt.`);
       if (hooks.onPaid) hooks.onPaid(partial);
@@ -1330,7 +2309,9 @@ class GameState {
       playerId: player.id,
       creditorId: creditor ? creditor.id : null,
       amountRemaining: remaining,
-      reason: message
+      reason: message,
+      equityTileIndex: hooks.equityTileIndex ?? null,
+      equityOwnerId: hooks.equityOwnerId ?? null
     };
     this.pendingPaymentTurnOptions = turnOptions;
     this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
@@ -1354,6 +2335,17 @@ class GameState {
     player.cash -= amount;
     if (creditor) {
       creditor.cash += amount;
+      creditor.rentCollected = (creditor.rentCollected || 0) + amount;
+      creditor.rentPayerIds ||= new Set();
+      creditor.rentPayerIds.add(player.id);
+      creditor.rentPayersThisRound ||= new Set();
+      creditor.rentPayersThisRound.add(player.id);
+      creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
+    }
+    if (this.pendingPayment.equityTileIndex != null) {
+      const equityTile = this.getTile(this.pendingPayment.equityTileIndex);
+      const equityOwner = this.getPlayerById(this.pendingPayment.equityOwnerId);
+      this.settleEquityShares(equityTile, equityOwner, amount);
     }
     this.feedMessage(`${player.nickname} paid the remaining $${amount}.`);
     const turnOptions = this.pendingPaymentTurnOptions || {};
@@ -1398,6 +2390,7 @@ class GameState {
 
   handleBankruptcy(player, creditor = null) {
     player.bankrupt = true;
+    player.bubbleSurvivor = false;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.consecutiveDoubles = 0;
@@ -1405,10 +2398,38 @@ class GameState {
       this.pendingPayment = null;
       this.pendingPaymentTurnOptions = null;
     }
+    const marketLiquidation = Object.entries(player.marketPositions || {}).reduce((sum, [id, position]) => {
+      const quantity = Math.max(0, Number(position.quantity) || 0);
+      const quote = Math.max(0, Number(this.marketQuotes[id]) || 0);
+      return sum + Math.max(0, quote * quantity - Math.ceil(quote * quantity * MARKET_FEE_RATE));
+    }, 0);
+    if (marketLiquidation > 0) {
+      player.cash += Math.floor(marketLiquidation);
+      player.marketPositions = {};
+      this.feedMessage(`${player.nickname}'s market positions were liquidated for $${Math.floor(marketLiquidation)}.`);
+    }
     if (creditor && player.cash > 0) {
       creditor.cash += player.cash;
       player.cash = 0;
     }
+    this.playerContracts.filter(contract => ['active', 'due'].includes(contract.status) && (contract.toPlayerId === player.id || contract.fromPlayerId === player.id)).forEach(contract => {
+      if (contract.kind === 'loan' && contract.toPlayerId === player.id) {
+        const lender = this.getPlayerById(contract.fromPlayerId);
+        const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
+        if (lender && collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+        if (contract.collateralTileIndex != null) player.collateralLost = true;
+        contract.status = 'defaulted';
+        contract.defaultedRound = this.roundNumber;
+      } else if (contract.kind === 'loan' && contract.fromPlayerId === player.id) {
+        contract.status = 'terminated';
+        contract.terminatedRound = this.roundNumber;
+      } else if (contract.kind === 'equity') {
+        const property = this.getTile(contract.propertyIndex);
+        if (property) property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
+        contract.status = 'terminated';
+        contract.terminatedRound = this.roundNumber;
+      }
+    });
     const properties = [...player.properties];
     properties.forEach(propertyIndex => {
       const tile = this.getTile(propertyIndex);
@@ -1456,6 +2477,8 @@ class GameState {
     tile.mortgaged = false;
     tile.houseCount = 0;
     player.properties.push(tile.index);
+    if (this.globalEventActive('housing-bubble')) player.boughtDuringHousingBubble = true;
+    this.refreshPlayerGroups(player);
     this.feedMessage(`${player.nickname} purchased ${tile.name} for $${tile.price}.`);
     this.pendingPurchaseOffer = null;
     this.resolveTurnAfterAction();
@@ -1477,8 +2500,8 @@ class GameState {
     }
     this.pendingPurchaseOffer = null;
     if (this.settings.auction) {
-      this.startAuction(tile, player.id);
-      return { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
+      const auction = this.startAuction(tile, player.id);
+      return auction?.success === false ? auction : { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
     }
     this.feedMessage(`${player.nickname} declined to buy ${tile.name}.`);
     this.resolveTurnAfterAction();
@@ -1486,6 +2509,11 @@ class GameState {
   }
 
   startAuction(tile, initiatingPlayerId) {
+    if (this.globalEventActive('bank-run') || this.activeEventEffects().auctionBlocked) {
+      this.feedMessage('The active global event pauses auctions until liquidity returns.');
+      this.resolveTurnAfterAction({ allowExtraRoll: false });
+      return { success: false, error: 'Auctions are paused by the active Bank Run.' };
+    }
     const participants = this.players.filter(player => !player.bankrupt && !player.disconnected).map(player => player.id);
     this.auction = new AuctionState(tile, initiatingPlayerId);
     this.auction.participants = participants;
@@ -1577,6 +2605,8 @@ class GameState {
     auction.propertyTile.mortgaged = false;
     auction.propertyTile.houseCount = 0;
     winner.properties.push(auction.propertyTile.index);
+    winner.auctionWins = (winner.auctionWins || 0) + 1;
+    if (auction.highestBid < Number(auction.propertyTile.price || 0)) winner.auctionUnderListWins = (winner.auctionUnderListWins || 0) + 1;
     this.feedMessage(`${winner.nickname} won the auction for ${auction.propertyTile.name} at $${auction.highestBid}.`);
     this.chargePlayer(
       winner,
@@ -1585,6 +2615,7 @@ class GameState {
       `${winner.nickname} paid $${auction.highestBid} for ${auction.propertyTile.name}.`,
       {}
     );
+    this.auctionsCompleted += 1;
     this.auction = null;
   }
 
@@ -1618,12 +2649,22 @@ class GameState {
       if (!this.canBuildOnTile(player, tile)) {
         return { success: false, error: 'You cannot build on this property right now.' };
       }
+      const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
+      if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
+        return { success: false, error: 'The active event limits building actions this turn.' };
+      }
       const cost = this.getPropertyHouseCost(tile);
       if (player.cash < cost) {
         return { success: false, error: 'Insufficient cash to build a house.' };
       }
       player.cash -= cost;
       tile.houseCount = (tile.houseCount || 0) + 1;
+      player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
+      if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
+      if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
+      if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works') {
+        player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
+      }
       const label = tile.houseCount >= 5 ? 'hotel' : 'house';
       this.feedMessage(`${player.nickname} built a ${label} on ${tile.name}.`);
       result = { success: true };
@@ -1634,8 +2675,10 @@ class GameState {
       const cost = this.getPropertyHouseCost(tile);
       const wasHotel = (tile.houseCount || 0) >= 5;
       tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
-      const saleMultiplier = this.globalEventActive('housing-bubble') ? 0.4 : 0.5;
+      const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
+      const saleMultiplier = Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
       player.cash += Math.floor(cost * saleMultiplier);
+      if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
       const label = wasHotel ? 'hotel' : 'house';
       this.feedMessage(`${player.nickname} sold a ${label} from ${tile.name}.`);
       result = { success: true };
@@ -1644,7 +2687,8 @@ class GameState {
         return { success: false, error: 'You cannot mortgage this property right now.' };
       }
       tile.mortgaged = true;
-      const amount = Math.floor((tile.price || 0) / 2 * (this.globalEventActive('housing-bubble') ? 0.8 : 1));
+      const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
+      const amount = Math.floor((tile.price || 0) / 2 * (Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1));
       player.cash += amount;
       this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
       result = { success: true };
@@ -1679,7 +2723,7 @@ class GameState {
     if (fromPlayer.bankrupt || fromPlayer.disconnected || toPlayer.bankrupt || toPlayer.disconnected) {
       return { success: false, error: 'Both players must be active to trade.' };
     }
-    if (this.pendingTrade) {
+    if (this.pendingTrade || this.pendingPlayerContract) {
       return { success: false, error: 'Another trade is already pending.' };
     }
 
@@ -1710,7 +2754,7 @@ class GameState {
     }
 
     const trade = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: crypto.randomUUID(),
       fromPlayerId: fromPlayer.id,
       fromPlayerName: fromPlayer.nickname,
       toPlayerId: toPlayer.id,
@@ -1774,6 +2818,19 @@ class GameState {
     requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
 
     this.pendingTrade = null;
+    this.tradesCompleted += 1;
+    if (giveTiles.length + requestTiles.length >= 3) {
+      fromPlayer.groupTherapyTrade = true;
+      toPlayer.groupTherapyTrade = true;
+    }
+    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'stagflation') {
+      fromPlayer.tradesDuringCombo = (fromPlayer.tradesDuringCombo || 0) + 1;
+      toPlayer.tradesDuringCombo = (toPlayer.tradesDuringCombo || 0) + 1;
+    }
+    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice && fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
+      fromPlayer.coalitionTrade = true;
+      toPlayer.coalitionTrade = true;
+    }
     this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
     if (this.pendingPayment?.playerId === fromPlayer.id || this.pendingPayment?.playerId === toPlayer.id) {
       this.trySettlePendingPayment();
@@ -1805,6 +2862,78 @@ class GameState {
     return { success: true };
   }
 
+  runBotAction(playerId, action) {
+    const bot = this.getPlayerById(playerId);
+    if (!bot || !bot.isBot || typeof action !== 'function') return { success: false, error: 'Bot not found.' };
+    const previousSocketId = bot.socketId;
+    const actorId = `bot:${bot.id}`;
+    bot.socketId = actorId;
+    try {
+      return action(actorId);
+    } finally {
+      bot.socketId = previousSocketId;
+    }
+  }
+
+  getBotCandidates(player) {
+    if (!player?.isBot) return [];
+    const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
+    if (!this.hasRolled) {
+      this.tiles.filter(tile => this.canBuildOnTile(player, tile)).forEach(tile => {
+        const cost = this.getPropertyHouseCost(tile);
+        candidates.push({ id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 });
+      });
+      if (player.cash < 180) {
+        this.tiles.filter(tile => this.canMortgageTile(player, tile)).forEach(tile => {
+          candidates.push({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 });
+        });
+      }
+      const loan = this.getBankLoanOffer(player);
+      if (loan.available) candidates.push({ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 });
+      const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
+      const giveTile = player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
+      const askTile = partner?.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
+      if (partner && giveTile && askTile && giveTile.group && giveTile.group === askTile.group) {
+        candidates.push({
+          id: 'trade:' + partner.id + ':' + askTile.index,
+          kind: 'trade',
+          toPlayerId: partner.id,
+          givePropertyIndexes: [giveTile.index],
+          requestPropertyIndexes: [askTile.index],
+          giveCash: 0,
+          requestCash: player.personality === 'shark' ? 40 : 0,
+          risk: 0.2,
+          score: player.personality === 'diplomat' ? 24 : 8
+        });
+      }
+      if (this.settings.market && (player.marketActionsThisTurn || 0) < 1) {
+        const marketId = Object.entries(this.marketQuotes || {}).sort(([, a], [, b]) => a - b)[0]?.[0];
+        if (marketId) {
+          candidates.push({
+            id: 'market:' + marketId,
+            kind: 'market',
+            instrumentId: marketId,
+            side: 'buy',
+            quantity: 1,
+            risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
+            score: player.personality === 'speculator' ? 20 : 4
+          });
+        }
+      }
+      if (this.settings.casino && (player.casinoBetsThisRound || 0) < 1 && ['shark', 'chaos'].includes(player.personality) && player.cash > 20) {
+        candidates.push({
+          id: 'casino:red',
+          kind: 'casino',
+          color: player.personality === 'chaos' ? 'green' : 'red',
+          stake: Math.min(20, Math.max(1, Math.floor(player.cash * (player.personality === 'chaos' ? 0.08 : 0.03)))),
+          risk: 0.55,
+          score: player.personality === 'chaos' ? 18 : 11
+        });
+      }
+    }
+    return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+  }
+
   skipDisconnectedCurrentPlayer() {
     const current = this.getCurrentPlayer();
     if (!current || !current.disconnected || current.bankrupt) {
@@ -1817,6 +2946,12 @@ class GameState {
 
   endGame() {
     const winner = this.connectedNonBankruptPlayers()[0] || this.nonBankruptPlayers()[0];
+    if (this.globalEvent) {
+      const event = this.globalEvent;
+      if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
+        this.globalEventHistory.unshift({ id: event.id, title: event.title, comboId: event.comboId || null, startedRound: event.startedRound, endedRound: this.roundNumber });
+      }
+    }
     this.lastWinner = winner ? { id: winner.id, nickname: winner.nickname } : null;
     if (winner) {
       this.feedMessage(`${winner.nickname} is the last player remaining and wins the game!`);
@@ -1834,7 +2969,7 @@ class GameState {
     this.consecutiveDoubles = 0;
   }
 
-  getGameSummary() {
+  getGameSummary(viewerPlayerId = null) {
     return {
       started: this.started,
       currentPlayerId: this.currentPlayerId,
@@ -1857,7 +2992,13 @@ class GameState {
         amount: tile.amount,
         mortgaged: tile.mortgaged,
         houseCount: tile.houseCount || 0,
-        houseCost: this.getPropertyHouseCost(tile)
+        houseCost: this.getPropertyHouseCost(tile),
+        equityShares: (tile.equityShares || []).map(share => ({
+          holderId: share.holderId,
+          holderName: this.getPlayerById(share.holderId)?.nickname || 'PLAYER',
+          share: Math.max(0, Math.min(100, Number(share.share) || 0)),
+          control: share.control || 'passive'
+        }))
       })),
       players: this.players.map(player => ({
         id: player.id,
@@ -1868,16 +3009,20 @@ class GameState {
         inJail: player.inJail,
         jailTurns: player.jailTurns || 0,
         jailFreeCards: player.jailFreeCards || 0,
-        bankLoan: player.bankLoan,
-        bankLoanOffer: this.getBankLoanOffer(player),
+        bankLoan: viewerPlayerId && player.id === viewerPlayerId
+          ? player.bankLoan
+          : (player.bankLoan ? { status: player.bankLoan.status } : null),
+        bankLoanOffer: viewerPlayerId && player.id === viewerPlayerId ? this.getBankLoanOffer(player) : null,
         bankrupt: player.bankrupt,
         disconnected: player.disconnected,
         isHost: player.isHost,
         properties: player.properties,
         ready: player.ready,
         isBot: player.isBot,
+        personality: player.isBot ? player.personality : null,
         clientId: player.clientId,
-        accountId: player.accountId || null
+        accountId: player.accountId || null,
+        avatarGrid: player.avatarGrid || null
       })),
       feed: this.feed,
       roundNumber: this.roundNumber,
@@ -1902,7 +3047,21 @@ class GameState {
         durationMs: AUCTION_DURATION_MS
       } : null,
       pendingTrade: this.pendingTrade,
-      vacationPool: this.vacationPool
+      vacationPool: this.vacationPool,
+      playerContracts: this.playerContractSummary(viewerPlayerId),
+      economy: {
+        casino: {
+          enabled: Boolean(this.settings.casino),
+          ...this.casinoLimits(),
+          lastResult: this.casinoLastResult ? { ...this.casinoLastResult } : null
+        },
+        market: {
+          enabled: Boolean(this.settings.market),
+          round: this.marketRound,
+          feeRate: MARKET_FEE_RATE,
+          quotes: { ...this.marketQuotes }
+        }
+      }
     };
   }
 }
@@ -1933,7 +3092,7 @@ class Room {
         }
       }
       if (typeof playerInfo.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(playerInfo.color)) {
-        existing.color = playerInfo.color;
+        existing.color = resolveFreeAppearanceColor(this.game.players, playerInfo.color, existing);
       }
       if (playerInfo.avatarGrid === null || Array.isArray(playerInfo.avatarGrid)) {
         existing.avatarGrid = playerInfo.avatarGrid;
@@ -1948,9 +3107,16 @@ class Room {
       return { success: false, error: 'Room is full.' };
     }
     const player = new Player(playerInfo);
+    player.color = resolveFreeAppearanceColor(this.game.players, player.color, player);
     this.game.addPlayer(player);
     this.playerMap.set(player.id, player);
     return { success: true, player };
+  }
+
+  // Public browse, disconnect GC, and stale-code reclaim share this single
+  // liveness check: bots and ghost seats must not count as humans.
+  hasConnectedHumans() {
+    return this.game.players.some(player => !player.isBot && !player.disconnected);
   }
 
   getPlayerBySocket(socketId) {
@@ -1963,6 +3129,10 @@ class Room {
 
   setRoomSetting(key, value) {
     if (this.game.started || !Object.prototype.hasOwnProperty.call(this.settings, key)) {
+      return;
+    }
+    if (key === 'globalEventDuration' || key === 'globalEventMax') {
+      // Legacy clients may still send these fields; the server owns scaling now.
       return;
     }
 
@@ -1980,6 +3150,10 @@ class Room {
       value = Math.max(0, Math.floor(parsed));
       if (key === 'globalEventDuration') value = value >= 10 ? 10 : 5;
       if (key === 'globalEventMax') value = value >= 2 ? 2 : 1;
+    } else if (key === 'globalEvents') {
+      value = value === true || value === 'true' || value === 'on' || value === 'rare' || value === 'hardcore' || value === 1 || value === '1';
+    } else if (key === 'botPersonality') {
+      value = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'].includes(String(value).toLowerCase()) ? String(value).toLowerCase() : 'survivor';
     } else if (typeof this.settings[key] === 'boolean') {
       value = value === true || value === 'true' || value === 1 || value === '1';
     } else if (typeof value === 'string') {
@@ -1996,9 +3170,34 @@ class Room {
   }
 
   startGame() {
+    this.ensureBots();
     const result = this.game.startGame();
     if (result?.success) this.statsRecorded = false;
     return result;
+  }
+
+  ensureBots() {
+    const required = Math.max(0, Math.min(this.settings.maxPlayers - 1, Number(this.settings.bots) || 0));
+    const existingBots = this.game.players.filter(player => player.isBot);
+    if (existingBots.length > required) {
+      existingBots.slice(required).forEach(bot => {
+        this.game.removePlayerByClient(bot.clientId);
+        this.playerMap.delete(bot.id);
+      });
+    }
+    const botCount = Math.min(existingBots.length, required);
+    const colors = ['#286ea1', '#35a653', '#d9a62f'];
+    for (let index = botCount; index < required; index += 1) {
+      const bot = new Player({
+        clientId: `bot-${this.roomCode}-${index + 1}`,
+       nickname: `BOT ${index + 1}`,
+       color: colors[index % colors.length],
+        isBot: true,
+        personality: this.settings.botPersonality
+      });
+      this.game.addPlayer(bot);
+      this.playerMap.set(bot.id, bot);
+    }
   }
 
   rollDice(socketId) {
@@ -2033,6 +3232,18 @@ class Room {
     return this.game.respondToTrade(socketId, payload);
   }
 
+  proposePlayerContract(socketId, payload) {
+    return this.game.proposePlayerContract(socketId, payload);
+  }
+
+  respondPlayerContract(socketId, accept, requestId) {
+    return this.game.respondPlayerContract(socketId, accept, requestId);
+  }
+
+  repayPlayerContract(socketId, payload) {
+    return this.game.repayPlayerContract(socketId, payload);
+  }
+
   endTurn(socketId) {
     return this.game.endTurn(socketId);
   }
@@ -2049,12 +3260,24 @@ class Room {
     return this.game.getBankLoanOffer(this.game.getPlayerBySocket(socketId));
   }
 
-  takeBankLoan(socketId) {
-    return this.game.takeBankLoan(socketId);
+  takeBankLoan(socketId, requestId) {
+    return this.game.takeBankLoan(socketId, requestId);
   }
 
   repayBankLoan(socketId, payload) {
     return this.game.repayBankLoan(socketId, payload);
+  }
+
+  placeCasinoBet(socketId, color, stake, requestId) {
+    return this.game.placeCasinoBet(socketId, color, stake, requestId);
+  }
+
+  tradeMarket(socketId, instrumentId, side, quantity, requestId) {
+    return this.game.tradeMarket(socketId, instrumentId, side, quantity, requestId);
+  }
+
+  runBotAction(playerId, action) {
+    return this.game.runBotAction(playerId, action);
   }
 
   voteGlobalEvent(socketId, choiceId) {
@@ -2066,13 +3289,16 @@ class Room {
   }
 
   getRoomSummary() {
+    const { globalEventDuration, globalEventMax, ...publicSettings } = this.settings;
     return {
-      roomCode: this.roomCode,
+      // Public tables are discovered directly; only private tables expose an
+      // invite code in the client-facing room projection.
+      roomCode: this.visibility === 'private' ? this.roomCode : null,
       roomName: this.roomName,
       visibility: this.visibility,
       capacity: this.settings.maxPlayers,
       hostId: this.hostId,
-      settings: this.settings,
+      settings: publicSettings,
       players: this.game.players.map(player => ({
         id: player.id,
         clientId: player.clientId,
@@ -2119,7 +3345,15 @@ class RoomManager {
 
   createRoom(hostInfo) {
     const player = new Player({ ...hostInfo, isHost: true });
-    const room = new Room(player, { roomName: hostInfo.roomName, visibility: hostInfo.visibility, roomCode: hostInfo.roomCode });
+    // Generated codes must never silently overwrite an existing room entry.
+    let roomCode = hostInfo.roomCode;
+    if (!roomCode) {
+      do {
+        roomCode = createRoomCode();
+      } while (this.rooms.has(roomCode));
+    }
+    const room = new Room(player, { roomName: hostInfo.roomName, visibility: hostInfo.visibility, roomCode });
+    player.color = resolveFreeAppearanceColor(room.game.players, player.color, player);
     this.rooms.set(room.roomCode, room);
     this.socketRoom.set(hostInfo.socketId, room);
     return room;
@@ -2164,7 +3398,7 @@ class RoomManager {
 
   listPublicRooms() {
     return [...this.rooms.values()]
-      .filter(room => room.visibility === 'public' && room.game.players.some(player => !player.disconnected && !player.bankrupt))
+      .filter(room => room.visibility === 'public' && room.hasConnectedHumans())
       .map(room => room.getDirectorySummary());
   }
 
@@ -2176,18 +3410,42 @@ class RoomManager {
     if (socketId) {
       this.socketRoom.delete(socketId);
     }
-    if (!room.game.started) {
-      room.game.removePlayerByClient(clientId);
-      if (room.game.players.length === 0) {
-        this.rooms.delete(room.roomCode);
+    const playerId = player.id;
+    const game = room.game;
+    const wasCurrentTurn = game.started && game.currentPlayerId === playerId;
+    // A real leave releases the seat in the lobby AND mid-game, so the room
+    // can drain to empty and the GC can reclaim it.
+    game.removePlayerByClient(clientId);
+    room.playerMap.delete(playerId);
+    if (game.started) {
+      if (Array.isArray(game.turnOrder)) {
+        game.turnOrder = game.turnOrder.filter(id => id !== playerId);
       }
-    } else {
-      player.disconnected = true;
-      player.socketId = null;
+      if (game.pendingPurchaseOffer?.playerId === playerId) game.pendingPurchaseOffer = null;
+      if (game.pendingPayment?.playerId === playerId) {
+        game.pendingPayment = null;
+        game.pendingPaymentTurnOptions = null;
+      }
+      if (game.pendingTrade && (game.pendingTrade.fromPlayerId === playerId || game.pendingTrade.toPlayerId === playerId)) {
+        game.pendingTrade = null;
+      }
+      if (game.pendingPlayerContract && (game.pendingPlayerContract.fromPlayerId === playerId || game.pendingPlayerContract.toPlayerId === playerId)) {
+        game.pendingPlayerContract = null;
+      }
+      if (game.auction?.active && game.auction.highestBidderId === playerId) game.auction.highestBidderId = null;
+      if (wasCurrentTurn) {
+        // nextTurn() treats an unknown current id as "before the first seat"
+        // and hands the dice to the next surviving player in turn order.
+        game.currentPlayerId = null;
+        game.nextTurn();
+      }
+    }
+    if (game.players.length === 0) {
+      this.rooms.delete(room.roomCode);
     }
     return room;
   }
 }
 
-export { RoomManager };
+export { RoomManager, GameState, Room, APPEARANCE_PRESET_COLORS };
 
