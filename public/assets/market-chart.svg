@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">Pixel market chart</title>
+  <desc id="desc">A stepped market line rising through a small grid.</desc>
+  <path fill="#173536" d="M3 4h2v24H3zM3 26h26v2H3zM8 8h2v2H8zM13 12h2v2h-2zM18 16h2v2h-2zM23 20h2v2h-2z"/>
+  <path fill="#286ea1" d="M6 23h4v-4h4v-5h4v-3h4v-4h4v3h-2v3h-4v3h-4v5h-4v4H6z"/>
+  <path fill="#35a653" d="M8 20h3v2H8zM13 15h3v2h-3zM18 11h3v2h-3zM23 7h3v2h-3z"/>
+  <rect x="27" y="4" width="2" height="4" fill="#d74438"/>
+  <rect x="27" y="10" width="2" height="2" fill="#d9a62f"/>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+  <title id="title">Pixel roulette wheel</title>
+  <desc id="desc">A cream and red roulette wheel with a green zero.</desc>
+  <rect width="32" height="32" fill="none"/>
+  <path fill="#d9a62f" d="M14 2h4v2h4v2h3v3h3v4h2v4h-2v4h-3v3h-3v2h-4v2h-4v-2h-4v-2H7v-3H4v-4H2v-4h2V9h3V6h3V4h4z"/>
+  <path fill="#071516" d="M14 5h4v2h4v3h3v4h2v4h-2v4h-3v3h-4v2h-4v-2h-4v-3H7v-4H5v-4h2v-4h3V7h4z"/>
+  <path fill="#d74438" d="M14 7h4v3h3v3h2v4h-2v4h-3v2h-4v-2h-3v-3H9v-4h2v-4h3z"/>
+  <path fill="#286ea1" d="M14 8h4v3h-4zM11 13h3v4h-3zM18 17h4v3h-4z"/>
+  <rect x="15" y="13" width="2" height="6" fill="#35a653"/>
+  <rect x="16" y="14" width="1" height="4" fill="#071516"/>
+  <path fill="#e8d3ab" d="M15 1h2v4h-2zM27 15h4v2h-4zM15 27h2v4h-2zM1 15h4v2H1z"/>
+</svg>
