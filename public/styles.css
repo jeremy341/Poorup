@@ -1755,6 +1755,13 @@ a:focus-visible {
 .social-notification-row > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .social-notification-row .t-body { font-size: 12px; }
 .social-notification-row.is-unread { border-color: var(--line-active); }
+.toast-stack { position: fixed; z-index: 75; top: 78px; right: 18px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; width: min(360px, calc(100vw - 36px)); pointer-events: none; }
+.parlor-toast { width: 100%; padding: 11px 13px; background: var(--surface-panel); border: 1px solid var(--line-active); box-shadow: 0 10px 28px rgb(0 0 0 / 48%); animation: parlor-toast-in 180ms steps(3, end) both; }
+.parlor-toast.is-mythical { border-color: #18d6d0; box-shadow: 2px 0 0 rgb(231 76 207 / 62%), 0 10px 28px rgb(0 0 0 / 48%); }
+.parlor-toast-title { display: block; color: var(--gold-050); }
+.parlor-toast-body { display: block; margin-top: 5px; color: var(--text-secondary); font-family: var(--font-body); font-size: 12px; line-height: 1.35; }
+@keyframes parlor-toast-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .parlor-toast { animation: none; } }
 .social-signin-note { display: grid; gap: 10px; padding: 16px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .social-signin-note button { min-height: 42px; }
 .social-empty { padding: 24px 8px; text-align: center; }
@@ -1773,6 +1780,13 @@ a:focus-visible {
 .rankings-hero-mark, .social-hero-mark { width: 54px; height: 54px; display: grid; place-items: center; background: var(--surface-panel-deep); border: 1px solid var(--line-active); box-shadow: var(--shadow-active); }
 .rankings-hero-mark img, .social-hero-mark img { width: 32px; height: 32px; image-rendering: pixelated; }
 .rankings-hero-copy, .social-hero-copy { min-width: 0; }
+.rankings-search-band { padding: 10px 14px; background: var(--surface-panel-deep); border-color: var(--line-subtle); }
+.rankings-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.rankings-search-label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.rankings-search-submit { align-self: end; min-width: 84px; min-height: 44px; }
+.rankings-search-results { grid-column: 1 / -1; display: grid; gap: 5px; padding-top: 6px; }
+.ranking-search-result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 36px; padding: 5px 8px; text-align: left; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
+.ranking-search-result:hover, .ranking-search-result:focus-visible { border-color: var(--line-active); background: var(--surface-panel-raised); }
 .rankings-hero-copy h2, .social-hero-copy h2 { margin-top: 7px; color: var(--gold-050); }
 .rankings-hero-copy p, .social-hero-copy p { max-width: 70ch; margin-top: 9px; }
 .rankings-hero-stats, .social-hero-stats { display: grid; grid-template-columns: repeat(3, minmax(96px, 1fr)); gap: 7px; }
@@ -1780,6 +1794,9 @@ a:focus-visible {
 .rankings-hero-stat strong, .social-hero-stats strong { font-variant-numeric: tabular-nums; }
 .rankings-metric-deck { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 8px; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
 .ranking-metric-column { min-width: 0; padding: 11px; background: var(--surface-panel); border: 1px solid var(--line-subtle); box-shadow: inset 0 1px 0 rgb(232 211 171 / 4%); }
+.ranking-scopes { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 14px 0; }
+.ranking-scope { min-height: 30px; padding: 4px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line-subtle); cursor: pointer; }
+.ranking-scope.is-active { color: var(--gold-100); border-color: var(--gold-300); background: rgba(217,166,47,.08); }
 .ranking-metric-column:first-child { border-color: var(--line-active); }
 .ranking-column-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-bottom: 9px; border-bottom: 1px solid var(--line-dark); }
 .ranking-column-head > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
@@ -1828,6 +1845,8 @@ a:focus-visible {
 .social-context-roster { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; overflow-y: auto; }
 .social-context-empty { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: var(--surface-panel-deep); border: 1px dashed var(--line-subtle); }
 .social-context-foot { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; border-top: 1px dashed var(--line-subtle); }
+.recent-players-wrap { display: grid; gap: 9px; }
+.recent-players-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-subtle); }
 #view-rankings, #view-social { min-height: 0; height: 100vh; overflow: hidden; }
 #view-rankings .social-page-main, #view-social .social-page-main { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 .social-page-main > .social-page-shell { flex: 1; min-height: 0; }
@@ -1855,14 +1874,19 @@ a:focus-visible {
   .social-feed { min-height: 280px; }
   .social-search-band .social-search { grid-template-columns: 1fr; }
   .social-search-submit { width: 100%; }
+  .rankings-search { grid-template-columns: 1fr; }
+  .rankings-search-submit { width: 100%; }
 }
 .player-profile-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 0; }
 .player-profile-head > div:last-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .player-profile-avatar { width: 64px; height: 64px; display: grid; place-items: center; border: 1px solid var(--line-active); background: var(--surface-panel-deep); }
-.player-profile-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding: 16px 20px 0; }
+.player-profile-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 16px 20px 0; }
 .player-profile-facts > div { display: flex; flex-direction: column; gap: 5px; padding: 9px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .player-profile-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 16px 20px 20px; }
 .player-profile-actions button { min-height: 42px; }
+.player-history-scopes { display: flex; gap: 4px; margin: 14px 20px 0; padding: 4px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); overflow-x: auto; }
+.player-history-scope { min-height: 32px; padding: 0 9px; color: var(--text-muted); border: 1px solid transparent; white-space: nowrap; }
+.player-history-scope:hover, .player-history-scope.is-active { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); }
 .player-history-list { display: grid; gap: 7px; max-height: 52vh; padding: 16px 20px 0; overflow: auto; overscroll-behavior: contain; }
 .player-history-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 9px; padding: 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .social-back { margin: 16px 20px 20px; min-height: 40px; }
@@ -2249,6 +2273,8 @@ a:focus-visible {
 .account-form-error { min-height: 18px; margin-top: 10px; color: var(--red-bright); font-family: var(--font-body); font-size: 12px; line-height: 1.4; }
 .account-submit { width: 100%; height: 50px; margin-top: 2px; }
 .account-modal-foot { margin-top: 12px; text-align: center; }
+.account-privacy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .account-privacy-grid { grid-template-columns: 1fr; } }
 .profile-grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
 
 .profile-field { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
@@ -2489,7 +2515,7 @@ a:focus-visible {
 /* ============================================================
    PROFILE — ACHIEVEMENT DECK
    ============================================================ */
-.achievements-panel { border-color: var(--line-board); }
+.achievements-panel { border-color: var(--line-board); display: flex; flex-direction: column; max-height: min(720px, max(280px, calc(100vh - 410px))); overflow: hidden; }
 .achievements-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .achievements-intro h2 { margin-top: 7px; color: var(--gold-050); }
 .achievements-intro .t-body { max-width: 66ch; margin-top: 10px; }
@@ -2503,7 +2529,7 @@ a:focus-visible {
 .achievement-filter-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 12px; }
 .achievement-filter-field { display: flex; flex-direction: column; gap: 5px; min-width: 150px; }
 .achievement-filter-select { width: 100%; min-height: 34px; }
-.achievements-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 10px; margin-top: 12px; }
+.achievements-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 10px; margin-top: 12px; flex: 1; min-height: 0; padding: 2px 6px 6px 2px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .achievement-card { min-width: 0; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); transition: border-color 160ms ease-out, background 160ms ease-out; }
 .achievement-card:hover { border-color: var(--line-default); background: var(--surface-panel-raised); }
 .achievement-card.is-unlocked { border-color: rgb(53 166 83 / 62%); }
@@ -2529,6 +2555,7 @@ a:focus-visible {
 .achievements-empty { grid-column: 1 / -1; padding: 28px; text-align: center; }
 .achievement-card { appearance: none; width: 100%; display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 10px; min-height: 84px; padding: 10px; text-align: left; cursor: pointer; }
 .achievement-card:focus-visible { outline: 2px solid var(--gold-100); outline-offset: 2px; }
+.achievement-card { scroll-margin-block: 10px; }
 .achievement-detail-modal { max-width: 500px; overflow: hidden; border-color: var(--line-board); box-shadow: 0 18px 60px rgb(0 0 0 / 58%); }
 .achievement-modal-rail { height: 7px; background: var(--achievement-accent, var(--gold-500)); }
 .achievement-detail-body { padding: 22px; }
@@ -2585,7 +2612,8 @@ a:focus-visible {
 .profile-history-row.is-win { border-color: rgb(53 166 83 / 55%); background: #0c1f1c; box-shadow: var(--shadow-active); }
 .profile-history-index { color: var(--gold-500); }
 .profile-history-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.profile-history-meta { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.profile-history-participants { overflow: hidden; color: var(--gold-muted); text-overflow: ellipsis; white-space: nowrap; }
+.profile-history-meta { display: flex; align-items: center; gap: 8px; max-width: 100%; overflow-x: auto; white-space: nowrap; }
 .profile-history-note { margin-top: 14px; line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) {
   .stats-bar { animation: none; transform: none; }
@@ -2595,7 +2623,7 @@ a:focus-visible {
 /* ============================================================
    FINANCING UI MODEL
    ============================================================ */
-.right-rail .tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.right-rail .tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .finance-rail-intro { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line-subtle); }
 .finance-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
 .finance-bank { margin-bottom: 14px; padding: 12px; border-color: var(--line-active); box-shadow: var(--shadow-active); }
@@ -2608,6 +2636,54 @@ a:focus-visible {
 .finance-bank-actions { margin-top: 11px; }
 .finance-bank-action { width: 100%; min-height: 42px; }
 .finance-bank-note { margin-top: 9px; color: var(--gold-muted); }
+.player-contracts { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border-color: var(--line-active); }
+.player-contract-offer { display: grid; gap: 6px; padding: 10px; background: rgba(217,166,47,.08); border: 1px solid var(--line-active); animation: event-banner-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.player-contract-active { display: grid; gap: 6px; }
+.player-contract-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.player-contract-row > div { display: grid; gap: 4px; min-width: 0; }
+.player-contract-row strong, .player-contract-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contract-offer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+.player-contract-details { display: grid; gap: 9px; }
+.player-contract-details > summary { list-style: none; cursor: pointer; }
+.player-contract-details > summary::-webkit-details-marker { display: none; }
+.player-contract-form { display: grid; gap: 8px; padding-top: 4px; }
+.player-contract-form .account-field { display: grid; gap: 4px; }
+.player-contract-form .financing-check { margin-top: 2px; }
+.player-profile-recent { display: grid; gap: 6px; margin: 14px 20px 0; padding-top: 12px; border-top: 1px solid var(--line-subtle); }
+.player-profile-match { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line-dark); }
+.player-profile-match span:last-child { text-align: right; }
+.economy-empty { display: grid; gap: 9px; justify-items: start; padding: 14px; border-color: var(--line-subtle); }
+.economy-empty img, .economy-surface-head img { image-rendering: pixelated; }
+.economy-surface { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.economy-surface-head { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line-subtle); }
+.economy-surface-head h3 { margin-top: 4px; color: var(--gold-100); }
+.casino-odds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.casino-odds span { display: grid; gap: 3px; padding: 8px 6px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); text-align: center; }
+.casino-odds strong { color: var(--ink-1); font: 700 11px var(--font-display); }
+.casino-odds small { color: var(--ink-3); font: 500 10px var(--font-mono); }
+.casino-form { display: grid; gap: 10px; }
+.casino-form fieldset { border: 0; padding: 0; margin: 0; }
+.casino-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 6px; }
+.casino-choice { display: flex; align-items: center; justify-content: center; min-height: 38px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); cursor: pointer; }
+.casino-choice:has(input:checked) { border-color: var(--gold-300); box-shadow: inset 0 -2px 0 var(--gold-300); }
+.casino-choice input { position: absolute; opacity: 0; pointer-events: none; }
+.casino-choice-red:has(input:checked) { color: #e36b5f; }
+.casino-choice-black:has(input:checked) { color: var(--ink-1); }
+.casino-choice-green:has(input:checked) { color: var(--green); }
+.casino-stake, .market-quantity { display: grid; gap: 5px; }
+.casino-stake .field, .market-quantity .field { width: 100%; }
+.economy-result { padding: 9px; color: var(--gold-100); background: rgba(217,166,47,.08); border-left: 2px solid var(--gold-300); font: 500 10px var(--font-mono); letter-spacing: .06em; }
+.economy-note { line-height: 1.5; }
+.market-list { display: flex; flex-direction: column; gap: 5px; min-height: 0; max-height: 360px; overflow-y: auto; }
+.market-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
+.market-row > div { display: grid; gap: 3px; min-width: 0; }
+.market-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.market-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.market-actions .btn-dark { min-height: 30px; padding: 4px 6px; }
+@media (max-width: 760px) {
+  .right-rail .tabs { display: flex; overflow-x: auto; }
+  .right-rail .tab { min-width: 92px; }
+}
 .finance-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 12px; text-align: center; background: var(--surface-panel-deep); border: 1px dashed var(--line-subtle); }
 .finance-empty > span:first-child { color: var(--gold-400); }
 .finance-rail-actions { display: grid; gap: 8px; margin-top: auto; }
@@ -2770,10 +2846,12 @@ a:focus-visible {
   .achievements-intro { flex-direction: column; }
   .achievements-progress { width: 100%; text-align: left; }
   .achievements-progress strong { display: inline; margin-right: 7px; }
+  .achievements-panel { max-height: max(240px, calc(100vh - 460px)); }
   .social-surface-card { max-height: 92vh; }
   .social-tabs, .ranking-metrics { overflow-x: auto; }
   .social-tab, .ranking-metric { flex: 0 0 auto; }
   .player-profile-actions { grid-template-columns: 1fr; }
+  .player-profile-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

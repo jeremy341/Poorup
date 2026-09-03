@@ -294,10 +294,15 @@ const ACHIEVEMENTS = [
   { id: "hostile-bidder", category: "visible", title: "HOSTILE BIDDER", short: "Win two auctions.", detail: "Win two auctions in one game.", rarity: "RARE" },
   { id: "empty-streets", category: "visible", title: "EMPTY STREETS", short: "Win without a full group.", detail: "Win while owning no complete property group.", rarity: "EPIC" },
   { id: "event-tourist", category: "global", title: "EVENT TOURIST", short: "Collect disasters.", detail: "Experience three different global events across your account history.", rarity: "RARE" },
-  { id: "crisis-investor", category: "global", title: "CRISIS INVESTOR", short: "Buy the fear discount.", detail: "Buy property during Housing Bubble Pop and profit after recovery.", rarity: "EPIC" },
   { id: "public-enemy", category: "global", title: "PUBLIC ENEMY", short: "Survive the investigation vote.", detail: "Win an Anti-Monopoly Investigation vote against yourself.", rarity: "LEGENDARY" },
   { id: "silent-partner", category: "social", title: "SILENT PARTNER", short: "Lend without collateral.", detail: "Complete a player-loan contract without owning the collateral.", rarity: "RARE" },
   { id: "treasure-map", category: "visible", title: "TREASURE MAP", short: "Find every chest card.", detail: "Draw every Treasure card at least once across your account history.", rarity: "EPIC" },
+  { id: "one-dollar-hedge", category: "global", title: "ONE DOLLAR HEDGE", short: "Bet the smallest stake.", detail: "Place a one-dollar roulette bet.", rarity: "COMMON" },
+  { id: "roulette-regular", category: "global", title: "ROULETTE REGULAR", short: "Keep spinning.", detail: "Place eight roulette bets in one game.", rarity: "RARE" },
+  { id: "all-in", category: "global", title: "ALL IN", short: "Risk the whole stack.", detail: "Place a roulette stake equal to your available capital.", rarity: "EPIC" },
+  { id: "first-index", category: "global", title: "FIRST INDEX", short: "Enter the exchange.", detail: "Buy your first fictional market index unit.", rarity: "COMMON" },
+  { id: "market-maker", category: "global", title: "MARKET MAKER", short: "Trade through the noise.", detail: "Complete ten market orders in one game.", rarity: "RARE" },
+  { id: "crisis-investor", category: "global", title: "CRISIS INVESTOR", short: "Buy the fear discount.", detail: "Buy a market index while a negative global event is active and sell it for a profit after recovery.", rarity: "EPIC" },
   { id: "41st-tile", category: "secret", title: "THE 41ST TILE", short: "Step outside the board.", clue: "There are forty tiles. You stepped on one more.", detail: "Trigger the hidden movement sequence, then win the game.", rarity: "MYTHICAL", secret: true },
   { id: "null-player", category: "secret", title: "THE NULL PLAYER", short: "Continue from nothing.", clue: "Your wallet was empty. The turn continued. The table refuses to remember why.", detail: "Reach exactly $0, avoid bankruptcy, complete another turn, and win.", rarity: "MYTHICAL", secret: true },
   { id: "black-ledger", category: "secret", title: "THE BLACK LEDGER", short: "Close the book yourself.", clue: "The bank closed the book. Something inside kept counting.", detail: "Survive a curated crisis combination after losing collateral, then win.", rarity: "MYTHICAL", secret: true },
@@ -466,6 +471,20 @@ function sanitizeAccountSession(value) {
         gamesPlayed: Number(account.stats?.gamesPlayed) || 0,
         wins: Number(account.stats?.wins) || 0,
         bankruptcies: Number(account.stats?.bankruptcies) || 0,
+        auctionWins: Number(account.stats?.auctionWins) || 0,
+        rentCollected: Number(account.stats?.rentCollected) || 0,
+        eventSurvival: Number(account.stats?.eventSurvival) || 0,
+        casinoNet: Number(account.stats?.casinoNet) || 0,
+        marketProfit: Number(account.stats?.marketProfit) || 0,
+        playerLoansGiven: Number(account.stats?.playerLoansGiven) || 0,
+        playerLoansRepaid: Number(account.stats?.playerLoansRepaid) || 0,
+        playerLoanDefaults: Number(account.stats?.playerLoanDefaults) || 0,
+        equityDeals: Number(account.stats?.equityDeals) || 0,
+        bankLoansTaken: Number(account.stats?.bankLoansTaken) || 0,
+        bankLoanRepayments: Number(account.stats?.bankLoanRepayments) || 0,
+        bankLoanDefaults: Number(account.stats?.bankLoanDefaults) || 0,
+        patrolBest: Number(account.stats?.patrolBest) || 0,
+        patrolAceRuns: Number(account.stats?.patrolAceRuns) || 0,
       },
       history: Array.isArray(account.history) ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50).map((entry) => ({
         playedAt: typeof entry.playedAt === "string" ? entry.playedAt : null,
@@ -474,6 +493,17 @@ function sanitizeAccountSession(value) {
         endingCash: Math.max(0, Number(entry.endingCash) || 0),
         properties: Math.max(0, Number(entry.properties) || 0),
       })) : [],
+      matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter((entry) => entry && typeof entry === "object").slice(0, 50) : [],
+      achievements: Array.isArray(account.achievements) ? account.achievements.filter((entry) => entry && typeof entry.id === "string").slice(0, 100).map((entry) => ({
+        id: entry.id,
+        unlockedAt: typeof entry.unlockedAt === "string" ? entry.unlockedAt : null,
+      })) : [],
+      privacy: {
+        history: ["public", "friends", "private"].includes(account.privacy?.history) ? account.privacy.history : "friends",
+        achievements: account.privacy?.achievements === "private" ? "private" : "friends",
+        friendRequests: ["everyone", "friends", "nobody"].includes(account.privacy?.friendRequests) ? account.privacy.friendRequests : "everyone",
+        roomInvites: account.privacy?.roomInvites === "nobody" ? "nobody" : "friends",
+      },
     },
   };
 }
@@ -631,14 +661,18 @@ function buildPlayers(choiceIndex, alias) {
    ============================================================ */
 const state = {
   live: true,
-  clientId: localStorage.getItem("poorup-client-id") || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  // Per-tab session id (audit #10): sessionStorage survives reloads but is
+  // fresh for every tab, so two tabs can no longer share — and hijack — one seat.
+  clientId: sessionStorage.getItem("poorup-client-id") || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   account: loadAccountSession(),
   hostId: null,
   serverTiles: [],
   pendingRoomSettings: null,
   pendingRoomMeta: null,
   suppressRoomUpdates: false,
-  connectionStatus: "connecting", // connecting | online | reconnecting | offline
+  // Server-minus-local clock skew (ms), refreshed from every snapshot's
+  // serverTime so auction deadlines survive a skewed local clock (audit #18).
+  serverTimeOffset: 0,
   lastConnectionAnnouncement: "",
   previousTurnKey: "",
   phase: "home", // home | setup | lobby | playing
@@ -684,17 +718,23 @@ const state = {
   jail: {},             // { playerId: turnsRemaining }
   roundNumber: 0,
   globalEvent: null,
-  social: { friends: [], requests: [], outgoing: [], invites: [], notifications: [] },
+  playerContractOffer: null,
+  playerContracts: { pending: null, active: [] },
+  social: { friends: [], requests: [], outgoing: [], invites: [], notifications: [], recentPlayers: [] },
   socialSearchResults: [],
   socialSearchQuery: "",
   socialTab: "friends",
   rulesSection: "start-here",
   rulesQuery: "",
-  leaderboard: { metric: "wins", rows: [], snapshots: {}, generatedAt: null, loading: false },
+  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false },
+  rankingSearchQuery: "",
+  rankingSearchResults: [],
+  economy: { casino: { enabled: false, maxBet: 500, lastResult: null, net: 0 }, market: { enabled: false, round: 0, feeRate: 0.02, quotes: {}, positions: {} } },
   selectedPlayer: null,
   selectedPlayerRelationship: "none",
   selectedPlayerView: "profile",
   selectedPlayerHistory: null,
+  selectedPlayerHistoryScope: "all",
   surpriseDeck: [...CHANCE_EVENTS],
   treasureDeck: [...CHEST_EVENTS],
   card: null,           // { tile, ev, kind } modal reveal
@@ -715,9 +755,12 @@ const state = {
     turnTimer:       0,       // seconds per turn: 0=off, 30, 60, 120
     bankruptMode:    "elim",  // "elim" | "debt" (debt = give assets, stay in)
     bots:            0,        // reserved CPU seats; bot turns are added separately
+    botPersonality: "survivor",
     bankLoans:       true,
     bankLoanSeverity: "predatory",
-    globalEvents:    "rare",
+    globalEvents:    false,
+    casino:          false,
+    market:          false,
     globalEventDuration: 5,
     globalEventMax:  1,
   },
@@ -850,7 +893,7 @@ if (state.account) {
   state.players = buildPlayers(state.appearance, state.alias);
 }
 
-try { localStorage.setItem("poorup-client-id", state.clientId); } catch { /* storage unavailable */ }
+try { sessionStorage.setItem("poorup-client-id", state.clientId); } catch { /* storage unavailable */ }
 
 function activeAppearance() {
   return state.tableAppearanceOverride ?? state.appearance;
@@ -916,9 +959,10 @@ const SERVER_SETTING_KEYS = {
   bankLoans: "bankLoans",
   bankLoanSeverity: "bankLoanSeverity",
   globalEvents: "globalEvents",
-  globalEventDuration: "globalEventDuration",
-  globalEventMax: "globalEventMax",
+  casino: "casino",
+  market: "market",
   bots: "bots",
+  botPersonality: "botPersonality",
 };
 
 function emitServer(event, payload = {}, callback) {
@@ -941,11 +985,15 @@ function serverTileFor(index) {
 
 function applyServerState(snapshot) {
   if (!snapshot?.room || !snapshot?.game) return;
+  // Audit #18: track server-vs-local clock skew from every snapshot so
+  // server-stamped deadlines (auction endsAt) stay honest on a skewed clock.
+  const serverTime = Number(snapshot.serverTime);
+  if (Number.isFinite(serverTime) && serverTime > 0) state.serverTimeOffset = serverTime - Date.now();
   if (state.suppressRoomUpdates) return;
   const previousPositions = new Map(state.players.map((player) => [player.id, Number(player.pos) || 0]));
   setConnectionStatus("online");
   const { room, game } = snapshot;
-  state.roomCode = room.roomCode || state.roomCode;
+  if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = room.roomCode || "";
   state.roomVisibility = room.visibility === "public" ? "public" : "private";
   state.hostId = room.hostId || null;
   state.serverTiles = Array.isArray(game.tiles) ? game.tiles : [];
@@ -968,6 +1016,8 @@ function applyServerState(snapshot) {
     jailFree: Number(player.jailFreeCards) || 0,
     bankLoan: player.bankLoan || null,
     bankLoanOffer: player.bankLoanOffer || null,
+    casinoNet: Number(player.casinoNet) || 0,
+    marketPositions: player.marketPositions || {},
     isHost: Boolean(player.isHost),
     avatarGrid: Array.isArray(player.avatarGrid) ? player.avatarGrid : null,
   })).sort((a, b) => {
@@ -980,6 +1030,16 @@ function applyServerState(snapshot) {
   state.dice = Array.isArray(game.lastDice) ? game.lastDice : [0, 0];
   state.roundNumber = Number(game.roundNumber) || 0;
   state.globalEvent = game.globalEvent || null;
+  state.playerContracts = game.playerContracts || { pending: null, active: [] };
+  const pendingContract = state.playerContracts.pending;
+  const localServerId = state.players[0]?.serverId;
+  state.playerContractOffer = pendingContract && pendingContract.toPlayerId === localServerId ? pendingContract : null;
+  state.economy = {
+    ...state.economy,
+    ...(game.economy || {}),
+    casino: { ...state.economy.casino, ...(game.economy?.casino || {}) },
+    market: { ...state.economy.market, ...(game.economy?.market || {}) }
+  };
   state.pool = Number(game.vacationPool) || 0;
   state.houses = Object.fromEntries(state.serverTiles.map((tile) => [tile.index, Number(tile.houseCount) || 0]));
   state.mortgaged = Object.fromEntries(state.serverTiles.filter((tile) => tile.mortgaged).map((tile) => [tile.index, true]));
@@ -1017,11 +1077,14 @@ function applyServerState(snapshot) {
     tileIndex: Number(game.auction.tileIndex),
     bid: Number(game.auction.highestBid) || 0,
     leaderId: state.players.find((player) => player.serverId === game.auction.highestBidderId)?.id || null,
-    deadline: Number(game.auction.endsAt) || Date.now() + AUCTION_MS,
+    deadline: Number(game.auction.endsAt) || serverNow() + AUCTION_MS,
     caps: {},
     passed: Object.fromEntries((game.auction.passedPlayerIds || []).map((id) => [state.players.find((p) => p.serverId === id)?.id, true]).filter(([id]) => id)),
   } : null;
-  showView("game");
+  // Snapshots update data unconditionally but must not hijack the page —
+  // only re-assert the game view while the player is mid-room-session and
+  // the parlor is the surface actually on screen (A4-F1).
+  if (state.phase !== "home" && !$("#view-game").classList.contains("is-hidden")) showView("game");
   renderAll();
   if (movementPlans.length) {
     requestAnimationFrame(() => movementPlans.forEach(({ player, from, to }) => startPieceWalk(player.id, from, to)));
@@ -1071,10 +1134,14 @@ if (socket) {
         }
       });
     }
-    emitServer("restore-session", {}, () => {});
+    emitServer("restore-session", {}, (response) => handleRestoreSessionResponse(response, false));
   });
   socket.on("connect_error", () => setConnectionStatus("offline", true));
   socket.on("update-state", applyServerState);
+  socket.on("rooms-updated", (payload) => {
+    roomsDirectory = Array.isArray(payload?.rooms) ? payload.rooms : roomsDirectory;
+    if (!$("#rooms-modal").classList.contains("is-hidden")) renderRoomsList();
+  });
   socket.on("social-update", (social) => {
     state.social = social || state.social;
     renderSocialSurface("#social-page-content");
@@ -1083,6 +1150,7 @@ if (socket) {
   socket.on("social-notification", (notification) => {
     const list = state.social.notifications || [];
     state.social.notifications = [notification, ...list.filter(item => item.id !== notification.id)].slice(0, 50);
+    if (notification?.kind === "achievement-unlocked") return;
     announceSocialNotification(notification);
     renderSocialSurface("#social-page-content");
     renderSocialSurface("#social-card");
@@ -1092,9 +1160,46 @@ if (socket) {
     state.social.notifications = [notification, ...(state.social.notifications || [])].slice(0, 50);
     renderSocialSurface("#social-page-content");
   });
+  socket.on("achievement-unlocked", (notification) => {
+    if (state.account?.account && notification?.achievementId) {
+      const account = state.account.account;
+      const existing = Array.isArray(account.achievements) ? account.achievements : [];
+      if (!existing.some((entry) => entry.id === notification.achievementId)) {
+        account.achievements = [{ id: notification.achievementId, unlockedAt: notification.createdAt || new Date().toISOString() }, ...existing].slice(0, 100);
+        saveAccountSession(state.account);
+      }
+    }
+    if (notification) {
+      announceSocialNotification({ ...notification, title: notification.title || "ACHIEVEMENT UNLOCKED" });
+      renderAchievements();
+      renderAccountPanel();
+    }
+  });
+  socket.on("account-sync", ({ account } = {}) => {
+    if (!state.account?.sessionToken || !account) return;
+    updateAccountFromResponse({ account, sessionToken: state.account.sessionToken });
+  });
+  socket.on("player-contract-offer", ({ contract }) => {
+    state.playerContractOffer = contract || null;
+    announceSocialNotification({ body: "A player contract is waiting in Finance." });
+    renderRightRail();
+  });
+  socket.on("player-contract-update", ({ contract }) => {
+    state.playerContractOffer = null;
+    if (contract) {
+      state.playerContracts = {
+        ...(state.playerContracts || {}),
+        active: [...(state.playerContracts?.active || []).filter(entry => entry.id !== contract.id), contract]
+      };
+    }
+    renderRightRail();
+  });
   socket.on("system-message", ({ text }) => { say(text); renderChat(); });
-  socket.on("chat-message", ({ nickname, text }) => {
-    const sender = state.players.find((player) => player.name === String(nickname).toUpperCase());
+  socket.on("chat-message", ({ nickname, text, senderId }) => {
+    // senderId is the authoritative server player id; nickname matching stays
+    // only as a fallback (A4-F7: duplicate names cross-wire attribution).
+    const sender = (senderId != null ? state.players.find((player) => player.serverId === senderId) : null)
+      || state.players.find((player) => player.name === String(nickname).toUpperCase());
     say(text, sender || { name: nickname, textColor: "#a79d7d" });
     renderChat();
   });
@@ -1340,49 +1445,76 @@ function renderProfileStatistics() {
   const games = Math.max(0, Number(stats.gamesPlayed) || 0);
   const wins = Math.max(0, Math.min(games, Number(stats.wins) || 0));
   const bankruptcies = Math.max(0, Number(stats.bankruptcies) || 0);
-  const history = Array.isArray(account?.history)
-    ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50)
-    : [];
+  const history = Array.isArray(account?.matchHistory) && account.matchHistory.length
+    ? account.matchHistory.filter((entry) => entry && typeof entry === "object").slice(0, 50)
+    : Array.isArray(account?.history)
+      ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50)
+      : [];
   const chronological = [...history].reverse().slice(-12);
+  const ownMatchValue = (entry, key, fallback = 0) => {
+    const participant = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null;
+    return Math.max(0, Number(participant?.[key] ?? entry[key] ?? fallback) || 0);
+  };
   const averageCash = history.length
-    ? Math.round(history.reduce((sum, entry) => sum + Math.max(0, Number(entry.endingCash) || 0), 0) / history.length)
+    ? Math.round(history.reduce((sum, entry) => sum + ownMatchValue(entry, "endingCash"), 0) / history.length)
     : null;
-  const bestCash = history.length ? Math.max(...history.map((entry) => Math.max(0, Number(entry.endingCash) || 0))) : null;
-  const bestProperties = history.length ? Math.max(...history.map((entry) => Math.max(0, Number(entry.properties) || 0))) : null;
+  const bestCash = history.length ? Math.max(...history.map((entry) => ownMatchValue(entry, "endingCash"))) : null;
+  const bestProperties = history.length ? Math.max(...history.map((entry) => ownMatchValue(entry, "propertyCount", entry.properties))) : null;
   const winShare = games ? Math.round((wins / games) * 100) : 0;
   const sourceLabel = account ? "ACCOUNT SYNC" : "LOCAL ONLY";
   const record = (label, value, tone = "g100") => `<div class="stats-record"><span class="t-micro ink-3">${label}</span><strong class="t-label f16 ${tone}">${value}</strong></div>`;
   const trendBars = chronological.length
     ? chronological.map((entry, index) => {
-        const won = String(entry.result || "").toUpperCase() === "WIN" || entry.won === true;
+        const own = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null;
+        const won = own ? own.finalPlacement === 1 : String(entry.result || "").toUpperCase() === "WIN" || entry.won === true;
         const height = won ? 100 : 30;
         const label = won ? "WIN" : "ROUND";
-        return `<div class="stats-bar-column"><span class="stats-bar-value t-micro ${won ? "green" : "ink-3"}">${label}</span><span class="stats-bar ${won ? "is-win" : "is-loss"}" style="--bar-height:${height}%" title="${formatStatDate(entry.playedAt)} · ${label}"></span><span class="stats-bar-label t-micro ink-3">${formatStatDate(entry.playedAt)}</span></div>`;
+        return `<div class="stats-bar-column"><span class="stats-bar-value t-micro ${won ? "green" : "ink-3"}">${label}</span><span class="stats-bar ${won ? "is-win" : "is-loss"}" style="--bar-height:${height}%" title="${formatStatDate(entry.completedAt || entry.playedAt)} · ${label}"></span><span class="stats-bar-label t-micro ink-3">${formatStatDate(entry.completedAt || entry.playedAt)}</span></div>`;
       }).join("")
     : `<div class="stats-chart-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">${account ? "NO ROUND HISTORY YET" : "ACCOUNT HISTORY UNAVAILABLE"}</strong><span class="t-micro ink-3">${account ? "Complete a server round to unlock this trend." : "Create an account to sync completed-round statistics."}</span></div>`;
   const trendTable = chronological.length
-    ? `<table class="stats-data-table"><caption>Recent round results</caption><thead><tr><th scope="col">ROUND</th><th scope="col">RESULT</th><th scope="col">ENDING CASH</th><th scope="col">PROPERTIES</th></tr></thead><tbody>${chronological.map((entry, index) => { const won = String(entry.result || "").toUpperCase() === "WIN" || entry.won === true; return `<tr><th scope="row">${formatStatDate(entry.playedAt)} · ${String(index + 1).padStart(2, "0")}</th><td class="${won ? "green" : "ink-2"}">${won ? "WIN" : "ROUND"}</td><td>$${Math.max(0, Number(entry.endingCash) || 0).toLocaleString()}</td><td>${Math.max(0, Number(entry.properties) || 0)}</td></tr>`; }).join("")}</tbody></table>`
+    ? `<table class="stats-data-table"><caption>Recent round results</caption><thead><tr><th scope="col">ROUND</th><th scope="col">RESULT</th><th scope="col">ENDING CASH</th><th scope="col">PROPERTIES</th></tr></thead><tbody>${chronological.map((entry, index) => { const own = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null; const won = own ? own.finalPlacement === 1 : String(entry.result || "").toUpperCase() === "WIN" || entry.won === true; return `<tr><th scope="row">${formatStatDate(entry.completedAt || entry.playedAt)} · ${String(index + 1).padStart(2, "0")}</th><td class="${won ? "green" : "ink-2"}">${won ? "WIN" : "ROUND"}</td><td>$${ownMatchValue(entry, "endingCash").toLocaleString()}</td><td>${ownMatchValue(entry, "propertyCount", entry.properties)}</td></tr>`; }).join("")}</tbody></table>`
     : "";
 
   root.innerHTML = `<div class="stats-intro panel noise"><div><div class="t-micro g400">PERFORMANCE DECK</div><h2 class="t-section g100">Player Statistics</h2><p class="t-body ink-2">A readable record of the rounds you have finished, not a live ranking or a promise of future results.</p></div><span class="t-micro stats-source ${account ? "green" : "g300"}">${sourceLabel}</span></div>
-    <div class="stats-metric-grid" aria-label="Performance summary">${record("ROUNDS", account ? String(games) : "—")}${record("WINS", account ? String(wins) : "—", "green")}${record("WIN RATE", account ? `${winShare}%` : "—", "g300")}${record("BANKRUPTCIES", account ? String(bankruptcies) : "—", "g-muted")}</div>
+    <div class="stats-metric-grid" aria-label="Performance summary">${record("ROUNDS", account ? String(games) : "—")}${record("WINS", account ? String(wins) : "—", "green")}${record("WIN RATE", account ? `${winShare}%` : "—", "g300")}${record("BANKRUPTCIES", account ? String(bankruptcies) : "—", "g-muted")}${record("EVENT SURVIVAL", account ? String(stats.eventSurvival || 0) : "—", "g300")}${record("AUCTION WINS", account ? String(stats.auctionWins || 0) : "—", "g100")}${record("CASINO NET", account ? "$" + Number(stats.casinoNet || 0).toLocaleString() : "—", "green")}${record("MARKET P/L", account ? "$" + Number(stats.marketProfit || 0).toLocaleString() : "—", "g300")}${record("PATROL BEST", account ? String(stats.patrolBest || 0) : "—", "g300")}${record("BANK LOANS REPAID", account ? String(stats.bankLoanRepayments || 0) : "—", "g100")}${record("LOANS GIVEN", account ? String(stats.playerLoansGiven || 0) : "—", "g100")}${record("EQUITY DEALS", account ? String(stats.equityDeals || 0) : "—", "g100")}</div>
     <div class="stats-content-grid"><section class="panel noise pad16 stats-trend-panel" aria-labelledby="stats-trend-heading"><div class="stats-panel-head"><div><div class="t-micro g400">RECENT FORM</div><h3 class="t-section g100" id="stats-trend-heading">Win history</h3></div><span class="t-micro ink-3">LAST ${chronological.length || 0} ROUNDS</span></div><div class="stats-chart" role="img" aria-label="Win history chart showing ${wins} wins across ${games} completed rounds"><div class="stats-chart-y"><span class="t-micro ink-3">WIN</span><span class="t-micro ink-3">ROUND</span></div><div class="stats-chart-plot"><div class="stats-chart-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="stats-chart-bars">${trendBars}</div></div></div>${trendTable}</section><section class="panel noise pad16 stats-records-panel" aria-labelledby="stats-records-heading"><div class="stats-panel-head"><div><div class="t-micro g400">PARLOR RECORDS</div><h3 class="t-section g100" id="stats-records-heading">Personal bests</h3></div><span class="t-micro ink-3">VERIFIED ROUNDS</span></div><div class="stats-record-list">${record("AVG ENDING CASH", averageCash == null ? "—" : `$${averageCash.toLocaleString()}`)}${record("BEST CASH STACK", bestCash == null ? "—" : `$${bestCash.toLocaleString()}`, "green")}${record("MOST PROPERTIES", bestProperties == null ? "—" : String(bestProperties), "g300")}${record("DATA WINDOW", account ? (history.length ? `${history.length} ROUNDS` : "NO ROUNDS") : "ACCOUNT ONLY", "g-muted")}</div><p class="t-micro ink-3 stats-method">Values are calculated from completed server rounds. No estimates are shown.</p></section></div>`;
   hydrateSprites(root);
+}
+
+function profileHistoryRowHTML(entry, index, total, accountId) {
+  const participant = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === accountId) : null;
+  const won = participant ? participant.finalPlacement === 1 : entry.won === true || entry.result === "WIN";
+  const date = formatStatDate(entry.completedAt || entry.playedAt);
+  const deeds = participant?.propertyCount ?? entry.properties ?? 0;
+  const players = Array.isArray(entry.participants) ? entry.participants.length : "—";
+  const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 0;
+  const casino = Array.isArray(entry.casino) ? entry.casino.find(item => item.accountId === accountId)?.net || 0 : 0;
+  const contracts = Array.isArray(entry.playerContracts) ? entry.playerContracts.length : 0;
+  const trades = Number(entry.tradesCompleted) || 0;
+  const auctions = Number(entry.auctionsCompleted) || 0;
+  const participantNames = Array.isArray(entry.participants) ? entry.participants.map(item => item.displayNameAtMatch).filter(Boolean).slice(0, 4).join(' · ') : '';
+  return '<article class="profile-history-row' + (won ? ' is-win' : '') + '"><span class="profile-history-index t-micro ink-3">' + String(total - index).padStart(2, "0") + '</span><div class="profile-history-main"><span class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + (won ? 'WIN' : 'ROUND COMPLETE') + '</span><span class="t-micro ink-3">' + date + ' · ' + players + ' PLAYERS</span>' + (participantNames ? '<span class="t-micro profile-history-participants">' + esc(participantNames) + '</span>' : '') + '</div><div class="profile-history-meta"><span class="t-micro ink-3">DEEDS ' + deeds + '</span><span class="t-micro ' + (events ? 'g300' : 'ink-3') + '">' + events + ' EVENTS</span><span class="t-micro ink-3">TRADES ' + trades + '</span><span class="t-micro ink-3">AUCTIONS ' + auctions + '</span><span class="t-micro ' + (casino >= 0 ? 'green' : 'red') + '">CASINO ' + (casino >= 0 ? '+' : '') + '$' + Number(casino).toLocaleString() + '</span><span class="t-micro ink-3">DEALS ' + contracts + '</span></div></article>';
+}
+
+function createRequestId(kind) {
+  return String(state.clientId || "client") + ":" + String(kind || "action") + ":" + Date.now() + ":" + Math.random().toString(36).slice(2, 8);
 }
 
 function renderProfileHistory() {
   const root = $("#profile-history-content");
   if (!root) return;
   const account = state.account?.account || null;
-  const history = Array.isArray(account?.history)
-    ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50)
+  const historySource = Array.isArray(account?.matchHistory) && account.matchHistory.length ? account.matchHistory : account?.history;
+  const history = Array.isArray(historySource)
+    ? historySource.filter((entry) => entry && typeof entry === "object").slice(0, 50)
     : [];
   if (!account || !history.length) {
     root.innerHTML = `<section class="panel noise pad16 profile-empty-panel"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2></div><p class="t-body ink-2">${account ? "NO COMPLETED ROUNDS YET. YOUR FIRST FINISH WILL APPEAR HERE." : "SIGN IN TO KEEP A SERVER-SYNCED ROUND HISTORY."}</p><p class="t-micro ink-3">Only completed server rounds appear here. Guest play remains available without an account.</p></section>`;
     hydrateSprites(root);
     return;
   }
-  root.innerHTML = `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${history.map((entry, index) => { const won = String(entry.result || "").toUpperCase() === "WIN" || entry.won === true; return `<div class="profile-history-row${won ? " is-win" : ""}"><span class="profile-history-index t-micro ink-3">${String(history.length - index).padStart(2, "0")}</span><div class="profile-history-main"><span class="t-label f12 ${won ? "green" : "g100"}">${won ? "WIN" : "ROUND COMPLETE"}</span><span class="t-micro ink-3">${formatStatDate(entry.playedAt)}</span></div><div class="profile-history-meta"><span class="t-micro ink-3">CASH</span><span class="t-label f11 g100">$${Math.max(0, Number(entry.endingCash) || 0).toLocaleString()}</span><span class="t-micro ink-3">DEEDS ${Math.max(0, Number(entry.properties) || 0)}</span></div></div>`; }).join("")}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Private-room results are visible only to participating accounts.</p></section>`;
+  root.innerHTML = `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, account.id)).join("")}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.</p></section>`;
   hydrateSprites(root);
 }
 
@@ -1391,6 +1523,7 @@ function renderAchievements() {
   if (!root) return;
   const unlocked = state.unlockedAchievements || new Set();
   const total = ACHIEVEMENTS.length;
+  root.setAttribute("aria-label", "Achievement collection, " + total + " items");
   const unlockedCount = ACHIEVEMENTS.filter((achievement) => unlocked.has(achievement.id)).length;
   $("#profile-achievement-count")?.replaceChildren(document.createTextNode(`${unlockedCount}/${total}`));
   $("#achievements-progress-value")?.replaceChildren(document.createTextNode(`${unlockedCount}/${total}`));
@@ -1474,6 +1607,9 @@ function setAchievementRarityFilter(filter = "all") {
 
 function unlockAchievement(id) {
   if (!ACHIEVEMENTS.some((achievement) => achievement.id === id)) return false;
+  // Signed-in accounts accept unlocks only from the server evaluator. Guest
+  // sessions may keep their temporary local collection.
+  if (state.account?.account) return false;
   if (state.unlockedAchievements.has(id)) return false;
   state.unlockedAchievements.add(id);
   state.achievementRecords.set(id, new Date().toISOString());
@@ -1563,7 +1699,16 @@ function updateAccountFromResponse(response) {
   if (!token) return;
   saveAccountSession({ sessionToken: token, account: response.account });
   state.alias = response.account.displayName;
+  state.unlockedAchievements = new Set();
+  state.achievementRecords = new Map();
+  (response.account.achievements || []).forEach((entry) => {
+    if (!ACHIEVEMENTS.some((achievement) => achievement.id === entry.id)) return;
+    state.unlockedAchievements.add(entry.id);
+    state.achievementRecords.set(entry.id, entry.unlockedAt || null);
+  });
+  saveUnlockedAchievements();
   renderAccountPanel();
+  renderAchievements();
   applyProfileToHomeUI();
 }
 
@@ -1592,7 +1737,8 @@ function accountModalHTML(mode) {
       ${edit ? "" : `<div class="account-modal-tabs" role="tablist" aria-label="Account actions"><button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" role="tab" aria-selected="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" role="tab" aria-selected="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`}
       <form class="account-form" id="account-form">
         ${edit ? `<label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" value="${esc(account?.username || "")}" readonly aria-readonly="true" /></label>` : `<label class="account-field" id="account-username-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" name="username" maxlength="16" minlength="3" pattern="[A-Za-z0-9_]{3,16}" autocomplete="username"${register ? ` aria-describedby="account-username-status"` : ""} required placeholder="night_player" />${register ? `<span class="account-username-status t-micro ink-3" id="account-username-status" role="status" aria-live="polite">3–16 letters, numbers, or underscores</span>` : ""}</label>`}
-        ${(register || edit) ? `<label class="account-field"><span class="t-label f12 g-muted">Display Name</span><input class="field" id="account-display-input" name="displayName" maxlength="18" autocomplete="nickname" required placeholder="Marlowe" value="${edit ? esc(account?.displayName || "") : ""}" /></label>` : ""}
+       ${(register || edit) ? `<label class="account-field"><span class="t-label f12 g-muted">Display Name</span><input class="field" id="account-display-input" name="displayName" maxlength="18" autocomplete="nickname" required placeholder="Marlowe" value="${edit ? esc(account?.displayName || "") : ""}" /></label>` : ""}
+        ${edit ? `<div class="account-privacy-grid"><label class="account-field"><span class="t-label f12 g-muted">Match History</span><select class="setting-select" name="historyVisibility"><option value="public" ${account?.privacy?.history === "public" ? "selected" : ""}>PUBLIC</option><option value="friends" ${account?.privacy?.history !== "public" && account?.privacy?.history !== "private" ? "selected" : ""}>FRIENDS</option><option value="private" ${account?.privacy?.history === "private" ? "selected" : ""}>PRIVATE</option></select></label><label class="account-field"><span class="t-label f12 g-muted">Achievements</span><select class="setting-select" name="achievementsVisibility"><option value="friends" ${account?.privacy?.achievements !== "private" ? "selected" : ""}>FRIENDS</option><option value="private" ${account?.privacy?.achievements === "private" ? "selected" : ""}>PRIVATE</option></select></label><label class="account-field"><span class="t-label f12 g-muted">Friend Requests</span><select class="setting-select" name="friendRequestsVisibility"><option value="everyone" ${account?.privacy?.friendRequests !== "friends" && account?.privacy?.friendRequests !== "nobody" ? "selected" : ""}>EVERYONE</option><option value="friends" ${account?.privacy?.friendRequests === "friends" ? "selected" : ""}>FRIENDS OF FRIENDS</option><option value="nobody" ${account?.privacy?.friendRequests === "nobody" ? "selected" : ""}>NOBODY</option></select></label><label class="account-field"><span class="t-label f12 g-muted">Room Invites</span><select class="setting-select" name="roomInvitesVisibility"><option value="friends" ${account?.privacy?.roomInvites !== "nobody" ? "selected" : ""}>FRIENDS</option><option value="nobody" ${account?.privacy?.roomInvites === "nobody" ? "selected" : ""}>NOBODY</option></select></label></div>` : ""}
         ${edit ? "" : `<label class="account-field"><span class="t-label f12 g-muted">Password</span><input class="field" id="account-password-input" name="password" type="password" minlength="8" maxlength="72" autocomplete="${register ? "new-password" : "current-password"}" required placeholder="8 characters minimum" /></label>`}
         <p class="account-form-error" id="account-form-error" role="alert" aria-live="assertive"></p>
         <button class="cta-red account-submit" type="submit"><span class="cta-text cta-text-sm">${edit ? "Save Account" : register ? "Create Account" : "Sign In"}</span></button>
@@ -1677,6 +1823,13 @@ function openAccountModal(mode = "register") {
     event.preventDefault();
     const form = event.currentTarget;
     const payload = Object.fromEntries(new FormData(form).entries());
+    if (accountModalMode === "edit") {
+      payload.privacy = { history: payload.historyVisibility, achievements: payload.achievementsVisibility, friendRequests: payload.friendRequestsVisibility, roomInvites: payload.roomInvitesVisibility };
+      delete payload.historyVisibility;
+      delete payload.achievementsVisibility;
+      delete payload.friendRequestsVisibility;
+      delete payload.roomInvitesVisibility;
+    }
     const error = $("#account-form-error");
     if (error) error.textContent = "";
     if (accountModalMode === "register" && usernameAvailability === false) {
@@ -1718,6 +1871,9 @@ function logoutAccount() {
   const token = state.account?.sessionToken;
   if (token) emitServer("account-logout", { sessionToken: token }, () => {});
   saveAccountSession(null);
+  state.unlockedAchievements = new Set();
+  state.achievementRecords = new Map();
+  saveUnlockedAchievements();
   state.tableAppearanceOverride = null;
   state.appearance = loadActiveDesignId(state.profiles);
   saveActiveDesignId(state.appearance);
@@ -1926,9 +2082,11 @@ let nightShiftWaveTimer = null;
 let nightShiftTickTimer = null;
 let nightShiftResultTimer = null;
 let nightShiftSpawnTimers = [];
+let nightShiftWaveHeld = false;
 const nightShiftTargetTimers = new Map();
 let nightShiftPausedAt = 0;
-const nightShiftState = { active: false, wave: 0, score: 0, best: 0, endsAt: 0, targetSeq: 0, hearts: NIGHT_SHIFT_START_HEARTS };
+const nightShiftState = { active: false, wave: 0, score: 0, best: 0, endsAt: 0, targetSeq: 0, hearts: NIGHT_SHIFT_START_HEARTS, misses: 0, serverRunToken: null, serverRunSubmitted: false };
+let nightShiftSuppressSnapshot = false;
 try { nightShiftState.best = Number(localStorage.getItem(NIGHT_SHIFT_BEST_KEY)) || 0; } catch { /* storage unavailable */ }
 
 function formatNightCountdown(ms) {
@@ -1953,7 +2111,7 @@ function renderNightShiftHud(message = "TAG THE FLY-BYS BEFORE THEY REACH THE BO
   const hearts = $("#night-hearts");
   if (hearts) {
     const heartsLabel = `${nightShiftState.hearts} heart${nightShiftState.hearts === 1 ? "" : "s"} remaining`;
-    if (hearts.getAttribute("aria-label") !== heartsLabel) {
+    if (hearts.getAttribute("aria-label") !== heartsLabel || (nightShiftState.active && hearts.innerHTML === "")) {
       hearts.innerHTML = Array.from({ length: NIGHT_SHIFT_START_HEARTS }, (_, i) => `<img class="night-heart${i >= nightShiftState.hearts ? " is-empty" : ""}" src="/assets/parlor-patrol/heart.svg" alt="">`).join("");
       hearts.setAttribute("aria-label", heartsLabel);
     }
@@ -1967,8 +2125,9 @@ function clearNightShiftTimers() {
   nightShiftWaveTimer = null;
   nightShiftTickTimer = null;
   nightShiftResultTimer = null;
-  nightShiftSpawnTimers.forEach((timer) => clearTimeout(timer));
+  nightShiftSpawnTimers.forEach((entry) => clearTimeout(entry.timer));
   nightShiftSpawnTimers = [];
+  nightShiftWaveHeld = false;
   nightShiftTargetTimers.forEach(({ reveal, disable, miss }) => {
     clearTimeout(reveal);
     clearTimeout(disable);
@@ -1998,12 +2157,47 @@ function announceSocialNotification(notification) {
   const text = notification?.body || notification?.title || "New social notification.";
   const announcer = $("#system-announcer");
   if (announcer) announcer.textContent = text;
+  const stack = $("#toast-stack");
+  if (!stack) return;
+  const toast = document.createElement("div");
+  toast.className = `parlor-toast${notification?.kind === "mythical-achievement" ? " is-mythical" : ""}`;
+  const title = document.createElement("strong");
+  title.className = "t-label f11 parlor-toast-title";
+  title.textContent = String(notification?.title || "PARLOR NOTICE");
+  const body = document.createElement("span");
+  body.className = "parlor-toast-body";
+  body.textContent = String(text);
+  toast.append(title, body);
+  stack.append(toast);
+  while (stack.children.length > 4) stack.firstElementChild?.remove();
+  window.setTimeout(() => toast.remove(), notification?.kind === "mythical-achievement" ? 6500 : 4200);
+}
+
+/** Visible toast for room/connection failures — say() only writes into the
+    in-game chat transcript, which is invisible from the home screen. */
+function parlorNotice(title, text) {
+  announceSocialNotification({ title: String(title || "PARLOR NOTICE"), body: String(text || "Something went wrong.") });
 }
 
 function socialPlayerRowHTML(player, actionLabel = "VIEW") {
   if (!player) return "";
   const id = player.id || player.accountId;
-  return `<div class="social-player-row"><div class="social-player-avatar">${avatarHTML(player, 3, 0)}</div><div class="social-player-main"><strong class="t-label f12 g100">${esc(player.displayName || player.name || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(player.username || "guest")}</span></div><button class="btn-dark social-player-open" type="button" data-social-player="${esc(id)}"><span class="t-label f11">${actionLabel}</span></button></div>`;
+  const mutual = Number(player.mutualFriends) || 0;
+  return `<div class="social-player-row"><div class="social-player-avatar">${avatarHTML(player, 3, 0)}</div><div class="social-player-main"><strong class="t-label f12 g100">${esc(player.displayName || player.name || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(player.username || "guest")}${mutual ? ` · ${mutual} MUTUAL` : ""}</span></div><button class="btn-dark social-player-open" type="button" data-social-player="${esc(id)}"><span class="t-label f11">${actionLabel}</span></button></div>`;
+}
+
+function refreshEconomySnapshot() {
+  if (!state.live) return;
+  emitServer("get-economy-snapshot", {}, (response) => {
+    if (!response?.success || !response.economy) return;
+    state.economy = {
+      ...state.economy,
+      ...response.economy,
+      casino: { ...state.economy.casino, ...(response.economy.casino || {}) },
+      market: { ...state.economy.market, ...(response.economy.market || {}) }
+    };
+    renderRightRail();
+  });
 }
 
 function socialRoomRosterHTML() {
@@ -2014,7 +2208,7 @@ function socialRoomRosterHTML() {
 }
 
 function openSocialSurface(tab = "friends") {
-  state.socialTab = ["friends", "requests", "invites", "notifications"].includes(tab) ? tab : "friends";
+  state.socialTab = ["friends", "requests", "invites", "recent", "notifications"].includes(tab) ? tab : "friends";
   showView("social");
   renderSocialSurface("#social-page-content");
   if (state.live) emitServer("get-social-data", {}, (response) => {
@@ -2032,7 +2226,7 @@ function renderSocialSurface(target = "#social-card") {
   const signedIn = Boolean(state.account?.account);
   const pageSurface = card.id === "social-page-content";
   const surfaceKey = pageSurface ? "page" : "modal";
-  const tabs = [["friends", "FRIENDS"], ["requests", "REQUESTS"], ["invites", "INVITES"], ["notifications", "INBOX"]];
+  const tabs = [["friends", "FRIENDS"], ["requests", "REQUESTS"], ["invites", "INVITES"], ["recent", "RECENT"], ["notifications", "INBOX"]];
   const count = (social.requests?.length || 0) + (social.invites?.length || 0);
   const pending = (social.requests?.length || 0) + (social.outgoing?.length || 0);
   let body = "";
@@ -2042,10 +2236,15 @@ function renderSocialSurface(target = "#social-card") {
     body = social.friends?.length ? social.friends.map((player) => socialPlayerRowHTML(player)).join("") : `<p class="t-body ink-3 social-empty">NO FRIENDS YET. Search by username or open someone from the table.</p>`;
   } else if (state.socialTab === "requests") {
     const incoming = social.requests?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.from, "VIEW")}<div class="social-request-actions"><button class="cta-red" type="button" data-social-request="accept" data-friendship-id="${esc(request.id)}"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-social-request="decline" data-friendship-id="${esc(request.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") || "";
-    const outgoing = social.outgoing?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.to, "VIEW")}<span class="t-micro ink-3">REQUEST SENT</span></div>`).join("") || "";
+    const outgoing = social.outgoing?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.to, "VIEW")}<div class="social-request-actions"><span class="t-micro ink-3">REQUEST SENT</span><button class="btn-dark" type="button" data-social-request-cancel data-friendship-id="${esc(request.id)}"><span class="t-label f11">CANCEL</span></button></div></div>`).join("") || "";
     body = incoming || outgoing ? `${incoming}${outgoing}` : `<p class="t-body ink-3 social-empty">NO PENDING REQUESTS.</p>`;
   } else if (state.socialTab === "invites") {
     body = social.invites?.length ? social.invites.map((invite) => `<div class="social-invite-row"><div><strong class="t-label f12 g100">${esc(invite.roomName || "AFTER HOURS")}</strong><span class="t-micro ink-3">${String(invite.visibility || "public").toUpperCase()} ROOM · EXPIRES ${esc(String(invite.expiresAt || "").slice(0, 16))}</span></div><div class="social-request-actions"><button class="cta-red" type="button" data-social-invite="accept" data-invite-id="${esc(invite.id)}"><span class="cta-text cta-text-sm">JOIN</span></button><button class="btn-dark" type="button" data-social-invite="decline" data-invite-id="${esc(invite.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") : `<p class="t-body ink-3 social-empty">NO ROOM INVITES.</p>`;
+  } else if (state.socialTab === "recent") {
+    body = social.recentPlayers?.length
+      ? social.recentPlayers.map((player) => socialPlayerRowHTML(player, "REVISIT")).join("")
+      : `<p class="t-body ink-3 social-empty">NO RECENT PLAYERS YET. COMPLETE A MATCH TO BUILD YOUR TABLE HISTORY.</p>`;
+    body = `<div class="recent-players-wrap"><div class="recent-players-actions"><span class="t-micro ink-3">LAST 30 DAYS · 20 PLAYERS MAX</span><button class="btn-dark" type="button" data-social-clear-recent><span class="t-label f11">CLEAR RECENT</span></button></div>${body}</div>`;
   } else {
     body = social.notifications?.length ? social.notifications.map((notification) => `<div class="social-notification-row${notification.readAt ? "" : " is-unread"}"><div><strong class="t-label f12 g100">${esc(notification.title)}</strong><span class="t-body ink-2">${esc(notification.body)}</span><span class="t-micro ink-3">${esc(String(notification.createdAt || "").slice(0, 16))}</span></div>${notification.readAt ? "" : `<button class="btn-dark" type="button" data-notification-read="${esc(notification.id)}"><span class="t-label f11">READ</span></button>`}</div>`).join("") : `<p class="t-body ink-3 social-empty">NO NOTIFICATIONS.</p>`;
   }
@@ -2053,20 +2252,42 @@ function renderSocialSurface(target = "#social-card") {
   const searchResults = state.socialSearchResults?.length
     ? state.socialSearchResults.map((player) => socialPlayerRowHTML(player, "VIEW")).join("")
     : "";
-  card.innerHTML = `<div class="social-page-shell ${pageSurface ? "is-page" : "is-modal"}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${social.friends?.length || 0}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${social.notifications?.filter((item) => !item.readAt).length || 0}</strong></div></div>${pageSurface ? "" : `<button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button>`}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${esc(state.socialSearchQuery || "")}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${signedIn ? "ACCOUNT SYNC" : "GUEST VIEW"}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${id === "friends" ? social.friends?.length || 0 : id === "requests" ? count : id === "invites" ? social.invites?.length || 0 : social.notifications?.filter((item) => !item.readAt).length || 0}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${signedIn ? "SERVER-SYNCED" : "READ-ONLY SEARCH"}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${state.phase === "home" ? "NO ROOM" : "IN ROOM"}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${state.phase === "home" ? "—" : esc(state.roomCode || "PUBLIC")}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${state.phase === "home" ? "—" : state.players.length}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
+  card.innerHTML = `<div class="social-page-shell ${pageSurface ? "is-page" : "is-modal"}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${social.friends?.length || 0}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${social.notifications?.filter((item) => !item.readAt).length || 0}</strong></div></div>${pageSurface ? "" : `<button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button>`}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${esc(state.socialSearchQuery || "")}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${signedIn ? "ACCOUNT SYNC" : "GUEST VIEW"}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${id === "friends" ? social.friends?.length || 0 : id === "requests" ? count : id === "invites" ? social.invites?.length || 0 : id === "recent" ? social.recentPlayers?.length || 0 : social.notifications?.filter((item) => !item.readAt).length || 0}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${signedIn ? "SERVER-SYNCED" : "READ-ONLY SEARCH"}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${state.phase === "home" ? "NO ROOM" : "IN ROOM"}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${state.phase === "home" ? "—" : esc(state.roomCode || "PUBLIC")}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${state.phase === "home" ? "—" : state.players.length}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
 }
 
-function openRankingsSurface(metric = "wins") {
-  state.leaderboard.metric = ["wins", "games", "rate", "achievements", "bankruptcies"].includes(metric) ? metric : "wins";
+function openInGameSocialSurface(kind) {
+  if (!["setup", "lobby", "playing"].includes(state.phase)) return false;
+  if (kind === "rankings") {
+    renderRankingsSurface("#rankings-card");
+    openSurface("#rankings-modal", "#rankings-close");
+  } else if (kind === "social") {
+    renderSocialSurface("#social-card");
+    openSurface("#social-modal", "#social-close");
+    if (state.live) emitServer("get-social-data", {}, (response) => {
+      if (response?.success && response.social) {
+        state.social = response.social;
+        renderSocialSurface("#social-card");
+      }
+    });
+  } else {
+    return false;
+  }
+  return true;
+}
+
+function openRankingsSurface(metric = "wins", scope = state.leaderboard.scope || "all") {
+  state.leaderboard.metric = ["wins", "games", "rate", "achievements", "mythical", "bankruptcies", "events", "auctions", "rent", "casino", "market", "playerloans", "equity", "loans", "patrol"].includes(metric) ? metric : "wins";
+  state.leaderboard.scope = ["all", "month", "friends"].includes(scope) ? scope : "all";
   showView("rankings");
   renderRankingsSurface("#rankings-page-content");
   if (state.live) {
     state.leaderboard.loading = true;
-    emitServer("get-leaderboard-snapshot", {}, (snapshot) => {
+    emitServer("get-leaderboard-snapshot", { scope: state.leaderboard.scope }, (snapshot) => {
       state.leaderboard.loading = false;
       if (snapshot?.success) {
         state.leaderboard.snapshots = snapshot.metrics || {};
         state.leaderboard.generatedAt = snapshot.generatedAt || null;
+        state.leaderboard.scope = snapshot.scope || state.leaderboard.scope;
         state.leaderboard.rows = state.leaderboard.snapshots[state.leaderboard.metric] || state.leaderboard.rows;
       }
       renderRankingsSurface("#rankings-page-content");
@@ -2074,10 +2295,12 @@ function openRankingsSurface(metric = "wins") {
   }
 }
 
-const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENTS", bankruptcies: "BANKRUPTCIES" };
+const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
 
 function rankingValueLabel(metric, value) {
-  return metric === "rate" ? `${Number(value) || 0}%` : String(Number(value) || 0);
+  if (metric === "rate") return `${Number(value) || 0}%`;
+  if (["rent", "casino", "market"].includes(metric)) return `$${(Number(value) || 0).toLocaleString()}`;
+  return String(Number(value) || 0);
 }
 
 function rankingMetricColumnHTML(metric, rows) {
@@ -2097,10 +2320,17 @@ function renderRankingsSurface(target = "#rankings-card") {
   const selfIndex = selfId ? currentRows.findIndex((row) => row.accountId === selfId) : -1;
   const selfRow = selfIndex >= 0 ? currentRows[selfIndex] : null;
   const selfRank = selfRow ? `#${selfIndex + 1}` : "—";
-  const metrics = Object.entries(RANKING_LABELS).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}" aria-pressed="${state.leaderboard.metric === id}"><span class="t-label f11">${label}</span></button>`).join("");
+  const metrics = Object.entries(RANKING_LABELS).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}" aria-pressed="${state.leaderboard.metric === id}"><span class="t-label f11">${label}</span></button>`).join("");  const scopes = [["all", "ALL TIME"], ["month", "30 DAYS"], ["friends", "FRIENDS"]].map(([id, label]) => `<button class="ranking-scope${state.leaderboard.scope === id ? " is-active" : ""}" type="button" data-ranking-scope="${id}" aria-pressed="${state.leaderboard.scope === id}"><span class="t-label f11">${label}</span></button>`).join("");
   const rows = state.leaderboard.loading ? `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>` : currentRows.length ? currentRows.map((row, index) => `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)} · ${row.games} GAMES · ${row.wins} WINS</span></span><strong class="ranking-value t-label f16 ${state.leaderboard.metric === "rate" ? "g300" : "green"}">${rankingValueLabel(state.leaderboard.metric, row.value)}</strong></button>`).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
   const syncLabel = state.leaderboard.generatedAt ? `SYNCED ${new Date(state.leaderboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "WAITING FOR SERVER";
-  card.innerHTML = `<div class="rankings-page-shell ${pageSurface ? "is-page" : "is-modal"}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">A wide standings ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfRow ? "green" : "g-muted"}">${selfRank}</strong><span class="t-micro ink-3">${selfRow ? `${rankingValueLabel(state.leaderboard.metric, selfRow.value)} · ${RANKING_LABELS[state.leaderboard.metric]}` : "SIGN IN TO TRACK"}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${pageSurface ? "" : `<button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button>`}</section><section class="rankings-metric-deck" aria-label="Top players across every ranking">${Object.keys(RANKING_LABELS).map((metric) => rankingMetricColumnHTML(metric, snapshots[metric] || (metric === state.leaderboard.metric ? currentRows : []))).join("")}</section><div class="rankings-main-grid"><section class="rankings-ledger panel noise" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-ledger-head"><div><span class="t-micro g400">FULL PLAYER LEDGER</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3></div><span class="t-micro ink-3">SORTED DESCENDING</span></div><div class="ranking-metrics" role="tablist" aria-label="Primary ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate uses wins divided by completed games, rounded to the nearest whole percent.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">PLANNED ADD-ON</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">FUTURE LEDGER</span><span class="t-body ink-2">Casino net results, Market profit, and crisis survival will appear here only after those systems become live.</span></div></aside></div></div>`;
+  card.innerHTML = `<div class="rankings-page-shell ${pageSurface ? "is-page" : "is-modal"}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">A wide standings ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfRow ? "green" : "g-muted"}">${selfRank}</strong><span class="t-micro ink-3">${selfRow ? `${rankingValueLabel(state.leaderboard.metric, selfRow.value)} · ${RANKING_LABELS[state.leaderboard.metric]}` : "SIGN IN TO TRACK"}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${pageSurface ? "" : `<button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button>`}</section><section class="rankings-metric-deck" aria-label="Top players across every ranking">${Object.keys(RANKING_LABELS).map((metric) => rankingMetricColumnHTML(metric, snapshots[metric] || (metric === state.leaderboard.metric ? currentRows : []))).join("")}</section><div class="rankings-main-grid"><section class="rankings-ledger panel noise" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-ledger-head"><div><span class="t-micro g400">FULL PLAYER LEDGER</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3></div><span class="t-micro ink-3">SORTED DESCENDING · ${state.leaderboard.scope === "all" ? "ALL TIME" : state.leaderboard.scope === "month" ? "30 DAYS" : "FRIENDS"}</span></div><div class="ranking-scopes" role="tablist" aria-label="Ranking scope">${scopes}</div><div class="ranking-metrics" role="tablist" aria-label="Primary ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate needs five completed games; achievement score uses rarity-weighted points. Rankings use verified server records only.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">OPTIONAL ADD-ONS</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">DATA WINDOW</span><span class="t-body ink-2">${state.leaderboard.scope === "month" ? "Last 30 days of completed matches." : state.leaderboard.scope === "friends" ? "You and accepted friends only." : "All verified completed matches."}</span></div></aside></div></div>`;
+  const rankingResults = Array.isArray(state.rankingSearchResults) && state.rankingSearchResults.length
+    ? state.rankingSearchResults.map((player) => `<button class="ranking-search-result" type="button" data-ranking-player="${esc(player.id)}"><span class="t-label f12 g100">${esc(player.displayName)}</span><span class="t-micro ink-3">@${esc(player.username)}</span><span class="t-label f11 g300">VIEW</span></button>`).join("")
+    : state.rankingSearchQuery ? `<span class="t-micro ink-3">NO EXACT USERNAME MATCH.</span>` : "";
+  const rankingSearch = document.createElement("section");
+  rankingSearch.className = "rankings-search-band panel noise";
+  rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="rankings-${surfaceKey}-search" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}"><span class="t-micro ink-3">Exact username lookup · public identity only</span></label><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="rankings-search-results">${rankingResults}</div></form>`;
+  card.querySelector(".rankings-hero")?.insertAdjacentElement("afterend", rankingSearch);
 }
 
 const RULES_SECTIONS = [
@@ -2217,9 +2447,9 @@ const RULES_SECTIONS = [
     label: "CASINO & MARKET",
     kicker: "13 · ECONOMY ADD-ONS",
     title: "Optional systems, clearly marked",
-    status: "PLANNED",
-    summary: "The Casino and fictional Market are designed as optional room add-ons. Their contracts are documented now and will be marked LIVE only after server settlement ships.",
-    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. It uses fictional board money only. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. Players buy and sell without margin, shorting, options, or real-world securities. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems are OFF by default in classic rooms.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">PLANNED · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
+    status: "LIVE",
+    summary: "The Casino and fictional Market are optional, server-settled room add-ons. They use board money only and remain off in classic rooms.",
+    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. It uses fictional board money only. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. Players buy and sell without margin, shorting, options, or real-world securities. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems are OFF by default in classic rooms.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">OPTIONAL · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
   },
   {
     id: "bots",
@@ -2237,7 +2467,7 @@ const RULES_SECTIONS = [
     title: "Stay in the table while you connect",
     status: "LIVE",
     summary: "Social and profile surfaces are independent top-level pages, while in-game player cards keep friend actions inside the game shell.",
-    content: `<h3 class="t-section g300">Profiles</h3><p class="t-body ink-2">A profile contains public identity, selected design, statistics, match history, and achievements. Passwords and private account data never appear on another player's public card.</p><h3 class="t-section g300">Friends</h3><ul class="rules-bullets"><li>Search uses the unique username, not the display name.</li><li>Friend requests, blocks, reports, and room invites are server records.</li><li>Clicking an in-game player opens a read-only card with social actions. The player stays in the lobby or round.</li><li>Match history is private to its owner and accepted friends.</li></ul><h3 class="t-section g300">Rankings</h3><p class="t-body ink-2">Rankings are global, read-only projections of completed server games, wins, win rate, achievements, and bankruptcies.</p>`,
+    content: `<h3 class="t-section g300">Profiles</h3><p class="t-body ink-2">A profile contains public identity, selected design, statistics, match history, and achievements. Passwords and private account data never appear on another player's public card.</p><h3 class="t-section g300">Friends</h3><ul class="rules-bullets"><li>Search uses the unique username, not the display name.</li><li>Friend requests, blocks, reports, and room invites are server records.</li><li>Clicking an in-game player opens a read-only card with social actions. The player stays in the lobby or round.</li><li>Match history is private to its owner and accepted friends by default; the owner can opt into a public summary.</li></ul><h3 class="t-section g300">Rankings</h3><p class="t-body ink-2">Rankings are global, read-only projections of completed server games, wins, five-game-qualified win rate, rarity-weighted achievement score, loan discipline, and bankruptcies.</p>`,
   },
   {
     id: "achievements",
@@ -2246,7 +2476,7 @@ const RULES_SECTIONS = [
     title: "Badges remember the strange plays",
     status: "LIVE",
     summary: "Achievements are grouped by tablecraft, global events, social play, secrets, and Patrol. Mythical achievements are rare and announced globally.",
-    content: `<ul class="rules-bullets"><li>Click an achievement to open its readable detail dialog.</li><li>Filter by category, when earned, and rarity without leaving the Profile page.</li><li>Rarity uses text and color: Common, Uncommon, Rare, Epic, Legendary, and Mythical.</li><li>Mythical unlocks create a room-wide announcement to every player in the current room, not a global broadcast across unrelated rooms.</li><li>Achievement progress is never a hidden cash requirement and does not change the rules of a live match.</li></ul>`,
+    content: `<ul class="rules-bullets"><li>Click an achievement to open its readable detail dialog.</li><li>Filter by category, when earned, and rarity without leaving the Profile page.</li><li>Rarity uses text and color: Common, Uncommon, Rare, Epic, Legendary, and Mythical.</li><li>Mythical unlocks create one generic server-wide announcement for every currently connected player. The title stays private until the owner reveals it.</li><li>Achievement progress is never a hidden cash requirement and does not change the rules of a live match.</li></ul>`,
   },
   {
     id: "lobby-settings",
@@ -2255,7 +2485,7 @@ const RULES_SECTIONS = [
     title: "Every switch has a consequence",
     status: "LIVE",
     summary: "Hosts configure the table before the first round. The active rules snapshot stays visible in the lobby so nobody has to guess what changed.",
-    content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats at the table.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme premium tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">Off, Rare, or Hardcore event prototype today. The planned contract collapses this to ON/OFF with derived scaling.</span></div><div><strong class="t-label f12 g100">House / Hotel Limit</strong><span class="t-body ink-2">Shared bank supply for construction.</span></div><div><strong class="t-label f12 g100">Turn Timer</strong><span class="t-body ink-2">Off, 30 seconds, 60 seconds, or 2 minutes.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Eliminate a busted player or resolve a debt deal.</span></div></div>`,
+    content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats at the table.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme premium tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">House / Hotel Limit</strong><span class="t-body ink-2">Shared bank supply for construction.</span></div><div><strong class="t-label f12 g100">Turn Timer</strong><span class="t-body ink-2">Off, 30 seconds, 60 seconds, or 2 minutes.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Eliminate a busted player or resolve a debt deal.</span></div></div>`,
   },
   {
     id: "reconnect-accessibility",
@@ -2324,6 +2554,7 @@ function openPlayerSurface(playerId) {
   state.selectedPlayerRelationship = "none";
   state.selectedPlayerView = "profile";
   state.selectedPlayerHistory = null;
+  state.selectedPlayerHistoryScope = "all";
   renderPlayerSurface();
   openSurface("#player-modal", "#player-modal-close");
   if (state.selectedPlayer.accountId && state.live) emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, (response) => {
@@ -2335,6 +2566,31 @@ function openPlayerSurface(playerId) {
   });
 }
 
+function playerHistoryHTML(history, player) {
+  const scope = state.selectedPlayerHistoryScope || "all";
+  const filtered = history.filter(entry => {
+    if (scope === "global") return Array.isArray(entry.globalEvents) && entry.globalEvents.length > 0;
+    if (scope === "with-me") {
+      if (Array.isArray(entry.participants)) return entry.participants.some(item => item.sharedWithViewer === true || item.accountId === (state.account?.account?.id || "__owner__"));
+      return false;
+    }
+    return true;
+  });
+  if (!filtered.length) return '<p class="t-body ink-3 social-empty">NO MATCHES IN THIS HISTORY VIEW.</p>';
+  return filtered.map((entry, index) => {
+    const participant = Array.isArray(entry.participants)
+      ? entry.participants.find(item => item.isViewedPlayer === true || item.accountId === (player.accountId || player.id))
+      : null;
+    const won = participant ? participant.finalPlacement === 1 : entry.won === true || entry.result === 'WIN';
+    const date = String(entry.completedAt || entry.playedAt || '').slice(0, 10) || 'UNKNOWN DATE';
+    const participants = Array.isArray(entry.participants) ? entry.participants.length : '—';
+    const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 0;
+    const combos = Array.isArray(entry.eventCombinations) ? entry.eventCombinations.length : 0;
+    const deeds = participant?.propertyCount ?? entry.properties ?? 0;
+    return '<article class="player-history-row' + (won ? ' is-win' : '') + '"><div class="player-history-main"><span class="t-micro ink-3">' + date + ' · MATCH ' + String(history.length - index).padStart(2, '0') + '</span><strong class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + (won ? 'WIN' : 'ROUND COMPLETE') + '</strong></div><div class="player-history-meta"><span class="t-micro ink-3">' + participants + ' PLAYERS</span><span class="t-micro ink-3">' + deeds + ' DEEDS</span><span class="t-micro ' + (events ? 'g300' : 'ink-3') + '">' + events + ' EVENTS</span><span class="t-micro ' + (combos ? 'g300' : 'ink-3') + '">' + combos + ' COMBOS</span></div></article>';
+  }).join('');
+}
+
 function renderPlayerSurface() {
   const card = $("#player-card");
   const player = state.selectedPlayer;
@@ -2342,7 +2598,8 @@ function renderPlayerSurface() {
   const accountId = player.accountId || player.id;
   if (state.selectedPlayerView === "history") {
     const history = state.selectedPlayerHistory || [];
-    card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${esc(player.displayName || player.name)}</h2><p class="t-body ink-2" id="player-modal-description">Recent completed matches visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-list thin-scroll">${history.length ? history.map((entry) => `<div class="player-history-row"><span class="t-micro ink-3">${esc(String(entry.playedAt || "").slice(0, 10))}</span><strong class="t-label f12 ${entry.won ? "green" : "g100"}">${entry.won ? "WIN" : "ROUND"}</strong><span class="t-micro ink-3">${entry.properties || 0} DEEDS</span></div>`).join("") : `<p class="t-body ink-3 social-empty">NO SHARED MATCH HISTORY AVAILABLE.</p>`}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
+    const scopes = [["all", "ALL"], ["with-me", "WITH ME"], ["global", "GLOBAL EVENTS"]].map(([id, label]) => `<button class="player-history-scope${state.selectedPlayerHistoryScope === id ? " is-active" : ""}" type="button" data-player-history-scope="${id}" aria-pressed="${state.selectedPlayerHistoryScope === id}"><span class="t-label f11">${label}</span></button>`).join("");
+    card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${esc(player.displayName || player.name)}</h2><p class="t-body ink-2" id="player-modal-description">Recent completed matches visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
     return;
   }
   const friendStatus = state.selectedPlayerRelationship !== "none"
@@ -2351,7 +2608,15 @@ function renderPlayerSurface() {
   const isSelf = player.id === "p1";
   const canSocial = Boolean(player.accountId && !isSelf);
   const friendLabel = friendStatus === "accepted" ? "FRIENDS" : friendStatus === "requested" ? "REQUEST SENT" : "SEND FRIEND REQUEST";
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${esc(player.displayName || player.name)}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${esc(player.displayName || player.name)}</strong><span class="t-micro ink-3">${player.online === false ? "OFFLINE" : "IN THIS ROOM"}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${player.stats?.gamesPlayed ?? "—"}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${player.stats?.wins ?? "—"}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${player.achievements?.length ?? "—"}</strong></div></div><div class="player-profile-actions"><button class="cta-red" type="button" data-player-action="friend" ${canSocial && friendStatus !== "accepted" && friendStatus !== "requested" ? "" : "disabled"}><span class="cta-text cta-text-sm">${friendLabel}</span></button><button class="btn-dark" type="button" data-player-action="invite" ${canSocial ? "" : "disabled"}><span class="t-label f11">INVITE TO ROOM</span></button><button class="btn-dark" type="button" data-player-action="history" ${canSocial ? "" : "disabled"}><span class="t-label f11">MATCH HISTORY</span></button><button class="btn-dark" type="button" data-player-action="block" ${canSocial ? "" : "disabled"}><span class="t-label f11">BLOCK</span></button><button class="btn-dark" type="button" data-player-action="report" ${canSocial ? "" : "disabled"}><span class="t-label f11">REPORT</span></button></div>`;
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${esc(player.displayName || player.name)}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${esc(player.displayName || player.name)}</strong><span class="t-micro ink-3">${player.online === false ? "OFFLINE" : "IN THIS ROOM"}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${player.stats?.gamesPlayed ?? "—"}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${player.stats?.wins ?? "—"}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${player.achievementsPrivate ? "PRIVATE" : (player.achievements?.length ?? "—")}</strong></div><div><span class="t-micro ink-3">MUTUAL FRIENDS</span><strong class="t-label f13 g300">${player.mutualFriends ?? "—"}</strong></div></div><div class="player-profile-actions"><button class="cta-red" type="button" data-player-action="friend" ${canSocial && friendStatus !== "accepted" && friendStatus !== "requested" ? "" : "disabled"}><span class="cta-text cta-text-sm">${friendLabel}</span></button><button class="btn-dark" type="button" data-player-action="invite" ${canSocial ? "" : "disabled"}><span class="t-label f11">INVITE TO ROOM</span></button><button class="btn-dark" type="button" data-player-action="history" ${canSocial && !player.historyPrivate ? "" : "disabled"}><span class="t-label f11">MATCH HISTORY</span></button><button class="btn-dark" type="button" data-player-action="block" ${canSocial ? "" : "disabled"}><span class="t-label f11">BLOCK</span></button><button class="btn-dark" type="button" data-player-action="report" ${canSocial ? "" : "disabled"}><span class="t-label f11">REPORT</span></button></div>`;
+  if (Array.isArray(player.recentMatches)) {
+    const recent = player.recentMatches.slice(0, 3).map((match) => {
+      const participant = (match.participants || []).find((entry) => entry.displayNameAtMatch === player.displayName);
+      const placement = participant?.finalPlacement === 1 ? "WIN" : participant?.finalPlacement ? "PLACE " + participant.finalPlacement : "MATCH";
+      return '<div class="player-profile-match"><span class="t-micro ink-3">' + esc(String(match.completedAt || "").slice(0, 10)) + '</span><strong class="t-label f11 ' + (placement === "WIN" ? "green" : "g100") + '">' + placement + '</strong><span class="t-micro ink-3">' + (match.participants || []).length + ' PLAYERS · ' + (match.globalEvents || []).length + ' EVENTS</span></div>';
+    }).join("");
+    card.insertAdjacentHTML("beforeend", '<section class="player-profile-recent"><div class="t-micro g400">RECENT MATCHES</div>' + (recent || '<span class="t-micro ink-3">NO PUBLIC MATCHES YET.</span>') + '</section>');
+  }
 }
 
 function clearNightShiftTargetTimer(target) {
@@ -2400,16 +2665,18 @@ function scheduleNightShiftTarget(target, duration) {
     return;
   }
   const id = target.dataset.targetId;
-  const timers = { reveal: null, disable: null, miss: null };
+  const timers = { reveal: null, disable: null, miss: null, settle: null, backstop: duration + 80 };
   const settle = () => {
     if (document.hidden) {
-      timers.miss = setTimeout(settle, 500);
-      nightShiftTargetTimers.set(id, timers);
+      // Paused tab: drop this backstop and let the visibilitychange
+      // coordinator re-arm exactly one fresh window when play resumes.
+      timers.miss = null;
       return;
     }
     if (target.isConnected && !target.dataset.hit) missNightShiftTarget(target);
     nightShiftTargetTimers.delete(id);
   };
+  timers.settle = settle;
   target.style.pointerEvents = "none";
   timers.reveal = setTimeout(() => {
     if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "auto";
@@ -2418,7 +2685,7 @@ function scheduleNightShiftTarget(target, duration) {
     if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "none";
   }, Math.round(duration * 0.94));
   target.addEventListener("animationend", settle, { once: true });
-  timers.miss = setTimeout(settle, duration + 80);
+  timers.miss = setTimeout(settle, timers.backstop);
   nightShiftTargetTimers.set(id, timers);
 }
 
@@ -2456,11 +2723,7 @@ function spawnNightShiftEffect(x, y, kind = "impact") {
 
 function spawnNightShiftTarget() {
   if (!nightShiftState.active || state.phase !== "home") return;
-  if (document.hidden) {
-    const timer = setTimeout(spawnNightShiftTarget, 500);
-    nightShiftSpawnTimers.push(timer);
-    return;
-  }
+  if (document.hidden) return; // frozen queue: the resume coordinator re-arms
   const layer = $("#night-targets");
   if (!layer) return;
   // Alternate lanes so a short play session always exercises both edges.
@@ -2516,6 +2779,37 @@ function spawnNightShiftTarget() {
   scheduleNightShiftTarget(target, duration);
 }
 
+// Spawn timers live as { due, timer } queue entries: hiding the tab freezes
+// them in place and the visibilitychange coordinator re-arms each pending
+// entry exactly once, so the staggered wave cadence survives a background tab.
+function armNightShiftSpawn(entry) {
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    if (document.hidden) return;
+    const index = nightShiftSpawnTimers.indexOf(entry);
+    if (index !== -1) nightShiftSpawnTimers.splice(index, 1);
+    spawnNightShiftTarget();
+  }, Math.max(0, entry.due - Date.now()));
+}
+
+function queueNightShiftSpawn(delay) {
+  const entry = { due: Date.now() + delay, timer: null };
+  nightShiftSpawnTimers.push(entry);
+  armNightShiftSpawn(entry);
+}
+
+function advanceNightShiftWave() {
+  nightShiftWaveTimer = null;
+  if (!nightShiftState.active) return;
+  if (document.hidden) {
+    // Do not advance waves while hidden; resume re-arms from endsAt.
+    nightShiftWaveHeld = true;
+    return;
+  }
+  nightShiftState.wave += 1;
+  beginNightShiftWave();
+}
+
 function beginNightShiftWave() {
   if (!nightShiftState.active) return;
   clearNightShiftTargets();
@@ -2533,21 +2827,9 @@ function beginNightShiftWave() {
     ? 3000
     : Math.max(850, 5000 - nightShiftState.wave * 220);
   for (let i = 0; i < targetCount; i += 1) {
-    nightShiftSpawnTimers.push(setTimeout(spawnNightShiftTarget, i * interval));
+    queueNightShiftSpawn(i * interval);
   }
-  nightShiftWaveTimer = setTimeout(() => {
-    if (!nightShiftState.active) return;
-    if (document.hidden) {
-      nightShiftWaveTimer = setTimeout(() => {
-        if (!nightShiftState.active) return;
-        nightShiftState.wave += 1;
-        beginNightShiftWave();
-      }, 500);
-      return;
-    }
-    nightShiftState.wave += 1;
-    beginNightShiftWave();
-  }, NIGHT_SHIFT_WAVE_MS);
+  nightShiftWaveTimer = setTimeout(advanceNightShiftWave, NIGHT_SHIFT_WAVE_MS);
 }
 
 function missNightShiftTarget(target) {
@@ -2556,10 +2838,37 @@ function missNightShiftTarget(target) {
   target.dataset.missed = "1";
   target.remove();
   if (["helicopter", "drone", "airplane"].includes(target.dataset.kind)) {
+    nightShiftState.misses += 1;
     nightShiftState.hearts = Math.max(0, nightShiftState.hearts - 1);
     renderNightShiftHud(`${String(target.dataset.kind).toUpperCase()} ESCAPED · ${nightShiftState.hearts} HEART${nightShiftState.hearts === 1 ? "" : "S"} LEFT`);
     if (nightShiftState.hearts <= 0) endNightShift("SHIFT LOST · NO HEARTS LEFT");
   }
+}
+
+function submitNightShiftRun() {
+  if (!nightShiftState.serverRunToken || nightShiftState.serverRunSubmitted) return;
+  nightShiftState.serverRunSubmitted = true;
+  emitServer("finish-patrol-run", {
+    runToken: nightShiftState.serverRunToken,
+    score: nightShiftState.score,
+    misses: nightShiftState.misses,
+  }, (response) => {
+    if (response?.success === false) {
+      // Surface the rejection and keep the run submittable so the next
+      // start-of-run reset (or a re-issued token) can retry it.
+      nightShiftState.serverRunSubmitted = false;
+      parlorNotice("NIGHT SHIFT", String(response?.error || "The parlor could not verify that patrol run."));
+      return;
+    }
+    if (response?.best != null) nightShiftState.best = Math.max(nightShiftState.best, Number(response.best) || 0);
+    if (response?.score != null) {
+      const score = Number(response.score) || 0;
+      if (score >= 10) unlockAchievement("patrol-rookie");
+      if (score >= 50) unlockAchievement("patrol-regular");
+      if (score > 0 && Number(response.misses) === 0) unlockAchievement("clean-run");
+      if (Number(response.aceRuns) >= 3) unlockAchievement("patrol-ace");
+    }
+  });
 }
 
 function endNightShift(message) {
@@ -2568,6 +2877,12 @@ function endNightShift(message) {
   clearNightShiftTimers();
   clearNightShiftTargets();
   nightShiftState.best = Math.max(nightShiftState.best, nightShiftState.score);
+  if (!state.account?.account) {
+    if (nightShiftState.score >= 10) unlockAchievement("patrol-rookie");
+    if (nightShiftState.score >= 50) unlockAchievement("patrol-regular");
+    if (nightShiftState.score > 0 && nightShiftState.misses === 0) unlockAchievement("clean-run");
+  }
+  submitNightShiftRun();
   try { localStorage.setItem(NIGHT_SHIFT_BEST_KEY, String(nightShiftState.best)); } catch { /* storage unavailable */ }
   renderNightShiftHud(`${message} · FINAL ${String(nightShiftState.score).padStart(4, "0")} · ESC TO EXIT`);
   const banner = $("#night-wave-banner");
@@ -2647,6 +2962,7 @@ function startNightShift() {
   // A stale room session may still emit snapshots while the player is Home.
   // Keep this local arcade layer isolated until the player explicitly joins again.
   clearNightShiftTimers();
+  nightShiftSuppressSnapshot = state.suppressRoomUpdates;
   state.suppressRoomUpdates = true;
   stopHomeHelicopter();
   stopHomeClock();
@@ -2655,6 +2971,17 @@ function startNightShift() {
   nightShiftState.score = 0;
   nightShiftState.hearts = NIGHT_SHIFT_START_HEARTS;
   nightShiftState.targetSeq = 0;
+  nightShiftState.misses = 0;
+  nightShiftState.serverRunToken = null;
+  nightShiftState.serverRunSubmitted = false;
+  if (state.account?.account) {
+    emitServer("start-patrol-run", {}, (response) => {
+      if (response?.success) {
+        nightShiftState.serverRunToken = response.runToken;
+        if (!nightShiftState.active) submitNightShiftRun();
+      }
+    });
+  }
   renderPatrolHud("NIGHT SHIFT ACTIVE · CLEAR THE SKYLINE");
   document.body.classList.add("night-shift-open");
   const surface = $("#night-shift");
@@ -2670,6 +2997,7 @@ function stopNightShift() {
   clearNightShiftTimers();
   nightShiftPausedAt = 0;
   nightShiftState.active = false;
+  state.suppressRoomUpdates = nightShiftSuppressSnapshot;
   clearNightShiftTargets();
   document.body.classList.remove("night-shift-open");
   document.body.classList.remove("night-shift-paused");
@@ -2689,11 +3017,36 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     nightShiftPausedAt = Date.now();
     document.body.classList.add("night-shift-paused");
+    // Freeze the run: cancel every armed cadence timer but keep the queue
+    // entries and the wave deadline so play resumes from the exact pause.
+    if (nightShiftWaveTimer !== null) {
+      clearTimeout(nightShiftWaveTimer);
+      nightShiftWaveTimer = null;
+      nightShiftWaveHeld = true;
+    }
+    nightShiftSpawnTimers.forEach((entry) => {
+      if (entry.timer !== null) { clearTimeout(entry.timer); entry.timer = null; }
+    });
+    nightShiftTargetTimers.forEach((timers) => {
+      if (timers.miss !== null) { clearTimeout(timers.miss); timers.miss = null; }
+    });
     return;
   }
   if (nightShiftPausedAt) {
-    nightShiftState.endsAt += Date.now() - nightShiftPausedAt;
+    const paused = Date.now() - nightShiftPausedAt;
     nightShiftPausedAt = 0;
+    nightShiftState.endsAt += paused;
+    // Resume with at most one pending step each, then the normal cadence.
+    if (nightShiftWaveHeld) {
+      nightShiftWaveHeld = false;
+      nightShiftWaveTimer = setTimeout(advanceNightShiftWave, Math.max(0, nightShiftState.endsAt - Date.now()));
+    }
+    nightShiftSpawnTimers.forEach((entry) => {
+      if (entry.timer === null) { entry.due += paused; armNightShiftSpawn(entry); }
+    });
+    nightShiftTargetTimers.forEach((timers) => {
+      if (timers.settle && timers.miss === null) timers.miss = setTimeout(timers.settle, timers.backstop);
+    });
   }
   document.body.classList.remove("night-shift-paused");
   renderNightShiftHud("NIGHT SHIFT RESUMED · CLEAR THE SKYLINE");
@@ -2715,6 +3068,7 @@ function syncHomeMusic() {
 
 let roomsDirectory = [];
 let roomsLoading = false;
+let roomsDirectoryTimeout = null;
 let roomsFilter = "all";
 let drawerFilter = "all";
 let roomModalTab = "browse"; // "browse" | "create" | "join"
@@ -2864,10 +3218,21 @@ function requestRoomsDirectory() {
   if (!state.live) return;
   roomsLoading = true;
   renderRoomsList();
+  clearTimeout(roomsDirectoryTimeout);
+  roomsDirectoryTimeout = setTimeout(() => {
+    roomsDirectoryTimeout = null;
+    if (!roomsLoading) return;
+    roomsLoading = false;
+    renderRoomsList();
+    parlorNotice("BROWSE", "Public tables could not be loaded — try again.");
+  }, 5000);
   emitServer("list-rooms", {}, (response) => {
+    clearTimeout(roomsDirectoryTimeout);
+    roomsDirectoryTimeout = null;
     roomsLoading = false;
     if (response?.success === false) {
       roomsDirectory = [];
+      parlorNotice("BROWSE", response.error || "Public tables could not be loaded.");
       say(response.error || "Public tables could not be loaded.");
       renderChat();
     } else {
@@ -3091,7 +3456,7 @@ function renderPlayers() {
         </div>
         <div class="pr-right">
           <span class="pr-dot" style="background:${p.online ? "#35a653" : "#3a382a"};box-shadow:${p.online ? "0 0 5px rgb(53 166 83 / 60%)" : "none"}"></span>
-          <span class="t-micro ink-3">${p.online ? (p.id === "p1" ? "YOU" : p.bot ? "CPU" : "ONLINE") : "AFK"}</span>
+          <span class="t-micro ink-3">${p.online ? (p.id === "p1" ? "YOU" : p.bot ? `CPU · ${(p.personality || "survivor").toUpperCase()}` : "ONLINE") : "AFK"}</span>
         </div>
       </button>`;
     })
@@ -3946,6 +4311,7 @@ function deedCardHTML(tile, opts = {}) {
   const isProperty = tile.kind === "property";
   const level = state.houses[tile.i] || 0;
   const rent = rentFor(tile);
+  const equityShares = serverTileFor(tile.i)?.equityShares || [];
   const isMortgaged = !!state.mortgaged[tile.i];
   const rentLabel = isMortgaged ? "MORTGAGED" : `$${rent} / TURN`;
   const mine = state.owners[tile.i] === "p1";
@@ -3974,8 +4340,9 @@ function deedCardHTML(tile, opts = {}) {
       </div>
       <div class="deed-rent">
         <span class="t-micro ink-3">RENT NOW</span>
-        <span class="t-label f11 ${isMortgaged ? "red" : "green"}">${rentLabel}</span>
-      </div>
+       <span class="t-label f11 ${isMortgaged ? "red" : "green"}">${rentLabel}</span>
+     </div>
+        ${equityShares.length ? `<span class="t-micro g300">EQUITY ${equityShares.reduce((sum, share) => sum + Number(share.share || 0), 0)}%</span>` : ""}
       <div class="deed-foot">
         ${isProperty ? `<span class="houses">${houseDisplay(level) || `<span class="t-micro ink-3">NO HOUSES</span>`}</span>` : `<span class="houses">${kindIcon}</span>`}
         ${statusPill}
@@ -4181,15 +4548,15 @@ function financingSurfaceTabsHTML() {
 
 function financingSurfaceBodyHTML() {
   if (financingSurfaceMode === "contract") {
-    return `<section class="financing-surface-body" aria-labelledby="financing-contract-heading"><div class="financing-surface-kicker"><span class="t-micro g400">EXAMPLE CONTRACT · UI MODEL</span><span class="t-label f11 green">ACTIVE · 12 TURNS LEFT</span></div><h3 class="t-section g100" id="financing-contract-heading">Secured loan · Eindhoven</h3><div class="financing-contract-grid"><div><span class="t-micro ink-3">BORROWER</span><strong class="t-label f13 g100">PLAYER</strong></div><div><span class="t-micro ink-3">LENDER</span><strong class="t-label f13 g100">PARTNER</strong></div><div><span class="t-micro ink-3">ADVANCE</span><strong class="t-label f13 g100">$150</strong></div><div><span class="t-micro ink-3">MATURITY</span><strong class="t-label f13 g100">$180</strong></div></div><div class="financing-checkpoints" aria-label="Repayment checkpoints"><span class="is-paid">TURN 5 · PAID</span><span class="is-paid">TURN 10 · PAID</span><span>TURN 15 · $38</span><span>TURN 20 · $105</span></div><p class="t-body ink-2 financing-surface-copy">The borrower keeps the deed while payments are current. The lender receives the agreed premium and the named deed remains collateral after the cure turn.</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-finance-surface="offer"><span class="t-label f11">OPEN OFFER</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">BUYOUT · SERVER LATER</span></button></div></section>`;
+    return `<section class="financing-surface-body" aria-labelledby="financing-contract-heading"><div class="financing-surface-kicker"><span class="t-micro g400">CONTRACT REFERENCE · LIVE TERMS</span><span class="t-label f11 green">ACTIVE · 12 TURNS LEFT</span></div><h3 class="t-section g100" id="financing-contract-heading">Secured loan · Eindhoven</h3><div class="financing-contract-grid"><div><span class="t-micro ink-3">BORROWER</span><strong class="t-label f13 g100">PLAYER</strong></div><div><span class="t-micro ink-3">LENDER</span><strong class="t-label f13 g100">PARTNER</strong></div><div><span class="t-micro ink-3">ADVANCE</span><strong class="t-label f13 g100">$150</strong></div><div><span class="t-micro ink-3">MATURITY</span><strong class="t-label f13 g100">$180</strong></div></div><div class="financing-checkpoints" aria-label="Repayment checkpoints"><span class="is-paid">TURN 5 · PAID</span><span class="is-paid">TURN 10 · PAID</span><span>TURN 15 · $38</span><span>TURN 20 · $105</span></div><p class="t-body ink-2 financing-surface-copy">The borrower keeps the deed while payments are current. The lender receives the agreed premium and the named deed remains collateral after the cure turn.</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-finance-surface="offer"><span class="t-label f11">OPEN OFFER</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">BUYOUT · FINANCE RAIL</span></button></div></section>`;
   }
   if (financingSurfaceMode === "ownership") {
-    return `<section class="financing-surface-body" aria-labelledby="financing-ownership-heading"><div class="financing-surface-kicker"><span class="t-micro g400">EXAMPLE CAP TABLE · UI MODEL</span><span class="t-label f11 g300">PASSIVE CONTROL</span></div><h3 class="t-section g100" id="financing-ownership-heading">Eindhoven · shared economics</h3><div class="financing-ownership-bar"><span class="financing-ownership-primary" style="width:70%"></span><span class="financing-ownership-secondary" style="width:30%"></span></div><div class="financing-owner-list"><div><span class="ownership-avatar ownership-avatar-primary"></span><span class="t-label f12 g100">PLAYER · 70%</span><span class="t-micro ink-3">CONTROL + RENT</span></div><div><span class="ownership-avatar ownership-avatar-secondary"></span><span class="t-label f12 g100">PARTNER · 30%</span><span class="t-micro ink-3">RENT + SALE SHARE</span></div></div><div class="financing-rights-grid"><div><span class="t-micro ink-3">BASE RENT $18</span><strong class="t-label f13 g100">$13 / $5</strong></div><div><span class="t-micro ink-3">BUILDING RIGHTS</span><strong class="t-label f13 green">OWNER CONTROL</strong></div><div><span class="t-micro ink-3">SALE PROCEEDS</span><strong class="t-label f13 g100">70% / 30%</strong></div><div><span class="t-micro ink-3">DURATION</span><strong class="t-label f13 g100">FOREVER</strong></div></div><p class="t-body ink-2 financing-surface-copy">A passive minority share does not block a complete street. Shared control is an explicit contract choice, not an accidental side effect of buying equity.</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">TRANSFER · SERVER LATER</span></button></div></section>`;
+    return `<section class="financing-surface-body" aria-labelledby="financing-ownership-heading"><div class="financing-surface-kicker"><span class="t-micro g400">CAP TABLE REFERENCE · LIVE TERMS</span><span class="t-label f11 g300">PASSIVE CONTROL</span></div><h3 class="t-section g100" id="financing-ownership-heading">Eindhoven · shared economics</h3><div class="financing-ownership-bar"><span class="financing-ownership-primary" style="width:70%"></span><span class="financing-ownership-secondary" style="width:30%"></span></div><div class="financing-owner-list"><div><span class="ownership-avatar ownership-avatar-primary"></span><span class="t-label f12 g100">PLAYER · 70%</span><span class="t-micro ink-3">CONTROL + RENT</span></div><div><span class="ownership-avatar ownership-avatar-secondary"></span><span class="t-label f12 g100">PARTNER · 30%</span><span class="t-micro ink-3">RENT + SALE SHARE</span></div></div><div class="financing-rights-grid"><div><span class="t-micro ink-3">BASE RENT $18</span><strong class="t-label f13 g100">$13 / $5</strong></div><div><span class="t-micro ink-3">BUILDING RIGHTS</span><strong class="t-label f13 green">OWNER CONTROL</strong></div><div><span class="t-micro ink-3">SALE PROCEEDS</span><strong class="t-label f13 g100">70% / 30%</strong></div><div><span class="t-micro ink-3">DURATION</span><strong class="t-label f13 g100">FOREVER</strong></div></div><p class="t-body ink-2 financing-surface-copy">A passive minority share does not block a complete street. Shared control is an explicit contract choice, not an accidental side effect of buying equity.</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">TRANSFER · FINANCE RAIL</span></button></div></section>`;
   }
   if (financingSurfaceMode === "default") {
-    return `<section class="financing-surface-body" aria-labelledby="financing-default-heading"><div class="financing-surface-kicker"><span class="t-micro red">CURE WINDOW · UI MODEL</span><span class="t-label f11 red">1 TURN LEFT</span></div><h3 class="t-section g100" id="financing-default-heading">Payment due · Eindhoven</h3><div class="financing-default-amount"><span class="t-micro ink-3">OUTSTANDING BALANCE</span><strong class="t-money red">$105</strong></div><div class="financing-default-actions"><button class="btn-dark" type="button" disabled><span class="t-label f11">PAY OUTSTANDING BALANCE</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">TAKE COLLATERAL</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">BANK AUCTION</span></button></div><p class="t-body ink-2 financing-surface-copy">If the cure turn expires, the lender chooses collateral transfer or bank auction. Interest stops when the contract resolves.</p></section>`;
+    return `<section class="financing-surface-body" aria-labelledby="financing-default-heading"><div class="financing-surface-kicker"><span class="t-micro red">CURE WINDOW · LIVE REFERENCE</span><span class="t-label f11 red">1 TURN LEFT</span></div><h3 class="t-section g100" id="financing-default-heading">Payment due · Eindhoven</h3><div class="financing-default-amount"><span class="t-micro ink-3">OUTSTANDING BALANCE</span><strong class="t-money red">$105</strong></div><div class="financing-default-actions"><button class="btn-dark" type="button" disabled><span class="t-label f11">PAY OUTSTANDING BALANCE</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">TAKE COLLATERAL</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">BANK AUCTION</span></button></div><p class="t-body ink-2 financing-surface-copy">If the cure turn expires, the lender chooses collateral transfer or bank auction. Interest stops when the contract resolves.</p></section>`;
   }
-  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-property", label: "Property", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions"><button class="btn-dark" id="financing-cancel" type="button"><span class="t-label f11">CLOSE PREVIEW</span></button><button class="cta-red financing-disabled-action" type="button" disabled><span class="cta-text cta-text-sm">SERVER ACTIONS COMING LATER</span></button></div></section>`;
+  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-property", label: "Property", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions"><button class="btn-dark" id="financing-cancel" type="button"><span class="t-label f11">CLOSE PREVIEW</span></button><button class="cta-red" id="financing-live-rail" type="button"><span class="cta-text cta-text-sm">OPEN LIVE FINANCE</span></button></div></section>`;
 }
 
 function syncFinancingRanges(root = $("#financing-card")) {
@@ -4206,15 +4573,16 @@ function renderFinancingModal() {
   const card = $("#financing-card");
   if (!card) return;
   const modeLabels = { loan: "LOAN", equity: "EQUITY", hybrid: "HYBRID" };
-  const header = `<div class="financing-head"><div><div class="t-micro g400">PARLOR DEAL BUILDER · UI MODEL</div><h2 class="t-section g100" id="financing-card-title">Shape a ${modeLabels[financingPreviewMode]} deal</h2></div><span class="t-micro financing-badge">SERVER CONTRACT OFFLINE</span><button class="btn-dark financing-close" id="financing-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2 financing-description" id="financing-card-description">Preview the agreement both players would see. Nothing is sent and no game state changes in this UI model.</p>`;
+  const header = `<div class="financing-head"><div><div class="t-micro g400">PARLOR DEAL BUILDER · LIVE TERMS</div><h2 class="t-section g100" id="financing-card-title">Shape a ${modeLabels[financingPreviewMode]} deal</h2></div><span class="t-micro financing-badge">LIVE FINANCE RAIL</span><button class="btn-dark financing-close" id="financing-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2 financing-description" id="financing-card-description">Use the Finance rail to send this contract to an active player. Every accepted term settles through the server ledger.</p>`;
   card.innerHTML = `<div class="financing-body">${header}${financingSurfaceTabsHTML()}${financingSurfaceBodyHTML()}</div>`;
   syncFinancingRanges(card);
   const updatePreview = () => {
     const preview = $("#financing-preview");
     if (preview) preview.innerHTML = financingPreviewHTML();
   };
-  $("#financing-close")?.addEventListener("click", closeFinancingModal);
-  $("#financing-cancel")?.addEventListener("click", closeFinancingModal);
+ $("#financing-close")?.addEventListener("click", closeFinancingModal);
+ $("#financing-cancel")?.addEventListener("click", closeFinancingModal);
+  $("#financing-live-rail")?.addEventListener("click", () => { closeFinancingModal(); state.tab = "finance"; renderRightRail(); });
   $("#financing-surface-tabs")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-financing-surface]");
     if (!button) return;
@@ -4280,13 +4648,43 @@ function closeFinancingModal() {
   closeSurface("#financing-modal");
 }
 
+function playerContractRailHTML() {
+  const offer = state.playerContractOffer;
+  const pending = state.playerContracts?.pending;
+  const outgoing = pending && pending.fromPlayerId === state.players[0]?.serverId ? pending : null;
+  const active = state.playerContracts?.active || [];
+  const others = state.players.filter(player => player.id !== "p1" && !player.bot);
+  let html = '<section class="player-contracts panel noise" aria-labelledby="player-contracts-heading"><div class="finance-bank-head"><div><div class="t-micro g400">PLAYER FINANCE · LIVE</div><h3 class="t-section g100" id="player-contracts-heading">Private contracts</h3></div><span class="t-micro ink-3">SERVER LEDGER</span></div>';
+  if (offer) {
+    html += '<div class="player-contract-offer"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS</span><div class="contract-offer-actions"><button class="cta-red" type="button" data-player-contract-action="accept"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-player-contract-action="decline"><span class="t-label f11">DECLINE</span></button></div></div>';
+  }
+  if (outgoing) {
+    html += '<div class="player-contract-offer is-outgoing"><strong class="t-label f12 g100">CONTRACT SENT TO ' + esc(outgoing.toPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">' + esc(String(outgoing.kind || "loan").toUpperCase()) + ' · AWAITING REVIEW</span><button class="btn-dark" type="button" data-player-contract-cancel><span class="t-label f11">CANCEL</span></button></div>';
+  }
+  html += '<div class="player-contract-active"><span class="t-micro g400">ACTIVE CONTRACTS</span>';
+  html += active.length ? active.map(contract => '<div class="player-contract-row"><div><strong class="t-label f11 g100">' + esc(String(contract.kind || "loan").toUpperCase()) + ' · ' + esc(contract.fromPlayerName || "PLAYER") + ' → ' + esc(contract.toPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">' + (contract.kind === "loan" ? "$" + Number(contract.remaining || 0).toLocaleString() + " REMAINING · DUE R" + Number(contract.dueRound || 0) : Number(contract.equityShare || 0) + "% EQUITY") + '</span></div>' + (contract.kind === "loan" && contract.toPlayerId === state.players[0]?.serverId ? '<button class="btn-dark" type="button" data-player-contract-repay="' + esc(contract.id) + '"><span class="t-label f11">REPAY</span></button>' : '') + '</div>').join("") : '<span class="t-micro ink-3">NO ACTIVE PLAYER CONTRACTS.</span>';
+  html += '</div><details class="player-contract-details"><summary class="btn-dark"><span class="t-label f11">PROPOSE LOAN / EQUITY</span></summary>';
+  if (others.length) {
+    html += '<form class="player-contract-form" data-player-contract-form><label class="account-field"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option></select></label><label class="account-field"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="financing-check"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
+  } else {
+    html += '<span class="t-micro ink-3">NO OTHER ACCOUNT PLAYERS IN THIS ROOM.</span>';
+  }
+  return html + '</details></section>';
+}
+
 function renderRightRail() {
   const owned = TILES.filter((t) => state.owners[t.i] === "p1");
 
   const title = $("#rr-title");
   if (state.tab === "finance") {
     if (title) title.textContent = "Financing";
-    $("#rr-count").textContent = "UI MODEL";
+    $("#rr-count").textContent = "BANK + PLAYERS";
+  } else if (state.tab === "casino") {
+    if (title) title.textContent = "Casino";
+    $("#rr-count").textContent = state.economy?.casino?.enabled ? "VIRTUAL MONEY" : "OFF";
+  } else if (state.tab === "market") {
+    if (title) title.textContent = "Market";
+    $("#rr-count").textContent = state.economy?.market?.enabled ? "ROUND INDEX" : "OFF";
   } else {
     if (title) title.textContent = "Holdings";
     $("#rr-count").textContent = `${owned.length} DEEDS`;
@@ -4323,8 +4721,38 @@ function renderRightRail() {
       : offer?.available
         ? [["ADVANCE", `$${Number(offer.principal || 0).toLocaleString()}`], ["TOTAL DUE", `$${Number(offer.totalDue || 0).toLocaleString()}`], ["DUE IN", `${offer.dueInRounds} ROUNDS`], ["COLLATERAL", offer.collateralName || "NONE"]]
         : [];
-    body.innerHTML = `<section class="finance-bank panel noise" aria-labelledby="bank-credit-heading"><div class="finance-bank-head"><div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ${loan?.status === "defaulted" ? "red" : "g300"}">${loan ? String(loan.status).toUpperCase() : "NO DEBT"}</span></div>${loanMetrics.length ? `<div class="finance-bank-metrics">${loanMetrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${esc(String(value))}</strong></div>`).join("")}</div>` : ""}<p class="t-body ink-2 finance-bank-copy">${esc(loanCopy)}</p>${loanAction ? `<div class="finance-bank-actions">${loanAction}</div>` : ""}<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></section><div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PLAYER FINANCE</div><p class="t-body ink-2">Player loans and equity remain negotiated social contracts. Use the bank only when the collateral risk is worth the liquidity.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">PLAYER CONTRACTS · PREVIEW</span></div><div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE PLAYER DEALS</strong><span class="t-micro ink-3">Preview a contract, ownership split, or default resolution.</span></div><div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW TERMS</span></button><button class="btn-dark" type="button" data-finance-surface="contract"><span class="t-label f11">VIEW CONTRACT</span></button><button class="btn-dark" type="button" data-finance-surface="ownership"><span class="t-label f11">VIEW CO-OWNERSHIP</span></button><button class="btn-dark" type="button" data-finance-surface="default"><span class="t-label f11">VIEW DEFAULT</span></button></div>`;
+    body.innerHTML = `<section class="finance-bank panel noise" aria-labelledby="bank-credit-heading"><div class="finance-bank-head"><div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ${loan?.status === "defaulted" ? "red" : "g300"}">${loan ? String(loan.status).toUpperCase() : "NO DEBT"}</span></div>${loanMetrics.length ? `<div class="finance-bank-metrics">${loanMetrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${esc(String(value))}</strong></div>`).join("")}</div>` : ""}<p class="t-body ink-2 finance-bank-copy">${esc(loanCopy)}</p>${loanAction ? `<div class="finance-bank-actions">${loanAction}</div>` : ""}<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></section><div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PLAYER FINANCE</div><p class="t-body ink-2">Player loans and equity remain negotiated social contracts. Use the bank only when the collateral risk is worth the liquidity.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">PLAYER CONTRACTS · LIVE</span></div><div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE PLAYER DEALS</strong><span class="t-micro ink-3">Use the form below to send a live contract.</span></div><div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW TERMS</span></button><button class="btn-dark" type="button" data-finance-surface="contract"><span class="t-label f11">VIEW CONTRACT</span></button><button class="btn-dark" type="button" data-finance-surface="ownership"><span class="t-label f11">VIEW CO-OWNERSHIP</span></button><button class="btn-dark" type="button" data-finance-surface="default"><span class="t-label f11">VIEW DEFAULT</span></button></div>`;
+    body.innerHTML += playerContractRailHTML();
     hydrateSprites();
+  } else if (state.tab === "casino") {
+    const casino = state.economy?.casino || {};
+    if (!casino.enabled) {
+      body.innerHTML = '<section class="economy-empty panel noise"><img src="/assets/casino-wheel.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">CASINO ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable virtual-money European roulette before the round begins.</p></section>';
+    } else {
+      const maxBet = Number(casino.maxBet || 500);
+      const entryFee = Number(casino.entryFee || 0);
+      const last = casino.lastResult;
+      const resultCopy = last
+        ? "LAST SPIN · " + String(last.resultColor || "").toUpperCase() + " " + Number(last.pocket || 0) + " · " + (Number(last.net) >= 0 ? "+" : "") + "$" + Number(last.net || 0).toLocaleString()
+        : "NO SPIN YET · THE HOUSE EDGE IS VISIBLE";
+      body.innerHTML = '<section class="economy-surface casino-surface" aria-labelledby="casino-heading"><div class="economy-surface-head"><img src="/assets/casino-wheel.svg" alt="" width="32" height="32"><div><span class="t-micro g400">EUROPEAN WHEEL · SERVER SETTLED</span><h3 class="t-section g100" id="casino-heading">Place a bet</h3></div></div><div class="casino-odds" aria-label="Roulette odds"><span><strong>RED</strong><small>18 / 37 · 1:1</small></span><span><strong>BLACK</strong><small>18 / 37 · 1:1</small></span><span><strong class="green">GREEN 0</strong><small>1 / 37 · 35:1</small></span></div><form class="casino-form" data-casino-form><fieldset><legend class="t-micro ink-3">SELECT POCKET</legend><div class="casino-choice-row"><label class="casino-choice casino-choice-red"><input type="radio" name="casino-color" value="red" checked><span class="t-label f11">RED</span></label><label class="casino-choice casino-choice-black"><input type="radio" name="casino-color" value="black"><span class="t-label f11">BLACK</span></label><label class="casino-choice casino-choice-green"><input type="radio" name="casino-color" value="green"><span class="t-label f11">GREEN 0</span></label></div></fieldset><label class="casino-stake"><span class="t-micro ink-3">STAKE · MAX $' + maxBet.toLocaleString() + (entryFee ? ' · EVENT FEE $' + entryFee.toLocaleString() : '') + '</span><input class="field" name="stake" type="number" min="1" max="' + maxBet + '" step="1" value="10" inputmode="numeric"></label><button class="cta-red" type="submit"><span class="cta-text cta-text-sm">SPIN THE WHEEL</span></button></form><div class="economy-result" aria-live="polite">' + resultCopy + '</div><p class="t-micro ink-3 economy-note">Fictional board money only. Loan-backed cash cannot enter the casino.</p></section>';
+    }
+  } else if (state.tab === "market") {
+    const market = state.economy?.market || {};
+    const labels = { brazil: "BRAZIL", ghana: "GHANA", thailand: "THAILAND", japan: "JAPAN", netherlands: "NETHERLANDS", canada: "CANADA", switzerland: "SWITZERLAND", singapore: "SINGAPORE", airports: "AIRPORTS", utilities: "UTILITIES", property: "PROPERTY" };
+    if (!market.enabled) {
+      body.innerHTML = '<section class="economy-empty panel noise"><img src="/assets/market-chart.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">MARKET ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable fictional country and infrastructure indexes before the round begins.</p></section>';
+    } else {
+      const quotes = market.quotes || {};
+      const positions = state.players[0]?.marketPositions || {};
+      const rows = Object.entries(labels).map(([id, label]) => {
+        const quote = Number(quotes[id] || 100);
+        const position = positions[id] || {};
+        const pnl = Number(position.realizedPnl || 0);
+        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + (pnl >= 0 ? "+" : "") + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong><span class="market-actions"><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="buy">BUY</button><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="sell" ' + (position.quantity ? "" : "disabled") + '>SELL</button></span></div>';
+      }).join("");
+      body.innerHTML = '<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ' + Number(market.round || 0) + '</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div></div><label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label><div class="market-list thin-scroll">' + rows + '</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ' + (Number(market.feeRate || 0.02) * 100).toFixed(0) + '% settlement fee applies. No leverage or shorting.</p></section>';
+    }
   } else if (state.tab === "deeds") {
     body.innerHTML = owned.length
       ? owned
@@ -4469,14 +4897,30 @@ function renderGlobalEvent() {
     airportCardsBlocked: "AIRPORT CARDS",
     premiumRentMultiplier: "PREMIUM RENT",
     leaderRentMultiplier: "LEADER RENT",
+    rentCap: "RENT CAP",
+    buildingLimitPerTurn: "BUILD LIMIT",
+    bankActionsBlocked: "BANK ACTIONS",
+    auctionBlocked: "AUCTIONS",
+    cashMultiplier: "CASH",
+    utilityRentMultiplier: "UTILITY RENT",
+    marketPriceMultiplier: "MARKET PRICE",
+    marketVolatility: "MARKET VOLATILITY",
+    casinoMaxBet: "CASINO MAX BET",
+    casinoEntryFee: "CASINO FEE",
+    tradingEnabled: "MARKET TRADING",
+    loanSettlementMultiplier: "LOAN SETTLEMENT",
+    rentControlStipend: "RENT STIPEND",
+    cashMultiplier: "CASH RESERVES",
   };
   const effectEl = $("#global-event-effects");
   if (effectEl) {
     effectEl.innerHTML = Object.entries(event.effects || {}).map(([key, value]) => {
       const label = effectLabels[key] || key.replaceAll(/([A-Z])/g, " $1").toUpperCase();
+      const fixed = ["rentCap", "buildingLimitPerTurn", "casinoMaxBet", "casinoEntryFee", "buildingMaintenance", "rentControlStipend"].includes(key);
       const shown = typeof value === "boolean"
         ? (value ? "ON" : "OFF")
-        : (() => { const delta = Math.round((Number(value) - 1) * 100); return delta === 0 ? "100%" : `${delta > 0 ? "+" : ""}${delta}%`; })();
+        : fixed ? (["casinoMaxBet", "casinoEntryFee", "buildingMaintenance", "rentControlStipend"].includes(key) ? "$" + Number(value).toLocaleString() : String(value))
+          : (() => { const delta = Math.round((Number(value) - 1) * 100); return delta === 0 ? "100%" : `${delta > 0 ? "+" : ""}${delta}%`; })();
       return `<span class="global-event-effect t-micro">${esc(label)} · ${esc(shown)}</span>`;
     }).join("");
   }
@@ -4484,6 +4928,8 @@ function renderGlobalEvent() {
     ? "VOTE BEFORE NEXT ROUND"
     : event.phase === "warning"
       ? "ACTIVATES NEXT ROUND"
+      : event.phase === "recovery"
+        ? "RECOVERY · EFFECTS TAPERING"
       : `${event.roundsRemaining || 0} ROUNDS LEFT`;
   const choices = $("#global-event-choices");
   if (!choices) return;
@@ -4549,7 +4995,7 @@ function lobbyPlayerRowHTML(p, seed) {
     <div class="lobby-av">${avatarHTML(p, 3, seed)}</div>
     <div class="lobby-player-info">
       <div class="t-label lobby-player-name" style="color:${p.textColor}">${esc(p.name)}</div>
-      <div class="lobby-player-sub">${isYou ? "you" : p.bot ? "cpu" : "player"} · $${p.cash.toLocaleString()}</div>
+      <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.personality || "survivor").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
     </div>
     <span class="lobby-ready-dot" style="background:${ready ? "#35a653" : "#3a382a"};box-shadow:${ready ? "0 0 5px rgb(53 166 83/60%)" : "none"}"></span>
   </div>`;
@@ -4582,6 +5028,7 @@ function renderLobbyRail() {
     lobbySection("Table Rules", [
       settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
       settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
+      settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
       settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
       settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
       settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
@@ -4593,11 +5040,11 @@ function renderLobbyRail() {
       settingRow("Bankruptcy", "How to handle a bust player.", sel("bankruptMode", s.bankruptMode, [["elim","ELIMINATE"],["debt","DEBT DEAL"]])),
       settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
       settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
+      settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
+      settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
     ]),
     lobbySection("Global Events", [
-      settingRow("Event Mode", "Rare headlines with board-wide effects.", sel("globalEvents", s.globalEvents, [["off","OFF"],["rare","RARE"],["hardcore","HARDCORE"]])),
-      settingRow("Event Duration", "Rounds an event remains active.", sel("globalEventDuration", s.globalEventDuration, [["5","5 ROUNDS"],["10","10 ROUNDS"]])),
-      settingRow("Event Maximum", "Maximum global headlines in one game.", sel("globalEventMax", s.globalEventMax, [["1","1 EVENT"],["2","2 EVENTS"]])),
+      settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
     ]),
     lobbySection("Building", [
       settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"]])),
@@ -4613,8 +5060,10 @@ function renderLobbyRail() {
       ${s.trading ? "trading on" : "no trades"} ·
       ${s.auction ? "auction on" : "no auction"} ·
       ${s.bankLoans ? `${String(s.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off"} ·
-      ${s.globalEvents === "off" ? "global events off" : `${String(s.globalEvents).toLowerCase()} events · ${s.globalEventDuration} rounds`} ·
-      ${s.bots ? `${s.bots} bot${s.bots === 1 ? "" : "s"} reserved` : "no bots"} ·
+      ${s.globalEvents ? "global events on" : "global events off"} ·
+     ${s.casino ? "casino on" : "casino off"} ·
+     ${s.market ? "market on" : "market off"} ·
+      ${s.bots ? `bot instinct ${String(s.botPersonality || "survivor").toLowerCase()}` : "no bots"} ·
       ${s.turnTimer ? s.turnTimer + "s timer" : "no timer"} ·
       ${s.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
     </div>`,
@@ -4671,9 +5120,10 @@ function buildBotPreviewPlayers(count) {
     ...bot,
     id: `bot-preview-${index + 1}`,
     name: `BOT ${index + 1}`,
-    online: true,
-    bot: true,
-  }));
+   online: true,
+   bot: true,
+    personality: state.settings.botPersonality || "survivor",
+ }));
 }
 
 function announceProfileSave(message) {
@@ -4730,7 +5180,8 @@ function closeProfileEditor(save) {
   }
   state.profileDraft = null;
   state.editingProfileId = null;
-  showView(state.homeReturnView === "setup-return" ? "game" : "home");
+  if (state.homeReturnView === "setup-return") showView("game");
+  else leaveRoomForHome();
   if (state.homeReturnView === "setup-return") {
     renderSetup();
     renderLobbyRail();
@@ -4744,7 +5195,8 @@ function deleteCurrentProfile() {
   deleteProfile(state.editingProfileId);
   state.profileDraft = null;
   state.editingProfileId = null;
-  showView(state.homeReturnView === "setup-return" ? "game" : "home");
+  if (state.homeReturnView === "setup-return") showView("game");
+  else leaveRoomForHome();
   if (state.homeReturnView === "setup-return") {
     renderSetup();
     renderLobbyRail();
@@ -5356,7 +5808,7 @@ function primaryTurnAction() {
 
 function scheduleBot() {
   clearTimeout(botTimer);
-  if (state.phase !== "playing") return;
+  if (state.live || state.phase !== "playing") return;
   if (!state.players[state.turnIndex]?.bot || state.busy) return;
   botTimer = setTimeout(() => runTurn(state.turnIndex), 900);
 }
@@ -5465,6 +5917,10 @@ function buyTile(tile) {
    8a. FORCED CHOICE + AUCTION
    ============================================================ */
 const BID_STEPS = [1, 20, 100];
+// Audit #18: single clock for auction deadlines. Matches the server's frame
+// once a snapshot has arrived (offset 0 before the first one).
+function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
+
 const AUCTION_MS = 5000;
 let auctionTimer = null;
 let auctionBotClock = 0;
@@ -5586,7 +6042,7 @@ function startAuction(tile) {
     tileIndex: tile.i,
     bid: 0,
     leaderId: null,
-    deadline: Date.now() + AUCTION_MS,
+    deadline: serverNow() + AUCTION_MS,
     caps,
     passed: {},
   };
@@ -5602,7 +6058,7 @@ function placeBid(playerId, amount) {
   if (!a) return;
   a.bid += amount;
   a.leaderId = playerId;
-  a.deadline = Date.now() + AUCTION_MS;
+  a.deadline = serverNow() + AUCTION_MS;
   const p = state.players.find((x) => x.id === playerId);
   record(`${p.name} BID $${a.bid} ON ${TILES[a.tileIndex].name}`);
   playSound("auction");
@@ -5681,7 +6137,7 @@ function maybeBotBid() {
 function tickAuction() {
   const a = state.auction;
   if (!a) return;
-  const remaining = a.deadline - Date.now();
+  const remaining = a.deadline - serverNow();
 
   // Live auctions are finalized by the server. The client only keeps the
   // countdown visually current until the authoritative update arrives.
@@ -5791,7 +6247,7 @@ function updateAuctionLive() {
   const a = state.auction;
   if (!a) return;
   const me = state.players[0];
-  const remaining = Math.max(0, a.deadline - Date.now());
+  const remaining = Math.max(0, a.deadline - serverNow());
   const pct = Math.max(0, Math.min(100, (remaining / AUCTION_MS) * 100));
 
   const bar = $("#auction-bar");
@@ -6507,9 +6963,37 @@ function clearSave() {
   try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
 }
 
+/** Shared restore-session ack (A4-F2): report real failures visibly, clear the
+    room mute, and only return to the parlor view when the player is mid-room. */
+function handleRestoreSessionResponse(response, explicit = false) {
+  if (response?.success === false) {
+    if (explicit || state.phase !== "home") {
+      parlorNotice("CONNECTION", response.error || "No active room session was found.");
+      setConnectionStatus("offline", true);
+    }
+    if (explicit) {
+      clearSave();
+      applyProfileToHomeUI();
+    }
+    return;
+  }
+  if (!response?.success) return;
+  state.suppressRoomUpdates = false;
+  if (Object.prototype.hasOwnProperty.call(response, "roomCode")) state.roomCode = response.roomCode || state.roomCode;
+  if (response.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
+  // An explicit "Resume round" click always returns to the parlor — it is the
+  // documented escape from a stuck mute; a background reconnect only re-asserts
+  // the view when the player never left the room session.
+  if (explicit || state.phase !== "home") showView("game");
+  renderAll();
+}
+
 function resumeGame() {
   if (state.live) {
-    emitServer("restore-session", {}, () => {});
+    // Clear the room mute before asking for the session so the restored
+    // snapshots can render again ("Resume round" was a dead no-op, A6-F2).
+    state.suppressRoomUpdates = false;
+    emitServer("restore-session", {}, (response) => handleRestoreSessionResponse(response, true));
     return;
   }
   const s = loadSavedGame();
@@ -6570,6 +7054,9 @@ function syncServerAppearance() {
     avatarGrid: meta.avatarGrid || null,
   }, (response) => {
     if (response?.success === false) {
+      // Audit #24: the rejection also has to reach players stuck on the home
+      // screen, where the chat transcript is invisible.
+      parlorNotice("APPEARANCE", response.error || "Appearance could not be updated.");
       say(response.error || "Appearance could not be updated.");
       renderChat();
     }
@@ -6626,13 +7113,17 @@ function enterParlor(code) {
       ...(event === "create-room" && state.pendingRoomMeta ? state.pendingRoomMeta : {}),
     }, (response) => {
       if (response?.success === false) {
+        // Surface the rejection on the visible toast stack before bouncing
+        // home — say() alone lands in the hidden chat panel (A1/A3).
+        parlorNotice("TABLE NOTICE", response.error || "Room could not be entered.");
         say(response.error || "Room could not be entered.");
         state.phase = "home";
         showView("home");
         renderAll();
         return;
       }
-      state.roomCode = response?.roomCode || state.roomCode;
+      if (Object.prototype.hasOwnProperty.call(response || {}, "roomCode")) state.roomCode = response.roomCode || "";
+      if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
       state.phase = "setup";
       renderAll();
       renderTopNav();
@@ -6663,6 +7154,9 @@ function enterLobby() {
 }
 
 function goHome() {
+  // Release the seat on the server so the room can GC and peers stop
+  // counting a home-screen player as online (A4-F3: ghost seats).
+  if (state.live && state.phase !== "home") emitServer("leave-room", {}, () => {});
   clearTimeout(botTimer);
   clearInterval(auctionTimer);
   state.busy = false;
@@ -6679,6 +7173,11 @@ function goHome() {
   state.jail = {};
   state.card = null;
   state.gameOver = null;
+  // Audit #16: home must not keep the previous room's transcript or activity
+  // log. Rejoining a room re-seeds both from the server's next snapshot, so
+  // emptying here never leaves stale content behind.
+  state.messages = [];
+  state.log = [];
   clearInterval(turnTimerInterval);
   turnTimerInterval = null;
   state.phase = "home";
@@ -6694,6 +7193,14 @@ function goHome() {
   showView("home");
 }
 
+// Audit 7.5: one door back to the homescreen. goHome() releases the room
+// seat; a raw showView("home") from a page/rail handler used to leave the
+// seat (and the room's stale transcript) behind when the user was mid-room.
+function leaveRoomForHome() {
+  if (state.phase === "setup" || state.phase === "lobby" || state.phase === "playing") goHome();
+  else showView("home");
+}
+
 function bindEvents() {
   // Home destinations. Play stays in the stage; rooms uses the existing
   // server-backed directory surface; profile keeps the current editor flow.
@@ -6707,13 +7214,19 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-top-surface]").forEach((button) => {
     button.addEventListener("click", () => {
-      if (button.dataset.topSurface === "rankings") openRankingsSurface();
-      else if (button.dataset.topSurface === "social") openSocialSurface();
-      else if (button.dataset.topSurface === "rules") openRulesSurface();
+      const surface = button.dataset.topSurface;
+      if (openInGameSocialSurface(surface)) return;
+      if (surface === "rankings") openRankingsSurface();
+      else if (surface === "social") openSocialSurface();
+      else if (surface === "rules") openRulesSurface();
     });
   });
   document.querySelectorAll("[data-top-back]").forEach((button) => {
-    button.addEventListener("click", () => showView(button.dataset.topBack || "home"));
+    button.addEventListener("click", () => {
+      const target = button.dataset.topBack || "home";
+      if (target === "home") leaveRoomForHome();
+      else showView(target);
+    });
   });
   document.querySelectorAll("[data-home-tab]").forEach((button) => {
     if (button.closest("#home-nav")) return;
@@ -6722,11 +7235,11 @@ function bindEvents() {
       if (tab === "profile") {
         openProfileEditor("home", typeof state.appearance === "string" ? state.appearance : null);
       } else if (tab === "rooms") {
-        showView("home");
+        leaveRoomForHome();
         setHomeTab("rooms");
         openRoomsModal("browse");
       } else if (tab === "play") {
-        showView("home");
+        leaveRoomForHome();
         setHomeTab("play");
         renderHome();
       }
@@ -6753,14 +7266,35 @@ function bindEvents() {
     if (player) openPlayerSurface(player.dataset.playerId);
   });
   const handleRankingClick = (event) => {
+    const scope = event.target.closest("[data-ranking-scope]");
+    const inGameModal = event.currentTarget?.id === "rankings-card" && ["setup", "lobby", "playing"].includes(state.phase);
+    if (scope) { if (inGameModal) { state.leaderboard.scope = scope.dataset.rankingScope; renderRankingsSurface("#rankings-card"); } else openRankingsSurface(state.leaderboard.metric, scope.dataset.rankingScope); return; }
     const metric = event.target.closest("[data-ranking-metric]");
-    if (metric) { openRankingsSurface(metric.dataset.rankingMetric); return; }
+    if (metric) { if (inGameModal) { state.leaderboard.metric = metric.dataset.rankingMetric; renderRankingsSurface("#rankings-card"); } else openRankingsSurface(metric.dataset.rankingMetric); return; }
     const player = event.target.closest("[data-ranking-player]");
     if (player) openPlayerSurface(player.dataset.rankingPlayer);
-    if (event.target.closest(".rankings-close, #rankings-close")) event.currentTarget?.id === "rankings-page-content" ? showView("home") : closeSurface("#rankings-modal");
+    if (event.target.closest(".rankings-close, #rankings-close")) event.currentTarget?.id === "rankings-page-content" ? leaveRoomForHome() : closeSurface("#rankings-modal");
   };
   $("#rankings-card")?.addEventListener("click", handleRankingClick);
   $("#rankings-page-content")?.addEventListener("click", handleRankingClick);
+  const handleRankingSubmit = (event) => {
+    if (!event.target.matches("[data-ranking-search-form]")) return;
+    event.preventDefault();
+    const input = event.target.querySelector("[data-ranking-search-input]");
+    state.rankingSearchQuery = String(input?.value || "").trim();
+    state.rankingSearchResults = [];
+    const surface = event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
+    if (state.rankingSearchQuery.length < 3) {
+      renderRankingsSurface(surface);
+      return;
+    }
+    emitServer("search-players", { query: state.rankingSearchQuery, exact: true }, (response) => {
+      state.rankingSearchResults = response?.players || [];
+      renderRankingsSurface(surface);
+    });
+  };
+  $("#rankings-card")?.addEventListener("submit", handleRankingSubmit);
+  $("#rankings-page-content")?.addEventListener("submit", handleRankingSubmit);
   const handleSocialClick = (event) => {
     const tab = event.target.closest("[data-social-tab]");
     if (tab) { state.socialTab = tab.dataset.socialTab; renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card"); return; }
@@ -6780,7 +7314,24 @@ function bindEvents() {
     }
     const notification = event.target.closest("[data-notification-read]");
     if (notification) { emitServer("mark-notification-read", { notificationId: notification.dataset.notificationRead }, () => {}); return; }
-    if (event.target.closest(".social-close, #social-close")) event.currentTarget?.id === "social-page-content" ? showView("home") : closeSurface("#social-modal");
+    const clearRecent = event.target.closest("[data-social-clear-recent]");
+    if (clearRecent) {
+      emitServer("clear-recent-players", {}, (response) => {
+        if (response?.success === false) {
+          announceSocialNotification({ body: response.error || "Recent players could not be cleared." });
+          return;
+        }
+        state.social.recentPlayers = [];
+        renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card");
+      });
+      return;
+    }
+    const cancelRequest = event.target.closest("[data-social-request-cancel]");
+    if (cancelRequest) {
+      emitServer("cancel-friend-request", { friendshipId: cancelRequest.dataset.friendshipId }, () => {});
+      return;
+    }
+    if (event.target.closest(".social-close, #social-close")) event.currentTarget?.id === "social-page-content" ? leaveRoomForHome() : closeSurface("#social-modal");
   };
   $("#social-card")?.addEventListener("click", handleSocialClick);
   $("#social-page-content")?.addEventListener("click", handleSocialClick);
@@ -6808,12 +7359,14 @@ function bindEvents() {
   $("#player-card")?.addEventListener("click", (event) => {
     if (event.target.closest("#player-modal-close")) { closeSurface("#player-modal"); return; }
     if (event.target.closest("#player-modal-back")) { state.selectedPlayerView = "profile"; renderPlayerSurface(); return; }
+    const historyScope = event.target.closest("[data-player-history-scope]");
+    if (historyScope) { state.selectedPlayerHistoryScope = historyScope.dataset.playerHistoryScope || "all"; renderPlayerSurface(); return; }
     const action = event.target.closest("[data-player-action]");
     if (!action || action.disabled || !state.selectedPlayer) return;
     const targetId = state.selectedPlayer.accountId;
-    if (action.dataset.playerAction === "friend") emitServer("send-friend-request", { targetAccountId: targetId }, () => {});
-    if (action.dataset.playerAction === "invite") emitServer("send-room-invite", { targetAccountId: targetId }, () => {});
-    if (action.dataset.playerAction === "history") emitServer("get-match-history", { accountId: targetId }, (response) => { state.selectedPlayerHistory = response?.history || []; state.selectedPlayerView = "history"; renderPlayerSurface(); });
+    if (action.dataset.playerAction === "friend") emitServer("send-friend-request", { targetAccountId: targetId }, (response) => { if (response?.success === false) announceSocialNotification({ body: response.error || "Friend request could not be sent." }); });
+    if (action.dataset.playerAction === "invite") emitServer("send-room-invite", { targetAccountId: targetId }, (response) => { if (response?.success === false) announceSocialNotification({ body: response.error || "Room invite could not be sent." }); });
+    if (action.dataset.playerAction === "history") emitServer("get-match-history", { accountId: targetId }, (response) => { if (response?.success === false) { announceSocialNotification({ body: response.error || "Match history is unavailable." }); return; } state.selectedPlayerHistory = response?.history || []; state.selectedPlayerView = "history"; renderPlayerSurface(); });
     if (action.dataset.playerAction === "block") emitServer("block-player", { otherAccountId: targetId }, (response) => { if (response?.success !== false) closeSurface("#player-modal"); });
     if (action.dataset.playerAction === "report") emitServer("report-player", { otherAccountId: targetId, reason: "player report from in-room card" }, (response) => { if (response?.success !== false) { announceSocialNotification({ body: "Report submitted to the parlor moderators." }); closeSurface("#player-modal"); } });
   });
@@ -6846,7 +7399,17 @@ function bindEvents() {
     closeRoomsModal();
     enterParlor(code);
   });
-  $("#room-join")?.addEventListener("input", (e) => (e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6)));
+  $("#room-join")?.addEventListener("input", (e) => {
+    const cleaned = String(e.target.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    e.target.value = cleaned.slice(0, 6);
+    const error = $("#join-form-error");
+    if (!error) return;
+    if (cleaned.length > 6) {
+      error.textContent = "ROOM CODES ARE 6 CHARACTERS — EXTRA CHARACTERS REMOVED.";
+    } else if (error.textContent.startsWith("ROOM CODES ARE 6")) {
+      error.textContent = "";
+    }
+  });
   $("#join-nickname")?.addEventListener("input", (e) => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
     if ($("#join-form-error")) $("#join-form-error").textContent = "";
@@ -6879,7 +7442,11 @@ function bindEvents() {
   $("#rm-tabs")?.addEventListener("click", (e) => {
     const tabBtn = e.target.closest("[data-rm-tab]");
     if (!tabBtn) return;
-    switchRoomModalTab(tabBtn.dataset.rmTab);
+    const tab = tabBtn.dataset.rmTab;
+    switchRoomModalTab(tab);
+    // Re-selecting BROWSE inside an open modal must re-fetch, not replay the
+    // cached directory (A2-1: the list only loaded on modal open).
+    if (tab === "browse") requestRoomsDirectory();
   });
 
   // rooms directory list interactions
@@ -7343,14 +7910,14 @@ function bindEvents() {
     const sel = e.target.closest("[data-setting]");
     if (sel && (sel.tagName === "SELECT" || sel.matches("input[data-setting]"))) {
       const key = sel.dataset.setting;
-      const numericKeys = ["startingCash", "houseLimit", "hotelLimit", "turnTimer", "globalEventDuration", "globalEventMax"];
+      const numericKeys = ["startingCash", "houseLimit", "hotelLimit", "turnTimer"];
       if (numericKeys.includes(key)) {
         if (sel.value.trim() === "") return;
         const parsed = Number(sel.value);
         if (!Number.isFinite(parsed) || parsed < 0) return;
         state.settings[key] = Math.floor(parsed);
       } else {
-        state.settings[key] = sel.value;
+        state.settings[key] = sel.matches("input[type=checkbox]") ? sel.checked : sel.value;
       }
       if (state.live) updateServerSetting(key, state.settings[key]);
       renderLobbyRail();
@@ -7429,15 +7996,70 @@ function bindEvents() {
     if (!tab) return;
     state.tab = tab.dataset.tab;
     renderRightRail();
+    if (state.tab === "casino" || state.tab === "market") refreshEconomySnapshot();
   });
 
   // deeds tab: buy a vacant tile directly (kept for any future action buttons)
   // trade tab: open a trade with another player
   $("#rr-body").addEventListener("click", (e) => {
+    const contractCancel = e.target.closest("[data-player-contract-cancel]");
+    if (contractCancel) {
+      emitServer("cancel-player-contract", { requestId: createRequestId("contract-cancel") }, (response) => {
+        if (response?.success === false) {
+          say(response.error || "The pending contract could not be canceled.");
+          renderChat();
+        } else {
+          renderRightRail();
+        }
+      });
+      return;
+    }
+    const contractAction = e.target.closest("[data-player-contract-action]");
+    if (contractAction) {
+      const accept = contractAction.dataset.playerContractAction === "accept";
+      emitServer("respond-player-contract", { accept, requestId: createRequestId("contract-response") }, (response) => {
+        if (response?.success === false) {
+          say(response.error || "The player contract could not be updated.");
+          renderChat();
+        } else {
+          state.playerContractOffer = null;
+          renderRightRail();
+        }
+      });
+      return;
+    }
+    const contractRepay = e.target.closest("[data-player-contract-repay]");
+    if (contractRepay) {
+      emitServer("repay-player-contract", { contractId: contractRepay.dataset.playerContractRepay, requestId: createRequestId("contract-repay") }, (response) => {
+        if (response?.success === false) {
+          say(response.error || "The player loan could not be repaid.");
+          renderChat();
+        } else {
+          renderRightRail();
+        }
+      });
+      return;
+    }
+    const marketButton = e.target.closest("[data-market-order]");
+    if (marketButton && !marketButton.disabled) {
+      const quantity = Math.max(1, Math.min(1000, Math.floor(Number($("#market-quantity")?.value) || 1)));
+      emitServer("market-order", { instrumentId: marketButton.dataset.marketId, side: marketButton.dataset.marketSide, quantity, requestId: createRequestId("market") }, (response) => {
+        if (response?.success === false) {
+          say(response.error || "Market order could not be completed.");
+          renderChat();
+          return;
+        }
+        if (response?.economy) {
+          state.economy = { ...state.economy, ...response.economy, market: { ...state.economy.market, ...(response.economy.market || {}) }, casino: { ...state.economy.casino, ...(response.economy.casino || {}) } };
+        }
+        renderRightRail();
+      });
+      return;
+    }
     const bankAction = e.target.closest("[data-bank-action]");
     if (bankAction) {
       const eventName = bankAction.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
-      emitServer(eventName, {}, (response) => {
+      emitServer(eventName, { requestId: createRequestId(eventName) }, (response) => {
         if (response?.success === false) {
           say(response.error || "The bank transaction could not be completed.");
           renderChat();
@@ -7454,6 +8076,46 @@ function bindEvents() {
     if (buyBtn && !buyBtn.disabled) { buyTile(TILES[Number(buyBtn.dataset.buy)]); return; }
     const tradeBtn = e.target.closest("[data-trade]");
     if (tradeBtn && !tradeBtn.disabled) openTradeModal(tradeBtn.dataset.trade);
+  });
+  $("#rr-body").addEventListener("submit", (e) => {
+    const contractForm = e.target.closest("[data-player-contract-form]");
+    if (contractForm) {
+      e.preventDefault();
+      const payload = Object.fromEntries(new FormData(contractForm).entries());
+      payload.amount = Number(payload.amount) || 0;
+      payload.premiumRate = Number(payload.premiumRate) || 0;
+      payload.durationRounds = Number(payload.durationRounds) || 3;
+      payload.propertyIndex = payload.propertyIndex === "" ? null : Number(payload.propertyIndex);
+      payload.collateralTileIndex = payload.collateralTileIndex === "" ? null : Number(payload.collateralTileIndex);
+      payload.requestId = createRequestId("contract-proposal");
+      emitServer("propose-player-contract", payload, (response) => {
+        if (response?.success === false) {
+          say(response.error || "The player contract could not be sent.");
+          renderChat();
+        } else {
+          say("Contract sent for review.");
+          renderChat();
+          renderRightRail();
+        }
+      });
+      return;
+    }
+    const form = e.target.closest("[data-casino-form]");
+    if (!form) return;
+    e.preventDefault();
+    const color = form.querySelector("input[name=casino-color]:checked")?.value || "red";
+    const stake = Math.max(1, Math.floor(Number(form.querySelector("[name=stake]")?.value) || 0));
+    emitServer("place-casino-bet", { color, stake, requestId: createRequestId("casino") }, (response) => {
+      if (response?.success === false) {
+        say(response.error || "Casino bet could not be completed.");
+        renderChat();
+        return;
+      }
+      if (response?.economy) {
+        state.economy = { ...state.economy, ...response.economy, market: { ...state.economy.market, ...(response.economy.market || {}) }, casino: { ...state.economy.casino, ...(response.economy.casino || {}) } };
+      }
+      renderRightRail();
+    });
   });
 
   // popup
