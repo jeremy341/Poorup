@@ -9,6 +9,11 @@ I built this project to get hands-on experience with real-time web development, 
 - Real-time multiplayer using Socket.IO
 - 40-space custom game board with properties, airports, tax squares, and surprise cards
 - Full Monopoly-style rules: buying, renting, building, mortgaging, trading, and going to prison
+- Optional server-settled Casino and fictional Market add-ons
+- Server-backed friends, recent players, match history, achievements, and multi-scope rankings
+- Rare round-scaled Global Events with curated combinations
+- Server-controlled deterministic CPU seats with selectable personalities
+- Player-to-player loan and property-equity contracts with collateral, repayment, and default rules
 - Auction system for declined properties
 - Room-based lobby with host controls and configurable game settings
 - Reconnect support — disconnected players can rejoin and resume their turn
