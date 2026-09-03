@@ -2737,12 +2737,13 @@ function scheduleNightShiftTarget(target, duration) {
     return;
   }
   const id = target.dataset.targetId;
-  const timers = { reveal: null, disable: null, miss: null, settle: null, backstop: duration + 80 };
+  const timers = { reveal: null, disable: null, miss: null, settle: null, backstop: duration + 80, missElapsed: 0, missStartedAt: 0, endedWhileHidden: false };
   const settle = () => {
     if (document.hidden) {
-      // Paused tab: drop this backstop and let the visibilitychange
-      // coordinator re-arm exactly one fresh window when play resumes.
-      timers.miss = null;
+      // The tab froze mid-flight: remember that this animation finished
+      // while we were away and let the resume coordinator settle it
+      // immediately instead of silently dropping the event.
+      timers.endedWhileHidden = true;
       return;
     }
     if (target.isConnected && !target.dataset.hit) missNightShiftTarget(target);
@@ -2757,6 +2758,7 @@ function scheduleNightShiftTarget(target, duration) {
     if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "none";
   }, Math.round(duration * 0.94));
   target.addEventListener("animationend", settle, { once: true });
+  timers.missStartedAt = Date.now();
   timers.miss = setTimeout(settle, timers.backstop);
   nightShiftTargetTimers.set(id, timers);
 }
@@ -3101,8 +3103,13 @@ document.addEventListener("visibilitychange", () => {
     nightShiftSpawnTimers.forEach((entry) => {
       if (entry.timer !== null) { clearTimeout(entry.timer); entry.timer = null; }
     });
+    document.body.classList.add("night-shift-paused");
     nightShiftTargetTimers.forEach((timers) => {
-      if (timers.miss !== null) { clearTimeout(timers.miss); timers.miss = null; }
+      if (timers.miss !== null) {
+        timers.missElapsed = Date.now() - timers.missStartedAt;
+        clearTimeout(timers.miss);
+        timers.miss = null;
+      }
     });
     return;
   }
@@ -3124,7 +3131,19 @@ document.addEventListener("visibilitychange", () => {
       if (entry.timer === null) { entry.due += paused; armNightShiftSpawn(entry); }
     });
     nightShiftTargetTimers.forEach((timers) => {
-      if (timers.settle && timers.miss === null) timers.miss = setTimeout(timers.settle, timers.backstop);
+      if (!timers.settle) return;
+      if (timers.endedWhileHidden) {
+        // The flight truly finished while we were away: settle it now, on
+        // the player's terms, instead of after a full random backstop delay.
+        timers.settle();
+        return;
+      }
+      if (timers.miss === null) {
+        const remaining = Math.max(250, timers.backstop - timers.missElapsed);
+        timers.missStartedAt = Date.now();
+        timers.missElapsed = 0;
+        timers.miss = setTimeout(timers.settle, remaining);
+      }
     });
     document.body.classList.remove("night-shift-paused");
     renderNightShiftHud("NIGHT SHIFT RESUMED · CLEAR THE SKYLINE");
