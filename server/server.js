@@ -211,7 +211,7 @@ function emitPendingInteractions(room, socket, player) {
   }
 }
 
-function reassignHostIfNeeded(room, departedPlayerId) {
+function reassignHostIfNeeded( {broken syntax here(room, departedPlayerId) {
   if (!room) return;
   if (room.hostId !== departedPlayerId) return;
   const available = room.game.players.find(p => !p.disconnected && !p.bankrupt && p.id !== departedPlayerId);
