@@ -32,6 +32,8 @@ Then open `http://localhost:8080` in your browser.
 
 For Instructions see [Instructions.md](Instructions.md).
 
+For how contributions flow (branches, PRs, CI, reviews), see [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md).
+
 | Layer | Technology |
 |---|---|
 | Server | Node.js, Express |
