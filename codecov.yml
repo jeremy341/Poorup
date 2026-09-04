@@ -1,0 +1,20 @@
+# Codecov — Poorup. Policy: new code must not make the project worse.
+# Baseline is intentionally gentle (project ~64% server-side at adoption).
+coverage:
+  precision: 1
+  round: down
+  status:
+    project:
+      default:
+        target: auto        # compare against the base commit
+        threshold: 2%       # fail only if overall coverage drops > 2 points
+    patch:
+      default:
+        informational: true # changed-line % reported on PRs, never blocks (v1)
+comment:
+  layout: "header, diff, files"
+  behavior: default
+flags:
+  server:
+    paths:
+      - server/
