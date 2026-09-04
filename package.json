@@ -6,10 +6,18 @@
   "scripts": {
     "dev": "node server/server.js",
     "start": "node server/server.js",
-    "test": "node server/gameLogic.test.js"
+    "test": "node server/gameLogic.test.js",
+    "lint": "eslint server",
+    "coverage": "c8 --reporter=text --reporter=lcov node server/gameLogic.test.js"
   },
   "dependencies": {
     "express": "^4.21.0",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "c8": "^12.0.0",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0"
   }
 }
