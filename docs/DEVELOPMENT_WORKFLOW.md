@@ -105,9 +105,12 @@ npm run coverage   # c8 → coverage/lcov.info + text table (~64% baseline)
 
 ## Secrets & tokens
 
-- `CODECOV_TOKEN` lives in repo **Settings → Secrets and variables → Actions**
-  (name exactly that). It must never appear in a workflow file literal, in
-  source code, or in logs.
+- Codecov uploads worked with **no token** on this public repo (verified on
+  PR #1: codecov-action v5 via GitHub OIDC). If a private mirror ever appears
+  or uploads start failing, add the repo's Global Upload Token from
+  app.codecov.io as a secret named exactly `CODECOV_TOKEN` under
+  **Settings → Secrets and variables → Actions** — never in a committed file
+  or log.
 - Sentry DSNs, when introduced: server DSN via environment variable at
   deploy time; browser DSN is publishable by design but still gets its own
   PR with the scrubbing rules from the Sentry plan.
