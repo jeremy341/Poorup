@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { participantFromPlayer } from './participantFields.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -289,68 +290,7 @@ export class AccountStore {
     const placementById = new Map([...players]
       .sort((a, b) => Number(Boolean(a.bankrupt)) - Number(Boolean(b.bankrupt)) || (Number(b.cash) || 0) - (Number(a.cash) || 0))
       .map((player, index) => [player.id, index + 1]));
-    const participants = players.filter(player => player).map(player => ({
-      accountId: player.accountId,
-      displayNameAtMatch: player.nickname,
-      colorAtMatch: player.color,
-      finalPlacement: placementById.get(player.id) || (player.id === winnerId ? 1 : null),
-      endingCash: Math.max(0, Number(player.cash) || 0),
-      propertyCount: Array.isArray(player.properties) ? player.properties.length : 0,
-     bankrupt: Boolean(player.bankrupt),
-      disconnected: Boolean(player.disconnected),
-      auctionWins: Math.max(0, Number(player.auctionWins) || 0),
-      rentCollected: Math.max(0, Number(player.rentCollected) || 0),
-      globalEventsExperienced: Math.max(0, Number(player.globalEventsExperienced) || 0),
-      globalEventsSurvived: Math.max(0, Number(player.globalEventsSurvived) || 0),
-      casinoNet: Number(player.casinoNet) || 0,
-      casinoBets: Array.isArray(player.casinoLedger) ? player.casinoLedger.length : 0,
-      casinoMaxStake: Math.max(0, Number(player.casinoMaxStake) || 0),
-      casinoTotalStaked: Math.max(0, Number(player.casinoTotalStaked) || 0),
-      casinoAllIn: player.casinoAllIn === true,
-      casinoOneDollar: player.casinoOneDollar === true,
-      marketTrades: Math.max(0, Number(player.marketTrades) || 0),
-      crisisMarketProfit: player.crisisMarketProfit === true,
-      bankLoanStatus: typeof player.bankLoan?.status === 'string' ? player.bankLoan.status : null,
-      bankLoanDefaulted: player.bankLoan?.status === 'defaulted',
-      bankLoanCount: Math.max(0, Number(player.bankLoanCount) || 0),
-      airportVisits: player.airportVisits instanceof Set ? player.airportVisits.size : 0,
-      taxTilesVisited: player.taxTilesVisited instanceof Set ? player.taxTilesVisited.size : 0,
-      maxRentPayersInRound: Math.max(0, Number(player.maxRentPayersInRound) || 0),
-      auctionUnderListWins: Math.max(0, Number(player.auctionUnderListWins) || 0),
-      loanWarningSeen: player.loanWarningSeen === true,
-      badIdeaLoan: player.badIdeaLoan === true,
-      prisonBreak: player.prisonBreak === true,
-      fullGroups: player.fullGroups instanceof Set ? player.fullGroups.size : 0,
-      evenBuilds: Math.max(0, Number(player.evenBuilds) || 0),
-      councilWins: Math.max(0, Number(player.councilWins) || 0),
-      publicWorksBuilds: Math.max(0, Number(player.publicWorksBuilds) || 0),
-      cardDraws: { ...(player.cardDraws || {}) },
-      zeroCashReached: player.zeroCashReached === true,
-      collateralLost: player.collateralLost === true,
-      comboExperienced: player.comboExperienced === true,
-      bubbleSurvivor: player.bubbleSurvivor === true,
-      rebuiltAfterHousingBubble: player.rebuiltAfterHousingBubble === true,
-      foreclosureNoSecondLoan: player.foreclosureNoSecondLoan === true,
-      housingBubbleEnded: player.housingBubbleEnded === true,
-      soldBuildingsDuringHousingBubble: Math.max(0, Number(player.soldBuildingsDuringHousingBubble) || 0),
-      boughtDuringHousingBubble: player.boughtDuringHousingBubble === true,
-      airportOwnedDuringStrike: player.airportOwnedDuringStrike === true,
-      nonAirportRentDuringStrike: player.nonAirportRentDuringStrike === true,
-      tradesDuringCombo: Math.max(0, Number(player.tradesDuringCombo) || 0),
-      groupTherapyTrade: player.groupTherapyTrade === true,
-      unanimousVote: player.unanimousVote === true,
-      publicEnemy: player.publicEnemy === true,
-      compromisedCouncil: player.compromisedCouncil === true,
-      coalitionTrade: player.coalitionTrade === true,
-      bailoutReceived: player.bailoutReceived === true,
-      moralHazard: player.moralHazard === true,
-      treasureCardsSeen: player.treasureCardsSeen instanceof Set ? player.treasureCardsSeen.size : 0,
-      treasureCardsSeenList: player.treasureCardsSeen instanceof Set ? [...player.treasureCardsSeen].slice(0, 32) : [],
-      underdogAtHalfway: player.underdogAtHalfway === true,
-      oneMoreTurn: player.oneMoreTurn === true,
-      moveCount: Math.max(0, Number(player.moveCount) || 0),
-      hiddenMovementSequence: player.hiddenMovementSequence === true,
-    }));
+    const participants = players.filter(player => player).map(player => participantFromPlayer(player, { placementById, winnerId }));
     const matchRecord = {
       matchId,
       completedAt: matchMeta.completedAt || new Date().toISOString(),
