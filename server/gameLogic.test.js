@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { DeterministicAdvisor, DeepSeekAdvisor } from './botAdvisor.js';
 import { AchievementStore } from './achievementStore.js';
+import { AccountStore } from './accountStore.js';
+import { MatchStore } from './matchStore.js';
+import fs from 'node:fs';
 
 function makeRoom() {
   const manager = new RoomManager();
@@ -502,6 +505,268 @@ async function testExplicitEndTurn() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stores characterization. The FIX_* fixtures below and the GOLDEN_* constants
+// were captured verbatim from the pre-refactor stores (main @ e23788d, 2026-09-04).
+// Dynamic ids/timestamps normalize to sentinels (<iso>, <uuid>, <acct>). This pins
+// current outputs so the participant-schema extraction must be equivalent.
+// ---------------------------------------------------------------------------
+
+const replaceAcctSentinel = (value, acctId) => {
+  if (typeof value === 'string') return value === '<acct>' ? acctId : value;
+  if (Array.isArray(value)) return value.map((item) => replaceAcctSentinel(item, acctId));
+  if (value && typeof value === 'object' && !(value instanceof Set)) {
+    const next = {};
+    for (const key of Object.keys(value)) next[key] = replaceAcctSentinel(value[key], acctId);
+    return next;
+  }
+  return value;
+};
+
+const normalizeDynamic = (value) => {
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return '<iso>';
+    if (/^match_[0-9a-f-]{36}$/.test(value)) return '<uuid>';
+    if (/^acct_[0-9a-f-]{36}$/.test(value)) return '<acct>';
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(normalizeDynamic);
+  if (value && typeof value === 'object') {
+    const next = {};
+    for (const key of Object.keys(value)) {
+      // undefined-valued own keys are invisible in the JSON form the stores
+      // persist; strip them so deepEqual compares the persisted contract.
+      if (value[key] === undefined) continue;
+      next[key] = normalizeDynamic(value[key]);
+    }
+    return next;
+  }
+  return value;
+};
+
+const FIX_garbage = {
+  matchId: 'x'.repeat(200),
+  completedAt: 12345,
+  durationSeconds: 'nope',
+  roundCount: -5,
+  roomVisibility: 'SECRET',
+  participants: 'not-an-array',
+  globalEvents: ['a', 3, 'b'],
+  eventCombinations: null,
+  tradesCompleted: 'many',
+  auctionsCompleted: {},
+  casino: [{ accountId: 7, bets: '2.5', net: 'bad' }],
+  market: [{ accountId: 'm1', positions: 'nope' }],
+  playerContracts: [{ id: 'i', kind: 'weird', fromAccountId: 5, amount: '-3', status: 's'.repeat(50), premiumRate: 'r', equityShare: null, collateralTileIndex: 'abc' }],
+}
+const FIX_nullparts = { matchId: 'm-null', participants: null }
+const FIX_full = {
+  matchId: 'm-full',
+  completedAt: '2026-09-04T00:00:00.000Z',
+  durationSeconds: 600.5,
+  roundCount: 3,
+  roomVisibility: 'private',
+  participants: [
+    {
+      accountId: 'a1',
+      displayNameAtMatch: 'P'.repeat(50),
+      colorAtMatch: '#abc',
+      finalPlacement: 0,
+      endingCash: '1500',
+      propertyCount: 2,
+      bankrupt: 'yes',
+      disconnected: true,
+      auctionWins: 1,
+      rentCollected: '10.9',
+      globalEventsExperienced: 2,
+      globalEventsSurvived: 1,
+      casinoNet: -50,
+      casinoBets: 8,
+      casinoMaxStake: 100,
+      casinoTotalStaked: 200,
+      casinoAllIn: true,
+      casinoOneDollar: false,
+      marketTrades: 10,
+      crisisMarketProfit: true,
+      bankLoanStatus: 'defaulted',
+      bankLoanDefaulted: true,
+      bankLoanCount: 2,
+      airportVisits: 4,
+      taxTilesVisited: 1,
+      maxRentPayersInRound: 3,
+      auctionUnderListWins: 1,
+      loanWarningSeen: true,
+      badIdeaLoan: true,
+      prisonBreak: true,
+      fullGroups: 1,
+      evenBuilds: 2,
+      councilWins: 1,
+      publicWorksBuilds: 1,
+      cardDraws: { surprise: 2, treasure: '3' },
+      zeroCashReached: true,
+      collateralLost: true,
+      comboExperienced: true,
+      bubbleSurvivor: true,
+      rebuiltAfterHousingBubble: true,
+      foreclosureNoSecondLoan: true,
+      housingBubbleEnded: true,
+      soldBuildingsDuringHousingBubble: 3,
+      boughtDuringHousingBubble: true,
+      airportOwnedDuringStrike: true,
+      nonAirportRentDuringStrike: false,
+      tradesDuringCombo: 1,
+      groupTherapyTrade: true,
+      unanimousVote: true,
+      publicEnemy: true,
+      compromisedCouncil: true,
+      coalitionTrade: true,
+      bailoutReceived: true,
+      moralHazard: true,
+      treasureCardsSeen: 16,
+      treasureCardsSeenList: ['t'.repeat(200)].concat(Array.from({ length: 40 }, (_, i) => `c${i}`)),
+      underdogAtHalfway: true,
+      oneMoreTurn: true,
+      moveCount: 25,
+      hiddenMovementSequence: true,
+    },
+    // every field missing
+    { accountId: 'a2' },
+  ],
+  globalEvents: Array.from({ length: 25 }, (_, i) => `E${i}x`.repeat(50)),
+  eventCombinations: ['stagflation', 7],
+  tradesCompleted: 5,
+  auctionsCompleted: 2,
+  casino: [{ accountId: 'a1', bets: 8, net: -50 }],
+  market: [{ accountId: 'a1', positions: { X: { realizedPnl: 10 } } }],
+  playerContracts: [
+    { id: 'c1', kind: 'equity', fromAccountId: 'a1', toAccountId: 'a2', fromPlayerId: 'p1', toPlayerId: 'p2', amount: 500, status: 'paid', premiumRate: 0.1, equityShare: 0.2, collateralTileIndex: 12 },
+    { id: 'c2', kind: 'loan', fromAccountId: 'a1', toAccountId: 'a2', amount: 'x', status: 'active', premiumRate: -1, equityShare: 'y', collateralTileIndex: 'z' },
+  ],
+}
+const FIX_contractInput = {
+  participants: [{ accountId: 'x1' }, { accountId: 'x2' }],
+  playerContracts: [
+    { kind: 'loan', status: 'paid', fromAccountId: 'x1', collateralTileIndex: null },
+    { kind: 'loan', status: 'defaulted', fromAccountId: 'x1', collateralTileIndex: 5 },
+    { kind: 'loan', status: 'paid', fromAccountId: 'x2', collateralTileIndex: null },
+  ],
+}
+const FIX_histInputY = { participants: [{ accountId: 'y', treasureCardsSeenList: ['a', 'b'] }] }
+const FIX_histInputZ = { participants: [{ accountId: 'z', treasureCardsSeenList: ['a', 'b'] }] }
+const FIX_histPastZ = [{ participants: [{ accountId: 'z', treasureCardsSeenList: ['c', 'd'] }] }]
+const FIX_playerFull = {
+  id: 'p1', accountId: '<acct>', nickname: 'FN', color: '#fff', cash: 1234,
+  properties: [1, 2, 3], bankrupt: false, disconnected: false,
+  auctionWins: 2, rentCollected: 300, globalEventsExperienced: 2, globalEventsSurvived: 1,
+  casinoLedger: [1, 2, 3], casinoMaxStake: 90, casinoTotalStaked: 240, casinoAllIn: true, casinoOneDollar: true,
+  marketTrades: 11, crisisMarketProfit: true,
+  bankLoan: { status: 'paid' }, bankLoanCount: 2,
+  airportVisits: new Set([1, 2, 3, 4]), taxTilesVisited: new Set(['tax1']),
+  maxRentPayersInRound: 3, auctionUnderListWins: 1, loanWarningSeen: true, badIdeaLoan: true, prisonBreak: true,
+  fullGroups: new Set(['g1']), evenBuilds: 3, councilWins: 1, publicWorksBuilds: 2,
+  cardDraws: { surprise: 1, treasure: 2 },
+  zeroCashReached: true, collateralLost: true, comboExperienced: true, bubbleSurvivor: true,
+  rebuiltAfterHousingBubble: true, foreclosureNoSecondLoan: true, housingBubbleEnded: true,
+  soldBuildingsDuringHousingBubble: 4, boughtDuringHousingBubble: true,
+  airportOwnedDuringStrike: true, nonAirportRentDuringStrike: true,
+  tradesDuringCombo: 2, groupTherapyTrade: true, unanimousVote: true, publicEnemy: true,
+  compromisedCouncil: true, coalitionTrade: true, bailoutReceived: true, moralHazard: true,
+  treasureCardsSeen: new Set(['t1', 't2']), underdogAtHalfway: true, oneMoreTurn: true,
+  moveCount: 30, hiddenMovementSequence: true,
+}
+const FIX_playerDefaulted = { id: 'p2', accountId: '<acct>', bankLoan: { status: 'defaulted' }, cash: '2.9' }
+const FIX_meta = {
+  gameId: 'game-1', completedAt: '2026-09-04T00:00:00.000Z', durationSeconds: 900, roundCount: 5,
+  roomVisibility: 'private', globalEvents: Array.from({ length: 25 }, (_, i) => `e${i}`),
+  eventCombinations: ['a'], tradesCompleted: 3, auctionsCompleted: 4,
+  casino: [{ accountId: '<acct>', bets: 3, net: -10 }],
+  market: [{ accountId: '<acct>', positions: { A: { realizedPnl: '5' }, B: { realizedPnl: 'junk' } } }],
+  playerContracts: [
+    { kind: 'loan', status: 'paid', fromAccountId: '<acct>', toAccountId: 'other' },
+    { kind: 'loan', status: 'defaulted', fromAccountId: 'other', toAccountId: '<acct>' },
+    { kind: 'loan', status: 'active', fromAccountId: '<acct>', toAccountId: 'other' },
+    { kind: 'equity', status: 'paid', fromAccountId: 'other', toAccountId: '<acct>' },
+  ],
+}
+const GOLDEN_GARBAGE = {"matchId":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","completedAt":"<iso>","durationSeconds":0,"roundCount":0,"roomVisibility":"public","participants":[],"globalEvents":["a","b"],"eventCombinations":[],"tradesCompleted":0,"auctionsCompleted":0,"casino":[{"accountId":null,"bets":2.5,"net":0}],"market":[{"accountId":"m1","positions":{}}],"playerContracts":[{"id":"i","kind":"loan","fromAccountId":null,"toAccountId":null,"fromPlayerId":null,"toPlayerId":null,"amount":0,"status":"ssssssssssssssssssss","premiumRate":0,"equityShare":0,"collateralTileIndex":null}]};
+const GOLDEN_NULLPARTS = {"created":true,"match":{"matchId":"m-null","completedAt":"<iso>","durationSeconds":0,"roundCount":0,"roomVisibility":"public","participants":[],"globalEvents":[],"eventCombinations":[],"tradesCompleted":0,"auctionsCompleted":0,"casino":[],"market":[],"playerContracts":[]}};
+const GOLDEN_FULL = {"matchId":"m-full","completedAt":"<iso>","durationSeconds":600.5,"roundCount":3,"roomVisibility":"private","participants":[{"accountId":"a1","displayNameAtMatch":"PPPPPPPPPPPPPPPPPPPPPPPP","colorAtMatch":"#abc","finalPlacement":1,"endingCash":1500,"propertyCount":2,"bankrupt":false,"disconnected":true,"auctionWins":1,"rentCollected":10.9,"globalEventsExperienced":2,"globalEventsSurvived":1,"casinoNet":-50,"casinoBets":8,"casinoMaxStake":100,"casinoTotalStaked":200,"casinoAllIn":true,"casinoOneDollar":false,"marketTrades":10,"crisisMarketProfit":true,"bankLoanStatus":"defaulted","bankLoanDefaulted":true,"bankLoanCount":2,"airportVisits":4,"taxTilesVisited":1,"maxRentPayersInRound":3,"auctionUnderListWins":1,"loanWarningSeen":true,"badIdeaLoan":true,"prisonBreak":true,"fullGroups":1,"evenBuilds":2,"councilWins":1,"publicWorksBuilds":1,"cardDraws":{"surprise":2,"treasure":3},"zeroCashReached":true,"collateralLost":true,"comboExperienced":true,"bubbleSurvivor":true,"rebuiltAfterHousingBubble":true,"foreclosureNoSecondLoan":true,"housingBubbleEnded":true,"soldBuildingsDuringHousingBubble":3,"boughtDuringHousingBubble":true,"airportOwnedDuringStrike":true,"nonAirportRentDuringStrike":false,"tradesDuringCombo":1,"groupTherapyTrade":true,"unanimousVote":true,"publicEnemy":true,"compromisedCouncil":true,"coalitionTrade":true,"bailoutReceived":true,"moralHazard":true,"treasureCardsSeen":16,"treasureCardsSeenList":["tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt","c0","c1","c2","c3","c4","c5","c6","c7","c8","c9","c10","c11","c12","c13","c14","c15","c16","c17","c18","c19","c20","c21","c22","c23","c24","c25","c26","c27","c28","c29","c30"],"underdogAtHalfway":true,"oneMoreTurn":true,"moveCount":25,"hiddenMovementSequence":true},{"accountId":"a2","displayNameAtMatch":"PLAYER","colorAtMatch":"#35a653","finalPlacement":null,"endingCash":0,"propertyCount":0,"bankrupt":false,"disconnected":false,"auctionWins":0,"rentCollected":0,"globalEventsExperienced":0,"globalEventsSurvived":0,"casinoNet":0,"casinoBets":0,"casinoMaxStake":0,"casinoTotalStaked":0,"casinoAllIn":false,"casinoOneDollar":false,"marketTrades":0,"crisisMarketProfit":false,"bankLoanStatus":null,"bankLoanDefaulted":false,"bankLoanCount":0,"airportVisits":0,"taxTilesVisited":0,"maxRentPayersInRound":0,"auctionUnderListWins":0,"loanWarningSeen":false,"badIdeaLoan":false,"prisonBreak":false,"fullGroups":0,"evenBuilds":0,"councilWins":0,"publicWorksBuilds":0,"cardDraws":{"surprise":0,"treasure":0},"zeroCashReached":false,"collateralLost":false,"comboExperienced":false,"bubbleSurvivor":false,"rebuiltAfterHousingBubble":false,"foreclosureNoSecondLoan":false,"housingBubbleEnded":false,"soldBuildingsDuringHousingBubble":0,"boughtDuringHousingBubble":false,"airportOwnedDuringStrike":false,"nonAirportRentDuringStrike":false,"tradesDuringCombo":0,"groupTherapyTrade":false,"unanimousVote":false,"publicEnemy":false,"compromisedCouncil":false,"coalitionTrade":false,"bailoutReceived":false,"moralHazard":false,"treasureCardsSeen":0,"treasureCardsSeenList":[],"underdogAtHalfway":false,"oneMoreTurn":false,"moveCount":0,"hiddenMovementSequence":false}],"globalEvents":["E0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE0xE","E1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE1xE","E2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE2xE","E3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE3xE","E4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE4xE","E5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE5xE","E6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE6xE","E7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE7xE","E8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE8xE","E9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE9xE","E10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10xE10x","E11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11xE11x","E12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12xE12x","E13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13xE13x","E14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14xE14x","E15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15xE15x","E16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16xE16x","E17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17xE17x","E18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18xE18x","E19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19xE19x"],"eventCombinations":["stagflation"],"tradesCompleted":5,"auctionsCompleted":2,"casino":[{"accountId":"a1","bets":8,"net":-50}],"market":[{"accountId":"a1","positions":{"X":{"realizedPnl":10}}}],"playerContracts":[{"id":"c1","kind":"equity","fromAccountId":"a1","toAccountId":"a2","fromPlayerId":"p1","toPlayerId":"p2","amount":500,"status":"paid","premiumRate":0.1,"equityShare":0.2,"collateralTileIndex":12},{"id":"c2","kind":"loan","fromAccountId":"a1","toAccountId":"a2","fromPlayerId":null,"toPlayerId":null,"amount":0,"status":"active","premiumRate":0,"equityShare":0,"collateralTileIndex":null}]};
+const GOLDEN_LIST = 1;
+const GOLDEN_AGAIN = {"firstCreated":true,"secondCreated":false,"sameRef":true};
+const GOLDEN_ACH = [{"accountId":"a1","achievementId":"first-deed","title":"FIRST DEED","rarity":"COMMON","body":"You bought your first property."},{"accountId":"a1","achievementId":"last-wallet-standing","title":"LAST WALLET STANDING","rarity":"COMMON","body":"You were the last wallet standing."},{"accountId":"a1","achievementId":"full-street","title":"FULL STREET","rarity":"UNCOMMON","body":"You completed a country property group."},{"accountId":"a1","achievementId":"even-builder","title":"EVEN BUILDER","rarity":"UNCOMMON","body":"You built while keeping the street balanced."},{"accountId":"a1","achievementId":"council-member","title":"COUNCIL MEMBER","rarity":"UNCOMMON","body":"You backed the policy that won the table vote."},{"accountId":"a1","achievementId":"public-works","title":"PUBLIC WORKS","rarity":"RARE","body":"You built through a public-works policy."},{"accountId":"a1","achievementId":"auction-ghost","title":"AUCTION GHOST","rarity":"RARE","body":"You won an auction below the listed price."},{"accountId":"a1","achievementId":"rent-reaper","title":"RENT REAPER","rarity":"RARE","body":"You collected rent from three players in one round."},{"accountId":"a1","achievementId":"airport-hopper","title":"AIRPORT HOPPER","rarity":"UNCOMMON","body":"You visited every airport."},{"accountId":"a1","achievementId":"liquidity-king","title":"LIQUIDITY KING","rarity":"EPIC","body":"You finished with more cash than the rest of the table combined."},{"accountId":"a1","achievementId":"bad-idea-good-timing","title":"BAD IDEA, GOOD TIMING","rarity":"RARE","body":"You survived after borrowing from the edge."},{"accountId":"a1","achievementId":"prison-break","title":"PRISON BREAK","rarity":"RARE","body":"You used a prison card and still won."},{"accountId":"a1","achievementId":"no-refunds","title":"NO REFUNDS","rarity":"RARE","body":"You won after reaching the loan warning."},{"accountId":"a1","achievementId":"roulette-regular","title":"ROULETTE REGULAR","rarity":"RARE","body":"You placed eight roulette bets in one game."},{"accountId":"a1","achievementId":"all-in","title":"ALL IN","rarity":"EPIC","body":"You risked your available capital on one roulette stake."},{"accountId":"a1","achievementId":"first-index","title":"FIRST INDEX","rarity":"COMMON","body":"You entered the fictional exchange."},{"accountId":"a1","achievementId":"market-maker","title":"MARKET MAKER","rarity":"RARE","body":"You completed ten market orders in one game."},{"accountId":"a1","achievementId":"crisis-investor","title":"CRISIS INVESTOR","rarity":"EPIC","body":"You bought through a crisis and profited after recovery."},{"accountId":"a1","achievementId":"fire-sale","title":"FIRE SALE","rarity":"RARE","body":"You sold three buildings while the housing market was in crisis."},{"accountId":"a1","achievementId":"bubble-survivor","title":"BUBBLE SURVIVOR","rarity":"EPIC","body":"You kept a developed deed through the housing crash."},{"accountId":"a1","achievementId":"short-the-street","title":"SHORT THE STREET","rarity":"EPIC","body":"You sold into the crash and rebuilt after recovery."},{"accountId":"a1","achievementId":"underdog","title":"THE UNDERDOG","rarity":"RARE","body":"You were last in cash at the midpoint and still won."},{"accountId":"a1","achievementId":"one-more-turn","title":"ONE MORE TURN","rarity":"EPIC","body":"You repaid a loan on its final cure round."},{"accountId":"a1","achievementId":"group-therapy","title":"GROUP THERAPY","rarity":"UNCOMMON","body":"You completed a trade involving three properties."},{"accountId":"a1","achievementId":"coalition-builder","title":"COALITION BUILDER","rarity":"RARE","body":"You traded with a player who backed a different policy."},{"accountId":"a1","achievementId":"unanimous","title":"UNANIMOUS","rarity":"RARE","body":"Every active player chose the same policy."},{"accountId":"a1","achievementId":"public-enemy","title":"PUBLIC ENEMY","rarity":"LEGENDARY","body":"The table voted to enforce an investigation against your portfolio."},{"accountId":"a1","achievementId":"compromised-council","title":"COMPROMISED COUNCIL","rarity":"LEGENDARY","body":"You chose the quiet exit when the legitimacy crisis reached the council."},{"accountId":"a1","achievementId":"stagflation-trader","title":"STAGFLATION TRADER","rarity":"EPIC","body":"You completed a trade through the stagflation squeeze."},{"accountId":"a1","achievementId":"moral-hazard","title":"MORAL HAZARD","rarity":"EPIC","body":"You took the bailout while already carrying a bank loan."},{"accountId":"a1","achievementId":"41st-tile","title":"THE 41ST TILE","rarity":"MYTHICAL","body":"There are forty tiles. You stepped on one more."},{"accountId":"a1","achievementId":"null-player","title":"THE NULL PLAYER","rarity":"MYTHICAL","body":"Your wallet was empty. The turn continued."},{"accountId":"a1","achievementId":"black-ledger","title":"THE BLACK LEDGER","rarity":"MYTHICAL","body":"The bank closed the book. Something inside kept counting."},{"accountId":"a1","achievementId":"crisis-manager","title":"CRISIS MANAGER","rarity":"RARE","body":"You stayed solvent through a global headline."},{"accountId":"a1","achievementId":"double-headline","title":"DOUBLE HEADLINE","rarity":"LEGENDARY","body":"You survived two global headlines in one game."},{"accountId":"a1","achievementId":"treasure-map","title":"TREASURE MAP","rarity":"EPIC","body":"You drew every Treasure card across your account history."},{"accountId":"a1","achievementId":"event-tourist","title":"EVENT TOURIST","rarity":"RARE","body":"You experienced three different global events."},{"accountId":"a2","achievementId":"double-headline","title":"DOUBLE HEADLINE","rarity":"LEGENDARY","body":"You survived two global headlines in one game."},{"accountId":"a2","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."},{"accountId":"a2","achievementId":"event-tourist","title":"EVENT TOURIST","rarity":"RARE","body":"You experienced three different global events."}];
+const GOLDEN_ACH2 = [{"accountId":"x1","achievementId":"generous-lender","title":"GENEROUS LENDER","rarity":"UNCOMMON","body":"You funded a player loan that was fully repaid."},{"accountId":"x1","achievementId":"silent-partner","title":"SILENT PARTNER","rarity":"RARE","body":"You completed a player loan without collateral."},{"accountId":"x1","achievementId":"collateral-damage","title":"COLLATERAL DAMAGE","rarity":"RARE","body":"A player loan default cost the collateral deed."},{"accountId":"x1","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."},{"accountId":"x2","achievementId":"generous-lender","title":"GENEROUS LENDER","rarity":"UNCOMMON","body":"You funded a player loan that was fully repaid."},{"accountId":"x2","achievementId":"silent-partner","title":"SILENT PARTNER","rarity":"RARE","body":"You completed a player loan without collateral."},{"accountId":"x2","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."}];
+const GOLDEN_HIST = {"h1":[{"accountId":"y","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."}],"h2":[{"accountId":"z","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."}]};
+const GOLDEN_REC1 = {"matchId":"game-1","completedAt":"<iso>","durationSeconds":900,"roundCount":5,"roomVisibility":"private","participants":[{"accountId":"<acct>","displayNameAtMatch":"FN","colorAtMatch":"#fff","finalPlacement":1,"endingCash":1234,"propertyCount":3,"bankrupt":false,"disconnected":false,"auctionWins":2,"rentCollected":300,"globalEventsExperienced":2,"globalEventsSurvived":1,"casinoNet":0,"casinoBets":3,"casinoMaxStake":90,"casinoTotalStaked":240,"casinoAllIn":true,"casinoOneDollar":true,"marketTrades":11,"crisisMarketProfit":true,"bankLoanStatus":"paid","bankLoanDefaulted":false,"bankLoanCount":2,"airportVisits":4,"taxTilesVisited":1,"maxRentPayersInRound":3,"auctionUnderListWins":1,"loanWarningSeen":true,"badIdeaLoan":true,"prisonBreak":true,"fullGroups":1,"evenBuilds":3,"councilWins":1,"publicWorksBuilds":2,"cardDraws":{"surprise":1,"treasure":2},"zeroCashReached":true,"collateralLost":true,"comboExperienced":true,"bubbleSurvivor":true,"rebuiltAfterHousingBubble":true,"foreclosureNoSecondLoan":true,"housingBubbleEnded":true,"soldBuildingsDuringHousingBubble":4,"boughtDuringHousingBubble":true,"airportOwnedDuringStrike":true,"nonAirportRentDuringStrike":true,"tradesDuringCombo":2,"groupTherapyTrade":true,"unanimousVote":true,"publicEnemy":true,"compromisedCouncil":true,"coalitionTrade":true,"bailoutReceived":true,"moralHazard":true,"treasureCardsSeen":2,"treasureCardsSeenList":["t1","t2"],"underdogAtHalfway":true,"oneMoreTurn":true,"moveCount":30,"hiddenMovementSequence":true},{"accountId":"<acct>","finalPlacement":2,"endingCash":2.9,"propertyCount":0,"bankrupt":false,"disconnected":false,"auctionWins":0,"rentCollected":0,"globalEventsExperienced":0,"globalEventsSurvived":0,"casinoNet":0,"casinoBets":0,"casinoMaxStake":0,"casinoTotalStaked":0,"casinoAllIn":false,"casinoOneDollar":false,"marketTrades":0,"crisisMarketProfit":false,"bankLoanStatus":"defaulted","bankLoanDefaulted":true,"bankLoanCount":0,"airportVisits":0,"taxTilesVisited":0,"maxRentPayersInRound":0,"auctionUnderListWins":0,"loanWarningSeen":false,"badIdeaLoan":false,"prisonBreak":false,"fullGroups":0,"evenBuilds":0,"councilWins":0,"publicWorksBuilds":0,"cardDraws":{},"zeroCashReached":false,"collateralLost":false,"comboExperienced":false,"bubbleSurvivor":false,"rebuiltAfterHousingBubble":false,"foreclosureNoSecondLoan":false,"housingBubbleEnded":false,"soldBuildingsDuringHousingBubble":0,"boughtDuringHousingBubble":false,"airportOwnedDuringStrike":false,"nonAirportRentDuringStrike":false,"tradesDuringCombo":0,"groupTherapyTrade":false,"unanimousVote":false,"publicEnemy":false,"compromisedCouncil":false,"coalitionTrade":false,"bailoutReceived":false,"moralHazard":false,"treasureCardsSeen":0,"treasureCardsSeenList":[],"underdogAtHalfway":false,"oneMoreTurn":false,"moveCount":0,"hiddenMovementSequence":false}],"globalEvents":["e0","e1","e2","e3","e4","e5","e6","e7","e8","e9","e10","e11","e12","e13","e14","e15","e16","e17","e18","e19"],"eventCombinations":["a"],"tradesCompleted":3,"auctionsCompleted":4,"casino":[{"accountId":"<acct>","bets":3,"net":-10}],"market":[{"accountId":"<acct>","positions":{"A":{"realizedPnl":"5"},"B":{"realizedPnl":"junk"}}}],"playerContracts":[{"kind":"loan","status":"paid","fromAccountId":"<acct>","toAccountId":"other"},{"kind":"loan","status":"defaulted","fromAccountId":"other","toAccountId":"<acct>"},{"kind":"loan","status":"active","fromAccountId":"<acct>","toAccountId":"other"},{"kind":"equity","status":"paid","fromAccountId":"other","toAccountId":"<acct>"}]};
+const GOLDEN_ACCT = {"id":"<acct>","username":"goldone","displayName":"G","color":"#d74438","avatarGrid":null,"stats":{"gamesPlayed":2,"wins":1,"bankruptcies":0,"auctionWins":2,"rentCollected":300,"eventSurvival":1,"casinoNet":-20,"marketProfit":10,"playerLoansGiven":4,"playerLoansRepaid":0,"playerLoanDefaults":2,"equityDeals":2,"bankLoansTaken":2,"bankLoanRepayments":1,"bankLoanDefaults":1,"patrolBest":0,"patrolAceRuns":0},"history":[{"matchId":"game-1","playedAt":"<iso>","result":"ROUND","won":false,"endingCash":2.9,"properties":0},{"matchId":"game-1","playedAt":"<iso>","result":"WIN","won":true,"endingCash":1234,"properties":3}],"achievements":[],"matchHistory":[{"matchId":"game-1"}],"privacy":{"history":"friends","achievements":"friends","friendRequests":"everyone","roomInvites":"friends"},"recentClearedAt":null,"createdAt":"<iso>"};
+const GOLDEN_REC2 = {"matchId":"<uuid>","completedAt":"<iso>","durationSeconds":0,"roundCount":0,"roomVisibility":"public","participants":[],"globalEvents":[],"eventCombinations":[],"tradesCompleted":0,"auctionsCompleted":0,"casino":[],"market":[],"playerContracts":[]};
+const GOLDEN_REC3 = {"participants":[{"accountId":null,"finalPlacement":2,"endingCash":0,"propertyCount":0,"bankrupt":true,"disconnected":false,"auctionWins":0,"rentCollected":0,"globalEventsExperienced":0,"globalEventsSurvived":0,"casinoNet":0,"casinoBets":0,"casinoMaxStake":0,"casinoTotalStaked":0,"casinoAllIn":false,"casinoOneDollar":false,"marketTrades":0,"crisisMarketProfit":false,"bankLoanStatus":null,"bankLoanDefaulted":false,"bankLoanCount":0,"airportVisits":0,"taxTilesVisited":0,"maxRentPayersInRound":0,"auctionUnderListWins":0,"loanWarningSeen":false,"badIdeaLoan":false,"prisonBreak":false,"fullGroups":0,"evenBuilds":0,"councilWins":0,"publicWorksBuilds":0,"cardDraws":{},"zeroCashReached":false,"collateralLost":false,"comboExperienced":false,"bubbleSurvivor":false,"rebuiltAfterHousingBubble":false,"foreclosureNoSecondLoan":false,"housingBubbleEnded":false,"soldBuildingsDuringHousingBubble":0,"boughtDuringHousingBubble":false,"airportOwnedDuringStrike":false,"nonAirportRentDuringStrike":false,"tradesDuringCombo":0,"groupTherapyTrade":false,"unanimousVote":false,"publicEnemy":false,"compromisedCouncil":false,"coalitionTrade":false,"bailoutReceived":false,"moralHazard":false,"treasureCardsSeen":0,"treasureCardsSeenList":[],"underdogAtHalfway":false,"oneMoreTurn":false,"moveCount":0,"hiddenMovementSequence":false},{"accountId":null,"finalPlacement":1,"endingCash":0,"propertyCount":0,"bankrupt":false,"disconnected":false,"auctionWins":0,"rentCollected":0,"globalEventsExperienced":0,"globalEventsSurvived":0,"casinoNet":0,"casinoBets":0,"casinoMaxStake":0,"casinoTotalStaked":0,"casinoAllIn":false,"casinoOneDollar":false,"marketTrades":0,"crisisMarketProfit":false,"bankLoanStatus":null,"bankLoanDefaulted":false,"bankLoanCount":0,"airportVisits":0,"taxTilesVisited":0,"maxRentPayersInRound":0,"auctionUnderListWins":0,"loanWarningSeen":false,"badIdeaLoan":false,"prisonBreak":false,"fullGroups":0,"evenBuilds":0,"councilWins":0,"publicWorksBuilds":0,"cardDraws":{},"zeroCashReached":false,"collateralLost":false,"comboExperienced":false,"bubbleSurvivor":false,"rebuiltAfterHousingBubble":false,"foreclosureNoSecondLoan":false,"housingBubbleEnded":false,"soldBuildingsDuringHousingBubble":0,"boughtDuringHousingBubble":false,"airportOwnedDuringStrike":false,"nonAirportRentDuringStrike":false,"tradesDuringCombo":0,"groupTherapyTrade":false,"unanimousVote":false,"publicEnemy":false,"compromisedCouncil":false,"coalitionTrade":false,"bailoutReceived":false,"moralHazard":false,"treasureCardsSeen":0,"treasureCardsSeenList":[],"underdogAtHalfway":false,"oneMoreTurn":false,"moveCount":0,"hiddenMovementSequence":false}],"completedAtIsString":"string"};
+
+const goldMatchesFile = 'server/data/__test_gold_matches.json';
+const goldAcctFile = 'server/data/__test_gold_acct.json';
+const goldAchFile = 'server/data/__test_gold_ach.json';
+
+function testStoresCharacterization() {
+  fs.rmSync(goldMatchesFile, { force: true });
+  fs.rmSync(goldAcctFile, { force: true });
+  fs.rmSync(goldAchFile, { force: true });
+  const store = new MatchStore(goldMatchesFile);
+  const garbage = store.record(FIX_garbage);
+  assert.deepEqual(normalizeDynamic(garbage.match), GOLDEN_GARBAGE, 'garbage-in record');
+  assert.equal(garbage.created, true, 'garbage-in created a record');
+  const nullparts = store.record(FIX_nullparts);
+  assert.deepEqual(normalizeDynamic(nullparts), GOLDEN_NULLPARTS, 'null participants');
+  const first = store.record(FIX_full);
+  assert.deepEqual(normalizeDynamic(first.match), GOLDEN_FULL, 'full record');
+  assert.equal(store.listForAccount('a1').length, GOLDEN_LIST, 'listForAccount');
+  const again = store.record(FIX_full);
+  assert.equal(again.created, false, 're-record is not created');
+  assert.equal(again.match, first.match, 're-record returns the stored object');
+  assert.deepEqual(normalizeDynamic({ firstCreated: first.created, secondCreated: again.created, sameRef: again.match === first.match }), GOLDEN_AGAIN, 'idempotent re-record');
+  const achievements = new AchievementStore(goldAchFile);
+  assert.deepEqual(
+    achievements.evaluateMatch(first.match, (accountId) => (accountId === 'a1' ? [first.match] : [])),
+    GOLDEN_ACH,
+    'evaluateMatch on the full record'
+  );
+  assert.deepEqual(achievements.evaluateMatch(FIX_contractInput), GOLDEN_ACH2, 'contract-driven achievements');
+  const h1 = achievements.evaluateMatch(FIX_histInputY, 'not-a-function');
+  const h2 = achievements.evaluateMatch(FIX_histInputZ, () => FIX_histPastZ);
+  assert.deepEqual(normalizeDynamic({ h1, h2 }), GOLDEN_HIST, 'history arg handling');
+  const accounts = new AccountStore(goldAcctFile);
+  const registered = accounts.register({ username: 'goldone', password: 'password123', displayName: 'G' });
+  assert.equal(registered.success, true);
+  const acctId = registered.account.id;
+  const rec1 = accounts.recordGameResults(
+    [replaceAcctSentinel(FIX_playerFull, acctId), replaceAcctSentinel(FIX_playerDefaulted, acctId)],
+    'p1',
+    replaceAcctSentinel(FIX_meta, acctId)
+  );
+  assert.deepEqual(normalizeDynamic(rec1), GOLDEN_REC1, 'recordGameResults match record');
+  const saved = { ...[...accounts.accounts.values()][0] };
+  delete saved.passwordSalt;
+  delete saved.passwordHash;
+  delete saved.sessionTokenHash;
+  const savedNormalized = normalizeDynamic(saved);
+  // The persisted matchHistory embeds a full copy of REC1; that shape is already
+  // pinned above, so only its matchId is compared here.
+  savedNormalized.matchHistory = savedNormalized.matchHistory.map((entry) => ({ matchId: entry.matchId }));
+  assert.deepEqual(savedNormalized, GOLDEN_ACCT, 'persisted account stats/history');
+  const rec2 = accounts.recordGameResults();
+  assert.deepEqual(normalizeDynamic(rec2), GOLDEN_REC2, 'recordGameResults with no args');
+  const rec3 = accounts.recordGameResults(
+    [
+      { id: 'w1', accountId: null, bankrupt: true, cash: 0 },
+      { id: 'w2', accountId: null, cash: 'NaN', properties: 'no' },
+    ],
+    'w1',
+    { gameId: 'game-2' }
+  );
+  assert.deepEqual(normalizeDynamic({ participants: rec3.participants, completedAtIsString: typeof rec3.completedAt }), GOLDEN_REC3, 'bankrupt winner placement order');
+  fs.rmSync(goldMatchesFile, { force: true });
+  fs.rmSync(goldAcctFile, { force: true });
+  fs.rmSync(goldAchFile, { force: true });
+}
+
 const CONTRACT_SUITES = [
   ['contract 7 — createRoom generated codes never overwrite', testCreateRoomCodeCollision],
   ['contract 6 — join/create color collision auto-assign', testJoinColorUniqueness],
@@ -510,7 +775,8 @@ const CONTRACT_SUITES = [
   ['contract 5 — listPublicRooms browse purity', testListPublicRooms],
   ['contract 8 — getGameSummary players[] avatarGrid', testGameSummaryAvatarGrid],
   ['contract 9 — leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame],
-  ['contract 10 — explicit end-turn hold after landing', testExplicitEndTurn]
+  ['contract 10 — explicit end-turn hold after landing', testExplicitEndTurn],
+  ['stores — participant schema + achievement characterization', testStoresCharacterization]
 ];
 
 let passedCount = 0;
