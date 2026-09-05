@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 import { fileURLToPath } from 'url';
+import path from 'path';
+import { loadJson, writeJson } from './storeIO.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,29 +35,26 @@ export class SocialStore {
   }
 
   load() {
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-      this.friendships = Array.isArray(raw.friendships) ? raw.friendships : [];
-      this.blocks = Array.isArray(raw.blocks) ? raw.blocks : [];
-      this.invites = Array.isArray(raw.invites) ? raw.invites : [];
-      this.reports = Array.isArray(raw.reports) ? raw.reports : [];
-      Object.entries(raw.notifications || {}).forEach(([accountId, items]) => {
-        this.notifications.set(accountId, Array.isArray(items) ? items.map(cleanNotification) : []);
-      });
-    } catch {
-      // A missing social file starts a clean social graph.
-    }
+    const { value } = loadJson(this.filePath);
+    if (!value) return;
+    const raw = value;
+    this.friendships = Array.isArray(raw.friendships) ? raw.friendships : [];
+    this.blocks = Array.isArray(raw.blocks) ? raw.blocks : [];
+    this.invites = Array.isArray(raw.invites) ? raw.invites : [];
+    this.reports = Array.isArray(raw.reports) ? raw.reports : [];
+    Object.entries(raw.notifications || {}).forEach(([accountId, items]) => {
+      this.notifications.set(accountId, Array.isArray(items) ? items.map(cleanNotification) : []);
+    });
   }
 
   persist() {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, `${JSON.stringify({
+    writeJson(this.filePath, {
       friendships: this.friendships,
       blocks: this.blocks,
       invites: this.invites,
       reports: this.reports,
       notifications: Object.fromEntries(this.notifications)
-    }, null, 2)}\n`, 'utf8');
+    });
   }
 
   areBlocked(firstId, secondId) {
