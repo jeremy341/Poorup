@@ -48,6 +48,30 @@ export class DeepSeekAdvisor {
     if (!this.apiKey || typeof this.fetchImpl !== 'function' || !candidates.length) {
       return this.fallback.chooseAction({ candidates, personality });
     }
+    const action = await this.requestAdvisorAction({ candidates, personality, event });
+    if (action) return action;
+    return this.fallback.chooseAction({ candidates, personality });
+  }
+
+  advisorUserPrompt({ candidates, personality, event }) {
+    const brief = event ? { id: event.id, phase: event.phase, roundsRemaining: event.roundsRemaining, effects: event.effects } : null;
+    return JSON.stringify({ personality, event: brief, candidates });
+  }
+
+  advisorRequestPayload(context) {
+    return {
+      model: this.model,
+      temperature: 0,
+      max_tokens: 80,
+      messages: [
+        { role: 'system', content: 'You are a Poorup strategy advisor. Choose exactly one candidate action id. Return JSON only: {"actionId":"...","confidence":0-1,"reasonCode":"..."}. Never invent actions, money, dice, ownership, or rules.' },
+        { role: 'user', content: this.advisorUserPrompt(context) }
+      ]
+    };
+  }
+
+  // A single LLM negotiation attempt; null means "fall back to heuristics".
+  async requestAdvisorAction(context) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -55,32 +79,25 @@ export class DeepSeekAdvisor {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + this.apiKey },
         signal: controller.signal,
-        body: JSON.stringify({
-          model: this.model,
-          temperature: 0,
-          max_tokens: 80,
-          messages: [
-            { role: 'system', content: 'You are a Poorup strategy advisor. Choose exactly one candidate action id. Return JSON only: {"actionId":"...","confidence":0-1,"reasonCode":"..."}. Never invent actions, money, dice, ownership, or rules.' },
-            { role: 'user', content: JSON.stringify({ personality, event: event ? { id: event.id, phase: event.phase, roundsRemaining: event.roundsRemaining, effects: event.effects } : null, candidates }) }
-          ]
-        })
+        body: JSON.stringify(this.advisorRequestPayload(context))
       });
       if (!response?.ok) {
         console.error('DeepSeekAdvisor API response not OK:', response?.status);
-        return this.fallback.chooseAction({ candidates, personality });
+        return null;
       }
-      const json = await response.json();
-      const content = json?.choices?.[0]?.message?.content;
-      const parsed = typeof content === 'string' ? JSON.parse(content.trim()) : content;
-      const result = parseAdvisorResponse(parsed, candidates);
-      if (result) return result;
-      return this.fallback.chooseAction({ candidates, personality });
+      return this.parseAdvisorPayload(await response.json(), context.candidates);
     } catch (error) {
       console.error('DeepSeekAdvisor API call failed:', error);
-      return this.fallback.chooseAction({ candidates, personality });
+      return null;
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  parseAdvisorPayload(json, candidates) {
+    const content = json?.choices?.[0]?.message?.content;
+    const parsed = typeof content === 'string' ? JSON.parse(content.trim()) : content;
+    return parseAdvisorResponse(parsed, candidates);
   }
 }
 

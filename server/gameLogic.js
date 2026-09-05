@@ -5,6 +5,7 @@ import {
   clearQuitObligations,
   contractSettlementRejection,
   equitySharePayable,
+  handlePlayerLoanDefault,
   outstandingDebtFor,
   resolveUnsecuredBankDefault
 } from './bankruptcyLogic.js';
@@ -1308,14 +1309,7 @@ class GameState {
         const borrower = this.getPlayerById(contract.toPlayerId);
         if (borrower) announceLoanDue(this, contract, borrower);
       } else if (contract.status === 'due' && this.roundNumber > contract.cureRound) {
-        const borrower = this.getPlayerById(contract.toPlayerId);
-        const lender = this.getPlayerById(contract.fromPlayerId);
-        const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
-        if (borrower && !borrower.bankrupt && lender && collateral?.ownerId === borrower.id) this.applyPropertyOwnershipChange(borrower, lender, collateral);
-        if (borrower && contract.collateralTileIndex != null) borrower.collateralLost = true;
-        contract.status = 'defaulted';
-        contract.defaultedRound = this.roundNumber;
-        this.feedMessage((borrower?.nickname || 'PLAYER') + ' defaulted on a player loan.');
+        handlePlayerLoanDefault(this, contract);
       }
     });
   }
