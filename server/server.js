@@ -56,6 +56,7 @@ const botTimers = new Map();
 const botDecisionLocks = new Set();
 const auctionBotTimers = new Map();
 const mythicalAnnouncementKeys = new Set();
+const MYTHICAL_ANNOUNCEMENT_KEYS_CAP = 500;
 const socialRateBuckets = new Map();
 const patrolRuns = new Map();
 const SOCIAL_RATE_WINDOW_MS = 60 * 1000;
@@ -74,6 +75,9 @@ function allowSocialAction(accountId, action) {
     socialRateBuckets.set(key, recent);
     return false;
   }
+  // An emptied bucket must not linger forever keyed by accountId:action —
+  // with no prune these entries accumulate for the process lifetime.
+  if (!recent.length) socialRateBuckets.delete(key);
   recent.push(now);
   socialRateBuckets.set(key, recent);
   return true;
@@ -113,6 +117,12 @@ function destroyRoom(room) {
   clearTimeout(botTimers.get(roomCode));
   botTimers.delete(roomCode);
   botDecisionLocks.delete(roomCode);
+  // Drop the socket->room index for everyone still mapped to this room;
+  // otherwise connected players keep acting on a zombie room that is gone
+  // from the registry (getRoomBySocket would still resolve it).
+  for (const [socketId, mappedRoom] of roomManager.socketRoom.entries()) {
+    if (mappedRoom === room) roomManager.socketRoom.delete(socketId);
+  }
   roomManager.rooms.delete(roomCode);
 }
 
@@ -384,6 +394,11 @@ function scheduleBotTurn(room) {
         : room.declineProperty(actor, tile.index));
     }
     emitRoomState(room);
+    } catch (error) {
+      // A failed bot decision must not escape the timer callback: an
+      // uncaught error here used to take the whole process down. The room
+      // stays alive and the watchdog/next action retries naturally.
+      console.error(`Bot turn failed in room ${room.roomCode}:`, error);
     } finally {
       botDecisionLocks.delete(room.roomCode);
       scheduleBotTurn(room);
@@ -411,7 +426,7 @@ function scheduleBotAuction(room) {
     const minimum = Math.max(auction.highestBid + 1, auction.highestBid + (bot.personality === 'shark' ? 20 : 10));
     const reserve = bot.personality === 'shark' ? 60 : 120;
     const shouldBid = bot.cash >= minimum + reserve && (bot.personality === 'builder' || bot.personality === 'shark' || bot.cash > room.game.settings.startingCash * 0.7);
-    const result = room.runBotAction(bot.id, actor => shouldBid
+    room.runBotAction(bot.id, actor => shouldBid
       ? room.placeAuctionBid(actor, minimum)
       : room.passAuction(actor));
     emitRoomState(room);
@@ -507,7 +522,15 @@ function recordVerifiedAchievement(candidate, gameId) {
 
 function broadcastMythicalAchievement({ playerAccountId, playerDisplayName, unlockKey }) {
   if (unlockKey && mythicalAnnouncementKeys.has(unlockKey)) return;
-  if (unlockKey) mythicalAnnouncementKeys.add(unlockKey);
+  if (unlockKey) {
+    mythicalAnnouncementKeys.add(unlockKey);
+    // Bounded FIFO dedupe set — Sets preserve insertion order, so evicting
+    // the oldest keeps memory flat without changing duplicate suppression.
+    if (mythicalAnnouncementKeys.size > MYTHICAL_ANNOUNCEMENT_KEYS_CAP) {
+      const oldest = mythicalAnnouncementKeys.values().next().value;
+      mythicalAnnouncementKeys.delete(oldest);
+    }
+  }
   const payload = { kind: 'mythical-achievement', title: 'MYTHICAL ACHIEVEMENT', body: `${playerDisplayName || 'A player'} unlocked a MYTHICAL ACHIEVEMENT.`, playerDisplayName: playerDisplayName || 'A player', createdAt: new Date().toISOString() };
   io.emit('mythical-achievement', payload);
   notifyAccount(playerAccountId, { ...payload, body: 'Your Mythical achievement was verified and announced server-wide.' });
@@ -657,36 +680,67 @@ setInterval(() => {
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
-  socket.on('account-register', (payload = {}, callback) => {
+  // Single scaffold for every socket event. Malformed wire payloads
+  // (null, strings, numbers) used to reach handler bodies written against
+  // `payload = {}` defaults — which only guard undefined — and a throw
+  // inside a socket.io listener escapes to the event emitter and kills
+  // the whole server. This wrapper normalizes the payload, guarantees a
+  // callable callback, and converts any synchronous or asynchronous
+  // handler failure into a logged, ack'd error instead of a crash.
+  const on = (event, handler) => socket.on(event, (rawPayload, rawCallback) => {
+    const payload = rawPayload && typeof rawPayload === 'object' ? rawPayload : {};
+    const callback = typeof rawCallback === 'function' ? rawCallback : () => {};
+    const fail = () => {
+      try {
+        callback({ success: false, error: 'The server could not process that request.' });
+      } catch {
+        // The socket is gone; nothing further to do.
+      }
+    };
+    try {
+      const result = handler(payload, callback);
+      if (result && typeof result.catch === 'function') {
+        result.catch((error) => {
+          console.error(`Unhandled error in ${event} handler:`, error);
+          fail();
+        });
+      }
+    } catch (error) {
+      console.error(`Unhandled error in ${event} handler:`, error);
+      fail();
+    }
+  });
+
+  on('account-register', (payload = {}, callback) => {
     const result = accountStore.register(payload);
     if (result?.account?.id) socket.data.accountId = result.account.id;
     reply(callback, result);
   });
 
-  socket.on('check-username', (payload = {}, callback) => {
+  on('check-username', (payload = {}, callback) => {
     // Availability is a read-only hint for the form. Registration still
     // performs the authoritative uniqueness check inside AccountStore.
     reply(callback, accountStore.checkUsername(payload.username));
   });
 
-  socket.on('account-login', (payload = {}, callback) => {
+  on('account-login', (payload = {}, callback) => {
     const result = accountStore.login(payload);
     if (result?.account?.id) socket.data.accountId = result.account.id;
     reply(callback, result);
   });
 
-  socket.on('account-restore', (payload = {}, callback) => {
+  on('account-restore', (payload = {}, callback) => {
     const result = accountStore.restore(payload.sessionToken);
     if (result?.account?.id) socket.data.accountId = result.account.id;
     reply(callback, result);
   });
 
-  socket.on('account-logout', (payload = {}, callback) => {
+  on('account-logout', (payload = {}, callback) => {
     socket.data.accountId = null;
     reply(callback, accountStore.logout(payload.sessionToken));
   });
 
-  socket.on('account-update', (payload = {}, callback) => {
+  on('account-update', (payload = {}, callback) => {
     const result = accountStore.updateProfile(payload.sessionToken, payload);
     if (!result.success) return reply(callback, result);
     socket.data.accountId = result.account.id;
@@ -703,7 +757,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('restore-session', (payload = {}, callback) => {
+  on('restore-session', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     const { clientId } = payload;
     clearDisconnectTimer(clientId);
@@ -725,11 +779,11 @@ io.on('connection', (socket) => {
     reply(callback, { success: false, error: 'No active session found.' });
   });
 
-  socket.on('list-rooms', (_, callback) => {
+  on('list-rooms', (_, callback) => {
     reply(callback, { success: true, rooms: roomManager.listPublicRooms() });
   });
 
-  socket.on('create-room', (payload, callback) => {
+  on('create-room', (payload, callback) => {
     const { clientId } = payload || {};
     const account = accountFromPayload(payload);
     const nickname = normalizeNickname(account?.displayName || payload?.nickname);
@@ -783,7 +837,7 @@ io.on('connection', (socket) => {
     scheduleRoomsUpdated();
   });
 
-  socket.on('leave-room', (payload = {}, callback) => {
+  on('leave-room', (payload = {}, callback) => {
     const { clientId } = payload || {};
     if (!clientId) {
       return callback?.({ success: false, error: 'A client session is required to leave.' });
@@ -811,7 +865,7 @@ io.on('connection', (socket) => {
     callback?.({ success: true });
   });
 
-  socket.on('join-room', (payload, callback) => {
+  on('join-room', (payload, callback) => {
     const roomCode = normalizeRoomCode(payload?.roomCode);
     const account = accountFromPayload(payload);
     const nickname = normalizeNickname(account?.displayName || payload?.nickname);
@@ -869,7 +923,7 @@ io.on('connection', (socket) => {
     scheduleRoomsUpdated();
   });
 
-  socket.on('set-setting', (payload = {}, callback) => {
+  on('set-setting', (payload = {}, callback) => {
     const { key, value } = payload;
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -889,7 +943,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('set-player-appearance', (payload = {}, callback) => {
+  on('set-player-appearance', (payload = {}, callback) => {
     const { color, nickname } = payload;
     const avatarGrid = normalizeAvatarGrid(payload.avatarGrid);
     const room = roomManager.getRoomBySocket(socket.id);
@@ -905,7 +959,7 @@ io.on('connection', (socket) => {
     callback?.(result);
   });
 
-  socket.on('start-game', (_, callback) => {
+  on('start-game', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
@@ -922,7 +976,7 @@ io.on('connection', (socket) => {
     scheduleRoomsUpdated();
   });
 
-  socket.on('roll-dice', (_, callback) => {
+  on('roll-dice', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.rollDice(socket.id);
@@ -943,7 +997,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('purchase-property', (payload = {}, callback) => {
+  on('purchase-property', (payload = {}, callback) => {
     const { tileIndex } = payload;
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -955,7 +1009,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('decline-property', (payload = {}, callback) => {
+  on('decline-property', (payload = {}, callback) => {
     const { tileIndex } = payload;
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -970,7 +1024,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('auction-bid', (payload = {}, callback) => {
+  on('auction-bid', (payload = {}, callback) => {
     const { amount } = payload;
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -985,7 +1039,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('auction-pass', (_, callback) => {
+  on('auction-pass', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.passAuction(socket.id);
@@ -996,7 +1050,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('end-turn', (_, callback) => {
+  on('end-turn', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.endTurn(socket.id);
@@ -1004,7 +1058,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('manage-property', (payload = {}, callback) => {
+  on('manage-property', (payload = {}, callback) => {
     const { tileIndex, action } = payload;
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -1016,7 +1070,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('propose-trade', (payload, callback) => {
+  on('propose-trade', (payload, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.proposeTrade(socket.id, payload);
@@ -1030,7 +1084,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error, trade: result?.trade });
   });
 
-  socket.on('respond-trade', (payload, callback) => {
+  on('respond-trade', (payload, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.respondToTrade(socket.id, payload);
@@ -1038,7 +1092,7 @@ io.on('connection', (socket) => {
     callback?.({ success: result?.success ?? false, error: result?.error, accepted: result?.accepted });
   });
 
-  socket.on('propose-player-contract', (payload = {}, callback) => {
+  on('propose-player-contract', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.proposePlayerContract(socket.id, payload);
@@ -1050,7 +1104,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
   });
 
-  socket.on('start-patrol-run', (payload = {}, callback) => {
+  on('start-patrol-run', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to sync Parlor Patrol achievements.' });
     if (!allowSocialAction(account.id, 'patrol-run')) return reply(callback, { success: false, error: 'Too many patrol runs. Try again in a minute.' });
@@ -1059,7 +1113,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, runToken });
   });
 
-  socket.on('finish-patrol-run', (payload = {}, callback) => {
+  on('finish-patrol-run', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     const runToken = String(payload.runToken || '').trim();
     const run = patrolRuns.get(runToken);
@@ -1093,7 +1147,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, score, misses, best: result.best, aceRuns: result.aceRuns });
   });
 
-  socket.on('respond-player-contract', (payload = {}, callback) => {
+  on('respond-player-contract', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.respondPlayerContract(socket.id, payload.accept === true, payload.requestId);
@@ -1105,7 +1159,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract, accepted: result?.accepted });
   });
 
-  socket.on('repay-player-contract', (payload = {}, callback) => {
+  on('repay-player-contract', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.repayPlayerContract(socket.id, payload);
@@ -1113,7 +1167,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
   });
 
-  socket.on('cancel-player-contract', (_, callback) => {
+  on('cancel-player-contract', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const contract = room.game.pendingPlayerContract;
@@ -1125,7 +1179,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true });
   });
 
-  socket.on('pay-jail-fine', (_, callback) => {
+  on('pay-jail-fine', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.payJailFine(socket.id);
@@ -1136,7 +1190,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('use-jail-free', (_, callback) => {
+  on('use-jail-free', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.useJailFree(socket.id);
@@ -1145,14 +1199,14 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('get-bank-loan-offer', (_, callback) => {
+  on('get-bank-loan-offer', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const offer = room.getBankLoanOffer(socket.id);
     reply(callback, { success: offer?.available ?? false, error: offer?.reason, offer });
   });
 
-  socket.on('take-bank-loan', (payload = {}, callback) => {
+  on('take-bank-loan', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.takeBankLoan(socket.id, payload.requestId);
@@ -1161,7 +1215,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
   });
 
-  socket.on('repay-bank-loan', (payload = {}, callback) => {
+  on('repay-bank-loan', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.repayBankLoan(socket.id, payload);
@@ -1169,14 +1223,14 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
   });
 
-  socket.on('get-economy-snapshot', (_, callback) => {
+  on('get-economy-snapshot', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
     reply(callback, { success: Boolean(player), error: player ? undefined : 'Player not found.', economy: player ? room.game.economySnapshot(player.id) : null });
   });
 
-  socket.on('place-casino-bet', (payload = {}, callback) => {
+  on('place-casino-bet', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.placeCasinoBet(socket.id, payload.color, payload.stake, payload.requestId);
@@ -1185,7 +1239,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, result: result?.result, economy: result?.economy });
   });
 
-  socket.on('market-order', (payload = {}, callback) => {
+  on('market-order', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.tradeMarket(socket.id, payload.instrumentId, payload.side, payload.quantity, payload.requestId);
@@ -1193,7 +1247,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, order: result?.order, economy: result?.economy });
   });
 
-  socket.on('vote-global-event', (payload = {}, callback) => {
+  on('vote-global-event', (payload = {}, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.voteGlobalEvent(socket.id, payload.choiceId);
@@ -1201,7 +1255,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('declare-bankruptcy', (_, callback) => {
+  on('declare-bankruptcy', (_, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.declareBankruptcy(socket.id);
@@ -1209,7 +1263,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error });
   });
 
-  socket.on('send-chat', (payload = {}, callback) => {
+  on('send-chat', (payload = {}, callback) => {
     const text = normalizeChatText(payload.text);
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
@@ -1230,39 +1284,39 @@ io.on('connection', (socket) => {
     reply(callback, { success: true });
   });
 
-  socket.on('get-social-data', (payload = {}, callback) => {
+  on('get-social-data', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to use social features.' });
     reply(callback, { success: true, social: socialSummary(account.id) });
   });
 
-  socket.on('get-self-profile', (payload = {}, callback) => {
+  on('get-self-profile', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view your profile.' });
     reply(callback, { success: true, account: accountStore.getAccountSnapshot(account.id) });
   });
 
-  socket.on('get-friends', (payload = {}, callback) => {
+  on('get-friends', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view friends.' });
     const social = socialSummary(account.id);
     reply(callback, { success: true, friends: social.friends, requests: social.requests, outgoing: social.outgoing });
   });
 
-  socket.on('get-friend-requests', (payload = {}, callback) => {
+  on('get-friend-requests', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view friend requests.' });
     const social = socialSummary(account.id);
     reply(callback, { success: true, requests: social.requests, outgoing: social.outgoing });
   });
 
-  socket.on('get-notifications', (payload = {}, callback) => {
+  on('get-notifications', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view notifications.' });
     reply(callback, { success: true, notifications: socialStore.listFor(account.id).notifications });
   });
 
-  socket.on('send-friend-request', (payload = {}, callback) => {
+  on('send-friend-request', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Create an account before sending friend requests.' });
     if (!allowSocialAction(account.id, 'friend-request')) return reply(callback, { success: false, error: 'Too many requests. Try again in a minute.' });
@@ -1288,7 +1342,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('respond-friend-request', (payload = {}, callback) => {
+  on('respond-friend-request', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage friend requests.' });
     const result = socialStore.respondFriend(account.id, payload.friendshipId, payload.accept === true);
@@ -1303,7 +1357,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('remove-friend', (payload = {}, callback) => {
+  on('remove-friend', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage friends.' });
     const result = socialStore.removeFriend(account.id, payload.otherAccountId);
@@ -1311,7 +1365,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('block-player', (payload = {}, callback) => {
+  on('block-player', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage blocks.' });
     const result = socialStore.blockPlayer(account.id, payload.otherAccountId);
@@ -1319,14 +1373,14 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('report-player', (payload = {}, callback) => {
+  on('report-player', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to report a player.' });
     const result = socialStore.reportPlayer(account.id, payload.otherAccountId, payload.reason);
     reply(callback, result);
   });
 
-  socket.on('get-public-player-card', (payload = {}, callback) => {
+  on('get-public-player-card', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
     const target = payload.accountId ? accountStore.getPublicAccountById(payload.accountId) : accountStore.findAccountByUsername(payload.username);
     if (!target) return reply(callback, { success: false, error: 'Player not found.' });
@@ -1342,7 +1396,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('search-players', (payload = {}, callback) => {
+  on('search-players', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
     if (viewer && !allowSocialAction(viewer.id, 'player-search')) return reply(callback, { success: false, error: 'Too many searches. Try again in a minute.' });
     const query = String(payload.query || '').trim().toLowerCase().slice(0, 32);
@@ -1355,7 +1409,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, players });
   });
 
-  socket.on('get-match-history', (payload = {}, callback) => {
+  on('get-match-history', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
     const target = payload.accountId ? accountStore.getAccountById(payload.accountId) : viewer;
     if (!target) return reply(callback, { success: false, error: 'Player not found.' });
@@ -1390,7 +1444,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, history });
   });
 
-  socket.on('get-recent-players', (payload = {}, callback) => {
+  on('get-recent-players', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view recent players.' });
     const seen = new Set();
@@ -1418,7 +1472,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, players: recent.slice(0, 20) });
   });
 
-  socket.on('clear-recent-players', (payload = {}, callback) => {
+  on('clear-recent-players', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to clear recent players.' });
     const result = accountStore.clearRecentPlayers(payload.sessionToken);
@@ -1426,7 +1480,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('cancel-friend-request', (payload = {}, callback) => {
+  on('cancel-friend-request', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage friend requests.' });
     const result = socialStore.cancelFriendRequest(account.id, payload.friendshipId);
@@ -1434,7 +1488,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('get-leaderboard', (payload = {}, callback) => {
+  on('get-leaderboard', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
     const metric = ['wins', 'games', 'rate', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'].includes(payload.metric) ? payload.metric : 'wins';
     const scope = ['all', 'month', 'friends'].includes(payload.scope) ? payload.scope : 'all';
@@ -1447,7 +1501,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options) });
   });
 
-  socket.on('get-leaderboard-snapshot', (payload = {}, callback) => {
+  on('get-leaderboard-snapshot', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
     const scope = ['all', 'month', 'friends'].includes(payload.scope) ? payload.scope : 'all';
     const options = { since: scope === 'month' ? Date.now() - (30 * 24 * 60 * 60 * 1000) : null };
@@ -1460,7 +1514,7 @@ io.on('connection', (socket) => {
     reply(callback, { success: true, scope, ...snapshot });
   });
 
-  socket.on('send-room-invite', (payload = {}, callback) => {
+  on('send-room-invite', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     const room = getRoomForSocket(socket, callback);
     if (!account || !room) return;
@@ -1479,7 +1533,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('respond-room-invite', (payload = {}, callback) => {
+  on('respond-room-invite', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage room invites.' });
     const invite = socialStore.getInvite(account.id, payload.inviteId);
@@ -1534,7 +1588,7 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('mark-notification-read', (payload = {}, callback) => {
+  on('mark-notification-read', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage notifications.' });
     const result = socialStore.markNotificationRead(account.id, payload.notificationId);
@@ -1542,7 +1596,8 @@ io.on('connection', (socket) => {
     reply(callback, result);
   });
 
-  socket.on('disconnect', () => {
+  on('disconnect', () => {
+    chatLastSent.delete(socket.id);
     patrolRuns.forEach((run, token) => { if (run.socketId === socket.id) patrolRuns.delete(token); });
     const room = roomManager.disconnectPlayer(socket.id);
     if (room) {
@@ -1556,4 +1611,15 @@ const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
   console.log('✅ Server is running!');
   console.log('👉 Visit http://localhost:' + PORT);
+});
+
+// Last-resort crash guards. Every known throw site is caught at its seam
+// (handler scaffold, bot timer try/catch); if anything still escapes, log
+// it loudly and stay alive for the players already connected instead of
+// taking every room down with one bad stack.
+process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION:', reason);
 });
