@@ -52,73 +52,102 @@ export function shouldAcceptTrade(trade, getTile, personality) {
 }
 
 export function shouldAcceptPlayerContract(offer, bot, lender, personality) {
-  if (offer.kind === 'equity') {
-    return personality !== 'survivor' || Number(offer.amount) <= bot.cash * 0.35;
-  }
-  const repayment = Number(offer.totalDue || offer.amount);
-  const factor = CONTRACT_REPAY_FACTOR[personality] || DEFAULT_CONTRACT_REPAY_FACTOR;
-  return repayment <= bot.cash * factor && Boolean(lender && !lender.bankrupt);
+  const check = CONTRACT_ACCEPTANCE[offer.kind] || CONTRACT_ACCEPTANCE.fallback;
+  return check(offer, bot, { lender, personality });
 }
+
+const EQUITY_SURVIVOR_RATIO = 0.35;
+const CONTRACT_ACCEPTANCE = {
+  equity: (offer, bot, ctx) => ctx.personality !== 'survivor'
+    || Number(offer.amount) <= bot.cash * EQUITY_SURVIVOR_RATIO,
+  fallback: (offer, bot, ctx) => Number(offer.totalDue || offer.amount) <= bot.cash
+    * (CONTRACT_REPAY_FACTOR[ctx.personality] || DEFAULT_CONTRACT_REPAY_FACTOR)
+    && Boolean(ctx.lender && !ctx.lender.bankrupt)
+};
 
 // Who should the bot timer serve right now: an unvoted bot in a vote beats
 // the counterparty of a pending offer, which beats the current player.
 export function selectBotTurnTarget(game) {
-  const votingBot = game.globalEvent?.phase === 'voting'
-    ? game.players.find(player => player.isBot && !player.bankrupt && !player.disconnected && !game.globalEvent.votes?.[player.id])
-    : null;
-  const pendingBot = game.pendingTrade
-    ? game.getPlayerById(game.pendingTrade.toPlayerId)
-    : game.pendingPlayerContract
-      ? game.getPlayerById(game.pendingPlayerContract.toPlayerId)
-      : null;
-  return votingBot || (pendingBot?.isBot ? pendingBot : null) || game.getCurrentPlayer();
+  const voting = findVotingBot(game);
+  if (voting) return voting;
+  const pending = findPendingCounterpart(game);
+  if (pending?.isBot) return pending;
+  return game.getCurrentPlayer();
+}
+
+function findVotingBot(game) {
+  if (game.globalEvent?.phase !== 'voting') return null;
+  return game.players.find(player => player.isBot && !player.bankrupt && !player.disconnected && !game.globalEvent.votes?.[player.id]) || null;
+}
+
+function findPendingCounterpart(game) {
+  const pending = game.pendingTrade || game.pendingPlayerContract;
+  if (!pending) return null;
+  return game.getPlayerById(pending.toPlayerId) || null;
 }
 
 export function botMayStillAct(game, bot) {
   if (!bot) return false;
+  if (isVotingTurn(game) || isPendingFor(game, bot)) return true;
+  return isSeatedActor(game, bot);
+}
+
+function isSeatedActor(game, bot) {
   const current = game.getCurrentPlayer();
-  const isVote = game.globalEvent?.phase === 'voting';
-  const isPendingResponse = game.pendingTrade?.toPlayerId === bot.id || game.pendingPlayerContract?.toPlayerId === bot.id;
-  if (isVote || isPendingResponse) return true;
   return Boolean(current?.isBot && current.id === bot.id && !current.bankrupt && !current.disconnected);
 }
 
-// Ordered phase classification of what the bot must resolve this tick.
-// Mirrors the historical if/else chain exactly: every state falls into one
-// phase ('post-roll' is the catch-all).
+export function isVotingTurn(game) {
+  return game.globalEvent?.phase === 'voting';
+}
+
+export function isPendingFor(game, bot) {
+  return game.pendingTrade?.toPlayerId === bot.id || game.pendingPlayerContract?.toPlayerId === bot.id;
+}
+
+// Ordered phase state machine - the array order IS the historical if/else
+// priority, and each guard keeps its exact original condition.
+const PHASES = [
+  { id: 'vote', guard: (game, bot) => isVotingTurn(game) && !game.globalEvent.votes?.[bot.id] },
+  { id: 'trade', guard: (game, bot) => game.pendingTrade?.toPlayerId === bot.id },
+  { id: 'contract', guard: (game, bot) => game.pendingPlayerContract?.toPlayerId === bot.id },
+  { id: 'payment', guard: (game, bot) => game.pendingPayment?.playerId === bot.id },
+  { id: 'auction', guard: game => Boolean(game.auction?.active) },
+  { id: 'end-turn', guard: game => Boolean(game.awaitingEndTurn) },
+  { id: 'pre-roll', guard: game => !game.hasRolled },
+  { id: 'post-roll', guard: () => true }
+];
+
 export function classifyBotTurnPhase(game, bot) {
-  if (game.globalEvent?.phase === 'voting' && !game.globalEvent.votes?.[bot.id]) return 'vote';
-  if (game.pendingTrade?.toPlayerId === bot.id) return 'trade';
-  if (game.pendingPlayerContract?.toPlayerId === bot.id) return 'contract';
-  if (game.pendingPayment?.playerId === bot.id) return 'payment';
-  if (game.auction?.active) return 'auction';
-  if (game.awaitingEndTurn) return 'end-turn';
-  if (!game.hasRolled) return 'pre-roll';
-  return 'post-roll';
+  return (PHASES.find(phase => phase.guard(game, bot)) || PHASES[PHASES.length - 1]).id;
 }
 
 // Maps the advisor's chosen candidate to the concrete action it implies.
-// 'default' (or an unknown kind) means plain roll, matching the historical
-// if/else chain's fallthrough.
+// Each mapper answers "does this personality take this candidate?"; the
+// first true wins, and anything unmatched (or no candidate) is plain roll.
+const CANDIDATE_MAPPERS = [
+  { kind: 'trade', takes: () => true, type: 'trade' },
+  { kind: 'market', takes: () => true, type: 'market' },
+  { kind: 'casino', takes: () => true, type: 'casino' },
+  { kind: 'build', takes: (candidate, bot) => bot.cash >= candidate.cost + 200, type: 'build' },
+  { kind: 'mortgage', takes: () => true, type: 'mortgage' },
+  { kind: 'loan', takes: (candidate, bot) => bot.personality === 'speculator', type: 'loan' }
+];
+
 export function candidateAction(candidate, bot) {
-  if (!candidate) return { type: 'roll' };
-  switch (candidate.kind) {
-    case 'trade': return { type: 'trade', candidate };
-    case 'market': return { type: 'market', candidate };
-    case 'casino': return { type: 'casino', candidate };
-    case 'build': return bot.cash >= candidate.cost + 200 ? { type: 'build', candidate } : { type: 'roll' };
-    case 'mortgage': return { type: 'mortgage', candidate };
-    case 'loan': return bot.personality === 'speculator' ? { type: 'loan' } : { type: 'roll' };
-    default: return { type: 'roll' };
-  }
+  const mapper = CANDIDATE_MAPPERS.find(entry => entry.kind === candidate?.kind && entry.takes(candidate, bot));
+  return mapper ? { type: mapper.type, candidate } : { type: 'roll' };
 }
 
 export function auctionBidDecision(auction, bot, startingCash) {
   const policy = AUCTION_BID_POLICY[bot.personality] || DEFAULT_AUCTION_BID_POLICY;
   const minimum = Math.max(auction.highestBid + 1, auction.highestBid + policy.step);
-  const comfortable = policy.always || bot.cash > startingCash * AUCTION_COMFORT_RATIO;
-  const shouldBid = bot.cash >= minimum + policy.reserve && comfortable;
-  return { shouldBid, minimum };
+  const affordably = bot.cash >= minimum + policy.reserve && isComfortableBidder(policy, bot, startingCash);
+  return { shouldBid: affordably, minimum };
+}
+
+function isComfortableBidder(policy, bot, startingCash) {
+  return policy.always || bot.cash > startingCash * AUCTION_COMFORT_RATIO;
 }
 
 export function isAuctionBotParticipant(auction, player) {
@@ -134,63 +163,67 @@ export function shouldBuyProperty(bot, tile) {
   return Boolean(tile) && bot.cash >= Number(tile.price || 0) + PURCHASE_RESERVE_CASH;
 }
 
-// Executes the classified phase against the room (the room only enters this
-// module as an injected collaborator, never as an import) and returns the
-// action result. Purchase offers are resolved at most twice, exactly like the
-// original inline chain: once inside post-roll, once again at the tail.
-export async function runBotTurn(room, bot, advisor) {
-  const game = room.game;
-  const phase = classifyBotTurnPhase(game, bot);
-  if (phase === 'vote') {
+// One small executor per phase, keyed by the state machine above. Each
+// returns the room action result, exactly as the original branches did.
+const PHASE_EXECUTORS = {
+  vote: (room, bot, game) => {
     const policy = selectGlobalEventPolicy(game.globalEvent, bot.personality);
     return policy ? room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, policy.id)) : { success: false };
-  }
-  if (phase === 'trade') {
+  },
+  trade: (room, bot, game) => {
     const trade = game.pendingTrade;
     const accept = shouldAcceptTrade(trade, index => game.getTile(index), bot.personality);
     return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: trade.id, accept }));
-  }
-  if (phase === 'contract') {
+  },
+  contract: (room, bot, game) => {
     const offer = game.pendingPlayerContract;
     const lender = game.getPlayerById(offer.fromPlayerId);
     const acceptable = shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
     return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, acceptable));
-  }
-  if (phase === 'payment') return room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
-  if (phase === 'auction') return room.runBotAction(bot.id, actor => room.passAuction(actor));
-  if (phase === 'end-turn') return room.runBotAction(bot.id, actor => room.endTurn(actor));
-  if (phase === 'post-roll') {
-    const rolled = room.runBotAction(bot.id, actor => room.rollDice(actor));
-    return resolvePurchaseOffer(room, bot, rolled);
-  }
-  const candidates = game.getBotCandidates(bot);
-  const decision = await advisor.chooseAction({ candidates, personality: bot.personality, event: game.globalEvent });
-  if (game.getCurrentPlayer()?.id !== bot.id) return { noEmit: true };
-  const action = candidateAction(candidates.find(entry => entry.id === decision?.actionId) || candidates[0], bot);
-  if (action.type === 'trade') {
-    const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, action.candidate));
+  },
+  payment: (room, bot) => room.runBotAction(bot.id, actor => room.declareBankruptcy(actor)),
+  auction: (room, bot) => room.runBotAction(bot.id, actor => room.passAuction(actor)),
+  'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
+  'post-roll': (room, bot) => resolvePurchaseOffer(room, bot, room.runBotAction(bot.id, actor => room.rollDice(actor)))
+};
+
+// Executes the classified phase against the room (the room only enters this
+// module as an injected collaborator, never as an import) and returns the
+// action result. Purchase offers carry over to the caller's tail resolution
+// for the second pass, matching the original inline double-check.
+export async function runBotTurn(room, bot, advisor) {
+  const phase = classifyBotTurnPhase(room.game, bot);
+  if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor);
+  return PHASE_EXECUTORS[phase](room, bot, room.game);
+}
+
+// Candidate kind -> the room call it implies; the table order preserves the
+// original if/else chain, including roll as the unmatched fallback.
+const CANDIDATE_RUNNERS = {
+  trade: (room, bot, candidate) => {
+    const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, candidate));
     if (!proposal?.success) return proposal;
     const rolled = room.runBotAction(bot.id, actor => room.rollDice(actor));
     return rolled?.success ? rolled : proposal;
-  }
-  if (action.type === 'market') {
-    const candidate = action.candidate;
-    return room.runBotAction(bot.id, actor => room.tradeMarket(actor, candidate.instrumentId, candidate.side, candidate.quantity, 'bot-market-' + room.roomCode + '-' + game.roundNumber));
-  }
-  if (action.type === 'casino') {
-    const candidate = action.candidate;
-    return room.runBotAction(bot.id, actor => room.placeCasinoBet(actor, candidate.color, candidate.stake, 'bot-casino-' + room.roomCode + '-' + game.roundNumber));
-  }
-  if (action.type === 'build') {
-    const candidate = action.candidate;
-    return room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'build-house' }));
-  }
-  if (action.type === 'mortgage') {
-    const candidate = action.candidate;
-    return room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'mortgage' }));
-  }
-  if (action.type === 'loan') return room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
-  return room.runBotAction(bot.id, actor => room.rollDice(actor));
+  },
+  market: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.tradeMarket(actor, candidate.instrumentId, candidate.side, candidate.quantity, 'bot-market-' + room.roomCode + '-' + room.game.roundNumber)),
+  casino: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.placeCasinoBet(actor, candidate.color, candidate.stake, 'bot-casino-' + room.roomCode + '-' + room.game.roundNumber)),
+  build: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'build-house' })),
+  mortgage: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'mortgage' })),
+  loan: (room, bot) => room.runBotAction(bot.id, actor => room.takeBankLoan(actor)),
+  roll: (room, bot) => room.runBotAction(bot.id, actor => room.rollDice(actor))
+};
+
+async function runAdvisorTurn(room, bot, advisor) {
+  const game = room.game;
+  const candidates = game.getBotCandidates(bot);
+  const decision = await advisor.chooseAction({ candidates, personality: bot.personality, event: game.globalEvent });
+  // The advisor call is async; if the seat moved on while it thought, the
+  // original code aborted the tick without emitting.
+  if (game.getCurrentPlayer()?.id !== bot.id) return { noEmit: true };
+  const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
+  const action = candidateAction(candidate, bot);
+  return CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
 }
 
 // Applies one pending purchase offer for the bot, if the result carries it.
