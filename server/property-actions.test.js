@@ -43,14 +43,16 @@ function ownedRoom() {
 }
 
 const lastFeed = game => game.feed[0]?.text;
+const reject = (game, socket, tileIndex, action, error) =>
+  assert.deepEqual(game.manageProperty(socket, { tileIndex, action }), { success: false, error });
 
 check('rejects unknown actions, unowned tiles, and missing pieces', () => {
   const { game, give } = ownedRoom();
   give(1);
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'polish' }), { success: false, error: 'Unknown property action.' });
-  assert.deepEqual(game.manageProperty('socket-b', { tileIndex: 1, action: 'mortgage' }), { success: false, error: 'You do not own this property.' });
-  assert.deepEqual(game.manageProperty('socket-z', { tileIndex: 1, action: 'mortgage' }), { success: false, error: 'Property not found.' });
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 99, action: 'mortgage' }), { success: false, error: 'Property not found.' });
+  reject(game, 'socket-a', 1, 'polish', 'Unknown property action.');
+  reject(game, 'socket-b', 1, 'mortgage', 'You do not own this property.');
+  reject(game, 'socket-z', 1, 'mortgage', 'Property not found.');
+  reject(game, 'socket-a', 99, 'mortgage', 'Property not found.');
   assert.deepEqual(game.manageProperty('socket-a', {}), { success: false, error: 'Property not found.' });
 });
 
@@ -70,10 +72,10 @@ check('build/sell gated to owner turn and pre-roll window', () => {
   const { game, owner, other, give } = ownedRoom();
   give(1);
   game.currentPlayerId = other.id;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }), { success: false, error: 'You can only build or sell during your turn.' });
+  reject(game, 'socket-a', 1, 'build-house', 'You can only build or sell during your turn.');
   game.currentPlayerId = owner.id;
   game.hasRolled = true;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'sell-house' }), { success: false, error: 'You can only build or sell before rolling the dice.' });
+  reject(game, 'socket-a', 1, 'sell-house', 'You can only build or sell before rolling the dice.');
   game.extraRollPending = true;
   delete game.canSellFromTile;
   assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'sell-house' }).error, 'You cannot sell a house from this property right now.');
@@ -83,22 +85,29 @@ check('build blocked when insufficient cash or construction rules fail', () => {
   const { game, owner, give } = ownedRoom();
   const tile = give(1);
   owner.cash = 10;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }), { success: false, error: 'Insufficient cash to build a house.' });
+  reject(game, 'socket-a', 1, 'build-house', 'Insufficient cash to build a house.');
   owner.cash = 1200;
   delete game.canBuildOnTile;
   tile.mortgaged = true;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }), { success: false, error: 'You cannot build on this property right now.' });
+  reject(game, 'socket-a', 1, 'build-house', 'You cannot build on this property right now.');
 });
 
-check('fifth house becomes hotel with hotel wording', () => {
-  const { game, owner, give } = ownedRoom();
-  const tile = give(1);
-  tile.houseCount = 4;
-  owner.cash = 5000;
-  game.canBuildOnTile = () => true;
-  assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }).success, true);
-  assert.equal(tile.houseCount, 5);
-  assert.match(lastFeed(game), /built a hotel on /);
+check('hotel boundary: fifth build says hotel, selling a hotel says hotel', () => {
+  const up = ownedRoom();
+  const builtTile = up.give(1);
+  builtTile.houseCount = 4;
+  up.owner.cash = 5000;
+  up.game.canBuildOnTile = () => true;
+  assert.equal(up.game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }).success, true);
+  assert.equal(builtTile.houseCount, 5);
+  assert.match(lastFeed(up.game), /built a hotel on /);
+  const down = ownedRoom();
+  const soldTile = down.give(1);
+  soldTile.houseCount = 5;
+  down.game.canSellFromTile = () => true;
+  assert.equal(down.game.manageProperty('socket-a', { tileIndex: 1, action: 'sell-house' }).success, true);
+  assert.equal(soldTile.houseCount, 4);
+  assert.match(lastFeed(down.game), /sold a hotel from /);
 });
 
 check('event building limit caps per-turn builds', () => {
@@ -107,7 +116,7 @@ check('event building limit caps per-turn builds', () => {
   owner.cash = 5000;
   game.globalEvent = { id: 'test-limit', phase: 'active', effects: { buildingLimitPerTurn: 1 } };
   owner.buildActionsThisTurn = 1;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }), { success: false, error: 'The active event limits building actions this turn.' });
+  reject(game, 'socket-a', 1, 'build-house', 'The active event limits building actions this turn.');
   owner.buildActionsThisTurn = 0;
   assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }).success, true);
 });
@@ -142,15 +151,6 @@ check('sell-house refunds half of the house cost, honors sale multiplier', () =>
   assert.equal(tile.houseCount, 0);
 });
 
-check('selling a hotel says hotel and clamps level', () => {
-  const { game, give } = ownedRoom();
-  const tile = give(1);
-  tile.houseCount = 5;
-  game.canSellFromTile = () => true;
-  assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'sell-house' }).success, true);
-  assert.equal(tile.houseCount, 4);
-  assert.match(lastFeed(game), /sold a hotel from /);
-});
 
 check('mortgage pays half price times value multiplier; unmortgage costs 110 percent', () => {
   const { game, owner, give } = ownedRoom();
@@ -163,7 +163,7 @@ check('mortgage pays half price times value multiplier; unmortgage costs 110 per
   assert.equal(lastFeed(game), 'A mortgaged ' + tile.name + ' for $' + half + '.');
   const restoreCost = Math.ceil(half * 1.1);
   owner.cash = restoreCost - 1;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'unmortgage' }), { success: false, error: 'Insufficient cash to unmortgage this property.' });
+  reject(game, 'socket-a', 1, 'unmortgage', 'Insufficient cash to unmortgage this property.');
   owner.cash = restoreCost;
   assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'unmortgage' }).success, true);
   assert.equal(owner.cash, 0);
@@ -186,10 +186,10 @@ check('mortgage blocked while buildings stand; unmortgage requires mortgage', ()
   const tile = give(1);
   tile.houseCount = 1;
   game.canMortgageTile = () => false;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }), { success: false, error: 'You cannot mortgage this property right now.' });
+  reject(game, 'socket-a', 1, 'mortgage', 'You cannot mortgage this property right now.');
   game.canMortgageTile = () => true;
   game.canUnmortgageTile = () => false;
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'unmortgage' }), { success: false, error: 'You cannot unmortgage this property right now.' });
+  reject(game, 'socket-a', 1, 'unmortgage', 'You cannot unmortgage this property right now.');
 });
 
 check('debt settlement: build refused, sell allowed, proceeds auto-settle', () => {
@@ -198,7 +198,7 @@ check('debt settlement: build refused, sell allowed, proceeds auto-settle', () =
   tile.houseCount = 2;
   game.currentPlayerId = other.id;
   game.pendingPayment = { playerId: owner.id, creditorId: other.id, amountRemaining: 10 };
-  assert.deepEqual(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }), { success: false, error: 'You cannot build while settling a debt.' });
+  reject(game, 'socket-a', 1, 'build-house', 'You cannot build while settling a debt.');
   const cost = game.getPropertyHouseCost(tile);
   owner.cash = 0;
   assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'sell-house' }).success, true);
