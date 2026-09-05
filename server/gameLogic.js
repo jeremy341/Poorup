@@ -1312,7 +1312,7 @@ class GameState {
         const borrower = this.getPlayerById(contract.toPlayerId);
         const lender = this.getPlayerById(contract.fromPlayerId);
         const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
-        if (borrower && lender && collateral?.ownerId === borrower.id) this.applyPropertyOwnershipChange(borrower, lender, collateral);
+        if (borrower && !borrower.bankrupt && lender && collateral?.ownerId === borrower.id) this.applyPropertyOwnershipChange(borrower, lender, collateral);
         if (borrower && contract.collateralTileIndex != null) borrower.collateralLost = true;
         contract.status = 'defaulted';
         contract.defaultedRound = this.roundNumber;
@@ -1871,7 +1871,10 @@ class GameState {
   }
 
   advanceRound() {
-    this.roundNumber += 1;
+    if (this._advancingRound) return;
+    this._advancingRound = true;
+    try {
+      this.roundNumber += 1;
     if (this.globalEventCooldown > 0) this.globalEventCooldown -= 1;
     this.markMidpointFacts();
 
@@ -1917,6 +1920,9 @@ class GameState {
       player.rentPayersThisRound = new Set();
       player.casinoBetsThisRound = 0;
     });
+    } finally {
+      this._advancingRound = false;
+    }
   }
 
   globalEventsEnabled() {

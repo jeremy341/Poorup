@@ -229,7 +229,7 @@ async function inviteFullRoom(ctx) {
 }
 
 async function startedRoundRoom(ctx) {
-  const { sockA, sockB, regA, regB } = ctx;
+  const { sockA, regA } = ctx;
   ctx.check('A creates a fresh private room STAR01 (auto-leaving INVT01)',
     ackEquals(await ctx.ask(sockA, 'create-room', { sessionToken: regA.sessionToken, clientId: 'a-1', nickname: 'Ignored', visibility: 'private', roomCode: 'STAR01' }),
       { success: true, roomCode: 'STAR01', visibility: 'private' }));

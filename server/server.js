@@ -131,6 +131,7 @@ function clearDisconnectTimersForRoom(room) {
 function destroyRoom(room) {
   if (!room) return;
   const roomCode = room.roomCode;
+  room.destroyed = true;
   clearAuctionTimer(room);
   clearDisconnectTimersForRoom(room);
   clearTimeout(auctionBotTimers.get(roomCode));
@@ -244,12 +245,16 @@ function detachSocketFromOtherRoom(socket, room) {
 
 function emitRoomState(room) {
   if (!room) return;
-  if (room.game.lastWinner && !room.statsRecorded) {
-    recordRoomStats(room);
+  try {
+    if (room.game.lastWinner && !room.statsRecorded) {
+      recordRoomStats(room);
+    }
+    broadcastRoomState(room);
+    scheduleBotTurn(room);
+    scheduleBotAuction(room);
+  } catch (error) {
+    console.error('emitRoomState failed for room', room.roomCode, error);
   }
-  broadcastRoomState(room);
-  scheduleBotTurn(room);
-  scheduleBotAuction(room);
 }
 
 function recordRoomStats(room) {
@@ -296,7 +301,7 @@ function scheduleBotTurn(room) {
       // Re-read live state: seats, pendings, and votes may have changed while
       // this timer was queued. The decision policy itself lives in
       // botLogic.js and is covered by server/botLogic.test.js.
-      if (!botMayStillAct(room.game, bot)) return;
+      if (!botMayStillAct(room.game, bot) || room.destroyed) return;
       const result = await runBotTurn(room, bot, botAdvisor);
       if (result?.noEmit) return;
       // Tail purchase resolution, second half of the post-roll double-check.
@@ -1454,6 +1459,7 @@ server.listen(PORT, () => {
 // taking every room down with one bad stack.
 process.on('uncaughtException', (error) => {
   console.error('UNCAUGHT EXCEPTION:', error);
+  process.exit(1);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED REJECTION:', reason);
