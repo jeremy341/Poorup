@@ -10,6 +10,14 @@ import { SocialStore } from './socialStore.js';
 import { MatchStore } from './matchStore.js';
 import { AchievementStore } from './achievementStore.js';
 import { createBotAdvisor } from './botAdvisor.js';
+import {
+  selectBotTurnTarget,
+  botMayStillAct,
+  runBotTurn,
+  resolvePurchaseOffer,
+  isAuctionBotParticipant,
+  auctionBidDecision
+} from './botLogic.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -299,100 +307,21 @@ function emitRoomState(room) {
 
 function scheduleBotTurn(room) {
   if (!room?.game.started) return;
-  const currentPlayer = room.game.getCurrentPlayer();
-  const votingBot = room.game.globalEvent?.phase === 'voting'
-    ? room.game.players.find(player => player.isBot && !player.bankrupt && !player.disconnected && !room.game.globalEvent.votes?.[player.id])
-    : null;
-  const pendingBot = room.game.pendingTrade
-    ? room.game.getPlayerById(room.game.pendingTrade.toPlayerId)
-    : room.game.pendingPlayerContract
-      ? room.game.getPlayerById(room.game.pendingPlayerContract.toPlayerId)
-      : null;
-  const bot = votingBot || (pendingBot?.isBot ? pendingBot : null) || currentPlayer;
+  const bot = selectBotTurnTarget(room.game);
   if (!bot?.isBot || bot.bankrupt || bot.disconnected || botTimers.has(room.roomCode) || botDecisionLocks.has(room.roomCode)) return;
   const timer = setTimeout(async () => {
     botTimers.delete(room.roomCode);
     botDecisionLocks.add(room.roomCode);
     try {
-    const current = room.game.getCurrentPlayer();
-    const isVote = room.game.globalEvent?.phase === 'voting';
-    const isPendingResponse = room.game.pendingTrade?.toPlayerId === bot.id || room.game.pendingPlayerContract?.toPlayerId === bot.id;
-    if (!isVote && !isPendingResponse && (!current?.isBot || current.id !== bot.id || current.bankrupt || current.disconnected)) return;
-    let result;
-    if (room.game.globalEvent?.phase === 'voting' && !room.game.globalEvent.votes?.[bot.id]) {
-      const preferred = bot.personality === 'builder' ? 'public-works' : bot.personality === 'speculator' ? 'bank-first' : 'low-tax';
-      const policy = room.game.globalEvent.choices?.find(choice => choice.id === preferred) || room.game.globalEvent.choices?.[0];
-      result = policy ? room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, policy.id)) : { success: false };
-    } else if (room.game.pendingTrade?.toPlayerId === bot.id) {
-      const trade = room.game.pendingTrade;
-      const giveValue = Number(trade.giveCash || 0) + (trade.givePropertyIndexes || []).reduce((sum, index) => sum + Number(room.game.getTile(index)?.price || 0), 0);
-      const askValue = Number(trade.requestCash || 0) + (trade.requestPropertyIndexes || []).reduce((sum, index) => sum + Number(room.game.getTile(index)?.price || 0), 0);
-      const accepted = giveValue >= askValue * (bot.personality === 'shark' ? 1.1 : 0.8);
-      result = room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: trade.id, accept: accepted }));
-    } else if (room.game.pendingPlayerContract?.toPlayerId === bot.id) {
-      const offer = room.game.pendingPlayerContract;
-      const lender = room.game.getPlayerById(offer.fromPlayerId);
-      const acceptable = offer.kind === 'equity'
-        ? bot.personality !== 'survivor' || Number(offer.amount) <= bot.cash * 0.35
-        : Number(offer.totalDue || offer.amount) <= bot.cash * (bot.personality === 'speculator' ? 1.25 : 0.8)
-          && Boolean(lender && !lender.bankrupt);
-      result = room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, acceptable));
-    } else if (room.game.pendingPayment?.playerId === bot.id) {
-      result = room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
-    } else if (room.game.auction?.active) {
-      result = room.runBotAction(bot.id, actor => room.passAuction(actor));
-    } else if (room.game.awaitingEndTurn) {
-      // The landing resolved but the turn now holds for an explicit end.
-      // Bots end immediately; humans use the END TURN button (or the AFK
-      // watchdog after 180s).
-      result = room.runBotAction(bot.id, actor => room.endTurn(actor));
-    } else if (!room.game.hasRolled) {
-      const candidates = room.game.getBotCandidates(bot);
-      const decision = await botAdvisor.chooseAction({
-        candidates,
-        personality: bot.personality,
-        event: room.game.globalEvent
-      });
-      if (room.game.getCurrentPlayer()?.id !== bot.id) return;
-      const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
-      if (candidate?.kind === 'trade') {
-        const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, candidate));
-        result = proposal;
-        if (proposal?.success) {
-          const rolled = room.runBotAction(bot.id, actor => room.rollDice(actor));
-          if (rolled?.success) result = rolled;
-        }
-      } else if (candidate?.kind === 'market') {
-        result = room.runBotAction(bot.id, actor => room.tradeMarket(actor, candidate.instrumentId, candidate.side, candidate.quantity, 'bot-market-' + room.roomCode + '-' + room.game.roundNumber));
-      } else if (candidate?.kind === 'casino') {
-        result = room.runBotAction(bot.id, actor => room.placeCasinoBet(actor, candidate.color, candidate.stake, 'bot-casino-' + room.roomCode + '-' + room.game.roundNumber));
-      } else if (candidate?.kind === 'build' && bot.cash >= candidate.cost + 200) {
-        result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'build-house' }));
-      } else if (candidate?.kind === 'mortgage') {
-        result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'mortgage' }));
-      } else if (candidate?.kind === 'loan' && bot.personality === 'speculator') {
-        result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
-      } else {
-        result = room.runBotAction(bot.id, actor => room.rollDice(actor));
-      }
-    } else {
-      result = room.runBotAction(bot.id, actor => room.rollDice(actor));
-      if (result?.purchaseOffer) {
-        const tile = room.game.getTile(result.purchaseOffer.tileIndex);
-        const canBuy = tile && bot.cash >= Number(tile.price || 0) + 120;
-        result = room.runBotAction(bot.id, actor => canBuy
-          ? room.purchaseProperty(actor, tile.index)
-          : room.declineProperty(actor, tile.index));
-      }
-    }
-    if (result?.purchaseOffer) {
-      const tile = room.game.getTile(result.purchaseOffer.tileIndex);
-      const canBuy = tile && bot.cash >= Number(tile.price || 0) + 120;
-      result = room.runBotAction(bot.id, actor => canBuy
-        ? room.purchaseProperty(actor, tile.index)
-        : room.declineProperty(actor, tile.index));
-    }
-    emitRoomState(room);
+      // Re-read live state: seats, pendings, and votes may have changed while
+      // this timer was queued. The decision policy itself lives in
+      // botLogic.js and is covered by server/botLogic.test.js.
+      if (!botMayStillAct(room.game, bot)) return;
+      const result = await runBotTurn(room, bot, botAdvisor);
+      if (result?.noEmit) return;
+      // Tail purchase resolution, second half of the post-roll double-check.
+      resolvePurchaseOffer(room, bot, result);
+      emitRoomState(room);
     } catch (error) {
       // A failed bot decision must not escape the timer callback: an
       // uncaught error here used to take the whole process down. The room
@@ -411,20 +340,12 @@ function scheduleBotAuction(room) {
   if (!room?.game.auction?.active) return;
   const key = room.roomCode;
   if (auctionBotTimers.has(key)) return;
-  const bot = room.game.players.find(player => player.isBot
-    && room.game.auction.participants.includes(player.id)
-    && !room.game.auction.passedPlayerIds.includes(player.id)
-    && room.game.auction.highestBidderId !== player.id
-    && !player.bankrupt
-    && !player.disconnected);
+  const bot = room.game.players.find(player => isAuctionBotParticipant(room.game.auction, player));
   if (!bot) return;
   const timer = setTimeout(() => {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
-    const auction = room.game.auction;
-    const minimum = Math.max(auction.highestBid + 1, auction.highestBid + (bot.personality === 'shark' ? 20 : 10));
-    const reserve = bot.personality === 'shark' ? 60 : 120;
-    const shouldBid = bot.cash >= minimum + reserve && (bot.personality === 'builder' || bot.personality === 'shark' || bot.cash > room.game.settings.startingCash * 0.7);
+    const { shouldBid, minimum } = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
     room.runBotAction(bot.id, actor => shouldBid
       ? room.placeAuctionBid(actor, minimum)
       : room.passAuction(actor));
