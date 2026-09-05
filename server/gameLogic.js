@@ -41,6 +41,20 @@ const MARKET_INSTRUMENTS = [
   ['switzerland', 'SWITZERLAND', 100], ['singapore', 'SINGAPORE', 100],
   ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
 ].map(([id, name, price]) => ({ id, name, price }));
+
+// Player-contract vocabularies and the market order gates, in the exact
+// historical check order; server/contracts-market.test.js pins every string.
+const CONTRACT_KINDS = new Set(['loan', 'equity']);
+const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
+const MARKET_SIDES = ['buy', 'sell'];
+const MARKET_ORDER_GUARDS = [
+  { test: game => !game.settings.market, error: 'Market access is off for this room.' },
+  { test: (game, player) => !game.started || !player || player.bankrupt || player.disconnected, error: 'Market access is unavailable right now.' },
+  { test: (game, player) => player.id !== game.currentPlayerId, error: 'Market orders are available during your turn.' },
+  { test: (game, player) => (player.marketActionsThisTurn || 0) >= 1, error: 'You have already placed a market order this turn.' },
+  { test: game => game.pendingPayment || game.auction || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
+  { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
+];
 const PROPERTY_HOUSE_COST_BY_GROUP = {
   Brown: 50,
   'Light Blue': 50,
@@ -524,6 +538,17 @@ const CARD_ACTION_HANDLERS = {
   collectFromEach: 'collectFromEachCard'
 };
 
+// Property action dispatch: the four manageProperty verbs mapped to their
+// handler method names on GameState, replacing the original if/else ladder.
+const PROPERTY_ACTION_HANDLERS = {
+  'build-house': 'buildHousePropertyAction',
+  'sell-house': 'sellHousePropertyAction',
+  mortgage: 'mortgagePropertyAction',
+  unmortgage: 'unmortgagePropertyAction'
+};
+
+const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
+
 // Global-event rent modifiers as data: every rule is a multiplicative factor
 // (airport-strike is a factor of 0) keyed off the event/effect state, folded
 // in order over the base rent. None of them read the accumulated total, so
@@ -892,18 +917,45 @@ class GameState {
   proposePlayerContract(socketId, offer = {}) {
     const fromPlayer = this.getPlayerBySocket(socketId);
     const toPlayer = this.getPlayerById(offer.toPlayerId);
-    const kind = ['loan', 'equity'].includes(String(offer.kind)) ? String(offer.kind) : 'loan';
+    const kind = CONTRACT_KINDS.has(String(offer.kind)) ? String(offer.kind) : 'loan';
     const amount = Math.floor(Number(offer.amount));
     const requestId = String(offer.requestId || '').trim().slice(0, 100);
     const transactionKey = requestId ? (fromPlayer?.id + ':contract:' + requestId) : null;
     if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
     const durationRounds = Math.max(1, Math.min(20, Math.floor(Number(offer.durationRounds) || 3)));
     const premiumRate = Math.max(0, Math.min(100, Number(offer.premiumRate) || 0));
-    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.disconnected || toPlayer.disconnected) return { success: false, error: 'Choose two active players.' };
+    const rejection = this.contractProposalRejection(fromPlayer, toPlayer, amount);
+    if (rejection) return rejection;
+    const contract = this.baseContractTerms(fromPlayer, toPlayer, kind, amount, premiumRate, durationRounds);
+    const terms = (kind === 'loan' ? this.loanContractTerms : this.equityContractTerms).call(this, contract, offer, toPlayer);
+    if (terms) return terms;
+    this.pendingPlayerContract = contract;
+    this.feedMessage(fromPlayer.nickname + ' sent a ' + kind + ' contract to ' + toPlayer.nickname + '.');
+    const result = { success: true, contract };
+    if (transactionKey) this.contractTransactions.set(transactionKey, result);
+    return result;
+  }
+
+  // Guard order and wording are pinned by server/contracts-market.test.js.
+  contractProposalRejection(fromPlayer, toPlayer, amount) {
+    if (!this.isPairOfActivePlayers(fromPlayer, toPlayer)) return { success: false, error: 'Choose two active players.' };
     if (fromPlayer.id !== this.currentPlayerId) return { success: false, error: 'Player contracts are proposed during your turn.' };
-    if (this.pendingPayment || this.auction || this.pendingPurchaseOffer || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the current table obligation first.' };
+    if (this.tableObligationOpen()) return { success: false, error: 'Resolve the current table obligation first.' };
     if (!Number.isInteger(amount) || amount < 1 || fromPlayer.cash < amount) return { success: false, error: 'The lender does not have enough cash for that offer.' };
-    const contract = {
+    return null;
+  }
+
+  isPairOfActivePlayers(fromPlayer, toPlayer) {
+    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id) return false;
+    return !fromPlayer.bankrupt && !toPlayer.bankrupt && !fromPlayer.disconnected && !toPlayer.disconnected;
+  }
+
+  tableObligationOpen() {
+    return [this.pendingPayment, this.auction, this.pendingPurchaseOffer, this.pendingTrade, this.pendingPlayerContract].some(Boolean);
+  }
+
+  baseContractTerms(fromPlayer, toPlayer, kind, amount, premiumRate, durationRounds) {
+    return {
       id: 'contract_' + crypto.randomUUID(),
       kind,
       fromPlayerId: fromPlayer.id,
@@ -917,31 +969,44 @@ class GameState {
       equityShare: 0,
       equityControl: 'passive'
     };
-    if (kind === 'loan') {
-      const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
-      const collateral = collateralIndex == null ? null : this.getTile(collateralIndex);
-      if (collateral && (collateral.ownerId !== toPlayer.id || !this.isTradeableTile(collateral))) return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
-      contract.totalDue = amount + Math.ceil(amount * (premiumRate / 100));
-      contract.remaining = contract.totalDue;
-      contract.dueRound = this.roundNumber + durationRounds;
-      contract.cureRound = contract.dueRound + 1;
-      contract.collateralTileIndex = collateral?.index ?? null;
-    } else {
-      const property = this.getTile(Number(offer.propertyIndex));
-      const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
-      if (!property || property.type !== 'property' || property.ownerId !== toPlayer.id || property.mortgaged || property.houseCount > 0) return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
-      const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
-      if (existingShare + share > 100) return { success: false, error: 'That property has no remaining equity to sell.' };
-      contract.propertyIndex = property.index;
-      contract.equityShare = share;
-      contract.equityControl = ['passive', 'shared', 'controlling'].includes(offer.equityControl) ? offer.equityControl : 'passive';
-      contract.expiresRound = offer.permanent ? null : this.roundNumber + durationRounds;
+  }
+
+  // Term builders mutate the draft contract and return null, or return the
+  // rejection when the loan/equity specifics are invalid.
+  loanContractTerms(contract, offer, borrower) {
+    const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
+    const collateral = collateralIndex == null ? null : this.getTile(collateralIndex);
+    if (collateral && (collateral.ownerId !== borrower.id || !this.isTradeableTile(collateral))) {
+      return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
     }
-    this.pendingPlayerContract = contract;
-    this.feedMessage(fromPlayer.nickname + ' sent a ' + kind + ' contract to ' + toPlayer.nickname + '.');
-    const result = { success: true, contract };
-    if (transactionKey) this.contractTransactions.set(transactionKey, result);
-    return result;
+    contract.totalDue = contract.amount + Math.ceil(contract.amount * (contract.premiumRate / 100));
+    contract.remaining = contract.totalDue;
+    contract.dueRound = this.roundNumber + contract.durationRounds;
+    contract.cureRound = contract.dueRound + 1;
+    contract.collateralTileIndex = collateral?.index ?? null;
+    return null;
+  }
+
+  equityContractTerms(contract, offer, recipient) {
+    const property = this.getTile(Number(offer.propertyIndex));
+    const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
+    if (!this.isEquityEligibleProperty(property, recipient.id)) {
+      return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
+    }
+    const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+    if (existingShare + share > 100) {
+      return { success: false, error: 'That property has no remaining equity to sell.' };
+    }
+    contract.propertyIndex = property.index;
+    contract.equityShare = share;
+    contract.equityControl = EQUITY_CONTROL_MODES.has(offer.equityControl) ? offer.equityControl : 'passive';
+    contract.expiresRound = offer.permanent ? null : this.roundNumber + contract.durationRounds;
+    return null;
+  }
+
+  isEquityEligibleProperty(property, ownerId) {
+    if (!property || property.type !== 'property' || property.ownerId !== ownerId) return false;
+    return !property.mortgaged && !(property.houseCount > 0);
   }
 
   respondPlayerContract(socketId, accept, requestId = null) {
@@ -1935,45 +2000,55 @@ class GameState {
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
     const instrument = MARKET_INSTRUMENTS.find(entry => entry.id === id);
-    if (!this.settings.market) return { success: false, error: 'Market access is off for this room.' };
-    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Market access is unavailable right now.' };
-    if (player.id !== this.currentPlayerId) return { success: false, error: 'Market orders are available during your turn.' };
-    if ((player.marketActionsThisTurn || 0) >= 1) return { success: false, error: 'You have already placed a market order this turn.' };
-    if (this.pendingPayment || this.auction || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the table obligation before trading.' };
-    if (this.activeEventEffects().tradingEnabled === false) return { success: false, error: 'Market trading is paused by the active global event.' };
-    if (!instrument || !['buy', 'sell'].includes(direction)) return { success: false, error: 'Choose a valid market order.' };
-    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
+    const rejection = this.marketOrderRejection(player, instrument, direction, amount);
+    if (rejection) return rejection;
     const quote = Number(this.marketQuotes[id]) || instrument.price;
     const gross = quote * amount;
     const fee = Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
     const position = player.marketPositions[id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
-    if (direction === 'buy') {
-      const total = gross + fee;
-      if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
-      player.cash -= total;
-      position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
-      position.quantity += amount;
-      const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
-      if (this.globalEvent?.phase === 'active' && Number.isFinite(eventMultiplier) && eventMultiplier < 1) {
-        player.crisisMarketBuys[id] ||= { quote, roundNumber: this.roundNumber };
-      }
-    } else {
-      if (position.quantity < amount) return { success: false, error: 'You do not hold enough of this index.' };
-      player.cash += gross - fee;
-      position.realizedPnl += (quote - position.averageCost) * amount - fee;
-      position.quantity -= amount;
-      if (player.crisisMarketBuys?.[id] && quote > Number(player.crisisMarketBuys[id].quote || 0) && this.globalEvent?.phase !== 'active') {
-        player.crisisMarketProfit = true;
-        delete player.crisisMarketBuys[id];
-      }
-      if (!position.quantity) position.averageCost = 0;
-    }
+    const leg = direction === 'buy' ? this.applyMarketBuy : this.applyMarketSell;
+    const legRejection = leg.call(this, player, id, position, { quote, gross, fee, amount });
+    if (legRejection) return legRejection;
     player.marketPositions[id] = position;
     player.marketTrades = (player.marketTrades || 0) + 1;
     player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
     this.marketLedger = [{ transactionId: key || crypto.randomUUID(), roundNumber: this.roundNumber, playerId: player.id, instrumentId: id, side: direction, quantity: amount, quote, fee, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
     this.feedMessage(`${player.nickname} ${direction === 'buy' ? 'bought' : 'sold'} ${amount} ${instrument.name} index unit${amount === 1 ? '' : 's'}.`);
     return this.cacheTransaction(key, { success: true, order: { instrumentId: id, side: direction, quantity: amount, quote, fee, total: direction === 'buy' ? gross + fee : gross - fee }, economy: this.economySnapshot(player.id) });
+  }
+
+  marketOrderRejection(player, instrument, direction, amount) {
+    const guard = MARKET_ORDER_GUARDS.find(entry => entry.test(this, player));
+    if (guard) return { success: false, error: guard.error };
+    if (!instrument || !MARKET_SIDES.includes(direction)) return { success: false, error: 'Choose a valid market order.' };
+    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
+    return null;
+  }
+
+  applyMarketBuy(player, id, position, { quote, gross, fee, amount }) {
+    const total = gross + fee;
+    if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
+    player.cash -= total;
+    position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
+    position.quantity += amount;
+    const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
+    if (this.globalEvent?.phase === 'active' && Number.isFinite(eventMultiplier) && eventMultiplier < 1) {
+      player.crisisMarketBuys[id] ||= { quote, roundNumber: this.roundNumber };
+    }
+    return null;
+  }
+
+  applyMarketSell(player, id, position, { quote, gross, fee, amount }) {
+    if (position.quantity < amount) return { success: false, error: 'You do not hold enough of this index.' };
+    player.cash += gross - fee;
+    position.realizedPnl += (quote - position.averageCost) * amount - fee;
+    position.quantity -= amount;
+    if (player.crisisMarketBuys?.[id] && quote > Number(player.crisisMarketBuys[id].quote || 0) && this.globalEvent?.phase !== 'active') {
+      player.crisisMarketProfit = true;
+      delete player.crisisMarketBuys[id];
+    }
+    if (!position.quantity) position.averageCost = 0;
+    return null;
   }
 
   applyTile(player, tile, options = {}) {
@@ -2732,99 +2807,132 @@ class GameState {
     this.auction = null;
   }
 
-  manageProperty(socketId, { tileIndex, action } = {}) {
+  manageProperty(socketId, payload = {}) {
+    const { tileIndex, action } = payload || {};
     const player = this.getPlayerBySocket(socketId);
     const tile = this.getTile(tileIndex);
+    const rejection = this.propertyActionRejection(player, tile, action);
+    if (rejection) return rejection;
+    const handlerName = PROPERTY_ACTION_HANDLERS[action];
+    if (!handlerName) return { success: false, error: 'Unknown property action.' };
+    const result = this[handlerName](player, tile);
+    if (result?.success && this.pendingPayment?.playerId === player.id) {
+      this.trySettlePendingPayment();
+    }
+    return result;
+  }
+
+  // The shared gates of all four actions, in the historical order: existence,
+  // ownership, then the build/sell turn window (relaxed while settling debt).
+  propertyActionRejection(player, tile, action) {
     if (!player || !tile) {
       return { success: false, error: 'Property not found.' };
     }
     if (tile.ownerId !== player.id) {
       return { success: false, error: 'You do not own this property.' };
     }
-
     const settlingDebt = this.pendingPayment?.playerId === player.id;
-
-    if (action === 'build-house' || action === 'sell-house') {
-      if (!settlingDebt) {
-        if (player.id !== this.currentPlayerId) {
-          return { success: false, error: 'You can only build or sell during your turn.' };
-        }
-        if (this.hasRolled && !this.extraRollPending) {
-          return { success: false, error: 'You can only build or sell before rolling the dice.' };
-        }
-      } else if (action === 'build-house') {
-        return { success: false, error: 'You cannot build while settling a debt.' };
-      }
-    }
-
-    let result;
+    const buildOrSell = action === 'build-house' || action === 'sell-house';
+    if (!buildOrSell) return null;
+    if (!settlingDebt) return this.buildWindowRejection(player);
     if (action === 'build-house') {
-      if (!this.canBuildOnTile(player, tile)) {
-        return { success: false, error: 'You cannot build on this property right now.' };
-      }
-      const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
-      if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
-        return { success: false, error: 'The active event limits building actions this turn.' };
-      }
-      const cost = this.getPropertyHouseCost(tile);
-      if (player.cash < cost) {
-        return { success: false, error: 'Insufficient cash to build a house.' };
-      }
-      player.cash -= cost;
-      tile.houseCount = (tile.houseCount || 0) + 1;
-      player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
-      if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
-      if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
-      if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works') {
-        player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
-      }
-      const label = tile.houseCount >= 5 ? 'hotel' : 'house';
-      this.feedMessage(`${player.nickname} built a ${label} on ${tile.name}.`);
-      result = { success: true };
-    } else if (action === 'sell-house') {
-      if (!this.canSellFromTile(player, tile)) {
-        return { success: false, error: 'You cannot sell a house from this property right now.' };
-      }
-      const cost = this.getPropertyHouseCost(tile);
-      const wasHotel = (tile.houseCount || 0) >= 5;
-      tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
-      const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
-      const saleMultiplier = Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
-      player.cash += Math.floor(cost * saleMultiplier);
-      if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
-      const label = wasHotel ? 'hotel' : 'house';
-      this.feedMessage(`${player.nickname} sold a ${label} from ${tile.name}.`);
-      result = { success: true };
-    } else if (action === 'mortgage') {
-      if (!this.canMortgageTile(player, tile)) {
-        return { success: false, error: 'You cannot mortgage this property right now.' };
-      }
-      tile.mortgaged = true;
-      const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
-      const amount = Math.floor((tile.price || 0) / 2 * (Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1));
-      player.cash += amount;
-      this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
-      result = { success: true };
-    } else if (action === 'unmortgage') {
-      if (!this.canUnmortgageTile(player, tile)) {
-        return { success: false, error: 'You cannot unmortgage this property right now.' };
-      }
-      const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
-      if (player.cash < cost) {
-        return { success: false, error: 'Insufficient cash to unmortgage this property.' };
-      }
-      player.cash -= cost;
-      tile.mortgaged = false;
-      this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
-      result = { success: true };
-    } else {
-      return { success: false, error: 'Unknown property action.' };
+      return { success: false, error: 'You cannot build while settling a debt.' };
     }
+    return null;
+  }
 
-    if (result?.success && this.pendingPayment?.playerId === player.id) {
-      this.trySettlePendingPayment();
+  buildWindowRejection(player) {
+    if (player.id !== this.currentPlayerId) {
+      return { success: false, error: 'You can only build or sell during your turn.' };
     }
-    return result;
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You can only build or sell before rolling the dice.' };
+    }
+    return null;
+  }
+
+  buildingLimitRejection(player) {
+    const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
+    if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
+      return { success: false, error: 'The active event limits building actions this turn.' };
+    }
+    return null;
+  }
+
+  // Side effects a completed build awards, beyond the house itself.
+  applyBuildBonuses(player) {
+    if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
+    if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
+    const election = this.globalEvent;
+    if (election?.phase === 'active' && election.id === 'city-election' && election.resolvedChoice === 'public-works') {
+      player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
+    }
+  }
+
+  buildHousePropertyAction(player, tile) {
+    if (!this.canBuildOnTile(player, tile)) {
+      return { success: false, error: 'You cannot build on this property right now.' };
+    }
+    const limit = this.buildingLimitRejection(player);
+    if (limit) return limit;
+    const cost = this.getPropertyHouseCost(tile);
+    if (player.cash < cost) {
+      return { success: false, error: 'Insufficient cash to build a house.' };
+    }
+    player.cash -= cost;
+    tile.houseCount = (tile.houseCount || 0) + 1;
+    player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
+    this.applyBuildBonuses(player);
+    this.feedMessage(`${player.nickname} built a ${buildingLabel(tile.houseCount)} on ${tile.name}.`);
+    return { success: true };
+  }
+
+  sellHousePropertyAction(player, tile) {
+    if (!this.canSellFromTile(player, tile)) {
+      return { success: false, error: 'You cannot sell a house from this property right now.' };
+    }
+    const cost = this.getPropertyHouseCost(tile);
+    const wasHotel = (tile.houseCount || 0) >= 5;
+    tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
+    player.cash += Math.floor(cost * this.buildingSaleMultiplier());
+    if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
+    this.feedMessage(`${player.nickname} sold a ${buildingLabel(wasHotel ? 5 : 0)} from ${tile.name}.`);
+    return { success: true };
+  }
+
+  buildingSaleMultiplier() {
+    const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
+    return Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
+  }
+
+  mortgagePropertyAction(player, tile) {
+    if (!this.canMortgageTile(player, tile)) {
+      return { success: false, error: 'You cannot mortgage this property right now.' };
+    }
+    tile.mortgaged = true;
+    const amount = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
+    player.cash += amount;
+    this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
+    return { success: true };
+  }
+
+  propertyValueMultiplier() {
+    const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
+    return Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1;
+  }
+
+  unmortgagePropertyAction(player, tile) {
+    if (!this.canUnmortgageTile(player, tile)) {
+      return { success: false, error: 'You cannot unmortgage this property right now.' };
+    }
+    const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
+    if (player.cash < cost) {
+      return { success: false, error: 'Insufficient cash to unmortgage this property.' };
+    }
+    player.cash -= cost;
+    tile.mortgaged = false;
+    this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
+    return { success: true };
   }
 
   proposeTrade(socketId, offer = {}) {
