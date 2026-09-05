@@ -1030,6 +1030,7 @@ class GameState {
       player.moveCount = 0;
       player.hiddenMovementSequence = false;
       player.bankrupt = false;
+      player.inDebt = false;
       player.ready = false;
     });
   }
@@ -1168,6 +1169,7 @@ class GameState {
     if (fromPlayer.id !== this.currentPlayerId) return { success: false, error: 'Player contracts are proposed during your turn.' };
     if (this.tableObligationOpen()) return { success: false, error: 'Resolve the current table obligation first.' };
     if (!Number.isInteger(amount) || amount < 1 || fromPlayer.cash < amount) return { success: false, error: 'The lender does not have enough cash for that offer.' };
+    if (this.hasLoanBackedCash(fromPlayer)) return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
     return null;
   }
 
@@ -2393,6 +2395,7 @@ class GameState {
   applyMarketBuy(player, id, position, { quote, gross, fee, amount }) {
     const total = gross + fee;
     if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
+    if (this.hasLoanBackedCash(player)) return { success: false, error: 'Loan-backed cash cannot be used for market orders.' };
     player.cash -= total;
     position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
     position.quantity += amount;
