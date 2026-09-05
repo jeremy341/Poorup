@@ -465,6 +465,26 @@ function clearDisconnectTimer(clientId) {
   }
 }
 
+// Obligations that gate the whole table must die with a departing or
+// AFK seat, or the remaining players wait forever on a ghost.
+const CANCELLED_OBLIGATIONS = [
+  { key: 'pendingTrade', label: 'trade' },
+  { key: 'pendingPlayerContract', label: 'player contract' }
+];
+
+function obligationInvolvesPlayer(obligation, playerId) {
+  if (obligation?.fromPlayerId === playerId) return true;
+  return obligation?.toPlayerId === playerId;
+}
+
+function clearPendingObligations(room, game, player, reason) {
+  CANCELLED_OBLIGATIONS.forEach(({ key, label }) => {
+    if (!obligationInvolvesPlayer(game[key], player.id)) return;
+    game[key] = null;
+    io.in(room.roomCode).emit('system-message', { text: `A pending ${label} was cancelled due to ${reason}.` });
+  });
+}
+
 function scheduleDisconnect(room, socketId) {
   if (!room) return;
   const player = room.getPlayerBySocket(socketId);
@@ -487,13 +507,7 @@ function scheduleDisconnect(room, socketId) {
     currentPlayer.socketId = null;
     roomManager.socketRoom.delete(socketId);
     reassignHostIfNeeded(currentRoom, currentPlayer.id);
-    if (
-      currentRoom.game.pendingTrade &&
-      (currentRoom.game.pendingTrade.fromPlayerId === currentPlayer.id || currentRoom.game.pendingTrade.toPlayerId === currentPlayer.id)
-    ) {
-      currentRoom.game.pendingTrade = null;
-      io.in(currentRoom.roomCode).emit('system-message', { text: 'A pending trade was cancelled due to disconnect.' });
-    }
+    clearPendingObligations(currentRoom, currentRoom.game, currentPlayer, 'disconnect');
     if (currentRoom.game.currentPlayerId === currentPlayer.id) {
       currentRoom.game.pendingPurchaseOffer = null;
       currentRoom.game.skipDisconnectedCurrentPlayer();
@@ -539,13 +553,7 @@ function scheduleAuctionFinish(room) {
 // reusable helper for a still-connected player — skipDisconnectedCurrentPlayer
 // is gated on player.disconnected and no-ops here.
 function expireAfkTurn(room, game, player) {
-  if (
-    game.pendingTrade &&
-    (game.pendingTrade.fromPlayerId === player.id || game.pendingTrade.toPlayerId === player.id)
-  ) {
-    game.pendingTrade = null;
-    io.in(room.roomCode).emit('system-message', { text: 'A pending trade was cancelled due to turn timeout.' });
-  }
+  clearPendingObligations(room, game, player, 'turn timeout');
   game.pendingPurchaseOffer = null;
   if (game.pendingPayment?.playerId === player.id) {
     game.pendingPayment = null;

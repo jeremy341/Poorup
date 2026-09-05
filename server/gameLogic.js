@@ -1,4 +1,13 @@
 import crypto from 'crypto';
+import {
+  announceLoanDue,
+  bankruptcyRefusal,
+  clearQuitObligations,
+  contractSettlementRejection,
+  equitySharePayable,
+  outstandingDebtFor,
+  resolveUnsecuredBankDefault
+} from './bankruptcyLogic.js';
 
 const DEFAULT_ROOM_SETTINGS = {
   maxPlayers: 4,
@@ -1241,17 +1250,10 @@ class GameState {
       this.pendingPlayerContract = null;
       return { success: false, error: 'The lender can no longer fund that contract.' };
     }
+    const settlementRejection = contractSettlementRejection(this, player, contract);
+    if (settlementRejection) return settlementRejection;
     if (contract.kind === 'equity') {
       const property = this.getTile(contract.propertyIndex);
-      if (!property || property.ownerId !== player.id || property.mortgaged || property.houseCount > 0) {
-        this.pendingPlayerContract = null;
-        return { success: false, error: 'The equity property is no longer available.' };
-      }
-      const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
-      if (existingShare + contract.equityShare > 100) {
-        this.pendingPlayerContract = null;
-        return { success: false, error: 'The property has no remaining equity.' };
-      }
       property.equityShares = [...(property.equityShares || []), { holderId: lender.id, share: contract.equityShare, contractId: contract.id, control: contract.equityControl }];
     }
     lender.cash -= contract.amount;
@@ -1304,10 +1306,7 @@ class GameState {
       if (contract.status === 'active' && this.roundNumber >= contract.dueRound) {
         contract.status = 'due';
         const borrower = this.getPlayerById(contract.toPlayerId);
-        if (borrower) {
-          borrower.loanWarningSeen = true;
-          this.feedMessage(borrower.nickname + ' owes $' + contract.remaining + ' on a player loan.');
-        }
+        if (borrower) announceLoanDue(this, contract, borrower);
       } else if (contract.status === 'due' && this.roundNumber > contract.cureRound) {
         const borrower = this.getPlayerById(contract.toPlayerId);
         const lender = this.getPlayerById(contract.fromPlayerId);
@@ -1322,16 +1321,17 @@ class GameState {
   }
 
   settleEquityShares(tile, owner, amountPaid) {
-    if (!tile?.equityShares?.length || !owner || amountPaid <= 0) return;
-    tile.equityShares.forEach(share => {
-      const contract = this.playerContractById(share.contractId);
-      const holder = this.getPlayerById(share.holderId);
-      if (!contract || contract.status !== 'active' || !holder || holder.bankrupt) return;
-      const payout = Math.min(owner.cash, Math.floor(amountPaid * (Number(share.share) / 100)));
+    if (!tile?.equityShares?.length) return;
+    if (!owner || owner.bankrupt) return;
+    if (amountPaid <= 0) return;
+    tile.equityShares.forEach((share) => {
+      const payable = equitySharePayable(this, share);
+      if (!payable) return;
+      const payout = Math.min(owner.cash, Math.floor(amountPaid * (payable.sharePct / 100)));
       if (payout <= 0) return;
       owner.cash -= payout;
-      holder.cash += payout;
-      contract.rentCollected = (contract.rentCollected || 0) + payout;
+      payable.holder.cash += payout;
+      payable.contract.rentCollected = (payable.contract.rentCollected || 0) + payout;
     });
   }
 
@@ -1826,8 +1826,11 @@ class GameState {
       player.collateralLost = true;
       this.feedMessage(`${player.nickname} defaulted. The bank seized ${collateral.name}.`);
     } else {
-      this.feedMessage(`${player.nickname} defaulted on an unsecured bank loan.`);
-      this.handleBankruptcy(player, null);
+      // The bank files a claim instead of eliminating the seat outright:
+      // the player now chooses between raising funds and declaring
+      // bankruptcy (the debt settlement path handles both).
+      resolveUnsecuredBankDefault(this, player, loan);
+      loan.remaining = 0;
     }
     loan.status = 'defaulted';
     loan.defaultedRound = this.roundNumber;
@@ -2889,24 +2892,20 @@ class GameState {
     return true;
   }
 
+  // Bankruptcy is the player's decision, not the server's verdict. With a
+  // debt it hands assets to the creditor; without one it is a voluntary
+  // retirement whose deeds return to the market unencumbered.
   declareBankruptcy(socketId) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player) {
-      return { success: false, error: 'Player not found.' };
-    }
-    if (!this.pendingPayment || this.pendingPayment.playerId !== player.id) {
-      return { success: false, error: 'You have no outstanding debt to settle.' };
-    }
-    const creditor = this.pendingPayment.creditorId
-      ? this.getPlayerById(this.pendingPayment.creditorId)
-      : null;
-    this.pendingPayment = null;
-    this.pendingPaymentTurnOptions = null;
+    const refusal = bankruptcyRefusal(this, player);
+    if (refusal) return refusal;
+    const { owes, creditor } = outstandingDebtFor(this, player);
+    clearQuitObligations(this, player);
     this.handleBankruptcy(player, creditor);
     if (player.id === this.currentPlayerId) {
       this.nextTurn();
     }
-    return { success: true };
+    return { success: true, voluntary: !owes };
   }
 
   transferMoney(from, to, amount, message) {
@@ -2949,17 +2948,29 @@ class GameState {
   }
 
   // Positions are force-sold at the current quote minus the market fee and
-  // floored into cash; zero-proceeding holdings are dropped silently.
+  // floored into cash; zero-proceeding holdings are dropped silently. The
+  // per-position realized P&L (net proceeds over average cost) is recorded
+  // so post-game stats see the forced exit, not just voluntary sells.
   liquidateMarketPositions(player) {
-    const marketLiquidation = Object.entries(player.marketPositions || {}).reduce((sum, [id, position]) => {
-      const quantity = Math.max(0, Number(position.quantity) || 0);
+    const entries = Object.entries(player.marketPositions || {});
+    const proceedsOf = (id, quantity) => {
       const quote = Math.max(0, Number(this.marketQuotes[id]) || 0);
-      const netProceeds = quote * quantity - Math.ceil(quote * quantity * MARKET_FEE_RATE);
-      return sum + Math.max(0, netProceeds);
+      const gross = quote * quantity;
+      return Math.max(0, gross - Math.ceil(gross * MARKET_FEE_RATE));
+    };
+    const marketLiquidation = entries.reduce((sum, [id, position]) => {
+      const quantity = Math.max(0, Number(position.quantity) || 0);
+      return sum + proceedsOf(id, quantity);
     }, 0);
     if (marketLiquidation <= 0) return;
+    entries.forEach(([id, position]) => {
+      const quantity = Math.max(0, Number(position.quantity) || 0);
+      position.realizedPnl = (Number(position.realizedPnl) || 0)
+        + proceedsOf(id, quantity) - (Number(position.averageCost) || 0) * quantity;
+      position.quantity = 0;
+      position.averageCost = 0;
+    });
     player.cash += Math.floor(marketLiquidation);
-    player.marketPositions = {};
     this.feedMessage(`${player.nickname}'s market positions were liquidated for $${Math.floor(marketLiquidation)}.`);
   }
 

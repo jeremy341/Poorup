@@ -282,6 +282,58 @@ async function matchHistoryPrivacy(ctx) {
       { success: false, error: 'This player keeps match history private.' }));
 }
 
+function watchStates(socket) {
+  const seen = [];
+  socket.on('update-state', state => seen.push(state));
+  return () => seen[seen.length - 1] || null;
+}
+
+// The disconnect grace (server.js DISCONNECT_GRACE_MS = 10s) must drop a
+// pending player contract held by the departing seat, or the table stays
+// gated for everyone else until someone manually resolves it. These two
+// scenarios share the CT0001 fixture via ctx.
+function seatId(latest, nickname) {
+  return (latest()?.game?.players || []).find(player => player.nickname === nickname)?.id || null;
+}
+
+async function contractGateSetup(ctx) {
+  ctx.sockCT = await ctx.open();
+  ctx.check('A creates the contract-gate fixture room CT0001',
+    ackEquals(await ctx.ask(ctx.sockCT, 'create-room', { clientId: 'ca-1', nickname: 'CHost', visibility: 'private', roomCode: 'CT0001' }),
+      { success: true, roomCode: 'CT0001', visibility: 'private' }));
+  ctx.check('casino is enabled for the gate probe',
+    ackEquals(await ctx.ask(ctx.sockCT, 'set-setting', { key: 'casino', value: true }), { success: true }));
+  ctx.sockCB = await ctx.open();
+  ctx.latestCB = watchStates(ctx.sockCB);
+  ctx.check('B joins CT0001', (await ctx.ask(ctx.sockCB, 'join-room', { clientId: 'cb-1', roomCode: 'CT0001', nickname: 'Betty' }))?.success === true);
+  const sockC = await ctx.open();
+  ctx.check('C joins CT0001', (await ctx.ask(sockC, 'join-room', { clientId: 'cc-1', roomCode: 'CT0001', nickname: 'Cleo' }))?.success === true);
+  ctx.check('A starts the CT0001 game', ackEquals(await ctx.ask(ctx.sockCT, 'start-game', {}), { success: true }));
+  await wait(300);
+  ctx.ctSeatC = seatId(ctx.latestCB, 'Cleo');
+}
+
+async function contractReleasesOnDisconnect(ctx) {
+  ctx.check('C is seated with a known id', Boolean(ctx.ctSeatC));
+  ctx.check('A proposes a contract to the idle C',
+    (await ctx.ask(ctx.sockCT, 'propose-player-contract', { toPlayerId: ctx.ctSeatC, kind: 'loan', amount: 50 }))?.success === true);
+  ctx.check('B is gated by the pending contract before the disconnect',
+    ackEquals(await ctx.ask(ctx.sockCB, 'place-casino-bet', { color: 'red', stake: 10 }),
+      { success: false, error: 'Resolve the table obligation before betting.' }));
+  ctx.sockCT.close();
+  await wait(11500);
+  ctx.check('B can bet again once the grace expiry released the contract',
+    (await ctx.ask(ctx.sockCB, 'place-casino-bet', { color: 'red', stake: 10, requestId: 'post-grace-bet' }))?.success === true);
+}
+
+async function voluntaryRetireWire(ctx) {
+  ctx.check('B can voluntarily retire mid-round without any debt',
+    (await ctx.ask(ctx.sockCB, 'declare-bankruptcy', {}))?.success === true);
+  await wait(250);
+  ctx.check('the table sees B eliminated',
+    (ctx.latestCB()?.game?.players || []).find(player => player.nickname === 'Betty')?.bankrupt === true);
+}
+
 async function serverSurvival(ctx) {
   ctx.check('no uncaught exception was logged', !ctx.serverLog().includes('UNCAUGHT EXCEPTION'));
   ctx.check('server survived the whole rooms suite', ctx.child.exitCode === null);
@@ -300,6 +352,9 @@ const SCENARIOS = [
   startedRoundInviteError,
   clientSessionRequired,
   matchHistoryPrivacy,
+  contractGateSetup,
+  contractReleasesOnDisconnect,
+  voluntaryRetireWire,
   serverSurvival
 ];
 
