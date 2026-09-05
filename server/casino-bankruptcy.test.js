@@ -855,6 +855,25 @@ check('setRoomSetting — string keys trim, non-strings pass through', () => {
   assert.equal(room.game.settings.bankruptMode, 5);
 });
 
+// ---------------------------------------------------------------------------
+// bankruptMode=debt
+// ---------------------------------------------------------------------------
+
+check('debt mode — bankruptMode=debt transfers assets without elimination', () => {
+  const room = makeStartedRoom(false);
+  room.game.settings.bankruptMode = 'debt';
+  const player = room.game.getPlayerBySocket('socket-a');
+  player.cash = 500;
+  const pendingPayment = { playerId: player.id, creditorId: null, amountRemaining: 500, reason: 'test' };
+  room.game.pendingPayment = pendingPayment;
+  const result = room.game.declareBankruptcy('socket-a');
+  if (!result.success) throw new Error('should succeed');
+  if (result.voluntary !== false) throw new Error('should not be voluntary');
+  if (player.bankrupt) throw new Error('should NOT be bankrupt');
+  if (!player.inDebt) throw new Error('should be inDebt');
+  if (player.cash !== 0) throw new Error('cash should be 0');
+});
+
 console.log(`casino-bankruptcy tests: ${passed + failures.length} checks — ${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.error('FAILED:', failures.join(', '));
