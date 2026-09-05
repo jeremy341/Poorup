@@ -502,6 +502,28 @@ class AuctionState {
   }
 }
 
+// Card action dispatch support. A handler returns either a real result (the
+// movement cards that re-enter applyTile, or the strike/rent early-outs) or
+// the RESOLVE_TAIL sentinel meaning "run the shared resolveTurnAfterAction
+// tail and return undefined" — exactly the break-vs-return split the original
+// switch encoded. Handlers live on GameState and are looked up by name.
+const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
+const CARD_ACTION_HANDLERS = {
+  collectStart: 'collectStartCard',
+  pay: 'payCard',
+  collect: 'collectCard',
+  jailFree: 'jailFreeCard',
+  moveBack: 'moveBackCard',
+  moveTo: 'moveToCard',
+  nearestRailroad: 'nearestTileCard',
+  nearestUtility: 'nearestTileCard',
+  repairs: 'repairsCard',
+  payEach: 'payEachCard',
+  move: 'moveCard',
+  goToJail: 'goToJailCard',
+  collectFromEach: 'collectFromEachCard'
+};
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -2107,126 +2129,172 @@ class GameState {
   }
 
   applyCard(player, card, options = {}) {
-    switch (card.action) {
-      case 'collectStart':
-        player.position = START_TILE_INDEX;
-        {
-          const amount = Number(card.amount) || 200;
-          const paid = this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax' ? Math.floor(amount * 0.8) : amount;
-          player.cash += paid;
-          this.feedMessage(`${player.nickname} collected $${paid} from Start.`);
-        }
-        break;
-      case 'pay':
-        this.chargePlayer(player, null, card.amount, `${player.nickname} paid $${card.amount}.`, options);
-        return;
-      case 'collect':
-        {
-          const amount = Number(card.amount) || 0;
-          const paid = this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax' ? Math.floor(amount * 0.8) : amount;
-          player.cash += paid;
-          this.feedMessage(`${player.nickname} collected $${paid}.`);
-        }
-        break;
-      case 'jailFree':
-        player.jailFreeCards = (player.jailFreeCards || 0) + 1;
-        this.feedMessage(`${player.nickname} received a Get Out of Prison card.`);
-        break;
-      case 'moveBack':
-        player.position = (player.position - (card.steps || 3) + this.tiles.length) % this.tiles.length;
-        this.feedMessage(`${player.nickname} moved back ${card.steps || 3} spaces.`);
-        return this.applyTile(player, this.getTile(player.position), options);
-      case 'moveTo': {
-        const destination = this.getTile(card.tileIndex);
-        if (!destination) break;
-        if (destination.index < player.position) {
-          player.cash += 200;
-          this.feedMessage(`${player.nickname} passed Start and collected $200.`);
-        }
-        player.position = destination.index;
-        this.feedMessage(`${player.nickname} advanced to ${destination.name}.`);
-        return this.applyTile(player, destination, options);
-      }
-      case 'nearestRailroad':
-      case 'nearestUtility': {
-        const wantedType = card.action === 'nearestRailroad' ? 'railroad' : 'utility';
-        if (wantedType === 'railroad' && (this.globalEventActive('airport-strike') || this.activeEventEffects().airportCardsBlocked)) {
-          this.feedMessage(`${player.nickname} drew an airport movement card, but the strike grounded every flight.`);
-          this.resolveTurnAfterAction(options);
-          return { success: true };
-        }
-        const destination = Array.from({ length: this.tiles.length - 1 }, (_, offset) => (player.position + offset + 1) % this.tiles.length)
-          .map(index => this.getTile(index))
-          .find(tile => tile?.type === wantedType);
-        if (!destination) break;
-        if (destination.index < player.position) {
-          player.cash += 200;
-          this.feedMessage(`${player.nickname} passed Start and collected $200.`);
-        }
-        player.position = destination.index;
-        const owner = destination.ownerId ? this.getPlayerById(destination.ownerId) : null;
-        if (owner && owner.id !== player.id && !destination.mortgaged) {
-          const amount = wantedType === 'utility'
-            ? (Number(this.lastDice[0]) + Number(this.lastDice[1])) * (card.multiplier || 10)
-            : this.calculateRent(destination) * (card.multiplier || 2);
-          this.chargePlayer(player, owner, amount, `${player.nickname} paid $${amount} card rent to ${owner.nickname}.`, options);
-          return { success: true };
-        }
-        return this.applyTile(player, destination, options);
-      }
-      case 'repairs': {
-        const houses = player.properties.reduce((sum, index) => {
-          const level = this.getTile(index)?.houseCount || 0;
-          return sum + (level === 5 ? 0 : level);
-        }, 0);
-        const hotels = player.properties.reduce((sum, index) => sum + ((this.getTile(index)?.houseCount || 0) === 5 ? 1 : 0), 0);
-        const amount = houses * (card.houseCost || 0) + hotels * (card.hotelCost || 0);
-        if (amount) this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in building repairs.`, options);
-        break;
-      }
-      case 'payEach': {
-        const amount = card.amount || 0;
-        this.activePlayers().filter(other => other.id !== player.id).forEach(other => {
-          const paid = Math.min(player.cash, amount);
-          player.cash -= paid;
-          other.cash += paid;
-        });
-        this.feedMessage(`${player.nickname} paid each player $${amount} from the card.`);
-        break;
-      }
-      case 'move': {
-        const destTile = this.getTile(card.tileIndex);
-        if (!destTile) break;
-        player.position = card.tileIndex;
-        this.feedMessage(`${player.nickname} moved to ${destTile.name}.`);
-        const moveOptions = destTile.type === 'vacation'
-          ? { ...options, skipVacationCollect: true }
-          : options;
-        return this.applyTile(player, destTile, moveOptions);
-      }
-      case 'goToJail':
-        player.position = this.tiles.find(tile => tile.type === 'jail').index;
-        player.inJail = true;
-        player.jailTurns = 0;
-        this.feedMessage(`${player.nickname} was sent to Jail by a card.`);
-        this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
-        return;
-      case 'collectFromEach': {
-        const alive = this.activePlayers();
-        alive.forEach(other => {
-          if (other.id !== player.id) {
-            const paid = Math.min(other.cash, card.amount || 0);
-            other.cash -= paid;
-            player.cash += paid;
-          }
-        });
-        this.feedMessage(`${player.nickname} collected from each player.`);
-        break;
-      }
-      default:
-        break;
+    const handlerName = CARD_ACTION_HANDLERS[card.action];
+    const handler = handlerName && this[handlerName];
+    const outcome = handler ? handler.call(this, player, card, options) : RESOLVE_TAIL;
+    if (outcome === RESOLVE_TAIL) {
+      this.resolveTurnAfterAction(options);
+      return undefined;
     }
-    this.resolveTurnAfterAction(options);
+    return outcome;
+  }
+
+  isLowTaxElection() {
+    return this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax';
+  }
+
+  // Shared movement-card pieces: the pass-Start salary, the airport-strike
+  // grounding test, the payable-rent-owner guard and the card rent formula.
+  awardStartSalaryIfPassed(player, destination) {
+    if (destination.index < player.position) {
+      player.cash += 200;
+      this.feedMessage(`${player.nickname} passed Start and collected $200.`);
+    }
+  }
+
+  airportStrikeGroundsCard() {
+    return this.globalEventActive('airport-strike') || this.activeEventEffects().airportCardsBlocked;
+  }
+
+  cardRentPayable(player, owner, destination) {
+    if (!owner) return false;
+    if (owner.id === player.id) return false;
+    return !destination.mortgaged;
+  }
+
+  collectStartCard(player, card) {
+    player.position = START_TILE_INDEX;
+    const amount = Number(card.amount) || 200;
+    const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
+    player.cash += paid;
+    this.feedMessage(`${player.nickname} collected $${paid} from Start.`);
+    return RESOLVE_TAIL;
+  }
+
+  collectCard(player, card) {
+    const amount = Number(card.amount) || 0;
+    const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
+    player.cash += paid;
+    this.feedMessage(`${player.nickname} collected $${paid}.`);
+    return RESOLVE_TAIL;
+  }
+
+  payCard(player, card, options) {
+    this.chargePlayer(player, null, card.amount, `${player.nickname} paid $${card.amount}.`, options);
+    return undefined;
+  }
+
+  jailFreeCard(player) {
+    player.jailFreeCards = (player.jailFreeCards || 0) + 1;
+    this.feedMessage(`${player.nickname} received a Get Out of Prison card.`);
+    return RESOLVE_TAIL;
+  }
+
+  moveBackCard(player, card, options) {
+    player.position = (player.position - (card.steps || 3) + this.tiles.length) % this.tiles.length;
+    this.feedMessage(`${player.nickname} moved back ${card.steps || 3} spaces.`);
+    return this.applyTile(player, this.getTile(player.position), options);
+  }
+
+  moveToCard(player, card, options) {
+    const destination = this.getTile(card.tileIndex);
+    if (!destination) return RESOLVE_TAIL;
+    this.awardStartSalaryIfPassed(player, destination);
+    player.position = destination.index;
+    this.feedMessage(`${player.nickname} advanced to ${destination.name}.`);
+    return this.applyTile(player, destination, options);
+  }
+
+  moveCard(player, card, options) {
+    const destTile = this.getTile(card.tileIndex);
+    if (!destTile) return RESOLVE_TAIL;
+    player.position = card.tileIndex;
+    this.feedMessage(`${player.nickname} moved to ${destTile.name}.`);
+    const moveOptions = destTile.type === 'vacation' ? { ...options, skipVacationCollect: true } : options;
+    return this.applyTile(player, destTile, moveOptions);
+  }
+
+  nearestTileCard(player, card, options) {
+    const wantedType = card.action === 'nearestRailroad' ? 'railroad' : 'utility';
+    if (wantedType === 'railroad' && this.airportStrikeGroundsCard()) {
+      this.feedMessage(`${player.nickname} drew an airport movement card, but the strike grounded every flight.`);
+      this.resolveTurnAfterAction(options);
+      return { success: true };
+    }
+    const destination = this.findNextTileOfType(player, wantedType);
+    if (!destination) return RESOLVE_TAIL;
+    this.awardStartSalaryIfPassed(player, destination);
+    player.position = destination.index;
+    const owner = destination.ownerId ? this.getPlayerById(destination.ownerId) : null;
+    if (this.cardRentPayable(player, owner, destination)) {
+      const amount = this.cardRentAmount(destination, card, wantedType);
+      this.chargePlayer(player, owner, amount, `${player.nickname} paid $${amount} card rent to ${owner.nickname}.`, options);
+      return { success: true };
+    }
+    return this.applyTile(player, destination, options);
+  }
+
+  findNextTileOfType(player, wantedType) {
+    return Array.from({ length: this.tiles.length - 1 }, (_, offset) => (player.position + offset + 1) % this.tiles.length)
+      .map(index => this.getTile(index))
+      .find(tile => tile?.type === wantedType);
+  }
+
+  cardRentAmount(destination, card, wantedType) {
+    if (wantedType === 'utility') {
+      return (Number(this.lastDice[0]) + Number(this.lastDice[1])) * (card.multiplier || 10);
+    }
+    return this.calculateRent(destination) * (card.multiplier || 2);
+  }
+
+  repairsCard(player, card, options) {
+    const amount = this.buildingRepairCost(player, card);
+    if (amount) this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in building repairs.`, options);
+    return RESOLVE_TAIL;
+  }
+
+  buildingRepairCost(player, card) {
+    let houses = 0;
+    let hotels = 0;
+    player.properties.forEach((index) => {
+      const level = this.getTile(index)?.houseCount || 0;
+      if (level === 5) hotels += 1;
+      else houses += level;
+    });
+    return houses * (card.houseCost || 0) + hotels * (card.hotelCost || 0);
+  }
+
+  payEachCard(player, card) {
+    const amount = card.amount || 0;
+    this.activePlayers().filter(other => other.id !== player.id).forEach(other => {
+      const paid = Math.min(player.cash, amount);
+      player.cash -= paid;
+      other.cash += paid;
+    });
+    this.feedMessage(`${player.nickname} paid each player $${amount} from the card.`);
+    return RESOLVE_TAIL;
+  }
+
+  collectFromEachCard(player, card) {
+    const alive = this.activePlayers();
+    alive.forEach(other => {
+      if (other.id !== player.id) {
+        const paid = Math.min(other.cash, card.amount || 0);
+        other.cash -= paid;
+        player.cash += paid;
+      }
+    });
+    this.feedMessage(`${player.nickname} collected from each player.`);
+    return RESOLVE_TAIL;
+  }
+
+  goToJailCard(player, options) {
+    player.position = this.tiles.find(tile => tile.type === 'jail').index;
+    player.inJail = true;
+    player.jailTurns = 0;
+    this.feedMessage(`${player.nickname} was sent to Jail by a card.`);
+    this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
+    return undefined;
   }
 
   nextTurn() {
