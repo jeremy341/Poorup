@@ -524,6 +524,17 @@ const CARD_ACTION_HANDLERS = {
   collectFromEach: 'collectFromEachCard'
 };
 
+// Property action dispatch: the four manageProperty verbs mapped to their
+// handler method names on GameState, replacing the original if/else ladder.
+const PROPERTY_ACTION_HANDLERS = {
+  'build-house': 'buildHousePropertyAction',
+  'sell-house': 'sellHousePropertyAction',
+  mortgage: 'mortgagePropertyAction',
+  unmortgage: 'unmortgagePropertyAction'
+};
+
+const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
+
 // Global-event rent modifiers as data: every rule is a multiplicative factor
 // (airport-strike is a factor of 0) keyed off the event/effect state, folded
 // in order over the base rent. None of them read the accumulated total, so
@@ -2732,99 +2743,132 @@ class GameState {
     this.auction = null;
   }
 
-  manageProperty(socketId, { tileIndex, action } = {}) {
+  manageProperty(socketId, payload = {}) {
+    const { tileIndex, action } = payload || {};
     const player = this.getPlayerBySocket(socketId);
     const tile = this.getTile(tileIndex);
+    const rejection = this.propertyActionRejection(player, tile, action);
+    if (rejection) return rejection;
+    const handlerName = PROPERTY_ACTION_HANDLERS[action];
+    if (!handlerName) return { success: false, error: 'Unknown property action.' };
+    const result = this[handlerName](player, tile);
+    if (result?.success && this.pendingPayment?.playerId === player.id) {
+      this.trySettlePendingPayment();
+    }
+    return result;
+  }
+
+  // The shared gates of all four actions, in the historical order: existence,
+  // ownership, then the build/sell turn window (relaxed while settling debt).
+  propertyActionRejection(player, tile, action) {
     if (!player || !tile) {
       return { success: false, error: 'Property not found.' };
     }
     if (tile.ownerId !== player.id) {
       return { success: false, error: 'You do not own this property.' };
     }
-
     const settlingDebt = this.pendingPayment?.playerId === player.id;
-
-    if (action === 'build-house' || action === 'sell-house') {
-      if (!settlingDebt) {
-        if (player.id !== this.currentPlayerId) {
-          return { success: false, error: 'You can only build or sell during your turn.' };
-        }
-        if (this.hasRolled && !this.extraRollPending) {
-          return { success: false, error: 'You can only build or sell before rolling the dice.' };
-        }
-      } else if (action === 'build-house') {
-        return { success: false, error: 'You cannot build while settling a debt.' };
-      }
-    }
-
-    let result;
+    const buildOrSell = action === 'build-house' || action === 'sell-house';
+    if (!buildOrSell) return null;
+    if (!settlingDebt) return this.buildWindowRejection(player);
     if (action === 'build-house') {
-      if (!this.canBuildOnTile(player, tile)) {
-        return { success: false, error: 'You cannot build on this property right now.' };
-      }
-      const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
-      if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
-        return { success: false, error: 'The active event limits building actions this turn.' };
-      }
-      const cost = this.getPropertyHouseCost(tile);
-      if (player.cash < cost) {
-        return { success: false, error: 'Insufficient cash to build a house.' };
-      }
-      player.cash -= cost;
-      tile.houseCount = (tile.houseCount || 0) + 1;
-      player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
-      if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
-      if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
-      if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works') {
-        player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
-      }
-      const label = tile.houseCount >= 5 ? 'hotel' : 'house';
-      this.feedMessage(`${player.nickname} built a ${label} on ${tile.name}.`);
-      result = { success: true };
-    } else if (action === 'sell-house') {
-      if (!this.canSellFromTile(player, tile)) {
-        return { success: false, error: 'You cannot sell a house from this property right now.' };
-      }
-      const cost = this.getPropertyHouseCost(tile);
-      const wasHotel = (tile.houseCount || 0) >= 5;
-      tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
-      const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
-      const saleMultiplier = Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
-      player.cash += Math.floor(cost * saleMultiplier);
-      if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
-      const label = wasHotel ? 'hotel' : 'house';
-      this.feedMessage(`${player.nickname} sold a ${label} from ${tile.name}.`);
-      result = { success: true };
-    } else if (action === 'mortgage') {
-      if (!this.canMortgageTile(player, tile)) {
-        return { success: false, error: 'You cannot mortgage this property right now.' };
-      }
-      tile.mortgaged = true;
-      const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
-      const amount = Math.floor((tile.price || 0) / 2 * (Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1));
-      player.cash += amount;
-      this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
-      result = { success: true };
-    } else if (action === 'unmortgage') {
-      if (!this.canUnmortgageTile(player, tile)) {
-        return { success: false, error: 'You cannot unmortgage this property right now.' };
-      }
-      const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
-      if (player.cash < cost) {
-        return { success: false, error: 'Insufficient cash to unmortgage this property.' };
-      }
-      player.cash -= cost;
-      tile.mortgaged = false;
-      this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
-      result = { success: true };
-    } else {
-      return { success: false, error: 'Unknown property action.' };
+      return { success: false, error: 'You cannot build while settling a debt.' };
     }
+    return null;
+  }
 
-    if (result?.success && this.pendingPayment?.playerId === player.id) {
-      this.trySettlePendingPayment();
+  buildWindowRejection(player) {
+    if (player.id !== this.currentPlayerId) {
+      return { success: false, error: 'You can only build or sell during your turn.' };
     }
-    return result;
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You can only build or sell before rolling the dice.' };
+    }
+    return null;
+  }
+
+  buildingLimitRejection(player) {
+    const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
+    if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
+      return { success: false, error: 'The active event limits building actions this turn.' };
+    }
+    return null;
+  }
+
+  // Side effects a completed build awards, beyond the house itself.
+  applyBuildBonuses(player) {
+    if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
+    if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
+    const election = this.globalEvent;
+    if (election?.phase === 'active' && election.id === 'city-election' && election.resolvedChoice === 'public-works') {
+      player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
+    }
+  }
+
+  buildHousePropertyAction(player, tile) {
+    if (!this.canBuildOnTile(player, tile)) {
+      return { success: false, error: 'You cannot build on this property right now.' };
+    }
+    const limit = this.buildingLimitRejection(player);
+    if (limit) return limit;
+    const cost = this.getPropertyHouseCost(tile);
+    if (player.cash < cost) {
+      return { success: false, error: 'Insufficient cash to build a house.' };
+    }
+    player.cash -= cost;
+    tile.houseCount = (tile.houseCount || 0) + 1;
+    player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
+    this.applyBuildBonuses(player);
+    this.feedMessage(`${player.nickname} built a ${buildingLabel(tile.houseCount)} on ${tile.name}.`);
+    return { success: true };
+  }
+
+  sellHousePropertyAction(player, tile) {
+    if (!this.canSellFromTile(player, tile)) {
+      return { success: false, error: 'You cannot sell a house from this property right now.' };
+    }
+    const cost = this.getPropertyHouseCost(tile);
+    const wasHotel = (tile.houseCount || 0) >= 5;
+    tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
+    player.cash += Math.floor(cost * this.buildingSaleMultiplier());
+    if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
+    this.feedMessage(`${player.nickname} sold a ${buildingLabel(wasHotel ? 5 : 0)} from ${tile.name}.`);
+    return { success: true };
+  }
+
+  buildingSaleMultiplier() {
+    const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
+    return Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
+  }
+
+  mortgagePropertyAction(player, tile) {
+    if (!this.canMortgageTile(player, tile)) {
+      return { success: false, error: 'You cannot mortgage this property right now.' };
+    }
+    tile.mortgaged = true;
+    const amount = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
+    player.cash += amount;
+    this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
+    return { success: true };
+  }
+
+  propertyValueMultiplier() {
+    const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
+    return Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1;
+  }
+
+  unmortgagePropertyAction(player, tile) {
+    if (!this.canUnmortgageTile(player, tile)) {
+      return { success: false, error: 'You cannot unmortgage this property right now.' };
+    }
+    const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
+    if (player.cash < cost) {
+      return { success: false, error: 'Insufficient cash to unmortgage this property.' };
+    }
+    player.cash -= cost;
+    tile.mortgaged = false;
+    this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
+    return { success: true };
   }
 
   proposeTrade(socketId, offer = {}) {
