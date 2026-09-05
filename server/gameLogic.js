@@ -5,6 +5,7 @@ import {
   clearQuitObligations,
   contractSettlementRejection,
   equitySharePayable,
+  handleDebtSettlement,
   handlePlayerLoanDefault,
   outstandingDebtFor,
   resolveUnsecuredBankDefault
@@ -1029,6 +1030,7 @@ class GameState {
       player.moveCount = 0;
       player.hiddenMovementSequence = false;
       player.bankrupt = false;
+      player.inDebt = false;
       player.ready = false;
     });
   }
