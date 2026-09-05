@@ -80,6 +80,29 @@ export function clearQuitObligations(game, player) {
   });
 }
 
+function canSeizeLoanCollateral(borrower, lender, collateral) {
+  if (!borrower) return false;
+  if (borrower.bankrupt) return false;
+  if (!lender) return false;
+  return collateral?.ownerId === borrower.id;
+}
+
+// A past-due player loan seizes whatever collateral still belongs to the
+// borrower (never from a bankrupt seat), marks the pledge as lost, and
+// closes the contract in the feed.
+export function handlePlayerLoanDefault(game, contract) {
+  const borrower = game.getPlayerById(contract.toPlayerId);
+  const lender = game.getPlayerById(contract.fromPlayerId);
+  const collateral = contract.collateralTileIndex == null ? null : game.getTile(contract.collateralTileIndex);
+  if (canSeizeLoanCollateral(borrower, lender, collateral)) game.applyPropertyOwnershipChange(borrower, lender, collateral);
+  if (borrower) {
+    if (contract.collateralTileIndex != null) borrower.collateralLost = true;
+  }
+  contract.status = 'defaulted';
+  contract.defaultedRound = game.roundNumber;
+  game.feedMessage((borrower?.nickname || 'PLAYER') + ' defaulted on a player loan.');
+}
+
 // Both sides of a maturing player loan hear about it in the feed.
 export function announceLoanDue(game, contract, borrower) {
   borrower.loanWarningSeen = true;
@@ -92,13 +115,25 @@ export function announceLoanDue(game, contract, borrower) {
 // Share percentages are clamped 5-100 at proposal, but stored tiles can
 // predate that (or arrive from a hand-edited file): a non-finite or
 // non-positive share must never reach the cash arithmetic as NaN.
-export function equitySharePayable(game, share) {
+function payableEquityContract(game, share) {
   const contract = game.playerContractById(share.contractId);
   if (!contract) return null;
   if (contract.status !== 'active') return null;
+  return contract;
+}
+
+function payableEquityHolder(game, share) {
   const holder = game.getPlayerById(share.holderId);
   if (!holder) return null;
   if (holder.bankrupt) return null;
+  return holder;
+}
+
+export function equitySharePayable(game, share) {
+  const contract = payableEquityContract(game, share);
+  if (!contract) return null;
+  const holder = payableEquityHolder(game, share);
+  if (!holder) return null;
   const sharePct = Number(share.share);
   if (!Number.isFinite(sharePct)) return null;
   if (sharePct <= 0) return null;
