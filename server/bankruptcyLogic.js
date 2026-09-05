@@ -143,16 +143,6 @@ export function equitySharePayable(game, share) {
 // The bank files a claim instead of eliminating the seat outright: the
 // player now chooses between raising funds and declaring bankruptcy (the
 // debt settlement path handles both).
-export function handleDebtSettlement(game, player, creditor) {
-  game.sweepCashToCreditor(player, creditor);
-  game.forfeitOrReleaseProperties(player, creditor);
-  game.settleContractsOnBankruptcy(player);
-  player.inDebt = true;
-  game.feedMessage(creditor
-    ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
-    : `${player.nickname} lost everything. They stay in the game with debt.`);
-}
-
 export function resolveUnsecuredBankDefault(game, player, loan) {
   game.feedMessage(`${player.nickname} defaulted on an unsecured bank loan.`);
   const owed = Math.max(0, Math.floor(Number(loan.remaining) || 0));
