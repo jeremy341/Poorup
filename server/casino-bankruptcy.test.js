@@ -386,14 +386,156 @@ check('chargePlayer — bank debt keeps a null creditor and default equity hooks
 // declareBankruptcy + handleBankruptcy
 // ---------------------------------------------------------------------------
 
-check('declareBankruptcy — input guards', () => {
+check('declareBankruptcy — guards, then voluntary retirement (behavior change)', () => {
   const room = makeStartedRoom(false);
   assert.deepEqual(room.declareBankruptcy('socket-zz'), { success: false, error: 'Player not found.' });
-  assert.deepEqual(room.declareBankruptcy('socket-b'), { success: false, error: 'You have no outstanding debt to settle.' });
-  const b = room.game.getPlayerBySocket('socket-b');
+  const lobbyManager = new RoomManager();
+  const lobby = lobbyManager.createRoom({ socketId: 'socket-l', clientId: 'client-l', nickname: 'L' });
+  assert.deepEqual(lobby.declareBankruptcy('socket-l'), { success: false, error: 'The game has not started.' });
+  // Debt is no longer required: a solvent player can walk away. This block
+  // previously pinned "You have no outstanding debt to settle."; the
+  // bankruptcy-ownership redesign replaced that rejection with retirement.
+  const first = room.declareBankruptcy('socket-b');
+  assert.equal(first.success, true);
+  assert.equal(first.voluntary, true);
+  assert.equal(room.game.getPlayerBySocket('socket-b').bankrupt, true);
+  // Two-seat room: with B retired, A is the last seat standing and the game
+  // concludes; a second declaration hits the not-started guard.
+  assert.deepEqual(room.declareBankruptcy('socket-a'), { success: false, error: 'The game has not started.' });
+});
+
+check('voluntary retirement releases deeds neutral and cancels held obligations', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const deed = game.getTile(1);
+  deed.ownerId = a.id;
+  deed.houseCount = 2;
+  deed.mortgaged = true;
+  a.properties = [deed.index];
+  game.pendingTrade = { fromPlayerId: a.id, toPlayerId: game.players[1].id };
+  game.pendingPlayerContract = { fromPlayerId: a.id, toPlayerId: game.players[2].id };
+  const result = room.declareBankruptcy('socket-a');
+  assert.equal(result.success, true);
+  assert.equal(deed.ownerId, null);
+  assert.equal(deed.houseCount, 0);
+  assert.equal(deed.mortgaged, false);
+  assert.deepEqual(a.properties, []);
+  assert.equal(game.pendingTrade, null);
+  assert.equal(game.pendingPlayerContract, null);
+  const feeds = feedTexts(room);
+  assert.ok(feeds.includes('A left the table. A pending trade was cancelled.'));
+  assert.ok(feeds.includes('A left the table. A pending contract was cancelled.'));
+  assert.ok(feeds.includes('A is bankrupt and removed from the game.'));
+  assert.deepEqual(room.declareBankruptcy('socket-a'), { success: false, error: 'That player is already out of the game.' });
+});
+
+check('unsecured bank loan default files a bank claim instead of auto-eliminating', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
+  b.cash = 40;
+  b.bankLoan = { status: 'due', remaining: 300, dueRound: game.roundNumber, cureRound: game.roundNumber };
+  game.roundNumber += 1;
+  game.processBankLoans();
+  assert.equal(b.bankrupt, false);
+  assert.equal(b.bankLoan.status, 'defaulted');
+  assert.equal(b.cash, 0);
+  assert.equal(game.pendingPayment.playerId, b.id);
+  assert.equal(game.pendingPayment.creditorId, null);
+  assert.equal(game.pendingPayment.amountRemaining, 260);
+  const feeds = feedTexts(room);
+  assert.ok(feeds.includes('B defaulted on an unsecured bank loan.'));
+  assert.ok(feeds.includes('B paid $40 toward the debt.'));
+  assert.ok(feeds.includes('B owes $260. Mortgage or sell buildings to raise funds, or declare bankruptcy.'));
+  // The debt is now the player's choice: settling or retiring both work.
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
+  assert.equal(b.bankrupt, true);
+  assert.equal(game.pendingPayment, null);
+});
+
+check('a solvent player repays an unsecured default in full without a claim', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
+  b.cash = 500;
+  b.bankLoan = { status: 'due', remaining: 300, dueRound: game.roundNumber, cureRound: game.roundNumber };
+  game.roundNumber += 1;
+  game.processBankLoans();
+  assert.equal(b.bankrupt, false);
+  assert.equal(b.cash, 200);
+  assert.equal(game.pendingPayment, null);
+  assert.ok(feedTexts(room).includes('B paid the bank $300 on default.'));
+});
+
+check('loan collateral is re-validated when the contract is accepted', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  a.cash = 1000;
+  const proposed = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 200, collateralTileIndex: 1 });
+  assert.equal(proposed.success, true);
+  // The borrower mortgages the pledged deed while the offer is pending.
+  deed.mortgaged = true;
+  const accepted = game.respondPlayerContract('socket-b', true);
+  assert.deepEqual(accepted, { success: false, error: 'The loan collateral is no longer available.' });
+  assert.equal(a.cash, 1000); // lender never funds against vanished security
+  assert.equal(game.pendingPlayerContract, null);
+  assert.equal(game.playerContracts.length, 0);
+});
+
+check('a due player loan notifies the lender in the feed', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
+  a.cash = 1000;
+  const proposed = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100 });
+  assert.equal(proposed.success, true);
+  game.respondPlayerContract('socket-b', true);
+  const contract = game.playerContracts[0];
+  contract.dueRound = game.roundNumber;
+  game.roundNumber += 1;
+  game.processPlayerContracts();
+  const feeds = feedTexts(room);
+  assert.ok(feeds.includes('B owes $100 on a player loan.'));
+  assert.ok(feeds.includes('A is owed $100 by B.'));
+});
+
+check('equity settlement ignores corrupt shares and bankrupt owners', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const tile = game.getTile(1);
+  const owner = game.getPlayerBySocket('socket-a');
+  const holder = game.getPlayerBySocket('socket-b');
+  const contract = { id: 'x1', status: 'active' };
+  game.playerContracts = [contract];
+  owner.cash = 500;
+  tile.equityShares = [{ holderId: holder.id, share: 'nonsense', contractId: 'x1' }];
+  game.settleEquityShares(tile, owner, 200);
+  assert.equal(owner.cash, 500); // NaN share skipped, no corruption
+  tile.equityShares = [{ holderId: holder.id, share: 50, contractId: 'x1' }];
+  owner.bankrupt = true;
+  game.settleEquityShares(tile, owner, 200);
+  assert.equal(holder.cash, game.getPlayerBySocket('socket-b').cash);
+});
+
+check('forced market liquidation records realized P&L on the way out', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
-  room.game.chargePlayer(b, null, 500, 'debt', {});
-  assert.deepEqual(room.declareBankruptcy('socket-a'), { success: false, error: 'You have no outstanding debt to settle.' });
+  b.marketPositions = { brazil: { quantity: 2, averageCost: 120, realizedPnl: 0 } };
+  game.chargePlayer(b, null, 500, 'debt', {});
+  room.declareBankruptcy('socket-b');
+  // 2 units at the fresh 100 quote: proceeds 200 - ceil(4) = 196; cost basis 240.
+  const feeds = feedTexts(room);
+  assert.ok(feeds.includes("B's market positions were liquidated for $196."));
+  assert.equal(b.marketPositions.brazil.quantity, 0);
+  assert.equal(b.marketPositions.brazil.realizedPnl, -44); // 196 net proceeds - 240 cost basis
 });
 
 check('bankruptcy — partial, liquidation, sweep, and deed transfer reach the creditor in order', () => {
@@ -414,12 +556,15 @@ check('bankruptcy — partial, liquidation, sweep, and deed transfer reach the c
   game.extraRollPending = true;
   game.turnAllowsExtraRoll = true;
   game.consecutiveDoubles = 2;
-  assert.deepEqual(room.declareBankruptcy('socket-b'), { success: true });
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
   // 2*100 gross minus ceil(2*100*0.02)=4 fee -> $196 liquidated into B's cash
-  // first, then swept to the creditor.
+  // first, then swept to the creditor. Positions flatten but stay recorded
+  // so the match snapshot captures the realized P&L of the forced exit.
   assert.equal(a.cash, 1800 + 196);
   assert.equal(b.cash, 0);
-  assert.deepEqual(b.marketPositions, {});
+  assert.equal(b.marketPositions.brazil.quantity, 0);
+  assert.equal(b.marketPositions.brazil.realizedPnl, 196);
+  assert.equal(b.marketPositions.ghost.realizedPnl, 0);
   assert.equal(b.bankrupt, true);
   assert.equal(b.bubbleSurvivor, false);
   assert.equal(game.extraRollPending, false);
@@ -465,7 +610,7 @@ check('bankruptcy — no creditor releases deeds (mortgage and houses cleared)',
   game.tiles[5].houseCount = 4;
   b.properties = [5];
   game.chargePlayer(b, null, 500, 'debt', {});
-  assert.deepEqual(room.declareBankruptcy('socket-b'), { success: true });
+  assert.deepEqual(room.declareBankruptcy('socket-b'), { success: true, voluntary: false });
   assert.equal(game.tiles[5].ownerId, null);
   assert.equal(game.tiles[5].mortgaged, false);
   assert.equal(game.tiles[5].houseCount, 0);
