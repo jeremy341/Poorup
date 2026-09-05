@@ -5,6 +5,7 @@ import {
   clearQuitObligations,
   contractSettlementRejection,
   equitySharePayable,
+  handleDebtSettlement,
   handlePlayerLoanDefault,
   outstandingDebtFor,
   resolveUnsecuredBankDefault
@@ -913,6 +914,7 @@ class GameState {
     player.moveCount = 0;
     player.hiddenMovementSequence = false;
     player.bankrupt = false;
+    player.inDebt = false;
     player.disconnected = false;
     player.ready = false;
     this.players.push(player);
@@ -2957,6 +2959,9 @@ class GameState {
   // the cash sweep to the creditor, contract settlements, deed transfer or
   // release, the announcement, and the round conclusion.
   handleBankruptcy(player, creditor = null) {
+    if (this.settings.bankruptMode === 'debt') {
+      return this.handleDebtBankruptcy(player, creditor);
+    }
     this.markPlayerBankrupt(player);
     this.liquidateMarketPositions(player);
     this.sweepCashToCreditor(player, creditor);
@@ -2964,6 +2969,20 @@ class GameState {
     this.forfeitOrReleaseProperties(player, creditor);
     this.announceBankruptcy(player, creditor);
     this.concludeBankruptRound(player);
+  }
+
+  handleDebtBankruptcy(player, creditor) {
+    this.sweepCashToCreditor(player, creditor);
+    if (!creditor) player.cash = 0;
+    this.forfeitOrReleaseProperties(player, creditor);
+    this.settleContractsOnBankruptcy(player);
+    player.inDebt = true;
+    this.feedMessage(creditor
+      ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
+      : `${player.nickname} lost everything. They stay in the game with debt.`);
+    if (player.id === this.currentPlayerId) {
+      this.nextTurn();
+    }
   }
 
   markPlayerBankrupt(player) {
@@ -3100,7 +3119,8 @@ class GameState {
   // The last seat standing wins immediately; otherwise the bankrupt current
   // player forfeits the turn.
   concludeBankruptRound(player) {
-    if (this.nonBankruptPlayers().length <= 1) {
+    const active = this.nonBankruptPlayers().filter(p => !p.inDebt);
+    if (active.length <= 1) {
       this.endGame();
     } else if (player.id === this.currentPlayerId) {
       this.nextTurn();
@@ -3665,7 +3685,7 @@ class GameState {
   }
 
   endGame() {
-    const winner = this.connectedNonBankruptPlayers()[0] || this.nonBankruptPlayers()[0];
+    const winner = this.connectedNonBankruptPlayers().filter(p => !p.inDebt)[0] || this.nonBankruptPlayers().filter(p => !p.inDebt)[0];
     if (this.globalEvent) {
       const event = this.globalEvent;
       if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
@@ -3736,6 +3756,7 @@ class GameState {
           : (player.bankLoan ? { status: player.bankLoan.status } : null),
         bankLoanOffer: viewerPlayerId && player.id === viewerPlayerId ? this.getBankLoanOffer(player) : null,
         bankrupt: player.bankrupt,
+        inDebt: player.inDebt,
         disconnected: player.disconnected,
         isHost: player.isHost,
         properties: player.properties,
