@@ -1309,9 +1309,17 @@ io.on('connection', (socket) => {
     const relationship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
     const canSeePrivateMatches = viewer?.id === target.id || relationship?.status === 'accepted';
     const canSeeRecentMatches = canSeePrivateMatches || target.privacy?.history === 'public';
+    const playerPayload = card
+      ? {
+        ...card,
+        historyPrivate: !canSeeRecentMatches || card.historyPrivate,
+        historyFriendsOnly: !canSeeRecentMatches && card.historyFriendsOnly,
+        ...(canSeeRecentMatches ? { recentMatches: accountStore.getPublicMatchSummaries(target.id, canSeePrivateMatches, 5) } : {}),
+      }
+      : card;
     reply(callback, {
       success: true,
-      player: card ? { ...card, historyPrivate: !canSeeRecentMatches || card.historyPrivate, historyFriendsOnly: !canSeeRecentMatches && card.historyFriendsOnly, recentMatches: accountStore.getPublicMatchSummaries(target.id, canSeePrivateMatches, 5) } : card,
+      player: playerPayload,
       relationship: relationship ? relationship.status : 'none'
     });
   });
@@ -1465,6 +1473,8 @@ io.on('connection', (socket) => {
       if (!room.game.canJoin()) return reply(callback, { success: false, error: 'That room is full.' });
       const clientId = String(payload.clientId || '').trim();
       if (!clientId) return reply(callback, { success: false, error: 'A client session is required to join.' });
+      const result = socialStore.respondInvite(account.id, payload.inviteId, true);
+      if (!result.success) return reply(callback, result);
       const oldRoom = roomManager.getRoomBySocket(socket.id);
       if (oldRoom && oldRoom.roomCode !== room.roomCode) {
         const oldPlayer = oldRoom.getPlayerBySocket(socket.id);
@@ -1493,15 +1503,11 @@ io.on('connection', (socket) => {
       if (!joined.success) return reply(callback, { success: false, error: joined.error });
       roomManager.socketRoom.set(socket.id, room);
       socket.join(room.roomCode);
-      const result = socialStore.respondInvite(account.id, payload.inviteId, true);
-      if (result.success) {
-        emitSocialUpdate(account.id);
-        emitRoomState(room);
-        io.in(room.roomCode).emit('system-message', { text: account.displayName + ' joined from a room invite.' });
-        emitPendingInteractions(room, socket, joined.player);
-        return reply(callback, { ...result, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
-      }
-      return reply(callback, result);
+      emitSocialUpdate(account.id);
+      emitRoomState(room);
+      io.in(room.roomCode).emit('system-message', { text: account.displayName + ' joined from a room invite.' });
+      emitPendingInteractions(room, socket, joined.player);
+      return reply(callback, { ...result, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
     }
     const result = socialStore.respondInvite(account.id, payload.inviteId, payload.accept === true);
     if (result.success) emitSocialUpdate(account.id);
