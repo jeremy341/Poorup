@@ -1094,6 +1094,12 @@ function applyServerState(snapshot) {
     closeSurface("#auction-modal");
   }
   const debt = game.pendingPayment;
+  state.pendingDebt = debt || null;
+  const retireBtn = $("#game-retire-btn");
+  if (retireBtn) {
+    const me = state.players[0];
+    retireBtn.disabled = !(state.phase === "playing" && me && !me.bankrupt && me.online !== false);
+  }
   const meServerId = state.players[0]?.serverId;
   if (debt && debt.playerId === meServerId && $("#bankruptcy-modal")?.classList.contains("is-hidden")) {
     const meIndex = state.players.findIndex((player) => player.serverId === meServerId);
@@ -6209,6 +6215,37 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
   $("#bank-declare").addEventListener("click", () => bankruptPlayer(idx, creditorId));
 }
 
+/* Voluntary retirement: the same locked surface, different copy. The topbar
+   control routes here when the player is not mid-debt; in-debt players keep
+   the existing CAN'T COVER IT card. Focus starts on Keep Playing. */
+function openVoluntaryExitModal() {
+  const me = state.players[0];
+  if (!me) return;
+  const heldDeeds = TILES.filter((tile) => (state.owners || {})[tile.i] === me.id).length;
+  const deedLabel = `${heldDeeds} deed${heldDeeds === 1 ? "" : "s"}`;
+  $("#bankruptcy-card").innerHTML = `
+    <div class="bank-body">
+      <div class="bank-head">
+        <span class="bank-icon">!</span>
+        <div>
+          <div class="t-micro red">VOLUNTARY EXIT</div>
+          <h3 class="t-section bank-title" id="bankruptcy-card-title">Leave the table?</h3>
+        </div>
+      </div>
+      <p class="t-body ink-2 bank-copy">You hold ${deedLabel} and $${me.cash.toLocaleString()}. Retiring hands everything back to the market unencumbered and ends your round — it cannot be undone. You can still raise funds instead by selling, mortgaging, trading, or taking a loan.</p>
+      <div class="bank-actions">
+        <button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Declare Bankruptcy</span></button>
+        <button class="btn-dark bank-btn" id="bank-retire-cancel"><span class="t-label f12">Keep Playing</span></button>
+      </div>
+    </div>`;
+  openSurface("#bankruptcy-modal", "#bank-retire-cancel");
+  $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal"));
+  $("#bank-retire-confirm").addEventListener("click", () => {
+    closeSurface("#bankruptcy-modal");
+    bankruptPlayer(0, null);
+  });
+}
+
 /** Central payment helper: returns true when paid, false when unpayable. */
 
 /* ---- CPU round management ---- */
@@ -6814,6 +6851,15 @@ function bindEvents() {
   // focus / mobile board mode
   $("#focus-btn")?.addEventListener("click", () => $("#view-game").classList.toggle("is-focus"));
   $("#panels-btn")?.addEventListener("click", () => $(".rail-left")?.classList.toggle("is-open"));
+  $("#game-retire-btn")?.addEventListener("click", () => {
+    const debt = state.pendingDebt;
+    const meServerId = state.players[0]?.serverId;
+    if (debt && debt.playerId === meServerId) {
+      openBankruptcyModal(0, Number(debt.amountRemaining) || 0, debt.creditorId, debt.reason || "This payment is due.");
+      return;
+    }
+    openVoluntaryExitModal();
+  });
 
   // open the deed / house manager from a MY DEEDS card
   $("#rr-body")?.addEventListener("click", (e) => {

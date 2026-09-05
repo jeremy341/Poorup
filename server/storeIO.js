@@ -10,6 +10,7 @@
 // overwrite them.
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 function loadJson(filePath) {
   let raw;
@@ -40,7 +41,7 @@ function quarantine(filePath, raw) {
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const data = `${JSON.stringify(value, null, 2)}\n`;
-  const tempPath = `${filePath}.${process.pid}.tmp`;
+  const tempPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   const handle = fs.openSync(tempPath, 'w');
   try {
     fs.writeFileSync(handle, data, 'utf8');
@@ -48,7 +49,18 @@ function writeJson(filePath, value) {
   } finally {
     fs.closeSync(handle);
   }
-  fs.renameSync(tempPath, filePath);
+  try {
+    fs.renameSync(tempPath, filePath);
+  } catch (renameError) {
+    console.error(`Store ${path.basename(filePath)} atomic rename failed; falling back to direct write.`, renameError);
+    try {
+      fs.writeFileSync(filePath, data, 'utf8');
+      fs.fsyncSync(fs.openSync(filePath, 'r'));
+    } catch (fallbackError) {
+      console.error(`Store ${path.basename(filePath)} fallback write also failed.`, fallbackError);
+    }
+    try { fs.unlinkSync(tempPath); } catch { /* best-effort temp cleanup */ }
+  }
 }
 
 export { loadJson, writeJson };

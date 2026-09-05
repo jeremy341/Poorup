@@ -352,6 +352,7 @@ export class AccountStore {
     this.filePath = filePath;
     this.accounts = new Map();
     this.sessions = new Map();
+    this.sessionHashes = new Map();
     this.load();
   }
 
@@ -367,6 +368,7 @@ export class AccountStore {
       // the first valid record remains the owner of that username.
       if (!loadableAccount(handle, account, this.accounts)) return;
       this.accounts.set(handle, normalizeLoadedAccount(handle, account));
+      if (account.sessionTokenHash) this.sessionHashes.set(account.sessionTokenHash, handle);
     });
   }
 
@@ -379,22 +381,24 @@ export class AccountStore {
     let username = this.sessions.get(sessionToken);
     if (!username) {
       const tokenHash = hashSessionToken(sessionToken);
-      const account = [...this.accounts.values()].find((candidate) => candidate.sessionTokenHash === tokenHash);
-      if (account) {
-        username = account.username;
-        this.sessions.set(sessionToken, username);
-      }
+      username = this.sessionHashes.get(tokenHash);
+      if (username) this.sessions.set(sessionToken, username);
     }
     return username ? this.accounts.get(username) || null : null;
   }
 
   issueSession(account) {
     for (const [token, username] of this.sessions) {
-      if (username === account.username) this.sessions.delete(token);
+      if (username === account.username) {
+        this.sessions.delete(token);
+        if (account.sessionTokenHash) this.sessionHashes.delete(account.sessionTokenHash);
+      }
     }
     const token = createSessionToken();
+    const tokenHash = hashSessionToken(token);
     this.sessions.set(token, account.username);
-    account.sessionTokenHash = hashSessionToken(token);
+    this.sessionHashes.set(tokenHash, account.username);
+    account.sessionTokenHash = tokenHash;
     return token;
   }
 
