@@ -1,7 +1,7 @@
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { sanitizeParticipant } from './participantFields.js';
+import { loadJson, writeJson } from './storeIO.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,24 +50,20 @@ export class MatchStore {
   }
 
   load() {
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-      const records = Array.isArray(raw) ? raw : [];
-      records.forEach((record) => {
-        const match = sanitizeMatch(record);
-        if (match.matchId) this.matches.set(match.matchId, match);
-      });
-    } catch {
-      // A missing match file starts an empty ledger.
-    }
+    const { value } = loadJson(this.filePath);
+    if (!value) return;
+    const records = Array.isArray(value) ? value : [];
+    records.forEach((record) => {
+      const match = sanitizeMatch(record);
+      if (match.matchId) this.matches.set(match.matchId, match);
+    });
   }
 
   persist() {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const records = [...this.matches.values()]
       .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))
       .slice(0, MAX_MATCHES);
-    fs.writeFileSync(this.filePath, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
+    writeJson(this.filePath, records);
   }
 
   record(record) {
