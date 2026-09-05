@@ -625,6 +625,20 @@ function acceptRoomInvite(socket, account, invite, payload) {
   return result;
 }
 
+function cachedContractCancel(room, socket, payload) {
+    const requestId = String(payload?.requestId || '').trim().slice(0, 100);
+    const key = requestId ? `${socket.id}:cancel:${requestId}` : null;
+    if (!key) return null;
+    if (!room.game.contractTransactions?.has(key)) return null;
+    return room.game.contractTransactions.get(key);
+}
+
+function cacheContractCancel(room, socket, payload, result) {
+    const requestId = String(payload?.requestId || '').trim().slice(0, 100);
+    const key = requestId ? `${socket.id}:cancel:${requestId}` : null;
+    if (key) room.game.contractTransactions.set(key, result);
+}
+
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
@@ -1077,16 +1091,20 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
   });
 
-  on('cancel-player-contract', (_, callback) => {
+  on('cancel-player-contract', (payload, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
+    const cached = cachedContractCancel(room, socket, payload);
+    if (cached) return reply(callback, cached);
     const contract = room.game.pendingPlayerContract;
     const player = room.getPlayerBySocket(socket.id);
     if (!contract || !player || contract.fromPlayerId !== player.id) return reply(callback, { success: false, error: 'No pending contract to cancel.' });
     room.game.pendingPlayerContract = null;
     room.game.feedMessage(player.nickname + ' canceled the player contract.');
+    const result = { success: true };
+    cacheContractCancel(room, socket, payload, result);
     emitRoomState(room);
-    reply(callback, { success: true });
+    reply(callback, result);
   });
 
   on('pay-jail-fine', (_, callback) => {

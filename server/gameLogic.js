@@ -5,6 +5,7 @@ import {
   clearQuitObligations,
   contractSettlementRejection,
   equitySharePayable,
+  handleDebtSettlement,
   handlePlayerLoanDefault,
   outstandingDebtFor,
   resolveUnsecuredBankDefault
@@ -800,6 +801,79 @@ const BOT_TRADE_ASKS = {
 };
 const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
 
+const PLAYER_STATE_DEFAULTS = [
+  ['cash', (player, settings) => settings.startingCash],
+  ['position', () => START_TILE_INDEX],
+  ['properties', () => []],
+  ['inJail', false],
+  ['jailTurns', 0],
+  ['jailFreeCards', 0],
+  ['bankLoan', null],
+  ['casinoNet', 0],
+  ['casinoLedger', () => []],
+  ['casinoMaxStake', 0],
+  ['casinoTotalStaked', 0],
+  ['casinoAllIn', false],
+  ['casinoOneDollar', false],
+  ['casinoBetsThisRound', 0],
+  ['marketPositions', () => ({})],
+  ['marketTrades', 0],
+  ['marketActionsThisTurn', 0],
+  ['crisisMarketBuys', () => ({})],
+  ['crisisMarketProfit', false],
+  ['playerContractIds', () => []],
+  ['auctionWins', 0],
+  ['rentCollected', 0],
+  ['globalEventsExperienced', 0],
+  ['globalEventsSurvived', 0],
+  ['fullGroups', () => new Set()],
+  ['airportVisits', () => new Set()],
+  ['taxTilesVisited', () => new Set()],
+  ['rentPayerIds', () => new Set()],
+  ['rentPayersThisRound', () => new Set()],
+  ['maxRentPayersInRound', 0],
+  ['auctionUnderListWins', 0],
+  ['loanWarningSeen', false],
+  ['badIdeaLoan', false],
+  ['prisonBreak', false],
+  ['bankLoanCount', 0],
+  ['boughtDuringHousingBubble', false],
+  ['soldBuildingsDuringHousingBubble', 0],
+  ['bubbleSurvivor', false],
+  ['rebuiltAfterHousingBubble', false],
+  ['foreclosureNoSecondLoan', false],
+  ['housingBubbleEnded', false],
+  ['airportOwnedDuringStrike', false],
+  ['nonAirportRentDuringStrike', false],
+  ['tradesDuringCombo', 0],
+  ['groupTherapyTrade', false],
+  ['unanimousVote', false],
+  ['publicEnemy', false],
+  ['compromisedCouncil', false],
+  ['coalitionTrade', false],
+  ['lastVoteChoice', null],
+  ['bailoutReceived', false],
+  ['moralHazard', false],
+  ['zeroCashReached', false],
+  ['collateralLost', false],
+  ['comboExperienced', false],
+  ['buildActionsThisTurn', 0],
+  ['evenBuilds', 0],
+  ['councilWins', 0],
+  ['publicWorksBuilds', 0],
+  ['cardDraws', () => ({ surprise: 0, treasure: 0 })],
+  ['treasureCardsSeen', () => new Set()],
+  ['underdogAtHalfway', false],
+  ['oneMoreTurn', false],
+  ['taxAuditCount', 0],
+  ['moveCount', 0],
+  ['hiddenMovementSequence', false],
+  ['bankrupt', false],
+  ['inDebt', false],
+  ['ready', false],
+  ['disconnected', false],
+];
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -847,74 +921,14 @@ class GameState {
     this.treasureDeck = [...TREASURE_DECK];
   }
 
+  resetPlayerState(player) {
+    PLAYER_STATE_DEFAULTS.forEach(([key, value]) => {
+      player[key] = typeof value === 'function' ? value(player, this.settings) : value;
+    });
+  }
+
   addPlayer(player) {
-    player.cash = this.settings.startingCash;
-    player.position = START_TILE_INDEX;
-    player.properties = [];
-    player.inJail = false;
-    player.jailTurns = 0;
-    player.casinoNet = 0;
-    player.casinoLedger = [];
-    player.casinoMaxStake = 0;
-    player.casinoTotalStaked = 0;
-    player.casinoAllIn = false;
-    player.casinoOneDollar = false;
-    player.casinoBetsThisRound = 0;
-    player.marketPositions = {};
-    player.marketTrades = 0;
-    player.marketActionsThisTurn = 0;
-    player.crisisMarketBuys = {};
-    player.crisisMarketProfit = false;
-    player.playerContractIds = [];
-    player.auctionWins = 0;
-    player.rentCollected = 0;
-    player.globalEventsExperienced = 0;
-    player.globalEventsSurvived = 0;
-    player.fullGroups = new Set();
-    player.airportVisits = new Set();
-    player.taxTilesVisited = new Set();
-    player.rentPayerIds = new Set();
-    player.rentPayersThisRound = new Set();
-    player.maxRentPayersInRound = 0;
-    player.auctionUnderListWins = 0;
-    player.loanWarningSeen = false;
-    player.badIdeaLoan = false;
-    player.prisonBreak = false;
-    player.bankLoanCount = 0;
-    player.boughtDuringHousingBubble = false;
-    player.soldBuildingsDuringHousingBubble = 0;
-    player.bubbleSurvivor = false;
-    player.rebuiltAfterHousingBubble = false;
-    player.foreclosureNoSecondLoan = false;
-    player.housingBubbleEnded = false;
-    player.airportOwnedDuringStrike = false;
-    player.nonAirportRentDuringStrike = false;
-    player.tradesDuringCombo = 0;
-    player.groupTherapyTrade = false;
-    player.unanimousVote = false;
-    player.publicEnemy = false;
-    player.compromisedCouncil = false;
-    player.coalitionTrade = false;
-    player.lastVoteChoice = null;
-    player.bailoutReceived = false;
-    player.moralHazard = false;
-    player.zeroCashReached = false;
-    player.collateralLost = false;
-    player.comboExperienced = false;
-    player.buildActionsThisTurn = 0;
-    player.evenBuilds = 0;
-    player.councilWins = 0;
-    player.publicWorksBuilds = 0;
-    player.cardDraws = { surprise: 0, treasure: 0 };
-    player.treasureCardsSeen = new Set();
-    player.underdogAtHalfway = false;
-    player.oneMoreTurn = false;
-    player.taxAuditCount = 0;
-    player.moveCount = 0;
-    player.hiddenMovementSequence = false;
-    player.bankrupt = false;
-    player.disconnected = false;
-    player.ready = false;
+    this.resetPlayerState(player);
     this.players.push(player);
     this.feedMessage(`${player.nickname} joined the room.`);
     return player;
@@ -959,77 +973,7 @@ class GameState {
     this.marketRound = 0;
     this.surpriseDeck = [...SURPRISE_DECK];
     this.treasureDeck = [...TREASURE_DECK];
-
-    this.players.forEach(player => {
-      player.cash = this.settings.startingCash;
-      player.position = START_TILE_INDEX;
-      player.properties = [];
-      player.inJail = false;
-      player.jailTurns = 0;
-      player.jailFreeCards = 0;
-      player.bankLoan = null;
-      player.casinoNet = 0;
-      player.casinoLedger = [];
-      player.casinoMaxStake = 0;
-      player.casinoTotalStaked = 0;
-      player.casinoAllIn = false;
-      player.casinoOneDollar = false;
-      player.casinoBetsThisRound = 0;
-      player.marketPositions = {};
-      player.marketTrades = 0;
-      player.marketActionsThisTurn = 0;
-      player.crisisMarketBuys = {};
-      player.crisisMarketProfit = false;
-      player.playerContractIds = [];
-      player.auctionWins = 0;
-      player.rentCollected = 0;
-      player.globalEventsExperienced = 0;
-      player.globalEventsSurvived = 0;
-      player.fullGroups = new Set();
-      player.airportVisits = new Set();
-      player.taxTilesVisited = new Set();
-      player.rentPayerIds = new Set();
-      player.rentPayersThisRound = new Set();
-      player.maxRentPayersInRound = 0;
-      player.auctionUnderListWins = 0;
-      player.loanWarningSeen = false;
-      player.badIdeaLoan = false;
-      player.prisonBreak = false;
-      player.bankLoanCount = 0;
-      player.boughtDuringHousingBubble = false;
-      player.soldBuildingsDuringHousingBubble = 0;
-      player.bubbleSurvivor = false;
-      player.rebuiltAfterHousingBubble = false;
-      player.foreclosureNoSecondLoan = false;
-      player.housingBubbleEnded = false;
-      player.airportOwnedDuringStrike = false;
-      player.nonAirportRentDuringStrike = false;
-      player.tradesDuringCombo = 0;
-      player.groupTherapyTrade = false;
-      player.unanimousVote = false;
-      player.publicEnemy = false;
-      player.compromisedCouncil = false;
-      player.coalitionTrade = false;
-      player.lastVoteChoice = null;
-      player.bailoutReceived = false;
-      player.moralHazard = false;
-      player.zeroCashReached = false;
-      player.collateralLost = false;
-      player.comboExperienced = false;
-      player.buildActionsThisTurn = 0;
-      player.evenBuilds = 0;
-      player.councilWins = 0;
-      player.publicWorksBuilds = 0;
-      player.cardDraws = { surprise: 0, treasure: 0 };
-      player.treasureCardsSeen = new Set();
-      player.underdogAtHalfway = false;
-      player.oneMoreTurn = false;
-      player.taxAuditCount = 0;
-      player.moveCount = 0;
-      player.hiddenMovementSequence = false;
-      player.bankrupt = false;
-      player.ready = false;
-    });
+    this.players.forEach(player => this.resetPlayerState(player));
   }
 
   removePlayerBySocket(socketId) {
@@ -1166,6 +1110,7 @@ class GameState {
     if (fromPlayer.id !== this.currentPlayerId) return { success: false, error: 'Player contracts are proposed during your turn.' };
     if (this.tableObligationOpen()) return { success: false, error: 'Resolve the current table obligation first.' };
     if (!Number.isInteger(amount) || amount < 1 || fromPlayer.cash < amount) return { success: false, error: 'The lender does not have enough cash for that offer.' };
+    if (this.hasLoanBackedCash(fromPlayer)) return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
     return null;
   }
 
@@ -2391,6 +2336,7 @@ class GameState {
   applyMarketBuy(player, id, position, { quote, gross, fee, amount }) {
     const total = gross + fee;
     if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
+    if (this.hasLoanBackedCash(player)) return { success: false, error: 'Loan-backed cash cannot be used for market orders.' };
     player.cash -= total;
     position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
     position.quantity += amount;
@@ -2957,6 +2903,9 @@ class GameState {
   // the cash sweep to the creditor, contract settlements, deed transfer or
   // release, the announcement, and the round conclusion.
   handleBankruptcy(player, creditor = null) {
+    if (this.settings.bankruptMode === 'debt') {
+      return this.handleDebtBankruptcy(player, creditor);
+    }
     this.markPlayerBankrupt(player);
     this.liquidateMarketPositions(player);
     this.sweepCashToCreditor(player, creditor);
@@ -2964,6 +2913,20 @@ class GameState {
     this.forfeitOrReleaseProperties(player, creditor);
     this.announceBankruptcy(player, creditor);
     this.concludeBankruptRound(player);
+  }
+
+  handleDebtBankruptcy(player, creditor) {
+    this.sweepCashToCreditor(player, creditor);
+    if (!creditor) player.cash = 0;
+    this.forfeitOrReleaseProperties(player, creditor);
+    this.settleContractsOnBankruptcy(player);
+    player.inDebt = true;
+    this.feedMessage(creditor
+      ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
+      : `${player.nickname} lost everything. They stay in the game with debt.`);
+    if (player.id === this.currentPlayerId) {
+      this.nextTurn();
+    }
   }
 
   markPlayerBankrupt(player) {
@@ -3100,7 +3063,8 @@ class GameState {
   // The last seat standing wins immediately; otherwise the bankrupt current
   // player forfeits the turn.
   concludeBankruptRound(player) {
-    if (this.nonBankruptPlayers().length <= 1) {
+    const active = this.nonBankruptPlayers().filter(p => !p.inDebt);
+    if (active.length <= 1) {
       this.endGame();
     } else if (player.id === this.currentPlayerId) {
       this.nextTurn();
@@ -3665,7 +3629,7 @@ class GameState {
   }
 
   endGame() {
-    const winner = this.connectedNonBankruptPlayers()[0] || this.nonBankruptPlayers()[0];
+    const winner = this.connectedNonBankruptPlayers().filter(p => !p.inDebt)[0] || this.nonBankruptPlayers().filter(p => !p.inDebt)[0];
     if (this.globalEvent) {
       const event = this.globalEvent;
       if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
@@ -3736,6 +3700,7 @@ class GameState {
           : (player.bankLoan ? { status: player.bankLoan.status } : null),
         bankLoanOffer: viewerPlayerId && player.id === viewerPlayerId ? this.getBankLoanOffer(player) : null,
         bankrupt: player.bankrupt,
+        inDebt: player.inDebt,
         disconnected: player.disconnected,
         isHost: player.isHost,
         properties: player.properties,
