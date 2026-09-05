@@ -244,13 +244,6 @@ const CHEST_EVENTS = [
   { text: "INHERITANCE — COLLECT $100", action: "collect", amount: 100, cash: 100 },
 ];
 
-function drawLocalCard(kind) {
-  const key = kind === "chance" ? "surpriseDeck" : "treasureDeck";
-  const source = kind === "chance" ? CHANCE_EVENTS : CHEST_EVENTS;
-  if (!state[key]?.length) state[key] = [...source];
-  const deck = state[key];
-  return deck.splice(Math.floor(Math.random() * deck.length), 1)[0];
-}
 
 const ACHIEVEMENT_STORAGE_KEY = "poorup.achievements.v1";
 const ACHIEVEMENTS = [
@@ -341,14 +334,6 @@ const APPEARANCES = [
   { label: "VERDANT", baseName: "JUNIPER", color: "#35a653", textColor: "#35a653" },
 ];
 
-const BOT_LINES = [
-  "that lot is mine next lap",
-  "the bank always wins, kid",
-  "rent me once, shame on you",
-  "dice are cold tonight",
-  "cash flow looking thin",
-  "keep your hands off pine road",
-];
 
 /* ============================================================
    PLAYER PROFILES (persisted library of custom designs)
@@ -587,9 +572,6 @@ function getAppearanceMeta(choice) {
    3. UTILITIES
    ============================================================ */
 const $ = (sel) => document.querySelector(sel);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const d6 = () => 1 + Math.floor(Math.random() * 6);
-const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const REDUCED_MOTION = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || false;
 
@@ -660,7 +642,7 @@ function buildPlayers(choiceIndex, alias) {
    4. STATE
    ============================================================ */
 const state = {
-  live: true,
+  
   // Per-tab session id (audit #10): sessionStorage survives reloads but is
   // fresh for every tab, so two tabs can no longer share — and hijack — one seat.
   clientId: sessionStorage.getItem("poorup-client-id") || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -735,8 +717,6 @@ const state = {
   selectedPlayerView: "profile",
   selectedPlayerHistory: null,
   selectedPlayerHistoryScope: "all",
-  surpriseDeck: [...CHANCE_EVENTS],
-  treasureDeck: [...CHEST_EVENTS],
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
   sound: loadSoundPreference(), // global effects toggle
@@ -1281,7 +1261,7 @@ function renderConnectionStatus() {
     label.textContent = copy;
   });
   const gameLabel = $("#tn-online");
-  if (gameLabel && state.live) gameLabel.textContent = status === "online"
+  if (gameLabel) gameLabel.textContent = status === "online"
     ? `${state.players.filter((p) => p.online).length} ONLINE`
     : copy;
   document.querySelectorAll("[data-global-online] .dot, #view-home .online .dot, #home-status-note .dot").forEach((dot) => {
@@ -1904,10 +1884,6 @@ function record(text) {
   state.log.unshift(text);
   if (state.log.length > 40) state.log.length = 40;
 }
-const addCash = (id, delta) => {
-  const p = state.players.find((x) => x.id === id);
-  if (p) p.cash = Math.max(0, p.cash + delta);
-};
 
 /* ============================================================
    5. HOME SCREEN
@@ -2259,7 +2235,6 @@ function socialPlayerRowHTML(player, actionLabel = "VIEW") {
 }
 
 function refreshEconomySnapshot() {
-  if (!state.live) return;
   emitServer("get-economy-snapshot", {}, (response) => {
     if (!response?.success || !response.economy) return;
     state.economy = {
@@ -2283,7 +2258,7 @@ function openSocialSurface(tab = "friends") {
   state.socialTab = ["friends", "requests", "invites", "recent", "notifications"].includes(tab) ? tab : "friends";
   showView("social");
   renderSocialSurface("#social-page-content");
-  if (state.live) emitServer("get-social-data", {}, (response) => {
+  emitServer("get-social-data", {}, (response) => {
     if (response?.success && response.social) {
       state.social = response.social;
       renderSocialSurface("#social-page-content");
@@ -2335,7 +2310,7 @@ function openInGameSocialSurface(kind) {
   } else if (kind === "social") {
     renderSocialSurface("#social-card");
     openSurface("#social-modal", "#social-close");
-    if (state.live) emitServer("get-social-data", {}, (response) => {
+    emitServer("get-social-data", {}, (response) => {
       if (response?.success && response.social) {
         state.social = response.social;
         renderSocialSurface("#social-card");
@@ -2352,8 +2327,7 @@ function openRankingsSurface(metric = "wins", scope = state.leaderboard.scope ||
   state.leaderboard.scope = ["all", "month", "friends"].includes(scope) ? scope : "all";
   showView("rankings");
   renderRankingsSurface("#rankings-page-content");
-  if (state.live) {
-    state.leaderboard.loading = true;
+  state.leaderboard.loading = true;
     emitServer("get-leaderboard-snapshot", { scope: state.leaderboard.scope }, (snapshot) => {
       state.leaderboard.loading = false;
       if (snapshot?.success) {
@@ -2364,7 +2338,6 @@ function openRankingsSurface(metric = "wins", scope = state.leaderboard.scope ||
       }
       renderRankingsSurface("#rankings-page-content");
     });
-  }
 }
 
 const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
@@ -2629,7 +2602,7 @@ function openPlayerSurface(playerId) {
   state.selectedPlayerHistoryScope = "all";
   renderPlayerSurface();
   openSurface("#player-modal", "#player-modal-close");
-  if (state.selectedPlayer.accountId && state.live) emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, (response) => {
+  if (state.selectedPlayer.accountId) emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, (response) => {
     if (response?.success && response.player) {
       state.selectedPlayer = { ...state.selectedPlayer, ...response.player };
       state.selectedPlayerRelationship = response.relationship;
@@ -3313,7 +3286,6 @@ function switchRoomModalTab(tab) {
 }
 
 function requestRoomsDirectory() {
-  if (!state.live) return;
   roomsLoading = true;
   renderRoomsList();
   clearTimeout(roomsDirectoryTimeout);
@@ -3524,9 +3496,7 @@ function renderTopNav() {
   $("#tn-room-copy")?.setAttribute("aria-label", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
   $("#tn-room-copy")?.setAttribute("title", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
   $("#tn-lobby").textContent = isPublic ? "AFTER HOURS · PUBLIC" : `AFTER HOURS ${state.roomCode || "----"}`;
-  $("#tn-online").textContent = state.live
-    ? (state.connectionStatus === "online" ? `${state.players.filter((p) => p.online).length} ONLINE` : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE"))
-    : state.phase === "playing" ? `${state.players.length} SEATED` : "OFFLINE";
+  $("#tn-online").textContent = (state.connectionStatus === "online" ? `${state.players.filter((p) => p.online).length} ONLINE` : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE"));
   $("#tn-turnlabel").textContent = state.phase === "playing" ? state.players[state.turnIndex].name : state.phase === "lobby" ? "LOBBY" : "SETUP";
   renderConnectionStatus();
 }
@@ -3573,7 +3543,7 @@ function renderChat() {
     .join("");
   body.scrollTop = body.scrollHeight;
 
-  const joined = state.live ? state.phase !== "home" && state.players.length > 0 : state.phase === "playing";
+  const joined = (state.phase !== "home" && state.players.length > 0);
   $("#chat-input").disabled = !joined;
   $("#chat-send").disabled = !joined;
   $("#chat-input").placeholder = joined ? "Say something…" : "Join the room to chat…";
@@ -3870,20 +3840,6 @@ function dieHTML(value, rolling) {
   return `<div class="die${rolling ? " dice-rolling" : ""}">${cells}</div>`;
 }
 
-/** update only the pip faces of existing dice so the shake animation is not restarted */
-function updateDieFaces() {
-  const dice = document.querySelectorAll("#hud-dice .die");
-  if (dice.length !== 2) return false;
-  dice.forEach((die, di) => {
-    const pips = DIE_PIPS[state.dice[di]] || DIE_PIPS[1];
-    die.querySelectorAll("span").forEach((cell, i) => {
-      const cx = i % 3;
-      const cy = Math.floor(i / 3);
-      cell.classList.toggle("on", pips.some(([x, y]) => x === cx && y === cy));
-    });
-  });
-  return true;
-}
 
 function renderHud() {
   const waiting = state.phase !== "playing";
@@ -4050,50 +4006,8 @@ function rentFor(tile) {
 }
 
 function buildNextHouse(tile) {
-  if (state.live) {
-    emitServer("manage-property", { tileIndex: tile.i, action: "build-house" }, () => {});
+  emitServer("manage-property", { tileIndex: tile.i, action: "build-house" }, () => {});
     return;
-  }
-  if (state.phase !== "playing") return;
-  if (state.owners[tile.i] !== "p1") return;
-  if (tile.kind !== "property") return;
-  if (!ownsFullGroup("p1", tile.group)) {
-    say(`You need the full ${tile.group.toUpperCase()} set to build.`);
-    renderChat();
-    return;
-  }
-  const me = state.players[0];
-  const table = RENT_TABLE[tile.group];
-  if (me.cash < table.housePrice) {
-    say(`Not enough cash — house costs $${table.housePrice}.`);
-    renderChat();
-    return;
-  }
-  const level = state.houses[tile.i] || 0;
-  if (level >= HOTEL_LEVEL) return;
-  const nextLevel = level + 1;
-  if (nextLevel === HOTEL_LEVEL && hotelCount() >= state.settings.hotelLimit) {
-    say("No hotels left in the bank.");
-    renderChat();
-    return;
-  }
-  if (nextLevel < HOTEL_LEVEL && houseCount() >= state.settings.houseLimit) {
-    say("No houses left in the bank.");
-    renderChat();
-    return;
-  }
-  if (!canBuildEvenly(tile, level + 1)) {
-    say("Build houses evenly across the set.");
-    renderChat();
-    return;
-  }
-  state.houses[tile.i] = level + 1;
-  addCash("p1", -table.housePrice);
-  const label = level + 1 === HOTEL_LEVEL ? "HOTEL" : "HOUSE";
-  record(`YOU BUILT A ${label} ON ${tile.name} — $${table.housePrice}`);
-  say(`built a ${label.toLowerCase()} on ${tile.name.toLowerCase()} for $${table.housePrice}.`, me);
-  playSound("house");
-  renderAll();
 }
 
 function houseCount() {
@@ -4108,28 +4022,8 @@ function hotelCount() {
 }
 
 function sellHouse(tile) {
-  if (state.live) {
-    emitServer("manage-property", { tileIndex: tile.i, action: "sell-house" }, () => {});
+  emitServer("manage-property", { tileIndex: tile.i, action: "sell-house" }, () => {});
     return;
-  }
-  if (state.phase !== "playing") return;
-  if (state.owners[tile.i] !== "p1") return;
-  if (tile.kind !== "property") return;
-  const level = state.houses[tile.i] || 0;
-  if (level <= 0) return;
-  // Monopoly sells evenly too: you can't drop below one step under the rest of the set
-  if (!canSellEvenly(tile, level - 1)) {
-    say("Sell houses evenly across the set.");
-    renderChat();
-    return;
-  }
-  const table = RENT_TABLE[tile.group];
-  const refund = Math.floor(table.housePrice / 2);
-  state.houses[tile.i] = level - 1;
-  addCash("p1", refund);
-  const what = level === HOTEL_LEVEL ? "HOTEL" : "HOUSE";
-  record(`YOU SOLD A ${what} ON ${tile.name} — REFUND $${refund}`);
-  renderAll();
 }
 
 /** Mirror of canBuildEvenly for selling: no deed may fall 2+ below another. */
@@ -5550,200 +5444,10 @@ function onTileClick(tile) {
 /* ============================================================
    8. GAME LOGIC
    ============================================================ */
-function applyLocalCardEvent(idx, ev) {
-  const player = state.players[idx];
-  if (!player || !ev) return 0;
-  let cashDelta = 0;
-  const moveTo = (tileIndex) => {
-    player.pos = tileIndex;
-    state.highlight = tileIndex;
-    resolveLanding(idx, tileIndex);
-  };
-  const moveToSupport = (tile, multiplier) => {
-    if (!tile) return;
-    if (tile.i < player.pos) {
-      addCash(player.id, 200);
-      record(`${player.name} PASSED GO — COLLECT $200`);
-    }
-    player.pos = tile.i;
-    state.highlight = tile.i;
-    const ownerId = state.owners[tile.i];
-    if (ownerId && ownerId !== player.id) {
-      const base = rentFor(tile);
-      const amount = tile.kind === "utility"
-        ? (Number(state.dice[0]) + Number(state.dice[1])) * multiplier
-        : base * multiplier;
-      if (chargePayment(idx, amount, ownerId, `${player.name} PAID $${amount} SUPPORT RENT`)) cashDelta -= amount;
-      return;
-    }
-    resolveLanding(idx, tile.i);
-  };
-  switch (ev.action) {
-    case "collect":
-      addCash(player.id, ev.amount || 0);
-      cashDelta = ev.amount || 0;
-      break;
-    case "pay":
-      cashDelta = -(ev.amount || 0);
-      chargePayment(idx, ev.amount || 0, null, `${player.name} PAID $${ev.amount} FROM CARD`);
-      break;
-    case "collectStart":
-      {
-        const amount = Number(ev.amount ?? 200);
-        player.pos = START_TILE_INDEX;
-        addCash(player.id, amount);
-        cashDelta = amount;
-      }
-      break;
-    case "moveTo":
-      if (Number.isInteger(ev.tileIndex) && ev.tileIndex < player.pos) {
-        addCash(player.id, 200);
-        cashDelta += 200;
-        record(`${player.name} PASSED GO — COLLECT $200`);
-      }
-      moveTo(ev.tileIndex);
-      break;
-    case "moveBack":
-      moveTo((player.pos - (ev.steps || 3) + TILE_COUNT) % TILE_COUNT);
-      break;
-    case "goToJail":
-      player.pos = JAIL_TILE_INDEX;
-      state.jail[player.id] = 2;
-      break;
-    case "jailFree":
-      player.jailFree = (player.jailFree || 0) + 1;
-      break;
-    case "collectFromEach":
-      state.players.forEach((other) => {
-        if (other.id === player.id) return;
-        const paid = Math.min(other.cash, ev.amount || 0);
-        other.cash -= paid;
-        player.cash += paid;
-        cashDelta += paid;
-      });
-      break;
-    case "payEach":
-      state.players.forEach((other) => {
-        if (other.id === player.id) return;
-        const paid = Math.min(player.cash, ev.amount || 0);
-        player.cash -= paid;
-        other.cash += paid;
-        cashDelta -= paid;
-      });
-      break;
-    case "repairs": {
-      const houses = player.properties.reduce((sum, tileIndex) => {
-        const level = Number(state.houses[tileIndex]) || 0;
-        return sum + (level === HOTEL_LEVEL ? 0 : level);
-      }, 0);
-      const hotels = player.properties.reduce((sum, tileIndex) => sum + ((Number(state.houses[tileIndex]) || 0) === HOTEL_LEVEL ? 1 : 0), 0);
-      const total = houses * (ev.houseCost || 0) + hotels * (ev.hotelCost || 0);
-      cashDelta = -total;
-      if (total) chargePayment(idx, total, null, `${player.name} PAID $${total} IN BUILDING REPAIRS`);
-      break;
-    }
-    case "nearestRailroad": {
-      const destination = TILES.find((tile, offset) => offset > player.pos && tile.kind === "railroad")
-        || TILES.find((tile) => tile.kind === "railroad");
-      moveToSupport(destination, 2);
-      break;
-    }
-    case "nearestUtility": {
-      const destination = TILES.find((tile, offset) => offset > player.pos && tile.kind === "utility")
-        || TILES.find((tile) => tile.kind === "utility");
-      moveToSupport(destination, 10);
-      break;
-    }
-    default:
-      cashDelta = Number(ev.cash) || 0;
-      addCash(player.id, cashDelta);
-      break;
-  }
-  record(`${player.name} — ${ev.text}`);
-  say(`${player.name}: ${ev.text.toLowerCase()}`);
-  return cashDelta;
-}
 
-function resolveLanding(idx, pos) {
-  const me = state.players[idx];
-  const tile = TILES[pos];
-  const ownerId = state.owners[pos];
-  const buyable = ["property", "railroad", "utility"].includes(tile.kind);
-
-  if (buyable && !ownerId) {
-    if (me.bot && me.cash > (tile.price ?? 0) + 120 && Math.random() < 0.72) {
-      state.owners[pos] = me.id;
-      addCash(me.id, -(tile.price ?? 0));
-      record(`${me.name} BOUGHT ${tile.name} — $${tile.price}`);
-      say(`${me.name} bought ${tile.name} for $${tile.price}.`);
-    } else if (!me.bot) {
-      // human always sees a choice modal after landing on a vacant lot
-      state.pendingBuyTile = pos;
-      if (state.settings.auction) {
-        record(`${me.name} LANDED ON VACANT ${tile.name} — BUY OR AUCTION`);
-      } else {
-        record(`${me.name} LANDED ON VACANT ${tile.name} — BUY OR PASS`);
-      }
-    } else {
-      record(`${me.name} LANDED ON VACANT ${tile.name}`);
-      say(me.bot ? `${me.name} passed on ${tile.name}.` : `${tile.name} is vacant — click the tile to buy it.`);
-    }
-  } else if (buyable && ownerId && ownerId !== me.id) {
-    const owner = state.players.find((p) => p.id === ownerId);
-    if (state.mortgaged[pos]) {
-      record(`${me.name} LANDED ON MORTGAGED ${tile.name} — NO RENT DUE`);
-    } else {
-      const rent = rentFor(tile);
-      const houses = state.houses[pos] || 0;
-      const tag = houses === HOTEL_LEVEL ? " (HOTEL)" : houses > 0 ? ` (${houses} HOUSE${houses === 1 ? "" : "S"})` : "";
-      const paid = chargePayment(idx, rent, ownerId, `${me.name} PAID $${rent} RENT TO ${owner.name}${tag}`);
-      if (!paid) return;
-      say(`${me.name} paid $${rent} rent to ${owner.name}.`);
-    }
-  } else if (buyable && ownerId === me.id) {
-    record(`${me.name} RESTED ON OWN LOT — ${tile.name}`);
-  } else if (tile.kind === "chance" || tile.kind === "chest") {
-    const ev = drawLocalCard(tile.kind);
-    const cash = applyLocalCardEvent(idx, ev);
-    if (!me.bot) openCardReveal(tile, { ...ev, cash });
-  } else if (tile.kind === "tax") {
-    const due = tile.price ?? 200;
-    const paid = chargePayment(idx, due, null, `${me.name} PAID $${due} INCOME TAX${state.settings.vacationPool ? " TO THE POOL" : ""}`);
-    if (paid && state.settings.vacationPool) state.pool += due;
-  } else if (tile.kind === "corner-vacation") {
-    const winnings = state.settings.vacationPool ? state.pool : 0;
-    if (winnings > 0) {
-      state.pool = 0;
-      addCash(me.id, winnings);
-      record(`${me.name} COLLECTED VACATION CASH — $${winnings}`);
-    } else {
-      record(`${me.name} LANDED ON VACATION`);
-    }
-  } else if (tile.kind === "corner-go-jail") {
-    me.pos = JAIL_TILE_INDEX;
-    state.jail[me.id] = 2;
-    record(`${me.name} SENT TO PRISON`);
-    say(`${me.name} was sent to prison.`);
-  } else if (tile.kind === "corner-parking") {
-    const winnings = state.pool;
-    if (winnings > 0) {
-      state.pool = 0;
-      addCash(me.id, winnings);
-      record(`${me.name} SWEPT THE VACATION POOL — $${winnings}`);
-      say(`${me.name} cleared the vacation pool for $${winnings}.`);
-    } else {
-      record(`${me.name} TOOK A BREATHER AT FREE PARKING`);
-    }
-  } else if (tile.kind === "corner-jail") {
-    record(`${me.name} IS JUST VISITING`);
-  } else if (tile.kind === "corner-go") {
-    record(`${me.name} LANDED SQUARE ON GO`);
-  }
-}
 
 async function runTurn(idx) {
-  if (state.live) {
-    if (state.phase !== "playing" || state.turnIndex !== idx || state.busy || state.turnStage !== "roll") return;
+  if (state.phase !== "playing" || state.turnIndex !== idx || state.busy || state.turnStage !== "roll") return;
     state.busy = true;
     state.rolling = true;
     renderHud();
@@ -5757,131 +5461,12 @@ async function runTurn(idx) {
       renderAll();
     });
     return;
-  }
-  if (state.busy || state.phase !== "playing" || state.turnStage !== "roll") return;
-  state.busy = true;
-  state.rolling = true;
-  renderHud();
-
-  const start = Date.now();
-  while (Date.now() - start < 520) {
-    state.dice = [d6(), d6()];
-    // only swap pip faces so the shake animation keeps running smoothly
-    if (!updateDieFaces()) renderHud();
-    await sleep(70);
-  }
-  const a = d6();
-  const b = d6();
-  state.dice = [a, b];
-  state.rolling = false;
-  renderHud();
-  playSound("die");
-
-  const me = state.players[idx];
-  const total = a + b;
-  say(`${me.name} rolled ${a} + ${b} = ${total}`);
-  record(`${me.name} ROLLED ${total}`);
-  renderChat();
-
-  // ---- JAIL / VACATION resolution --------------------------------------
-  const inJail = (state.jail[me.id] || 0) > 0;
-  if (inJail) {
-    const left = state.jail[me.id];
-    const rolledDoubles = a === b;
-    if (rolledDoubles) {
-      delete state.jail[me.id];
-      record(`${me.name} ROLLED DOUBLES — FREED FROM JAIL`);
-      say(`${me.name} rolled doubles and is out of jail.`);
-    } else if (me.cash >= 50) {
-      me.cash -= 50;
-      delete state.jail[me.id];
-      record(`${me.name} PAID $50 TO LEAVE JAIL (${left} LEFT)`);
-      say(`${me.name} paid $50 to leave jail.`);
-    } else if (left <= 1) {
-      delete state.jail[me.id];
-      record(`${me.name} RELEASED FROM JAIL`);
-    } else {
-      state.jail[me.id] = left - 1;
-      record(`${me.name} STAYS IN JAIL (${left - 1} LEFT)`);
-      state.highlight = me.pos;
-      renderAll();
-      if (me.bot) {
-        clearTimeout(botTimer);
-        botTimer = setTimeout(() => endTurn(idx), 700);
-      }
-      state.busy = false;
-      return;
-    }
-  }
-
-  let passedGo = false;
-  for (let s = 0; s < total; s++) {
-    me.pos = (me.pos + 1) % TILE_COUNT;
-    if (me.pos === START_TILE_INDEX) passedGo = true;
-    state.highlight = me.pos;
-    renderBoardState();
-    placePieces({ movingId: me.id, hop: true });
-    if (!REDUCED_MOTION) playSound("step");
-    await sleep(110);
-  }
-
-  if (passedGo) {
-    addCash(me.id, 200);
-    record(`${me.name} PASSED GO — COLLECT $200`);
-    if (me.pos === START_TILE_INDEX && state.settings.doubleGo) {
-      addCash(me.id, 200);
-      record(`${me.name} LANDED ON GO — DOUBLE PAY +$200`);
-    }
-  }
-
-  await sleep(160);
-  resolveLanding(idx, me.pos);
-  state.highlight = me.pos;
-  renderAll();
-  await sleep(520);
-
-  if (state.players[idx].bot) {
-    if (Math.random() < 0.4) say(pick(BOT_LINES), state.players[idx]);
-    maybeBotBuild(idx);
-    botProposeTrade(idx);
-  }
-
-  // Keep the player on the landing square and leave all actions available.
-  // Humans explicitly end from the red button; CPUs do so after a short read.
-  state.turnStage = "end";
-  state.busy = false;
-  renderAll();
-  if (state.tradeWith) renderTradeModal();
-
-  // human landed on a vacant lot with auction rules on → forced choice
-  if (idx === 0 && state.pendingBuyTile != null) {
-    openChoiceModal(TILES[state.pendingBuyTile]);
-    return;
-  }
-
-  if (idx === 0) startTurnCountdown();
-
-  if (state.players[idx].bot) {
-    clearTimeout(botTimer);
-    botTimer = setTimeout(() => endTurn(idx), 700);
-  }
 }
 
-function useLocalJailFree() {
-  const me = state.players[0];
-  if (!me || !(me.jailFree > 0) || !(state.jail[me.id] > 0) || state.turnStage !== "roll") return;
-  me.jailFree -= 1;
-  delete state.jail[me.id];
-  record(`${me.name} USED A GET OUT OF PRISON CARD`);
-  say(`${me.name} used a Get Out of Prison card.`);
-  renderAll();
-}
 
-let botTimer = null;
 
 function endTurn(idx) {
-  if (state.live) {
-    if (state.phase !== "playing" || state.turnIndex !== idx || state.busy || state.turnStage !== "end") return;
+  if (state.phase !== "playing" || state.turnIndex !== idx || state.busy || state.turnStage !== "end") return;
     emitServer("end-turn", {}, (response) => {
       if (response?.success === false) {
         say(response.error || "The turn could not be ended.");
@@ -5889,25 +5474,6 @@ function endTurn(idx) {
       }
     });
     return;
-  }
-  if (
-    state.phase !== "playing" ||
-    state.busy ||
-    state.turnStage !== "end" ||
-    state.turnIndex !== idx ||
-    (state.pendingBuyTile != null && state.settings.auction) ||
-    state.auction
-  ) return;
-
-  const player = state.players[idx];
-  record(`${player.name} ENDED THEIR TURN`);
-  state.highlight = null;
-  state.turnStage = "roll";
-  state.turnIndex = (state.turnIndex + 1) % state.players.length;
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-  renderAll();
-  scheduleBot();
 }
 
 function primaryTurnAction() {
@@ -5917,90 +5483,19 @@ function primaryTurnAction() {
   else runTurn(0);
 }
 
-function scheduleBot() {
-  clearTimeout(botTimer);
-  if (state.live || state.phase !== "playing") return;
-  if (!state.players[state.turnIndex]?.bot || state.busy) return;
-  botTimer = setTimeout(() => runTurn(state.turnIndex), 900);
-}
 
 function startGame() {
-  if (state.live) {
-    emitServer("start-game", {}, (response) => {
+  emitServer("start-game", {}, (response) => {
       if (response?.success === false) {
         say(response.error || "Only the host can start the game.");
         renderChat();
       }
     });
     return;
-  }
-  // players were built when entering the lobby; apply count trim from settings
-  const maxP = state.settings.maxPlayers;
-  state.players = state.players.slice(0, maxP);
-  // apply starting cash from settings
-  const startCash = Number(state.settings.startingCash);
-  state.players.forEach((p) => {
-    p.cash = startCash;
-    p.pos = START_TILE_INDEX;
-    p.jailFree = 0;
-  });
-  // reset all volatile state
-  state.turnIndex = 0;
-  state.dice = [3, 5];
-  state.rolling = false;
-  state.busy = false;
-  state.turnStage = "roll";
-  state.pool = state.settings.vacationPool ? Math.round(startCash * 0.167) : 0;
-  state.owners = {};
-  state.highlight = null;
-  state.selectedTile = null;
-  state.tradeWith = null;
-  state.tradeMyDeeds = new Set();
-  state.tradeTheirDeeds = new Set();
-  state.tradeMyCash = 0;
-  state.tradeTheirCash = 0;
-  state.houses = {};
-  state.mortgaged = {};
-  state.offers = [];
-  state.deedDetail = null;
-  state.pendingBuyTile = null;
-  state.auction = null;
-  state.jail = {};
-  state.surpriseDeck = [...CHANCE_EVENTS];
-  state.treasureDeck = [...CHEST_EVENTS];
-  state.card = null;
-  state.gameOver = null;
-  clearInterval(auctionTimer);
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-  clearSave();
-  state.phase = "playing";
-  closeAllSurfaces();
-
-  const s = state.settings;
-  const ruleSummary =
-    `$${startCash.toLocaleString()} START · ` +
-    (s.vacationPool ? "POOL ON" : "NO POOL") + " · " +
-    (s.trading ? "TRADING ON" : "NO TRADES") + " · " +
-    (s.auction ? "AUCTION ON" : "NO AUCTION");
-
-  const p = state.players;
-  state.messages = [
-    { who: "", color: "", text: `ROOM ${state.roomCode || "----"} OPEN. ${ruleSummary}`, system: true },
-    { who: p[1]?.name, color: p[1]?.textColor, text: "late night, deep pockets." },
-    ...(p[2] ? [{ who: p[2].name, color: p[2].textColor, text: "i'm buying everything brown." }] : []),
-    ...(p[3] ? [{ who: p[3].name, color: p[3].textColor, text: "brb, refilling coffee" }] : []),
-  ].filter((m) => m.who !== undefined);
-  state.log = [`GAME STARTED — ${p[0].name} TO PLAY.`];
-
-  renderAll();
-  requestAnimationFrame(() => placePieces());
-  scheduleBot();
 }
 
 function buyTile(tile) {
-  if (state.live) {
-    if (tile?.i == null) return;
+  if (tile?.i == null) return;
     emitServer("purchase-property", { tileIndex: tile.i }, (response) => {
       if (response?.success === false) {
         say(response.error || "That deed is no longer available.");
@@ -6011,17 +5506,6 @@ function buyTile(tile) {
     $("#choice-modal")?.classList.add("is-hidden");
     closePopup();
     return;
-  }
-  if (state.phase !== "playing") { say("Join the room before buying deeds."); renderChat(); return; }
-  if (state.busy || state.turnIndex !== 0) { say("You can only buy on your own turn."); renderChat(); return; }
-  const me = state.players[0];
-  if (me.cash < (tile.price ?? 0)) return;
-  state.owners[tile.i] = "p1";
-  addCash("p1", -(tile.price ?? 0));
-  record(`YOU BOUGHT ${tile.name} — $${tile.price}`);
-  say(`bought ${tile.name.toLowerCase()} for $${tile.price}`, me);
-  playSound("cash");
-  renderAll();
 }
 
 /* ============================================================
@@ -6034,7 +5518,6 @@ function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
 
 const AUCTION_MS = 5000;
 let auctionTimer = null;
-let auctionBotClock = 0;
 
 /** Human landed on a vacant lot: auto-show choice modal.
  *  - Auction mode: locked, BUY or AUCTION only.
@@ -6114,7 +5597,7 @@ function closeChoiceModalAsPass() {
   if (state.settings.auction) return;
   const tile = state.pendingBuyTile != null ? TILES[state.pendingBuyTile] : null;
   const me = state.players[0];
-  if (state.live && tile) {
+  if (tile) {
     emitServer("decline-property", { tileIndex: tile.i }, (response) => {
       if (response?.success === false) {
         say(response.error || "The deed could not be declined.");
@@ -6125,56 +5608,21 @@ function closeChoiceModalAsPass() {
     closeSurface("#choice-modal");
     return;
   }
-  if (tile) record(`${me.name} PASSED ON ${tile.name}`);
   state.pendingBuyTile = null;
   closeSurface("#choice-modal");
   afterLandingResolved();
 }
 
 function startAuction(tile) {
-  if (state.live) {
-    emitServer("decline-property", { tileIndex: tile.i }, (response) => {
+  emitServer("decline-property", { tileIndex: tile.i }, (response) => {
       if (response?.success === false) {
         say(response.error || "The auction could not be opened.");
         renderChat();
       }
     });
     return;
-  }
-  const caps = {};
-  state.players.forEach((p) => {
-    if (!p.bot) return;
-    // bots value the lot higher when it completes a color set they own
-    let mult = 0.6 + Math.random() * 0.75;
-    if (tile.group && TILES.some((t) => t.group === tile.group && state.owners[t.i] === p.id)) mult *= 1.4;
-    caps[p.id] = Math.min(Math.round((tile.price || 100) * mult), Math.floor(p.cash * 0.9));
-  });
-  state.auction = {
-    tileIndex: tile.i,
-    bid: 0,
-    leaderId: null,
-    deadline: serverNow() + AUCTION_MS,
-    caps,
-    passed: {},
-  };
-  auctionBotClock = 0;
-  renderAuction();
-  openSurface("#auction-modal", "#auction-pass");
-  clearInterval(auctionTimer);
-  auctionTimer = setInterval(tickAuction, 60);
 }
 
-function placeBid(playerId, amount) {
-  const a = state.auction;
-  if (!a) return;
-  a.bid += amount;
-  a.leaderId = playerId;
-  a.deadline = serverNow() + AUCTION_MS;
-  const p = state.players.find((x) => x.id === playerId);
-  record(`${p.name} BID $${a.bid} ON ${TILES[a.tileIndex].name}`);
-  playSound("auction");
-  updateAuctionLive();
-}
 
 function humanBid(inc) {
   const a = state.auction;
@@ -6182,68 +5630,27 @@ function humanBid(inc) {
   const me = state.players[0];
   if (a.passed.p1) return;
   if (me.cash < a.bid + inc) return; // can't cover the raise
-  if (state.live) {
-    emitServer("auction-bid", { amount: a.bid + inc }, (response) => {
+  emitServer("auction-bid", { amount: a.bid + inc }, (response) => {
       if (response?.success === false) {
         say(response.error || "Bid rejected.");
         renderChat();
       }
     });
     return;
-  }
-  placeBid("p1", inc);
 }
 
 function humanPassAuction() {
   const a = state.auction;
   if (!a) return;
-  if (state.live) {
-    emitServer("auction-pass", {}, (response) => {
+  emitServer("auction-pass", {}, (response) => {
       if (response?.success === false) {
         say(response.error || "You cannot pass this auction.");
         renderChat();
       }
     });
     return;
-  }
-  a.passed.p1 = true;
-  record(`${state.players[0].name} PASSED AT AUCTION`);
-  // if everyone else has passed, the current leader wins immediately
-  const active = state.players.filter((p) => !a.passed[p.id]);
-  if (a.leaderId && active.length <= 1) { finalizeAuction(); return; }
-  updateAuctionLive();
-  if (a.leaderId && active.length <= 1) finalizeAuction();
 }
 
-function maybeBotBid() {
-  const a = state.auction;
-  if (!a) return;
-  const tile = TILES[a.tileIndex];
-  const bots = state.players.filter((p) => p.bot && p.id !== a.leaderId);
-  // shuffle so it isn't always the same bot first
-  for (let i = bots.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [bots[i], bots[j]] = [bots[j], bots[i]];
-  }
-  for (const p of bots) {
-    if (a.passed[p.id]) continue;
-    const cap = a.caps[p.id] ?? (tile.price || 100);
-    const options = BID_STEPS.filter((inc) => a.bid + inc <= cap && p.cash >= a.bid + inc);
-    if (options.length && Math.random() < 0.55) {
-      const inc = options[Math.floor(Math.random() * options.length)];
-      placeBid(p.id, inc);
-      return true;
-    }
-    // can't afford another raise or reached their valuation → out
-    a.passed[p.id] = true;
-  }
-  // if every opponent has passed, the current leader wins immediately
-  if (a.leaderId && state.players.filter((p) => !a.passed[p.id]).length <= 1) {
-    finalizeAuction();
-    return true;
-  }
-  return false;
-}
 
 function tickAuction() {
   const a = state.auction;
@@ -6252,49 +5659,14 @@ function tickAuction() {
 
   // Live auctions are finalized by the server. The client only keeps the
   // countdown visually current until the authoritative update arrives.
-  if (state.live) {
-    updateAuctionLive();
+  updateAuctionLive();
     if (remaining <= 0) {
       clearInterval(auctionTimer);
       auctionTimer = null;
     }
     return;
-  }
-
-  // let a bot consider bidding roughly twice a second
-  auctionBotClock += 60;
-  if (auctionBotClock >= 480) {
-    auctionBotClock = 0;
-    if (maybeBotBid()) return; // may finalize if all others passed
-  }
-
-  if (remaining <= 0) { finalizeAuction(); return; }
-  updateAuctionLive();
 }
 
-function finalizeAuction() {
-  clearInterval(auctionTimer);
-  auctionTimer = null;
-  const a = state.auction;
-  if (!a) return;
-  const tile = TILES[a.tileIndex];
-  const winner = a.leaderId ? state.players.find((p) => p.id === a.leaderId) : null;
-
-  if (winner && a.bid > 0 && winner.cash >= a.bid) {
-    state.owners[a.tileIndex] = winner.id;
-    addCash(winner.id, -a.bid);
-    record(`${winner.name} WON ${tile.name} AT AUCTION — $${a.bid}`);
-    say(`${winner.name} won ${tile.name} at auction for $${a.bid}.`);
-  } else {
-    record(`${tile.name} WENT UNSOLD AT AUCTION`);
-    say(`${tile.name} drew no bids and stays with the bank.`);
-  }
-
-  state.auction = null;
-  state.pendingBuyTile = null;
-  closeSurface("#auction-modal");
-  renderAll();
-}
 
 function renderAuction() {
   const a = state.auction;
@@ -6619,8 +5991,7 @@ function sendTrade() {
     giveCash: myCash,
     wantCash: theirCash,
   };
-  if (state.live) {
-    emitServer("propose-trade", {
+  emitServer("propose-trade", {
       toPlayerId: other.serverId || other.id,
       givePropertyIndexes: offer.giveDeeds,
       requestPropertyIndexes: offer.wantDeeds,
@@ -6638,66 +6009,11 @@ function sendTrade() {
     });
     closeTradeModal();
     return;
-  }
-  closeTradeModal();
-  say(`Offer sent to ${other.name}.`, me);
-  record(`OFFER SENT TO ${other.name}`);
-  renderChat();
-  setTimeout(() => resolveBotOffer(offer), 1400);
 }
 
-function resolveBotOffer(offer) {
-  const bot = state.players.find((p) => p.id === offer.to);
-  if (!bot) return;
-  const gain = offer.wantDeeds.reduce((s, i) => s + (TILES[i].price || 0), 0) + offer.wantCash;
-  const cost = offer.giveDeeds.reduce((s, i) => s + (TILES[i].price || 0), 0) + offer.giveCash;
-  if (gain >= cost * 0.92) {
-    record(`${bot.name} ACCEPTED YOUR OFFER`);
-    say(`accepted your offer.`, bot);
-    executeTrade(offer, "accepted");
-  } else {
-    record(`${bot.name} DECLINED YOUR OFFER`);
-    say(`declined your offer.`, bot);
-    renderChat();
-  }
-}
 
-function executeTrade(offer, how) {
-  const me = state.players.find((p) => p.id === offer.from);
-  const other = state.players.find((p) => p.id === offer.to);
-  if (!me || !other) return;
-  offer.giveDeeds.forEach((i) => { state.owners[i] = offer.to; state.houses[i] = 0; state.mortgaged[i] = false; });
-  offer.wantDeeds.forEach((i) => { state.owners[i] = offer.from; state.houses[i] = 0; state.mortgaged[i] = false; });
-  addCash(offer.from, offer.wantCash - offer.giveCash);
-  addCash(offer.to, offer.giveCash - offer.wantCash);
-  record(`TRADE ${how.toUpperCase()} — ${me.name} ⇄ ${other.name}`);
-  renderAll();
-}
 
 /** Bots occasionally propose a cash-for-deed trade when they need one last lot. */
-function botProposeTrade(idx) {
-  const bot = state.players[idx];
-  if (!bot?.bot || !state.settings.trading || state.offers.length) return;
-  if (Math.random() > 0.16) return;
-  for (const group of Object.keys(GROUP_TARGETS)) {
-    const tiles = TILES.filter((t) => t.group === group);
-    const target = GROUP_TARGETS[group];
-    const botIdx = tiles.filter((t) => state.owners[t.i] === bot.id).length;
-    const humanIdx = tiles.filter((t) => state.owners[t.i] === "p1").length;
-    if (botIdx + humanIdx !== target) continue;
-    if (humanIdx === 0) continue;
-    const want = tiles.find((t) => state.owners[t.i] === "p1");
-    if (!want || state.mortgaged[want.i]) continue;
-    const cash = Math.round((want.price || 100) * 1.35);
-    if (bot.cash < cash) continue;
-    const offer = { from: bot.id, to: "p1", giveDeeds: [], wantDeeds: [want.i], giveCash: cash, wantCash: 0 };
-    state.offers.push(offer);
-    say(`${bot.name} proposes a trade…`, bot);
-    renderChat();
-    setTimeout(() => openOfferModal(offer), 1000);
-    return;
-  }
-}
 
 function openOfferModal(offer) {
   const from = state.players.find((p) => p.id === offer.from || p.serverId === offer.from);
@@ -6728,8 +6044,7 @@ function openOfferModal(offer) {
   $("#offer-accept").addEventListener("click", () => {
     const o = state.offers.find((x) => x === offer);
     if (o) state.offers.splice(state.offers.indexOf(o), 1);
-    if (state.live) {
-      emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
+    emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
         if (response?.success === false) {
           say(response.error || "Trade could not be accepted.");
           renderChat();
@@ -6738,9 +6053,6 @@ function openOfferModal(offer) {
       });
       closeSurface("#offer-modal");
       return;
-    }
-    executeTrade(offer, "accepted");
-    closeSurface("#offer-modal");
   });
   $("#offer-counter").addEventListener("click", () => {
     // swap into the trade editor pre-loaded with the bot's proposal
@@ -6760,14 +6072,10 @@ function openOfferModal(offer) {
 
 function rejectOpenOffer() {
   const offer = state.offers.shift();
-  if (state.live && offer) {
+  if (offer) {
     emitServer("respond-trade", { tradeId: offer.id, accept: false }, () => {});
     closeSurface("#offer-modal");
     return;
-  }
-  if (offer) {
-    const from = state.players.find((p) => p.id === offer.from || p.serverId === offer.from);
-    say(`rejected ${from ? from.name : "the"} offer.`);
   }
   closeSurface("#offer-modal");
   renderChat();
@@ -6802,102 +6110,24 @@ function mortgageValue(tile) { return Math.floor((tile.price || 0) * 0.5); }
 function unmortgageCost(tile) { return Math.ceil((tile.price || 0) * 0.55); }
 
 function mortgageTile(tileIdx) {
-  if (state.live) {
-    emitServer("manage-property", { tileIndex: tileIdx, action: "mortgage" }, () => {});
+  emitServer("manage-property", { tileIndex: tileIdx, action: "mortgage" }, () => {});
     return;
-  }
-  if (state.phase !== "playing") return;
-  const me = state.players[0];
-  if (state.owners[tileIdx] !== "p1" || state.mortgaged[tileIdx]) return;
-  const t = TILES[tileIdx];
-  // can't mortgage a deed if any deed in its color group still has houses/hotels
-  if (t.group) {
-    const hasBuildings = TILES.some((tg) => tg.group === t.group && (state.houses[tg.i] || 0) > 0);
-    if (hasBuildings) {
-      say(`Sell the houses on your ${t.group.toUpperCase()} set before mortgaging here.`);
-      renderChat();
-      return;
-    }
-  }
-  state.mortgaged[tileIdx] = true;
-  me.cash += mortgageValue(t);
-  record(`YOU MORTGAGED ${t.name} — +$${mortgageValue(t)}`);
-  say(`mortgaged ${t.name.toLowerCase()} for $${mortgageValue(t)}.`, me);
-  renderAll();
 }
 
 function unmortgageTile(tileIdx) {
-  if (state.live) {
-    emitServer("manage-property", { tileIndex: tileIdx, action: "unmortgage" }, () => {});
+  emitServer("manage-property", { tileIndex: tileIdx, action: "unmortgage" }, () => {});
     return;
-  }
-  const me = state.players[0];
-  if (state.owners[tileIdx] !== "p1" || !state.mortgaged[tileIdx]) return;
-  const t = TILES[tileIdx];
-  const cost = unmortgageCost(t);
-  if (me.cash < cost) { say(`Not enough cash to unmortgage ${t.name} ($${cost}).`); renderChat(); return; }
-  me.cash -= cost;
-  state.mortgaged[tileIdx] = false;
-  record(`YOU UNMORTGAGED ${t.name} — $${cost}`);
-  renderAll();
 }
 
-function liquidatePlayer(playerId) {
-  if (state.live) {
-    say("Sell houses or mortgage deeds from Holdings; the bank will settle the debt automatically.");
-    renderChat();
-    return;
-  }
-  const p = state.players.find((x) => x.id === playerId);
-  if (!p) return;
-  TILES.forEach((t) => {
-    if (state.owners[t.i] !== playerId) return;
-    const lvl = state.houses[t.i] || 0;
-    if (lvl > 0) { p.cash += Math.floor((RENT_TABLE[t.group]?.housePrice || 50) / 2) * (lvl === HOTEL_LEVEL ? 4 : lvl); state.houses[t.i] = 0; }
-    if (!state.mortgaged[t.i]) { p.cash += mortgageValue(t); state.mortgaged[t.i] = true; }
-  });
-  record(`${p.name} LIQUIDATED — SOLD HOUSES & MORTGAGED DEEDS`);
-}
 
 function bankruptPlayer(idx, creditorId) {
-  if (state.live) {
-    emitServer("declare-bankruptcy", {}, (response) => {
+  emitServer("declare-bankruptcy", {}, (response) => {
       if (response?.success === false) {
         say(response.error || "Bankruptcy could not be declared.");
         renderChat();
       }
     });
     return;
-  }
-  const p = state.players[idx];
-  const creditor = creditorId ? state.players.find((x) => x.id === creditorId) : null;
-  TILES.forEach((t) => {
-    if (state.owners[t.i] !== p.id) return;
-    state.owners[t.i] = creditorId;
-    state.houses[t.i] = 0;
-    state.mortgaged[t.i] = false;
-  });
-  if (creditor) creditor.cash += p.cash;
-  p.cash = 0;
-  record(`${p.name} WENT BANKRUPT${creditor ? ` — ASSETS TO ${creditor.name}` : ""}`);
-  say(`${p.name} went bankrupt${creditor ? ` — assets to ${creditor.name}` : " (bank)"}.`);
-  const wasHuman = p.id === "p1";
-  state.players.splice(idx, 1);
-  if (state.turnIndex >= state.players.length) state.turnIndex = 0;
-  closeSurface("#bankruptcy-modal");
-  renderAll();
-  if (state.players.length <= 1) {
-    clearSave();
-    const winner = state.players[0];
-    showGameOver(winner ? winner.name : "Nobody", winner ? winner.id : null);
-    return;
-  }
-  if (wasHuman) {
-    clearSave();
-    showGameOver("Bank", null);
-    return;
-  }
-  scheduleBot();
 }
 
 /** Build a ranked summary and show the round-over modal. */
@@ -6971,73 +6201,17 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-liquidate");
   $("#bank-liquidate").addEventListener("click", () => {
-    if (state.live) {
-      closeSurface("#bankruptcy-modal");
+    closeSurface("#bankruptcy-modal");
       say("Use Holdings to sell houses or mortgage deeds, then the debt will settle automatically.");
       renderChat();
       return;
-    }
-    liquidatePlayer(p.id);
-    if (p.cash >= amount) {
-      p.cash -= amount;
-      if (creditor) creditor.cash += amount;
-      record(`YOU PAID $${amount} AFTER LIQUIDATION`);
-      closeSurface("#bankruptcy-modal");
-      renderAll();
-    } else {
-      bankruptPlayer(idx, creditorId);
-    }
   });
   $("#bank-declare").addEventListener("click", () => bankruptPlayer(idx, creditorId));
 }
 
 /** Central payment helper: returns true when paid, false when unpayable. */
-function chargePayment(playerIdx, amount, creditorId, label) {
-  const p = state.players[playerIdx];
-  if (p.cash >= amount) {
-    p.cash -= amount;
-    const creditor = creditorId ? state.players.find((x) => x.id === creditorId) : null;
-    if (creditor) creditor.cash += amount;
-    record(label);
-    return true;
-  }
-  if (p.bot) {
-    liquidatePlayer(p.id);
-    if (p.cash >= amount) {
-      p.cash -= amount;
-      const creditor = creditorId ? state.players.find((x) => x.id === creditorId) : null;
-      if (creditor) creditor.cash += amount;
-      record(`${label} — (LIQUIDATED)`);
-      return true;
-    }
-    bankruptPlayer(playerIdx, creditorId);
-    return false;
-  }
-  openBankruptcyModal(playerIdx, amount, creditorId, label);
-  return false;
-}
 
 /* ---- CPU round management ---- */
-function maybeBotBuild(idx) {
-  const p = state.players[idx];
-  if (!p?.bot) return;
-  for (const t of TILES) {
-    if (t.kind !== "property" || state.owners[t.i] !== p.id) continue;
-    if (!ownsFullGroup(p.id, t.group)) continue;
-    const lvl = state.houses[t.i] || 0;
-    if (lvl >= HOTEL_LEVEL) continue;
-    const table = RENT_TABLE[t.group];
-    if (p.cash <= table.housePrice * 3) continue;
-    if (!canBuildEvenly(t, lvl + 1)) continue;
-    const next = lvl + 1;
-    if (next === HOTEL_LEVEL && hotelCount() >= state.settings.hotelLimit) continue;
-    if (next < HOTEL_LEVEL && houseCount() >= state.settings.houseLimit) continue;
-    p.cash -= table.housePrice;
-    state.houses[t.i] = next;
-    record(`${p.name} BUILT A ${next === HOTEL_LEVEL ? "HOTEL" : "HOUSE"} ON ${t.name}`);
-    return;
-  }
-}
 
 /* ---- persist / resume ---- */
 function saveGame() {
@@ -7100,35 +6274,11 @@ function handleRestoreSessionResponse(response, explicit = false) {
 }
 
 function resumeGame() {
-  if (state.live) {
-    // Clear the room mute before asking for the session so the restored
+  // Clear the room mute before asking for the session so the restored
     // snapshots can render again ("Resume round" was a dead no-op, A6-F2).
     state.suppressRoomUpdates = false;
     emitServer("restore-session", {}, (response) => handleRestoreSessionResponse(response, true));
     return;
-  }
-  const s = loadSavedGame();
-  if (!s) return;
-  state.roomCode = s.roomCode || state.roomCode;
-  state.players = s.players;
-  state.owners = s.owners || {};
-  state.houses = s.houses || {};
-  state.mortgaged = s.mortgaged || {};
-  state.pool = s.pool || 0;
-  state.turnIndex = s.turnIndex || 0;
-  state.dice = s.dice || [3, 5];
-  state.settings = Object.assign({}, state.settings, s.settings);
-  state.log = s.log || [];
-  state.messages = s.messages || [];
-  state.phase = "playing";
-  state.busy = false;
-  state.turnStage = "roll";
-  state.highlight = null;
-  state.selectedTile = null;
-  state.offers = [];
-  showView("game");
-  renderAll();
-  scheduleBot();
 }
 
 /* ============================================================
@@ -7157,7 +6307,6 @@ function showView(name) {
 }
 
 function syncServerAppearance() {
-  if (!state.live) return;
   const meta = getAppearanceMeta(activeAppearance());
   emitServer("set-player-appearance", {
     nickname: state.alias.trim() || meta.baseName,
@@ -7213,8 +6362,7 @@ function enterParlor(code) {
   focusSurface("#setup-wrap", "#su-start");
   requestAnimationFrame(() => placePieces());
 
-  if (state.live) {
-    const meta = getAppearanceMeta(activeAppearance());
+  const meta = getAppearanceMeta(activeAppearance());
     const event = requestedCode ? "join-room" : "create-room";
     emitServer(event, {
       roomCode: requestedCode || undefined,
@@ -7245,30 +6393,22 @@ function enterParlor(code) {
       }
       state.pendingRoomMeta = null;
     });
-  }
 }
 
 function enterLobby() {
   // called from the setup overlay "Enter Parlor" button
   if (!requireGuestAlias()) return;
-  if (state.live) {
-    syncServerAppearance();
+  syncServerAppearance();
     state.phase = "lobby";
     renderAll();
     requestAnimationFrame(() => placePieces());
     return;
-  }
-  state.players = buildPlayers(activeAppearance(), state.alias);
-  state.phase = "lobby";
-  renderAll();
-  requestAnimationFrame(() => placePieces());
 }
 
 function goHome() {
   // Release the seat on the server so the room can GC and peers stop
   // counting a home-screen player as online (A4-F3: ghost seats).
-  if (state.live && state.phase !== "home") emitServer("leave-room", {}, () => {});
-  clearTimeout(botTimer);
+  if (state.phase !== "home") emitServer("leave-room", {}, () => {});
   clearInterval(auctionTimer);
   state.busy = false;
   state.rolling = false;
@@ -7617,8 +6757,7 @@ function bindEvents() {
       return;
     }
 
-    if (state.live) {
-      state.alias = (state.account?.account?.displayName || state.alias || state.profiles[0]?.name || "").slice(0, 12);
+    state.alias = (state.account?.account?.displayName || state.alias || state.profiles[0]?.name || "").slice(0, 12);
       state.pendingRoomMeta = {
         roomName: name,
         visibility: vis,
@@ -7629,25 +6768,7 @@ function bindEvents() {
       // preview code remains a visual hint until the room is created.
       enterParlor();
       return;
-    }
 
-    // if public, register into public directory list
-    if (vis === "public") {
-      roomsDirectory.unshift({
-        code,
-        name,
-        seats: 1,
-        cap: 4,
-        bank: "$1,500",
-        state: "open",
-        note: "fresh table · public",
-        visibility: "public",
-      });
-    }
-
-    closeRoomsModal();
-    enterParlor(code);
-    record(`ROOM ${code} (${vis.toUpperCase()}) HOSTED — ${name}`);
   });
 
   // resume round
@@ -7940,13 +7061,9 @@ function bindEvents() {
     state.settings.vacationPool = true;
     state.settings.trading = true;
     state.settings.auction = false;
-    if (state.live) {
-      state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
+    state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
       enterParlor();
       return;
-    }
-    state.roomCode = "Q-" + Math.random().toString(36).slice(2, 6).toUpperCase();
-    enterParlor(state.roomCode);
   });
 
   // game → home
@@ -7995,7 +7112,7 @@ function bindEvents() {
     if (togBtn && togBtn.classList.contains("tog")) {
       const key = togBtn.dataset.setting;
       state.settings[key] = !state.settings[key];
-      if (state.live) updateServerSetting(key, state.settings[key]);
+      updateServerSetting(key, state.settings[key]);
       renderLobbyRail();
       return;
     }
@@ -8013,7 +7130,7 @@ function bindEvents() {
       if (key === "maxPlayers") {
         state.settings.bots = clamp(Number(state.settings.bots) || 0, 0, Math.max(0, state.settings.maxPlayers - 1));
       }
-      if (state.live) updateServerSetting(key, state.settings[key]);
+      updateServerSetting(key, state.settings[key]);
       renderLobbyRail();
       return;
     }
@@ -8031,7 +7148,7 @@ function bindEvents() {
       } else {
         state.settings[key] = sel.matches("input[type=checkbox]") ? sel.checked : sel.value;
       }
-      if (state.live) updateServerSetting(key, state.settings[key]);
+      updateServerSetting(key, state.settings[key]);
       renderLobbyRail();
     }
   };
@@ -8039,7 +7156,7 @@ function bindEvents() {
 
   $("#global-event-choices")?.addEventListener("click", (event) => {
     const choice = event.target.closest("[data-global-choice]");
-    if (!choice || choice.disabled || !state.live) return;
+    if (!choice || choice.disabled) return;
     emitServer("vote-global-event", { choiceId: choice.dataset.globalChoice }, (response) => {
       if (response?.success === false) {
         say(response.error || "Your vote could not be recorded.");
@@ -8051,7 +7168,6 @@ function bindEvents() {
   // lobby start round
   $("#lobby-start-btn").addEventListener("click", startGame);
   $("#pay-jail-fine")?.addEventListener("click", () => {
-    if (!state.live) return;
     emitServer("pay-jail-fine", {}, (response) => {
       if (response?.success === false) {
         say(response.error || "The jail fine could not be paid.");
@@ -8060,10 +7176,6 @@ function bindEvents() {
     });
   });
   $("#use-jail-free")?.addEventListener("click", () => {
-    if (!state.live) {
-      useLocalJailFree();
-      return;
-    }
     emitServer("use-jail-free", {}, (response) => {
       if (response?.success === false) {
         say(response.error || "The card could not be used.");
@@ -8079,17 +7191,13 @@ function bindEvents() {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
-    if (state.live) {
-      emitServer("send-chat", { text }, (response) => {
+    emitServer("send-chat", { text }, (response) => {
         if (response?.success === false) {
           say(response.error || "Message could not be sent.");
           renderChat();
         }
       });
       return;
-    }
-    say(text, state.players[0]);
-    renderChat();
   });
 
   // keep tokens glued to tiles when the board resizes
