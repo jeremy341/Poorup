@@ -264,6 +264,58 @@ const GLOBAL_EVENT_COMBINATIONS = [
   ], effects: { bankActionsBlocked: true, loanPremiumMultiplier: 1.6 }, duration: 7 }
 ];
 
+// Global-event dispatch tables, mirroring CARD_ACTION_HANDLERS and
+// RENT_EVENT_MODIFIERS below: activation-time targets, per-event activation
+// hooks, vote-outcome side effects, and ordered activation settlements.
+// Every entry encodes the exact condition and mutation the original inline
+// if-ladders performed; the settlement order is observable (feed order and
+// cash deltas), so the array sequence is frozen.
+function positiveFiniteEffect(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+const GLOBAL_EVENT_TARGET_FINDERS = {
+  'anti-monopoly': game => [...game.players].sort((a, b) => game.playerGroups(b).length - game.playerGroups(a).length)[0],
+  'tax-audit': game => [...game.activePlayers()].sort((a, b) => (Number(b.cash) || 0) - (Number(a.cash) || 0))[0]
+};
+
+const GLOBAL_EVENT_ACTIVATION_HOOKS = {
+  'airport-strike': game => game.activePlayers().forEach(player => {
+    if (player.properties.some(index => game.getTile(index)?.type === 'railroad')) player.airportOwnedDuringStrike = true;
+  })
+};
+
+const GLOBAL_EVENT_VOTE_OUTCOME_HANDLERS = {
+  'anti-monopoly': (game, event) => {
+    if (!event.targetPlayerId || event.resolvedChoice !== 'enforce') return;
+    const target = game.getPlayerById(event.targetPlayerId);
+    if (target && event.votes?.[target.id] !== 'enforce') target.publicEnemy = true;
+  },
+  'legitimacy-crisis': (game, event) => {
+    if (event.resolvedChoice !== 'bury-audit') return;
+    game.activePlayers().forEach(player => {
+      if (event.votes?.[player.id] === 'bury-audit') player.compromisedCouncil = true;
+    });
+  }
+};
+
+const GLOBAL_EVENT_SETTLEMENT_STEPS = [
+  { appliesTo: (game, event) => positiveFiniteEffect(event.effects?.rentControlStipend) !== null, handler: 'settleRentControlStipend' },
+  {
+    appliesTo: (game, event) => {
+      const multiplier = Number(event.effects?.cashMultiplier);
+      return Number.isFinite(multiplier) && multiplier > 0 && multiplier < 1;
+    },
+    handler: 'settleCashMultiplier'
+  },
+  {
+    appliesTo: (game, event) => ['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout',
+    handler: 'settleEmergencyBailout'
+  },
+  { appliesTo: (game, event) => event.id === 'tax-audit' && Boolean(event.targetPlayerId), handler: 'settleTaxAuditPenalty' }
+];
+
 const DEFAULT_TILES = [
   { index: 0, name: 'Start', type: 'start' },
   { index: 1, name: 'Salvador', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#7b5029' },
@@ -1640,102 +1692,134 @@ class GameState {
     });
   }
 
-  maybeTriggerGlobalEvent(source = 'round') {
-    const enabled = this.settings.globalEvents === true || this.settings.globalEvents === 1 || this.settings.globalEvents === 'true' || this.settings.globalEvents === 'on' || this.settings.globalEvents === 'rare' || this.settings.globalEvents === 'hardcore';
-    if (!this.started || !enabled || this.globalEvent || this.globalEventCooldown > 0) return;
-    if (this.roundNumber < GLOBAL_EVENT_MIN_ROUND) return;
+  globalEventsEnabled() {
+    const value = this.settings.globalEvents;
+    return value === true || value === 1 || value === 'true' || value === 'on' || value === 'rare' || value === 'hardcore';
+  }
+
+  globalEventExpectedRounds() {
+    return Math.max(12, this.activePlayers().length * 8);
+  }
+
+  globalEventProgress(expectedRounds = this.globalEventExpectedRounds()) {
+    return Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
+  }
+
+  // One headline per match is the safe default. A second headline is only
+  // possible when a surprise draw completes a named, curated combination.
+  pendingGlobalEventCombo(source) {
+    if (this.globalEventsTriggered !== 1 || source !== 'surprise') return null;
     const previous = this.globalEventHistory[0];
-    const combo = this.globalEventsTriggered === 1 && source === 'surprise' && previous && !previous.comboId
-      ? GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.required.includes(previous.id))
-      : null;
-    // One headline per match is the safe default. A second headline is only
-    // possible when it completes a named, curated combination.
+    if (!previous || previous.comboId) return null;
+    return GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.required.includes(previous.id)) || null;
+  }
+
+  globalEventTriggerChance(source) {
+    const progress = this.globalEventProgress();
+    if (progress < 0.18) return 0;
+    if (source === 'surprise') return progress < 0.55 ? 0.05 : 0.07;
+    return progress < 0.55 ? 0.025 : 0.04;
+  }
+
+  selectWeightedGlobalEvent(eventPool) {
+    const totalWeight = eventPool.reduce((sum, event) => sum + (event.weight || 1), 0);
+    let roll = randomFloat() * totalWeight;
+    return eventPool.find(event => (roll -= (event.weight || 1)) <= 0) || eventPool[eventPool.length - 1];
+  }
+
+  maybeTriggerGlobalEvent(source = 'round') {
+    if (!this.started || !this.globalEventsEnabled() || this.globalEvent || this.globalEventCooldown > 0) return;
+    if (this.roundNumber < GLOBAL_EVENT_MIN_ROUND) return;
+    const combo = this.pendingGlobalEventCombo(source);
     if (this.globalEventsTriggered >= 1 && !combo) return;
     const eligible = GLOBAL_EVENT_DEFINITIONS.filter(event => event.eligible(this));
+    const previous = this.globalEventHistory[0];
     const comboEventId = combo?.required.find(id => id !== previous.id);
     const eventPool = combo ? eligible.filter(event => event.id === comboEventId) : eligible;
     if (!eventPool.length) return;
-    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
-    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
-    const boundaryChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.025 : 0.04;
-    const surpriseChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.05 : 0.07;
-    const chance = source === 'surprise' ? surpriseChance : boundaryChance;
-    if (randomFloat() >= chance) return;
-    const totalWeight = eventPool.reduce((sum, event) => sum + (event.weight || 1), 0);
-    let roll = randomFloat() * totalWeight;
-    const selected = eventPool.find(event => (roll -= (event.weight || 1)) <= 0) || eventPool[eventPool.length - 1];
-    this.activateGlobalEvent(selected, combo);
+    if (randomFloat() >= this.globalEventTriggerChance(source)) return;
+    this.activateGlobalEvent(this.selectWeightedGlobalEvent(eventPool), combo);
   }
 
-  activateGlobalEvent(definition, combo = null) {
-    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
-    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
-    const duration = combo?.duration || (definition.id === 'housing-bubble'
-      ? (progress > 0.6 ? 8 : 7)
-      : (progress > 0.6 ? 7 : 6));
-    const choices = (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
-    const leader = !combo && definition.id === 'anti-monopoly'
-      ? [...this.players].sort((a, b) => this.playerGroups(b).length - this.playerGroups(a).length)[0]
-      : null;
-    const auditTarget = !combo && definition.id === 'tax-audit'
-      ? [...this.activePlayers()].sort((a, b) => (Number(b.cash) || 0) - (Number(a.cash) || 0))[0]
-      : null;
-    this.globalEvent = {
+  globalEventDurationRounds(definition, combo) {
+    if (combo?.duration) return combo.duration;
+    const late = this.globalEventProgress() > 0.6;
+    if (definition.id === 'housing-bubble') return late ? 8 : 7;
+    return late ? 7 : 6;
+  }
+
+  globalEventChoices(definition, combo) {
+    return (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
+  }
+
+  globalEventBaseFields(definition, combo) {
+    return {
       id: combo?.id || definition.id,
       title: combo?.title || definition.title,
       category: combo ? 'COMBINATION' : definition.category,
       summary: combo?.summary || definition.summary,
-      effects: { ...(definition.effects || {}), ...(combo?.effects || {}) },
+      effects: { ...(definition.effects || {}), ...(combo?.effects || {}) }
+    };
+  }
+
+  buildGlobalEvent(definition, combo) {
+    const choices = this.globalEventChoices(definition, combo);
+    const findTarget = !combo && GLOBAL_EVENT_TARGET_FINDERS[definition.id];
+    const target = findTarget ? findTarget(this) : null;
+    return {
+      ...this.globalEventBaseFields(definition, combo),
       phase: choices ? 'voting' : 'warning',
       startedRound: this.roundNumber,
       voteRound: choices ? this.roundNumber : null,
-      durationRounds: duration,
+      durationRounds: this.globalEventDurationRounds(definition, combo),
       roundsRemaining: choices ? 1 : 1,
       choices,
       votes: {},
       resolvedChoice: null,
-      targetPlayerId: leader?.id || auditTarget?.id || null
+      targetPlayerId: target?.id || null
     };
+  }
+
+  activateGlobalEvent(definition, combo = null) {
+    this.globalEvent = this.buildGlobalEvent(definition, combo);
     this.globalEvent.comboId = combo?.id || null;
     if (combo) this.activePlayers().forEach(player => { player.comboExperienced = true; });
-    if (definition.id === 'airport-strike') {
-      this.activePlayers().forEach(player => {
-        if (player.properties.some(index => this.getTile(index)?.type === 'railroad')) player.airportOwnedDuringStrike = true;
-      });
-    }
+    const onActivate = GLOBAL_EVENT_ACTIVATION_HOOKS[definition.id];
+    if (onActivate) onActivate(this);
     this.activePlayers().forEach(player => {
       player.globalEventsExperienced = (player.globalEventsExperienced || 0) + 1;
     });
     this.globalEventsTriggered += 1;
-    this.feedMessage(choices
+    this.feedMessage(this.globalEvent.choices
       ? `${this.globalEvent.title} is live. The table votes before the next round.`
       : `${this.globalEvent.title} is building. The table has one round to prepare.`);
+  }
+
+  globalEventVoteWinners(event) {
+    const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
+    Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
+    const top = Math.max(...Object.values(counts), 0);
+    return Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
+  }
+
+  applyGlobalEventVoteOutcomes(event) {
+    const voters = this.activePlayers();
+    const allVotedSame = voters.length > 0 && voters.every(player => event.votes?.[player.id] === event.resolvedChoice);
+    voters.forEach(player => {
+      if (event.votes?.[player.id]) player.lastVoteChoice = event.votes[player.id];
+      if (event.votes?.[player.id] === event.resolvedChoice) player.councilWins = (player.councilWins || 0) + 1;
+      if (allVotedSame) player.unanimousVote = true;
+    });
+    const onResolved = GLOBAL_EVENT_VOTE_OUTCOME_HANDLERS[event.id];
+    if (onResolved) onResolved(this, event);
   }
 
   resolveGlobalEventVote() {
     const event = this.globalEvent;
     if (!event || event.phase !== 'voting') return;
-    const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
-    Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
-    const top = Math.max(...Object.values(counts), 0);
-    const winners = Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
+    const winners = this.globalEventVoteWinners(event);
     event.resolvedChoice = winners.length ? winners[randomInt(0, winners.length - 1)] : event.choices?.[0]?.id || null;
-    const allVotedSame = this.activePlayers().length > 0
-      && this.activePlayers().every(player => event.votes?.[player.id] === event.resolvedChoice);
-    this.activePlayers().forEach(player => {
-      if (event.votes?.[player.id]) player.lastVoteChoice = event.votes[player.id];
-      if (event.votes?.[player.id] === event.resolvedChoice) player.councilWins = (player.councilWins || 0) + 1;
-      if (allVotedSame) player.unanimousVote = true;
-    });
-    if (event.id === 'anti-monopoly' && event.targetPlayerId) {
-      const target = this.getPlayerById(event.targetPlayerId);
-      if (target && event.resolvedChoice === 'enforce' && event.votes?.[target.id] !== 'enforce') target.publicEnemy = true;
-    }
-    if (event.id === 'legitimacy-crisis' && event.resolvedChoice === 'bury-audit') {
-      this.activePlayers().forEach(player => {
-        if (event.votes?.[player.id] === 'bury-audit') player.compromisedCouncil = true;
-      });
-    }
+    this.applyGlobalEventVoteOutcomes(event);
     event.phase = 'active';
     event.startedRound = this.roundNumber;
     event.roundsRemaining = event.durationRounds;
@@ -1761,43 +1845,50 @@ class GameState {
     const event = this.globalEvent;
     if (!event || event.phase !== 'active' || event.settlementApplied) return;
     event.settlementApplied = true;
-    const stipend = Number(event.effects?.rentControlStipend);
-    if (Number.isFinite(stipend) && stipend > 0) {
-      this.activePlayers().filter(player => player.properties.length > 0).forEach(player => {
-        player.cash += stipend;
-        this.feedMessage(`${player.nickname} received a $${stipend} rent-control stipend.`);
-      });
-    }
+    GLOBAL_EVENT_SETTLEMENT_STEPS.forEach(step => {
+      if (step.appliesTo(this, event)) this[step.handler](event);
+    });
+  }
+
+  settleRentControlStipend(event) {
+    const stipend = positiveFiniteEffect(event.effects?.rentControlStipend);
+    this.activePlayers().filter(player => player.properties.length > 0).forEach(player => {
+      player.cash += stipend;
+      this.feedMessage(`${player.nickname} received a $${stipend} rent-control stipend.`);
+    });
+  }
+
+  settleCashMultiplier(event) {
     const cashMultiplier = Number(event.effects?.cashMultiplier);
-    if (Number.isFinite(cashMultiplier) && cashMultiplier > 0 && cashMultiplier < 1) {
-      this.activePlayers().forEach(player => {
-        player.cash = Math.max(0, Math.floor(player.cash * cashMultiplier));
-        if (player.cash === 0) player.zeroCashReached = true;
-      });
-      this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
-    }
-    if (['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout') {
-      const threshold = this.settings.startingCash * 0.5;
-      const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
-      this.activePlayers().filter(player => player.cash < threshold || ['active', 'due'].includes(player.bankLoan?.status)).forEach(player => {
-        player.cash += rescue;
-        player.bailoutReceived = true;
-        if (['active', 'due'].includes(player.bankLoan?.status)) player.moralHazard = true;
-        this.feedMessage(`${player.nickname} received a $${rescue} emergency bailout.`);
-      });
-    }
-    if (event.id === 'tax-audit' && event.targetPlayerId) {
-      const target = this.getPlayerById(event.targetPlayerId);
-      if (target && !target.bankrupt) {
-        const amount = Math.min(target.cash, Math.max(25, Math.floor(target.cash * 0.1)));
-        if (amount <= 0) return;
-        target.cash -= amount;
-        if (this.settings.vacationCash) this.vacationPool += amount;
-        if (target.cash === 0) target.zeroCashReached = true;
-        target.taxAuditCount = (target.taxAuditCount || 0) + 1;
-        this.feedMessage(`${target.nickname} paid $${amount} after the tax scandal audit.`);
-      }
-    }
+    this.activePlayers().forEach(player => {
+      player.cash = Math.max(0, Math.floor(player.cash * cashMultiplier));
+      if (player.cash === 0) player.zeroCashReached = true;
+    });
+    this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
+  }
+
+  settleEmergencyBailout() {
+    const threshold = this.settings.startingCash * 0.5;
+    const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
+    this.activePlayers().filter(player => player.cash < threshold || ['active', 'due'].includes(player.bankLoan?.status)).forEach(player => {
+      player.cash += rescue;
+      player.bailoutReceived = true;
+      if (['active', 'due'].includes(player.bankLoan?.status)) player.moralHazard = true;
+      this.feedMessage(`${player.nickname} received a $${rescue} emergency bailout.`);
+    });
+  }
+
+  settleTaxAuditPenalty() {
+    const event = this.globalEvent;
+    const target = this.getPlayerById(event.targetPlayerId);
+    if (!target || target.bankrupt) return;
+    const amount = Math.min(target.cash, Math.max(25, Math.floor(target.cash * 0.1)));
+    if (amount <= 0) return;
+    target.cash -= amount;
+    if (this.settings.vacationCash) this.vacationPool += amount;
+    if (target.cash === 0) target.zeroCashReached = true;
+    target.taxAuditCount = (target.taxAuditCount || 0) + 1;
+    this.feedMessage(`${target.nickname} paid $${amount} after the tax scandal audit.`);
   }
 
   collectBuildingMaintenance() {
