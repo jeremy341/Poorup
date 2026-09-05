@@ -3001,6 +3001,13 @@ a:focus-visible {
 .bank-actions { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
 .bank-btn { height: 52px; width: 100%; }
 
+/* In-game retire control (topbar): danger tint from the existing red token
+   ramp. Press feedback comes from .btn-dark:active; nothing new animates. */
+.hdr-retire { border-color: var(--red-dark); }
+.hdr-retire .t-label { color: var(--red-bright); }
+.hdr-retire:hover:not(:disabled) { border-color: var(--red-action-hover); }
+.hdr-retire:active:not(:disabled) { background: var(--red-action-pressed); }
+
 /* ============================================================
    LOG DRAWER
    ============================================================ */

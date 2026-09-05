@@ -45,8 +45,9 @@ export class DeepSeekAdvisor {
   }
 
   async chooseAction({ candidates = [], personality = 'survivor', event = null } = {}) {
-    const fallback = await this.fallback.chooseAction({ candidates, personality });
-    if (!this.apiKey || typeof this.fetchImpl !== 'function' || !candidates.length) return fallback;
+    if (!this.apiKey || typeof this.fetchImpl !== 'function' || !candidates.length) {
+      return this.fallback.chooseAction({ candidates, personality });
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -64,13 +65,19 @@ export class DeepSeekAdvisor {
           ]
         })
       });
-      if (!response?.ok) return fallback;
+      if (!response?.ok) {
+        console.error('DeepSeekAdvisor API response not OK:', response?.status);
+        return this.fallback.chooseAction({ candidates, personality });
+      }
       const json = await response.json();
       const content = json?.choices?.[0]?.message?.content;
       const parsed = typeof content === 'string' ? JSON.parse(content.trim()) : content;
-      return parseAdvisorResponse(parsed, candidates) || fallback;
-    } catch {
-      return fallback;
+      const result = parseAdvisorResponse(parsed, candidates);
+      if (result) return result;
+      return this.fallback.chooseAction({ candidates, personality });
+    } catch (error) {
+      console.error('DeepSeekAdvisor API call failed:', error);
+      return this.fallback.chooseAction({ candidates, personality });
     } finally {
       clearTimeout(timeout);
     }
