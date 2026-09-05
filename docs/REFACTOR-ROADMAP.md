@@ -28,10 +28,10 @@ _Remeasured 2026-09-05 after R1 + the reliability PRs (#9–#13)._
 
 | Score | File | Notes |
 |-------|------|-------|
-| 1.06 | `server/gameLogic.js` | worst in repo, unchanged: the R3 rules-engine tables are the only lever |
+| 1.09 ↑ | `server/gameLogic.js` | worst in repo; applyCard (56) and getPropertyRent (53) now gone (#16/#17); manageProperty 53 / tradeMarket 44 / proposePlayerContract 44 / activateGlobalEvent 41 still queued |
 | 1.43 ↑ | `public/main.js` | was 1.26; offline-engine deletion (#10) removed ~930 dead lines and the deep-nesting/duplication smells |
 | 2.01 | `server/server.js` | unchanged by the #9 reliability work; `scheduleBotTurn` (cc 99) is R2, still open |
-| 5.21 ↑ | `server/accountStore.js` | was 4.42 → 4.78 (R1) → 5.21 (load-normalizer extraction in #11) |
+| 5.87 ↑ | `server/accountStore.js` | was 4.42 → 4.78 (R1) → 5.21 (#11 load normalizer) → 5.87 (#15 metric table + window helpers) |
 | 8.36 ↑ | `server/matchStore.js` | was 6.09; R1's table-driven sanitizer |
 | 8.89 ↑ | `server/achievementStore.js` | was 6.63; R1's rules table |
 | ~7.7 | `server/socialStore.js` | healthy — R1-era; leave alone |
@@ -111,8 +111,8 @@ handlers → validate/persist/broadcast split per handler, continuing the
 
 | Function | cc | Shape confirmed | Recipe |
 |----------|----|-----------------|--------|
-| `applyCard` | 56 | 14-case `switch` on `card.action` | action→handler map; same case bodies moved verbatim into small methods; dispatcher = lookup + `resolveTurnAfterAction` |
-| `getPropertyRent` | 53 | type branches + 11 event-modifier ifs | (a) `baseRent` per tile type via 3 tiny helpers; (b) a `RENT_EVENT_MODIFIERS` list of `{ when(tile, ev), factor }` folded with `reduce`. All factors multiply a running total and none depend on the accumulated value — order is provably irrelevant — but the `rentCap` + `Math.floor` stays last. Add a rent-tier table test naming every modifier |
+| ~~`applyCard`~~ ✅ #16 | 56→~4 | 14-case switch | **done:** dispatch table + RESOLVE_TAIL sentinel preserving the break-vs-return tail semantics; 26-case golden |
+| ~~`getPropertyRent`~~ ✅ #17 | 53→<9 | type branches + 11 event-modifier ifs | **done:** per-type base helpers + RENT_EVENT_MODIFIERS fold (rentCap+floor stay last); 43-case golden |
 | `manageProperty` | 53 | buy/build/mortgage/sell action chain | action→method table on `this` (`manageBuild`, `manageMortgage`, …) |
 | `tradeMarket` | 44 | side/quantity/settlement ifs | per-instrument validator + settlement split |
 | `proposePlayerContract` | 44 | term validation chain | array of predicate+message validators run sequentially |
@@ -143,12 +143,18 @@ before opening an R4 branch._
 ## Attack order
 
 _Progress (2026-09-05): **R1 done** (#6 participant schema + #11 atomic
-store-IO/load normalizer). Reliability work landed alongside but is separate
-from this list: #9 socket-handler scaffold + crash guards + wire tests, #10
-offline-engine deletion (a partial R0/R4 win), #12 auction-clock constant, #13
-test-helper de-hotspot. **R2 (scheduleBotTurn cc 99) and R3 (gameLogic rules
-tables) remain open** — the two biggest hotspots (server.js 2.01,
-gameLogic.js 1.06) are unchanged because those refactors are still pending._
+store-IO/load normalizer). **R3 first slices landed**: #16 extracted
+applyCard's 14-case switch (cc 56) behind a 26-case golden, #17 turned
+getPropertyRent's modifier ladder (cc 53) into RENT_EVENT_MODIFIERS behind a
+43-case golden - both exactly as the recipes below, goldens captured before
+the change. Reliability work landed alongside: #9 socket-handler scaffold +
+crash guards + wire tests, #10 offline-engine deletion (a partial R0/R4 win),
+#12 auction-clock constant, #13 test-helper de-hotspot, #15 leaderboard
+metric table (accountStore 5.21 -> 5.87). **Remaining:** R2 server.js
+(scheduleBotTurn cc 100, create-room/join-room), R3 manageProperty 53 /
+tradeMarket 44 / proposePlayerContract 44 / activateGlobalEvent 41 /
+getBotCandidates 38, R4 client tables (after R0). Each still one hotspot per
+PR, characterization golden first._
 
 **R0 — client test harness (blocking prerequisite).**
 Committed, CI-safe smoke for `public/` (DOM-free module extraction Node can
