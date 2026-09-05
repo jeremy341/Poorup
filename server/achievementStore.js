@@ -1,6 +1,6 @@
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { loadJson, writeJson } from './storeIO.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,21 +83,17 @@ export class AchievementStore {
   }
 
   load() {
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-      const records = Array.isArray(raw) ? raw : [];
-      records.forEach((entry) => {
-        const record = sanitize(entry);
-        if (record.accountId && record.achievementId) this.records.set(this.key(record.accountId, record.achievementId), record);
-      });
-    } catch {
-      // A missing achievement file starts an empty verified ledger.
-    }
+    const { value } = loadJson(this.filePath);
+    if (!value) return;
+    const records = Array.isArray(value) ? value : [];
+    records.forEach((entry) => {
+      const record = sanitize(entry);
+      if (record.accountId && record.achievementId) this.records.set(this.key(record.accountId, record.achievementId), record);
+    });
   }
 
   persist() {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, `${JSON.stringify([...this.records.values()], null, 2)}\n`, 'utf8');
+    writeJson(this.filePath, [...this.records.values()]);
   }
 
   unlock(record) {

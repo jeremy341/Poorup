@@ -19,7 +19,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run coverage
-      - name: Upload coverage to Codecov
+      - name: Server wire tests (handler scaffold)
+        run: node server/server.test.js      - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@v5
         with:
