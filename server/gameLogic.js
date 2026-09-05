@@ -502,6 +502,55 @@ class AuctionState {
   }
 }
 
+// Card action dispatch support. A handler returns either a real result (the
+// movement cards that re-enter applyTile, or the strike/rent early-outs) or
+// the RESOLVE_TAIL sentinel meaning "run the shared resolveTurnAfterAction
+// tail and return undefined" — exactly the break-vs-return split the original
+// switch encoded. Handlers live on GameState and are looked up by name.
+const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
+const CARD_ACTION_HANDLERS = {
+  collectStart: 'collectStartCard',
+  pay: 'payCard',
+  collect: 'collectCard',
+  jailFree: 'jailFreeCard',
+  moveBack: 'moveBackCard',
+  moveTo: 'moveToCard',
+  nearestRailroad: 'nearestTileCard',
+  nearestUtility: 'nearestTileCard',
+  repairs: 'repairsCard',
+  payEach: 'payEachCard',
+  move: 'moveCard',
+  goToJail: 'goToJailCard',
+  collectFromEach: 'collectFromEachCard'
+};
+
+// Global-event rent modifiers as data: every rule is a multiplicative factor
+// (airport-strike is a factor of 0) keyed off the event/effect state, folded
+// in order over the base rent. None of them read the accumulated total, so
+// multiplication commutes and the sequence is behavior-irrelevant; the only
+// non-multiplicative step, rentCap, stays after the fold along with the
+// Math.floor clamp. An effect factor parses to NaN when absent, and the fold
+// skips non-finite factors — the exact "applies only when set" guard the
+// original if-ladder repeated eleven times.
+const RENT_EVENT_MODIFIERS = [
+  { appliesTo: (game, tile) => game.globalEventActive('housing-bubble') && tile.type === 'property', factor: () => 0.65 },
+  { appliesTo: (game, tile) => game.globalEventActive('airport-strike') && tile.type === 'railroad', factor: () => 0 },
+  { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.type === 'railroad', factor: () => 1.75 },
+  { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.group === 'Dark Blue', factor: () => 1.3 },
+  {
+    appliesTo: (game, tile) => game.globalEventActive('anti-monopoly')
+      && tile.ownerId === game.globalEvent.targetPlayerId
+      && game.globalEvent.resolvedChoice !== 'dismiss',
+    factor: () => 0.6
+  },
+  { appliesTo: (game, tile) => game.globalEventActive('energy-crisis') && tile.type === 'utility', factor: () => 1.5 },
+  { appliesTo: (game, tile) => game.isPublicWorksElection() && tile.type === 'property', factor: () => 0.75 },
+  { appliesTo: (game, tile) => tile.type === 'railroad' && !game.globalEventActive('airport-strike'), factor: (game) => Number(game.activeEventEffects().airportRentMultiplier) },
+  { appliesTo: (game, tile) => tile.type === 'utility' && !game.globalEventActive('energy-crisis'), factor: (game) => Number(game.activeEventEffects().utilityRentMultiplier) },
+  { appliesTo: (game, tile) => tile.group === 'Dark Blue' && !game.globalEventActive('tourism-boom'), factor: (game) => Number(game.activeEventEffects().premiumRentMultiplier) },
+  { appliesTo: (game) => !game.globalEventActive('housing-bubble'), factor: (game) => { const multiplier = Number(game.activeEventEffects().rentMultiplier); return multiplier > 0 ? multiplier : NaN; } }
+];
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -1049,7 +1098,7 @@ class GameState {
 
   getPropertyHouseCost(tile) {
     const base = PROPERTY_HOUSE_COST_BY_GROUP[tile?.group] || 0;
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works') {
+    if (this.isPublicWorksElection()) {
       return Math.max(1, Math.floor(base * 0.65));
     }
     const multiplier = Number(this.activeEventEffects().buildingCostMultiplier);
@@ -1057,56 +1106,63 @@ class GameState {
   }
 
   getPropertyRent(tile) {
-    const baseRent = tile.rent || 0;
-    let rent = baseRent;
     if (tile.mortgaged) {
       return 0;
     }
-    if (tile.type === 'property') {
-      const level = Math.max(0, Math.min(5, tile.houseCount || 0));
-      if (level > 0) {
-        rent = Math.floor(baseRent * PROPERTY_RENT_MULTIPLIERS[level]);
-      } else if (tile.group && this.settings.doubleRent && this.hasFullSet(tile.ownerId, tile.group)) {
-        rent = baseRent * 2;
-      }
+    return this.applyEventRentModifiers(this.baseRentByType(tile), tile);
+  }
+
+  baseRentByType(tile) {
+    if (tile.type === 'property') return this.propertyBaseRent(tile);
+    if (tile.type === 'utility') return this.utilityBaseRent(tile);
+    if (tile.type === 'railroad') return this.railroadBaseRent(tile);
+    return tile.rent || 0;
+  }
+
+  propertyBaseRent(tile) {
+    const baseRent = tile.rent || 0;
+    const level = Math.max(0, Math.min(5, tile.houseCount || 0));
+    if (level > 0) {
+      return Math.floor(baseRent * PROPERTY_RENT_MULTIPLIERS[level]);
     }
-    if (tile.type === 'utility') {
-      const owner = this.getPlayerById(tile.ownerId);
-      if (owner) {
-        const ownedUtilities = this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id).length;
-        const diceTotal = Math.max(2, (this.lastDice?.[0] || 0) + (this.lastDice?.[1] || 0));
-        rent = diceTotal * (ownedUtilities >= 2 ? 10 : 4);
-      } else {
-        rent = baseRent || 20;
-      }
+    if (!tile.group || !this.settings.doubleRent) return baseRent;
+    if (this.hasFullSet(tile.ownerId, tile.group)) {
+      return baseRent * 2;
     }
-    if (tile.type === 'railroad') {
-      const owner = this.getPlayerById(tile.ownerId);
-      if (!owner) {
-        rent = RAILROAD_RENT[0];
-      } else {
-        const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id).length;
-        rent = RAILROAD_RENT[Math.min(Math.max(ownedRailroads, 1), RAILROAD_RENT.length) - 1];
-      }
+    return baseRent;
+  }
+
+  utilityBaseRent(tile) {
+    const owner = this.getPlayerById(tile.ownerId);
+    if (!owner) return tile.rent || 20;
+    return this.diceTotal() * (this.ownedUtilityCount(owner) >= 2 ? 10 : 4);
+  }
+
+  ownedUtilityCount(owner) {
+    return this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id).length;
+  }
+
+  diceTotal() {
+    return Math.max(2, (this.lastDice?.[0] || 0) + (this.lastDice?.[1] || 0));
+  }
+
+  railroadBaseRent(tile) {
+    const owner = this.getPlayerById(tile.ownerId);
+    if (!owner) return RAILROAD_RENT[0];
+    const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id).length;
+    return RAILROAD_RENT[Math.min(Math.max(ownedRailroads, 1), RAILROAD_RENT.length) - 1];
+  }
+
+  applyEventRentModifiers(rent, tile) {
+    let total = rent;
+    for (const modifier of RENT_EVENT_MODIFIERS) {
+      if (!modifier.appliesTo(this, tile)) continue;
+      const factor = modifier.factor(this, tile);
+      if (Number.isFinite(factor)) total *= factor;
     }
-    if (this.globalEventActive('housing-bubble') && tile.type === 'property') rent *= 0.65;
-    if (this.globalEventActive('airport-strike') && tile.type === 'railroad') rent = 0;
-    if (this.globalEventActive('tourism-boom') && tile.type === 'railroad') rent *= 1.75;
-    if (this.globalEventActive('tourism-boom') && tile.group === 'Dark Blue') rent *= 1.3;
-    if (this.globalEventActive('anti-monopoly') && this.globalEvent.resolvedChoice !== 'dismiss' && tile.ownerId === this.globalEvent.targetPlayerId) rent *= 0.6;
-    if (this.globalEventActive('energy-crisis') && tile.type === 'utility') rent *= 1.5;
-    const airportMultiplier = Number(this.activeEventEffects().airportRentMultiplier);
-    if (Number.isFinite(airportMultiplier) && tile.type === 'railroad' && !this.globalEventActive('airport-strike')) rent *= airportMultiplier;
-    const utilityMultiplier = Number(this.activeEventEffects().utilityRentMultiplier);
-    if (Number.isFinite(utilityMultiplier) && tile.type === 'utility' && !this.globalEventActive('energy-crisis')) rent *= utilityMultiplier;
-    const premiumMultiplier = Number(this.activeEventEffects().premiumRentMultiplier);
-    if (Number.isFinite(premiumMultiplier) && tile.group === 'Dark Blue' && !this.globalEventActive('tourism-boom')) rent *= premiumMultiplier;
-    const rentMultiplier = Number(this.activeEventEffects().rentMultiplier);
-    if (Number.isFinite(rentMultiplier) && rentMultiplier > 0 && !this.globalEventActive('housing-bubble')) rent *= rentMultiplier;
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works' && tile.type === 'property') rent *= 0.75;
     const cap = Number(this.activeEventEffects().rentCap);
-    if (Number.isFinite(cap) && cap > 0) rent = Math.min(rent, cap);
-    return Math.max(0, Math.floor(rent));
+    if (Number.isFinite(cap) && cap > 0) total = Math.min(total, cap);
+    return Math.max(0, Math.floor(total));
   }
 
   isTradeableTile(tile) {
@@ -2107,126 +2163,176 @@ class GameState {
   }
 
   applyCard(player, card, options = {}) {
-    switch (card.action) {
-      case 'collectStart':
-        player.position = START_TILE_INDEX;
-        {
-          const amount = Number(card.amount) || 200;
-          const paid = this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax' ? Math.floor(amount * 0.8) : amount;
-          player.cash += paid;
-          this.feedMessage(`${player.nickname} collected $${paid} from Start.`);
-        }
-        break;
-      case 'pay':
-        this.chargePlayer(player, null, card.amount, `${player.nickname} paid $${card.amount}.`, options);
-        return;
-      case 'collect':
-        {
-          const amount = Number(card.amount) || 0;
-          const paid = this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax' ? Math.floor(amount * 0.8) : amount;
-          player.cash += paid;
-          this.feedMessage(`${player.nickname} collected $${paid}.`);
-        }
-        break;
-      case 'jailFree':
-        player.jailFreeCards = (player.jailFreeCards || 0) + 1;
-        this.feedMessage(`${player.nickname} received a Get Out of Prison card.`);
-        break;
-      case 'moveBack':
-        player.position = (player.position - (card.steps || 3) + this.tiles.length) % this.tiles.length;
-        this.feedMessage(`${player.nickname} moved back ${card.steps || 3} spaces.`);
-        return this.applyTile(player, this.getTile(player.position), options);
-      case 'moveTo': {
-        const destination = this.getTile(card.tileIndex);
-        if (!destination) break;
-        if (destination.index < player.position) {
-          player.cash += 200;
-          this.feedMessage(`${player.nickname} passed Start and collected $200.`);
-        }
-        player.position = destination.index;
-        this.feedMessage(`${player.nickname} advanced to ${destination.name}.`);
-        return this.applyTile(player, destination, options);
-      }
-      case 'nearestRailroad':
-      case 'nearestUtility': {
-        const wantedType = card.action === 'nearestRailroad' ? 'railroad' : 'utility';
-        if (wantedType === 'railroad' && (this.globalEventActive('airport-strike') || this.activeEventEffects().airportCardsBlocked)) {
-          this.feedMessage(`${player.nickname} drew an airport movement card, but the strike grounded every flight.`);
-          this.resolveTurnAfterAction(options);
-          return { success: true };
-        }
-        const destination = Array.from({ length: this.tiles.length - 1 }, (_, offset) => (player.position + offset + 1) % this.tiles.length)
-          .map(index => this.getTile(index))
-          .find(tile => tile?.type === wantedType);
-        if (!destination) break;
-        if (destination.index < player.position) {
-          player.cash += 200;
-          this.feedMessage(`${player.nickname} passed Start and collected $200.`);
-        }
-        player.position = destination.index;
-        const owner = destination.ownerId ? this.getPlayerById(destination.ownerId) : null;
-        if (owner && owner.id !== player.id && !destination.mortgaged) {
-          const amount = wantedType === 'utility'
-            ? (Number(this.lastDice[0]) + Number(this.lastDice[1])) * (card.multiplier || 10)
-            : this.calculateRent(destination) * (card.multiplier || 2);
-          this.chargePlayer(player, owner, amount, `${player.nickname} paid $${amount} card rent to ${owner.nickname}.`, options);
-          return { success: true };
-        }
-        return this.applyTile(player, destination, options);
-      }
-      case 'repairs': {
-        const houses = player.properties.reduce((sum, index) => {
-          const level = this.getTile(index)?.houseCount || 0;
-          return sum + (level === 5 ? 0 : level);
-        }, 0);
-        const hotels = player.properties.reduce((sum, index) => sum + ((this.getTile(index)?.houseCount || 0) === 5 ? 1 : 0), 0);
-        const amount = houses * (card.houseCost || 0) + hotels * (card.hotelCost || 0);
-        if (amount) this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in building repairs.`, options);
-        break;
-      }
-      case 'payEach': {
-        const amount = card.amount || 0;
-        this.activePlayers().filter(other => other.id !== player.id).forEach(other => {
-          const paid = Math.min(player.cash, amount);
-          player.cash -= paid;
-          other.cash += paid;
-        });
-        this.feedMessage(`${player.nickname} paid each player $${amount} from the card.`);
-        break;
-      }
-      case 'move': {
-        const destTile = this.getTile(card.tileIndex);
-        if (!destTile) break;
-        player.position = card.tileIndex;
-        this.feedMessage(`${player.nickname} moved to ${destTile.name}.`);
-        const moveOptions = destTile.type === 'vacation'
-          ? { ...options, skipVacationCollect: true }
-          : options;
-        return this.applyTile(player, destTile, moveOptions);
-      }
-      case 'goToJail':
-        player.position = this.tiles.find(tile => tile.type === 'jail').index;
-        player.inJail = true;
-        player.jailTurns = 0;
-        this.feedMessage(`${player.nickname} was sent to Jail by a card.`);
-        this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
-        return;
-      case 'collectFromEach': {
-        const alive = this.activePlayers();
-        alive.forEach(other => {
-          if (other.id !== player.id) {
-            const paid = Math.min(other.cash, card.amount || 0);
-            other.cash -= paid;
-            player.cash += paid;
-          }
-        });
-        this.feedMessage(`${player.nickname} collected from each player.`);
-        break;
-      }
-      default:
-        break;
+    const handlerName = CARD_ACTION_HANDLERS[card.action];
+    const handler = handlerName && this[handlerName];
+    const outcome = handler ? handler.call(this, player, card, options) : RESOLVE_TAIL;
+    if (outcome === RESOLVE_TAIL) {
+      this.resolveTurnAfterAction(options);
+      return undefined;
     }
-    this.resolveTurnAfterAction(options);
+    return outcome;
+  }
+
+  isLowTaxElection() {
+    return this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax';
+  }
+
+  isPublicWorksElection() {
+    return this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works';
+  }
+
+  // Shared movement-card pieces: the pass-Start salary, the airport-strike
+  // grounding test, the payable-rent-owner guard and the card rent formula.
+  awardStartSalaryIfPassed(player, destination) {
+    if (destination.index < player.position) {
+      player.cash += 200;
+      this.feedMessage(`${player.nickname} passed Start and collected $200.`);
+    }
+  }
+
+  airportStrikeGroundsCard() {
+    return this.globalEventActive('airport-strike') || this.activeEventEffects().airportCardsBlocked;
+  }
+
+  cardRentPayable(player, owner, destination) {
+    if (!owner) return false;
+    if (owner.id === player.id) return false;
+    return !destination.mortgaged;
+  }
+
+  collectStartCard(player, card) {
+    player.position = START_TILE_INDEX;
+    const amount = Number(card.amount) || 200;
+    const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
+    player.cash += paid;
+    this.feedMessage(`${player.nickname} collected $${paid} from Start.`);
+    return RESOLVE_TAIL;
+  }
+
+  collectCard(player, card) {
+    const amount = Number(card.amount) || 0;
+    const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
+    player.cash += paid;
+    this.feedMessage(`${player.nickname} collected $${paid}.`);
+    return RESOLVE_TAIL;
+  }
+
+  payCard(player, card, options) {
+    this.chargePlayer(player, null, card.amount, `${player.nickname} paid $${card.amount}.`, options);
+    return undefined;
+  }
+
+  jailFreeCard(player) {
+    player.jailFreeCards = (player.jailFreeCards || 0) + 1;
+    this.feedMessage(`${player.nickname} received a Get Out of Prison card.`);
+    return RESOLVE_TAIL;
+  }
+
+  moveBackCard(player, card, options) {
+    player.position = (player.position - (card.steps || 3) + this.tiles.length) % this.tiles.length;
+    this.feedMessage(`${player.nickname} moved back ${card.steps || 3} spaces.`);
+    return this.applyTile(player, this.getTile(player.position), options);
+  }
+
+  moveToCard(player, card, options) {
+    const destination = this.getTile(card.tileIndex);
+    if (!destination) return RESOLVE_TAIL;
+    this.awardStartSalaryIfPassed(player, destination);
+    player.position = destination.index;
+    this.feedMessage(`${player.nickname} advanced to ${destination.name}.`);
+    return this.applyTile(player, destination, options);
+  }
+
+  moveCard(player, card, options) {
+    const destTile = this.getTile(card.tileIndex);
+    if (!destTile) return RESOLVE_TAIL;
+    player.position = card.tileIndex;
+    this.feedMessage(`${player.nickname} moved to ${destTile.name}.`);
+    const moveOptions = destTile.type === 'vacation' ? { ...options, skipVacationCollect: true } : options;
+    return this.applyTile(player, destTile, moveOptions);
+  }
+
+  nearestTileCard(player, card, options) {
+    const wantedType = card.action === 'nearestRailroad' ? 'railroad' : 'utility';
+    if (wantedType === 'railroad' && this.airportStrikeGroundsCard()) {
+      this.feedMessage(`${player.nickname} drew an airport movement card, but the strike grounded every flight.`);
+      this.resolveTurnAfterAction(options);
+      return { success: true };
+    }
+    const destination = this.findNextTileOfType(player, wantedType);
+    if (!destination) return RESOLVE_TAIL;
+    this.awardStartSalaryIfPassed(player, destination);
+    player.position = destination.index;
+    const owner = destination.ownerId ? this.getPlayerById(destination.ownerId) : null;
+    if (this.cardRentPayable(player, owner, destination)) {
+      const amount = this.cardRentAmount(destination, card, wantedType);
+      this.chargePlayer(player, owner, amount, `${player.nickname} paid $${amount} card rent to ${owner.nickname}.`, options);
+      return { success: true };
+    }
+    return this.applyTile(player, destination, options);
+  }
+
+  findNextTileOfType(player, wantedType) {
+    return Array.from({ length: this.tiles.length - 1 }, (_, offset) => (player.position + offset + 1) % this.tiles.length)
+      .map(index => this.getTile(index))
+      .find(tile => tile?.type === wantedType);
+  }
+
+  cardRentAmount(destination, card, wantedType) {
+    if (wantedType === 'utility') {
+      return (Number(this.lastDice[0]) + Number(this.lastDice[1])) * (card.multiplier || 10);
+    }
+    return this.calculateRent(destination) * (card.multiplier || 2);
+  }
+
+  repairsCard(player, card, options) {
+    const amount = this.buildingRepairCost(player, card);
+    if (amount) this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in building repairs.`, options);
+    return RESOLVE_TAIL;
+  }
+
+  buildingRepairCost(player, card) {
+    let houses = 0;
+    let hotels = 0;
+    player.properties.forEach((index) => {
+      const level = this.getTile(index)?.houseCount || 0;
+      if (level === 5) hotels += 1;
+      else houses += level;
+    });
+    return houses * (card.houseCost || 0) + hotels * (card.hotelCost || 0);
+  }
+
+  payEachCard(player, card) {
+    const amount = card.amount || 0;
+    this.activePlayers().filter(other => other.id !== player.id).forEach(other => {
+      const paid = Math.min(player.cash, amount);
+      player.cash -= paid;
+      other.cash += paid;
+    });
+    this.feedMessage(`${player.nickname} paid each player $${amount} from the card.`);
+    return RESOLVE_TAIL;
+  }
+
+  collectFromEachCard(player, card) {
+    const alive = this.activePlayers();
+    alive.forEach(other => {
+      if (other.id !== player.id) {
+        const paid = Math.min(other.cash, card.amount || 0);
+        other.cash -= paid;
+        player.cash += paid;
+      }
+    });
+    this.feedMessage(`${player.nickname} collected from each player.`);
+    return RESOLVE_TAIL;
+  }
+
+  goToJailCard(player, options) {
+    player.position = this.tiles.find(tile => tile.type === 'jail').index;
+    player.inJail = true;
+    player.jailTurns = 0;
+    this.feedMessage(`${player.nickname} was sent to Jail by a card.`);
+    this.resolveTurnAfterAction({ ...options, allowExtraRoll: false });
+    return undefined;
   }
 
   nextTurn() {

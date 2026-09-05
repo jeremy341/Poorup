@@ -27,6 +27,46 @@ function achievementPoints(entry, since = null) {
   return ACHIEVEMENT_POINTS[rarity] || ACHIEVEMENT_POINTS.common;
 }
 
+const num = (value) => Number(value) || 0;
+
+// One resolver per leaderboard metric: reads the (windowed) stats object and
+// the two achievement-derived figures. Replaces a 15-deep nested ternary chain
+// so adding a rank type is one row here, not another ternary arm. The default
+// (unknown metric) is wins, matching the previous final `: Number(wins) || 0`.
+const METRIC_RESOLVERS = {
+  wins: (stats) => num(stats.wins),
+  games: (stats) => num(stats.gamesPlayed),
+  rate: (stats) => (num(stats.gamesPlayed) ? Math.round((num(stats.wins) / num(stats.gamesPlayed)) * 100) : 0),
+  achievements: (stats, derived) => derived.achievementScore,
+  mythical: (stats, derived) => derived.mythicalCount,
+  bankruptcies: (stats) => num(stats.bankruptcies),
+  events: (stats) => num(stats.eventSurvival),
+  auctions: (stats) => num(stats.auctionWins),
+  rent: (stats) => num(stats.rentCollected),
+  casino: (stats) => num(stats.casinoNet),
+  market: (stats) => num(stats.marketProfit),
+  playerloans: (stats) => num(stats.playerLoansGiven),
+  equity: (stats) => num(stats.equityDeals),
+  loans: (stats) => Math.max(0, num(stats.bankLoanRepayments) * 2 - num(stats.bankLoanDefaults) * 3),
+  patrol: (stats) => num(stats.patrolBest)
+};
+
+function resolveMetricValue(metric, stats, derived) {
+  const resolve = METRIC_RESOLVERS[metric] || METRIC_RESOLVERS.wins;
+  return resolve(stats, derived);
+}
+
+// A player-contract ledger count for one account, parameterized by a predicate
+// so the repayment/default/given/equity tallies stay single-line.
+function countContracts(record, accountId, include) {
+  return (record.playerContracts || []).filter((contract) => include(contract, accountId)).length;
+}
+
+function realizedMarketPnl(record, accountId) {
+  const market = (record.market || []).find((entry) => entry.accountId === accountId);
+  return Object.values(market?.positions || {}).reduce((sum, position) => sum + (num(position.realizedPnl)), 0);
+}
+
 function normalizeUsername(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
@@ -452,28 +492,30 @@ export class AccountStore {
 
   getWindowStats(account, since = null) {
     if (!since) return { ...(account.stats || {}) };
-    const stats = { gamesPlayed: 0, wins: 0, bankruptcies: 0, auctionWins: 0, rentCollected: 0, eventSurvival: 0, casinoNet: 0, marketProfit: 0, playerLoansGiven: 0, playerLoansRepaid: 0, playerLoanDefaults: 0, equityDeals: 0, bankLoansTaken: 0, bankLoanRepayments: 0, bankLoanDefaults: 0, patrolBest: Number(account.stats?.patrolBest) || 0, patrolAceRuns: Number(account.stats?.patrolAceRuns) || 0 };
+    const stats = {
+      ...sanitizeStats({}),
+      patrolBest: num(account.stats?.patrolBest),
+      patrolAceRuns: num(account.stats?.patrolAceRuns)
+    };
     const records = (account.matchHistory || []).filter(record => Date.parse(record.completedAt || '') >= since);
-    records.forEach(record => {
+    records.forEach((record) => {
       const participant = (record.participants || []).find(entry => entry.accountId === account.id);
       if (!participant) return;
       stats.gamesPlayed += 1;
-      if (participant.finalPlacement === 1) stats.wins += 1;
-      if (participant.bankrupt) stats.bankruptcies += 1;
-      stats.auctionWins += Number(participant.auctionWins) || 0;
-      stats.rentCollected += Number(participant.rentCollected) || 0;
-      stats.eventSurvival += Number(participant.globalEventsSurvived) || 0;
-      stats.bankLoansTaken += Number(participant.bankLoanCount) || 0;
-      if (participant.bankLoanStatus === 'paid') stats.bankLoanRepayments += 1;
-      if (participant.bankLoanStatus === 'defaulted') stats.bankLoanDefaults += 1;
-      stats.casinoNet += Number(participant.casinoNet) || 0;
-      const market = (record.market || []).find(entry => entry.accountId === account.id);
-      stats.marketProfit += Object.values(market?.positions || {}).reduce((sum, position) => sum + (Number(position.realizedPnl) || 0), 0);
-      const contracts = record.playerContracts || [];
-      stats.playerLoansGiven += contracts.filter(contract => contract.fromAccountId === account.id && contract.kind === 'loan').length;
-      stats.playerLoansRepaid += contracts.filter(contract => contract.toAccountId === account.id && contract.kind === 'loan' && contract.status === 'paid').length;
-      stats.playerLoanDefaults += contracts.filter(contract => contract.toAccountId === account.id && contract.kind === 'loan' && contract.status === 'defaulted').length;
-      stats.equityDeals += contracts.filter(contract => contract.kind === 'equity' && (contract.fromAccountId === account.id || contract.toAccountId === account.id)).length;
+      stats.wins += participant.finalPlacement === 1 ? 1 : 0;
+      stats.bankruptcies += participant.bankrupt ? 1 : 0;
+      stats.auctionWins += num(participant.auctionWins);
+      stats.rentCollected += num(participant.rentCollected);
+      stats.eventSurvival += num(participant.globalEventsSurvived);
+      stats.bankLoansTaken += num(participant.bankLoanCount);
+      stats.bankLoanRepayments += participant.bankLoanStatus === 'paid' ? 1 : 0;
+      stats.bankLoanDefaults += participant.bankLoanStatus === 'defaulted' ? 1 : 0;
+      stats.casinoNet += num(participant.casinoNet);
+      stats.marketProfit += realizedMarketPnl(record, account.id);
+      stats.playerLoansGiven += countContracts(record, account.id, (c, id) => c.fromAccountId === id && c.kind === 'loan');
+      stats.playerLoansRepaid += countContracts(record, account.id, (c, id) => c.toAccountId === id && c.kind === 'loan' && c.status === 'paid');
+      stats.playerLoanDefaults += countContracts(record, account.id, (c, id) => c.toAccountId === id && c.kind === 'loan' && c.status === 'defaulted');
+      stats.equityDeals += countContracts(record, account.id, (c, id) => c.kind === 'equity' && (c.fromAccountId === id || c.toAccountId === id));
     });
     return stats;
   }
@@ -483,26 +525,19 @@ export class AccountStore {
     const rows = accounts.map(account => {
       const stats = this.getWindowStats(account, options.since || null);
       const achievements = Array.isArray(account.achievements) ? account.achievements : [];
-      const achievementCount = options.since ? achievements.filter(entry => Date.parse(entry.unlockedAt || '') >= options.since).length : achievements.length;
+      const withinWindow = (entry) => !options.since || Date.parse(entry.unlockedAt || '') >= options.since;
+      const achievementCount = options.since ? achievements.filter(withinWindow).length : achievements.length;
       const achievementScore = achievements.reduce((sum, entry) => sum + achievementPoints(entry, options.since || null), 0);
-      const mythicalCount = achievements.filter(entry => MYTHICAL_ACHIEVEMENT_IDS.has(entry.id) && (!options.since || Date.parse(entry.unlockedAt || '') >= options.since)).length;
-      if (metric === 'rate' && Number(stats.gamesPlayed) < 5) return null;
-      const value = metric === 'games' ? Number(stats.gamesPlayed) || 0
-        : metric === 'rate' ? (Number(stats.gamesPlayed) ? Math.round(((Number(stats.wins) || 0) / Number(stats.gamesPlayed)) * 100) : 0)
-          : metric === 'achievements' ? achievementScore
-            : metric === 'mythical' ? mythicalCount
-            : metric === 'bankruptcies' ? Number(stats.bankruptcies) || 0
-              : metric === 'events' ? Number(stats.eventSurvival) || 0
-                : metric === 'auctions' ? Number(stats.auctionWins) || 0
-                  : metric === 'rent' ? Number(stats.rentCollected) || 0
-              : metric === 'casino' ? Number(stats.casinoNet) || 0
-                      : metric === 'market' ? Number(stats.marketProfit) || 0
-                        : metric === 'playerloans' ? Number(stats.playerLoansGiven) || 0
-              : metric === 'equity' ? Number(stats.equityDeals) || 0
-                : metric === 'patrol' ? Number(stats.patrolBest) || 0
-                : metric === 'loans' ? Math.max(0, (Number(stats.bankLoanRepayments) || 0) * 2 - (Number(stats.bankLoanDefaults) || 0) * 3)
-                : Number(stats.wins) || 0;
-      return { accountId: account.id, displayName: account.displayName, username: account.username, color: account.color, avatarGrid: account.avatarGrid, value, games: Number(stats.gamesPlayed) || 0, wins: Number(stats.wins) || 0, achievements: achievementCount, achievementScore, mythical: mythicalCount, bankLoanRepayments: Number(stats.bankLoanRepayments) || 0, bankLoanDefaults: Number(stats.bankLoanDefaults) || 0 };
+      const mythicalCount = achievements.filter(entry => MYTHICAL_ACHIEVEMENT_IDS.has(entry.id) && withinWindow(entry)).length;
+      if (metric === 'rate' && num(stats.gamesPlayed) < 5) return null;
+      const value = resolveMetricValue(metric, stats, { achievementScore, mythicalCount });
+      return {
+        accountId: account.id, displayName: account.displayName, username: account.username,
+        color: account.color, avatarGrid: account.avatarGrid, value,
+        games: num(stats.gamesPlayed), wins: num(stats.wins), achievements: achievementCount,
+        achievementScore, mythical: mythicalCount,
+        bankLoanRepayments: num(stats.bankLoanRepayments), bankLoanDefaults: num(stats.bankLoanDefaults)
+      };
     }).filter(Boolean);
     rows.sort((a, b) => b.value - a.value || b.wins - a.wins || a.displayName.localeCompare(b.displayName));
     return rows.slice(0, 100);
