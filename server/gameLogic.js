@@ -30,9 +30,73 @@ const DEFAULT_ROOM_SETTINGS = {
   globalEventMax: 1
 };
 
+// Room settings: a raw client value passes through its key's normalizer
+// before being stored on both the room and its game. A normalizer returns
+// SETTING_REJECTED to leave the stored value untouched — the old early
+// `return`s. Keys with no entry keep the generic rule: a setting that is
+// currently boolean parses the four truthy spellings, a string is trimmed,
+// and anything else is stored as received.
+const SETTING_REJECTED = Symbol('setting-rejected');
+const ROOM_FLAG_TRUE_VALUES = [true, 'true', 1, '1'];
+// Rarity spellings are accepted for globalEvents only; every other boolean
+// key uses ROOM_FLAG_TRUE_VALUES.
+const GLOBAL_EVENT_ON_VALUES = [true, 'true', 'on', 'rare', 'hardcore', 1, '1'];
+const ROOM_BOT_PERSONALITIES = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'];
+// Legacy clients may still send these fields; the server owns scaling now.
+const LEGACY_SCALED_SETTINGS = ['globalEventDuration', 'globalEventMax'];
+
+function toFiniteSettingNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : SETTING_REJECTED;
+}
+
+function clampSetting(value, min, max) {
+  const parsed = toFiniteSettingNumber(value);
+  if (parsed === SETTING_REJECTED) return SETTING_REJECTED;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function floorSettingAtZero(value) {
+  const parsed = toFiniteSettingNumber(value);
+  if (parsed === SETTING_REJECTED) return SETTING_REJECTED;
+  return Math.max(0, Math.floor(parsed));
+}
+
+// The legacy duration/max knobs snap to the two-step ladder the old client
+// UI expected. Unreachable while the legacy guard above stands, kept so the
+// clamps live with the rest of the table.
+function snapFlooredSetting(value, threshold, atOrAbove, below) {
+  const floored = floorSettingAtZero(value);
+  if (floored === SETTING_REJECTED) return SETTING_REJECTED;
+  return floored >= threshold ? atOrAbove : below;
+}
+
+function normalizeBotPersonality(value) {
+  const lowered = String(value).toLowerCase();
+  return ROOM_BOT_PERSONALITIES.includes(lowered) ? lowered : 'survivor';
+}
+
+const ROOM_SETTING_NORMALIZERS = {
+  maxPlayers: value => clampSetting(value, 2, 4),
+  // Bots are clamped against the live maxPlayers so seat math stays coherent.
+  bots: (value, room) => clampSetting(value, 0, room.settings.maxPlayers - 1),
+  startingCash: floorSettingAtZero,
+  houseLimit: floorSettingAtZero,
+  hotelLimit: floorSettingAtZero,
+  turnTimer: floorSettingAtZero,
+  globalEventDuration: value => snapFlooredSetting(value, 10, 10, 5),
+  globalEventMax: value => snapFlooredSetting(value, 2, 2, 1),
+  globalEvents: value => GLOBAL_EVENT_ON_VALUES.includes(value),
+  botPersonality: normalizeBotPersonality
+};
+
 const AUCTION_DURATION_MS = 5000;
 const AUCTION_BID_COOLDOWN_MS = 300;
 const CASINO_MAX_BET = 500;
+const CASINO_BET_COLORS = ['red', 'black', 'green'];
+// Loan states that keep borrowed cash pinned: the bank loan and the active
+// side of a player contract share this exact status pair.
+const LOAN_OUTSTANDING_STATUSES = ['active', 'due'];
 const MARKET_FEE_RATE = 0.02;
 const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 const MARKET_INSTRUMENTS = [
@@ -278,6 +342,58 @@ const GLOBAL_EVENT_COMBINATIONS = [
   ], effects: { bankActionsBlocked: true, loanPremiumMultiplier: 1.6 }, duration: 7 }
 ];
 
+// Global-event dispatch tables, mirroring CARD_ACTION_HANDLERS and
+// RENT_EVENT_MODIFIERS below: activation-time targets, per-event activation
+// hooks, vote-outcome side effects, and ordered activation settlements.
+// Every entry encodes the exact condition and mutation the original inline
+// if-ladders performed; the settlement order is observable (feed order and
+// cash deltas), so the array sequence is frozen.
+function positiveFiniteEffect(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+const GLOBAL_EVENT_TARGET_FINDERS = {
+  'anti-monopoly': game => [...game.players].sort((a, b) => game.playerGroups(b).length - game.playerGroups(a).length)[0],
+  'tax-audit': game => [...game.activePlayers()].sort((a, b) => (Number(b.cash) || 0) - (Number(a.cash) || 0))[0]
+};
+
+const GLOBAL_EVENT_ACTIVATION_HOOKS = {
+  'airport-strike': game => game.activePlayers().forEach(player => {
+    if (player.properties.some(index => game.getTile(index)?.type === 'railroad')) player.airportOwnedDuringStrike = true;
+  })
+};
+
+const GLOBAL_EVENT_VOTE_OUTCOME_HANDLERS = {
+  'anti-monopoly': (game, event) => {
+    if (!event.targetPlayerId || event.resolvedChoice !== 'enforce') return;
+    const target = game.getPlayerById(event.targetPlayerId);
+    if (target && event.votes?.[target.id] !== 'enforce') target.publicEnemy = true;
+  },
+  'legitimacy-crisis': (game, event) => {
+    if (event.resolvedChoice !== 'bury-audit') return;
+    game.activePlayers().forEach(player => {
+      if (event.votes?.[player.id] === 'bury-audit') player.compromisedCouncil = true;
+    });
+  }
+};
+
+const GLOBAL_EVENT_SETTLEMENT_STEPS = [
+  { appliesTo: (game, event) => positiveFiniteEffect(event.effects?.rentControlStipend) !== null, handler: 'settleRentControlStipend' },
+  {
+    appliesTo: (game, event) => {
+      const multiplier = Number(event.effects?.cashMultiplier);
+      return Number.isFinite(multiplier) && multiplier > 0 && multiplier < 1;
+    },
+    handler: 'settleCashMultiplier'
+  },
+  {
+    appliesTo: (game, event) => ['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout',
+    handler: 'settleEmergencyBailout'
+  },
+  { appliesTo: (game, event) => event.id === 'tax-audit' && Boolean(event.targetPlayerId), handler: 'settleTaxAuditPenalty' }
+];
+
 const DEFAULT_TILES = [
   { index: 0, name: 'Start', type: 'start' },
   { index: 1, name: 'Salvador', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#7b5029' },
@@ -365,6 +481,12 @@ function randomInt(min, max) {
 
 function randomFloat() {
   return crypto.randomInt(0, 1_000_000) / 1_000_000;
+}
+
+// Roulette mapping: pocket 0 is green, the rest split on the classic red set.
+function roulettePocketColor(pocket) {
+  if (pocket === 0) return 'green';
+  return ROULETTE_RED.has(pocket) ? 'red' : 'black';
 }
 
 function createRoomCode() {
@@ -575,6 +697,98 @@ const RENT_EVENT_MODIFIERS = [
   { appliesTo: (game, tile) => tile.group === 'Dark Blue' && !game.globalEventActive('tourism-boom'), factor: (game) => Number(game.activeEventEffects().premiumRentMultiplier) },
   { appliesTo: (game) => !game.globalEventActive('housing-bubble'), factor: (game) => { const multiplier = Number(game.activeEventEffects().rentMultiplier); return multiplier > 0 ? multiplier : NaN; } }
 ];
+
+// Trade proposal rejection rules as data: one entry per original if-clause of
+// GameState.proposeTrade, kept in the original evaluation order so a single
+// error string wins exactly as before. The context is fully normalized up
+// front (pure lookups only), and every predicate reads just that context,
+// mirroring the RENT_EVENT_MODIFIERS style above.
+const TRADE_PROPOSAL_GUARDS = [
+  {
+    error: 'Choose a valid trade partner.',
+    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.id === ctx.toPlayer.id
+  },
+  {
+    error: 'Both players must be active to trade.',
+    rejects: (game, ctx) => ctx.fromPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.bankrupt || ctx.toPlayer.disconnected
+  },
+  {
+    error: 'Another trade is already pending.',
+    rejects: game => Boolean(game.pendingTrade || game.pendingPlayerContract)
+  },
+  {
+    error: 'Cash values must be valid numbers.',
+    rejects: (game, ctx) => !Number.isFinite(ctx.giveCash) || !Number.isFinite(ctx.requestCash)
+  },
+  {
+    error: 'Choose at least one cash or property item to include in the trade.',
+    rejects: (game, ctx) => !ctx.giveCash && !ctx.requestCash && !ctx.givePropertyIndexes.length && !ctx.requestPropertyIndexes.length
+  },
+  {
+    error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.',
+    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.fromPlayer.id))
+  },
+  {
+    error: 'The requested properties are not available for trade.',
+    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.toPlayer.id))
+  },
+  {
+    error: 'You do not have enough cash for this offer.',
+    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.giveCash
+  }
+];
+
+// Accept-side revalidation for respondToTrade: same order and strings as the
+// original accept branch. A fired guard also clears the pending trade, which
+// the responder does uniformly. The first entry covers the original combined
+// "players still exist, active" condition verbatim.
+const TRADE_SETTLEMENT_GUARDS = [
+  {
+    error: 'The trade is no longer valid.',
+    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.bankrupt || ctx.toPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.disconnected
+  },
+  {
+    error: 'One of the players no longer has enough cash.',
+    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.trade.giveCash || ctx.toPlayer.cash < ctx.trade.requestCash
+  },
+  {
+    error: 'One of the offered properties is no longer tradable.',
+    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.fromPlayerId))
+  },
+  {
+    error: 'One of the requested properties is no longer tradable.',
+    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.toPlayerId))
+  }
+];
+
+// Pre-roll bot candidate sources as data: the array order IS the original
+// push order inside getBotCandidates, and the final sort is stable, so ties
+// keep this sequence. Each collector returns a (possibly empty) array of
+// candidates shaped exactly as before; kind values are the contract consumed
+// by botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
+const BOT_CANDIDATE_SOURCES = [
+  { collect: (game, player) => game.botBuildCandidates(player) },
+  { collect: (game, player) => game.botMortgageCandidates(player) },
+  { collect: (game, player) => game.botLoanCandidate(player) },
+  { collect: (game, player) => game.botGroupTradeCandidate(player) },
+  { collect: (game, player) => game.botMarketCandidate(player) },
+  { collect: (game, player) => game.botCasinoCandidate(player) }
+];
+
+// Personality-driven candidate values as data tables so the collectors stay
+// branch-light while reproducing the original ternary ladders verbatim. The
+// casino spec is only read after the collector's guard confirms the
+// personality, so that entry is always defined there.
+const BOT_CASINO_SPECS = {
+  chaos: { color: 'green', stakeRate: 0.08, score: 18 },
+  shark: { color: 'red', stakeRate: 0.03, score: 11 }
+};
+
+const BOT_TRADE_ASKS = {
+  shark: { requestCash: 40, score: 8 },
+  diplomat: { requestCash: 0, score: 24 }
+};
+const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
 
 class GameState {
   constructor(settings) {
@@ -1705,102 +1919,134 @@ class GameState {
     });
   }
 
-  maybeTriggerGlobalEvent(source = 'round') {
-    const enabled = this.settings.globalEvents === true || this.settings.globalEvents === 1 || this.settings.globalEvents === 'true' || this.settings.globalEvents === 'on' || this.settings.globalEvents === 'rare' || this.settings.globalEvents === 'hardcore';
-    if (!this.started || !enabled || this.globalEvent || this.globalEventCooldown > 0) return;
-    if (this.roundNumber < GLOBAL_EVENT_MIN_ROUND) return;
+  globalEventsEnabled() {
+    const value = this.settings.globalEvents;
+    return value === true || value === 1 || value === 'true' || value === 'on' || value === 'rare' || value === 'hardcore';
+  }
+
+  globalEventExpectedRounds() {
+    return Math.max(12, this.activePlayers().length * 8);
+  }
+
+  globalEventProgress(expectedRounds = this.globalEventExpectedRounds()) {
+    return Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
+  }
+
+  // One headline per match is the safe default. A second headline is only
+  // possible when a surprise draw completes a named, curated combination.
+  pendingGlobalEventCombo(source) {
+    if (this.globalEventsTriggered !== 1 || source !== 'surprise') return null;
     const previous = this.globalEventHistory[0];
-    const combo = this.globalEventsTriggered === 1 && source === 'surprise' && previous && !previous.comboId
-      ? GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.required.includes(previous.id))
-      : null;
-    // One headline per match is the safe default. A second headline is only
-    // possible when it completes a named, curated combination.
+    if (!previous || previous.comboId) return null;
+    return GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.required.includes(previous.id)) || null;
+  }
+
+  globalEventTriggerChance(source) {
+    const progress = this.globalEventProgress();
+    if (progress < 0.18) return 0;
+    if (source === 'surprise') return progress < 0.55 ? 0.05 : 0.07;
+    return progress < 0.55 ? 0.025 : 0.04;
+  }
+
+  selectWeightedGlobalEvent(eventPool) {
+    const totalWeight = eventPool.reduce((sum, event) => sum + (event.weight || 1), 0);
+    let roll = randomFloat() * totalWeight;
+    return eventPool.find(event => (roll -= (event.weight || 1)) <= 0) || eventPool[eventPool.length - 1];
+  }
+
+  maybeTriggerGlobalEvent(source = 'round') {
+    if (!this.started || !this.globalEventsEnabled() || this.globalEvent || this.globalEventCooldown > 0) return;
+    if (this.roundNumber < GLOBAL_EVENT_MIN_ROUND) return;
+    const combo = this.pendingGlobalEventCombo(source);
     if (this.globalEventsTriggered >= 1 && !combo) return;
     const eligible = GLOBAL_EVENT_DEFINITIONS.filter(event => event.eligible(this));
+    const previous = this.globalEventHistory[0];
     const comboEventId = combo?.required.find(id => id !== previous.id);
     const eventPool = combo ? eligible.filter(event => event.id === comboEventId) : eligible;
     if (!eventPool.length) return;
-    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
-    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
-    const boundaryChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.025 : 0.04;
-    const surpriseChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.05 : 0.07;
-    const chance = source === 'surprise' ? surpriseChance : boundaryChance;
-    if (randomFloat() >= chance) return;
-    const totalWeight = eventPool.reduce((sum, event) => sum + (event.weight || 1), 0);
-    let roll = randomFloat() * totalWeight;
-    const selected = eventPool.find(event => (roll -= (event.weight || 1)) <= 0) || eventPool[eventPool.length - 1];
-    this.activateGlobalEvent(selected, combo);
+    if (randomFloat() >= this.globalEventTriggerChance(source)) return;
+    this.activateGlobalEvent(this.selectWeightedGlobalEvent(eventPool), combo);
   }
 
-  activateGlobalEvent(definition, combo = null) {
-    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
-    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
-    const duration = combo?.duration || (definition.id === 'housing-bubble'
-      ? (progress > 0.6 ? 8 : 7)
-      : (progress > 0.6 ? 7 : 6));
-    const choices = (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
-    const leader = !combo && definition.id === 'anti-monopoly'
-      ? [...this.players].sort((a, b) => this.playerGroups(b).length - this.playerGroups(a).length)[0]
-      : null;
-    const auditTarget = !combo && definition.id === 'tax-audit'
-      ? [...this.activePlayers()].sort((a, b) => (Number(b.cash) || 0) - (Number(a.cash) || 0))[0]
-      : null;
-    this.globalEvent = {
+  globalEventDurationRounds(definition, combo) {
+    if (combo?.duration) return combo.duration;
+    const late = this.globalEventProgress() > 0.6;
+    if (definition.id === 'housing-bubble') return late ? 8 : 7;
+    return late ? 7 : 6;
+  }
+
+  globalEventChoices(definition, combo) {
+    return (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
+  }
+
+  globalEventBaseFields(definition, combo) {
+    return {
       id: combo?.id || definition.id,
       title: combo?.title || definition.title,
       category: combo ? 'COMBINATION' : definition.category,
       summary: combo?.summary || definition.summary,
-      effects: { ...(definition.effects || {}), ...(combo?.effects || {}) },
+      effects: { ...(definition.effects || {}), ...(combo?.effects || {}) }
+    };
+  }
+
+  buildGlobalEvent(definition, combo) {
+    const choices = this.globalEventChoices(definition, combo);
+    const findTarget = !combo && GLOBAL_EVENT_TARGET_FINDERS[definition.id];
+    const target = findTarget ? findTarget(this) : null;
+    return {
+      ...this.globalEventBaseFields(definition, combo),
       phase: choices ? 'voting' : 'warning',
       startedRound: this.roundNumber,
       voteRound: choices ? this.roundNumber : null,
-      durationRounds: duration,
+      durationRounds: this.globalEventDurationRounds(definition, combo),
       roundsRemaining: choices ? 1 : 1,
       choices,
       votes: {},
       resolvedChoice: null,
-      targetPlayerId: leader?.id || auditTarget?.id || null
+      targetPlayerId: target?.id || null
     };
+  }
+
+  activateGlobalEvent(definition, combo = null) {
+    this.globalEvent = this.buildGlobalEvent(definition, combo);
     this.globalEvent.comboId = combo?.id || null;
     if (combo) this.activePlayers().forEach(player => { player.comboExperienced = true; });
-    if (definition.id === 'airport-strike') {
-      this.activePlayers().forEach(player => {
-        if (player.properties.some(index => this.getTile(index)?.type === 'railroad')) player.airportOwnedDuringStrike = true;
-      });
-    }
+    const onActivate = GLOBAL_EVENT_ACTIVATION_HOOKS[definition.id];
+    if (onActivate) onActivate(this);
     this.activePlayers().forEach(player => {
       player.globalEventsExperienced = (player.globalEventsExperienced || 0) + 1;
     });
     this.globalEventsTriggered += 1;
-    this.feedMessage(choices
+    this.feedMessage(this.globalEvent.choices
       ? `${this.globalEvent.title} is live. The table votes before the next round.`
       : `${this.globalEvent.title} is building. The table has one round to prepare.`);
+  }
+
+  globalEventVoteWinners(event) {
+    const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
+    Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
+    const top = Math.max(...Object.values(counts), 0);
+    return Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
+  }
+
+  applyGlobalEventVoteOutcomes(event) {
+    const voters = this.activePlayers();
+    const allVotedSame = voters.length > 0 && voters.every(player => event.votes?.[player.id] === event.resolvedChoice);
+    voters.forEach(player => {
+      if (event.votes?.[player.id]) player.lastVoteChoice = event.votes[player.id];
+      if (event.votes?.[player.id] === event.resolvedChoice) player.councilWins = (player.councilWins || 0) + 1;
+      if (allVotedSame) player.unanimousVote = true;
+    });
+    const onResolved = GLOBAL_EVENT_VOTE_OUTCOME_HANDLERS[event.id];
+    if (onResolved) onResolved(this, event);
   }
 
   resolveGlobalEventVote() {
     const event = this.globalEvent;
     if (!event || event.phase !== 'voting') return;
-    const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
-    Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
-    const top = Math.max(...Object.values(counts), 0);
-    const winners = Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
+    const winners = this.globalEventVoteWinners(event);
     event.resolvedChoice = winners.length ? winners[randomInt(0, winners.length - 1)] : event.choices?.[0]?.id || null;
-    const allVotedSame = this.activePlayers().length > 0
-      && this.activePlayers().every(player => event.votes?.[player.id] === event.resolvedChoice);
-    this.activePlayers().forEach(player => {
-      if (event.votes?.[player.id]) player.lastVoteChoice = event.votes[player.id];
-      if (event.votes?.[player.id] === event.resolvedChoice) player.councilWins = (player.councilWins || 0) + 1;
-      if (allVotedSame) player.unanimousVote = true;
-    });
-    if (event.id === 'anti-monopoly' && event.targetPlayerId) {
-      const target = this.getPlayerById(event.targetPlayerId);
-      if (target && event.resolvedChoice === 'enforce' && event.votes?.[target.id] !== 'enforce') target.publicEnemy = true;
-    }
-    if (event.id === 'legitimacy-crisis' && event.resolvedChoice === 'bury-audit') {
-      this.activePlayers().forEach(player => {
-        if (event.votes?.[player.id] === 'bury-audit') player.compromisedCouncil = true;
-      });
-    }
+    this.applyGlobalEventVoteOutcomes(event);
     event.phase = 'active';
     event.startedRound = this.roundNumber;
     event.roundsRemaining = event.durationRounds;
@@ -1826,43 +2072,50 @@ class GameState {
     const event = this.globalEvent;
     if (!event || event.phase !== 'active' || event.settlementApplied) return;
     event.settlementApplied = true;
-    const stipend = Number(event.effects?.rentControlStipend);
-    if (Number.isFinite(stipend) && stipend > 0) {
-      this.activePlayers().filter(player => player.properties.length > 0).forEach(player => {
-        player.cash += stipend;
-        this.feedMessage(`${player.nickname} received a $${stipend} rent-control stipend.`);
-      });
-    }
+    GLOBAL_EVENT_SETTLEMENT_STEPS.forEach(step => {
+      if (step.appliesTo(this, event)) this[step.handler](event);
+    });
+  }
+
+  settleRentControlStipend(event) {
+    const stipend = positiveFiniteEffect(event.effects?.rentControlStipend);
+    this.activePlayers().filter(player => player.properties.length > 0).forEach(player => {
+      player.cash += stipend;
+      this.feedMessage(`${player.nickname} received a $${stipend} rent-control stipend.`);
+    });
+  }
+
+  settleCashMultiplier(event) {
     const cashMultiplier = Number(event.effects?.cashMultiplier);
-    if (Number.isFinite(cashMultiplier) && cashMultiplier > 0 && cashMultiplier < 1) {
-      this.activePlayers().forEach(player => {
-        player.cash = Math.max(0, Math.floor(player.cash * cashMultiplier));
-        if (player.cash === 0) player.zeroCashReached = true;
-      });
-      this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
-    }
-    if (['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout') {
-      const threshold = this.settings.startingCash * 0.5;
-      const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
-      this.activePlayers().filter(player => player.cash < threshold || ['active', 'due'].includes(player.bankLoan?.status)).forEach(player => {
-        player.cash += rescue;
-        player.bailoutReceived = true;
-        if (['active', 'due'].includes(player.bankLoan?.status)) player.moralHazard = true;
-        this.feedMessage(`${player.nickname} received a $${rescue} emergency bailout.`);
-      });
-    }
-    if (event.id === 'tax-audit' && event.targetPlayerId) {
-      const target = this.getPlayerById(event.targetPlayerId);
-      if (target && !target.bankrupt) {
-        const amount = Math.min(target.cash, Math.max(25, Math.floor(target.cash * 0.1)));
-        if (amount <= 0) return;
-        target.cash -= amount;
-        if (this.settings.vacationCash) this.vacationPool += amount;
-        if (target.cash === 0) target.zeroCashReached = true;
-        target.taxAuditCount = (target.taxAuditCount || 0) + 1;
-        this.feedMessage(`${target.nickname} paid $${amount} after the tax scandal audit.`);
-      }
-    }
+    this.activePlayers().forEach(player => {
+      player.cash = Math.max(0, Math.floor(player.cash * cashMultiplier));
+      if (player.cash === 0) player.zeroCashReached = true;
+    });
+    this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
+  }
+
+  settleEmergencyBailout() {
+    const threshold = this.settings.startingCash * 0.5;
+    const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
+    this.activePlayers().filter(player => player.cash < threshold || ['active', 'due'].includes(player.bankLoan?.status)).forEach(player => {
+      player.cash += rescue;
+      player.bailoutReceived = true;
+      if (['active', 'due'].includes(player.bankLoan?.status)) player.moralHazard = true;
+      this.feedMessage(`${player.nickname} received a $${rescue} emergency bailout.`);
+    });
+  }
+
+  settleTaxAuditPenalty() {
+    const event = this.globalEvent;
+    const target = this.getPlayerById(event.targetPlayerId);
+    if (!target || target.bankrupt) return;
+    const amount = Math.min(target.cash, Math.max(25, Math.floor(target.cash * 0.1)));
+    if (amount <= 0) return;
+    target.cash -= amount;
+    if (this.settings.vacationCash) this.vacationPool += amount;
+    if (target.cash === 0) target.zeroCashReached = true;
+    target.taxAuditCount = (target.taxAuditCount || 0) + 1;
+    this.feedMessage(`${target.nickname} paid $${amount} after the tax scandal audit.`);
   }
 
   collectBuildingMaintenance() {
@@ -1947,35 +2200,105 @@ class GameState {
     const key = this.transactionKey(player?.id, 'casino', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
-    if (!this.settings.casino) return { success: false, error: 'Casino access is off for this room.' };
-    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Casino access is unavailable right now.' };
-    if (this.pendingPayment || this.auction || this.pendingPurchaseOffer || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the table obligation before betting.' };
-    if (!['red', 'black', 'green'].includes(choice)) return { success: false, error: 'Choose red, black, or green.' };
-    const limits = this.casinoLimits();
-    if (!Number.isInteger(amount) || amount < 1 || amount > limits.maxBet) return { success: false, error: `Stake must be between $1 and ${limits.maxBet}.` };
-    if (player.bankLoan && ['active', 'due'].includes(player.bankLoan.status)) return { success: false, error: 'Loan-backed cash cannot enter the casino.' };
-    if (player.cash < amount + limits.entryFee) return { success: false, error: 'You do not have enough available cash for the stake and event fee.' };
-    const cashBefore = player.cash;
+    const rejection = this.casinoBetRejection(player, choice, amount);
+    if (rejection) return { success: false, error: rejection };
+    return this.settleCasinoBet(player, choice, amount, key);
+  }
 
+  // Guard ladder kept in the original precedence order: the session rules
+  // first, then the wager itself. Returns the exact client-facing error
+  // string, or null when the bet may be settled.
+  casinoBetRejection(player, choice, amount) {
+    return this.casinoSessionRejection(player) || this.casinoWagerRejection(player, choice, amount);
+  }
+
+  casinoSessionRejection(player) {
+    if (!this.settings.casino) return 'Casino access is off for this room.';
+    if (this.casinoSessionBlocked(player)) return 'Casino access is unavailable right now.';
+    if (this.tableObligationPending()) return 'Resolve the table obligation before betting.';
+    return null;
+  }
+
+  // Casino access needs a live, started table and a seated, solvent,
+  // connected player; any of those missing reads as "unavailable".
+  casinoSessionBlocked(player) {
+    if (!this.started) return true;
+    if (!player) return true;
+    if (player.bankrupt) return true;
+    return Boolean(player.disconnected);
+  }
+
+  // A single "is the table busy" question: any of the five pending flows
+  // keeps players away from the casino wheel.
+  tableObligationPending() {
+    return [
+      this.pendingPayment,
+      this.auction,
+      this.pendingPurchaseOffer,
+      this.pendingTrade,
+      this.pendingPlayerContract
+    ].some(Boolean);
+  }
+
+  casinoWagerRejection(player, choice, amount) {
+    if (!CASINO_BET_COLORS.includes(choice)) return 'Choose red, black, or green.';
+    const limits = this.casinoLimits();
+    if (this.casinoStakeRejected(amount, limits)) return `Stake must be between $1 and ${limits.maxBet}.`;
+    if (this.hasLoanBackedCash(player)) return 'Loan-backed cash cannot enter the casino.';
+    if (player.cash < amount + limits.entryFee) return 'You do not have enough available cash for the stake and event fee.';
+    return null;
+  }
+
+  // Stakes arrive already floored by the caller; whole-dollar stakes inside
+  // the event-aware limit are the only ones accepted.
+  casinoStakeRejected(amount, limits) {
+    if (!Number.isInteger(amount)) return true;
+    if (amount < 1) return true;
+    return amount > limits.maxBet;
+  }
+
+  hasLoanBackedCash(player) {
+    if (!player.bankLoan) return false;
+    return LOAN_OUTSTANDING_STATUSES.includes(player.bankLoan.status);
+  }
+
+  // The spin itself: one pocket draw (randomInt is the only RNG call site on
+  // this path), 35:1 on green and 1:1 on the colors, fees taken on both
+  // sides of the outcome.
+  settleCasinoBet(player, choice, amount, key) {
+    const limits = this.casinoLimits();
+    const cashBefore = player.cash;
     const pocket = randomInt(0, 36);
-    const resultColor = pocket === 0 ? 'green' : ROULETTE_RED.has(pocket) ? 'red' : 'black';
+    const resultColor = roulettePocketColor(pocket);
     const won = choice === resultColor;
     const payout = choice === 'green' ? 35 : 1;
     const net = won ? amount * payout - limits.entryFee : -amount - limits.entryFee;
     player.cash -= amount + limits.entryFee;
     if (won) player.cash += amount + (amount * payout);
-    player.casinoNet += net;
-    player.casinoMaxStake = Math.max(player.casinoMaxStake || 0, amount);
-    player.casinoTotalStaked = (player.casinoTotalStaked || 0) + amount;
-    player.casinoAllIn = player.casinoAllIn || amount + limits.entryFee >= cashBefore;
-    player.casinoOneDollar = player.casinoOneDollar || amount === 1;
-    player.casinoBetsThisRound = (player.casinoBetsThisRound || 0) + 1;
+    this.applyCasinoTally(player, { amount, net, entryFee: limits.entryFee, cashBefore });
     const ledgerEntry = { transactionId: key || crypto.randomUUID(), roundNumber: this.roundNumber, color: choice, pocket, resultColor, stake: amount, net, createdAt: new Date().toISOString() };
-    this.casinoLedger = [{ ...ledgerEntry, playerId: player.id }, ...this.casinoLedger].slice(0, 200);
-    player.casinoLedger = [ledgerEntry, ...(player.casinoLedger || [])].slice(0, 50);
+    this.recordCasinoLedger(player, ledgerEntry);
     this.casinoLastResult = { playerId: player.id, color: choice, pocket, resultColor, net, roundNumber: this.roundNumber };
     this.feedMessage(`${player.nickname} bet $${amount} on ${choice.toUpperCase()} and ${won ? 'won' : 'lost'} $${Math.abs(net)}.`);
     return this.cacheTransaction(key, { success: true, result: { ...ledgerEntry, balanceAfter: player.cash }, economy: this.economySnapshot(player.id) });
+  }
+
+  // Bankroll facts: max/total staked, the sticky all-in and one-dollar
+  // markers, and the per-round bet counter.
+  applyCasinoTally(player, bet) {
+    player.casinoNet += bet.net;
+    player.casinoMaxStake = Math.max(player.casinoMaxStake || 0, bet.amount);
+    player.casinoTotalStaked = (player.casinoTotalStaked || 0) + bet.amount;
+    player.casinoAllIn = player.casinoAllIn || bet.amount + bet.entryFee >= bet.cashBefore;
+    player.casinoOneDollar = player.casinoOneDollar || bet.amount === 1;
+    player.casinoBetsThisRound = (player.casinoBetsThisRound || 0) + 1;
+  }
+
+  // Newest-first ledgers: the room keeps a wide copy stamped with the
+  // playerId, the player a bare personal history.
+  recordCasinoLedger(player, ledgerEntry) {
+    this.casinoLedger = [{ ...ledgerEntry, playerId: player.id }, ...this.casinoLedger].slice(0, 200);
+    player.casinoLedger = [ledgerEntry, ...(player.casinoLedger || [])].slice(0, 50);
   }
 
   advanceMarket() {
@@ -2455,42 +2778,37 @@ class GameState {
   }
 
   chargePlayer(player, creditor, amount, message, turnOptions = {}, hooks = {}) {
+    // Nothing to collect from a missing payer or a non-debt: the turn just
+    // resolves normally.
     if (!player || amount <= 0) {
       this.resolveTurnAfterAction(turnOptions);
       return;
     }
     if (player.cash >= amount) {
-      player.cash -= amount;
-      if (player.cash === 0) player.zeroCashReached = true;
-      if (creditor) {
-        creditor.cash += amount;
-        creditor.rentCollected = (creditor.rentCollected || 0) + amount;
-        creditor.rentPayerIds ||= new Set();
-        creditor.rentPayerIds.add(player.id);
-        creditor.rentPayersThisRound ||= new Set();
-        creditor.rentPayersThisRound.add(player.id);
-        creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
-      }
-      this.feedMessage(message);
-      if (hooks.onPaid) hooks.onPaid(amount);
-      this.resolveTurnAfterAction(turnOptions);
+      this.payDebtInFull({ player, creditor, amount, message, turnOptions, hooks });
       return;
     }
+    this.openDebtSettlement({ player, creditor, amount, message, turnOptions, hooks });
+  }
+
+  payDebtInFull(debt) {
+    const { player, creditor, amount, message, turnOptions, hooks } = debt;
+    player.cash -= amount;
+    if (player.cash === 0) player.zeroCashReached = true;
+    this.creditRentTo(creditor, player, amount);
+    this.feedMessage(message);
+    if (hooks.onPaid) hooks.onPaid(amount);
+    this.resolveTurnAfterAction(turnOptions);
+  }
+
+  // Shortfall path: whatever cash remains is tendered first, then the rest
+  // of the debt parks in pendingPayment for the mortgage/sell/bankruptcy
+  // mini-game to resolve.
+  openDebtSettlement(debt) {
+    const { player, creditor, amount, message, turnOptions, hooks } = debt;
     const partial = player.cash;
     if (partial > 0) {
-      player.cash = 0;
-      player.zeroCashReached = true;
-      if (creditor) {
-        creditor.cash += partial;
-        creditor.rentCollected = (creditor.rentCollected || 0) + partial;
-        creditor.rentPayerIds ||= new Set();
-        creditor.rentPayerIds.add(player.id);
-        creditor.rentPayersThisRound ||= new Set();
-        creditor.rentPayersThisRound.add(player.id);
-        creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
-      }
-      this.feedMessage(`${player.nickname} paid $${partial} toward the debt.`);
-      if (hooks.onPaid) hooks.onPaid(partial);
+      this.tenderPartialDebt(player, creditor, partial, hooks);
     }
     const remaining = amount - partial;
     this.pendingPayment = {
@@ -2503,6 +2821,28 @@ class GameState {
     };
     this.pendingPaymentTurnOptions = turnOptions;
     this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
+  }
+
+  tenderPartialDebt(player, creditor, partial, hooks) {
+    player.cash = 0;
+    player.zeroCashReached = true;
+    this.creditRentTo(creditor, player, partial);
+    this.feedMessage(`${player.nickname} paid $${partial} toward the debt.`);
+    if (hooks.onPaid) hooks.onPaid(partial);
+  }
+
+  // Every fact a rent credit touches: cash, the collection total, the payer
+  // sets and their running per-round max. Bank debts (null creditor) skip it
+  // entirely.
+  creditRentTo(creditor, payer, amount) {
+    if (!creditor) return;
+    creditor.cash += amount;
+    creditor.rentCollected = (creditor.rentCollected || 0) + amount;
+    creditor.rentPayerIds ||= new Set();
+    creditor.rentPayerIds.add(payer.id);
+    creditor.rentPayersThisRound ||= new Set();
+    creditor.rentPayersThisRound.add(payer.id);
+    creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
   }
 
   trySettlePendingPayment() {
@@ -2576,7 +2916,21 @@ class GameState {
     this.chargePlayer(player, null, amount, message, {});
   }
 
+  // The bankruptcy pipeline, in the original statement order: table-state
+  // resets, market liquidation (its feed line lands before any deed moves),
+  // the cash sweep to the creditor, contract settlements, deed transfer or
+  // release, the announcement, and the round conclusion.
   handleBankruptcy(player, creditor = null) {
+    this.markPlayerBankrupt(player);
+    this.liquidateMarketPositions(player);
+    this.sweepCashToCreditor(player, creditor);
+    this.settleContractsOnBankruptcy(player);
+    this.forfeitOrReleaseProperties(player, creditor);
+    this.announceBankruptcy(player, creditor);
+    this.concludeBankruptRound(player);
+  }
+
+  markPlayerBankrupt(player) {
     player.bankrupt = true;
     player.bubbleSurvivor = false;
     this.extraRollPending = false;
@@ -2586,38 +2940,85 @@ class GameState {
       this.pendingPayment = null;
       this.pendingPaymentTurnOptions = null;
     }
+  }
+
+  // Positions are force-sold at the current quote minus the market fee and
+  // floored into cash; zero-proceeding holdings are dropped silently.
+  liquidateMarketPositions(player) {
     const marketLiquidation = Object.entries(player.marketPositions || {}).reduce((sum, [id, position]) => {
       const quantity = Math.max(0, Number(position.quantity) || 0);
       const quote = Math.max(0, Number(this.marketQuotes[id]) || 0);
-      return sum + Math.max(0, quote * quantity - Math.ceil(quote * quantity * MARKET_FEE_RATE));
+      const netProceeds = quote * quantity - Math.ceil(quote * quantity * MARKET_FEE_RATE);
+      return sum + Math.max(0, netProceeds);
     }, 0);
-    if (marketLiquidation > 0) {
-      player.cash += Math.floor(marketLiquidation);
-      player.marketPositions = {};
-      this.feedMessage(`${player.nickname}'s market positions were liquidated for $${Math.floor(marketLiquidation)}.`);
-    }
-    if (creditor && player.cash > 0) {
-      creditor.cash += player.cash;
-      player.cash = 0;
-    }
-    this.playerContracts.filter(contract => ['active', 'due'].includes(contract.status) && (contract.toPlayerId === player.id || contract.fromPlayerId === player.id)).forEach(contract => {
-      if (contract.kind === 'loan' && contract.toPlayerId === player.id) {
-        const lender = this.getPlayerById(contract.fromPlayerId);
-        const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
-        if (lender && collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
-        if (contract.collateralTileIndex != null) player.collateralLost = true;
-        contract.status = 'defaulted';
-        contract.defaultedRound = this.roundNumber;
-      } else if (contract.kind === 'loan' && contract.fromPlayerId === player.id) {
-        contract.status = 'terminated';
-        contract.terminatedRound = this.roundNumber;
-      } else if (contract.kind === 'equity') {
-        const property = this.getTile(contract.propertyIndex);
-        if (property) property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
-        contract.status = 'terminated';
-        contract.terminatedRound = this.roundNumber;
+    if (marketLiquidation <= 0) return;
+    player.cash += Math.floor(marketLiquidation);
+    player.marketPositions = {};
+    this.feedMessage(`${player.nickname}'s market positions were liquidated for $${Math.floor(marketLiquidation)}.`);
+  }
+
+  // Whatever cash survives liquidation flows to the creditor before any
+  // deed is handed over.
+  sweepCashToCreditor(player, creditor) {
+    if (!creditor) return;
+    if (player.cash <= 0) return;
+    creditor.cash += player.cash;
+    player.cash = 0;
+  }
+
+  settleContractsOnBankruptcy(player) {
+    this.playerContracts
+      .filter(contract => LOAN_OUTSTANDING_STATUSES.includes(contract.status) && this.contractTouchesPlayer(contract, player))
+      .forEach(contract => this.settleBankruptContract(player, contract));
+  }
+
+  contractTouchesPlayer(contract, player) {
+    if (contract.toPlayerId === player.id) return true;
+    return contract.fromPlayerId === player.id;
+  }
+
+  // A borrower's loan defaults (with the collateral seized while they still
+  // hold it); a lender's loan just terminates; an equity agreement
+  // terminates after its shares are stripped off the deed. Anything else is
+  // left untouched, exactly as the original if-ladder.
+  settleBankruptContract(player, contract) {
+    if (contract.kind === 'loan') {
+      // The pending-payment filter already guarantees one side is the
+      // bankrupt player, so a loan not owed by them is one they issued.
+      if (contract.toPlayerId === player.id) {
+        this.seizeCollateralForLender(player, contract);
+      } else {
+        this.terminateContract(contract);
       }
-    });
+    } else if (contract.kind === 'equity') {
+      this.terminateEquityContract(contract);
+    }
+  }
+
+  seizeCollateralForLender(player, contract) {
+    const lender = this.getPlayerById(contract.fromPlayerId);
+    const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
+    if (lender && collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+    if (contract.collateralTileIndex != null) player.collateralLost = true;
+    contract.status = 'defaulted';
+    contract.defaultedRound = this.roundNumber;
+  }
+
+  terminateContract(contract) {
+    contract.status = 'terminated';
+    contract.terminatedRound = this.roundNumber;
+  }
+
+  terminateEquityContract(contract) {
+    const property = this.getTile(contract.propertyIndex);
+    if (property) property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
+    this.terminateContract(contract);
+  }
+
+  // With a solvent creditor every deed is transferred in holding order; the
+  // collateral already seized during contract settling is no longer in the
+  // snapshot taken here.
+  forfeitOrReleaseProperties(player, creditor) {
     const properties = [...player.properties];
     properties.forEach(propertyIndex => {
       const tile = this.getTile(propertyIndex);
@@ -2625,18 +3026,32 @@ class GameState {
       if (creditor && !creditor.bankrupt) {
         this.applyPropertyOwnershipChange(player, creditor, tile);
       } else {
-        tile.ownerId = null;
-        tile.houseCount = 0;
-        tile.mortgaged = false;
-        player.properties = player.properties.filter(index => index !== propertyIndex);
+        this.releasePropertyTile(player, tile);
       }
     });
     player.properties = [];
+  }
+
+  releasePropertyTile(player, tile) {
+    tile.ownerId = null;
+    tile.houseCount = 0;
+    tile.mortgaged = false;
+    player.properties = player.properties.filter(index => index !== tile.index);
+  }
+
+  // A bankrupt player facing a creditor hands over assets; one owing the
+  // bank simply leaves the table.
+  announceBankruptcy(player, creditor) {
     if (creditor) {
       this.feedMessage(`${player.nickname} is bankrupt. Assets transferred to ${creditor.nickname}.`);
     } else {
       this.feedMessage(`${player.nickname} is bankrupt and removed from the game.`);
     }
+  }
+
+  // The last seat standing wins immediately; otherwise the bankrupt current
+  // player forfeits the turn.
+  concludeBankruptRound(player) {
     if (this.nonBankruptPlayers().length <= 1) {
       this.endGame();
     } else if (player.id === this.currentPlayerId) {
@@ -2936,127 +3351,129 @@ class GameState {
   }
 
   proposeTrade(socketId, offer = {}) {
+    const ctx = this.tradeProposalContext(socketId, offer);
+    const guard = TRADE_PROPOSAL_GUARDS.find(entry => entry.rejects(this, ctx));
+    if (guard) return { success: false, error: guard.error };
+    const trade = {
+      id: crypto.randomUUID(),
+      fromPlayerId: ctx.fromPlayer.id,
+      fromPlayerName: ctx.fromPlayer.nickname,
+      toPlayerId: ctx.toPlayer.id,
+      toPlayerName: ctx.toPlayer.nickname,
+      giveCash: ctx.giveCash,
+      requestCash: ctx.requestCash,
+      givePropertyIndexes: ctx.givePropertyIndexes,
+      requestPropertyIndexes: ctx.requestPropertyIndexes,
+      createdAt: Date.now()
+    };
+    this.pendingTrade = trade;
+    this.feedMessage(`${ctx.fromPlayer.nickname} sent a trade offer to ${ctx.toPlayer.nickname}.`);
+    return { success: true, trade };
+  }
+
+  // One normalization pass for the raw offer: cash clamping, index coercion,
+  // and tile resolution all happen exactly as in the original single-body
+  // implementation, before any guard reads the context.
+  tradeProposalContext(socketId, offer) {
     const fromPlayer = this.getPlayerBySocket(socketId);
     const toPlayer = this.getPlayerById(offer.toPlayerId);
-    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id) {
-      return { success: false, error: 'Choose a valid trade partner.' };
-    }
-    if (fromPlayer.bankrupt || fromPlayer.disconnected || toPlayer.bankrupt || toPlayer.disconnected) {
-      return { success: false, error: 'Both players must be active to trade.' };
-    }
-    if (this.pendingTrade || this.pendingPlayerContract) {
-      return { success: false, error: 'Another trade is already pending.' };
-    }
-
     const giveCash = Math.max(0, Number(offer.giveCash || 0));
     const requestCash = Math.max(0, Number(offer.requestCash || 0));
     const givePropertyIndexes = Array.isArray(offer.givePropertyIndexes) ? offer.givePropertyIndexes.map(Number) : [];
     const requestPropertyIndexes = Array.isArray(offer.requestPropertyIndexes) ? offer.requestPropertyIndexes.map(Number) : [];
-
-    if (!Number.isFinite(giveCash) || !Number.isFinite(requestCash)) {
-      return { success: false, error: 'Cash values must be valid numbers.' };
-    }
-
     const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
     const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
+    return { fromPlayer, toPlayer, giveCash, requestCash, givePropertyIndexes, requestPropertyIndexes, giveTiles, requestTiles };
+  }
 
-    if (!giveCash && !requestCash && !givePropertyIndexes.length && !requestPropertyIndexes.length) {
-      return { success: false, error: 'Choose at least one cash or property item to include in the trade.' };
-    }
-
-    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
-      return { success: false, error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.' };
-    }
-    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
-      return { success: false, error: 'The requested properties are not available for trade.' };
-    }
-    if (fromPlayer.cash < giveCash) {
-      return { success: false, error: 'You do not have enough cash for this offer.' };
-    }
-
-    const trade = {
-      id: crypto.randomUUID(),
-      fromPlayerId: fromPlayer.id,
-      fromPlayerName: fromPlayer.nickname,
-      toPlayerId: toPlayer.id,
-      toPlayerName: toPlayer.nickname,
-      giveCash,
-      requestCash,
-      givePropertyIndexes,
-      requestPropertyIndexes,
-      createdAt: Date.now()
-    };
-
-    this.pendingTrade = trade;
-    this.feedMessage(`${fromPlayer.nickname} sent a trade offer to ${toPlayer.nickname}.`);
-    return { success: true, trade };
+  // The original inline per-tile leg check, named: a missing deed, a deed
+  // owned by someone else, or an untradeable deed voids the leg.
+  tradeLegTileUnavailable(tile, ownerId) {
+    if (!tile) return true;
+    if (tile.ownerId !== ownerId) return true;
+    return !this.isTradeableTile(tile);
   }
 
   respondToTrade(socketId, { tradeId, accept } = {}) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || !this.pendingTrade || this.pendingTrade.id !== tradeId) {
+    if (!player) {
       return { success: false, error: 'No matching trade offer was found.' };
     }
     const trade = this.pendingTrade;
+    if (!trade || trade.id !== tradeId) {
+      return { success: false, error: 'No matching trade offer was found.' };
+    }
     if (trade.toPlayerId !== player.id) {
       return { success: false, error: 'Only the receiving player can respond to this trade.' };
     }
-
     if (!accept) {
-      this.feedMessage(`${player.nickname} declined the trade offer.`);
-      this.pendingTrade = null;
-      return { success: true, accepted: false };
+      return this.declineTradeOffer(player);
     }
+    const ctx = this.tradeSettlementContext(trade);
+    const guard = TRADE_SETTLEMENT_GUARDS.find(entry => entry.rejects(this, ctx));
+    if (guard) {
+      this.pendingTrade = null;
+      return { success: false, error: guard.error };
+    }
+    return this.settleTradeOffer(ctx);
+  }
 
-    const fromPlayer = this.getPlayerById(trade.fromPlayerId);
-    const toPlayer = this.getPlayerById(trade.toPlayerId);
-    if (!fromPlayer || !toPlayer || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.disconnected || toPlayer.disconnected) {
-      this.pendingTrade = null;
-      return { success: false, error: 'The trade is no longer valid.' };
-    }
-    if (fromPlayer.cash < trade.giveCash || toPlayer.cash < trade.requestCash) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the players no longer has enough cash.' };
-    }
+  // Deed re-resolution at accept time; pure tile lookups for the guards and
+  // the settlement transfer below.
+  tradeSettlementContext(trade) {
+    return {
+      trade,
+      fromPlayer: this.getPlayerById(trade.fromPlayerId),
+      toPlayer: this.getPlayerById(trade.toPlayerId),
+      giveTiles: trade.givePropertyIndexes.map(index => this.getTile(index)),
+      requestTiles: trade.requestPropertyIndexes.map(index => this.getTile(index))
+    };
+  }
 
-    const giveTiles = trade.givePropertyIndexes.map(index => this.getTile(index));
-    const requestTiles = trade.requestPropertyIndexes.map(index => this.getTile(index));
-    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the offered properties is no longer tradable.' };
-    }
-    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the requested properties is no longer tradable.' };
-    }
+  declineTradeOffer(player) {
+    this.feedMessage(`${player.nickname} declined the trade offer.`);
+    this.pendingTrade = null;
+    return { success: true, accepted: false };
+  }
 
+  settleTradeOffer(ctx) {
+    const { trade, fromPlayer, toPlayer, giveTiles, requestTiles } = ctx;
     fromPlayer.cash -= trade.giveCash;
     toPlayer.cash += trade.giveCash;
     toPlayer.cash -= trade.requestCash;
     fromPlayer.cash += trade.requestCash;
-
     giveTiles.forEach(tile => this.applyPropertyOwnershipChange(fromPlayer, toPlayer, tile));
     requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
-
     this.pendingTrade = null;
     this.tradesCompleted += 1;
-    if (giveTiles.length + requestTiles.length >= 3) {
+    this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
+    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
+    this.settleTradeLinkedPayments(fromPlayer, toPlayer);
+    return { success: true, accepted: true };
+  }
+
+  markCompletedTradeFlags(fromPlayer, toPlayer, tradedPropertyCount) {
+    if (tradedPropertyCount >= 3) {
       fromPlayer.groupTherapyTrade = true;
       toPlayer.groupTherapyTrade = true;
     }
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'stagflation') {
+    if (this.globalEventActive('stagflation')) {
       fromPlayer.tradesDuringCombo = (fromPlayer.tradesDuringCombo || 0) + 1;
       toPlayer.tradesDuringCombo = (toPlayer.tradesDuringCombo || 0) + 1;
     }
-    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice && fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
-      fromPlayer.coalitionTrade = true;
-      toPlayer.coalitionTrade = true;
+    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice) {
+      if (fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
+        fromPlayer.coalitionTrade = true;
+        toPlayer.coalitionTrade = true;
+      }
     }
-    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
-    if (this.pendingPayment?.playerId === fromPlayer.id || this.pendingPayment?.playerId === toPlayer.id) {
-      this.trySettlePendingPayment();
+  }
+
+  settleTradeLinkedPayments(fromPlayer, toPlayer) {
+    if (this.pendingPayment?.playerId !== fromPlayer.id && this.pendingPayment?.playerId !== toPlayer.id) {
+      return;
     }
-    return { success: true, accepted: true };
+    this.trySettlePendingPayment();
   }
 
   endTurn(socketId) {
@@ -3096,63 +3513,97 @@ class GameState {
     }
   }
 
+  // Roll is always available; the pre-roll table appends the remaining
+  // candidate sources in their historical order, then the stable sort ranks
+  // them by score desc, risk asc.
   getBotCandidates(player) {
     if (!player?.isBot) return [];
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
     if (!this.hasRolled) {
-      this.tiles.filter(tile => this.canBuildOnTile(player, tile)).forEach(tile => {
-        const cost = this.getPropertyHouseCost(tile);
-        candidates.push({ id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 });
-      });
-      if (player.cash < 180) {
-        this.tiles.filter(tile => this.canMortgageTile(player, tile)).forEach(tile => {
-          candidates.push({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 });
-        });
-      }
-      const loan = this.getBankLoanOffer(player);
-      if (loan.available) candidates.push({ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 });
-      const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
-      const giveTile = player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-      const askTile = partner?.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-      if (partner && giveTile && askTile && giveTile.group && giveTile.group === askTile.group) {
-        candidates.push({
-          id: 'trade:' + partner.id + ':' + askTile.index,
-          kind: 'trade',
-          toPlayerId: partner.id,
-          givePropertyIndexes: [giveTile.index],
-          requestPropertyIndexes: [askTile.index],
-          giveCash: 0,
-          requestCash: player.personality === 'shark' ? 40 : 0,
-          risk: 0.2,
-          score: player.personality === 'diplomat' ? 24 : 8
-        });
-      }
-      if (this.settings.market && (player.marketActionsThisTurn || 0) < 1) {
-        const marketId = Object.entries(this.marketQuotes || {}).sort(([, a], [, b]) => a - b)[0]?.[0];
-        if (marketId) {
-          candidates.push({
-            id: 'market:' + marketId,
-            kind: 'market',
-            instrumentId: marketId,
-            side: 'buy',
-            quantity: 1,
-            risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
-            score: player.personality === 'speculator' ? 20 : 4
-          });
-        }
-      }
-      if (this.settings.casino && (player.casinoBetsThisRound || 0) < 1 && ['shark', 'chaos'].includes(player.personality) && player.cash > 20) {
-        candidates.push({
-          id: 'casino:red',
-          kind: 'casino',
-          color: player.personality === 'chaos' ? 'green' : 'red',
-          stake: Math.min(20, Math.max(1, Math.floor(player.cash * (player.personality === 'chaos' ? 0.08 : 0.03)))),
-          risk: 0.55,
-          score: player.personality === 'chaos' ? 18 : 11
-        });
+      for (const source of BOT_CANDIDATE_SOURCES) {
+        candidates.push(...source.collect(this, player));
       }
     }
     return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+  }
+
+  botBuildCandidates(player) {
+    return this.tiles
+      .filter(tile => this.canBuildOnTile(player, tile))
+      .map(tile => {
+        const cost = this.getPropertyHouseCost(tile);
+        return { id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 };
+      });
+  }
+
+  botMortgageCandidates(player) {
+    if (player.cash >= 180) return [];
+    return this.tiles
+      .filter(tile => this.canMortgageTile(player, tile))
+      .map(tile => ({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 }));
+  }
+
+  botLoanCandidate(player) {
+    const loan = this.getBankLoanOffer(player);
+    if (!loan.available) return [];
+    return [{ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 }];
+  }
+
+  botGroupTradeCandidate(player) {
+    const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
+    if (!partner) return [];
+    const giveTile = this.firstTradeableOwnedTile(player);
+    const askTile = this.firstTradeableOwnedTile(partner);
+    if (!giveTile || !askTile) return [];
+    if (!giveTile.group || giveTile.group !== askTile.group) return [];
+    const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
+    return [{
+      id: 'trade:' + partner.id + ':' + askTile.index,
+      kind: 'trade',
+      toPlayerId: partner.id,
+      givePropertyIndexes: [giveTile.index],
+      requestPropertyIndexes: [askTile.index],
+      giveCash: 0,
+      requestCash: ask.requestCash,
+      risk: 0.2,
+      score: ask.score
+    }];
+  }
+
+  firstTradeableOwnedTile(player) {
+    return player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
+  }
+
+  botMarketCandidate(player) {
+    if (!this.settings.market) return [];
+    if ((player.marketActionsThisTurn || 0) >= 1) return [];
+    const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
+    if (!marketId) return [];
+    return [{
+      id: 'market:' + marketId,
+      kind: 'market',
+      instrumentId: marketId,
+      side: 'buy',
+      quantity: 1,
+      risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
+      score: player.personality === 'speculator' ? 20 : 4
+    }];
+  }
+
+  botCasinoCandidate(player) {
+    if (!this.settings.casino) return [];
+    if ((player.casinoBetsThisRound || 0) >= 1) return [];
+    if (!['shark', 'chaos'].includes(player.personality)) return [];
+    if (player.cash <= 20) return [];
+    const spec = BOT_CASINO_SPECS[player.personality];
+    return [{
+      id: 'casino:red',
+      kind: 'casino',
+      color: spec.color,
+      stake: Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate))),
+      risk: 0.55,
+      score: spec.score
+    }];
   }
 
   skipDisconnectedCurrentPlayer() {
@@ -3348,45 +3799,45 @@ class Room {
   }
 
   setRoomSetting(key, value) {
-    if (this.game.started || !Object.prototype.hasOwnProperty.call(this.settings, key)) {
+    if (this.game.started) {
       return;
     }
-    if (key === 'globalEventDuration' || key === 'globalEventMax') {
-      // Legacy clients may still send these fields; the server owns scaling now.
+    if (!Object.prototype.hasOwnProperty.call(this.settings, key)) {
       return;
     }
-
-    if (key === 'maxPlayers') {
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed)) return;
-      value = Math.max(2, Math.min(4, Math.floor(parsed)));
-    } else if (key === 'bots') {
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed)) return;
-      value = Math.max(0, Math.min(this.settings.maxPlayers - 1, Math.floor(parsed)));
-    } else if (['startingCash', 'houseLimit', 'hotelLimit', 'turnTimer', 'globalEventDuration', 'globalEventMax'].includes(key)) {
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed)) return;
-      value = Math.max(0, Math.floor(parsed));
-      if (key === 'globalEventDuration') value = value >= 10 ? 10 : 5;
-      if (key === 'globalEventMax') value = value >= 2 ? 2 : 1;
-    } else if (key === 'globalEvents') {
-      value = value === true || value === 'true' || value === 'on' || value === 'rare' || value === 'hardcore' || value === 1 || value === '1';
-    } else if (key === 'botPersonality') {
-      value = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'].includes(String(value).toLowerCase()) ? String(value).toLowerCase() : 'survivor';
-    } else if (typeof this.settings[key] === 'boolean') {
-      value = value === true || value === 'true' || value === 1 || value === '1';
-    } else if (typeof value === 'string') {
-      value = value.trim();
+    if (LEGACY_SCALED_SETTINGS.includes(key)) {
+      return;
     }
-
-    this.settings[key] = value;
-    this.game.settings[key] = value;
-    if (key === 'startingCash') {
-      this.game.players.forEach(player => {
-        player.cash = Number(value);
-      });
+    const normalizer = ROOM_SETTING_NORMALIZERS[key];
+    const nextValue = normalizer ? normalizer(value, this) : this.defaultRoomSettingValue(key, value);
+    if (nextValue === SETTING_REJECTED) {
+      return;
     }
+    this.settings[key] = nextValue;
+    this.game.settings[key] = nextValue;
+    this.applyRoomSettingSideEffect(key, nextValue);
+  }
+
+  // Generic fallback for keys the table does not specialise: boolean flags
+  // parse the four truthy spellings, strings lose their edges, and other
+  // types are stored exactly as received.
+  defaultRoomSettingValue(key, value) {
+    if (typeof this.settings[key] === 'boolean') {
+      return ROOM_FLAG_TRUE_VALUES.includes(value);
+    }
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+    return value;
+  }
+
+  applyRoomSettingSideEffect(key, value) {
+    if (key !== 'startingCash') {
+      return;
+    }
+    this.game.players.forEach(player => {
+      player.cash = Number(value);
+    });
   }
 
   startGame() {

@@ -18,6 +18,20 @@ import {
   isAuctionBotParticipant,
   auctionBidDecision
 } from './botLogic.js';
+import {
+  normalizeRoomCode,
+  normalizeAvatarGrid,
+  normalizeChatText,
+  buildRoomParticipant,
+  buildCreateRoomRequest,
+  validateCreateRoomRequest,
+  validateJoinRoomRequest,
+  toRoomCreationOptions,
+  toJoinPlayerInfo,
+  matchHistoryPrivacyError,
+  summarizeMatchHistoryRecordForViewer,
+  buildMatchRecordOptions
+} from './roomSetup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -161,46 +175,6 @@ setInterval(() => {
   }
 }, EMPTY_ROOM_GC_INTERVAL_MS);
 
-function normalizeNickname(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().slice(0, 24);
-}
-
-function normalizeRoomCode(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
-}
-
-function normalizeRoomName(value) {
-  if (typeof value !== 'string') return 'AFTER HOURS';
-  return value.trim().replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 24) || 'AFTER HOURS';
-}
-
-function normalizeVisibility(value) {
-  return value === 'private' ? 'private' : 'public';
-}
-
-function normalizeColor(value) {
-  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : '';
-}
-
-function normalizeAvatarGrid(value) {
-  if (!Array.isArray(value) || value.length !== 8) return null;
-  const rows = value.map(row => {
-    if (!Array.isArray(row) || row.length !== 8) return null;
-    return row.map(cell => {
-      if (cell == null || cell === '') return null;
-      return typeof cell === 'string' && /^#[0-9a-fA-F]{6}$/.test(cell) ? cell.toLowerCase() : null;
-    });
-  });
-  return rows.some(row => row === null) ? null : rows;
-}
-
-function normalizeChatText(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().slice(0, 250);
-}
-
 function accountFromPayload(payload = {}) {
   return accountStore.sessionAccount(payload.sessionToken);
 }
@@ -240,53 +214,61 @@ function reassignHostIfNeeded(room, departedPlayerId) {
   });
 }
 
+// Leave any previous game rooms so we don't receive ghost updates
+function leaveAllGameRooms(socket) {
+  for (const joined of [...socket.rooms]) {
+    if (joined !== socket.id) {
+      socket.leave(joined);
+    }
+  }
+}
+
+// Drop this socket's seat in any room other than the one being joined:
+// lobby seats are removed outright, started-game seats become disconnected.
+function detachSocketFromOtherRoom(socket, room) {
+  const oldRoom = roomManager.getRoomBySocket(socket.id);
+  if (!oldRoom || oldRoom.roomCode === room.roomCode) return;
+  const oldPlayer = oldRoom.getPlayerBySocket(socket.id);
+  if (oldPlayer && !oldRoom.game.started) {
+    oldRoom.game.removePlayerBySocket(socket.id);
+    // Lobby hosts that leave must hand the room over, or Start stays dead.
+    reassignHostIfNeeded(oldRoom, oldPlayer.id);
+    emitRoomState(oldRoom);
+  } else if (oldPlayer) {
+    oldPlayer.disconnected = true;
+    oldPlayer.socketId = null;
+    reassignHostIfNeeded(oldRoom, oldPlayer.id);
+    emitRoomState(oldRoom);
+  }
+}
+
 function emitRoomState(room) {
   if (!room) return;
   if (room.game.lastWinner && !room.statsRecorded) {
-    const matchRecord = accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, {
-      gameId: `match_${room.roomCode}_${room.game.startedAt || Date.now()}`,
-      durationSeconds: room.game.startedAt ? (Date.now() - room.game.startedAt) / 1000 : 0,
-      roundCount: room.game.roundNumber,
-      roomVisibility: room.visibility,
-      globalEvents: [
-        ...(room.game.globalEventHistory || []).map(event => event.title),
-        ...(room.game.globalEvent && !(room.game.globalEventHistory || []).some(event => event.id === room.game.globalEvent.id) ? [room.game.globalEvent.title] : [])
-      ].slice(0, 20),
-      eventCombinations: [
-        ...(room.game.globalEventHistory || []).filter(event => event.comboId).map(event => event.comboId),
-        ...(room.game.globalEvent?.comboId && !(room.game.globalEventHistory || []).some(event => event.comboId === room.game.globalEvent.comboId) ? [room.game.globalEvent.comboId] : [])
-      ].slice(0, 10),
-      tradesCompleted: room.game.tradesCompleted || 0,
-      auctionsCompleted: room.game.auctionsCompleted || 0,
-      casino: room.game.players.map(player => ({ accountId: player.accountId, bets: (player.casinoLedger || []).length, net: Number(player.casinoNet) || 0 })),
-      market: room.game.players.map(player => ({ accountId: player.accountId, positions: Object.fromEntries(Object.entries(player.marketPositions || {}).map(([id, position]) => [id, { quantity: Number(position.quantity) || 0, realizedPnl: Number(position.realizedPnl) || 0 }])) })),
-      playerContracts: room.game.playerContracts.map(contract => ({
-        id: contract.id,
-        kind: contract.kind,
-        fromPlayerId: contract.fromPlayerId,
-        toPlayerId: contract.toPlayerId,
-        fromAccountId: room.game.getPlayerById(contract.fromPlayerId)?.accountId || null,
-        toAccountId: room.game.getPlayerById(contract.toPlayerId)?.accountId || null,
-        amount: contract.amount,
-        premiumRate: contract.premiumRate,
-        equityShare: contract.equityShare,
-        collateralTileIndex: contract.collateralTileIndex ?? null,
-        status: contract.status
-      }))
-    });
-    matchStore.record(matchRecord);
-    achievementStore.evaluateMatch(matchRecord, accountId => accountStore.getMatchHistory(accountId))
-      .forEach(candidate => recordVerifiedAchievement(candidate, matchRecord.matchId));
-    // Refresh the owner’s private profile immediately after settlement so
-    // completed-game stats, history, and achievement counts are current while
-    // the player is still in the game shell.
-    room.game.players.forEach(player => {
-      if (!player.accountId) return;
-      const snapshot = accountStore.getAccountSnapshot(player.accountId);
-      if (snapshot) socketsForAccount(player.accountId).forEach(candidateSocket => candidateSocket.emit('account-sync', { account: snapshot }));
-    });
-    room.statsRecorded = true;
+    recordRoomStats(room);
   }
+  broadcastRoomState(room);
+  scheduleBotTurn(room);
+  scheduleBotAuction(room);
+}
+
+function recordRoomStats(room) {
+  const matchRecord = accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, buildMatchRecordOptions(room));
+  matchStore.record(matchRecord);
+  achievementStore.evaluateMatch(matchRecord, accountId => accountStore.getMatchHistory(accountId))
+    .forEach(candidate => recordVerifiedAchievement(candidate, matchRecord.matchId));
+  // Refresh the owner’s private profile immediately after settlement so
+  // completed-game stats, history, and achievement counts are current while
+  // the player is still in the game shell.
+  room.game.players.forEach(player => {
+    if (!player.accountId) return;
+    const snapshot = accountStore.getAccountSnapshot(player.accountId);
+    if (snapshot) socketsForAccount(player.accountId).forEach(candidateSocket => candidateSocket.emit('account-sync', { account: snapshot }));
+  });
+  room.statsRecorded = true;
+}
+
+function broadcastRoomState(room) {
   const roomSummary = room.getRoomSummary();
   const serverTime = Date.now();
   // Game summaries now carry owner-only loan and contract terms. Emit a
@@ -301,8 +283,6 @@ function emitRoomState(room) {
       serverTime
     });
   });
-  scheduleBotTurn(room);
-  scheduleBotAuction(room);
 }
 
 function scheduleBotTurn(room) {
@@ -597,6 +577,41 @@ setInterval(() => {
   }
 }, TURN_AFK_CHECK_INTERVAL_MS);
 
+// Accept-branch of respond-room-invite: gate order, seat transfer, and ack
+// shape are pinned by server/rooms.test.js. Returns the ack payload so the
+// handler stays a validate -> delegate -> respond flow.
+function acceptRoomInvite(socket, account, invite, payload) {
+  if (!invite) return { success: false, error: 'That room invite has expired.' };
+  const room = roomManager.getRoom(invite.roomCode);
+  if (!room) return { success: false, error: 'That room no longer exists.' };
+  if (room.game.started) return { success: false, error: 'That round has already started.' };
+  if (!room.game.canJoin()) return { success: false, error: 'That room is full.' };
+  const clientId = String(payload.clientId || '').trim();
+  if (!clientId) return { success: false, error: 'A client session is required to join.' };
+  detachSocketFromOtherRoom(socket, room);
+  leaveAllGameRooms(socket);
+  const joined = room.addOrReconnectPlayer({
+    clientId,
+    socketId: socket.id,
+    nickname: account.displayName,
+    color: account.color,
+    avatarGrid: normalizeAvatarGrid(account.avatarGrid),
+    accountId: account.id
+  });
+  if (!joined.success) return { success: false, error: joined.error };
+  roomManager.socketRoom.set(socket.id, room);
+  socket.join(room.roomCode);
+  const result = socialStore.respondInvite(account.id, payload.inviteId, true);
+  if (result.success) {
+    emitSocialUpdate(account.id);
+    emitRoomState(room);
+    io.in(room.roomCode).emit('system-message', { text: account.displayName + ' joined from a room invite.' });
+    emitPendingInteractions(room, socket, joined.player);
+    return { ...result, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility };
+  }
+  return result;
+}
+
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
@@ -706,21 +721,13 @@ io.on('connection', (socket) => {
   on('create-room', (payload, callback) => {
     const { clientId } = payload || {};
     const account = accountFromPayload(payload);
-    const nickname = normalizeNickname(account?.displayName || payload?.nickname);
-    const color = normalizeColor(account?.color || payload?.color);
-    const avatarGrid = normalizeAvatarGrid(account?.avatarGrid || payload?.avatarGrid);
-    const accountId = account?.id || null;
-    if (accountId) socket.data.accountId = accountId;
-    const roomName = normalizeRoomName(payload?.roomName);
-    const visibility = normalizeVisibility(payload?.visibility);
-    const requestedRoomCode = visibility === 'private' ? normalizeRoomCode(payload?.roomCode) : '';
-    if (!nickname) {
-      return callback?.({ success: false, error: 'Nickname is required.' });
+    const request = buildCreateRoomRequest(payload, account);
+    if (request.accountId) socket.data.accountId = request.accountId;
+    const validationError = validateCreateRoomRequest(request);
+    if (validationError) {
+      return callback?.({ success: false, error: validationError });
     }
-    if (visibility === 'private' && requestedRoomCode.length !== 6) {
-      return callback?.({ success: false, error: 'Private rooms need a unique 6-character invite code.' });
-    }
-    const existingRoom = requestedRoomCode ? roomManager.getRoom(requestedRoomCode) : null;
+    const existingRoom = request.requestedRoomCode ? roomManager.getRoom(request.requestedRoomCode) : null;
     if (existingRoom) {
       // A room with no connected humans must not lock its private code for
       // the full GC grace period — reclaim it and let the creator take over.
@@ -742,14 +749,9 @@ io.on('connection', (socket) => {
       emitRoomState(oldRoom);
     }
 
-    // Leave any previous game rooms so we don't receive ghost updates
-    for (const r of [...socket.rooms]) {
-      if (r !== socket.id) {
-        socket.leave(r);
-      }
-    }
+    leaveAllGameRooms(socket);
 
-    const room = roomManager.createRoom({ clientId, socketId: socket.id, nickname, color: color || undefined, avatarGrid, accountId, roomName, visibility, roomCode: requestedRoomCode || undefined });
+    const room = roomManager.createRoom(toRoomCreationOptions(request, clientId, socket.id));
     socket.join(room.roomCode);
     emitRoomState(room);
     socket.emit('system-message', { text: 'Room created. Waiting for players...' });
@@ -788,17 +790,12 @@ io.on('connection', (socket) => {
   on('join-room', (payload, callback) => {
     const roomCode = normalizeRoomCode(payload?.roomCode);
     const account = accountFromPayload(payload);
-    const nickname = normalizeNickname(account?.displayName || payload?.nickname);
-    const color = normalizeColor(account?.color || payload?.color);
-    const avatarGrid = normalizeAvatarGrid(account?.avatarGrid || payload?.avatarGrid);
-    const accountId = account?.id || null;
-    if (accountId) socket.data.accountId = accountId;
+    const participant = buildRoomParticipant(payload, account);
+    if (participant.accountId) socket.data.accountId = participant.accountId;
     const { clientId } = payload || {};
-    if (!roomCode) {
-      return callback?.({ success: false, error: 'Room code is required.' });
-    }
-    if (!nickname) {
-      return callback?.({ success: false, error: 'Nickname is required.' });
+    const validationError = validateJoinRoomRequest({ roomCode, nickname: participant.nickname });
+    if (validationError) {
+      return callback?.({ success: false, error: validationError });
     }
     clearDisconnectTimer(clientId);
     const room = roomManager.getRoom(roomCode);
@@ -806,31 +803,11 @@ io.on('connection', (socket) => {
       return callback?.({ success: false, error: 'Room not found.' });
     }
 
-    // Leave any previous game rooms so we don't receive ghost updates
-    for (const r of [...socket.rooms]) {
-      if (r !== socket.id) {
-        socket.leave(r);
-      }
-    }
+    leaveAllGameRooms(socket);
 
-    // Remove player from any old room they were in via restore-session
-    const oldRoom = roomManager.getRoomBySocket(socket.id);
-    if (oldRoom && oldRoom.roomCode !== room.roomCode) {
-      const oldPlayer = oldRoom.getPlayerBySocket(socket.id);
-      if (oldPlayer && !oldRoom.game.started) {
-        oldRoom.game.removePlayerBySocket(socket.id);
-        // Lobby hosts that leave must hand the room over, or Start stays dead.
-        reassignHostIfNeeded(oldRoom, oldPlayer.id);
-        emitRoomState(oldRoom);
-      } else if (oldPlayer) {
-        oldPlayer.disconnected = true;
-        oldPlayer.socketId = null;
-        reassignHostIfNeeded(oldRoom, oldPlayer.id);
-        emitRoomState(oldRoom);
-      }
-    }
+    detachSocketFromOtherRoom(socket, room);
 
-    const result = room.addOrReconnectPlayer({ clientId, socketId: socket.id, nickname, color: color || undefined, avatarGrid, accountId });
+    const result = room.addOrReconnectPlayer(toJoinPlayerInfo(participant, clientId, socket.id));
     if (!result.success) {
       return callback?.({ success: false, error: result.error });
     }
@@ -838,7 +815,7 @@ io.on('connection', (socket) => {
     socket.join(room.roomCode);
     emitRoomState(room);
     emitPendingInteractions(room, socket, result.player);
-    io.in(room.roomCode).emit('system-message', { text: `${nickname} joined the room.` });
+    io.in(room.roomCode).emit('system-message', { text: `${participant.nickname} joined the room.` });
     callback?.({ success: true, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
     scheduleRoomsUpdated();
   });
@@ -1334,33 +1311,14 @@ io.on('connection', (socket) => {
     const target = payload.accountId ? accountStore.getAccountById(payload.accountId) : viewer;
     if (!target) return reply(callback, { success: false, error: 'Player not found.' });
     const friendship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
-    const canSeePrivateHistory = viewer?.id === target.id || friendship?.status === 'accepted';
-    const allowed = canSeePrivateHistory || target.privacy?.history === 'public';
-    if (!allowed) return reply(callback, { success: false, error: 'Match history is visible to the owner and accepted friends.' });
-    if (viewer?.id !== target.id && target.privacy?.history === 'private') return reply(callback, { success: false, error: 'This player keeps match history private.' });
+    const { canSeePrivateHistory, error: privacyError } = matchHistoryPrivacyError(viewer, target, friendship);
+    if (privacyError) return reply(callback, { success: false, error: privacyError });
     const records = matchStore.listForAccount(target.id);
     const effectiveRecords = (records.length ? records : accountStore.getMatchHistory(target.id))
       .filter(record => canSeePrivateHistory || record.roomVisibility !== 'private');
     const history = viewer?.id === target.id
       ? effectiveRecords
-      : effectiveRecords.map(record => ({
-        matchId: record.matchId,
-        completedAt: record.completedAt,
-        roundCount: record.roundCount,
-        roomVisibility: record.roomVisibility,
-        participants: record.participants.map(participant => ({
-          displayNameAtMatch: participant.displayNameAtMatch,
-          finalPlacement: participant.finalPlacement,
-          propertyCount: participant.propertyCount,
-          bankrupt: participant.bankrupt,
-          isViewedPlayer: participant.accountId === target.id,
-          sharedWithViewer: Boolean(viewer?.id && record.participants.some(entry => entry.accountId === viewer.id))
-        })),
-        globalEvents: record.globalEvents,
-        eventCombinations: record.eventCombinations,
-        tradesCompleted: record.tradesCompleted,
-        auctionsCompleted: record.auctionsCompleted
-      }));
+      : effectiveRecords.map(record => summarizeMatchHistoryRecordForViewer(record, viewer?.id, target.id));
     reply(callback, { success: true, history });
   });
 
@@ -1458,50 +1416,7 @@ io.on('connection', (socket) => {
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage room invites.' });
     const invite = socialStore.getInvite(account.id, payload.inviteId);
     if (payload.accept === true) {
-      if (!invite) return reply(callback, { success: false, error: 'That room invite has expired.' });
-      const room = roomManager.getRoom(invite.roomCode);
-      if (!room) return reply(callback, { success: false, error: 'That room no longer exists.' });
-      if (room.game.started) return reply(callback, { success: false, error: 'That round has already started.' });
-      if (!room.game.canJoin()) return reply(callback, { success: false, error: 'That room is full.' });
-      const clientId = String(payload.clientId || '').trim();
-      if (!clientId) return reply(callback, { success: false, error: 'A client session is required to join.' });
-      const oldRoom = roomManager.getRoomBySocket(socket.id);
-      if (oldRoom && oldRoom.roomCode !== room.roomCode) {
-        const oldPlayer = oldRoom.getPlayerBySocket(socket.id);
-        if (oldPlayer && !oldRoom.game.started) {
-          oldRoom.game.removePlayerBySocket(socket.id);
-          reassignHostIfNeeded(oldRoom, oldPlayer.id);
-          emitRoomState(oldRoom);
-        } else if (oldPlayer) {
-          oldPlayer.disconnected = true;
-          oldPlayer.socketId = null;
-          reassignHostIfNeeded(oldRoom, oldPlayer.id);
-          emitRoomState(oldRoom);
-        }
-      }
-      for (const existingRoom of [...socket.rooms]) {
-        if (existingRoom !== socket.id) socket.leave(existingRoom);
-      }
-      const joined = room.addOrReconnectPlayer({
-        clientId,
-        socketId: socket.id,
-        nickname: account.displayName,
-        color: account.color,
-        avatarGrid: normalizeAvatarGrid(account.avatarGrid),
-        accountId: account.id
-      });
-      if (!joined.success) return reply(callback, { success: false, error: joined.error });
-      roomManager.socketRoom.set(socket.id, room);
-      socket.join(room.roomCode);
-      const result = socialStore.respondInvite(account.id, payload.inviteId, true);
-      if (result.success) {
-        emitSocialUpdate(account.id);
-        emitRoomState(room);
-        io.in(room.roomCode).emit('system-message', { text: account.displayName + ' joined from a room invite.' });
-        emitPendingInteractions(room, socket, joined.player);
-        return reply(callback, { ...result, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility });
-      }
-      return reply(callback, result);
+      return reply(callback, acceptRoomInvite(socket, account, invite, payload));
     }
     const result = socialStore.respondInvite(account.id, payload.inviteId, payload.accept === true);
     if (result.success) emitSocialUpdate(account.id);
