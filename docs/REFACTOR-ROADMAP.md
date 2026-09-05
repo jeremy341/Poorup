@@ -24,19 +24,23 @@ not execute this list as a bulk refactor._
 
 ## CodeScene file verdict (0–10, higher is healthier)
 
-_Remeasured 2026-09-05 after R1 + the reliability PRs (#9–#13)._
+_Remeasured 2026-09-05 after PRs #18–#28 (the hotspot campaign + player
+bankruptcy)._
 
 | Score | File | Notes |
 |-------|------|-------|
-| 1.09 ↑ | `server/gameLogic.js` | worst in repo; applyCard (56) and getPropertyRent (53) now gone (#16/#17); manageProperty 53 / tradeMarket 44 / proposePlayerContract 44 / activateGlobalEvent 41 still queued |
-| 1.43 ↑ | `public/main.js` | was 1.26; offline-engine deletion (#10) removed ~930 dead lines and the deep-nesting/duplication smells |
-| 2.01 | `server/server.js` | unchanged by the #9 reliability work; `scheduleBotTurn` (cc 99) is R2, still open |
-| 5.87 ↑ | `server/accountStore.js` | was 4.42 → 4.78 (R1) → 5.21 (#11 load normalizer) → 5.87 (#15 metric table + window helpers) |
+| 1.45 ↑ | `server/gameLogic.js` | worst in repo but climbing: applyCard (56) #16, getPropertyRent (53) #17, manageProperty (53) / tradeMarket (44) / proposePlayerContract (44) #21, activateGlobalEvent (41) #23, respondPlayerContract 24→18 / processPlayerContracts 23→14 / advanceRound 19→3 #28; queued: getGameSummary 23, leaveRoomByClient 22, canMortgageTile 21 |
+| 1.43 | `public/main.js` | untouched since #10 — still gated on the R0 client harness |
+| 2.89 ↑ | `server/server.js` | was 2.01; scheduleBotTurn (99) → `server/botLogic.js` #19, room-setup → `server/roomSetup.js` #24, #26/#28 guard tables + obligation helper; create-room (cc 15) / join-room (12) still queued |
+| 10.0 ↑ | `server/accountStore.js` | #20: recordGameResults (cc 49) table-driven; session reverse index (#27) kept it 10.0 |
+| 10.0 | `server/botLogic.js` | new #19 — deep module for bot turns |
+| 10.0 | `server/roomSetup.js` | new #24 — room lifecycle helpers |
+| 10.0 | `server/bankruptcyLogic.js` | new #28 — debt settlement, quit-obligations, loan default rules |
 | 8.36 ↑ | `server/matchStore.js` | was 6.09; R1's table-driven sanitizer |
 | 8.89 ↑ | `server/achievementStore.js` | was 6.63; R1's rules table |
 | ~7.7 | `server/socialStore.js` | healthy — R1-era; leave alone |
 | 8.82 ↑ | `server/gameLogic.test.js` | was 8.16 (the #6 `normalizeDynamic` cc-10 blip, undone in #13) |
-| 8.89 | `server/botAdvisor.js` | healthy — leave alone |
+| 9.68 ↑ | `server/botAdvisor.js` | was 8.89; #28 table-drove deterministicChoice (cc 17) and split parseAdvisorResponse (cc 10) — mean cc now under 4 |
 
 CSS (`public/*.css`) is not analyzable by CodeScene — it stays out of scope.
 
@@ -65,17 +69,18 @@ cc ≤ 3; the loop cc ≈ 4; total ≈ 10.
 **Protection:** file is untested — characterization suite first (malformed
 JSON records, missing arrays, over-long strings → frozen outputs).
 
-### accountStore.js `recordGameResults` participants builder — cc 80 (file: 4.42)
+### accountStore.js `recordGameResults` participants builder — cc 80 (file: 4.42) ✅ done (#20 → file 10.0)
 
 The SAME ~60 fields mapped from live player objects instead of stored JSON
 (`player.airportVisits instanceof Set ? .size : 0` where matchStore reads a
 number). This is a real duplication CodeScene surfaced: the two files
 hand-write the same schema.
 
-**Recipe:** one `server/participantFields.js` table of descriptors —
-`{ key, fromPlayer(p), fromRecord(r) }` — consumed by both stores' loops.
-`recordGameResults` keeps its placement/persistence logic; only the
-participant mapping moves. matchStore then shares the same table.
+**Landed:** RESULT_STAT_UPDATES / WINDOW_STAT_UPDATES descriptor tables with
+predicate helpers; null-players crash hardened via a red→green golden and an
+8-check game-results suite. (The shared `participantFields.js` between the
+two stores was never needed — the tables kept the schema single-source per
+file and hit 10.0.)
 
 ### achievementStore.js `evaluateMatch` — cc 96 (file: 6.63)
 
@@ -89,23 +94,16 @@ context (`isWinner`, `othersCash`, `contracts`, `eventNames`, `treasureCards`)
 computed once outside. Each `test` is cc 1–5. Behavior identical; new
 achievements become a one-line table entry (actual functional improvement).
 
-### server.js `scheduleBotTurn` — cc 99 (file: 2.01)
+### server.js `scheduleBotTurn` — cc 99 (file: 2.01) ✅ done (#19 → `server/botLogic.js`)
 
 Timer + lock + 8 decision branches, one of which (the purchase-offer
 post-roll block) is literally duplicated twice in the body.
 
-**Recipe:** extract each scenario to a named async function —
-`botVote`, `botAnswerTrade`, `botAnswerContract`, `botSettleDebt`,
-`botPassAuction`, `botEndTurn`, `botOpeningMove` (the advisor-candidate
-dispatch, itself a small table by `candidate.kind`), and
-`resolvePurchaseOffer(room, bot, result)` used by BOTH call sites (kills the
-duplication). `scheduleBotTurn` keeps only: guard → setTimeout → lock →
-re-dispatch. cc drops to ~15; the branches become 8 functions at cc 3–8.
-The decision logic itself is untouched — same conditions, same actions.
-
-Also in this file: `create-room` (cc 37) / `join-room` (cc 33) socket
-handlers → validate/persist/broadcast split per handler, continuing the
-2026-09-03 pattern.
+**Landed:** extracted to `server/botLogic.js` (10.0) as a table-driven phase
+dispatch; `scheduleBotTurn` keeps guard → setTimeout → lock → re-dispatch.
+The float edge (give 440 vs ask 440.00000000000006 declines) is frozen by 16
+botLogic checks. `create-room` (cc 15) / `join-room` (12) are the only
+room-handler complexity left.
 
 ### gameLogic.js — the rules engine (file: 1.06)
 
@@ -113,11 +111,14 @@ handlers → validate/persist/broadcast split per handler, continuing the
 |----------|----|-----------------|--------|
 | ~~`applyCard`~~ ✅ #16 | 56→~4 | 14-case switch | **done:** dispatch table + RESOLVE_TAIL sentinel preserving the break-vs-return tail semantics; 26-case golden |
 | ~~`getPropertyRent`~~ ✅ #17 | 53→<9 | type branches + 11 event-modifier ifs | **done:** per-type base helpers + RENT_EVENT_MODIFIERS fold (rentCap+floor stay last); 43-case golden |
-| `manageProperty` | 53 | buy/build/mortgage/sell action chain | action→method table on `this` (`manageBuild`, `manageMortgage`, …) |
-| `tradeMarket` | 44 | side/quantity/settlement ifs | per-instrument validator + settlement split |
-| `proposePlayerContract` | 44 | term validation chain | array of predicate+message validators run sequentially |
-| `activateGlobalEvent` | 41 | event ifs | per-event setup table |
-| `advanceRound` | — | 4-level nesting (Bumpy Road) | early returns + one extracted per-phase helper |
+| ~~`manageProperty`~~ ✅ #21 | 53→<9 | buy/build/mortgage/sell action chain | **done:** PROPERTY_ACTION_HANDLERS dispatch table |
+| ~~`tradeMarket`~~ ✅ #21 | 44→<9 | side/quantity/settlement ifs | **done:** MARKET_ORDER_GUARDS table |
+| ~~`proposePlayerContract`~~ ✅ #21 | 44→<9 | term validation chain | **done:** guard tables |
+| ~~`activateGlobalEvent`~~ ✅ #23 | 41→<9 | event ifs | **done:** per-event setup table + global-events.test (20 suites, crypto.randomInt RNG stub) |
+| ~~`advanceRound`~~ ✅ #28 | 19→3 | 4-level nesting (Bumpy Road) | **done:** recursion guard + advanceGlobalEventPhase/begin/tick/recovery/archive split; trade/respond/getGameSummary follow-ups in #25/#28 |
+| `getGameSummary` | 23 | snapshot field assembly | section-split mappers |
+| `leaveRoomByClient` | 22 | disconnect teardown | share with `clearPendingObligations` (#28 server helper) |
+| `canMortgageTile` | 21 | eligibility ifs | predicate table |
 
 `gameLogic.test.js` was written FOR this code, so each PR extends it: every
 extracted table gets a direct table test. "Number of Functions in a Single
@@ -142,19 +143,37 @@ before opening an R4 branch._
 
 ## Attack order
 
-_Progress (2026-09-05): **R1 done** (#6 participant schema + #11 atomic
-store-IO/load normalizer). **R3 first slices landed**: #16 extracted
-applyCard's 14-case switch (cc 56) behind a 26-case golden, #17 turned
-getPropertyRent's modifier ladder (cc 53) into RENT_EVENT_MODIFIERS behind a
-43-case golden - both exactly as the recipes below, goldens captured before
-the change. Reliability work landed alongside: #9 socket-handler scaffold +
-crash guards + wire tests, #10 offline-engine deletion (a partial R0/R4 win),
-#12 auction-clock constant, #13 test-helper de-hotspot, #15 leaderboard
-metric table (accountStore 5.21 -> 5.87). **Remaining:** R2 server.js
-(scheduleBotTurn cc 100, create-room/join-room), R3 manageProperty 53 /
-tradeMarket 44 / proposePlayerContract 44 / activateGlobalEvent 41 /
-getBotCandidates 38, R4 client tables (after R0). Each still one hotspot per
-PR, characterization golden first._
+_Progress (2026-09-05, after #18–#28): **R2 done** (#19 botLogic.js 10.0,
+#24 roomSetup.js 10.0 — server.js 2.01→2.89; create-room/join-room cc
+15/12 left). **R3 most landed**: #20 accountStore→10.0, #21 property/market/
+contract tables, #23 events, #25 trades, #26 casino/guards, #28 settlement
+rules → bankruptcyLogic.js 10.0 (gameLogic 1.09→1.45, and its change-set
+verdict now IMPROVES on feature PRs). Reliability: #27 bug sweep (store IO,
+zombie rooms, session index, recursion guards). Player-controlled
+bankruptcy shipped in #28. **Remaining:** R0 client harness (keydown 98 /
+applyServerState 93 still blocked on it), R3 tail (getGameSummary 23,
+leaveRoomByClient 22, canMortgageTile 21), create/join-room, then R4/R5.
+Each still one hotspot per PR, characterization golden first._
+
+### Gate learnings (delta analysis, "The Bare Minimum")
+
+- The cloud gate fails if a hotspot **gains a rule instance** — a `cc ≥ 9`
+  function or a ≥3-operand conditional added anywhere in a red file, even
+  while the file score improves overall. Guard-clause additions to red
+  files (e.g. #27's `!borrower.bankrupt` in processPlayerContracts) must be
+  landed as extractions, not inline ifs.
+- Any net LOC/function increase to a hotspot file also degrades its
+  verdict, so **feature PRs must pay rent**: #28 net-shrank gameLogic.js by
+  moving the new settlement rules into `bankruptcyLogic.js` and extracting
+  the event phase ladder from `advanceRound` (19→3).
+- New/changed functions must score 10.0 individually: keep each `if` to a
+  single boolean operand (compound `a && b` conditions flag Complex
+  Conditional even at two operands), cc ≤ 8, and factor repeated assertion
+  blocks in test files (Code Duplication fires on those).
+- The local `cs delta`/MCP change-set run and the cloud agree only when the
+  cloud baseline is current — treat the cloud check as the arbiter, and read
+  its per-file "rule in this hotspot" table, not the file score, to find
+  what to fix.
 
 **R0 — client test harness (blocking prerequisite).**
 Committed, CI-safe smoke for `public/` (DOM-free module extraction Node can
