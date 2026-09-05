@@ -524,6 +524,33 @@ const CARD_ACTION_HANDLERS = {
   collectFromEach: 'collectFromEachCard'
 };
 
+// Global-event rent modifiers as data: every rule is a multiplicative factor
+// (airport-strike is a factor of 0) keyed off the event/effect state, folded
+// in order over the base rent. None of them read the accumulated total, so
+// multiplication commutes and the sequence is behavior-irrelevant; the only
+// non-multiplicative step, rentCap, stays after the fold along with the
+// Math.floor clamp. An effect factor parses to NaN when absent, and the fold
+// skips non-finite factors — the exact "applies only when set" guard the
+// original if-ladder repeated eleven times.
+const RENT_EVENT_MODIFIERS = [
+  { appliesTo: (game, tile) => game.globalEventActive('housing-bubble') && tile.type === 'property', factor: () => 0.65 },
+  { appliesTo: (game, tile) => game.globalEventActive('airport-strike') && tile.type === 'railroad', factor: () => 0 },
+  { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.type === 'railroad', factor: () => 1.75 },
+  { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.group === 'Dark Blue', factor: () => 1.3 },
+  {
+    appliesTo: (game, tile) => game.globalEventActive('anti-monopoly')
+      && tile.ownerId === game.globalEvent.targetPlayerId
+      && game.globalEvent.resolvedChoice !== 'dismiss',
+    factor: () => 0.6
+  },
+  { appliesTo: (game, tile) => game.globalEventActive('energy-crisis') && tile.type === 'utility', factor: () => 1.5 },
+  { appliesTo: (game, tile) => game.isPublicWorksElection() && tile.type === 'property', factor: () => 0.75 },
+  { appliesTo: (game, tile) => tile.type === 'railroad' && !game.globalEventActive('airport-strike'), factor: (game) => Number(game.activeEventEffects().airportRentMultiplier) },
+  { appliesTo: (game, tile) => tile.type === 'utility' && !game.globalEventActive('energy-crisis'), factor: (game) => Number(game.activeEventEffects().utilityRentMultiplier) },
+  { appliesTo: (game, tile) => tile.group === 'Dark Blue' && !game.globalEventActive('tourism-boom'), factor: (game) => Number(game.activeEventEffects().premiumRentMultiplier) },
+  { appliesTo: (game) => !game.globalEventActive('housing-bubble'), factor: (game) => { const multiplier = Number(game.activeEventEffects().rentMultiplier); return multiplier > 0 ? multiplier : NaN; } }
+];
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -1071,7 +1098,7 @@ class GameState {
 
   getPropertyHouseCost(tile) {
     const base = PROPERTY_HOUSE_COST_BY_GROUP[tile?.group] || 0;
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works') {
+    if (this.isPublicWorksElection()) {
       return Math.max(1, Math.floor(base * 0.65));
     }
     const multiplier = Number(this.activeEventEffects().buildingCostMultiplier);
@@ -1079,56 +1106,63 @@ class GameState {
   }
 
   getPropertyRent(tile) {
-    const baseRent = tile.rent || 0;
-    let rent = baseRent;
     if (tile.mortgaged) {
       return 0;
     }
-    if (tile.type === 'property') {
-      const level = Math.max(0, Math.min(5, tile.houseCount || 0));
-      if (level > 0) {
-        rent = Math.floor(baseRent * PROPERTY_RENT_MULTIPLIERS[level]);
-      } else if (tile.group && this.settings.doubleRent && this.hasFullSet(tile.ownerId, tile.group)) {
-        rent = baseRent * 2;
-      }
+    return this.applyEventRentModifiers(this.baseRentByType(tile), tile);
+  }
+
+  baseRentByType(tile) {
+    if (tile.type === 'property') return this.propertyBaseRent(tile);
+    if (tile.type === 'utility') return this.utilityBaseRent(tile);
+    if (tile.type === 'railroad') return this.railroadBaseRent(tile);
+    return tile.rent || 0;
+  }
+
+  propertyBaseRent(tile) {
+    const baseRent = tile.rent || 0;
+    const level = Math.max(0, Math.min(5, tile.houseCount || 0));
+    if (level > 0) {
+      return Math.floor(baseRent * PROPERTY_RENT_MULTIPLIERS[level]);
     }
-    if (tile.type === 'utility') {
-      const owner = this.getPlayerById(tile.ownerId);
-      if (owner) {
-        const ownedUtilities = this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id).length;
-        const diceTotal = Math.max(2, (this.lastDice?.[0] || 0) + (this.lastDice?.[1] || 0));
-        rent = diceTotal * (ownedUtilities >= 2 ? 10 : 4);
-      } else {
-        rent = baseRent || 20;
-      }
+    if (!tile.group || !this.settings.doubleRent) return baseRent;
+    if (this.hasFullSet(tile.ownerId, tile.group)) {
+      return baseRent * 2;
     }
-    if (tile.type === 'railroad') {
-      const owner = this.getPlayerById(tile.ownerId);
-      if (!owner) {
-        rent = RAILROAD_RENT[0];
-      } else {
-        const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id).length;
-        rent = RAILROAD_RENT[Math.min(Math.max(ownedRailroads, 1), RAILROAD_RENT.length) - 1];
-      }
+    return baseRent;
+  }
+
+  utilityBaseRent(tile) {
+    const owner = this.getPlayerById(tile.ownerId);
+    if (!owner) return tile.rent || 20;
+    return this.diceTotal() * (this.ownedUtilityCount(owner) >= 2 ? 10 : 4);
+  }
+
+  ownedUtilityCount(owner) {
+    return this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id).length;
+  }
+
+  diceTotal() {
+    return Math.max(2, (this.lastDice?.[0] || 0) + (this.lastDice?.[1] || 0));
+  }
+
+  railroadBaseRent(tile) {
+    const owner = this.getPlayerById(tile.ownerId);
+    if (!owner) return RAILROAD_RENT[0];
+    const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id).length;
+    return RAILROAD_RENT[Math.min(Math.max(ownedRailroads, 1), RAILROAD_RENT.length) - 1];
+  }
+
+  applyEventRentModifiers(rent, tile) {
+    let total = rent;
+    for (const modifier of RENT_EVENT_MODIFIERS) {
+      if (!modifier.appliesTo(this, tile)) continue;
+      const factor = modifier.factor(this, tile);
+      if (Number.isFinite(factor)) total *= factor;
     }
-    if (this.globalEventActive('housing-bubble') && tile.type === 'property') rent *= 0.65;
-    if (this.globalEventActive('airport-strike') && tile.type === 'railroad') rent = 0;
-    if (this.globalEventActive('tourism-boom') && tile.type === 'railroad') rent *= 1.75;
-    if (this.globalEventActive('tourism-boom') && tile.group === 'Dark Blue') rent *= 1.3;
-    if (this.globalEventActive('anti-monopoly') && this.globalEvent.resolvedChoice !== 'dismiss' && tile.ownerId === this.globalEvent.targetPlayerId) rent *= 0.6;
-    if (this.globalEventActive('energy-crisis') && tile.type === 'utility') rent *= 1.5;
-    const airportMultiplier = Number(this.activeEventEffects().airportRentMultiplier);
-    if (Number.isFinite(airportMultiplier) && tile.type === 'railroad' && !this.globalEventActive('airport-strike')) rent *= airportMultiplier;
-    const utilityMultiplier = Number(this.activeEventEffects().utilityRentMultiplier);
-    if (Number.isFinite(utilityMultiplier) && tile.type === 'utility' && !this.globalEventActive('energy-crisis')) rent *= utilityMultiplier;
-    const premiumMultiplier = Number(this.activeEventEffects().premiumRentMultiplier);
-    if (Number.isFinite(premiumMultiplier) && tile.group === 'Dark Blue' && !this.globalEventActive('tourism-boom')) rent *= premiumMultiplier;
-    const rentMultiplier = Number(this.activeEventEffects().rentMultiplier);
-    if (Number.isFinite(rentMultiplier) && rentMultiplier > 0 && !this.globalEventActive('housing-bubble')) rent *= rentMultiplier;
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works' && tile.type === 'property') rent *= 0.75;
     const cap = Number(this.activeEventEffects().rentCap);
-    if (Number.isFinite(cap) && cap > 0) rent = Math.min(rent, cap);
-    return Math.max(0, Math.floor(rent));
+    if (Number.isFinite(cap) && cap > 0) total = Math.min(total, cap);
+    return Math.max(0, Math.floor(total));
   }
 
   isTradeableTile(tile) {
@@ -2141,6 +2175,10 @@ class GameState {
 
   isLowTaxElection() {
     return this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'low-tax';
+  }
+
+  isPublicWorksElection() {
+    return this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works';
   }
 
   // Shared movement-card pieces: the pass-Start salary, the airport-strike
