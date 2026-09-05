@@ -1007,6 +1007,7 @@ function applyServerState(snapshot) {
     pos: Number(player.position) || 0,
     online: !player.disconnected,
     bankrupt: Boolean(player.bankrupt),
+    inDebt: Boolean(player.inDebt),
     bot: Boolean(player.isBot),
     jailFree: Number(player.jailFreeCards) || 0,
     bankLoan: player.bankLoan || null,
@@ -1098,7 +1099,7 @@ function applyServerState(snapshot) {
   const retireBtn = $("#game-retire-btn");
   if (retireBtn) {
     const me = state.players[0];
-    retireBtn.disabled = !(state.phase === "playing" && me && !me.bankrupt && me.online !== false);
+    retireBtn.disabled = !(state.phase === "playing" && me && !me.bankrupt && !me.inDebt && me.online !== false);
   }
   const meServerId = state.players[0]?.serverId;
   if (debt && debt.playerId === meServerId && $("#bankruptcy-modal")?.classList.contains("is-hidden")) {
