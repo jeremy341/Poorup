@@ -1,8 +1,8 @@
 // Coverage runner: executes the in-memory suites as child processes so one
-// c8 pass collects both (public/ stays out of scope by design until R0).
+// c8 pass collects them all (public/ stays out of scope by design until R0).
 import { spawnSync } from 'child_process';
 
-const suites = ['server/gameLogic.test.js', 'server/persistence.test.js'];
+const suites = ['server/gameLogic.test.js', 'server/persistence.test.js', 'server/leaderboard.test.js'];
 let failed = 0;
 for (const suite of suites) {
   const run = spawnSync(process.execPath, [suite], { stdio: 'inherit' });
