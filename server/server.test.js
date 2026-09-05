@@ -47,6 +47,54 @@ function check(name, condition) {
   console.log(`${condition ? 'PASS' : 'FAIL'} — ${name}`);
 }
 
+function isBadAck(response) {
+  if (!response) return true;
+  if (response.__timeout) return true;
+  return response.success !== false;
+}
+
+async function connect(socket) {
+  await new Promise((resolve, reject) => {
+    socket.on('connect', resolve);
+    setTimeout(() => reject(new Error('socket connect timeout')), 8000);
+  });
+}
+
+async function checkNullPayloadStorm(socket, child) {
+  // The crash class: every handler that destructures its payload received a
+  // null and used to take the process down. Each must now ack, and the
+  // server must still be running afterwards.
+  const hostileEvents = [
+    'set-setting', 'set-player-appearance', 'purchase-property',
+    'decline-property', 'auction-bid', 'manage-property', 'respond-trade',
+    'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat'
+  ];
+  let allAnswered = true;
+  for (const event of hostileEvents) {
+    if (isBadAck(await ask(socket, event, null))) allAnswered = false;
+  }
+  check('null payloads are answered with error acks', allAnswered);
+  check('server survived the null payload storm', child.exitCode === null);
+}
+
+async function checkHappyPath(socket) {
+  // The scaffold must not change happy-path behavior: create a room, receive
+  // the viewer-scoped snapshot, then leave cleanly. The snapshot listener is
+  // attached before the create-room emit fires.
+  const snapshotReceived = new Promise(resolve => {
+    socket.once('update-state', resolve);
+    setTimeout(() => resolve(null), 3000);
+  });
+  const created = await ask(socket, 'create-room', { clientId: 'probe-client', nickname: 'Probe' });
+  check('create-room still succeeds over the wire', created?.success === true);
+  const snapshot = await snapshotReceived;
+  check('update-state snapshot arrives', snapshot?.room?.players?.[0]?.nickname === 'Probe');
+  const left = await ask(socket, 'leave-room', { clientId: 'probe-client' });
+  check('leave-room succeeds', left?.success === true);
+  const rooms = await ask(socket, 'list-rooms', undefined);
+  check('list-rooms succeeds with no payload', rooms?.success === true);
+}
+
 async function run() {
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
     env: { ...process.env, PORT: String(PORT) },
@@ -62,46 +110,11 @@ async function run() {
     check('server boots and serves the shell', true);
 
     socket = io(BASE, { reconnection: false });
-    const connected = new Promise((resolve, reject) => {
-      socket.on('connect', resolve);
-      setTimeout(() => reject(new Error('socket connect timeout')), 8000);
-    });
-    await connected;
+    await connect(socket);
     check('socket client connects', socket.connected);
 
-    // The crash class: every handler that destructures its payload received a
-    // null and used to take the process down. Each must now ack, and the
-    // server must still be running afterwards.
-    const hostileEvents = [
-      'set-setting', 'set-player-appearance', 'purchase-property',
-      'decline-property', 'auction-bid', 'manage-property', 'respond-trade',
-      'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat'
-    ];
-    let allAnswered = true;
-    for (const event of hostileEvents) {
-      const response = await ask(socket, event, null);
-      if (!response || response.__timeout || response.success !== false) allAnswered = false;
-    }
-    check('null payloads are answered with error acks', allAnswered);
-    check('server survived the null payload storm', child.exitCode === null);
-
-    // The scaffold must not change happy-path behavior: create a room,
-    // receive the viewer-scoped snapshot, then leave cleanly. The snapshot
-    // listener must be attached before the create-room emit fires.
-    const snapshotReceived = new Promise(resolve => {
-      socket.once('update-state', resolve);
-      setTimeout(() => resolve(null), 3000);
-    });
-    const created = await ask(socket, 'create-room', { clientId: 'probe-client', nickname: 'Probe' });
-    check('create-room still succeeds over the wire', created?.success === true);
-    const snapshot = await snapshotReceived;
-    check('update-state snapshot arrives', snapshot?.room?.players?.[0]?.nickname === 'Probe');
-    const left = await ask(socket, 'leave-room', { clientId: 'probe-client' });
-    check('leave-room succeeds', left?.success === true);
-
-    // A plain no-payload event (undefined first arg) keeps working too.
-    const rooms = await ask(socket, 'list-rooms', undefined);
-    check('list-rooms succeeds with no payload', rooms?.success === true);
+    await checkNullPayloadStorm(socket, child);
+    await checkHappyPath(socket);
 
     check('no uncaught exception was logged', !serverLog.includes('UNCAUGHT EXCEPTION'));
   } finally {
