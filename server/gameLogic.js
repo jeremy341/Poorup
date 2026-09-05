@@ -105,6 +105,20 @@ const MARKET_INSTRUMENTS = [
   ['switzerland', 'SWITZERLAND', 100], ['singapore', 'SINGAPORE', 100],
   ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
 ].map(([id, name, price]) => ({ id, name, price }));
+
+// Player-contract vocabularies and the market order gates, in the exact
+// historical check order; server/contracts-market.test.js pins every string.
+const CONTRACT_KINDS = new Set(['loan', 'equity']);
+const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
+const MARKET_SIDES = ['buy', 'sell'];
+const MARKET_ORDER_GUARDS = [
+  { test: game => !game.settings.market, error: 'Market access is off for this room.' },
+  { test: (game, player) => !game.started || !player || player.bankrupt || player.disconnected, error: 'Market access is unavailable right now.' },
+  { test: (game, player) => player.id !== game.currentPlayerId, error: 'Market orders are available during your turn.' },
+  { test: (game, player) => (player.marketActionsThisTurn || 0) >= 1, error: 'You have already placed a market order this turn.' },
+  { test: game => game.pendingPayment || game.auction || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
+  { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
+];
 const PROPERTY_HOUSE_COST_BY_GROUP = {
   Brown: 50,
   'Light Blue': 50,
@@ -326,6 +340,58 @@ const GLOBAL_EVENT_COMBINATIONS = [
     { id: 'emergency-bailout', label: 'EMERGENCY BAILOUT', description: 'Rescue distressed borrowers and carry a visible future premium.' },
     { id: 'let-the-ledger-run', label: 'LET THE LEDGER RUN', description: 'Refuse the rescue and keep the bank queue closed.' }
   ], effects: { bankActionsBlocked: true, loanPremiumMultiplier: 1.6 }, duration: 7 }
+];
+
+// Global-event dispatch tables, mirroring CARD_ACTION_HANDLERS and
+// RENT_EVENT_MODIFIERS below: activation-time targets, per-event activation
+// hooks, vote-outcome side effects, and ordered activation settlements.
+// Every entry encodes the exact condition and mutation the original inline
+// if-ladders performed; the settlement order is observable (feed order and
+// cash deltas), so the array sequence is frozen.
+function positiveFiniteEffect(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+const GLOBAL_EVENT_TARGET_FINDERS = {
+  'anti-monopoly': game => [...game.players].sort((a, b) => game.playerGroups(b).length - game.playerGroups(a).length)[0],
+  'tax-audit': game => [...game.activePlayers()].sort((a, b) => (Number(b.cash) || 0) - (Number(a.cash) || 0))[0]
+};
+
+const GLOBAL_EVENT_ACTIVATION_HOOKS = {
+  'airport-strike': game => game.activePlayers().forEach(player => {
+    if (player.properties.some(index => game.getTile(index)?.type === 'railroad')) player.airportOwnedDuringStrike = true;
+  })
+};
+
+const GLOBAL_EVENT_VOTE_OUTCOME_HANDLERS = {
+  'anti-monopoly': (game, event) => {
+    if (!event.targetPlayerId || event.resolvedChoice !== 'enforce') return;
+    const target = game.getPlayerById(event.targetPlayerId);
+    if (target && event.votes?.[target.id] !== 'enforce') target.publicEnemy = true;
+  },
+  'legitimacy-crisis': (game, event) => {
+    if (event.resolvedChoice !== 'bury-audit') return;
+    game.activePlayers().forEach(player => {
+      if (event.votes?.[player.id] === 'bury-audit') player.compromisedCouncil = true;
+    });
+  }
+};
+
+const GLOBAL_EVENT_SETTLEMENT_STEPS = [
+  { appliesTo: (game, event) => positiveFiniteEffect(event.effects?.rentControlStipend) !== null, handler: 'settleRentControlStipend' },
+  {
+    appliesTo: (game, event) => {
+      const multiplier = Number(event.effects?.cashMultiplier);
+      return Number.isFinite(multiplier) && multiplier > 0 && multiplier < 1;
+    },
+    handler: 'settleCashMultiplier'
+  },
+  {
+    appliesTo: (game, event) => ['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout',
+    handler: 'settleEmergencyBailout'
+  },
+  { appliesTo: (game, event) => event.id === 'tax-audit' && Boolean(event.targetPlayerId), handler: 'settleTaxAuditPenalty' }
 ];
 
 const DEFAULT_TILES = [
@@ -594,6 +660,17 @@ const CARD_ACTION_HANDLERS = {
   collectFromEach: 'collectFromEachCard'
 };
 
+// Property action dispatch: the four manageProperty verbs mapped to their
+// handler method names on GameState, replacing the original if/else ladder.
+const PROPERTY_ACTION_HANDLERS = {
+  'build-house': 'buildHousePropertyAction',
+  'sell-house': 'sellHousePropertyAction',
+  mortgage: 'mortgagePropertyAction',
+  unmortgage: 'unmortgagePropertyAction'
+};
+
+const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
+
 // Global-event rent modifiers as data: every rule is a multiplicative factor
 // (airport-strike is a factor of 0) keyed off the event/effect state, folded
 // in order over the base rent. None of them read the accumulated total, so
@@ -620,6 +697,98 @@ const RENT_EVENT_MODIFIERS = [
   { appliesTo: (game, tile) => tile.group === 'Dark Blue' && !game.globalEventActive('tourism-boom'), factor: (game) => Number(game.activeEventEffects().premiumRentMultiplier) },
   { appliesTo: (game) => !game.globalEventActive('housing-bubble'), factor: (game) => { const multiplier = Number(game.activeEventEffects().rentMultiplier); return multiplier > 0 ? multiplier : NaN; } }
 ];
+
+// Trade proposal rejection rules as data: one entry per original if-clause of
+// GameState.proposeTrade, kept in the original evaluation order so a single
+// error string wins exactly as before. The context is fully normalized up
+// front (pure lookups only), and every predicate reads just that context,
+// mirroring the RENT_EVENT_MODIFIERS style above.
+const TRADE_PROPOSAL_GUARDS = [
+  {
+    error: 'Choose a valid trade partner.',
+    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.id === ctx.toPlayer.id
+  },
+  {
+    error: 'Both players must be active to trade.',
+    rejects: (game, ctx) => ctx.fromPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.bankrupt || ctx.toPlayer.disconnected
+  },
+  {
+    error: 'Another trade is already pending.',
+    rejects: game => Boolean(game.pendingTrade || game.pendingPlayerContract)
+  },
+  {
+    error: 'Cash values must be valid numbers.',
+    rejects: (game, ctx) => !Number.isFinite(ctx.giveCash) || !Number.isFinite(ctx.requestCash)
+  },
+  {
+    error: 'Choose at least one cash or property item to include in the trade.',
+    rejects: (game, ctx) => !ctx.giveCash && !ctx.requestCash && !ctx.givePropertyIndexes.length && !ctx.requestPropertyIndexes.length
+  },
+  {
+    error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.',
+    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.fromPlayer.id))
+  },
+  {
+    error: 'The requested properties are not available for trade.',
+    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.toPlayer.id))
+  },
+  {
+    error: 'You do not have enough cash for this offer.',
+    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.giveCash
+  }
+];
+
+// Accept-side revalidation for respondToTrade: same order and strings as the
+// original accept branch. A fired guard also clears the pending trade, which
+// the responder does uniformly. The first entry covers the original combined
+// "players still exist, active" condition verbatim.
+const TRADE_SETTLEMENT_GUARDS = [
+  {
+    error: 'The trade is no longer valid.',
+    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.bankrupt || ctx.toPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.disconnected
+  },
+  {
+    error: 'One of the players no longer has enough cash.',
+    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.trade.giveCash || ctx.toPlayer.cash < ctx.trade.requestCash
+  },
+  {
+    error: 'One of the offered properties is no longer tradable.',
+    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.fromPlayerId))
+  },
+  {
+    error: 'One of the requested properties is no longer tradable.',
+    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.toPlayerId))
+  }
+];
+
+// Pre-roll bot candidate sources as data: the array order IS the original
+// push order inside getBotCandidates, and the final sort is stable, so ties
+// keep this sequence. Each collector returns a (possibly empty) array of
+// candidates shaped exactly as before; kind values are the contract consumed
+// by botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
+const BOT_CANDIDATE_SOURCES = [
+  { collect: (game, player) => game.botBuildCandidates(player) },
+  { collect: (game, player) => game.botMortgageCandidates(player) },
+  { collect: (game, player) => game.botLoanCandidate(player) },
+  { collect: (game, player) => game.botGroupTradeCandidate(player) },
+  { collect: (game, player) => game.botMarketCandidate(player) },
+  { collect: (game, player) => game.botCasinoCandidate(player) }
+];
+
+// Personality-driven candidate values as data tables so the collectors stay
+// branch-light while reproducing the original ternary ladders verbatim. The
+// casino spec is only read after the collector's guard confirms the
+// personality, so that entry is always defined there.
+const BOT_CASINO_SPECS = {
+  chaos: { color: 'green', stakeRate: 0.08, score: 18 },
+  shark: { color: 'red', stakeRate: 0.03, score: 11 }
+};
+
+const BOT_TRADE_ASKS = {
+  shark: { requestCash: 40, score: 8 },
+  diplomat: { requestCash: 0, score: 24 }
+};
+const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
 
 class GameState {
   constructor(settings) {
@@ -962,18 +1131,45 @@ class GameState {
   proposePlayerContract(socketId, offer = {}) {
     const fromPlayer = this.getPlayerBySocket(socketId);
     const toPlayer = this.getPlayerById(offer.toPlayerId);
-    const kind = ['loan', 'equity'].includes(String(offer.kind)) ? String(offer.kind) : 'loan';
+    const kind = CONTRACT_KINDS.has(String(offer.kind)) ? String(offer.kind) : 'loan';
     const amount = Math.floor(Number(offer.amount));
     const requestId = String(offer.requestId || '').trim().slice(0, 100);
     const transactionKey = requestId ? (fromPlayer?.id + ':contract:' + requestId) : null;
     if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
     const durationRounds = Math.max(1, Math.min(20, Math.floor(Number(offer.durationRounds) || 3)));
     const premiumRate = Math.max(0, Math.min(100, Number(offer.premiumRate) || 0));
-    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.disconnected || toPlayer.disconnected) return { success: false, error: 'Choose two active players.' };
+    const rejection = this.contractProposalRejection(fromPlayer, toPlayer, amount);
+    if (rejection) return rejection;
+    const contract = this.baseContractTerms(fromPlayer, toPlayer, kind, amount, premiumRate, durationRounds);
+    const terms = (kind === 'loan' ? this.loanContractTerms : this.equityContractTerms).call(this, contract, offer, toPlayer);
+    if (terms) return terms;
+    this.pendingPlayerContract = contract;
+    this.feedMessage(fromPlayer.nickname + ' sent a ' + kind + ' contract to ' + toPlayer.nickname + '.');
+    const result = { success: true, contract };
+    if (transactionKey) this.contractTransactions.set(transactionKey, result);
+    return result;
+  }
+
+  // Guard order and wording are pinned by server/contracts-market.test.js.
+  contractProposalRejection(fromPlayer, toPlayer, amount) {
+    if (!this.isPairOfActivePlayers(fromPlayer, toPlayer)) return { success: false, error: 'Choose two active players.' };
     if (fromPlayer.id !== this.currentPlayerId) return { success: false, error: 'Player contracts are proposed during your turn.' };
-    if (this.pendingPayment || this.auction || this.pendingPurchaseOffer || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the current table obligation first.' };
+    if (this.tableObligationOpen()) return { success: false, error: 'Resolve the current table obligation first.' };
     if (!Number.isInteger(amount) || amount < 1 || fromPlayer.cash < amount) return { success: false, error: 'The lender does not have enough cash for that offer.' };
-    const contract = {
+    return null;
+  }
+
+  isPairOfActivePlayers(fromPlayer, toPlayer) {
+    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id) return false;
+    return !fromPlayer.bankrupt && !toPlayer.bankrupt && !fromPlayer.disconnected && !toPlayer.disconnected;
+  }
+
+  tableObligationOpen() {
+    return [this.pendingPayment, this.auction, this.pendingPurchaseOffer, this.pendingTrade, this.pendingPlayerContract].some(Boolean);
+  }
+
+  baseContractTerms(fromPlayer, toPlayer, kind, amount, premiumRate, durationRounds) {
+    return {
       id: 'contract_' + crypto.randomUUID(),
       kind,
       fromPlayerId: fromPlayer.id,
@@ -987,31 +1183,44 @@ class GameState {
       equityShare: 0,
       equityControl: 'passive'
     };
-    if (kind === 'loan') {
-      const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
-      const collateral = collateralIndex == null ? null : this.getTile(collateralIndex);
-      if (collateral && (collateral.ownerId !== toPlayer.id || !this.isTradeableTile(collateral))) return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
-      contract.totalDue = amount + Math.ceil(amount * (premiumRate / 100));
-      contract.remaining = contract.totalDue;
-      contract.dueRound = this.roundNumber + durationRounds;
-      contract.cureRound = contract.dueRound + 1;
-      contract.collateralTileIndex = collateral?.index ?? null;
-    } else {
-      const property = this.getTile(Number(offer.propertyIndex));
-      const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
-      if (!property || property.type !== 'property' || property.ownerId !== toPlayer.id || property.mortgaged || property.houseCount > 0) return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
-      const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
-      if (existingShare + share > 100) return { success: false, error: 'That property has no remaining equity to sell.' };
-      contract.propertyIndex = property.index;
-      contract.equityShare = share;
-      contract.equityControl = ['passive', 'shared', 'controlling'].includes(offer.equityControl) ? offer.equityControl : 'passive';
-      contract.expiresRound = offer.permanent ? null : this.roundNumber + durationRounds;
+  }
+
+  // Term builders mutate the draft contract and return null, or return the
+  // rejection when the loan/equity specifics are invalid.
+  loanContractTerms(contract, offer, borrower) {
+    const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
+    const collateral = collateralIndex == null ? null : this.getTile(collateralIndex);
+    if (collateral && (collateral.ownerId !== borrower.id || !this.isTradeableTile(collateral))) {
+      return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
     }
-    this.pendingPlayerContract = contract;
-    this.feedMessage(fromPlayer.nickname + ' sent a ' + kind + ' contract to ' + toPlayer.nickname + '.');
-    const result = { success: true, contract };
-    if (transactionKey) this.contractTransactions.set(transactionKey, result);
-    return result;
+    contract.totalDue = contract.amount + Math.ceil(contract.amount * (contract.premiumRate / 100));
+    contract.remaining = contract.totalDue;
+    contract.dueRound = this.roundNumber + contract.durationRounds;
+    contract.cureRound = contract.dueRound + 1;
+    contract.collateralTileIndex = collateral?.index ?? null;
+    return null;
+  }
+
+  equityContractTerms(contract, offer, recipient) {
+    const property = this.getTile(Number(offer.propertyIndex));
+    const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
+    if (!this.isEquityEligibleProperty(property, recipient.id)) {
+      return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
+    }
+    const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+    if (existingShare + share > 100) {
+      return { success: false, error: 'That property has no remaining equity to sell.' };
+    }
+    contract.propertyIndex = property.index;
+    contract.equityShare = share;
+    contract.equityControl = EQUITY_CONTROL_MODES.has(offer.equityControl) ? offer.equityControl : 'passive';
+    contract.expiresRound = offer.permanent ? null : this.roundNumber + contract.durationRounds;
+    return null;
+  }
+
+  isEquityEligibleProperty(property, ownerId) {
+    if (!property || property.type !== 'property' || property.ownerId !== ownerId) return false;
+    return !property.mortgaged && !(property.houseCount > 0);
   }
 
   respondPlayerContract(socketId, accept, requestId = null) {
@@ -1710,102 +1919,134 @@ class GameState {
     });
   }
 
-  maybeTriggerGlobalEvent(source = 'round') {
-    const enabled = this.settings.globalEvents === true || this.settings.globalEvents === 1 || this.settings.globalEvents === 'true' || this.settings.globalEvents === 'on' || this.settings.globalEvents === 'rare' || this.settings.globalEvents === 'hardcore';
-    if (!this.started || !enabled || this.globalEvent || this.globalEventCooldown > 0) return;
-    if (this.roundNumber < GLOBAL_EVENT_MIN_ROUND) return;
+  globalEventsEnabled() {
+    const value = this.settings.globalEvents;
+    return value === true || value === 1 || value === 'true' || value === 'on' || value === 'rare' || value === 'hardcore';
+  }
+
+  globalEventExpectedRounds() {
+    return Math.max(12, this.activePlayers().length * 8);
+  }
+
+  globalEventProgress(expectedRounds = this.globalEventExpectedRounds()) {
+    return Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
+  }
+
+  // One headline per match is the safe default. A second headline is only
+  // possible when a surprise draw completes a named, curated combination.
+  pendingGlobalEventCombo(source) {
+    if (this.globalEventsTriggered !== 1 || source !== 'surprise') return null;
     const previous = this.globalEventHistory[0];
-    const combo = this.globalEventsTriggered === 1 && source === 'surprise' && previous && !previous.comboId
-      ? GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.required.includes(previous.id))
-      : null;
-    // One headline per match is the safe default. A second headline is only
-    // possible when it completes a named, curated combination.
+    if (!previous || previous.comboId) return null;
+    return GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.required.includes(previous.id)) || null;
+  }
+
+  globalEventTriggerChance(source) {
+    const progress = this.globalEventProgress();
+    if (progress < 0.18) return 0;
+    if (source === 'surprise') return progress < 0.55 ? 0.05 : 0.07;
+    return progress < 0.55 ? 0.025 : 0.04;
+  }
+
+  selectWeightedGlobalEvent(eventPool) {
+    const totalWeight = eventPool.reduce((sum, event) => sum + (event.weight || 1), 0);
+    let roll = randomFloat() * totalWeight;
+    return eventPool.find(event => (roll -= (event.weight || 1)) <= 0) || eventPool[eventPool.length - 1];
+  }
+
+  maybeTriggerGlobalEvent(source = 'round') {
+    if (!this.started || !this.globalEventsEnabled() || this.globalEvent || this.globalEventCooldown > 0) return;
+    if (this.roundNumber < GLOBAL_EVENT_MIN_ROUND) return;
+    const combo = this.pendingGlobalEventCombo(source);
     if (this.globalEventsTriggered >= 1 && !combo) return;
     const eligible = GLOBAL_EVENT_DEFINITIONS.filter(event => event.eligible(this));
+    const previous = this.globalEventHistory[0];
     const comboEventId = combo?.required.find(id => id !== previous.id);
     const eventPool = combo ? eligible.filter(event => event.id === comboEventId) : eligible;
     if (!eventPool.length) return;
-    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
-    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
-    const boundaryChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.025 : 0.04;
-    const surpriseChance = progress < 0.18 ? 0 : progress < 0.55 ? 0.05 : 0.07;
-    const chance = source === 'surprise' ? surpriseChance : boundaryChance;
-    if (randomFloat() >= chance) return;
-    const totalWeight = eventPool.reduce((sum, event) => sum + (event.weight || 1), 0);
-    let roll = randomFloat() * totalWeight;
-    const selected = eventPool.find(event => (roll -= (event.weight || 1)) <= 0) || eventPool[eventPool.length - 1];
-    this.activateGlobalEvent(selected, combo);
+    if (randomFloat() >= this.globalEventTriggerChance(source)) return;
+    this.activateGlobalEvent(this.selectWeightedGlobalEvent(eventPool), combo);
   }
 
-  activateGlobalEvent(definition, combo = null) {
-    const expectedRounds = Math.max(12, this.activePlayers().length * 8);
-    const progress = Math.max(0, Math.min(1, (this.roundNumber - 1) / expectedRounds));
-    const duration = combo?.duration || (definition.id === 'housing-bubble'
-      ? (progress > 0.6 ? 8 : 7)
-      : (progress > 0.6 ? 7 : 6));
-    const choices = (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
-    const leader = !combo && definition.id === 'anti-monopoly'
-      ? [...this.players].sort((a, b) => this.playerGroups(b).length - this.playerGroups(a).length)[0]
-      : null;
-    const auditTarget = !combo && definition.id === 'tax-audit'
-      ? [...this.activePlayers()].sort((a, b) => (Number(b.cash) || 0) - (Number(a.cash) || 0))[0]
-      : null;
-    this.globalEvent = {
+  globalEventDurationRounds(definition, combo) {
+    if (combo?.duration) return combo.duration;
+    const late = this.globalEventProgress() > 0.6;
+    if (definition.id === 'housing-bubble') return late ? 8 : 7;
+    return late ? 7 : 6;
+  }
+
+  globalEventChoices(definition, combo) {
+    return (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
+  }
+
+  globalEventBaseFields(definition, combo) {
+    return {
       id: combo?.id || definition.id,
       title: combo?.title || definition.title,
       category: combo ? 'COMBINATION' : definition.category,
       summary: combo?.summary || definition.summary,
-      effects: { ...(definition.effects || {}), ...(combo?.effects || {}) },
+      effects: { ...(definition.effects || {}), ...(combo?.effects || {}) }
+    };
+  }
+
+  buildGlobalEvent(definition, combo) {
+    const choices = this.globalEventChoices(definition, combo);
+    const findTarget = !combo && GLOBAL_EVENT_TARGET_FINDERS[definition.id];
+    const target = findTarget ? findTarget(this) : null;
+    return {
+      ...this.globalEventBaseFields(definition, combo),
       phase: choices ? 'voting' : 'warning',
       startedRound: this.roundNumber,
       voteRound: choices ? this.roundNumber : null,
-      durationRounds: duration,
+      durationRounds: this.globalEventDurationRounds(definition, combo),
       roundsRemaining: choices ? 1 : 1,
       choices,
       votes: {},
       resolvedChoice: null,
-      targetPlayerId: leader?.id || auditTarget?.id || null
+      targetPlayerId: target?.id || null
     };
+  }
+
+  activateGlobalEvent(definition, combo = null) {
+    this.globalEvent = this.buildGlobalEvent(definition, combo);
     this.globalEvent.comboId = combo?.id || null;
     if (combo) this.activePlayers().forEach(player => { player.comboExperienced = true; });
-    if (definition.id === 'airport-strike') {
-      this.activePlayers().forEach(player => {
-        if (player.properties.some(index => this.getTile(index)?.type === 'railroad')) player.airportOwnedDuringStrike = true;
-      });
-    }
+    const onActivate = GLOBAL_EVENT_ACTIVATION_HOOKS[definition.id];
+    if (onActivate) onActivate(this);
     this.activePlayers().forEach(player => {
       player.globalEventsExperienced = (player.globalEventsExperienced || 0) + 1;
     });
     this.globalEventsTriggered += 1;
-    this.feedMessage(choices
+    this.feedMessage(this.globalEvent.choices
       ? `${this.globalEvent.title} is live. The table votes before the next round.`
       : `${this.globalEvent.title} is building. The table has one round to prepare.`);
+  }
+
+  globalEventVoteWinners(event) {
+    const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
+    Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
+    const top = Math.max(...Object.values(counts), 0);
+    return Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
+  }
+
+  applyGlobalEventVoteOutcomes(event) {
+    const voters = this.activePlayers();
+    const allVotedSame = voters.length > 0 && voters.every(player => event.votes?.[player.id] === event.resolvedChoice);
+    voters.forEach(player => {
+      if (event.votes?.[player.id]) player.lastVoteChoice = event.votes[player.id];
+      if (event.votes?.[player.id] === event.resolvedChoice) player.councilWins = (player.councilWins || 0) + 1;
+      if (allVotedSame) player.unanimousVote = true;
+    });
+    const onResolved = GLOBAL_EVENT_VOTE_OUTCOME_HANDLERS[event.id];
+    if (onResolved) onResolved(this, event);
   }
 
   resolveGlobalEventVote() {
     const event = this.globalEvent;
     if (!event || event.phase !== 'voting') return;
-    const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
-    Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
-    const top = Math.max(...Object.values(counts), 0);
-    const winners = Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
+    const winners = this.globalEventVoteWinners(event);
     event.resolvedChoice = winners.length ? winners[randomInt(0, winners.length - 1)] : event.choices?.[0]?.id || null;
-    const allVotedSame = this.activePlayers().length > 0
-      && this.activePlayers().every(player => event.votes?.[player.id] === event.resolvedChoice);
-    this.activePlayers().forEach(player => {
-      if (event.votes?.[player.id]) player.lastVoteChoice = event.votes[player.id];
-      if (event.votes?.[player.id] === event.resolvedChoice) player.councilWins = (player.councilWins || 0) + 1;
-      if (allVotedSame) player.unanimousVote = true;
-    });
-    if (event.id === 'anti-monopoly' && event.targetPlayerId) {
-      const target = this.getPlayerById(event.targetPlayerId);
-      if (target && event.resolvedChoice === 'enforce' && event.votes?.[target.id] !== 'enforce') target.publicEnemy = true;
-    }
-    if (event.id === 'legitimacy-crisis' && event.resolvedChoice === 'bury-audit') {
-      this.activePlayers().forEach(player => {
-        if (event.votes?.[player.id] === 'bury-audit') player.compromisedCouncil = true;
-      });
-    }
+    this.applyGlobalEventVoteOutcomes(event);
     event.phase = 'active';
     event.startedRound = this.roundNumber;
     event.roundsRemaining = event.durationRounds;
@@ -1831,43 +2072,50 @@ class GameState {
     const event = this.globalEvent;
     if (!event || event.phase !== 'active' || event.settlementApplied) return;
     event.settlementApplied = true;
-    const stipend = Number(event.effects?.rentControlStipend);
-    if (Number.isFinite(stipend) && stipend > 0) {
-      this.activePlayers().filter(player => player.properties.length > 0).forEach(player => {
-        player.cash += stipend;
-        this.feedMessage(`${player.nickname} received a $${stipend} rent-control stipend.`);
-      });
-    }
+    GLOBAL_EVENT_SETTLEMENT_STEPS.forEach(step => {
+      if (step.appliesTo(this, event)) this[step.handler](event);
+    });
+  }
+
+  settleRentControlStipend(event) {
+    const stipend = positiveFiniteEffect(event.effects?.rentControlStipend);
+    this.activePlayers().filter(player => player.properties.length > 0).forEach(player => {
+      player.cash += stipend;
+      this.feedMessage(`${player.nickname} received a $${stipend} rent-control stipend.`);
+    });
+  }
+
+  settleCashMultiplier(event) {
     const cashMultiplier = Number(event.effects?.cashMultiplier);
-    if (Number.isFinite(cashMultiplier) && cashMultiplier > 0 && cashMultiplier < 1) {
-      this.activePlayers().forEach(player => {
-        player.cash = Math.max(0, Math.floor(player.cash * cashMultiplier));
-        if (player.cash === 0) player.zeroCashReached = true;
-      });
-      this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
-    }
-    if (['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout') {
-      const threshold = this.settings.startingCash * 0.5;
-      const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
-      this.activePlayers().filter(player => player.cash < threshold || ['active', 'due'].includes(player.bankLoan?.status)).forEach(player => {
-        player.cash += rescue;
-        player.bailoutReceived = true;
-        if (['active', 'due'].includes(player.bankLoan?.status)) player.moralHazard = true;
-        this.feedMessage(`${player.nickname} received a $${rescue} emergency bailout.`);
-      });
-    }
-    if (event.id === 'tax-audit' && event.targetPlayerId) {
-      const target = this.getPlayerById(event.targetPlayerId);
-      if (target && !target.bankrupt) {
-        const amount = Math.min(target.cash, Math.max(25, Math.floor(target.cash * 0.1)));
-        if (amount <= 0) return;
-        target.cash -= amount;
-        if (this.settings.vacationCash) this.vacationPool += amount;
-        if (target.cash === 0) target.zeroCashReached = true;
-        target.taxAuditCount = (target.taxAuditCount || 0) + 1;
-        this.feedMessage(`${target.nickname} paid $${amount} after the tax scandal audit.`);
-      }
-    }
+    this.activePlayers().forEach(player => {
+      player.cash = Math.max(0, Math.floor(player.cash * cashMultiplier));
+      if (player.cash === 0) player.zeroCashReached = true;
+    });
+    this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
+  }
+
+  settleEmergencyBailout() {
+    const threshold = this.settings.startingCash * 0.5;
+    const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
+    this.activePlayers().filter(player => player.cash < threshold || ['active', 'due'].includes(player.bankLoan?.status)).forEach(player => {
+      player.cash += rescue;
+      player.bailoutReceived = true;
+      if (['active', 'due'].includes(player.bankLoan?.status)) player.moralHazard = true;
+      this.feedMessage(`${player.nickname} received a $${rescue} emergency bailout.`);
+    });
+  }
+
+  settleTaxAuditPenalty() {
+    const event = this.globalEvent;
+    const target = this.getPlayerById(event.targetPlayerId);
+    if (!target || target.bankrupt) return;
+    const amount = Math.min(target.cash, Math.max(25, Math.floor(target.cash * 0.1)));
+    if (amount <= 0) return;
+    target.cash -= amount;
+    if (this.settings.vacationCash) this.vacationPool += amount;
+    if (target.cash === 0) target.zeroCashReached = true;
+    target.taxAuditCount = (target.taxAuditCount || 0) + 1;
+    this.feedMessage(`${target.nickname} paid $${amount} after the tax scandal audit.`);
   }
 
   collectBuildingMaintenance() {
@@ -2075,45 +2323,55 @@ class GameState {
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
     const instrument = MARKET_INSTRUMENTS.find(entry => entry.id === id);
-    if (!this.settings.market) return { success: false, error: 'Market access is off for this room.' };
-    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Market access is unavailable right now.' };
-    if (player.id !== this.currentPlayerId) return { success: false, error: 'Market orders are available during your turn.' };
-    if ((player.marketActionsThisTurn || 0) >= 1) return { success: false, error: 'You have already placed a market order this turn.' };
-    if (this.pendingPayment || this.auction || this.pendingTrade || this.pendingPlayerContract) return { success: false, error: 'Resolve the table obligation before trading.' };
-    if (this.activeEventEffects().tradingEnabled === false) return { success: false, error: 'Market trading is paused by the active global event.' };
-    if (!instrument || !['buy', 'sell'].includes(direction)) return { success: false, error: 'Choose a valid market order.' };
-    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
+    const rejection = this.marketOrderRejection(player, instrument, direction, amount);
+    if (rejection) return rejection;
     const quote = Number(this.marketQuotes[id]) || instrument.price;
     const gross = quote * amount;
     const fee = Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
     const position = player.marketPositions[id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
-    if (direction === 'buy') {
-      const total = gross + fee;
-      if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
-      player.cash -= total;
-      position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
-      position.quantity += amount;
-      const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
-      if (this.globalEvent?.phase === 'active' && Number.isFinite(eventMultiplier) && eventMultiplier < 1) {
-        player.crisisMarketBuys[id] ||= { quote, roundNumber: this.roundNumber };
-      }
-    } else {
-      if (position.quantity < amount) return { success: false, error: 'You do not hold enough of this index.' };
-      player.cash += gross - fee;
-      position.realizedPnl += (quote - position.averageCost) * amount - fee;
-      position.quantity -= amount;
-      if (player.crisisMarketBuys?.[id] && quote > Number(player.crisisMarketBuys[id].quote || 0) && this.globalEvent?.phase !== 'active') {
-        player.crisisMarketProfit = true;
-        delete player.crisisMarketBuys[id];
-      }
-      if (!position.quantity) position.averageCost = 0;
-    }
+    const leg = direction === 'buy' ? this.applyMarketBuy : this.applyMarketSell;
+    const legRejection = leg.call(this, player, id, position, { quote, gross, fee, amount });
+    if (legRejection) return legRejection;
     player.marketPositions[id] = position;
     player.marketTrades = (player.marketTrades || 0) + 1;
     player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
     this.marketLedger = [{ transactionId: key || crypto.randomUUID(), roundNumber: this.roundNumber, playerId: player.id, instrumentId: id, side: direction, quantity: amount, quote, fee, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
     this.feedMessage(`${player.nickname} ${direction === 'buy' ? 'bought' : 'sold'} ${amount} ${instrument.name} index unit${amount === 1 ? '' : 's'}.`);
     return this.cacheTransaction(key, { success: true, order: { instrumentId: id, side: direction, quantity: amount, quote, fee, total: direction === 'buy' ? gross + fee : gross - fee }, economy: this.economySnapshot(player.id) });
+  }
+
+  marketOrderRejection(player, instrument, direction, amount) {
+    const guard = MARKET_ORDER_GUARDS.find(entry => entry.test(this, player));
+    if (guard) return { success: false, error: guard.error };
+    if (!instrument || !MARKET_SIDES.includes(direction)) return { success: false, error: 'Choose a valid market order.' };
+    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
+    return null;
+  }
+
+  applyMarketBuy(player, id, position, { quote, gross, fee, amount }) {
+    const total = gross + fee;
+    if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
+    player.cash -= total;
+    position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
+    position.quantity += amount;
+    const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
+    if (this.globalEvent?.phase === 'active' && Number.isFinite(eventMultiplier) && eventMultiplier < 1) {
+      player.crisisMarketBuys[id] ||= { quote, roundNumber: this.roundNumber };
+    }
+    return null;
+  }
+
+  applyMarketSell(player, id, position, { quote, gross, fee, amount }) {
+    if (position.quantity < amount) return { success: false, error: 'You do not hold enough of this index.' };
+    player.cash += gross - fee;
+    position.realizedPnl += (quote - position.averageCost) * amount - fee;
+    position.quantity -= amount;
+    if (player.crisisMarketBuys?.[id] && quote > Number(player.crisisMarketBuys[id].quote || 0) && this.globalEvent?.phase !== 'active') {
+      player.crisisMarketProfit = true;
+      delete player.crisisMarketBuys[id];
+    }
+    if (!position.quantity) position.averageCost = 0;
+    return null;
   }
 
   applyTile(player, tile, options = {}) {
@@ -2964,223 +3222,258 @@ class GameState {
     this.auction = null;
   }
 
-  manageProperty(socketId, { tileIndex, action } = {}) {
+  manageProperty(socketId, payload = {}) {
+    const { tileIndex, action } = payload || {};
     const player = this.getPlayerBySocket(socketId);
     const tile = this.getTile(tileIndex);
-    if (!player || !tile) {
-      return { success: false, error: 'Property not found.' };
-    }
-    if (tile.ownerId !== player.id) {
-      return { success: false, error: 'You do not own this property.' };
-    }
-
-    const settlingDebt = this.pendingPayment?.playerId === player.id;
-
-    if (action === 'build-house' || action === 'sell-house') {
-      if (!settlingDebt) {
-        if (player.id !== this.currentPlayerId) {
-          return { success: false, error: 'You can only build or sell during your turn.' };
-        }
-        if (this.hasRolled && !this.extraRollPending) {
-          return { success: false, error: 'You can only build or sell before rolling the dice.' };
-        }
-      } else if (action === 'build-house') {
-        return { success: false, error: 'You cannot build while settling a debt.' };
-      }
-    }
-
-    let result;
-    if (action === 'build-house') {
-      if (!this.canBuildOnTile(player, tile)) {
-        return { success: false, error: 'You cannot build on this property right now.' };
-      }
-      const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
-      if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
-        return { success: false, error: 'The active event limits building actions this turn.' };
-      }
-      const cost = this.getPropertyHouseCost(tile);
-      if (player.cash < cost) {
-        return { success: false, error: 'Insufficient cash to build a house.' };
-      }
-      player.cash -= cost;
-      tile.houseCount = (tile.houseCount || 0) + 1;
-      player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
-      if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
-      if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
-      if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'public-works') {
-        player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
-      }
-      const label = tile.houseCount >= 5 ? 'hotel' : 'house';
-      this.feedMessage(`${player.nickname} built a ${label} on ${tile.name}.`);
-      result = { success: true };
-    } else if (action === 'sell-house') {
-      if (!this.canSellFromTile(player, tile)) {
-        return { success: false, error: 'You cannot sell a house from this property right now.' };
-      }
-      const cost = this.getPropertyHouseCost(tile);
-      const wasHotel = (tile.houseCount || 0) >= 5;
-      tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
-      const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
-      const saleMultiplier = Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
-      player.cash += Math.floor(cost * saleMultiplier);
-      if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
-      const label = wasHotel ? 'hotel' : 'house';
-      this.feedMessage(`${player.nickname} sold a ${label} from ${tile.name}.`);
-      result = { success: true };
-    } else if (action === 'mortgage') {
-      if (!this.canMortgageTile(player, tile)) {
-        return { success: false, error: 'You cannot mortgage this property right now.' };
-      }
-      tile.mortgaged = true;
-      const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
-      const amount = Math.floor((tile.price || 0) / 2 * (Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1));
-      player.cash += amount;
-      this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
-      result = { success: true };
-    } else if (action === 'unmortgage') {
-      if (!this.canUnmortgageTile(player, tile)) {
-        return { success: false, error: 'You cannot unmortgage this property right now.' };
-      }
-      const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
-      if (player.cash < cost) {
-        return { success: false, error: 'Insufficient cash to unmortgage this property.' };
-      }
-      player.cash -= cost;
-      tile.mortgaged = false;
-      this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
-      result = { success: true };
-    } else {
-      return { success: false, error: 'Unknown property action.' };
-    }
-
+    const rejection = this.propertyActionRejection(player, tile, action);
+    if (rejection) return rejection;
+    const handlerName = PROPERTY_ACTION_HANDLERS[action];
+    if (!handlerName) return { success: false, error: 'Unknown property action.' };
+    const result = this[handlerName](player, tile);
     if (result?.success && this.pendingPayment?.playerId === player.id) {
       this.trySettlePendingPayment();
     }
     return result;
   }
 
+  // The shared gates of all four actions, in the historical order: existence,
+  // ownership, then the build/sell turn window (relaxed while settling debt).
+  propertyActionRejection(player, tile, action) {
+    if (!player || !tile) {
+      return { success: false, error: 'Property not found.' };
+    }
+    if (tile.ownerId !== player.id) {
+      return { success: false, error: 'You do not own this property.' };
+    }
+    const settlingDebt = this.pendingPayment?.playerId === player.id;
+    const buildOrSell = action === 'build-house' || action === 'sell-house';
+    if (!buildOrSell) return null;
+    if (!settlingDebt) return this.buildWindowRejection(player);
+    if (action === 'build-house') {
+      return { success: false, error: 'You cannot build while settling a debt.' };
+    }
+    return null;
+  }
+
+  buildWindowRejection(player) {
+    if (player.id !== this.currentPlayerId) {
+      return { success: false, error: 'You can only build or sell during your turn.' };
+    }
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You can only build or sell before rolling the dice.' };
+    }
+    return null;
+  }
+
+  buildingLimitRejection(player) {
+    const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
+    if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
+      return { success: false, error: 'The active event limits building actions this turn.' };
+    }
+    return null;
+  }
+
+  // Side effects a completed build awards, beyond the house itself.
+  applyBuildBonuses(player) {
+    if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
+    if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
+    const election = this.globalEvent;
+    if (election?.phase === 'active' && election.id === 'city-election' && election.resolvedChoice === 'public-works') {
+      player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
+    }
+  }
+
+  buildHousePropertyAction(player, tile) {
+    if (!this.canBuildOnTile(player, tile)) {
+      return { success: false, error: 'You cannot build on this property right now.' };
+    }
+    const limit = this.buildingLimitRejection(player);
+    if (limit) return limit;
+    const cost = this.getPropertyHouseCost(tile);
+    if (player.cash < cost) {
+      return { success: false, error: 'Insufficient cash to build a house.' };
+    }
+    player.cash -= cost;
+    tile.houseCount = (tile.houseCount || 0) + 1;
+    player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
+    this.applyBuildBonuses(player);
+    this.feedMessage(`${player.nickname} built a ${buildingLabel(tile.houseCount)} on ${tile.name}.`);
+    return { success: true };
+  }
+
+  sellHousePropertyAction(player, tile) {
+    if (!this.canSellFromTile(player, tile)) {
+      return { success: false, error: 'You cannot sell a house from this property right now.' };
+    }
+    const cost = this.getPropertyHouseCost(tile);
+    const wasHotel = (tile.houseCount || 0) >= 5;
+    tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
+    player.cash += Math.floor(cost * this.buildingSaleMultiplier());
+    if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
+    this.feedMessage(`${player.nickname} sold a ${buildingLabel(wasHotel ? 5 : 0)} from ${tile.name}.`);
+    return { success: true };
+  }
+
+  buildingSaleMultiplier() {
+    const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
+    return Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
+  }
+
+  mortgagePropertyAction(player, tile) {
+    if (!this.canMortgageTile(player, tile)) {
+      return { success: false, error: 'You cannot mortgage this property right now.' };
+    }
+    tile.mortgaged = true;
+    const amount = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
+    player.cash += amount;
+    this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
+    return { success: true };
+  }
+
+  propertyValueMultiplier() {
+    const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
+    return Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1;
+  }
+
+  unmortgagePropertyAction(player, tile) {
+    if (!this.canUnmortgageTile(player, tile)) {
+      return { success: false, error: 'You cannot unmortgage this property right now.' };
+    }
+    const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
+    if (player.cash < cost) {
+      return { success: false, error: 'Insufficient cash to unmortgage this property.' };
+    }
+    player.cash -= cost;
+    tile.mortgaged = false;
+    this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
+    return { success: true };
+  }
+
   proposeTrade(socketId, offer = {}) {
+    const ctx = this.tradeProposalContext(socketId, offer);
+    const guard = TRADE_PROPOSAL_GUARDS.find(entry => entry.rejects(this, ctx));
+    if (guard) return { success: false, error: guard.error };
+    const trade = {
+      id: crypto.randomUUID(),
+      fromPlayerId: ctx.fromPlayer.id,
+      fromPlayerName: ctx.fromPlayer.nickname,
+      toPlayerId: ctx.toPlayer.id,
+      toPlayerName: ctx.toPlayer.nickname,
+      giveCash: ctx.giveCash,
+      requestCash: ctx.requestCash,
+      givePropertyIndexes: ctx.givePropertyIndexes,
+      requestPropertyIndexes: ctx.requestPropertyIndexes,
+      createdAt: Date.now()
+    };
+    this.pendingTrade = trade;
+    this.feedMessage(`${ctx.fromPlayer.nickname} sent a trade offer to ${ctx.toPlayer.nickname}.`);
+    return { success: true, trade };
+  }
+
+  // One normalization pass for the raw offer: cash clamping, index coercion,
+  // and tile resolution all happen exactly as in the original single-body
+  // implementation, before any guard reads the context.
+  tradeProposalContext(socketId, offer) {
     const fromPlayer = this.getPlayerBySocket(socketId);
     const toPlayer = this.getPlayerById(offer.toPlayerId);
-    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id) {
-      return { success: false, error: 'Choose a valid trade partner.' };
-    }
-    if (fromPlayer.bankrupt || fromPlayer.disconnected || toPlayer.bankrupt || toPlayer.disconnected) {
-      return { success: false, error: 'Both players must be active to trade.' };
-    }
-    if (this.pendingTrade || this.pendingPlayerContract) {
-      return { success: false, error: 'Another trade is already pending.' };
-    }
-
     const giveCash = Math.max(0, Number(offer.giveCash || 0));
     const requestCash = Math.max(0, Number(offer.requestCash || 0));
     const givePropertyIndexes = Array.isArray(offer.givePropertyIndexes) ? offer.givePropertyIndexes.map(Number) : [];
     const requestPropertyIndexes = Array.isArray(offer.requestPropertyIndexes) ? offer.requestPropertyIndexes.map(Number) : [];
-
-    if (!Number.isFinite(giveCash) || !Number.isFinite(requestCash)) {
-      return { success: false, error: 'Cash values must be valid numbers.' };
-    }
-
     const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
     const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
+    return { fromPlayer, toPlayer, giveCash, requestCash, givePropertyIndexes, requestPropertyIndexes, giveTiles, requestTiles };
+  }
 
-    if (!giveCash && !requestCash && !givePropertyIndexes.length && !requestPropertyIndexes.length) {
-      return { success: false, error: 'Choose at least one cash or property item to include in the trade.' };
-    }
-
-    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
-      return { success: false, error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.' };
-    }
-    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
-      return { success: false, error: 'The requested properties are not available for trade.' };
-    }
-    if (fromPlayer.cash < giveCash) {
-      return { success: false, error: 'You do not have enough cash for this offer.' };
-    }
-
-    const trade = {
-      id: crypto.randomUUID(),
-      fromPlayerId: fromPlayer.id,
-      fromPlayerName: fromPlayer.nickname,
-      toPlayerId: toPlayer.id,
-      toPlayerName: toPlayer.nickname,
-      giveCash,
-      requestCash,
-      givePropertyIndexes,
-      requestPropertyIndexes,
-      createdAt: Date.now()
-    };
-
-    this.pendingTrade = trade;
-    this.feedMessage(`${fromPlayer.nickname} sent a trade offer to ${toPlayer.nickname}.`);
-    return { success: true, trade };
+  // The original inline per-tile leg check, named: a missing deed, a deed
+  // owned by someone else, or an untradeable deed voids the leg.
+  tradeLegTileUnavailable(tile, ownerId) {
+    if (!tile) return true;
+    if (tile.ownerId !== ownerId) return true;
+    return !this.isTradeableTile(tile);
   }
 
   respondToTrade(socketId, { tradeId, accept } = {}) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || !this.pendingTrade || this.pendingTrade.id !== tradeId) {
+    if (!player) {
       return { success: false, error: 'No matching trade offer was found.' };
     }
     const trade = this.pendingTrade;
+    if (!trade || trade.id !== tradeId) {
+      return { success: false, error: 'No matching trade offer was found.' };
+    }
     if (trade.toPlayerId !== player.id) {
       return { success: false, error: 'Only the receiving player can respond to this trade.' };
     }
-
     if (!accept) {
-      this.feedMessage(`${player.nickname} declined the trade offer.`);
-      this.pendingTrade = null;
-      return { success: true, accepted: false };
+      return this.declineTradeOffer(player);
     }
+    const ctx = this.tradeSettlementContext(trade);
+    const guard = TRADE_SETTLEMENT_GUARDS.find(entry => entry.rejects(this, ctx));
+    if (guard) {
+      this.pendingTrade = null;
+      return { success: false, error: guard.error };
+    }
+    return this.settleTradeOffer(ctx);
+  }
 
-    const fromPlayer = this.getPlayerById(trade.fromPlayerId);
-    const toPlayer = this.getPlayerById(trade.toPlayerId);
-    if (!fromPlayer || !toPlayer || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.disconnected || toPlayer.disconnected) {
-      this.pendingTrade = null;
-      return { success: false, error: 'The trade is no longer valid.' };
-    }
-    if (fromPlayer.cash < trade.giveCash || toPlayer.cash < trade.requestCash) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the players no longer has enough cash.' };
-    }
+  // Deed re-resolution at accept time; pure tile lookups for the guards and
+  // the settlement transfer below.
+  tradeSettlementContext(trade) {
+    return {
+      trade,
+      fromPlayer: this.getPlayerById(trade.fromPlayerId),
+      toPlayer: this.getPlayerById(trade.toPlayerId),
+      giveTiles: trade.givePropertyIndexes.map(index => this.getTile(index)),
+      requestTiles: trade.requestPropertyIndexes.map(index => this.getTile(index))
+    };
+  }
 
-    const giveTiles = trade.givePropertyIndexes.map(index => this.getTile(index));
-    const requestTiles = trade.requestPropertyIndexes.map(index => this.getTile(index));
-    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the offered properties is no longer tradable.' };
-    }
-    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the requested properties is no longer tradable.' };
-    }
+  declineTradeOffer(player) {
+    this.feedMessage(`${player.nickname} declined the trade offer.`);
+    this.pendingTrade = null;
+    return { success: true, accepted: false };
+  }
 
+  settleTradeOffer(ctx) {
+    const { trade, fromPlayer, toPlayer, giveTiles, requestTiles } = ctx;
     fromPlayer.cash -= trade.giveCash;
     toPlayer.cash += trade.giveCash;
     toPlayer.cash -= trade.requestCash;
     fromPlayer.cash += trade.requestCash;
-
     giveTiles.forEach(tile => this.applyPropertyOwnershipChange(fromPlayer, toPlayer, tile));
     requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
-
     this.pendingTrade = null;
     this.tradesCompleted += 1;
-    if (giveTiles.length + requestTiles.length >= 3) {
+    this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
+    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
+    this.settleTradeLinkedPayments(fromPlayer, toPlayer);
+    return { success: true, accepted: true };
+  }
+
+  markCompletedTradeFlags(fromPlayer, toPlayer, tradedPropertyCount) {
+    if (tradedPropertyCount >= 3) {
       fromPlayer.groupTherapyTrade = true;
       toPlayer.groupTherapyTrade = true;
     }
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'stagflation') {
+    if (this.globalEventActive('stagflation')) {
       fromPlayer.tradesDuringCombo = (fromPlayer.tradesDuringCombo || 0) + 1;
       toPlayer.tradesDuringCombo = (toPlayer.tradesDuringCombo || 0) + 1;
     }
-    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice && fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
-      fromPlayer.coalitionTrade = true;
-      toPlayer.coalitionTrade = true;
+    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice) {
+      if (fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
+        fromPlayer.coalitionTrade = true;
+        toPlayer.coalitionTrade = true;
+      }
     }
-    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
-    if (this.pendingPayment?.playerId === fromPlayer.id || this.pendingPayment?.playerId === toPlayer.id) {
-      this.trySettlePendingPayment();
+  }
+
+  settleTradeLinkedPayments(fromPlayer, toPlayer) {
+    if (this.pendingPayment?.playerId !== fromPlayer.id && this.pendingPayment?.playerId !== toPlayer.id) {
+      return;
     }
-    return { success: true, accepted: true };
+    this.trySettlePendingPayment();
   }
 
   endTurn(socketId) {
@@ -3220,63 +3513,97 @@ class GameState {
     }
   }
 
+  // Roll is always available; the pre-roll table appends the remaining
+  // candidate sources in their historical order, then the stable sort ranks
+  // them by score desc, risk asc.
   getBotCandidates(player) {
     if (!player?.isBot) return [];
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
     if (!this.hasRolled) {
-      this.tiles.filter(tile => this.canBuildOnTile(player, tile)).forEach(tile => {
-        const cost = this.getPropertyHouseCost(tile);
-        candidates.push({ id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 });
-      });
-      if (player.cash < 180) {
-        this.tiles.filter(tile => this.canMortgageTile(player, tile)).forEach(tile => {
-          candidates.push({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 });
-        });
-      }
-      const loan = this.getBankLoanOffer(player);
-      if (loan.available) candidates.push({ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 });
-      const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
-      const giveTile = player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-      const askTile = partner?.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-      if (partner && giveTile && askTile && giveTile.group && giveTile.group === askTile.group) {
-        candidates.push({
-          id: 'trade:' + partner.id + ':' + askTile.index,
-          kind: 'trade',
-          toPlayerId: partner.id,
-          givePropertyIndexes: [giveTile.index],
-          requestPropertyIndexes: [askTile.index],
-          giveCash: 0,
-          requestCash: player.personality === 'shark' ? 40 : 0,
-          risk: 0.2,
-          score: player.personality === 'diplomat' ? 24 : 8
-        });
-      }
-      if (this.settings.market && (player.marketActionsThisTurn || 0) < 1) {
-        const marketId = Object.entries(this.marketQuotes || {}).sort(([, a], [, b]) => a - b)[0]?.[0];
-        if (marketId) {
-          candidates.push({
-            id: 'market:' + marketId,
-            kind: 'market',
-            instrumentId: marketId,
-            side: 'buy',
-            quantity: 1,
-            risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
-            score: player.personality === 'speculator' ? 20 : 4
-          });
-        }
-      }
-      if (this.settings.casino && (player.casinoBetsThisRound || 0) < 1 && ['shark', 'chaos'].includes(player.personality) && player.cash > 20) {
-        candidates.push({
-          id: 'casino:red',
-          kind: 'casino',
-          color: player.personality === 'chaos' ? 'green' : 'red',
-          stake: Math.min(20, Math.max(1, Math.floor(player.cash * (player.personality === 'chaos' ? 0.08 : 0.03)))),
-          risk: 0.55,
-          score: player.personality === 'chaos' ? 18 : 11
-        });
+      for (const source of BOT_CANDIDATE_SOURCES) {
+        candidates.push(...source.collect(this, player));
       }
     }
     return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+  }
+
+  botBuildCandidates(player) {
+    return this.tiles
+      .filter(tile => this.canBuildOnTile(player, tile))
+      .map(tile => {
+        const cost = this.getPropertyHouseCost(tile);
+        return { id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 };
+      });
+  }
+
+  botMortgageCandidates(player) {
+    if (player.cash >= 180) return [];
+    return this.tiles
+      .filter(tile => this.canMortgageTile(player, tile))
+      .map(tile => ({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 }));
+  }
+
+  botLoanCandidate(player) {
+    const loan = this.getBankLoanOffer(player);
+    if (!loan.available) return [];
+    return [{ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 }];
+  }
+
+  botGroupTradeCandidate(player) {
+    const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
+    if (!partner) return [];
+    const giveTile = this.firstTradeableOwnedTile(player);
+    const askTile = this.firstTradeableOwnedTile(partner);
+    if (!giveTile || !askTile) return [];
+    if (!giveTile.group || giveTile.group !== askTile.group) return [];
+    const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
+    return [{
+      id: 'trade:' + partner.id + ':' + askTile.index,
+      kind: 'trade',
+      toPlayerId: partner.id,
+      givePropertyIndexes: [giveTile.index],
+      requestPropertyIndexes: [askTile.index],
+      giveCash: 0,
+      requestCash: ask.requestCash,
+      risk: 0.2,
+      score: ask.score
+    }];
+  }
+
+  firstTradeableOwnedTile(player) {
+    return player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
+  }
+
+  botMarketCandidate(player) {
+    if (!this.settings.market) return [];
+    if ((player.marketActionsThisTurn || 0) >= 1) return [];
+    const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
+    if (!marketId) return [];
+    return [{
+      id: 'market:' + marketId,
+      kind: 'market',
+      instrumentId: marketId,
+      side: 'buy',
+      quantity: 1,
+      risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
+      score: player.personality === 'speculator' ? 20 : 4
+    }];
+  }
+
+  botCasinoCandidate(player) {
+    if (!this.settings.casino) return [];
+    if ((player.casinoBetsThisRound || 0) >= 1) return [];
+    if (!['shark', 'chaos'].includes(player.personality)) return [];
+    if (player.cash <= 20) return [];
+    const spec = BOT_CASINO_SPECS[player.personality];
+    return [{
+      id: 'casino:red',
+      kind: 'casino',
+      color: spec.color,
+      stake: Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate))),
+      risk: 0.55,
+      score: spec.score
+    }];
   }
 
   skipDisconnectedCurrentPlayer() {
