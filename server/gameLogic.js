@@ -3085,6 +3085,8 @@ class Room {
     this.settings = { ...DEFAULT_ROOM_SETTINGS };
     this.game = new GameState(this.settings);
     this.game.addPlayer(hostPlayer);
+    this.playerMap = new Map();
+    this.playerMap.set(hostPlayer.id, hostPlayer);
   }
 
   addOrReconnectPlayer(playerInfo) {
@@ -3116,6 +3118,7 @@ class Room {
     const player = new Player(playerInfo);
     player.color = resolveFreeAppearanceColor(this.game.players, player.color, player);
     this.game.addPlayer(player);
+    this.playerMap.set(player.id, player);
     return { success: true, player };
   }
 
@@ -3188,6 +3191,7 @@ class Room {
     if (existingBots.length > required) {
       existingBots.slice(required).forEach(bot => {
         this.game.removePlayerByClient(bot.clientId);
+        this.playerMap.delete(bot.id);
       });
     }
     const botCount = Math.min(existingBots.length, required);
@@ -3201,6 +3205,7 @@ class Room {
         personality: this.settings.botPersonality
       });
       this.game.addPlayer(bot);
+      this.playerMap.set(bot.id, bot);
     }
   }
 
@@ -3293,11 +3298,7 @@ class Room {
   }
 
   getRoomSummary() {
-    // Legacy clients may still send these fields; the server owns scaling now,
-    // so they never leave the server side of the wire.
-    const publicSettings = { ...this.settings };
-    delete publicSettings.globalEventDuration;
-    delete publicSettings.globalEventMax;
+    const { globalEventDuration, globalEventMax, ...publicSettings } = this.settings;
     return {
       // Public tables are discovered directly; only private tables expose an
       // invite code in the client-facing room projection.
@@ -3424,6 +3425,7 @@ class RoomManager {
     // A real leave releases the seat in the lobby AND mid-game, so the room
     // can drain to empty and the GC can reclaim it.
     game.removePlayerByClient(clientId);
+    room.playerMap.delete(playerId);
     if (game.started) {
       if (Array.isArray(game.turnOrder)) {
         game.turnOrder = game.turnOrder.filter(id => id !== playerId);
