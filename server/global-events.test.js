@@ -37,13 +37,11 @@ function ownsFullBrownGroup(game, player) {
 async function stubRng({ floats = [], ints = {} } = {}) {
   const nodeCrypto = (await import('crypto')).default;
   const original = nodeCrypto.randomInt;
-  const floatQueue = floats.map(probability => Math.round(probability * 1_000_000));
-  const intQueues = Object.fromEntries(Object.entries(ints).map(([key, values]) => [key, [...values]]));
+  const queues = Object.fromEntries(Object.entries(ints).map(([key, values]) => [key, [...values]]));
+  if (floats.length) queues['0,1000000'] = floats.map(probability => Math.round(probability * 1_000_000));
   nodeCrypto.randomInt = (min, max) => {
-    if (min === 0 && max === 1_000_000 && floatQueue.length) return floatQueue.shift();
-    const queue = intQueues[`${min},${max}`];
-    if (queue && queue.length) return queue.shift();
-    return original(min, max);
+    const queue = queues[`${min},${max}`];
+    return queue && queue.length ? queue.shift() : original(min, max);
   };
   return () => { nodeCrypto.randomInt = original; };
 }
