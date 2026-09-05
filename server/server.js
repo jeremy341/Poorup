@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
-import { RoomManager } from './gameLogic.js';
+import { RoomManager, AUCTION_DURATION_MS } from './gameLogic.js';
 import { AccountStore } from './accountStore.js';
 import { SocialStore } from './socialStore.js';
 import { MatchStore } from './matchStore.js';
@@ -39,7 +39,6 @@ const achievementStore = new AchievementStore();
 const botAdvisor = createBotAdvisor();
 const auctionTimers = new Map();
 const disconnectTimers = new Map();
-const AUCTION_DURATION_MS = 5000;
 const DISCONNECT_GRACE_MS = 10000;
 // C8: AFK turn watchdog cadence. A connected-but-idle seat stalls a started
 // game forever (the disconnect-grace skip only fires on real disconnects), so

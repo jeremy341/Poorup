@@ -3454,5 +3454,5 @@ class RoomManager {
   }
 }
 
-export { RoomManager, GameState, Room, APPEARANCE_PRESET_COLORS };
+export { RoomManager, GameState, Room, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 
