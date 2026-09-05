@@ -1,8 +1,8 @@
 import crypto from 'crypto';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { participantFromPlayer } from './participantFields.js';
+import { loadJson, writeJson } from './storeIO.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,6 +106,40 @@ function hashSessionToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+// The one authoritative list of per-account stat counters, in the shape
+// order the on-disk format has always used. Loaded records, fresh
+// registrations and any future store all funnel through this table.
+const STATS_KEYS = [
+  'gamesPlayed', 'wins', 'bankruptcies', 'auctionWins', 'rentCollected',
+  'eventSurvival', 'casinoNet', 'marketProfit', 'playerLoansGiven',
+  'playerLoansRepaid', 'playerLoanDefaults', 'equityDeals', 'bankLoansTaken',
+  'bankLoanRepayments', 'bankLoanDefaults', 'patrolBest', 'patrolAceRuns'
+];
+
+function sanitizeStats(stats) {
+  const clean = {};
+  STATS_KEYS.forEach((key) => {
+    clean[key] = Number(stats?.[key]) || 0;
+  });
+  return clean;
+}
+
+function normalizeLoadedAccount(handle, account) {
+  return {
+    ...account,
+    username: handle,
+    displayName: normalizeDisplayName(account.displayName, account.username),
+    color: normalizeColor(account.color),
+    avatarGrid: sanitizeAvatarGrid(account.avatarGrid),
+    stats: sanitizeStats(account.stats),
+    history: sanitizeHistory(account.history),
+    achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
+    matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50) : [],
+    privacy: sanitizePrivacy(account.privacy),
+    recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null
+  };
+}
+
 export class AccountStore {
   constructor(filePath = DEFAULT_FILE) {
     this.filePath = filePath;
@@ -115,56 +149,22 @@ export class AccountStore {
   }
 
   load() {
-    try {
-      const raw = fs.readFileSync(this.filePath, 'utf8');
-      const entries = JSON.parse(raw);
-      if (!Array.isArray(entries)) return;
-      entries.forEach((account) => {
-        const handle = normalizeUsername(account?.username);
-        // Normalize legacy records as they load and keep the Map invariant
-        // case-insensitive. If a malformed file contains duplicate handles,
-        // the first valid record remains the owner of that username.
-        if (!account || !USERNAME_RE.test(handle) || this.accounts.has(handle)) return;
-        this.accounts.set(handle, {
-          ...account,
-          username: handle,
-          displayName: normalizeDisplayName(account.displayName, account.username),
-          color: normalizeColor(account.color),
-          avatarGrid: sanitizeAvatarGrid(account.avatarGrid),
-          stats: {
-            gamesPlayed: Number(account.stats?.gamesPlayed) || 0,
-            wins: Number(account.stats?.wins) || 0,
-            bankruptcies: Number(account.stats?.bankruptcies) || 0,
-            auctionWins: Number(account.stats?.auctionWins) || 0,
-            rentCollected: Number(account.stats?.rentCollected) || 0,
-            eventSurvival: Number(account.stats?.eventSurvival) || 0,
-            casinoNet: Number(account.stats?.casinoNet) || 0,
-            marketProfit: Number(account.stats?.marketProfit) || 0,
-            playerLoansGiven: Number(account.stats?.playerLoansGiven) || 0,
-            playerLoansRepaid: Number(account.stats?.playerLoansRepaid) || 0,
-            playerLoanDefaults: Number(account.stats?.playerLoanDefaults) || 0,
-            equityDeals: Number(account.stats?.equityDeals) || 0,
-            bankLoansTaken: Number(account.stats?.bankLoansTaken) || 0,
-            bankLoanRepayments: Number(account.stats?.bankLoanRepayments) || 0,
-            bankLoanDefaults: Number(account.stats?.bankLoanDefaults) || 0,
-            patrolBest: Number(account.stats?.patrolBest) || 0,
-            patrolAceRuns: Number(account.stats?.patrolAceRuns) || 0,
-          },
-          history: sanitizeHistory(account.history),
-          achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
-          matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50) : [],
-          privacy: sanitizePrivacy(account.privacy),
-          recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null,
-        });
-      });
-    } catch {
-      // A missing or malformed local account file starts a clean account store.
-    }
+    const { value } = loadJson(this.filePath);
+    if (!value) return;
+    const entries = value;
+    if (!Array.isArray(entries)) return;
+    entries.forEach((account) => {
+      const handle = normalizeUsername(account?.username);
+      // Normalize legacy records as they load and keep the Map invariant
+      // case-insensitive. If a malformed file contains duplicate handles,
+      // the first valid record remains the owner of that username.
+      if (!account || !USERNAME_RE.test(handle) || this.accounts.has(handle)) return;
+      this.accounts.set(handle, normalizeLoadedAccount(handle, account));
+    });
   }
 
   persist() {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, `${JSON.stringify([...this.accounts.values()], null, 2)}\n`, 'utf8');
+    writeJson(this.filePath, [...this.accounts.values()]);
   }
 
   sessionAccount(sessionToken) {
@@ -207,7 +207,7 @@ export class AccountStore {
       avatarGrid: sanitizeAvatarGrid(avatarGrid),
       passwordSalt: salt,
       passwordHash: hashPassword(password, salt),
-      stats: { gamesPlayed: 0, wins: 0, bankruptcies: 0, auctionWins: 0, rentCollected: 0, eventSurvival: 0, casinoNet: 0, marketProfit: 0, playerLoansGiven: 0, playerLoansRepaid: 0, playerLoanDefaults: 0, equityDeals: 0, bankLoansTaken: 0, bankLoanRepayments: 0, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0 },
+      stats: sanitizeStats({}),
       history: [],
       achievements: [],
       matchHistory: [],
