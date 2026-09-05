@@ -628,6 +628,98 @@ const RENT_EVENT_MODIFIERS = [
   { appliesTo: (game) => !game.globalEventActive('housing-bubble'), factor: (game) => { const multiplier = Number(game.activeEventEffects().rentMultiplier); return multiplier > 0 ? multiplier : NaN; } }
 ];
 
+// Trade proposal rejection rules as data: one entry per original if-clause of
+// GameState.proposeTrade, kept in the original evaluation order so a single
+// error string wins exactly as before. The context is fully normalized up
+// front (pure lookups only), and every predicate reads just that context,
+// mirroring the RENT_EVENT_MODIFIERS style above.
+const TRADE_PROPOSAL_GUARDS = [
+  {
+    error: 'Choose a valid trade partner.',
+    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.id === ctx.toPlayer.id
+  },
+  {
+    error: 'Both players must be active to trade.',
+    rejects: (game, ctx) => ctx.fromPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.bankrupt || ctx.toPlayer.disconnected
+  },
+  {
+    error: 'Another trade is already pending.',
+    rejects: game => Boolean(game.pendingTrade || game.pendingPlayerContract)
+  },
+  {
+    error: 'Cash values must be valid numbers.',
+    rejects: (game, ctx) => !Number.isFinite(ctx.giveCash) || !Number.isFinite(ctx.requestCash)
+  },
+  {
+    error: 'Choose at least one cash or property item to include in the trade.',
+    rejects: (game, ctx) => !ctx.giveCash && !ctx.requestCash && !ctx.givePropertyIndexes.length && !ctx.requestPropertyIndexes.length
+  },
+  {
+    error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.',
+    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.fromPlayer.id))
+  },
+  {
+    error: 'The requested properties are not available for trade.',
+    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.toPlayer.id))
+  },
+  {
+    error: 'You do not have enough cash for this offer.',
+    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.giveCash
+  }
+];
+
+// Accept-side revalidation for respondToTrade: same order and strings as the
+// original accept branch. A fired guard also clears the pending trade, which
+// the responder does uniformly. The first entry covers the original combined
+// "players still exist, active" condition verbatim.
+const TRADE_SETTLEMENT_GUARDS = [
+  {
+    error: 'The trade is no longer valid.',
+    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.bankrupt || ctx.toPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.disconnected
+  },
+  {
+    error: 'One of the players no longer has enough cash.',
+    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.trade.giveCash || ctx.toPlayer.cash < ctx.trade.requestCash
+  },
+  {
+    error: 'One of the offered properties is no longer tradable.',
+    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.fromPlayerId))
+  },
+  {
+    error: 'One of the requested properties is no longer tradable.',
+    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.toPlayerId))
+  }
+];
+
+// Pre-roll bot candidate sources as data: the array order IS the original
+// push order inside getBotCandidates, and the final sort is stable, so ties
+// keep this sequence. Each collector returns a (possibly empty) array of
+// candidates shaped exactly as before; kind values are the contract consumed
+// by botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
+const BOT_CANDIDATE_SOURCES = [
+  { collect: (game, player) => game.botBuildCandidates(player) },
+  { collect: (game, player) => game.botMortgageCandidates(player) },
+  { collect: (game, player) => game.botLoanCandidate(player) },
+  { collect: (game, player) => game.botGroupTradeCandidate(player) },
+  { collect: (game, player) => game.botMarketCandidate(player) },
+  { collect: (game, player) => game.botCasinoCandidate(player) }
+];
+
+// Personality-driven candidate values as data tables so the collectors stay
+// branch-light while reproducing the original ternary ladders verbatim. The
+// casino spec is only read after the collector's guard confirms the
+// personality, so that entry is always defined there.
+const BOT_CASINO_SPECS = {
+  chaos: { color: 'green', stakeRate: 0.08, score: 18 },
+  shark: { color: 'red', stakeRate: 0.03, score: 11 }
+};
+
+const BOT_TRADE_ASKS = {
+  shark: { requestCash: 40, score: 8 },
+  diplomat: { requestCash: 0, score: 24 }
+};
+const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -3027,127 +3119,129 @@ class GameState {
   }
 
   proposeTrade(socketId, offer = {}) {
+    const ctx = this.tradeProposalContext(socketId, offer);
+    const guard = TRADE_PROPOSAL_GUARDS.find(entry => entry.rejects(this, ctx));
+    if (guard) return { success: false, error: guard.error };
+    const trade = {
+      id: crypto.randomUUID(),
+      fromPlayerId: ctx.fromPlayer.id,
+      fromPlayerName: ctx.fromPlayer.nickname,
+      toPlayerId: ctx.toPlayer.id,
+      toPlayerName: ctx.toPlayer.nickname,
+      giveCash: ctx.giveCash,
+      requestCash: ctx.requestCash,
+      givePropertyIndexes: ctx.givePropertyIndexes,
+      requestPropertyIndexes: ctx.requestPropertyIndexes,
+      createdAt: Date.now()
+    };
+    this.pendingTrade = trade;
+    this.feedMessage(`${ctx.fromPlayer.nickname} sent a trade offer to ${ctx.toPlayer.nickname}.`);
+    return { success: true, trade };
+  }
+
+  // One normalization pass for the raw offer: cash clamping, index coercion,
+  // and tile resolution all happen exactly as in the original single-body
+  // implementation, before any guard reads the context.
+  tradeProposalContext(socketId, offer) {
     const fromPlayer = this.getPlayerBySocket(socketId);
     const toPlayer = this.getPlayerById(offer.toPlayerId);
-    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id) {
-      return { success: false, error: 'Choose a valid trade partner.' };
-    }
-    if (fromPlayer.bankrupt || fromPlayer.disconnected || toPlayer.bankrupt || toPlayer.disconnected) {
-      return { success: false, error: 'Both players must be active to trade.' };
-    }
-    if (this.pendingTrade || this.pendingPlayerContract) {
-      return { success: false, error: 'Another trade is already pending.' };
-    }
-
     const giveCash = Math.max(0, Number(offer.giveCash || 0));
     const requestCash = Math.max(0, Number(offer.requestCash || 0));
     const givePropertyIndexes = Array.isArray(offer.givePropertyIndexes) ? offer.givePropertyIndexes.map(Number) : [];
     const requestPropertyIndexes = Array.isArray(offer.requestPropertyIndexes) ? offer.requestPropertyIndexes.map(Number) : [];
-
-    if (!Number.isFinite(giveCash) || !Number.isFinite(requestCash)) {
-      return { success: false, error: 'Cash values must be valid numbers.' };
-    }
-
     const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
     const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
+    return { fromPlayer, toPlayer, giveCash, requestCash, givePropertyIndexes, requestPropertyIndexes, giveTiles, requestTiles };
+  }
 
-    if (!giveCash && !requestCash && !givePropertyIndexes.length && !requestPropertyIndexes.length) {
-      return { success: false, error: 'Choose at least one cash or property item to include in the trade.' };
-    }
-
-    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
-      return { success: false, error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.' };
-    }
-    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
-      return { success: false, error: 'The requested properties are not available for trade.' };
-    }
-    if (fromPlayer.cash < giveCash) {
-      return { success: false, error: 'You do not have enough cash for this offer.' };
-    }
-
-    const trade = {
-      id: crypto.randomUUID(),
-      fromPlayerId: fromPlayer.id,
-      fromPlayerName: fromPlayer.nickname,
-      toPlayerId: toPlayer.id,
-      toPlayerName: toPlayer.nickname,
-      giveCash,
-      requestCash,
-      givePropertyIndexes,
-      requestPropertyIndexes,
-      createdAt: Date.now()
-    };
-
-    this.pendingTrade = trade;
-    this.feedMessage(`${fromPlayer.nickname} sent a trade offer to ${toPlayer.nickname}.`);
-    return { success: true, trade };
+  // The original inline per-tile leg check, named: a missing deed, a deed
+  // owned by someone else, or an untradeable deed voids the leg.
+  tradeLegTileUnavailable(tile, ownerId) {
+    if (!tile) return true;
+    if (tile.ownerId !== ownerId) return true;
+    return !this.isTradeableTile(tile);
   }
 
   respondToTrade(socketId, { tradeId, accept } = {}) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || !this.pendingTrade || this.pendingTrade.id !== tradeId) {
+    if (!player) {
       return { success: false, error: 'No matching trade offer was found.' };
     }
     const trade = this.pendingTrade;
+    if (!trade || trade.id !== tradeId) {
+      return { success: false, error: 'No matching trade offer was found.' };
+    }
     if (trade.toPlayerId !== player.id) {
       return { success: false, error: 'Only the receiving player can respond to this trade.' };
     }
-
     if (!accept) {
-      this.feedMessage(`${player.nickname} declined the trade offer.`);
-      this.pendingTrade = null;
-      return { success: true, accepted: false };
+      return this.declineTradeOffer(player);
     }
+    const ctx = this.tradeSettlementContext(trade);
+    const guard = TRADE_SETTLEMENT_GUARDS.find(entry => entry.rejects(this, ctx));
+    if (guard) {
+      this.pendingTrade = null;
+      return { success: false, error: guard.error };
+    }
+    return this.settleTradeOffer(ctx);
+  }
 
-    const fromPlayer = this.getPlayerById(trade.fromPlayerId);
-    const toPlayer = this.getPlayerById(trade.toPlayerId);
-    if (!fromPlayer || !toPlayer || fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.disconnected || toPlayer.disconnected) {
-      this.pendingTrade = null;
-      return { success: false, error: 'The trade is no longer valid.' };
-    }
-    if (fromPlayer.cash < trade.giveCash || toPlayer.cash < trade.requestCash) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the players no longer has enough cash.' };
-    }
+  // Deed re-resolution at accept time; pure tile lookups for the guards and
+  // the settlement transfer below.
+  tradeSettlementContext(trade) {
+    return {
+      trade,
+      fromPlayer: this.getPlayerById(trade.fromPlayerId),
+      toPlayer: this.getPlayerById(trade.toPlayerId),
+      giveTiles: trade.givePropertyIndexes.map(index => this.getTile(index)),
+      requestTiles: trade.requestPropertyIndexes.map(index => this.getTile(index))
+    };
+  }
 
-    const giveTiles = trade.givePropertyIndexes.map(index => this.getTile(index));
-    const requestTiles = trade.requestPropertyIndexes.map(index => this.getTile(index));
-    if (giveTiles.some(tile => !tile || tile.ownerId !== fromPlayer.id || !this.isTradeableTile(tile))) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the offered properties is no longer tradable.' };
-    }
-    if (requestTiles.some(tile => !tile || tile.ownerId !== toPlayer.id || !this.isTradeableTile(tile))) {
-      this.pendingTrade = null;
-      return { success: false, error: 'One of the requested properties is no longer tradable.' };
-    }
+  declineTradeOffer(player) {
+    this.feedMessage(`${player.nickname} declined the trade offer.`);
+    this.pendingTrade = null;
+    return { success: true, accepted: false };
+  }
 
+  settleTradeOffer(ctx) {
+    const { trade, fromPlayer, toPlayer, giveTiles, requestTiles } = ctx;
     fromPlayer.cash -= trade.giveCash;
     toPlayer.cash += trade.giveCash;
     toPlayer.cash -= trade.requestCash;
     fromPlayer.cash += trade.requestCash;
-
     giveTiles.forEach(tile => this.applyPropertyOwnershipChange(fromPlayer, toPlayer, tile));
     requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
-
     this.pendingTrade = null;
     this.tradesCompleted += 1;
-    if (giveTiles.length + requestTiles.length >= 3) {
+    this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
+    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
+    this.settleTradeLinkedPayments(fromPlayer, toPlayer);
+    return { success: true, accepted: true };
+  }
+
+  markCompletedTradeFlags(fromPlayer, toPlayer, tradedPropertyCount) {
+    if (tradedPropertyCount >= 3) {
       fromPlayer.groupTherapyTrade = true;
       toPlayer.groupTherapyTrade = true;
     }
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'stagflation') {
+    if (this.globalEventActive('stagflation')) {
       fromPlayer.tradesDuringCombo = (fromPlayer.tradesDuringCombo || 0) + 1;
       toPlayer.tradesDuringCombo = (toPlayer.tradesDuringCombo || 0) + 1;
     }
-    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice && fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
-      fromPlayer.coalitionTrade = true;
-      toPlayer.coalitionTrade = true;
+    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice) {
+      if (fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
+        fromPlayer.coalitionTrade = true;
+        toPlayer.coalitionTrade = true;
+      }
     }
-    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
-    if (this.pendingPayment?.playerId === fromPlayer.id || this.pendingPayment?.playerId === toPlayer.id) {
-      this.trySettlePendingPayment();
+  }
+
+  settleTradeLinkedPayments(fromPlayer, toPlayer) {
+    if (this.pendingPayment?.playerId !== fromPlayer.id && this.pendingPayment?.playerId !== toPlayer.id) {
+      return;
     }
-    return { success: true, accepted: true };
+    this.trySettlePendingPayment();
   }
 
   endTurn(socketId) {
@@ -3187,63 +3281,97 @@ class GameState {
     }
   }
 
+  // Roll is always available; the pre-roll table appends the remaining
+  // candidate sources in their historical order, then the stable sort ranks
+  // them by score desc, risk asc.
   getBotCandidates(player) {
     if (!player?.isBot) return [];
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
     if (!this.hasRolled) {
-      this.tiles.filter(tile => this.canBuildOnTile(player, tile)).forEach(tile => {
-        const cost = this.getPropertyHouseCost(tile);
-        candidates.push({ id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 });
-      });
-      if (player.cash < 180) {
-        this.tiles.filter(tile => this.canMortgageTile(player, tile)).forEach(tile => {
-          candidates.push({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 });
-        });
-      }
-      const loan = this.getBankLoanOffer(player);
-      if (loan.available) candidates.push({ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 });
-      const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
-      const giveTile = player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-      const askTile = partner?.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-      if (partner && giveTile && askTile && giveTile.group && giveTile.group === askTile.group) {
-        candidates.push({
-          id: 'trade:' + partner.id + ':' + askTile.index,
-          kind: 'trade',
-          toPlayerId: partner.id,
-          givePropertyIndexes: [giveTile.index],
-          requestPropertyIndexes: [askTile.index],
-          giveCash: 0,
-          requestCash: player.personality === 'shark' ? 40 : 0,
-          risk: 0.2,
-          score: player.personality === 'diplomat' ? 24 : 8
-        });
-      }
-      if (this.settings.market && (player.marketActionsThisTurn || 0) < 1) {
-        const marketId = Object.entries(this.marketQuotes || {}).sort(([, a], [, b]) => a - b)[0]?.[0];
-        if (marketId) {
-          candidates.push({
-            id: 'market:' + marketId,
-            kind: 'market',
-            instrumentId: marketId,
-            side: 'buy',
-            quantity: 1,
-            risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
-            score: player.personality === 'speculator' ? 20 : 4
-          });
-        }
-      }
-      if (this.settings.casino && (player.casinoBetsThisRound || 0) < 1 && ['shark', 'chaos'].includes(player.personality) && player.cash > 20) {
-        candidates.push({
-          id: 'casino:red',
-          kind: 'casino',
-          color: player.personality === 'chaos' ? 'green' : 'red',
-          stake: Math.min(20, Math.max(1, Math.floor(player.cash * (player.personality === 'chaos' ? 0.08 : 0.03)))),
-          risk: 0.55,
-          score: player.personality === 'chaos' ? 18 : 11
-        });
+      for (const source of BOT_CANDIDATE_SOURCES) {
+        candidates.push(...source.collect(this, player));
       }
     }
     return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+  }
+
+  botBuildCandidates(player) {
+    return this.tiles
+      .filter(tile => this.canBuildOnTile(player, tile))
+      .map(tile => {
+        const cost = this.getPropertyHouseCost(tile);
+        return { id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 };
+      });
+  }
+
+  botMortgageCandidates(player) {
+    if (player.cash >= 180) return [];
+    return this.tiles
+      .filter(tile => this.canMortgageTile(player, tile))
+      .map(tile => ({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 }));
+  }
+
+  botLoanCandidate(player) {
+    const loan = this.getBankLoanOffer(player);
+    if (!loan.available) return [];
+    return [{ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 }];
+  }
+
+  botGroupTradeCandidate(player) {
+    const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
+    if (!partner) return [];
+    const giveTile = this.firstTradeableOwnedTile(player);
+    const askTile = this.firstTradeableOwnedTile(partner);
+    if (!giveTile || !askTile) return [];
+    if (!giveTile.group || giveTile.group !== askTile.group) return [];
+    const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
+    return [{
+      id: 'trade:' + partner.id + ':' + askTile.index,
+      kind: 'trade',
+      toPlayerId: partner.id,
+      givePropertyIndexes: [giveTile.index],
+      requestPropertyIndexes: [askTile.index],
+      giveCash: 0,
+      requestCash: ask.requestCash,
+      risk: 0.2,
+      score: ask.score
+    }];
+  }
+
+  firstTradeableOwnedTile(player) {
+    return player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
+  }
+
+  botMarketCandidate(player) {
+    if (!this.settings.market) return [];
+    if ((player.marketActionsThisTurn || 0) >= 1) return [];
+    const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
+    if (!marketId) return [];
+    return [{
+      id: 'market:' + marketId,
+      kind: 'market',
+      instrumentId: marketId,
+      side: 'buy',
+      quantity: 1,
+      risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
+      score: player.personality === 'speculator' ? 20 : 4
+    }];
+  }
+
+  botCasinoCandidate(player) {
+    if (!this.settings.casino) return [];
+    if ((player.casinoBetsThisRound || 0) >= 1) return [];
+    if (!['shark', 'chaos'].includes(player.personality)) return [];
+    if (player.cash <= 20) return [];
+    const spec = BOT_CASINO_SPECS[player.personality];
+    return [{
+      id: 'casino:red',
+      kind: 'casino',
+      color: spec.color,
+      stake: Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate))),
+      risk: 0.55,
+      score: spec.score
+    }];
   }
 
   skipDisconnectedCurrentPlayer() {
