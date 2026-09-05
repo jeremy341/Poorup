@@ -1077,16 +1077,23 @@ io.on('connection', (socket) => {
     reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
   });
 
-  on('cancel-player-contract', (_, callback) => {
+  on('cancel-player-contract', (payload, callback) => {
     const room = getRoomForSocket(socket, callback);
     if (!room) return;
+    const requestId = String(payload?.requestId || '').trim().slice(0, 100);
+    const key = requestId ? `${socket.id}:cancel:${requestId}` : null;
+    if (key && room.game.contractTransactions?.has(key)) {
+      return reply(callback, room.game.contractTransactions.get(key));
+    }
     const contract = room.game.pendingPlayerContract;
     const player = room.getPlayerBySocket(socket.id);
     if (!contract || !player || contract.fromPlayerId !== player.id) return reply(callback, { success: false, error: 'No pending contract to cancel.' });
     room.game.pendingPlayerContract = null;
     room.game.feedMessage(player.nickname + ' canceled the player contract.');
+    const result = { success: true };
+    if (key) room.game.contractTransactions.set(key, result);
     emitRoomState(room);
-    reply(callback, { success: true });
+    reply(callback, result);
   });
 
   on('pay-jail-fine', (_, callback) => {
