@@ -1,31 +1,63 @@
 const DEFAULT_TIMEOUT_MS = 600;
 const PERSONALITIES = new Set(['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos']);
 
+// One score boost per personality favorite action kind.
+const PERSONALITY_BONUSES = new Map([
+  ['builder:build', 20],
+  ['survivor:mortgage', 18],
+  ['speculator:loan', 16],
+  ['chaos:roll', 4]
+]);
+
+function personalityBonus(personality, candidate) {
+  return PERSONALITY_BONUSES.get(personality + ':' + candidate.kind) || 0;
+}
+
+function scoredRisk(entry) {
+  return entry.candidate.risk || 0;
+}
+
+function compareScoredChoices(a, b) {
+  return b.score - a.score || scoredRisk(a) - scoredRisk(b);
+}
+
 function deterministicChoice(candidates = [], personality = 'survivor') {
   const safePersonality = PERSONALITIES.has(personality) ? personality : 'survivor';
-  const scored = candidates.map(candidate => {
-    let score = Number(candidate.score) || 0;
-    if (safePersonality === 'builder' && candidate.kind === 'build') score += 20;
-    if (safePersonality === 'survivor' && candidate.kind === 'mortgage') score += 18;
-    if (safePersonality === 'speculator' && candidate.kind === 'loan') score += 16;
-    if (safePersonality === 'chaos' && candidate.kind === 'roll') score += 4;
-    return { candidate, score };
-  }).sort((a, b) => b.score - a.score || (a.candidate.risk || 0) - (b.candidate.risk || 0));
+  const scored = candidates.map(candidate => ({
+    candidate,
+    score: (Number(candidate.score) || 0) + personalityBonus(safePersonality, candidate)
+  }));
+  scored.sort(compareScoredChoices);
   const selected = scored[0]?.candidate || null;
-  return selected ? { actionId: selected.id, confidence: 0.55, reasonCode: 'deterministic-score', fallback: true } : null;
+  if (!selected) return null;
+  return { actionId: selected.id, confidence: 0.55, reasonCode: 'deterministic-score', fallback: true };
+}
+
+function advisorActionId(payload, candidates) {
+  const actionId = typeof payload?.actionId === 'string' ? payload.actionId : '';
+  if (!actionId) return '';
+  return candidates.some(candidate => candidate.id === actionId) ? actionId : '';
+}
+
+function advisorConfidence(payload) {
+  const confidence = Number(payload?.confidence);
+  if (!Number.isFinite(confidence)) return null;
+  if (confidence < 0) return null;
+  if (confidence > 1) return null;
+  return confidence;
+}
+
+function advisorReasonCode(payload) {
+  if (typeof payload.reasonCode !== 'string') return 'advisor';
+  return payload.reasonCode.slice(0, 40);
 }
 
 function parseAdvisorResponse(payload, candidates) {
-  const actionId = typeof payload?.actionId === 'string' ? payload.actionId : '';
-  const confidence = Number(payload?.confidence);
-  if (!actionId || !candidates.some(candidate => candidate.id === actionId)) return null;
-  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return null;
-  return {
-    actionId,
-    confidence,
-    reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode.slice(0, 40) : 'advisor',
-    fallback: false
-  };
+  const actionId = advisorActionId(payload, candidates);
+  if (!actionId) return null;
+  const confidence = advisorConfidence(payload);
+  if (confidence === null) return null;
+  return { actionId, confidence, reasonCode: advisorReasonCode(payload), fallback: false };
 }
 
 export class DeterministicAdvisor {

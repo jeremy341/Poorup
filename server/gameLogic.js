@@ -1872,54 +1872,91 @@ class GameState {
     this._advancingRound = true;
     try {
       this.roundNumber += 1;
-    if (this.globalEventCooldown > 0) this.globalEventCooldown -= 1;
-    this.markMidpointFacts();
-
-    if (this.globalEvent?.phase === 'voting' && this.roundNumber > this.globalEvent.voteRound) {
-      this.resolveGlobalEventVote();
-    } else if (this.globalEvent?.phase === 'warning' && this.roundNumber > this.globalEvent.startedRound) {
-      this.globalEvent.phase = 'active';
-      this.globalEvent.startedRound = this.roundNumber;
-      this.globalEvent.roundsRemaining = this.globalEvent.durationRounds;
-      this.applyGlobalEventActivationSettlements();
-      this.feedMessage(`${this.globalEvent.title} is now active for ${this.globalEvent.durationRounds} rounds.`);
-    } else if (this.globalEvent?.phase === 'active') {
-      this.applyGlobalEventActivationSettlements();
-      this.collectBuildingMaintenance();
-      this.globalEvent.roundsRemaining -= 1;
-      if (this.globalEvent.roundsRemaining <= 0) {
-        if (this.globalEvent.id === 'housing-bubble') {
-          this.activePlayers().forEach(player => {
-            if (player.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0)) player.bubbleSurvivor = true;
-            player.housingBubbleEnded = true;
-          });
-        }
-        this.activePlayers().forEach(player => {
-          player.globalEventsSurvived = (player.globalEventsSurvived || 0) + 1;
-        });
-        this.globalEvent.phase = 'recovery';
-        this.globalEvent.roundsRemaining = 1;
-        this.feedMessage(`${this.globalEvent.title} has ended. The table enters recovery.`);
-      }
-    } else if (this.globalEvent?.phase === 'recovery') {
-      const ended = this.globalEvent;
-      this.globalEventHistory.unshift({ id: ended.id, title: ended.title, comboId: ended.comboId || null, startedRound: ended.startedRound, endedRound: this.roundNumber });
-      this.globalEventHistory = this.globalEventHistory.slice(0, 8);
-      this.globalEvent = null;
-      this.globalEventCooldown = GLOBAL_EVENT_COOLDOWN_ROUNDS;
-    }
-
-    this.processBankLoans();
-    this.processPlayerContracts();
-    this.maybeTriggerGlobalEvent();
-    this.advanceMarket();
-    this.players.forEach(player => {
-      player.rentPayersThisRound = new Set();
-      player.casinoBetsThisRound = 0;
-    });
+      if (this.globalEventCooldown > 0) this.globalEventCooldown -= 1;
+      this.markMidpointFacts();
+      this.advanceGlobalEventPhase();
+      this.processBankLoans();
+      this.processPlayerContracts();
+      this.maybeTriggerGlobalEvent();
+      this.advanceMarket();
+      this.players.forEach(player => {
+        player.rentPayersThisRound = new Set();
+        player.casinoBetsThisRound = 0;
+      });
     } finally {
       this._advancingRound = false;
     }
+  }
+
+  // The global event phase ladder, walked once per round: a vote that
+  // matures goes active, an active event burns a round, and a finished one
+  // spends its recovery round before it is archived.
+  advanceGlobalEventPhase() {
+    const phase = this.globalEvent?.phase;
+    if (phase === 'voting') {
+      this.resolveGlobalEventVoteIfDue();
+      return;
+    }
+    if (phase === 'warning') {
+      this.beginGlobalEventActiveIfDue();
+      return;
+    }
+    if (phase === 'active') {
+      this.tickActiveGlobalEvent();
+      return;
+    }
+    if (phase === 'recovery') {
+      this.archiveFinishedGlobalEvent();
+    }
+  }
+
+  resolveGlobalEventVoteIfDue() {
+    if (this.roundNumber > this.globalEvent.voteRound) this.resolveGlobalEventVote();
+  }
+
+  beginGlobalEventActiveIfDue() {
+    if (this.roundNumber > this.globalEvent.startedRound) this.beginGlobalEventActive();
+  }
+
+  beginGlobalEventActive() {
+    this.globalEvent.phase = 'active';
+    this.globalEvent.startedRound = this.roundNumber;
+    this.globalEvent.roundsRemaining = this.globalEvent.durationRounds;
+    this.applyGlobalEventActivationSettlements();
+    this.feedMessage(`${this.globalEvent.title} is now active for ${this.globalEvent.durationRounds} rounds.`);
+  }
+
+  tickActiveGlobalEvent() {
+    this.applyGlobalEventActivationSettlements();
+    this.collectBuildingMaintenance();
+    this.globalEvent.roundsRemaining -= 1;
+    if (this.globalEvent.roundsRemaining > 0) return;
+    this.beginGlobalEventRecovery();
+  }
+
+  beginGlobalEventRecovery() {
+    if (this.globalEvent.id === 'housing-bubble') this.endHousingBubble();
+    this.activePlayers().forEach(player => {
+      player.globalEventsSurvived = (player.globalEventsSurvived || 0) + 1;
+    });
+    this.globalEvent.phase = 'recovery';
+    this.globalEvent.roundsRemaining = 1;
+    this.feedMessage(`${this.globalEvent.title} has ended. The table enters recovery.`);
+  }
+
+  endHousingBubble() {
+    this.activePlayers().forEach(player => {
+      if (player.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0)) player.bubbleSurvivor = true;
+      player.housingBubbleEnded = true;
+    });
+  }
+
+  archiveFinishedGlobalEvent() {
+    const ended = this.globalEvent;
+    this.globalEventHistory.unshift({ id: ended.id, title: ended.title, comboId: ended.comboId || null, startedRound: ended.startedRound, endedRound: this.roundNumber });
+    this.globalEventHistory = this.globalEventHistory.slice(0, 8);
+    this.globalEvent = null;
+    this.globalEventCooldown = GLOBAL_EVENT_COOLDOWN_ROUNDS;
   }
 
   globalEventsEnabled() {
