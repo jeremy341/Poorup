@@ -36,12 +36,18 @@ branch → PR → GitHub Actions (lint + tests + coverage + boot)
 Responsibilities, one line each:
 
 - **GitHub Actions** — does the code actually run? `npm run lint`,
-  `npm run coverage` (9 contract suites), and a boot smoke that starts the
-  server and curls the app shell.
+  `npm run coverage` (the gameLogic contract suites + persistence
+  characterization, merged under one c8 pass by `server/coverage-runner.js`),
+  a wire-test step (`server/server.test.js`) that boots the real server and
+  proves the socket-handler scaffold, and a boot smoke that curls the app shell.
 - **Copilot code review** — logic/bug-oriented AI review of the diff. Cannot
   approve or merge; treats its comments as signals, not orders.
 - **CodeScene** — maintainability: complexity, duplicated logic, temporal
-  coupling, code-health delta on touched functions.
+  coupling, code-health delta on touched functions. Live as the
+  `CodeScene Code Health Review (main)` check (delta-analysis GitHub App,
+  quality profile "The Bare Minimum"): it fails the build on any new-code
+  decline or hotspot regression. `cs review <file>` (CodeScene CLI) gives the
+  same scores locally before you push.
 - **Codecov** — overall coverage trend + per-PR patch coverage. Blocks only
   on >2-point project regressions (see `codecov.yml`).
 - **Human review** — final decision. Nothing merges without it.
@@ -77,21 +83,24 @@ Hard rules:
   human-opened `refactor/*` issue.
 - "NEW CODE MUST NOT MAKE THE PROJECT WORSE" — do not degrade code health of
   functions you touch; do not claim a global health target.
-- MCP note: CodeScene exposes an MCP server; useful tools are
-  `analyze_code` (health of the functions just edited), `technical_debt`
-  (is this region a legacy minefield before entering it),
-  `function_hotspots` (what deserves attention), and
-  `code_change_couplings` (files that historically change together — check
-  them before declaring done). Exact tool names come from the installed
-  CodeScene MCP server's own listing.
+- MCP note: CodeScene exposes an MCP server (`@codescene/codehealth-mcp`,
+  binary `cs-mcp`; configured as the `codescene` local MCP server). Real tool
+  names, from the server's own listing: `code_health_score` /
+  `code_health_review` (health + smells for one file),
+  `pre_commit_code_health_safeguard` (staged-diff gate) and
+  `analyze_change_set` (whole-branch gate before opening the PR), and — on a
+  CodeScene Core login — `list_technical_debt_hotspots_for_project` (what
+  deserves attention) and `code_ownership_for_path`. The local CLI overlaps
+  these without auth: `cs review`, `cs delta`, `cs check-rules`. Restart the
+  client once after first install so the tools register.
 
 ## Commands
 
 ```bash
 npm run dev        # start server on :8080 (or PORT=…)
-npm test           # contract suites (no coverage)
+npm test           # gameLogic contracts + persistence + server wire suites (no coverage)
 npm run lint       # eslint, server/ only by design
-npm run coverage   # c8 → coverage/lcov.info + text table (~64% baseline)
+npm run coverage   # c8 → coverage/lcov.info + text table (~66% baseline, merged via coverage-runner.js)
 ```
 
 ## What is NOT here
