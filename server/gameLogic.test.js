@@ -512,10 +512,12 @@ async function testExplicitEndTurn() {
 // current outputs so the participant-schema extraction must be equivalent.
 // ---------------------------------------------------------------------------
 
+const isRecursable = (value) => Boolean(value) && typeof value === 'object' && !(value instanceof Set);
+
 const replaceAcctSentinel = (value, acctId) => {
   if (typeof value === 'string') return value === '<acct>' ? acctId : value;
   if (Array.isArray(value)) return value.map((item) => replaceAcctSentinel(item, acctId));
-  if (value && typeof value === 'object' && !(value instanceof Set)) {
+  if (isRecursable(value)) {
     const next = {};
     for (const key of Object.keys(value)) next[key] = replaceAcctSentinel(value[key], acctId);
     return next;
@@ -523,13 +525,22 @@ const replaceAcctSentinel = (value, acctId) => {
   return value;
 };
 
+// Dynamic string shapes that vary run to run, mapped to their sentinel.
+// Table-driven so adding a shape (e.g. a new id prefix) is one row, not a
+// new branch in normalizeDynamic's cyclomatic path.
+const DYNAMIC_SENTINELS = [
+  [/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, '<iso>'],
+  [/^match_[0-9a-f-]{36}$/, '<uuid>'],
+  [/^acct_[0-9a-f-]{36}$/, '<acct>']
+];
+
+function stringSentinel(value) {
+  const rule = DYNAMIC_SENTINELS.find(([pattern]) => pattern.test(value));
+  return rule ? rule[1] : value;
+}
+
 const normalizeDynamic = (value) => {
-  if (typeof value === 'string') {
-    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return '<iso>';
-    if (/^match_[0-9a-f-]{36}$/.test(value)) return '<uuid>';
-    if (/^acct_[0-9a-f-]{36}$/.test(value)) return '<acct>';
-    return value;
-  }
+  if (typeof value === 'string') return stringSentinel(value);
   if (Array.isArray(value)) return value.map(normalizeDynamic);
   if (value && typeof value === 'object') {
     const next = {};
