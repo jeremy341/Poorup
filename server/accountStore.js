@@ -22,9 +22,30 @@ const ACHIEVEMENT_RARITY_BY_ID = new Map([
 ]);
 
 function achievementPoints(entry, since = null) {
-  if (since && Date.parse(entry?.unlockedAt || '') < since) return 0;
+  if (isBeforeWindow(entry?.unlockedAt, since)) return 0;
   const rarity = ACHIEVEMENT_RARITY_BY_ID.get(entry?.id) || 'common';
   return ACHIEVEMENT_POINTS[rarity] || ACHIEVEMENT_POINTS.common;
+}
+
+// An unlock timestamp is "before the window" only when a window was given
+// and the parseable timestamp falls outside it (unparseable = outside too).
+function isBeforeWindow(unlockedAt, since) {
+  return Boolean(since) && Date.parse(unlockedAt || '') < since;
+}
+
+function loadableAccount(handle, account, accounts) {
+  return Boolean(account) && USERNAME_RE.test(handle) && !accounts.has(handle);
+}
+
+function validPasswordShape(password) {
+  return typeof password === 'string' && password.length >= 8 && password.length <= 72;
+}
+
+function hasCredentialShape(account, password) {
+  return Boolean(account)
+    && typeof password === 'string'
+    && typeof account.passwordHash === 'string'
+    && typeof account.passwordSalt === 'string';
 }
 
 const num = (value) => Number(value) || 0;
@@ -90,19 +111,171 @@ function sanitizeAvatarGrid(value) {
   );
 }
 
+const stringOrNull = (value) => (typeof value === 'string' ? value : null);
+const clampInt = (value, max) => Math.max(0, Math.min(max, Math.floor(Number(value) || 0)));
+
+function historyEntryView(entry) {
+  return {
+    matchId: stringOrNull(entry.matchId),
+    playedAt: stringOrNull(entry.playedAt),
+    result: entry.result === 'WIN' ? 'WIN' : 'ROUND',
+    won: entry.won === true || entry.result === 'WIN',
+    endingCash: nonNegative(entry.endingCash),
+    properties: nonNegative(entry.properties),
+  };
+}
+
 function sanitizeHistory(value) {
   if (!Array.isArray(value)) return [];
   return value
     .filter((entry) => entry && typeof entry === 'object')
     .slice(0, 50)
-    .map((entry) => ({
-      matchId: typeof entry.matchId === 'string' ? entry.matchId : null,
-      playedAt: typeof entry.playedAt === 'string' ? entry.playedAt : null,
-      result: entry.result === 'WIN' ? 'WIN' : 'ROUND',
-      won: entry.won === true || entry.result === 'WIN',
-      endingCash: Math.max(0, Number(entry.endingCash) || 0),
-      properties: Math.max(0, Number(entry.properties) || 0),
-    }));
+    .map(historyEntryView);
+}
+
+const nonNegative = (value) => Math.max(0, Number(value) || 0);
+
+const clippedList = (value, cap) => (Array.isArray(value) ? value.slice(0, cap) : []);
+
+function computePlacementById(players) {
+  const sortCash = player => Number(player.cash) || 0;
+  return new Map([...players]
+    .sort((a, b) => Number(Boolean(a.bankrupt)) - Number(Boolean(b.bankrupt)) || sortCash(b) - sortCash(a))
+    .map((player, index) => [player.id, index + 1]));
+}
+
+function buildMatchRecord(matchId, matchMeta, participants) {
+  return {
+    matchId,
+    completedAt: matchMeta.completedAt || new Date().toISOString(),
+    durationSeconds: nonNegative(matchMeta.durationSeconds),
+    roundCount: nonNegative(matchMeta.roundCount),
+    roomVisibility: matchMeta.roomVisibility === 'private' ? 'private' : 'public',
+    participants,
+    globalEvents: clippedList(matchMeta.globalEvents, 20),
+    eventCombinations: clippedList(matchMeta.eventCombinations, 10),
+    tradesCompleted: nonNegative(matchMeta.tradesCompleted),
+    auctionsCompleted: nonNegative(matchMeta.auctionsCompleted),
+    casino: clippedList(matchMeta.casino, 8),
+    market: clippedList(matchMeta.market, 8),
+    playerContracts: clippedList(matchMeta.playerContracts, 20)
+  };
+}
+
+// One delta function per stat key, applied to the live player object of a
+// just-finished match. server/game-results.test.js pins every output.
+const RESULT_STAT_UPDATES = {
+  gamesPlayed: () => 1,
+  wins: (player, ctx) => (player.id === ctx.winnerId ? 1 : 0),
+  bankruptcies: player => (player.bankrupt ? 1 : 0),
+  auctionWins: player => nonNegative(player.auctionWins),
+  rentCollected: player => nonNegative(player.rentCollected),
+  eventSurvival: player => nonNegative(player.globalEventsSurvived),
+  bankLoansTaken: player => nonNegative(player.bankLoanCount),
+  bankLoanRepayments: player => (player.bankLoan?.status === 'paid' ? 1 : 0),
+  bankLoanDefaults: player => (player.bankLoan?.status === 'defaulted' ? 1 : 0),
+  casinoNet: (player, ctx) => num(ctx.casino.find(entry => entry.accountId === player.accountId)?.net) || 0,
+  marketProfit: (player, ctx) => Object.values(ctx.market.find(entry => entry.accountId === player.accountId)?.positions || {})
+    .reduce((sum, position) => sum + (Number(position.realizedPnl) || 0), 0),
+  playerLoansGiven: (player, ctx) => ctx.contracts.filter(c => c.fromAccountId === player.accountId && c.kind === 'loan').length,
+  playerLoansRepaid: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && c.kind === 'loan' && c.status === 'paid').length,
+  playerLoanDefaults: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && c.kind === 'loan' && c.status === 'defaulted').length,
+  equityDeals: (player, ctx) => ctx.contracts.filter(c => c.kind === 'equity' && (c.fromAccountId === player.accountId || c.toAccountId === player.accountId)).length
+};
+
+function matchHistoryEntry(player, matchId, winnerId) {
+  const won = player.id === winnerId;
+  return {
+    matchId,
+    playedAt: new Date().toISOString(),
+    result: won ? 'WIN' : 'ROUND',
+    won,
+    endingCash: nonNegative(player.cash),
+    properties: Array.isArray(player.properties) ? player.properties.length : 0
+  };
+}
+
+// account: the stored profile, player: the live participant, result: match
+// record + raw meta + winner, bundled so this seam takes three arguments.
+function applyMatchResult(account, player, result) {
+  const ctx = {
+    winnerId: result.winnerId,
+    casino: result.matchMeta.casino || [],
+    market: result.matchMeta.market || [],
+    contracts: Array.isArray(result.matchMeta.playerContracts) ? result.matchMeta.playerContracts : []
+  };
+  Object.entries(RESULT_STAT_UPDATES).forEach(([key, delta]) => {
+    account.stats[key] += delta(player, ctx);
+  });
+  account.history = [matchHistoryEntry(player, result.matchRecord.matchId, result.winnerId), ...sanitizeHistory(account.history)].slice(0, 50);
+  account.matchHistory = [result.matchRecord, ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
+}
+
+// The same fifteen deltas recomputed from stored match records, for
+// time-windowed views. Wins intentionally differ from the live ladder:
+// history replays use the recorded final placement, not winnerId.
+const WINDOW_STAT_UPDATES = {
+  gamesPlayed: () => 1,
+  wins: participant => (participant.finalPlacement === 1 ? 1 : 0),
+  bankruptcies: participant => (participant.bankrupt ? 1 : 0),
+  auctionWins: participant => num(participant.auctionWins),
+  rentCollected: participant => num(participant.rentCollected),
+  eventSurvival: participant => num(participant.globalEventsSurvived),
+  bankLoansTaken: participant => num(participant.bankLoanCount),
+  bankLoanRepayments: participant => (participant.bankLoanStatus === 'paid' ? 1 : 0),
+  bankLoanDefaults: participant => (participant.bankLoanStatus === 'defaulted' ? 1 : 0),
+  casinoNet: participant => num(participant.casinoNet),
+  marketProfit: (participant, record, account) => realizedMarketPnl(record, account.id),
+  playerLoansGiven: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.fromAccountId === id && contract.kind === 'loan'),
+  playerLoansRepaid: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.toAccountId === id && contract.kind === 'loan' && contract.status === 'paid'),
+  playerLoanDefaults: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.toAccountId === id && contract.kind === 'loan' && contract.status === 'defaulted'),
+  equityDeals: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.kind === 'equity' && (contract.fromAccountId === id || contract.toAccountId === id))
+};
+
+function windowRecords(account, since) {
+  return (account.matchHistory || []).filter(record => Date.parse(record.completedAt || '') >= since);
+}
+
+function findParticipant(record, accountId) {
+  return (record.participants || []).find(entry => entry.accountId === accountId) || null;
+}
+
+function achievementTallies(account, since) {
+  const achievements = Array.isArray(account.achievements) ? account.achievements : [];
+  const withinWindow = (entry) => !since || Date.parse(entry.unlockedAt || '') >= since;
+  return {
+    count: (since ? achievements.filter(withinWindow) : achievements).length,
+    score: achievements.reduce((sum, entry) => sum + achievementPoints(entry, since || null), 0),
+    mythical: achievements.filter(entry => MYTHICAL_ACHIEVEMENT_IDS.has(entry.id) && withinWindow(entry)).length
+  };
+}
+
+function leaderboardRow(store, account, metric, options) {
+  const stats = store.getWindowStats(account, options.since || null);
+  const tallies = achievementTallies(account, options.since);
+  if (metric === 'rate' && num(stats.gamesPlayed) < 5) return null;
+  return {
+    accountId: account.id, displayName: account.displayName, username: account.username,
+    color: account.color, avatarGrid: account.avatarGrid,
+    value: resolveMetricValue(metric, stats, { achievementScore: tallies.score, mythicalCount: tallies.mythical }),
+    games: num(stats.gamesPlayed), wins: num(stats.wins), achievements: tallies.count,
+    achievementScore: tallies.score, mythical: tallies.mythical,
+    bankLoanRepayments: num(stats.bankLoanRepayments), bankLoanDefaults: num(stats.bankLoanDefaults)
+  };
+}
+
+const PUBLIC_HISTORY_KEYS = ['matchId', 'playedAt', 'result', 'won', 'properties'];
+
+function publicHistory(history, includePrivateHistory) {
+  const sanitized = sanitizeHistory(history);
+  if (includePrivateHistory) return sanitized;
+  return sanitized.map(entry => Object.fromEntries(PUBLIC_HISTORY_KEYS.map(key => [key, entry[key]])));
+}
+
+function publicAchievements(account, includePrivateHistory) {
+  if (account.privacy?.achievements === 'private' && !includePrivateHistory) return [];
+  const entries = Array.isArray(account.achievements) ? account.achievements : [];
+  return entries.map(entry => ({ id: entry.id, unlockedAt: entry.unlockedAt || null })).slice(0, 100);
 }
 
 function publicAccount(account, includePrivateHistory = true) {
@@ -114,19 +287,13 @@ function publicAccount(account, includePrivateHistory = true) {
     color: account.color,
     avatarGrid: account.avatarGrid,
     stats: { ...account.stats },
-    history: includePrivateHistory
-      ? sanitizeHistory(account.history)
-      : sanitizeHistory(account.history).map(entry => ({ matchId: entry.matchId, playedAt: entry.playedAt, result: entry.result, won: entry.won, properties: entry.properties })),
+    history: publicHistory(account.history, includePrivateHistory),
     // Full match records contain exact cash, contracts, and other private
     // economy facts. They are returned only to the signed-in owner; the
     // account-id lookup used by social/search projections must never leak
     // this field.
-    ...(includePrivateHistory
-      ? { matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.slice(0, 50) : [] }
-      : {}),
-    achievements: account.privacy?.achievements === 'private' && !includePrivateHistory
-      ? []
-      : Array.isArray(account.achievements) ? account.achievements.map(entry => ({ id: entry.id, unlockedAt: entry.unlockedAt || null })).slice(0, 100) : [],
+    ...(includePrivateHistory ? { matchHistory: clippedList(account.matchHistory, 50) } : {}),
+    achievements: publicAchievements(account, includePrivateHistory),
     achievementsPrivate: account.privacy?.achievements === 'private',
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: account.recentClearedAt || null,
@@ -198,7 +365,7 @@ export class AccountStore {
       // Normalize legacy records as they load and keep the Map invariant
       // case-insensitive. If a malformed file contains duplicate handles,
       // the first valid record remains the owner of that username.
-      if (!account || !USERNAME_RE.test(handle) || this.accounts.has(handle)) return;
+      if (!loadableAccount(handle, account, this.accounts)) return;
       this.accounts.set(handle, normalizeLoadedAccount(handle, account));
     });
   }
@@ -235,7 +402,7 @@ export class AccountStore {
     const handle = normalizeUsername(username);
     const availability = this.checkUsername(handle);
     if (!availability.available) return { success: false, error: availability.message };
-    if (typeof password !== 'string' || password.length < 8 || password.length > 72) {
+    if (!validPasswordShape(password)) {
       return { success: false, error: 'Password must be 8–72 characters.' };
     }
     const salt = crypto.randomBytes(16).toString('hex');
@@ -286,7 +453,7 @@ export class AccountStore {
   login({ username, password } = {}) {
     const handle = normalizeUsername(username);
     const account = this.accounts.get(handle);
-    if (!account || typeof password !== 'string' || typeof account.passwordHash !== 'string' || typeof account.passwordSalt !== 'string') {
+    if (!hasCredentialShape(account, password)) {
       return { success: false, error: 'Username or password is incorrect.' };
     }
     const expected = Buffer.from(account.passwordHash, 'hex');
@@ -327,57 +494,16 @@ export class AccountStore {
 
   recordGameResults(players = [], winnerId = null, matchMeta = {}) {
     const matchId = matchMeta.gameId || `match_${crypto.randomUUID()}`;
-    const placementById = new Map([...players]
-      .sort((a, b) => Number(Boolean(a.bankrupt)) - Number(Boolean(b.bankrupt)) || (Number(b.cash) || 0) - (Number(a.cash) || 0))
-      .map((player, index) => [player.id, index + 1]));
-    const participants = players.filter(player => player).map(player => participantFromPlayer(player, { placementById, winnerId }));
-    const matchRecord = {
-      matchId,
-      completedAt: matchMeta.completedAt || new Date().toISOString(),
-      durationSeconds: Math.max(0, Number(matchMeta.durationSeconds) || 0),
-      roundCount: Math.max(0, Number(matchMeta.roundCount) || 0),
-      roomVisibility: matchMeta.roomVisibility === 'private' ? 'private' : 'public',
-      participants,
-      globalEvents: Array.isArray(matchMeta.globalEvents) ? matchMeta.globalEvents.slice(0, 20) : [],
-      eventCombinations: Array.isArray(matchMeta.eventCombinations) ? matchMeta.eventCombinations.slice(0, 10) : [],
-      tradesCompleted: Math.max(0, Number(matchMeta.tradesCompleted) || 0),
-      auctionsCompleted: Math.max(0, Number(matchMeta.auctionsCompleted) || 0),
-      casino: Array.isArray(matchMeta.casino) ? matchMeta.casino.slice(0, 8) : [],
-      market: Array.isArray(matchMeta.market) ? matchMeta.market.slice(0, 8) : [],
-      playerContracts: Array.isArray(matchMeta.playerContracts) ? matchMeta.playerContracts.slice(0, 20) : []
-    };
+    const activePlayers = players.filter(player => player);
+    const placementById = computePlacementById(activePlayers);
+    const participants = activePlayers.map(player => participantFromPlayer(player, { placementById, winnerId }));
+    const matchRecord = buildMatchRecord(matchId, matchMeta, participants);
     let changed = false;
-    players.forEach((player) => {
-      if (!player?.accountId) return;
-      const account = [...this.accounts.values()].find((candidate) => candidate.id === player.accountId);
+    activePlayers.forEach((player) => {
+      if (!player.accountId) return;
+      const account = this.getAccountById(player.accountId);
       if (!account) return;
-      account.stats.gamesPlayed += 1;
-      if (player.id === winnerId) account.stats.wins += 1;
-      if (player.bankrupt) account.stats.bankruptcies += 1;
-      account.stats.auctionWins += Math.max(0, Number(player.auctionWins) || 0);
-      account.stats.rentCollected += Math.max(0, Number(player.rentCollected) || 0);
-      account.stats.eventSurvival += Math.max(0, Number(player.globalEventsSurvived) || 0);
-      account.stats.bankLoansTaken += Math.max(0, Number(player.bankLoanCount) || 0);
-      if (player.bankLoan?.status === 'paid') account.stats.bankLoanRepayments += 1;
-      if (player.bankLoan?.status === 'defaulted') account.stats.bankLoanDefaults += 1;
-      const casinoSummary = (matchMeta.casino || []).find(entry => entry.accountId === player.accountId);
-      const marketSummary = (matchMeta.market || []).find(entry => entry.accountId === player.accountId);
-      account.stats.casinoNet += Number(casinoSummary?.net) || 0;
-      account.stats.marketProfit += Object.values(marketSummary?.positions || {}).reduce((sum, position) => sum + (Number(position.realizedPnl) || 0), 0);
-      const contracts = Array.isArray(matchMeta.playerContracts) ? matchMeta.playerContracts : [];
-      account.stats.playerLoansGiven += contracts.filter(contract => contract.fromAccountId === player.accountId && contract.kind === 'loan').length;
-      account.stats.playerLoansRepaid += contracts.filter(contract => contract.toAccountId === player.accountId && contract.kind === 'loan' && contract.status === 'paid').length;
-      account.stats.playerLoanDefaults += contracts.filter(contract => contract.toAccountId === player.accountId && contract.kind === 'loan' && contract.status === 'defaulted').length;
-      account.stats.equityDeals += contracts.filter(contract => contract.kind === 'equity' && (contract.fromAccountId === player.accountId || contract.toAccountId === player.accountId)).length;
-      account.history = [{
-        matchId,
-        playedAt: new Date().toISOString(),
-        result: player.id === winnerId ? 'WIN' : 'ROUND',
-        won: player.id === winnerId,
-        endingCash: Math.max(0, Number(player.cash) || 0),
-        properties: Array.isArray(player.properties) ? player.properties.length : 0,
-      }, ...sanitizeHistory(account.history)].slice(0, 50);
-      account.matchHistory = [matchRecord, ...(account.matchHistory || []).filter(entry => entry.matchId !== matchId)].slice(0, 50);
+      applyMatchResult(account, player, { matchRecord, matchMeta, winnerId });
       changed = true;
     });
     if (changed) this.persist();
@@ -399,10 +525,10 @@ export class AccountStore {
   }
 
   recordPatrolResult(accountId, { score = 0, misses = 0 } = {}) {
-    const account = [...this.accounts.values()].find((candidate) => candidate.id === accountId);
+    const account = this.getAccountById(accountId);
     if (!account) return { success: false, error: 'Account not found.' };
-    const safeScore = Math.max(0, Math.min(100000, Math.floor(Number(score) || 0)));
-    const safeMisses = Math.max(0, Math.min(999, Math.floor(Number(misses) || 0)));
+    const safeScore = clampInt(score, 100000);
+    const safeMisses = clampInt(misses, 999);
     const stats = account.stats || (account.stats = {});
     const previousBest = Math.max(0, Number(stats.patrolBest) || 0);
     const beatBest = safeScore > previousBest;
@@ -497,48 +623,19 @@ export class AccountStore {
       patrolBest: num(account.stats?.patrolBest),
       patrolAceRuns: num(account.stats?.patrolAceRuns)
     };
-    const records = (account.matchHistory || []).filter(record => Date.parse(record.completedAt || '') >= since);
-    records.forEach((record) => {
-      const participant = (record.participants || []).find(entry => entry.accountId === account.id);
+    windowRecords(account, since).forEach((record) => {
+      const participant = findParticipant(record, account.id);
       if (!participant) return;
-      stats.gamesPlayed += 1;
-      stats.wins += participant.finalPlacement === 1 ? 1 : 0;
-      stats.bankruptcies += participant.bankrupt ? 1 : 0;
-      stats.auctionWins += num(participant.auctionWins);
-      stats.rentCollected += num(participant.rentCollected);
-      stats.eventSurvival += num(participant.globalEventsSurvived);
-      stats.bankLoansTaken += num(participant.bankLoanCount);
-      stats.bankLoanRepayments += participant.bankLoanStatus === 'paid' ? 1 : 0;
-      stats.bankLoanDefaults += participant.bankLoanStatus === 'defaulted' ? 1 : 0;
-      stats.casinoNet += num(participant.casinoNet);
-      stats.marketProfit += realizedMarketPnl(record, account.id);
-      stats.playerLoansGiven += countContracts(record, account.id, (c, id) => c.fromAccountId === id && c.kind === 'loan');
-      stats.playerLoansRepaid += countContracts(record, account.id, (c, id) => c.toAccountId === id && c.kind === 'loan' && c.status === 'paid');
-      stats.playerLoanDefaults += countContracts(record, account.id, (c, id) => c.toAccountId === id && c.kind === 'loan' && c.status === 'defaulted');
-      stats.equityDeals += countContracts(record, account.id, (c, id) => c.kind === 'equity' && (c.fromAccountId === id || c.toAccountId === id));
+      Object.entries(WINDOW_STAT_UPDATES).forEach(([key, delta]) => {
+        stats[key] += delta(participant, record, account);
+      });
     });
     return stats;
   }
 
   getLeaderboard(metric = 'wins', options = {}) {
     const accounts = [...this.accounts.values()].filter(account => !Array.isArray(options.accountIds) || options.accountIds.includes(account.id));
-    const rows = accounts.map(account => {
-      const stats = this.getWindowStats(account, options.since || null);
-      const achievements = Array.isArray(account.achievements) ? account.achievements : [];
-      const withinWindow = (entry) => !options.since || Date.parse(entry.unlockedAt || '') >= options.since;
-      const achievementCount = options.since ? achievements.filter(withinWindow).length : achievements.length;
-      const achievementScore = achievements.reduce((sum, entry) => sum + achievementPoints(entry, options.since || null), 0);
-      const mythicalCount = achievements.filter(entry => MYTHICAL_ACHIEVEMENT_IDS.has(entry.id) && withinWindow(entry)).length;
-      if (metric === 'rate' && num(stats.gamesPlayed) < 5) return null;
-      const value = resolveMetricValue(metric, stats, { achievementScore, mythicalCount });
-      return {
-        accountId: account.id, displayName: account.displayName, username: account.username,
-        color: account.color, avatarGrid: account.avatarGrid, value,
-        games: num(stats.gamesPlayed), wins: num(stats.wins), achievements: achievementCount,
-        achievementScore, mythical: mythicalCount,
-        bankLoanRepayments: num(stats.bankLoanRepayments), bankLoanDefaults: num(stats.bankLoanDefaults)
-      };
-    }).filter(Boolean);
+    const rows = accounts.map(account => leaderboardRow(this, account, metric, options)).filter(Boolean);
     rows.sort((a, b) => b.value - a.value || b.wins - a.wins || a.displayName.localeCompare(b.displayName));
     return rows.slice(0, 100);
   }
@@ -553,11 +650,16 @@ export class AccountStore {
   }
 }
 
+const PRIVACY_RULES = {
+  history: { allowed: ['public', 'friends', 'private'], fallback: 'friends' },
+  achievements: { allowed: ['private'], fallback: 'friends' },
+  friendRequests: { allowed: ['everyone', 'friends', 'nobody'], fallback: 'everyone' },
+  roomInvites: { allowed: ['friends', 'nobody'], fallback: 'friends' }
+};
+
 function sanitizePrivacy(value) {
-  return {
-    history: ['public', 'friends', 'private'].includes(value?.history) ? value.history : 'friends',
-    achievements: value?.achievements === 'private' ? 'private' : 'friends',
-    friendRequests: ['everyone', 'friends', 'nobody'].includes(value?.friendRequests) ? value.friendRequests : 'everyone',
-    roomInvites: ['friends', 'nobody'].includes(value?.roomInvites) ? value.roomInvites : 'friends'
-  };
+  return Object.fromEntries(Object.entries(PRIVACY_RULES).map(([key, rule]) => [
+    key,
+    rule.allowed.includes(value?.[key]) ? value[key] : rule.fallback
+  ]));
 }

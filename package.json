@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node server/server.js",
     "start": "node server/server.js",
-    "test": "node server/gameLogic.test.js && node server/applyCard.test.js && node server/rent.test.js && node server/persistence.test.js && node server/leaderboard.test.js && node server/botLogic.test.js && node server/server.test.js",
+    "test": "node server/gameLogic.test.js && node server/applyCard.test.js && node server/rent.test.js && node server/persistence.test.js && node server/leaderboard.test.js && node server/game-results.test.js && node server/botLogic.test.js && node server/server.test.js",
     "lint": "eslint server",
     "coverage": "c8 --reporter=text --reporter=lcov node server/coverage-runner.js"
   },
