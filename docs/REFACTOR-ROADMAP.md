@@ -24,16 +24,18 @@ not execute this list as a bulk refactor._
 
 ## CodeScene file verdict (0–10, higher is healthier)
 
+_Remeasured 2026-09-05 after R1 + the reliability PRs (#9–#13)._
+
 | Score | File | Notes |
 |-------|------|-------|
-| 1.06 | `server/gameLogic.js` | worst in repo: 6 complex methods + 15 Bumpy Road + deep nesting |
-| 1.26 | `public/main.js` | 98-branch keydown, snapshot reducer, 90+ complex methods |
-| 2.01 | `server/server.js` | one 99-cc function plus socket-handler chain |
-| 4.42 | `server/accountStore.js` | 80-cc participant builder + aggregation loops |
-| 6.09 | `server/matchStore.js` | single 135-cc function is the whole file's problem |
-| 6.63 | `server/achievementStore.js` | single 96-cc scan + 8 complex conditionals |
-| 7.66 | `server/socialStore.js` | healthy — leave alone |
-| 8.82 | `server/gameLogic.test.js` | healthy |
+| 1.06 | `server/gameLogic.js` | worst in repo, unchanged: the R3 rules-engine tables are the only lever |
+| 1.43 ↑ | `public/main.js` | was 1.26; offline-engine deletion (#10) removed ~930 dead lines and the deep-nesting/duplication smells |
+| 2.01 | `server/server.js` | unchanged by the #9 reliability work; `scheduleBotTurn` (cc 99) is R2, still open |
+| 5.21 ↑ | `server/accountStore.js` | was 4.42 → 4.78 (R1) → 5.21 (load-normalizer extraction in #11) |
+| 8.36 ↑ | `server/matchStore.js` | was 6.09; R1's table-driven sanitizer |
+| 8.89 ↑ | `server/achievementStore.js` | was 6.63; R1's rules table |
+| ~7.7 | `server/socialStore.js` | healthy — R1-era; leave alone |
+| 8.82 ↑ | `server/gameLogic.test.js` | was 8.16 (the #6 `normalizeDynamic` cc-10 blip, undone in #13) |
 | 8.89 | `server/botAdvisor.js` | healthy — leave alone |
 
 CSS (`public/*.css`) is not analyzable by CodeScene — it stays out of scope.
@@ -123,7 +125,12 @@ Module" (file-size smell) is NOT fixable by splitting the class — methods
 share `this` state; splitting the file is R3-late or never. The score moves
 via the per-function work; big-bang module surgery is explicitly out.
 
-### public/main.js — untested until R0 (file: 1.26)
+### public/main.js — untested until R0 (file: 1.43 after #10)
+
+_Line numbers below are from the 2026-09-04 pre-#10 file (8,415 lines); #10
+removed ~892 dead offline-engine lines so they now sit higher in the file.
+Re-derive with `rg -n "applyServerState|addEventListener\(.keydown" public/main.js`
+before opening an R4 branch._
 
 | Function | cc | Recipe |
 |----------|----|--------|
@@ -135,10 +142,20 @@ via the per-function work; big-bang module surgery is explicitly out.
 
 ## Attack order
 
+_Progress (2026-09-05): **R1 done** (#6 participant schema + #11 atomic
+store-IO/load normalizer). Reliability work landed alongside but is separate
+from this list: #9 socket-handler scaffold + crash guards + wire tests, #10
+offline-engine deletion (a partial R0/R4 win), #12 auction-clock constant, #13
+test-helper de-hotspot. **R2 (scheduleBotTurn cc 99) and R3 (gameLogic rules
+tables) remain open** — the two biggest hotspots (server.js 2.01,
+gameLogic.js 1.06) are unchanged because those refactors are still pending._
+
 **R0 — client test harness (blocking prerequisite).**
 Committed, CI-safe smoke for `public/` (DOM-free module extraction Node can
 import, or a non-puppeteer-fragile browser smoke). Until then main.js stays
-off-limits.
+off-limits. (_Partially advanced: #9 added a boot+wire harness for the server
+side and #10 shrank main.js, but the `public/` DOM-free extraction still
+blocks the keydown/applyServerState tables._)
 
 **R1 — data stores: `matchStore` + `accountStore.recordGameResults` +
 `achievementStore` (cc 135/80/96).**
@@ -156,8 +173,8 @@ this is where multiplayer correctness bugs live.
 
 **R4 — client hotspots (after R0): keydown 98, `applyServerState` 93,
 `sanitizeAccountSession` 65, then `bindEvents` registrars.**
-main.js is ~44% of all lines; R4 is the single biggest lever on the project
-score.
+main.js is still the largest file in the repo (≈41% after #10 removed the
+offline engine); R4 is the single biggest lever on the project score.
 
 **R5 — ESLint opt-in for `public/` warnings-only**, flip to errors when the
 warning count reaches zero. Never a big-bang `--fix`.
