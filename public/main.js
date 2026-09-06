@@ -180,6 +180,8 @@ import {
   stopAuctionTimer,
 } from "./clientAuctionUi.js";
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
+import { bindAudioControls } from "./clientAudioControls.js";
+import { copyRoomCode } from "./clientRoomShare.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -800,38 +802,6 @@ function renderHome() {
 /* ============================================================
    6. GAME RENDERERS
    ============================================================ */
-async function copyRoomCode() {
-  if (state.roomVisibility === "public") return;
-  const code = String(state.roomCode || "").trim().toUpperCase();
-  if (!code) return;
-  let copied = false;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(code);
-      copied = true;
-    }
-  } catch { /* fall through to the legacy local fallback */ }
-  if (!copied) {
-    const helper = document.createElement("textarea");
-    helper.value = code;
-    helper.setAttribute("readonly", "");
-    helper.style.position = "fixed";
-    helper.style.opacity = "0";
-    document.body.appendChild(helper);
-    helper.select();
-    try { copied = document.execCommand("copy"); } catch { copied = false; }
-    helper.remove();
-  }
-  const badge = $("#tn-room-copy");
-  const announcer = $("#system-announcer");
-  if (copied) {
-    if (announcer) announcer.textContent = `ROOM CODE ${code} COPIED`;
-    badge?.classList.add("is-copied");
-    window.setTimeout(() => badge?.classList.remove("is-copied"), 1000);
-  } else if (announcer) {
-    announcer.textContent = "ROOM CODE COULD NOT BE COPIED";
-  }
-}
 
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
@@ -2483,56 +2453,8 @@ function bindEvents() {
   $("#profile-cancel-btn")?.addEventListener("click", () => closeProfileEditor(false));
   $("#profile-back-btn")?.addEventListener("click", () => closeProfileEditor(false));
 
-  // Independent global audio controls: effects and soundtrack can be muted
-  // separately while the preference remains consistent across every view.
-  const syncAudioButtons = () => {
-    const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
-    const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
-    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#profile-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn"), $("#rules-sound-toggle-btn")].forEach((button) => {
-      if (!button) return;
-      button.setAttribute("aria-pressed", String(state.sound));
-      button.setAttribute("aria-label", state.sound ? "Turn sound effects off" : "Turn sound effects on");
-      const icon = button.querySelector("img");
-      if (icon) icon.src = soundSrc;
-    });
-    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#profile-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn"), $("#rules-music-toggle-btn")].forEach((button) => {
-      if (!button) return;
-      button.setAttribute("aria-pressed", String(state.music));
-      button.setAttribute("aria-label", state.music ? "Turn parlor music off" : "Turn parlor music on");
-      const icon = button.querySelector("img");
-      if (icon) icon.src = musicSrc;
-    });
-  };
-  syncAudioButtons();
-  $("#sound-toggle-btn")?.addEventListener("click", () => {
-    state.sound = !state.sound;
-    saveSoundPreference(state.sound);
-    if (state.sound) playSound("trade");
-    syncAudioButtons();
-    syncHomeMusic();
-    renderProfileSummary();
-  });
-  $("#music-toggle-btn")?.addEventListener("click", () => {
-    state.music = !state.music;
-    saveMusicPreference(state.music);
-    syncAudioButtons();
-    syncHomeMusic();
-    renderProfileSummary();
-  });
-  $("#game-sound-toggle-btn")?.addEventListener("click", () => {
-    $("#sound-toggle-btn")?.click();
-  });
-  $("#game-music-toggle-btn")?.addEventListener("click", () => {
-    $("#music-toggle-btn")?.click();
-  });
-  $("#profile-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#profile-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
-  $("#rankings-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#rankings-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
-  $("#social-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#social-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
-  $("#rules-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#rules-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
+  // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
+  bindAudioControls({ playSound, syncHomeMusic });
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
   $("#night-exit")?.addEventListener("click", stopNightShift);
 
