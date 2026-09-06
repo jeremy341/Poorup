@@ -145,11 +145,16 @@ const tileApi = {
 
   chargeLandedTax(player, amount, options) {
     if (!this.settings.vacationCash) {
-      this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in tax.`, options);
+      this.chargePlayer({ player, amount, message: `${player.nickname} paid $${amount} in tax.`, turnOptions: options });
       return;
     }
-    this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in tax into Vacation cash.`, options, {
-      onPaid: paid => { this.vacationPool += paid; }
+    const message = `${player.nickname} paid $${amount} in tax into Vacation cash.`;
+    this.chargePlayer({
+      player,
+      amount,
+      message,
+      turnOptions: options,
+      hooks: { onPaid: paid => { this.vacationPool += paid; } }
     });
   },
 
@@ -224,7 +229,9 @@ const tileApi = {
   chargeLandedRent(player, tile, owner, options) {
     const rent = this.calculateRent(tile);
     this.recordAirportStrikeRentFacts(tile, owner);
-    this.chargePlayer(player, owner, rent, `${player.nickname} paid $${rent} rent to ${owner.nickname}.`, options, { onPaid: paid => this.settleEquityShares(tile, owner, paid), equityTileIndex: tile.index, equityOwnerId: owner.id });
+    const message = `${player.nickname} paid $${rent} rent to ${owner.nickname}.`;
+    const hooks = { onPaid: paid => this.settleEquityShares(tile, owner, paid), equityTileIndex: tile.index, equityOwnerId: owner.id };
+    this.chargePlayer({ player, creditor: owner, amount: rent, message, turnOptions: options, hooks });
     return { success: true };
   },
 

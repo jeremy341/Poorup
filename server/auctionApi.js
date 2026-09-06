@@ -166,13 +166,12 @@ const auctionApi = {
     winner.auctionWins = (winner.auctionWins || 0) + 1;
     if (auction.highestBid < Number(auction.propertyTile.price || 0)) winner.auctionUnderListWins = (winner.auctionUnderListWins || 0) + 1;
     this.feedMessage(`${winner.nickname} won the auction for ${auction.propertyTile.name} at $${auction.highestBid}.`);
-    this.chargePlayer(
-      winner,
-      null,
-      auction.highestBid,
-      `${winner.nickname} paid $${auction.highestBid} for ${auction.propertyTile.name}.`,
-      {}
-    );
+    this.chargePlayer({
+      player: winner,
+      amount: auction.highestBid,
+      message: `${winner.nickname} paid $${auction.highestBid} for ${auction.propertyTile.name}.`,
+      turnOptions: {}
+    });
     this.auctionsCompleted += 1;
     this.auction = null;
   }

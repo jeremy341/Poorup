@@ -320,10 +320,19 @@ class GameState {
   }
 
   highestCollateralProperty(player) {
-    return player?.properties
-      ?.map(index => this.getTile(index))
-      .filter(tile => tile && tile.type === 'property' && !tile.mortgaged && !(tile.houseCount > 0) && !this.isPlayerContractCollateral(player, tile))
-      .sort((a, b) => (b.price || 0) - (a.price || 0))[0] || null;
+    if (!player?.properties) return null;
+    const eligible = player.properties
+      .map(index => this.getTile(index))
+      .filter(tile => this.collateralEligibleTile(player, tile));
+    return eligible.sort((a, b) => (b.price || 0) - (a.price || 0))[0] || null;
+  }
+
+  collateralEligibleTile(player, tile) {
+    if (!tile) return false;
+    if (tile.type !== 'property') return false;
+    if (tile.mortgaged) return false;
+    if (tile.houseCount > 0) return false;
+    return !this.isPlayerContractCollateral(player, tile);
   }
 
   isTradeableTile(tile) {
@@ -347,29 +356,43 @@ class GameState {
   }
 
   applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
+    this.terminateTileEquityShares(tile);
+    this.resetDeedTile(tile, toPlayer);
+    this.detachDeedFromOwner(fromPlayer, tile);
+    this.attachDeedToOwner(toPlayer, tile);
+  }
+
+  terminateTileEquityShares(tile) {
     (tile.equityShares || []).forEach(share => {
       const contract = this.playerContractById(share.contractId);
-      if (contract && contract.status === 'active') {
-        contract.status = 'terminated';
-        contract.terminatedRound = this.roundNumber;
-      }
+      if (!contract) return;
+      if (contract.status !== 'active') return;
+      contract.status = 'terminated';
+      contract.terminatedRound = this.roundNumber;
     });
+  }
+
+  resetDeedTile(tile, toPlayer) {
     tile.ownerId = toPlayer ? toPlayer.id : null;
     tile.mortgaged = false;
     tile.houseCount = 0;
     tile.equityShares = [];
-    if (fromPlayer) {
-      fromPlayer.properties = fromPlayer.properties.filter(propertyIndex => propertyIndex !== tile.index);
-      // A bubble-survivor deed must remain in the original owner's hands
-      // through recovery; transferring it invalidates that achievement fact.
-      if (fromPlayer.bubbleSurvivor && fromPlayer.housingBubbleEnded) {
-        fromPlayer.bubbleSurvivor = fromPlayer.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0);
-      }
-    }
-    if (toPlayer) {
-      toPlayer.properties.push(tile.index);
-      this.refreshPlayerGroups(toPlayer);
-    }
+  }
+
+  detachDeedFromOwner(fromPlayer, tile) {
+    if (!fromPlayer) return;
+    fromPlayer.properties = fromPlayer.properties.filter(propertyIndex => propertyIndex !== tile.index);
+    // A bubble-survivor deed must remain in the original owner's hands
+    // through recovery; transferring it invalidates that achievement fact.
+    if (!fromPlayer.bubbleSurvivor) return;
+    if (!fromPlayer.housingBubbleEnded) return;
+    fromPlayer.bubbleSurvivor = fromPlayer.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0);
+  }
+
+  attachDeedToOwner(toPlayer, tile) {
+    if (!toPlayer) return;
+    toPlayer.properties.push(tile.index);
+    this.refreshPlayerGroups(toPlayer);
   }
 
   feedMessage(text) {
@@ -430,6 +453,25 @@ class GameState {
 
   rollDice(socketId) {
     const player = this.getPlayerBySocket(socketId);
+    const rejection = this.rollTurnRejection(player);
+    if (rejection) return rejection;
+    if (player.inJail) {
+      return this.handleJailRoll(player);
+    }
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You have already rolled this turn.' };
+    }
+    const dice = rollDice();
+    this.setTurnDice(dice);
+    if (this.consecutiveDoubles >= 3) {
+      return this.sendRollerToJail(player);
+    }
+    const move = dice[0] + dice[1];
+    this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
+    return this.movePlayer(player, move);
+  }
+
+  rollTurnRejection(player) {
     if (!player) {
       return { success: false, error: 'Player not found.' };
     }
@@ -442,13 +484,10 @@ class GameState {
     if (this.pendingPayment?.playerId === player.id) {
       return { success: false, error: 'Settle your debt before rolling.' };
     }
-    if (player.inJail) {
-      return this.handleJailRoll(player);
-    }
-    if (this.hasRolled && !this.extraRollPending) {
-      return { success: false, error: 'You have already rolled this turn.' };
-    }
-    const dice = rollDice();
+    return null;
+  }
+
+  setTurnDice(dice) {
     this.lastDice = dice;
     this.hasRolled = true;
     this.turnAllowsExtraRoll = dice[0] === dice[1];
@@ -458,21 +497,19 @@ class GameState {
     } else {
       this.consecutiveDoubles = 0;
     }
-    if (this.consecutiveDoubles >= 3) {
-      player.position = this.tiles.find(tile => tile.type === 'jail').index;
-      player.inJail = true;
-      player.jailTurns = 0;
-      this.consecutiveDoubles = 0;
-      this.turnAllowsExtraRoll = false;
-      this.extraRollPending = false;
-      this.hasRolled = false;
-      this.feedMessage(`${player.nickname} rolled three doubles and was sent to Jail.`);
-      this.nextTurn();
-      return { success: true };
-    }
-    const move = dice[0] + dice[1];
-    this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
-    return this.movePlayer(player, move);
+  }
+
+  sendRollerToJail(player) {
+    player.position = this.tiles.find(tile => tile.type === 'jail').index;
+    player.inJail = true;
+    player.jailTurns = 0;
+    this.consecutiveDoubles = 0;
+    this.turnAllowsExtraRoll = false;
+    this.extraRollPending = false;
+    this.hasRolled = false;
+    this.feedMessage(`${player.nickname} rolled three doubles and was sent to Jail.`);
+    this.nextTurn();
+    return { success: true };
   }
 
   handleJailRoll(player) {
@@ -537,15 +574,25 @@ class GameState {
 
   useJailFree(socketId) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || !this.started || player.id !== this.currentPlayerId) return { success: false, error: 'It is not your turn.' };
-    if (!player.inJail || !(player.jailFreeCards > 0)) return { success: false, error: 'You do not have a Get Out of Prison card.' };
-    if (this.hasRolled) return { success: false, error: 'You have already rolled this turn.' };
+    const rejection = this.jailFreeRejection(player);
+    if (rejection) return rejection;
     player.jailFreeCards -= 1;
     player.prisonBreak = true;
     player.inJail = false;
     player.jailTurns = 0;
     this.feedMessage(`${player.nickname} used a Get Out of Prison card.`);
     return { success: true, message: 'You left prison with a Get Out of Prison card.' };
+  }
+
+  jailFreeRejection(player) {
+    const notTurn = { success: false, error: 'It is not your turn.' };
+    if (!player) return notTurn;
+    if (!this.started) return notTurn;
+    if (player.id !== this.currentPlayerId) return notTurn;
+    if (!player.inJail) return { success: false, error: 'You do not have a Get Out of Prison card.' };
+    if (!(player.jailFreeCards > 0)) return { success: false, error: 'You do not have a Get Out of Prison card.' };
+    if (this.hasRolled) return { success: false, error: 'You have already rolled this turn.' };
+    return null;
   }
 
   bankLoanTerms(player) {
@@ -635,34 +682,62 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    const nonBankrupt = this.nonBankruptPlayers();
-    if (nonBankrupt.length <= 1) {
+    if (this.nonBankruptPlayers().length <= 1) {
       this.endGame();
       return;
     }
+    const next = this.findNextTurnSeat();
+    if (!this.nextSeatIsPlayable(next)) {
+      this.announceWaitingForSeat();
+      return;
+    }
+    if (this.turnOrderWrapped(next)) this.advanceRound();
+    if (!this.started) return;
+    this.beginSeatTurn(next.player);
+  }
+
+  findNextTurnSeat() {
     const currentIndex = this.turnOrder.indexOf(this.currentPlayerId);
     let nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % this.turnOrder.length;
     let nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
     let attempts = 0;
-    while (nextPlayer && (nextPlayer.bankrupt || nextPlayer.disconnected) && attempts < this.turnOrder.length) {
+    while (this.seatIsIdle(nextPlayer) && attempts < this.turnOrder.length) {
       nextIndex = (nextIndex + 1) % this.turnOrder.length;
       nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
       attempts += 1;
     }
-    if (!nextPlayer || nextPlayer.bankrupt || nextPlayer.disconnected) {
-      const waiting = this.getPlayerById(this.currentPlayerId);
-      if (waiting && !waiting.bankrupt) {
-        this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
-      }
-      return;
-    }
-    if (currentIndex >= 0 && nextIndex <= currentIndex) this.advanceRound();
-    if (!this.started) return;
-    this.currentPlayerId = nextPlayer.id;
+    return { currentIndex, nextIndex, player: nextPlayer };
+  }
+
+  seatIsIdle(player) {
+    if (!player) return false;
+    return Boolean(player.bankrupt || player.disconnected);
+  }
+
+  nextSeatIsPlayable(next) {
+    if (!next.player) return false;
+    if (next.player.bankrupt) return false;
+    return !next.player.disconnected;
+  }
+
+  announceWaitingForSeat() {
+    const waiting = this.getPlayerById(this.currentPlayerId);
+    if (!waiting) return;
+    if (waiting.bankrupt) return;
+    this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
+  }
+
+  turnOrderWrapped(next) {
+    if (next.currentIndex < 0) return false;
+    return next.nextIndex <= next.currentIndex;
+  }
+
+  beginSeatTurn(player) {
+    this.currentPlayerId = player.id;
     this.hasRolled = false;
-    nextPlayer.buildActionsThisTurn = 0;
-    nextPlayer.marketActionsThisTurn = 0;
-    this.feedMessage(`${nextPlayer.nickname}'s turn.`);
+    player.buildActionsThisTurn = 0;
+    player.marketActionsThisTurn = 0;
+    this.feedMessage(`${player.nickname}'s turn.`);
   }
 
   hasFullSet(ownerId, group) {
@@ -670,22 +745,26 @@ class GameState {
     return groupTiles.every(tile => tile.ownerId === ownerId);
   }
 
-  chargePlayer(player, creditor, amount, message, turnOptions = {}, hooks = {}) {
+  chargePlayer(debt) {
     // Nothing to collect from a missing payer or a non-debt: the turn just
     // resolves normally.
-    if (!player || amount <= 0) {
-      this.resolveTurnAfterAction(turnOptions);
+    if (!debt.player) {
+      this.resolveTurnAfterAction(debt.turnOptions);
       return;
     }
-    if (player.cash >= amount) {
-      this.payDebtInFull({ player, creditor, amount, message, turnOptions, hooks });
+    if (debt.amount <= 0) {
+      this.resolveTurnAfterAction(debt.turnOptions);
       return;
     }
-    this.openDebtSettlement({ player, creditor, amount, message, turnOptions, hooks });
+    if (debt.player.cash >= debt.amount) {
+      this.payDebtInFull(debt);
+      return;
+    }
+    this.openDebtSettlement(debt);
   }
 
   payDebtInFull(debt) {
-    const { player, creditor, amount, message, turnOptions, hooks } = debt;
+    const { player, creditor, amount, message, turnOptions = {}, hooks = {} } = debt;
     player.cash -= amount;
     if (player.cash === 0) player.zeroCashReached = true;
     this.creditRentTo(creditor, player, amount);
@@ -698,7 +777,7 @@ class GameState {
   // of the debt parks in pendingPayment for the mortgage/sell/bankruptcy
   // mini-game to resolve.
   openDebtSettlement(debt) {
-    const { player, creditor, amount, message, turnOptions, hooks } = debt;
+    const { player, creditor, amount, message, turnOptions = {}, hooks = {} } = debt;
     const partial = player.cash;
     if (partial > 0) {
       this.tenderPartialDebt(player, creditor, partial, hooks);
@@ -741,83 +820,96 @@ class GameState {
   trySettlePendingPayment() {
     if (!this.pendingPayment) return false;
     const player = this.getPlayerById(this.pendingPayment.playerId);
-    if (!player || player.bankrupt) {
-      this.pendingPayment = null;
-      this.pendingPaymentTurnOptions = null;
+    if (!this.pendingPayerCanSettle(player)) {
+      this.clearPendingPayment();
       return false;
     }
     if (player.cash < this.pendingPayment.amountRemaining) {
       return false;
     }
-    const creditor = this.pendingPayment.creditorId
-      ? this.getPlayerById(this.pendingPayment.creditorId)
-      : null;
     const amount = this.pendingPayment.amountRemaining;
     player.cash -= amount;
-    if (creditor) {
-      creditor.cash += amount;
-      creditor.rentCollected = (creditor.rentCollected || 0) + amount;
-      creditor.rentPayerIds ||= new Set();
-      creditor.rentPayerIds.add(player.id);
-      creditor.rentPayersThisRound ||= new Set();
-      creditor.rentPayersThisRound.add(player.id);
-      creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
-    }
-    if (this.pendingPayment.equityTileIndex != null) {
-      const equityTile = this.getTile(this.pendingPayment.equityTileIndex);
-      const equityOwner = this.getPlayerById(this.pendingPayment.equityOwnerId);
-      this.settleEquityShares(equityTile, equityOwner, amount);
-    }
+    this.creditSettledDebt(amount, player);
+    this.settlePendingEquityShares(amount);
     this.feedMessage(`${player.nickname} paid the remaining $${amount}.`);
     const turnOptions = this.pendingPaymentTurnOptions || {};
-    this.pendingPayment = null;
-    this.pendingPaymentTurnOptions = null;
+    this.clearPendingPayment();
     this.resolveTurnAfterAction(turnOptions);
     return true;
   }
 
+  pendingPayerCanSettle(player) {
+    if (!player) return false;
+    return !player.bankrupt;
+  }
+
+  clearPendingPayment() {
+    this.pendingPayment = null;
+    this.pendingPaymentTurnOptions = null;
+  }
+
+  // Settling the parked debt credits the creditor through the same rent-fact
+  // path as a direct collection.
+  creditSettledDebt(amount, player) {
+    const creditorId = this.pendingPayment.creditorId;
+    if (!creditorId) return;
+    const creditor = this.getPlayerById(creditorId);
+    this.creditRentTo(creditor, player, amount);
+  }
+
+  settlePendingEquityShares(amount) {
+    const pending = this.pendingPayment;
+    if (pending.equityTileIndex == null) return;
+    const equityTile = this.getTile(pending.equityTileIndex);
+    const equityOwner = this.getPlayerById(pending.equityOwnerId);
+    this.settleEquityShares(equityTile, equityOwner, amount);
+  }
+
   transferMoney(from, to, amount, message) {
-    if (!from || !to || amount <= 0) {
-      return;
-    }
+    if (!from) return;
+    if (!to) return;
+    if (amount <= 0) return;
     from.cash -= amount;
     to.cash += amount;
     this.feedMessage(message);
   }
 
   deductMoney(player, amount, message) {
-    this.chargePlayer(player, null, amount, message, {});
+    this.chargePlayer({ player, amount, message, turnOptions: {} });
   }
 
   endTurn(socketId) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || player.id !== this.currentPlayerId) {
-      return { success: false, error: 'Only the active player can end the turn.' };
-    }
-    if (this.extraRollPending || this.turnAllowsExtraRoll) {
-      return { success: false, error: 'You must roll again after doubles before ending your turn.' };
-    }
-    if (!this.awaitingEndTurn) {
-      return { success: false, error: 'Resolve your roll before ending the turn.' };
-    }
-    if (this.auction?.active) {
-      return { success: false, error: 'Finish the active auction before ending the turn.' };
-    }
-    if (this.pendingPurchaseOffer?.playerId === player.id) {
-      return { success: false, error: 'Resolve the property offer before ending the turn.' };
-    }
-    if (this.pendingPayment?.playerId === player.id) {
-      return { success: false, error: 'Settle your debt before ending the turn.' };
-    }
+    const rejection = this.endTurnRejection(player);
+    if (rejection) return rejection;
     this.nextTurn();
     return { success: true };
   }
 
+  endTurnRejection(player) {
+    const notActive = { success: false, error: 'Only the active player can end the turn.' };
+    if (!player) return notActive;
+    if (player.id !== this.currentPlayerId) return notActive;
+    if (this.extraRollPending) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    if (this.turnAllowsExtraRoll) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    if (!this.awaitingEndTurn) return { success: false, error: 'Resolve your roll before ending the turn.' };
+    return this.pendingFlowRejection(player);
+  }
+
+  pendingFlowRejection(player) {
+    if (this.auction && this.auction.active) return { success: false, error: 'Finish the active auction before ending the turn.' };
+    const offer = this.pendingPurchaseOffer;
+    if (offer && offer.playerId === player.id) return { success: false, error: 'Resolve the property offer before ending the turn.' };
+    const pending = this.pendingPayment;
+    if (pending && pending.playerId === player.id) return { success: false, error: 'Settle your debt before ending the turn.' };
+    return null;
+  }
+
   skipDisconnectedCurrentPlayer() {
     const current = this.getCurrentPlayer();
-    if (!current || !current.disconnected || current.bankrupt) {
-      return;
-    }
+    if (!current) return;
+    if (!current.disconnected) return;
+    if (current.bankrupt) return;
     this.pendingPurchaseOffer = null;
     this.feedMessage(`${current.nickname} was skipped due to disconnect.`);
     this.nextTurn();
