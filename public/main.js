@@ -91,6 +91,19 @@ import {
   applyLogDrawerFilter,
 } from "./clientLogDrawer.js";
 import { bindKeyboard } from "./clientKeyboard.js";
+import {
+  configureProfileRender,
+  formatStatDate,
+  renderProfileSummary,
+  renderAccountPanel,
+  renderProfileLibrary,
+  renderProfileEditor,
+  updateProfilePreview,
+  paintFaceCell,
+  applyProfileToHomeUI,
+  renderGuestAliasField,
+  requireGuestAlias,
+} from "./clientProfileRender.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -385,161 +398,8 @@ function setConnectionStatus(status, announce = false) {
    ============================================================ */
 let accountModalMode = "register";
 
-function accountRate(stats = {}) {
-  const games = Number(stats.gamesPlayed) || 0;
-  return games ? `${Math.round(((Number(stats.wins) || 0) / games) * 100)}%` : "0%";
-}
-
-function profileDisplaySource() {
-  const account = state.account?.account || null;
-  const draft = state.profileDraft || null;
-  const selected = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
-  const profile = draft || selected || null;
-  const activeMeta = getAppearanceMeta(state.appearance);
-  const name = account?.displayName || state.alias || "PLAYER";
-  // The active saved design drives the avatar; account data only supplies a
-  // fallback when no local design exists. Account display name stays separate.
-  const color = draft?.color || profile?.color || account?.color || activeMeta.color || "#d74438";
-  const grid = draft?.grid || profile?.avatarGrid || account?.avatarGrid || null;
-  return { account, profile, name, color, grid, designName: profile ? profileDesignName(profile) : activeMeta.label };
-}
-
-
-function renderProfileSummary() {
-  const source = profileDisplaySource();
-  const { account, name, color, grid } = source;
-  const safeName = String(name || "PLAYER").trim() || "PLAYER";
-  const displayName = safeName.toUpperCase();
-  const accountStats = account?.stats || {};
-  const stats = {
-    games: Number(accountStats.gamesPlayed) || 0,
-    wins: Number(accountStats.wins) || 0,
-    rate: accountRate(accountStats),
-    bankruptcies: Number(accountStats.bankruptcies) || 0,
-  };
-  const avatarMarkup = grid ? spriteFromGrid(grid, 6) : avatarHTML({ color }, 6, 0);
-
-  const heroAvatar = $("#profile-hero-avatar");
-  if (heroAvatar) heroAvatar.innerHTML = avatarMarkup;
-  const overviewAvatar = $("#profile-overview-avatar");
-  if (overviewAvatar) overviewAvatar.innerHTML = grid ? spriteFromGrid(grid, 5) : avatarHTML({ color }, 5, 0);
-  $("#profile-hero-name")?.replaceChildren(document.createTextNode(displayName));
-  $("#profile-overview-name")?.replaceChildren(document.createTextNode(displayName));
-  const handle = $("#profile-hero-handle");
-  if (handle) handle.textContent = account ? `@${account.username}` : "GUEST MODE";
-  const stateLabel = $("#profile-hero-state");
-  if (stateLabel) {
-    stateLabel.textContent = account ? "ACCOUNT PLAYER · STATS SYNCED AFTER COMPLETED ROUNDS" : "LOCAL PLAYER · READY FOR THE NEXT TABLE";
-    stateLabel.classList.toggle("is-account", Boolean(account));
-  }
-  const heroAction = $("#profile-hero-account-btn");
-  if (heroAction) heroAction.querySelector(".t-label").textContent = account ? "EDIT ACCOUNT" : "CREATE ACCOUNT";
-  $("#profile-stat-games")?.replaceChildren(document.createTextNode(String(stats.games)));
-  $("#profile-stat-wins")?.replaceChildren(document.createTextNode(String(stats.wins)));
-  $("#profile-stat-rate")?.replaceChildren(document.createTextNode(stats.rate));
-  $("#profile-stat-bankruptcies")?.replaceChildren(document.createTextNode(String(stats.bankruptcies)));
-  const joined = $("#profile-stat-joined");
-  if (joined) joined.textContent = account?.createdAt ? new Date(account.createdAt).toLocaleDateString(undefined, { month: "short", year: "numeric" }).toUpperCase() : "GUEST";
-  $("#profile-overview-mode")?.replaceChildren(document.createTextNode(account ? `@${account.username}` : "GUEST MODE"));
-  const overviewStatus = $("#profile-overview-status");
-  if (overviewStatus) overviewStatus.textContent = state.connectionStatus === "online" ? "READY" : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE").toUpperCase();
-  const overviewSync = $("#profile-overview-sync");
-  if (overviewSync) overviewSync.textContent = account ? "ACCOUNT SYNC" : "LOCAL ONLY";
-  const soundState = $("#profile-sound-state");
-  if (soundState) soundState.textContent = state.sound ? "SOUND ON" : "SOUND OFF";
-  const musicState = $("#profile-music-state");
-  if (musicState) musicState.textContent = state.music ? "MUSIC ON" : "MUSIC OFF";
-  renderProfileStatistics();
-  renderProfileHistory();
-  renderAchievements();
-}
-
-function formatStatDate(value) {
-  if (!value) return "ROUND";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "ROUND";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
-}
-
-function renderProfileStatistics() {
-  const root = $("#profile-statistics-content");
-  if (!root) return;
-  const account = state.account?.account || null;
-  const stats = account?.stats || {};
-  const games = Math.max(0, Number(stats.gamesPlayed) || 0);
-  const wins = Math.max(0, Math.min(games, Number(stats.wins) || 0));
-  const bankruptcies = Math.max(0, Number(stats.bankruptcies) || 0);
-  const history = Array.isArray(account?.matchHistory) && account.matchHistory.length
-    ? account.matchHistory.filter((entry) => entry && typeof entry === "object").slice(0, 50)
-    : Array.isArray(account?.history)
-      ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50)
-      : [];
-  const chronological = [...history].reverse().slice(-12);
-  const ownMatchValue = (entry, key, fallback = 0) => {
-    const participant = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null;
-    return Math.max(0, Number(participant?.[key] ?? entry[key] ?? fallback) || 0);
-  };
-  const averageCash = history.length
-    ? Math.round(history.reduce((sum, entry) => sum + ownMatchValue(entry, "endingCash"), 0) / history.length)
-    : null;
-  const bestCash = history.length ? Math.max(...history.map((entry) => ownMatchValue(entry, "endingCash"))) : null;
-  const bestProperties = history.length ? Math.max(...history.map((entry) => ownMatchValue(entry, "propertyCount", entry.properties))) : null;
-  const winShare = games ? Math.round((wins / games) * 100) : 0;
-  const sourceLabel = account ? "ACCOUNT SYNC" : "LOCAL ONLY";
-  const record = (label, value, tone = "g100") => `<div class="stats-record"><span class="t-micro ink-3">${label}</span><strong class="t-label f16 ${tone}">${value}</strong></div>`;
-  const trendBars = chronological.length
-    ? chronological.map((entry, index) => {
-        const own = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null;
-        const won = own ? own.finalPlacement === 1 : String(entry.result || "").toUpperCase() === "WIN" || entry.won === true;
-        const height = won ? 100 : 30;
-        const label = won ? "WIN" : "ROUND";
-        return `<div class="stats-bar-column"><span class="stats-bar-value t-micro ${won ? "green" : "ink-3"}">${label}</span><span class="stats-bar ${won ? "is-win" : "is-loss"}" style="--bar-height:${height}%" title="${formatStatDate(entry.completedAt || entry.playedAt)} · ${label}"></span><span class="stats-bar-label t-micro ink-3">${formatStatDate(entry.completedAt || entry.playedAt)}</span></div>`;
-      }).join("")
-    : `<div class="stats-chart-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">${account ? "NO ROUND HISTORY YET" : "ACCOUNT HISTORY UNAVAILABLE"}</strong><span class="t-micro ink-3">${account ? "Complete a server round to unlock this trend." : "Create an account to sync completed-round statistics."}</span></div>`;
-  const trendTable = chronological.length
-    ? `<table class="stats-data-table"><caption>Recent round results</caption><thead><tr><th scope="col">ROUND</th><th scope="col">RESULT</th><th scope="col">ENDING CASH</th><th scope="col">PROPERTIES</th></tr></thead><tbody>${chronological.map((entry, index) => { const own = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null; const won = own ? own.finalPlacement === 1 : String(entry.result || "").toUpperCase() === "WIN" || entry.won === true; return `<tr><th scope="row">${formatStatDate(entry.completedAt || entry.playedAt)} · ${String(index + 1).padStart(2, "0")}</th><td class="${won ? "green" : "ink-2"}">${won ? "WIN" : "ROUND"}</td><td>$${ownMatchValue(entry, "endingCash").toLocaleString()}</td><td>${ownMatchValue(entry, "propertyCount", entry.properties)}</td></tr>`; }).join("")}</tbody></table>`
-    : "";
-
-  root.innerHTML = `<div class="stats-intro panel noise"><div><div class="t-micro g400">PERFORMANCE DECK</div><h2 class="t-section g100">Player Statistics</h2><p class="t-body ink-2">A readable record of the rounds you have finished, not a live ranking or a promise of future results.</p></div><span class="t-micro stats-source ${account ? "green" : "g300"}">${sourceLabel}</span></div>
-    <div class="stats-metric-grid" aria-label="Performance summary">${record("ROUNDS", account ? String(games) : "—")}${record("WINS", account ? String(wins) : "—", "green")}${record("WIN RATE", account ? `${winShare}%` : "—", "g300")}${record("BANKRUPTCIES", account ? String(bankruptcies) : "—", "g-muted")}${record("EVENT SURVIVAL", account ? String(stats.eventSurvival || 0) : "—", "g300")}${record("AUCTION WINS", account ? String(stats.auctionWins || 0) : "—", "g100")}${record("CASINO NET", account ? "$" + Number(stats.casinoNet || 0).toLocaleString() : "—", "green")}${record("MARKET P/L", account ? "$" + Number(stats.marketProfit || 0).toLocaleString() : "—", "g300")}${record("PATROL BEST", account ? String(stats.patrolBest || 0) : "—", "g300")}${record("BANK LOANS REPAID", account ? String(stats.bankLoanRepayments || 0) : "—", "g100")}${record("LOANS GIVEN", account ? String(stats.playerLoansGiven || 0) : "—", "g100")}${record("EQUITY DEALS", account ? String(stats.equityDeals || 0) : "—", "g100")}</div>
-    <div class="stats-content-grid"><section class="panel noise pad16 stats-trend-panel" aria-labelledby="stats-trend-heading"><div class="stats-panel-head"><div><div class="t-micro g400">RECENT FORM</div><h3 class="t-section g100" id="stats-trend-heading">Win history</h3></div><span class="t-micro ink-3">LAST ${chronological.length || 0} ROUNDS</span></div><div class="stats-chart" role="img" aria-label="Win history chart showing ${wins} wins across ${games} completed rounds"><div class="stats-chart-y"><span class="t-micro ink-3">WIN</span><span class="t-micro ink-3">ROUND</span></div><div class="stats-chart-plot"><div class="stats-chart-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="stats-chart-bars">${trendBars}</div></div></div>${trendTable}</section><section class="panel noise pad16 stats-records-panel" aria-labelledby="stats-records-heading"><div class="stats-panel-head"><div><div class="t-micro g400">PARLOR RECORDS</div><h3 class="t-section g100" id="stats-records-heading">Personal bests</h3></div><span class="t-micro ink-3">VERIFIED ROUNDS</span></div><div class="stats-record-list">${record("AVG ENDING CASH", averageCash == null ? "—" : `$${averageCash.toLocaleString()}`)}${record("BEST CASH STACK", bestCash == null ? "—" : `$${bestCash.toLocaleString()}`, "green")}${record("MOST PROPERTIES", bestProperties == null ? "—" : String(bestProperties), "g300")}${record("DATA WINDOW", account ? (history.length ? `${history.length} ROUNDS` : "NO ROUNDS") : "ACCOUNT ONLY", "g-muted")}</div><p class="t-micro ink-3 stats-method">Values are calculated from completed server rounds. No estimates are shown.</p></section></div>`;
-  hydrateSprites(root);
-}
-
-function profileHistoryRowHTML(entry, index, total, accountId) {
-  const participant = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === accountId) : null;
-  const won = participant ? participant.finalPlacement === 1 : entry.won === true || entry.result === "WIN";
-  const date = formatStatDate(entry.completedAt || entry.playedAt);
-  const deeds = participant?.propertyCount ?? entry.properties ?? 0;
-  const players = Array.isArray(entry.participants) ? entry.participants.length : "—";
-  const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 0;
-  const casino = Array.isArray(entry.casino) ? entry.casino.find(item => item.accountId === accountId)?.net || 0 : 0;
-  const contracts = Array.isArray(entry.playerContracts) ? entry.playerContracts.length : 0;
-  const trades = Number(entry.tradesCompleted) || 0;
-  const auctions = Number(entry.auctionsCompleted) || 0;
-  const participantNames = Array.isArray(entry.participants) ? entry.participants.map(item => item.displayNameAtMatch).filter(Boolean).slice(0, 4).join(' · ') : '';
-  return '<article class="profile-history-row' + (won ? ' is-win' : '') + '"><span class="profile-history-index t-micro ink-3">' + String(total - index).padStart(2, "0") + '</span><div class="profile-history-main"><span class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + (won ? 'WIN' : 'ROUND COMPLETE') + '</span><span class="t-micro ink-3">' + date + ' · ' + players + ' PLAYERS</span>' + (participantNames ? '<span class="t-micro profile-history-participants">' + esc(participantNames) + '</span>' : '') + '</div><div class="profile-history-meta"><span class="t-micro ink-3">DEEDS ' + deeds + '</span><span class="t-micro ' + (events ? 'g300' : 'ink-3') + '">' + events + ' EVENTS</span><span class="t-micro ink-3">TRADES ' + trades + '</span><span class="t-micro ink-3">AUCTIONS ' + auctions + '</span><span class="t-micro ' + (casino >= 0 ? 'green' : 'red') + '">CASINO ' + (casino >= 0 ? '+' : '') + '$' + Number(casino).toLocaleString() + '</span><span class="t-micro ink-3">DEALS ' + contracts + '</span></div></article>';
-}
-
 function createRequestId(kind) {
   return String(state.clientId || "client") + ":" + String(kind || "action") + ":" + Date.now() + ":" + Math.random().toString(36).slice(2, 8);
-}
-
-function renderProfileHistory() {
-  const root = $("#profile-history-content");
-  if (!root) return;
-  const account = state.account?.account || null;
-  const historySource = Array.isArray(account?.matchHistory) && account.matchHistory.length ? account.matchHistory : account?.history;
-  const history = Array.isArray(historySource)
-    ? historySource.filter((entry) => entry && typeof entry === "object").slice(0, 50)
-    : [];
-  if (!account || !history.length) {
-    root.innerHTML = `<section class="panel noise pad16 profile-empty-panel"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2></div><p class="t-body ink-2">${account ? "NO COMPLETED ROUNDS YET. YOUR FIRST FINISH WILL APPEAR HERE." : "SIGN IN TO KEEP A SERVER-SYNCED ROUND HISTORY."}</p><p class="t-micro ink-3">Only completed server rounds appear here. Guest play remains available without an account.</p></section>`;
-    hydrateSprites(root);
-    return;
-  }
-  root.innerHTML = `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, account.id)).join("")}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.</p></section>`;
-  hydrateSprites(root);
 }
 
 function renderAchievements() {
@@ -692,29 +552,6 @@ function setProfileTab(tab = "designs", focus = false) {
     const panel = $(`#profile-panel-${next}`);
     panel?.focus({ preventScroll: true });
   }
-}
-
-function renderAccountPanel() {
-  const signedIn = Boolean(state.account?.account);
-  const guest = $("#account-guest-state");
-  const signed = $("#account-signed-state");
-  guest?.classList.toggle("is-hidden", signedIn);
-  signed?.classList.toggle("is-hidden", !signedIn);
-  const title = $("#account-panel-title");
-  const badge = $("#account-panel-badge");
-  if (title) title.textContent = signedIn ? `@${state.account.account.username}` : "Guest mode";
-  if (badge) badge.textContent = signedIn ? "ACCOUNT ACTIVE" : "LOCAL ONLY";
-  renderProfileSummary();
-  if (!signedIn) return;
-  const account = state.account.account;
-  const visual = profileDisplaySource();
-  const avatar = $("#account-avatar");
-  if (avatar) avatar.innerHTML = visual.grid ? spriteFromGrid(visual.grid, 4) : avatarHTML({ color: visual.color }, 4, 0);
-  $("#account-display-name")?.replaceChildren(document.createTextNode(account.displayName));
-  $("#account-username")?.replaceChildren(document.createTextNode(`@${account.username}`));
-  $("#account-games")?.replaceChildren(document.createTextNode(String(account.stats?.gamesPlayed || 0)));
-  $("#account-wins")?.replaceChildren(document.createTextNode(String(account.stats?.wins || 0)));
-  $("#account-rate")?.replaceChildren(document.createTextNode(accountRate(account.stats)));
 }
 
 function updateAccountFromResponse(response) {
@@ -2361,100 +2198,6 @@ function renderHome() {
   hydrateSprites();
 }
 
-function renderProfileLibrary() {
-  const list = $("#pl-list");
-  const newBtn = $("#pl-new-btn");
-  const saveBtn = $("#pl-save-btn");
-  const atCap = state.profiles.length >= MAX_PROFILES;
-  if (newBtn) {
-    newBtn.disabled = atCap;
-    newBtn.querySelector(".t-label").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "+ NEW DESIGN";
-  }
-  if (saveBtn) {
-    saveBtn.disabled = !state.profileDraft || atCap;
-    saveBtn.querySelector(".cta-text").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "SAVE DESIGN";
-  }
-  if (!list) return;
-  if (!state.profiles.length) {
-    if (!state.profileDraft) {
-      list.innerHTML = `<p class="pl-empty">No custom designs yet — press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
-      return;
-    }
-  }
-  const activeId = typeof state.appearance === "string" ? state.appearance : null;
-  const draft = state.profileDraft;
-  const draftCard = draft && !state.editingProfileId
-    ? { id: "draft", designName: draft.designName || "UNTITLED DESIGN", color: draft.color, avatarGrid: draft.grid, isDraft: true }
-    : null;
-  const cards = state.profiles.map((profile, i) => {
-    const editing = draft && state.editingProfileId === profile.id;
-    return {
-      ...profile,
-      designName: editing ? (draft.designName || "UNTITLED DESIGN") : profileDesignName(profile),
-      color: editing ? draft.color : profile.color,
-      avatarGrid: editing ? draft.grid : profile.avatarGrid,
-      isEditing: Boolean(editing),
-      seed: i,
-    };
-  });
-  if (draftCard) cards.unshift(draftCard);
-  list.innerHTML = cards.map((p, i) => {
-    const isDraft = Boolean(p.isDraft);
-    const selected = !isDraft && p.id === activeId;
-    const editing = Boolean(p.isEditing);
-    const entity = { color: p.color, avatarGrid: p.avatarGrid };
-    return `<div class="pl-tile${selected ? " is-active" : ""}${isDraft ? " is-draft" : ""}${editing ? " is-editing" : ""}">
-      ${isDraft ? `<div class="pl-tile-select pl-tile-draft" aria-label="Unsaved design preview"><span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span><span class="pl-tile-info"><span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.designName)}</span><span class="t-micro g400">UNSAVED DRAFT · LIVE PREVIEW</span></span></div>` : `<button class="pl-tile-select" type="button" data-profile-select="${p.id}" aria-pressed="${selected}"><span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span><span class="pl-tile-info"><span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.designName)}</span><span class="t-micro ink-3">${editing ? "EDITING · LIVE PREVIEW" : selected ? "ACTIVE DESIGN" : "TAP TO SELECT"}</span></span></button>`}
-      <div class="pl-tile-actions">${isDraft ? `<span class="t-micro g400 pl-draft-badge">DRAFT</span>` : `<button class="btn-dark" type="button" data-profile-edit="${p.id}"><span class="t-label">EDIT</span></button><button class="btn-dark pl-delete" type="button" data-profile-delete="${p.id}"><span class="t-label">DELETE</span></button>`}</div>
-    </div>`;
-  }).join("");
-}
-
-/** Reflect the saved profile (or the default guest identity) across the home screen. */
-function applyProfileToHomeUI() {
-  const p = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
-  const account = state.account?.account || null;
-  const name = account?.displayName || state.alias || "PLAYER";
-  const preset = getAppearanceMeta(state.appearance);
-  const color = p?.color || account?.color || preset.color || "#d74438";
-  const avatarSource = p || account;
-
-  document.querySelectorAll("[data-global-you-name]").forEach((nameNode) => {
-    nameNode.textContent = name;
-  });
-  document.querySelectorAll("[data-global-you-avatar]").forEach((avatarNode) => {
-    avatarNode.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 3) : avatarHTML({ color }, 3, 0);
-  });
-
-  const chairName = $("#chair-name");
-  if (chairName) chairName.textContent = `that's you, ${name}`;
-  const chairAv = $("#chair-avatar");
-  if (chairAv) chairAv.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 4) : avatarHTML({ color }, 4, 0);
-
-  const resumeBtn = $("#resume-btn");
-  if (resumeBtn) resumeBtn.classList.toggle("is-hidden", !loadSavedGame());
-  renderGuestAliasField();
-}
-
-function renderGuestAliasField(errorText = "") {
-  const field = $("#home-alias-form");
-  const input = $("#home-alias");
-  const error = $("#home-alias-error");
-  const signedIn = Boolean(state.account?.account);
-  field?.classList.toggle("is-hidden", signedIn);
-  if (input && !signedIn && input.value !== state.alias) input.value = state.alias;
-  if (error) error.textContent = errorText;
-}
-
-function requireGuestAlias() {
-  if (state.account?.account) return true;
-  const alias = String(state.alias || "").trim();
-  if (alias) return true;
-  renderGuestAliasField("CREATE AN ALIAS BEFORE JOINING A TABLE.");
-  $("#home-alias")?.focus({ preventScroll: true });
-  return false;
-}
-
 /* ============================================================
    6. GAME RENDERERS
    ============================================================ */
@@ -3258,20 +3001,31 @@ function buildPreviewSelf() {
 /* ============================================================
    6b. PROFILE EDITOR
    ============================================================ */
-const PROFILE_SWATCHES = ["#d74438", "#286ea1", "#d9a62f", "#35a653", "#a04e6f", "#3e7d7b", "#7b5029", "#cfa75f"];
-const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5c5033", "#01070a", "#ffffff", "#d74438", "#35a653", "#286ea1", "#d9a62f"];
-
 /** Open editor. Pass a profile id to edit, or nothing to create a new one. */
+function draftFromSource(source) {
+  return {
+    designName: profileDesignName(source),
+    color: source.color,
+    grid: cloneFaceGrid(source.avatarGrid),
+    tool: "paint",
+    paintColor: source.color,
+  };
+}
+
+function draftFromAccount(account) {
+  const color = account?.color || "#d74438";
+  const grid = account?.avatarGrid
+    ? cloneFaceGrid(account.avatarGrid)
+    : faceGridFromPreset(0, color);
+  return { designName: "", color, grid, tool: "paint", paintColor: "#f0d9ac" };
+}
+
 function openProfileEditor(fromPhase, profileId) {
   closeRoomsModal();
   state.homeReturnView = fromPhase === "setup" ? "setup-return" : "home";
   state.editingProfileId = profileId || null;
   const existing = profileId ? getProfileById(profileId) : null;
-  const account = state.account?.account;
-  const source = existing;
-  state.profileDraft = source
-    ? { designName: profileDesignName(source), color: source.color, grid: cloneFaceGrid(source.avatarGrid), tool: "paint", paintColor: source.color }
-    : { designName: "", color: account?.color || "#d74438", grid: account?.avatarGrid ? cloneFaceGrid(account.avatarGrid) : faceGridFromPreset(0, account?.color || "#d74438"), tool: "paint", paintColor: "#f0d9ac" };
+  state.profileDraft = existing ? draftFromSource(existing) : draftFromAccount(state.account?.account);
   state.profileTab = "designs";
   renderProfileEditor();
   renderAccountPanel();
@@ -3297,45 +3051,58 @@ function announceProfileSave(message) {
   if (status) status.textContent = message;
 }
 
+function draftProfilePayload(d, asNew) {
+  const hasInk = d.grid.some((row) => row.some((c) => c));
+  return {
+    id: !asNew && state.editingProfileId ? state.editingProfileId : `pf_${Math.random().toString(36).slice(2, 9)}`,
+    designName: String(d.designName || "").trim().slice(0, 12).toUpperCase() || "UNTITLED DESIGN",
+    color: d.color,
+    avatarGrid: hasInk ? d.grid : faceGridFromPreset(0, d.color),
+  };
+}
+
+function accountUpdateAck(response) {
+  if (response?.success) {
+    updateAccountFromResponse(response);
+    return;
+  }
+  const error = response?.error;
+  if (!error) return;
+  const announcer = $("#error-announcer");
+  if (announcer) announcer.textContent = error;
+}
+
+function syncSavedDesignToAccount(saved) {
+  if (!state.account?.sessionToken) return;
+  emitServer("account-update", {
+    sessionToken: state.account.sessionToken,
+    color: saved.color,
+    avatarGrid: saved.avatarGrid,
+  }, accountUpdateAck);
+}
+
+function stayAfterSave(saved) {
+  state.editingProfileId = saved.id;
+  state.profileDraft = draftFromSource(saved);
+  renderProfileEditor();
+  renderProfileLibrary();
+  setProfileTab("designs");
+  announceProfileSave(`Saved "${profileDesignName(saved)}" as a new design.`);
+}
+
 function saveProfileDesign({ asNew = false, stay = false } = {}) {
   const d = state.profileDraft;
   if (!d) return null;
   const designName = String(d.designName || "").trim().slice(0, 12).toUpperCase() || "UNTITLED DESIGN";
-  const hasInk = d.grid.some((row) => row.some((c) => c));
-  const draftProfile = {
-    id: !asNew && state.editingProfileId ? state.editingProfileId : `pf_${Math.random().toString(36).slice(2, 9)}`,
-    designName,
-    color: d.color,
-    avatarGrid: hasInk ? d.grid : faceGridFromPreset(0, d.color),
-  };
-  const saved = upsertProfile(draftProfile);
+  const saved = upsertProfile(draftProfilePayload(d, asNew));
   if (saved === "limit") {
     announceProfileSave(`You can only save up to ${MAX_PROFILES} designs. Delete one to make room.`);
     return saved;
   }
   if (!saved) return null;
   setActiveAppearance(saved.id);
-  if (state.account?.sessionToken) {
-    emitServer("account-update", {
-      sessionToken: state.account.sessionToken,
-      color: saved.color,
-      avatarGrid: saved.avatarGrid,
-    }, (response) => {
-      if (response?.success) updateAccountFromResponse(response);
-      else if (response?.error) {
-        const announcer = $("#error-announcer");
-        if (announcer) announcer.textContent = response.error;
-      }
-    });
-  }
-  if (stay) {
-    state.editingProfileId = saved.id;
-    state.profileDraft = { designName: profileDesignName(saved), color: saved.color, grid: cloneFaceGrid(saved.avatarGrid), tool: "paint", paintColor: saved.color };
-    renderProfileEditor();
-    renderProfileLibrary();
-    setProfileTab("designs");
-    announceProfileSave(`Saved "${designName}" as a new design.`);
-  }
+  syncSavedDesignToAccount(saved);
+  if (stay) stayAfterSave(saved);
   return saved;
 }
 
@@ -3371,72 +3138,6 @@ function deleteCurrentProfile() {
   }
 }
 
-function renderProfileEditor() {
-  const d = state.profileDraft;
-  if (!d) return;
-  const deleteBtn = $("#profile-delete-btn");
-  if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
-  const saveLabel = $("#profile-save-btn")?.querySelector(".cta-text");
-  if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
-  const modeLabel = $("#profile-editor-mode");
-  if (modeLabel) modeLabel.textContent = state.editingProfileId ? "EDIT PLAYER DESIGN" : "NEW PLAYER DESIGN";
-
-  // identity swatches
-  $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map(
-    (c) => `<button type="button" class="profile-swatch${c.toLowerCase() === d.color.toLowerCase() ? " is-active" : ""}" style="background:${c}" data-color="${c}" title="${c}"></button>`,
-  ).join("");
-  $("#profile-color-picker").value = d.color;
-  $("#profile-name").value = d.designName;
-
-  // face palette
-  $("#face-palette").innerHTML = FACE_PALETTE.map(
-    (c) => `<button type="button" class="face-swatch${d.tool === "paint" && c.toLowerCase() === d.paintColor.toLowerCase() ? " is-active" : ""}" style="background:${c}" data-ink="${c}" title="${c}"></button>`,
-  ).join("");
-  $("#face-color-picker").value = d.paintColor;
-  $("#face-tool-paint").classList.toggle("is-active", d.tool === "paint");
-  $("#face-tool-erase").classList.toggle("is-active", d.tool === "erase");
-
-  // pixel canvas
-  const canvas = $("#face-canvas");
-  canvas.innerHTML = d.grid
-    .map((row, y) =>
-      row
-        .map((c, x) => `<span class="face-cell" data-x="${x}" data-y="${y}" style="${c ? `background-color:${c};background-image:none` : ""}"></span>`)
-        .join(""),
-    )
-    .join("");
-
-  updateProfilePreview();
-  renderProfileSummary();
-}
-
-function updateProfilePreview() {
-  const d = state.profileDraft;
-  if (!d) return;
-  const av = $("#profile-preview-av");
-  if (av) av.innerHTML = spriteFromGrid(d.grid, 6);
-  const nameEl = $("#profile-preview-name");
-  if (nameEl) {
-    nameEl.textContent = (d.designName || "UNTITLED DESIGN").toUpperCase();
-    nameEl.style.color = d.color;
-  }
-  renderProfileLibrary();
-  renderProfileSummary();
-}
-
-function paintFaceCell(x, y) {
-  const d = state.profileDraft;
-  if (!d) return;
-  const color = d.tool === "erase" ? null : d.paintColor;
-  if (d.grid[y][x] === color) return;
-  d.grid[y][x] = color;
-  const cell = $(`#face-canvas .face-cell[data-x="${x}"][data-y="${y}"]`);
-  if (cell) {
-    cell.style.backgroundColor = color || "";
-    cell.style.backgroundImage = color ? "none" : "";
-  }
-  updateProfilePreview();
-}
 
 /* ============================================================
    7. TILE POPUP
@@ -5561,6 +5262,7 @@ function openCardPreviewFromUrl() {
    10. INIT
    ============================================================ */
 configureSurfaces({ notice: parlorNotice });
+configureProfileRender({ renderAchievements, loadSavedGame });
 renderHome();
 buildBoard(onTileClick);
 hydrateSprites();
