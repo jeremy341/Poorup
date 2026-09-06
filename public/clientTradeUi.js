@@ -615,6 +615,11 @@ function ensureFinancingDraft(propertyIndex) {
 }
 
 export function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null, surface = "offer") {
+  if (!otherPlayers().length) {
+    host.say("No other players at the table.");
+    host.renderChat();
+    return;
+  }
   financingPreviewMode = ["loan", "equity", "hybrid"].includes(mode) ? mode : "loan";
   financingSurfaceMode = ["offer", "contract", "ownership", "default"].includes(surface) ? surface : "offer";
   ensureFinancingDraft(propertyIndex);

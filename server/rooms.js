@@ -14,7 +14,7 @@ import {
   ROOM_SETTING_NORMALIZERS,
   SETTING_REJECTED
 } from './roomSettings.js';
-import { resolveFreeAppearanceColor } from './appearanceApi.js';
+import { AVATAR_GRID_ERROR, isValidAvatarGrid, resolveFreeAppearanceColor } from './appearanceApi.js';
 import { GameState } from './gameLogic.js';
 
 function createRoomCode() {
@@ -151,13 +151,22 @@ class Room {
   }
 
   reconnectPlayer(existing, playerInfo) {
+    if (this.reconnectGridIsInvalid(playerInfo.avatarGrid)) {
+      return { success: false, error: AVATAR_GRID_ERROR };
+    }
     existing.socketId = playerInfo.socketId;
     existing.disconnected = false;
     this.refreshReconnectNickname(existing, playerInfo.nickname);
-    this.refreshReconnectColor(existing, playerInfo.color, playerInfo.avatarGrid);
-    this.refreshReconnectAvatarGrid(existing, playerInfo.avatarGrid);
-    if (playerInfo.accountId) existing.accountId = playerInfo.accountId;
+    this.refreshReconnectAppearance(existing, playerInfo.color, playerInfo.avatarGrid);
+    this.refreshReconnectAccount(existing, playerInfo.accountId);
     return { success: true, player: existing };
+  }
+
+  reconnectGridIsInvalid(avatarGrid) {
+    if (avatarGrid === undefined) return false;
+    if (avatarGrid === null) return false;
+    if (isValidAvatarGrid(avatarGrid)) return false;
+    return true;
   }
 
   refreshReconnectNickname(player, nickname) {
@@ -166,15 +175,56 @@ class Room {
     if (safeNickname) player.nickname = safeNickname;
   }
 
+  // The reconnect hole was two split updates: an omitted/invalid color
+  // skipped identity resolution, then any grid array applied blindly. The
+  // effective color (incoming when hex, else current) always resolves
+  // against the effective grid (incoming when provided, else current)
+  // before either field is written, matching setPlayerAppearance.
+  refreshReconnectAppearance(player, color, avatarGrid) {
+    const effectiveColor = this.effectiveReconnectColor(player, color);
+    const effectiveGrid = this.effectiveReconnectGrid(player, avatarGrid);
+    player.color = resolveFreeAppearanceColor(this.game.players, effectiveColor, player, effectiveGrid);
+    player.avatarGrid = effectiveGrid;
+  }
+
+  effectiveReconnectColor(player, color) {
+    if (typeof color !== 'string') return player.color;
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) return player.color;
+    return color;
+  }
+
+  effectiveReconnectGrid(player, avatarGrid) {
+    if (avatarGrid === undefined) return player.avatarGrid;
+    return avatarGrid;
+  }
+
+  refreshReconnectAccount(player, accountId) {
+    if (!accountId) return;
+    player.accountId = accountId;
+  }
+
+  safeGridForResolve(player, avatarGrid) {
+    if (avatarGrid === undefined) return player.avatarGrid;
+    if (avatarGrid === null) return null;
+    if (isValidAvatarGrid(avatarGrid)) return avatarGrid;
+    return player.avatarGrid;
+  }
+
   refreshReconnectColor(player, color, avatarGrid) {
-    if (typeof color !== 'string') return;
-    if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
-    const grid = avatarGrid === undefined ? player.avatarGrid : avatarGrid;
-    player.color = resolveFreeAppearanceColor(this.game.players, color, player, grid);
+    const gridForResolve = this.safeGridForResolve(player, avatarGrid);
+    const effectiveColor = this.effectiveReconnectColor(player, color);
+    player.color = resolveFreeAppearanceColor(this.game.players, effectiveColor, player, gridForResolve);
   }
 
   refreshReconnectAvatarGrid(player, avatarGrid) {
-    if (avatarGrid === null || Array.isArray(avatarGrid)) player.avatarGrid = avatarGrid;
+    if (avatarGrid === undefined) return;
+    if (avatarGrid === null) {
+      player.avatarGrid = null;
+      return;
+    }
+    if (!Array.isArray(avatarGrid)) return;
+    if (!isValidAvatarGrid(avatarGrid)) return;
+    player.avatarGrid = avatarGrid;
   }
 
   seatNewPlayer(playerInfo) {
@@ -271,6 +321,10 @@ class Room {
         isBot: true,
         personality: this.settings.botPersonality
       });
+      // Bots resolve through the same color-plus-face identity as humans
+      // (bot grids are null generic faces), so a bot never duplicates a
+      // human icon the way the raw 3-color cycle used to.
+      bot.color = resolveFreeAppearanceColor(this.game.players, bot.color, bot, bot.avatarGrid);
       this.game.addPlayer(bot);
     }
   }
@@ -465,7 +519,7 @@ class RoomManager {
     const playerId = player.id;
     const wasCurrentTurn = this.wasCurrentTurnSeat(game, playerId);
     game.removePlayerByClient(player.clientId);
-    if (game.started) this.clearStartedGameSeat(game, playerId, wasCurrentTurn);
+    if (game.started) this.clearStartedGameSeat(game, player, wasCurrentTurn);
   }
 
   wasCurrentTurnSeat(game, playerId) {
@@ -473,12 +527,12 @@ class RoomManager {
     return game.currentPlayerId === playerId;
   }
 
-  clearStartedGameSeat(game, playerId, wasCurrentTurn) {
+  clearStartedGameSeat(game, player, wasCurrentTurn) {
+    const playerId = player.id;
     if (Array.isArray(game.turnOrder)) {
       game.turnOrder = game.turnOrder.filter(id => id !== playerId);
     }
-    this.clearPendingSeatObligations(game, playerId);
-    this.revokeAuctionLead(game, playerId);
+    this.clearPendingSeatObligations(game, player);
     if (!wasCurrentTurn) return;
     // nextTurn() treats an unknown current id as "before the first seat"
     // and hands the dice to the next surviving player in turn order.
@@ -486,13 +540,55 @@ class RoomManager {
     game.nextTurn();
   }
 
-  clearPendingSeatObligations(game, playerId) {
+  clearPendingSeatObligations(game, player) {
+    const playerId = player.id;
+    this.clearSeatPurchaseOffer(game, playerId);
+    this.clearSeatPendingPayment(game, player);
+    this.clearSeatTrade(game, playerId);
+    this.clearSeatContract(game, playerId);
+    this.revokeAuctionLead(game, playerId);
+  }
+
+  clearSeatPurchaseOffer(game, playerId) {
     if (game.pendingPurchaseOffer?.playerId === playerId) game.pendingPurchaseOffer = null;
-    if (this.pendingPaymentFrom(game, playerId)) {
-      game.pendingPayment = null;
-      game.pendingPaymentTurnOptions = null;
+  }
+
+  clearSeatPendingPayment(game, player) {
+    if (this.seatIsPaymentDebtor(game, player.id)) {
+      this.cancelSeatPayment(game, player);
+      return;
     }
+    if (this.seatIsPaymentCreditor(game, player.id)) {
+      this.cancelSeatPayment(game, player);
+    }
+  }
+
+  seatIsPaymentDebtor(game, playerId) {
+    return this.pendingPaymentFrom(game, playerId);
+  }
+
+  seatIsPaymentCreditor(game, playerId) {
+    const pending = game.pendingPayment;
+    if (!pending) return false;
+    return pending.creditorId === playerId;
+  }
+
+  // A pending debt cannot settle without its creditor: creditRentTo credits
+  // the creditor seat and trySettlePendingPayment still debits the payer
+  // even when getPlayerById(creditorId) is missing (creditRentTo
+  // early-returns on a missing creditor). Forgiving the debt on
+  // creditor-quit is the minimal coherent rule; bank debts (creditorId
+  // null) never match a quitting seat and are left alone.
+  cancelSeatPayment(game, player) {
+    game.clearPendingPayment();
+    game.feedMessage(`${player.nickname} left the table. A pending payment was cancelled.`);
+  }
+
+  clearSeatTrade(game, playerId) {
     if (this.pendingTradeFrom(game, playerId)) game.pendingTrade = null;
+  }
+
+  clearSeatContract(game, playerId) {
     if (this.pendingContractFrom(game, playerId)) game.pendingPlayerContract = null;
   }
 

@@ -112,7 +112,15 @@ const cardApi = {
   cardRentPayable(player, owner, destination) {
     if (!owner) return false;
     if (owner.id === player.id) return false;
-    return !destination.mortgaged;
+    if (owner.bankrupt) return false;
+    if (destination.mortgaged) return false;
+    return this.cardRentJailPayable(owner);
+  },
+
+  cardRentJailPayable(owner) {
+    if (!owner.inJail) return true;
+    if (!this.settings.noRentWhileInPrison) return true;
+    return false;
   },
 
   collectStartCard(player, card) {
@@ -169,10 +177,12 @@ const cardApi = {
 
   nearestTileCard(player, card, options) {
     const wantedType = card.action === 'nearestRailroad' ? 'railroad' : 'utility';
-    if (wantedType === 'railroad' && this.airportStrikeGroundsCard()) {
-      this.feedMessage(`${player.nickname} drew an airport movement card, but the strike grounded every flight.`);
-      this.resolveTurnAfterAction(options);
-      return { success: true };
+    if (wantedType === 'railroad') {
+      if (this.airportStrikeGroundsCard()) {
+        this.feedMessage(`${player.nickname} drew an airport movement card, but the strike grounded every flight.`);
+        this.resolveTurnAfterAction(options);
+        return { success: true };
+      }
     }
     const destination = this.findNextTileOfType(player, wantedType);
     if (!destination) return RESOLVE_TAIL;
@@ -202,8 +212,9 @@ const cardApi = {
 
   repairsCard(player, card, options) {
     const amount = this.buildingRepairCost(player, card);
-    if (amount) this.chargePlayer({ player, amount, message: `${player.nickname} paid $${amount} in building repairs.`, turnOptions: options });
-    return RESOLVE_TAIL;
+    if (!amount) return RESOLVE_TAIL;
+    this.chargePlayer({ player, amount, message: `${player.nickname} paid $${amount} in building repairs.`, turnOptions: options });
+    return undefined;
   },
 
   buildingRepairCost(player, card) {
@@ -218,14 +229,34 @@ const cardApi = {
   },
 
   payEachCard(player, card) {
-    const amount = card.amount || 0;
-    this.activePlayers().filter(other => other.id !== player.id).forEach(other => {
-      const paid = Math.min(player.cash, amount);
-      player.cash -= paid;
-      other.cash += paid;
-    });
-    this.feedMessage(`${player.nickname} paid each player $${amount} from the card.`);
+    const amount = this.payEachAmount(card);
+    const total = this.payEachPayout(player, amount);
+    this.feedMessage(`${player.nickname} paid $${total} to other players from the card.`);
     return RESOLVE_TAIL;
+  },
+
+  payEachAmount(card) {
+    return card.amount || 0;
+  },
+
+  payEachPayout(player, amount) {
+    let total = 0;
+    this.activePlayers().filter(other => this.payEachIsRecipient(player, other)).forEach(other => {
+      total += this.payEachShare(player, other, amount);
+    });
+    return total;
+  },
+
+  payEachIsRecipient(player, other) {
+    if (other.id === player.id) return false;
+    return true;
+  },
+
+  payEachShare(player, other, amount) {
+    const paid = Math.min(player.cash, amount);
+    player.cash -= paid;
+    other.cash += paid;
+    return paid;
   },
 
   collectFromEachCard(player, card) {
