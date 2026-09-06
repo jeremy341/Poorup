@@ -104,11 +104,8 @@ function bankLoanCopy(loan, offer) {
   return `Repay before round ${loan.dueRound}. The cure window ends after round ${loan.cureRound}.`;
 }
 
-function financeEmptyHTML(ctx) {
-  if (ctx.offer) return "";
-  if (ctx.outgoing) return "";
-  if (ctx.active.length) return "";
-  return `<div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE PLAYER DEALS</strong><span class="t-micro ink-3">Use the form below to send a live contract.</span></div>`;
+function financeBankHeadHTML(loan) {
+  return '<div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ' + financeStatusTone(loan) + '">' + financeStatusText(loan) + '</span>';
 }
 
 function railFinanceBodyHTML() {
@@ -119,7 +116,7 @@ function railFinanceBodyHTML() {
   const bankActionDisabled = state.phase !== "playing" || state.turnIndex !== 0;
   const loanAction = bankLoanActionHTML(loan, offer, bankActionDisabled);
   const loanMetrics = bankLoanMetrics(loan, offer);
-  return `<section class="finance-bank panel noise" aria-labelledby="bank-credit-heading"><div class="finance-bank-head"><div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ${financeStatusTone(loan)}">${financeStatusText(loan)}</span></div>${financeMetricsBlock(loanMetrics)}<p class="t-body ink-2 finance-bank-copy">${esc(loanCopy)}</p>${financeActionsBlock(loanAction)}<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></section><div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PLAYER FINANCE</div><p class="t-body ink-2">Player loans and equity remain negotiated social contracts. Use the bank only when the collateral risk is worth the liquidity.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">PLAYER CONTRACTS · LIVE</span></div>${financeEmptyHTML(contractContext())}<div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW TERMS</span></button></div>`;
+  return '<details class="finance-bank panel noise"><summary class="finance-bank-head">' + financeBankHeadHTML(loan) + '</summary>' + financeMetricsBlock(loanMetrics) + '<p class="t-body ink-2 finance-bank-copy">' + esc(loanCopy) + '</p>' + financeActionsBlock(loanAction) + '<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></details>';
 }
 
 function casinoFeeSuffix(entryFee) {
@@ -225,8 +222,8 @@ function renderRailBody(owned) {
   const body = $("#rr-body");
   const tab = state.tab;
   if (tab === "finance") {
-    body.innerHTML = railFinanceBodyHTML();
-    body.innerHTML += playerContractRailHTML();
+    body.innerHTML = playerContractRailHTML();
+    body.innerHTML += railFinanceBodyHTML();
     hydrateSprites();
     return;
   }
@@ -315,8 +312,6 @@ function contractContext() {
   };
 }
 
-const CONTRACT_RAIL_HEAD = '<section class="player-contracts panel noise" aria-labelledby="player-contracts-heading"><div class="finance-bank-head"><div><div class="t-micro g400">PLAYER FINANCE · LIVE</div><h3 class="t-section g100" id="player-contracts-heading">Private contracts</h3></div><span class="t-micro ink-3">SERVER LEDGER</span></div>';
-
 function contractOfferHybridHTML(offer) {
   if (offer.kind !== "hybrid") return "";
   const tile = TILES[Number(offer.propertyIndex)];
@@ -395,26 +390,160 @@ function contractRowHTML(contract, localServerId) {
   return '<div class="player-contract-row"><div><strong class="t-label f11 g100">' + kind + ' · ' + from + ' → ' + to + '</strong><span class="t-micro ink-3">' + detail + '</span></div>' + contractRepayHTML(contract, localServerId) + '<button class="btn-dark" type="button" data-finance-view="' + esc(contract.id) + '"><span class="t-label f11">VIEW</span></button></div>';
 }
 
-function contractActiveBlock(ctx) {
-  const rows = ctx.active.length ? ctx.active.map((contract) => contractRowHTML(contract, ctx.localServerId)).join("") : '<span class="t-micro ink-3">NO ACTIVE PLAYER CONTRACTS.</span>';
-  return '<div class="player-contract-active"><span class="t-micro g400">ACTIVE CONTRACTS</span>' + rows + '</div><details class="player-contract-details"><summary class="btn-dark"><span class="t-label f11">PROPOSE LOAN / EQUITY</span></summary>';
+function isMyDueDebt(contract, localServerId) {
+  if (contract.status !== "due") return false;
+  if (contract.toPlayerId !== localServerId) return false;
+  return true;
 }
 
-function contractFormHTML(others) {
-  return '<form class="player-contract-form" data-player-contract-form><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option><option value="hybrid">HYBRID NOTE</option></select></label><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field" data-kind-field="loan hybrid"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field" data-kind-field="equity hybrid"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field" data-kind-field="loan"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field" data-kind-field="equity"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="account-field" data-kind-field="hybrid"><span class="t-micro g400">CONVERSION SHARE %</span><input class="field" name="conversionShare" type="number" min="5" max="100" value="25" inputmode="numeric"></label><label class="account-field" data-kind-field="equity"><span class="t-micro g400">EQUITY CONTROL</span><select class="setting-select" name="equityControl"><option value="passive">PASSIVE</option><option value="shared">SHARED</option><option value="controlling">CONTROLLING</option></select></label><label class="financing-check" data-kind-field="equity"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
+function financeMyDueDebts(active, localServerId) {
+  return active.filter((contract) => isMyDueDebt(contract, localServerId));
 }
 
-function contractOthersBlockHTML(others) {
-  if (others.length) return contractFormHTML(others);
-  return '<span class="t-micro ink-3">NO OTHER ACCOUNT PLAYERS IN THIS ROOM.</span>';
+function financeNeedsCount(offer, dueDebts) {
+  if (offer) return 1 + dueDebts.length;
+  return dueDebts.length;
+}
+
+function financeHeaderHTML(offer, dueDebts, active) {
+  const needs = financeNeedsCount(offer, dueDebts);
+  const live = active.length;
+  return '<div class="finance-status"><span class="t-micro ink-3">FINANCE</span><span class="t-label f11 g-muted">' + needs + ' NEED YOU · ' + live + ' LIVE</span></div>';
+}
+
+function byCureRound(a, b) {
+  return Number(a.cureRound || 0) - Number(b.cureRound || 0);
+}
+
+function financeSortedDueDebts(dueDebts) {
+  return [...dueDebts].sort(byCureRound);
+}
+
+function financeNeedsRowsHTML(dueDebts, localServerId) {
+  return financeSortedDueDebts(dueDebts).map((contract) => contractRowHTML(contract, localServerId)).join("");
+}
+
+function financeNeedsEmpty(offerHTML, rowsHTML) {
+  if (offerHTML) return false;
+  if (rowsHTML) return false;
+  return true;
+}
+
+function financeNeedsZoneHTML(offer, dueDebts, localServerId) {
+  const offerHTML = contractOfferBlockHTML(offer);
+  const rowsHTML = financeNeedsRowsHTML(dueDebts, localServerId);
+  if (financeNeedsEmpty(offerHTML, rowsHTML)) return '<div class="player-contract-active"><span class="t-micro g400">NEEDS YOU</span><span class="t-micro ink-3">Nothing needs you.</span></div>';
+  return '<div class="player-contract-active"><span class="t-micro g400">NEEDS YOU</span>' + offerHTML + rowsHTML + '</div>';
+}
+
+function isOwedByYou(contract, localServerId) {
+  if (!contractDebtKind(contract.kind)) return false;
+  if (contract.toPlayerId !== localServerId) return false;
+  return true;
+}
+
+function isOwedToYou(contract, localServerId) {
+  if (contract.fromPlayerId !== localServerId) return false;
+  return true;
+}
+
+function financeOwedByRowsHTML(active, localServerId) {
+  return active.filter((contract) => isOwedByYou(contract, localServerId)).map((contract) => contractRowHTML(contract, localServerId)).join("");
+}
+
+function financeOwedToRowsHTML(active, localServerId) {
+  return active.filter((contract) => isOwedToYou(contract, localServerId)).map((contract) => contractRowHTML(contract, localServerId)).join("");
+}
+
+function isMyEquityHolder(holderId, localServerId) {
+  if (holderId === localServerId) return true;
+  const me = state.players[0];
+  if (!me) return false;
+  if (holderId === me.id) return true;
+  return false;
+}
+
+function financeEquityEntries(localServerId) {
+  const found = [];
+  const tiles = state.serverTiles || [];
+  for (const serverTile of tiles) {
+    const shares = serverTile.equityShares || [];
+    for (const entry of shares) {
+      if (isMyEquityHolder(entry.holderId, localServerId)) found.push({ tile: serverTile, share: entry.share, contractId: entry.contractId });
+    }
+  }
+  return found;
+}
+
+function financeEquityTileName(serverTile) {
+  const tile = TILES[Number(serverTile.index)];
+  if (tile) return tile.name;
+  return "DEED";
+}
+
+function financeEquityViewHTML(entry) {
+  if (!entry.contractId) return "";
+  return '<button class="btn-dark" type="button" data-finance-view="' + esc(entry.contractId) + '"><span class="t-label f11">VIEW</span></button>';
+}
+
+function financeEquityRowHTML(entry) {
+  const name = financeEquityTileName(entry.tile);
+  const share = Number(entry.share || 0);
+  return '<div class="player-contract-row"><div><strong class="t-label f11 g100">' + esc(name) + ' · ' + share + '%</strong><span class="t-micro ink-3">EQUITY HELD</span></div>' + financeEquityViewHTML(entry) + '</div>';
+}
+
+function financeEquityRowsHTML(equityEntries) {
+  return equityEntries.map(financeEquityRowHTML).join("");
+}
+
+function financeSubheadHTML(label) {
+  return '<span class="t-micro g400">' + label + '</span>';
+}
+
+function financeOwedBySectionHTML(rowsHTML) {
+  if (!rowsHTML) return "";
+  return financeSubheadHTML("OWED BY YOU") + rowsHTML;
+}
+
+function financeOwedToSectionHTML(rowsHTML) {
+  if (!rowsHTML) return "";
+  return financeSubheadHTML("OWED TO YOU") + rowsHTML;
+}
+
+function financeEquitySectionHTML(rowsHTML) {
+  if (!rowsHTML) return "";
+  return financeSubheadHTML("EQUITY YOU HOLD") + rowsHTML;
+}
+
+function financeAwaitingSectionHTML(outgoingHTML) {
+  if (!outgoingHTML) return "";
+  return financeSubheadHTML("AWAITING THEM") + outgoingHTML;
+}
+
+function financePositionsGlobalEmpty(offer, outgoing, active, equityRowsHTML) {
+  if (offer) return false;
+  if (outgoing) return false;
+  if (active.length) return false;
+  if (equityRowsHTML) return false;
+  return true;
+}
+
+function financePositionsZoneHTML(ctx, equityEntries) {
+  const owedBy = financeOwedByRowsHTML(ctx.active, ctx.localServerId);
+  const owedTo = financeOwedToRowsHTML(ctx.active, ctx.localServerId);
+  const equityRows = financeEquityRowsHTML(equityEntries);
+  const outgoingHTML = contractOutgoingBlockHTML(ctx.outgoing);
+  if (financePositionsGlobalEmpty(ctx.offer, ctx.outgoing, ctx.active, equityRows)) return '<div class="player-contract-active"><span class="t-micro g400">YOUR POSITIONS</span><span class="t-micro ink-3">No live deals. Send one when ready.</span></div>';
+  return '<div class="player-contract-active"><span class="t-micro g400">YOUR POSITIONS</span>' + financeOwedBySectionHTML(owedBy) + financeOwedToSectionHTML(owedTo) + financeEquitySectionHTML(equityRows) + financeAwaitingSectionHTML(outgoingHTML) + '</div>';
+}
+
+function financeSendHTML() {
+  return '<div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan"><span class="t-label f11">SEND A DEAL</span></button></div>';
 }
 
 export function playerContractRailHTML() {
   const ctx = contractContext();
-  let html = CONTRACT_RAIL_HEAD;
-  html += contractOfferBlockHTML(ctx.offer);
-  html += contractOutgoingBlockHTML(ctx.outgoing);
-  html += contractActiveBlock(ctx);
-  html += contractOthersBlockHTML(ctx.others);
-  return html + '</details></section>';
+  const dueDebts = financeMyDueDebts(ctx.active, ctx.localServerId);
+  const equityEntries = financeEquityEntries(ctx.localServerId);
+  return '<section class="player-contracts panel noise">' + financeHeaderHTML(ctx.offer, dueDebts, ctx.active) + financeNeedsZoneHTML(ctx.offer, dueDebts, ctx.localServerId) + financePositionsZoneHTML(ctx, equityEntries) + financeSendHTML() + '</section>';
 }

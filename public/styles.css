@@ -2652,6 +2652,8 @@ a:focus-visible {
 .finance-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
 .finance-bank { margin-bottom: 14px; padding: 12px; border-color: var(--line-active); box-shadow: var(--shadow-active); }
 .finance-bank-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+summary.finance-bank-head { list-style: none; cursor: pointer; }
+summary.finance-bank-head::-webkit-details-marker { display: none; }
 .finance-bank-head h3 { margin-top: 6px; color: var(--gold-100); }
 .finance-bank-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
 .finance-bank-metrics > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 7px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
@@ -2739,6 +2741,7 @@ a:focus-visible {
 .financing-preview-copy { margin-top: 14px; }
 .financing-preview-note { margin-top: 9px; color: var(--gold-muted); }
 .financing-actions { display: grid; grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr); gap: 10px; margin-top: 18px; }
+.financing-actions.is-solo { grid-template-columns: minmax(0, 1fr); }
 .financing-actions > button { min-height: 46px; width: 100%; }
 .financing-disabled-action { opacity: 0.65; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

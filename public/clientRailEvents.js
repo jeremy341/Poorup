@@ -109,9 +109,14 @@ function onBankAction(node) {
   return true;
 }
 
+function financeOpenMode(node) {
+  if (node.dataset.financeOpen) return node.dataset.financeOpen;
+  return "loan";
+}
+
 function onFinanceOpen(node) {
   if (!node) return false;
-  host.openFinancingModal(node.dataset.financeOpen || "loan", null, node, node.dataset.financeSurface || "offer");
+  host.openFinancingModal(financeOpenMode(node), null, node);
   return true;
 }
 
@@ -129,7 +134,7 @@ function onTradeOpen(node) {
 
 function onFinanceView(node) {
   if (!node) return false;
-  host.openFinancingContract(node.dataset.financeView);
+  host.openFinancingContract(node.dataset.financeView, node);
   return true;
 }
 
@@ -139,7 +144,7 @@ const RAIL_CLICKS = [
   ["[data-player-contract-repay]", onContractRepay],
   ["[data-market-order]", onMarketOrder],
   ["[data-bank-action]", onBankAction],
-  ["[data-finance-open], [data-finance-surface]", onFinanceOpen],
+  ["[data-finance-open]", onFinanceOpen],
   ["[data-buy]", onBuyTile],
   ["[data-trade]", onTradeOpen],
   ["[data-finance-view]", onFinanceView],
@@ -150,32 +155,6 @@ export function onRailClick(event) {
     const node = event.target.closest(selector);
     if (handler(node)) return;
   }
-}
-
-function contractFormPayload(form) {
-  const payload = Object.fromEntries(new FormData(form).entries());
-  payload.amount = Number(payload.amount) || 0;
-  payload.premiumRate = Number(payload.premiumRate) || 0;
-  payload.durationRounds = Number(payload.durationRounds) || 3;
-  payload.propertyIndex = payload.propertyIndex === "" ? null : Number(payload.propertyIndex);
-  payload.collateralTileIndex = payload.collateralTileIndex === "" ? null : Number(payload.collateralTileIndex);
-  payload.requestId = host.createRequestId("contract-proposal");
-  return payload;
-}
-
-function onContractForm(event, form) {
-  event.preventDefault();
-  const payload = contractFormPayload(form);
-  host.emitServer("propose-player-contract", payload, (response) => {
-    if (response?.success === false) {
-      ackFailure(response, "The player contract could not be sent.");
-      return;
-    }
-    host.say("Contract sent for review.");
-    host.renderChat();
-    host.renderRightRail();
-  });
-  return true;
 }
 
 function casinoBet(form) {
@@ -199,24 +178,8 @@ function onCasinoForm(event, form) {
 }
 
 const RAIL_SUBMITS = [
-  ["[data-player-contract-form]", onContractForm],
   ["[data-casino-form]", onCasinoForm],
 ];
-
-function syncContractKindFields(form) {
-  const kind = form.querySelector("select[name=kind]")?.value || "loan";
-  form.querySelectorAll("[data-kind-field]").forEach((field) => {
-    const kinds = String(field.dataset.kindField || "").split(" ");
-    field.hidden = !kinds.includes(kind);
-  });
-}
-
-export function onRailChange(event) {
-  const form = event.target.closest("[data-player-contract-form]");
-  if (!form) return;
-  if (!event.target.matches("select[name=kind]")) return;
-  syncContractKindFields(form);
-}
 
 export function onRailSubmit(event) {
   for (const [selector, handler] of RAIL_SUBMITS) {
