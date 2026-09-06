@@ -1,79 +1,93 @@
 # Client monolith (public/main.js) — remaining CodeScene violations
 
-Regenerated after Phase 11 (commit at HEAD of branch refactor/main-monolith).
-main.js score: 2.54. LOC: 3,623 (was 5,517 at Phase 5). Functions: 146 named + nested arrows (module-count flag remains until main.js < 75 functions).
+Regenerated after Phase 19 (HEAD of branch `refactor/main-monolith`).
+main.js score: **4.14** (was 2.54 at Phase 11 start). LOC: **2,515** (was 3,623).
+Top-level `function` decls: **101** (was 146); CodeScene's total-function module flag
+remains until the rooms/lobby + turn + socket clusters are extracted (needs < 75).
 
-Phases 6–11 completed this cycle (all new modules verified exactly 10.0, zero violations):
-- `public/clientSurfaces.js` — surface/dialog controller + confirm modal (fixes `syncSurfaceA11y` cc15, `openSurface` cc12)
-- `public/clientLogDrawer.js` — log drawer render/filter/toggle (10.0)
-- `public/clientKeyboard.js` — window keydown controller: night-shift chords, Tab trap, ordered modal-escape gates, KEY_ACTIONS (fixes the former cc=98/23-bump handler)
-- `public/clientProfileRender.js` — profile summary/statistics/history/library/account panel/guest alias/face editor renderers (fixes cc60/38/24/22/20×3/17/12 + renderGuestAliasField cond)
-- `public/clientNightShift.js` — night-shift mini-game incl. visibility freeze/resume (fixes cc30/24/19/18/15/12/11/10 + missNightShiftTarget/hitNightShiftTarget conds + visibilitychange 14/3-bumps)
-- `public/clientSocialSurfaces.js` — parlor toast announcer, social/rankings/rules/player surfaces (fixes renderSocialSurface cc40, announceSocialNotification cc21, playerHistoryHTML cc28, renderPlayerSurface cc23, renderRankingsSurface cc19, renderRulesSurface cc13, openRankingsSurface cc10; account/night hosts wired via `configure*`)
-- `public/clientAccountIdentity.js` — achievements (grid, modal, filters, unlock) + account modal HTML/username-gate/submit, updateAccountFromResponse, logout (fixes cc34/30/30/15/13/9 + submit/checkUsername conds)
-- `public/clientRailEvents.js` — #rr-body data-action dispatch tables (fixes cc36+bumps5, cc22)
-- In main.js: `openProfileEditor` cc12→0, `saveProfileDesign` cc17→0, `say` cc11→0, `tone` args=5→4 (+ playSound table), `handleRestoreSessionResponse` cc15→0
+Phases landed this cycle (each new module verified exactly 10.0, zero violations;
+every extracted function's markup/emit-names/payloads moved verbatim):
+
+- `public/clientPopupUi.js` — tile popup (`openPopup` cc22→decomposed, `closePopup`,
+  `onTileClick`) + shared render helpers (`kindLabel`, `accentOf`, `popIconHTML` cc12,
+  `effectText` cc12, `popRow`, `rentScheduleHTML`) reused by the deed/choice/auction cards.
+  host = `configurePopup({ buyTile, record })`.
+- `public/clientTradeUi.js` — parlor dropdown widget (`dropdownHTML`, `bindDropdowns`
+  keydown cc13→table dispatch), the loan/equity/hybrid financing modal
+  (`financingPreviewCopy` cc20→per-mode builders, `renderFinancingModal` input cc17→
+  named handlers) and the trade-proposer modal (`sendTrade` cc17+cond→guards+action
+  table, `renderTradeModal` cc13→`tradeModalHTML`/`tradeSideHTML`/`wireTradeModal`).
+  host = `configureTradeUi({ emitServer, say, renderChat, record })`. `clamp` hoisted to `clientDom.js`.
+- `public/clientParlorBindings.js` — rankings/social/player-card click+submit handlers
+  (both in-game modal + full-page variants) + profile player-list click.
+  `handleSocialClick` cc19→`SOCIAL_CLICKS` dispatch table; `player-card` cc29→guards +
+  `PLAYER_ACTIONS` table (kills the 3-operator `!action||disabled||!selected` guard);
+  rankings split into per-branch helpers. host = `bindParlorSurfaces({ emitServer, leaveRoomForHome })`.
+- `public/clientHomeAmbient.js` — parlor-patrol helicopter easter egg + home local-time
+  clock + patrol SFX. `scheduleHomeHelicopter` cc9→`launch/end/…` named timer steps.
+  Exports the controls the night-shift host and home nav consume.
+- `public/clientAuctionUi.js` — live auction bidding UI (`updateAuctionLive` cc18+cond→
+  per-element renderers + `auctionPlayerBroke` sequential guards; `renderAuction` markup
+  verbatim; `startAuction`/`humanBid`/`humanPassAuction`/`tickAuction`; owns the interval).
+  host = `configureAuctionUi({ emitServer, say, renderChat })`. Timer surfaced via
+  `startAuctionTimer`/`stopAuctionTimer` (socket `openAuctionSurface`/`closeAuctionSurface`
+  + navigation rewired). Reuses `clientPopupUi` helpers.
+- `public/clientHomeEntryBindings.js` — join-a-table submit (`cc18`+bumpy→`resolveJoinCode`
+  /`resolveJoinNickname` sequential guards), room-code/nickname sanitising inputs, guest-alias
+  editor. host = `bindHomeEntry({ closeRoomsModal, enterParlor })`.
+- `public/clientAudioControls.js` — global effects/music toggles (`syncAudioButtons` cc9→
+  `paintAudioButton` over SOUND/MUSIC id tables; per-view buttons proxy via `proxyTo`).
+  host = `bindAudioControls({ playSound, syncHomeMusic })`.
+- `public/clientRoomShare.js` — `copyRoomCode` cc12→`clipboardCopy`/`legacyCopy`/`announceRoomCopy`.
 
 ## Still remaining in public/main.js (exact, CodeScene CLI)
 
-### Bumpy Road Ahead (4)
-- `sendTrade` — bumps = 2
-- `bindEvents.handleRankingClick` — bumps = 2
-- `bindEvents."submit"` (@3244 join-form) — bumps = 2
-- `bindEvents."click"` (@3477 pl-list) — bumps = 2
+### Bumpy Road Ahead (1)
+- `bindEvents."click"` (@2336 profile `#pl-list` delete/edit/select) — bumps = 2
 
-### Complex Method (30)
-- `renderSetup` — cc = 30
-- `bindEvents."click"` (@3224 player-card) — cc = 29
-- `switchRoomModalTab` — cc = 26
-- `enterParlor` — cc = 24
-- `openPopup` — cc = 22
-- `bindEvents."click"` (@3358 rc-create-btn) — cc = 20
-- `financingPreviewCopy` — cc = 20
-- `bindEvents.handleSocialClick` — cc = 19
-- `bindEvents."submit"` (@3244 join-form) — cc = 18
-- `updateAuctionLive` — cc = 18
-- `sendTrade` — cc = 17
-- `renderFinancingModal."input"` — cc = 17
-- `bindEvents.handleSocialSubmit` — cc = 13
-- `renderTradeModal` — cc = 13
-- `bindDropdowns."keydown"` — cc = 13
-- `updateCreateRoomUI` — cc = 13
-- `popIconHTML` — cc = 12
-- `effectText` — cc = 12
-- `copyRoomCode` — cc = 12
-- `bindEvents.handleRankingClick` — cc = 11
-- `renderHome` — cc = 11
-- `"purchase-offer"` — cc = 11
-- `openCardPreviewFromUrl` — cc = 10
-- `"trade-offer"` — cc = 10
-- `"achievement-unlocked"` — cc = 10
-- `bindEvents.applySettingField` — cc = 9
-- `bindEvents."click"` (@3702 rr-body deed-open) — cc = 9
-- `bindEvents.syncAudioButtons` — cc = 9
-- `bindEvents.handleRankingSubmit` — cc = 9
-- `scheduleHomeHelicopter` — cc = 9
+### Complex Method (12)
+- `renderSetup` (@1051) — cc = 30   [setup overlay renderer; big template + appearance grid]
+- `switchRoomModalTab` (@673) — cc = 26
+- `enterParlor` (@1961) — cc = 24   [room/quick join; heavy socket + view wiring]
+- `bindEvents."click"` (@2217 `#rc-create-btn`) — cc = 20   [needs createRoomSettings]
+- `updateCreateRoomUI` (@651) — cc = 13   [owns createRoomSettings]
+- `renderHome` (@769) — cc = 11
+- `"purchase-offer"` (@408 socket listener) — cc = 11
+- `openCardPreviewFromUrl` (@2668) — cc = 10   [standalone dev preview; host=openCardReveal/openCardGallery]
+- `"trade-offer"` (@420 socket listener) — cc = 10
+- `"achievement-unlocked"` (@365 socket listener) — cc = 10
+- `bindEvents.applySettingField` (@2542 lobby settings) — cc = 9
+- `bindEvents."click"` (@2513 `#rr-body` deed-open) — cc = 9
 
-### Complex Conditional (13)
-- `runTurn` @2028 — 3
-- `endTurn` @2047 — 3
-- `sendTrade` @2536 — 3
-- `loadSavedGame` @2847 — 3
-- `"card-reveal"` @380 — 2
-- `primaryTurnAction` @2058 — 2
-- `primaryTurnAction` @2059 — 2
-- `updateAuctionLive` @2344 — 2
-- `renderTradeModal` @2466 — 2
-- `leaveRoomForHome` @3065 — 2
-- `bindEvents."click"` @3230 — 2
-- `bindEvents."click"` @3363 — 2
-- `bindEvents.applySettingField` @3733 — 2
-
-### Module-level
-- "Number of Functions in a Single Module" (146 named + nested arrows; needs further extraction to < 75)
+### Complex Conditional (9)
+- `runTurn` @1447 — 3 (`phase!=="playing"||turnIndex!==idx||busy||stage!=="roll"`)
+- `endTurn` @1466 — 3
+- `loadSavedGame` @1868 — 3
+- `primaryTurnAction` @1477 — 2
+- `primaryTurnAction` @1478 — 2
+- `"card-reveal"` @416 — 2
+- `leaveRoomForHome` @2086 — 2
+- `bindEvents."click"` @2222 (`#rc-create-btn` guard) — 2
+- `bindEvents.applySettingField` @2544 — 2
 
 ## Suggested next sessions (in order)
-1. bindEvents handlers → data-action tables in a `clientParlorBindings.js`: player-card click (29), rc-create-btn (20), pl-list (bump), join-form submit (18+bump), handleSocialClick/Submit, handleRankingClick/Submit, applySettingField, syncAudioButtons, bindDropdowns keydown; also the second rr-body deed-open click.
-2. Trade/auction/financing cluster: sendTrade (17+2+cond3), updateAuctionLive (18+cond2), renderTradeModal (13+cond2), financingPreviewCopy (20), renderFinancingModal."input" (17), openPopup (22), popIconHTML (12), effectText (12).
-3. Rooms/lobby cluster: switchRoomModalTab (26), updateCreateRoomUI (13), renderSetup (30), renderHome (11), enterParlor (24 cond), loadSavedGame (cond3), leaveRoomForHome (cond2), copyRoomCode (12).
-4. Turn engine conds: runTurn/endTurn/primaryTurnAction guards; socket listeners "purchase-offer"/"trade-offer"/"achievement-unlocked"/"card-reveal"; scheduleHomeHelicopter (9); openCardPreviewFromUrl (10).
+1. **Rooms/lobby cluster → `clientLobbyUi.js`** (biggest remaining size + method win, but
+   it is a knot: `createRoomSettings`/`roomsFilter`/`roomsDirectory` are shared mutable state
+   read by `renderRoomsList`/`filteredRooms`/`updateCreateRoomUI`/`openRoomsModal` AND written
+   by the `#rm-tabs`/`#rooms-list`/`#rc-*` bindEvents handlers, and navigation
+   (`enterParlor`↔`buildPlayers`/`showView`/`renderSetup`/`renderLobbyRail`/`syncServerAppearance`)
+   reaches `clientSocialSurfaces`/socket hosts. Extract the renderers + bindings + navigation
+   TOGETHER (own the room state inside the module) so no mutable object is split across files;
+   `showView` is injected into many hosts today, so keep it in main and pass it as a hook.
+   Decompose `renderSetup`(30), `switchRoomModalTab`(26), `enterParlor`(24),
+   `updateCreateRoomUI`(13), `renderHome`(11), `#rc-create-btn`(20) with the table/guard idiom.
+2. **Turn engine → `clientTurnFlow.js`** + socket listeners → `clientSocketListeners.js`:
+   the `runTurn`/`endTurn`/`primaryTurnAction`/`loadSavedGame`/`leaveRoomForHome` 3-operator
+   guards (extract a boolean predicate fn so the `&&`/`||` chain is a RETURN, not a branch
+   condition), and the `"purchase-offer"`/`"trade-offer"`/`"achievement-unlocked"`/`"card-reveal"`
+   socket handlers (large host surface: applyServerState/serverSyncHost/renderAll/say/renderChat/
+   openChoiceModal/openOfferModal/showGameOver/playSound/unlockAchievement…).
+3. **Leftovers:** `bindEvents.applySettingField` + lobby-settings/`#su-*` click handlers
+   (host: `updateServerSetting`, `renderLobbyRail`), the `#rr-body` deed-open click, and the
+   `#pl-list` bumpy handler (host: `openConfirmModal`, `deleteCurrentProfile`, …);
+   `openCardPreviewFromUrl` (small, host = `openCardReveal`/`openCardGallery`).
