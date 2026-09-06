@@ -51,6 +51,8 @@ import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
 import { economyApi } from './economyApi.js';
 import { tradeApi } from './tradeApi.js';
 import { bankruptcyApi } from './bankruptcyApi.js';
+import { APPEARANCE_PRESET_COLORS, appearanceApi, resolveFreeAppearanceColor } from './appearanceApi.js';
+import { botApi } from './botApi.js';
 
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -60,25 +62,6 @@ function createRoomCode() {
   }
   return code;
 }
-
-// The four default appearance presets, in server assignment order.
-const APPEARANCE_PRESET_COLORS = ['#d74438', '#286ea1', '#d9a62f', '#35a653'];
-
-// Resolves a requested seat color against colors taken by connected
-// non-bankrupt players (the player's own seat excluded). A collision becomes
-// the first free preset; if no preset is free the requested color is kept.
-function resolveFreeAppearanceColor(players, requestedColor, self = null) {
-  if (typeof requestedColor !== 'string' || !requestedColor) return requestedColor;
-  const taken = new Set(
-    players
-      .filter(player => player !== self && !player.disconnected && !player.bankrupt && typeof player.color === 'string')
-      .map(player => player.color.toLowerCase())
-  );
-  if (!taken.has(requestedColor.toLowerCase())) return requestedColor;
-  const free = APPEARANCE_PRESET_COLORS.find(color => !taken.has(color.toLowerCase()));
-  return free || requestedColor;
-}
-
 
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
@@ -165,30 +148,6 @@ class Player {
     this.ready = false;
   }
 }
-
-const BOT_CANDIDATE_SOURCES = [
-  { collect: (game, player) => game.botBuildCandidates(player) },
-  { collect: (game, player) => game.botMortgageCandidates(player) },
-  { collect: (game, player) => game.botLoanCandidate(player) },
-  { collect: (game, player) => game.botGroupTradeCandidate(player) },
-  { collect: (game, player) => game.botMarketCandidate(player) },
-  { collect: (game, player) => game.botCasinoCandidate(player) }
-];
-
-// Personality-driven candidate values as data tables so the collectors stay
-// branch-light while reproducing the original ternary ladders verbatim. The
-// casino spec is only read after the collector's guard confirms the
-// personality, so that entry is always defined there.
-const BOT_CASINO_SPECS = {
-  chaos: { color: 'green', stakeRate: 0.08, score: 18 },
-  shark: { color: 'red', stakeRate: 0.03, score: 11 }
-};
-
-const BOT_TRADE_ASKS = {
-  shark: { requestCash: 40, score: 8 },
-  diplomat: { requestCash: 0, score: 24 }
-};
-const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -389,40 +348,6 @@ class GameState {
 
   getPlayerById(id) {
     return this.players.find(player => player.id === id);
-  }
-
-  setPlayerAppearance(socketId, { color, nickname, avatarGrid } = {}) {
-    const player = this.getPlayerBySocket(socketId);
-    if (!player) {
-      return { success: false, error: 'Player not found.' };
-    }
-    const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
-    if (safeColor) {
-      // Color is the appearance identity: another connected non-bankrupt
-      // player using it means the icon is taken at this table. Custom
-      // avatarGrids may still differ as long as colors differ.
-      const clash = this.players.some(other =>
-        other !== player &&
-        !other.disconnected &&
-        !other.bankrupt &&
-        typeof other.color === 'string' &&
-        other.color.toLowerCase() === safeColor.toLowerCase()
-      );
-      if (clash) {
-        return { success: false, error: 'That icon is already taken at this table.' };
-      }
-      player.color = safeColor;
-    }
-    if (typeof nickname === 'string' && !this.started) {
-      const safeNickname = nickname.trim().slice(0, 24);
-      if (safeNickname) {
-        player.nickname = safeNickname;
-      }
-    }
-    if (avatarGrid === null || Array.isArray(avatarGrid)) {
-      player.avatarGrid = avatarGrid;
-    }
-    return { success: true };
   }
 
   getTile(index) {
@@ -989,112 +914,6 @@ class GameState {
     return { success: true };
   }
 
-  runBotAction(playerId, action) {
-    const bot = this.getPlayerById(playerId);
-    if (!bot || !bot.isBot || typeof action !== 'function') return { success: false, error: 'Bot not found.' };
-    const previousSocketId = bot.socketId;
-    const actorId = `bot:${bot.id}`;
-    bot.socketId = actorId;
-    try {
-      return action(actorId);
-    } finally {
-      bot.socketId = previousSocketId;
-    }
-  }
-
-  // Roll is always available; the pre-roll table appends the remaining
-  // candidate sources in their historical order, then the stable sort ranks
-  // them by score desc, risk asc.
-  getBotCandidates(player) {
-    if (!player?.isBot) return [];
-    const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
-    if (!this.hasRolled) {
-      for (const source of BOT_CANDIDATE_SOURCES) {
-        candidates.push(...source.collect(this, player));
-      }
-    }
-    return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
-  }
-
-  botBuildCandidates(player) {
-    return this.tiles
-      .filter(tile => this.canBuildOnTile(player, tile))
-      .map(tile => {
-        const cost = this.getPropertyHouseCost(tile);
-        return { id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 };
-      });
-  }
-
-  botMortgageCandidates(player) {
-    if (player.cash >= 180) return [];
-    return this.tiles
-      .filter(tile => this.canMortgageTile(player, tile))
-      .map(tile => ({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 }));
-  }
-
-  botLoanCandidate(player) {
-    const loan = this.getBankLoanOffer(player);
-    if (!loan.available) return [];
-    return [{ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 }];
-  }
-
-  botGroupTradeCandidate(player) {
-    const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
-    if (!partner) return [];
-    const giveTile = this.firstTradeableOwnedTile(player);
-    const askTile = this.firstTradeableOwnedTile(partner);
-    if (!giveTile || !askTile) return [];
-    if (!giveTile.group || giveTile.group !== askTile.group) return [];
-    const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
-    return [{
-      id: 'trade:' + partner.id + ':' + askTile.index,
-      kind: 'trade',
-      toPlayerId: partner.id,
-      givePropertyIndexes: [giveTile.index],
-      requestPropertyIndexes: [askTile.index],
-      giveCash: 0,
-      requestCash: ask.requestCash,
-      risk: 0.2,
-      score: ask.score
-    }];
-  }
-
-  firstTradeableOwnedTile(player) {
-    return player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-  }
-
-  botMarketCandidate(player) {
-    if (!this.settings.market) return [];
-    if ((player.marketActionsThisTurn || 0) >= 1) return [];
-    const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
-    if (!marketId) return [];
-    return [{
-      id: 'market:' + marketId,
-      kind: 'market',
-      instrumentId: marketId,
-      side: 'buy',
-      quantity: 1,
-      risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
-      score: player.personality === 'speculator' ? 20 : 4
-    }];
-  }
-
-  botCasinoCandidate(player) {
-    if (!this.settings.casino) return [];
-    if ((player.casinoBetsThisRound || 0) >= 1) return [];
-    if (!['shark', 'chaos'].includes(player.personality)) return [];
-    if (player.cash <= 20) return [];
-    const spec = BOT_CASINO_SPECS[player.personality];
-    return [{
-      id: 'casino:red',
-      kind: 'casino',
-      color: spec.color,
-      stake: Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate))),
-      risk: 0.55,
-      score: spec.score
-    }];
-  }
-
   skipDisconnectedCurrentPlayer() {
     const current = this.getCurrentPlayer();
     if (!current || !current.disconnected || current.bankrupt) {
@@ -1230,7 +1049,7 @@ class GameState {
   }
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, bankruptcyApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, bankruptcyApi, appearanceApi, botApi);
 
 class Room {
   constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
