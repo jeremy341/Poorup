@@ -1,4 +1,14 @@
 import crypto from 'crypto';
+import { randomFloat, randomInt } from './random.js';
+import {
+  MARKET_FEE_RATE,
+  MARKET_INSTRUMENTS,
+  advanceMarket as stepMarketQuotes,
+  applyMarketBuy as marketBuyLeg,
+  applyMarketSell as marketSellLeg,
+  freshMarketQuotes,
+  marketOrderRejection as rejectMarketOrder
+} from './marketLogic.js';
 import {
   bankruptcyRefusal,
   clearQuitObligations,
@@ -117,29 +127,9 @@ const AUCTION_DURATION_MS = 5000;
 const AUCTION_BID_COOLDOWN_MS = 300;
 const CASINO_MAX_BET = 500;
 const CASINO_BET_COLORS = ['red', 'black', 'green'];
-// Loan states that keep borrowed cash pinned: the bank loan and the active
-// side of a player contract share this exact status pair.
-const MARKET_FEE_RATE = 0.02;
 const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
-const MARKET_INSTRUMENTS = [
-  ['brazil', 'BRAZIL', 100], ['ghana', 'GHANA', 100], ['thailand', 'THAILAND', 100],
-  ['japan', 'JAPAN', 100], ['netherlands', 'NETHERLANDS', 100], ['canada', 'CANADA', 100],
-  ['switzerland', 'SWITZERLAND', 100], ['singapore', 'SINGAPORE', 100],
-  ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
-].map(([id, name, price]) => ({ id, name, price }));
-
-// Player-contract vocabularies live in contractLogic.js; the market order
-// gates below are in the exact historical check order and
-// server/contracts-market.test.js pins every string.
-const MARKET_SIDES = ['buy', 'sell'];
-const MARKET_ORDER_GUARDS = [
-  { test: game => !game.settings.market, error: 'Market access is off for this room.' },
-  { test: (game, player) => !game.started || !player || player.bankrupt || player.disconnected, error: 'Market access is unavailable right now.' },
-  { test: (game, player) => player.id !== game.currentPlayerId, error: 'Market orders are available during your turn.' },
-  { test: (game, player) => (player.marketActionsThisTurn || 0) >= 1, error: 'You have already placed a market order this turn.' },
-  { test: game => game.pendingPayment || game.auction || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
-  { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
-];
+// Market vocabularies, the fee rate, the instruments, and the order gates now
+// live in marketLogic.js; server/contracts-market.test.js pins every string.
 const PROPERTY_HOUSE_COST_BY_GROUP = {
   Brown: 50,
   'Light Blue': 50,
@@ -494,14 +484,6 @@ const TREASURE_DECK = [
   { text: 'Inheritance — collect $100', action: 'collect', amount: 100 }
 ];
 
-function randomInt(min, max) {
-  return crypto.randomInt(min, max + 1);
-}
-
-function randomFloat() {
-  return crypto.randomInt(0, 1_000_000) / 1_000_000;
-}
-
 // Roulette mapping: pocket 0 is green, the rest split on the classic red set.
 function roulettePocketColor(pocket) {
   if (pocket === 0) return 'green';
@@ -549,10 +531,6 @@ function shuffleArray(array) {
 
 function cloneTiles() {
   return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0, equityShares: [] }));
-}
-
-function freshMarketQuotes() {
-  return Object.fromEntries(MARKET_INSTRUMENTS.map(instrument => [instrument.id, instrument.price]));
 }
 
 class Player {
@@ -2010,16 +1988,7 @@ class GameState {
   }
 
   advanceMarket() {
-    if (!this.settings.market) return;
-    this.marketRound += 1;
-    const volatility = Number(this.activeEventEffects().marketVolatility);
-    const spread = Number.isFinite(volatility) && volatility > 0 ? 0.06 * volatility : 0.06;
-    Object.keys(this.marketQuotes).forEach((id) => {
-      const drift = (randomFloat() * (spread * 2)) - spread;
-      const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
-      const modifier = Number.isFinite(eventMultiplier) && eventMultiplier > 0 ? eventMultiplier : 1;
-      this.marketQuotes[id] = Math.max(10, Math.round(this.marketQuotes[id] * (1 + drift) * modifier));
-    });
+    stepMarketQuotes(this);
   }
 
   tradeMarket(socketId, instrumentId, side, quantity, requestId = null) {
@@ -2049,38 +2018,15 @@ class GameState {
   }
 
   marketOrderRejection(player, instrument, direction, amount) {
-    const guard = MARKET_ORDER_GUARDS.find(entry => entry.test(this, player));
-    if (guard) return { success: false, error: guard.error };
-    if (!instrument || !MARKET_SIDES.includes(direction)) return { success: false, error: 'Choose a valid market order.' };
-    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
-    return null;
+    return rejectMarketOrder({ game: this, player, instrument, direction, amount });
   }
 
-  applyMarketBuy(player, id, position, { quote, gross, fee, amount }) {
-    const total = gross + fee;
-    if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
-    if (this.hasLoanBackedCash(player)) return { success: false, error: 'Loan-backed cash cannot be used for market orders.' };
-    player.cash -= total;
-    position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
-    position.quantity += amount;
-    const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
-    if (this.globalEvent?.phase === 'active' && Number.isFinite(eventMultiplier) && eventMultiplier < 1) {
-      player.crisisMarketBuys[id] ||= { quote, roundNumber: this.roundNumber };
-    }
-    return null;
+  applyMarketBuy(player, id, position, order) {
+    return marketBuyLeg({ game: this, player, id, position, ...order });
   }
 
-  applyMarketSell(player, id, position, { quote, gross, fee, amount }) {
-    if (position.quantity < amount) return { success: false, error: 'You do not hold enough of this index.' };
-    player.cash += gross - fee;
-    position.realizedPnl += (quote - position.averageCost) * amount - fee;
-    position.quantity -= amount;
-    if (player.crisisMarketBuys?.[id] && quote > Number(player.crisisMarketBuys[id].quote || 0) && this.globalEvent?.phase !== 'active') {
-      player.crisisMarketProfit = true;
-      delete player.crisisMarketBuys[id];
-    }
-    if (!position.quantity) position.averageCost = 0;
-    return null;
+  applyMarketSell(player, id, position, order) {
+    return marketSellLeg({ game: this, player, id, position, ...order });
   }
 
   applyTile(player, tile, options = {}) {
