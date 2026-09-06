@@ -196,12 +196,26 @@ function renderTileState(el, tile) {
   el.classList.toggle("is-mortgaged", !!state.mortgaged[tile.i]);
 }
 
+// Ownership pips show the owner's face, not just their color: two seats
+// may share a color once icons (color plus face) are the identity. Markup
+// is memoized by signature exactly like board tokens, so repaints are a
+// cache lookup and any face or color change re-renders by itself.
+function ownerPipMarkup(owner, index) {
+  const grid = owner.avatarGrid ? JSON.stringify(owner.avatarGrid) : "";
+  return { sig: `${owner.id}:${owner.color}:${index}:${grid}`, markup: avatarHTML(owner, 1, index) };
+}
+
 function renderTileOwner(el, tile) {
   const pip = el.querySelector(".tile-owner");
   if (!pip) return;
   const owner = state.players.find((p) => p.id === state.owners[tile.i]);
   pip.style.display = owner ? "block" : "none";
-  if (owner) pip.style.background = owner.color;
+  if (!owner) return;
+  const face = ownerPipMarkup(owner, state.players.indexOf(owner));
+  if (pip.dataset.sig !== face.sig) {
+    pip.innerHTML = face.markup;
+    pip.dataset.sig = face.sig;
+  }
 }
 
 function housesRowHTML(count) {

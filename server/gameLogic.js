@@ -151,6 +151,7 @@ class GameState {
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
     this.pendingPaymentTurnOptions = null;
+    this.pendingPaymentHooks = null;
     this.lastWinner = null;
     this.vacationPool = 0;
     this.roundNumber = 0;
@@ -205,6 +206,7 @@ class GameState {
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
     this.pendingPaymentTurnOptions = null;
+    this.pendingPaymentHooks = null;
     this.lastWinner = null;
     this.vacationPool = 0;
     this.roundNumber = 1;
@@ -791,6 +793,7 @@ class GameState {
       equityTileIndex: hooks.equityTileIndex ?? null,
       equityOwnerId: hooks.equityOwnerId ?? null
     };
+    this.pendingPaymentHooks = hooks;
     this.pendingPaymentTurnOptions = turnOptions;
     this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
   }
@@ -805,9 +808,12 @@ class GameState {
 
   // Every fact a rent credit touches: cash, the collection total, the payer
   // sets and their running per-round max. Bank debts (null creditor) skip it
-  // entirely.
+  // entirely, as do bankrupt creditors: tile rent treats a bankrupt owner as
+  // vacant, so an in-flight debt never enriches a bankrupt seat either. The
+  // payer still settles; the money simply has nowhere to go.
   creditRentTo(creditor, payer, amount) {
     if (!creditor) return;
+    if (creditor.bankrupt) return;
     creditor.cash += amount;
     creditor.rentCollected = (creditor.rentCollected || 0) + amount;
     creditor.rentPayerIds ||= new Set();
@@ -831,6 +837,7 @@ class GameState {
     player.cash -= amount;
     this.creditSettledDebt(amount, player);
     this.settlePendingEquityShares(amount);
+    this.settlePendingHooks(amount);
     this.feedMessage(`${player.nickname} paid the remaining $${amount}.`);
     const turnOptions = this.pendingPaymentTurnOptions || {};
     this.clearPendingPayment();
@@ -840,12 +847,25 @@ class GameState {
 
   pendingPayerCanSettle(player) {
     if (!player) return false;
-    return !player.bankrupt;
+    if (player.bankrupt) return false;
+    return !player.disconnected;
   }
 
   clearPendingPayment() {
     this.pendingPayment = null;
     this.pendingPaymentTurnOptions = null;
+    this.pendingPaymentHooks = null;
+  }
+
+  // Remainder path replays the debt hooks exactly once. Equity debts replay
+  // through their stored indexes in settlePendingEquityShares, so the generic
+  // hook only runs for non-equity debts (today: vacation-pool tax). Partial
+  // payments already ran the hook for their share via tenderPartialDebt.
+  settlePendingHooks(amount) {
+    if (this.pendingPayment.equityTileIndex != null) return;
+    const onPaid = this.pendingPaymentHooks?.onPaid;
+    if (typeof onPaid !== 'function') return;
+    onPaid(amount);
   }
 
   // Settling the parked debt credits the creditor through the same rent-fact
@@ -896,12 +916,34 @@ class GameState {
     return this.pendingFlowRejection(player);
   }
 
+  pendingTradeBlocksEndTurn(player) {
+    const trade = this.pendingTrade;
+    if (!trade) return false;
+    if (trade.fromPlayerId === player.id) return true;
+    return trade.toPlayerId === player.id;
+  }
+
+  pendingContractBlocksEndTurn(player) {
+    const contract = this.pendingPlayerContract;
+    if (!contract) return false;
+    if (contract.fromPlayerId === player.id) return true;
+    return contract.toPlayerId === player.id;
+  }
+
+  pendingDealBlockReason(player) {
+    if (this.pendingTradeBlocksEndTurn(player)) return 'Resolve the pending trade before ending the turn.';
+    if (this.pendingContractBlocksEndTurn(player)) return 'Resolve the pending contract before ending the turn.';
+    return null;
+  }
+
   pendingFlowRejection(player) {
     if (this.auction && this.auction.active) return { success: false, error: 'Finish the active auction before ending the turn.' };
     const offer = this.pendingPurchaseOffer;
     if (offer && offer.playerId === player.id) return { success: false, error: 'Resolve the property offer before ending the turn.' };
     const pending = this.pendingPayment;
     if (pending && pending.playerId === player.id) return { success: false, error: 'Settle your debt before ending the turn.' };
+    const dealReason = this.pendingDealBlockReason(player);
+    if (dealReason) return { success: false, error: dealReason };
     return null;
   }
 
@@ -935,6 +977,8 @@ class GameState {
     this.pendingPurchaseOffer = null;
     this.auction = null;
     this.pendingTrade = null;
+    this.pendingPlayerContract = null;
+    this.clearPendingPayment();
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;

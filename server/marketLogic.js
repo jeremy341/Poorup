@@ -20,7 +20,7 @@ export const MARKET_ORDER_GUARDS = [
   { test: (game, player) => !game.started || !player || player.bankrupt || player.disconnected, error: 'Market access is unavailable right now.' },
   { test: (game, player) => player.id !== game.currentPlayerId, error: 'Market orders are available during your turn.' },
   { test: (game, player) => (player.marketActionsThisTurn || 0) >= 1, error: 'You have already placed a market order this turn.' },
-  { test: game => game.pendingPayment || game.auction || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
+  { test: game => game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
   { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
 ];
 
