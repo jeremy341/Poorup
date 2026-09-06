@@ -71,6 +71,59 @@ const ACHIEVEMENT_RULES = [
   { achievementId: 'event-tourist', title: 'EVENT TOURIST', rarity: 'RARE', body: 'You experienced three different global events.', test: ({ eventCount }) => eventCount >= 3 },
 ];
 
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function resolveHistory(historyForAccount, accountId) {
+  const historyResult = typeof historyForAccount === 'function' ? historyForAccount(accountId) : [];
+  return Array.isArray(historyResult) ? historyResult : [];
+}
+
+function countTreasureCards(history, matchRecord, accountId) {
+  const treasureCards = new Set();
+  history.concat(matchRecord).forEach(record => {
+    const owner = (record?.participants || []).find(entry => entry.accountId === accountId);
+    (owner?.treasureCardsSeenList || []).forEach(card => treasureCards.add(String(card)));
+  });
+  return treasureCards.size;
+}
+
+function countEventNames(history, globalEvents) {
+  const eventNames = new Set(history.flatMap(record => (Array.isArray(record.globalEvents) ? record.globalEvents : [])));
+  globalEvents.forEach(event => eventNames.add(event));
+  return eventNames.size;
+}
+
+function othersCashSum(participants, accountId) {
+  return participants
+    .filter(entry => entry.accountId !== accountId)
+    .reduce((sum, entry) => sum + (Number(entry.endingCash) || 0), 0);
+}
+
+// Assemble the per-player evaluation context in the original field order.
+function buildMatchContext(participant, shared) {
+  const history = resolveHistory(shared.historyForAccount, participant.accountId);
+  return {
+    participant,
+    isWinner: participant.finalPlacement === 1,
+    othersCash: othersCashSum(shared.participants, participant.accountId),
+    contracts: shared.contracts,
+    globalEvents: shared.globalEvents,
+    eventCombinations: shared.eventCombinations,
+    treasureCardCount: countTreasureCards(history, shared.matchRecord, participant.accountId),
+    eventCount: countEventNames(history, shared.globalEvents),
+  };
+}
+
+function appendUnlockedAchievements(candidates, context) {
+  ACHIEVEMENT_RULES.forEach((rule) => {
+    if (rule.test(context)) {
+      candidates.push({ accountId: context.participant.accountId, achievementId: rule.achievementId, title: rule.title, rarity: rule.rarity, body: rule.body });
+    }
+  });
+}
+
 export class AchievementStore {
   constructor(filePath = DEFAULT_FILE) {
     this.filePath = filePath;
@@ -113,38 +166,18 @@ export class AchievementStore {
 
   evaluateMatch(matchRecord, historyForAccount = null) {
     const candidates = [];
-    const globalEvents = Array.isArray(matchRecord?.globalEvents) ? matchRecord.globalEvents : [];
-    const eventCombinations = Array.isArray(matchRecord?.eventCombinations) ? matchRecord.eventCombinations : [];
-    const participants = Array.isArray(matchRecord?.participants) ? matchRecord.participants : [];
-    const contracts = Array.isArray(matchRecord?.playerContracts) ? matchRecord.playerContracts : [];
+    const participants = asArray(matchRecord?.participants);
+    const shared = {
+      participants,
+      contracts: asArray(matchRecord?.playerContracts),
+      globalEvents: asArray(matchRecord?.globalEvents),
+      eventCombinations: asArray(matchRecord?.eventCombinations),
+      matchRecord,
+      historyForAccount,
+    };
     participants.forEach((participant) => {
       if (!participant.accountId) return;
-      const historyResult = typeof historyForAccount === 'function' ? historyForAccount(participant.accountId) : [];
-      const history = Array.isArray(historyResult) ? historyResult : [];
-      const treasureCards = new Set();
-      history.concat(matchRecord).forEach(record => {
-        const owner = (record?.participants || []).find(entry => entry.accountId === participant.accountId);
-        (owner?.treasureCardsSeenList || []).forEach(card => treasureCards.add(String(card)));
-      });
-      const eventNames = new Set(history.flatMap(record => Array.isArray(record.globalEvents) ? record.globalEvents : []));
-      globalEvents.forEach(event => eventNames.add(event));
-      const context = {
-        participant,
-        isWinner: participant.finalPlacement === 1,
-        othersCash: participants
-          .filter(entry => entry.accountId !== participant.accountId)
-          .reduce((sum, entry) => sum + (Number(entry.endingCash) || 0), 0),
-        contracts,
-        globalEvents,
-        eventCombinations,
-        treasureCardCount: treasureCards.size,
-        eventCount: eventNames.size,
-      };
-      ACHIEVEMENT_RULES.forEach((rule) => {
-        if (rule.test(context)) {
-          candidates.push({ accountId: participant.accountId, achievementId: rule.achievementId, title: rule.title, rarity: rule.rarity, body: rule.body });
-        }
-      });
+      appendUnlockedAchievements(candidates, buildMatchContext(participant, shared));
     });
     return candidates;
   }
