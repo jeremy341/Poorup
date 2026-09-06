@@ -181,6 +181,7 @@ import {
 } from "./clientAuctionUi.js";
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 import { bindAudioControls } from "./clientAudioControls.js";
+import { copyRoomCode } from "./clientRoomShare.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -801,38 +802,6 @@ function renderHome() {
 /* ============================================================
    6. GAME RENDERERS
    ============================================================ */
-async function copyRoomCode() {
-  if (state.roomVisibility === "public") return;
-  const code = String(state.roomCode || "").trim().toUpperCase();
-  if (!code) return;
-  let copied = false;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(code);
-      copied = true;
-    }
-  } catch { /* fall through to the legacy local fallback */ }
-  if (!copied) {
-    const helper = document.createElement("textarea");
-    helper.value = code;
-    helper.setAttribute("readonly", "");
-    helper.style.position = "fixed";
-    helper.style.opacity = "0";
-    document.body.appendChild(helper);
-    helper.select();
-    try { copied = document.execCommand("copy"); } catch { copied = false; }
-    helper.remove();
-  }
-  const badge = $("#tn-room-copy");
-  const announcer = $("#system-announcer");
-  if (copied) {
-    if (announcer) announcer.textContent = `ROOM CODE ${code} COPIED`;
-    badge?.classList.add("is-copied");
-    window.setTimeout(() => badge?.classList.remove("is-copied"), 1000);
-  } else if (announcer) {
-    announcer.textContent = "ROOM CODE COULD NOT BE COPIED";
-  }
-}
 
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
