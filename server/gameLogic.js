@@ -49,7 +49,6 @@ import {
 import {
   JAIL_FINE,
   JAIL_MAX_TURNS,
-  PROPERTY_HOUSE_COST_BY_GROUP,
   START_TILE_INDEX,
   SURPRISE_DECK,
   TREASURE_DECK,
@@ -61,9 +60,9 @@ import { globalEventsApi } from './globalEventsApi.js';
 import { rentApi } from './rentApi.js';
 import { tileApi } from './tileApi.js';
 import { cardApi } from './cardApi.js';
+import { propertyApi } from './propertyApi.js';
+import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
 
-const AUCTION_DURATION_MS = 5000;
-const AUCTION_BID_COOLDOWN_MS = 300;
 const CASINO_MAX_BET = 500;
 const CASINO_BET_COLORS = ['red', 'black', 'green'];
 const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
@@ -188,33 +187,6 @@ class Player {
     this.ready = false;
   }
 }
-
-class AuctionState {
-  constructor(propertyTile, startingPlayerId) {
-    this.propertyTile = propertyTile;
-    this.active = true;
-    this.highestBid = 0;
-    this.highestBidderId = null;
-    this.participants = [];
-    this.startingPlayerId = startingPlayerId;
-    this.startedAt = Date.now();
-    this.endsAt = Date.now() + AUCTION_DURATION_MS;
-    this.cooldownUntil = 0;
-    this.lastBidAt = 0;
-    this.passedPlayerIds = [];
-  }
-}
-
-// Property action dispatch: the four manageProperty verbs mapped to their
-// handler method names on GameState, replacing the original if/else ladder.
-const PROPERTY_ACTION_HANDLERS = {
-  'build-house': 'buildHousePropertyAction',
-  'sell-house': 'sellHousePropertyAction',
-  mortgage: 'mortgagePropertyAction',
-  unmortgage: 'unmortgagePropertyAction'
-};
-
-const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
 
 const TRADE_PROPOSAL_GUARDS = [
   {
@@ -613,15 +585,6 @@ class GameState {
       ?.map(index => this.getTile(index))
       .filter(tile => tile && tile.type === 'property' && !tile.mortgaged && !(tile.houseCount > 0) && !this.isPlayerContractCollateral(player, tile))
       .sort((a, b) => (b.price || 0) - (a.price || 0))[0] || null;
-  }
-
-  getPropertyHouseCost(tile) {
-    const base = PROPERTY_HOUSE_COST_BY_GROUP[tile?.group] || 0;
-    if (this.isPublicWorksElection()) {
-      return Math.max(1, Math.floor(base * 0.65));
-    }
-    const multiplier = Number(this.activeEventEffects().buildingCostMultiplier);
-    return Number.isFinite(multiplier) && multiplier > 0 ? Math.max(1, Math.ceil(base * multiplier)) : base;
   }
 
   isTradeableTile(tile) {
@@ -1470,297 +1433,6 @@ class GameState {
     }
   }
 
-  purchaseProperty(socketId, tileIndex) {
-    const player = this.getPlayerBySocket(socketId);
-    const tile = this.getTile(tileIndex);
-    if (!player || !tile || tile.ownerId !== null) {
-      return { success: false, error: 'Property is no longer available.' };
-    }
-    if (
-      !this.pendingPurchaseOffer ||
-      this.pendingPurchaseOffer.playerId !== player.id ||
-      this.pendingPurchaseOffer.tileIndex !== tileIndex
-    ) {
-      return { success: false, error: 'There is no active purchase offer for this property.' };
-    }
-    if (player.cash < tile.price) {
-      return { success: false, error: 'Insufficient cash to purchase this property.' };
-    }
-    player.cash -= tile.price;
-    tile.ownerId = player.id;
-    tile.mortgaged = false;
-    tile.houseCount = 0;
-    player.properties.push(tile.index);
-    if (this.globalEventActive('housing-bubble')) player.boughtDuringHousingBubble = true;
-    this.refreshPlayerGroups(player);
-    this.feedMessage(`${player.nickname} purchased ${tile.name} for $${tile.price}.`);
-    this.pendingPurchaseOffer = null;
-    this.resolveTurnAfterAction();
-    return { success: true };
-  }
-
-  declineProperty(socketId, tileIndex) {
-    const player = this.getPlayerBySocket(socketId);
-    const tile = this.getTile(tileIndex);
-    if (!player || !tile || tile.ownerId !== null) {
-      return { success: false, error: 'Property is no longer available.' };
-    }
-    if (
-      !this.pendingPurchaseOffer ||
-      this.pendingPurchaseOffer.playerId !== player.id ||
-      this.pendingPurchaseOffer.tileIndex !== tileIndex
-    ) {
-      return { success: false, error: 'There is no active purchase offer for this property.' };
-    }
-    this.pendingPurchaseOffer = null;
-    if (this.settings.auction) {
-      const auction = this.startAuction(tile, player.id);
-      return auction?.success === false ? auction : { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
-    }
-    this.feedMessage(`${player.nickname} declined to buy ${tile.name}.`);
-    this.resolveTurnAfterAction();
-    return { success: true };
-  }
-
-  startAuction(tile, initiatingPlayerId) {
-    if (this.globalEventActive('bank-run') || this.activeEventEffects().auctionBlocked) {
-      this.feedMessage('The active global event pauses auctions until liquidity returns.');
-      this.resolveTurnAfterAction({ allowExtraRoll: false });
-      return { success: false, error: 'Auctions are paused by the active Bank Run.' };
-    }
-    const participants = this.players.filter(player => !player.bankrupt && !player.disconnected).map(player => player.id);
-    this.auction = new AuctionState(tile, initiatingPlayerId);
-    this.auction.participants = participants;
-    this.feedMessage(`Auction started for ${tile.name}. Players may place bids.`);
-  }
-
-  placeAuctionBid(socketId, amount) {
-    const player = this.getPlayerBySocket(socketId);
-    if (!player || !this.auction || !this.auction.active) {
-      return { success: false, error: 'No auction is active.' };
-    }
-    const now = Date.now();
-    if (player.bankrupt || player.disconnected) {
-      return { success: false, error: 'You cannot bid right now.' };
-    }
-    if (this.auction.participants.length && !this.auction.participants.includes(player.id)) {
-      return { success: false, error: 'You are not part of this auction.' };
-    }
-    if (this.auction.passedPlayerIds.includes(player.id)) {
-      return { success: false, error: 'You have passed on this auction.' };
-    }
-    if (this.auction.cooldownUntil && now < this.auction.cooldownUntil) {
-      return { success: false, error: 'Please wait a moment before bidding again.' };
-    }
-    if (!Number.isFinite(amount) || amount % 1 !== 0) {
-      return { success: false, error: 'Bid must be a whole number.' };
-    }
-    if (amount <= this.auction.highestBid) {
-      return { success: false, error: 'Bid must be higher than the current bid.' };
-    }
-    if (amount > player.cash) {
-      return { success: false, error: 'Insufficient funds for this bid.' };
-    }
-    if (this.auction.highestBid > 0 && this.auction.highestBidderId === player.id) {
-      return { success: false, error: 'Another player must raise the bid first.' };
-    }
-    this.auction.highestBid = amount;
-    this.auction.highestBidderId = player.id;
-    this.auction.lastBidAt = now;
-    this.auction.cooldownUntil = now + AUCTION_BID_COOLDOWN_MS;
-    this.auction.endsAt = now + AUCTION_DURATION_MS;
-    this.feedMessage(`${player.nickname} bid $${amount}.`);
-    return { success: true };
-  }
-
-  passAuction(socketId) {
-    const player = this.getPlayerBySocket(socketId);
-    if (!player || !this.auction || !this.auction.active) {
-      return { success: false, error: 'No auction is active.' };
-    }
-    if (this.auction.participants.length && !this.auction.participants.includes(player.id)) {
-      return { success: false, error: 'You are not part of this auction.' };
-    }
-    if (this.auction.highestBidderId === player.id) {
-      return { success: false, error: 'The current high bidder cannot pass.' };
-    }
-    if (!this.auction.passedPlayerIds.includes(player.id)) {
-      this.auction.passedPlayerIds.push(player.id);
-      this.feedMessage(`${player.nickname} passed on the auction.`);
-    }
-    const remaining = this.auction.participants.filter(id => !this.auction.passedPlayerIds.includes(id));
-    if (this.auction.highestBidderId && remaining.length <= 1) {
-      this.finishAuction();
-      return { success: true, finished: true };
-    }
-    return { success: true };
-  }
-
-  finishAuction() {
-    if (!this.auction || !this.auction.active) {
-      return;
-    }
-    const auction = this.auction;
-    auction.active = false;
-    if (!auction.highestBidderId) {
-      this.feedMessage(`No bids were placed for ${auction.propertyTile.name}. The property remains unsold.`);
-      this.resolveTurnAfterAction();
-      this.auction = null;
-      return;
-    }
-    const winner = this.getPlayerById(auction.highestBidderId);
-    if (!winner || winner.bankrupt || winner.disconnected) {
-      this.feedMessage(`Auction ended without a valid winner.`);
-      this.resolveTurnAfterAction();
-      this.auction = null;
-      return;
-    }
-    auction.propertyTile.ownerId = winner.id;
-    auction.propertyTile.mortgaged = false;
-    auction.propertyTile.houseCount = 0;
-    winner.properties.push(auction.propertyTile.index);
-    winner.auctionWins = (winner.auctionWins || 0) + 1;
-    if (auction.highestBid < Number(auction.propertyTile.price || 0)) winner.auctionUnderListWins = (winner.auctionUnderListWins || 0) + 1;
-    this.feedMessage(`${winner.nickname} won the auction for ${auction.propertyTile.name} at $${auction.highestBid}.`);
-    this.chargePlayer(
-      winner,
-      null,
-      auction.highestBid,
-      `${winner.nickname} paid $${auction.highestBid} for ${auction.propertyTile.name}.`,
-      {}
-    );
-    this.auctionsCompleted += 1;
-    this.auction = null;
-  }
-
-  manageProperty(socketId, payload = {}) {
-    const { tileIndex, action } = payload || {};
-    const player = this.getPlayerBySocket(socketId);
-    const tile = this.getTile(tileIndex);
-    const rejection = this.propertyActionRejection(player, tile, action);
-    if (rejection) return rejection;
-    const handlerName = PROPERTY_ACTION_HANDLERS[action];
-    if (!handlerName) return { success: false, error: 'Unknown property action.' };
-    const result = this[handlerName](player, tile);
-    if (result?.success && this.pendingPayment?.playerId === player.id) {
-      this.trySettlePendingPayment();
-    }
-    return result;
-  }
-
-  // The shared gates of all four actions, in the historical order: existence,
-  // ownership, then the build/sell turn window (relaxed while settling debt).
-  propertyActionRejection(player, tile, action) {
-    if (!player || !tile) {
-      return { success: false, error: 'Property not found.' };
-    }
-    if (tile.ownerId !== player.id) {
-      return { success: false, error: 'You do not own this property.' };
-    }
-    const settlingDebt = this.pendingPayment?.playerId === player.id;
-    const buildOrSell = action === 'build-house' || action === 'sell-house';
-    if (!buildOrSell) return null;
-    if (!settlingDebt) return this.buildWindowRejection(player);
-    if (action === 'build-house') {
-      return { success: false, error: 'You cannot build while settling a debt.' };
-    }
-    return null;
-  }
-
-  buildWindowRejection(player) {
-    if (player.id !== this.currentPlayerId) {
-      return { success: false, error: 'You can only build or sell during your turn.' };
-    }
-    if (this.hasRolled && !this.extraRollPending) {
-      return { success: false, error: 'You can only build or sell before rolling the dice.' };
-    }
-    return null;
-  }
-
-  buildingLimitRejection(player) {
-    const buildLimit = Number(this.activeEventEffects().buildingLimitPerTurn);
-    if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) {
-      return { success: false, error: 'The active event limits building actions this turn.' };
-    }
-    return null;
-  }
-
-  // Side effects a completed build awards, beyond the house itself.
-  applyBuildBonuses(player) {
-    if (player.housingBubbleEnded && player.soldBuildingsDuringHousingBubble > 0) player.rebuiltAfterHousingBubble = true;
-    if (this.settings.evenBuild) player.evenBuilds = (player.evenBuilds || 0) + 1;
-    const election = this.globalEvent;
-    if (election?.phase === 'active' && election.id === 'city-election' && election.resolvedChoice === 'public-works') {
-      player.publicWorksBuilds = (player.publicWorksBuilds || 0) + 1;
-    }
-  }
-
-  buildHousePropertyAction(player, tile) {
-    if (!this.canBuildOnTile(player, tile)) {
-      return { success: false, error: 'You cannot build on this property right now.' };
-    }
-    const limit = this.buildingLimitRejection(player);
-    if (limit) return limit;
-    const cost = this.getPropertyHouseCost(tile);
-    if (player.cash < cost) {
-      return { success: false, error: 'Insufficient cash to build a house.' };
-    }
-    player.cash -= cost;
-    tile.houseCount = (tile.houseCount || 0) + 1;
-    player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
-    this.applyBuildBonuses(player);
-    this.feedMessage(`${player.nickname} built a ${buildingLabel(tile.houseCount)} on ${tile.name}.`);
-    return { success: true };
-  }
-
-  sellHousePropertyAction(player, tile) {
-    if (!this.canSellFromTile(player, tile)) {
-      return { success: false, error: 'You cannot sell a house from this property right now.' };
-    }
-    const cost = this.getPropertyHouseCost(tile);
-    const wasHotel = (tile.houseCount || 0) >= 5;
-    tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
-    player.cash += Math.floor(cost * this.buildingSaleMultiplier());
-    if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
-    this.feedMessage(`${player.nickname} sold a ${buildingLabel(wasHotel ? 5 : 0)} from ${tile.name}.`);
-    return { success: true };
-  }
-
-  buildingSaleMultiplier() {
-    const eventSaleMultiplier = Number(this.activeEventEffects().buildingSaleMultiplier);
-    return Number.isFinite(eventSaleMultiplier) && eventSaleMultiplier >= 0 ? eventSaleMultiplier : 0.5;
-  }
-
-  mortgagePropertyAction(player, tile) {
-    if (!this.canMortgageTile(player, tile)) {
-      return { success: false, error: 'You cannot mortgage this property right now.' };
-    }
-    tile.mortgaged = true;
-    const amount = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
-    player.cash += amount;
-    this.feedMessage(`${player.nickname} mortgaged ${tile.name} for $${amount}.`);
-    return { success: true };
-  }
-
-  propertyValueMultiplier() {
-    const valueMultiplier = Number(this.activeEventEffects().propertyValueMultiplier);
-    return Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1;
-  }
-
-  unmortgagePropertyAction(player, tile) {
-    if (!this.canUnmortgageTile(player, tile)) {
-      return { success: false, error: 'You cannot unmortgage this property right now.' };
-    }
-    const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
-    if (player.cash < cost) {
-      return { success: false, error: 'Insufficient cash to unmortgage this property.' };
-    }
-    player.cash -= cost;
-    tile.mortgaged = false;
-    this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);
-    return { success: true };
-  }
-
   proposeTrade(socketId, offer = {}) {
     const ctx = this.tradeProposalContext(socketId, offer);
     const guard = TRADE_PROPOSAL_GUARDS.find(entry => entry.rejects(this, ctx));
@@ -2152,7 +1824,7 @@ class GameState {
   }
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi);
 
 class Room {
   constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
