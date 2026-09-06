@@ -1,580 +1,75 @@
 /* ============================================================
-   1. PIXEL SPRITE ENGINE
+   ENTRY MODULE: game logic, renderers, and event wiring.
+   Shared data and state live in the client*.js modules imported here.
    ============================================================ */
-function sprite(rows, palette, size = 3) {
-  const w = Math.max(...rows.map((r) => r.length));
-  const h = rows.length;
-  let cells = "";
-  rows.forEach((row, y) => {
-    row.split("").forEach((c, x) => {
-      if (palette[c]) cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="${palette[c]}"/>`;
-    });
-  });
-  return `<svg width="${w * size}" height="${h * size}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" aria-hidden="true">${cells}</svg>`;
-}
-
-const AVATAR_FACES = [
-  ["..1111..", ".111111.", "11211211", "11111111", "11311311", "11133111", ".111111.", "..1111.."],
-  [".111111.", "11111111", "12111121", "11111111", "13111131", "11311311", "11111111", ".111111."],
-  ["..1111..", ".111111.", "11211211", "11111111", "11311311", "11311311", ".111111.", "..1111.."],
-  [".111111.", "11211211", "11111111", "11111111", "13333131", "11111111", "11111111", ".1.11.1."],
-];
-
-const SPRITES = {
-  logo: (s) =>
-    sprite(
-      [".111111.", "12222221", "12133121", "12133121", "12111121", "12133121", "12222221", ".111111."],
-      { 1: "#9b783d", 2: "#0a1416", 3: "#cfa75f" },
-      s,
-    ),
-  car: (s) => sprite([".......", "..111..", ".11111.", "1112111", "1111111", ".2...2."], { 1: "#d74438", 2: "#2a1416" }, s),
-  palm: (s) => sprite(["..111..", ".11311.", "11.3.11", "...3...", "...3...", "..444.."], { 1: "#78894f", 3: "#7b5029", 4: "#3e7d7b" }, s),
-  chest: (s) => sprite([".11111.", "1222221", "1233321", "1222221", "1222221", "1111111"], { 1: "#5c5033", 2: "#cfa75f", 3: "#f0d9ac" }, s),
-  bulb: (s) => sprite([".111.", "12221", "12221", ".121.", ".333.", ".3.3."], { 1: "#cfa75f", 2: "#f0d9ac", 3: "#5c5033" }, s),
-  faucet: (s) => sprite(["11111..", "..1....", "..11111", ".....1.", "....22.", "....2.."], { 1: "#a79d7d", 2: "#3e7d7b" }, s),
-  train: (s) => sprite(["..1111.", ".111111", "1111111", "2222222", ".3...3."], { 1: "#cfa75f", 2: "#5c5033", 3: "#a79d7d" }, s),
-  crown: (s) => sprite(["1.1.1", "11111", "11111"], { 1: "#c88f2e" }, s),
-  note: (s) => sprite(["1111111111", "1..2222..1", "1.2.22.2.1", "1..2222..1", "1111111111"], { 1: "#35a653", 2: "#f0d9ac" }, s),
-  arrow: (s) => sprite(["..1..", "..11.", "11111", "..11.", "..1.."], { 1: "#c88f2e" }, s),
-  diamond: (s) => sprite([".1.", "111", ".1."], { 1: "#cfa75f" }, s),
-  send: (s) => sprite(["1....", "111..", "11111", "111..", "1...."], { 1: "#cfa75f" }, s),
-  help: (s) => sprite([".111.", "1...1", "...11", "..11.", ".....", "..1.."], { 1: "#cfa75f" }, s),
-  dice: (s) => sprite(["1111111", "1..1..1", "1.111.1", "1..1..1", "1111111"], { 1: "#f0d9ac" }, s),
-  house: (s, color) => sprite(["..1..", ".111.", "11111", "1.1.1", "11111"], { 1: color }, s),
-  hotel: (s, color) => sprite(
-    [
-      ".1111.",
-      "111111",
-      "111111",
-      "112221",
-      "112221",
-      "111111",
-      "111111",
-      "333333",
-    ],
-    { 1: color, 2: "#01070a", 3: "#5c5033" },
-    s,
-  ),
-  pawn: (s, color) => sprite([".11.", "1111", ".11.", "1111"], { 1: color }, s),
-  avatar: (s, color, seed) => sprite(AVATAR_FACES[seed % AVATAR_FACES.length], { 1: color, 2: "#01070a", 3: "#01070a" }, s),
-};
-
-/** hydrate every <span data-sprite="..."> in the document */
-function hydrateSprites(root = document) {
-  root.querySelectorAll("[data-sprite]").forEach((el) => {
-    if (el.dataset.done === "1") return;
-    const name = el.dataset.sprite;
-    const size = Number(el.dataset.size || 3);
-    const fn = SPRITES[name];
-    if (!fn) return;
-    if (name === "avatar") el.innerHTML = fn(size, el.dataset.color || "#cfa75f", Number(el.dataset.seed || 0));
-    else if (name === "pawn" || name === "house") el.innerHTML = fn(size, el.dataset.color || "#cfa75f");
-    else el.innerHTML = fn(size);
-    el.dataset.done = "1";
-  });
-}
-
-function spriteHTML(name, size, color, seed) {
-  const fn = SPRITES[name];
-  if (!fn) return "";
-  if (name === "avatar") return fn(size, color, seed || 0);
-  if (name === "pawn" || name === "house" || name === "hotel") return fn(size, color);
-  return fn(size);
-}
-
-const FACE_SIZE = 8;
-
-/** Render an 8x8 grid of hex colors (or null = transparent) as a crisp SVG. */
-function spriteFromGrid(grid, size = 4) {
-  if (!grid || !grid.length) return "";
-  const h = grid.length;
-  const w = grid[0].length;
-  let cells = "";
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const c = grid[y][x];
-      if (c) cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`;
-    }
-  }
-  return `<svg width="${w * size}" height="${h * size}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" aria-hidden="true">${cells}</svg>`;
-}
-
-/** Unified avatar renderer: custom drawn face if present, else the generic pixel face. */
-function avatarHTML(entity, size = 4, seed = 0) {
-  if (entity && entity.avatarGrid) return spriteFromGrid(entity.avatarGrid, size);
-  return spriteHTML("avatar", size, entity?.color || "#cfa75f", seed);
-}
-
-function emptyFaceGrid() {
-  return Array.from({ length: FACE_SIZE }, () => Array.from({ length: FACE_SIZE }, () => null));
-}
-
-/** Convert one of the built-in ASCII avatar faces into an editable hex grid. */
-function faceGridFromPreset(seed, color) {
-  const rows = AVATAR_FACES[seed % AVATAR_FACES.length];
-  return rows.map((row) => row.split("").map((c) => (c === "1" ? color : c === "2" || c === "3" ? "#01070a" : null)));
-}
-
-function cloneFaceGrid(grid) {
-  return grid.map((row) => row.slice());
-}
-
-/* ============================================================
-   2. BOARD DATA
-   ============================================================ */
-const GROUP_COLOR = {
-  brown: "#7b5029",
-  cyan: "#3e7d7b",
-  magenta: "#a04e6f",
-  orange: "#b96d2a",
-  red: "#87231e",
-  yellow: "#b18a2e",
-  green: "#4b853d",
-  blue: "#286ea1",
-};
-
-/**
- * Rent per [base, 1, 2, 3, 4, hotel] for a property.
- *   base          — rent on this single deed (no monopoly)
- *   1..4          — rent with N houses
- *   hotel         — rent with a hotel
- * housePrice      — flat cost to build the next house
- *                  (Monopoly uses a unique per-property price, but a single
- *                   group-level price keeps the table readable here)
- */
-const RENT_TABLE = {
-  brown:   { base: 10,  rents: [10, 50, 150, 450, 800, 1250], housePrice: 50 },
-  cyan:    { base: 14,  rents: [14, 70, 210, 630, 1100, 1600], housePrice: 50 },
-  magenta: { base: 10,  rents: [10, 50, 150, 450, 800, 1250], housePrice: 100 },
-  orange:  { base: 14,  rents: [14, 70, 210, 630, 1100, 1600], housePrice: 100 },
-  red:     { base: 18,  rents: [18, 90, 270, 810, 1500, 2200], housePrice: 150 },
-  yellow:  { base: 22,  rents: [22, 110, 330, 990, 1800, 2600], housePrice: 150 },
-  green:   { base: 26,  rents: [26, 130, 390, 1170, 2100, 3000], housePrice: 200 },
-  blue:    { base: 35,  rents: [35, 175, 525, 1575, 2800, 4000], housePrice: 200 },
-  railroad:{ base: 25,  rents: [25, 50, 100, 200],             housePrice: 0 },
-  utility: { base: 12,  rents: [12, 24,  48,  72],              housePrice: 0 },
-};
-
-const MAX_HOUSES = 4;        // 1..4 houses allowed
-const HOTEL_LEVEL = 5;       // 5 = hotel (replaces 4 houses)
-const GROUP_TARGETS = { brown: 2, cyan: 3, magenta: 3, orange: 3, red: 3, yellow: 3, green: 3, blue: 2 };
-
-const t = (i, name, kind, col, row, side, extra = {}) => ({ i, name, kind, col, row, side, ...extra });
-
-const TILES = [
-  t(0, "START", "corner-go", 1, 1, "top"),
-  t(1, "SALVADOR", "property", 2, 1, "top", { price: 60, rent: 10, group: "brown" }),
-  t(2, "TREASURE", "chest", 3, 1, "top"),
-  t(3, "RIO", "property", 4, 1, "top", { price: 60, rent: 10, group: "brown" }),
-  t(4, "EARNINGS TAX", "tax", 5, 1, "top", { price: 200 }),
-  t(5, "ACC AIRPORT", "railroad", 6, 1, "top", { price: 200, rent: 25 }),
-  t(6, "ACCRA", "property", 7, 1, "top", { price: 100, rent: 14, group: "cyan" }),
-  t(7, "SURPRISE?", "chance", 8, 1, "top"),
-  t(8, "TEMA", "property", 9, 1, "top", { price: 100, rent: 14, group: "cyan" }),
-  t(9, "KUMASI", "property", 10, 1, "top", { price: 120, rent: 16, group: "cyan" }),
-  t(10, "PASSING BY", "corner-jail", 11, 1, "top"),
-  t(11, "PATTAYA", "property", 11, 2, "right", { price: 140, rent: 10, group: "magenta" }),
-  t(12, "ELECTRIC COMPANY", "utility", 11, 3, "right", { price: 150, rent: 12 }),
-  t(13, "CHIANG MAI", "property", 11, 4, "right", { price: 140, rent: 12, group: "magenta" }),
-  t(14, "BANGKOK", "property", 11, 5, "right", { price: 160, rent: 14, group: "magenta" }),
-  t(15, "BKK AIRPORT", "railroad", 11, 6, "right", { price: 200, rent: 25 }),
-  t(16, "KYOTO", "property", 11, 7, "right", { price: 180, rent: 14, group: "orange" }),
-  t(17, "TREASURE", "chest", 11, 8, "right"),
-  t(18, "OSAKA", "property", 11, 9, "right", { price: 180, rent: 14, group: "orange" }),
-  t(19, "TOKYO", "property", 11, 10, "right", { price: 200, rent: 16, group: "orange" }),
-  t(20, "VACATION", "corner-vacation", 11, 11, "bottom"),
-  t(21, "EINDHOVEN", "property", 10, 11, "bottom", { price: 220, rent: 18, group: "red" }),
-  t(22, "SURPRISE?", "chance", 9, 11, "bottom"),
-  t(23, "ROTTERDAM", "property", 8, 11, "bottom", { price: 220, rent: 18, group: "red" }),
-  t(24, "AMSTERDAM", "property", 7, 11, "bottom", { price: 240, rent: 20, group: "red" }),
-  t(25, "AMS AIRPORT", "railroad", 6, 11, "bottom", { price: 200, rent: 25 }),
-  t(26, "CALGARY", "property", 5, 11, "bottom", { price: 260, rent: 22, group: "yellow" }),
-  t(27, "VANCOUVER", "property", 4, 11, "bottom", { price: 260, rent: 22, group: "yellow" }),
-  t(28, "WATER COMPANY", "utility", 3, 11, "bottom", { price: 150, rent: 12 }),
-  t(29, "TORONTO", "property", 2, 11, "bottom", { price: 280, rent: 24, group: "yellow" }),
-  t(30, "GO TO PRISON", "corner-go-jail", 1, 11, "bottom"),
-  t(31, "BERN", "property", 1, 10, "left", { price: 300, rent: 26, group: "green" }),
-  t(32, "GENEVA", "property", 1, 9, "left", { price: 300, rent: 26, group: "green" }),
-  t(33, "TREASURE", "chest", 1, 8, "left"),
-  t(34, "ZURICH", "property", 1, 7, "left", { price: 320, rent: 28, group: "green" }),
-  t(35, "MB AIRPORT", "railroad", 1, 6, "left", { price: 200, rent: 25 }),
-  t(36, "SURPRISE?", "chance", 1, 5, "left"),
-  t(37, "DOWNTOWN", "property", 1, 4, "left", { price: 400, rent: 35, group: "blue" }),
-  t(38, "PREMIUM TAX", "tax", 1, 3, "left", { price: 75 }),
-  t(39, "MARINA BAY", "property", 1, 2, "left", { price: 400, rent: 50, group: "blue" }),
-];
-const TILE_COUNT = TILES.length;
-const START_TILE_INDEX = 0;
-const JAIL_TILE_INDEX = TILES.find((tile) => tile.kind === "corner-jail")?.i ?? 10;
-
-const CHANCE_EVENTS = [
-  { text: "ADVANCE TO MARINA BAY", action: "moveTo", tileIndex: 39, cash: 0 },
-  { text: "ADVANCE TO START — COLLECT $200", action: "collectStart", cash: 200 },
-  { text: "ADVANCE TO AMSTERDAM", action: "moveTo", tileIndex: 24, cash: 0 },
-  { text: "ADVANCE TO PATTAYA", action: "moveTo", tileIndex: 11, cash: 0 },
-  { text: "ADVANCE TO THE NEXT AIRPORT — PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
-  { text: "ADVANCE TO THE NEXT AIRPORT — PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
-  { text: "ADVANCE TO THE NEXT UTILITY", action: "nearestUtility", cash: 0 },
-  { text: "BANK DIVIDEND — COLLECT $50", action: "collect", amount: 50, cash: 50 },
-  { text: "KEEP THIS CARD UNTIL NEEDED: GET OUT OF PRISON", action: "jailFree", cash: 0 },
-  { text: "MOVE BACK THREE SPACES", action: "moveBack", steps: 3, cash: 0 },
-  { text: "GO DIRECTLY TO PRISON", action: "goToJail", cash: 0 },
-  { text: "BUILDING REPAIRS — PAY $25 PER HOUSE, $100 PER HOTEL", action: "repairs", houseCost: 25, hotelCost: 100, cash: 0 },
-  { text: "SPEEDING FINE — PAY $15", action: "pay", amount: 15, cash: -15 },
-  { text: "ADVANCE TO ACC AIRPORT", action: "moveTo", tileIndex: 5, cash: 0 },
-  { text: "ELECTED CHAIRPERSON — PAY EACH PLAYER $50", action: "payEach", amount: 50, cash: 0 },
-  { text: "BUILDING LOAN MATURES — COLLECT $150", action: "collect", amount: 150, cash: 150 },
-];
-const CHEST_EVENTS = [
-  { text: "ADVANCE TO START — COLLECT $200", action: "collectStart", cash: 200 },
-  { text: "BANK ERROR — COLLECT $200", action: "collect", amount: 200, cash: 200 },
-  { text: "DOCTOR'S FEE — PAY $50", action: "pay", amount: 50, cash: -50 },
-  { text: "INVESTMENT SALE — COLLECT $50", action: "collect", amount: 50, cash: 50 },
-  { text: "KEEP THIS CARD UNTIL NEEDED: GET OUT OF PRISON", action: "jailFree", cash: 0 },
-  { text: "GO DIRECTLY TO PRISON", action: "goToJail", cash: 0 },
-  { text: "PARLOR SHOW — COLLECT $50 FROM EACH PLAYER", action: "collectFromEach", amount: 50, cash: 0 },
-  { text: "TAX REFUND — COLLECT $20", action: "collect", amount: 20, cash: 20 },
-  { text: "INSURANCE MATURES — COLLECT $100", action: "collect", amount: 100, cash: 100 },
-  { text: "HOSPITAL FEE — PAY $100", action: "pay", amount: 100, cash: -100 },
-  { text: "SCHOOL TAX — PAY $150", action: "pay", amount: 150, cash: -150 },
-  { text: "CONSULTING FEE — COLLECT $25", action: "collect", amount: 25, cash: 25 },
-  { text: "STREET REPAIRS — PAY $40 PER HOUSE, $115 PER HOTEL", action: "repairs", houseCost: 40, hotelCost: 115, cash: 0 },
-  { text: "HOLIDAY FUND MATURES — COLLECT $100", action: "collect", amount: 100, cash: 100 },
-  { text: "BEAUTY CONTEST — COLLECT $10", action: "collect", amount: 10, cash: 10 },
-  { text: "INHERITANCE — COLLECT $100", action: "collect", amount: 100, cash: 100 },
-];
-
-
-const ACHIEVEMENT_STORAGE_KEY = "poorup.achievements.v1";
-const ACHIEVEMENTS = [
-  { id: "first-deed", category: "visible", title: "FIRST DEED", short: "Buy your first property.", detail: "Purchase any property in a completed server game.", rarity: "COMMON" },
-  { id: "full-street", category: "visible", title: "FULL STREET", short: "Complete a country group.", detail: "Own every property in one color group at the same time.", rarity: "UNCOMMON" },
-  { id: "even-builder", category: "visible", title: "EVEN BUILDER", short: "Build without breaking the street.", detail: "Build a complete group while following every even-build rule.", rarity: "UNCOMMON" },
-  { id: "auction-ghost", category: "visible", title: "AUCTION GHOST", short: "Win below the asking price.", detail: "Win an auction with a final bid below the deed’s listed price.", rarity: "RARE" },
-  { id: "clean-exit", category: "visible", title: "CLEAN EXIT", short: "Repay a bank loan early.", detail: "Repay a bank loan in full before its due round.", rarity: "UNCOMMON" },
-  { id: "collateral-damage", category: "visible", title: "COLLATERAL DAMAGE", short: "Learn what default costs.", detail: "Default on a bank loan and lose the collateral deed.", rarity: "RARE" },
-  { id: "bad-idea-good-timing", category: "visible", title: "BAD IDEA, GOOD TIMING", short: "Borrow from the edge.", detail: "Take emergency bank credit with less than $50 cash and survive the game.", rarity: "RARE" },
-  { id: "debt-free", category: "visible", title: "DEBT FREE", short: "Finish with clean books.", detail: "Complete a game with no active bank or player debt.", rarity: "UNCOMMON" },
-  { id: "prison-break", category: "visible", title: "PRISON BREAK", short: "Use the card, then win.", detail: "Use a Get Out of Prison card and win the same game.", rarity: "RARE" },
-  { id: "council-member", category: "global", title: "COUNCIL MEMBER", short: "Win a table election.", detail: "Cast the deciding vote in a City Election.", rarity: "UNCOMMON" },
-  { id: "public-works", category: "global", title: "PUBLIC WORKS", short: "Build through policy.", detail: "Build on the group selected by a Public Works policy.", rarity: "RARE" },
-  { id: "crisis-manager", category: "global", title: "CRISIS MANAGER", short: "Keep the table alive.", detail: "End a negative global event without going bankrupt.", rarity: "RARE" },
-  { id: "bubble-survivor", category: "secret", title: "BUBBLE SURVIVOR", short: "Keep your deed through the crash.", clue: "A developed street can outlive the headline.", detail: "Own developed property when Housing Bubble Pop ends and keep the deed.", rarity: "EPIC", secret: true },
-  { id: "short-the-street", category: "secret", title: "SHORT THE STREET", short: "Sell low, rebuild later.", clue: "Sometimes the best house is the one you sell first.", detail: "Sell a building during Housing Bubble Pop, then rebuild after recovery.", rarity: "EPIC", secret: true },
-  { id: "no-floor", category: "secret", title: "NO FLOOR", short: "Survive the double crisis.", clue: "The market can lose its floor without taking your wallet.", detail: "Survive Foreclosure Spiral without taking a second bank loan.", rarity: "LEGENDARY", secret: true },
-  { id: "moral-hazard", category: "secret", title: "MORAL HAZARD", short: "Take the rescue money.", clue: "A bailout feels different when you already owe the bank.", detail: "Receive a Bank Run bailout while holding an active loan.", rarity: "EPIC", secret: true },
-  { id: "grounded-tourist", category: "secret", title: "GROUNDED TOURIST", short: "Travel without a flight.", clue: "The airport can be closed while the city keeps paying.", detail: "Own an airport during Airport Strike and still collect a non-airport rent.", rarity: "RARE", secret: true },
-  { id: "stagflation-trader", category: "secret", title: "STAGFLATION TRADER", short: "Trade through the squeeze.", clue: "Make a deal while cash melts and debt grows.", detail: "Complete a trade during the Stagflation combination.", rarity: "EPIC", secret: true },
-  { id: "compromised-council", category: "secret", title: "COMPROMISED COUNCIL", short: "Choose the least-worst policy.", clue: "The vote is not the scandal. The response is.", detail: "Vote in Legitimacy Crisis and choose the policy that ends the audit.", rarity: "LEGENDARY", secret: true },
-  { id: "double-headline", category: "secret", title: "DOUBLE HEADLINE", short: "Trigger two crises.", clue: "One headline is luck. Two is a pattern.", detail: "Trigger two eligible global events through separate Surprise rolls in one game.", rarity: "LEGENDARY", secret: true },
-  { id: "last-wallet-standing", category: "visible", title: "LAST WALLET STANDING", short: "Be the final player.", detail: "Win a server-authoritative game.", rarity: "COMMON" },
-  { id: "no-refunds", category: "visible", title: "NO REFUNDS", short: "Win after the warning.", detail: "Win a game after reaching the bank-loan default warning.", rarity: "RARE" },
-  { id: "generous-lender", category: "social", title: "GENEROUS LENDER", short: "Help someone across the gap.", detail: "Give a player loan that is fully repaid.", rarity: "UNCOMMON" },
-  { id: "coalition-builder", category: "social", title: "COALITION BUILDER", short: "Turn opposition into leverage.", detail: "Complete a trade with a player you previously voted against.", rarity: "RARE" },
-  { id: "unanimous", category: "social", title: "UNANIMOUS", short: "Get the whole table aligned.", detail: "Be part of an election where every active player selects the same policy.", rarity: "RARE" },
-  { id: "patrol-rookie", category: "minigame", title: "PATROL ROOKIE", short: "Find your first rhythm.", detail: "Score 10 in Parlor Patrol.", rarity: "COMMON" },
-  { id: "patrol-regular", category: "minigame", title: "PATROL REGULAR", short: "Stay on the radio.", detail: "Score 50 in Parlor Patrol.", rarity: "UNCOMMON" },
-  { id: "patrol-ace", category: "minigame", title: "PATROL ACE", short: "Beat the street record.", detail: "Beat your saved personal best three times.", rarity: "RARE" },
-  { id: "clean-run", category: "minigame", title: "CLEAN RUN", short: "No misses, no excuses.", detail: "Finish a patrol run without missing a target.", rarity: "EPIC" },
-  { id: "rent-reaper", category: "visible", title: "RENT REAPER", short: "Collect from three players.", detail: "Collect rent from three different players in one round.", rarity: "RARE" },
-  { id: "liquidity-king", category: "visible", title: "LIQUIDITY KING", short: "Own the cash table.", detail: "Finish a game with more cash than every other player combined.", rarity: "EPIC" },
-  { id: "fire-sale", category: "global", title: "FIRE SALE", short: "Sell before the floor drops.", detail: "Sell three buildings during one global crisis.", rarity: "RARE" },
-  { id: "airport-hopper", category: "visible", title: "AIRPORT HOPPER", short: "Visit every airport.", detail: "Visit all four airports in one game.", rarity: "UNCOMMON" },
-  { id: "tax-evasion", category: "visible", title: "TAX EVASION", short: "Stay off the tax tiles.", detail: "Avoid every tax tile for an entire game.", rarity: "RARE" },
-  { id: "underdog", category: "visible", title: "THE UNDERDOG", short: "Come back from last.", detail: "Win after being last in cash at the halfway point.", rarity: "RARE" },
-  { id: "one-more-turn", category: "visible", title: "ONE MORE TURN", short: "Pay on the final cure round.", detail: "Survive a bank-loan warning and repay on the final cure round.", rarity: "EPIC" },
-  { id: "group-therapy", category: "social", title: "GROUP THERAPY", short: "Trade across three deeds.", detail: "Complete a trade involving three different properties.", rarity: "UNCOMMON" },
-  { id: "hostile-bidder", category: "visible", title: "HOSTILE BIDDER", short: "Win two auctions.", detail: "Win two auctions in one game.", rarity: "RARE" },
-  { id: "empty-streets", category: "visible", title: "EMPTY STREETS", short: "Win without a full group.", detail: "Win while owning no complete property group.", rarity: "EPIC" },
-  { id: "event-tourist", category: "global", title: "EVENT TOURIST", short: "Collect disasters.", detail: "Experience three different global events across your account history.", rarity: "RARE" },
-  { id: "public-enemy", category: "global", title: "PUBLIC ENEMY", short: "Survive the investigation vote.", detail: "Win an Anti-Monopoly Investigation vote against yourself.", rarity: "LEGENDARY" },
-  { id: "silent-partner", category: "social", title: "SILENT PARTNER", short: "Lend without collateral.", detail: "Complete a player-loan contract without owning the collateral.", rarity: "RARE" },
-  { id: "treasure-map", category: "visible", title: "TREASURE MAP", short: "Find every chest card.", detail: "Draw every Treasure card at least once across your account history.", rarity: "EPIC" },
-  { id: "one-dollar-hedge", category: "global", title: "ONE DOLLAR HEDGE", short: "Bet the smallest stake.", detail: "Place a one-dollar roulette bet.", rarity: "COMMON" },
-  { id: "roulette-regular", category: "global", title: "ROULETTE REGULAR", short: "Keep spinning.", detail: "Place eight roulette bets in one game.", rarity: "RARE" },
-  { id: "all-in", category: "global", title: "ALL IN", short: "Risk the whole stack.", detail: "Place a roulette stake equal to your available capital.", rarity: "EPIC" },
-  { id: "first-index", category: "global", title: "FIRST INDEX", short: "Enter the exchange.", detail: "Buy your first fictional market index unit.", rarity: "COMMON" },
-  { id: "market-maker", category: "global", title: "MARKET MAKER", short: "Trade through the noise.", detail: "Complete ten market orders in one game.", rarity: "RARE" },
-  { id: "crisis-investor", category: "global", title: "CRISIS INVESTOR", short: "Buy the fear discount.", detail: "Buy a market index while a negative global event is active and sell it for a profit after recovery.", rarity: "EPIC" },
-  { id: "41st-tile", category: "secret", title: "THE 41ST TILE", short: "Step outside the board.", clue: "There are forty tiles. You stepped on one more.", detail: "Trigger the hidden movement sequence, then win the game.", rarity: "MYTHICAL", secret: true },
-  { id: "null-player", category: "secret", title: "THE NULL PLAYER", short: "Continue from nothing.", clue: "Your wallet was empty. The turn continued. The table refuses to remember why.", detail: "Reach exactly $0, avoid bankruptcy, complete another turn, and win.", rarity: "MYTHICAL", secret: true },
-  { id: "black-ledger", category: "secret", title: "THE BLACK LEDGER", short: "Close the book yourself.", clue: "The bank closed the book. Something inside kept counting.", detail: "Survive a curated crisis combination after losing collateral, then win.", rarity: "MYTHICAL", secret: true },
-];
-
-function loadAchievementRecords() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(ACHIEVEMENT_STORAGE_KEY) || "{}");
-    const records = new Map();
-    if (Array.isArray(raw)) {
-      raw.forEach((id) => { if (ACHIEVEMENTS.some((achievement) => achievement.id === id)) records.set(id, null); });
-      return records;
-    }
-    const source = raw?.records && typeof raw.records === "object" ? raw.records : raw;
-    Object.entries(source || {}).forEach(([id, unlockedAt]) => {
-      if (ACHIEVEMENTS.some((achievement) => achievement.id === id)) records.set(id, typeof unlockedAt === "string" ? unlockedAt : null);
-    });
-    return records;
-  } catch { return new Map(); }
-}
-
-const initialAchievementRecords = loadAchievementRecords();
-
-function saveUnlockedAchievements() {
-  try { localStorage.setItem(ACHIEVEMENT_STORAGE_KEY, JSON.stringify({ version: 2, records: Object.fromEntries(state.achievementRecords) })); } catch { /* storage unavailable */ }
-}
-
-function achievementIconHTML(id) {
-  return `<svg class="achievement-icon" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><use href="/assets/achievements.svg#achievement-${esc(id)}"></use></svg>`;
-}
-
-const APPEARANCES = [
-  { label: "CRIMSON", baseName: "MARLOWE", color: "#d74438", textColor: "#d74438" },
-  { label: "COBALT", baseName: "VESPER", color: "#286ea1", textColor: "#3c8bc3" },
-  { label: "AMBER", baseName: "SOLOMON", color: "#d9a62f", textColor: "#d9a62f" },
-  { label: "VERDANT", baseName: "JUNIPER", color: "#35a653", textColor: "#35a653" },
-];
-
-
-/* ============================================================
-   PLAYER PROFILES (persisted library of custom designs)
-   ============================================================ */
-const PROFILE_KEY = "poorup.profile.v1";   // legacy single profile
-const LIBRARY_KEY = "poorup.profiles.v1";  // array of saved profiles
-const ACCOUNT_SESSION_KEY = "poorup.account.session.v1";
-const GUEST_ALIAS_KEY = "poorup.guest.alias.v1";
-const ACTIVE_DESIGN_KEY = "poorup.active-design.v1";
-const SOUND_KEY = "poorup.sound.enabled.v1";
-const MUSIC_KEY = "poorup.music.enabled.v1";
-
-function sanitizeProfile(p) {
-  if (!p || typeof p !== "object") return null;
-  if (!/^#[0-9a-f]{6}$/i.test(String(p.color || ""))) return null;
-  if (!Array.isArray(p.avatarGrid) || !p.avatarGrid.every((row) => Array.isArray(row))) return null;
-  const grid = Array.from({ length: FACE_SIZE }, (_, y) =>
-    Array.from({ length: FACE_SIZE }, (_, x) => {
-      const v = p.avatarGrid[y]?.[x];
-      return typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) ? v : null;
-    }),
-  );
-  const designName = String(p.designName || p.name || "PLAYER").toUpperCase().slice(0, 12) || "PLAYER";
-  return {
-    id: typeof p.id === "string" ? p.id : `pf_${Math.random().toString(36).slice(2, 9)}`,
-    designName,
-    color: p.color,
-    avatarGrid: grid,
-  };
-}
-
-function profileDesignName(profile) {
-  return String(profile?.designName || profile?.name || "PLAYER").trim().toUpperCase().slice(0, 12) || "PLAYER";
-}
-
-function loadProfiles() {
-  let library = [];
-  try {
-    const raw = localStorage.getItem(LIBRARY_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) library = arr.map(sanitizeProfile).filter(Boolean);
-    }
-  } catch { /* ignore */ }
-  // migrate a v1 single profile into the library on first load
-  if (!library.length) {
-    try {
-      const legacy = sanitizeProfile(JSON.parse(localStorage.getItem(PROFILE_KEY) || "null"));
-      if (legacy) {
-        library = [legacy];
-        saveProfilesToStorage(library);
-        localStorage.removeItem(PROFILE_KEY);
-      }
-    } catch { /* ignore */ }
-  }
-  return library;
-}
-
-function loadActiveDesignId(profiles = []) {
-  let raw = "";
-  try { raw = String(localStorage.getItem(ACTIVE_DESIGN_KEY) || ""); } catch { /* storage unavailable */ }
-  if (/^\d+$/.test(raw)) {
-    const preset = Number(raw);
-    if (preset >= 0 && preset < APPEARANCES.length) return preset;
-  }
-  if (raw && profiles.some((profile) => profile.id === raw)) return raw;
-  return profiles[0]?.id || 0;
-}
-
-function saveActiveDesignId(choice) {
-  try { localStorage.setItem(ACTIVE_DESIGN_KEY, String(choice)); } catch { /* storage unavailable */ }
-}
-
-function loadSoundPreference() {
-  try { return localStorage.getItem(SOUND_KEY) === "1"; } catch { return false; }
-}
-
-function saveSoundPreference(enabled) {
-  try { localStorage.setItem(SOUND_KEY, enabled ? "1" : "0"); } catch { /* storage unavailable */ }
-}
-
-function loadMusicPreference() {
-  try { return localStorage.getItem(MUSIC_KEY) === "1"; } catch { return false; }
-}
-
-function saveMusicPreference(enabled) {
-  try { localStorage.setItem(MUSIC_KEY, enabled ? "1" : "0"); } catch { /* storage unavailable */ }
-}
-
-function loadGuestAlias() {
-  try {
-    return String(localStorage.getItem(GUEST_ALIAS_KEY) || "").trim().toUpperCase().slice(0, 12);
-  } catch {
-    return "";
-  }
-}
-
-function saveGuestAlias(alias) {
-  const value = String(alias || "").trim().toUpperCase().slice(0, 12);
-  try {
-    if (value) localStorage.setItem(GUEST_ALIAS_KEY, value);
-    else localStorage.removeItem(GUEST_ALIAS_KEY);
-  } catch { /* storage unavailable */ }
-  return value;
-}
-
-function sanitizeAccountSession(value) {
-  if (!value || typeof value !== "object" || typeof value.sessionToken !== "string") return null;
-  const account = value.account;
-  if (!account || typeof account.id !== "string" || typeof account.username !== "string") return null;
-  return {
-    sessionToken: value.sessionToken,
-    account: {
-      id: account.id,
-      username: account.username,
-      displayName: String(account.displayName || account.username).slice(0, 18),
-      color: /^#[0-9a-f]{6}$/i.test(String(account.color || "")) ? account.color : "#d74438",
-      avatarGrid: Array.isArray(account.avatarGrid) ? account.avatarGrid : null,
-      stats: {
-        gamesPlayed: Number(account.stats?.gamesPlayed) || 0,
-        wins: Number(account.stats?.wins) || 0,
-        bankruptcies: Number(account.stats?.bankruptcies) || 0,
-        auctionWins: Number(account.stats?.auctionWins) || 0,
-        rentCollected: Number(account.stats?.rentCollected) || 0,
-        eventSurvival: Number(account.stats?.eventSurvival) || 0,
-        casinoNet: Number(account.stats?.casinoNet) || 0,
-        marketProfit: Number(account.stats?.marketProfit) || 0,
-        playerLoansGiven: Number(account.stats?.playerLoansGiven) || 0,
-        playerLoansRepaid: Number(account.stats?.playerLoansRepaid) || 0,
-        playerLoanDefaults: Number(account.stats?.playerLoanDefaults) || 0,
-        equityDeals: Number(account.stats?.equityDeals) || 0,
-        bankLoansTaken: Number(account.stats?.bankLoansTaken) || 0,
-        bankLoanRepayments: Number(account.stats?.bankLoanRepayments) || 0,
-        bankLoanDefaults: Number(account.stats?.bankLoanDefaults) || 0,
-        patrolBest: Number(account.stats?.patrolBest) || 0,
-        patrolAceRuns: Number(account.stats?.patrolAceRuns) || 0,
-      },
-      history: Array.isArray(account.history) ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50).map((entry) => ({
-        playedAt: typeof entry.playedAt === "string" ? entry.playedAt : null,
-        result: entry.result === "WIN" ? "WIN" : "ROUND",
-        won: entry.won === true || entry.result === "WIN",
-        endingCash: Math.max(0, Number(entry.endingCash) || 0),
-        properties: Math.max(0, Number(entry.properties) || 0),
-      })) : [],
-      matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter((entry) => entry && typeof entry === "object").slice(0, 50) : [],
-      achievements: Array.isArray(account.achievements) ? account.achievements.filter((entry) => entry && typeof entry.id === "string").slice(0, 100).map((entry) => ({
-        id: entry.id,
-        unlockedAt: typeof entry.unlockedAt === "string" ? entry.unlockedAt : null,
-      })) : [],
-      privacy: {
-        history: ["public", "friends", "private"].includes(account.privacy?.history) ? account.privacy.history : "friends",
-        achievements: account.privacy?.achievements === "private" ? "private" : "friends",
-        friendRequests: ["everyone", "friends", "nobody"].includes(account.privacy?.friendRequests) ? account.privacy.friendRequests : "everyone",
-        roomInvites: account.privacy?.roomInvites === "nobody" ? "nobody" : "friends",
-      },
-    },
-  };
-}
-
-function loadAccountSession() {
-  try {
-    return sanitizeAccountSession(JSON.parse(localStorage.getItem(ACCOUNT_SESSION_KEY) || "null"));
-  } catch {
-    return null;
-  }
-}
-
-function saveAccountSession(session) {
-  state.account = session;
-  try {
-    if (session) localStorage.setItem(ACCOUNT_SESSION_KEY, JSON.stringify(session));
-    else localStorage.removeItem(ACCOUNT_SESSION_KEY);
-  } catch { /* storage unavailable */ }
-}
-
-function saveProfilesToStorage(library) {
-  try {
-    localStorage.setItem(LIBRARY_KEY, JSON.stringify(library));
-  } catch { /* ignore */ }
-}
-
-const MAX_PROFILES = 4;
-
-function upsertProfile(profile) {
-  const clean = sanitizeProfile(profile);
-  if (!clean) return null;
-  const lib = state.profiles.slice();
-  const idx = lib.findIndex((p) => p.id === clean.id);
-  if (idx >= 0) {
-    lib[idx] = clean;
-  } else {
-    if (lib.length >= MAX_PROFILES) return "limit";
-    lib.push(clean);
-  }
-  state.profiles = lib;
-  saveProfilesToStorage(lib);
-  return clean;
-}
-
-function deleteProfile(id) {
-  state.profiles = state.profiles.filter((p) => p.id !== id);
-  saveProfilesToStorage(state.profiles);
-  // If the active design was removed, fall back deterministically and persist
-  // the fallback so home, account, and the next lobby share one source of truth.
-  if (state.appearance === id) {
-    state.appearance = state.profiles[0]?.id || 0;
-    saveActiveDesignId(state.appearance);
-  }
-  if (state.tableAppearanceOverride === id) state.tableAppearanceOverride = null;
-}
-
-function getProfileById(id) {
-  return state.profiles.find((p) => p.id === id) || null;
-}
-
-/** Returns display metadata for a setup-overlay appearance choice.
- *  `choice` is either a numeric APPEARANCES index or a profile id string. */
-function getAppearanceMeta(choice) {
-  if (typeof choice === "string") {
-    const p = getProfileById(choice);
-    if (p) {
-      return {
-        label: "CUSTOM",
-        baseName: "PLAYER",
-        color: p.color,
-        textColor: p.color,
-        avatarGrid: p.avatarGrid,
-      };
-    }
-  }
-  const a = APPEARANCES[choice] || APPEARANCES[0];
-  return { label: a.label, baseName: a.baseName, color: a.color, textColor: a.textColor, avatarGrid: null };
-}
-
-/* ============================================================
-   3. UTILITIES
-   ============================================================ */
-const $ = (sel) => document.querySelector(sel);
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const REDUCED_MOTION = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || false;
-
+import { $, esc, REDUCED_MOTION } from "./clientDom.js";
+import {
+  hydrateSprites,
+  spriteHTML,
+  spriteFromGrid,
+  avatarHTML,
+  emptyFaceGrid,
+  faceGridFromPreset,
+  cloneFaceGrid,
+} from "./clientSprites.js";
+import {
+  GROUP_COLOR,
+  RENT_TABLE,
+  MAX_HOUSES,
+  HOTEL_LEVEL,
+  GROUP_TARGETS,
+  TILES,
+  TILE_COUNT,
+  JAIL_TILE_INDEX,
+  CHANCE_EVENTS,
+  CHEST_EVENTS,
+  mortgageValue,
+  unmortgageCost,
+} from "./clientBoardData.js";
+import { ACHIEVEMENTS, achievementIconHTML } from "./clientAchievements.js";
+import {
+  APPEARANCES,
+  MAX_PROFILES,
+  profileDesignName,
+  loadActiveDesignId,
+  saveActiveDesignId,
+  saveSoundPreference,
+  saveMusicPreference,
+  loadGuestAlias,
+  saveGuestAlias,
+} from "./clientSanitize.js";
+import {
+  state,
+  activeAppearance,
+  syncLocalAppearance,
+  saveAccountSession,
+  buildPlayers,
+  getProfileById,
+  getAppearanceMeta,
+  upsertProfile,
+  deleteProfile,
+  saveUnlockedAchievements,
+} from "./clientState.js";
+import { applyServerState, AUCTION_MS } from "./clientStateSync.js";
+import {
+  SKYLINE,
+  paintSkyline,
+  tileIconHTML,
+  buildBoard,
+  renderBoardState,
+  placePieces,
+  startPieceWalk,
+} from "./clientBoardRender.js";
+import {
+  renderHud,
+  startTurnCountdown,
+  configureTurnCountdown,
+} from "./clientHudRender.js";
+import {
+  CONNECTION_COPY,
+  renderConnectionStatus,
+  renderTopNav,
+} from "./clientTopNavRender.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -605,151 +100,6 @@ function playSound(name) {
   }
 }
 
-function buildPlayers(choiceIndex, alias) {
-  const selected = getAppearanceMeta(choiceIndex);
-  // bots always come from the four preset appearances, minus whichever
-  // preset color collides with the human's pick (custom profiles never collide)
-  const rest = typeof choiceIndex === "number"
-    ? APPEARANCES.filter((_, i) => i !== choiceIndex)
-    : APPEARANCES.filter((a) => a.color.toLowerCase() !== selected.color.toLowerCase()).slice(0, 3);
-  return [
-    {
-      id: "p1",
-      name: (alias.trim() || selected.baseName).toUpperCase(),
-      color: selected.color,
-      textColor: selected.textColor,
-      cash: 1500,
-      pos: START_TILE_INDEX,
-      online: true,
-      jailFree: 0,
-      avatarGrid: selected.avatarGrid || undefined,
-    },
-    ...rest.slice(0, 3).map((a, i) => ({
-      id: `p${i + 2}`,
-      name: a.baseName,
-      color: a.color,
-      textColor: a.textColor,
-      cash: [1420, 1680, 980][i],
-      pos: START_TILE_INDEX,
-      online: i !== 2,
-      bot: true,
-      jailFree: 0,
-    })),
-  ];
-}
-
-/* ============================================================
-   4. STATE
-   ============================================================ */
-const state = {
-  
-  // Per-tab session id (audit #10): sessionStorage survives reloads but is
-  // fresh for every tab, so two tabs can no longer share — and hijack — one seat.
-  clientId: sessionStorage.getItem("poorup-client-id") || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  account: loadAccountSession(),
-  hostId: null,
-  serverTiles: [],
-  pendingRoomSettings: null,
-  pendingRoomMeta: null,
-  suppressRoomUpdates: false,
-  // Server-minus-local clock skew (ms), refreshed from every snapshot's
-  // serverTime so auction deadlines survive a skewed local clock (audit #18).
-  serverTimeOffset: 0,
-  lastConnectionAnnouncement: "",
-  previousTurnKey: "",
-  phase: "home", // home | setup | lobby | playing
-  roomCode: "",
-  roomVisibility: "private",
-  alias: loadGuestAlias(),
-  appearance: 0,
-  tableAppearanceOverride: null, // optional one-table override; null inherits active design
-  homeTab: "play",          // play | rooms | profile
-  profileTab: "designs",    // overview | stats | designs | history | account
-  setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
-  profiles: loadProfiles(),   // persisted array of saved player designs
-  achievementRecords: initialAchievementRecords,
-  unlockedAchievements: new Set(initialAchievementRecords.keys()),
-  achievementFilter: "all",
-  achievementDateFilter: "all",
-  achievementRarityFilter: "all",
-  profileDraft: null,         // working copy while the profile editor is open
-  editingProfileId: null,     // id of profile being edited (null = brand new)
-  homeReturnView: "home",     // where the profile editor's back button should return to
-  players: buildPlayers(0, "MARLOWE"),
-  turnIndex: 0,
-  dice: [3, 5],
-  rolling: false,
-  busy: false,
-  turnStage: "roll", // roll | end — landing actions happen before explicit end
-  pool: 0,
-  owners: {},
-  highlight: null,
-  selectedTile: null,
-  tab: "deeds",
-  tradeWith: null,
-  tradeMyDeeds: new Set(),
-  tradeTheirDeeds: new Set(),
-  tradeMyCash: 0,
-  tradeTheirCash: 0,
-  houses: {},      // { [tileId]: 0..4 | 5(hotel) }
-  mortgaged: {},   // { [tileId]: true }
-  offers: [],      // pending bot→human trade offers
-  pendingBuyTile: null, // tile the human must resolve (buy/auction) before ending
-  auction: null,        // live auction state object
-  deedDetail: null,     // tile index currently open in the deed/house manager
-  jail: {},             // { playerId: turnsRemaining }
-  roundNumber: 0,
-  globalEvent: null,
-  playerContractOffer: null,
-  playerContracts: { pending: null, active: [] },
-  social: { friends: [], requests: [], outgoing: [], invites: [], notifications: [], recentPlayers: [] },
-  socialSearchResults: [],
-  socialSearchQuery: "",
-  socialTab: "friends",
-  rulesSection: "start-here",
-  rulesQuery: "",
-  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false },
-  rankingSearchQuery: "",
-  rankingSearchResults: [],
-  economy: { casino: { enabled: false, maxBet: 500, lastResult: null, net: 0 }, market: { enabled: false, round: 0, feeRate: 0.02, quotes: {}, positions: {} } },
-  selectedPlayer: null,
-  selectedPlayerRelationship: "none",
-  selectedPlayerView: "profile",
-  selectedPlayerHistory: null,
-  selectedPlayerHistoryScope: "all",
-  card: null,           // { tile, ev, kind } modal reveal
-  gameOver: null,       // { winnerName, winnerId, summary[] } end screen
-  sound: loadSoundPreference(), // global effects toggle
-  music: loadMusicPreference(), // global soundtrack toggle
-  quickJoin: false,     // "quick table" uses all-default rules
-  settings: {
-    maxPlayers:      4,       // 2 – 4
-    startingCash:    1500,    // 1000 / 1500 / 2000 / 3000
-    vacationPool:    true,    // free-parking jackpot on/off
-    trading:         true,    // trading on/off
-    auction:         false,   // auction unowned deeds on/off
-    doubleGo:        false,   // $400 for landing exactly on GO
-    noRentInJail:    true,    // owner can't collect while visiting
-    houseLimit:      32,      // house bank 10 / 20 / 32 (unlimited)
-    hotelLimit:      12,      // hotel bank 6 / 12 (unlimited)
-    turnTimer:       0,       // seconds per turn: 0=off, 30, 60, 120
-    bankruptMode:    "elim",  // "elim" | "debt" (debt = give assets, stay in)
-    bots:            0,        // reserved CPU seats; bot turns are added separately
-    botPersonality: "survivor",
-    bankLoans:       true,
-    bankLoanSeverity: "predatory",
-    globalEvents:    false,
-    casino:          false,
-    market:          false,
-    globalEventDuration: 5,
-    globalEventMax:  1,
-  },
-  log: ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."],
-  messages: [
-    { who: "", color: "", text: "TABLE OPENED. CHOOSE YOUR APPEARANCE.", system: true },
-    { who: "", color: "", text: "JOIN A ROOM TO GET STARTED.", system: true },
-  ],
-};
 
 /* ============================================================
    SHARED SURFACE / DIALOG CONTROLLER
@@ -877,30 +227,6 @@ function focusSurface(selector, focusSelector) {
   });
 }
 
-if (state.profiles.length) {
-  state.appearance = loadActiveDesignId(state.profiles);
-  state.alias = loadGuestAlias();
-  state.players = buildPlayers(state.appearance, state.alias);
-}
-if (state.account) {
-  state.alias = state.account.account.displayName;
-  state.players = buildPlayers(state.appearance, state.alias);
-}
-
-try { sessionStorage.setItem("poorup-client-id", state.clientId); } catch { /* storage unavailable */ }
-
-function activeAppearance() {
-  return state.tableAppearanceOverride ?? state.appearance;
-}
-
-function syncLocalAppearance() {
-  const self = state.players.find((player) => player.id === "p1" || player.clientId === state.clientId);
-  if (!self) return;
-  const meta = getAppearanceMeta(activeAppearance());
-  self.color = meta.color;
-  self.textColor = meta.textColor;
-  self.avatarGrid = meta.avatarGrid || undefined;
-}
 
 function setActiveAppearance(choice) {
   state.appearance = choice;
@@ -977,149 +303,41 @@ function serverTileFor(index) {
     || state.serverTiles.find((tile) => Number(tile.index) === (Number(index) % TILE_COUNT));
 }
 
-function applyServerState(snapshot) {
-  if (!snapshot?.room || !snapshot?.game) return;
-  // Audit #18: track server-vs-local clock skew from every snapshot so
-  // server-stamped deadlines (auction endsAt) stay honest on a skewed clock.
-  const serverTime = Number(snapshot.serverTime);
-  if (Number.isFinite(serverTime) && serverTime > 0) state.serverTimeOffset = serverTime - Date.now();
-  if (state.suppressRoomUpdates) return;
-  const previousPositions = new Map(state.players.map((player) => [player.id, Number(player.pos) || 0]));
-  setConnectionStatus("online");
-  const { room, game } = snapshot;
-  if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = room.roomCode || "";
-  state.roomVisibility = room.visibility === "public" ? "public" : "private";
-  state.hostId = room.hostId || null;
-  state.serverTiles = Array.isArray(game.tiles) ? game.tiles : [];
-  const remotePlayers = Array.isArray(game.players) ? game.players : room.players || [];
-  const turnOrder = Array.isArray(game.turnOrder) && game.turnOrder.length
-    ? game.turnOrder
-    : remotePlayers.map((player) => player.id);
-  state.players = remotePlayers.map((player) => ({
-    id: player.clientId === state.clientId ? "p1" : player.id,
-    serverId: player.id,
-    clientId: player.clientId,
-    accountId: player.accountId || null,
-    name: String(player.nickname || "PLAYER").toUpperCase(),
-    color: player.color || "#cfa75f",
-    textColor: player.color || "#e8d3ab",
-    cash: Number(player.cash) || 0,
-    pos: Number(player.position) || 0,
-    online: !player.disconnected,
-    bankrupt: Boolean(player.bankrupt),
-    inDebt: Boolean(player.inDebt),
-    bot: Boolean(player.isBot),
-    jailFree: Number(player.jailFreeCards) || 0,
-    bankLoan: player.bankLoan || null,
-    bankLoanOffer: player.bankLoanOffer || null,
-    casinoNet: Number(player.casinoNet) || 0,
-    marketPositions: player.marketPositions || {},
-    isHost: Boolean(player.isHost),
-    avatarGrid: Array.isArray(player.avatarGrid) ? player.avatarGrid : null,
-  })).sort((a, b) => {
-    if (a.clientId === state.clientId) return -1;
-    if (b.clientId === state.clientId) return 1;
-    return turnOrder.indexOf(a.serverId) - turnOrder.indexOf(b.serverId);
-  });
-  state.turnIndex = Math.max(0, state.players.findIndex((player) => player.serverId === game.currentPlayerId));
-  state.dice = Array.isArray(game.lastDice) ? game.lastDice : [0, 0];
-  state.roundNumber = Number(game.roundNumber) || 0;
-  state.globalEvent = game.globalEvent || null;
-  state.playerContracts = game.playerContracts || { pending: null, active: [] };
-  const pendingContract = state.playerContracts.pending;
-  const localServerId = state.players[0]?.serverId;
-  state.playerContractOffer = pendingContract && pendingContract.toPlayerId === localServerId ? pendingContract : null;
-  state.economy = {
-    ...state.economy,
-    ...(game.economy || {}),
-    casino: { ...state.economy.casino, ...(game.economy?.casino || {}) },
-    market: { ...state.economy.market, ...(game.economy?.market || {}) }
-  };
-  state.pool = Number(game.vacationPool) || 0;
-  state.houses = Object.fromEntries(state.serverTiles.map((tile) => [tile.index, Number(tile.houseCount) || 0]));
-  state.mortgaged = Object.fromEntries(state.serverTiles.filter((tile) => tile.mortgaged).map((tile) => [tile.index, true]));
-  state.owners = {};
-  state.serverTiles.forEach((tile) => {
-    if (!tile.ownerId) return;
-    const owner = state.players.find((player) => player.serverId === tile.ownerId);
-    if (owner) state.owners[tile.index] = owner.id;
-  });
-  state.jail = Object.fromEntries(remotePlayers.filter((player) => player.inJail).map((player) => [
-    player.clientId === state.clientId ? "p1" : player.id,
-    Number(player.jailTurns) || 1,
-  ]));
-  state.phase = game.started ? "playing" : state.phase === "setup" ? "setup" : "lobby";
-  const movementPlans = state.phase === "playing"
-    ? state.players
-        .map((player) => ({ player, from: previousPositions.get(player.id), to: Number(player.pos) || 0 }))
-        .filter(({ from, to }) => from != null && from !== to && (to - from + TILE_COUNT) % TILE_COUNT <= 12)
-    : [];
-  const turnKey = `${game.currentPlayerId || "none"}:${game.hasRolled ? "rolled" : "roll"}:${game.extraRollPending ? "extra" : "normal"}`;
-  const turnChanged = state.previousTurnKey !== turnKey;
-  state.previousTurnKey = turnKey;
-  state.turnStage = (game.hasRolled && !game.extraRollPending) || game.awaitingEndTurn ? "end" : "roll";
-  state.busy = false;
-  state.rolling = false;
-  state.log = (game.feed || []).map((entry) => typeof entry === "string" ? entry : entry.text).filter(Boolean).slice(0, 40);
-  state.settings = {
-    ...state.settings,
-    ...(room.settings || {}),
-    vacationPool: room.settings?.vacationCash ?? state.settings.vacationPool,
-    noRentInJail: room.settings?.noRentWhileInPrison ?? state.settings.noRentInJail,
-  };
-  state.pendingBuyTile = game.pendingPurchaseOffer?.tileIndex ?? null;
-  state.auction = game.auction ? {
-    tileIndex: Number(game.auction.tileIndex),
-    bid: Number(game.auction.highestBid) || 0,
-    leaderId: state.players.find((player) => player.serverId === game.auction.highestBidderId)?.id || null,
-    deadline: Number(game.auction.endsAt) || serverNow() + AUCTION_MS,
-    caps: {},
-    passed: Object.fromEntries((game.auction.passedPlayerIds || []).map((id) => [state.players.find((p) => p.serverId === id)?.id, true]).filter(([id]) => id)),
-  } : null;
-  // Snapshots update data unconditionally but must not hijack the page —
-  // only re-assert the game view while the player is mid-room-session and
-  // the parlor is the surface actually on screen (A4-F1).
-  if (state.phase !== "home" && !$("#view-game").classList.contains("is-hidden")) showView("game");
-  renderAll();
-  if (movementPlans.length) {
-    requestAnimationFrame(() => movementPlans.forEach(({ player, from, to }) => startPieceWalk(player.id, from, to)));
-  }
-  if (state.auction) {
-    renderAuction();
-    openSurface("#auction-modal", "#auction-pass");
-    clearInterval(auctionTimer);
-    auctionTimer = setInterval(tickAuction, 60);
-  } else {
-    clearInterval(auctionTimer);
-    auctionTimer = null;
-    closeSurface("#auction-modal");
-  }
-  const debt = game.pendingPayment;
-  state.pendingDebt = debt || null;
-  const retireBtn = $("#game-retire-btn");
-  if (retireBtn) {
-    const me = state.players[0];
-    retireBtn.disabled = !(state.phase === "playing" && me && !me.bankrupt && !me.inDebt && me.online !== false);
-  }
-  const meServerId = state.players[0]?.serverId;
-  if (debt && debt.playerId === meServerId && $("#bankruptcy-modal")?.classList.contains("is-hidden")) {
-    const meIndex = state.players.findIndex((player) => player.serverId === meServerId);
-    if (meIndex >= 0) openBankruptcyModal(meIndex, Number(debt.amountRemaining) || 0, debt.creditorId, debt.reason || "This payment is due.");
-  } else if (!debt) {
-    $("#bankruptcy-modal")?.classList.add("is-hidden");
-  }
-  if (game.lastWinner && !state.gameOver) {
-    showGameOver(game.lastWinner.nickname || "The winner", game.lastWinner.id);
-  }
-  if (turnChanged && state.phase === "playing" && state.turnIndex === 0) startTurnCountdown();
-  requestAnimationFrame(() => placePieces());
-}
-
 function updateServerSetting(key, value) {
   state.settings[key] = value;
   const serverKey = SERVER_SETTING_KEYS[key];
   if (serverKey) emitServer("set-setting", { key: serverKey, value }, () => {});
 }
+
+/* Host callbacks that keep DOM, timers, and rendering owned by main.js while
+   the pure snapshot syncers live in clientStateSync.js. */
+const serverSyncHost = {
+  setConnectionStatus,
+  showView,
+  renderAll,
+  startPieceWalk,
+  openBankruptcyModal,
+  showGameOver,
+  startTurnCountdown,
+  gameViewVisible: () => !$("#view-game").classList.contains("is-hidden"),
+  openAuctionSurface: () => {
+    renderAuction();
+    openSurface("#auction-modal", "#auction-pass");
+    clearInterval(auctionTimer);
+    auctionTimer = setInterval(tickAuction, 60);
+  },
+  closeAuctionSurface: () => {
+    clearInterval(auctionTimer);
+    auctionTimer = null;
+    closeSurface("#auction-modal");
+  },
+  retireButton: () => $("#game-retire-btn"),
+  bankruptcyHidden: () => Boolean($("#bankruptcy-modal")?.classList.contains("is-hidden")),
+  hideBankruptcyModal: () => $("#bankruptcy-modal")?.classList.add("is-hidden"),
+  placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
+};
+
+configureTurnCountdown({ endTurn });
 
 if (socket) {
   socket.on("connect", () => {
@@ -1138,7 +356,7 @@ if (socket) {
     emitServer("restore-session", {}, (response) => handleRestoreSessionResponse(response, false));
   });
   socket.on("connect_error", () => setConnectionStatus("offline", true));
-  socket.on("update-state", applyServerState);
+  socket.on("update-state", (snapshot) => applyServerState(snapshot, serverSyncHost));
   socket.on("rooms-updated", (payload) => {
     roomsDirectory = Array.isArray(payload?.rooms) ? payload.rooms : roomsDirectory;
     if (!$("#rooms-modal").classList.contains("is-hidden")) renderRoomsList();
@@ -1249,52 +467,6 @@ function say(text, who) {
       const errorAnnouncer = $("#error-announcer");
       if (errorAnnouncer) errorAnnouncer.textContent = String(text);
     }
-  }
-}
-
-const CONNECTION_COPY = {
-  connecting: "CONNECTING…",
-  online: "ONLINE",
-  reconnecting: "RECONNECTING…",
-  offline: "OFFLINE",
-};
-
-function renderConnectionStatus() {
-  const status = state.connectionStatus || "offline";
-  const copy = CONNECTION_COPY[status] || CONNECTION_COPY.offline;
-  const homeLabel = $("#home-connection-label");
-  if (homeLabel) homeLabel.textContent = copy;
-  document.querySelectorAll("[data-global-connection-label]").forEach((label) => {
-    label.textContent = copy;
-  });
-  const gameLabel = $("#tn-online");
-  if (gameLabel) gameLabel.textContent = status === "online"
-    ? `${state.players.filter((p) => p.online).length} ONLINE`
-    : copy;
-  document.querySelectorAll("[data-global-online] .dot, #view-home .online .dot, #home-status-note .dot").forEach((dot) => {
-    dot.classList.toggle("dot-green", status === "online");
-    dot.classList.toggle("dot-red", status !== "online");
-    dot.classList.toggle("blink", status === "online");
-  });
-  const note = $("#tn-connection-note");
-  if (note) {
-    note.dataset.connection = status;
-    const text = note.querySelector(".t-micro");
-    if (text) text.textContent = copy;
-    const dot = note.querySelector(".dot");
-    if (dot) {
-      dot.classList.toggle("dot-green", status === "online");
-      dot.classList.toggle("dot-red", status !== "online");
-      dot.classList.toggle("blink", status === "online");
-    }
-  }
-  const homeNote = $("#home-status-note");
-  if (homeNote) {
-    homeNote.dataset.connection = status;
-    const text = homeNote.querySelector(".t-micro");
-    if (text) text.textContent = status === "online"
-      ? "LIVE SERVER · CREATE OR JOIN A ROOM · NO ACCOUNT REQUIRED"
-      : `${copy} · ROOM ACTIONS WILL RETRY AUTOMATICALLY`;
   }
 }
 
@@ -1895,31 +1067,6 @@ function record(text) {
 /* ============================================================
    5. HOME SCREEN
    ============================================================ */
-const SKYLINE = [
-  [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
-  [33, 6, 7, 30], [41, 15, 5, 21], [47, 2, 8, 34], [56, 18, 5, 18], [62, 10, 6, 26],
-  [69, 22, 5, 14], [75, 15, 6, 21], [82, 25, 5, 11],
-];
-const BOARD_SKYLINE = [
-  [4, 22, 6, 12], [11, 16, 5, 18], [17, 25, 4, 9], [22, 12, 6, 22], [29, 20, 5, 14],
-  [35, 6, 7, 28], [43, 14, 5, 20], [49, 2, 8, 32], [58, 17, 5, 17], [64, 10, 6, 24],
-  [71, 21, 5, 13], [77, 15, 6, 19],
-];
-
-function paintSkyline(el, data) {
-  let out = "";
-  data.forEach(([x, y, w, h], i) => {
-    out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#123634"/>`;
-    for (let r = 0; r < Math.floor((h - 2) / 3); r++) {
-      for (let c = 0; c < Math.floor((w - 1) / 2); c++) {
-        const lit = (r + c + i) % 3 === 0;
-        out += `<rect x="${x + 1 + c * 2}" y="${y + 2 + r * 3}" width="1" height="1" fill="${lit ? "#78894f" : "#0d2725"}"/>`;
-      }
-    }
-  });
-  el.innerHTML = out;
-}
-
 const PATROL_BEST_KEY = "poorup.parlor-patrol.best.v1";
 let homeHelicopterTimer = null;
 let homeHelicopterFlightTimer = null;
@@ -3494,20 +2641,6 @@ async function copyRoomCode() {
   }
 }
 
-function renderTopNav() {
-  const code = state.roomCode || "----";
-  const isPublic = state.roomVisibility === "public";
-  $("#tn-room").textContent = isPublic ? "PUBLIC" : code;
-  $("#tn-room-copy")?.classList.toggle("is-public", isPublic);
-  if ($("#tn-room-copy")) $("#tn-room-copy").disabled = isPublic;
-  $("#tn-room-copy")?.setAttribute("aria-label", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
-  $("#tn-room-copy")?.setAttribute("title", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
-  $("#tn-lobby").textContent = isPublic ? "AFTER HOURS · PUBLIC" : `AFTER HOURS ${state.roomCode || "----"}`;
-  $("#tn-online").textContent = (state.connectionStatus === "online" ? `${state.players.filter((p) => p.online).length} ONLINE` : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE"));
-  $("#tn-turnlabel").textContent = state.phase === "playing" ? state.players[state.turnIndex].name : state.phase === "lobby" ? "LOBBY" : "SETUP";
-  renderConnectionStatus();
-}
-
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
   const existingBots = seated.filter((p) => p.bot).length;
@@ -3554,430 +2687,6 @@ function renderChat() {
   $("#chat-input").disabled = !joined;
   $("#chat-send").disabled = !joined;
   $("#chat-input").placeholder = joined ? "Say something…" : "Join the room to chat…";
-}
-
-function tileIconHTML(tile) {
-  switch (tile.kind) {
-    case "corner-parking": return spriteHTML("car", 4);
-    case "corner-vacation": return spriteHTML("palm", 4);
-    case "chest": return `<img class="board-icon-mark board-icon-chest" src="/assets/board-icons/treasure-chest.svg" alt="Treasure">`;
-    case "railroad": return tile.name.includes("AIRPORT")
-      ? `<img class="airport-mark" src="/assets/airport-plane.svg" alt="Airport">`
-      : spriteHTML("train", 3);
-    case "utility": return tile.name === "ELECTRIC COMPANY" ? spriteHTML("bulb", 3) : spriteHTML("faucet", 3);
-    case "chance": return `<img class="board-icon-mark board-icon-surprise" src="/assets/board-icons/surprise.svg" alt="Surprise">`;
-    case "tax": return `<span class="q-mark g400" style="font-size:13px;color:#c88f2e">$</span>`;
-    default: return "";
-  }
-}
-
-function stripStyle(tile) {
-  if (!tile.group) return "";
-  const c = GROUP_COLOR[tile.group];
-  switch (tile.side) {
-    case "bottom": return `background:${c};top:0;left:0;right:0;height:22%;border-bottom:1px solid #01070a`;
-    case "top": return `background:${c};bottom:0;left:0;right:0;height:22%;border-top:1px solid #01070a`;
-    case "left": return `background:${c};top:0;bottom:0;right:0;width:22%;border-left:1px solid #01070a`;
-    case "right": return `background:${c};top:0;bottom:0;left:0;width:22%;border-right:1px solid #01070a`;
-  }
-  return "";
-}
-
-function buildBoard() {
-  const grid = $("#board-grid");
-  const center = $("#center-field");
-  grid.querySelectorAll(".tile").forEach((n) => n.remove());
-  paintSkyline($("#board-skyline"), BOARD_SKYLINE);
-
-  TILES.forEach((tile) => {
-    const el = document.createElement("button");
-    el.className = `tile side-${tile.side}${tile.group ? " has-strip" : ""}${tile.name.includes("AIRPORT") ? " airport-tile" : ""}`;
-    el.dataset.tile = String(tile.i);
-    el.style.gridColumn = String(tile.col);
-    el.style.gridRow = String(tile.row);
-
-    const words = tile.name.split(" ").map((w) => `<span style="display:block">${w}</span>`).join("");
-
-    if (tile.kind.startsWith("corner")) {
-      el.classList.add("is-corner");
-      if (tile.kind === "corner-go") {
-        el.innerHTML = `<span class="go-big">GO</span>
-          <span class="t-tile tile-name" style="color:#a79d7d">COLLECT</span>
-          <span class="t-tile tile-price" style="color:#cfa75f">$200</span>`;
-      } else if (tile.kind === "corner-jail") {
-        el.innerHTML = `<span class="passing-by-corner-layout">
-          <span class="t-tile tile-name passing-by-corner-label">PASSING BY</span>
-          <span class="passing-by-prison-zone" aria-hidden="true">
-            <img class="passing-by-bars-art" src="/assets/board-icons/passing-by-bars.svg" alt="">
-          </span>
-          <span class="passing-by-token-anchor passing-by-token-anchor-pass" data-tile-anchor="passing" aria-hidden="true"></span>
-          <span class="passing-by-token-anchor passing-by-token-anchor-prison" data-tile-anchor="prison" aria-hidden="true"></span>
-        </span>`;
-      } else if (tile.kind === "corner-go-jail") {
-        el.innerHTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
-            ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#d74438"/>`).join("")}
-            <rect x="0" y="4" width="16" height="1.2" fill="#d74438"/></svg>
-          <span class="t-tile tile-name" style="color:#d74438">PRISON</span>`;
-      } else {
-        el.innerHTML = `<span class="t-tile tile-name">${words}</span>${tileIconHTML(tile)}`;
-      }
-    } else {
-      const verticalChest = (tile.side === "left" || tile.side === "right") && tile.kind === "chest";
-      const iconOnly = tile.kind === "chance";
-      const tileFace = iconOnly
-        ? `<span class="tile-face tile-face-special"><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`
-        : verticalChest
-          ? `<span class="tile-face tile-face-special"><span class="t-tile tile-name">${words}</span><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`
-        : tile.kind === "tax"
-          ? `<span class="tile-face"><span class="t-tile tile-name">${words}</span></span>`
-        : `<span class="tile-face"><span class="t-tile tile-name">${words}</span><span class="tile-icon">${tileIconHTML(tile)}</span>${tile.price != null
-          ? `<span class="t-tile tile-price">${tile.kind === "tax" ? `PAY $${tile.price}` : `$${tile.price}`}</span>`
-          : ""}</span>`;
-      el.innerHTML =
-        (tile.group ? `<span class="tile-strip" style="${stripStyle(tile)}"></span>` : "") +
-        `<span class="tile-owner" style="display:none"></span>` + tileFace;
-    }
-
-    el.insertAdjacentHTML("beforeend", `<span class="tile-build side-${tile.side}"></span>`);
-    el.addEventListener("click", () => onTileClick(tile));
-    grid.insertBefore(el, center);
-  });
-}
-
-function renderBoardState() {
-  TILES.forEach((tile) => {
-    const el = document.querySelector(`.tile[data-tile="${tile.i}"]`);
-    if (!el) return;
-    el.classList.toggle("is-highlight", state.highlight === tile.i);
-    el.classList.toggle("is-mortgaged", !!state.mortgaged[tile.i]);
-
-    const ownerId = state.owners[tile.i];
-    const pip = el.querySelector(".tile-owner");
-    if (pip) {
-      const owner = state.players.find((p) => p.id === ownerId);
-      pip.style.display = owner ? "block" : "none";
-      if (owner) pip.style.background = owner.color;
-    }
-
-    const buildEl = el.querySelector(".tile-build");
-    if (buildEl) {
-      const lvl = state.houses[tile.i] || 0;
-      if (tile.kind === "property" && lvl > 0) {
-        buildEl.innerHTML = lvl === HOTEL_LEVEL
-          ? spriteHTML("hotel", 1, "#cfa75f")
-          : Array.from({ length: Math.min(lvl, MAX_HOUSES) }).map(() => spriteHTML("house", 1, "#4b853d")).join("");
-      } else {
-        buildEl.innerHTML = "";
-      }
-    }
-  });
-}
-
-const STACK_OFF = [
-  { x: 0, y: 0 },
-  { x: 11, y: -8 },
-  { x: -11, y: 8 },
-  { x: 11, y: 8 },
-];
-
-function tileCenter(i, zone = "passing") {
-  const tile = document.querySelector(`.tile[data-tile="${i}"]`);
-  const layer = $("#token-layer");
-  if (!tile || !layer) return null;
-  const anchor = tile.querySelector(`[data-tile-anchor="${zone}"]`);
-  const tr = (anchor || tile).getBoundingClientRect();
-  const lr = layer.getBoundingClientRect();
-  if (!tr.width || !lr.width) return null;
-  return {
-    x: tr.left - lr.left + tr.width / 2,
-    y: tr.top - lr.top + tr.height / 2,
-  };
-}
-
-function playerTileCenter(player, i = player?.pos) {
-  const zone = Number(i) === JAIL_TILE_INDEX && state.jail?.[player?.id] ? "prison" : "passing";
-  return tileCenter(i, zone);
-}
-
-const pieceWalks = new Map();
-const PIECE_WALK_STEP_MS = 130;
-
-function cancelPieceWalk(playerId) {
-  const walk = pieceWalks.get(playerId);
-  if (!walk) return;
-  walk.cancelled = true;
-  clearTimeout(walk.timer);
-  pieceWalks.delete(playerId);
-  const el = $("#token-layer")?.querySelector(`.piece[data-player="${playerId}"]`);
-  el?.classList.remove("is-moving", "is-hopping");
-}
-
-function pieceWalkPath(from, to) {
-  const distance = (to - from + TILE_COUNT) % TILE_COUNT;
-  if (!distance || distance > 12) return [];
-  return Array.from({ length: distance }, (_, index) => (from + index + 1) % TILE_COUNT);
-}
-
-function startPieceWalk(playerId, from, to) {
-  const path = pieceWalkPath(Number(from) || 0, Number(to) || 0);
-  const layer = $("#token-layer");
-  const el = layer?.querySelector(`.piece[data-player="${playerId}"]`);
-  if (!el || !path.length || REDUCED_MOTION) return;
-  cancelPieceWalk(playerId);
-  const player = state.players.find((entry) => entry.id === playerId);
-  const start = playerTileCenter(player, Number(from) || 0);
-  if (!start) return;
-  const walk = { cancelled: false, index: 0, timer: null };
-  pieceWalks.set(playerId, walk);
-  el.classList.add("is-moving");
-  el.style.setProperty("--piece-x", `${Math.round(start.x)}px`);
-  el.style.setProperty("--piece-y", `${Math.round(start.y)}px`);
-
-  const advance = () => {
-    if (walk.cancelled || pieceWalks.get(playerId) !== walk) return;
-    const next = path[walk.index++];
-    // A walk across the combined Passing By corner always uses the open lane.
-    const center = tileCenter(next, "passing");
-    if (!center) {
-      cancelPieceWalk(playerId);
-      placePieces();
-      return;
-    }
-    el.style.setProperty("--piece-x", `${Math.round(center.x)}px`);
-    el.style.setProperty("--piece-y", `${Math.round(center.y)}px`);
-    el.classList.remove("is-hopping");
-    void el.offsetWidth;
-    el.classList.add("is-hopping");
-    if (walk.index >= path.length) {
-      walk.timer = setTimeout(() => {
-        if (pieceWalks.get(playerId) !== walk) return;
-        pieceWalks.delete(playerId);
-        el.classList.remove("is-moving", "is-hopping");
-        placePieces();
-      }, PIECE_WALK_STEP_MS);
-      return;
-    }
-    walk.timer = setTimeout(advance, PIECE_WALK_STEP_MS);
-  };
-  walk.timer = setTimeout(advance, 16);
-}
-
-function ensurePieces() {
-  const layer = $("#token-layer");
-  if (!layer) return;
-  state.players.forEach((p, i) => {
-    let el = layer.querySelector(`.piece[data-player="${p.id}"]`);
-    if (!el) {
-      el = document.createElement("div");
-      el.className = "piece";
-      el.dataset.player = p.id;
-      layer.appendChild(el);
-    }
-    el.style.borderColor = p.color;
-    el.title = p.name;
-    const sig = `${p.id}:${p.color}:${i}:${p.avatarGrid ? JSON.stringify(p.avatarGrid) : ""}`;
-    if (el.dataset.sig !== sig) {
-      el.innerHTML = avatarHTML(p, 3, i);
-      el.dataset.sig = sig;
-    }
-  });
-  layer.querySelectorAll(".piece").forEach((el) => {
-    if (!state.players.some((p) => p.id === el.dataset.player)) el.remove();
-  });
-}
-
-function placePieces(opts = {}) {
-  const movingId = opts.movingId || null;
-  const hop = !!opts.hop;
-  ensurePieces();
-  const layer = $("#token-layer");
-  if (!layer) return;
-
-  pieceWalks.forEach((_, playerId) => {
-    if (!state.players.some((player) => player.id === playerId)) cancelPieceWalk(playerId);
-  });
-
-  const occupants = {};
-  state.players.forEach((p) => {
-    (occupants[p.pos] ||= []).push(p.id);
-  });
-
-  state.players.forEach((p) => {
-    const el = layer.querySelector(`.piece[data-player="${p.id}"]`);
-    if (!el) return;
-    const c = playerTileCenter(p);
-    if (!c) return;
-    const stack = occupants[p.pos] || [p.id];
-    const idx = Math.max(0, stack.indexOf(p.id));
-    const off = stack.length === 1 ? { x: 0, y: 0 } : STACK_OFF[idx] || { x: 0, y: 0 };
-    const active = state.phase === "playing" && state.players[state.turnIndex]?.id === p.id;
-    el.classList.toggle("is-active", active);
-    if (pieceWalks.has(p.id)) {
-      el.classList.add("is-moving");
-      return;
-    }
-    el.classList.toggle("is-moving", movingId === p.id);
-    if (hop && movingId === p.id) {
-      el.classList.remove("is-hopping");
-      void el.offsetWidth;
-      el.classList.add("is-hopping");
-    }
-    el.style.setProperty("--piece-x", `${Math.round(c.x + off.x)}px`);
-    el.style.setProperty("--piece-y", `${Math.round(c.y + off.y)}px`);
-  });
-}
-
-const DIE_PIPS = {
-  1: [[1, 1]],
-  2: [[0, 0], [2, 2]],
-  3: [[0, 0], [1, 1], [2, 2]],
-  4: [[0, 0], [2, 0], [0, 2], [2, 2]],
-  5: [[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]],
-  6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
-};
-
-function dieHTML(value, rolling) {
-  const pips = DIE_PIPS[value] || DIE_PIPS[1];
-  let cells = "";
-  for (let i = 0; i < 9; i++) {
-    const cx = i % 3;
-    const cy = Math.floor(i / 3);
-    cells += `<span class="${pips.some(([x, y]) => x === cx && y === cy) ? "on" : ""}"></span>`;
-  }
-  return `<div class="die${rolling ? " dice-rolling" : ""}">${cells}</div>`;
-}
-
-
-function renderHud() {
-  const waiting = state.phase !== "playing";
-  const isLobby = state.phase === "lobby";
-  const cur = state.players[state.turnIndex];
-
-  if (isLobby) {
-    $("#hud-turn-label").textContent = "In Lobby";
-    const nameEl = $("#hud-name");
-    nameEl.textContent = "Configure";
-    nameEl.style.color = "#cfa75f";
-    $("#hud-note").style.display = "block";
-    $("#hud-note").textContent = "Set rules on the right, then press Start Round.";
-    $("#hud-loan-status")?.classList.add("is-hidden");
-    $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
-    $("#hud-pool").textContent = "$0";
-    $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
-    $("#roll-btn").disabled = true;
-    $("#roll-label").textContent = "Set Rules First";
-    return;
-  }
-
-  const awaitingEnd = state.turnStage === "end";
-  $("#hud-turn-label").textContent = waiting ? "Waiting For Game" : awaitingEnd ? "Resolve & End" : "Current Turn";
-  const nameEl = $("#hud-name");
-  nameEl.textContent = waiting ? "Stand By" : cur.name;
-  nameEl.style.color = waiting ? "#cfa75f" : cur.textColor;
-  $("#hud-note").style.display = waiting || (awaitingEnd && state.turnIndex === 0) ? "block" : "none";
-  $("#hud-note").textContent = awaitingEnd
-    ? "Buy, build or trade now, then end your turn."
-    : "Join a room to get started.";
-  const loanStatus = $("#hud-loan-status");
-  const currentLoan = cur?.bankLoan;
-  if (loanStatus) {
-    const showLoan = !waiting && currentLoan && ["active", "due"].includes(currentLoan.status);
-    loanStatus.classList.toggle("is-hidden", !showLoan);
-    if (showLoan) loanStatus.textContent = `BANK DEBT · $${Number(currentLoan.remaining || 0).toLocaleString()} · DUE R${currentLoan.dueRound || "—"}`;
-  }
-
-  $("#hud-cash").textContent = `$${waiting ? "0" : cur.cash.toLocaleString()}`;
-  $("#hud-pool").textContent = `$${waiting ? 0 : state.pool}`;
-
-  $("#hud-dice").innerHTML = waiting
-    ? `<div class="die-blank">—</div><div class="die-blank">—</div>`
-    : dieHTML(state.dice[0], state.rolling) + dieHTML(state.dice[1], state.rolling);
-
-  const locked = (state.pendingBuyTile != null && state.settings.auction) || !!state.auction;
-  const humanTurn = state.turnIndex === 0 && state.phase === "playing";
-  const canRoll = !state.busy && !locked && humanTurn && state.turnStage === "roll";
-  const canEnd = !state.busy && !locked && humanTurn && state.turnStage === "end";
-  const btn = $("#roll-btn");
-  btn.disabled = !(canRoll || canEnd);
-  $("#roll-label").textContent = waiting
-    ? "Join First"
-    : state.rolling
-      ? "Rolling…"
-      : canEnd
-        ? "End Turn"
-        : canRoll
-          ? "Roll Dice"
-          : "Waiting…";
-
-  // turn-stage pill + countdown
-  const stageEl = $("#hud-stage");
-  const timerEl = $("#hud-timer");
-  const inJail = (state.jail[cur?.id] || 0) > 0;
-  let stageLabel = "ROLL";
-  let stageCls = "";
-  if (state.rolling) { stageLabel = "ROLLING"; stageCls = "st-resolve"; }
-  else if (state.turnStage === "end") { stageLabel = "END TURN"; stageCls = "st-end"; }
-  else if (inJail && humanTurn) { stageLabel = "IN JAIL"; stageCls = "st-resolve"; }
-  if (stageEl) {
-    const hidden = waiting || isLobby;
-    stageEl.classList.toggle("is-hidden", hidden);
-    stageEl.textContent = stageLabel;
-    stageEl.classList.remove("st-end", "st-resolve");
-    if (stageCls) stageEl.classList.add(stageCls);
-  }
-  if (timerEl) {
-    const useTimer = !waiting && !isLobby && humanTurn && state.settings.turnTimer > 0 && state.turnStage === "roll";
-    timerEl.classList.toggle("is-hidden", !useTimer);
-    if (useTimer) updateTurnTimerState();
-  }
-  const jailBtn = $("#pay-jail-fine");
-  if (jailBtn) {
-    const canPayJail = !waiting && !isLobby && humanTurn && inJail && state.turnStage === "roll" && cur.cash >= 50;
-    jailBtn.classList.toggle("is-hidden", !canPayJail);
-    jailBtn.disabled = state.busy;
-  }
-  const jailCardBtn = $("#use-jail-free");
-  if (jailCardBtn) {
-    const canUseJailCard = !waiting && !isLobby && humanTurn && inJail && state.turnStage === "roll" && (cur.jailFree || 0) > 0;
-    jailCardBtn.classList.toggle("is-hidden", !canUseJailCard);
-    jailCardBtn.disabled = state.busy;
-  }
-}
-
-// ---- per-turn countdown -------------------------------------------
-let turnDeadline = 0;
-let turnTimerInterval = null;
-let turnTimerLeft = 0;
-
-function startTurnCountdown() {
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-  if (state.settings.turnTimer <= 0 || state.turnIndex !== 0) return;
-  turnDeadline = Date.now() + state.settings.turnTimer * 1000;
-  turnTimerInterval = setInterval(() => {
-    turnTimerLeft = Math.max(0, turnDeadline - Date.now());
-    updateTurnTimerState();
-    if (turnTimerLeft <= 0) {
-      clearInterval(turnTimerInterval);
-      turnTimerInterval = null;
-      // auto-end the human's turn when time runs out
-      if (state.phase === "playing" && state.turnIndex === 0 && state.turnStage === "end") {
-        if (state.pendingBuyTile == null && !state.auction) endTurn(0);
-      }
-    }
-  }, 120);
-}
-
-function updateTurnTimerState() {
-  const timerEl = $("#hud-timer");
-  if (!timerEl) return;
-  const left = Math.max(0, (turnDeadline - Date.now()) / 1000);
-  const shown = state.settings.turnTimer > 0 && state.turnIndex === 0 && state.turnStage === "roll";
-  timerEl.classList.toggle("is-hidden", !shown);
-  if (shown) {
-    timerEl.textContent = `${left.toFixed(1)}s`;
-    timerEl.classList.toggle("is-low", left <= 5);
-  }
 }
 
 /** Owns every deed in the same color group as `tile` (including this one). */
@@ -5522,8 +4231,6 @@ const BID_STEPS = [1, 20, 100];
 // Audit #18: single clock for auction deadlines. Matches the server's frame
 // once a snapshot has arrived (offset 0 before the first one).
 function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
-
-const AUCTION_MS = 5000;
 let auctionTimer = null;
 
 /** Human landed on a vacant lot: auto-show choice modal.
@@ -6113,8 +4820,6 @@ function migrateSavedBoardLayout(saved) {
   };
 }
 
-function mortgageValue(tile) { return Math.floor((tile.price || 0) * 0.5); }
-function unmortgageCost(tile) { return Math.ceil((tile.price || 0) * 0.55); }
 
 function mortgageTile(tileIdx) {
   emitServer("manage-property", { tileIndex: tileIdx, action: "mortgage" }, () => {});
@@ -7562,7 +6267,7 @@ function openCardPreviewFromUrl() {
    10. INIT
    ============================================================ */
 renderHome();
-buildBoard();
+buildBoard(onTileClick);
 hydrateSprites();
 bindEvents();
 renderAll();
