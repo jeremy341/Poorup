@@ -107,12 +107,25 @@ function setupAppearanceChoice() {
   return activeAppearance();
 }
 
-function setupTakenColors() {
+// Taken-ness is identity (color plus face), mirroring faceSignature in
+// server/appearanceApi.js: same color with a different face is a different
+// icon, so only an exact duplicate greys a preset out.
+function setupFaceSignature(avatarGrid) {
+  if (!Array.isArray(avatarGrid)) return "generic";
+  if (!avatarGrid.length) return "generic";
+  return JSON.stringify(avatarGrid, (key, value) => (typeof value === "string" ? value.toLowerCase() : value));
+}
+
+function setupIdentityKey(color, avatarGrid) {
+  return `${String(color || "").toLowerCase()}|${setupFaceSignature(avatarGrid)}`;
+}
+
+function setupTakenIdentities() {
   const seated = state.players
     .filter((p) => p.clientId !== state.clientId)
     .filter((p) => p.online !== false)
     .filter((p) => !p.bankrupt);
-  return new Set(seated.map((p) => String(p.color || "").toLowerCase()));
+  return new Set(seated.map((p) => setupIdentityKey(p.color, p.avatarGrid)));
 }
 
 function selectedDesignName(choice, meta) {
@@ -212,15 +225,15 @@ function customDesignCardHTML(p, active, i) {
 }
 
 function presetDesignsHTML(choice) {
-  const takenColors = setupTakenColors();
-  return APPEARANCES.map((a, i) => presetDesignCardHTML(a, i, choice, takenColors)).join("");
+  const taken = setupTakenIdentities();
+  return APPEARANCES.map((a, i) => presetDesignCardHTML(a, i, choice, taken)).join("");
 }
 
-function presetDesignCardHTML(a, i, choice, takenColors) {
+function presetDesignCardHTML(a, i, choice, takenIdentities) {
   const active = choice === i;
-  const taken = !active && takenColors.has(String(a.color).toLowerCase());
+  const taken = !active && takenIdentities.has(setupIdentityKey(a.color, null));
   const status = presetStatusText(active, taken, i);
-  return `<button type="button" class="su-opt${active ? " is-active" : ""}${taken ? " is-taken" : ""}" data-app="${i}"${taken ? " disabled aria-disabled=\"true\" title=\"This colour is taken at the table\"" : ""}>
+  return `<button type="button" class="su-opt${active ? " is-active" : ""}${taken ? " is-taken" : ""}" data-app="${i}"${taken ? " disabled aria-disabled=\"true\" title=\"This icon is taken at the table\"" : ""}>
       <div class="su-av">${avatarHTML(a, 5, i)}</div>
       <div>
         <div class="t-label f13" style="color:${taken ? "var(--text-muted)" : a.textColor}">${a.label}</div>

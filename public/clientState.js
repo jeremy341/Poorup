@@ -19,13 +19,20 @@ import {
 } from "./clientSanitize.js";
 import { ACHIEVEMENT_STORAGE_KEY, loadAchievementRecords } from "./clientAchievements.js";
 import { START_TILE_INDEX } from "./clientBoardData.js";
+// Bots avoid the human's exact icon (color plus face): a custom face in a
+// preset color leaves that preset available to the table.
+function presetIdentityTakenBy(preset, selected) {
+  if (String(preset.color).toLowerCase() !== String(selected.color).toLowerCase()) return false;
+  return !selected.avatarGrid;
+}
+
 function buildPlayers(choiceIndex, alias) {
   const selected = getAppearanceMeta(choiceIndex);
   // bots always come from the four preset appearances, minus whichever
-  // preset color collides with the human's pick (custom profiles never collide)
+  // preset exactly matches the human's pick
   const rest = typeof choiceIndex === "number"
     ? APPEARANCES.filter((_, i) => i !== choiceIndex)
-    : APPEARANCES.filter((a) => a.color.toLowerCase() !== selected.color.toLowerCase()).slice(0, 3);
+    : APPEARANCES.filter((a) => !presetIdentityTakenBy(a, selected)).slice(0, 3);
   return [
     {
       id: "p1",

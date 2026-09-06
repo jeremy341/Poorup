@@ -5,18 +5,43 @@
 // The four default appearance presets, in server assignment order.
 const APPEARANCE_PRESET_COLORS = ['#d74438', '#286ea1', '#d9a62f', '#35a653'];
 
-// Resolves a requested seat color against colors taken by connected
-// non-bankrupt players (the player's own seat excluded). A collision becomes
-// the first free preset; if no preset is free the requested color is kept.
-function resolveFreeAppearanceColor(players, requestedColor, self = null) {
+// Identity is color plus face: two seats share an icon only when both
+// match, so a custom face in a preset color is its own icon. Grids are
+// fixed 8x8 arrays, so JSON is a deterministic signature; hex cells are
+// lowercased because editors may emit either case.
+function faceSignature(avatarGrid) {
+  if (!Array.isArray(avatarGrid)) return 'generic';
+  if (!avatarGrid.length) return 'generic';
+  return JSON.stringify(avatarGrid, (key, value) => (typeof value === 'string' ? value.toLowerCase() : value));
+}
+
+function appearanceIdentity(color, avatarGrid) {
+  return `${String(color).toLowerCase()}|${faceSignature(avatarGrid)}`;
+}
+
+// One shared rule for which seats count in identity checks: connected,
+// non-bankrupt seats (other than the acting seat) carrying a string color.
+function seatCountsForIdentity(other, self) {
+  if (other === self) return false;
+  if (other.disconnected) return false;
+  if (other.bankrupt) return false;
+  return typeof other.color === 'string';
+}
+
+// Resolves a requested seat look against icons taken by connected
+// non-bankrupt players (the player's own seat excluded). An exact-identity
+// collision becomes the first free preset; if no preset is free the
+// requested color is kept.
+function resolveFreeAppearanceColor(players, requestedColor, self = null, avatarGrid = null) {
   if (typeof requestedColor !== 'string' || !requestedColor) return requestedColor;
+  const wanted = appearanceIdentity(requestedColor, avatarGrid);
   const taken = new Set(
     players
-      .filter(player => player !== self && !player.disconnected && !player.bankrupt && typeof player.color === 'string')
-      .map(player => player.color.toLowerCase())
+      .filter(player => seatCountsForIdentity(player, self))
+      .map(player => appearanceIdentity(player.color, player.avatarGrid))
   );
-  if (!taken.has(requestedColor.toLowerCase())) return requestedColor;
-  const free = APPEARANCE_PRESET_COLORS.find(color => !taken.has(color.toLowerCase()));
+  if (!taken.has(wanted)) return requestedColor;
+  const free = APPEARANCE_PRESET_COLORS.find(color => !taken.has(appearanceIdentity(color, null)));
   return free || requestedColor;
 }
 
@@ -27,10 +52,12 @@ const appearanceApi = {
       return { success: false, error: 'Player not found.' };
     }
     const seatColor = this.parseSeatColor(color);
-    // Color is the appearance identity: another connected non-bankrupt
-    // player using it means the icon is taken at this table. Custom
-    // avatarGrids may still differ as long as colors differ.
-    if (seatColor && this.colorTakenAtTable(player, seatColor)) {
+    // Identity is color plus face: another connected non-bankrupt seat
+    // wearing the same icon means it is taken; the same color with a
+    // different face is a different icon. An omitted grid keeps the
+    // seat's current face, so the check uses the resulting look.
+    const seatGrid = avatarGrid === undefined ? player.avatarGrid : avatarGrid;
+    if (seatColor && this.appearanceTakenAtTable(player, seatColor, seatGrid)) {
       return { success: false, error: 'That icon is already taken at this table.' };
     }
     if (seatColor) player.color = seatColor;
@@ -45,14 +72,11 @@ const appearanceApi = {
     return color;
   },
 
-  colorTakenAtTable(player, color) {
-    const lowered = color.toLowerCase();
+  appearanceTakenAtTable(player, color, avatarGrid) {
+    const wanted = appearanceIdentity(color, avatarGrid);
     return this.players.some(other => {
-      if (other === player) return false;
-      if (other.disconnected) return false;
-      if (other.bankrupt) return false;
-      if (typeof other.color !== 'string') return false;
-      return other.color.toLowerCase() === lowered;
+      if (!seatCountsForIdentity(other, player)) return false;
+      return appearanceIdentity(other.color, other.avatarGrid) === wanted;
     });
   },
 
@@ -68,4 +92,4 @@ const appearanceApi = {
   }
 };
 
-export { APPEARANCE_PRESET_COLORS, appearanceApi, resolveFreeAppearanceColor };
+export { APPEARANCE_PRESET_COLORS, appearanceApi, faceSignature, resolveFreeAppearanceColor };
