@@ -165,9 +165,13 @@ function countdownTick() {
   autoEndExpiredTurn();
 }
 
-export function startTurnCountdown() {
+export function stopTurnCountdown() {
   clearInterval(turnTimerInterval);
   turnTimerInterval = null;
+}
+
+export function startTurnCountdown() {
+  stopTurnCountdown();
   if (state.settings.turnTimer <= 0 || state.turnIndex !== 0) return;
   turnDeadline = Date.now() + state.settings.turnTimer * 1000;
   turnTimerInterval = setInterval(countdownTick, 120);
