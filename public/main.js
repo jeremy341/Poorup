@@ -75,6 +75,41 @@ import { cardFaceHTML } from "./clientCardsRender.js";
 import { deedLadderHTML, deedCardHTML } from "./clientDeedsRender.js";
 import { renderRightRail } from "./clientRailRender.js";
 import { renderGlobalEvent } from "./clientGlobalEventRender.js";
+import {
+  configureSurfaces,
+  setSurfaceReturnFocus,
+  syncSurfaceA11y,
+  openSurface,
+  closeSurface,
+  closeAllSurfaces,
+  focusSurface,
+  openConfirmModal,
+} from "./clientSurfaces.js";
+import {
+  toggleLogDrawerFromButton,
+  closeLogDrawer,
+  applyLogDrawerFilter,
+} from "./clientLogDrawer.js";
+import { bindKeyboard } from "./clientKeyboard.js";
+import {
+  configureProfileRender,
+  formatStatDate,
+  renderProfileSummary,
+  renderAccountPanel,
+  renderProfileLibrary,
+  renderProfileEditor,
+  updateProfilePreview,
+  paintFaceCell,
+  applyProfileToHomeUI,
+  renderGuestAliasField,
+  requireGuestAlias,
+} from "./clientProfileRender.js";
+import {
+  configureNightShift,
+  nightShiftState,
+  startNightShift,
+  stopNightShift,
+} from "./clientNightShift.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -106,131 +141,6 @@ function playSound(name) {
 }
 
 
-/* ============================================================
-   SHARED SURFACE / DIALOG CONTROLLER
-   Keep every blocking surface keyboard-safe without coupling the
-   game state machine to a particular modal implementation.
-   ============================================================ */
-const SURFACE_SELECTORS = [
-  "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#choice-modal",
-  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bankruptcy-modal",
-  "#card-modal", "#card-gallery", "#gameover-modal",
-];
-
-/* Table popups belong only to a live game — blocked while parked at parlor home. */
-const GAME_POPUP = new Set([
-  "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal",
-  "#auction-modal", "#financing-modal", "#gameover-modal", "#bankruptcy-modal",
-]);
-let nextTableNoticeAt = 0;
-let surfaceReturnFocus = null;
-const surfaceInertNodes = new Set();
-let pendingConfirmation = null;
-
-function visibleSurfaces() {
-  return SURFACE_SELECTORS
-    .map((selector) => $(selector))
-    .filter((el) => el && !el.classList.contains("is-hidden"));
-}
-
-function surfaceFocusable(surface) {
-  return [...surface.querySelectorAll(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter((el) => !el.closest(".is-hidden") && el.getAttribute("aria-hidden") !== "true");
-}
-
-function syncSurfaceA11y() {
-  const visible = visibleSurfaces();
-  const active = visible.at(-1) || null;
-  surfaceInertNodes.forEach((node) => { node.inert = false; });
-  surfaceInertNodes.clear();
-  const setInert = (node) => {
-    if (!node || node === active) return;
-    node.inert = true;
-    surfaceInertNodes.add(node);
-  };
-  SURFACE_SELECTORS.forEach((selector) => {
-    const el = $(selector);
-    if (!el) return;
-    const hidden = el.classList.contains("is-hidden");
-    el.setAttribute("aria-hidden", String(hidden));
-    if (!hidden) el.setAttribute("aria-modal", "true");
-  });
-  document.querySelectorAll(".view").forEach((view) => {
-    if (active && !view.contains(active)) setInert(view);
-  });
-  if (active) {
-    let node = active;
-    while (node && node.parentElement) {
-      [...node.parentElement.children].forEach((sibling) => {
-        if (sibling !== node && !sibling.contains(active)) setInert(sibling);
-      });
-      node = node.parentElement;
-      if (node.classList?.contains("view")) break;
-    }
-  }
-  return active;
-}
-
-function openSurface(selector, focusSelector) {
-  const surface = $(selector);
-  if (GAME_POPUP.has(selector) && state.phase === "home") {
-    if (Date.now() >= nextTableNoticeAt) {
-      nextTableNoticeAt = Date.now() + 8000;
-      parlorNotice("TABLE NOTICE", "That notice belongs to the table — it can be opened during a game.");
-    }
-    return;
-  }
-  if (!surface) return;
-  const wasVisible = !surface.classList.contains("is-hidden");
-  if (!visibleSurfaces().length && document.activeElement instanceof HTMLElement) surfaceReturnFocus = document.activeElement;
-  surface.classList.remove("is-hidden");
-  surface.setAttribute("aria-hidden", "false");
-  syncSurfaceA11y();
-  if (wasVisible) return;
-  requestAnimationFrame(() => {
-    const preferred = focusSelector ? surface.querySelector(focusSelector) : null;
-    const target = preferred && !preferred.disabled ? preferred : surfaceFocusable(surface)[0];
-    target?.focus({ preventScroll: true });
-  });
-}
-
-function closeSurface(selector) {
-  const surface = $(selector);
-  if (!surface) return;
-  surface.classList.add("is-hidden");
-  surface.setAttribute("aria-hidden", "true");
-  const active = syncSurfaceA11y();
-  if (active) {
-    surfaceFocusable(active)[0]?.focus({ preventScroll: true });
-  } else if (surfaceReturnFocus && document.contains(surfaceReturnFocus)) {
-    surfaceReturnFocus.focus({ preventScroll: true });
-    surfaceReturnFocus = null;
-  }
-}
-
-function closeAllSurfaces() {
-  pendingConfirmation = null;
-  SURFACE_SELECTORS.forEach((selector) => {
-    const surface = $(selector);
-    if (surface) {
-      surface.classList.add("is-hidden");
-      surface.setAttribute("aria-hidden", "true");
-    }
-  });
-  syncSurfaceA11y();
-  surfaceReturnFocus = null;
-}
-
-function focusSurface(selector, focusSelector) {
-  const surface = $(selector);
-  if (!surface || surface.classList.contains("is-hidden")) return;
-  requestAnimationFrame(() => {
-    const preferred = focusSelector ? surface.querySelector(focusSelector) : null;
-    const target = preferred && !preferred.disabled ? preferred : surfaceFocusable(surface)[0];
-    target?.focus({ preventScroll: true });
-  });
-}
 
 
 function setActiveAppearance(choice) {
@@ -494,201 +404,8 @@ function setConnectionStatus(status, announce = false) {
    ============================================================ */
 let accountModalMode = "register";
 
-function accountRate(stats = {}) {
-  const games = Number(stats.gamesPlayed) || 0;
-  return games ? `${Math.round(((Number(stats.wins) || 0) / games) * 100)}%` : "0%";
-}
-
-function profileDisplaySource() {
-  const account = state.account?.account || null;
-  const draft = state.profileDraft || null;
-  const selected = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
-  const profile = draft || selected || null;
-  const activeMeta = getAppearanceMeta(state.appearance);
-  const name = account?.displayName || state.alias || "PLAYER";
-  // The active saved design drives the avatar; account data only supplies a
-  // fallback when no local design exists. Account display name stays separate.
-  const color = draft?.color || profile?.color || account?.color || activeMeta.color || "#d74438";
-  const grid = draft?.grid || profile?.avatarGrid || account?.avatarGrid || null;
-  return { account, profile, name, color, grid, designName: profile ? profileDesignName(profile) : activeMeta.label };
-}
-
-/**
- * Poorup-styled confirmation surface. Keep destructive actions inside the
- * shared dialog controller so they inherit focus trapping, Escape handling,
- * inert background behaviour, and focus restoration.
- */
-function openConfirmModal({ title = "Confirm action", message = "", confirmLabel = "CONFIRM", onConfirm } = {}) {
-  const card = $("#confirm-card");
-  if (!card) return;
-  pendingConfirmation = typeof onConfirm === "function" ? onConfirm : null;
-  card.innerHTML = `
-    <div class="confirm-body">
-      <div class="confirm-head">
-        <div>
-          <div class="t-micro red">CONFIRM ACTION</div>
-          <h2 class="t-section g100" id="confirm-title">${esc(title)}</h2>
-        </div>
-        <span data-sprite="diamond" data-size="3" aria-hidden="true"></span>
-      </div>
-      <p class="t-body ink-2 confirm-message" id="confirm-description">${esc(message)}</p>
-      <div class="confirm-actions">
-        <button class="btn-dark" type="button" id="confirm-cancel"><span class="t-label f11">CANCEL</span></button>
-        <button class="cta-red" type="button" id="confirm-accept"><span class="cta-text cta-text-sm">${esc(confirmLabel)}</span></button>
-      </div>
-    </div>`;
-  hydrateSprites(card);
-  openSurface("#confirm-modal", "#confirm-cancel");
-  $("#confirm-scrim")?.addEventListener("click", closeConfirmModal);
-  $("#confirm-cancel")?.addEventListener("click", closeConfirmModal);
-  $("#confirm-accept")?.addEventListener("click", () => {
-    const action = pendingConfirmation;
-    pendingConfirmation = null;
-    closeSurface("#confirm-modal");
-    action?.();
-  });
-}
-
-function closeConfirmModal() {
-  pendingConfirmation = null;
-  closeSurface("#confirm-modal");
-}
-
-function renderProfileSummary() {
-  const source = profileDisplaySource();
-  const { account, name, color, grid } = source;
-  const safeName = String(name || "PLAYER").trim() || "PLAYER";
-  const displayName = safeName.toUpperCase();
-  const accountStats = account?.stats || {};
-  const stats = {
-    games: Number(accountStats.gamesPlayed) || 0,
-    wins: Number(accountStats.wins) || 0,
-    rate: accountRate(accountStats),
-    bankruptcies: Number(accountStats.bankruptcies) || 0,
-  };
-  const avatarMarkup = grid ? spriteFromGrid(grid, 6) : avatarHTML({ color }, 6, 0);
-
-  const heroAvatar = $("#profile-hero-avatar");
-  if (heroAvatar) heroAvatar.innerHTML = avatarMarkup;
-  const overviewAvatar = $("#profile-overview-avatar");
-  if (overviewAvatar) overviewAvatar.innerHTML = grid ? spriteFromGrid(grid, 5) : avatarHTML({ color }, 5, 0);
-  $("#profile-hero-name")?.replaceChildren(document.createTextNode(displayName));
-  $("#profile-overview-name")?.replaceChildren(document.createTextNode(displayName));
-  const handle = $("#profile-hero-handle");
-  if (handle) handle.textContent = account ? `@${account.username}` : "GUEST MODE";
-  const stateLabel = $("#profile-hero-state");
-  if (stateLabel) {
-    stateLabel.textContent = account ? "ACCOUNT PLAYER · STATS SYNCED AFTER COMPLETED ROUNDS" : "LOCAL PLAYER · READY FOR THE NEXT TABLE";
-    stateLabel.classList.toggle("is-account", Boolean(account));
-  }
-  const heroAction = $("#profile-hero-account-btn");
-  if (heroAction) heroAction.querySelector(".t-label").textContent = account ? "EDIT ACCOUNT" : "CREATE ACCOUNT";
-  $("#profile-stat-games")?.replaceChildren(document.createTextNode(String(stats.games)));
-  $("#profile-stat-wins")?.replaceChildren(document.createTextNode(String(stats.wins)));
-  $("#profile-stat-rate")?.replaceChildren(document.createTextNode(stats.rate));
-  $("#profile-stat-bankruptcies")?.replaceChildren(document.createTextNode(String(stats.bankruptcies)));
-  const joined = $("#profile-stat-joined");
-  if (joined) joined.textContent = account?.createdAt ? new Date(account.createdAt).toLocaleDateString(undefined, { month: "short", year: "numeric" }).toUpperCase() : "GUEST";
-  $("#profile-overview-mode")?.replaceChildren(document.createTextNode(account ? `@${account.username}` : "GUEST MODE"));
-  const overviewStatus = $("#profile-overview-status");
-  if (overviewStatus) overviewStatus.textContent = state.connectionStatus === "online" ? "READY" : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE").toUpperCase();
-  const overviewSync = $("#profile-overview-sync");
-  if (overviewSync) overviewSync.textContent = account ? "ACCOUNT SYNC" : "LOCAL ONLY";
-  const soundState = $("#profile-sound-state");
-  if (soundState) soundState.textContent = state.sound ? "SOUND ON" : "SOUND OFF";
-  const musicState = $("#profile-music-state");
-  if (musicState) musicState.textContent = state.music ? "MUSIC ON" : "MUSIC OFF";
-  renderProfileStatistics();
-  renderProfileHistory();
-  renderAchievements();
-}
-
-function formatStatDate(value) {
-  if (!value) return "ROUND";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "ROUND";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
-}
-
-function renderProfileStatistics() {
-  const root = $("#profile-statistics-content");
-  if (!root) return;
-  const account = state.account?.account || null;
-  const stats = account?.stats || {};
-  const games = Math.max(0, Number(stats.gamesPlayed) || 0);
-  const wins = Math.max(0, Math.min(games, Number(stats.wins) || 0));
-  const bankruptcies = Math.max(0, Number(stats.bankruptcies) || 0);
-  const history = Array.isArray(account?.matchHistory) && account.matchHistory.length
-    ? account.matchHistory.filter((entry) => entry && typeof entry === "object").slice(0, 50)
-    : Array.isArray(account?.history)
-      ? account.history.filter((entry) => entry && typeof entry === "object").slice(0, 50)
-      : [];
-  const chronological = [...history].reverse().slice(-12);
-  const ownMatchValue = (entry, key, fallback = 0) => {
-    const participant = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null;
-    return Math.max(0, Number(participant?.[key] ?? entry[key] ?? fallback) || 0);
-  };
-  const averageCash = history.length
-    ? Math.round(history.reduce((sum, entry) => sum + ownMatchValue(entry, "endingCash"), 0) / history.length)
-    : null;
-  const bestCash = history.length ? Math.max(...history.map((entry) => ownMatchValue(entry, "endingCash"))) : null;
-  const bestProperties = history.length ? Math.max(...history.map((entry) => ownMatchValue(entry, "propertyCount", entry.properties))) : null;
-  const winShare = games ? Math.round((wins / games) * 100) : 0;
-  const sourceLabel = account ? "ACCOUNT SYNC" : "LOCAL ONLY";
-  const record = (label, value, tone = "g100") => `<div class="stats-record"><span class="t-micro ink-3">${label}</span><strong class="t-label f16 ${tone}">${value}</strong></div>`;
-  const trendBars = chronological.length
-    ? chronological.map((entry, index) => {
-        const own = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null;
-        const won = own ? own.finalPlacement === 1 : String(entry.result || "").toUpperCase() === "WIN" || entry.won === true;
-        const height = won ? 100 : 30;
-        const label = won ? "WIN" : "ROUND";
-        return `<div class="stats-bar-column"><span class="stats-bar-value t-micro ${won ? "green" : "ink-3"}">${label}</span><span class="stats-bar ${won ? "is-win" : "is-loss"}" style="--bar-height:${height}%" title="${formatStatDate(entry.completedAt || entry.playedAt)} · ${label}"></span><span class="stats-bar-label t-micro ink-3">${formatStatDate(entry.completedAt || entry.playedAt)}</span></div>`;
-      }).join("")
-    : `<div class="stats-chart-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">${account ? "NO ROUND HISTORY YET" : "ACCOUNT HISTORY UNAVAILABLE"}</strong><span class="t-micro ink-3">${account ? "Complete a server round to unlock this trend." : "Create an account to sync completed-round statistics."}</span></div>`;
-  const trendTable = chronological.length
-    ? `<table class="stats-data-table"><caption>Recent round results</caption><thead><tr><th scope="col">ROUND</th><th scope="col">RESULT</th><th scope="col">ENDING CASH</th><th scope="col">PROPERTIES</th></tr></thead><tbody>${chronological.map((entry, index) => { const own = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === account?.id) : null; const won = own ? own.finalPlacement === 1 : String(entry.result || "").toUpperCase() === "WIN" || entry.won === true; return `<tr><th scope="row">${formatStatDate(entry.completedAt || entry.playedAt)} · ${String(index + 1).padStart(2, "0")}</th><td class="${won ? "green" : "ink-2"}">${won ? "WIN" : "ROUND"}</td><td>$${ownMatchValue(entry, "endingCash").toLocaleString()}</td><td>${ownMatchValue(entry, "propertyCount", entry.properties)}</td></tr>`; }).join("")}</tbody></table>`
-    : "";
-
-  root.innerHTML = `<div class="stats-intro panel noise"><div><div class="t-micro g400">PERFORMANCE DECK</div><h2 class="t-section g100">Player Statistics</h2><p class="t-body ink-2">A readable record of the rounds you have finished, not a live ranking or a promise of future results.</p></div><span class="t-micro stats-source ${account ? "green" : "g300"}">${sourceLabel}</span></div>
-    <div class="stats-metric-grid" aria-label="Performance summary">${record("ROUNDS", account ? String(games) : "—")}${record("WINS", account ? String(wins) : "—", "green")}${record("WIN RATE", account ? `${winShare}%` : "—", "g300")}${record("BANKRUPTCIES", account ? String(bankruptcies) : "—", "g-muted")}${record("EVENT SURVIVAL", account ? String(stats.eventSurvival || 0) : "—", "g300")}${record("AUCTION WINS", account ? String(stats.auctionWins || 0) : "—", "g100")}${record("CASINO NET", account ? "$" + Number(stats.casinoNet || 0).toLocaleString() : "—", "green")}${record("MARKET P/L", account ? "$" + Number(stats.marketProfit || 0).toLocaleString() : "—", "g300")}${record("PATROL BEST", account ? String(stats.patrolBest || 0) : "—", "g300")}${record("BANK LOANS REPAID", account ? String(stats.bankLoanRepayments || 0) : "—", "g100")}${record("LOANS GIVEN", account ? String(stats.playerLoansGiven || 0) : "—", "g100")}${record("EQUITY DEALS", account ? String(stats.equityDeals || 0) : "—", "g100")}</div>
-    <div class="stats-content-grid"><section class="panel noise pad16 stats-trend-panel" aria-labelledby="stats-trend-heading"><div class="stats-panel-head"><div><div class="t-micro g400">RECENT FORM</div><h3 class="t-section g100" id="stats-trend-heading">Win history</h3></div><span class="t-micro ink-3">LAST ${chronological.length || 0} ROUNDS</span></div><div class="stats-chart" role="img" aria-label="Win history chart showing ${wins} wins across ${games} completed rounds"><div class="stats-chart-y"><span class="t-micro ink-3">WIN</span><span class="t-micro ink-3">ROUND</span></div><div class="stats-chart-plot"><div class="stats-chart-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="stats-chart-bars">${trendBars}</div></div></div>${trendTable}</section><section class="panel noise pad16 stats-records-panel" aria-labelledby="stats-records-heading"><div class="stats-panel-head"><div><div class="t-micro g400">PARLOR RECORDS</div><h3 class="t-section g100" id="stats-records-heading">Personal bests</h3></div><span class="t-micro ink-3">VERIFIED ROUNDS</span></div><div class="stats-record-list">${record("AVG ENDING CASH", averageCash == null ? "—" : `$${averageCash.toLocaleString()}`)}${record("BEST CASH STACK", bestCash == null ? "—" : `$${bestCash.toLocaleString()}`, "green")}${record("MOST PROPERTIES", bestProperties == null ? "—" : String(bestProperties), "g300")}${record("DATA WINDOW", account ? (history.length ? `${history.length} ROUNDS` : "NO ROUNDS") : "ACCOUNT ONLY", "g-muted")}</div><p class="t-micro ink-3 stats-method">Values are calculated from completed server rounds. No estimates are shown.</p></section></div>`;
-  hydrateSprites(root);
-}
-
-function profileHistoryRowHTML(entry, index, total, accountId) {
-  const participant = Array.isArray(entry.participants) ? entry.participants.find(item => item.accountId === accountId) : null;
-  const won = participant ? participant.finalPlacement === 1 : entry.won === true || entry.result === "WIN";
-  const date = formatStatDate(entry.completedAt || entry.playedAt);
-  const deeds = participant?.propertyCount ?? entry.properties ?? 0;
-  const players = Array.isArray(entry.participants) ? entry.participants.length : "—";
-  const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 0;
-  const casino = Array.isArray(entry.casino) ? entry.casino.find(item => item.accountId === accountId)?.net || 0 : 0;
-  const contracts = Array.isArray(entry.playerContracts) ? entry.playerContracts.length : 0;
-  const trades = Number(entry.tradesCompleted) || 0;
-  const auctions = Number(entry.auctionsCompleted) || 0;
-  const participantNames = Array.isArray(entry.participants) ? entry.participants.map(item => item.displayNameAtMatch).filter(Boolean).slice(0, 4).join(' · ') : '';
-  return '<article class="profile-history-row' + (won ? ' is-win' : '') + '"><span class="profile-history-index t-micro ink-3">' + String(total - index).padStart(2, "0") + '</span><div class="profile-history-main"><span class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + (won ? 'WIN' : 'ROUND COMPLETE') + '</span><span class="t-micro ink-3">' + date + ' · ' + players + ' PLAYERS</span>' + (participantNames ? '<span class="t-micro profile-history-participants">' + esc(participantNames) + '</span>' : '') + '</div><div class="profile-history-meta"><span class="t-micro ink-3">DEEDS ' + deeds + '</span><span class="t-micro ' + (events ? 'g300' : 'ink-3') + '">' + events + ' EVENTS</span><span class="t-micro ink-3">TRADES ' + trades + '</span><span class="t-micro ink-3">AUCTIONS ' + auctions + '</span><span class="t-micro ' + (casino >= 0 ? 'green' : 'red') + '">CASINO ' + (casino >= 0 ? '+' : '') + '$' + Number(casino).toLocaleString() + '</span><span class="t-micro ink-3">DEALS ' + contracts + '</span></div></article>';
-}
-
 function createRequestId(kind) {
   return String(state.clientId || "client") + ":" + String(kind || "action") + ":" + Date.now() + ":" + Math.random().toString(36).slice(2, 8);
-}
-
-function renderProfileHistory() {
-  const root = $("#profile-history-content");
-  if (!root) return;
-  const account = state.account?.account || null;
-  const historySource = Array.isArray(account?.matchHistory) && account.matchHistory.length ? account.matchHistory : account?.history;
-  const history = Array.isArray(historySource)
-    ? historySource.filter((entry) => entry && typeof entry === "object").slice(0, 50)
-    : [];
-  if (!account || !history.length) {
-    root.innerHTML = `<section class="panel noise pad16 profile-empty-panel"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2></div><p class="t-body ink-2">${account ? "NO COMPLETED ROUNDS YET. YOUR FIRST FINISH WILL APPEAR HERE." : "SIGN IN TO KEEP A SERVER-SYNCED ROUND HISTORY."}</p><p class="t-micro ink-3">Only completed server rounds appear here. Guest play remains available without an account.</p></section>`;
-    hydrateSprites(root);
-    return;
-  }
-  root.innerHTML = `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, account.id)).join("")}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.</p></section>`;
-  hydrateSprites(root);
 }
 
 function renderAchievements() {
@@ -752,7 +469,7 @@ function openAchievementModal(id, trigger = null) {
   const card = $("#achievement-detail-card");
   if (!card) return;
   card.innerHTML = `<div class="achievement-modal-rail" style="--achievement-accent:${accent}"></div><div class="achievement-detail-body"><div class="achievement-detail-head"><div class="achievement-detail-icon rarity-${achievement.rarity.toLowerCase()}${hidden ? " is-locked" : ""}">${achievementIconHTML(achievement.id)}</div><div><div class="achievement-detail-kicker"><span class="t-micro g400">${esc(achievement.category.toUpperCase())}</span><span class="t-micro rarity-${achievement.rarity.toLowerCase()}">${esc(achievement.rarity)}</span></div><h2 class="t-section achievement-detail-title" id="achievement-detail-title">${esc(title)}</h2></div><span class="achievement-detail-state t-micro">${status}</span></div><div class="achievement-detail-copy"><p class="t-body ink-2" id="achievement-detail-description">${esc(copy)}</p><p class="t-micro achievement-detail-note">${unlocked ? `RECORDED ${recordedAt ? `· ${formatStatDate(recordedAt)}` : "IN YOUR PARLOR LOG"}` : hidden ? "UNLOCK CONDITION HIDDEN" : "KEEP PLAYING TO UNLOCK"}</p></div><button class="cta-red achievement-detail-close" id="achievement-detail-close" type="button"><span class="cta-text cta-text-sm">CLOSE DETAILS</span></button></div>`;
-  if (trigger instanceof HTMLElement) surfaceReturnFocus = trigger;
+  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
   openSurface("#achievement-modal", "#achievement-detail-close");
   $("#achievement-detail-close")?.addEventListener("click", closeAchievementModal);
 }
@@ -841,29 +558,6 @@ function setProfileTab(tab = "designs", focus = false) {
     const panel = $(`#profile-panel-${next}`);
     panel?.focus({ preventScroll: true });
   }
-}
-
-function renderAccountPanel() {
-  const signedIn = Boolean(state.account?.account);
-  const guest = $("#account-guest-state");
-  const signed = $("#account-signed-state");
-  guest?.classList.toggle("is-hidden", signedIn);
-  signed?.classList.toggle("is-hidden", !signedIn);
-  const title = $("#account-panel-title");
-  const badge = $("#account-panel-badge");
-  if (title) title.textContent = signedIn ? `@${state.account.account.username}` : "Guest mode";
-  if (badge) badge.textContent = signedIn ? "ACCOUNT ACTIVE" : "LOCAL ONLY";
-  renderProfileSummary();
-  if (!signedIn) return;
-  const account = state.account.account;
-  const visual = profileDisplaySource();
-  const avatar = $("#account-avatar");
-  if (avatar) avatar.innerHTML = visual.grid ? spriteFromGrid(visual.grid, 4) : avatarHTML({ color: visual.color }, 4, 0);
-  $("#account-display-name")?.replaceChildren(document.createTextNode(account.displayName));
-  $("#account-username")?.replaceChildren(document.createTextNode(`@${account.username}`));
-  $("#account-games")?.replaceChildren(document.createTextNode(String(account.stats?.gamesPlayed || 0)));
-  $("#account-wins")?.replaceChildren(document.createTextNode(String(account.stats?.wins || 0)));
-  $("#account-rate")?.replaceChildren(document.createTextNode(accountRate(account.stats)));
 }
 
 function updateAccountFromResponse(response) {
@@ -1217,103 +911,6 @@ function hitHomeHelicopter() {
     clearPatrolEffect("#home-patrol-smoke");
   }, 900);
   scheduleHomeHelicopter(9000);
-}
-
-const NIGHT_SHIFT_WAVE_MS = 60000;
-const NIGHT_SHIFT_START_HEARTS = 3;
-const NIGHT_SHIFT_BEST_KEY = "poorup.night-shift.best.v1";
-let nightShiftWaveTimer = null;
-let nightShiftTickTimer = null;
-let nightShiftResultTimer = null;
-let nightShiftResultEndsAt = 0;
-let nightShiftSpawnTimers = [];
-let nightShiftWaveHeld = false;
-const nightShiftTargetTimers = new Map();
-let nightShiftPausedAt = 0;
-const nightShiftState = { active: false, wave: 0, score: 0, best: 0, endsAt: 0, targetSeq: 0, hearts: NIGHT_SHIFT_START_HEARTS, misses: 0, serverRunToken: null, serverRunSubmitted: false };
-let nightShiftSuppressSnapshot = false;
-try { nightShiftState.best = Number(localStorage.getItem(NIGHT_SHIFT_BEST_KEY)) || 0; } catch { /* storage unavailable */ }
-
-function formatNightCountdown(ms) {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function renderNightShiftHud(message = "TAG THE FLY-BYS BEFORE THEY REACH THE BORDER") {
-  const wave = $("#night-wave");
-  const countdown = $("#home-local-time");
-  const score = $("#home-patrol-score");
-  const status = $("#night-status");
-  const description = $("#night-shift-description");
-  const nextWave = String(nightShiftState.wave).padStart(2, "0");
-  const nextCountdown = formatNightCountdown(Math.max(0, nightShiftState.endsAt - Date.now()));
-  const nextScore = String(nightShiftState.score).padStart(3, "0");
-  if (wave && wave.textContent !== nextWave) wave.textContent = nextWave;
-  if (countdown && countdown.textContent !== nextCountdown) countdown.textContent = nextCountdown;
-  if (score && score.textContent !== nextScore) score.textContent = nextScore;
-  if (status && status.textContent !== message) status.textContent = message;
-  if (description && !nightShiftState.active) description.textContent = message;
-  const hearts = $("#night-hearts");
-  if (hearts) {
-    const heartsLabel = `${nightShiftState.hearts} heart${nightShiftState.hearts === 1 ? "" : "s"} remaining`;
-    if (hearts.getAttribute("aria-label") !== heartsLabel || (nightShiftState.active && hearts.innerHTML === "")) {
-      hearts.innerHTML = Array.from({ length: NIGHT_SHIFT_START_HEARTS }, (_, i) => `<img class="night-heart${i >= nightShiftState.hearts ? " is-empty" : ""}" src="/assets/parlor-patrol/heart.svg" alt="">`).join("");
-      hearts.setAttribute("aria-label", heartsLabel);
-    }
-  }
-}
-
-function clearNightShiftTimers() {
-  clearTimeout(nightShiftWaveTimer);
-  clearInterval(nightShiftTickTimer);
-  clearTimeout(nightShiftResultTimer);
-  nightShiftWaveTimer = null;
-  nightShiftTickTimer = null;
-  nightShiftResultTimer = null;
-  nightShiftSpawnTimers.forEach((entry) => clearTimeout(entry.timer));
-  nightShiftSpawnTimers = [];
-  nightShiftWaveHeld = false;
-  nightShiftTargetTimers.forEach(({ reveal, disable, miss }) => {
-    clearTimeout(reveal);
-    clearTimeout(disable);
-    clearTimeout(miss);
-  });
-  nightShiftTargetTimers.clear();
-}
-
-function scheduleNightShiftResult() {
-  clearTimeout(nightShiftResultTimer);
-  nightShiftResultTimer = null;
-  if (!nightShiftResultEndsAt) return;
-  const remaining = nightShiftResultEndsAt - Date.now();
-  if (remaining <= 0) {
-    nightShiftResultEndsAt = 0;
-    stopNightShift();
-    return;
-  }
-  if (document.hidden) return;
-  nightShiftResultTimer = setTimeout(() => {
-    nightShiftResultTimer = null;
-    nightShiftResultEndsAt = 0;
-    stopNightShift();
-  }, remaining);
-}
-
-function clearNightShiftTargets() {
-  nightShiftTargetTimers.forEach(({ reveal, disable, miss }) => {
-    clearTimeout(reveal);
-    clearTimeout(disable);
-    clearTimeout(miss);
-  });
-  nightShiftTargetTimers.clear();
-  $("#night-targets")?.replaceChildren();
-  const effects = $("#night-effects");
-  effects?.querySelectorAll(".night-shift-dynamic").forEach((effect) => effect.remove());
-  effects?.querySelectorAll("[data-night-home-effect]").forEach((effect) => {
-    effect.classList.remove("is-burst");
-    effect.style.removeProperty("left");
-    effect.style.removeProperty("top");
-  });
 }
 
 function announceSocialNotification(n) {
@@ -1818,464 +1415,6 @@ function renderPlayerSurface() {
   }
 }
 
-function clearNightShiftTargetTimer(target) {
-  const id = target?.dataset?.targetId;
-  if (!id) return;
-  const timers = nightShiftTargetTimers.get(id);
-  if (!timers) return;
-  clearTimeout(timers.reveal);
-  clearTimeout(timers.disable);
-  clearTimeout(timers.miss);
-  nightShiftTargetTimers.delete(id);
-}
-
-function triggerNightShiftHomeEffect(x, y, kind) {
-  const effects = $("#night-effects");
-  if (!effects) return;
-  const smoke = kind === "home-smoke";
-  const selector = `[data-night-home-effect="${kind}"]`;
-  let effect = effects.querySelector(selector);
-  if (!effect) {
-    effect = document.createElement("span");
-    effect.className = `night-shift-effect night-shift-home-${smoke ? "smoke" : "impact"}`;
-    effect.dataset.nightHomeEffect = kind;
-    effect.innerHTML = smoke
-      ? '<img src="/assets/parlor-patrol/smoke-6-frames.svg" alt="" width="80" height="64">'
-      : '<img src="/assets/parlor-patrol/impact-8-frames.svg" alt="" width="64" height="64">';
-    effects.appendChild(effect);
-  }
-  const width = smoke ? 80 : 64;
-  const height = 64;
-  const maxX = Math.max(width / 2, effects.clientWidth - width / 2);
-  const maxY = Math.max(height / 2, effects.clientHeight - height / 2);
-  const visibleX = Math.max(width / 2, Math.min(maxX, x));
-  const visibleY = Math.max(height / 2, Math.min(maxY, y));
-  effect.style.left = `${Math.round(visibleX - (smoke ? 40 : 32))}px`;
-  effect.style.top = `${Math.round(visibleY - (smoke ? 30 : 32))}px`;
-  effect.classList.remove("is-burst");
-  // Match Home exactly: reset the class, force layout, then restart it.
-  void effect.offsetWidth;
-  effect.classList.add("is-burst");
-}
-
-function scheduleNightShiftTarget(target, duration) {
-  if (!target || REDUCED_MOTION) {
-    if (target) target.style.pointerEvents = "auto";
-    return;
-  }
-  const id = target.dataset.targetId;
-  const timers = { reveal: null, disable: null, miss: null, settle: null, backstop: duration + 80, missElapsed: 0, missStartedAt: 0, endedWhileHidden: false };
-  const settle = () => {
-    if (document.hidden) {
-      // The tab froze mid-flight: remember that this animation finished
-      // while we were away and let the resume coordinator settle it
-      // immediately instead of silently dropping the event.
-      timers.endedWhileHidden = true;
-      return;
-    }
-    if (target.isConnected && !target.dataset.hit) missNightShiftTarget(target);
-    nightShiftTargetTimers.delete(id);
-  };
-  timers.settle = settle;
-  target.style.pointerEvents = "none";
-  timers.reveal = setTimeout(() => {
-    if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "auto";
-  }, Math.round(duration * 0.16));
-  timers.disable = setTimeout(() => {
-    if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "none";
-  }, Math.round(duration * 0.94));
-  target.addEventListener("animationend", settle, { once: true });
-  timers.missStartedAt = Date.now();
-  timers.miss = setTimeout(settle, timers.backstop);
-  nightShiftTargetTimers.set(id, timers);
-}
-
-function spawnNightShiftEffect(x, y, kind = "impact") {
-  const effects = $("#night-effects");
-  if (!effects) return;
-  if (kind === "home-impact" || kind === "home-smoke") {
-    triggerNightShiftHomeEffect(x, y, kind);
-    return;
-  }
-  const effect = document.createElement("span");
-  const isHomeImpact = kind === "home-impact";
-  const isHomeSmoke = kind === "home-smoke";
-  const isAircraftBurst = kind === "drone" || kind === "airplane";
-  effect.className = `night-shift-effect night-shift-dynamic ${isHomeImpact ? "night-shift-home-impact" : isHomeSmoke ? "night-shift-home-smoke" : isAircraftBurst ? "night-shift-aircraft-burst" : "is-burst"}`;
-  const size = kind === "airplane" ? 128 : isAircraftBurst ? 112 : 64;
-  const homeSize = isHomeSmoke ? [80, 64] : [64, 64];
-  const width = isHomeImpact || isHomeSmoke ? homeSize[0] : size;
-  const height = isHomeImpact || isHomeSmoke ? homeSize[1] : kind === "airplane" ? 112 : size;
-  effect.style.width = `${width}px`;
-  effect.style.height = `${height}px`;
-  effect.style.left = `${Math.round(x - width / 2)}px`;
-  effect.style.top = `${Math.round(y - height / 2)}px`;
-  const src = kind === "airplane"
-    ? "/assets/parlor-patrol/airplane-explosion-10-frames.svg"
-    : kind === "drone"
-      ? "/assets/parlor-patrol/drone-explosion-10-frames.svg"
-      : isHomeSmoke
-        ? "/assets/parlor-patrol/smoke-6-frames.svg"
-      : "/assets/parlor-patrol/impact-8-frames.svg";
-  effect.innerHTML = `<img src="${src}" alt="" width="${width}" height="${height}">`;
-  effects.appendChild(effect);
-  setTimeout(() => effect.remove(), isAircraftBurst ? 900 : isHomeSmoke ? 820 : isHomeImpact ? 600 : 720);
-}
-
-function spawnNightShiftTarget() {
-  if (!nightShiftState.active || state.phase !== "home") return;
-  if (document.hidden) return; // frozen queue: the resume coordinator re-arms
-  const layer = $("#night-targets");
-  if (!layer) return;
-  // Alternate lanes so a short play session always exercises both edges.
-  const direction = nightShiftState.targetSeq % 2 === 0 ? "left" : "right";
-  const spawnNumber = nightShiftState.targetSeq;
-  const roll = Math.random();
-  const kind = nightShiftState.wave === 1 && spawnNumber === 2
-    ? "drone"
-    : nightShiftState.wave >= 4 && roll < 0.12
-    ? "airplane"
-    : nightShiftState.wave >= 3 && roll < 0.24
-      ? "beacon"
-      : nightShiftState.wave >= 2 && roll < 0.44
-        ? "drone"
-        : "helicopter";
-  const lane = [18, 25, 32, 39, 46, 53, 60][Math.floor(Math.random() * 7)];
-  const duration = kind === "airplane"
-    ? Math.max(2800, 5000 - nightShiftState.wave * 180)
-    : kind === "drone"
-      ? Math.max(3400, 5900 - nightShiftState.wave * 220)
-      : Math.max(4200, 7600 - nightShiftState.wave * 260);
-  const target = document.createElement("button");
-  target.type = "button";
-  const isDrop = kind === "beacon" || kind === "airplane";
-  target.className = isDrop ? "night-target night-target-drop night-target-beacon is-flight" : `night-target night-target-${direction} night-target-${kind} is-flight`;
-  if (kind === "airplane") target.classList.replace("night-target-beacon", "night-target-airplane");
-  if (isDrop) target.style.setProperty("--night-drop-left", `${[18, 32, 48, 64, 78][Math.floor(Math.random() * 5)]}%`);
-  else target.style.top = `${lane}%`;
-  target.style.setProperty("--night-flight-duration", `${duration}ms`);
-  target.dataset.direction = direction;
-  target.dataset.kind = kind;
-  target.dataset.targetId = String(++nightShiftState.targetSeq);
-  target.setAttribute("aria-label", `Tag Night Shift ${kind}, wave ${nightShiftState.wave}`);
-  const src = kind === "beacon"
-    ? "/assets/parlor-patrol/beacon-6-frames.svg"
-    : kind === "drone"
-      ? "/assets/parlor-patrol/drone-8-frames.svg"
-      : kind === "airplane"
-        ? "/assets/parlor-patrol/airplane-10-frames.svg"
-      : direction === "left"
-        ? "/assets/parlor-patrol/helicopter-left-16-frames.svg"
-        : "/assets/parlor-patrol/helicopter-16-frames.svg";
-  const size = kind === "beacon" ? [48, 48] : kind === "drone" ? [96, 64] : kind === "airplane" ? [112, 64] : [128, 64];
-  target.style.width = `${size[0]}px`;
-  target.style.height = `${size[1]}px`;
-  target.innerHTML = `<img src="${src}" alt="" width="${size[0]}" height="${size[1]}">`;
-  if (kind === "airplane" && direction === "left") target.querySelector("img")?.style.setProperty("transform", "scaleX(-1)");
-  // Pointer-down gives the arcade target immediate feedback before a moving
-  // button can travel between pointer press and the browser's click release.
-  target.addEventListener("pointerdown", (event) => hitNightShiftTarget(target, event));
-  target.addEventListener("click", (event) => hitNightShiftTarget(target, event));
-  layer.appendChild(target);
-  scheduleNightShiftTarget(target, duration);
-}
-
-// Spawn timers live as { due, timer } queue entries: hiding the tab freezes
-// them in place and the visibilitychange coordinator re-arms each pending
-// entry exactly once, so the staggered wave cadence survives a background tab.
-function armNightShiftSpawn(entry) {
-  entry.timer = setTimeout(() => {
-    entry.timer = null;
-    if (document.hidden) return;
-    const index = nightShiftSpawnTimers.indexOf(entry);
-    if (index !== -1) nightShiftSpawnTimers.splice(index, 1);
-    spawnNightShiftTarget();
-  }, Math.max(0, entry.due - Date.now()));
-}
-
-function queueNightShiftSpawn(delay) {
-  const entry = { due: Date.now() + delay, timer: null };
-  nightShiftSpawnTimers.push(entry);
-  armNightShiftSpawn(entry);
-}
-
-function advanceNightShiftWave() {
-  nightShiftWaveTimer = null;
-  if (!nightShiftState.active) return;
-  if (document.hidden) {
-    // Do not advance waves while hidden; resume re-arms from endsAt.
-    nightShiftWaveHeld = true;
-    return;
-  }
-  nightShiftState.wave += 1;
-  beginNightShiftWave();
-}
-
-function beginNightShiftWave() {
-  if (!nightShiftState.active) return;
-  clearNightShiftTargets();
-  nightShiftState.endsAt = Date.now() + NIGHT_SHIFT_WAVE_MS;
-  renderNightShiftHud(`WAVE ${String(nightShiftState.wave).padStart(2, "0")} · CLEAR THE SKYLINE`);
-  const banner = $("#night-wave-banner");
-  if (banner) {
-    banner.textContent = `WAVE ${String(nightShiftState.wave).padStart(2, "0")}`;
-    banner.classList.remove("is-announcing");
-    void banner.offsetWidth;
-    banner.classList.add("is-announcing");
-  }
-  const targetCount = Math.min(6 + nightShiftState.wave * 2, 24);
-  const interval = nightShiftState.wave === 1
-    ? 3000
-    : Math.max(850, 5000 - nightShiftState.wave * 220);
-  for (let i = 0; i < targetCount; i += 1) {
-    queueNightShiftSpawn(i * interval);
-  }
-  nightShiftWaveTimer = setTimeout(advanceNightShiftWave, NIGHT_SHIFT_WAVE_MS);
-}
-
-function missNightShiftTarget(target) {
-  if (!target?.isConnected || target.dataset.hit || target.dataset.missed) return;
-  clearNightShiftTargetTimer(target);
-  target.dataset.missed = "1";
-  target.remove();
-  if (["helicopter", "drone", "airplane"].includes(target.dataset.kind)) {
-    nightShiftState.misses += 1;
-    nightShiftState.hearts = Math.max(0, nightShiftState.hearts - 1);
-    renderNightShiftHud(`${String(target.dataset.kind).toUpperCase()} ESCAPED · ${nightShiftState.hearts} HEART${nightShiftState.hearts === 1 ? "" : "S"} LEFT`);
-    if (nightShiftState.hearts <= 0) endNightShift("SHIFT LOST · NO HEARTS LEFT");
-  }
-}
-
-function submitNightShiftRun() {
-  if (!nightShiftState.serverRunToken || nightShiftState.serverRunSubmitted) return;
-  nightShiftState.serverRunSubmitted = true;
-  emitServer("finish-patrol-run", {
-    runToken: nightShiftState.serverRunToken,
-    score: nightShiftState.score,
-    misses: nightShiftState.misses,
-  }, (response) => {
-    if (response?.success === false) {
-      // Surface the rejection and keep the run submittable so the next
-      // start-of-run reset (or a re-issued token) can retry it.
-      nightShiftState.serverRunSubmitted = false;
-      parlorNotice("NIGHT SHIFT", String(response?.error || "The parlor could not verify that patrol run."));
-      return;
-    }
-    if (response?.best != null) nightShiftState.best = Math.max(nightShiftState.best, Number(response.best) || 0);
-    if (response?.score != null) {
-      const score = Number(response.score) || 0;
-      if (score >= 10) unlockAchievement("patrol-rookie");
-      if (score >= 50) unlockAchievement("patrol-regular");
-      if (score > 0 && Number(response.misses) === 0) unlockAchievement("clean-run");
-      if (Number(response.aceRuns) >= 3) unlockAchievement("patrol-ace");
-    }
-  });
-}
-
-function endNightShift(message) {
-  if (!nightShiftState.active) return;
-  nightShiftState.active = false;
-  clearNightShiftTimers();
-  clearNightShiftTargets();
-  nightShiftState.best = Math.max(nightShiftState.best, nightShiftState.score);
-  if (!state.account?.account) {
-    if (nightShiftState.score >= 10) unlockAchievement("patrol-rookie");
-    if (nightShiftState.score >= 50) unlockAchievement("patrol-regular");
-    if (nightShiftState.score > 0 && nightShiftState.misses === 0) unlockAchievement("clean-run");
-  }
-  submitNightShiftRun();
-  try { localStorage.setItem(NIGHT_SHIFT_BEST_KEY, String(nightShiftState.best)); } catch { /* storage unavailable */ }
-  renderNightShiftHud(`${message} · FINAL ${String(nightShiftState.score).padStart(4, "0")} · ESC TO EXIT`);
-  const banner = $("#night-wave-banner");
-  if (banner) {
-    banner.textContent = message.includes("LOST") ? "SHIFT LOST" : "SHIFT CLEAR";
-    banner.classList.remove("is-announcing");
-    void banner.offsetWidth;
-    banner.classList.add("is-announcing");
-  }
-  nightShiftResultEndsAt = Date.now() + 2600;
-  scheduleNightShiftResult();
-}
-
-function hitNightShiftTarget(target, event) {
-  if (!nightShiftState.active || state.phase !== "home" || !target?.isConnected || target.dataset.hit) return;
-  // Measure the transformed, live position before clearing the flight class.
-  // This mirrors Home's hit path and prevents effects from snapping back to
-  // the left/right/top spawn edge.
-  const rect = target.getBoundingClientRect();
-  const atmosphere = $("#night-shift");
-  const area = atmosphere?.getBoundingClientRect();
-  if (!area) return;
-  const pointerX = Number(event?.clientX) > 0 ? Number(event.clientX) : rect.left + rect.width / 2;
-  const pointerY = Number(event?.clientY) > 0 ? Number(event.clientY) : rect.top + rect.height / 2;
-  const hitX = pointerX - area.left;
-  const hitY = pointerY - area.top;
-  target.dataset.hit = "1";
-  clearNightShiftTargetTimer(target);
-  target.classList.remove("is-flight");
-  const direction = target.dataset.direction === "left" ? -1 : 1;
-  const kind = target.dataset.kind || "helicopter";
-  if (kind !== "helicopter") target.classList.add("is-popping");
-  const crashArt = target.querySelector("img");
-  if (kind !== "helicopter") {
-    if (crashArt) crashArt.style.transform = ["drone", "airplane"].includes(kind) && direction === -1 ? "scaleX(-1)" : "";
-    if (REDUCED_MOTION) {
-      target.style.opacity = "0";
-      spawnNightShiftEffect(hitX, hitY, kind);
-      setTimeout(() => target.remove(), 160);
-    } else {
-      target.animate([
-        { transform: "translate3d(0, 0, 0) scale(0.96)", opacity: 0.9 },
-        { transform: `translate3d(0, -8px, 0) scale(1.04)`, opacity: 0.95 },
-        { transform: "translate3d(0, 0, 0) scale(1.02)", opacity: 0 },
-      ], { duration: 360, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" });
-      setTimeout(() => {
-        if (!target.isConnected) return;
-        spawnNightShiftEffect(hitX, hitY, kind);
-        target.remove();
-      }, 280);
-    }
-  } else {
-    target.remove();
-    // Match the Home patrol feedback: a compact impact flash and a short
-    // stepped smoke trail begin at the exact point of the shot.
-    spawnNightShiftEffect(hitX, hitY, "home-impact");
-    spawnNightShiftEffect(hitX, hitY + 8, "home-smoke");
-  }
-  const points = kind === "helicopter"
-    ? 100 + nightShiftState.wave * 25
-    : kind === "drone"
-      ? 75 + nightShiftState.wave * 10
-      : kind === "airplane"
-        ? 180 + nightShiftState.wave * 20
-        : 50 + nightShiftState.wave * 5;
-  nightShiftState.score += points;
-  nightShiftState.best = Math.max(nightShiftState.best, nightShiftState.score);
-  try { localStorage.setItem(NIGHT_SHIFT_BEST_KEY, String(nightShiftState.best)); } catch { /* storage unavailable */ }
-  playPatrolHitSound();
-  renderNightShiftHud(`TAGGED +${points} · WAVE ${String(nightShiftState.wave).padStart(2, "0")}`);
-}
-
-function startNightShift() {
-  if (state.phase !== "home" || nightShiftState.active) return;
-  // A stale room session may still emit snapshots while the player is Home.
-  // Keep this local arcade layer isolated until the player explicitly joins again.
-  clearNightShiftTimers();
-  nightShiftSuppressSnapshot = state.suppressRoomUpdates;
-  state.suppressRoomUpdates = true;
-  stopHomeHelicopter();
-  stopHomeClock();
-  nightShiftState.active = true;
-  nightShiftState.wave = 1;
-  nightShiftState.score = 0;
-  nightShiftState.hearts = NIGHT_SHIFT_START_HEARTS;
-  nightShiftState.targetSeq = 0;
-  nightShiftState.misses = 0;
-  nightShiftState.serverRunToken = null;
-  nightShiftState.serverRunSubmitted = false;
-  if (state.account?.account) {
-    emitServer("start-patrol-run", {}, (response) => {
-      if (response?.success) {
-        nightShiftState.serverRunToken = response.runToken;
-        if (!nightShiftState.active) submitNightShiftRun();
-      }
-    });
-  }
-  renderPatrolHud("NIGHT SHIFT ACTIVE · CLEAR THE SKYLINE");
-  document.body.classList.add("night-shift-open");
-  const surface = $("#night-shift");
-  surface?.classList.remove("is-hidden");
-  surface?.setAttribute("aria-hidden", "false");
-  hydrateSprites(surface || document);
-  $("#night-exit")?.focus({ preventScroll: true });
-  nightShiftTickTimer = setInterval(() => renderNightShiftHud(), 200);
-  beginNightShiftWave();
-}
-
-function stopNightShift() {
-  clearNightShiftTimers();
-  nightShiftPausedAt = 0;
-  nightShiftState.active = false;
-  state.suppressRoomUpdates = nightShiftSuppressSnapshot;
-  clearNightShiftTargets();
-  nightShiftResultEndsAt = 0;
-  document.body.classList.remove("night-shift-open");
-  document.body.classList.remove("night-shift-paused");
-  $("#night-wave-banner")?.classList.remove("is-announcing");
-  $("#night-shift")?.classList.add("is-hidden");
-  $("#night-shift")?.setAttribute("aria-hidden", "true");
-  renderNightShiftHud("TAG THE FLY-BYS BEFORE THEY REACH THE BORDER");
-  if (state.phase === "home") {
-    startHomeClock();
-    renderPatrolHud();
-    scheduleHomeHelicopter(4000);
-  }
-}
-
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    nightShiftPausedAt = Date.now();
-    if (!nightShiftState.active) {
-      clearTimeout(nightShiftResultTimer);
-      nightShiftResultTimer = null;
-      return;
-    }
-    // Freeze the run: cancel every armed cadence timer but keep the queue
-    // entries and the wave deadline so play resumes from the exact pause.
-    if (nightShiftWaveTimer !== null) {
-      clearTimeout(nightShiftWaveTimer);
-      nightShiftWaveTimer = null;
-      nightShiftWaveHeld = true;
-    }
-    nightShiftSpawnTimers.forEach((entry) => {
-      if (entry.timer !== null) { clearTimeout(entry.timer); entry.timer = null; }
-    });
-    document.body.classList.add("night-shift-paused");
-    nightShiftTargetTimers.forEach((timers) => {
-      if (timers.miss !== null) {
-        timers.missElapsed = Date.now() - timers.missStartedAt;
-        clearTimeout(timers.miss);
-        timers.miss = null;
-      }
-    });
-    return;
-  }
-  if (!nightShiftState.active) {
-    // Result countdown parked while hidden — re-arm for its remaining time.
-    if (nightShiftResultEndsAt) scheduleNightShiftResult();
-    return;
-  }
-  if (nightShiftPausedAt) {
-    const paused = Date.now() - nightShiftPausedAt;
-    nightShiftPausedAt = 0;
-    nightShiftState.endsAt += paused;
-    // Resume with at most one pending step each, then the normal cadence.
-    if (nightShiftWaveHeld) {
-      nightShiftWaveHeld = false;
-      nightShiftWaveTimer = setTimeout(advanceNightShiftWave, Math.max(0, nightShiftState.endsAt - Date.now()));
-    }
-    nightShiftSpawnTimers.forEach((entry) => {
-      if (entry.timer === null) { entry.due += paused; armNightShiftSpawn(entry); }
-    });
-    nightShiftTargetTimers.forEach((timers) => {
-      if (!timers.settle) return;
-      if (timers.endedWhileHidden) {
-        // The flight truly finished while we were away: settle it now, on
-        // the player's terms, instead of after a full random backstop delay.
-        timers.settle();
-        return;
-      }
-      if (timers.miss === null) {
-        const remaining = Math.max(250, timers.backstop - timers.missElapsed);
-        timers.missStartedAt = Date.now();
-        timers.missElapsed = 0;
-        timers.miss = setTimeout(timers.settle, remaining);
-      }
-    });
-    document.body.classList.remove("night-shift-paused");
-    renderNightShiftHud("NIGHT SHIFT RESUMED · CLEAR THE SKYLINE");
-  }
-});
 
 function syncHomeMusic() {
   const music = $("#home-music");
@@ -2295,7 +1434,6 @@ let roomsDirectory = [];
 let roomsLoading = false;
 let roomsDirectoryTimeout = null;
 let roomsFilter = "all";
-let drawerFilter = "all";
 let roomModalTab = "browse"; // "browse" | "create" | "join"
 let createRoomSettings = {
   name: "",
@@ -2509,100 +1647,6 @@ function renderHome() {
   applyProfileToHomeUI();
   renderConnectionStatus();
   hydrateSprites();
-}
-
-function renderProfileLibrary() {
-  const list = $("#pl-list");
-  const newBtn = $("#pl-new-btn");
-  const saveBtn = $("#pl-save-btn");
-  const atCap = state.profiles.length >= MAX_PROFILES;
-  if (newBtn) {
-    newBtn.disabled = atCap;
-    newBtn.querySelector(".t-label").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "+ NEW DESIGN";
-  }
-  if (saveBtn) {
-    saveBtn.disabled = !state.profileDraft || atCap;
-    saveBtn.querySelector(".cta-text").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "SAVE DESIGN";
-  }
-  if (!list) return;
-  if (!state.profiles.length) {
-    if (!state.profileDraft) {
-      list.innerHTML = `<p class="pl-empty">No custom designs yet — press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
-      return;
-    }
-  }
-  const activeId = typeof state.appearance === "string" ? state.appearance : null;
-  const draft = state.profileDraft;
-  const draftCard = draft && !state.editingProfileId
-    ? { id: "draft", designName: draft.designName || "UNTITLED DESIGN", color: draft.color, avatarGrid: draft.grid, isDraft: true }
-    : null;
-  const cards = state.profiles.map((profile, i) => {
-    const editing = draft && state.editingProfileId === profile.id;
-    return {
-      ...profile,
-      designName: editing ? (draft.designName || "UNTITLED DESIGN") : profileDesignName(profile),
-      color: editing ? draft.color : profile.color,
-      avatarGrid: editing ? draft.grid : profile.avatarGrid,
-      isEditing: Boolean(editing),
-      seed: i,
-    };
-  });
-  if (draftCard) cards.unshift(draftCard);
-  list.innerHTML = cards.map((p, i) => {
-    const isDraft = Boolean(p.isDraft);
-    const selected = !isDraft && p.id === activeId;
-    const editing = Boolean(p.isEditing);
-    const entity = { color: p.color, avatarGrid: p.avatarGrid };
-    return `<div class="pl-tile${selected ? " is-active" : ""}${isDraft ? " is-draft" : ""}${editing ? " is-editing" : ""}">
-      ${isDraft ? `<div class="pl-tile-select pl-tile-draft" aria-label="Unsaved design preview"><span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span><span class="pl-tile-info"><span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.designName)}</span><span class="t-micro g400">UNSAVED DRAFT · LIVE PREVIEW</span></span></div>` : `<button class="pl-tile-select" type="button" data-profile-select="${p.id}" aria-pressed="${selected}"><span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span><span class="pl-tile-info"><span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.designName)}</span><span class="t-micro ink-3">${editing ? "EDITING · LIVE PREVIEW" : selected ? "ACTIVE DESIGN" : "TAP TO SELECT"}</span></span></button>`}
-      <div class="pl-tile-actions">${isDraft ? `<span class="t-micro g400 pl-draft-badge">DRAFT</span>` : `<button class="btn-dark" type="button" data-profile-edit="${p.id}"><span class="t-label">EDIT</span></button><button class="btn-dark pl-delete" type="button" data-profile-delete="${p.id}"><span class="t-label">DELETE</span></button>`}</div>
-    </div>`;
-  }).join("");
-}
-
-/** Reflect the saved profile (or the default guest identity) across the home screen. */
-function applyProfileToHomeUI() {
-  const p = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
-  const account = state.account?.account || null;
-  const name = account?.displayName || state.alias || "PLAYER";
-  const preset = getAppearanceMeta(state.appearance);
-  const color = p?.color || account?.color || preset.color || "#d74438";
-  const avatarSource = p || account;
-
-  document.querySelectorAll("[data-global-you-name]").forEach((nameNode) => {
-    nameNode.textContent = name;
-  });
-  document.querySelectorAll("[data-global-you-avatar]").forEach((avatarNode) => {
-    avatarNode.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 3) : avatarHTML({ color }, 3, 0);
-  });
-
-  const chairName = $("#chair-name");
-  if (chairName) chairName.textContent = `that's you, ${name}`;
-  const chairAv = $("#chair-avatar");
-  if (chairAv) chairAv.innerHTML = avatarSource?.avatarGrid ? spriteFromGrid(avatarSource.avatarGrid, 4) : avatarHTML({ color }, 4, 0);
-
-  const resumeBtn = $("#resume-btn");
-  if (resumeBtn) resumeBtn.classList.toggle("is-hidden", !loadSavedGame());
-  renderGuestAliasField();
-}
-
-function renderGuestAliasField(errorText = "") {
-  const field = $("#home-alias-form");
-  const input = $("#home-alias");
-  const error = $("#home-alias-error");
-  const signedIn = Boolean(state.account?.account);
-  field?.classList.toggle("is-hidden", signedIn);
-  if (input && !signedIn && input.value !== state.alias) input.value = state.alias;
-  if (error) error.textContent = errorText;
-}
-
-function requireGuestAlias() {
-  if (state.account?.account) return true;
-  const alias = String(state.alias || "").trim();
-  if (alias) return true;
-  renderGuestAliasField("CREATE AN ALIAS BEFORE JOINING A TABLE.");
-  $("#home-alias")?.focus({ preventScroll: true });
-  return false;
 }
 
 /* ============================================================
@@ -3148,7 +2192,7 @@ function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null,
   if (propertyIndex != null && TILES[Number(propertyIndex)]?.kind === "property") financingPreviewDraft.propertyIndex = Number(propertyIndex);
   renderFinancingModal();
   openSurface("#financing-modal", "#financing-close");
-  if (trigger instanceof HTMLElement) surfaceReturnFocus = trigger;
+  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
 }
 
 function closeFinancingModal() {
@@ -3408,20 +2452,31 @@ function buildPreviewSelf() {
 /* ============================================================
    6b. PROFILE EDITOR
    ============================================================ */
-const PROFILE_SWATCHES = ["#d74438", "#286ea1", "#d9a62f", "#35a653", "#a04e6f", "#3e7d7b", "#7b5029", "#cfa75f"];
-const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5c5033", "#01070a", "#ffffff", "#d74438", "#35a653", "#286ea1", "#d9a62f"];
-
 /** Open editor. Pass a profile id to edit, or nothing to create a new one. */
+function draftFromSource(source) {
+  return {
+    designName: profileDesignName(source),
+    color: source.color,
+    grid: cloneFaceGrid(source.avatarGrid),
+    tool: "paint",
+    paintColor: source.color,
+  };
+}
+
+function draftFromAccount(account) {
+  const color = account?.color || "#d74438";
+  const grid = account?.avatarGrid
+    ? cloneFaceGrid(account.avatarGrid)
+    : faceGridFromPreset(0, color);
+  return { designName: "", color, grid, tool: "paint", paintColor: "#f0d9ac" };
+}
+
 function openProfileEditor(fromPhase, profileId) {
   closeRoomsModal();
   state.homeReturnView = fromPhase === "setup" ? "setup-return" : "home";
   state.editingProfileId = profileId || null;
   const existing = profileId ? getProfileById(profileId) : null;
-  const account = state.account?.account;
-  const source = existing;
-  state.profileDraft = source
-    ? { designName: profileDesignName(source), color: source.color, grid: cloneFaceGrid(source.avatarGrid), tool: "paint", paintColor: source.color }
-    : { designName: "", color: account?.color || "#d74438", grid: account?.avatarGrid ? cloneFaceGrid(account.avatarGrid) : faceGridFromPreset(0, account?.color || "#d74438"), tool: "paint", paintColor: "#f0d9ac" };
+  state.profileDraft = existing ? draftFromSource(existing) : draftFromAccount(state.account?.account);
   state.profileTab = "designs";
   renderProfileEditor();
   renderAccountPanel();
@@ -3447,45 +2502,58 @@ function announceProfileSave(message) {
   if (status) status.textContent = message;
 }
 
+function draftProfilePayload(d, asNew) {
+  const hasInk = d.grid.some((row) => row.some((c) => c));
+  return {
+    id: !asNew && state.editingProfileId ? state.editingProfileId : `pf_${Math.random().toString(36).slice(2, 9)}`,
+    designName: String(d.designName || "").trim().slice(0, 12).toUpperCase() || "UNTITLED DESIGN",
+    color: d.color,
+    avatarGrid: hasInk ? d.grid : faceGridFromPreset(0, d.color),
+  };
+}
+
+function accountUpdateAck(response) {
+  if (response?.success) {
+    updateAccountFromResponse(response);
+    return;
+  }
+  const error = response?.error;
+  if (!error) return;
+  const announcer = $("#error-announcer");
+  if (announcer) announcer.textContent = error;
+}
+
+function syncSavedDesignToAccount(saved) {
+  if (!state.account?.sessionToken) return;
+  emitServer("account-update", {
+    sessionToken: state.account.sessionToken,
+    color: saved.color,
+    avatarGrid: saved.avatarGrid,
+  }, accountUpdateAck);
+}
+
+function stayAfterSave(saved) {
+  state.editingProfileId = saved.id;
+  state.profileDraft = draftFromSource(saved);
+  renderProfileEditor();
+  renderProfileLibrary();
+  setProfileTab("designs");
+  announceProfileSave(`Saved "${profileDesignName(saved)}" as a new design.`);
+}
+
 function saveProfileDesign({ asNew = false, stay = false } = {}) {
   const d = state.profileDraft;
   if (!d) return null;
   const designName = String(d.designName || "").trim().slice(0, 12).toUpperCase() || "UNTITLED DESIGN";
-  const hasInk = d.grid.some((row) => row.some((c) => c));
-  const draftProfile = {
-    id: !asNew && state.editingProfileId ? state.editingProfileId : `pf_${Math.random().toString(36).slice(2, 9)}`,
-    designName,
-    color: d.color,
-    avatarGrid: hasInk ? d.grid : faceGridFromPreset(0, d.color),
-  };
-  const saved = upsertProfile(draftProfile);
+  const saved = upsertProfile(draftProfilePayload(d, asNew));
   if (saved === "limit") {
     announceProfileSave(`You can only save up to ${MAX_PROFILES} designs. Delete one to make room.`);
     return saved;
   }
   if (!saved) return null;
   setActiveAppearance(saved.id);
-  if (state.account?.sessionToken) {
-    emitServer("account-update", {
-      sessionToken: state.account.sessionToken,
-      color: saved.color,
-      avatarGrid: saved.avatarGrid,
-    }, (response) => {
-      if (response?.success) updateAccountFromResponse(response);
-      else if (response?.error) {
-        const announcer = $("#error-announcer");
-        if (announcer) announcer.textContent = response.error;
-      }
-    });
-  }
-  if (stay) {
-    state.editingProfileId = saved.id;
-    state.profileDraft = { designName: profileDesignName(saved), color: saved.color, grid: cloneFaceGrid(saved.avatarGrid), tool: "paint", paintColor: saved.color };
-    renderProfileEditor();
-    renderProfileLibrary();
-    setProfileTab("designs");
-    announceProfileSave(`Saved "${designName}" as a new design.`);
-  }
+  syncSavedDesignToAccount(saved);
+  if (stay) stayAfterSave(saved);
   return saved;
 }
 
@@ -3521,72 +2589,6 @@ function deleteCurrentProfile() {
   }
 }
 
-function renderProfileEditor() {
-  const d = state.profileDraft;
-  if (!d) return;
-  const deleteBtn = $("#profile-delete-btn");
-  if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
-  const saveLabel = $("#profile-save-btn")?.querySelector(".cta-text");
-  if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
-  const modeLabel = $("#profile-editor-mode");
-  if (modeLabel) modeLabel.textContent = state.editingProfileId ? "EDIT PLAYER DESIGN" : "NEW PLAYER DESIGN";
-
-  // identity swatches
-  $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map(
-    (c) => `<button type="button" class="profile-swatch${c.toLowerCase() === d.color.toLowerCase() ? " is-active" : ""}" style="background:${c}" data-color="${c}" title="${c}"></button>`,
-  ).join("");
-  $("#profile-color-picker").value = d.color;
-  $("#profile-name").value = d.designName;
-
-  // face palette
-  $("#face-palette").innerHTML = FACE_PALETTE.map(
-    (c) => `<button type="button" class="face-swatch${d.tool === "paint" && c.toLowerCase() === d.paintColor.toLowerCase() ? " is-active" : ""}" style="background:${c}" data-ink="${c}" title="${c}"></button>`,
-  ).join("");
-  $("#face-color-picker").value = d.paintColor;
-  $("#face-tool-paint").classList.toggle("is-active", d.tool === "paint");
-  $("#face-tool-erase").classList.toggle("is-active", d.tool === "erase");
-
-  // pixel canvas
-  const canvas = $("#face-canvas");
-  canvas.innerHTML = d.grid
-    .map((row, y) =>
-      row
-        .map((c, x) => `<span class="face-cell" data-x="${x}" data-y="${y}" style="${c ? `background-color:${c};background-image:none` : ""}"></span>`)
-        .join(""),
-    )
-    .join("");
-
-  updateProfilePreview();
-  renderProfileSummary();
-}
-
-function updateProfilePreview() {
-  const d = state.profileDraft;
-  if (!d) return;
-  const av = $("#profile-preview-av");
-  if (av) av.innerHTML = spriteFromGrid(d.grid, 6);
-  const nameEl = $("#profile-preview-name");
-  if (nameEl) {
-    nameEl.textContent = (d.designName || "UNTITLED DESIGN").toUpperCase();
-    nameEl.style.color = d.color;
-  }
-  renderProfileLibrary();
-  renderProfileSummary();
-}
-
-function paintFaceCell(x, y) {
-  const d = state.profileDraft;
-  if (!d) return;
-  const color = d.tool === "erase" ? null : d.paintColor;
-  if (d.grid[y][x] === color) return;
-  d.grid[y][x] = color;
-  const cell = $(`#face-canvas .face-cell[data-x="${x}"][data-y="${y}"]`);
-  if (cell) {
-    cell.style.backgroundColor = color || "";
-    cell.style.backgroundImage = color ? "none" : "";
-  }
-  updateProfilePreview();
-}
 
 /* ============================================================
    7. TILE POPUP
@@ -5113,40 +4115,10 @@ function bindEvents() {
   $("#resume-btn")?.addEventListener("click", () => resumeGame());
 
   // log drawer
-  const renderDrawer = () => {
-    const filtered = state.log.filter((l) => matchesLogFilter(l, drawerFilter));
-    $("#drawer-body").innerHTML = filtered.length
-      ? filtered.map((l, i) => `<p class="t-body log-line"><span class="log-n">${String(filtered.length - i).padStart(2, "0")} </span>${esc(l)}</p>`).join("")
-      : `<p class="t-body ink-3">NO ${drawerFilter.toUpperCase()} ENTRIES.</p>`;
-    $("#drawer-count").textContent = `${filtered.length} ENTRIES`;
-    document.querySelectorAll(".drawer-filter").forEach((btn) => btn.classList.toggle("is-active", btn.dataset.logfilter === drawerFilter));
-  };
-  function matchesLogFilter(line, filter) {
-    if (filter === "all") return true;
-    if (filter === "cash") return /\$|BOUGHT|RENT|PAID|COLLECT|TAX|CASH/i.test(line);
-    if (filter === "trade") return /TRADE|OFFER|TRADED|DECLIN|ACCEPT/i.test(line);
-    if (filter === "auction") return /AUCTION|BID|WON|UNSOLD/i.test(line);
-    if (filter === "property") return /BOUGHT|MORTGAG|BUILT|HOUSE|HOTEL|DEED|WENT BANKRUPT/i.test(line);
-    return true;
-  }
-  const toggleDrawer = () => {
-    const d = $("#log-drawer");
-    d.classList.toggle("is-open");
-    const open = d.classList.contains("is-open");
-    d.setAttribute("aria-hidden", String(!open));
-    if (open) { renderDrawer(); focusSurface("#log-drawer"); }
-  };
-  $("#log-toggle-btn")?.addEventListener("click", toggleDrawer);
-  $("#drawer-close")?.addEventListener("click", () => {
-    const d = $("#log-drawer");
-    d.classList.remove("is-open");
-    d.setAttribute("aria-hidden", "true");
-  });
+  $("#log-toggle-btn")?.addEventListener("click", toggleLogDrawerFromButton);
+  $("#drawer-close")?.addEventListener("click", closeLogDrawer);
   document.querySelectorAll(".drawer-filter").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      drawerFilter = btn.dataset.logfilter || "all";
-      if ($("#log-drawer").classList.contains("is-open")) renderDrawer();
-    });
+    btn.addEventListener("click", () => applyLogDrawerFilter(btn));
   });
 
   // focus / mobile board mode
@@ -5696,148 +4668,27 @@ function bindEvents() {
   $("#card-gallery-close")?.addEventListener("click", closeCardGallery);
   $("#card-gallery .card-gallery-scrim")?.addEventListener("click", closeCardGallery);
 
-  // keyboard
-  window.addEventListener("keydown", (e) => {
-    const tag = e.target?.tagName;
-    const homeVisible = !$("#view-home").classList.contains("is-hidden");
-    if (homeVisible && state.phase === "home" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "p" && tag !== "INPUT" && tag !== "TEXTAREA" && !visibleSurfaces().length) {
-      e.preventDefault();
-      startNightShift();
-      return;
-    }
-    // Shift+P is the primary Night Shift door: it works from any parlor page
-    // and with modals open (the shift always belongs to Home, so go back
-    // first). Typing contexts and Ctrl/Meta/Alt chords stay untouched —
-    // Ctrl+P remains the browser's print shortcut everywhere else.
-    if (
-      state.phase === "home" && !nightShiftState.active
-      && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
-      && e.key.toLowerCase() === "p"
-      && tag !== "INPUT" && tag !== "TEXTAREA" && !e.target?.isContentEditable
-    ) {
-      e.preventDefault();
-      if (!homeVisible || visibleSurfaces().length) goHome();
-      startNightShift();
-      return;
-    }
-    const activeSurface = syncSurfaceA11y();
-    if (e.key === "Tab" && activeSurface) {
-      const focusables = surfaceFocusable(activeSurface);
-      if (!focusables.length) {
-        e.preventDefault();
-      } else {
-        const current = document.activeElement;
-        const index = focusables.indexOf(current);
-        const next = e.shiftKey
-          ? focusables[index <= 0 ? focusables.length - 1 : index - 1]
-          : focusables[index === focusables.length - 1 ? 0 : index + 1];
-        e.preventDefault();
-        next.focus({ preventScroll: true });
-      }
-      return;
-    }
-    const nightShiftOpen = !$("#night-shift").classList.contains("is-hidden");
-    if (nightShiftOpen) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        stopNightShift();
-        return;
-      }
-      if (e.key !== "Tab") return;
-    }
-    if (state.phase === "setup" && e.key === "Escape") {
-      e.preventDefault();
-      goHome();
-      return;
-    }
-    const roomsOpen = !$("#rooms-modal").classList.contains("is-hidden");
-    const accountOpen = !$("#account-modal").classList.contains("is-hidden");
-    if (accountOpen) { if (e.key === "Escape") closeAccountModal(); return; }
-    const confirmOpen = !$("#confirm-modal").classList.contains("is-hidden");
-    if (confirmOpen) { if (e.key === "Escape") closeConfirmModal(); return; }
-    const achievementOpen = !$("#achievement-modal").classList.contains("is-hidden");
-    if (achievementOpen) { if (e.key === "Escape") closeAchievementModal(); return; }
-    const rankingsOpen = !$("#rankings-modal").classList.contains("is-hidden");
-    if (rankingsOpen) { if (e.key === "Escape") closeSurface("#rankings-modal"); return; }
-    const socialOpen = !$("#social-modal").classList.contains("is-hidden");
-    if (socialOpen) { if (e.key === "Escape") closeSurface("#social-modal"); return; }
-    const playerOpen = !$("#player-modal").classList.contains("is-hidden");
-    if (playerOpen) { if (e.key === "Escape") closeSurface("#player-modal"); return; }
-    const financingOpen = !$("#financing-modal").classList.contains("is-hidden");
-    if (financingOpen) { if (e.key === "Escape") closeFinancingModal(); return; }
-    const galleryOpen = !$("#card-gallery").classList.contains("is-hidden");
-    if (galleryOpen) { if (e.key === "Escape") closeCardGallery(); return; }
-    const choiceOpen = !$("#choice-modal").classList.contains("is-hidden");
-    // auction modal is always locked
-    if (state.auction) {
-      if (e.key === "Escape") e.preventDefault();
-      return;
-    }
-    // choice modal: locked in auction mode, dismissible in normal mode
-    if (state.pendingBuyTile != null && state.settings.auction) {
-      if (e.key === "Escape") e.preventDefault();
-      return;
-    }
-    if (state.pendingBuyTile != null && !state.settings.auction && e.key === "Escape") {
-      closeChoiceModalAsPass();
-      return;
-    }
-    if (state.pendingBuyTile != null && !state.settings.auction && choiceOpen) return;
-    if (roomsOpen) { if (e.key === "Escape") closeRoomsModal(); return; }
-    if (state.profileDraft) { if (e.key === "Escape") closeProfileEditor(false); return; }
-    const offerOpen = !$("#offer-modal").classList.contains("is-hidden");
-    if (offerOpen) { if (e.key === "Escape") rejectOpenOffer(); return; }
-    if (!state.card && !$("#card-modal").classList.contains("is-hidden")) {
-      if (e.key === "Escape") { state.card = null; closeSurface("#card-modal"); }
-      return;
-    }
-    if (state.gameOver || !$("#gameover-modal").classList.contains("is-hidden")) {
-      if (e.key === "Escape") e.preventDefault();
-      return;
-    }
-    if (state.deedDetail != null) { if (e.key === "Escape") closeDeedDetail(); return; }
-    if (state.tradeWith) { if (e.key === "Escape") closeTradeModal(); return; }
-    if (state.selectedTile) { if (e.key === "Escape") closePopup(); return; }
-    if (e.key === "Escape" && $("#log-drawer").classList.contains("is-open")) {
-      $("#log-drawer").classList.remove("is-open");
-      $("#log-drawer").setAttribute("aria-hidden", "true");
-      return;
-    }
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
-    if (state.phase === "home" && e.key.toLowerCase() === "b") {
-      e.preventDefault();
-      setHomeTab("rooms");
-      openRoomsModal("browse");
-      return;
-    }
-    if (state.phase === "home" && e.key.toLowerCase() === "c") {
-      e.preventDefault();
-      openRoomsModal("create");
-      return;
-    }
-    if (state.phase === "home" && e.key.toLowerCase() === "p") {
-      e.preventDefault();
-      openProfileEditor("home");
-      return;
-    }
-    if (state.phase === "home" && e.key.toLowerCase() === "j") {
-      e.preventDefault();
-      openRoomsModal("join");
-      return;
-    }
-    if (e.key.toLowerCase() === "l") {
-      e.preventDefault();
-      const d = $("#log-drawer");
-      d.classList.toggle("is-open");
-      d.setAttribute("aria-hidden", String(!d.classList.contains("is-open")));
-      if (d.classList.contains("is-open")) renderDrawer();
-      return;
-    }
-    if (e.code === "Space" || e.key.toLowerCase() === "r") {
-      if (state.phase !== "playing") return;
-      e.preventDefault();
-      primaryTurnAction();
-    }
+  // keyboard (controller lives in clientKeyboard.js)
+  bindKeyboard({
+    startNightShift,
+    stopNightShift,
+    isNightShiftActive: () => nightShiftState.active,
+    goHome,
+    setHomeTab,
+    openRoomsModal,
+    openProfileEditor,
+    closeAccountModal,
+    closeAchievementModal,
+    closeFinancingModal,
+    closeCardGallery,
+    closeChoiceModalAsPass,
+    closeRoomsModal,
+    closeProfileEditor,
+    rejectOpenOffer,
+    closeDeedDetail,
+    closeTradeModal,
+    closePopup,
+    primaryTurnAction,
   });
 }
 
@@ -5861,6 +4712,19 @@ function openCardPreviewFromUrl() {
 /* ============================================================
    10. INIT
    ============================================================ */
+configureSurfaces({ notice: parlorNotice });
+configureProfileRender({ renderAchievements, loadSavedGame });
+configureNightShift({
+  emitServer,
+  parlorNotice,
+  unlockAchievement,
+  playPatrolHitSound,
+  renderPatrolHud,
+  startHomeClock,
+  stopHomeClock,
+  stopHomeHelicopter,
+  scheduleHomeHelicopter,
+});
 renderHome();
 buildBoard(onTileClick);
 hydrateSprites();
