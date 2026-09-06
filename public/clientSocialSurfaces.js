@@ -8,19 +8,13 @@ import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { openSurface } from "./clientSurfaces.js";
 
-let host = { emitServer: () => {}, showView: () => {} };
+function noop() {}
+let host = { emitServer: noop, showView: noop };
 
 export function configureSocialSurfaces(hooks) {
   host = { ...host, ...hooks };
 }
 
-function showView(name) {
-  host.showView(name);
-}
-
-function emitServer(event, payload, callback) {
-  host.emitServer(event, payload, callback);
-}
 
 export function announceSocialNotification(n) {
   const kind = notificationKind(n);
@@ -28,7 +22,7 @@ export function announceSocialNotification(n) {
   announceToScreenReaders(copy.label, copy.detail, kind.isError);
   const stack = $("#toast-stack");
   if (!stack) return;
-  mountParlorToast(stack, kind.kind, copy.label, copy.detail, kind.isError);
+  mountParlorToast(stack, kind.kind, copy, kind.isError);
 }
 
 function notificationKind(n) {
@@ -62,31 +56,41 @@ function toastClass(kind, isError) {
   return `parlor-toast${mythical}${errorCls}`;
 }
 
+function surfaceCard(target, fallback) {
+  const card = $(target) || $(fallback);
+  if (!card) return null;
+  return card;
+}
+
+function toastEl(tag, cls) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  return node;
+}
+
 function toastTitleEl(label, isError) {
-  const title = document.createElement("strong");
-  title.className = "t-label f11 parlor-toast-title";
-  if (isError) {
-    const glyph = document.createElement("span");
-    glyph.className = "parlor-toast-glyph";
-    glyph.setAttribute("aria-hidden", "true");
-    glyph.innerHTML = '<svg viewBox="0 0 12 12" focusable="false" shape-rendering="crispEdges"><path fill="currentColor" fill-rule="evenodd" d="M5 1h2l1 2 1 2 1 2 1 2 1 3H0l1-3 1-2 1-2 1-2zM5 4h2v3H5zm0 4h2v2H5z"/></svg>';
-    title.appendChild(glyph);
-  }
+  const title = toastEl("strong", "t-label f11 parlor-toast-title");
+  if (isError) title.appendChild(toastGlyphEl());
   title.append(document.createTextNode(label));
   return title;
 }
 
+function toastGlyphEl() {
+  const glyph = toastEl("span", "parlor-toast-glyph");
+  glyph.setAttribute("aria-hidden", "true");
+  glyph.innerHTML = '<svg viewBox="0 0 12 12" focusable="false" shape-rendering="crispEdges"><path fill="currentColor" fill-rule="evenodd" d="M5 1h2l1 2 1 2 1 2 1 2 1 3H0l1-3 1-2 1-2 1-2zM5 4h2v3H5zm0 4h2v2H5z"/></svg>';
+  return glyph;
+}
+
 function toastBodyEl(detail) {
-  const body = document.createElement("span");
-  body.className = "t-body f12 parlor-toast-body";
+  const body = toastEl("span", "t-body f12 parlor-toast-body");
   body.textContent = detail;
   return body;
 }
 
 function toastDismissEl() {
-  const dismiss = document.createElement("button");
+  const dismiss = toastEl("button", "parlor-toast-close");
   dismiss.type = "button";
-  dismiss.className = "parlor-toast-close";
   dismiss.tabIndex = -1;
   dismiss.setAttribute("aria-hidden", "true");
   dismiss.textContent = "\u00d7";
@@ -112,11 +116,11 @@ function trimToastStack(stack) {
   while (stack.children.length > 4) stack.firstElementChild.remove();
 }
 
-function mountParlorToast(stack, kind, label, detail, isError) {
-  const toast = document.createElement("div");
+function mountParlorToast(stack, kind, copy, isError) {
+  const toast = toastEl("div");
   toast.className = toastClass(kind, isError);
-  const title = toastTitleEl(label, isError);
-  const body = toastBodyEl(detail);
+  const title = toastTitleEl(copy.label, isError);
+  const body = toastBodyEl(copy.detail);
   const dismiss = toastDismissEl();
   const dismissToast = () => dismissToastLater(toast);
   toast.append(title, body, dismiss);
@@ -160,14 +164,9 @@ function socialRoomRosterHTML() {
 
 export function openSocialSurface(tab = "friends") {
   state.socialTab = ["friends", "requests", "invites", "recent", "notifications"].includes(tab) ? tab : "friends";
-  showView("social");
+  host.showView("social");
   renderSocialSurface("#social-page-content");
-  emitServer("get-social-data", {}, (response) => {
-    if (response?.success && response.social) {
-      state.social = response.social;
-      renderSocialSurface("#social-page-content");
-    }
-  });
+  socialFetchAndRender("#social-page-content");
 }
 
 function listCount(list) {
@@ -203,6 +202,36 @@ function socialSearchResultsHTML() {
   const results = state.socialSearchResults || [];
   if (!results.length) return "";
   return results.map((player) => socialPlayerRowHTML(player, "VIEW")).join("");
+}
+
+function socialDataAck(response, target) {
+  if (response?.success && response.social) {
+    state.social = response.social;
+    renderSocialSurface(target);
+  }
+}
+
+function socialFetchAndRender(target) {
+  host.emitServer("get-social-data", {}, (response) => socialDataAck(response, target));
+}
+
+function leaderboardSnapshotAck(snapshot, target) {
+  state.leaderboard.loading = false;
+  applyLeaderboardSnapshot(snapshot);
+  renderRankingsSurface(target);
+}
+
+function requestLeaderboardSnapshot(target) {
+  state.leaderboard.loading = true;
+  host.emitServer("get-leaderboard-snapshot", { scope: state.leaderboard.scope }, (snapshot) => leaderboardSnapshotAck(snapshot, target));
+}
+
+function publicPlayerAck(response) {
+  if (response?.success && response.player) {
+    state.selectedPlayer = { ...state.selectedPlayer, ...response.player };
+    state.selectedPlayerRelationship = response.relationship;
+    renderPlayerSurface();
+  }
 }
 
 function signinBodyHTML() {
@@ -262,7 +291,7 @@ function socialTableContext() {
 }
 
 export function renderSocialSurface(target = "#social-card") {
-  const card = $(target) || $("#social-card");
+  const card = surfaceCard(target, "#social-card");
   if (!card) return;
   const social = state.social || {};
   const signedIn = Boolean(state.account?.account);
@@ -290,12 +319,7 @@ export function openInGameSocialSurface(kind) {
   } else if (kind === "social") {
     renderSocialSurface("#social-card");
     openSurface("#social-modal", "#social-close");
-    emitServer("get-social-data", {}, (response) => {
-      if (response?.success && response.social) {
-        state.social = response.social;
-        renderSocialSurface("#social-card");
-      }
-    });
+    socialFetchAndRender("#social-card");
   } else {
     return false;
   }
@@ -326,14 +350,9 @@ function applyLeaderboardSnapshot(snapshot) {
 export function openRankingsSurface(metric = "wins", scope = state.leaderboard.scope || "all") {
   state.leaderboard.metric = normalizeRankingMetric(metric);
   state.leaderboard.scope = normalizeRankingScope(scope);
-  showView("rankings");
+  host.showView("rankings");
   renderRankingsSurface("#rankings-page-content");
-  state.leaderboard.loading = true;
-    emitServer("get-leaderboard-snapshot", { scope: state.leaderboard.scope }, (snapshot) => {
-      state.leaderboard.loading = false;
-      applyLeaderboardSnapshot(snapshot);
-      renderRankingsSurface("#rankings-page-content");
-    });
+  requestLeaderboardSnapshot("#rankings-page-content");
 }
 
 const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
@@ -421,7 +440,7 @@ return Array.isArray(state.rankingSearchResults) && state.rankingSearchResults.l
 }
 
 export function renderRankingsSurface(target = "#rankings-card") {
-  const card = $(target) || $("#rankings-card");
+  const card = surfaceCard(target, "#rankings-card");
   if (!card) return;
   const pageSurface = card.id === "rankings-page-content";
   const surfaceKey = pageSurface ? "page" : "modal";
@@ -616,7 +635,7 @@ function rulesSectionById(id) {
 
 export function openRulesSurface(section = "start-here") {
   state.rulesSection = rulesSectionById(section).id;
-  showView("rules");
+  host.showView("rules");
   renderRulesSurface("#rules-page-content");
   requestAnimationFrame(() => {
     const target = $("#rules-book-page-scroll");
@@ -729,13 +748,9 @@ export function openPlayerSurface(playerId) {
   state.selectedPlayerHistoryScope = "all";
   renderPlayerSurface();
   openSurface("#player-modal", "#player-modal-close");
-  if (state.selectedPlayer.accountId) emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, (response) => {
-    if (response?.success && response.player) {
-      state.selectedPlayer = { ...state.selectedPlayer, ...response.player };
-      state.selectedPlayerRelationship = response.relationship;
-      renderPlayerSurface();
-    }
-  });
+  if (state.selectedPlayer.accountId) {
+    host.emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, publicPlayerAck);
+  }
 }
 
 function historyScopeMatch(entry, scope) {
