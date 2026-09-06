@@ -172,6 +172,13 @@ import {
   scheduleHomeHelicopter,
   hitHomeHelicopter,
 } from "./clientHomeAmbient.js";
+import {
+  configureAuctionUi,
+  renderAuction,
+  startAuction,
+  startAuctionTimer,
+  stopAuctionTimer,
+} from "./clientAuctionUi.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -298,12 +305,10 @@ const serverSyncHost = {
   openAuctionSurface: () => {
     renderAuction();
     openSurface("#auction-modal", "#auction-pass");
-    clearInterval(auctionTimer);
-    auctionTimer = setInterval(tickAuction, 60);
+    startAuctionTimer();
   },
   closeAuctionSurface: () => {
-    clearInterval(auctionTimer);
-    auctionTimer = null;
+    stopAuctionTimer();
     closeSurface("#auction-modal");
   },
   retireButton: () => $("#game-retire-btn"),
@@ -1532,11 +1537,6 @@ function buyTile(tile) {
 /* ============================================================
    8a. FORCED CHOICE + AUCTION
    ============================================================ */
-const BID_STEPS = [1, 20, 100];
-// Audit #18: single clock for auction deadlines. Matches the server's frame
-// once a snapshot has arrived (offset 0 before the first one).
-function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
-let auctionTimer = null;
 
 /** Human landed on a vacant lot: auto-show choice modal.
  *  - Auction mode: locked, BUY or AUCTION only.
@@ -1632,167 +1632,6 @@ function closeChoiceModalAsPass() {
   afterLandingResolved();
 }
 
-function startAuction(tile) {
-  emitServer("decline-property", { tileIndex: tile.i }, (response) => {
-      if (response?.success === false) {
-        say(response.error || "The auction could not be opened.");
-        renderChat();
-      }
-    });
-    return;
-}
-
-
-function humanBid(inc) {
-  const a = state.auction;
-  if (!a) return;
-  const me = state.players[0];
-  if (a.passed.p1) return;
-  if (me.cash < a.bid + inc) return; // can't cover the raise
-  emitServer("auction-bid", { amount: a.bid + inc }, (response) => {
-      if (response?.success === false) {
-        say(response.error || "Bid rejected.");
-        renderChat();
-      }
-    });
-    return;
-}
-
-function humanPassAuction() {
-  const a = state.auction;
-  if (!a) return;
-  emitServer("auction-pass", {}, (response) => {
-      if (response?.success === false) {
-        say(response.error || "You cannot pass this auction.");
-        renderChat();
-      }
-    });
-    return;
-}
-
-
-function tickAuction() {
-  const a = state.auction;
-  if (!a) return;
-  const remaining = a.deadline - serverNow();
-
-  // Live auctions are finalized by the server. The client only keeps the
-  // countdown visually current until the authoritative update arrives.
-  updateAuctionLive();
-    if (remaining <= 0) {
-      clearInterval(auctionTimer);
-      auctionTimer = null;
-    }
-    return;
-}
-
-
-function renderAuction() {
-  const a = state.auction;
-  if (!a) return;
-  const tile = TILES[a.tileIndex];
-  $("#auction-card").innerHTML = `
-    <div class="auction-rail" style="background:${accentOf(tile)}"></div>
-    <div class="auction-body">
-      <div class="auction-head">
-        <div class="auction-icon">${popIconHTML(tile)}</div>
-        <div class="pop-headtext">
-          <div class="t-micro g400">AUCTION · ${kindLabel(tile)}</div>
-          <h3 class="t-section auction-title" id="auction-card-title">${tile.name}</h3>
-        </div>
-      </div>
-
-      <div class="auction-bid-box">
-        <div>
-          <div class="t-micro ink-3">HIGH BID</div>
-          <div class="auction-bid-val" id="auction-bid">$0</div>
-        </div>
-        <div class="auction-leader">
-          <div class="t-micro ink-3">LEADER</div>
-          <div class="t-label auction-leader-name" id="auction-leader">NO BIDS YET</div>
-        </div>
-      </div>
-
-      <div class="auction-timer-wrap">
-        <div class="auction-timer-top">
-          <span class="t-micro g400">TIME LEFT</span>
-          <span class="t-label f12 g-muted" id="auction-timer">5.0s</span>
-        </div>
-        <div class="auction-bar-track"><div class="auction-bar-fill" id="auction-bar"></div></div>
-      </div>
-
-      <div class="auction-bids">
-        ${BID_STEPS.map((inc) => `
-          <button class="cta-red auction-bid-btn" data-bid="${inc}">
-            <span class="t-label">+${inc}</span>
-            <span class="t-micro">RAISE</span>
-          </button>`).join("")}
-      </div>
-
-      <div class="auction-pass">
-        <button class="btn-dark auction-pass-btn" id="auction-pass"><span class="t-label f12">PASS — STAND DOWN</span></button>
-      </div>
-
-      <div class="auction-players" id="auction-players"></div>
-
-      <p class="t-micro ink-3 auction-foot">EACH BID RESETS THE 5s CLOCK · LAST BIDDER WINS</p>
-    </div>`;
-
-  $("#auction-card").querySelectorAll("[data-bid]").forEach((btn) => {
-    btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid)));
-  });
-  $("#auction-pass").addEventListener("click", humanPassAuction);
-  updateAuctionLive();
-}
-
-function updateAuctionLive() {
-  const a = state.auction;
-  if (!a) return;
-  const me = state.players[0];
-  const remaining = Math.max(0, a.deadline - serverNow());
-  const pct = Math.max(0, Math.min(100, (remaining / AUCTION_MS) * 100));
-
-  const bar = $("#auction-bar");
-  if (bar) {
-    bar.style.transform = `scaleX(${pct / 100})`;
-    bar.classList.toggle("is-low", remaining <= 2000);
-  }
-  const timerEl = $("#auction-timer");
-  if (timerEl) timerEl.textContent = `${(remaining / 1000).toFixed(1)}s`;
-
-  const bidEl = $("#auction-bid");
-  if (bidEl) bidEl.textContent = `$${a.bid}`;
-
-  const leaderEl = $("#auction-leader");
-  if (leaderEl) {
-    const leader = a.leaderId ? state.players.find((p) => p.id === a.leaderId) : null;
-    leaderEl.textContent = leader ? leader.name : "NO BIDS YET";
-    leaderEl.style.color = leader ? leader.textColor : "var(--text-muted)";
-  }
-
-  $("#auction-card")?.querySelectorAll("[data-bid]").forEach((btn) => {
-    const inc = Number(btn.dataset.bid);
-    btn.disabled = me.cash < a.bid + inc;
-  });
-  const passBtn = $("#auction-pass");
-  if (passBtn) passBtn.disabled = !!a.passed?.p1;
-
-  const listEl = $("#auction-players");
-  if (listEl) {
-    listEl.innerHTML = state.players.map((p) => {
-      let status = "BIDDING";
-      let cls = "green";
-      if (p.id === a.leaderId) { status = "LEADING"; cls = "g300"; }
-      else if (a.passed[p.id]) { status = "PASSED"; cls = "ink-3"; }
-      else if (p.cash < BID_STEPS[0] || p.id !== "p1" && p.cash < a.bid + BID_STEPS[0]) { status = "BROKE"; cls = "red"; }
-      return `<div class="auction-player${p.id === a.leaderId ? " is-leading" : ""}">
-        <span class="ap-av">${avatarHTML(p, 2, state.players.indexOf(p))}</span>
-        <span class="t-label ap-name" style="color:${p.textColor}">${esc(p.name)}</span>
-        <span class="t-micro ap-st ${cls}">${status}</span>
-      </div>`;
-    }).join("");
-  }
-}
 
 /* ============================================================
    8b. TRADING
@@ -2178,7 +2017,7 @@ function enterParlor(code) {
   state.mortgaged = {};
   state.offers = [];
   state.deedDetail = null;
-  clearInterval(auctionTimer);
+  stopAuctionTimer();
   clearSave();
   closeAllSurfaces();
   state.log = ["ACTIVE DESIGN READY — ENTER THE PARLOR."];
@@ -2234,7 +2073,7 @@ function goHome() {
   // Release the seat on the server so the room can GC and peers stop
   // counting a home-screen player as online (A4-F3: ghost seats).
   if (state.phase !== "home") emitServer("leave-room", {}, () => {});
-  clearInterval(auctionTimer);
+  stopAuctionTimer();
   state.busy = false;
   state.rolling = false;
   state.turnStage = "roll";
@@ -2977,6 +2816,7 @@ configureSocialSurfaces({ emitServer, showView });
 configureAccountIdentity({ emitServer, say });
 configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal });
 configureTradeUi({ emitServer, say, renderChat, record });
+configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureProfileRender({ renderAchievements, loadSavedGame });
 configureNightShift({
