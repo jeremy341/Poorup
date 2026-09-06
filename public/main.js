@@ -75,6 +75,22 @@ import { cardFaceHTML } from "./clientCardsRender.js";
 import { deedLadderHTML, deedCardHTML } from "./clientDeedsRender.js";
 import { renderRightRail } from "./clientRailRender.js";
 import { renderGlobalEvent } from "./clientGlobalEventRender.js";
+import {
+  configureSurfaces,
+  setSurfaceReturnFocus,
+  syncSurfaceA11y,
+  openSurface,
+  closeSurface,
+  closeAllSurfaces,
+  focusSurface,
+  openConfirmModal,
+} from "./clientSurfaces.js";
+import {
+  toggleLogDrawerFromButton,
+  closeLogDrawer,
+  applyLogDrawerFilter,
+} from "./clientLogDrawer.js";
+import { bindKeyboard } from "./clientKeyboard.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -106,131 +122,6 @@ function playSound(name) {
 }
 
 
-/* ============================================================
-   SHARED SURFACE / DIALOG CONTROLLER
-   Keep every blocking surface keyboard-safe without coupling the
-   game state machine to a particular modal implementation.
-   ============================================================ */
-const SURFACE_SELECTORS = [
-  "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#choice-modal",
-  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bankruptcy-modal",
-  "#card-modal", "#card-gallery", "#gameover-modal",
-];
-
-/* Table popups belong only to a live game — blocked while parked at parlor home. */
-const GAME_POPUP = new Set([
-  "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal",
-  "#auction-modal", "#financing-modal", "#gameover-modal", "#bankruptcy-modal",
-]);
-let nextTableNoticeAt = 0;
-let surfaceReturnFocus = null;
-const surfaceInertNodes = new Set();
-let pendingConfirmation = null;
-
-function visibleSurfaces() {
-  return SURFACE_SELECTORS
-    .map((selector) => $(selector))
-    .filter((el) => el && !el.classList.contains("is-hidden"));
-}
-
-function surfaceFocusable(surface) {
-  return [...surface.querySelectorAll(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter((el) => !el.closest(".is-hidden") && el.getAttribute("aria-hidden") !== "true");
-}
-
-function syncSurfaceA11y() {
-  const visible = visibleSurfaces();
-  const active = visible.at(-1) || null;
-  surfaceInertNodes.forEach((node) => { node.inert = false; });
-  surfaceInertNodes.clear();
-  const setInert = (node) => {
-    if (!node || node === active) return;
-    node.inert = true;
-    surfaceInertNodes.add(node);
-  };
-  SURFACE_SELECTORS.forEach((selector) => {
-    const el = $(selector);
-    if (!el) return;
-    const hidden = el.classList.contains("is-hidden");
-    el.setAttribute("aria-hidden", String(hidden));
-    if (!hidden) el.setAttribute("aria-modal", "true");
-  });
-  document.querySelectorAll(".view").forEach((view) => {
-    if (active && !view.contains(active)) setInert(view);
-  });
-  if (active) {
-    let node = active;
-    while (node && node.parentElement) {
-      [...node.parentElement.children].forEach((sibling) => {
-        if (sibling !== node && !sibling.contains(active)) setInert(sibling);
-      });
-      node = node.parentElement;
-      if (node.classList?.contains("view")) break;
-    }
-  }
-  return active;
-}
-
-function openSurface(selector, focusSelector) {
-  const surface = $(selector);
-  if (GAME_POPUP.has(selector) && state.phase === "home") {
-    if (Date.now() >= nextTableNoticeAt) {
-      nextTableNoticeAt = Date.now() + 8000;
-      parlorNotice("TABLE NOTICE", "That notice belongs to the table — it can be opened during a game.");
-    }
-    return;
-  }
-  if (!surface) return;
-  const wasVisible = !surface.classList.contains("is-hidden");
-  if (!visibleSurfaces().length && document.activeElement instanceof HTMLElement) surfaceReturnFocus = document.activeElement;
-  surface.classList.remove("is-hidden");
-  surface.setAttribute("aria-hidden", "false");
-  syncSurfaceA11y();
-  if (wasVisible) return;
-  requestAnimationFrame(() => {
-    const preferred = focusSelector ? surface.querySelector(focusSelector) : null;
-    const target = preferred && !preferred.disabled ? preferred : surfaceFocusable(surface)[0];
-    target?.focus({ preventScroll: true });
-  });
-}
-
-function closeSurface(selector) {
-  const surface = $(selector);
-  if (!surface) return;
-  surface.classList.add("is-hidden");
-  surface.setAttribute("aria-hidden", "true");
-  const active = syncSurfaceA11y();
-  if (active) {
-    surfaceFocusable(active)[0]?.focus({ preventScroll: true });
-  } else if (surfaceReturnFocus && document.contains(surfaceReturnFocus)) {
-    surfaceReturnFocus.focus({ preventScroll: true });
-    surfaceReturnFocus = null;
-  }
-}
-
-function closeAllSurfaces() {
-  pendingConfirmation = null;
-  SURFACE_SELECTORS.forEach((selector) => {
-    const surface = $(selector);
-    if (surface) {
-      surface.classList.add("is-hidden");
-      surface.setAttribute("aria-hidden", "true");
-    }
-  });
-  syncSurfaceA11y();
-  surfaceReturnFocus = null;
-}
-
-function focusSurface(selector, focusSelector) {
-  const surface = $(selector);
-  if (!surface || surface.classList.contains("is-hidden")) return;
-  requestAnimationFrame(() => {
-    const preferred = focusSelector ? surface.querySelector(focusSelector) : null;
-    const target = preferred && !preferred.disabled ? preferred : surfaceFocusable(surface)[0];
-    target?.focus({ preventScroll: true });
-  });
-}
 
 
 function setActiveAppearance(choice) {
@@ -513,46 +404,6 @@ function profileDisplaySource() {
   return { account, profile, name, color, grid, designName: profile ? profileDesignName(profile) : activeMeta.label };
 }
 
-/**
- * Poorup-styled confirmation surface. Keep destructive actions inside the
- * shared dialog controller so they inherit focus trapping, Escape handling,
- * inert background behaviour, and focus restoration.
- */
-function openConfirmModal({ title = "Confirm action", message = "", confirmLabel = "CONFIRM", onConfirm } = {}) {
-  const card = $("#confirm-card");
-  if (!card) return;
-  pendingConfirmation = typeof onConfirm === "function" ? onConfirm : null;
-  card.innerHTML = `
-    <div class="confirm-body">
-      <div class="confirm-head">
-        <div>
-          <div class="t-micro red">CONFIRM ACTION</div>
-          <h2 class="t-section g100" id="confirm-title">${esc(title)}</h2>
-        </div>
-        <span data-sprite="diamond" data-size="3" aria-hidden="true"></span>
-      </div>
-      <p class="t-body ink-2 confirm-message" id="confirm-description">${esc(message)}</p>
-      <div class="confirm-actions">
-        <button class="btn-dark" type="button" id="confirm-cancel"><span class="t-label f11">CANCEL</span></button>
-        <button class="cta-red" type="button" id="confirm-accept"><span class="cta-text cta-text-sm">${esc(confirmLabel)}</span></button>
-      </div>
-    </div>`;
-  hydrateSprites(card);
-  openSurface("#confirm-modal", "#confirm-cancel");
-  $("#confirm-scrim")?.addEventListener("click", closeConfirmModal);
-  $("#confirm-cancel")?.addEventListener("click", closeConfirmModal);
-  $("#confirm-accept")?.addEventListener("click", () => {
-    const action = pendingConfirmation;
-    pendingConfirmation = null;
-    closeSurface("#confirm-modal");
-    action?.();
-  });
-}
-
-function closeConfirmModal() {
-  pendingConfirmation = null;
-  closeSurface("#confirm-modal");
-}
 
 function renderProfileSummary() {
   const source = profileDisplaySource();
@@ -752,7 +603,7 @@ function openAchievementModal(id, trigger = null) {
   const card = $("#achievement-detail-card");
   if (!card) return;
   card.innerHTML = `<div class="achievement-modal-rail" style="--achievement-accent:${accent}"></div><div class="achievement-detail-body"><div class="achievement-detail-head"><div class="achievement-detail-icon rarity-${achievement.rarity.toLowerCase()}${hidden ? " is-locked" : ""}">${achievementIconHTML(achievement.id)}</div><div><div class="achievement-detail-kicker"><span class="t-micro g400">${esc(achievement.category.toUpperCase())}</span><span class="t-micro rarity-${achievement.rarity.toLowerCase()}">${esc(achievement.rarity)}</span></div><h2 class="t-section achievement-detail-title" id="achievement-detail-title">${esc(title)}</h2></div><span class="achievement-detail-state t-micro">${status}</span></div><div class="achievement-detail-copy"><p class="t-body ink-2" id="achievement-detail-description">${esc(copy)}</p><p class="t-micro achievement-detail-note">${unlocked ? `RECORDED ${recordedAt ? `· ${formatStatDate(recordedAt)}` : "IN YOUR PARLOR LOG"}` : hidden ? "UNLOCK CONDITION HIDDEN" : "KEEP PLAYING TO UNLOCK"}</p></div><button class="cta-red achievement-detail-close" id="achievement-detail-close" type="button"><span class="cta-text cta-text-sm">CLOSE DETAILS</span></button></div>`;
-  if (trigger instanceof HTMLElement) surfaceReturnFocus = trigger;
+  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
   openSurface("#achievement-modal", "#achievement-detail-close");
   $("#achievement-detail-close")?.addEventListener("click", closeAchievementModal);
 }
@@ -2295,7 +2146,6 @@ let roomsDirectory = [];
 let roomsLoading = false;
 let roomsDirectoryTimeout = null;
 let roomsFilter = "all";
-let drawerFilter = "all";
 let roomModalTab = "browse"; // "browse" | "create" | "join"
 let createRoomSettings = {
   name: "",
@@ -3148,7 +2998,7 @@ function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null,
   if (propertyIndex != null && TILES[Number(propertyIndex)]?.kind === "property") financingPreviewDraft.propertyIndex = Number(propertyIndex);
   renderFinancingModal();
   openSurface("#financing-modal", "#financing-close");
-  if (trigger instanceof HTMLElement) surfaceReturnFocus = trigger;
+  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
 }
 
 function closeFinancingModal() {
@@ -5113,40 +4963,10 @@ function bindEvents() {
   $("#resume-btn")?.addEventListener("click", () => resumeGame());
 
   // log drawer
-  const renderDrawer = () => {
-    const filtered = state.log.filter((l) => matchesLogFilter(l, drawerFilter));
-    $("#drawer-body").innerHTML = filtered.length
-      ? filtered.map((l, i) => `<p class="t-body log-line"><span class="log-n">${String(filtered.length - i).padStart(2, "0")} </span>${esc(l)}</p>`).join("")
-      : `<p class="t-body ink-3">NO ${drawerFilter.toUpperCase()} ENTRIES.</p>`;
-    $("#drawer-count").textContent = `${filtered.length} ENTRIES`;
-    document.querySelectorAll(".drawer-filter").forEach((btn) => btn.classList.toggle("is-active", btn.dataset.logfilter === drawerFilter));
-  };
-  function matchesLogFilter(line, filter) {
-    if (filter === "all") return true;
-    if (filter === "cash") return /\$|BOUGHT|RENT|PAID|COLLECT|TAX|CASH/i.test(line);
-    if (filter === "trade") return /TRADE|OFFER|TRADED|DECLIN|ACCEPT/i.test(line);
-    if (filter === "auction") return /AUCTION|BID|WON|UNSOLD/i.test(line);
-    if (filter === "property") return /BOUGHT|MORTGAG|BUILT|HOUSE|HOTEL|DEED|WENT BANKRUPT/i.test(line);
-    return true;
-  }
-  const toggleDrawer = () => {
-    const d = $("#log-drawer");
-    d.classList.toggle("is-open");
-    const open = d.classList.contains("is-open");
-    d.setAttribute("aria-hidden", String(!open));
-    if (open) { renderDrawer(); focusSurface("#log-drawer"); }
-  };
-  $("#log-toggle-btn")?.addEventListener("click", toggleDrawer);
-  $("#drawer-close")?.addEventListener("click", () => {
-    const d = $("#log-drawer");
-    d.classList.remove("is-open");
-    d.setAttribute("aria-hidden", "true");
-  });
+  $("#log-toggle-btn")?.addEventListener("click", toggleLogDrawerFromButton);
+  $("#drawer-close")?.addEventListener("click", closeLogDrawer);
   document.querySelectorAll(".drawer-filter").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      drawerFilter = btn.dataset.logfilter || "all";
-      if ($("#log-drawer").classList.contains("is-open")) renderDrawer();
-    });
+    btn.addEventListener("click", () => applyLogDrawerFilter(btn));
   });
 
   // focus / mobile board mode
@@ -5696,148 +5516,27 @@ function bindEvents() {
   $("#card-gallery-close")?.addEventListener("click", closeCardGallery);
   $("#card-gallery .card-gallery-scrim")?.addEventListener("click", closeCardGallery);
 
-  // keyboard
-  window.addEventListener("keydown", (e) => {
-    const tag = e.target?.tagName;
-    const homeVisible = !$("#view-home").classList.contains("is-hidden");
-    if (homeVisible && state.phase === "home" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "p" && tag !== "INPUT" && tag !== "TEXTAREA" && !visibleSurfaces().length) {
-      e.preventDefault();
-      startNightShift();
-      return;
-    }
-    // Shift+P is the primary Night Shift door: it works from any parlor page
-    // and with modals open (the shift always belongs to Home, so go back
-    // first). Typing contexts and Ctrl/Meta/Alt chords stay untouched —
-    // Ctrl+P remains the browser's print shortcut everywhere else.
-    if (
-      state.phase === "home" && !nightShiftState.active
-      && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
-      && e.key.toLowerCase() === "p"
-      && tag !== "INPUT" && tag !== "TEXTAREA" && !e.target?.isContentEditable
-    ) {
-      e.preventDefault();
-      if (!homeVisible || visibleSurfaces().length) goHome();
-      startNightShift();
-      return;
-    }
-    const activeSurface = syncSurfaceA11y();
-    if (e.key === "Tab" && activeSurface) {
-      const focusables = surfaceFocusable(activeSurface);
-      if (!focusables.length) {
-        e.preventDefault();
-      } else {
-        const current = document.activeElement;
-        const index = focusables.indexOf(current);
-        const next = e.shiftKey
-          ? focusables[index <= 0 ? focusables.length - 1 : index - 1]
-          : focusables[index === focusables.length - 1 ? 0 : index + 1];
-        e.preventDefault();
-        next.focus({ preventScroll: true });
-      }
-      return;
-    }
-    const nightShiftOpen = !$("#night-shift").classList.contains("is-hidden");
-    if (nightShiftOpen) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        stopNightShift();
-        return;
-      }
-      if (e.key !== "Tab") return;
-    }
-    if (state.phase === "setup" && e.key === "Escape") {
-      e.preventDefault();
-      goHome();
-      return;
-    }
-    const roomsOpen = !$("#rooms-modal").classList.contains("is-hidden");
-    const accountOpen = !$("#account-modal").classList.contains("is-hidden");
-    if (accountOpen) { if (e.key === "Escape") closeAccountModal(); return; }
-    const confirmOpen = !$("#confirm-modal").classList.contains("is-hidden");
-    if (confirmOpen) { if (e.key === "Escape") closeConfirmModal(); return; }
-    const achievementOpen = !$("#achievement-modal").classList.contains("is-hidden");
-    if (achievementOpen) { if (e.key === "Escape") closeAchievementModal(); return; }
-    const rankingsOpen = !$("#rankings-modal").classList.contains("is-hidden");
-    if (rankingsOpen) { if (e.key === "Escape") closeSurface("#rankings-modal"); return; }
-    const socialOpen = !$("#social-modal").classList.contains("is-hidden");
-    if (socialOpen) { if (e.key === "Escape") closeSurface("#social-modal"); return; }
-    const playerOpen = !$("#player-modal").classList.contains("is-hidden");
-    if (playerOpen) { if (e.key === "Escape") closeSurface("#player-modal"); return; }
-    const financingOpen = !$("#financing-modal").classList.contains("is-hidden");
-    if (financingOpen) { if (e.key === "Escape") closeFinancingModal(); return; }
-    const galleryOpen = !$("#card-gallery").classList.contains("is-hidden");
-    if (galleryOpen) { if (e.key === "Escape") closeCardGallery(); return; }
-    const choiceOpen = !$("#choice-modal").classList.contains("is-hidden");
-    // auction modal is always locked
-    if (state.auction) {
-      if (e.key === "Escape") e.preventDefault();
-      return;
-    }
-    // choice modal: locked in auction mode, dismissible in normal mode
-    if (state.pendingBuyTile != null && state.settings.auction) {
-      if (e.key === "Escape") e.preventDefault();
-      return;
-    }
-    if (state.pendingBuyTile != null && !state.settings.auction && e.key === "Escape") {
-      closeChoiceModalAsPass();
-      return;
-    }
-    if (state.pendingBuyTile != null && !state.settings.auction && choiceOpen) return;
-    if (roomsOpen) { if (e.key === "Escape") closeRoomsModal(); return; }
-    if (state.profileDraft) { if (e.key === "Escape") closeProfileEditor(false); return; }
-    const offerOpen = !$("#offer-modal").classList.contains("is-hidden");
-    if (offerOpen) { if (e.key === "Escape") rejectOpenOffer(); return; }
-    if (!state.card && !$("#card-modal").classList.contains("is-hidden")) {
-      if (e.key === "Escape") { state.card = null; closeSurface("#card-modal"); }
-      return;
-    }
-    if (state.gameOver || !$("#gameover-modal").classList.contains("is-hidden")) {
-      if (e.key === "Escape") e.preventDefault();
-      return;
-    }
-    if (state.deedDetail != null) { if (e.key === "Escape") closeDeedDetail(); return; }
-    if (state.tradeWith) { if (e.key === "Escape") closeTradeModal(); return; }
-    if (state.selectedTile) { if (e.key === "Escape") closePopup(); return; }
-    if (e.key === "Escape" && $("#log-drawer").classList.contains("is-open")) {
-      $("#log-drawer").classList.remove("is-open");
-      $("#log-drawer").setAttribute("aria-hidden", "true");
-      return;
-    }
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
-    if (state.phase === "home" && e.key.toLowerCase() === "b") {
-      e.preventDefault();
-      setHomeTab("rooms");
-      openRoomsModal("browse");
-      return;
-    }
-    if (state.phase === "home" && e.key.toLowerCase() === "c") {
-      e.preventDefault();
-      openRoomsModal("create");
-      return;
-    }
-    if (state.phase === "home" && e.key.toLowerCase() === "p") {
-      e.preventDefault();
-      openProfileEditor("home");
-      return;
-    }
-    if (state.phase === "home" && e.key.toLowerCase() === "j") {
-      e.preventDefault();
-      openRoomsModal("join");
-      return;
-    }
-    if (e.key.toLowerCase() === "l") {
-      e.preventDefault();
-      const d = $("#log-drawer");
-      d.classList.toggle("is-open");
-      d.setAttribute("aria-hidden", String(!d.classList.contains("is-open")));
-      if (d.classList.contains("is-open")) renderDrawer();
-      return;
-    }
-    if (e.code === "Space" || e.key.toLowerCase() === "r") {
-      if (state.phase !== "playing") return;
-      e.preventDefault();
-      primaryTurnAction();
-    }
+  // keyboard (controller lives in clientKeyboard.js)
+  bindKeyboard({
+    startNightShift,
+    stopNightShift,
+    isNightShiftActive: () => nightShiftState.active,
+    goHome,
+    setHomeTab,
+    openRoomsModal,
+    openProfileEditor,
+    closeAccountModal,
+    closeAchievementModal,
+    closeFinancingModal,
+    closeCardGallery,
+    closeChoiceModalAsPass,
+    closeRoomsModal,
+    closeProfileEditor,
+    rejectOpenOffer,
+    closeDeedDetail,
+    closeTradeModal,
+    closePopup,
+    primaryTurnAction,
   });
 }
 
@@ -5861,6 +5560,7 @@ function openCardPreviewFromUrl() {
 /* ============================================================
    10. INIT
    ============================================================ */
+configureSurfaces({ notice: parlorNotice });
 renderHome();
 buildBoard(onTileClick);
 hydrateSprites();
