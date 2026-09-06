@@ -161,6 +161,7 @@ import {
   closeTradeModal,
   renderTradeModal,
 } from "./clientTradeUi.js";
+import { bindParlorSurfaces } from "./clientParlorBindings.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -2477,118 +2478,7 @@ function bindEvents() {
     });
   });
 
-  $("#player-list")?.addEventListener("click", (event) => {
-    const player = event.target.closest("[data-player-id]");
-    if (player) openPlayerSurface(player.dataset.playerId);
-  });
-  const handleRankingClick = (event) => {
-    const scope = event.target.closest("[data-ranking-scope]");
-    const inGameModal = event.currentTarget?.id === "rankings-card" && ["setup", "lobby", "playing"].includes(state.phase);
-    if (scope) { if (inGameModal) { state.leaderboard.scope = scope.dataset.rankingScope; renderRankingsSurface("#rankings-card"); } else openRankingsSurface(state.leaderboard.metric, scope.dataset.rankingScope); return; }
-    const metric = event.target.closest("[data-ranking-metric]");
-    if (metric) { if (inGameModal) { state.leaderboard.metric = metric.dataset.rankingMetric; renderRankingsSurface("#rankings-card"); } else openRankingsSurface(metric.dataset.rankingMetric); return; }
-    const player = event.target.closest("[data-ranking-player]");
-    if (player) openPlayerSurface(player.dataset.rankingPlayer);
-    if (event.target.closest(".rankings-close, #rankings-close")) event.currentTarget?.id === "rankings-page-content" ? leaveRoomForHome() : closeSurface("#rankings-modal");
-  };
-  $("#rankings-card")?.addEventListener("click", handleRankingClick);
-  $("#rankings-page-content")?.addEventListener("click", handleRankingClick);
-  const handleRankingSubmit = (event) => {
-    if (!event.target.matches("[data-ranking-search-form]")) return;
-    event.preventDefault();
-    const input = event.target.querySelector("[data-ranking-search-input]");
-    state.rankingSearchQuery = String(input?.value || "").trim();
-    state.rankingSearchResults = [];
-    const surface = event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
-    if (state.rankingSearchQuery.length < 3) {
-      renderRankingsSurface(surface);
-      return;
-    }
-    emitServer("search-players", { query: state.rankingSearchQuery, exact: true }, (response) => {
-      state.rankingSearchResults = response?.players || [];
-      renderRankingsSurface(surface);
-    });
-  };
-  $("#rankings-card")?.addEventListener("submit", handleRankingSubmit);
-  $("#rankings-page-content")?.addEventListener("submit", handleRankingSubmit);
-  const handleSocialClick = (event) => {
-    const tab = event.target.closest("[data-social-tab]");
-    if (tab) { state.socialTab = tab.dataset.socialTab; renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card"); return; }
-    const accountAction = event.target.closest("[data-social-action=account]");
-    if (accountAction) { openAccountModal("register"); return; }
-    const player = event.target.closest("[data-social-player]");
-    if (player) { openPlayerSurface(player.dataset.socialPlayer); return; }
-    const request = event.target.closest("[data-social-request]");
-    if (request) {
-      emitServer("respond-friend-request", { friendshipId: request.dataset.friendshipId, accept: request.dataset.socialRequest === "accept" }, () => {});
-      return;
-    }
-    const invite = event.target.closest("[data-social-invite]");
-    if (invite) {
-      emitServer("respond-room-invite", { inviteId: invite.dataset.inviteId, accept: invite.dataset.socialInvite === "accept" }, () => {});
-      return;
-    }
-    const notification = event.target.closest("[data-notification-read]");
-    if (notification) { emitServer("mark-notification-read", { notificationId: notification.dataset.notificationRead }, () => {}); return; }
-    const clearRecent = event.target.closest("[data-social-clear-recent]");
-    if (clearRecent) {
-      emitServer("clear-recent-players", {}, (response) => {
-        if (response?.success === false) {
-          announceSocialNotification({ body: response.error || "Recent players could not be cleared." });
-          return;
-        }
-        state.social.recentPlayers = [];
-        renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card");
-      });
-      return;
-    }
-    const cancelRequest = event.target.closest("[data-social-request-cancel]");
-    if (cancelRequest) {
-      emitServer("cancel-friend-request", { friendshipId: cancelRequest.dataset.friendshipId }, () => {});
-      return;
-    }
-    if (event.target.closest(".social-close, #social-close")) event.currentTarget?.id === "social-page-content" ? leaveRoomForHome() : closeSurface("#social-modal");
-  };
-  $("#social-card")?.addEventListener("click", handleSocialClick);
-  $("#social-page-content")?.addEventListener("click", handleSocialClick);
-  const handleSocialSubmit = (event) => {
-    if (!event.target.matches("[data-social-search-form]")) return;
-    event.preventDefault();
-    const form = event.target;
-    const input = form.querySelector("[data-social-search-input]");
-    state.socialSearchQuery = input?.value || "";
-    if (input) input.setAttribute("value", state.socialSearchQuery);
-    emitServer("search-players", { query: input?.value || "" }, (response) => {
-      state.socialSearchResults = response?.players || [];
-      const results = form.querySelector("[data-social-search-results]");
-      if (results) results.innerHTML = state.socialSearchResults.length ? state.socialSearchResults.map(player => socialPlayerRowHTML(player, "VIEW")).join("") : `<p class="t-micro ink-3 social-empty">NO PLAYERS FOUND.</p>`;
-      if (input) {
-        input.value = state.socialSearchQuery;
-        input.setAttribute("value", state.socialSearchQuery);
-      }
-      const surface = form.closest("#social-page-content") ? "#social-page-content" : "#social-card";
-      renderSocialSurface(surface);
-    });
-  };
-  $("#social-card")?.addEventListener("submit", handleSocialSubmit);
-  $("#social-page-content")?.addEventListener("submit", handleSocialSubmit);
-  $("#player-card")?.addEventListener("click", (event) => {
-    if (event.target.closest("#player-modal-close")) { closeSurface("#player-modal"); return; }
-    if (event.target.closest("#player-modal-back")) { state.selectedPlayerView = "profile"; renderPlayerSurface(); return; }
-    const historyScope = event.target.closest("[data-player-history-scope]");
-    if (historyScope) { state.selectedPlayerHistoryScope = historyScope.dataset.playerHistoryScope || "all"; renderPlayerSurface(); return; }
-    const action = event.target.closest("[data-player-action]");
-    if (!action || action.disabled || !state.selectedPlayer) return;
-    const targetId = state.selectedPlayer.accountId;
-    if (action.dataset.playerAction === "friend") emitServer("send-friend-request", { targetAccountId: targetId }, (response) => { if (response?.success === false) announceSocialNotification({ body: response.error || "Friend request could not be sent." }); });
-    if (action.dataset.playerAction === "invite") emitServer("send-room-invite", { targetAccountId: targetId }, (response) => { if (response?.success === false) announceSocialNotification({ body: response.error || "Room invite could not be sent." }); });
-    if (action.dataset.playerAction === "history") emitServer("get-match-history", { accountId: targetId }, (response) => { if (response?.success === false) { announceSocialNotification({ body: response.error || "Match history is unavailable." }); return; } state.selectedPlayerHistory = response?.history || []; state.selectedPlayerView = "history"; renderPlayerSurface(); });
-    if (action.dataset.playerAction === "block") emitServer("block-player", { otherAccountId: targetId }, (response) => { if (response?.success !== false) closeSurface("#player-modal"); });
-    if (action.dataset.playerAction === "report") emitServer("report-player", { otherAccountId: targetId, reason: "player report from in-room card" }, (response) => { if (response?.success !== false) { announceSocialNotification({ body: "Report submitted to the parlor moderators." }); closeSurface("#player-modal"); } });
-  });
-  $("#social-scrim")?.addEventListener("click", () => closeSurface("#social-modal"));
-  $("#rankings-scrim")?.addEventListener("click", () => closeSurface("#rankings-modal"));
-  $("#player-scrim")?.addEventListener("click", () => closeSurface("#player-modal"));
+  bindParlorSurfaces({ emitServer, leaveRoomForHome });
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.
