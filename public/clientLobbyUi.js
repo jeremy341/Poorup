@@ -102,9 +102,17 @@ function setupSeatColor() {
 
 function setupAppearanceChoice() {
   const seatColor = setupSeatColor();
+  // Identity first: a custom design is its own identity and must never
+  // collapse onto a color-matching preset. When the local design already
+  // explains the seat color, it IS the choice.
+  const local = activeAppearance();
+  const localColor = String(getAppearanceMeta(local).color || "").toLowerCase();
+  if (localColor && localColor === seatColor) return local;
+  // Server-authoritative fallback: the table assigned a color the local
+  // design does not explain, so the seat color shows as the active row.
   const seatPreset = APPEARANCES.findIndex((a) => String(a.color).toLowerCase() === seatColor);
   if (seatPreset >= 0) return seatPreset;
-  return activeAppearance();
+  return local;
 }
 
 function setupTakenColors() {
