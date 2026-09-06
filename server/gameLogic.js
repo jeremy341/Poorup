@@ -1,4 +1,14 @@
 import crypto from 'crypto';
+import { randomFloat, randomInt } from './random.js';
+import {
+  MARKET_FEE_RATE,
+  MARKET_INSTRUMENTS,
+  advanceMarket as stepMarketQuotes,
+  applyMarketBuy as marketBuyLeg,
+  applyMarketSell as marketSellLeg,
+  freshMarketQuotes,
+  marketOrderRejection as rejectMarketOrder
+} from './marketLogic.js';
 import {
   bankruptcyRefusal,
   clearQuitObligations,
@@ -22,140 +32,41 @@ import {
   repayBankLoan,
   takeBankLoan
 } from './loanLogic.js';
-
-const DEFAULT_ROOM_SETTINGS = {
-  maxPlayers: 4,
-  doubleRent: false,
-  vacationCash: true,
-  auction: true,
-  trading: true,
-  doubleGo: false,
-  noRentWhileInPrison: false,
-  mortgage: true,
-  evenBuild: true,
-  randomizePlayerOrder: false,
-  houseLimit: 32,
-  hotelLimit: 12,
-  turnTimer: 0,
-  bankruptMode: 'elim',
-  bots: 0,
-  botPersonality: 'survivor',
-  startingCash: 1500,
-  bankLoans: true,
-  bankLoanSeverity: 'predatory',
-  // Global headlines are intentionally a single on/off rule. Rarity,
-  // severity, duration, and combinations are derived from the game clock.
-  globalEvents: false,
-  casino: false,
-  market: false,
-  // Kept for backwards-compatible snapshots only; client values are ignored.
-  globalEventDuration: 5,
-  globalEventMax: 1
-};
-
-// Room settings: a raw client value passes through its key's normalizer
-// before being stored on both the room and its game. A normalizer returns
-// SETTING_REJECTED to leave the stored value untouched — the old early
-// `return`s. Keys with no entry keep the generic rule: a setting that is
-// currently boolean parses the four truthy spellings, a string is trimmed,
-// and anything else is stored as received.
-const SETTING_REJECTED = Symbol('setting-rejected');
-const ROOM_FLAG_TRUE_VALUES = [true, 'true', 1, '1'];
-// Rarity spellings are accepted for globalEvents only; every other boolean
-// key uses ROOM_FLAG_TRUE_VALUES.
-const GLOBAL_EVENT_ON_VALUES = [true, 'true', 'on', 'rare', 'hardcore', 1, '1'];
-const ROOM_BOT_PERSONALITIES = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'];
-// Legacy clients may still send these fields; the server owns scaling now.
-const LEGACY_SCALED_SETTINGS = ['globalEventDuration', 'globalEventMax'];
-
-function toFiniteSettingNumber(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : SETTING_REJECTED;
-}
-
-function clampSetting(value, min, max) {
-  const parsed = toFiniteSettingNumber(value);
-  if (parsed === SETTING_REJECTED) return SETTING_REJECTED;
-  return Math.max(min, Math.min(max, Math.floor(parsed)));
-}
-
-function floorSettingAtZero(value) {
-  const parsed = toFiniteSettingNumber(value);
-  if (parsed === SETTING_REJECTED) return SETTING_REJECTED;
-  return Math.max(0, Math.floor(parsed));
-}
-
-// The legacy duration/max knobs snap to the two-step ladder the old client
-// UI expected. Unreachable while the legacy guard above stands, kept so the
-// clamps live with the rest of the table.
-function snapFlooredSetting(value, threshold, atOrAbove, below) {
-  const floored = floorSettingAtZero(value);
-  if (floored === SETTING_REJECTED) return SETTING_REJECTED;
-  return floored >= threshold ? atOrAbove : below;
-}
-
-function normalizeBotPersonality(value) {
-  const lowered = String(value).toLowerCase();
-  return ROOM_BOT_PERSONALITIES.includes(lowered) ? lowered : 'survivor';
-}
-
-const ROOM_SETTING_NORMALIZERS = {
-  maxPlayers: value => clampSetting(value, 2, 4),
-  // Bots are clamped against the live maxPlayers so seat math stays coherent.
-  bots: (value, room) => clampSetting(value, 0, room.settings.maxPlayers - 1),
-  startingCash: floorSettingAtZero,
-  houseLimit: floorSettingAtZero,
-  hotelLimit: floorSettingAtZero,
-  turnTimer: floorSettingAtZero,
-  globalEventDuration: value => snapFlooredSetting(value, 10, 10, 5),
-  globalEventMax: value => snapFlooredSetting(value, 2, 2, 1),
-  globalEvents: value => GLOBAL_EVENT_ON_VALUES.includes(value),
-  botPersonality: normalizeBotPersonality
-};
+import {
+  canBuildOnTile,
+  canMortgageTile,
+  canSellFromTile,
+  canUnmortgageTile,
+  isTradeableTile
+} from './propertyRules.js';
+import {
+  DEFAULT_ROOM_SETTINGS,
+  LEGACY_SCALED_SETTINGS,
+  ROOM_FLAG_TRUE_VALUES,
+  ROOM_SETTING_NORMALIZERS,
+  SETTING_REJECTED
+} from './roomSettings.js';
+import {
+  JAIL_FINE,
+  JAIL_MAX_TURNS,
+  PROPERTY_HOUSE_COST_BY_GROUP,
+  PROPERTY_RENT_MULTIPLIERS,
+  RAILROAD_RENT,
+  START_TILE_INDEX,
+  SURPRISE_DECK,
+  TREASURE_DECK,
+  cloneTiles,
+  rollDice,
+  shuffleArray
+} from './gameData.js';
 
 const AUCTION_DURATION_MS = 5000;
 const AUCTION_BID_COOLDOWN_MS = 300;
 const CASINO_MAX_BET = 500;
 const CASINO_BET_COLORS = ['red', 'black', 'green'];
-// Loan states that keep borrowed cash pinned: the bank loan and the active
-// side of a player contract share this exact status pair.
-const MARKET_FEE_RATE = 0.02;
 const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
-const MARKET_INSTRUMENTS = [
-  ['brazil', 'BRAZIL', 100], ['ghana', 'GHANA', 100], ['thailand', 'THAILAND', 100],
-  ['japan', 'JAPAN', 100], ['netherlands', 'NETHERLANDS', 100], ['canada', 'CANADA', 100],
-  ['switzerland', 'SWITZERLAND', 100], ['singapore', 'SINGAPORE', 100],
-  ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
-].map(([id, name, price]) => ({ id, name, price }));
-
-// Player-contract vocabularies live in contractLogic.js; the market order
-// gates below are in the exact historical check order and
-// server/contracts-market.test.js pins every string.
-const MARKET_SIDES = ['buy', 'sell'];
-const MARKET_ORDER_GUARDS = [
-  { test: game => !game.settings.market, error: 'Market access is off for this room.' },
-  { test: (game, player) => !game.started || !player || player.bankrupt || player.disconnected, error: 'Market access is unavailable right now.' },
-  { test: (game, player) => player.id !== game.currentPlayerId, error: 'Market orders are available during your turn.' },
-  { test: (game, player) => (player.marketActionsThisTurn || 0) >= 1, error: 'You have already placed a market order this turn.' },
-  { test: game => game.pendingPayment || game.auction || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
-  { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
-];
-const PROPERTY_HOUSE_COST_BY_GROUP = {
-  Brown: 50,
-  'Light Blue': 50,
-  Pink: 100,
-  Orange: 100,
-  Magenta: 100,
-  Red: 150,
-  Yellow: 150,
-  Green: 200,
-  'Dark Blue': 200
-};
-const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
-const RAILROAD_RENT = [25, 50, 100, 200];
-const JAIL_FINE = 50;
-const JAIL_MAX_TURNS = 3;
-const START_TILE_INDEX = 0;
+// Market vocabularies, the fee rate, the instruments, and the order gates now
+// live in marketLogic.js; server/contracts-market.test.js pins every string.
 const GLOBAL_EVENT_COOLDOWN_ROUNDS = 3;
 const GLOBAL_EVENT_MIN_ROUND = 3;
 
@@ -413,94 +324,6 @@ const GLOBAL_EVENT_SETTLEMENT_STEPS = [
   { appliesTo: (game, event) => event.id === 'tax-audit' && Boolean(event.targetPlayerId), handler: 'settleTaxAuditPenalty' }
 ];
 
-const DEFAULT_TILES = [
-  { index: 0, name: 'Start', type: 'start' },
-  { index: 1, name: 'Salvador', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#7b5029' },
-  { index: 2, name: 'Treasure', type: 'chest' },
-  { index: 3, name: 'Rio', type: 'property', group: 'Brown', price: 60, rent: 10, color: '#7b5029' },
-  { index: 4, name: 'Earnings Tax', type: 'tax', amount: 200 },
-  { index: 5, name: 'ACC Airport', type: 'railroad', price: 200, rent: 25 },
-  { index: 6, name: 'Accra', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#3e7d7b' },
-  { index: 7, name: 'Surprise?', type: 'chance' },
-  { index: 8, name: 'Tema', type: 'property', group: 'Light Blue', price: 100, rent: 14, color: '#3e7d7b' },
-  { index: 9, name: 'Kumasi', type: 'property', group: 'Light Blue', price: 120, rent: 16, color: '#3e7d7b' },
-  { index: 10, name: 'Passing By', type: 'jail' },
-  { index: 11, name: 'Pattaya', type: 'property', group: 'Pink', price: 140, rent: 10, color: '#a04e6f' },
-  { index: 12, name: 'Electric Company', type: 'utility', price: 150, rent: 12 },
-  { index: 13, name: 'Chiang Mai', type: 'property', group: 'Pink', price: 140, rent: 12, color: '#a04e6f' },
-  { index: 14, name: 'Bangkok', type: 'property', group: 'Pink', price: 160, rent: 14, color: '#a04e6f' },
-  { index: 15, name: 'BKK Airport', type: 'railroad', price: 200, rent: 25 },
-  { index: 16, name: 'Kyoto', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#b96d2a' },
-  { index: 17, name: 'Treasure', type: 'chest' },
-  { index: 18, name: 'Osaka', type: 'property', group: 'Orange', price: 180, rent: 14, color: '#b96d2a' },
-  { index: 19, name: 'Tokyo', type: 'property', group: 'Orange', price: 200, rent: 16, color: '#b96d2a' },
-  { index: 20, name: 'Vacation', type: 'vacation' },
-  { index: 21, name: 'Eindhoven', type: 'property', group: 'Red', price: 220, rent: 18, color: '#87231e' },
-  { index: 22, name: 'Surprise?', type: 'chance' },
-  { index: 23, name: 'Rotterdam', type: 'property', group: 'Red', price: 220, rent: 18, color: '#87231e' },
-  { index: 24, name: 'Amsterdam', type: 'property', group: 'Red', price: 240, rent: 20, color: '#87231e' },
-  { index: 25, name: 'AMS Airport', type: 'railroad', price: 200, rent: 25 },
-  { index: 26, name: 'Calgary', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#b18a2e' },
-  { index: 27, name: 'Vancouver', type: 'property', group: 'Yellow', price: 260, rent: 22, color: '#b18a2e' },
-  { index: 28, name: 'Water Company', type: 'utility', price: 150, rent: 12 },
-  { index: 29, name: 'Toronto', type: 'property', group: 'Yellow', price: 280, rent: 24, color: '#b18a2e' },
-  { index: 30, name: 'Go to Prison', type: 'goToJail' },
-  { index: 31, name: 'Bern', type: 'property', group: 'Green', price: 300, rent: 26, color: '#4b853d' },
-  { index: 32, name: 'Geneva', type: 'property', group: 'Green', price: 300, rent: 26, color: '#4b853d' },
-  { index: 33, name: 'Treasure', type: 'chest' },
-  { index: 34, name: 'Zurich', type: 'property', group: 'Green', price: 320, rent: 28, color: '#4b853d' },
-  { index: 35, name: 'MB Airport', type: 'railroad', price: 200, rent: 25 },
-  { index: 36, name: 'Surprise?', type: 'chance' },
-  { index: 37, name: 'Downtown', type: 'property', group: 'Dark Blue', price: 400, rent: 35, color: '#286ea1' },
-  { index: 38, name: 'Premium Tax', type: 'tax', amount: 75 },
-  { index: 39, name: 'Marina Bay', type: 'property', group: 'Dark Blue', price: 400, rent: 50, color: '#286ea1' }
-];
-
-const SURPRISE_DECK = [
-  { text: 'Advance to Marina Bay', action: 'moveTo', tileIndex: 39 },
-  { text: 'Advance to Start and collect $200', action: 'collectStart', amount: 200 },
-  { text: 'Advance to Amsterdam', action: 'moveTo', tileIndex: 24 },
-  { text: 'Advance to Pattaya', action: 'moveTo', tileIndex: 11 },
-  { text: 'Advance to the next Airport and pay double rent if owned', action: 'nearestRailroad', multiplier: 2 },
-  { text: 'Advance to the next Airport and pay double rent if owned', action: 'nearestRailroad', multiplier: 2 },
-  { text: 'Advance to the next Utility and pay ten times the dice roll if owned', action: 'nearestUtility', multiplier: 10 },
-  { text: 'Bank dividend — collect $50', action: 'collect', amount: 50 },
-  { text: 'Keep this card until needed: Get Out of Prison', action: 'jailFree' },
-  { text: 'Move back three spaces', action: 'moveBack', steps: 3 },
-  { text: 'Go directly to Prison', action: 'goToJail' },
-  { text: 'Building repairs — pay $25 per house and $100 per hotel', action: 'repairs', houseCost: 25, hotelCost: 100 },
-  { text: 'Speeding fine — pay $15', action: 'pay', amount: 15 },
-  { text: 'Advance to ACC Airport', action: 'moveTo', tileIndex: 5 },
-  { text: 'Elected chairperson — pay each player $50', action: 'payEach', amount: 50 },
-  { text: 'Building loan matures — collect $150', action: 'collect', amount: 150 }
-];
-
-const TREASURE_DECK = [
-  { text: 'Advance to Start and collect $200', action: 'collectStart', amount: 200 },
-  { text: 'Bank error — collect $200', action: 'collect', amount: 200 },
-  { text: "Doctor's fee — pay $50", action: 'pay', amount: 50 },
-  { text: 'Investment sale — collect $50', action: 'collect', amount: 50 },
-  { text: 'Keep this card until needed: Get Out of Prison', action: 'jailFree' },
-  { text: 'Go directly to Prison', action: 'goToJail' },
-  { text: 'Parlor show — collect $50 from each player', action: 'collectFromEach', amount: 50 },
-  { text: 'Tax refund — collect $20', action: 'collect', amount: 20 },
-  { text: 'Insurance matures — collect $100', action: 'collect', amount: 100 },
-  { text: 'Hospital fee — pay $100', action: 'pay', amount: 100 },
-  { text: 'School tax — pay $150', action: 'pay', amount: 150 },
-  { text: 'Consulting fee — collect $25', action: 'collect', amount: 25 },
-  { text: 'Street repairs — pay $40 per house and $115 per hotel', action: 'repairs', houseCost: 40, hotelCost: 115 },
-  { text: 'Holiday fund matures — collect $100', action: 'collect', amount: 100 },
-  { text: 'Beauty contest — collect $10', action: 'collect', amount: 10 },
-  { text: 'Inheritance — collect $100', action: 'collect', amount: 100 }
-];
-
-function randomInt(min, max) {
-  return crypto.randomInt(min, max + 1);
-}
-
-function randomFloat() {
-  return crypto.randomInt(0, 1_000_000) / 1_000_000;
-}
 
 // Roulette mapping: pocket 0 is green, the rest split on the classic red set.
 function roulettePocketColor(pocket) {
@@ -535,25 +358,6 @@ function resolveFreeAppearanceColor(players, requestedColor, self = null) {
   return free || requestedColor;
 }
 
-function rollDice() {
-  return [randomInt(1, 6), randomInt(1, 6)];
-}
-
-function shuffleArray(array) {
-  for (let i = array.length - 1; i > 0; i -= 1) {
-    const j = randomInt(0, i);
-    [array[i], array[j]] = [array[j], array[i]];
-  }
-  return array;
-}
-
-function cloneTiles() {
-  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0, equityShares: [] }));
-}
-
-function freshMarketQuotes() {
-  return Object.fromEntries(MARKET_INSTRUMENTS.map(instrument => [instrument.id, instrument.price]));
-}
 
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
@@ -1210,67 +1014,23 @@ class GameState {
   }
 
   isTradeableTile(tile) {
-    if (!tile || !tile.ownerId) return false;
-    if (tile.mortgaged) return false;
-    if (tile.equityShares?.length) return false;
-    const owner = this.getPlayerById(tile.ownerId);
-    if (owner && (this.isLoanCollateral(owner, tile) || this.isPlayerContractCollateral(owner, tile))) return false;
-    return (tile.type === 'property' || tile.type === 'utility' || tile.type === 'railroad') && (tile.houseCount || 0) === 0;
+    return isTradeableTile(this, tile);
   }
 
   canBuildOnTile(player, tile) {
-    if (!player || !tile || tile.type !== 'property') return false;
-    if (this.isConstructionBlocked()) return false;
-    if (tile.ownerId !== player.id || tile.mortgaged) return false;
-    if (!this.hasFullSet(player.id, tile.group)) return false;
-    const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
-    if (!groupTiles.length) return false;
-    if (groupTiles.some(entry => entry.mortgaged)) return false;
-    if (!this.settings.evenBuild) {
-      return (tile.houseCount || 0) < 5;
-    }
-    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
-    const minLevel = Math.min(...houseLevels);
-    return (tile.houseCount || 0) === minLevel && (tile.houseCount || 0) < 5;
+    return canBuildOnTile(this, player, tile);
   }
 
   canSellFromTile(player, tile) {
-    if (!player || !tile || tile.type !== 'property') return false;
-    if (tile.ownerId !== player.id) return false;
-    const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
-    if (!groupTiles.length) return false;
-    if (!this.settings.evenBuild) {
-      return (tile.houseCount || 0) > 0;
-    }
-    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
-    const maxLevel = Math.max(...houseLevels);
-    return (tile.houseCount || 0) === maxLevel && (tile.houseCount || 0) > 0;
+    return canSellFromTile(this, player, tile);
   }
 
   canMortgageTile(player, tile) {
-    if (!player || !tile || tile.ownerId !== player.id) return false;
-    if (!this.settings.mortgage) return false;
-    if (this.globalEventActive('credit-freeze') || this.globalEventActive('bank-run') || this.activeEventEffects().mortgagesBlocked) return false;
-    if (this.isLoanCollateral(player, tile) || this.isPlayerContractCollateral(player, tile)) return false;
-    if (tile.equityShares?.length) return false;
-    if (tile.type !== 'property' && tile.type !== 'utility' && tile.type !== 'railroad') return false;
-    if ((tile.houseCount || 0) > 0) return false;
-    if (tile.mortgaged) return false;
-    if (tile.type === 'property') {
-      const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
-      if (groupTiles.some(entry => (entry.houseCount || 0) > 0)) {
-        return false;
-      }
-    }
-    return true;
+    return canMortgageTile(this, player, tile);
   }
 
   canUnmortgageTile(player, tile) {
-    return Boolean(player && tile && tile.ownerId === player.id && tile.mortgaged)
-      && !this.globalEventActive('housing-bubble')
-      && !this.globalEventActive('credit-freeze')
-      && !this.globalEventActive('bank-run')
-      && !this.isPlayerContractCollateral(player, tile);
+    return canUnmortgageTile(this, player, tile);
   }
 
   applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
@@ -2010,16 +1770,7 @@ class GameState {
   }
 
   advanceMarket() {
-    if (!this.settings.market) return;
-    this.marketRound += 1;
-    const volatility = Number(this.activeEventEffects().marketVolatility);
-    const spread = Number.isFinite(volatility) && volatility > 0 ? 0.06 * volatility : 0.06;
-    Object.keys(this.marketQuotes).forEach((id) => {
-      const drift = (randomFloat() * (spread * 2)) - spread;
-      const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
-      const modifier = Number.isFinite(eventMultiplier) && eventMultiplier > 0 ? eventMultiplier : 1;
-      this.marketQuotes[id] = Math.max(10, Math.round(this.marketQuotes[id] * (1 + drift) * modifier));
-    });
+    stepMarketQuotes(this);
   }
 
   tradeMarket(socketId, instrumentId, side, quantity, requestId = null) {
@@ -2049,38 +1800,15 @@ class GameState {
   }
 
   marketOrderRejection(player, instrument, direction, amount) {
-    const guard = MARKET_ORDER_GUARDS.find(entry => entry.test(this, player));
-    if (guard) return { success: false, error: guard.error };
-    if (!instrument || !MARKET_SIDES.includes(direction)) return { success: false, error: 'Choose a valid market order.' };
-    if (!Number.isInteger(amount) || amount < 1 || amount > 1000) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
-    return null;
+    return rejectMarketOrder({ game: this, player, instrument, direction, amount });
   }
 
-  applyMarketBuy(player, id, position, { quote, gross, fee, amount }) {
-    const total = gross + fee;
-    if (player.cash < total) return { success: false, error: 'Not enough cash for this order.' };
-    if (this.hasLoanBackedCash(player)) return { success: false, error: 'Loan-backed cash cannot be used for market orders.' };
-    player.cash -= total;
-    position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
-    position.quantity += amount;
-    const eventMultiplier = Number(this.activeEventEffects().marketPriceMultiplier);
-    if (this.globalEvent?.phase === 'active' && Number.isFinite(eventMultiplier) && eventMultiplier < 1) {
-      player.crisisMarketBuys[id] ||= { quote, roundNumber: this.roundNumber };
-    }
-    return null;
+  applyMarketBuy(player, id, position, order) {
+    return marketBuyLeg({ game: this, player, id, position, ...order });
   }
 
-  applyMarketSell(player, id, position, { quote, gross, fee, amount }) {
-    if (position.quantity < amount) return { success: false, error: 'You do not hold enough of this index.' };
-    player.cash += gross - fee;
-    position.realizedPnl += (quote - position.averageCost) * amount - fee;
-    position.quantity -= amount;
-    if (player.crisisMarketBuys?.[id] && quote > Number(player.crisisMarketBuys[id].quote || 0) && this.globalEvent?.phase !== 'active') {
-      player.crisisMarketProfit = true;
-      delete player.crisisMarketBuys[id];
-    }
-    if (!position.quantity) position.averageCost = 0;
-    return null;
+  applyMarketSell(player, id, position, order) {
+    return marketSellLeg({ game: this, player, id, position, ...order });
   }
 
   applyTile(player, tile, options = {}) {
