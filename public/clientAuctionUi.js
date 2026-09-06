@@ -81,7 +81,7 @@ function tickAuction() {
   if (remaining <= 0) stopAuctionTimer();
 }
 
-function renderAuction() {
+export function renderAuction() {
   const a = state.auction;
   if (!a) return;
   const tile = TILES[a.tileIndex];
