@@ -77,9 +77,9 @@ export class DeepSeekAdvisor {
   }
 
   async chooseAction({ candidates = [], personality = 'survivor', event = null } = {}) {
-    if (!this.apiKey || typeof this.fetchImpl !== 'function' || !candidates.length) {
-      return this.fallback.chooseAction({ candidates, personality });
-    }
+    if (!this.apiKey) return this.fallback.chooseAction({ candidates, personality });
+    if (typeof this.fetchImpl !== 'function') return this.fallback.chooseAction({ candidates, personality });
+    if (!candidates.length) return this.fallback.chooseAction({ candidates, personality });
     const action = await this.requestAdvisorAction({ candidates, personality, event });
     if (action) return action;
     return this.fallback.chooseAction({ candidates, personality });
