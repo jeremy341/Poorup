@@ -46,6 +46,7 @@ import {
   configureRailEvents,
   onRailClick,
   onRailSubmit,
+  onRailChange,
 } from "./clientRailEvents.js";
 import { configureProfileRender } from "./clientProfileRender.js";
 import {
@@ -78,6 +79,7 @@ import {
 import {
   configureTradeUi,
   openFinancingModal,
+  openFinancingContract,
   closeFinancingModal,
   openTradeModal,
   closeTradeModal,
@@ -745,6 +747,7 @@ function bindRail() {
   // trade tab: open a trade with another player
   $("#rr-body").addEventListener("click", onRailClick);
   $("#rr-body").addEventListener("submit", onRailSubmit);
+  $("#rr-body").addEventListener("change", onRailChange);
 
   // popup
   $("#popup-scrim").addEventListener("click", closePopup);
@@ -821,7 +824,7 @@ function bindEvents() {
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureAccountIdentity({ emitServer, say });
-configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal });
+configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingContract });
 configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
