@@ -179,6 +179,7 @@ import {
   startAuctionTimer,
   stopAuctionTimer,
 } from "./clientAuctionUi.js";
+import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -2180,58 +2181,7 @@ function bindEvents() {
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.
-  $("#join-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const codeInput = $("#room-join");
-    const nicknameInput = $("#join-nickname");
-    const error = $("#join-form-error");
-    const code = String(codeInput?.value || "").trim().toUpperCase();
-    const nickname = String(state.account?.account?.displayName || nicknameInput?.value || "").trim().toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
-    if (!/^[A-Z0-9]{6}$/.test(code)) {
-      if (error) error.textContent = "ENTER A 6-CHARACTER ROOM CODE.";
-      codeInput?.focus({ preventScroll: true });
-      return;
-    }
-    if (!nickname) {
-      if (error) error.textContent = "ENTER THE PLAYER NAME FOR THIS ROOM.";
-      nicknameInput?.focus({ preventScroll: true });
-      return;
-    }
-    if (error) error.textContent = "";
-    state.alias = state.account?.account ? state.account.account.displayName : saveGuestAlias(nickname);
-    applyProfileToHomeUI();
-    closeRoomsModal();
-    enterParlor(code);
-  });
-  $("#room-join")?.addEventListener("input", (e) => {
-    const cleaned = String(e.target.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    e.target.value = cleaned.slice(0, 6);
-    const error = $("#join-form-error");
-    if (!error) return;
-    if (cleaned.length > 6) {
-      error.textContent = "ROOM CODES ARE 6 CHARACTERS — EXTRA CHARACTERS REMOVED.";
-    } else if (error.textContent.startsWith("ROOM CODES ARE 6")) {
-      error.textContent = "";
-    }
-  });
-  $("#join-nickname")?.addEventListener("input", (e) => {
-    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
-    if ($("#join-form-error")) $("#join-form-error").textContent = "";
-  });
-  $("#home-alias-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const input = $("#home-alias");
-    state.alias = saveGuestAlias(input?.value || "");
-    renderGuestAliasField(state.alias ? "" : "CREATE AN ALIAS BEFORE JOINING A TABLE.");
-    if (state.alias) $("#open-join-btn")?.focus({ preventScroll: true });
-  });
-  $("#home-alias")?.addEventListener("input", (e) => {
-    state.alias = String(e.target.value || "").toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
-    e.target.value = state.alias;
-    saveGuestAlias(state.alias);
-    renderGuestAliasField("");
-    applyProfileToHomeUI();
-  });
+  bindHomeEntry({ closeRoomsModal, enterParlor });
 
   // rooms browser & creator
   $("#browse-rooms-btn")?.addEventListener("click", () => openRoomsModal("browse"));
