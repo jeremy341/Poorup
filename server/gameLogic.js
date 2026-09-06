@@ -2,8 +2,7 @@ import crypto from 'crypto';
 import {
   bankruptcyRefusal,
   clearQuitObligations,
-  outstandingDebtFor,
-  resolveUnsecuredBankDefault
+  outstandingDebtFor
 } from './bankruptcyLogic.js';
 import {
   playerContractSummary,
@@ -13,6 +12,16 @@ import {
   respondContract,
   settleEquityShares
 } from './contractLogic.js';
+import {
+  LOAN_OUTSTANDING_STATUSES,
+  bankLoanOffer,
+  bankLoanTerms,
+  defaultBankLoan,
+  hasLoanBackedCash,
+  processBankLoans,
+  repayBankLoan,
+  takeBankLoan
+} from './loanLogic.js';
 
 const DEFAULT_ROOM_SETTINGS = {
   maxPlayers: 4,
@@ -110,7 +119,6 @@ const CASINO_MAX_BET = 500;
 const CASINO_BET_COLORS = ['red', 'black', 'green'];
 // Loan states that keep borrowed cash pinned: the bank loan and the active
 // side of a player contract share this exact status pair.
-const LOAN_OUTSTANDING_STATUSES = ['active', 'due'];
 const MARKET_FEE_RATE = 0.02;
 const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 const MARKET_INSTRUMENTS = [
@@ -150,8 +158,6 @@ const JAIL_MAX_TURNS = 3;
 const START_TILE_INDEX = 0;
 const GLOBAL_EVENT_COOLDOWN_ROUNDS = 3;
 const GLOBAL_EVENT_MIN_ROUND = 3;
-const BANK_LOAN_PRINCIPAL = 300;
-const BANK_LOAN_TERM_ROUNDS = 3;
 
 const GLOBAL_EVENT_DEFINITIONS = [
   {
@@ -1470,129 +1476,27 @@ class GameState {
   }
 
   bankLoanTerms(player) {
-    const severity = this.settings.bankLoanSeverity === 'extreme' ? 'extreme' : this.settings.bankLoanSeverity === 'fair' ? 'fair' : 'predatory';
-    let premiumRate = severity === 'extreme' ? 0.8 : severity === 'fair' ? 0.2 : 0.5;
-    if (this.globalEventActive('inflation-spiral')) premiumRate *= 1.25;
-    const loanPremiumMultiplier = Number(this.activeEventEffects().loanPremiumMultiplier);
-    if (Number.isFinite(loanPremiumMultiplier) && loanPremiumMultiplier > 0) premiumRate *= loanPremiumMultiplier;
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'bank-first') premiumRate *= 0.8;
-    const principal = BANK_LOAN_PRINCIPAL;
-    const totalDue = principal + Math.ceil(principal * premiumRate);
-    const collateral = this.highestCollateralProperty(player);
-    return {
-      principal,
-      totalDue,
-      premium: totalDue - principal,
-      dueInRounds: BANK_LOAN_TERM_ROUNDS,
-      dueRound: this.roundNumber + BANK_LOAN_TERM_ROUNDS,
-      cureRound: this.roundNumber + BANK_LOAN_TERM_ROUNDS + 1,
-      collateralTileIndex: collateral?.index ?? null,
-      collateralName: collateral?.name || 'NONE',
-      severity
-    };
+    return bankLoanTerms(this, player);
   }
 
   getBankLoanOffer(player) {
-    if (!player || !this.settings.bankLoans) return { available: false, reason: 'Bank lending is disabled.' };
-    if (!this.started) return { available: false, reason: 'The game has not started.' };
-    if (this.globalEventActive('credit-freeze') || this.globalEventActive('bank-run') || this.activeEventEffects().bankLoansBlocked || this.activeEventEffects().bankActionsBlocked) return { available: false, reason: 'Credit is frozen by the active global event.' };
-    if (player.id !== this.currentPlayerId) return { available: false, reason: 'Bank credit is available during your turn.' };
-    if (player.bankLoan?.status === 'active' || player.bankLoan?.status === 'due') return { available: false, reason: 'You already have an active bank loan.' };
-    if (player.bankLoan?.status === 'defaulted') return { available: false, reason: 'Bank credit is suspended after your previous default.' };
-    if (player.cash > 250) return { available: false, reason: 'Emergency credit unlocks below $250 cash.' };
-    const terms = this.bankLoanTerms(player);
-    return { available: true, ...terms };
+    return bankLoanOffer(this, player);
   }
 
   takeBankLoan(socketId, requestId = null) {
-    const player = this.getPlayerBySocket(socketId);
-    const key = this.transactionKey(player?.id, 'bank-loan', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
-    const offer = this.getBankLoanOffer(player);
-    if (!offer.available) return { success: false, error: offer.reason };
-    if (player.cash < 50) player.badIdeaLoan = true;
-    player.bankLoanCount = (player.bankLoanCount || 0) + 1;
-    player.cash += offer.principal;
-    player.bankLoan = {
-      status: 'active',
-      principal: offer.principal,
-      totalDue: offer.totalDue,
-      remaining: offer.totalDue,
-      issuedRound: this.roundNumber,
-      dueRound: offer.dueRound,
-      cureRound: offer.cureRound,
-      collateralTileIndex: offer.collateralTileIndex,
-      severity: offer.severity
-    };
-    this.feedMessage(`${player.nickname} accepted a $${offer.principal} bank loan. $${offer.totalDue} is due by round ${offer.dueRound}.`);
-    return this.cacheTransaction(key, { success: true, loan: player.bankLoan });
+    return takeBankLoan(this, socketId, requestId);
   }
 
-  repayBankLoan(socketId, { amount, requestId } = {}) {
-   const player = this.getPlayerBySocket(socketId);
-    const key = this.transactionKey(player?.id, 'bank-repay', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
-    if (!player || player.id !== this.currentPlayerId) return { success: false, error: 'It is not your turn.' };
-    const loan = player.bankLoan;
-    if (!loan || !['active', 'due'].includes(loan.status)) return { success: false, error: 'You have no bank loan to repay.' };
-    const requested = amount == null ? loan.remaining : Math.floor(Number(amount));
-    if (!Number.isFinite(requested) || requested <= 0) return { success: false, error: 'Enter a valid repayment amount.' };
-    const amnesty = this.globalEventActive('debt-amnesty') && requested >= loan.remaining;
-    if (loan.status === 'due' && this.roundNumber === loan.cureRound) player.oneMoreTurn = true;
-    const settlementMultiplier = Number(this.activeEventEffects().loanSettlementMultiplier);
-    const discountedDue = Number.isFinite(settlementMultiplier) && settlementMultiplier > 0 ? Math.ceil(loan.remaining * settlementMultiplier) : loan.remaining;
-    const payment = Math.min(amnesty ? discountedDue : requested, loan.remaining);
-    if (player.cash < payment) return { success: false, error: `You need $${payment} to make this repayment.` };
-    player.cash -= payment;
-    loan.remaining -= payment;
-    if (amnesty) loan.remaining = 0;
-    if (loan.remaining <= 0) {
-      loan.remaining = 0;
-      loan.status = 'paid';
-      loan.paidRound = this.roundNumber;
-      this.feedMessage(`${player.nickname} repaid the bank loan in full.`);
-    } else {
-      this.feedMessage(`${player.nickname} repaid $${payment} on the bank loan. $${loan.remaining} remains.`);
-    }
-    return this.cacheTransaction(key, { success: true, loan });
+  repayBankLoan(socketId, payload = {}) {
+    return repayBankLoan(this, socketId, payload);
   }
 
   processBankLoans() {
-    this.players.forEach(player => {
-      const loan = player.bankLoan;
-      if (!loan || player.bankrupt || !['active', 'due'].includes(loan.status)) return;
-      if (loan.status === 'active' && this.roundNumber >= loan.dueRound) {
-        loan.status = 'due';
-        player.loanWarningSeen = true;
-        this.feedMessage(`${player.nickname}'s bank loan is due: $${loan.remaining}. One cure round remains.`);
-      } else if (loan.status === 'due' && this.roundNumber > loan.cureRound) {
-        this.defaultBankLoan(player);
-      }
-    });
+    processBankLoans(this);
   }
 
   defaultBankLoan(player) {
-    const loan = player.bankLoan;
-    if (!loan) return;
-    const collateral = loan.collateralTileIndex == null ? null : this.getTile(loan.collateralTileIndex);
-    if (collateral && collateral.ownerId === player.id) {
-      collateral.ownerId = null;
-      collateral.mortgaged = false;
-      collateral.houseCount = 0;
-      player.properties = player.properties.filter(index => index !== collateral.index);
-      player.collateralLost = true;
-      this.feedMessage(`${player.nickname} defaulted. The bank seized ${collateral.name}.`);
-    } else {
-      // The bank files a claim instead of eliminating the seat outright:
-      // the player now chooses between raising funds and declaring
-      // bankruptcy (the debt settlement path handles both).
-      resolveUnsecuredBankDefault(this, player, loan);
-      loan.remaining = 0;
-    }
-    loan.status = 'defaulted';
-    loan.defaultedRound = this.roundNumber;
+    defaultBankLoan(this, player);
   }
 
   movePlayer(player, steps, options = {}) {
@@ -2063,8 +1967,7 @@ class GameState {
   }
 
   hasLoanBackedCash(player) {
-    if (!player.bankLoan) return false;
-    return LOAN_OUTSTANDING_STATUSES.includes(player.bankLoan.status);
+    return hasLoanBackedCash(player);
   }
 
   // The spin itself: one pocket draw (randomInt is the only RNG call site on
