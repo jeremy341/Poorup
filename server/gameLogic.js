@@ -1,19 +1,6 @@
 import crypto from 'crypto';
 import { randomInt } from './random.js';
-import {
-  MARKET_FEE_RATE,
-  MARKET_INSTRUMENTS,
-  advanceMarket as stepMarketQuotes,
-  applyMarketBuy as marketBuyLeg,
-  applyMarketSell as marketSellLeg,
-  freshMarketQuotes,
-  marketOrderRejection as rejectMarketOrder
-} from './marketLogic.js';
-import {
-  bankruptcyRefusal,
-  clearQuitObligations,
-  outstandingDebtFor
-} from './bankruptcyLogic.js';
+import { MARKET_FEE_RATE, freshMarketQuotes } from './marketLogic.js';
 import {
   playerContractSummary,
   processContracts,
@@ -23,11 +10,10 @@ import {
   settleEquityShares
 } from './contractLogic.js';
 import {
-  LOAN_OUTSTANDING_STATUSES,
   bankLoanOffer,
   bankLoanTerms,
   defaultBankLoan,
-  hasLoanBackedCash,
+
   processBankLoans,
   repayBankLoan,
   takeBankLoan
@@ -62,17 +48,11 @@ import { tileApi } from './tileApi.js';
 import { cardApi } from './cardApi.js';
 import { propertyApi } from './propertyApi.js';
 import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
-
-const CASINO_MAX_BET = 500;
-const CASINO_BET_COLORS = ['red', 'black', 'green'];
-const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
-// Market vocabularies, the fee rate, the instruments, and the order gates now
-// live in marketLogic.js; server/contracts-market.test.js pins every string.
-// Roulette mapping: pocket 0 is green, the rest split on the classic red set.
-function roulettePocketColor(pocket) {
-  if (pocket === 0) return 'green';
-  return ROULETTE_RED.has(pocket) ? 'red' : 'black';
-}
+import { economyApi } from './economyApi.js';
+import { tradeApi } from './tradeApi.js';
+import { bankruptcyApi } from './bankruptcyApi.js';
+import { APPEARANCE_PRESET_COLORS, appearanceApi, resolveFreeAppearanceColor } from './appearanceApi.js';
+import { botApi } from './botApi.js';
 
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -82,25 +62,6 @@ function createRoomCode() {
   }
   return code;
 }
-
-// The four default appearance presets, in server assignment order.
-const APPEARANCE_PRESET_COLORS = ['#d74438', '#286ea1', '#d9a62f', '#35a653'];
-
-// Resolves a requested seat color against colors taken by connected
-// non-bankrupt players (the player's own seat excluded). A collision becomes
-// the first free preset; if no preset is free the requested color is kept.
-function resolveFreeAppearanceColor(players, requestedColor, self = null) {
-  if (typeof requestedColor !== 'string' || !requestedColor) return requestedColor;
-  const taken = new Set(
-    players
-      .filter(player => player !== self && !player.disconnected && !player.bankrupt && typeof player.color === 'string')
-      .map(player => player.color.toLowerCase())
-  );
-  if (!taken.has(requestedColor.toLowerCase())) return requestedColor;
-  const free = APPEARANCE_PRESET_COLORS.find(color => !taken.has(color.toLowerCase()));
-  return free || requestedColor;
-}
-
 
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
@@ -187,93 +148,6 @@ class Player {
     this.ready = false;
   }
 }
-
-const TRADE_PROPOSAL_GUARDS = [
-  {
-    error: 'Choose a valid trade partner.',
-    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.id === ctx.toPlayer.id
-  },
-  {
-    error: 'Both players must be active to trade.',
-    rejects: (game, ctx) => ctx.fromPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.bankrupt || ctx.toPlayer.disconnected
-  },
-  {
-    error: 'Another trade is already pending.',
-    rejects: game => Boolean(game.pendingTrade || game.pendingPlayerContract)
-  },
-  {
-    error: 'Cash values must be valid numbers.',
-    rejects: (game, ctx) => !Number.isFinite(ctx.giveCash) || !Number.isFinite(ctx.requestCash)
-  },
-  {
-    error: 'Choose at least one cash or property item to include in the trade.',
-    rejects: (game, ctx) => !ctx.giveCash && !ctx.requestCash && !ctx.givePropertyIndexes.length && !ctx.requestPropertyIndexes.length
-  },
-  {
-    error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.',
-    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.fromPlayer.id))
-  },
-  {
-    error: 'The requested properties are not available for trade.',
-    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.toPlayer.id))
-  },
-  {
-    error: 'You do not have enough cash for this offer.',
-    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.giveCash
-  }
-];
-
-// Accept-side revalidation for respondToTrade: same order and strings as the
-// original accept branch. A fired guard also clears the pending trade, which
-// the responder does uniformly. The first entry covers the original combined
-// "players still exist, active" condition verbatim.
-const TRADE_SETTLEMENT_GUARDS = [
-  {
-    error: 'The trade is no longer valid.',
-    rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.bankrupt || ctx.toPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.disconnected
-  },
-  {
-    error: 'One of the players no longer has enough cash.',
-    rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.trade.giveCash || ctx.toPlayer.cash < ctx.trade.requestCash
-  },
-  {
-    error: 'One of the offered properties is no longer tradable.',
-    rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.fromPlayerId))
-  },
-  {
-    error: 'One of the requested properties is no longer tradable.',
-    rejects: (game, ctx) => ctx.requestTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.trade.toPlayerId))
-  }
-];
-
-// Pre-roll bot candidate sources as data: the array order IS the original
-// push order inside getBotCandidates, and the final sort is stable, so ties
-// keep this sequence. Each collector returns a (possibly empty) array of
-// candidates shaped exactly as before; kind values are the contract consumed
-// by botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
-const BOT_CANDIDATE_SOURCES = [
-  { collect: (game, player) => game.botBuildCandidates(player) },
-  { collect: (game, player) => game.botMortgageCandidates(player) },
-  { collect: (game, player) => game.botLoanCandidate(player) },
-  { collect: (game, player) => game.botGroupTradeCandidate(player) },
-  { collect: (game, player) => game.botMarketCandidate(player) },
-  { collect: (game, player) => game.botCasinoCandidate(player) }
-];
-
-// Personality-driven candidate values as data tables so the collectors stay
-// branch-light while reproducing the original ternary ladders verbatim. The
-// casino spec is only read after the collector's guard confirms the
-// personality, so that entry is always defined there.
-const BOT_CASINO_SPECS = {
-  chaos: { color: 'green', stakeRate: 0.08, score: 18 },
-  shark: { color: 'red', stakeRate: 0.03, score: 11 }
-};
-
-const BOT_TRADE_ASKS = {
-  shark: { requestCash: 40, score: 8 },
-  diplomat: { requestCash: 0, score: 24 }
-};
-const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -474,40 +348,6 @@ class GameState {
 
   getPlayerById(id) {
     return this.players.find(player => player.id === id);
-  }
-
-  setPlayerAppearance(socketId, { color, nickname, avatarGrid } = {}) {
-    const player = this.getPlayerBySocket(socketId);
-    if (!player) {
-      return { success: false, error: 'Player not found.' };
-    }
-    const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : null;
-    if (safeColor) {
-      // Color is the appearance identity: another connected non-bankrupt
-      // player using it means the icon is taken at this table. Custom
-      // avatarGrids may still differ as long as colors differ.
-      const clash = this.players.some(other =>
-        other !== player &&
-        !other.disconnected &&
-        !other.bankrupt &&
-        typeof other.color === 'string' &&
-        other.color.toLowerCase() === safeColor.toLowerCase()
-      );
-      if (clash) {
-        return { success: false, error: 'That icon is already taken at this table.' };
-      }
-      player.color = safeColor;
-    }
-    if (typeof nickname === 'string' && !this.started) {
-      const safeNickname = nickname.trim().slice(0, 24);
-      if (safeNickname) {
-        player.nickname = safeNickname;
-      }
-    }
-    if (avatarGrid === null || Array.isArray(avatarGrid)) {
-      player.avatarGrid = avatarGrid;
-    }
-    return { success: true };
   }
 
   getTile(index) {
@@ -891,200 +731,6 @@ class GameState {
     }
   }
 
-  casinoLimits() {
-    const effects = this.activeEventEffects();
-    const maxBet = Number(effects.casinoMaxBet);
-    const entryFee = Number(effects.casinoEntryFee);
-    return {
-      maxBet: Number.isFinite(maxBet) && maxBet > 0 ? Math.min(CASINO_MAX_BET, Math.floor(maxBet)) : CASINO_MAX_BET,
-      entryFee: Number.isFinite(entryFee) && entryFee > 0 ? Math.floor(entryFee) : 0
-    };
-  }
-
-  transactionKey(playerId, kind, requestId) {
-    const value = String(requestId || '').trim().slice(0, 100);
-    return value ? `${playerId}:${kind}:${value}` : null;
-  }
-
-  cachedTransaction(key) {
-    return key ? this.economyTransactions.get(key) || null : null;
-  }
-
-  cacheTransaction(key, result) {
-    if (key) this.economyTransactions.set(key, result);
-    return result;
-  }
-
-  economySnapshot(playerId = null) {
-    const player = playerId ? this.getPlayerById(playerId) : null;
-    const casinoLimits = this.casinoLimits();
-    return {
-      casino: {
-        enabled: Boolean(this.settings.casino),
-        maxBet: casinoLimits.maxBet,
-        entryFee: casinoLimits.entryFee,
-        lastResult: this.casinoLastResult ? { ...this.casinoLastResult } : null,
-        net: Number(player?.casinoNet) || 0
-      },
-      market: {
-        enabled: Boolean(this.settings.market),
-        round: this.marketRound,
-        feeRate: MARKET_FEE_RATE,
-        quotes: { ...this.marketQuotes },
-        positions: { ...(player?.marketPositions || {}) }
-      }
-    };
-  }
-
-  placeCasinoBet(socketId, color, stake, requestId = null) {
-    const player = this.getPlayerBySocket(socketId);
-    const choice = String(color || '').toLowerCase();
-    const amount = Math.floor(Number(stake));
-    const key = this.transactionKey(player?.id, 'casino', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
-    const rejection = this.casinoBetRejection(player, choice, amount);
-    if (rejection) return { success: false, error: rejection };
-    return this.settleCasinoBet(player, choice, amount, key);
-  }
-
-  // Guard ladder kept in the original precedence order: the session rules
-  // first, then the wager itself. Returns the exact client-facing error
-  // string, or null when the bet may be settled.
-  casinoBetRejection(player, choice, amount) {
-    return this.casinoSessionRejection(player) || this.casinoWagerRejection(player, choice, amount);
-  }
-
-  casinoSessionRejection(player) {
-    if (!this.settings.casino) return 'Casino access is off for this room.';
-    if (this.casinoSessionBlocked(player)) return 'Casino access is unavailable right now.';
-    if (this.tableObligationPending()) return 'Resolve the table obligation before betting.';
-    return null;
-  }
-
-  // Casino access needs a live, started table and a seated, solvent,
-  // connected player; any of those missing reads as "unavailable".
-  casinoSessionBlocked(player) {
-    if (!this.started) return true;
-    if (!player) return true;
-    if (player.bankrupt) return true;
-    return Boolean(player.disconnected);
-  }
-
-  // A single "is the table busy" question: any of the five pending flows
-  // keeps players away from the casino wheel.
-  tableObligationPending() {
-    return [
-      this.pendingPayment,
-      this.auction,
-      this.pendingPurchaseOffer,
-      this.pendingTrade,
-      this.pendingPlayerContract
-    ].some(Boolean);
-  }
-
-  casinoWagerRejection(player, choice, amount) {
-    if (!CASINO_BET_COLORS.includes(choice)) return 'Choose red, black, or green.';
-    const limits = this.casinoLimits();
-    if (this.casinoStakeRejected(amount, limits)) return `Stake must be between $1 and ${limits.maxBet}.`;
-    if (this.hasLoanBackedCash(player)) return 'Loan-backed cash cannot enter the casino.';
-    if (player.cash < amount + limits.entryFee) return 'You do not have enough available cash for the stake and event fee.';
-    return null;
-  }
-
-  // Stakes arrive already floored by the caller; whole-dollar stakes inside
-  // the event-aware limit are the only ones accepted.
-  casinoStakeRejected(amount, limits) {
-    if (!Number.isInteger(amount)) return true;
-    if (amount < 1) return true;
-    return amount > limits.maxBet;
-  }
-
-  hasLoanBackedCash(player) {
-    return hasLoanBackedCash(player);
-  }
-
-  // The spin itself: one pocket draw (randomInt is the only RNG call site on
-  // this path), 35:1 on green and 1:1 on the colors, fees taken on both
-  // sides of the outcome.
-  settleCasinoBet(player, choice, amount, key) {
-    const limits = this.casinoLimits();
-    const cashBefore = player.cash;
-    const pocket = randomInt(0, 36);
-    const resultColor = roulettePocketColor(pocket);
-    const won = choice === resultColor;
-    const payout = choice === 'green' ? 35 : 1;
-    const net = won ? amount * payout - limits.entryFee : -amount - limits.entryFee;
-    player.cash -= amount + limits.entryFee;
-    if (won) player.cash += amount + (amount * payout);
-    this.applyCasinoTally(player, { amount, net, entryFee: limits.entryFee, cashBefore });
-    const ledgerEntry = { transactionId: key || crypto.randomUUID(), roundNumber: this.roundNumber, color: choice, pocket, resultColor, stake: amount, net, createdAt: new Date().toISOString() };
-    this.recordCasinoLedger(player, ledgerEntry);
-    this.casinoLastResult = { playerId: player.id, color: choice, pocket, resultColor, net, roundNumber: this.roundNumber };
-    this.feedMessage(`${player.nickname} bet $${amount} on ${choice.toUpperCase()} and ${won ? 'won' : 'lost'} $${Math.abs(net)}.`);
-    return this.cacheTransaction(key, { success: true, result: { ...ledgerEntry, balanceAfter: player.cash }, economy: this.economySnapshot(player.id) });
-  }
-
-  // Bankroll facts: max/total staked, the sticky all-in and one-dollar
-  // markers, and the per-round bet counter.
-  applyCasinoTally(player, bet) {
-    player.casinoNet += bet.net;
-    player.casinoMaxStake = Math.max(player.casinoMaxStake || 0, bet.amount);
-    player.casinoTotalStaked = (player.casinoTotalStaked || 0) + bet.amount;
-    player.casinoAllIn = player.casinoAllIn || bet.amount + bet.entryFee >= bet.cashBefore;
-    player.casinoOneDollar = player.casinoOneDollar || bet.amount === 1;
-    player.casinoBetsThisRound = (player.casinoBetsThisRound || 0) + 1;
-  }
-
-  // Newest-first ledgers: the room keeps a wide copy stamped with the
-  // playerId, the player a bare personal history.
-  recordCasinoLedger(player, ledgerEntry) {
-    this.casinoLedger = [{ ...ledgerEntry, playerId: player.id }, ...this.casinoLedger].slice(0, 200);
-    player.casinoLedger = [ledgerEntry, ...(player.casinoLedger || [])].slice(0, 50);
-  }
-
-  advanceMarket() {
-    stepMarketQuotes(this);
-  }
-
-  tradeMarket(socketId, instrumentId, side, quantity, requestId = null) {
-    const player = this.getPlayerBySocket(socketId);
-    const id = String(instrumentId || '').toLowerCase();
-    const direction = String(side || '').toLowerCase();
-    const amount = Math.floor(Number(quantity));
-    const key = this.transactionKey(player?.id, 'market', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
-    const instrument = MARKET_INSTRUMENTS.find(entry => entry.id === id);
-    const rejection = this.marketOrderRejection(player, instrument, direction, amount);
-    if (rejection) return rejection;
-    const quote = Number(this.marketQuotes[id]) || instrument.price;
-    const gross = quote * amount;
-    const fee = Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
-    const position = player.marketPositions[id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
-    const leg = direction === 'buy' ? this.applyMarketBuy : this.applyMarketSell;
-    const legRejection = leg.call(this, player, id, position, { quote, gross, fee, amount });
-    if (legRejection) return legRejection;
-    player.marketPositions[id] = position;
-    player.marketTrades = (player.marketTrades || 0) + 1;
-    player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
-    this.marketLedger = [{ transactionId: key || crypto.randomUUID(), roundNumber: this.roundNumber, playerId: player.id, instrumentId: id, side: direction, quantity: amount, quote, fee, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
-    this.feedMessage(`${player.nickname} ${direction === 'buy' ? 'bought' : 'sold'} ${amount} ${instrument.name} index unit${amount === 1 ? '' : 's'}.`);
-    return this.cacheTransaction(key, { success: true, order: { instrumentId: id, side: direction, quantity: amount, quote, fee, total: direction === 'buy' ? gross + fee : gross - fee }, economy: this.economySnapshot(player.id) });
-  }
-
-  marketOrderRejection(player, instrument, direction, amount) {
-    return rejectMarketOrder({ game: this, player, instrument, direction, amount });
-  }
-
-  applyMarketBuy(player, id, position, order) {
-    return marketBuyLeg({ game: this, player, id, position, ...order });
-  }
-
-  applyMarketSell(player, id, position, order) {
-    return marketSellLeg({ game: this, player, id, position, ...order });
-  }
-
   nextTurn() {
     this.pendingPurchaseOffer = null;
     this.extraRollPending = false;
@@ -1231,22 +877,6 @@ class GameState {
     return true;
   }
 
-  // Bankruptcy is the player's decision, not the server's verdict. With a
-  // debt it hands assets to the creditor; without one it is a voluntary
-  // retirement whose deeds return to the market unencumbered.
-  declareBankruptcy(socketId) {
-    const player = this.getPlayerBySocket(socketId);
-    const refusal = bankruptcyRefusal(this, player);
-    if (refusal) return refusal;
-    const { owes, creditor } = outstandingDebtFor(this, player);
-    clearQuitObligations(this, player);
-    this.handleBankruptcy(player, creditor);
-    if (player.id === this.currentPlayerId) {
-      this.nextTurn();
-    }
-    return { success: true, voluntary: !owes };
-  }
-
   transferMoney(from, to, amount, message) {
     if (!from || !to || amount <= 0) {
       return;
@@ -1258,305 +888,6 @@ class GameState {
 
   deductMoney(player, amount, message) {
     this.chargePlayer(player, null, amount, message, {});
-  }
-
-  // The bankruptcy pipeline, in the original statement order: table-state
-  // resets, market liquidation (its feed line lands before any deed moves),
-  // the cash sweep to the creditor, contract settlements, deed transfer or
-  // release, the announcement, and the round conclusion.
-  handleBankruptcy(player, creditor = null) {
-    if (this.settings.bankruptMode === 'debt') {
-      return this.handleDebtBankruptcy(player, creditor);
-    }
-    this.markPlayerBankrupt(player);
-    this.liquidateMarketPositions(player);
-    this.sweepCashToCreditor(player, creditor);
-    this.settleContractsOnBankruptcy(player);
-    this.forfeitOrReleaseProperties(player, creditor);
-    this.announceBankruptcy(player, creditor);
-    this.concludeBankruptRound(player);
-  }
-
-  handleDebtBankruptcy(player, creditor) {
-    this.sweepCashToCreditor(player, creditor);
-    if (!creditor) player.cash = 0;
-    this.forfeitOrReleaseProperties(player, creditor);
-    this.settleContractsOnBankruptcy(player);
-    player.inDebt = true;
-    this.feedMessage(creditor
-      ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
-      : `${player.nickname} lost everything. They stay in the game with debt.`);
-    if (player.id === this.currentPlayerId) {
-      this.nextTurn();
-    }
-  }
-
-  markPlayerBankrupt(player) {
-    player.bankrupt = true;
-    player.bubbleSurvivor = false;
-    this.extraRollPending = false;
-    this.turnAllowsExtraRoll = false;
-    this.consecutiveDoubles = 0;
-    if (this.pendingPayment?.playerId === player.id) {
-      this.pendingPayment = null;
-      this.pendingPaymentTurnOptions = null;
-    }
-  }
-
-  // Positions are force-sold at the current quote minus the market fee and
-  // floored into cash; zero-proceeding holdings are dropped silently. The
-  // per-position realized P&L (net proceeds over average cost) is recorded
-  // so post-game stats see the forced exit, not just voluntary sells.
-  liquidateMarketPositions(player) {
-    const entries = Object.entries(player.marketPositions || {});
-    const proceedsOf = (id, quantity) => {
-      const quote = Math.max(0, Number(this.marketQuotes[id]) || 0);
-      const gross = quote * quantity;
-      return Math.max(0, gross - Math.ceil(gross * MARKET_FEE_RATE));
-    };
-    const marketLiquidation = entries.reduce((sum, [id, position]) => {
-      const quantity = Math.max(0, Number(position.quantity) || 0);
-      return sum + proceedsOf(id, quantity);
-    }, 0);
-    if (marketLiquidation <= 0) return;
-    entries.forEach(([id, position]) => {
-      const quantity = Math.max(0, Number(position.quantity) || 0);
-      position.realizedPnl = (Number(position.realizedPnl) || 0)
-        + proceedsOf(id, quantity) - (Number(position.averageCost) || 0) * quantity;
-      position.quantity = 0;
-      position.averageCost = 0;
-    });
-    player.cash += Math.floor(marketLiquidation);
-    this.feedMessage(`${player.nickname}'s market positions were liquidated for $${Math.floor(marketLiquidation)}.`);
-  }
-
-  // Whatever cash survives liquidation flows to the creditor before any
-  // deed is handed over.
-  sweepCashToCreditor(player, creditor) {
-    if (!creditor) return;
-    if (player.cash <= 0) return;
-    creditor.cash += player.cash;
-    player.cash = 0;
-  }
-
-  settleContractsOnBankruptcy(player) {
-    this.playerContracts
-      .filter(contract => LOAN_OUTSTANDING_STATUSES.includes(contract.status) && this.contractTouchesPlayer(contract, player))
-      .forEach(contract => this.settleBankruptContract(player, contract));
-  }
-
-  contractTouchesPlayer(contract, player) {
-    if (contract.toPlayerId === player.id) return true;
-    return contract.fromPlayerId === player.id;
-  }
-
-  // A borrower's loan defaults (with the collateral seized while they still
-  // hold it); a lender's loan just terminates; an equity agreement
-  // terminates after its shares are stripped off the deed. Anything else is
-  // left untouched, exactly as the original if-ladder.
-  settleBankruptContract(player, contract) {
-    if (contract.kind === 'loan') {
-      // The pending-payment filter already guarantees one side is the
-      // bankrupt player, so a loan not owed by them is one they issued.
-      if (contract.toPlayerId === player.id) {
-        this.seizeCollateralForLender(player, contract);
-      } else {
-        this.terminateContract(contract);
-      }
-    } else if (contract.kind === 'equity') {
-      this.terminateEquityContract(contract);
-    }
-  }
-
-  seizeCollateralForLender(player, contract) {
-    const lender = this.getPlayerById(contract.fromPlayerId);
-    const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
-    if (lender && collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
-    if (contract.collateralTileIndex != null) player.collateralLost = true;
-    contract.status = 'defaulted';
-    contract.defaultedRound = this.roundNumber;
-  }
-
-  terminateContract(contract) {
-    contract.status = 'terminated';
-    contract.terminatedRound = this.roundNumber;
-  }
-
-  terminateEquityContract(contract) {
-    const property = this.getTile(contract.propertyIndex);
-    if (property) property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
-    this.terminateContract(contract);
-  }
-
-  // With a solvent creditor every deed is transferred in holding order; the
-  // collateral already seized during contract settling is no longer in the
-  // snapshot taken here.
-  forfeitOrReleaseProperties(player, creditor) {
-    const properties = [...player.properties];
-    properties.forEach(propertyIndex => {
-      const tile = this.getTile(propertyIndex);
-      if (!tile) return;
-      if (creditor && !creditor.bankrupt) {
-        this.applyPropertyOwnershipChange(player, creditor, tile);
-      } else {
-        this.releasePropertyTile(player, tile);
-      }
-    });
-    player.properties = [];
-  }
-
-  releasePropertyTile(player, tile) {
-    tile.ownerId = null;
-    tile.houseCount = 0;
-    tile.mortgaged = false;
-    player.properties = player.properties.filter(index => index !== tile.index);
-  }
-
-  // A bankrupt player facing a creditor hands over assets; one owing the
-  // bank simply leaves the table.
-  announceBankruptcy(player, creditor) {
-    if (creditor) {
-      this.feedMessage(`${player.nickname} is bankrupt. Assets transferred to ${creditor.nickname}.`);
-    } else {
-      this.feedMessage(`${player.nickname} is bankrupt and removed from the game.`);
-    }
-  }
-
-  // The last seat standing wins immediately; otherwise the bankrupt current
-  // player forfeits the turn.
-  concludeBankruptRound(player) {
-    const active = this.nonBankruptPlayers().filter(p => !p.inDebt);
-    if (active.length <= 1) {
-      this.endGame();
-    } else if (player.id === this.currentPlayerId) {
-      this.nextTurn();
-    }
-  }
-
-  proposeTrade(socketId, offer = {}) {
-    const ctx = this.tradeProposalContext(socketId, offer);
-    const guard = TRADE_PROPOSAL_GUARDS.find(entry => entry.rejects(this, ctx));
-    if (guard) return { success: false, error: guard.error };
-    const trade = {
-      id: crypto.randomUUID(),
-      fromPlayerId: ctx.fromPlayer.id,
-      fromPlayerName: ctx.fromPlayer.nickname,
-      toPlayerId: ctx.toPlayer.id,
-      toPlayerName: ctx.toPlayer.nickname,
-      giveCash: ctx.giveCash,
-      requestCash: ctx.requestCash,
-      givePropertyIndexes: ctx.givePropertyIndexes,
-      requestPropertyIndexes: ctx.requestPropertyIndexes,
-      createdAt: Date.now()
-    };
-    this.pendingTrade = trade;
-    this.feedMessage(`${ctx.fromPlayer.nickname} sent a trade offer to ${ctx.toPlayer.nickname}.`);
-    return { success: true, trade };
-  }
-
-  // One normalization pass for the raw offer: cash clamping, index coercion,
-  // and tile resolution all happen exactly as in the original single-body
-  // implementation, before any guard reads the context.
-  tradeProposalContext(socketId, offer) {
-    const fromPlayer = this.getPlayerBySocket(socketId);
-    const toPlayer = this.getPlayerById(offer.toPlayerId);
-    const giveCash = Math.max(0, Number(offer.giveCash || 0));
-    const requestCash = Math.max(0, Number(offer.requestCash || 0));
-    const givePropertyIndexes = Array.isArray(offer.givePropertyIndexes) ? offer.givePropertyIndexes.map(Number) : [];
-    const requestPropertyIndexes = Array.isArray(offer.requestPropertyIndexes) ? offer.requestPropertyIndexes.map(Number) : [];
-    const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
-    const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
-    return { fromPlayer, toPlayer, giveCash, requestCash, givePropertyIndexes, requestPropertyIndexes, giveTiles, requestTiles };
-  }
-
-  // The original inline per-tile leg check, named: a missing deed, a deed
-  // owned by someone else, or an untradeable deed voids the leg.
-  tradeLegTileUnavailable(tile, ownerId) {
-    if (!tile) return true;
-    if (tile.ownerId !== ownerId) return true;
-    return !this.isTradeableTile(tile);
-  }
-
-  respondToTrade(socketId, { tradeId, accept } = {}) {
-    const player = this.getPlayerBySocket(socketId);
-    if (!player) {
-      return { success: false, error: 'No matching trade offer was found.' };
-    }
-    const trade = this.pendingTrade;
-    if (!trade || trade.id !== tradeId) {
-      return { success: false, error: 'No matching trade offer was found.' };
-    }
-    if (trade.toPlayerId !== player.id) {
-      return { success: false, error: 'Only the receiving player can respond to this trade.' };
-    }
-    if (!accept) {
-      return this.declineTradeOffer(player);
-    }
-    const ctx = this.tradeSettlementContext(trade);
-    const guard = TRADE_SETTLEMENT_GUARDS.find(entry => entry.rejects(this, ctx));
-    if (guard) {
-      this.pendingTrade = null;
-      return { success: false, error: guard.error };
-    }
-    return this.settleTradeOffer(ctx);
-  }
-
-  // Deed re-resolution at accept time; pure tile lookups for the guards and
-  // the settlement transfer below.
-  tradeSettlementContext(trade) {
-    return {
-      trade,
-      fromPlayer: this.getPlayerById(trade.fromPlayerId),
-      toPlayer: this.getPlayerById(trade.toPlayerId),
-      giveTiles: trade.givePropertyIndexes.map(index => this.getTile(index)),
-      requestTiles: trade.requestPropertyIndexes.map(index => this.getTile(index))
-    };
-  }
-
-  declineTradeOffer(player) {
-    this.feedMessage(`${player.nickname} declined the trade offer.`);
-    this.pendingTrade = null;
-    return { success: true, accepted: false };
-  }
-
-  settleTradeOffer(ctx) {
-    const { trade, fromPlayer, toPlayer, giveTiles, requestTiles } = ctx;
-    fromPlayer.cash -= trade.giveCash;
-    toPlayer.cash += trade.giveCash;
-    toPlayer.cash -= trade.requestCash;
-    fromPlayer.cash += trade.requestCash;
-    giveTiles.forEach(tile => this.applyPropertyOwnershipChange(fromPlayer, toPlayer, tile));
-    requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
-    this.pendingTrade = null;
-    this.tradesCompleted += 1;
-    this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
-    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
-    this.settleTradeLinkedPayments(fromPlayer, toPlayer);
-    return { success: true, accepted: true };
-  }
-
-  markCompletedTradeFlags(fromPlayer, toPlayer, tradedPropertyCount) {
-    if (tradedPropertyCount >= 3) {
-      fromPlayer.groupTherapyTrade = true;
-      toPlayer.groupTherapyTrade = true;
-    }
-    if (this.globalEventActive('stagflation')) {
-      fromPlayer.tradesDuringCombo = (fromPlayer.tradesDuringCombo || 0) + 1;
-      toPlayer.tradesDuringCombo = (toPlayer.tradesDuringCombo || 0) + 1;
-    }
-    if (fromPlayer.lastVoteChoice && toPlayer.lastVoteChoice) {
-      if (fromPlayer.lastVoteChoice !== toPlayer.lastVoteChoice) {
-        fromPlayer.coalitionTrade = true;
-        toPlayer.coalitionTrade = true;
-      }
-    }
-  }
-
-  settleTradeLinkedPayments(fromPlayer, toPlayer) {
-    if (this.pendingPayment?.playerId !== fromPlayer.id && this.pendingPayment?.playerId !== toPlayer.id) {
-      return;
-    }
-    this.trySettlePendingPayment();
   }
 
   endTurn(socketId) {
@@ -1581,112 +912,6 @@ class GameState {
     }
     this.nextTurn();
     return { success: true };
-  }
-
-  runBotAction(playerId, action) {
-    const bot = this.getPlayerById(playerId);
-    if (!bot || !bot.isBot || typeof action !== 'function') return { success: false, error: 'Bot not found.' };
-    const previousSocketId = bot.socketId;
-    const actorId = `bot:${bot.id}`;
-    bot.socketId = actorId;
-    try {
-      return action(actorId);
-    } finally {
-      bot.socketId = previousSocketId;
-    }
-  }
-
-  // Roll is always available; the pre-roll table appends the remaining
-  // candidate sources in their historical order, then the stable sort ranks
-  // them by score desc, risk asc.
-  getBotCandidates(player) {
-    if (!player?.isBot) return [];
-    const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
-    if (!this.hasRolled) {
-      for (const source of BOT_CANDIDATE_SOURCES) {
-        candidates.push(...source.collect(this, player));
-      }
-    }
-    return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
-  }
-
-  botBuildCandidates(player) {
-    return this.tiles
-      .filter(tile => this.canBuildOnTile(player, tile))
-      .map(tile => {
-        const cost = this.getPropertyHouseCost(tile);
-        return { id: 'build:' + tile.index, kind: 'build', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: player.personality === 'builder' ? 30 : 10 };
-      });
-  }
-
-  botMortgageCandidates(player) {
-    if (player.cash >= 180) return [];
-    return this.tiles
-      .filter(tile => this.canMortgageTile(player, tile))
-      .map(tile => ({ id: 'mortgage:' + tile.index, kind: 'mortgage', tileIndex: tile.index, proceeds: Math.floor((tile.price || 0) / 2), risk: 0.25, score: player.personality === 'survivor' ? 24 : 8 }));
-  }
-
-  botLoanCandidate(player) {
-    const loan = this.getBankLoanOffer(player);
-    if (!loan.available) return [];
-    return [{ id: 'loan:emergency', kind: 'loan', principal: loan.principal, risk: loan.totalDue / loan.principal, score: player.personality === 'speculator' ? 18 : -20 }];
-  }
-
-  botGroupTradeCandidate(player) {
-    const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
-    if (!partner) return [];
-    const giveTile = this.firstTradeableOwnedTile(player);
-    const askTile = this.firstTradeableOwnedTile(partner);
-    if (!giveTile || !askTile) return [];
-    if (!giveTile.group || giveTile.group !== askTile.group) return [];
-    const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
-    return [{
-      id: 'trade:' + partner.id + ':' + askTile.index,
-      kind: 'trade',
-      toPlayerId: partner.id,
-      givePropertyIndexes: [giveTile.index],
-      requestPropertyIndexes: [askTile.index],
-      giveCash: 0,
-      requestCash: ask.requestCash,
-      risk: 0.2,
-      score: ask.score
-    }];
-  }
-
-  firstTradeableOwnedTile(player) {
-    return player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
-  }
-
-  botMarketCandidate(player) {
-    if (!this.settings.market) return [];
-    if ((player.marketActionsThisTurn || 0) >= 1) return [];
-    const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
-    if (!marketId) return [];
-    return [{
-      id: 'market:' + marketId,
-      kind: 'market',
-      instrumentId: marketId,
-      side: 'buy',
-      quantity: 1,
-      risk: (Number(this.marketQuotes[marketId]) || 100) / Math.max(1, player.cash),
-      score: player.personality === 'speculator' ? 20 : 4
-    }];
-  }
-
-  botCasinoCandidate(player) {
-    if (!this.settings.casino) return [];
-    if ((player.casinoBetsThisRound || 0) >= 1) return [];
-    if (!['shark', 'chaos'].includes(player.personality)) return [];
-    if (player.cash <= 20) return [];
-    const spec = BOT_CASINO_SPECS[player.personality];
-    return [{
-      id: 'casino:red',
-      kind: 'casino',
-      color: spec.color,
-      stake: Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate))),
-      risk: 0.55,
-      score: spec.score
-    }];
   }
 
   skipDisconnectedCurrentPlayer() {
@@ -1824,7 +1049,7 @@ class GameState {
   }
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, bankruptcyApi, appearanceApi, botApi);
 
 class Room {
   constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
