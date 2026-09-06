@@ -2,7 +2,7 @@
    ENTRY MODULE: game logic, renderers, and event wiring.
    Shared data and state live in the client*.js modules imported here.
    ============================================================ */
-import { $, esc, clamp, REDUCED_MOTION } from "./clientDom.js";
+import { $, esc, REDUCED_MOTION } from "./clientDom.js";
 import {
   hydrateSprites,
   spriteHTML,
@@ -28,11 +28,9 @@ import {
 } from "./clientBoardData.js";
 import { ACHIEVEMENTS, achievementIconHTML } from "./clientAchievements.js";
 import {
-  APPEARANCES,
   MAX_PROFILES,
   profileDesignName,
   loadActiveDesignId,
-  saveActiveDesignId,
   saveSoundPreference,
   saveMusicPreference,
   loadGuestAlias,
@@ -40,20 +38,15 @@ import {
 } from "./clientSanitize.js";
 import {
   state,
-  activeAppearance,
   syncLocalAppearance,
   saveAccountSession,
-  buildPlayers,
   getProfileById,
-  getAppearanceMeta,
   upsertProfile,
   deleteProfile,
   saveUnlockedAchievements,
 } from "./clientState.js";
 import { applyServerState, AUCTION_MS } from "./clientStateSync.js";
 import {
-  SKYLINE,
-  paintSkyline,
   tileIconHTML,
   buildBoard,
   renderBoardState,
@@ -63,7 +56,6 @@ import {
 import {
   renderHud,
   startTurnCountdown,
-  stopTurnCountdown,
   configureTurnCountdown,
 } from "./clientHudRender.js";
 import {
@@ -82,8 +74,6 @@ import {
   syncSurfaceA11y,
   openSurface,
   closeSurface,
-  closeAllSurfaces,
-  focusSurface,
   openConfirmModal,
 } from "./clientSurfaces.js";
 import {
@@ -108,7 +98,6 @@ import {
   paintFaceCell,
   applyProfileToHomeUI,
   renderGuestAliasField,
-  requireGuestAlias,
 } from "./clientProfileRender.js";
 import {
   configureNightShift,
@@ -165,7 +154,6 @@ import {
 import { bindParlorSurfaces } from "./clientParlorBindings.js";
 import {
   renderPatrolHud,
-  renderHomeLocalTime,
   startHomeClock,
   stopHomeClock,
   playPatrolHitSound,
@@ -183,6 +171,27 @@ import {
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 import { bindAudioControls } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
+import {
+  applyRoomsUpdated,
+  bindRoomsUi,
+  closeRoomsModal,
+  configureRoomsUi,
+  openRoomsModal,
+  renderHome,
+  setHomeTab,
+  syncGlobalNavigation,
+} from "./clientRoomsUi.js";
+import {
+  bindLobbyUi,
+  buildBotPreviewPlayers,
+  configureLobbyUi,
+  enterParlor,
+  goHome,
+  leaveRoomForHome,
+  renderLobbyRail,
+  renderSetup,
+  setActiveAppearance,
+} from "./clientLobbyUi.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -219,33 +228,6 @@ function playSound(name) {
 
 
 
-function setActiveAppearance(choice) {
-  state.appearance = choice;
-  state.tableAppearanceOverride = null;
-  saveActiveDesignId(choice);
-  syncLocalAppearance();
-  applyProfileToHomeUI();
-  renderAccountPanel();
-  renderProfileLibrary();
-}
-
-function setTableAppearanceOverride(choice) {
-  state.tableAppearanceOverride = choice === state.appearance ? null : choice;
-  syncLocalAppearance();
-  renderPlayers();
-  renderSetup();
-  renderLobbyRail();
-  syncServerAppearance();
-}
-
-function clearTableAppearanceOverride() {
-  state.tableAppearanceOverride = null;
-  syncLocalAppearance();
-  renderPlayers();
-  renderSetup();
-  renderLobbyRail();
-  syncServerAppearance();
-}
 
 syncLocalAppearance();
 
@@ -341,10 +323,7 @@ if (socket) {
   });
   socket.on("connect_error", () => setConnectionStatus("offline", true));
   socket.on("update-state", (snapshot) => applyServerState(snapshot, serverSyncHost));
-  socket.on("rooms-updated", (payload) => {
-    roomsDirectory = Array.isArray(payload?.rooms) ? payload.rooms : roomsDirectory;
-    if (!$("#rooms-modal").classList.contains("is-hidden")) renderRoomsList();
-  });
+  socket.on("rooms-updated", applyRoomsUpdated);
   socket.on("social-update", (social) => {
     state.social = social || state.social;
     renderSocialSurface("#social-page-content");
@@ -493,32 +472,6 @@ function createRequestId(kind) {
   return String(state.clientId || "client") + ":" + String(kind || "action") + ":" + Date.now() + ":" + Math.random().toString(36).slice(2, 8);
 }
 
-function setHomeTab(tab = "play") {
-  const next = ["play", "rooms", "profile"].includes(tab) ? tab : "play";
-  state.homeTab = next;
-  document.querySelectorAll("[data-global-nav] [data-home-tab]").forEach((button) => {
-    const active = button.dataset.homeTab === next;
-    button.classList.toggle("is-active", active);
-    if (active) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
-  });
-}
-
-/** Keep the non-game app shell on one navigation contract. The game view has
- * its own turn-aware topnav, so it intentionally does not participate here. */
-function syncGlobalNavigation(surface = "home") {
-  const activeHomeTab = surface === "home" ? state.homeTab : surface;
-  document.querySelectorAll("[data-global-nav]").forEach((nav) => {
-    nav.querySelectorAll("[data-home-tab], [data-top-surface]").forEach((button) => {
-      const active = button.dataset.homeTab
-        ? surface !== "rankings" && surface !== "social" && button.dataset.homeTab === activeHomeTab
-        : button.dataset.topSurface === surface;
-      button.classList.toggle("is-active", active);
-      if (active) button.setAttribute("aria-current", "page");
-      else button.removeAttribute("aria-current");
-    });
-  });
-}
 
 function setProfileTab(tab = "designs", focus = false) {
   const allowed = ["overview", "stats", "designs", "history", "achievements", "account"];
@@ -581,224 +534,6 @@ function syncHomeMusic() {
   }
 }
 
-let roomsDirectory = [];
-let roomsLoading = false;
-let roomsDirectoryTimeout = null;
-let roomsFilter = "all";
-let roomModalTab = "browse"; // "browse" | "create" | "join"
-let createRoomSettings = {
-  name: "",
-  visibility: "public", // "public" | "private"
-  code: "",
-};
-
-function roomStateColor(stateName) {
-  if (stateName === "live") return "#35a653";
-  if (stateName === "full") return "#d9a62f";
-  return "#3a382a";
-}
-
-function filteredRooms() {
-  if (roomsFilter === "open") return roomsDirectory.filter((r) => r.seats < r.cap);
-  if (roomsFilter === "live") return roomsDirectory.filter((r) => r.state === "live");
-  return roomsDirectory;
-}
-
-function roomRowHTML(r) {
-  const full = r.seats >= r.cap;
-  const open = r.cap - r.seats;
-  const isPrivate = r.visibility === "private";
-  const visLabel = isPrivate ? "PRIVATE" : "PUBLIC · DIRECT JOIN";
-  return `<div class="room-row">
-    <div class="room-main">
-      <div class="room-top">
-        ${isPrivate ? `<span class="t-label f12 room-code">${r.code}</span>` : `<span class="t-label f12 room-code room-code-public">OPEN TABLE</span>`}
-        <span class="t-label f13 room-name">${r.name}</span>
-        <span class="t-micro g400" style="margin-left:4px">${visLabel}</span>
-        <span class="room-meta-item room-state-tag"><span class="st-dot" style="background:${roomStateColor(r.state)}"></span><span class="t-micro ink-3">${r.state}</span></span>
-      </div>
-      <div class="room-meta">
-        <span class="t-micro ink-3 room-meta-item">SEATS ${r.seats}/${r.cap}</span>
-        <span class="t-micro ink-3 room-meta-item">OPEN ${open}</span>
-        <span class="t-micro ink-3 room-meta-item">BANK ${r.bank}</span>
-        <span class="t-micro g-muted room-meta-item">${r.note}</span>
-      </div>
-    </div>
-    <div class="room-actions">
-      <button class="btn-dark" data-join="${r.code}" ${full ? "disabled" : ""}>
-        <span class="t-label f11">${full ? "FULL" : "JOIN"}</span>
-      </button>
-      ${isPrivate ? `<button class="btn-dark" data-copy="${r.code}" title="Copy code"><span class="t-label f11">COPY</span></button>` : ""}
-    </div>
-  </div>`;
-}
-
-function renderRoomsList() {
-  const list = $("#rooms-list");
-  if (!list) return;
-  const rooms = filteredRooms();
-  list.innerHTML = roomsLoading
-    ? `<div class="rooms-empty t-body">CHECKING PUBLIC TABLES…</div>`
-    : rooms.length
-    ? rooms.map(roomRowHTML).join("")
-    : `<div class="rooms-empty t-body">NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE.</div>`;
-
-  document.querySelectorAll(".rooms-filter").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.filter === roomsFilter);
-  });
-
-}
-
-function updateCreateRoomUI() {
-  const isPrivate = createRoomSettings.visibility === "private";
-  const codeField = $("#rc-private-code-field");
-  const codeInput = $("#rc-room-code");
-  const codeStatus = $("#rc-code-status");
-  const createButton = $("#rc-create-btn");
-  if (codeField) codeField.classList.toggle("is-hidden", !isPrivate);
-  if (codeInput && codeInput.value !== createRoomSettings.code) codeInput.value = createRoomSettings.code;
-  const codeValid = /^[A-Z0-9]{6}$/.test(createRoomSettings.code);
-  if (codeStatus) {
-    codeStatus.textContent = !isPrivate ? "NOT NEEDED FOR PUBLIC TABLES" : codeValid ? "READY" : `${createRoomSettings.code.length}/6 CHARACTERS`;
-    codeStatus.classList.toggle("is-valid", isPrivate && codeValid);
-    codeStatus.classList.toggle("is-invalid", isPrivate && !codeValid);
-  }
-  if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid));
-  if (createButton) createButton.disabled = isPrivate && !codeValid;
-
-  document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.vis === createRoomSettings.visibility);
-  });
-}
-
-function switchRoomModalTab(tab) {
-  roomModalTab = tab;
-  const isBrowse = tab === "browse";
-  const isCreate = tab === "create";
-  const isJoin = tab === "join";
-
-  const btnBrowse = $("#rm-tab-browse");
-  const btnCreate = $("#rm-tab-create");
-  const btnJoin = $("#rm-tab-join");
-  if (btnBrowse) {
-    btnBrowse.classList.toggle("is-active", isBrowse);
-    btnBrowse.setAttribute("aria-selected", String(isBrowse));
-  }
-  if (btnCreate) {
-    btnCreate.classList.toggle("is-active", isCreate);
-    btnCreate.setAttribute("aria-selected", String(isCreate));
-  }
-  if (btnJoin) {
-    btnJoin.classList.toggle("is-active", isJoin);
-    btnJoin.setAttribute("aria-selected", String(isJoin));
-  }
-
-  const panelBrowse = $("#rm-panel-browse");
-  const panelCreate = $("#rm-panel-create");
-  const panelJoin = $("#rm-panel-join");
-  if (panelBrowse) panelBrowse.classList.toggle("is-hidden", !isBrowse);
-  if (panelCreate) panelCreate.classList.toggle("is-hidden", !isCreate);
-  if (panelJoin) panelJoin.classList.toggle("is-hidden", !isJoin);
-
-  const titleText = $("#rooms-title-text");
-  if (titleText) titleText.textContent = isBrowse ? "Available Rooms" : isJoin ? "Join Room" : "Create Custom Room";
-  $("#rooms-modal")?.setAttribute("aria-describedby", isJoin ? "join-room-description" : "rooms-description");
-
-  if (isBrowse) {
-    renderRoomsList();
-  } else if (isCreate) {
-    updateCreateRoomUI();
-  } else if (isJoin) {
-    const code = $("#room-join");
-    const nickname = $("#join-nickname");
-    const nicknameField = $("#join-nickname-field");
-    const signedIn = Boolean(state.account?.account);
-    const description = $("#join-room-description");
-    if (code) code.value = String(code.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-    if (nickname) {
-      nickname.value = signedIn ? state.account.account.displayName : (nickname.value || state.alias || "");
-      nickname.required = !signedIn;
-      nickname.disabled = signedIn;
-    }
-    nicknameField?.classList.toggle("is-hidden", signedIn);
-    if (description) description.textContent = signedIn
-      ? "Enter the room code. Your account display name will be used at the table."
-      : "Enter the room code and the name you want to use at the table.";
-    $("#join-form-error")?.replaceChildren();
-  }
-}
-
-function requestRoomsDirectory() {
-  roomsLoading = true;
-  renderRoomsList();
-  clearTimeout(roomsDirectoryTimeout);
-  roomsDirectoryTimeout = setTimeout(() => {
-    roomsDirectoryTimeout = null;
-    if (!roomsLoading) return;
-    roomsLoading = false;
-    renderRoomsList();
-    parlorNotice("BROWSE", "Public tables could not be loaded — try again.");
-  }, 5000);
-  emitServer("list-rooms", {}, (response) => {
-    clearTimeout(roomsDirectoryTimeout);
-    roomsDirectoryTimeout = null;
-    roomsLoading = false;
-    if (response?.success === false) {
-      roomsDirectory = [];
-      parlorNotice("BROWSE", response.error || "Public tables could not be loaded.");
-      say(response.error || "Public tables could not be loaded.");
-      renderChat();
-    } else {
-      roomsDirectory = Array.isArray(response?.rooms) ? response.rooms : [];
-    }
-    renderRoomsList();
-  });
-}
-
-function openRoomsModal(tab = "browse") {
-  roomsFilter = "all";
-  switchRoomModalTab(tab);
-  openSurface("#rooms-modal", tab === "join" ? "#room-join" : "#rooms-close");
-  if (tab === "browse") requestRoomsDirectory();
-}
-
-function closeRoomsModal() {
-  closeSurface("#rooms-modal");
-  if (state.phase === "home") setHomeTab("play");
-}
-
-function renderHome() {
-  setHomeTab("play");
-  renderHomeLocalTime();
-  renderPatrolHud();
-  paintSkyline($("#home-skyline"), SKYLINE);
-  paintSkyline($("#home-skyline-copy"), SKYLINE);
-
-  // mini board
-  const grid = $("#mini-grid");
-  if (grid && !grid.dataset.built) {
-    const groups = ["#7b5029", "#3e7d7b", "#a04e6f", "#87231e", "#4b853d", "#286ea1"];
-    let cells = "";
-    for (let i = 0; i < 64; i++) {
-      const x = i % 8;
-      const y = Math.floor(i / 8);
-      const edge = x === 0 || y === 0 || x === 7 || y === 7;
-      if (!edge) { cells += "<span></span>"; continue; }
-      const corner = (x === 0 || x === 7) && (y === 0 || y === 7);
-      cells += `<span class="mini-cell${corner ? " is-corner" : ""}">${
-        corner ? spriteHTML("diamond", 2) : `<span class="strip" style="background:${groups[(x + y) % groups.length]}"></span>`
-      }</span>`;
-    }
-    grid.insertAdjacentHTML("afterbegin", cells);
-    grid.dataset.built = "1";
-  }
-
-  renderRoomsList();
-  renderAccountPanel();
-  applyProfileToHomeUI();
-  renderConnectionStatus();
-  hydrateSprites();
-}
 
 /* ============================================================
    6. GAME RENDERERS
@@ -1049,84 +784,6 @@ function canBuildEvenly(tile, targetLevel) {
   return true;
 }
 
-function renderSetup() {
-  const wrap = $("#setup-wrap");
-  wrap.classList.toggle("is-hidden", state.phase !== "setup");
-  if (state.phase !== "setup") return;
-
-  // Server is authoritative for identity: if the table auto-assigned a
-  // different colour than the local design, the picker must show the seat
-  // colour as the active row, not the (rejected) design choice.
-  const seat = state.players.find((p) => p.clientId === state.clientId);
-  const seatColor = String(seat?.color || "").toLowerCase();
-  const seatPreset = APPEARANCES.findIndex((a) => String(a.color).toLowerCase() === seatColor);
-  const choice = seatPreset >= 0 ? seatPreset : activeAppearance();
-  const meta = getAppearanceMeta(choice);
-  const takenColors = new Set(
-    state.players
-      .filter((p) => p.clientId !== state.clientId && p.online !== false && !p.bankrupt)
-      .map((p) => String(p.color || "").toLowerCase()),
-  );
-  const selectedProfile = typeof choice === "string" ? getProfileById(choice) : null;
-  const selectedName = selectedProfile ? profileDesignName(selectedProfile) : meta.label;
-  const sourceLabel = state.tableAppearanceOverride == null ? "ACTIVE DESIGN" : "THIS TABLE ONLY";
-  const activeProfile = typeof state.appearance === "string" ? getProfileById(state.appearance) : null;
-  const activeName = activeProfile ? profileDesignName(activeProfile) : getAppearanceMeta(state.appearance).label;
-  const activeIsDifferent = state.tableAppearanceOverride != null && state.tableAppearanceOverride !== state.appearance;
-
-  // The active design is the default. The chooser is deliberately opt-in so
-  // joining a table never asks the player to make the same identity decision twice.
-  const activeCard = $("#su-active-card");
-  if (activeCard) {
-    activeCard.innerHTML = `<div class="su-active-avatar">${avatarHTML({ color: meta.color, avatarGrid: meta.avatarGrid }, 4, 0)}</div><div class="su-active-copy"><span class="t-micro ${activeIsDifferent ? "g400" : "green"}">${sourceLabel}</span><strong class="t-label f14 su-active-name" style="color:${meta.textColor}">${esc(selectedName)}</strong><span class="t-micro ink-3">${activeIsDifferent ? `ACTIVE DESIGN · ${esc(activeName)}` : "READY TO ENTER THE PARLOR"}</span></div>`;
-  }
-  $("#su-active-actions")?.classList.toggle("is-hidden", !activeIsDifferent);
-  $("#su-reset-btn")?.classList.toggle("is-hidden", !activeIsDifferent);
-  $("#su-make-active-btn")?.classList.toggle("is-hidden", !activeIsDifferent);
-  $("#su-chooser")?.classList.remove("is-hidden");
-
-  document.querySelectorAll(".su-tab").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.suTab === state.setupTab);
-    btn.setAttribute("aria-selected", String(btn.dataset.suTab === state.setupTab));
-  });
-  $("#su-custom-count").textContent = `${state.profiles.length}/${MAX_PROFILES}`;
-  $("#su-grid")?.setAttribute("aria-labelledby", `su-tab-${state.setupTab}`);
-
-  if (state.setupTab === "custom") {
-    $("#su-grid").innerHTML = state.profiles.length
-      ? state.profiles
-          .map((p, i) => {
-            const active = choice === p.id;
-            const status = active ? (activeIsDifferent ? "THIS TABLE" : "ACTIVE DESIGN") : p.id === state.appearance ? "ACTIVE DESIGN" : "AVAILABLE";
-            return `<button type="button" class="su-opt su-opt-profile${active ? " is-active" : ""}" data-app="${p.id}">
-              <div class="su-av">${avatarHTML(p, 5, i)}</div>
-              <div>
-              <div class="t-label f13" style="color:${p.color}">${esc(profileDesignName(p))}</div>
-                <div class="t-micro ink-3 su-state">${status}</div>
-              </div>
-            </button>`;
-          })
-          .join("")
-      : `<p class="su-empty-custom">No custom designs yet. Create one from the home screen, then pick it here.</p>`;
-  } else {
-    $("#su-grid").innerHTML = APPEARANCES.map((a, i) => {
-      const active = choice === i;
-      const taken = !active && takenColors.has(String(a.color).toLowerCase());
-      const status = active
-        ? (activeIsDifferent ? "THIS TABLE" : "ACTIVE DESIGN")
-        : taken
-          ? "TAKEN"
-          : state.appearance === i ? "ACTIVE DESIGN" : "AVAILABLE";
-      return `<button type="button" class="su-opt${active ? " is-active" : ""}${taken ? " is-taken" : ""}" data-app="${i}"${taken ? " disabled aria-disabled=\"true\" title=\"This colour is taken at the table\"" : ""}>
-      <div class="su-av">${avatarHTML(a, 5, i)}</div>
-      <div>
-        <div class="t-label f13" style="color:${taken ? "var(--text-muted)" : a.textColor}">${a.label}</div>
-        <div class="t-micro ink-3 su-state">${status}</div>
-      </div>
-    </button>`;
-    }).join("");
-  }
-}
 
 function renderAll() {
   renderTopNav();
@@ -1148,156 +805,6 @@ function renderAll() {
    6b. LOBBY SETTINGS RENDERER
    ============================================================ */
 
-function tog(id, value) {
-  const label = id.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
-  return `<button class="tog${value ? " is-on" : ""}" data-setting="${id}" aria-label="${label}" aria-pressed="${value}" title="${label}"></button>`;
-}
-
-function stepper(id, value, min, max) {
-  return `<div class="stepper">
-    <button class="stepper-btn" data-step="${id}" data-dir="-1" ${value <= min ? "disabled" : ""}>−</button>
-    <div class="stepper-val">${value}</div>
-    <button class="stepper-btn" data-step="${id}" data-dir="1" ${value >= max ? "disabled" : ""}>+</button>
-  </div>`;
-}
-
-function sel(id, value, options) {
-  return `<select class="setting-select" data-setting="${id}">
-    ${options.map(([v, l]) => `<option value="${v}" ${String(v) === String(value) ? "selected" : ""}>${l}</option>`).join("")}
-  </select>`;
-}
-
-function settingRow(label, desc, control) {
-  return `<div class="setting-row">
-    <div class="setting-label">
-      <span class="t-label f12 g100">${label}</span>
-      <span class="setting-desc">${desc}</span>
-    </div>
-    ${control}
-  </div>`;
-}
-
-function settingRowNum(label, desc, control) {
-  return `<div class="setting-row-num">
-    <div class="setting-label">
-      <span class="t-label f12 g100">${label}</span>
-      <span class="setting-desc">${desc}</span>
-    </div>
-    ${control}
-  </div>`;
-}
-
-function lobbySection(title, rows) {
-  return `<div class="lobby-section">
-    <div class="lobby-section-head">
-      <span class="t-label">${title}</span>
-    </div>
-    ${rows.join("")}
-  </div>`;
-}
-
-function lobbyPlayerRowHTML(p, seed) {
-  const isYou = p.id === "p1" || p.id === "preview";
-  // deterministic per-player "ready" flag instead of Math.random(), so the
-  // dot doesn't flicker on every unrelated re-render (typing, toggling, etc.)
-  const ready = isYou || !!p.online;
-  return `<div class="lobby-player-row${isYou ? " lobby-player-you" : ""}">
-    <div class="lobby-av">${avatarHTML(p, 3, seed)}</div>
-    <div class="lobby-player-info">
-      <div class="t-label lobby-player-name" style="color:${p.textColor}">${esc(p.name)}</div>
-      <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.personality || "survivor").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
-    </div>
-    <span class="lobby-ready-dot" style="background:${ready ? "#35a653" : "#3a382a"};box-shadow:${ready ? "0 0 5px rgb(53 166 83/60%)" : "none"}"></span>
-  </div>`;
-}
-
-function renderLobbyRail() {
-  // the settings rail owns the right column for both "setup" (choosing
-  // appearance) and "lobby" (configuring rules) — the in-game Holdings
-  // rail should only ever appear once a round is actually live.
-  const preGame = state.phase === "setup" || state.phase === "lobby";
-  const locked = state.phase === "setup";
-  $("#right-rail-game").classList.toggle("is-hidden", preGame);
-  $("#right-rail-lobby").classList.toggle("is-hidden", !preGame);
-  if (!preGame) return;
-
-  const s = state.settings;
-  const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
-  const existingBots = seated.filter((p) => p.bot).length;
-  const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
-  const previewPlayers = [...seated, ...botPreviews].slice(0, s.maxPlayers);
-
-  $("#lobby-settings-body").innerHTML = [
-    locked
-      ? `<div class="settings-rule lobby-lock-note">
-          <strong style="color:var(--gold-300)">FINISH SETUP TO CONTINUE</strong><br>
-          Your active design is ready. Press "Enter Parlor" on the left to seat the table, or change it there for this table only.
-        </div>`
-      : "",
-    lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
-    lobbySection("Table Rules", [
-      settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
-      settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
-      settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
-      settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
-      settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
-      settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
-    ]),
-    lobbySection("Economy", [
-      settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
-      settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
-      settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
-      settingRow("Bankruptcy", "How to handle a bust player.", sel("bankruptMode", s.bankruptMode, [["elim","ELIMINATE"],["debt","DEBT DEAL"]])),
-      settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
-      settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
-      settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
-      settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
-    ]),
-    lobbySection("Global Events", [
-      settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
-    ]),
-    lobbySection("Building", [
-      settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"]])),
-      settingRowNum("Hotel Limit", "Total hotels in the bank.", sel("hotelLimit", s.hotelLimit, [["6","6 HOTELS"],["12","12 HOTELS"]])),
-    ]),
-    lobbySection("Turn Timer", [
-      settingRow("Timer Per Turn", "Seconds allowed per move (0 = off).", sel("turnTimer", s.turnTimer, [["0","OFF"],["30","30 SEC"],["60","60 SEC"],["120","2 MIN"]])),
-    ]),
-    `<div class="settings-rule">
-      <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
-      ${s.maxPlayers} players · $${Number(s.startingCash).toLocaleString()} start ·
-      ${s.vacationPool ? "pool on" : "no pool"} ·
-      ${s.trading ? "trading on" : "no trades"} ·
-      ${s.auction ? "auction on" : "no auction"} ·
-      ${s.bankLoans ? `${String(s.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off"} ·
-      ${s.globalEvents ? "global events on" : "global events off"} ·
-     ${s.casino ? "casino on" : "casino off"} ·
-     ${s.market ? "market on" : "market off"} ·
-      ${s.bots ? `bot instinct ${String(s.botPersonality || "survivor").toLowerCase()}` : "no bots"} ·
-      ${s.turnTimer ? s.turnTimer + "s timer" : "no timer"} ·
-      ${s.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
-    </div>`,
-  ].join("");
-
-  const startBtn = $("#lobby-start-btn");
-  startBtn.disabled = locked;
-  startBtn.querySelector(".cta-text").textContent = locked ? "Finish Setup First" : "Start Round";
-}
-
-/** A lightweight, live preview of "you" while the setup overlay is still open,
- *  so the sidebar reflects the color/alias currently being chosen. */
-function buildPreviewSelf() {
-  const a = getAppearanceMeta(activeAppearance());
-  return {
-    id: "preview",
-    name: (state.alias.trim() || a.baseName).toUpperCase(),
-    color: a.color,
-    textColor: a.textColor,
-    cash: Number(state.settings.startingCash),
-    bot: false,
-    avatarGrid: a.avatarGrid || undefined,
-  };
-}
 
 /* ============================================================
    6b. PROFILE EDITOR
@@ -1335,17 +842,6 @@ function openProfileEditor(fromPhase, profileId) {
   setProfileTab(state.profileTab);
 }
 
-function buildBotPreviewPlayers(count) {
-  const localBots = buildPlayers(activeAppearance(), state.alias).slice(1, 4);
-  return localBots.slice(0, Math.max(0, count)).map((bot, index) => ({
-    ...bot,
-    id: `bot-preview-${index + 1}`,
-    name: `BOT ${index + 1}`,
-   online: true,
-   bot: true,
-    personality: state.settings.botPersonality || "survivor",
- }));
-}
 
 function announceProfileSave(message) {
   const status = $("#profile-save-status");
@@ -1942,150 +1438,6 @@ function showView(name) {
   }
 }
 
-function syncServerAppearance() {
-  const meta = getAppearanceMeta(activeAppearance());
-  emitServer("set-player-appearance", {
-    nickname: state.alias.trim() || meta.baseName,
-    color: meta.color,
-    avatarGrid: meta.avatarGrid || null,
-  }, (response) => {
-    if (response?.success === false) {
-      // Audit #24: the rejection also has to reach players stuck on the home
-      // screen, where the chat transcript is invisible.
-      parlorNotice("APPEARANCE", response.error || "Appearance could not be updated.");
-      say(response.error || "Appearance could not be updated.");
-      renderChat();
-    }
-  });
-}
-
-function enterParlor(code) {
-  if (!requireGuestAlias()) return;
-  const requestedCode = String(code || "").trim().toUpperCase();
-  state.suppressRoomUpdates = false;
-  state.roomCode = requestedCode;
-  state.roomVisibility = state.pendingRoomMeta?.visibility || (requestedCode ? "private" : "public");
-  state.phase = "setup";
-  state.tableAppearanceOverride = null;
-  state.setupTab = typeof state.appearance === "string" ? "custom" : "preset";
-  // always start the setup/lobby screens from a clean board — otherwise a
-  // finished game's deed ownership, houses and token positions would still
-  // be visible behind the setup overlay after going home and rejoining.
-  state.players = buildPlayers(activeAppearance(), state.alias);
-  state.owners = {};
-  state.houses = {};
-  state.pool = 0;
-  state.turnIndex = 0;
-  state.dice = [3, 5];
-  state.rolling = false;
-  state.busy = false;
-  state.turnStage = "roll";
-  state.highlight = null;
-  state.selectedTile = null;
-  state.tradeWith = null;
-  state.profileDraft = null;
-  state.pendingBuyTile = null;
-  state.auction = null;
-  state.mortgaged = {};
-  state.offers = [];
-  state.deedDetail = null;
-  stopAuctionTimer();
-  clearSave();
-  closeAllSurfaces();
-  state.log = ["ACTIVE DESIGN READY — ENTER THE PARLOR."];
-  showView("game");
-  renderAll();
-  focusSurface("#setup-wrap", "#su-start");
-  requestAnimationFrame(() => placePieces());
-
-  const meta = getAppearanceMeta(activeAppearance());
-    const event = requestedCode ? "join-room" : "create-room";
-    emitServer(event, {
-      roomCode: requestedCode || undefined,
-      nickname: state.alias.trim() || meta.baseName,
-      color: meta.color,
-      avatarGrid: meta.avatarGrid || null,
-      ...(event === "create-room" && state.pendingRoomMeta ? state.pendingRoomMeta : {}),
-    }, (response) => {
-      if (response?.success === false) {
-        // Surface the rejection on the visible toast stack before bouncing
-        // home — say() alone lands in the hidden chat panel (A1/A3).
-        parlorNotice("TABLE NOTICE", response.error || "Room could not be entered.");
-        say(response.error || "Room could not be entered.");
-        state.phase = "home";
-        showView("home");
-        renderAll();
-        return;
-      }
-      if (Object.prototype.hasOwnProperty.call(response || {}, "roomCode")) state.roomCode = response.roomCode || "";
-      if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
-      state.phase = "setup";
-      renderAll();
-      renderTopNav();
-      syncServerAppearance();
-      if (state.pendingRoomSettings) {
-        Object.entries(state.pendingRoomSettings).forEach(([key, value]) => updateServerSetting(key, value));
-        state.pendingRoomSettings = null;
-      }
-      state.pendingRoomMeta = null;
-    });
-}
-
-function enterLobby() {
-  // called from the setup overlay "Enter Parlor" button
-  if (!requireGuestAlias()) return;
-  syncServerAppearance();
-    state.phase = "lobby";
-    renderAll();
-    requestAnimationFrame(() => placePieces());
-    return;
-}
-
-function goHome() {
-  // Release the seat on the server so the room can GC and peers stop
-  // counting a home-screen player as online (A4-F3: ghost seats).
-  if (state.phase !== "home") emitServer("leave-room", {}, () => {});
-  stopAuctionTimer();
-  state.busy = false;
-  state.rolling = false;
-  state.turnStage = "roll";
-  state.selectedTile = null;
-  state.highlight = null;
-  state.tradeWith = null;
-  state.profileDraft = null;
-  state.pendingBuyTile = null;
-  state.auction = null;
-  state.offers = [];
-  state.deedDetail = null;
-  state.jail = {};
-  state.card = null;
-  state.gameOver = null;
-  // Audit #16: home must not keep the previous room's transcript or activity
-  // log. Rejoining a room re-seeds both from the server's next snapshot, so
-  // emptying here never leaves stale content behind.
-  state.messages = [];
-  state.log = [];
-  stopTurnCountdown();
-  state.phase = "home";
-  state.roomVisibility = "private";
-  state.suppressRoomUpdates = true;
-  closeAllSurfaces();
-  $("#log-drawer").classList.remove("is-open");
-  $("#view-game").classList.remove("is-focus");
-  closeRoomsModal();
-  // reset right rail visibility to game mode
-  $("#right-rail-game").classList.remove("is-hidden");
-  $("#right-rail-lobby").classList.add("is-hidden");
-  showView("home");
-}
-
-// Audit 7.5: one door back to the homescreen. goHome() releases the room
-// seat; a raw showView("home") from a page/rail handler used to leave the
-// seat (and the room's stale transcript) behind when the user was mid-room.
-function leaveRoomForHome() {
-  if (state.phase === "setup" || state.phase === "lobby" || state.phase === "playing") goHome();
-  else showView("home");
-}
 
 function bindEvents() {
   // Home destinations. Play stays in the stage; rooms uses the existing
@@ -2153,96 +1505,8 @@ function bindEvents() {
   // entry points named avoids accidental duplicate Create/Browse triggers.
   bindHomeEntry({ closeRoomsModal, enterParlor });
 
-  // rooms browser & creator
-  $("#browse-rooms-btn")?.addEventListener("click", () => openRoomsModal("browse"));
-  $("#open-rooms-btn")?.addEventListener("click", () => openRoomsModal("browse"));
-  $("#create-room-btn")?.addEventListener("click", () => openRoomsModal("create"));
-  $("#open-create-btn")?.addEventListener("click", () => openRoomsModal("create"));
-  $("#open-join-btn")?.addEventListener("click", () => openRoomsModal("join"));
-  $("#rooms-close")?.addEventListener("click", closeRoomsModal);
-  $("#rooms-scrim")?.addEventListener("click", closeRoomsModal);
-
-  // modal tab switching
-  $("#rm-tabs")?.addEventListener("click", (e) => {
-    const tabBtn = e.target.closest("[data-rm-tab]");
-    if (!tabBtn) return;
-    const tab = tabBtn.dataset.rmTab;
-    switchRoomModalTab(tab);
-    // Re-selecting BROWSE inside an open modal must re-fetch, not replay the
-    // cached directory (A2-1: the list only loaded on modal open).
-    if (tab === "browse") requestRoomsDirectory();
-  });
-
-  // rooms directory list interactions
-  $("#rooms-list")?.addEventListener("click", (e) => {
-    const copyBtn = e.target.closest("[data-copy]");
-    if (copyBtn) {
-      try { navigator.clipboard?.writeText(copyBtn.dataset.copy); } catch { /* no clipboard */ }
-      copyBtn.querySelector("span").textContent = "COPIED";
-      setTimeout(() => { copyBtn.querySelector("span").textContent = "COPY"; }, 900);
-      return;
-    }
-    const btn = e.target.closest("[data-join]");
-    if (btn && !btn.disabled) {
-      closeRoomsModal();
-      enterParlor(btn.dataset.join);
-    }
-  });
-
-  document.querySelectorAll(".rooms-filter").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      roomsFilter = btn.dataset.filter || "all";
-      renderRoomsList();
-    });
-  });
-
-  // room creation form interactions
-  $("#rc-vis-selector")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-vis]");
-    if (!btn) return;
-    const vis = btn.dataset.vis;
-    if (createRoomSettings.visibility !== vis) {
-      createRoomSettings.visibility = vis;
-      createRoomSettings.code = "";
-      updateCreateRoomUI();
-    }
-  });
-
-  $("#rc-room-code")?.addEventListener("input", (e) => {
-    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-    createRoomSettings.code = e.target.value;
-    updateCreateRoomUI();
-  });
-
-  $("#rc-create-btn")?.addEventListener("click", () => {
-    const nameInput = $("#rc-name");
-    const name = (nameInput?.value || "").trim().toUpperCase().slice(0, 18) || "AFTER HOURS #12";
-    const vis = createRoomSettings.visibility;
-    const code = createRoomSettings.code || "";
-    if (!state.account?.account && !String(state.alias || "").trim()) {
-      closeRoomsModal();
-      requireGuestAlias();
-      return;
-    }
-    if (vis === "private" && !/^[A-Z0-9]{6}$/.test(code)) {
-      updateCreateRoomUI();
-      $("#rc-room-code")?.focus();
-      return;
-    }
-
-    state.alias = (state.account?.account?.displayName || state.alias || state.profiles[0]?.name || "").slice(0, 12);
-      state.pendingRoomMeta = {
-        roomName: name,
-        visibility: vis,
-        ...(vis === "private" ? { roomCode: code } : {}),
-      };
-      closeRoomsModal();
-      // The backend generates the authoritative room code; the ZIP's local
-      // preview code remains a visual hint until the room is created.
-      enterParlor();
-      return;
-
-  });
+  // rooms browser & creator (clientRoomsUi.js)
+  bindRoomsUi();
 
   // resume round
   $("#resume-btn")?.addEventListener("click", () => resumeGame());
@@ -2458,105 +1722,12 @@ function bindEvents() {
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
   $("#night-exit")?.addEventListener("click", stopNightShift);
 
-  // quick table: starts a default-rules round immediately
-  $("#quick-table-btn")?.addEventListener("click", () => {
-    if (!requireGuestAlias()) return;
-    state.quickJoin = true;
-    state.settings.vacationPool = true;
-    state.settings.trading = true;
-    state.settings.auction = false;
-    state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
-      enterParlor();
-      return;
-  });
+  // setup overlay + quick table + lobby settings rail (clientLobbyUi.js)
+  bindLobbyUi();
 
   // game → home
   $("#brand-home").addEventListener("click", goHome);
   $("#tn-room-copy").addEventListener("click", copyRoomCode);
-
-  // setup overlay
-  $("#su-tabs")?.addEventListener("click", (e) => {
-    const tabBtn = e.target.closest("[data-su-tab]");
-    if (!tabBtn) return;
-    state.setupTab = tabBtn.dataset.suTab;
-    renderSetup();
-  });
-  $("#su-reset-btn")?.addEventListener("click", () => {
-    clearTableAppearanceOverride();
-    focusSurface("#setup-wrap", "#su-start");
-  });
-  $("#su-make-active-btn")?.addEventListener("click", () => {
-    const choice = activeAppearance();
-    state.appearance = choice;
-    saveActiveDesignId(choice);
-    state.tableAppearanceOverride = null;
-    applyProfileToHomeUI();
-    renderAccountPanel();
-    renderProfileLibrary();
-    renderSetup();
-    renderLobbyRail();
-    syncServerAppearance();
-    focusSurface("#setup-wrap", "#su-start");
-  });
-  $("#su-grid").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-app]");
-    if (!btn) return;
-    if (btn.disabled) return;
-    const raw = btn.dataset.app;
-    // preset appearance = "0".."3"; custom profile ids look like "pf_xxxx"
-    const choice = /^\d+$/.test(raw) ? Number(raw) : raw;
-    setTableAppearanceOverride(choice);
-  });
-  $("#su-start").addEventListener("click", enterLobby);
-
-  // lobby settings interactions
-  $("#lobby-settings-body").addEventListener("click", (e) => {
-    // toggle buttons
-    const togBtn = e.target.closest("[data-setting]");
-    if (togBtn && togBtn.classList.contains("tog")) {
-      const key = togBtn.dataset.setting;
-      state.settings[key] = !state.settings[key];
-      updateServerSetting(key, state.settings[key]);
-      renderLobbyRail();
-      return;
-    }
-    // stepper buttons
-    const stepBtn = e.target.closest("[data-step]");
-    if (stepBtn && !stepBtn.disabled) {
-      const key = stepBtn.dataset.step;
-      const dir = Number(stepBtn.dataset.dir);
-      const limits = {
-        maxPlayers: [2, 4],
-        bots: [0, Math.max(0, Number(state.settings.maxPlayers) - 1)],
-      };
-      const [mn, mx] = limits[key] || [0, 999];
-      state.settings[key] = clamp((Number(state.settings[key]) || 0) + dir, mn, mx);
-      if (key === "maxPlayers") {
-        state.settings.bots = clamp(Number(state.settings.bots) || 0, 0, Math.max(0, state.settings.maxPlayers - 1));
-      }
-      updateServerSetting(key, state.settings[key]);
-      renderLobbyRail();
-      return;
-    }
-  });
-  const applySettingField = (e) => {
-    const sel = e.target.closest("[data-setting]");
-    if (sel && (sel.tagName === "SELECT" || sel.matches("input[data-setting]"))) {
-      const key = sel.dataset.setting;
-      const numericKeys = ["startingCash", "houseLimit", "hotelLimit", "turnTimer"];
-      if (numericKeys.includes(key)) {
-        if (sel.value.trim() === "") return;
-        const parsed = Number(sel.value);
-        if (!Number.isFinite(parsed) || parsed < 0) return;
-        state.settings[key] = Math.floor(parsed);
-      } else {
-        state.settings[key] = sel.matches("input[type=checkbox]") ? sel.checked : sel.value;
-      }
-      updateServerSetting(key, state.settings[key]);
-      renderLobbyRail();
-    }
-  };
-  $("#lobby-settings-body").addEventListener("change", applySettingField);
 
   $("#global-event-choices")?.addEventListener("click", (event) => {
     const choice = event.target.closest("[data-global-choice]");
@@ -2691,6 +1862,18 @@ configureTradeUi({ emitServer, say, renderChat, record });
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureProfileRender({ renderAchievements, loadSavedGame });
+configureRoomsUi({ emitServer, say, renderChat, enterParlor });
+configureLobbyUi({
+  emitServer,
+  updateServerSetting,
+  showView,
+  renderAll,
+  say,
+  renderChat,
+  clearSave,
+  renderPlayers,
+  closeRoomsModal,
+});
 configureNightShift({
   emitServer,
   parlorNotice,
