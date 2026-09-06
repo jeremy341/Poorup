@@ -50,8 +50,6 @@ import {
   JAIL_FINE,
   JAIL_MAX_TURNS,
   PROPERTY_HOUSE_COST_BY_GROUP,
-  PROPERTY_RENT_MULTIPLIERS,
-  RAILROAD_RENT,
   START_TILE_INDEX,
   SURPRISE_DECK,
   TREASURE_DECK,
@@ -60,6 +58,7 @@ import {
   shuffleArray
 } from './gameData.js';
 import { globalEventsApi } from './globalEventsApi.js';
+import { rentApi } from './rentApi.js';
 
 const AUCTION_DURATION_MS = 5000;
 const AUCTION_BID_COOLDOWN_MS = 300;
@@ -237,38 +236,6 @@ const PROPERTY_ACTION_HANDLERS = {
 
 const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
 
-// Global-event rent modifiers as data: every rule is a multiplicative factor
-// (airport-strike is a factor of 0) keyed off the event/effect state, folded
-// in order over the base rent. None of them read the accumulated total, so
-// multiplication commutes and the sequence is behavior-irrelevant; the only
-// non-multiplicative step, rentCap, stays after the fold along with the
-// Math.floor clamp. An effect factor parses to NaN when absent, and the fold
-// skips non-finite factors — the exact "applies only when set" guard the
-// original if-ladder repeated eleven times.
-const RENT_EVENT_MODIFIERS = [
-  { appliesTo: (game, tile) => game.globalEventActive('housing-bubble') && tile.type === 'property', factor: () => 0.65 },
-  { appliesTo: (game, tile) => game.globalEventActive('airport-strike') && tile.type === 'railroad', factor: () => 0 },
-  { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.type === 'railroad', factor: () => 1.75 },
-  { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.group === 'Dark Blue', factor: () => 1.3 },
-  {
-    appliesTo: (game, tile) => game.globalEventActive('anti-monopoly')
-      && tile.ownerId === game.globalEvent.targetPlayerId
-      && game.globalEvent.resolvedChoice !== 'dismiss',
-    factor: () => 0.6
-  },
-  { appliesTo: (game, tile) => game.globalEventActive('energy-crisis') && tile.type === 'utility', factor: () => 1.5 },
-  { appliesTo: (game, tile) => game.isPublicWorksElection() && tile.type === 'property', factor: () => 0.75 },
-  { appliesTo: (game, tile) => tile.type === 'railroad' && !game.globalEventActive('airport-strike'), factor: (game) => Number(game.activeEventEffects().airportRentMultiplier) },
-  { appliesTo: (game, tile) => tile.type === 'utility' && !game.globalEventActive('energy-crisis'), factor: (game) => Number(game.activeEventEffects().utilityRentMultiplier) },
-  { appliesTo: (game, tile) => tile.group === 'Dark Blue' && !game.globalEventActive('tourism-boom'), factor: (game) => Number(game.activeEventEffects().premiumRentMultiplier) },
-  { appliesTo: (game) => !game.globalEventActive('housing-bubble'), factor: (game) => { const multiplier = Number(game.activeEventEffects().rentMultiplier); return multiplier > 0 ? multiplier : NaN; } }
-];
-
-// Trade proposal rejection rules as data: one entry per original if-clause of
-// GameState.proposeTrade, kept in the original evaluation order so a single
-// error string wins exactly as before. The context is fully normalized up
-// front (pure lookups only), and every predicate reads just that context,
-// mirroring the RENT_EVENT_MODIFIERS style above.
 const TRADE_PROPOSAL_GUARDS = [
   {
     error: 'Choose a valid trade partner.',
@@ -675,66 +642,6 @@ class GameState {
     }
     const multiplier = Number(this.activeEventEffects().buildingCostMultiplier);
     return Number.isFinite(multiplier) && multiplier > 0 ? Math.max(1, Math.ceil(base * multiplier)) : base;
-  }
-
-  getPropertyRent(tile) {
-    if (tile.mortgaged) {
-      return 0;
-    }
-    return this.applyEventRentModifiers(this.baseRentByType(tile), tile);
-  }
-
-  baseRentByType(tile) {
-    if (tile.type === 'property') return this.propertyBaseRent(tile);
-    if (tile.type === 'utility') return this.utilityBaseRent(tile);
-    if (tile.type === 'railroad') return this.railroadBaseRent(tile);
-    return tile.rent || 0;
-  }
-
-  propertyBaseRent(tile) {
-    const baseRent = tile.rent || 0;
-    const level = Math.max(0, Math.min(5, tile.houseCount || 0));
-    if (level > 0) {
-      return Math.floor(baseRent * PROPERTY_RENT_MULTIPLIERS[level]);
-    }
-    if (!tile.group || !this.settings.doubleRent) return baseRent;
-    if (this.hasFullSet(tile.ownerId, tile.group)) {
-      return baseRent * 2;
-    }
-    return baseRent;
-  }
-
-  utilityBaseRent(tile) {
-    const owner = this.getPlayerById(tile.ownerId);
-    if (!owner) return tile.rent || 20;
-    return this.diceTotal() * (this.ownedUtilityCount(owner) >= 2 ? 10 : 4);
-  }
-
-  ownedUtilityCount(owner) {
-    return this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id).length;
-  }
-
-  diceTotal() {
-    return Math.max(2, (this.lastDice?.[0] || 0) + (this.lastDice?.[1] || 0));
-  }
-
-  railroadBaseRent(tile) {
-    const owner = this.getPlayerById(tile.ownerId);
-    if (!owner) return RAILROAD_RENT[0];
-    const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id).length;
-    return RAILROAD_RENT[Math.min(Math.max(ownedRailroads, 1), RAILROAD_RENT.length) - 1];
-  }
-
-  applyEventRentModifiers(rent, tile) {
-    let total = rent;
-    for (const modifier of RENT_EVENT_MODIFIERS) {
-      if (!modifier.appliesTo(this, tile)) continue;
-      const factor = modifier.factor(this, tile);
-      if (Number.isFinite(factor)) total *= factor;
-    }
-    const cap = Number(this.activeEventEffects().rentCap);
-    if (Number.isFinite(cap) && cap > 0) total = Math.min(total, cap);
-    return Math.max(0, Math.floor(total));
   }
 
   isTradeableTile(tile) {
@@ -1619,10 +1526,6 @@ class GameState {
     nextPlayer.buildActionsThisTurn = 0;
     nextPlayer.marketActionsThisTurn = 0;
     this.feedMessage(`${nextPlayer.nickname}'s turn.`);
-  }
-
-  calculateRent(tile) {
-    return this.getPropertyRent(tile);
   }
 
   hasFullSet(ownerId, group) {
@@ -2620,7 +2523,7 @@ class GameState {
   }
 }
 
-Object.assign(GameState.prototype, globalEventsApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi);
 
 class Room {
   constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
