@@ -317,7 +317,7 @@ check('chargePlayer — full payment credits the creditor with rent facts', () =
   const room = makeStartedRoom(false);
   const a = room.game.getPlayerBySocket('socket-a');
   const b = room.game.getPlayerBySocket('socket-b');
-  room.game.chargePlayer(b, a, 1500, 'B paid $1500 rent to A.', {});
+  room.game.chargePlayer({ player: b, creditor: a, amount: 1500, message: 'B paid $1500 rent to A.', turnOptions: {} });
   assert.equal(b.cash, 0);
   assert.equal(b.zeroCashReached, true);
   assert.equal(a.cash, 3000);
@@ -333,10 +333,10 @@ check('chargePlayer — non-positive or missing payer just resolves the turn', (
   const room = makeStartedRoom(false);
   const a = room.game.getPlayerBySocket('socket-a');
   room.game.awaitingEndTurn = false;
-  room.game.chargePlayer(a, null, 0, 'nothing', {});
+  room.game.chargePlayer({ player: a, amount: 0, message: 'nothing', turnOptions: {} });
   assert.equal(a.cash, 1500);
   assert.equal(room.game.awaitingEndTurn, true);
-  room.game.chargePlayer(null, a, 100, 'ghost', {});
+  room.game.chargePlayer({ player: null, creditor: a, amount: 100, message: 'ghost', turnOptions: {} });
   assert.equal(a.cash, 1500);
 });
 
@@ -345,7 +345,7 @@ check('chargePlayer — shortfall pays what it can and opens pendingPayment', ()
   const a = room.game.getPlayerBySocket('socket-a');
   const b = room.game.getPlayerBySocket('socket-b');
   b.cash = 300;
-  room.game.chargePlayer(b, a, 1000, 'B paid $1000 rent to A.', { turn: 'ctx' }, { equityTileIndex: 1, equityOwnerId: 'e' });
+  room.game.chargePlayer({ player: b, creditor: a, amount: 1000, message: 'B paid $1000 rent to A.', turnOptions: { turn: 'ctx' }, hooks: { equityTileIndex: 1, equityOwnerId: 'e' } });
   assert.equal(b.cash, 0);
   assert.equal(b.zeroCashReached, true);
   assert.equal(a.cash, 1800);
@@ -366,7 +366,7 @@ check('chargePlayer — zero-cash debtor opens the debt without a partial feed',
   const b = room.game.getPlayerBySocket('socket-b');
   const a = room.game.getPlayerBySocket('socket-a');
   b.cash = 0;
-  room.game.chargePlayer(b, a, 500, 'debt message', {});
+  room.game.chargePlayer({ player: b, creditor: a, amount: 500, message: 'debt message', turnOptions: {} });
   assert.equal(a.cash, 1500);
   assert.equal(room.game.pendingPayment.amountRemaining, 500);
   assert.equal(feedTexts(room)[0], 'B owes $500. Mortgage or sell buildings to raise funds, or declare bankruptcy.');
@@ -376,7 +376,7 @@ check('chargePlayer — bank debt keeps a null creditor and default equity hooks
   const room = makeStartedRoom(false);
   const b = room.game.getPlayerBySocket('socket-b');
   b.cash = 0;
-  room.game.chargePlayer(b, null, 500, 'B owed the bank', {});
+  room.game.chargePlayer({ player: b, amount: 500, message: 'B owed the bank', turnOptions: {} });
   assert.deepEqual(room.game.pendingPayment, {
     playerId: b.id, creditorId: null, amountRemaining: 500, reason: 'B owed the bank', equityTileIndex: null, equityOwnerId: null
   });
@@ -529,7 +529,7 @@ check('forced market liquidation records realized P&L on the way out', () => {
   const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
   b.marketPositions = { brazil: { quantity: 2, averageCost: 120, realizedPnl: 0 } };
-  game.chargePlayer(b, null, 500, 'debt', {});
+  game.chargePlayer({ player: b, amount: 500, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
   // 2 units at the fresh 100 quote: proceeds 200 - ceil(4) = 196; cost basis 240.
   const feeds = feedTexts(room);
@@ -544,7 +544,7 @@ check('bankruptcy — partial, liquidation, sweep, and deed transfer reach the c
   const a = game.getPlayerBySocket('socket-a');
   const b = game.getPlayerBySocket('socket-b');
   b.cash = 300;
-  game.chargePlayer(b, a, 1000, 'rent message', {});
+  game.chargePlayer({ player: b, creditor: a, amount: 1000, message: 'rent message', turnOptions: {} });
   // B holds deeds 1 and 3, deed 1 mortgaged with buildings, plus market bags.
   game.tiles[1].ownerId = b.id;
   game.tiles[1].mortgaged = true;
@@ -591,7 +591,7 @@ check('bankruptcy — liquidation floors the fee and ignores unquoted positions'
   const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
   b.marketPositions = { brazil: { quantity: 1 } };
-  game.chargePlayer(b, null, 500, 'debt', {});
+  game.chargePlayer({ player: b, amount: 500, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
   // 100 - ceil(2) = 98 into a debtless-but-bankrupt... creditor-less player:
   // cash stays with the bankrupt player (no creditor to sweep).
@@ -609,7 +609,7 @@ check('bankruptcy — no creditor releases deeds (mortgage and houses cleared)',
   game.tiles[5].mortgaged = true;
   game.tiles[5].houseCount = 4;
   b.properties = [5];
-  game.chargePlayer(b, null, 500, 'debt', {});
+  game.chargePlayer({ player: b, amount: 500, message: 'debt', turnOptions: {} });
   assert.deepEqual(room.declareBankruptcy('socket-b'), { success: true, voluntary: false });
   assert.equal(game.tiles[5].ownerId, null);
   assert.equal(game.tiles[5].mortgaged, false);
@@ -639,7 +639,7 @@ check('bankruptcy — contracts settle before deeds move', () => {
     { contractId: 'E1', holderId: cc.id, share: 20 },
     { contractId: 'E9', holderId: a.id, share: 10 }
   ];
-  game.chargePlayer(b, null, 400, 'debt', {});
+  game.chargePlayer({ player: b, amount: 400, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
   const l1 = game.playerContracts.find(contract => contract.id === 'L1');
   const l2 = game.playerContracts.find(contract => contract.id === 'L2');
@@ -668,7 +668,7 @@ check('bankruptcy — collateral only transfers while the debtor still holds it'
   b.cash = 0;
   game.tiles[6].ownerId = a.id;
   game.playerContracts.push({ id: 'L1', kind: 'loan', status: 'active', fromPlayerId: a.id, toPlayerId: b.id, collateralTileIndex: 6 });
-  game.chargePlayer(b, null, 400, 'debt', {});
+  game.chargePlayer({ player: b, amount: 400, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
   assert.equal(game.tiles[6].ownerId, a.id);
   assert.equal(b.collateralLost, true);
@@ -682,7 +682,7 @@ check('bankruptcy — bankrupt current player hands over the turn', () => {
   const b = game.getPlayerBySocket('socket-b');
   assert.equal(game.currentPlayerId, a.id);
   a.cash = 0;
-  game.chargePlayer(a, b, 900, 'debt', {});
+  game.chargePlayer({ player: a, creditor: b, amount: 900, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-a');
   assert.equal(a.bankrupt, true);
   assert.equal(b.cash, 1500);
@@ -696,7 +696,7 @@ check('bankruptcy — last player standing ends the game', () => {
   const a = game.getPlayerBySocket('socket-a');
   const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
-  game.chargePlayer(b, null, 400, 'debt', {});
+  game.chargePlayer({ player: b, amount: 400, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
   assert.deepEqual(feedTexts(room).slice(0, 2), [
     'A is the last player remaining and wins the game!',

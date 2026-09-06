@@ -133,7 +133,7 @@ const cardApi = {
   },
 
   payCard(player, card, options) {
-    this.chargePlayer(player, null, card.amount, `${player.nickname} paid $${card.amount}.`, options);
+    this.chargePlayer({ player, amount: card.amount, message: `${player.nickname} paid $${card.amount}.`, turnOptions: options });
     return undefined;
   },
 
@@ -181,7 +181,7 @@ const cardApi = {
     const owner = destination.ownerId ? this.getPlayerById(destination.ownerId) : null;
     if (this.cardRentPayable(player, owner, destination)) {
       const amount = this.cardRentAmount(destination, card, wantedType);
-      this.chargePlayer(player, owner, amount, `${player.nickname} paid $${amount} card rent to ${owner.nickname}.`, options);
+      this.chargePlayer({ player, creditor: owner, amount, message: `${player.nickname} paid $${amount} card rent to ${owner.nickname}.`, turnOptions: options });
       return { success: true };
     }
     return this.applyTile(player, destination, options);
@@ -202,7 +202,7 @@ const cardApi = {
 
   repairsCard(player, card, options) {
     const amount = this.buildingRepairCost(player, card);
-    if (amount) this.chargePlayer(player, null, amount, `${player.nickname} paid $${amount} in building repairs.`, options);
+    if (amount) this.chargePlayer({ player, amount, message: `${player.nickname} paid $${amount} in building repairs.`, turnOptions: options });
     return RESOLVE_TAIL;
   },
 
