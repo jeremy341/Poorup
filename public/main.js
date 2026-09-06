@@ -73,6 +73,7 @@ import {
 import { serverTileFor, ownsFullGroup } from "./clientDeedRules.js";
 import { cardFaceHTML } from "./clientCardsRender.js";
 import { deedLadderHTML, deedCardHTML } from "./clientDeedsRender.js";
+import { renderRightRail } from "./clientRailRender.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -2884,19 +2885,6 @@ function canBuildEvenly(tile, targetLevel) {
   return true;
 }
 
-function tradePlayerRowHTML(p, seed) {
-  const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
-  const canTrade = state.phase === "playing";
-  return `<div class="trade-player-row">
-    <div class="tp-av">${avatarHTML(p, 4, seed)}</div>
-    <div class="tp-mid">
-      <span class="t-label f13" style="color:${p.textColor}">${esc(p.name)}</span>
-      <span class="t-micro ink-3 tp-sub">$${p.cash.toLocaleString()} · ${deedCount} DEED${deedCount === 1 ? "" : "S"}</span>
-    </div>
-    <button class="btn-dark" data-trade="${p.id}" ${canTrade ? "" : "disabled"}><span class="t-label f11">TRADE</span></button>
-  </div>`;
-}
-
 let financingPreviewMode = "loan";
 let financingSurfaceMode = "offer";
 const financingPreviewDraft = {
@@ -3164,138 +3152,6 @@ function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null,
 
 function closeFinancingModal() {
   closeSurface("#financing-modal");
-}
-
-function playerContractRailHTML() {
-  const offer = state.playerContractOffer;
-  const pending = state.playerContracts?.pending;
-  const outgoing = pending && pending.fromPlayerId === state.players[0]?.serverId ? pending : null;
-  const active = state.playerContracts?.active || [];
-  const others = state.players.filter(player => player.id !== "p1" && !player.bot);
-  let html = '<section class="player-contracts panel noise" aria-labelledby="player-contracts-heading"><div class="finance-bank-head"><div><div class="t-micro g400">PLAYER FINANCE · LIVE</div><h3 class="t-section g100" id="player-contracts-heading">Private contracts</h3></div><span class="t-micro ink-3">SERVER LEDGER</span></div>';
-  if (offer) {
-    html += '<div class="player-contract-offer"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS</span><div class="contract-offer-actions"><button class="cta-red" type="button" data-player-contract-action="accept"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-player-contract-action="decline"><span class="t-label f11">DECLINE</span></button></div></div>';
-  }
-  if (outgoing) {
-    html += '<div class="player-contract-offer is-outgoing"><strong class="t-label f12 g100">CONTRACT SENT TO ' + esc(outgoing.toPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">' + esc(String(outgoing.kind || "loan").toUpperCase()) + ' · AWAITING REVIEW</span><button class="btn-dark" type="button" data-player-contract-cancel><span class="t-label f11">CANCEL</span></button></div>';
-  }
-  html += '<div class="player-contract-active"><span class="t-micro g400">ACTIVE CONTRACTS</span>';
-  html += active.length ? active.map(contract => '<div class="player-contract-row"><div><strong class="t-label f11 g100">' + esc(String(contract.kind || "loan").toUpperCase()) + ' · ' + esc(contract.fromPlayerName || "PLAYER") + ' → ' + esc(contract.toPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">' + (contract.kind === "loan" ? "$" + Number(contract.remaining || 0).toLocaleString() + " REMAINING · DUE R" + Number(contract.dueRound || 0) : Number(contract.equityShare || 0) + "% EQUITY") + '</span></div>' + (contract.kind === "loan" && contract.toPlayerId === state.players[0]?.serverId ? '<button class="btn-dark" type="button" data-player-contract-repay="' + esc(contract.id) + '"><span class="t-label f11">REPAY</span></button>' : '') + '</div>').join("") : '<span class="t-micro ink-3">NO ACTIVE PLAYER CONTRACTS.</span>';
-  html += '</div><details class="player-contract-details"><summary class="btn-dark"><span class="t-label f11">PROPOSE LOAN / EQUITY</span></summary>';
-  if (others.length) {
-    html += '<form class="player-contract-form" data-player-contract-form><label class="account-field"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option></select></label><label class="account-field"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="financing-check"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
-  } else {
-    html += '<span class="t-micro ink-3">NO OTHER ACCOUNT PLAYERS IN THIS ROOM.</span>';
-  }
-  return html + '</details></section>';
-}
-
-function renderRightRail() {
-  const owned = TILES.filter((t) => state.owners[t.i] === "p1");
-
-  const title = $("#rr-title");
-  if (state.tab === "finance") {
-    if (title) title.textContent = "Financing";
-    $("#rr-count").textContent = "BANK + PLAYERS";
-  } else if (state.tab === "casino") {
-    if (title) title.textContent = "Casino";
-    $("#rr-count").textContent = state.economy?.casino?.enabled ? "VIRTUAL MONEY" : "OFF";
-  } else if (state.tab === "market") {
-    if (title) title.textContent = "Market";
-    $("#rr-count").textContent = state.economy?.market?.enabled ? "ROUND INDEX" : "OFF";
-  } else {
-    if (title) title.textContent = "Holdings";
-    $("#rr-count").textContent = `${owned.length} DEEDS`;
-  }
-  document.querySelectorAll(".tab").forEach((tb) => {
-    const selected = tb.dataset.tab === state.tab;
-    tb.classList.toggle("is-active", selected);
-    tb.setAttribute("aria-selected", String(selected));
-  });
-  $("#rr-body")?.setAttribute("aria-labelledby", `tab-${state.tab}`);
-
-  const body = $("#rr-body");
-  if (state.tab === "finance") {
-    const me = state.players[0];
-    const loan = me?.bankLoan;
-    const offer = me?.bankLoanOffer;
-    const loanCopy = loan?.status === "defaulted"
-      ? "DEFAULTED · The bank has closed this credit line for the rest of the round."
-      : loan?.status === "paid"
-        ? `PAID IN ROUND ${loan.paidRound || "—"} · You may qualify for emergency credit again when cash is low.`
-        : loan
-          ? `Repay before round ${loan.dueRound}. The cure window ends after round ${loan.cureRound}.`
-          : offer?.available
-            ? "Emergency liquidity is available. Read every term before accepting."
-            : (offer?.reason || "Bank credit is unavailable right now.");
-    const bankActionDisabled = state.phase !== "playing" || state.turnIndex !== 0;
-    const loanAction = loan && ["active", "due"].includes(loan.status)
-      ? `<button class="cta-red finance-bank-action" type="button" data-bank-action="repay" ${bankActionDisabled ? "disabled" : ""}><span class="cta-text cta-text-sm">REPAY $${Number(loan.remaining || 0).toLocaleString()}</span></button>`
-      : offer?.available
-        ? `<button class="cta-red finance-bank-action" type="button" data-bank-action="take" ${bankActionDisabled ? "disabled" : ""}><span class="cta-text cta-text-sm">ACCEPT $${Number(offer.principal || 0).toLocaleString()}</span></button>`
-        : "";
-    const loanMetrics = loan
-      ? [["STATUS", String(loan.status).toUpperCase()], ["REMAINING", `$${Number(loan.remaining || 0).toLocaleString()}`], ["DUE ROUND", loan.dueRound || "—"], ["COLLATERAL", loan.collateralName || "NONE"]]
-      : offer?.available
-        ? [["ADVANCE", `$${Number(offer.principal || 0).toLocaleString()}`], ["TOTAL DUE", `$${Number(offer.totalDue || 0).toLocaleString()}`], ["DUE IN", `${offer.dueInRounds} ROUNDS`], ["COLLATERAL", offer.collateralName || "NONE"]]
-        : [];
-    body.innerHTML = `<section class="finance-bank panel noise" aria-labelledby="bank-credit-heading"><div class="finance-bank-head"><div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ${loan?.status === "defaulted" ? "red" : "g300"}">${loan ? String(loan.status).toUpperCase() : "NO DEBT"}</span></div>${loanMetrics.length ? `<div class="finance-bank-metrics">${loanMetrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${esc(String(value))}</strong></div>`).join("")}</div>` : ""}<p class="t-body ink-2 finance-bank-copy">${esc(loanCopy)}</p>${loanAction ? `<div class="finance-bank-actions">${loanAction}</div>` : ""}<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></section><div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PLAYER FINANCE</div><p class="t-body ink-2">Player loans and equity remain negotiated social contracts. Use the bank only when the collateral risk is worth the liquidity.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">PLAYER CONTRACTS · LIVE</span></div><div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE PLAYER DEALS</strong><span class="t-micro ink-3">Use the form below to send a live contract.</span></div><div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW TERMS</span></button><button class="btn-dark" type="button" data-finance-surface="contract"><span class="t-label f11">VIEW CONTRACT</span></button><button class="btn-dark" type="button" data-finance-surface="ownership"><span class="t-label f11">VIEW CO-OWNERSHIP</span></button><button class="btn-dark" type="button" data-finance-surface="default"><span class="t-label f11">VIEW DEFAULT</span></button></div>`;
-    body.innerHTML += playerContractRailHTML();
-    hydrateSprites();
-  } else if (state.tab === "casino") {
-    const casino = state.economy?.casino || {};
-    if (!casino.enabled) {
-      body.innerHTML = '<section class="economy-empty panel noise"><img src="/assets/casino-wheel.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">CASINO ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable virtual-money European roulette before the round begins.</p></section>';
-    } else {
-      const maxBet = Number(casino.maxBet || 500);
-      const entryFee = Number(casino.entryFee || 0);
-      const last = casino.lastResult;
-      const resultCopy = last
-        ? "LAST SPIN · " + String(last.resultColor || "").toUpperCase() + " " + Number(last.pocket || 0) + " · " + (Number(last.net) >= 0 ? "+" : "") + "$" + Number(last.net || 0).toLocaleString()
-        : "NO SPIN YET · THE HOUSE EDGE IS VISIBLE";
-      body.innerHTML = '<section class="economy-surface casino-surface" aria-labelledby="casino-heading"><div class="economy-surface-head"><img src="/assets/casino-wheel.svg" alt="" width="32" height="32"><div><span class="t-micro g400">EUROPEAN WHEEL · SERVER SETTLED</span><h3 class="t-section g100" id="casino-heading">Place a bet</h3></div></div><div class="casino-odds" aria-label="Roulette odds"><span><strong>RED</strong><small>18 / 37 · 1:1</small></span><span><strong>BLACK</strong><small>18 / 37 · 1:1</small></span><span><strong class="green">GREEN 0</strong><small>1 / 37 · 35:1</small></span></div><form class="casino-form" data-casino-form><fieldset><legend class="t-micro ink-3">SELECT POCKET</legend><div class="casino-choice-row"><label class="casino-choice casino-choice-red"><input type="radio" name="casino-color" value="red" checked><span class="t-label f11">RED</span></label><label class="casino-choice casino-choice-black"><input type="radio" name="casino-color" value="black"><span class="t-label f11">BLACK</span></label><label class="casino-choice casino-choice-green"><input type="radio" name="casino-color" value="green"><span class="t-label f11">GREEN 0</span></label></div></fieldset><label class="casino-stake"><span class="t-micro ink-3">STAKE · MAX $' + maxBet.toLocaleString() + (entryFee ? ' · EVENT FEE $' + entryFee.toLocaleString() : '') + '</span><input class="field" name="stake" type="number" min="1" max="' + maxBet + '" step="1" value="10" inputmode="numeric"></label><button class="cta-red" type="submit"><span class="cta-text cta-text-sm">SPIN THE WHEEL</span></button></form><div class="economy-result" aria-live="polite">' + resultCopy + '</div><p class="t-micro ink-3 economy-note">Fictional board money only. Loan-backed cash cannot enter the casino.</p></section>';
-    }
-  } else if (state.tab === "market") {
-    const market = state.economy?.market || {};
-    const labels = { brazil: "BRAZIL", ghana: "GHANA", thailand: "THAILAND", japan: "JAPAN", netherlands: "NETHERLANDS", canada: "CANADA", switzerland: "SWITZERLAND", singapore: "SINGAPORE", airports: "AIRPORTS", utilities: "UTILITIES", property: "PROPERTY" };
-    if (!market.enabled) {
-      body.innerHTML = '<section class="economy-empty panel noise"><img src="/assets/market-chart.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">MARKET ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable fictional country and infrastructure indexes before the round begins.</p></section>';
-    } else {
-      const quotes = market.quotes || {};
-      const positions = state.players[0]?.marketPositions || {};
-      const rows = Object.entries(labels).map(([id, label]) => {
-        const quote = Number(quotes[id] || 100);
-        const position = positions[id] || {};
-        const pnl = Number(position.realizedPnl || 0);
-        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + (pnl >= 0 ? "+" : "") + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong><span class="market-actions"><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="buy">BUY</button><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="sell" ' + (position.quantity ? "" : "disabled") + '>SELL</button></span></div>';
-      }).join("");
-      body.innerHTML = '<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ' + Number(market.round || 0) + '</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div></div><label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label><div class="market-list thin-scroll">' + rows + '</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ' + (Number(market.feeRate || 0.02) * 100).toFixed(0) + '% settlement fee applies. No leverage or shorting.</p></section>';
-    }
-  } else if (state.tab === "deeds") {
-    body.innerHTML = owned.length
-      ? owned
-          .map((tile) =>
-            deedCardHTML(tile, {
-              showBuild: true,
-              status: ownsFullGroup("p1", tile.group) ? "FULL SET" : "OWNED",
-            }),
-          )
-          .join("")
-      : `<p class="t-body rr-empty">NO DEEDS YET. LAND ON A VACANT LOT AND BUY IT.</p>`;
-  } else if (state.tab === "trade") {
-    if (!state.settings.trading) {
-      body.innerHTML = `<p class="t-body rr-empty">TRADING IS OFF FOR THIS ROUND.</p>`;
-      return;
-    }
-    const others = state.players.filter((p) => p.id !== "p1");
-    body.innerHTML = others.length
-      ? others.map((p) => tradePlayerRowHTML(p, state.players.indexOf(p))).join("")
-      : `<p class="t-body rr-empty">NO OTHER PLAYERS AT THE TABLE.</p>`;
-  } else {
-    body.innerHTML = state.log.length
-      ? state.log.map((l, i) => `<p class="t-body log-line"><span class="log-n">${String(state.log.length - i).padStart(2, "0")} </span>${esc(l)}</p>`).join("")
-      : `<p class="t-body ink-3">NOTHING HAS HAPPENED YET.</p>`;
-  }
 }
 
 function renderSetup() {
