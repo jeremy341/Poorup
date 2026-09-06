@@ -112,7 +112,8 @@ function setupAppearanceChoice() {
 // icon, so only an exact duplicate greys a preset out.
 function setupFaceSignature(avatarGrid) {
   if (!Array.isArray(avatarGrid)) return "generic";
-  if (!avatarGrid.length) return "generic";
+  const inked = avatarGrid.some((row) => Array.isArray(row) && row.some((cell) => Boolean(cell)));
+  if (!inked) return "generic";
   return JSON.stringify(avatarGrid, (key, value) => (typeof value === "string" ? value.toLowerCase() : value));
 }
 

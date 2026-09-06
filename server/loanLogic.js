@@ -86,10 +86,21 @@ export function bankLoanOffer(game, player) {
 }
 
 // Guard order and wording are pinned by server/gameLogic.test.js. The
-// facility-side checks run first, then the borrower-side checks.
+// facility-side checks run first, then the borrower-side checks. A dead seat
+// or a debt-mode seat never reaches the turn gate, mirroring the casino and
+// market liveness wording.
+function borrowerSeatRejection(player) {
+  if (player.bankrupt) return 'Bank credit is unavailable right now.';
+  if (player.disconnected) return 'Bank credit is unavailable right now.';
+  if (player.inDebt) return 'Bank credit is unavailable right now.';
+  return null;
+}
+
 function creditFacilityRejection(game, player) {
   if (!player) return 'Bank lending is disabled.';
   if (!game.settings.bankLoans) return 'Bank lending is disabled.';
+  const seat = borrowerSeatRejection(player);
+  if (seat) return seat;
   if (!game.started) return 'The game has not started.';
   if (creditFrozen(game)) return 'Credit is frozen by the active global event.';
   if (player.id !== game.currentPlayerId) return 'Bank credit is available during your turn.';
@@ -122,6 +133,7 @@ function issueLoan(game, player, offer) {
     dueRound: offer.dueRound,
     cureRound: offer.cureRound,
     collateralTileIndex: offer.collateralTileIndex,
+    collateralName: offer.collateralName || 'NONE',
     severity: offer.severity
   };
   game.feedMessage(`${player.nickname} accepted a $${offer.principal} bank loan. $${offer.totalDue} is due by round ${offer.dueRound}.`);

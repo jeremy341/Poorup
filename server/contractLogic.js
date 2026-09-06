@@ -242,11 +242,21 @@ function activateFundedContract(game, contract, lender, player) {
   game.feedMessage(lender.nickname + ' and ' + player.nickname + ' activated a ' + contract.kind + ' contract.');
 }
 
+function borrowerCanReceive(player) {
+  if (!player) return false;
+  if (player.bankrupt) return false;
+  return !player.disconnected;
+}
+
 function acceptContract(game, player, contract) {
   const lender = game.getPlayerById(contract.fromPlayerId);
   if (!lenderCanStillFund(lender, contract)) {
     game.pendingPlayerContract = null;
     return { success: false, error: 'The lender can no longer fund that contract.' };
+  }
+  if (!borrowerCanReceive(player)) {
+    game.pendingPlayerContract = null;
+    return { success: false, error: 'The contract can no longer be accepted.' };
   }
   const settlementRejection = contractSettlementRejection(game, player, contract);
   if (settlementRejection) return settlementRejection;
@@ -387,6 +397,10 @@ function convertHybridContract(game, contract) {
     return;
   }
   const lender = game.getPlayerById(contract.fromPlayerId);
+  if (!lender) {
+    handlePlayerLoanDefault(game, contract);
+    return;
+  }
   const borrower = game.getPlayerById(contract.toPlayerId);
   recordHybridConversion(game, contract, lender);
   contract.status = 'converted';

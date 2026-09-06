@@ -62,8 +62,7 @@ const bankruptcyApi = {
     this.turnAllowsExtraRoll = false;
     this.consecutiveDoubles = 0;
     if (this.pendingPayment?.playerId === player.id) {
-      this.pendingPayment = null;
-      this.pendingPaymentTurnOptions = null;
+      this.clearPendingPayment();
     }
   },
 
@@ -151,11 +150,18 @@ const bankruptcyApi = {
 
   seizeCollateralForLender(player, contract) {
     const lender = this.getPlayerById(contract.fromPlayerId);
-    const collateral = contract.collateralTileIndex == null ? null : this.getTile(contract.collateralTileIndex);
-    if (lender && collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+    const collateral = this.collateralForContract(contract);
+    if (lender) {
+      if (collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+    }
     if (contract.collateralTileIndex != null) player.collateralLost = true;
     contract.status = 'defaulted';
     contract.defaultedRound = this.roundNumber;
+  },
+
+  collateralForContract(contract) {
+    if (contract.collateralTileIndex == null) return null;
+    return this.getTile(contract.collateralTileIndex);
   },
 
   terminateContract(contract) {
@@ -175,15 +181,25 @@ const bankruptcyApi = {
   forfeitOrReleaseProperties(player, creditor) {
     const properties = [...player.properties];
     properties.forEach(propertyIndex => {
-      const tile = this.getTile(propertyIndex);
-      if (!tile) return;
-      if (creditor && !creditor.bankrupt) {
-        this.applyPropertyOwnershipChange(player, creditor, tile);
-      } else {
-        this.releasePropertyTile(player, tile);
-      }
+      this.forfeitSingleProperty(player, creditor, propertyIndex);
     });
     player.properties = [];
+  },
+
+  forfeitSingleProperty(player, creditor, propertyIndex) {
+    const tile = this.getTile(propertyIndex);
+    if (!tile) return;
+    if (this.creditorCanReceive(creditor)) {
+      this.applyPropertyOwnershipChange(player, creditor, tile);
+      return;
+    }
+    this.releasePropertyTile(player, tile);
+  },
+
+  creditorCanReceive(creditor) {
+    if (!creditor) return false;
+    if (creditor.bankrupt) return false;
+    return true;
   },
 
   releasePropertyTile(player, tile) {
@@ -205,11 +221,21 @@ const bankruptcyApi = {
 
   // The last seat standing wins immediately; otherwise the bankrupt current
   // player forfeits the turn.
+  // endGame-hook verdict (audit FIX3c): GameState.endGame clears
+  // pendingPurchaseOffer, auction and pendingTrade but leaves
+  // pendingPayment, pendingPaymentTurnOptions and pendingPlayerContract.
+  // No hook exists in this mixin or in rooms.js covering every endGame
+  // caller (GameState.nextTurn calls endGame when one seat remains;
+  // only the bankruptcy path funnels through concludeBankruptRound here).
+  // Overriding endGame in this mixin would duplicate its 14-line body and
+  // drift. Left uncleared here; fix belongs in gameLogic.js endGame.
   concludeBankruptRound(player) {
     const active = this.nonBankruptPlayers().filter(p => !p.inDebt);
     if (active.length <= 1) {
       this.endGame();
-    } else if (player.id === this.currentPlayerId) {
+      return;
+    }
+    if (player.id === this.currentPlayerId) {
       this.nextTurn();
     }
   }

@@ -114,6 +114,7 @@ function serverPlayerView(player) {
     marketPositions: orDefault(player.marketPositions, {}),
     isHost: Boolean(player.isHost),
     avatarGrid: gridOrNull(player.avatarGrid),
+    personality: orNull(player.personality),
   };
 }
 

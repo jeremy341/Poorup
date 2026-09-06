@@ -20,7 +20,7 @@ const TRADE_PROPOSAL_GUARDS = [
   },
   {
     error: 'Another trade is already pending.',
-    rejects: game => Boolean(game.pendingTrade || game.pendingPlayerContract)
+    rejects: game => Boolean(game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingTrade || game.pendingPlayerContract)
   },
   {
     error: 'Cash values must be valid numbers.',
@@ -41,6 +41,10 @@ const TRADE_PROPOSAL_GUARDS = [
   {
     error: 'You do not have enough cash for this offer.',
     rejects: (game, ctx) => ctx.fromPlayer.cash < ctx.giveCash
+  },
+  {
+    error: 'One of the players no longer has enough cash.',
+    rejects: (game, ctx) => ctx.toPlayer.cash < ctx.requestCash
   }
 ];
 

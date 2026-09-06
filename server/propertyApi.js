@@ -17,22 +17,46 @@ const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
 const propertyApi = {
   purchaseProperty(socketId, tileIndex) {
     const player = this.getPlayerBySocket(socketId);
-    const tile = this.getTile(tileIndex);
-    const rejection = this.purchaseOfferRejection(player, tile, tileIndex);
+    const coercedIndex = Number(tileIndex);
+    const tile = this.getTile(coercedIndex);
+    const rejection = this.purchaseOfferRejection(player, tile, coercedIndex);
     if (rejection) return rejection;
     this.acceptPurchaseOffer(player, tile);
     return { success: true };
   },
 
   purchaseOfferRejection(player, tile, tileIndex) {
+    const entry = this.purchaseEntryRejection(player, tile);
+    if (entry) return entry;
+    return this.purchaseTermsRejection(player, tile, tileIndex);
+  },
+
+  purchaseEntryRejection(player, tile) {
     if (!player) return { success: false, error: 'Property is no longer available.' };
+    const seat = this.propertySeatRejection(player);
+    if (seat) return seat;
     if (!tile) return { success: false, error: 'Property is no longer available.' };
     if (tile.ownerId !== null) return { success: false, error: 'Property is no longer available.' };
+    return null;
+  },
+
+  purchaseTermsRejection(player, tile, tileIndex) {
     const unavailable = { success: false, error: 'There is no active purchase offer for this property.' };
     if (!this.pendingPurchaseOffer) return unavailable;
     if (this.pendingPurchaseOffer.playerId !== player.id) return unavailable;
     if (this.pendingPurchaseOffer.tileIndex !== tileIndex) return unavailable;
     if (player.cash < tile.price) return { success: false, error: 'Insufficient cash to purchase this property.' };
+    return null;
+  },
+
+  propertySeatUnavailable(player) {
+    if (player.bankrupt) return true;
+    if (player.disconnected) return true;
+    return false;
+  },
+
+  propertySeatRejection(player) {
+    if (this.propertySeatUnavailable(player)) return { success: false, error: 'Property access is unavailable right now.' };
     return null;
   },
 
@@ -51,8 +75,9 @@ const propertyApi = {
 
   declineProperty(socketId, tileIndex) {
     const player = this.getPlayerBySocket(socketId);
-    const tile = this.getTile(tileIndex);
-    const rejection = this.declineOfferRejection(player, tile, tileIndex);
+    const coercedIndex = Number(tileIndex);
+    const tile = this.getTile(coercedIndex);
+    const rejection = this.declineOfferRejection(player, tile, coercedIndex);
     if (rejection) return rejection;
     this.pendingPurchaseOffer = null;
     if (!this.settings.auction) {
@@ -61,14 +86,22 @@ const propertyApi = {
       return { success: true };
     }
     const auction = this.startAuction(tile, player.id);
-    if (auction && auction.success === false) return auction;
+    if (auction) return this.auctionStartResult(auction);
+    return { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
+  },
+
+  auctionStartResult(auction) {
+    if (auction.success === false) return auction;
     return { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
   },
 
   declineOfferRejection(player, tile, tileIndex) {
-    if (!player) return { success: false, error: 'Property is no longer available.' };
-    if (!tile) return { success: false, error: 'Property is no longer available.' };
-    if (tile.ownerId !== null) return { success: false, error: 'Property is no longer available.' };
+    const entry = this.purchaseEntryRejection(player, tile);
+    if (entry) return entry;
+    return this.declineTermsRejection(player, tileIndex);
+  },
+
+  declineTermsRejection(player, tileIndex) {
     const unavailable = { success: false, error: 'There is no active purchase offer for this property.' };
     if (!this.pendingPurchaseOffer) return unavailable;
     if (this.pendingPurchaseOffer.playerId !== player.id) return unavailable;
@@ -111,15 +144,35 @@ const propertyApi = {
 
   // The shared gates of all four actions, in the historical order: existence,
   // ownership, then the build/sell turn window (relaxed while settling debt).
+  // Mortgage legs skip the turn window but still need a live seat and a free
+  // table, mirroring the casino and market obligation guards.
   propertyActionRejection(player, tile, action) {
     if (!player) return { success: false, error: 'Property not found.' };
     if (!tile) return { success: false, error: 'Property not found.' };
     if (tile.ownerId !== player.id) return { success: false, error: 'You do not own this property.' };
-    if (!this.isBuildOrSellAction(action)) return null;
+    if (this.isBuildOrSellAction(action)) return this.buildSellRejection(player, action);
+    return this.mortgageActionRejection(player);
+  },
+
+  buildSellRejection(player, action) {
     if (!this.pendingDebtFor(player)) return this.buildWindowRejection(player);
-    if (action === 'build-house') {
-      return { success: false, error: 'You cannot build while settling a debt.' };
-    }
+    if (action === 'build-house') return { success: false, error: 'You cannot build while settling a debt.' };
+    return null;
+  },
+
+  mortgageActionRejection(player) {
+    const seat = this.propertySeatRejection(player);
+    if (seat) return seat;
+    return this.mortgageTableRejection();
+  },
+
+  mortgageTableRejection() {
+    const blocked = { success: false, error: 'Resolve the table obligation before managing property.' };
+    if (this.pendingPayment) return blocked;
+    if (this.auction) return blocked;
+    if (this.pendingTrade) return blocked;
+    if (this.pendingPlayerContract) return blocked;
+    if (this.pendingPurchaseOffer) return blocked;
     return null;
   },
 
@@ -138,10 +191,13 @@ const propertyApi = {
     if (player.id !== this.currentPlayerId) {
       return { success: false, error: 'You can only build or sell during your turn.' };
     }
-    if (this.hasRolled && !this.extraRollPending) {
-      return { success: false, error: 'You can only build or sell before rolling the dice.' };
-    }
+    if (this.hasRolled) return this.rolledWindowRejection();
     return null;
+  },
+
+  rolledWindowRejection() {
+    if (this.extraRollPending) return null;
+    return { success: false, error: 'You can only build or sell before rolling the dice.' };
   },
 
   buildingLimitRejection(player) {

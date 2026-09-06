@@ -98,7 +98,7 @@ function onMarketOrder(node) {
 }
 
 function onBankAction(node) {
-  if (!node) return false;
+  if (!node || node.disabled) return false;
   const eventName = node.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
   host.emitServer(eventName, { requestId: host.createRequestId(eventName) }, (response) => {
     if (response?.success === false) {
