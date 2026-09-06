@@ -180,6 +180,7 @@ import {
   stopAuctionTimer,
 } from "./clientAuctionUi.js";
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
+import { bindAudioControls } from "./clientAudioControls.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -2483,56 +2484,8 @@ function bindEvents() {
   $("#profile-cancel-btn")?.addEventListener("click", () => closeProfileEditor(false));
   $("#profile-back-btn")?.addEventListener("click", () => closeProfileEditor(false));
 
-  // Independent global audio controls: effects and soundtrack can be muted
-  // separately while the preference remains consistent across every view.
-  const syncAudioButtons = () => {
-    const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
-    const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
-    [$("#sound-toggle-btn"), $("#game-sound-toggle-btn"), $("#profile-sound-toggle-btn"), $("#rankings-sound-toggle-btn"), $("#social-sound-toggle-btn"), $("#rules-sound-toggle-btn")].forEach((button) => {
-      if (!button) return;
-      button.setAttribute("aria-pressed", String(state.sound));
-      button.setAttribute("aria-label", state.sound ? "Turn sound effects off" : "Turn sound effects on");
-      const icon = button.querySelector("img");
-      if (icon) icon.src = soundSrc;
-    });
-    [$("#music-toggle-btn"), $("#game-music-toggle-btn"), $("#profile-music-toggle-btn"), $("#rankings-music-toggle-btn"), $("#social-music-toggle-btn"), $("#rules-music-toggle-btn")].forEach((button) => {
-      if (!button) return;
-      button.setAttribute("aria-pressed", String(state.music));
-      button.setAttribute("aria-label", state.music ? "Turn parlor music off" : "Turn parlor music on");
-      const icon = button.querySelector("img");
-      if (icon) icon.src = musicSrc;
-    });
-  };
-  syncAudioButtons();
-  $("#sound-toggle-btn")?.addEventListener("click", () => {
-    state.sound = !state.sound;
-    saveSoundPreference(state.sound);
-    if (state.sound) playSound("trade");
-    syncAudioButtons();
-    syncHomeMusic();
-    renderProfileSummary();
-  });
-  $("#music-toggle-btn")?.addEventListener("click", () => {
-    state.music = !state.music;
-    saveMusicPreference(state.music);
-    syncAudioButtons();
-    syncHomeMusic();
-    renderProfileSummary();
-  });
-  $("#game-sound-toggle-btn")?.addEventListener("click", () => {
-    $("#sound-toggle-btn")?.click();
-  });
-  $("#game-music-toggle-btn")?.addEventListener("click", () => {
-    $("#music-toggle-btn")?.click();
-  });
-  $("#profile-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#profile-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
-  $("#rankings-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#rankings-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
-  $("#social-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#social-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
-  $("#rules-sound-toggle-btn")?.addEventListener("click", () => $("#sound-toggle-btn")?.click());
-  $("#rules-music-toggle-btn")?.addEventListener("click", () => $("#music-toggle-btn")?.click());
+  // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
+  bindAudioControls({ playSound, syncHomeMusic });
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
   $("#night-exit")?.addEventListener("click", stopNightShift);
 
