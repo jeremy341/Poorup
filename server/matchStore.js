@@ -70,11 +70,24 @@ function contractStatus(value) {
   return typeof value === 'string' ? value.slice(0, 20) : 'unknown';
 }
 
+function sanitizeContractKind(value) {
+  if (value === 'hybrid') return 'hybrid';
+  if (value === 'equity') return 'equity';
+  return 'loan';
+}
+
+function sanitizeEquityControl(value) {
+  if (value === 'shared') return 'shared';
+  if (value === 'controlling') return 'controlling';
+  if (value === 'passive') return 'passive';
+  return null;
+}
+
 function sanitizeContractEntry(contract) {
   const source = contract || {};
   return {
     id: clipString(source.id, 100),
-    kind: source.kind === 'equity' ? 'equity' : 'loan',
+    kind: sanitizeContractKind(source.kind),
     fromAccountId: stringOrNull(source.fromAccountId),
     toAccountId: stringOrNull(source.toAccountId),
     fromPlayerId: stringOrNull(source.fromPlayerId),
@@ -83,7 +96,10 @@ function sanitizeContractEntry(contract) {
     status: contractStatus(source.status),
     premiumRate: nonNegativeNumber(source.premiumRate),
     equityShare: nonNegativeNumber(source.equityShare),
-    collateralTileIndex: integerOrNull(source.collateralTileIndex)
+    collateralTileIndex: integerOrNull(source.collateralTileIndex),
+    propertyIndex: integerOrNull(source.propertyIndex),
+    conversionShare: nonNegativeNumber(source.conversionShare),
+    equityControl: sanitizeEquityControl(source.equityControl)
   };
 }
 

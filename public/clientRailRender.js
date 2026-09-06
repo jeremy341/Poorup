@@ -164,7 +164,7 @@ function marketRowHTML(id, label, quotes, positions) {
 
 function marketRowsHTML(market) {
   const quotes = market.quotes || {};
-  const positions = state.players[0]?.marketPositions || {};
+  const positions = market.positions || state.players[0]?.marketPositions || {};
   return Object.entries(MARKET_LABELS).map(([id, label]) => marketRowHTML(id, label, quotes, positions)).join("");
 }
 
@@ -310,9 +310,16 @@ function contractContext() {
 
 const CONTRACT_RAIL_HEAD = '<section class="player-contracts panel noise" aria-labelledby="player-contracts-heading"><div class="finance-bank-head"><div><div class="t-micro g400">PLAYER FINANCE · LIVE</div><h3 class="t-section g100" id="player-contracts-heading">Private contracts</h3></div><span class="t-micro ink-3">SERVER LEDGER</span></div>';
 
+function contractOfferHybridHTML(offer) {
+  if (offer.kind !== "hybrid") return "";
+  const tile = TILES[Number(offer.propertyIndex)];
+  const deed = tile ? " · " + tile.name : "";
+  return " · CONVERTS " + Number(offer.conversionShare || 0) + "%" + deed;
+}
+
 function contractOfferBlockHTML(offer) {
   if (!offer) return "";
-  return '<div class="player-contract-offer"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS</span><div class="contract-offer-actions"><button class="cta-red" type="button" data-player-contract-action="accept"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-player-contract-action="decline"><span class="t-label f11">DECLINE</span></button></div></div>';
+  return '<div class="player-contract-offer"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS' + esc(contractOfferHybridHTML(offer)) + '</span><div class="contract-offer-actions"><button class="cta-red" type="button" data-player-contract-action="accept"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-player-contract-action="decline"><span class="t-label f11">DECLINE</span></button></div></div>';
 }
 
 function contractOutgoingBlockHTML(outgoing) {
@@ -321,13 +328,26 @@ function contractOutgoingBlockHTML(outgoing) {
 }
 
 function contractHybridDetailHTML(contract) {
+  if (contract.status === "converted") {
+    return Number(contract.conversionShare || 0) + "% EQUITY · CONVERTED";
+  }
   const remaining = Number(contract.remaining || 0).toLocaleString();
   const dueRound = Number(contract.dueRound || 0);
   const conversion = Number(contract.conversionShare || 0);
   return "$" + remaining + " REMAINING · DUE R" + dueRound + " · CONVERTS " + conversion + "%";
 }
 
+// Third-party rows are redacted server-side (no amounts), so they render a
+// neutral status line instead of garbage zeros.
+function contractDetailRedacted(contract) {
+  if (contract.remaining != null) return false;
+  return contract.equityShare == null;
+}
+
 function contractRowDetailHTML(contract) {
+  if (contractDetailRedacted(contract)) {
+    return String(contract.status || "active").toUpperCase() + " · PRIVATE TERMS";
+  }
   if (contract.kind === "loan") {
     const remaining = Number(contract.remaining || 0).toLocaleString();
     const dueRound = Number(contract.dueRound || 0);
@@ -342,8 +362,14 @@ function contractDebtKind(kind) {
   return kind === "hybrid";
 }
 
+function contractRepayableStatus(contract) {
+  if (contract.status === "active") return true;
+  return contract.status === "due";
+}
+
 function contractRepayHTML(contract, localServerId) {
   if (!contractDebtKind(contract.kind)) return "";
+  if (!contractRepayableStatus(contract)) return "";
   if (contract.toPlayerId !== localServerId) return "";
   return '<button class="btn-dark" type="button" data-player-contract-repay="' + esc(contract.id) + '"><span class="t-label f11">REPAY</span></button>';
 }
@@ -362,7 +388,7 @@ function contractActiveBlock(ctx) {
 }
 
 function contractFormHTML(others) {
-  return '<form class="player-contract-form" data-player-contract-form><label class="account-field"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option><option value="hybrid">HYBRID NOTE</option></select></label><label class="account-field"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="financing-check"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
+  return '<form class="player-contract-form" data-player-contract-form><label class="account-field"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option><option value="hybrid">HYBRID NOTE</option></select></label><label class="account-field"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">CONVERSION SHARE %</span><input class="field" name="conversionShare" type="number" min="5" max="100" value="25" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY CONTROL</span><select class="setting-select" name="equityControl"><option value="passive">PASSIVE</option><option value="shared">SHARED</option><option value="controlling">CONTROLLING</option></select></label><label class="financing-check"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
 }
 
 function contractOthersBlockHTML(others) {

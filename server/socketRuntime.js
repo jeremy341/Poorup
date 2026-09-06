@@ -420,8 +420,7 @@ function createRuntime(deps) {
     clearPendingObligations(room, game, player, 'turn timeout');
     game.pendingPurchaseOffer = null;
     if (game.pendingPayment?.playerId === player.id) {
-      game.pendingPayment = null;
-      game.pendingPaymentTurnOptions = null;
+      game.clearPendingPayment();
     }
     game.feedMessage(`${player.nickname} ran out of time.`);
     game.nextTurn();
