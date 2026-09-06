@@ -70,6 +70,9 @@ import {
   renderConnectionStatus,
   renderTopNav,
 } from "./clientTopNavRender.js";
+import { serverTileFor, ownsFullGroup } from "./clientDeedRules.js";
+import { cardFaceHTML } from "./clientCardsRender.js";
+import { deedLadderHTML, deedCardHTML } from "./clientDeedsRender.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -296,11 +299,6 @@ function emitServer(event, payload = {}, callback) {
     clientId: state.clientId,
     sessionToken: state.account?.sessionToken,
   }, callback);
-}
-
-function serverTileFor(index) {
-  return state.serverTiles.find((tile) => Number(tile.index) === Number(index))
-    || state.serverTiles.find((tile) => Number(tile.index) === (Number(index) % TILE_COUNT));
 }
 
 function updateServerSetting(key, value) {
@@ -2689,38 +2687,6 @@ function renderChat() {
   $("#chat-input").placeholder = joined ? "Say something…" : "Join the room to chat…";
 }
 
-/** Owns every deed in the same color group as `tile` (including this one). */
-function ownsFullGroup(playerId, group) {
-  if (!group) return false;
-  const target = GROUP_TARGETS[group];
-  if (!target) return false;
-  let count = 0;
-  for (const t of TILES) {
-    if (t.group === group) {
-      if (state.owners[t.i] !== playerId) return false;
-      count++;
-    }
-  }
-  return count === target;
-}
-
-function rentFor(tile) {
-  const t = RENT_TABLE[tile.group || tile.kind];
-  if (!t) return 0;
-  const level = state.houses[tile.i] || 0;
-  if (tile.kind === "railroad") {
-    const owner = state.owners[tile.i];
-    const owned = TILES.filter((u) => u.kind === "railroad" && state.owners[u.i] === owner).length;
-    return t.rents[Math.min(Math.max(owned - 1, 0), t.rents.length - 1)] ?? t.base;
-  }
-  if (tile.kind === "utility") {
-    const owner = state.owners[tile.i];
-    const owned = TILES.filter((u) => u.kind === "utility" && state.owners[u.i] === owner).length;
-    return t.rents[Math.min(Math.max(owned - 1, 0), t.rents.length - 1)] ?? t.base;
-  }
-  return t.rents[Math.min(level, t.rents.length - 1)];
-}
-
 function buildNextHouse(tile) {
   emitServer("manage-property", { tileIndex: tile.i, action: "build-house" }, () => {});
     return;
@@ -2770,42 +2736,6 @@ function closeDeedDetail() {
 /* ============================================================
    CHANCE / CHEST CARD REVEAL
    ============================================================ */
-function cardFaceHTML(tile, ev, { index = null, total = null, buttonId = null } = {}) {
-  const amount = Number(ev.cash) || 0;
-  const kind = tile.kind === "chance" ? "SURPRISE" : "TREASURE";
-  const color = tile.kind === "chance" ? "#d74438" : "#cfa75f";
-  const variableAction = ["repairs", "payEach", "collectFromEach", "nearestRailroad", "nearestUtility"].includes(ev.action);
-  const amountLabel = amount > 0 ? `+$${amount}` : amount < 0 ? `−$${Math.abs(amount)}` : variableAction ? "VARIABLE" : "RESOLVED";
-  let outcomeLabel = "RESULT";
-  if (["repairs", "payEach"].includes(ev.action)) outcomeLabel = "PAID TOTAL";
-  else if (ev.action === "collectFromEach") outcomeLabel = "COLLECTED TOTAL";
-  else if (["nearestRailroad", "nearestUtility"].includes(ev.action)) outcomeLabel = "SUPPORT RENT";
-  else if (ev.action === "pay") outcomeLabel = "PAID";
-  else if (["collect", "collectStart"].includes(ev.action)) outcomeLabel = "COLLECTED";
-  const sequence = Number.isInteger(index) && Number.isInteger(total)
-    ? `${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`
-    : "JUST DRAWN";
-  const titleId = buttonId ? "card-reveal-title" : "";
-  return `<article class="cr-card" style="--cr-accent:${color}">
-    <div class="cr-rail"></div>
-    <div class="cr-body">
-      <div class="cr-meta">
-        <span class="cr-kind"><span class="t-micro g400">${kind}</span></span>
-        <span class="cr-sequence t-micro ink-3">${sequence}</span>
-      </div>
-      <div class="cr-icon" aria-hidden="true">${tileIconHTML(tile)}</div>
-      <span class="cr-source t-micro ink-3">${kind} DECK · ${esc(tile.name)}</span>
-      <h3 class="t-section cr-name"${titleId ? ` id="${titleId}"` : ""}>${esc(ev.text)}</h3>
-      <div class="cr-rule" aria-hidden="true"></div>
-      <div class="cr-outcome">
-        <span class="cr-outcome-label t-micro ink-3">${outcomeLabel}</span>
-        <strong class="cr-amount ${amount > 0 ? "positive" : amount < 0 ? "negative" : "neutral"}">${amountLabel}</strong>
-      </div>
-      ${buttonId ? `<button class="cta-red cr-btn" id="${buttonId}"><span class="cta-text cta-text-sm">OK</span></button>` : ""}
-    </div>
-  </article>`;
-}
-
 function openCardReveal(tile, ev) {
   $("#card-reveal").innerHTML = cardFaceHTML(tile, ev, { buttonId: "cr-ok" });
   openSurface("#card-modal", "#cr-ok");
@@ -2836,61 +2766,6 @@ function openCardGallery() {
   gallery.setAttribute("aria-hidden", "false");
   syncSurfaceA11y();
   requestAnimationFrame(() => $("#card-gallery-close")?.focus({ preventScroll: true }));
-}
-
-/** Rows for the rent ladder, current level highlighted. */
-function deedLadderHTML(tile) {
-  const table = RENT_TABLE[tile.group || tile.kind];
-  if (!table) return "";
-  const level = state.houses[tile.i] || 0;
-
-  if (tile.kind === "property") {
-    const labels = ["BASE RENT", "1 HOUSE", "2 HOUSES", "3 HOUSES", "4 HOUSES", "HOTEL"];
-    return labels
-      .map((label, lvl) => {
-        const pips =
-          lvl === HOTEL_LEVEL
-            ? spriteHTML("hotel", 2, "#cfa75f")
-            : lvl === 0
-              ? `<span class="t-micro ink-3">—</span>`
-              : Array.from({ length: lvl }).map(() => spriteHTML("house", 2, "#4b853d")).join("");
-        return `<div class="dd-row${lvl === level ? " is-current" : ""}">
-          <span class="dd-row-label">
-            <span class="dd-row-pips">${pips}</span>
-            <span class="t-label f11 ${lvl === level ? "g100" : "g-muted"}">${label}</span>
-          </span>
-          ${lvl === level ? `<span class="t-micro dd-now">NOW</span>` : ""}
-          <span class="dd-row-rent">$${table.rents[lvl]}</span>
-        </div>`;
-      })
-      .join("");
-  }
-
-  if (tile.kind === "railroad") {
-    const owned = TILES.filter((u) => u.kind === "railroad" && state.owners[u.i] === state.owners[tile.i]).length;
-    return [1, 2, 3, 4]
-      .map((n) => `<div class="dd-row${n === owned ? " is-current" : ""}">
-        <span class="dd-row-label">
-          <span class="dd-row-pips">${spriteHTML("train", 2)}</span>
-          <span class="t-label f11 ${n === owned ? "g100" : "g-muted"}">${n} RAILROAD${n === 1 ? "" : "S"}</span>
-        </span>
-        ${n === owned ? `<span class="t-micro dd-now">NOW</span>` : ""}
-        <span class="dd-row-rent">$${table.rents[n - 1]}</span>
-      </div>`)
-      .join("");
-  }
-
-  const ownedU = TILES.filter((u) => u.kind === "utility" && state.owners[u.i] === state.owners[tile.i]).length;
-  return [1, 2]
-    .map((n) => `<div class="dd-row${n === ownedU ? " is-current" : ""}">
-      <span class="dd-row-label">
-        <span class="dd-row-pips">${spriteHTML("bulb", 2)}</span>
-        <span class="t-label f11 ${n === ownedU ? "g100" : "g-muted"}">${n} UTILIT${n === 1 ? "Y" : "IES"}</span>
-      </span>
-      ${n === ownedU ? `<span class="t-micro dd-now">NOW</span>` : ""}
-      <span class="dd-row-rent">$${table.rents[n - 1]}</span>
-    </div>`)
-    .join("");
 }
 
 function renderDeedDetail() {
@@ -2994,71 +2869,6 @@ function renderDeedDetail() {
     if (state.mortgaged[tile.i]) unmortgageTile(tile.i);
     else mortgageTile(tile.i);
   });
-}
-
-function houseDisplay(level) {
-  if (!level) return "";
-  if (level === HOTEL_LEVEL) {
-    return `<span class="hotel-pixel" title="HOTEL">${spriteHTML("hotel", 2, "#cfa75f")}</span>`;
-  }
-  return Array.from({ length: MAX_HOUSES })
-    .map((_, i) =>
-      spriteHTML("house", 2, i < level ? "#4b853d" : "#252d24"),
-    )
-    .join("");
-}
-
-function deedCardHTML(tile, opts = {}) {
-  const rail = tile.group ? GROUP_COLOR[tile.group] : tile.kind === "railroad" ? "#5c5033" : "#3e7d7b";
-  const kindIcon =
-    tile.kind === "railroad"
-      ? (tile.name.includes("AIRPORT") ? `<img class="airport-mark airport-mark-card" src="/assets/airport-plane.svg" alt="Airport">` : spriteHTML("train", 2))
-      : tile.kind === "utility"
-        ? (tile.name === "ELECTRIC COMPANY" ? spriteHTML("bulb", 2) : spriteHTML("faucet", 2))
-        : "";
-  const isProperty = tile.kind === "property";
-  const level = state.houses[tile.i] || 0;
-  const rent = rentFor(tile);
-  const equityShares = serverTileFor(tile.i)?.equityShares || [];
-  const isMortgaged = !!state.mortgaged[tile.i];
-  const rentLabel = isMortgaged ? "MORTGAGED" : `$${rent} / TURN`;
-  const mine = state.owners[tile.i] === "p1";
-  const clickable = opts.showBuild && mine;
-  const hasSet = isProperty && ownsFullGroup("p1", tile.group);
-
-  // status pill: full set / mortgaged / owned
-  let statusPill = "";
-  if (opts.status) {
-    if (isMortgaged) statusPill = `<span class="t-micro red">MORTGAGED</span>`;
-    else if (hasSet) statusPill = `<span class="t-micro green">FULL SET</span>`;
-    else statusPill = `<span class="t-micro green">${opts.status}</span>`;
-  }
-
-  const interactive = clickable && !opts.action;
-  const wrapper = interactive ? "button" : "div";
-  const wrapperAttrs = interactive
-    ? ` type="button" aria-label="Manage ${esc(tile.name)}" data-deed-open="${tile.i}"`
-    : `${clickable ? ` data-deed-open="${tile.i}"` : ""}`;
-  return `<${wrapper} class="deed-card${clickable ? " is-clickable" : ""}" data-deed="${tile.i}"${wrapperAttrs}>
-    <span class="deed-rail" style="background:${rail}"></span>
-    <div class="deed-main">
-      <div class="deed-top">
-        <span class="t-label deed-name">${tile.name}</span>
-        <span class="t-label deed-price">$${tile.price}</span>
-      </div>
-      <div class="deed-rent">
-        <span class="t-micro ink-3">RENT NOW</span>
-       <span class="t-label f11 ${isMortgaged ? "red" : "green"}">${rentLabel}</span>
-     </div>
-        ${equityShares.length ? `<span class="t-micro g300">EQUITY ${equityShares.reduce((sum, share) => sum + Number(share.share || 0), 0)}%</span>` : ""}
-      <div class="deed-foot">
-        ${isProperty ? `<span class="houses">${houseDisplay(level) || `<span class="t-micro ink-3">NO HOUSES</span>`}</span>` : `<span class="houses">${kindIcon}</span>`}
-        ${statusPill}
-        ${clickable ? `<span class="t-micro g300">MANAGE ›</span>` : ""}
-        ${opts.action ? `<button class="btn-dark" data-buy="${tile.i}" ${opts.disabled ? "disabled" : ""}><span class="t-label f11">${opts.action}</span></button>` : ""}
-      </div>
-    </div>
-  </${wrapper}>`;
 }
 
 /** Monopoly rule: you can only add a house to a property if doing so keeps
