@@ -18,6 +18,7 @@ let host = {
   buyTile: noop,
   openTradeModal: noop,
   openFinancingModal: noop,
+  openFinancingContract: noop,
 };
 
 function noop() {}
@@ -126,6 +127,12 @@ function onTradeOpen(node) {
   return true;
 }
 
+function onFinanceView(node) {
+  if (!node) return false;
+  host.openFinancingContract(node.dataset.financeView);
+  return true;
+}
+
 const RAIL_CLICKS = [
   ["[data-player-contract-cancel]", onContractCancel],
   ["[data-player-contract-action]", onContractResponse],
@@ -135,6 +142,7 @@ const RAIL_CLICKS = [
   ["[data-finance-open], [data-finance-surface]", onFinanceOpen],
   ["[data-buy]", onBuyTile],
   ["[data-trade]", onTradeOpen],
+  ["[data-finance-view]", onFinanceView],
 ];
 
 export function onRailClick(event) {
@@ -194,6 +202,21 @@ const RAIL_SUBMITS = [
   ["[data-player-contract-form]", onContractForm],
   ["[data-casino-form]", onCasinoForm],
 ];
+
+function syncContractKindFields(form) {
+  const kind = form.querySelector("select[name=kind]")?.value || "loan";
+  form.querySelectorAll("[data-kind-field]").forEach((field) => {
+    const kinds = String(field.dataset.kindField || "").split(" ");
+    field.hidden = !kinds.includes(kind);
+  });
+}
+
+export function onRailChange(event) {
+  const form = event.target.closest("[data-player-contract-form]");
+  if (!form) return;
+  if (!event.target.matches("select[name=kind]")) return;
+  syncContractKindFields(form);
+}
 
 export function onRailSubmit(event) {
   for (const [selector, handler] of RAIL_SUBMITS) {

@@ -104,6 +104,13 @@ function bankLoanCopy(loan, offer) {
   return `Repay before round ${loan.dueRound}. The cure window ends after round ${loan.cureRound}.`;
 }
 
+function financeEmptyHTML(ctx) {
+  if (ctx.offer) return "";
+  if (ctx.outgoing) return "";
+  if (ctx.active.length) return "";
+  return `<div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE PLAYER DEALS</strong><span class="t-micro ink-3">Use the form below to send a live contract.</span></div>`;
+}
+
 function railFinanceBodyHTML() {
   const me = state.players[0];
   const loan = me?.bankLoan;
@@ -112,7 +119,7 @@ function railFinanceBodyHTML() {
   const bankActionDisabled = state.phase !== "playing" || state.turnIndex !== 0;
   const loanAction = bankLoanActionHTML(loan, offer, bankActionDisabled);
   const loanMetrics = bankLoanMetrics(loan, offer);
-  return `<section class="finance-bank panel noise" aria-labelledby="bank-credit-heading"><div class="finance-bank-head"><div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ${financeStatusTone(loan)}">${financeStatusText(loan)}</span></div>${financeMetricsBlock(loanMetrics)}<p class="t-body ink-2 finance-bank-copy">${esc(loanCopy)}</p>${financeActionsBlock(loanAction)}<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></section><div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PLAYER FINANCE</div><p class="t-body ink-2">Player loans and equity remain negotiated social contracts. Use the bank only when the collateral risk is worth the liquidity.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">PLAYER CONTRACTS · LIVE</span></div><div class="finance-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">NO ACTIVE PLAYER DEALS</strong><span class="t-micro ink-3">Use the form below to send a live contract.</span></div><div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW TERMS</span></button><button class="btn-dark" type="button" data-finance-surface="contract"><span class="t-label f11">VIEW CONTRACT</span></button><button class="btn-dark" type="button" data-finance-surface="ownership"><span class="t-label f11">VIEW CO-OWNERSHIP</span></button><button class="btn-dark" type="button" data-finance-surface="default"><span class="t-label f11">VIEW DEFAULT</span></button></div>`;
+  return `<section class="finance-bank panel noise" aria-labelledby="bank-credit-heading"><div class="finance-bank-head"><div><div class="t-micro g400">BANK CREDIT · LIVE</div><h3 class="t-section g100" id="bank-credit-heading">Emergency liquidity</h3></div><span class="t-micro ${financeStatusTone(loan)}">${financeStatusText(loan)}</span></div>${financeMetricsBlock(loanMetrics)}<p class="t-body ink-2 finance-bank-copy">${esc(loanCopy)}</p>${financeActionsBlock(loanAction)}<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></section><div class="finance-rail-intro"><div class="t-micro g400">PARLOR DEALS · PLAYER FINANCE</div><p class="t-body ink-2">Player loans and equity remain negotiated social contracts. Use the bank only when the collateral risk is worth the liquidity.</p></div><div class="finance-status"><span class="t-micro ink-3">LIVE DEALS</span><span class="t-label f11 g-muted">PLAYER CONTRACTS · LIVE</span></div>${financeEmptyHTML(contractContext())}<div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan" data-finance-surface="offer"><span class="t-label f11">PREVIEW TERMS</span></button></div>`;
 }
 
 function casinoFeeSuffix(entryFee) {
@@ -354,7 +361,13 @@ function contractRowDetailHTML(contract) {
     return "$" + remaining + " REMAINING · DUE R" + dueRound;
   }
   if (contract.kind === "hybrid") return contractHybridDetailHTML(contract);
-  return Number(contract.equityShare || 0) + "% EQUITY";
+  return contractEquityDetailHTML(contract);
+}
+
+function contractEquityDetailHTML(contract) {
+  const share = Number(contract.equityShare || 0) + "% EQUITY";
+  if (contract.expiresRound == null) return share;
+  return share + " · EXPIRES R" + Number(contract.expiresRound);
 }
 
 function contractDebtKind(kind) {
@@ -379,7 +392,7 @@ function contractRowHTML(contract, localServerId) {
   const from = esc(contract.fromPlayerName || "PLAYER");
   const to = esc(contract.toPlayerName || "PLAYER");
   const detail = contractRowDetailHTML(contract);
-  return '<div class="player-contract-row"><div><strong class="t-label f11 g100">' + kind + ' · ' + from + ' → ' + to + '</strong><span class="t-micro ink-3">' + detail + '</span></div>' + contractRepayHTML(contract, localServerId) + '</div>';
+  return '<div class="player-contract-row"><div><strong class="t-label f11 g100">' + kind + ' · ' + from + ' → ' + to + '</strong><span class="t-micro ink-3">' + detail + '</span></div>' + contractRepayHTML(contract, localServerId) + '<button class="btn-dark" type="button" data-finance-view="' + esc(contract.id) + '"><span class="t-label f11">VIEW</span></button></div>';
 }
 
 function contractActiveBlock(ctx) {
@@ -388,7 +401,7 @@ function contractActiveBlock(ctx) {
 }
 
 function contractFormHTML(others) {
-  return '<form class="player-contract-form" data-player-contract-form><label class="account-field"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option><option value="hybrid">HYBRID NOTE</option></select></label><label class="account-field"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">CONVERSION SHARE %</span><input class="field" name="conversionShare" type="number" min="5" max="100" value="25" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY CONTROL</span><select class="setting-select" name="equityControl"><option value="passive">PASSIVE</option><option value="shared">SHARED</option><option value="controlling">CONTROLLING</option></select></label><label class="financing-check"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
+  return '<form class="player-contract-form" data-player-contract-form><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option><option value="hybrid">HYBRID NOTE</option></select></label><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field" data-kind-field="loan hybrid"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field" data-kind-field="loan equity hybrid"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field" data-kind-field="equity hybrid"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field" data-kind-field="loan"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field" data-kind-field="equity"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="account-field" data-kind-field="hybrid"><span class="t-micro g400">CONVERSION SHARE %</span><input class="field" name="conversionShare" type="number" min="5" max="100" value="25" inputmode="numeric"></label><label class="account-field" data-kind-field="equity"><span class="t-micro g400">EQUITY CONTROL</span><select class="setting-select" name="equityControl"><option value="passive">PASSIVE</option><option value="shared">SHARED</option><option value="controlling">CONTROLLING</option></select></label><label class="financing-check" data-kind-field="equity"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
 }
 
 function contractOthersBlockHTML(others) {

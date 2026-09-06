@@ -2672,6 +2672,7 @@ a:focus-visible {
 .player-contract-details > summary::-webkit-details-marker { display: none; }
 .player-contract-form { display: grid; gap: 8px; padding-top: 4px; }
 .player-contract-form .account-field { display: grid; gap: 4px; }
+.player-contract-form [hidden] { display: none; }
 .player-contract-form .financing-check { margin-top: 2px; }
 .player-profile-recent { display: grid; gap: 6px; margin: 14px 20px 0; padding-top: 12px; border-top: 1px solid var(--line-subtle); }
 .player-profile-match { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line-dark); }
