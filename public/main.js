@@ -161,6 +161,25 @@ import {
   closeTradeModal,
   renderTradeModal,
 } from "./clientTradeUi.js";
+import { bindParlorSurfaces } from "./clientParlorBindings.js";
+import {
+  renderPatrolHud,
+  renderHomeLocalTime,
+  startHomeClock,
+  stopHomeClock,
+  playPatrolHitSound,
+  stopHomeHelicopter,
+  scheduleHomeHelicopter,
+  hitHomeHelicopter,
+} from "./clientHomeAmbient.js";
+import {
+  configureAuctionUi,
+  renderAuction,
+  startAuction,
+  startAuctionTimer,
+  stopAuctionTimer,
+} from "./clientAuctionUi.js";
+import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -287,12 +306,10 @@ const serverSyncHost = {
   openAuctionSurface: () => {
     renderAuction();
     openSurface("#auction-modal", "#auction-pass");
-    clearInterval(auctionTimer);
-    auctionTimer = setInterval(tickAuction, 60);
+    startAuctionTimer();
   },
   closeAuctionSurface: () => {
-    clearInterval(auctionTimer);
-    auctionTimer = null;
+    stopAuctionTimer();
     closeSurface("#auction-modal");
   },
   retireButton: () => $("#game-retire-btn"),
@@ -531,157 +548,6 @@ function record(text) {
 /* ============================================================
    5. HOME SCREEN
    ============================================================ */
-const PATROL_BEST_KEY = "poorup.parlor-patrol.best.v1";
-let homeHelicopterTimer = null;
-let homeHelicopterFlightTimer = null;
-let homePatrolStatusTimer = null;
-let homeClockTimer = null;
-let patrolHitAudio = null;
-const patrolState = { score: 0, best: 0, active: false };
-try { patrolState.best = Number(localStorage.getItem(PATROL_BEST_KEY)) || 0; } catch { /* storage unavailable */ }
-
-function renderPatrolHud(status = "STANDBY · FLY-BYS OCCASIONAL") {
-  const score = $("#home-patrol-score");
-  const label = $("#home-patrol-status");
-  if (score) score.textContent = String(patrolState.score).padStart(3, "0");
-  if (label) label.textContent = status;
-}
-
-function renderHomeLocalTime() {
-  const clock = $("#home-local-time");
-  if (!clock) return;
-  const now = new Date();
-  clock.textContent = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
-  clock.dateTime = now.toISOString();
-}
-
-function startHomeClock() {
-  clearInterval(homeClockTimer);
-  renderHomeLocalTime();
-  homeClockTimer = setInterval(renderHomeLocalTime, 15000);
-}
-
-function stopHomeClock() {
-  clearInterval(homeClockTimer);
-  homeClockTimer = null;
-}
-
-function playPatrolHitSound() {
-  if (!state.sound) return;
-  try {
-    patrolHitAudio = patrolHitAudio || new Audio("/assets/audio/parlor-patrol/pixel-hit-pack-cc0.wav");
-    patrolHitAudio.volume = 0.32;
-    patrolHitAudio.currentTime = 0;
-    patrolHitAudio.play().catch(() => { /* browser gesture policy */ });
-  } catch { /* audio unavailable */ }
-}
-
-function clearPatrolEffect(selector) {
-  const effect = $(selector);
-  if (!effect) return;
-  effect.classList.remove("is-burst");
-  effect.style.removeProperty("left");
-  effect.style.removeProperty("top");
-}
-
-function hideHomeHelicopter() {
-  const helicopter = $("#home-helicopter");
-  if (!helicopter) return;
-  helicopter.classList.remove("is-flying", "is-hit", "home-helicopter-left");
-  const art = $("#home-helicopter-art");
-  if (art) art.src = "/assets/parlor-patrol/helicopter-16-frames.svg";
-  helicopter.setAttribute("aria-hidden", "true");
-  helicopter.tabIndex = -1;
-  helicopter.blur();
-}
-
-function stopHomeHelicopter() {
-  clearTimeout(homeHelicopterTimer);
-  clearTimeout(homeHelicopterFlightTimer);
-  clearTimeout(homePatrolStatusTimer);
-  homeHelicopterTimer = null;
-  homeHelicopterFlightTimer = null;
-  homePatrolStatusTimer = null;
-  patrolState.active = false;
-  hideHomeHelicopter();
-  clearPatrolEffect("#home-patrol-impact");
-  clearPatrolEffect("#home-patrol-smoke");
-}
-
-function scheduleHomeHelicopter(delay = 4000) {
-  clearTimeout(homeHelicopterTimer);
-  homeHelicopterTimer = null;
-  if (state.phase !== "home") return;
-  homeHelicopterTimer = setTimeout(() => {
-    if (state.phase !== "home") return;
-    const helicopter = $("#home-helicopter");
-    if (!helicopter) return;
-    patrolState.active = true;
-    const direction = Math.random() < 0.5 ? "left" : "right";
-    const art = $("#home-helicopter-art");
-    if (art) art.src = direction === "left"
-      ? "/assets/parlor-patrol/helicopter-left-16-frames.svg"
-      : "/assets/parlor-patrol/helicopter-16-frames.svg";
-    helicopter.classList.toggle("home-helicopter-left", direction === "left");
-    helicopter.style.top = `${[12, 17, 22, 27, 32][Math.floor(Math.random() * 5)]}%`;
-    helicopter.setAttribute("aria-hidden", "false");
-    helicopter.tabIndex = 0;
-    helicopter.classList.remove("is-hit", "is-flying");
-    void helicopter.offsetWidth;
-    helicopter.classList.add("is-flying");
-    renderPatrolHud("FLY-BY ACTIVE · CLICK TO TAG");
-    homeHelicopterFlightTimer = setTimeout(() => {
-      if (!patrolState.active) return;
-      patrolState.active = false;
-      hideHomeHelicopter();
-      renderPatrolHud("FLY-BY MISSED · NEXT ONE SOON");
-      homePatrolStatusTimer = setTimeout(() => renderPatrolHud(), 2200);
-      scheduleHomeHelicopter(12000);
-    }, REDUCED_MOTION ? 6000 : 18000);
-  }, delay);
-}
-
-function hitHomeHelicopter() {
-  if (!patrolState.active || state.phase !== "home") return;
-  const helicopter = $("#home-helicopter");
-  const atmosphere = $(".home-sky-atmosphere");
-  if (!helicopter || !atmosphere) return;
-  patrolState.active = false;
-  clearTimeout(homeHelicopterFlightTimer);
-  homeHelicopterFlightTimer = null;
-  const targetRect = helicopter.getBoundingClientRect();
-  const atmosphereRect = atmosphere.getBoundingClientRect();
-  const effectLeft = targetRect.left - atmosphereRect.left + targetRect.width / 2;
-  const effectTop = targetRect.top - atmosphereRect.top + targetRect.height / 2;
-  const impact = $("#home-patrol-impact");
-  const smoke = $("#home-patrol-smoke");
-  if (impact) {
-    impact.style.left = `${Math.round(effectLeft - 32)}px`;
-    impact.style.top = `${Math.round(effectTop - 32)}px`;
-    impact.classList.remove("is-burst");
-    void impact.offsetWidth;
-    impact.classList.add("is-burst");
-  }
-  if (smoke) {
-    smoke.style.left = `${Math.round(effectLeft - 40)}px`;
-    smoke.style.top = `${Math.round(effectTop - 30)}px`;
-    smoke.classList.remove("is-burst");
-    void smoke.offsetWidth;
-    smoke.classList.add("is-burst");
-  }
-  patrolState.score += 100;
-  patrolState.best = Math.max(patrolState.best, patrolState.score);
-  try { localStorage.setItem(PATROL_BEST_KEY, String(patrolState.best)); } catch { /* storage unavailable */ }
-  playPatrolHitSound();
-  hideHomeHelicopter();
-  renderPatrolHud(`TAGGED +100 · BEST ${String(patrolState.best).padStart(3, "0")}`);
-  homePatrolStatusTimer = setTimeout(() => renderPatrolHud(), 2400);
-  setTimeout(() => {
-    clearPatrolEffect("#home-patrol-impact");
-    clearPatrolEffect("#home-patrol-smoke");
-  }, 900);
-  scheduleHomeHelicopter(9000);
-}
 
 function refreshEconomySnapshot() {
   emitServer("get-economy-snapshot", {}, (response) => {
@@ -1672,11 +1538,6 @@ function buyTile(tile) {
 /* ============================================================
    8a. FORCED CHOICE + AUCTION
    ============================================================ */
-const BID_STEPS = [1, 20, 100];
-// Audit #18: single clock for auction deadlines. Matches the server's frame
-// once a snapshot has arrived (offset 0 before the first one).
-function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
-let auctionTimer = null;
 
 /** Human landed on a vacant lot: auto-show choice modal.
  *  - Auction mode: locked, BUY or AUCTION only.
@@ -1772,167 +1633,6 @@ function closeChoiceModalAsPass() {
   afterLandingResolved();
 }
 
-function startAuction(tile) {
-  emitServer("decline-property", { tileIndex: tile.i }, (response) => {
-      if (response?.success === false) {
-        say(response.error || "The auction could not be opened.");
-        renderChat();
-      }
-    });
-    return;
-}
-
-
-function humanBid(inc) {
-  const a = state.auction;
-  if (!a) return;
-  const me = state.players[0];
-  if (a.passed.p1) return;
-  if (me.cash < a.bid + inc) return; // can't cover the raise
-  emitServer("auction-bid", { amount: a.bid + inc }, (response) => {
-      if (response?.success === false) {
-        say(response.error || "Bid rejected.");
-        renderChat();
-      }
-    });
-    return;
-}
-
-function humanPassAuction() {
-  const a = state.auction;
-  if (!a) return;
-  emitServer("auction-pass", {}, (response) => {
-      if (response?.success === false) {
-        say(response.error || "You cannot pass this auction.");
-        renderChat();
-      }
-    });
-    return;
-}
-
-
-function tickAuction() {
-  const a = state.auction;
-  if (!a) return;
-  const remaining = a.deadline - serverNow();
-
-  // Live auctions are finalized by the server. The client only keeps the
-  // countdown visually current until the authoritative update arrives.
-  updateAuctionLive();
-    if (remaining <= 0) {
-      clearInterval(auctionTimer);
-      auctionTimer = null;
-    }
-    return;
-}
-
-
-function renderAuction() {
-  const a = state.auction;
-  if (!a) return;
-  const tile = TILES[a.tileIndex];
-  $("#auction-card").innerHTML = `
-    <div class="auction-rail" style="background:${accentOf(tile)}"></div>
-    <div class="auction-body">
-      <div class="auction-head">
-        <div class="auction-icon">${popIconHTML(tile)}</div>
-        <div class="pop-headtext">
-          <div class="t-micro g400">AUCTION · ${kindLabel(tile)}</div>
-          <h3 class="t-section auction-title" id="auction-card-title">${tile.name}</h3>
-        </div>
-      </div>
-
-      <div class="auction-bid-box">
-        <div>
-          <div class="t-micro ink-3">HIGH BID</div>
-          <div class="auction-bid-val" id="auction-bid">$0</div>
-        </div>
-        <div class="auction-leader">
-          <div class="t-micro ink-3">LEADER</div>
-          <div class="t-label auction-leader-name" id="auction-leader">NO BIDS YET</div>
-        </div>
-      </div>
-
-      <div class="auction-timer-wrap">
-        <div class="auction-timer-top">
-          <span class="t-micro g400">TIME LEFT</span>
-          <span class="t-label f12 g-muted" id="auction-timer">5.0s</span>
-        </div>
-        <div class="auction-bar-track"><div class="auction-bar-fill" id="auction-bar"></div></div>
-      </div>
-
-      <div class="auction-bids">
-        ${BID_STEPS.map((inc) => `
-          <button class="cta-red auction-bid-btn" data-bid="${inc}">
-            <span class="t-label">+${inc}</span>
-            <span class="t-micro">RAISE</span>
-          </button>`).join("")}
-      </div>
-
-      <div class="auction-pass">
-        <button class="btn-dark auction-pass-btn" id="auction-pass"><span class="t-label f12">PASS — STAND DOWN</span></button>
-      </div>
-
-      <div class="auction-players" id="auction-players"></div>
-
-      <p class="t-micro ink-3 auction-foot">EACH BID RESETS THE 5s CLOCK · LAST BIDDER WINS</p>
-    </div>`;
-
-  $("#auction-card").querySelectorAll("[data-bid]").forEach((btn) => {
-    btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid)));
-  });
-  $("#auction-pass").addEventListener("click", humanPassAuction);
-  updateAuctionLive();
-}
-
-function updateAuctionLive() {
-  const a = state.auction;
-  if (!a) return;
-  const me = state.players[0];
-  const remaining = Math.max(0, a.deadline - serverNow());
-  const pct = Math.max(0, Math.min(100, (remaining / AUCTION_MS) * 100));
-
-  const bar = $("#auction-bar");
-  if (bar) {
-    bar.style.transform = `scaleX(${pct / 100})`;
-    bar.classList.toggle("is-low", remaining <= 2000);
-  }
-  const timerEl = $("#auction-timer");
-  if (timerEl) timerEl.textContent = `${(remaining / 1000).toFixed(1)}s`;
-
-  const bidEl = $("#auction-bid");
-  if (bidEl) bidEl.textContent = `$${a.bid}`;
-
-  const leaderEl = $("#auction-leader");
-  if (leaderEl) {
-    const leader = a.leaderId ? state.players.find((p) => p.id === a.leaderId) : null;
-    leaderEl.textContent = leader ? leader.name : "NO BIDS YET";
-    leaderEl.style.color = leader ? leader.textColor : "var(--text-muted)";
-  }
-
-  $("#auction-card")?.querySelectorAll("[data-bid]").forEach((btn) => {
-    const inc = Number(btn.dataset.bid);
-    btn.disabled = me.cash < a.bid + inc;
-  });
-  const passBtn = $("#auction-pass");
-  if (passBtn) passBtn.disabled = !!a.passed?.p1;
-
-  const listEl = $("#auction-players");
-  if (listEl) {
-    listEl.innerHTML = state.players.map((p) => {
-      let status = "BIDDING";
-      let cls = "green";
-      if (p.id === a.leaderId) { status = "LEADING"; cls = "g300"; }
-      else if (a.passed[p.id]) { status = "PASSED"; cls = "ink-3"; }
-      else if (p.cash < BID_STEPS[0] || p.id !== "p1" && p.cash < a.bid + BID_STEPS[0]) { status = "BROKE"; cls = "red"; }
-      return `<div class="auction-player${p.id === a.leaderId ? " is-leading" : ""}">
-        <span class="ap-av">${avatarHTML(p, 2, state.players.indexOf(p))}</span>
-        <span class="t-label ap-name" style="color:${p.textColor}">${esc(p.name)}</span>
-        <span class="t-micro ap-st ${cls}">${status}</span>
-      </div>`;
-    }).join("");
-  }
-}
 
 /* ============================================================
    8b. TRADING
@@ -2318,7 +2018,7 @@ function enterParlor(code) {
   state.mortgaged = {};
   state.offers = [];
   state.deedDetail = null;
-  clearInterval(auctionTimer);
+  stopAuctionTimer();
   clearSave();
   closeAllSurfaces();
   state.log = ["ACTIVE DESIGN READY — ENTER THE PARLOR."];
@@ -2374,7 +2074,7 @@ function goHome() {
   // Release the seat on the server so the room can GC and peers stop
   // counting a home-screen player as online (A4-F3: ghost seats).
   if (state.phase !== "home") emitServer("leave-room", {}, () => {});
-  clearInterval(auctionTimer);
+  stopAuctionTimer();
   state.busy = false;
   state.rolling = false;
   state.turnStage = "roll";
@@ -2477,173 +2177,11 @@ function bindEvents() {
     });
   });
 
-  $("#player-list")?.addEventListener("click", (event) => {
-    const player = event.target.closest("[data-player-id]");
-    if (player) openPlayerSurface(player.dataset.playerId);
-  });
-  const handleRankingClick = (event) => {
-    const scope = event.target.closest("[data-ranking-scope]");
-    const inGameModal = event.currentTarget?.id === "rankings-card" && ["setup", "lobby", "playing"].includes(state.phase);
-    if (scope) { if (inGameModal) { state.leaderboard.scope = scope.dataset.rankingScope; renderRankingsSurface("#rankings-card"); } else openRankingsSurface(state.leaderboard.metric, scope.dataset.rankingScope); return; }
-    const metric = event.target.closest("[data-ranking-metric]");
-    if (metric) { if (inGameModal) { state.leaderboard.metric = metric.dataset.rankingMetric; renderRankingsSurface("#rankings-card"); } else openRankingsSurface(metric.dataset.rankingMetric); return; }
-    const player = event.target.closest("[data-ranking-player]");
-    if (player) openPlayerSurface(player.dataset.rankingPlayer);
-    if (event.target.closest(".rankings-close, #rankings-close")) event.currentTarget?.id === "rankings-page-content" ? leaveRoomForHome() : closeSurface("#rankings-modal");
-  };
-  $("#rankings-card")?.addEventListener("click", handleRankingClick);
-  $("#rankings-page-content")?.addEventListener("click", handleRankingClick);
-  const handleRankingSubmit = (event) => {
-    if (!event.target.matches("[data-ranking-search-form]")) return;
-    event.preventDefault();
-    const input = event.target.querySelector("[data-ranking-search-input]");
-    state.rankingSearchQuery = String(input?.value || "").trim();
-    state.rankingSearchResults = [];
-    const surface = event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
-    if (state.rankingSearchQuery.length < 3) {
-      renderRankingsSurface(surface);
-      return;
-    }
-    emitServer("search-players", { query: state.rankingSearchQuery, exact: true }, (response) => {
-      state.rankingSearchResults = response?.players || [];
-      renderRankingsSurface(surface);
-    });
-  };
-  $("#rankings-card")?.addEventListener("submit", handleRankingSubmit);
-  $("#rankings-page-content")?.addEventListener("submit", handleRankingSubmit);
-  const handleSocialClick = (event) => {
-    const tab = event.target.closest("[data-social-tab]");
-    if (tab) { state.socialTab = tab.dataset.socialTab; renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card"); return; }
-    const accountAction = event.target.closest("[data-social-action=account]");
-    if (accountAction) { openAccountModal("register"); return; }
-    const player = event.target.closest("[data-social-player]");
-    if (player) { openPlayerSurface(player.dataset.socialPlayer); return; }
-    const request = event.target.closest("[data-social-request]");
-    if (request) {
-      emitServer("respond-friend-request", { friendshipId: request.dataset.friendshipId, accept: request.dataset.socialRequest === "accept" }, () => {});
-      return;
-    }
-    const invite = event.target.closest("[data-social-invite]");
-    if (invite) {
-      emitServer("respond-room-invite", { inviteId: invite.dataset.inviteId, accept: invite.dataset.socialInvite === "accept" }, () => {});
-      return;
-    }
-    const notification = event.target.closest("[data-notification-read]");
-    if (notification) { emitServer("mark-notification-read", { notificationId: notification.dataset.notificationRead }, () => {}); return; }
-    const clearRecent = event.target.closest("[data-social-clear-recent]");
-    if (clearRecent) {
-      emitServer("clear-recent-players", {}, (response) => {
-        if (response?.success === false) {
-          announceSocialNotification({ body: response.error || "Recent players could not be cleared." });
-          return;
-        }
-        state.social.recentPlayers = [];
-        renderSocialSurface(event.currentTarget?.id === "social-page-content" ? "#social-page-content" : "#social-card");
-      });
-      return;
-    }
-    const cancelRequest = event.target.closest("[data-social-request-cancel]");
-    if (cancelRequest) {
-      emitServer("cancel-friend-request", { friendshipId: cancelRequest.dataset.friendshipId }, () => {});
-      return;
-    }
-    if (event.target.closest(".social-close, #social-close")) event.currentTarget?.id === "social-page-content" ? leaveRoomForHome() : closeSurface("#social-modal");
-  };
-  $("#social-card")?.addEventListener("click", handleSocialClick);
-  $("#social-page-content")?.addEventListener("click", handleSocialClick);
-  const handleSocialSubmit = (event) => {
-    if (!event.target.matches("[data-social-search-form]")) return;
-    event.preventDefault();
-    const form = event.target;
-    const input = form.querySelector("[data-social-search-input]");
-    state.socialSearchQuery = input?.value || "";
-    if (input) input.setAttribute("value", state.socialSearchQuery);
-    emitServer("search-players", { query: input?.value || "" }, (response) => {
-      state.socialSearchResults = response?.players || [];
-      const results = form.querySelector("[data-social-search-results]");
-      if (results) results.innerHTML = state.socialSearchResults.length ? state.socialSearchResults.map(player => socialPlayerRowHTML(player, "VIEW")).join("") : `<p class="t-micro ink-3 social-empty">NO PLAYERS FOUND.</p>`;
-      if (input) {
-        input.value = state.socialSearchQuery;
-        input.setAttribute("value", state.socialSearchQuery);
-      }
-      const surface = form.closest("#social-page-content") ? "#social-page-content" : "#social-card";
-      renderSocialSurface(surface);
-    });
-  };
-  $("#social-card")?.addEventListener("submit", handleSocialSubmit);
-  $("#social-page-content")?.addEventListener("submit", handleSocialSubmit);
-  $("#player-card")?.addEventListener("click", (event) => {
-    if (event.target.closest("#player-modal-close")) { closeSurface("#player-modal"); return; }
-    if (event.target.closest("#player-modal-back")) { state.selectedPlayerView = "profile"; renderPlayerSurface(); return; }
-    const historyScope = event.target.closest("[data-player-history-scope]");
-    if (historyScope) { state.selectedPlayerHistoryScope = historyScope.dataset.playerHistoryScope || "all"; renderPlayerSurface(); return; }
-    const action = event.target.closest("[data-player-action]");
-    if (!action || action.disabled || !state.selectedPlayer) return;
-    const targetId = state.selectedPlayer.accountId;
-    if (action.dataset.playerAction === "friend") emitServer("send-friend-request", { targetAccountId: targetId }, (response) => { if (response?.success === false) announceSocialNotification({ body: response.error || "Friend request could not be sent." }); });
-    if (action.dataset.playerAction === "invite") emitServer("send-room-invite", { targetAccountId: targetId }, (response) => { if (response?.success === false) announceSocialNotification({ body: response.error || "Room invite could not be sent." }); });
-    if (action.dataset.playerAction === "history") emitServer("get-match-history", { accountId: targetId }, (response) => { if (response?.success === false) { announceSocialNotification({ body: response.error || "Match history is unavailable." }); return; } state.selectedPlayerHistory = response?.history || []; state.selectedPlayerView = "history"; renderPlayerSurface(); });
-    if (action.dataset.playerAction === "block") emitServer("block-player", { otherAccountId: targetId }, (response) => { if (response?.success !== false) closeSurface("#player-modal"); });
-    if (action.dataset.playerAction === "report") emitServer("report-player", { otherAccountId: targetId, reason: "player report from in-room card" }, (response) => { if (response?.success !== false) { announceSocialNotification({ body: "Report submitted to the parlor moderators." }); closeSurface("#player-modal"); } });
-  });
-  $("#social-scrim")?.addEventListener("click", () => closeSurface("#social-modal"));
-  $("#rankings-scrim")?.addEventListener("click", () => closeSurface("#rankings-modal"));
-  $("#player-scrim")?.addEventListener("click", () => closeSurface("#player-modal"));
+  bindParlorSurfaces({ emitServer, leaveRoomForHome });
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.
-  $("#join-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const codeInput = $("#room-join");
-    const nicknameInput = $("#join-nickname");
-    const error = $("#join-form-error");
-    const code = String(codeInput?.value || "").trim().toUpperCase();
-    const nickname = String(state.account?.account?.displayName || nicknameInput?.value || "").trim().toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
-    if (!/^[A-Z0-9]{6}$/.test(code)) {
-      if (error) error.textContent = "ENTER A 6-CHARACTER ROOM CODE.";
-      codeInput?.focus({ preventScroll: true });
-      return;
-    }
-    if (!nickname) {
-      if (error) error.textContent = "ENTER THE PLAYER NAME FOR THIS ROOM.";
-      nicknameInput?.focus({ preventScroll: true });
-      return;
-    }
-    if (error) error.textContent = "";
-    state.alias = state.account?.account ? state.account.account.displayName : saveGuestAlias(nickname);
-    applyProfileToHomeUI();
-    closeRoomsModal();
-    enterParlor(code);
-  });
-  $("#room-join")?.addEventListener("input", (e) => {
-    const cleaned = String(e.target.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    e.target.value = cleaned.slice(0, 6);
-    const error = $("#join-form-error");
-    if (!error) return;
-    if (cleaned.length > 6) {
-      error.textContent = "ROOM CODES ARE 6 CHARACTERS — EXTRA CHARACTERS REMOVED.";
-    } else if (error.textContent.startsWith("ROOM CODES ARE 6")) {
-      error.textContent = "";
-    }
-  });
-  $("#join-nickname")?.addEventListener("input", (e) => {
-    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
-    if ($("#join-form-error")) $("#join-form-error").textContent = "";
-  });
-  $("#home-alias-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const input = $("#home-alias");
-    state.alias = saveGuestAlias(input?.value || "");
-    renderGuestAliasField(state.alias ? "" : "CREATE AN ALIAS BEFORE JOINING A TABLE.");
-    if (state.alias) $("#open-join-btn")?.focus({ preventScroll: true });
-  });
-  $("#home-alias")?.addEventListener("input", (e) => {
-    state.alias = String(e.target.value || "").toUpperCase().replace(/[^A-Z0-9 _-]/g, "").slice(0, 12);
-    e.target.value = state.alias;
-    saveGuestAlias(state.alias);
-    renderGuestAliasField("");
-    applyProfileToHomeUI();
-  });
+  bindHomeEntry({ closeRoomsModal, enterParlor });
 
   // rooms browser & creator
   $("#browse-rooms-btn")?.addEventListener("click", () => openRoomsModal("browse"));
@@ -3228,6 +2766,7 @@ configureSocialSurfaces({ emitServer, showView });
 configureAccountIdentity({ emitServer, say });
 configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal });
 configureTradeUi({ emitServer, say, renderChat, record });
+configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureProfileRender({ renderAchievements, loadSavedGame });
 configureNightShift({
