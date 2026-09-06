@@ -1,6 +1,4 @@
-import crypto from 'crypto';
-import { randomInt } from './random.js';
-import { MARKET_FEE_RATE, freshMarketQuotes } from './marketLogic.js';
+import { freshMarketQuotes } from './marketLogic.js';
 import {
   playerContractSummary,
   processContracts,
@@ -25,13 +23,7 @@ import {
   canUnmortgageTile,
   isTradeableTile
 } from './propertyRules.js';
-import {
-  DEFAULT_ROOM_SETTINGS,
-  LEGACY_SCALED_SETTINGS,
-  ROOM_FLAG_TRUE_VALUES,
-  ROOM_SETTING_NORMALIZERS,
-  SETTING_REJECTED
-} from './roomSettings.js';
+import { DEFAULT_ROOM_SETTINGS } from './roomSettings.js';
 import {
   JAIL_FINE,
   JAIL_MAX_TURNS,
@@ -51,103 +43,10 @@ import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
 import { economyApi } from './economyApi.js';
 import { tradeApi } from './tradeApi.js';
 import { bankruptcyApi } from './bankruptcyApi.js';
-import { APPEARANCE_PRESET_COLORS, appearanceApi, resolveFreeAppearanceColor } from './appearanceApi.js';
+import { APPEARANCE_PRESET_COLORS, appearanceApi } from './appearanceApi.js';
 import { botApi } from './botApi.js';
-
-function createRoomCode() {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 6; i += 1) {
-    code += alphabet.charAt(randomInt(0, alphabet.length - 1));
-  }
-  return code;
-}
-
-class Player {
-  constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
-    this.id = crypto.randomUUID();
-    this.clientId = clientId || this.id;
-    this.socketId = socketId;
-    const safeNickname = typeof nickname === 'string' ? nickname.trim().slice(0, 24) : '';
-    const safeColor = typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#35a653';
-    this.nickname = safeNickname || 'Player';
-    this.color = safeColor;
-    this.avatarGrid = Array.isArray(avatarGrid) ? avatarGrid : null;
-    this.accountId = accountId || null;
-    this.isHost = isHost;
-    this.isBot = isBot;
-    this.personality = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'].includes(personality) ? personality : 'survivor';
-    this.cash = DEFAULT_ROOM_SETTINGS.startingCash;
-    this.position = START_TILE_INDEX;
-    this.properties = [];
-    this.inJail = false;
-    this.jailTurns = 0;
-    this.jailFreeCards = 0;
-    this.bankLoan = null;
-    this.casinoNet = 0;
-    this.casinoLedger = [];
-    this.casinoMaxStake = 0;
-    this.casinoTotalStaked = 0;
-    this.casinoAllIn = false;
-    this.casinoOneDollar = false;
-    this.casinoBetsThisRound = 0;
-    this.marketPositions = {};
-    this.marketTrades = 0;
-    this.marketActionsThisTurn = 0;
-    this.crisisMarketBuys = {};
-    this.crisisMarketProfit = false;
-    this.playerContractIds = [];
-    this.auctionWins = 0;
-    this.rentCollected = 0;
-    this.globalEventsExperienced = 0;
-    this.globalEventsSurvived = 0;
-    this.fullGroups = new Set();
-    this.airportVisits = new Set();
-    this.taxTilesVisited = new Set();
-    this.rentPayerIds = new Set();
-    this.rentPayersThisRound = new Set();
-    this.maxRentPayersInRound = 0;
-    this.auctionUnderListWins = 0;
-    this.loanWarningSeen = false;
-    this.badIdeaLoan = false;
-    this.prisonBreak = false;
-    this.bankLoanCount = 0;
-    this.boughtDuringHousingBubble = false;
-    this.soldBuildingsDuringHousingBubble = 0;
-    this.bubbleSurvivor = false;
-    this.rebuiltAfterHousingBubble = false;
-    this.foreclosureNoSecondLoan = false;
-    this.housingBubbleEnded = false;
-    this.airportOwnedDuringStrike = false;
-    this.nonAirportRentDuringStrike = false;
-    this.tradesDuringCombo = 0;
-    this.groupTherapyTrade = false;
-    this.unanimousVote = false;
-    this.publicEnemy = false;
-    this.compromisedCouncil = false;
-    this.coalitionTrade = false;
-    this.lastVoteChoice = null;
-    this.bailoutReceived = false;
-    this.moralHazard = false;
-    this.zeroCashReached = false;
-    this.collateralLost = false;
-    this.comboExperienced = false;
-    this.buildActionsThisTurn = 0;
-    this.evenBuilds = 0;
-    this.councilWins = 0;
-    this.publicWorksBuilds = 0;
-    this.cardDraws = { surprise: 0, treasure: 0 };
-    this.treasureCardsSeen = new Set();
-    this.underdogAtHalfway = false;
-    this.oneMoreTurn = false;
-    this.taxAuditCount = 0;
-    this.moveCount = 0;
-    this.hiddenMovementSequence = false;
-    this.bankrupt = false;
-    this.disconnected = false;
-    this.ready = false;
-  }
-}
+import { Room, RoomManager } from './rooms.js';
+import { summaryApi } from './summaryApi.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -421,10 +320,19 @@ class GameState {
   }
 
   highestCollateralProperty(player) {
-    return player?.properties
-      ?.map(index => this.getTile(index))
-      .filter(tile => tile && tile.type === 'property' && !tile.mortgaged && !(tile.houseCount > 0) && !this.isPlayerContractCollateral(player, tile))
-      .sort((a, b) => (b.price || 0) - (a.price || 0))[0] || null;
+    if (!player?.properties) return null;
+    const eligible = player.properties
+      .map(index => this.getTile(index))
+      .filter(tile => this.collateralEligibleTile(player, tile));
+    return eligible.sort((a, b) => (b.price || 0) - (a.price || 0))[0] || null;
+  }
+
+  collateralEligibleTile(player, tile) {
+    if (!tile) return false;
+    if (tile.type !== 'property') return false;
+    if (tile.mortgaged) return false;
+    if (tile.houseCount > 0) return false;
+    return !this.isPlayerContractCollateral(player, tile);
   }
 
   isTradeableTile(tile) {
@@ -448,29 +356,43 @@ class GameState {
   }
 
   applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
+    this.terminateTileEquityShares(tile);
+    this.resetDeedTile(tile, toPlayer);
+    this.detachDeedFromOwner(fromPlayer, tile);
+    this.attachDeedToOwner(toPlayer, tile);
+  }
+
+  terminateTileEquityShares(tile) {
     (tile.equityShares || []).forEach(share => {
       const contract = this.playerContractById(share.contractId);
-      if (contract && contract.status === 'active') {
-        contract.status = 'terminated';
-        contract.terminatedRound = this.roundNumber;
-      }
+      if (!contract) return;
+      if (contract.status !== 'active') return;
+      contract.status = 'terminated';
+      contract.terminatedRound = this.roundNumber;
     });
+  }
+
+  resetDeedTile(tile, toPlayer) {
     tile.ownerId = toPlayer ? toPlayer.id : null;
     tile.mortgaged = false;
     tile.houseCount = 0;
     tile.equityShares = [];
-    if (fromPlayer) {
-      fromPlayer.properties = fromPlayer.properties.filter(propertyIndex => propertyIndex !== tile.index);
-      // A bubble-survivor deed must remain in the original owner's hands
-      // through recovery; transferring it invalidates that achievement fact.
-      if (fromPlayer.bubbleSurvivor && fromPlayer.housingBubbleEnded) {
-        fromPlayer.bubbleSurvivor = fromPlayer.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0);
-      }
-    }
-    if (toPlayer) {
-      toPlayer.properties.push(tile.index);
-      this.refreshPlayerGroups(toPlayer);
-    }
+  }
+
+  detachDeedFromOwner(fromPlayer, tile) {
+    if (!fromPlayer) return;
+    fromPlayer.properties = fromPlayer.properties.filter(propertyIndex => propertyIndex !== tile.index);
+    // A bubble-survivor deed must remain in the original owner's hands
+    // through recovery; transferring it invalidates that achievement fact.
+    if (!fromPlayer.bubbleSurvivor) return;
+    if (!fromPlayer.housingBubbleEnded) return;
+    fromPlayer.bubbleSurvivor = fromPlayer.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0);
+  }
+
+  attachDeedToOwner(toPlayer, tile) {
+    if (!toPlayer) return;
+    toPlayer.properties.push(tile.index);
+    this.refreshPlayerGroups(toPlayer);
   }
 
   feedMessage(text) {
@@ -531,6 +453,25 @@ class GameState {
 
   rollDice(socketId) {
     const player = this.getPlayerBySocket(socketId);
+    const rejection = this.rollTurnRejection(player);
+    if (rejection) return rejection;
+    if (player.inJail) {
+      return this.handleJailRoll(player);
+    }
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You have already rolled this turn.' };
+    }
+    const dice = rollDice();
+    this.setTurnDice(dice);
+    if (this.consecutiveDoubles >= 3) {
+      return this.sendRollerToJail(player);
+    }
+    const move = dice[0] + dice[1];
+    this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
+    return this.movePlayer(player, move);
+  }
+
+  rollTurnRejection(player) {
     if (!player) {
       return { success: false, error: 'Player not found.' };
     }
@@ -543,13 +484,10 @@ class GameState {
     if (this.pendingPayment?.playerId === player.id) {
       return { success: false, error: 'Settle your debt before rolling.' };
     }
-    if (player.inJail) {
-      return this.handleJailRoll(player);
-    }
-    if (this.hasRolled && !this.extraRollPending) {
-      return { success: false, error: 'You have already rolled this turn.' };
-    }
-    const dice = rollDice();
+    return null;
+  }
+
+  setTurnDice(dice) {
     this.lastDice = dice;
     this.hasRolled = true;
     this.turnAllowsExtraRoll = dice[0] === dice[1];
@@ -559,21 +497,19 @@ class GameState {
     } else {
       this.consecutiveDoubles = 0;
     }
-    if (this.consecutiveDoubles >= 3) {
-      player.position = this.tiles.find(tile => tile.type === 'jail').index;
-      player.inJail = true;
-      player.jailTurns = 0;
-      this.consecutiveDoubles = 0;
-      this.turnAllowsExtraRoll = false;
-      this.extraRollPending = false;
-      this.hasRolled = false;
-      this.feedMessage(`${player.nickname} rolled three doubles and was sent to Jail.`);
-      this.nextTurn();
-      return { success: true };
-    }
-    const move = dice[0] + dice[1];
-    this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
-    return this.movePlayer(player, move);
+  }
+
+  sendRollerToJail(player) {
+    player.position = this.tiles.find(tile => tile.type === 'jail').index;
+    player.inJail = true;
+    player.jailTurns = 0;
+    this.consecutiveDoubles = 0;
+    this.turnAllowsExtraRoll = false;
+    this.extraRollPending = false;
+    this.hasRolled = false;
+    this.feedMessage(`${player.nickname} rolled three doubles and was sent to Jail.`);
+    this.nextTurn();
+    return { success: true };
   }
 
   handleJailRoll(player) {
@@ -638,15 +574,25 @@ class GameState {
 
   useJailFree(socketId) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || !this.started || player.id !== this.currentPlayerId) return { success: false, error: 'It is not your turn.' };
-    if (!player.inJail || !(player.jailFreeCards > 0)) return { success: false, error: 'You do not have a Get Out of Prison card.' };
-    if (this.hasRolled) return { success: false, error: 'You have already rolled this turn.' };
+    const rejection = this.jailFreeRejection(player);
+    if (rejection) return rejection;
     player.jailFreeCards -= 1;
     player.prisonBreak = true;
     player.inJail = false;
     player.jailTurns = 0;
     this.feedMessage(`${player.nickname} used a Get Out of Prison card.`);
     return { success: true, message: 'You left prison with a Get Out of Prison card.' };
+  }
+
+  jailFreeRejection(player) {
+    const notTurn = { success: false, error: 'It is not your turn.' };
+    if (!player) return notTurn;
+    if (!this.started) return notTurn;
+    if (player.id !== this.currentPlayerId) return notTurn;
+    if (!player.inJail) return { success: false, error: 'You do not have a Get Out of Prison card.' };
+    if (!(player.jailFreeCards > 0)) return { success: false, error: 'You do not have a Get Out of Prison card.' };
+    if (this.hasRolled) return { success: false, error: 'You have already rolled this turn.' };
+    return null;
   }
 
   bankLoanTerms(player) {
@@ -736,34 +682,62 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    const nonBankrupt = this.nonBankruptPlayers();
-    if (nonBankrupt.length <= 1) {
+    if (this.nonBankruptPlayers().length <= 1) {
       this.endGame();
       return;
     }
+    const next = this.findNextTurnSeat();
+    if (!this.nextSeatIsPlayable(next)) {
+      this.announceWaitingForSeat();
+      return;
+    }
+    if (this.turnOrderWrapped(next)) this.advanceRound();
+    if (!this.started) return;
+    this.beginSeatTurn(next.player);
+  }
+
+  findNextTurnSeat() {
     const currentIndex = this.turnOrder.indexOf(this.currentPlayerId);
     let nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % this.turnOrder.length;
     let nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
     let attempts = 0;
-    while (nextPlayer && (nextPlayer.bankrupt || nextPlayer.disconnected) && attempts < this.turnOrder.length) {
+    while (this.seatIsIdle(nextPlayer) && attempts < this.turnOrder.length) {
       nextIndex = (nextIndex + 1) % this.turnOrder.length;
       nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
       attempts += 1;
     }
-    if (!nextPlayer || nextPlayer.bankrupt || nextPlayer.disconnected) {
-      const waiting = this.getPlayerById(this.currentPlayerId);
-      if (waiting && !waiting.bankrupt) {
-        this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
-      }
-      return;
-    }
-    if (currentIndex >= 0 && nextIndex <= currentIndex) this.advanceRound();
-    if (!this.started) return;
-    this.currentPlayerId = nextPlayer.id;
+    return { currentIndex, nextIndex, player: nextPlayer };
+  }
+
+  seatIsIdle(player) {
+    if (!player) return false;
+    return Boolean(player.bankrupt || player.disconnected);
+  }
+
+  nextSeatIsPlayable(next) {
+    if (!next.player) return false;
+    if (next.player.bankrupt) return false;
+    return !next.player.disconnected;
+  }
+
+  announceWaitingForSeat() {
+    const waiting = this.getPlayerById(this.currentPlayerId);
+    if (!waiting) return;
+    if (waiting.bankrupt) return;
+    this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
+  }
+
+  turnOrderWrapped(next) {
+    if (next.currentIndex < 0) return false;
+    return next.nextIndex <= next.currentIndex;
+  }
+
+  beginSeatTurn(player) {
+    this.currentPlayerId = player.id;
     this.hasRolled = false;
-    nextPlayer.buildActionsThisTurn = 0;
-    nextPlayer.marketActionsThisTurn = 0;
-    this.feedMessage(`${nextPlayer.nickname}'s turn.`);
+    player.buildActionsThisTurn = 0;
+    player.marketActionsThisTurn = 0;
+    this.feedMessage(`${player.nickname}'s turn.`);
   }
 
   hasFullSet(ownerId, group) {
@@ -771,22 +745,26 @@ class GameState {
     return groupTiles.every(tile => tile.ownerId === ownerId);
   }
 
-  chargePlayer(player, creditor, amount, message, turnOptions = {}, hooks = {}) {
+  chargePlayer(debt) {
     // Nothing to collect from a missing payer or a non-debt: the turn just
     // resolves normally.
-    if (!player || amount <= 0) {
-      this.resolveTurnAfterAction(turnOptions);
+    if (!debt.player) {
+      this.resolveTurnAfterAction(debt.turnOptions);
       return;
     }
-    if (player.cash >= amount) {
-      this.payDebtInFull({ player, creditor, amount, message, turnOptions, hooks });
+    if (debt.amount <= 0) {
+      this.resolveTurnAfterAction(debt.turnOptions);
       return;
     }
-    this.openDebtSettlement({ player, creditor, amount, message, turnOptions, hooks });
+    if (debt.player.cash >= debt.amount) {
+      this.payDebtInFull(debt);
+      return;
+    }
+    this.openDebtSettlement(debt);
   }
 
   payDebtInFull(debt) {
-    const { player, creditor, amount, message, turnOptions, hooks } = debt;
+    const { player, creditor, amount, message, turnOptions = {}, hooks = {} } = debt;
     player.cash -= amount;
     if (player.cash === 0) player.zeroCashReached = true;
     this.creditRentTo(creditor, player, amount);
@@ -799,7 +777,7 @@ class GameState {
   // of the debt parks in pendingPayment for the mortgage/sell/bankruptcy
   // mini-game to resolve.
   openDebtSettlement(debt) {
-    const { player, creditor, amount, message, turnOptions, hooks } = debt;
+    const { player, creditor, amount, message, turnOptions = {}, hooks = {} } = debt;
     const partial = player.cash;
     if (partial > 0) {
       this.tenderPartialDebt(player, creditor, partial, hooks);
@@ -842,83 +820,96 @@ class GameState {
   trySettlePendingPayment() {
     if (!this.pendingPayment) return false;
     const player = this.getPlayerById(this.pendingPayment.playerId);
-    if (!player || player.bankrupt) {
-      this.pendingPayment = null;
-      this.pendingPaymentTurnOptions = null;
+    if (!this.pendingPayerCanSettle(player)) {
+      this.clearPendingPayment();
       return false;
     }
     if (player.cash < this.pendingPayment.amountRemaining) {
       return false;
     }
-    const creditor = this.pendingPayment.creditorId
-      ? this.getPlayerById(this.pendingPayment.creditorId)
-      : null;
     const amount = this.pendingPayment.amountRemaining;
     player.cash -= amount;
-    if (creditor) {
-      creditor.cash += amount;
-      creditor.rentCollected = (creditor.rentCollected || 0) + amount;
-      creditor.rentPayerIds ||= new Set();
-      creditor.rentPayerIds.add(player.id);
-      creditor.rentPayersThisRound ||= new Set();
-      creditor.rentPayersThisRound.add(player.id);
-      creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
-    }
-    if (this.pendingPayment.equityTileIndex != null) {
-      const equityTile = this.getTile(this.pendingPayment.equityTileIndex);
-      const equityOwner = this.getPlayerById(this.pendingPayment.equityOwnerId);
-      this.settleEquityShares(equityTile, equityOwner, amount);
-    }
+    this.creditSettledDebt(amount, player);
+    this.settlePendingEquityShares(amount);
     this.feedMessage(`${player.nickname} paid the remaining $${amount}.`);
     const turnOptions = this.pendingPaymentTurnOptions || {};
-    this.pendingPayment = null;
-    this.pendingPaymentTurnOptions = null;
+    this.clearPendingPayment();
     this.resolveTurnAfterAction(turnOptions);
     return true;
   }
 
+  pendingPayerCanSettle(player) {
+    if (!player) return false;
+    return !player.bankrupt;
+  }
+
+  clearPendingPayment() {
+    this.pendingPayment = null;
+    this.pendingPaymentTurnOptions = null;
+  }
+
+  // Settling the parked debt credits the creditor through the same rent-fact
+  // path as a direct collection.
+  creditSettledDebt(amount, player) {
+    const creditorId = this.pendingPayment.creditorId;
+    if (!creditorId) return;
+    const creditor = this.getPlayerById(creditorId);
+    this.creditRentTo(creditor, player, amount);
+  }
+
+  settlePendingEquityShares(amount) {
+    const pending = this.pendingPayment;
+    if (pending.equityTileIndex == null) return;
+    const equityTile = this.getTile(pending.equityTileIndex);
+    const equityOwner = this.getPlayerById(pending.equityOwnerId);
+    this.settleEquityShares(equityTile, equityOwner, amount);
+  }
+
   transferMoney(from, to, amount, message) {
-    if (!from || !to || amount <= 0) {
-      return;
-    }
+    if (!from) return;
+    if (!to) return;
+    if (amount <= 0) return;
     from.cash -= amount;
     to.cash += amount;
     this.feedMessage(message);
   }
 
   deductMoney(player, amount, message) {
-    this.chargePlayer(player, null, amount, message, {});
+    this.chargePlayer({ player, amount, message, turnOptions: {} });
   }
 
   endTurn(socketId) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || player.id !== this.currentPlayerId) {
-      return { success: false, error: 'Only the active player can end the turn.' };
-    }
-    if (this.extraRollPending || this.turnAllowsExtraRoll) {
-      return { success: false, error: 'You must roll again after doubles before ending your turn.' };
-    }
-    if (!this.awaitingEndTurn) {
-      return { success: false, error: 'Resolve your roll before ending the turn.' };
-    }
-    if (this.auction?.active) {
-      return { success: false, error: 'Finish the active auction before ending the turn.' };
-    }
-    if (this.pendingPurchaseOffer?.playerId === player.id) {
-      return { success: false, error: 'Resolve the property offer before ending the turn.' };
-    }
-    if (this.pendingPayment?.playerId === player.id) {
-      return { success: false, error: 'Settle your debt before ending the turn.' };
-    }
+    const rejection = this.endTurnRejection(player);
+    if (rejection) return rejection;
     this.nextTurn();
     return { success: true };
   }
 
+  endTurnRejection(player) {
+    const notActive = { success: false, error: 'Only the active player can end the turn.' };
+    if (!player) return notActive;
+    if (player.id !== this.currentPlayerId) return notActive;
+    if (this.extraRollPending) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    if (this.turnAllowsExtraRoll) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    if (!this.awaitingEndTurn) return { success: false, error: 'Resolve your roll before ending the turn.' };
+    return this.pendingFlowRejection(player);
+  }
+
+  pendingFlowRejection(player) {
+    if (this.auction && this.auction.active) return { success: false, error: 'Finish the active auction before ending the turn.' };
+    const offer = this.pendingPurchaseOffer;
+    if (offer && offer.playerId === player.id) return { success: false, error: 'Resolve the property offer before ending the turn.' };
+    const pending = this.pendingPayment;
+    if (pending && pending.playerId === player.id) return { success: false, error: 'Settle your debt before ending the turn.' };
+    return null;
+  }
+
   skipDisconnectedCurrentPlayer() {
     const current = this.getCurrentPlayer();
-    if (!current || !current.disconnected || current.bankrupt) {
-      return;
-    }
+    if (!current) return;
+    if (!current.disconnected) return;
+    if (current.bankrupt) return;
     this.pendingPurchaseOffer = null;
     this.feedMessage(`${current.nickname} was skipped due to disconnect.`);
     this.nextTurn();
@@ -950,485 +941,9 @@ class GameState {
     this.consecutiveDoubles = 0;
   }
 
-  getGameSummary(viewerPlayerId = null) {
-    return {
-      started: this.started,
-      currentPlayerId: this.currentPlayerId,
-      turnOrder: this.turnOrder || [],
-      hasRolled: this.hasRolled,
-      extraRollPending: this.extraRollPending,
-      awaitingEndTurn: this.awaitingEndTurn,
-      pendingPurchaseOffer: this.pendingPurchaseOffer,
-      pendingPayment: this.pendingPayment,
-      lastWinner: this.lastWinner,
-      lastDice: this.lastDice,
-      tiles: this.tiles.map(tile => ({
-        index: tile.index,
-        name: tile.name,
-        type: tile.type,
-        group: tile.group,
-        ownerId: tile.ownerId,
-        price: tile.price,
-        rent: tile.rent,
-        color: tile.color,
-        amount: tile.amount,
-        mortgaged: tile.mortgaged,
-        houseCount: tile.houseCount || 0,
-        houseCost: this.getPropertyHouseCost(tile),
-        equityShares: (tile.equityShares || []).map(share => ({
-          holderId: share.holderId,
-          holderName: this.getPlayerById(share.holderId)?.nickname || 'PLAYER',
-          share: Math.max(0, Math.min(100, Number(share.share) || 0)),
-          control: share.control || 'passive'
-        }))
-      })),
-      players: this.players.map(player => ({
-        id: player.id,
-        nickname: player.nickname,
-        color: player.color,
-        cash: player.cash,
-        position: player.position,
-        inJail: player.inJail,
-        jailTurns: player.jailTurns || 0,
-        jailFreeCards: player.jailFreeCards || 0,
-        bankLoan: viewerPlayerId && player.id === viewerPlayerId
-          ? player.bankLoan
-          : (player.bankLoan ? { status: player.bankLoan.status } : null),
-        bankLoanOffer: viewerPlayerId && player.id === viewerPlayerId ? this.getBankLoanOffer(player) : null,
-        bankrupt: player.bankrupt,
-        inDebt: player.inDebt,
-        disconnected: player.disconnected,
-        isHost: player.isHost,
-        properties: player.properties,
-        ready: player.ready,
-        isBot: player.isBot,
-        personality: player.isBot ? player.personality : null,
-        clientId: player.clientId,
-        accountId: player.accountId || null,
-        avatarGrid: player.avatarGrid || null
-      })),
-      feed: this.feed,
-      roundNumber: this.roundNumber,
-      globalEvent: this.globalEvent ? {
-        ...this.globalEvent,
-        votes: { ...this.globalEvent.votes },
-        choices: this.globalEvent.choices?.map(choice => ({ ...choice })) || null
-      } : null,
-      globalEventHistory: this.globalEventHistory,
-      auction: this.auction ? {
-        active: this.auction.active,
-        tileIndex: this.auction.propertyTile.index,
-        tileName: this.auction.propertyTile.name,
-        highestBid: this.auction.highestBid,
-        highestBidderId: this.auction.highestBidderId,
-        participants: this.auction.participants,
-        startedAt: this.auction.startedAt,
-        endsAt: this.auction.endsAt,
-        cooldownUntil: this.auction.cooldownUntil,
-        lastBidAt: this.auction.lastBidAt,
-        passedPlayerIds: this.auction.passedPlayerIds,
-        durationMs: AUCTION_DURATION_MS
-      } : null,
-      pendingTrade: this.pendingTrade,
-      vacationPool: this.vacationPool,
-      playerContracts: this.playerContractSummary(viewerPlayerId),
-      economy: {
-        casino: {
-          enabled: Boolean(this.settings.casino),
-          ...this.casinoLimits(),
-          lastResult: this.casinoLastResult ? { ...this.casinoLastResult } : null
-        },
-        market: {
-          enabled: Boolean(this.settings.market),
-          round: this.marketRound,
-          feeRate: MARKET_FEE_RATE,
-          quotes: { ...this.marketQuotes }
-        }
-      }
-    };
-  }
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, bankruptcyApi, appearanceApi, botApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, bankruptcyApi, appearanceApi, botApi, summaryApi);
 
-class Room {
-  constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
-    this.roomCode = roomCode || createRoomCode();
-    this.roomName = roomName;
-    this.visibility = visibility;
-    this.statsRecorded = false;
-    this.hostId = hostPlayer.id;
-    this.settings = { ...DEFAULT_ROOM_SETTINGS };
-    this.game = new GameState(this.settings);
-    this.game.addPlayer(hostPlayer);
-  }
-
-  addOrReconnectPlayer(playerInfo) {
-    const existing = this.game.getPlayerByClient(playerInfo.clientId);
-    if (existing) {
-      existing.socketId = playerInfo.socketId;
-      existing.disconnected = false;
-      if (typeof playerInfo.nickname === 'string') {
-        const safeNickname = playerInfo.nickname.trim().slice(0, 24);
-        if (safeNickname) {
-          existing.nickname = safeNickname;
-        }
-      }
-      if (typeof playerInfo.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(playerInfo.color)) {
-        existing.color = resolveFreeAppearanceColor(this.game.players, playerInfo.color, existing);
-      }
-      if (playerInfo.avatarGrid === null || Array.isArray(playerInfo.avatarGrid)) {
-        existing.avatarGrid = playerInfo.avatarGrid;
-      }
-      if (playerInfo.accountId) existing.accountId = playerInfo.accountId;
-      return { success: true, player: existing };
-    }
-    if (this.game.started) {
-      return { success: false, error: 'Game is already in progress.' };
-    }
-    if (!this.game.canJoin()) {
-      return { success: false, error: 'Room is full.' };
-    }
-    const player = new Player(playerInfo);
-    player.color = resolveFreeAppearanceColor(this.game.players, player.color, player);
-    this.game.addPlayer(player);
-    return { success: true, player };
-  }
-
-  // Public browse, disconnect GC, and stale-code reclaim share this single
-  // liveness check: bots and ghost seats must not count as humans.
-  hasConnectedHumans() {
-    return this.game.players.some(player => !player.isBot && !player.disconnected);
-  }
-
-  getPlayerBySocket(socketId) {
-    return this.game.getPlayerBySocket(socketId);
-  }
-
-  getPlayerById(id) {
-    return this.game.getPlayerById(id);
-  }
-
-  setRoomSetting(key, value) {
-    if (this.game.started) {
-      return;
-    }
-    if (!Object.prototype.hasOwnProperty.call(this.settings, key)) {
-      return;
-    }
-    if (LEGACY_SCALED_SETTINGS.includes(key)) {
-      return;
-    }
-    const normalizer = ROOM_SETTING_NORMALIZERS[key];
-    const nextValue = normalizer ? normalizer(value, this) : this.defaultRoomSettingValue(key, value);
-    if (nextValue === SETTING_REJECTED) {
-      return;
-    }
-    this.settings[key] = nextValue;
-    this.game.settings[key] = nextValue;
-    this.applyRoomSettingSideEffect(key, nextValue);
-  }
-
-  // Generic fallback for keys the table does not specialise: boolean flags
-  // parse the four truthy spellings, strings lose their edges, and other
-  // types are stored exactly as received.
-  defaultRoomSettingValue(key, value) {
-    if (typeof this.settings[key] === 'boolean') {
-      return ROOM_FLAG_TRUE_VALUES.includes(value);
-    }
-    if (typeof value === 'string') {
-      return value.trim();
-    }
-    return value;
-  }
-
-  applyRoomSettingSideEffect(key, value) {
-    if (key !== 'startingCash') {
-      return;
-    }
-    this.game.players.forEach(player => {
-      player.cash = Number(value);
-    });
-  }
-
-  startGame() {
-    this.ensureBots();
-    const result = this.game.startGame();
-    if (result?.success) this.statsRecorded = false;
-    return result;
-  }
-
-  ensureBots() {
-    const required = Math.max(0, Math.min(this.settings.maxPlayers - 1, Number(this.settings.bots) || 0));
-    const existingBots = this.game.players.filter(player => player.isBot);
-    if (existingBots.length > required) {
-      existingBots.slice(required).forEach(bot => {
-        this.game.removePlayerByClient(bot.clientId);
-      });
-    }
-    const botCount = Math.min(existingBots.length, required);
-    const colors = ['#286ea1', '#35a653', '#d9a62f'];
-    for (let index = botCount; index < required; index += 1) {
-      const bot = new Player({
-        clientId: `bot-${this.roomCode}-${index + 1}`,
-       nickname: `BOT ${index + 1}`,
-       color: colors[index % colors.length],
-        isBot: true,
-        personality: this.settings.botPersonality
-      });
-      this.game.addPlayer(bot);
-    }
-  }
-
-  rollDice(socketId) {
-    return this.game.rollDice(socketId);
-  }
-
-  purchaseProperty(socketId, tileIndex) {
-    return this.game.purchaseProperty(socketId, tileIndex);
-  }
-
-  declineProperty(socketId, tileIndex) {
-    return this.game.declineProperty(socketId, tileIndex);
-  }
-
-  placeAuctionBid(socketId, amount) {
-    return this.game.placeAuctionBid(socketId, amount);
-  }
-
-  passAuction(socketId) {
-    return this.game.passAuction(socketId);
-  }
-
-  manageProperty(socketId, payload) {
-    return this.game.manageProperty(socketId, payload);
-  }
-
-  proposeTrade(socketId, payload) {
-    return this.game.proposeTrade(socketId, payload);
-  }
-
-  respondToTrade(socketId, payload) {
-    return this.game.respondToTrade(socketId, payload);
-  }
-
-  proposePlayerContract(socketId, payload) {
-    return this.game.proposePlayerContract(socketId, payload);
-  }
-
-  respondPlayerContract(socketId, accept, requestId) {
-    return this.game.respondPlayerContract(socketId, accept, requestId);
-  }
-
-  repayPlayerContract(socketId, payload) {
-    return this.game.repayPlayerContract(socketId, payload);
-  }
-
-  endTurn(socketId) {
-    return this.game.endTurn(socketId);
-  }
-
-  payJailFine(socketId) {
-    return this.game.payJailFine(socketId);
-  }
-
-  useJailFree(socketId) {
-    return this.game.useJailFree(socketId);
-  }
-
-  getBankLoanOffer(socketId) {
-    return this.game.getBankLoanOffer(this.game.getPlayerBySocket(socketId));
-  }
-
-  takeBankLoan(socketId, requestId) {
-    return this.game.takeBankLoan(socketId, requestId);
-  }
-
-  repayBankLoan(socketId, payload) {
-    return this.game.repayBankLoan(socketId, payload);
-  }
-
-  placeCasinoBet(socketId, color, stake, requestId) {
-    return this.game.placeCasinoBet(socketId, color, stake, requestId);
-  }
-
-  tradeMarket(socketId, instrumentId, side, quantity, requestId) {
-    return this.game.tradeMarket(socketId, instrumentId, side, quantity, requestId);
-  }
-
-  runBotAction(playerId, action) {
-    return this.game.runBotAction(playerId, action);
-  }
-
-  voteGlobalEvent(socketId, choiceId) {
-    return this.game.voteGlobalEvent(socketId, choiceId);
-  }
-
-  declareBankruptcy(socketId) {
-    return this.game.declareBankruptcy(socketId);
-  }
-
-  getRoomSummary() {
-    // Legacy clients may still send these fields; the server owns scaling now,
-    // so they never leave the server side of the wire.
-    const publicSettings = { ...this.settings };
-    delete publicSettings.globalEventDuration;
-    delete publicSettings.globalEventMax;
-    return {
-      // Public tables are discovered directly; only private tables expose an
-      // invite code in the client-facing room projection.
-      roomCode: this.visibility === 'private' ? this.roomCode : null,
-      roomName: this.roomName,
-      visibility: this.visibility,
-      capacity: this.settings.maxPlayers,
-      hostId: this.hostId,
-      settings: publicSettings,
-      players: this.game.players.map(player => ({
-        id: player.id,
-        clientId: player.clientId,
-        nickname: player.nickname,
-        color: player.color,
-        cash: player.cash,
-        position: player.position,
-        inJail: player.inJail,
-        jailTurns: player.jailTurns || 0,
-        bankrupt: player.bankrupt,
-        disconnected: player.disconnected,
-        isHost: player.isHost,
-        ready: player.ready,
-        isBot: player.isBot,
-        accountId: player.accountId || null,
-        avatarGrid: player.avatarGrid || null
-      })),
-      started: this.game.started,
-      vacationPool: this.game.vacationPool
-    };
-  }
-
-  getDirectorySummary() {
-    const active = this.game.players.filter(player => !player.disconnected && !player.bankrupt);
-    const started = this.game.started;
-    return {
-      code: this.roomCode,
-      name: this.roomName,
-      seats: active.length,
-      cap: this.settings.maxPlayers,
-      bank: `$${Number(this.settings.startingCash).toLocaleString()}`,
-      state: started ? 'live' : 'open',
-      visibility: this.visibility,
-      note: started ? 'round live' : 'waiting for players'
-    };
-  }
-}
-
-class RoomManager {
-  constructor() {
-    this.rooms = new Map();
-    this.socketRoom = new Map();
-  }
-
-  createRoom(hostInfo) {
-    const player = new Player({ ...hostInfo, isHost: true });
-    // Generated codes must never silently overwrite an existing room entry.
-    let roomCode = hostInfo.roomCode;
-    if (!roomCode) {
-      do {
-        roomCode = createRoomCode();
-      } while (this.rooms.has(roomCode));
-    }
-    const room = new Room(player, { roomName: hostInfo.roomName, visibility: hostInfo.visibility, roomCode });
-    player.color = resolveFreeAppearanceColor(room.game.players, player.color, player);
-    this.rooms.set(room.roomCode, room);
-    this.socketRoom.set(hostInfo.socketId, room);
-    return room;
-  }
-
-  getRoom(roomCode) {
-    if (!roomCode) return null;
-    return this.rooms.get(String(roomCode).toUpperCase()) || null;
-  }
-
-  getRoomBySocket(socketId) {
-    return this.socketRoom.get(socketId) || null;
-  }
-
-  restoreConnection(clientId, socketId) {
-    const room =
-      [...this.rooms.values()].find(roomItem => {
-        const player = roomItem.game.getPlayerByClient(clientId);
-        return player && !player.disconnected;
-      }) ||
-      [...this.rooms.values()].find(roomItem => roomItem.game.getPlayerByClient(clientId));
-    if (!room) return null;
-    const player = room.game.getPlayerByClient(clientId);
-    if (!player) return null;
-    player.socketId = socketId;
-    player.disconnected = false;
-    this.socketRoom.set(socketId, room);
-    return room;
-  }
-
-  disconnectPlayer(socketId) {
-    const room = this.getRoomBySocket(socketId);
-    if (!room) return null;
-    this.socketRoom.delete(socketId);
-    return room;
-  }
-
-  getRoomByClient(clientId) {
-    if (!clientId) return null;
-    return [...this.rooms.values()].find(roomItem => roomItem.game.getPlayerByClient(clientId)) || null;
-  }
-
-  listPublicRooms() {
-    return [...this.rooms.values()]
-      .filter(room => room.visibility === 'public' && room.hasConnectedHumans())
-      .map(room => room.getDirectorySummary());
-  }
-
-  leaveRoomByClient(clientId, socketId) {
-    const room = this.getRoomByClient(clientId);
-    if (!room) return null;
-    const player = room.game.getPlayerByClient(clientId);
-    if (!player) return null;
-    if (socketId) {
-      this.socketRoom.delete(socketId);
-    }
-    const playerId = player.id;
-    const game = room.game;
-    const wasCurrentTurn = game.started && game.currentPlayerId === playerId;
-    // A real leave releases the seat in the lobby AND mid-game, so the room
-    // can drain to empty and the GC can reclaim it.
-    game.removePlayerByClient(clientId);
-    if (game.started) {
-      if (Array.isArray(game.turnOrder)) {
-        game.turnOrder = game.turnOrder.filter(id => id !== playerId);
-      }
-      if (game.pendingPurchaseOffer?.playerId === playerId) game.pendingPurchaseOffer = null;
-      if (game.pendingPayment?.playerId === playerId) {
-        game.pendingPayment = null;
-        game.pendingPaymentTurnOptions = null;
-      }
-      if (game.pendingTrade && (game.pendingTrade.fromPlayerId === playerId || game.pendingTrade.toPlayerId === playerId)) {
-        game.pendingTrade = null;
-      }
-      if (game.pendingPlayerContract && (game.pendingPlayerContract.fromPlayerId === playerId || game.pendingPlayerContract.toPlayerId === playerId)) {
-        game.pendingPlayerContract = null;
-      }
-      if (game.auction?.active && game.auction.highestBidderId === playerId) game.auction.highestBidderId = null;
-      if (wasCurrentTurn) {
-        // nextTurn() treats an unknown current id as "before the first seat"
-        // and hands the dice to the next surviving player in turn order.
-        game.currentPlayerId = null;
-        game.nextTurn();
-      }
-    }
-    if (game.players.length === 0) {
-      this.rooms.delete(room.roomCode);
-    }
-    return room;
-  }
-}
-
-export { RoomManager, GameState, Room, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
+export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 
