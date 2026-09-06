@@ -92,6 +92,11 @@ import {
 } from "./clientLogDrawer.js";
 import { bindKeyboard } from "./clientKeyboard.js";
 import {
+  configureRailEvents,
+  onRailClick,
+  onRailSubmit,
+} from "./clientRailEvents.js";
+import {
   configureProfileRender,
   formatStatDate,
   renderProfileSummary,
@@ -3809,122 +3814,8 @@ function bindEvents() {
 
   // deeds tab: buy a vacant tile directly (kept for any future action buttons)
   // trade tab: open a trade with another player
-  $("#rr-body").addEventListener("click", (e) => {
-    const contractCancel = e.target.closest("[data-player-contract-cancel]");
-    if (contractCancel) {
-      emitServer("cancel-player-contract", { requestId: createRequestId("contract-cancel") }, (response) => {
-        if (response?.success === false) {
-          say(response.error || "The pending contract could not be canceled.");
-          renderChat();
-        } else {
-          renderRightRail();
-        }
-      });
-      return;
-    }
-    const contractAction = e.target.closest("[data-player-contract-action]");
-    if (contractAction) {
-      const accept = contractAction.dataset.playerContractAction === "accept";
-      emitServer("respond-player-contract", { accept, requestId: createRequestId("contract-response") }, (response) => {
-        if (response?.success === false) {
-          say(response.error || "The player contract could not be updated.");
-          renderChat();
-        } else {
-          state.playerContractOffer = null;
-          renderRightRail();
-        }
-      });
-      return;
-    }
-    const contractRepay = e.target.closest("[data-player-contract-repay]");
-    if (contractRepay) {
-      emitServer("repay-player-contract", { contractId: contractRepay.dataset.playerContractRepay, requestId: createRequestId("contract-repay") }, (response) => {
-        if (response?.success === false) {
-          say(response.error || "The player loan could not be repaid.");
-          renderChat();
-        } else {
-          renderRightRail();
-        }
-      });
-      return;
-    }
-    const marketButton = e.target.closest("[data-market-order]");
-    if (marketButton && !marketButton.disabled) {
-      const quantity = Math.max(1, Math.min(1000, Math.floor(Number($("#market-quantity")?.value) || 1)));
-      emitServer("market-order", { instrumentId: marketButton.dataset.marketId, side: marketButton.dataset.marketSide, quantity, requestId: createRequestId("market") }, (response) => {
-        if (response?.success === false) {
-          say(response.error || "Market order could not be completed.");
-          renderChat();
-          return;
-        }
-        if (response?.economy) {
-          state.economy = { ...state.economy, ...response.economy, market: { ...state.economy.market, ...(response.economy.market || {}) }, casino: { ...state.economy.casino, ...(response.economy.casino || {}) } };
-        }
-        renderRightRail();
-      });
-      return;
-    }
-    const bankAction = e.target.closest("[data-bank-action]");
-    if (bankAction) {
-      const eventName = bankAction.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
-      emitServer(eventName, { requestId: createRequestId(eventName) }, (response) => {
-        if (response?.success === false) {
-          say(response.error || "The bank transaction could not be completed.");
-          renderChat();
-        }
-      });
-      return;
-    }
-    const financeButton = e.target.closest("[data-finance-open], [data-finance-surface]");
-    if (financeButton) {
-      openFinancingModal(financeButton.dataset.financeOpen || "loan", null, financeButton, financeButton.dataset.financeSurface || "offer");
-      return;
-    }
-    const buyBtn = e.target.closest("[data-buy]");
-    if (buyBtn && !buyBtn.disabled) { buyTile(TILES[Number(buyBtn.dataset.buy)]); return; }
-    const tradeBtn = e.target.closest("[data-trade]");
-    if (tradeBtn && !tradeBtn.disabled) openTradeModal(tradeBtn.dataset.trade);
-  });
-  $("#rr-body").addEventListener("submit", (e) => {
-    const contractForm = e.target.closest("[data-player-contract-form]");
-    if (contractForm) {
-      e.preventDefault();
-      const payload = Object.fromEntries(new FormData(contractForm).entries());
-      payload.amount = Number(payload.amount) || 0;
-      payload.premiumRate = Number(payload.premiumRate) || 0;
-      payload.durationRounds = Number(payload.durationRounds) || 3;
-      payload.propertyIndex = payload.propertyIndex === "" ? null : Number(payload.propertyIndex);
-      payload.collateralTileIndex = payload.collateralTileIndex === "" ? null : Number(payload.collateralTileIndex);
-      payload.requestId = createRequestId("contract-proposal");
-      emitServer("propose-player-contract", payload, (response) => {
-        if (response?.success === false) {
-          say(response.error || "The player contract could not be sent.");
-          renderChat();
-        } else {
-          say("Contract sent for review.");
-          renderChat();
-          renderRightRail();
-        }
-      });
-      return;
-    }
-    const form = e.target.closest("[data-casino-form]");
-    if (!form) return;
-    e.preventDefault();
-    const color = form.querySelector("input[name=casino-color]:checked")?.value || "red";
-    const stake = Math.max(1, Math.floor(Number(form.querySelector("[name=stake]")?.value) || 0));
-    emitServer("place-casino-bet", { color, stake, requestId: createRequestId("casino") }, (response) => {
-      if (response?.success === false) {
-        say(response.error || "Casino bet could not be completed.");
-        renderChat();
-        return;
-      }
-      if (response?.economy) {
-        state.economy = { ...state.economy, ...response.economy, market: { ...state.economy.market, ...(response.economy.market || {}) }, casino: { ...state.economy.casino, ...(response.economy.casino || {}) } };
-      }
-      renderRightRail();
-    });
-  });
+  $("#rr-body").addEventListener("click", onRailClick);
+  $("#rr-body").addEventListener("submit", onRailSubmit);
 
   // popup
   $("#popup-scrim").addEventListener("click", closePopup);
@@ -3984,6 +3875,7 @@ function openCardPreviewFromUrl() {
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureAccountIdentity({ emitServer, say });
+configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal });
 configureProfileRender({ renderAchievements, loadSavedGame });
 configureNightShift({
   emitServer,
