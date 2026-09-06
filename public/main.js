@@ -125,16 +125,30 @@ import {
   openPlayerSurface,
   renderPlayerSurface,
 } from "./clientSocialSurfaces.js";
+import {
+  configureAccountIdentity,
+  renderAchievements,
+  openAchievementModal,
+  closeAchievementModal,
+  setAchievementFilter,
+  setAchievementDateFilter,
+  setAchievementRarityFilter,
+  unlockAchievement,
+  updateAccountFromResponse,
+  openAccountModal,
+  closeAccountModal,
+  logoutAccount,
+} from "./clientAccountIdentity.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
-function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
+function tone(freq, dur, vol = 0.035, when = 0) {
   if (!state.sound) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     const t0 = audioCtx.currentTime + when;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-    osc.type = type;
+    osc.type = "square";
     osc.frequency.value = freq;
     gain.gain.setValueAtTime(vol, t0);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
@@ -143,16 +157,19 @@ function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
     osc.stop(t0 + dur);
   } catch { /* audio blocked */ }
 }
+const SOUND_TRACKS = {
+  die: [{ freq: 220, dur: 0.05, vol: 0.03 }],
+  cash: [{ freq: 660, dur: 0.06, vol: 0.03 }, { freq: 880, dur: 0.07, vol: 0.03, when: 0.06 }],
+  house: [{ freq: 140, dur: 0.08, vol: 0.04 }],
+  auction: [{ freq: 520, dur: 0.12, vol: 0.03 }, { freq: 390, dur: 0.14, vol: 0.03, when: 0.12 }],
+  trade: [{ freq: 520, dur: 0.08, vol: 0.03 }, { freq: 780, dur: 0.1, vol: 0.03, when: 0.09 }],
+  step: [{ freq: 180, dur: 0.03, vol: 0.02 }],
+};
 function playSound(name) {
   if (!state.sound) return;
-  switch (name) {
-    case "die": tone(220, 0.05, "square", 0.03); break;
-    case "cash": tone(660, 0.06, "square", 0.03); tone(880, 0.07, "square", 0.03, 0.06); break;
-    case "house": tone(140, 0.08, "square", 0.04); break;
-    case "auction": tone(520, 0.12, "square", 0.03); tone(390, 0.14, "square", 0.03, 0.12); break;
-    case "trade": tone(520, 0.08, "square", 0.03); tone(780, 0.1, "square", 0.03, 0.09); break;
-    case "step": tone(180, 0.03, "square", 0.02); break;
-  }
+  const track = SOUND_TRACKS[name];
+  if (!track) return;
+  track.forEach((note) => tone(note.freq, note.dur, note.vol, note.when || 0));
 }
 
 
@@ -377,22 +394,34 @@ if (socket) {
   socket.on("disconnect", () => setConnectionStatus("reconnecting", true));
 }
 
+const CHAT_ERRORISH = /(?:error|could not|cannot|can't|unable|failed|insufficient|not found|not your turn|must |need \$)/i;
+function systemMessage(text) {
+  return { who: "", color: "", text, system: true };
+}
+function chatMessage(text, who) {
+  if (!who) return systemMessage(text);
+  return { who: who.name, color: who.textColor, text };
+}
+function isDuplicateSystem(message, previous) {
+  if (!message.system) return false;
+  if (!previous?.system) return false;
+  return previous.text === message.text;
+}
+function announceSystemLine(text) {
+  const announcer = $("#system-announcer");
+  if (announcer) announcer.textContent = String(text);
+  if (!CHAT_ERRORISH.test(String(text))) return;
+  const errorAnnouncer = $("#error-announcer");
+  if (errorAnnouncer) errorAnnouncer.textContent = String(text);
+}
 function say(text, who) {
-  const message = who
-    ? { who: who.name, color: who.textColor, text }
-    : { who: "", color: "", text, system: true };
+  const message = chatMessage(text, who);
   const previous = state.messages[state.messages.length - 1];
-  if (message.system && previous?.system && previous.text === message.text) return;
+  if (isDuplicateSystem(message, previous)) return;
   state.messages.push(message);
   if (state.messages.length > 80) state.messages.splice(0, state.messages.length - 80);
-  if (message.system) {
-    const announcer = $("#system-announcer");
-    if (announcer) announcer.textContent = String(text);
-    if (/(?:error|could not|cannot|can't|unable|failed|insufficient|not found|not your turn|must |need \$)/i.test(String(text))) {
-      const errorAnnouncer = $("#error-announcer");
-      if (errorAnnouncer) errorAnnouncer.textContent = String(text);
-    }
-  }
+  if (!message.system) return;
+  announceSystemLine(text);
 }
 
 function setConnectionStatus(status, announce = false) {
@@ -417,113 +446,9 @@ function setConnectionStatus(status, announce = false) {
    OPTIONAL ACCOUNT / PROFILE IDENTITY
    Guest play stays local; an account only adds durable identity and stats.
    ============================================================ */
-let accountModalMode = "register";
 
 function createRequestId(kind) {
   return String(state.clientId || "client") + ":" + String(kind || "action") + ":" + Date.now() + ":" + Math.random().toString(36).slice(2, 8);
-}
-
-function renderAchievements() {
-  const root = $("#achievements-grid");
-  if (!root) return;
-  const unlocked = state.unlockedAchievements || new Set();
-  const total = ACHIEVEMENTS.length;
-  root.setAttribute("aria-label", "Achievement collection, " + total + " items");
-  const unlockedCount = ACHIEVEMENTS.filter((achievement) => unlocked.has(achievement.id)).length;
-  $("#profile-achievement-count")?.replaceChildren(document.createTextNode(`${unlockedCount}/${total}`));
-  $("#achievements-progress-value")?.replaceChildren(document.createTextNode(`${unlockedCount}/${total}`));
-  document.querySelectorAll("#achievements-filters [data-achievement-filter]").forEach((button) => {
-    const active = button.dataset.achievementFilter === state.achievementFilter;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  const dateSelect = $("#achievement-date-filter");
-  const raritySelect = $("#achievement-rarity-filter");
-  if (dateSelect) dateSelect.value = state.achievementDateFilter;
-  if (raritySelect) raritySelect.value = state.achievementRarityFilter;
-  const filter = state.achievementFilter;
-  const now = Date.now();
-  const dateFilter = state.achievementDateFilter;
-  const rarityFilter = state.achievementRarityFilter;
-  let visible = ACHIEVEMENTS.filter((achievement) => filter === "all" || achievement.category === filter || (filter === "secret" && achievement.secret));
-  visible = visible.filter((achievement) => rarityFilter === "all" || achievement.rarity.toLowerCase() === rarityFilter);
-  if (dateFilter === "recent" || dateFilter === "month") {
-    const windowMs = dateFilter === "recent" ? 7 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-    visible = visible.filter((achievement) => {
-      const recorded = Date.parse(state.achievementRecords?.get(achievement.id) || "");
-      return Number.isFinite(recorded) && now - recorded <= windowMs;
-    });
-  } else if (dateFilter === "newest" || dateFilter === "oldest") {
-    visible = [...visible].sort((a, b) => {
-      const aDate = Date.parse(state.achievementRecords?.get(a.id) || "") || (dateFilter === "newest" ? 0 : Number.MAX_SAFE_INTEGER);
-      const bDate = Date.parse(state.achievementRecords?.get(b.id) || "") || (dateFilter === "newest" ? 0 : Number.MAX_SAFE_INTEGER);
-      return dateFilter === "newest" ? bDate - aDate : aDate - bDate;
-    });
-  }
-  root.innerHTML = visible.map((achievement) => {
-    const isUnlocked = unlocked.has(achievement.id);
-    const isSecretLocked = Boolean(achievement.secret && !isUnlocked);
-    const title = isSecretLocked ? "SECRET ACHIEVEMENT" : achievement.title;
-    const short = isSecretLocked ? "A hidden parlor record" : achievement.short;
-    const stateLabel = isUnlocked ? "UNLOCKED" : isSecretLocked ? "HIDDEN" : "LOCKED";
-    return `<button class="achievement-card rarity-${achievement.rarity.toLowerCase()}${isUnlocked ? " is-unlocked" : ""}${isSecretLocked ? " is-secret" : ""}" type="button" data-achievement-id="${esc(achievement.id)}" aria-haspopup="dialog" aria-label="${esc(`${title}, ${stateLabel}. Open details.`)}"><span class="achievement-icon-wrap">${achievementIconHTML(achievement.id)}</span><span class="achievement-card-main"><span class="achievement-card-top"><span class="t-micro achievement-category">${achievement.category.toUpperCase()}</span><span class="t-micro achievement-rarity rarity-${achievement.rarity.toLowerCase()}">${achievement.rarity}</span></span><strong class="t-label f13 achievement-title">${esc(title)}</strong><span class="t-micro ink-3 achievement-short">${esc(short)}</span></span></button>`;
-  }).join("");
-  if (!visible.length) root.innerHTML = `<p class="t-body ink-3 achievements-empty">NO ACHIEVEMENTS IN THIS FILTER.</p>`;
-}
-
-function openAchievementModal(id, trigger = null) {
-  const achievement = ACHIEVEMENTS.find((entry) => entry.id === id);
-  if (!achievement) return;
-  const unlocked = state.unlockedAchievements.has(achievement.id);
-  const hidden = Boolean(achievement.secret && !unlocked);
-  const title = hidden ? "SECRET ACHIEVEMENT" : achievement.title;
-  const copy = hidden ? achievement.clue : achievement.detail;
-  const status = unlocked ? "UNLOCKED" : hidden ? "HIDDEN" : "LOCKED";
-  const recordedAt = state.achievementRecords?.get(achievement.id);
-  const accent = achievement.category === "global" ? "#d74438" : achievement.category === "social" ? "#286ea1" : achievement.category === "minigame" ? "#35a653" : "#d9a62f";
-  const card = $("#achievement-detail-card");
-  if (!card) return;
-  card.innerHTML = `<div class="achievement-modal-rail" style="--achievement-accent:${accent}"></div><div class="achievement-detail-body"><div class="achievement-detail-head"><div class="achievement-detail-icon rarity-${achievement.rarity.toLowerCase()}${hidden ? " is-locked" : ""}">${achievementIconHTML(achievement.id)}</div><div><div class="achievement-detail-kicker"><span class="t-micro g400">${esc(achievement.category.toUpperCase())}</span><span class="t-micro rarity-${achievement.rarity.toLowerCase()}">${esc(achievement.rarity)}</span></div><h2 class="t-section achievement-detail-title" id="achievement-detail-title">${esc(title)}</h2></div><span class="achievement-detail-state t-micro">${status}</span></div><div class="achievement-detail-copy"><p class="t-body ink-2" id="achievement-detail-description">${esc(copy)}</p><p class="t-micro achievement-detail-note">${unlocked ? `RECORDED ${recordedAt ? `· ${formatStatDate(recordedAt)}` : "IN YOUR PARLOR LOG"}` : hidden ? "UNLOCK CONDITION HIDDEN" : "KEEP PLAYING TO UNLOCK"}</p></div><button class="cta-red achievement-detail-close" id="achievement-detail-close" type="button"><span class="cta-text cta-text-sm">CLOSE DETAILS</span></button></div>`;
-  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
-  openSurface("#achievement-modal", "#achievement-detail-close");
-  $("#achievement-detail-close")?.addEventListener("click", closeAchievementModal);
-}
-
-function closeAchievementModal() {
-  closeSurface("#achievement-modal");
-}
-
-function setAchievementFilter(filter = "all") {
-  const allowed = ["all", "visible", "global", "social", "secret", "minigame"];
-  state.achievementFilter = allowed.includes(filter) ? filter : "all";
-  renderAchievements();
-}
-
-function setAchievementDateFilter(filter = "all") {
-  state.achievementDateFilter = ["all", "recent", "month", "newest", "oldest"].includes(filter) ? filter : "all";
-  renderAchievements();
-}
-
-function setAchievementRarityFilter(filter = "all") {
-  const allowed = ["all", "common", "uncommon", "rare", "epic", "legendary", "mythical"];
-  state.achievementRarityFilter = allowed.includes(filter) ? filter : "all";
-  renderAchievements();
-}
-
-function unlockAchievement(id) {
-  if (!ACHIEVEMENTS.some((achievement) => achievement.id === id)) return false;
-  // Signed-in accounts accept unlocks only from the server evaluator. Guest
-  // sessions may keep their temporary local collection.
-  if (state.account?.account) return false;
-  if (state.unlockedAchievements.has(id)) return false;
-  state.unlockedAchievements.add(id);
-  state.achievementRecords.set(id, new Date().toISOString());
-  saveUnlockedAchievements();
-  renderAchievements();
-  const achievement = ACHIEVEMENTS.find((entry) => entry.id === id);
-  const announcer = $("#system-announcer");
-  if (announcer && achievement) announcer.textContent = `ACHIEVEMENT UNLOCKED: ${achievement.title}`;
-  return true;
 }
 
 function setHomeTab(tab = "play") {
@@ -575,198 +500,6 @@ function setProfileTab(tab = "designs", focus = false) {
   }
 }
 
-function updateAccountFromResponse(response) {
-  if (!response?.account) return;
-  const token = response.sessionToken || state.account?.sessionToken;
-  if (!token) return;
-  saveAccountSession({ sessionToken: token, account: response.account });
-  state.alias = response.account.displayName;
-  state.unlockedAchievements = new Set();
-  state.achievementRecords = new Map();
-  (response.account.achievements || []).forEach((entry) => {
-    if (!ACHIEVEMENTS.some((achievement) => achievement.id === entry.id)) return;
-    state.unlockedAchievements.add(entry.id);
-    state.achievementRecords.set(entry.id, entry.unlockedAt || null);
-  });
-  saveUnlockedAchievements();
-  renderAccountPanel();
-  renderAchievements();
-  applyProfileToHomeUI();
-}
-
-const ACCOUNT_USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
-
-function accountModalHTML(mode) {
-  const register = mode === "register";
-  const edit = mode === "edit";
-  const account = state.account?.account || null;
-  const title = edit ? "Edit Account" : register ? "Create account" : "Sign in";
-  const description = edit
-    ? "Update the account display name used at every table. Your saved designs keep their own names."
-    : register
-      ? "Choose a unique username friends can find, then save your player identity and stats across rooms."
-      : "Sign in to load your saved display name, face, color, and game record.";
-  return `
-    <div class="account-modal-body">
-      <div class="account-modal-head">
-        <div>
-          <div class="t-micro g400">POORUP IDENTITY</div>
-          <h2 class="t-section g100" id="account-modal-title">${title}</h2>
-        </div>
-        <button class="btn-dark" id="account-modal-close" type="button"><span class="t-label f11">CLOSE</span></button>
-      </div>
-      <p class="t-body ink-2" id="account-modal-description">${description}</p>
-      ${edit ? "" : `<div class="account-modal-tabs" role="tablist" aria-label="Account actions"><button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" role="tab" aria-selected="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" role="tab" aria-selected="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`}
-      <form class="account-form" id="account-form">
-        ${edit ? `<label class="account-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" value="${esc(account?.username || "")}" readonly aria-readonly="true" /></label>` : `<label class="account-field" id="account-username-field"><span class="t-label f12 g-muted">Username</span><input class="field" id="account-username-input" name="username" maxlength="16" minlength="3" pattern="[A-Za-z0-9_]{3,16}" autocomplete="username"${register ? ` aria-describedby="account-username-status"` : ""} required placeholder="night_player" />${register ? `<span class="account-username-status t-micro ink-3" id="account-username-status" role="status" aria-live="polite">3–16 letters, numbers, or underscores</span>` : ""}</label>`}
-       ${(register || edit) ? `<label class="account-field"><span class="t-label f12 g-muted">Display Name</span><input class="field" id="account-display-input" name="displayName" maxlength="18" autocomplete="nickname" required placeholder="Marlowe" value="${edit ? esc(account?.displayName || "") : ""}" /></label>` : ""}
-        ${edit ? `<div class="account-privacy-grid"><label class="account-field"><span class="t-label f12 g-muted">Match History</span><select class="setting-select" name="historyVisibility"><option value="public" ${account?.privacy?.history === "public" ? "selected" : ""}>PUBLIC</option><option value="friends" ${account?.privacy?.history !== "public" && account?.privacy?.history !== "private" ? "selected" : ""}>FRIENDS</option><option value="private" ${account?.privacy?.history === "private" ? "selected" : ""}>PRIVATE</option></select></label><label class="account-field"><span class="t-label f12 g-muted">Achievements</span><select class="setting-select" name="achievementsVisibility"><option value="friends" ${account?.privacy?.achievements !== "private" ? "selected" : ""}>FRIENDS</option><option value="private" ${account?.privacy?.achievements === "private" ? "selected" : ""}>PRIVATE</option></select></label><label class="account-field"><span class="t-label f12 g-muted">Friend Requests</span><select class="setting-select" name="friendRequestsVisibility"><option value="everyone" ${account?.privacy?.friendRequests !== "friends" && account?.privacy?.friendRequests !== "nobody" ? "selected" : ""}>EVERYONE</option><option value="friends" ${account?.privacy?.friendRequests === "friends" ? "selected" : ""}>FRIENDS OF FRIENDS</option><option value="nobody" ${account?.privacy?.friendRequests === "nobody" ? "selected" : ""}>NOBODY</option></select></label><label class="account-field"><span class="t-label f12 g-muted">Room Invites</span><select class="setting-select" name="roomInvitesVisibility"><option value="friends" ${account?.privacy?.roomInvites !== "nobody" ? "selected" : ""}>FRIENDS</option><option value="nobody" ${account?.privacy?.roomInvites === "nobody" ? "selected" : ""}>NOBODY</option></select></label></div>` : ""}
-        ${edit ? "" : `<label class="account-field"><span class="t-label f12 g-muted">Password</span><input class="field" id="account-password-input" name="password" type="password" minlength="8" maxlength="72" autocomplete="${register ? "new-password" : "current-password"}" required placeholder="8 characters minimum" /></label>`}
-        <p class="account-form-error" id="account-form-error" role="alert" aria-live="assertive"></p>
-        <button class="cta-red account-submit" type="submit"><span class="cta-text cta-text-sm">${edit ? "Save Account" : register ? "Create Account" : "Sign In"}</span></button>
-      </form>
-      <p class="t-micro ink-3 account-modal-foot">Guest play remains available without an account. Passwords are never shown in the game UI.</p>
-    </div>`;
-}
-
-function openAccountModal(mode = "register") {
-  accountModalMode = mode;
-  const card = $("#account-card");
-  if (!card) return;
-  card.innerHTML = accountModalHTML(mode);
-  openSurface("#account-modal", mode === "edit" ? "#account-display-input" : "#account-username-input");
-  $("#account-modal-close")?.addEventListener("click", closeAccountModal);
-  $("#account-tab-register")?.addEventListener("click", () => openAccountModal("register"));
-  $("#account-tab-login")?.addEventListener("click", () => openAccountModal("login"));
-  let usernameCheckTimer = null;
-  let usernameCheckVersion = 0;
-  let usernameAvailability = mode === "register" ? false : true;
-  let usernameCheckPending = false;
-  const usernameInput = $("#account-username-input");
-  const usernameStatus = $("#account-username-status");
-  const accountForm = $("#account-form");
-  const submit = accountForm?.querySelector("button[type=submit]");
-  const setUsernameStatus = (kind, message) => {
-    if (!usernameStatus) return;
-    usernameStatus.classList.remove("is-checking", "is-available", "is-taken", "is-invalid");
-    if (kind) usernameStatus.classList.add(`is-${kind}`);
-    usernameStatus.textContent = message;
-    usernameInput?.setAttribute("aria-invalid", String(kind === "taken" || kind === "invalid"));
-    usernameInput?.setAttribute("aria-busy", String(kind === "checking"));
-  };
-  const syncUsernameSubmit = () => {
-    if (submit && mode === "register") submit.disabled = usernameCheckPending || usernameAvailability === false;
-  };
-  const checkUsername = () => {
-    if (mode !== "register" || !usernameInput || !usernameStatus) return;
-    clearTimeout(usernameCheckTimer);
-    const value = usernameInput.value.trim();
-    const version = ++usernameCheckVersion;
-    if (!value) {
-      usernameAvailability = false;
-      usernameCheckPending = false;
-      setUsernameStatus("invalid", "[!] Enter a username to check.");
-      syncUsernameSubmit();
-      return;
-    }
-    if (!ACCOUNT_USERNAME_RE.test(value)) {
-      usernameAvailability = false;
-      usernameCheckPending = false;
-      setUsernameStatus("invalid", "[!] Use 3–16 letters, numbers, or underscores.");
-      syncUsernameSubmit();
-      return;
-    }
-    usernameAvailability = null;
-    usernameCheckPending = true;
-    setUsernameStatus("checking", "[·] Checking username availability…");
-    syncUsernameSubmit();
-    usernameCheckTimer = window.setTimeout(() => {
-      emitServer("check-username", { username: value }, (response) => {
-        if (version !== usernameCheckVersion || usernameInput.value.trim() !== value) return;
-        usernameCheckPending = false;
-        if (!response?.success) {
-          usernameAvailability = null;
-          setUsernameStatus("checking", "[·] Could not check now. The server will verify it on submit.");
-          syncUsernameSubmit();
-          return;
-        }
-        usernameAvailability = response.available === true;
-        setUsernameStatus(
-          response.available ? "available" : response.reason === "invalid" ? "invalid" : "taken",
-          response.available ? "[OK] Username is available." : `[X] ${response.message || "That username is already taken."}`,
-        );
-        syncUsernameSubmit();
-      });
-    }, 180);
-  };
-  usernameInput?.addEventListener("input", checkUsername);
-  checkUsername();
-  $("#account-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const payload = Object.fromEntries(new FormData(form).entries());
-    if (accountModalMode === "edit") {
-      payload.privacy = { history: payload.historyVisibility, achievements: payload.achievementsVisibility, friendRequests: payload.friendRequestsVisibility, roomInvites: payload.roomInvitesVisibility };
-      delete payload.historyVisibility;
-      delete payload.achievementsVisibility;
-      delete payload.friendRequestsVisibility;
-      delete payload.roomInvitesVisibility;
-    }
-    const error = $("#account-form-error");
-    if (error) error.textContent = "";
-    if (accountModalMode === "register" && usernameAvailability === false) {
-      if (error) error.textContent = "Choose an available username before creating your account.";
-      usernameInput?.focus({ preventScroll: true });
-      return;
-    }
-    if (accountModalMode === "register" && usernameCheckPending) {
-      if (error) error.textContent = "Wait for the username availability check to finish.";
-      return;
-    }
-    const eventName = accountModalMode === "register" ? "account-register" : accountModalMode === "edit" ? "account-update" : "account-login";
-    if (submit) submit.disabled = true;
-    emitServer(eventName, payload, (response) => {
-      if (!response?.success) {
-        if (error) error.textContent = response?.error || "Account action failed.";
-        if (accountModalMode === "register" && /already taken/i.test(String(response?.error || ""))) {
-          usernameAvailability = false;
-          setUsernameStatus("taken", "[X] That username is already taken.");
-        }
-        const announcer = $("#error-announcer");
-        if (announcer) announcer.textContent = response?.error || "Account action failed.";
-        if (submit) submit.disabled = accountModalMode === "register" && usernameAvailability === false;
-        return;
-      }
-      updateAccountFromResponse(response);
-      closeAccountModal();
-      say(accountModalMode === "register" ? "Account created. Your identity is saved." : accountModalMode === "edit" ? "Account name updated." : "Signed in. Your identity is ready.");
-    });
-  });
-  focusSurface("#account-modal", mode === "edit" ? "#account-display-input" : "#account-username-input");
-}
-
-function closeAccountModal() {
-  closeSurface("#account-modal");
-}
-
-function logoutAccount() {
-  const token = state.account?.sessionToken;
-  if (token) emitServer("account-logout", { sessionToken: token }, () => {});
-  saveAccountSession(null);
-  state.unlockedAchievements = new Set();
-  state.achievementRecords = new Map();
-  saveUnlockedAchievements();
-  state.tableAppearanceOverride = null;
-  state.appearance = loadActiveDesignId(state.profiles);
-  saveActiveDesignId(state.appearance);
-  state.alias = loadGuestAlias();
-  saveGuestAlias(state.alias);
-  state.players = buildPlayers(activeAppearance(), state.alias);
-  renderAccountPanel();
-  applyProfileToHomeUI();
-  renderProfileEditor();
-  say("Signed out. Guest mode is active.");
-}
 
 function record(text) {
   state.log.unshift(text);
@@ -3117,12 +2850,28 @@ function clearSave() {
 
 /** Shared restore-session ack (A4-F2): report real failures visibly, clear the
     room mute, and only return to the parlor view when the player is mid-room. */
+function reportRestoreFailure(response, explicit) {
+  if (!explicit && state.phase === "home") return;
+  parlorNotice("CONNECTION", response.error || "No active room session was found.");
+  setConnectionStatus("offline", true);
+}
+function applyRestoredVisibility(visibility) {
+  state.roomVisibility = visibility === "public" ? "public" : "private";
+}
+function applyRestoredSession(response, explicit) {
+  state.suppressRoomUpdates = false;
+  if (Object.prototype.hasOwnProperty.call(response, "roomCode")) state.roomCode = response.roomCode || state.roomCode;
+  if (response.visibility) applyRestoredVisibility(response.visibility);
+  // An explicit "Resume round" click always returns to the parlor — it is the
+  // documented escape from a stuck mute; a background reconnect only re-asserts
+  // the view when the player never left the room session.
+  if (explicit || state.phase !== "home") showView("game");
+  renderAll();
+}
+
 function handleRestoreSessionResponse(response, explicit = false) {
   if (response?.success === false) {
-    if (explicit || state.phase !== "home") {
-      parlorNotice("CONNECTION", response.error || "No active room session was found.");
-      setConnectionStatus("offline", true);
-    }
+    reportRestoreFailure(response, explicit);
     if (explicit) {
       clearSave();
       applyProfileToHomeUI();
@@ -3130,14 +2879,7 @@ function handleRestoreSessionResponse(response, explicit = false) {
     return;
   }
   if (!response?.success) return;
-  state.suppressRoomUpdates = false;
-  if (Object.prototype.hasOwnProperty.call(response, "roomCode")) state.roomCode = response.roomCode || state.roomCode;
-  if (response.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
-  // An explicit "Resume round" click always returns to the parlor — it is the
-  // documented escape from a stuck mute; a background reconnect only re-asserts
-  // the view when the player never left the room session.
-  if (explicit || state.phase !== "home") showView("game");
-  renderAll();
+  applyRestoredSession(response, explicit);
 }
 
 function resumeGame() {
@@ -4241,6 +3983,7 @@ function openCardPreviewFromUrl() {
    ============================================================ */
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
+configureAccountIdentity({ emitServer, say });
 configureProfileRender({ renderAchievements, loadSavedGame });
 configureNightShift({
   emitServer,
