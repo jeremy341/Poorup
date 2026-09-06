@@ -51,6 +51,25 @@ import {
   saveUnlockedAchievements,
 } from "./clientState.js";
 import { applyServerState, AUCTION_MS } from "./clientStateSync.js";
+import {
+  SKYLINE,
+  paintSkyline,
+  tileIconHTML,
+  buildBoard,
+  renderBoardState,
+  placePieces,
+  startPieceWalk,
+} from "./clientBoardRender.js";
+import {
+  renderHud,
+  startTurnCountdown,
+  configureTurnCountdown,
+} from "./clientHudRender.js";
+import {
+  CONNECTION_COPY,
+  renderConnectionStatus,
+  renderTopNav,
+} from "./clientTopNavRender.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -318,6 +337,8 @@ const serverSyncHost = {
   placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
 };
 
+configureTurnCountdown({ endTurn });
+
 if (socket) {
   socket.on("connect", () => {
     setConnectionStatus("online", true);
@@ -446,52 +467,6 @@ function say(text, who) {
       const errorAnnouncer = $("#error-announcer");
       if (errorAnnouncer) errorAnnouncer.textContent = String(text);
     }
-  }
-}
-
-const CONNECTION_COPY = {
-  connecting: "CONNECTING…",
-  online: "ONLINE",
-  reconnecting: "RECONNECTING…",
-  offline: "OFFLINE",
-};
-
-function renderConnectionStatus() {
-  const status = state.connectionStatus || "offline";
-  const copy = CONNECTION_COPY[status] || CONNECTION_COPY.offline;
-  const homeLabel = $("#home-connection-label");
-  if (homeLabel) homeLabel.textContent = copy;
-  document.querySelectorAll("[data-global-connection-label]").forEach((label) => {
-    label.textContent = copy;
-  });
-  const gameLabel = $("#tn-online");
-  if (gameLabel) gameLabel.textContent = status === "online"
-    ? `${state.players.filter((p) => p.online).length} ONLINE`
-    : copy;
-  document.querySelectorAll("[data-global-online] .dot, #view-home .online .dot, #home-status-note .dot").forEach((dot) => {
-    dot.classList.toggle("dot-green", status === "online");
-    dot.classList.toggle("dot-red", status !== "online");
-    dot.classList.toggle("blink", status === "online");
-  });
-  const note = $("#tn-connection-note");
-  if (note) {
-    note.dataset.connection = status;
-    const text = note.querySelector(".t-micro");
-    if (text) text.textContent = copy;
-    const dot = note.querySelector(".dot");
-    if (dot) {
-      dot.classList.toggle("dot-green", status === "online");
-      dot.classList.toggle("dot-red", status !== "online");
-      dot.classList.toggle("blink", status === "online");
-    }
-  }
-  const homeNote = $("#home-status-note");
-  if (homeNote) {
-    homeNote.dataset.connection = status;
-    const text = homeNote.querySelector(".t-micro");
-    if (text) text.textContent = status === "online"
-      ? "LIVE SERVER · CREATE OR JOIN A ROOM · NO ACCOUNT REQUIRED"
-      : `${copy} · ROOM ACTIONS WILL RETRY AUTOMATICALLY`;
   }
 }
 
@@ -1092,31 +1067,6 @@ function record(text) {
 /* ============================================================
    5. HOME SCREEN
    ============================================================ */
-const SKYLINE = [
-  [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
-  [33, 6, 7, 30], [41, 15, 5, 21], [47, 2, 8, 34], [56, 18, 5, 18], [62, 10, 6, 26],
-  [69, 22, 5, 14], [75, 15, 6, 21], [82, 25, 5, 11],
-];
-const BOARD_SKYLINE = [
-  [4, 22, 6, 12], [11, 16, 5, 18], [17, 25, 4, 9], [22, 12, 6, 22], [29, 20, 5, 14],
-  [35, 6, 7, 28], [43, 14, 5, 20], [49, 2, 8, 32], [58, 17, 5, 17], [64, 10, 6, 24],
-  [71, 21, 5, 13], [77, 15, 6, 19],
-];
-
-function paintSkyline(el, data) {
-  let out = "";
-  data.forEach(([x, y, w, h], i) => {
-    out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#123634"/>`;
-    for (let r = 0; r < Math.floor((h - 2) / 3); r++) {
-      for (let c = 0; c < Math.floor((w - 1) / 2); c++) {
-        const lit = (r + c + i) % 3 === 0;
-        out += `<rect x="${x + 1 + c * 2}" y="${y + 2 + r * 3}" width="1" height="1" fill="${lit ? "#78894f" : "#0d2725"}"/>`;
-      }
-    }
-  });
-  el.innerHTML = out;
-}
-
 const PATROL_BEST_KEY = "poorup.parlor-patrol.best.v1";
 let homeHelicopterTimer = null;
 let homeHelicopterFlightTimer = null;
@@ -2691,20 +2641,6 @@ async function copyRoomCode() {
   }
 }
 
-function renderTopNav() {
-  const code = state.roomCode || "----";
-  const isPublic = state.roomVisibility === "public";
-  $("#tn-room").textContent = isPublic ? "PUBLIC" : code;
-  $("#tn-room-copy")?.classList.toggle("is-public", isPublic);
-  if ($("#tn-room-copy")) $("#tn-room-copy").disabled = isPublic;
-  $("#tn-room-copy")?.setAttribute("aria-label", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
-  $("#tn-room-copy")?.setAttribute("title", isPublic ? "Public room" : code === "----" ? "Room code unavailable" : `Copy room code ${code}`);
-  $("#tn-lobby").textContent = isPublic ? "AFTER HOURS · PUBLIC" : `AFTER HOURS ${state.roomCode || "----"}`;
-  $("#tn-online").textContent = (state.connectionStatus === "online" ? `${state.players.filter((p) => p.online).length} ONLINE` : (CONNECTION_COPY[state.connectionStatus] || "OFFLINE"));
-  $("#tn-turnlabel").textContent = state.phase === "playing" ? state.players[state.turnIndex].name : state.phase === "lobby" ? "LOBBY" : "SETUP";
-  renderConnectionStatus();
-}
-
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
   const existingBots = seated.filter((p) => p.bot).length;
@@ -2751,430 +2687,6 @@ function renderChat() {
   $("#chat-input").disabled = !joined;
   $("#chat-send").disabled = !joined;
   $("#chat-input").placeholder = joined ? "Say something…" : "Join the room to chat…";
-}
-
-function tileIconHTML(tile) {
-  switch (tile.kind) {
-    case "corner-parking": return spriteHTML("car", 4);
-    case "corner-vacation": return spriteHTML("palm", 4);
-    case "chest": return `<img class="board-icon-mark board-icon-chest" src="/assets/board-icons/treasure-chest.svg" alt="Treasure">`;
-    case "railroad": return tile.name.includes("AIRPORT")
-      ? `<img class="airport-mark" src="/assets/airport-plane.svg" alt="Airport">`
-      : spriteHTML("train", 3);
-    case "utility": return tile.name === "ELECTRIC COMPANY" ? spriteHTML("bulb", 3) : spriteHTML("faucet", 3);
-    case "chance": return `<img class="board-icon-mark board-icon-surprise" src="/assets/board-icons/surprise.svg" alt="Surprise">`;
-    case "tax": return `<span class="q-mark g400" style="font-size:13px;color:#c88f2e">$</span>`;
-    default: return "";
-  }
-}
-
-function stripStyle(tile) {
-  if (!tile.group) return "";
-  const c = GROUP_COLOR[tile.group];
-  switch (tile.side) {
-    case "bottom": return `background:${c};top:0;left:0;right:0;height:22%;border-bottom:1px solid #01070a`;
-    case "top": return `background:${c};bottom:0;left:0;right:0;height:22%;border-top:1px solid #01070a`;
-    case "left": return `background:${c};top:0;bottom:0;right:0;width:22%;border-left:1px solid #01070a`;
-    case "right": return `background:${c};top:0;bottom:0;left:0;width:22%;border-right:1px solid #01070a`;
-  }
-  return "";
-}
-
-function buildBoard() {
-  const grid = $("#board-grid");
-  const center = $("#center-field");
-  grid.querySelectorAll(".tile").forEach((n) => n.remove());
-  paintSkyline($("#board-skyline"), BOARD_SKYLINE);
-
-  TILES.forEach((tile) => {
-    const el = document.createElement("button");
-    el.className = `tile side-${tile.side}${tile.group ? " has-strip" : ""}${tile.name.includes("AIRPORT") ? " airport-tile" : ""}`;
-    el.dataset.tile = String(tile.i);
-    el.style.gridColumn = String(tile.col);
-    el.style.gridRow = String(tile.row);
-
-    const words = tile.name.split(" ").map((w) => `<span style="display:block">${w}</span>`).join("");
-
-    if (tile.kind.startsWith("corner")) {
-      el.classList.add("is-corner");
-      if (tile.kind === "corner-go") {
-        el.innerHTML = `<span class="go-big">GO</span>
-          <span class="t-tile tile-name" style="color:#a79d7d">COLLECT</span>
-          <span class="t-tile tile-price" style="color:#cfa75f">$200</span>`;
-      } else if (tile.kind === "corner-jail") {
-        el.innerHTML = `<span class="passing-by-corner-layout">
-          <span class="t-tile tile-name passing-by-corner-label">PASSING BY</span>
-          <span class="passing-by-prison-zone" aria-hidden="true">
-            <img class="passing-by-bars-art" src="/assets/board-icons/passing-by-bars.svg" alt="">
-          </span>
-          <span class="passing-by-token-anchor passing-by-token-anchor-pass" data-tile-anchor="passing" aria-hidden="true"></span>
-          <span class="passing-by-token-anchor passing-by-token-anchor-prison" data-tile-anchor="prison" aria-hidden="true"></span>
-        </span>`;
-      } else if (tile.kind === "corner-go-jail") {
-        el.innerHTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
-            ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#d74438"/>`).join("")}
-            <rect x="0" y="4" width="16" height="1.2" fill="#d74438"/></svg>
-          <span class="t-tile tile-name" style="color:#d74438">PRISON</span>`;
-      } else {
-        el.innerHTML = `<span class="t-tile tile-name">${words}</span>${tileIconHTML(tile)}`;
-      }
-    } else {
-      const verticalChest = (tile.side === "left" || tile.side === "right") && tile.kind === "chest";
-      const iconOnly = tile.kind === "chance";
-      const tileFace = iconOnly
-        ? `<span class="tile-face tile-face-special"><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`
-        : verticalChest
-          ? `<span class="tile-face tile-face-special"><span class="t-tile tile-name">${words}</span><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`
-        : tile.kind === "tax"
-          ? `<span class="tile-face"><span class="t-tile tile-name">${words}</span></span>`
-        : `<span class="tile-face"><span class="t-tile tile-name">${words}</span><span class="tile-icon">${tileIconHTML(tile)}</span>${tile.price != null
-          ? `<span class="t-tile tile-price">${tile.kind === "tax" ? `PAY $${tile.price}` : `$${tile.price}`}</span>`
-          : ""}</span>`;
-      el.innerHTML =
-        (tile.group ? `<span class="tile-strip" style="${stripStyle(tile)}"></span>` : "") +
-        `<span class="tile-owner" style="display:none"></span>` + tileFace;
-    }
-
-    el.insertAdjacentHTML("beforeend", `<span class="tile-build side-${tile.side}"></span>`);
-    el.addEventListener("click", () => onTileClick(tile));
-    grid.insertBefore(el, center);
-  });
-}
-
-function renderBoardState() {
-  TILES.forEach((tile) => {
-    const el = document.querySelector(`.tile[data-tile="${tile.i}"]`);
-    if (!el) return;
-    el.classList.toggle("is-highlight", state.highlight === tile.i);
-    el.classList.toggle("is-mortgaged", !!state.mortgaged[tile.i]);
-
-    const ownerId = state.owners[tile.i];
-    const pip = el.querySelector(".tile-owner");
-    if (pip) {
-      const owner = state.players.find((p) => p.id === ownerId);
-      pip.style.display = owner ? "block" : "none";
-      if (owner) pip.style.background = owner.color;
-    }
-
-    const buildEl = el.querySelector(".tile-build");
-    if (buildEl) {
-      const lvl = state.houses[tile.i] || 0;
-      if (tile.kind === "property" && lvl > 0) {
-        buildEl.innerHTML = lvl === HOTEL_LEVEL
-          ? spriteHTML("hotel", 1, "#cfa75f")
-          : Array.from({ length: Math.min(lvl, MAX_HOUSES) }).map(() => spriteHTML("house", 1, "#4b853d")).join("");
-      } else {
-        buildEl.innerHTML = "";
-      }
-    }
-  });
-}
-
-const STACK_OFF = [
-  { x: 0, y: 0 },
-  { x: 11, y: -8 },
-  { x: -11, y: 8 },
-  { x: 11, y: 8 },
-];
-
-function tileCenter(i, zone = "passing") {
-  const tile = document.querySelector(`.tile[data-tile="${i}"]`);
-  const layer = $("#token-layer");
-  if (!tile || !layer) return null;
-  const anchor = tile.querySelector(`[data-tile-anchor="${zone}"]`);
-  const tr = (anchor || tile).getBoundingClientRect();
-  const lr = layer.getBoundingClientRect();
-  if (!tr.width || !lr.width) return null;
-  return {
-    x: tr.left - lr.left + tr.width / 2,
-    y: tr.top - lr.top + tr.height / 2,
-  };
-}
-
-function playerTileCenter(player, i = player?.pos) {
-  const zone = Number(i) === JAIL_TILE_INDEX && state.jail?.[player?.id] ? "prison" : "passing";
-  return tileCenter(i, zone);
-}
-
-const pieceWalks = new Map();
-const PIECE_WALK_STEP_MS = 130;
-
-function cancelPieceWalk(playerId) {
-  const walk = pieceWalks.get(playerId);
-  if (!walk) return;
-  walk.cancelled = true;
-  clearTimeout(walk.timer);
-  pieceWalks.delete(playerId);
-  const el = $("#token-layer")?.querySelector(`.piece[data-player="${playerId}"]`);
-  el?.classList.remove("is-moving", "is-hopping");
-}
-
-function pieceWalkPath(from, to) {
-  const distance = (to - from + TILE_COUNT) % TILE_COUNT;
-  if (!distance || distance > 12) return [];
-  return Array.from({ length: distance }, (_, index) => (from + index + 1) % TILE_COUNT);
-}
-
-function startPieceWalk(playerId, from, to) {
-  const path = pieceWalkPath(Number(from) || 0, Number(to) || 0);
-  const layer = $("#token-layer");
-  const el = layer?.querySelector(`.piece[data-player="${playerId}"]`);
-  if (!el || !path.length || REDUCED_MOTION) return;
-  cancelPieceWalk(playerId);
-  const player = state.players.find((entry) => entry.id === playerId);
-  const start = playerTileCenter(player, Number(from) || 0);
-  if (!start) return;
-  const walk = { cancelled: false, index: 0, timer: null };
-  pieceWalks.set(playerId, walk);
-  el.classList.add("is-moving");
-  el.style.setProperty("--piece-x", `${Math.round(start.x)}px`);
-  el.style.setProperty("--piece-y", `${Math.round(start.y)}px`);
-
-  const advance = () => {
-    if (walk.cancelled || pieceWalks.get(playerId) !== walk) return;
-    const next = path[walk.index++];
-    // A walk across the combined Passing By corner always uses the open lane.
-    const center = tileCenter(next, "passing");
-    if (!center) {
-      cancelPieceWalk(playerId);
-      placePieces();
-      return;
-    }
-    el.style.setProperty("--piece-x", `${Math.round(center.x)}px`);
-    el.style.setProperty("--piece-y", `${Math.round(center.y)}px`);
-    el.classList.remove("is-hopping");
-    void el.offsetWidth;
-    el.classList.add("is-hopping");
-    if (walk.index >= path.length) {
-      walk.timer = setTimeout(() => {
-        if (pieceWalks.get(playerId) !== walk) return;
-        pieceWalks.delete(playerId);
-        el.classList.remove("is-moving", "is-hopping");
-        placePieces();
-      }, PIECE_WALK_STEP_MS);
-      return;
-    }
-    walk.timer = setTimeout(advance, PIECE_WALK_STEP_MS);
-  };
-  walk.timer = setTimeout(advance, 16);
-}
-
-function ensurePieces() {
-  const layer = $("#token-layer");
-  if (!layer) return;
-  state.players.forEach((p, i) => {
-    let el = layer.querySelector(`.piece[data-player="${p.id}"]`);
-    if (!el) {
-      el = document.createElement("div");
-      el.className = "piece";
-      el.dataset.player = p.id;
-      layer.appendChild(el);
-    }
-    el.style.borderColor = p.color;
-    el.title = p.name;
-    const sig = `${p.id}:${p.color}:${i}:${p.avatarGrid ? JSON.stringify(p.avatarGrid) : ""}`;
-    if (el.dataset.sig !== sig) {
-      el.innerHTML = avatarHTML(p, 3, i);
-      el.dataset.sig = sig;
-    }
-  });
-  layer.querySelectorAll(".piece").forEach((el) => {
-    if (!state.players.some((p) => p.id === el.dataset.player)) el.remove();
-  });
-}
-
-function placePieces(opts = {}) {
-  const movingId = opts.movingId || null;
-  const hop = !!opts.hop;
-  ensurePieces();
-  const layer = $("#token-layer");
-  if (!layer) return;
-
-  pieceWalks.forEach((_, playerId) => {
-    if (!state.players.some((player) => player.id === playerId)) cancelPieceWalk(playerId);
-  });
-
-  const occupants = {};
-  state.players.forEach((p) => {
-    (occupants[p.pos] ||= []).push(p.id);
-  });
-
-  state.players.forEach((p) => {
-    const el = layer.querySelector(`.piece[data-player="${p.id}"]`);
-    if (!el) return;
-    const c = playerTileCenter(p);
-    if (!c) return;
-    const stack = occupants[p.pos] || [p.id];
-    const idx = Math.max(0, stack.indexOf(p.id));
-    const off = stack.length === 1 ? { x: 0, y: 0 } : STACK_OFF[idx] || { x: 0, y: 0 };
-    const active = state.phase === "playing" && state.players[state.turnIndex]?.id === p.id;
-    el.classList.toggle("is-active", active);
-    if (pieceWalks.has(p.id)) {
-      el.classList.add("is-moving");
-      return;
-    }
-    el.classList.toggle("is-moving", movingId === p.id);
-    if (hop && movingId === p.id) {
-      el.classList.remove("is-hopping");
-      void el.offsetWidth;
-      el.classList.add("is-hopping");
-    }
-    el.style.setProperty("--piece-x", `${Math.round(c.x + off.x)}px`);
-    el.style.setProperty("--piece-y", `${Math.round(c.y + off.y)}px`);
-  });
-}
-
-const DIE_PIPS = {
-  1: [[1, 1]],
-  2: [[0, 0], [2, 2]],
-  3: [[0, 0], [1, 1], [2, 2]],
-  4: [[0, 0], [2, 0], [0, 2], [2, 2]],
-  5: [[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]],
-  6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
-};
-
-function dieHTML(value, rolling) {
-  const pips = DIE_PIPS[value] || DIE_PIPS[1];
-  let cells = "";
-  for (let i = 0; i < 9; i++) {
-    const cx = i % 3;
-    const cy = Math.floor(i / 3);
-    cells += `<span class="${pips.some(([x, y]) => x === cx && y === cy) ? "on" : ""}"></span>`;
-  }
-  return `<div class="die${rolling ? " dice-rolling" : ""}">${cells}</div>`;
-}
-
-
-function renderHud() {
-  const waiting = state.phase !== "playing";
-  const isLobby = state.phase === "lobby";
-  const cur = state.players[state.turnIndex];
-
-  if (isLobby) {
-    $("#hud-turn-label").textContent = "In Lobby";
-    const nameEl = $("#hud-name");
-    nameEl.textContent = "Configure";
-    nameEl.style.color = "#cfa75f";
-    $("#hud-note").style.display = "block";
-    $("#hud-note").textContent = "Set rules on the right, then press Start Round.";
-    $("#hud-loan-status")?.classList.add("is-hidden");
-    $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
-    $("#hud-pool").textContent = "$0";
-    $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
-    $("#roll-btn").disabled = true;
-    $("#roll-label").textContent = "Set Rules First";
-    return;
-  }
-
-  const awaitingEnd = state.turnStage === "end";
-  $("#hud-turn-label").textContent = waiting ? "Waiting For Game" : awaitingEnd ? "Resolve & End" : "Current Turn";
-  const nameEl = $("#hud-name");
-  nameEl.textContent = waiting ? "Stand By" : cur.name;
-  nameEl.style.color = waiting ? "#cfa75f" : cur.textColor;
-  $("#hud-note").style.display = waiting || (awaitingEnd && state.turnIndex === 0) ? "block" : "none";
-  $("#hud-note").textContent = awaitingEnd
-    ? "Buy, build or trade now, then end your turn."
-    : "Join a room to get started.";
-  const loanStatus = $("#hud-loan-status");
-  const currentLoan = cur?.bankLoan;
-  if (loanStatus) {
-    const showLoan = !waiting && currentLoan && ["active", "due"].includes(currentLoan.status);
-    loanStatus.classList.toggle("is-hidden", !showLoan);
-    if (showLoan) loanStatus.textContent = `BANK DEBT · $${Number(currentLoan.remaining || 0).toLocaleString()} · DUE R${currentLoan.dueRound || "—"}`;
-  }
-
-  $("#hud-cash").textContent = `$${waiting ? "0" : cur.cash.toLocaleString()}`;
-  $("#hud-pool").textContent = `$${waiting ? 0 : state.pool}`;
-
-  $("#hud-dice").innerHTML = waiting
-    ? `<div class="die-blank">—</div><div class="die-blank">—</div>`
-    : dieHTML(state.dice[0], state.rolling) + dieHTML(state.dice[1], state.rolling);
-
-  const locked = (state.pendingBuyTile != null && state.settings.auction) || !!state.auction;
-  const humanTurn = state.turnIndex === 0 && state.phase === "playing";
-  const canRoll = !state.busy && !locked && humanTurn && state.turnStage === "roll";
-  const canEnd = !state.busy && !locked && humanTurn && state.turnStage === "end";
-  const btn = $("#roll-btn");
-  btn.disabled = !(canRoll || canEnd);
-  $("#roll-label").textContent = waiting
-    ? "Join First"
-    : state.rolling
-      ? "Rolling…"
-      : canEnd
-        ? "End Turn"
-        : canRoll
-          ? "Roll Dice"
-          : "Waiting…";
-
-  // turn-stage pill + countdown
-  const stageEl = $("#hud-stage");
-  const timerEl = $("#hud-timer");
-  const inJail = (state.jail[cur?.id] || 0) > 0;
-  let stageLabel = "ROLL";
-  let stageCls = "";
-  if (state.rolling) { stageLabel = "ROLLING"; stageCls = "st-resolve"; }
-  else if (state.turnStage === "end") { stageLabel = "END TURN"; stageCls = "st-end"; }
-  else if (inJail && humanTurn) { stageLabel = "IN JAIL"; stageCls = "st-resolve"; }
-  if (stageEl) {
-    const hidden = waiting || isLobby;
-    stageEl.classList.toggle("is-hidden", hidden);
-    stageEl.textContent = stageLabel;
-    stageEl.classList.remove("st-end", "st-resolve");
-    if (stageCls) stageEl.classList.add(stageCls);
-  }
-  if (timerEl) {
-    const useTimer = !waiting && !isLobby && humanTurn && state.settings.turnTimer > 0 && state.turnStage === "roll";
-    timerEl.classList.toggle("is-hidden", !useTimer);
-    if (useTimer) updateTurnTimerState();
-  }
-  const jailBtn = $("#pay-jail-fine");
-  if (jailBtn) {
-    const canPayJail = !waiting && !isLobby && humanTurn && inJail && state.turnStage === "roll" && cur.cash >= 50;
-    jailBtn.classList.toggle("is-hidden", !canPayJail);
-    jailBtn.disabled = state.busy;
-  }
-  const jailCardBtn = $("#use-jail-free");
-  if (jailCardBtn) {
-    const canUseJailCard = !waiting && !isLobby && humanTurn && inJail && state.turnStage === "roll" && (cur.jailFree || 0) > 0;
-    jailCardBtn.classList.toggle("is-hidden", !canUseJailCard);
-    jailCardBtn.disabled = state.busy;
-  }
-}
-
-// ---- per-turn countdown -------------------------------------------
-let turnDeadline = 0;
-let turnTimerInterval = null;
-let turnTimerLeft = 0;
-
-function startTurnCountdown() {
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-  if (state.settings.turnTimer <= 0 || state.turnIndex !== 0) return;
-  turnDeadline = Date.now() + state.settings.turnTimer * 1000;
-  turnTimerInterval = setInterval(() => {
-    turnTimerLeft = Math.max(0, turnDeadline - Date.now());
-    updateTurnTimerState();
-    if (turnTimerLeft <= 0) {
-      clearInterval(turnTimerInterval);
-      turnTimerInterval = null;
-      // auto-end the human's turn when time runs out
-      if (state.phase === "playing" && state.turnIndex === 0 && state.turnStage === "end") {
-        if (state.pendingBuyTile == null && !state.auction) endTurn(0);
-      }
-    }
-  }, 120);
-}
-
-function updateTurnTimerState() {
-  const timerEl = $("#hud-timer");
-  if (!timerEl) return;
-  const left = Math.max(0, (turnDeadline - Date.now()) / 1000);
-  const shown = state.settings.turnTimer > 0 && state.turnIndex === 0 && state.turnStage === "roll";
-  timerEl.classList.toggle("is-hidden", !shown);
-  if (shown) {
-    timerEl.textContent = `${left.toFixed(1)}s`;
-    timerEl.classList.toggle("is-low", left <= 5);
-  }
 }
 
 /** Owns every deed in the same color group as `tile` (including this one). */
@@ -6755,7 +6267,7 @@ function openCardPreviewFromUrl() {
    10. INIT
    ============================================================ */
 renderHome();
-buildBoard();
+buildBoard(onTileClick);
 hydrateSprites();
 bindEvents();
 renderAll();
