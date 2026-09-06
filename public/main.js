@@ -144,6 +144,15 @@ import {
   closeAccountModal,
   logoutAccount,
 } from "./clientAccountIdentity.js";
+import {
+  configurePopup,
+  closePopup,
+  onTileClick,
+  popRow,
+  accentOf,
+  popIconHTML,
+  kindLabel,
+} from "./clientPopupUi.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, vol = 0.035, when = 0) {
@@ -1852,171 +1861,6 @@ function deleteCurrentProfile() {
   } else {
     renderHome();
   }
-}
-
-
-/* ============================================================
-   7. TILE POPUP
-   ============================================================ */
-function kindLabel(tile) {
-  const map = {
-    property: "PROPERTY DEED", railroad: "RAILROAD DEED", utility: "UTILITY DEED",
-    chance: "CHANCE TILE", chest: "CHEST TILE", tax: "TAX TILE",
-  };
-  return map[tile.kind] || "CORNER TILE";
-}
-
-function accentOf(tile) {
-  if (tile.group) return GROUP_COLOR[tile.group];
-  const map = {
-    chance: "#d74438", chest: "#cfa75f", utility: "#3e7d7b",
-    railroad: "#9b783d", "corner-vacation": "#78894f", "corner-go": "#d74438", "corner-go-jail": "#d74438",
-  };
-  return map[tile.kind] || "#5c5033";
-}
-
-function effectText(tile) {
-  switch (tile.kind) {
-    case "property": return "If this deed is unowned, you may buy it from the bank. If another player owns it, you pay the listed rent.";
-    case "railroad": return "Transit deed. In this parlor ruleset, landing here charges the listed rent when owned by another player.";
-    case "utility": return "Utility deed. If unowned, it can be purchased. If owned by another player, landing here charges the listed rent.";
-    case "chance": return "Draw a Chance card and resolve it immediately.";
-    case "chest": return "Draw a Chest card and resolve it immediately.";
-    case "tax": return `Pay $${tile.price ?? 200} into the vacation pool.`;
-    case "corner-go": return "Collect $200 when you pass or land on GO.";
-    case "corner-jail": return "Just visiting. No penalty is applied on this square.";
-    case "corner-go-jail": return "Move directly to Prison. Do not pass Start or collect $200.";
-    case "corner-parking": return "Collect the full vacation pool jackpot if any cash has built up there.";
-    case "corner-vacation": return "Vacation is a resting space. Collect the vacation pool when enabled.";
-    default: return "Board effect unavailable.";
-  }
-}
-
-function popIconHTML(tile) {
-  switch (tile.kind) {
-    case "railroad": return tile.name.includes("AIRPORT")
-      ? `<img class="airport-mark airport-mark-popup" src="/assets/airport-plane.svg" alt="Airport">`
-      : spriteHTML("train", 4);
-    case "utility": return tile.name === "ELECTRIC COMPANY" ? spriteHTML("bulb", 4) : spriteHTML("faucet", 4);
-    case "chance": return `<img class="board-icon-mark board-icon-popup board-icon-surprise" src="/assets/board-icons/surprise.svg" alt="Surprise">`;
-    case "chest": return `<img class="board-icon-mark board-icon-popup board-icon-chest" src="/assets/board-icons/treasure-chest.svg" alt="Treasure">`;
-    case "tax": return "";
-    case "corner-go": return `<span class="go-big" style="font-size:28px">GO</span>`;
-    case "corner-go-jail": return `<span class="q-mark" style="font-size:22px;color:#d74438">PRISON</span>`;
-    case "corner-parking": return spriteHTML("car", 5);
-    case "corner-vacation": return spriteHTML("palm", 5);
-    default: return spriteHTML("diamond", 5);
-  }
-}
-
-const popRow = (label, value, cls = "ink") =>
-  `<div class="pop-row"><span class="t-label f12 g-muted">${label}</span><span class="t-label f12 v ${cls}">${value}</span></div>`;
-
-function rentScheduleHTML(tile) {
-  const table = RENT_TABLE[tile.group || tile.kind];
-  if (!table) return "";
-  if (tile.kind === "property") {
-    const rows = [
-      ["BASE", `$${table.rents[0]}`],
-      ["1 HOUSE", `$${table.rents[1]}`],
-      ["2 HOUSES", `$${table.rents[2]}`],
-      ["3 HOUSES", `$${table.rents[3]}`],
-      ["4 HOUSES", `$${table.rents[4]}`],
-      ["HOTEL", `$${table.rents[5]}`],
-    ];
-    return `<div class="rent-grid">${rows.map(([k, v]) => `<div class="rent-grid-row"><span class="t-label f11 g-muted">${k}</span><span class="t-label f11 green">${v}</span></div>`).join("")}</div>`;
-  }
-  if (tile.kind === "railroad") {
-    return `<div class="rent-grid">${[1, 2, 3, 4].map((n) => `<div class="rent-grid-row"><span class="t-label f11 g-muted">${n} RAIL${n === 1 ? "" : "S"}</span><span class="t-label f11 green">$${table.rents[n - 1]}</span></div>`).join("")}</div>`;
-  }
-  if (tile.kind === "utility") {
-    return `<div class="rent-grid">${[1, 2].map((n) => `<div class="rent-grid-row"><span class="t-label f11 g-muted">${n} UTIL${n === 1 ? "" : "S"}</span><span class="t-label f11 green">$${table.rents[n - 1]}</span></div>`).join("")}<p class="t-micro ink-3">* Multiplied by dice roll in classic rules</p></div>`;
-  }
-  return "";
-}
-
-function openPopup(tile) {
-  state.selectedTile = tile;
-  const ownerId = state.owners[tile.i];
-  const owner = state.players.find((p) => p.id === ownerId);
-  const buyable = ["property", "railroad", "utility"].includes(tile.kind);
-  const unowned = buyable && !owner;
-  const rent = tile.rent != null ? `$${tile.rent}` : tile.kind === "tax" ? `PAY $${tile.price ?? 200}` : "—";
-  const price = tile.price != null && tile.kind !== "tax" ? `$${tile.price}` : "—";
-  const ownerLabel = owner ? owner.name : buyable ? "UNOWNED" : "BANK";
-  const level = state.houses[tile.i] || 0;
-  const buildTag = buyable && level > 0 ? ` <span class="t-label f11 g300">${level === HOTEL_LEVEL ? "— HOTEL" : `— ${level} HOUSE${level === 1 ? "" : "S"}`}</span>` : "";
-
-  const me = state.players[0];
-  // when auction rules are on, buying only happens through the forced
-  // buy/auction prompt shown when you land — not from the info popup.
-  const showBuy = unowned && !state.settings.auction;
-  const canBuyNow = showBuy && state.phase === "playing" && state.turnIndex === 0 && !state.busy && me.cash >= (tile.price ?? 0);
-  const buyLabel =
-    state.phase !== "playing" ? "JOIN TO BUY" : state.turnIndex !== 0 ? "NOT YOUR TURN" : me.cash < (tile.price ?? 0) ? "INSUFFICIENT FUNDS" : "BUY DEED";
-
-  $("#popup-card").innerHTML = `
-    <div class="pop-rail" style="background:${accentOf(tile)}"></div>
-    <div class="pop-body">
-      <div class="pop-head">
-        <div class="pop-icon">${popIconHTML(tile)}</div>
-        <div class="pop-headtext">
-          <div class="t-micro g400">${kindLabel(tile)}</div>
-          <h3 class="t-section pop-title" id="popup-card-title">${tile.name}${buildTag}</h3>
-        </div>
-        <button class="btn-dark pop-close" id="pop-close"><span class="t-label f11">CLOSE</span></button>
-      </div>
-      <div class="pop-rows">
-        ${popRow("PURCHASE", price, "g300")}
-        ${popRow("BASE RENT", rent, "green")}
-        ${popRow("OWNER", ownerLabel, owner ? "ink" : "g-muted")}
-        ${tile.group ? popRow("COLOR SET", tile.group.toUpperCase()) : ""}
-        ${tile.group ? popRow("HOUSE COST", `$${RENT_TABLE[tile.group].housePrice}`, "g300") : ""}
-      </div>
-      ${
-        buyable
-          ? `<div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">RENT SCHEDULE</span></div>${rentScheduleHTML(tile)}`
-          : ""
-      }
-      <div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">SPECIAL EFFECT</span></div>
-      <div class="pop-effect"><p class="t-body ink-2">${effectText(tile)}</p></div>
-      ${
-        showBuy
-          ? `<div class="pop-buy-row">
-              <button class="cta-red pop-buy" id="pop-buy" ${canBuyNow ? "" : "disabled"}>
-                <span class="cta-text cta-text-sm">${buyLabel}</span>
-              </button>
-            </div>`
-          : unowned && state.settings.auction
-            ? `<div class="pop-buy-row"><p class="t-micro ink-3" style="text-align:center">AUCTION RULES ON — BUY WHEN YOU LAND HERE</p></div>`
-            : ""
-      }
-      <div class="pop-foot">
-        <span class="t-micro ink-3">PRESS ESC OR CLICK OUTSIDE TO CLOSE</span>
-        ${owner ? `<span class="t-label f12" style="color:${owner.color}">OWNED BY ${esc(owner.name)}</span>` : ""}
-      </div>
-    </div>`;
-
-  openSurface("#popup", "#pop-close");
-  $("#pop-close").addEventListener("click", closePopup);
-  const buyBtn = $("#pop-buy");
-  if (buyBtn) buyBtn.addEventListener("click", () => { buyTile(tile); openPopup(tile); });
-}
-
-function closePopup() {
-  state.selectedTile = null;
-  state.highlight = null;
-  closeSurface("#popup");
-  renderBoardState();
-}
-
-function onTileClick(tile) {
-  state.highlight = tile.i;
-  const owner = state.players.find((p) => p.id === state.owners[tile.i]);
-  record(`INSPECTED ${tile.name}${tile.price ? ` — $${tile.price}` : ""}${owner ? ` — OWNED BY ${owner.name}` : ""}`);
-  openPopup(tile);
-  renderBoardState();
-  if (state.tab === "log") renderRightRail();
 }
 
 /* ============================================================
@@ -3876,6 +3720,7 @@ configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureAccountIdentity({ emitServer, say });
 configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal });
+configurePopup({ buyTile, record });
 configureProfileRender({ renderAchievements, loadSavedGame });
 configureNightShift({
   emitServer,
