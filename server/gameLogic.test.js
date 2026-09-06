@@ -207,7 +207,7 @@ async function testLeaveRoomByClientMidGame() {
   assert.equal(playerOf(lobbyRoom, 'client-l2'), undefined);
 }
 
-async function run() {
+function runCasinoMarketSmoke() {
   const room = makeRoom();
   assert.equal(room.getRoomSummary().roomCode, null);
   room.setRoomSetting('casino', true);
@@ -230,7 +230,9 @@ async function run() {
   const publicSummary = room.game.getGameSummary();
   assert.equal('marketPositions' in publicSummary.players[0], false);
   assert.equal(publicSummary.economy.market.enabled, true);
+}
 
+function runRoomSettingsSmoke() {
   const legacyRoom = makeRoom();
   legacyRoom.setRoomSetting('globalEventDuration', 10);
   legacyRoom.setRoomSetting('globalEventMax', 2);
@@ -238,7 +240,9 @@ async function run() {
   assert.equal(legacyRoom.settings.globalEventMax, 1);
   legacyRoom.setRoomSetting('globalEvents', 'on');
   assert.equal(legacyRoom.settings.globalEvents, true);
+}
 
+function runGlobalEventSmoke() {
   const eventRoom = makeRoom();
   assert.equal(eventRoom.startGame().success, true);
   eventRoom.game.activateGlobalEvent(eventRoom.game.globalEventDefinition('housing-bubble'));
@@ -252,7 +256,9 @@ async function run() {
   assert.equal(eventRoom.game.globalEvent.phase, 'recovery');
   eventRoom.game.advanceRound();
   assert.equal(eventRoom.game.globalEvent, null);
+}
 
+function runEventSettlementSmoke() {
   const eventSettlementRoom = makeRoom();
   eventSettlementRoom.setRoomSetting('globalEvents', true);
   assert.equal(eventSettlementRoom.startGame().success, true);
@@ -267,7 +273,9 @@ async function run() {
   const cashBeforeMaintenance = maintenancePlayer.cash;
   eventSettlementRoom.game.advanceRound();
   assert.equal(maintenancePlayer.cash, cashBeforeMaintenance - 40);
+}
 
+function runBailoutVoteSmoke() {
   const bailoutRoom = makeRoom();
   bailoutRoom.setRoomSetting('globalEvents', true);
   assert.equal(bailoutRoom.startGame().success, true);
@@ -280,7 +288,9 @@ async function run() {
   assert.equal(bailoutRoom.game.globalEvent.phase, 'active');
   assert.equal(bailoutPlayer.bailoutReceived, true);
   assert.equal(bailoutPlayer.moralHazard, true);
+}
 
+function runBotSmoke() {
   const botRoom = makeRoom();
   botRoom.setRoomSetting('bots', 1);
   botRoom.setRoomSetting('botPersonality', 'builder');
@@ -292,7 +302,9 @@ async function run() {
   botRoom.game.currentPlayerId = botPlayer.id;
   const botCandidate = botRoom.game.getBotCandidates(botPlayer);
   assert.equal(Array.isArray(botCandidate), true);
+}
 
+function runComboEventSmoke() {
   const comboRoom = makeRoom();
   comboRoom.setRoomSetting('globalEvents', true);
   assert.equal(comboRoom.startGame().success, true);
@@ -310,13 +322,18 @@ async function run() {
   assert.equal(comboRoom.game.globalEvent?.id, 'foreclosure-spiral');
   assert.equal(comboRoom.game.globalEvent?.comboId, 'foreclosure-spiral');
   assert.equal(comboRoom.game.casinoLimits().maxBet, 500);
+}
 
+async function runAdvisorSmoke() {
   const advisor = new DeterministicAdvisor();
   const choice = await advisor.chooseAction({ personality: 'builder', candidates: [{ id: 'roll', kind: 'roll', score: 0 }, { id: 'build:1', kind: 'build', score: 1 }] });
   assert.equal(choice.actionId, 'build:1');
   const fallback = new DeepSeekAdvisor({ apiKey: 'test', fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '{"actionId":"invented","confidence":2}' } }] }) }) });
   const safeFallback = await fallback.chooseAction({ candidates: [{ id: 'roll', kind: 'roll', score: 0 }] });
   assert.equal(safeFallback.actionId, 'roll');
+}
+
+function runPlayerContractSmoke(ctx) {
   const financeRoom = makeRoom();
   assert.equal(financeRoom.startGame().success, true);
   const lender = financeRoom.game.players[0];
@@ -352,7 +369,12 @@ async function run() {
   assert.equal(equityContract.rentCollected, Math.floor(baseRent * 0.2));
   assert.equal(lender.cash, lenderBeforeRent - baseRent + equityContract.rentCollected);
   assert.equal(financeRoom.game.canMortgageTile(borrower, equityTile), false);
+  ctx.financeRoom = financeRoom;
+  ctx.lender = lender;
+  ctx.equityTile = equityTile;
+}
 
+function runContractDefaultSmoke() {
   const defaultRoom = makeRoom();
   assert.equal(defaultRoom.startGame().success, true);
   const defaultLender = defaultRoom.game.players[0];
@@ -374,7 +396,12 @@ async function run() {
   assert.equal(defaultContract.status, 'defaulted');
   assert.equal(defaultTile.ownerId, defaultLender.id);
   assert.equal(defaultRoom.game.getGameSummary().playerContracts.active.length, 0);
+}
 
+function runContractSummarySmoke(ctx) {
+  const financeRoom = ctx.financeRoom;
+  const lender = ctx.lender;
+  const equityTile = ctx.equityTile;
   const summaryTile = financeRoom.game.getGameSummary().tiles.find(tile => tile.index === equityTile.index);
   assert.equal(summaryTile.equityShares.length, 1);
   const redactedSummary = financeRoom.game.getGameSummary();
@@ -382,7 +409,9 @@ async function run() {
   assert.equal(redactedEquity.amount, undefined);
   const ownerSummary = financeRoom.game.getGameSummary(lender.id);
   assert.equal(ownerSummary.playerContracts.active.find(contract => contract.kind === 'equity').amount, 100);
+}
 
+function runBankLoanSmoke() {
   const bankRoom = makeRoom();
   bankRoom.startGame();
   const bankPlayer = bankRoom.game.players[0];
@@ -392,6 +421,9 @@ async function run() {
   assert.equal(bankLoan.success, true);
   const bankAgain = bankRoom.takeBankLoan('socket-a', 'bank-loan-1');
   assert.deepEqual(bankAgain.loan, bankLoan.loan);
+}
+
+function runAchievementsSmoke() {
   const achievementEvaluator = new AchievementStore();
   const evaluated = achievementEvaluator.evaluateMatch({
     globalEvents: ['A', 'B'],
@@ -439,6 +471,23 @@ async function run() {
     assert.equal(evaluated.some(entry => entry.achievementId === id), true, `expected ${id}`);
   }
   assert.equal(evaluated.some(entry => entry.achievementId === '41st-tile'), true);
+}
+
+async function run() {
+  const ctx = {};
+  runCasinoMarketSmoke();
+  runRoomSettingsSmoke();
+  runGlobalEventSmoke();
+  runEventSettlementSmoke();
+  runBailoutVoteSmoke();
+  runBotSmoke();
+  runComboEventSmoke();
+  await runAdvisorSmoke();
+  runPlayerContractSmoke(ctx);
+  runContractDefaultSmoke();
+  runContractSummarySmoke(ctx);
+  runBankLoanSmoke();
+  runAchievementsSmoke();
   console.log('legacy smoke checks passed.');
 }
 
