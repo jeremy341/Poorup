@@ -1,5 +1,6 @@
 import { freshMarketQuotes } from './marketLogic.js';
 import {
+  equityShareContractLive,
   playerContractSummary,
   processContracts,
   proposeContract,
@@ -365,8 +366,7 @@ class GameState {
   terminateTileEquityShares(tile) {
     (tile.equityShares || []).forEach(share => {
       const contract = this.playerContractById(share.contractId);
-      if (!contract) return;
-      if (contract.status !== 'active') return;
+      if (!equityShareContractLive(contract)) return;
       contract.status = 'terminated';
       contract.terminatedRound = this.roundNumber;
     });

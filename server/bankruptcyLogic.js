@@ -28,12 +28,20 @@ function loanCollateralRejection(game, player, contract) {
   return null;
 }
 
-function equityContractRejection(game, player, contract) {
+function propertyShareRejection(game, player, contract, share) {
   const property = game.getTile(contract.propertyIndex);
   if (!deedStillHeldBy(property, player.id)) return rejectContract(game, 'The equity property is no longer available.');
   const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
-  if (existingShare + contract.equityShare > 100) return rejectContract(game, 'The property has no remaining equity.');
+  if (existingShare + share > 100) return rejectContract(game, 'The property has no remaining equity.');
   return null;
+}
+
+function equityContractRejection(game, player, contract) {
+  return propertyShareRejection(game, player, contract, contract.equityShare);
+}
+
+function hybridContractRejection(game, player, contract) {
+  return propertyShareRejection(game, player, contract, contract.conversionShare);
 }
 
 // Re-validate contract security at settlement time: pledged deeds can be
@@ -41,6 +49,7 @@ function equityContractRejection(game, player, contract) {
 // must not fund against vanished security.
 export function contractSettlementRejection(game, player, contract) {
   if (contract.kind === 'equity') return equityContractRejection(game, player, contract);
+  if (contract.kind === 'hybrid') return hybridContractRejection(game, player, contract);
   return loanCollateralRejection(game, player, contract);
 }
 
@@ -115,10 +124,19 @@ export function announceLoanDue(game, contract, borrower) {
 // Share percentages are clamped 5-100 at proposal, but stored tiles can
 // predate that (or arrive from a hand-edited file): a non-finite or
 // non-positive share must never reach the cash arithmetic as NaN.
+// Equity stays payable while its contract is live: an active agreement,
+// or a converted hybrid note whose debt leg ended but whose equity leg
+// still earns. (Mirrors equityShareContractLive in contractLogic.js; kept
+// local because that module imports from this one.)
+function equityShareContractLive(contract) {
+  if (contract.status === 'active') return true;
+  return contract.status === 'converted';
+}
+
 function payableEquityContract(game, share) {
   const contract = game.playerContractById(share.contractId);
   if (!contract) return null;
-  if (contract.status !== 'active') return null;
+  if (!equityShareContractLive(contract)) return null;
   return contract;
 }
 

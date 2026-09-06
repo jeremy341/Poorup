@@ -1,8 +1,8 @@
 // Characterization suite for GameState.proposePlayerContract and
 // GameState.tradeMarket (the two cc 44 twins). Pins every guard order and
-// error string, the replay-cache semantics, loan/equity term derivation,
-// buy/sell cash+position math, crisis-buy tracking, and the ledger/feed
-// tails. Captured from the pre-refactor methods.
+// error string, the replay-cache semantics, loan/equity/hybrid term
+// derivation, buy/sell cash+position math, crisis-buy tracking, and the
+// ledger/feed tails. Captured from the pre-refactor methods.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -198,6 +198,107 @@ check('requestId replays return the memoized market result', () => {
   a.marketActionsThisTurn = 0;
   const replay = game.tradeMarket('socket-a', 'brazil', 'buy', 1, 'r-1');
   assert.equal(replay, first);
+});
+
+function hybridRoom(conversionShare = 30) {
+  const ctx = startedRoom();
+  const property = ctx.game.getTile(1);
+  property.ownerId = ctx.b.id;
+  ctx.b.properties.push(1);
+  const result = ctx.game.proposePlayerContract('socket-a', {
+    toPlayerId: ctx.b.id, kind: 'hybrid', amount: 100, premiumRate: 10,
+    durationRounds: 2, propertyIndex: 1, conversionShare
+  });
+  assert.equal(result.success, true);
+  return { ...ctx, property, contract: ctx.game.pendingPlayerContract };
+}
+
+check('hybrid proposal derives loan math plus conversion share', () => {
+  const { game, contract } = hybridRoom();
+  assert.equal(contract.totalDue, 110);
+  assert.equal(contract.remaining, 110);
+  assert.equal(contract.dueRound, game.roundNumber + 2);
+  assert.equal(contract.cureRound, contract.dueRound + 1);
+  assert.equal(contract.propertyIndex, 1);
+  assert.equal(contract.conversionShare, 30);
+});
+
+check('hybrid rejects unowned targets, full cap tables, clamps conversion', () => {
+  const { game, b, property } = hybridRoom(3);
+  assert.equal(game.pendingPlayerContract.conversionShare, 5);
+  game.pendingPlayerContract = null;
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 50, propertyIndex: 6, conversionShare: 10 }), { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' });
+  property.equityShares = [{ share: 80 }];
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 50, propertyIndex: 1, conversionShare: 30 }), { success: false, error: 'That property has no remaining equity to sell.' });
+});
+
+check('hybrid accept moves cash with no equity recorded yet', () => {
+  const { game, a, b, contract, property } = hybridRoom();
+  const cashA = a.cash;
+  const cashB = b.cash;
+  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  assert.equal(a.cash, cashA - 100);
+  assert.equal(b.cash, cashB + 100);
+  assert.equal(contract.status, 'active');
+  assert.deepEqual(property.equityShares || [], []);
+});
+
+check('hybrid accept revalidates the conversion target at settlement', () => {
+  const { game, a, property } = hybridRoom();
+  property.ownerId = a.id;
+  assert.deepEqual(game.respondPlayerContract('socket-b', true), { success: false, error: 'The equity property is no longer available.' });
+});
+
+check('hybrid repays to paid before the due round', () => {
+  const { game, contract } = hybridRoom();
+  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  assert.equal(game.repayPlayerContract('socket-b', { contractId: contract.id }).success, true);
+  assert.equal(contract.status, 'paid');
+});
+
+function convertedHybrid() {
+  const ctx = hybridRoom();
+  assert.equal(ctx.game.respondPlayerContract('socket-b', true).success, true);
+  ctx.game.roundNumber = ctx.contract.dueRound;
+  ctx.game.processPlayerContracts();
+  assert.equal(ctx.contract.status, 'due');
+  ctx.game.roundNumber = ctx.contract.cureRound + 1;
+  ctx.game.processPlayerContracts();
+  return ctx;
+}
+
+check('hybrid past cure converts into an equity share', () => {
+  const { contract, property, a, b } = convertedHybrid();
+  assert.equal(contract.status, 'converted');
+  assert.equal(contract.convertedRound != null, true);
+  const entry = property.equityShares.find(e => e.contractId === contract.id);
+  assert.equal(entry.share, 30);
+  assert.equal(entry.holderId, a.id);
+  assert.equal(b.properties.includes(1), true);
+});
+
+check('converted hybrid equity pays rent and dies with the deed', () => {
+  const { game, a, b, contract, property } = convertedHybrid();
+  const cashA = a.cash;
+  const cashB = b.cash;
+  game.settleEquityShares(property, b, 100);
+  assert.equal(a.cash, cashA + 30);
+  assert.equal(b.cash, cashB - 30);
+  game.applyPropertyOwnershipChange(b, a, property);
+  assert.equal(contract.status, 'terminated');
+});
+
+check('hybrid with a lost conversion target falls back to loan default', () => {
+  const { game, contract, property } = hybridRoom();
+  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  game.roundNumber = contract.dueRound;
+  game.processPlayerContracts();
+  assert.equal(contract.status, 'due');
+  property.mortgaged = true;
+  game.roundNumber = contract.cureRound + 1;
+  game.processPlayerContracts();
+  assert.equal(contract.status, 'defaulted');
+  assert.deepEqual(property.equityShares || [], []);
 });
 
 const failed = results.filter(r => !r).length;
