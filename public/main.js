@@ -78,6 +78,7 @@ import {
 import {
   configureTradeUi,
   openFinancingModal,
+  openFinancingContract,
   closeFinancingModal,
   openTradeModal,
   closeTradeModal,
@@ -821,7 +822,7 @@ function bindEvents() {
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureAccountIdentity({ emitServer, say });
-configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal });
+configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingContract });
 configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
