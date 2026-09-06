@@ -32,6 +32,13 @@ import {
   repayBankLoan,
   takeBankLoan
 } from './loanLogic.js';
+import {
+  canBuildOnTile,
+  canMortgageTile,
+  canSellFromTile,
+  canUnmortgageTile,
+  isTradeableTile
+} from './propertyRules.js';
 
 const DEFAULT_ROOM_SETTINGS = {
   maxPlayers: 4,
@@ -1188,67 +1195,23 @@ class GameState {
   }
 
   isTradeableTile(tile) {
-    if (!tile || !tile.ownerId) return false;
-    if (tile.mortgaged) return false;
-    if (tile.equityShares?.length) return false;
-    const owner = this.getPlayerById(tile.ownerId);
-    if (owner && (this.isLoanCollateral(owner, tile) || this.isPlayerContractCollateral(owner, tile))) return false;
-    return (tile.type === 'property' || tile.type === 'utility' || tile.type === 'railroad') && (tile.houseCount || 0) === 0;
+    return isTradeableTile(this, tile);
   }
 
   canBuildOnTile(player, tile) {
-    if (!player || !tile || tile.type !== 'property') return false;
-    if (this.isConstructionBlocked()) return false;
-    if (tile.ownerId !== player.id || tile.mortgaged) return false;
-    if (!this.hasFullSet(player.id, tile.group)) return false;
-    const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
-    if (!groupTiles.length) return false;
-    if (groupTiles.some(entry => entry.mortgaged)) return false;
-    if (!this.settings.evenBuild) {
-      return (tile.houseCount || 0) < 5;
-    }
-    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
-    const minLevel = Math.min(...houseLevels);
-    return (tile.houseCount || 0) === minLevel && (tile.houseCount || 0) < 5;
+    return canBuildOnTile(this, player, tile);
   }
 
   canSellFromTile(player, tile) {
-    if (!player || !tile || tile.type !== 'property') return false;
-    if (tile.ownerId !== player.id) return false;
-    const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
-    if (!groupTiles.length) return false;
-    if (!this.settings.evenBuild) {
-      return (tile.houseCount || 0) > 0;
-    }
-    const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
-    const maxLevel = Math.max(...houseLevels);
-    return (tile.houseCount || 0) === maxLevel && (tile.houseCount || 0) > 0;
+    return canSellFromTile(this, player, tile);
   }
 
   canMortgageTile(player, tile) {
-    if (!player || !tile || tile.ownerId !== player.id) return false;
-    if (!this.settings.mortgage) return false;
-    if (this.globalEventActive('credit-freeze') || this.globalEventActive('bank-run') || this.activeEventEffects().mortgagesBlocked) return false;
-    if (this.isLoanCollateral(player, tile) || this.isPlayerContractCollateral(player, tile)) return false;
-    if (tile.equityShares?.length) return false;
-    if (tile.type !== 'property' && tile.type !== 'utility' && tile.type !== 'railroad') return false;
-    if ((tile.houseCount || 0) > 0) return false;
-    if (tile.mortgaged) return false;
-    if (tile.type === 'property') {
-      const groupTiles = this.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
-      if (groupTiles.some(entry => (entry.houseCount || 0) > 0)) {
-        return false;
-      }
-    }
-    return true;
+    return canMortgageTile(this, player, tile);
   }
 
   canUnmortgageTile(player, tile) {
-    return Boolean(player && tile && tile.ownerId === player.id && tile.mortgaged)
-      && !this.globalEventActive('housing-bubble')
-      && !this.globalEventActive('credit-freeze')
-      && !this.globalEventActive('bank-run')
-      && !this.isPlayerContractCollateral(player, tile);
+    return canUnmortgageTile(this, player, tile);
   }
 
   applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
