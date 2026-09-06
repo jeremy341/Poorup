@@ -105,8 +105,19 @@ const bankruptcyApi = {
 
   settleContractsOnBankruptcy(player) {
     this.playerContracts
-      .filter(contract => LOAN_OUTSTANDING_STATUSES.includes(contract.status) && this.contractTouchesPlayer(contract, player))
+      .filter(contract => this.bankruptContractNeedsSettlement(contract, player))
       .forEach(contract => this.settleBankruptContract(player, contract));
+  },
+
+  bankruptContractNeedsSettlement(contract, player) {
+    if (!LOAN_OUTSTANDING_STATUSES.includes(contract.status)) return this.convertedHybridInvolves(contract, player);
+    return this.contractTouchesPlayer(contract, player);
+  },
+
+  convertedHybridInvolves(contract, player) {
+    if (contract.kind !== 'hybrid') return false;
+    if (contract.status !== 'converted') return false;
+    return this.contractTouchesPlayer(contract, player);
   },
 
   contractTouchesPlayer(contract, player) {
@@ -116,9 +127,15 @@ const bankruptcyApi = {
 
   // A borrower's loan defaults (with the collateral seized while they still
   // hold it); a lender's loan just terminates; an equity agreement
-  // terminates after its shares are stripped off the deed. Anything else is
-  // left untouched, exactly as the original if-ladder.
+  // terminates after its shares are stripped off the deed. A hybrid ends the
+  // same way as equity: its conversion shares are stripped if they exist,
+  // otherwise it simply terminates with no collateral to seize. Anything
+  // else is left untouched, exactly as the original if-ladder.
   settleBankruptContract(player, contract) {
+    if (contract.kind === 'hybrid') {
+      this.terminateEquityContract(contract);
+      return;
+    }
     if (contract.kind !== 'loan') {
       if (contract.kind === 'equity') this.terminateEquityContract(contract);
       return;

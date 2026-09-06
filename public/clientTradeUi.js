@@ -12,7 +12,7 @@ import { spriteHTML, avatarHTML } from "./clientSprites.js";
 import { renderRightRail } from "./clientRailRender.js";
 import { openSurface, closeSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 
-let host = { emitServer: noop, say: noop, renderChat: noop, record: noop };
+let host = { emitServer: noop, say: noop, renderChat: noop, record: noop, createRequestId: noop, renderRightRail: noop };
 
 function noop() {}
 
@@ -23,6 +23,8 @@ export function configureTradeUi(hooks) {
 let financingPreviewMode = "loan";
 let financingSurfaceMode = "offer";
 const financingPreviewDraft = {
+  recipientId: null,
+  collateralTileIndex: null,
   propertyIndex: 21,
   amount: 150,
   loanRate: 20,
@@ -117,8 +119,211 @@ function bindDropdowns(root, onSelect) {
   }
 }
 
+// Every other seat is a valid counterparty, bots included: the server
+// guards accept any active pair and botLogic answers pending contracts.
+// (Same filter the trade modal uses; the rail form narrows to humans.)
+function otherPlayers() {
+  return state.players.filter((p) => p.id !== "p1");
+}
+
+function defaultRecipientId() {
+  return otherPlayers()[0]?.id || null;
+}
+
+function financingRecipientId() {
+  const id = financingPreviewDraft.recipientId;
+  if (id && otherPlayers().some((p) => p.id === id)) return id;
+  return defaultRecipientId();
+}
+
+function recipientPlayer() {
+  return state.players.find((p) => p.id === financingRecipientId());
+}
+
+function financingRecipients() {
+  return otherPlayers().map((p) => ({ value: p.id, label: `${p.name} · $${Number(p.cash || 0).toLocaleString()}` }));
+}
+
+function financingRecipientDeeds() {
+  const recipientId = financingRecipientId();
+  if (!recipientId) return [];
+  return TILES.filter((tile) => tile.kind === "property" && state.owners[tile.i] === recipientId);
+}
+
 function financingPropertyOptions() {
-  return TILES.filter((tile) => tile.kind === "property").map((tile) => ({ value: tile.i, label: `${tile.name} · $${tile.price}` }));
+  const deeds = financingRecipientDeeds();
+  if (!deeds.length) return [{ value: "", label: "NO ELIGIBLE DEEDS" }];
+  return deeds.map((tile) => ({ value: tile.i, label: financingEquityContextLabel(tile) }));
+}
+
+function financingHasEligibleProperty() {
+  return financingRecipientDeeds().length > 0;
+}
+
+function financingRecipientValid(value) {
+  return otherPlayers().some((p) => p.id === value);
+}
+
+function clampPropertyToRecipient() {
+  const deeds = financingRecipientDeeds();
+  if (!deeds.length) {
+    financingPreviewDraft.propertyIndex = "";
+    return;
+  }
+  const current = Number(financingPreviewDraft.propertyIndex);
+  const stillHeld = deeds.some((tile) => tile.i === current);
+  if (!stillHeld) financingPreviewDraft.propertyIndex = deeds[0].i;
+}
+
+function clampCollateralToRecipient() {
+  const index = financingPreviewDraft.collateralTileIndex;
+  if (index == null) return;
+  const stillHeld = financingRecipientDeeds().some((tile) => tile.i === Number(index));
+  if (!stillHeld) financingPreviewDraft.collateralTileIndex = null;
+}
+
+function onFinancingRecipientSet(value) {
+  if (!financingRecipientValid(value)) return;
+  financingPreviewDraft.recipientId = value;
+  clampPropertyToRecipient();
+  clampCollateralToRecipient();
+  renderFinancingModal();
+  $("#finance-recipient-trigger")?.focus({ preventScroll: true });
+}
+
+function onFinancingCollateralSet(value) {
+  if (value === "" || value == null) {
+    financingPreviewDraft.collateralTileIndex = null;
+    return;
+  }
+  const index = Number(value);
+  const held = financingRecipientDeeds().some((tile) => tile.i === index);
+  if (!held) return;
+  financingPreviewDraft.collateralTileIndex = index;
+}
+
+function financingCollateralOptions() {
+  const none = [{ value: "", label: "NO COLLATERAL" }];
+  const deeds = financingRecipientDeeds().map((tile) => ({ value: tile.i, label: financingEquityContextLabel(tile) }));
+  return [...none, ...deeds];
+}
+
+function financingEligiblePropertyIndex() {
+  const index = Number(financingPreviewDraft.propertyIndex);
+  const held = financingRecipientDeeds().some((tile) => tile.i === index);
+  return held ? index : null;
+}
+
+function financingEligibleCollateralIndex() {
+  const index = financingPreviewDraft.collateralTileIndex;
+  if (index == null) return null;
+  const held = financingRecipientDeeds().some((tile) => tile.i === Number(index));
+  return held ? Number(index) : null;
+}
+
+function financingAmountValid() {
+  const amount = Math.floor(Number(financingPreviewDraft.amount) || 0);
+  if (amount < 1) return false;
+  const me = state.players[0];
+  return (me?.cash || 0) >= amount;
+}
+
+function financingPropertyRequired() {
+  return financingPreviewMode !== "loan";
+}
+
+function financingPropertyMissing() {
+  if (!financingPropertyRequired()) return false;
+  return !financingHasEligibleProperty();
+}
+
+function financingSendBlocked() {
+  if (!recipientPlayer()) return "Choose a player to deal with.";
+  if (!financingAmountValid()) return "Enter an amount you can fund.";
+  if (financingPropertyMissing()) return "The counterparty owns no eligible deeds.";
+  return null;
+}
+
+function financingLoanTerms() {
+  return {
+    premiumRate: Math.max(0, Math.min(100, Number(financingPreviewDraft.loanRate) || 0)),
+    durationRounds: Math.max(1, Math.min(20, Number(financingPreviewDraft.loanDuration) || 20)),
+    propertyIndex: financingEligiblePropertyIndex(),
+    collateralTileIndex: financingEligibleCollateralIndex(),
+  };
+}
+
+function financingEquityDurationRounds() {
+  if (financingPreviewDraft.equityDuration === "permanent") return 20;
+  return Math.max(1, Math.min(20, Number(financingPreviewDraft.equityDuration) || 20));
+}
+
+function financingEquityTerms() {
+  return {
+    premiumRate: 0,
+    durationRounds: financingEquityDurationRounds(),
+    propertyIndex: financingEligiblePropertyIndex(),
+    collateralTileIndex: null,
+    equityShare: Math.max(5, Math.min(100, Number(financingPreviewDraft.equityShare) || 10)),
+    equityControl: financingPreviewDraft.equityControl,
+    permanent: financingPreviewDraft.equityDuration === "permanent",
+  };
+}
+
+function financingHybridTerms() {
+  return {
+    premiumRate: Math.max(0, Math.min(100, Number(financingPreviewDraft.hybridRate) || 0)),
+    durationRounds: Math.max(1, Math.min(20, Number(financingPreviewDraft.hybridDuration) || 20)),
+    propertyIndex: financingEligiblePropertyIndex(),
+    collateralTileIndex: null,
+    conversionShare: Math.max(5, Math.min(100, Number(financingPreviewDraft.hybridConversion) || 25)),
+  };
+}
+
+const FINANCING_SEND_TERMS = {
+  loan: financingLoanTerms,
+  equity: financingEquityTerms,
+  hybrid: financingHybridTerms,
+};
+
+function financingSendPayload(recipient) {
+  const base = {
+    toPlayerId: recipient.serverId || recipient.id,
+    kind: financingPreviewMode,
+    amount: Math.floor(Number(financingPreviewDraft.amount) || 0),
+    requestId: host.createRequestId("contract-proposal"),
+  };
+  const terms = (FINANCING_SEND_TERMS[financingPreviewMode] || financingLoanTerms)();
+  return { ...base, ...terms };
+}
+
+function sendFinancingContract() {
+  const error = financingSendBlocked();
+  if (error) {
+    host.say(error);
+    host.renderChat();
+    return;
+  }
+  const recipient = recipientPlayer();
+  host.emitServer("propose-player-contract", financingSendPayload(recipient), (response) => {
+    if (response?.success === false) {
+      host.say(response.error || "The player contract could not be sent.");
+      host.renderChat();
+      return;
+    }
+    host.record(`CONTRACT SENT TO ${recipient.name}`);
+    host.say(`Contract sent to ${recipient.name} for review.`);
+    host.renderChat();
+    host.renderRightRail();
+    closeFinancingModal();
+  });
+}
+
+function financingEquityContextLabel(tile) {
+  const serverTile = state.serverTiles.find((t) => Number(t.index) === Number(tile.i));
+  const shares = serverTile?.equityShares || [];
+  const total = shares.reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+  return total ? `${tile.name} · $${tile.price} · EQUITY ${total}%` : `${tile.name} · $${tile.price}`;
 }
 
 function baseRentOf(tile) {
@@ -127,8 +332,25 @@ function baseRentOf(tile) {
   return Number(RENT_TABLE[tile.group]?.base) || 0;
 }
 
+function financingPreviewTile() {
+  const tile = TILES[Number(financingPreviewDraft.propertyIndex)];
+  if (tile && tile.kind === "property") return tile;
+  return financingRecipientDeeds()[0] || TILES[21];
+}
+
+function financingPreviewKicker() {
+  const recipient = recipientPlayer();
+  if (!recipient) return "CONTRACT PREVIEW";
+  return `CONTRACT PREVIEW · TO ${recipient.name}`;
+}
+
+function financingNoDeedsHintHTML() {
+  if (financingHasEligibleProperty()) return "";
+  return `<p class="t-micro ink-3">NO ELIGIBLE DEEDS · PICK ANOTHER PLAYER</p>`;
+}
+
 function financingPreviewBase() {
-  const tile = TILES[Number(financingPreviewDraft.propertyIndex)] || TILES[21];
+  const tile = financingPreviewTile();
   const requested = Number(financingPreviewDraft.amount) || 0;
   const cap = Number(tile.price) || 1;
   const amount = Math.max(1, Math.min(requested, cap));
@@ -208,9 +430,14 @@ function financingPreviewCopy(mode = financingPreviewMode) {
   return builder(tile, amount, rent);
 }
 
+function financingPreviewEmptyHTML() {
+  return `<div class="financing-preview-head"><span class="t-micro g400">${esc(financingPreviewKicker())}</span><span class="t-label f12 g100">NO TERMS TO PREVIEW</span></div><p class="t-body ink-2 financing-preview-copy">The counterparty owns no eligible deeds. Pick another player to shape a deal.</p>`;
+}
+
 function financingPreviewHTML() {
+  if (financingPropertyMissing()) return financingPreviewEmptyHTML();
   const preview = financingPreviewCopy();
-  return `<div class="financing-preview-head"><span class="t-micro g400">CONTRACT PREVIEW</span><span class="t-label f12 g100">${esc(preview.title)}</span></div>
+  return `<div class="financing-preview-head"><span class="t-micro g400">${esc(financingPreviewKicker())}</span><span class="t-label f12 g100">${esc(preview.title)}</span></div>
     <div class="financing-metrics">${preview.metrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f13 g100">${esc(value)}</strong></div>`).join("")}</div>
     <p class="t-body ink-2 financing-preview-copy">${esc(preview.copy)}</p>
     <p class="t-micro ink-3 financing-preview-note">${esc(preview.note)}</p>`;
@@ -226,7 +453,7 @@ function financingModeFieldsHTML() {
   if (financingPreviewMode === "hybrid") {
     return `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Premium %</span><input class="field" id="finance-hybrid-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.hybridRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-hybrid-duration" type="number" min="1" max="100" step="1" value="${financingPreviewDraft.hybridDuration}" /><span aria-hidden="true">TURNS</span></div></label></div><div class="financing-field"><label class="t-label f11 g-muted" for="finance-hybrid-conversion">Default conversion share <output id="finance-hybrid-conversion-output">${financingPreviewDraft.hybridConversion}%</output></label><div class="financing-range"><input id="finance-hybrid-conversion" type="range" min="5" max="100" step="5" value="${financingPreviewDraft.hybridConversion}" /></div></div>`;
   }
-  return `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Total premium %</span><input class="field" id="finance-loan-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.loanRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-loan-duration" type="number" min="1" max="100" step="1" value="${financingPreviewDraft.loanDuration}" /><span aria-hidden="true">TURNS</span></div></label></div>${dropdownHTML({ id: "finance-loan-schedule", label: "Repayment schedule", value: financingPreviewDraft.loanSchedule, options: [{ value: "upfront", label: "UPFRONT" }, { value: "checkpoints", label: "CHECKPOINTS" }, { value: "maturity", label: "MATURITY" }] })}`;
+  return `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Total premium %</span><input class="field" id="finance-loan-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.loanRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-loan-duration" type="number" min="1" max="100" step="1" value="${financingPreviewDraft.loanDuration}" /><span aria-hidden="true">TURNS</span></div></label></div>${dropdownHTML({ id: "finance-loan-schedule", label: "Repayment schedule", value: financingPreviewDraft.loanSchedule, options: [{ value: "upfront", label: "UPFRONT" }, { value: "checkpoints", label: "CHECKPOINTS" }, { value: "maturity", label: "MATURITY" }] })}${dropdownHTML({ id: "finance-collateral", label: "Collateral (borrower deed, optional)", value: financingPreviewDraft.collateralTileIndex ?? "", options: financingCollateralOptions() })}`;
 }
 
 function financingSurfaceTabsHTML() {
@@ -249,7 +476,7 @@ function financingSurfaceBodyHTML() {
   if (financingSurfaceMode === "default") {
     return `<section class="financing-surface-body" aria-labelledby="financing-default-heading"><div class="financing-surface-kicker"><span class="t-micro red">CURE WINDOW · LIVE REFERENCE</span><span class="t-label f11 red">1 TURN LEFT</span></div><h3 class="t-section g100" id="financing-default-heading">Payment due · Eindhoven</h3><div class="financing-default-amount"><span class="t-micro ink-3">OUTSTANDING BALANCE</span><strong class="t-money red">$105</strong></div><div class="financing-default-actions"><button class="btn-dark" type="button" disabled><span class="t-label f11">PAY OUTSTANDING BALANCE</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">TAKE COLLATERAL</span></button><button class="btn-dark" type="button" disabled><span class="t-label f11">BANK AUCTION</span></button></div><p class="t-body ink-2 financing-surface-copy">If the cure turn expires, the lender chooses collateral transfer or bank auction. Interest stops when the contract resolves.</p></section>`;
   }
-  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-property", label: "Property", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions"><button class="btn-dark" id="financing-cancel" type="button"><span class="t-label f11">CLOSE PREVIEW</span></button><button class="cta-red" id="financing-live-rail" type="button"><span class="cta-text cta-text-sm">OPEN LIVE FINANCE</span></button></div></section>`;
+  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-recipient", label: "Counterparty", value: financingRecipientId(), options: financingRecipients() })}${financingNoDeedsHintHTML()}${dropdownHTML({ id: "finance-property", label: "Property (their deed)", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions"><button class="cta-red${financingHasEligibleProperty() ? "" : " financing-disabled-action"}" id="financing-send" type="button" ${financingHasEligibleProperty() ? "" : "disabled"}><span class="cta-text cta-text-sm">SEND CONTRACT</span></button><button class="btn-dark" id="financing-live-rail" type="button"><span class="t-label f11">OPEN LIVE FINANCE</span></button></div></section>`;
 }
 
 function syncFinancingRanges(root = $("#financing-card")) {
@@ -326,9 +553,14 @@ function onFinancingModeTab(event) {
 }
 
 function onFinancingDropdownSelect(id, value) {
+  if (id === "finance-recipient") {
+    onFinancingRecipientSet(value);
+    return;
+  }
   if (id === "finance-property") financingPreviewDraft.propertyIndex = Number(value);
   if (id === "finance-loan-schedule") financingPreviewDraft.loanSchedule = value;
   if (id === "finance-equity-control") financingPreviewDraft.equityControl = value;
+  if (id === "finance-collateral") onFinancingCollateralSet(value);
   refreshFinancingPreview();
 }
 
@@ -349,7 +581,7 @@ function bindFinancingOfferSurface(card) {
 
 function wireFinancingChrome() {
   $("#financing-close")?.addEventListener("click", closeFinancingModal);
-  $("#financing-cancel")?.addEventListener("click", closeFinancingModal);
+  $("#financing-send")?.addEventListener("click", sendFinancingContract);
   $("#financing-live-rail")?.addEventListener("click", openFinancingLiveRail);
   $("#financing-surface-tabs")?.addEventListener("click", onFinancingSurfaceTab);
   $("#finance-equity-permanent")?.addEventListener("change", onFinancingPermanentChange);
@@ -359,7 +591,7 @@ function renderFinancingModal() {
   const card = $("#financing-card");
   if (!card) return;
   const modeLabels = { loan: "LOAN", equity: "EQUITY", hybrid: "HYBRID" };
-  const header = `<div class="financing-head"><div><div class="t-micro g400">PARLOR DEAL BUILDER · LIVE TERMS</div><h2 class="t-section g100" id="financing-card-title">Shape a ${modeLabels[financingPreviewMode]} deal</h2></div><span class="t-micro financing-badge">LIVE FINANCE RAIL</span><button class="btn-dark financing-close" id="financing-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2 financing-description" id="financing-card-description">Use the Finance rail to send this contract to an active player. Every accepted term settles through the server ledger.</p>`;
+  const header = `<div class="financing-head"><div><div class="t-micro g400">PARLOR DEAL BUILDER · LIVE TERMS</div><h2 class="t-section g100" id="financing-card-title">Shape a ${modeLabels[financingPreviewMode]} deal</h2></div><span class="t-micro financing-badge">LIVE FINANCE RAIL</span><button class="btn-dark financing-close" id="financing-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2 financing-description" id="financing-card-description">Pick a counterparty, shape the terms, and send. Every accepted term settles through the server ledger.</p>`;
   card.innerHTML = `<div class="financing-body">${header}${financingSurfaceTabsHTML()}${financingSurfaceBodyHTML()}</div>`;
   syncFinancingRanges(card);
   wireFinancingChrome();
@@ -370,12 +602,25 @@ function renderFinancingModal() {
   if (financingSurfaceMode === "offer") bindFinancingOfferSurface(card);
 }
 
+function ensureFinancingRecipient() {
+  if (financingRecipientValid(financingPreviewDraft.recipientId)) return;
+  financingPreviewDraft.recipientId = defaultRecipientId();
+}
+
+function ensureFinancingDraft(propertyIndex) {
+  ensureFinancingRecipient();
+  if (propertyIndex != null && TILES[Number(propertyIndex)]?.kind === "property") financingPreviewDraft.propertyIndex = Number(propertyIndex);
+  clampPropertyToRecipient();
+  clampCollateralToRecipient();
+}
+
 export function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null, surface = "offer") {
   financingPreviewMode = ["loan", "equity", "hybrid"].includes(mode) ? mode : "loan";
   financingSurfaceMode = ["offer", "contract", "ownership", "default"].includes(surface) ? surface : "offer";
-  if (propertyIndex != null && TILES[Number(propertyIndex)]?.kind === "property") financingPreviewDraft.propertyIndex = Number(propertyIndex);
+  ensureFinancingDraft(propertyIndex);
   renderFinancingModal();
   openSurface("#financing-modal", "#financing-close");
+  if (financingSurfaceMode === "offer") $("#finance-recipient-trigger")?.focus({ preventScroll: true });
   if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
 }
 
