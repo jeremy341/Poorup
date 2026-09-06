@@ -19,7 +19,6 @@ import {
   HOTEL_LEVEL,
   GROUP_TARGETS,
   TILES,
-  TILE_COUNT,
   JAIL_TILE_INDEX,
   CHANCE_EVENTS,
   CHEST_EVENTS,
@@ -39,13 +38,12 @@ import {
 import {
   state,
   syncLocalAppearance,
-  saveAccountSession,
   getProfileById,
   upsertProfile,
   deleteProfile,
   saveUnlockedAchievements,
 } from "./clientState.js";
-import { applyServerState, AUCTION_MS } from "./clientStateSync.js";
+import { AUCTION_MS } from "./clientStateSync.js";
 import {
   tileIconHTML,
   buildBoard,
@@ -63,7 +61,7 @@ import {
   renderConnectionStatus,
   renderTopNav,
 } from "./clientTopNavRender.js";
-import { serverTileFor, ownsFullGroup } from "./clientDeedRules.js";
+import { ownsFullGroup } from "./clientDeedRules.js";
 import { cardFaceHTML } from "./clientCardsRender.js";
 import { deedLadderHTML, deedCardHTML } from "./clientDeedsRender.js";
 import { renderRightRail } from "./clientRailRender.js";
@@ -107,11 +105,9 @@ import {
 } from "./clientNightShift.js";
 import {
   configureSocialSurfaces,
-  announceSocialNotification,
   parlorNotice,
   socialPlayerRowHTML,
   openSocialSurface,
-  renderSocialSurface,
   openInGameSocialSurface,
   openRankingsSurface,
   renderRankingsSurface,
@@ -172,7 +168,6 @@ import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 import { bindAudioControls } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
 import {
-  applyRoomsUpdated,
   bindRoomsUi,
   closeRoomsModal,
   configureRoomsUi,
@@ -181,6 +176,7 @@ import {
   setHomeTab,
   syncGlobalNavigation,
 } from "./clientRoomsUi.js";
+import { configureSocketListeners } from "./clientSocketListeners.js";
 import {
   bindLobbyUi,
   buildBotPreviewPlayers,
@@ -305,115 +301,18 @@ const serverSyncHost = {
 
 configureTurnCountdown({ endTurn });
 
-if (socket) {
-  socket.on("connect", () => {
-    setConnectionStatus("online", true);
-    if (state.account?.sessionToken) {
-      socket.emit("account-restore", { sessionToken: state.account.sessionToken }, (response) => {
-        if (response?.success) updateAccountFromResponse({ account: response.account, sessionToken: state.account.sessionToken });
-        else {
-          saveAccountSession(null);
-          state.alias = state.profiles[0]?.name || "MARLOWE";
-          renderAccountPanel();
-          applyProfileToHomeUI();
-        }
-      });
-    }
-    emitServer("restore-session", {}, (response) => handleRestoreSessionResponse(response, false));
-  });
-  socket.on("connect_error", () => setConnectionStatus("offline", true));
-  socket.on("update-state", (snapshot) => applyServerState(snapshot, serverSyncHost));
-  socket.on("rooms-updated", applyRoomsUpdated);
-  socket.on("social-update", (social) => {
-    state.social = social || state.social;
-    renderSocialSurface("#social-page-content");
-    renderSocialSurface("#social-card");
-  });
-  socket.on("social-notification", (notification) => {
-    const list = state.social.notifications || [];
-    state.social.notifications = [notification, ...list.filter(item => item.id !== notification.id)].slice(0, 50);
-    if (notification?.kind === "achievement-unlocked") return;
-    announceSocialNotification(notification);
-    renderSocialSurface("#social-page-content");
-    renderSocialSurface("#social-card");
-  });
-  socket.on("mythical-achievement", (notification) => {
-    announceSocialNotification(notification);
-    state.social.notifications = [notification, ...(state.social.notifications || [])].slice(0, 50);
-    renderSocialSurface("#social-page-content");
-  });
-  socket.on("achievement-unlocked", (notification) => {
-    if (state.account?.account && notification?.achievementId) {
-      const account = state.account.account;
-      const existing = Array.isArray(account.achievements) ? account.achievements : [];
-      if (!existing.some((entry) => entry.id === notification.achievementId)) {
-        account.achievements = [{ id: notification.achievementId, unlockedAt: notification.createdAt || new Date().toISOString() }, ...existing].slice(0, 100);
-        saveAccountSession(state.account);
-      }
-    }
-    if (notification) {
-      announceSocialNotification({ ...notification, title: notification.title || "ACHIEVEMENT UNLOCKED" });
-      renderAchievements();
-      renderAccountPanel();
-    }
-  });
-  socket.on("account-sync", ({ account } = {}) => {
-    if (!state.account?.sessionToken || !account) return;
-    updateAccountFromResponse({ account, sessionToken: state.account.sessionToken });
-  });
-  socket.on("player-contract-offer", ({ contract }) => {
-    state.playerContractOffer = contract || null;
-    announceSocialNotification({ body: "A player contract is waiting in Finance." });
-    renderRightRail();
-  });
-  socket.on("player-contract-update", ({ contract }) => {
-    state.playerContractOffer = null;
-    if (contract) {
-      state.playerContracts = {
-        ...(state.playerContracts || {}),
-        active: [...(state.playerContracts?.active || []).filter(entry => entry.id !== contract.id), contract]
-      };
-    }
-    renderRightRail();
-  });
-  socket.on("system-message", ({ text }) => { say(text); renderChat(); });
-  socket.on("chat-message", ({ nickname, text, senderId }) => {
-    // senderId is the authoritative server player id; nickname matching stays
-    // only as a fallback (A4-F7: duplicate names cross-wire attribution).
-    const sender = (senderId != null ? state.players.find((player) => player.serverId === senderId) : null)
-      || state.players.find((player) => player.name === String(nickname).toUpperCase());
-    say(text, sender || { name: nickname, textColor: "#a79d7d" });
-    renderChat();
-  });
-  socket.on("purchase-offer", (offer) => {
-    const serverTile = serverTileFor(offer?.tileIndex);
-    const tile = { ...(TILES[Number(offer?.tileIndex) % TILE_COUNT] || TILES[0]), i: Number(offer?.tileIndex) };
-    state.pendingBuyTile = tile.i;
-    openChoiceModal({ ...tile, name: serverTile?.name || offer?.name || tile.name, price: serverTile?.price ?? offer?.price ?? tile.price });
-  });
-  socket.on("card-reveal", (reveal) => {
-    const tile = TILES[Number(reveal?.tileIndex) % TILE_COUNT];
-    if (tile && (tile.kind === "chance" || tile.kind === "chest")) {
-      openCardReveal(tile, { text: reveal.text || "Card resolved.", action: reveal.action, cash: Number(reveal.cash) || 0 });
-    }
-  });
-  socket.on("trade-offer", ({ trade }) => {
-    if (!trade) return;
-    const normalized = {
-      ...trade,
-      from: trade.from || trade.fromPlayerId,
-      to: trade.to || trade.toPlayerId,
-      giveDeeds: trade.giveDeeds || trade.givePropertyIndexes || [],
-      wantDeeds: trade.wantDeeds || trade.requestPropertyIndexes || [],
-      giveCash: Number(trade.giveCash) || 0,
-      wantCash: Number(trade.wantCash ?? trade.requestCash) || 0,
-    };
-    state.offers.push(normalized);
-    renderAll();
-    openOfferModal(normalized);
-  });
-  socket.on("disconnect", () => setConnectionStatus("reconnecting", true));
-}
+configureSocketListeners(socket, {
+  setConnectionStatus,
+  emitServer,
+  handleRestoreSessionResponse,
+  say,
+  renderChat,
+  renderAll,
+  openChoiceModal,
+  openCardReveal,
+  openOfferModal,
+  serverSyncHost,
+});
 
 const CHAT_ERRORISH = /(?:error|could not|cannot|can't|unable|failed|insufficient|not found|not your turn|must |need \$)/i;
 function systemMessage(text) {
@@ -941,38 +840,49 @@ function deleteCurrentProfile() {
 
 
 async function runTurn(idx) {
-  if (state.phase !== "playing" || state.turnIndex !== idx || state.busy || state.turnStage !== "roll") return;
-    state.busy = true;
-    state.rolling = true;
-    renderHud();
-    emitServer("roll-dice", {}, (response) => {
-      state.busy = false;
-      state.rolling = false;
-      if (response?.success === false) {
-        say(response.error || "The roll could not be completed.");
-        renderChat();
-      }
-      renderAll();
-    });
-    return;
+  if (state.phase !== "playing") return;
+  if (state.turnIndex !== idx) return;
+  if (state.busy) return;
+  if (state.turnStage !== "roll") return;
+  state.busy = true;
+  state.rolling = true;
+  renderHud();
+  emitServer("roll-dice", {}, (response) => {
+    state.busy = false;
+    state.rolling = false;
+    if (response?.success === false) {
+      say(response.error || "The roll could not be completed.");
+      renderChat();
+    }
+    renderAll();
+  });
 }
 
 
 
 function endTurn(idx) {
-  if (state.phase !== "playing" || state.turnIndex !== idx || state.busy || state.turnStage !== "end") return;
-    emitServer("end-turn", {}, (response) => {
-      if (response?.success === false) {
-        say(response.error || "The turn could not be ended.");
-        renderChat();
-      }
-    });
-    return;
+  if (state.phase !== "playing") return;
+  if (state.turnIndex !== idx) return;
+  if (state.busy) return;
+  if (state.turnStage !== "end") return;
+  emitServer("end-turn", {}, (response) => {
+    if (response?.success === false) {
+      say(response.error || "The turn could not be ended.");
+      renderChat();
+    }
+  });
+}
+
+function mustResolveAcquisition() {
+  if (state.auction) return true;
+  return state.pendingBuyTile != null && state.settings.auction;
 }
 
 function primaryTurnAction() {
-  if (state.phase !== "playing" || state.busy || state.turnIndex !== 0) return;
-  if ((state.pendingBuyTile != null && state.settings.auction) || state.auction) return; // must resolve first
+  if (state.phase !== "playing") return;
+  if (state.busy) return;
+  if (state.turnIndex !== 0) return;
+  if (mustResolveAcquisition()) return; // must resolve first
   if (state.turnStage === "end") endTurn(0);
   else runTurn(0);
 }
@@ -1362,7 +1272,10 @@ function loadSavedGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    if (!s || ![1, SAVE_VERSION].includes(s.v) || !Array.isArray(s.players) || !s.players.length) return null;
+    if (!s) return null;
+    if (![1, SAVE_VERSION].includes(s.v)) return null;
+    if (!Array.isArray(s.players)) return null;
+    if (!s.players.length) return null;
     return s.v === 1 ? migrateSavedBoardLayout(s) : s;
   } catch { return null; }
 }
@@ -1836,19 +1749,27 @@ function bindEvents() {
 
 // Visual-only card preview for design review. It never changes game state and
 // is enabled only with ?preview=surprise (or ?preview=treasure).
+const CARD_PREVIEW_KINDS = { surprise: "chance", treasure: "chest" };
+
 function openCardPreviewFromUrl() {
   const preview = new URLSearchParams(window.location.search).get("preview");
   if (preview === "cards") {
     requestAnimationFrame(openCardGallery);
     return;
   }
-  if (preview !== "surprise" && preview !== "treasure") return;
-  const kind = preview === "surprise" ? "chance" : "chest";
+  const kind = CARD_PREVIEW_KINDS[preview];
+  if (!kind) return;
+  openCardPreviewCard(kind);
+}
+
+function openCardPreviewCard(kind) {
   const tile = TILES.find((entry) => entry.kind === kind);
+  if (!tile) return;
   const deck = kind === "chance" ? CHANCE_EVENTS : CHEST_EVENTS;
   const event = deck.find((entry) => entry.action === "moveTo") || deck[0];
-  if (!tile || !event) return;
-  requestAnimationFrame(() => openCardReveal(tile, { ...event, cash: Number(event.cash) || 0 }));
+  if (!event) return;
+  const cash = Number(event.cash) || 0;
+  requestAnimationFrame(() => openCardReveal(tile, { ...event, cash }));
 }
 
 /* ============================================================
