@@ -10,3 +10,5 @@ export function esc(s) {
 }
 
 export const REDUCED_MOTION = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || false;
+
+export const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
