@@ -26,6 +26,7 @@ import {
 import { createSafeEmitter, reply } from './socketHandlerSupport.js';
 import { createSocialApi } from './socketSocialApi.js';
 import { createRuntime } from './socketRuntime.js';
+import { registerGameSocketHandlers } from './serverSocketGame.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,6 +62,8 @@ io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
   const on = createSafeEmitter(socket);
+
+  registerGameSocketHandlers(on, socket, runtime);
 
   on('account-register', (payload = {}, callback) => {
     const result = accountStore.register(payload);
@@ -289,134 +292,6 @@ io.on('connection', (socket) => {
     runtime.scheduleRoomsUpdated();
   });
 
-  on('roll-dice', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.rollDice(socket.id);
-    runtime.emitRoomState(room);
-    if (result?.purchaseOffer) {
-      socket.emit('purchase-offer', result.purchaseOffer);
-    }
-    if (result?.auctionStarted) {
-      runtime.scheduleAuctionFinish(room);
-      io.in(room.roomCode).emit('system-message', { text: 'Auction started.' });
-    }
-    if (result?.message) {
-      io.in(room.roomCode).emit('system-message', { text: result.message });
-    }
-    if (result?.cardReveal) {
-      socket.emit('card-reveal', result.cardReveal);
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('purchase-property', (payload = {}, callback) => {
-    const { tileIndex } = payload;
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.purchaseProperty(socket.id, tileIndex);
-    runtime.emitRoomState(room);
-    if (result?.message) {
-      io.in(room.roomCode).emit('system-message', { text: result.message });
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('decline-property', (payload = {}, callback) => {
-    const { tileIndex } = payload;
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.declineProperty(socket.id, tileIndex);
-    if (result?.auctionStarted) {
-      runtime.scheduleAuctionFinish(room);
-    }
-    runtime.emitRoomState(room);
-    if (result?.message) {
-      io.in(room.roomCode).emit('system-message', { text: result.message });
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('auction-bid', (payload = {}, callback) => {
-    const { amount } = payload;
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.placeAuctionBid(socket.id, amount);
-    if (result?.success && room.game.auction?.active) {
-      runtime.scheduleAuctionFinish(room);
-    }
-    runtime.emitRoomState(room);
-    if (result?.message) {
-      io.in(room.roomCode).emit('system-message', { text: result.message });
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('auction-pass', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.passAuction(socket.id);
-    if (result?.success && room.game.auction?.active) {
-      runtime.scheduleAuctionFinish(room);
-    }
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('end-turn', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.endTurn(socket.id);
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('manage-property', (payload = {}, callback) => {
-    const { tileIndex, action } = payload;
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.manageProperty(socket.id, { tileIndex, action });
-    runtime.emitRoomState(room);
-    if (result?.message) {
-      io.in(room.roomCode).emit('system-message', { text: result.message });
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('propose-trade', (payload, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.proposeTrade(socket.id, payload);
-    runtime.emitRoomState(room);
-    if (result?.success && result.trade) {
-      const target = room.game.getPlayerById(result.trade.toPlayerId);
-      if (target?.socketId) {
-        io.to(target.socketId).emit('trade-offer', { trade: result.trade });
-      }
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error, trade: result?.trade });
-  });
-
-  on('respond-trade', (payload, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.respondToTrade(socket.id, payload);
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error, accepted: result?.accepted });
-  });
-
-  on('propose-player-contract', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.proposePlayerContract(socket.id, payload);
-    runtime.emitRoomState(room);
-    if (result?.success && result.contract) {
-      const target = room.game.getPlayerById(result.contract.toPlayerId);
-      if (target?.socketId) io.to(target.socketId).emit('player-contract-offer', { contract: result.contract });
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
-  });
-
   on('start-patrol-run', (payload = {}, callback) => {
     const account = social.accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to sync Parlor Patrol achievements.' });
@@ -449,126 +324,6 @@ io.on('connection', (socket) => {
     const snapshot = accountStore.getAccountSnapshot(account.id);
     if (snapshot) socket.emit('account-sync', { account: snapshot });
     reply(callback, { success: true, score, misses, best: result.best, aceRuns: result.aceRuns });
-  });
-
-  on('respond-player-contract', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.respondPlayerContract(socket.id, payload.accept === true, payload.requestId);
-    runtime.emitRoomState(room);
-    if (result?.success && result.contract) {
-      const other = room.game.getPlayerById(result.contract.fromPlayerId);
-      if (other?.socketId) io.to(other.socketId).emit('player-contract-update', { contract: result.contract });
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract, accepted: result?.accepted });
-  });
-
-  on('repay-player-contract', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.repayPlayerContract(socket.id, payload);
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error, contract: result?.contract });
-  });
-
-  on('cancel-player-contract', (payload, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const cached = runtime.cachedContractCancel(room, socket, payload);
-    if (cached) return reply(callback, cached);
-    const contract = room.game.pendingPlayerContract;
-    const player = room.getPlayerBySocket(socket.id);
-    if (!contract || !player || contract.fromPlayerId !== player.id) return reply(callback, { success: false, error: 'No pending contract to cancel.' });
-    room.game.pendingPlayerContract = null;
-    room.game.feedMessage(player.nickname + ' canceled the player contract.');
-    const result = { success: true };
-    runtime.cacheContractCancel(room, socket, payload, result);
-    runtime.emitRoomState(room);
-    reply(callback, result);
-  });
-
-  on('pay-jail-fine', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.payJailFine(socket.id);
-    runtime.emitRoomState(room);
-    if (result?.message) {
-      io.in(room.roomCode).emit('system-message', { text: result.message });
-    }
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('use-jail-free', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.useJailFree(socket.id);
-    runtime.emitRoomState(room);
-    if (result?.message) io.in(room.roomCode).emit('system-message', { text: result.message });
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('get-bank-loan-offer', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const offer = room.getBankLoanOffer(socket.id);
-    reply(callback, { success: offer?.available ?? false, error: offer?.reason, offer });
-  });
-
-  on('take-bank-loan', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.takeBankLoan(socket.id, payload.requestId);
-    runtime.emitRoomState(room);
-    if (result?.message) io.in(room.roomCode).emit('system-message', { text: result.message });
-    reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
-  });
-
-  on('repay-bank-loan', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.repayBankLoan(socket.id, payload);
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error, loan: result?.loan });
-  });
-
-  on('get-economy-snapshot', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const player = room.getPlayerBySocket(socket.id);
-    reply(callback, { success: Boolean(player), error: player ? undefined : 'Player not found.', economy: player ? room.game.economySnapshot(player.id) : null });
-  });
-
-  on('place-casino-bet', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.placeCasinoBet(socket.id, payload.color, payload.stake, payload.requestId);
-    runtime.emitRoomState(room);
-    if (result?.success) io.in(room.roomCode).emit('system-message', { text: `${room.game.getPlayerBySocket(socket.id)?.nickname || 'Player'} settled a casino spin.` });
-    reply(callback, { success: result?.success ?? false, error: result?.error, result: result?.result, economy: result?.economy });
-  });
-
-  on('market-order', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.tradeMarket(socket.id, payload.instrumentId, payload.side, payload.quantity, payload.requestId);
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error, order: result?.order, economy: result?.economy });
-  });
-
-  on('vote-global-event', (payload = {}, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.voteGlobalEvent(socket.id, payload.choiceId);
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error });
-  });
-
-  on('declare-bankruptcy', (_, callback) => {
-    const room = runtime.getRoomForSocket(socket, callback);
-    if (!room) return;
-    const result = room.declareBankruptcy(socket.id);
-    runtime.emitRoomState(room);
-    reply(callback, { success: result?.success ?? false, error: result?.error });
   });
 
   on('send-chat', (payload = {}, callback) => {
