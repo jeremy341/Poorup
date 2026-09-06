@@ -137,7 +137,7 @@ const auctionApi = {
       return;
     }
     const winner = this.getPlayerById(auction.highestBidderId);
-    if (!this.auctionWinnerEligible(winner)) {
+    if (!this.auctionWinnerEligible(winner, auction.highestBid)) {
       this.feedMessage('Auction ended without a valid winner.');
       this.resolveTurnAfterAction();
       this.auction = null;
@@ -146,10 +146,18 @@ const auctionApi = {
     this.completeAuctionSale(auction, winner);
   },
 
-  auctionWinnerEligible(winner) {
+  auctionWinnerEligible(winner, amount) {
     if (!winner) return false;
     if (winner.bankrupt) return false;
-    return !winner.disconnected;
+    if (winner.disconnected) return false;
+    if (!this.auctionWinnerCanAfford(winner, amount)) return false;
+    return true;
+  },
+
+  auctionWinnerCanAfford(winner, amount) {
+    if (!winner) return false;
+    if (winner.cash < amount) return false;
+    return true;
   },
 
   closeAuctionWithoutBids(auction) {
@@ -159,21 +167,50 @@ const auctionApi = {
   },
 
   completeAuctionSale(auction, winner) {
+    if (!this.auctionWinnerCanAfford(winner, auction.highestBid)) {
+      this.failAuctionForInsolventWinner();
+      return;
+    }
+    this.deductAuctionPrice(winner, auction.highestBid);
+    this.transferAuctionDeed(auction, winner);
+    this.recordAuctionWin(auction, winner);
+    this.feedAuctionWin(auction, winner);
+    this.auctionsCompleted += 1;
+    this.auction = null;
+    this.resolveTurnAfterAction();
+  },
+
+  failAuctionForInsolventWinner() {
+    this.feedMessage('Auction ended without a valid winner.');
+    this.resolveTurnAfterAction();
+    this.auction = null;
+  },
+
+  deductAuctionPrice(winner, price) {
+    winner.cash -= price;
+    if (winner.cash === 0) winner.zeroCashReached = true;
+  },
+
+  transferAuctionDeed(auction, winner) {
     auction.propertyTile.ownerId = winner.id;
     auction.propertyTile.mortgaged = false;
     auction.propertyTile.houseCount = 0;
     winner.properties.push(auction.propertyTile.index);
+  },
+
+  recordAuctionWin(auction, winner) {
     winner.auctionWins = (winner.auctionWins || 0) + 1;
-    if (auction.highestBid < Number(auction.propertyTile.price || 0)) winner.auctionUnderListWins = (winner.auctionUnderListWins || 0) + 1;
+    this.recordAuctionUnderListWin(auction, winner);
+  },
+
+  recordAuctionUnderListWin(auction, winner) {
+    if (auction.highestBid >= Number(auction.propertyTile.price || 0)) return;
+    winner.auctionUnderListWins = (winner.auctionUnderListWins || 0) + 1;
+  },
+
+  feedAuctionWin(auction, winner) {
     this.feedMessage(`${winner.nickname} won the auction for ${auction.propertyTile.name} at $${auction.highestBid}.`);
-    this.chargePlayer({
-      player: winner,
-      amount: auction.highestBid,
-      message: `${winner.nickname} paid $${auction.highestBid} for ${auction.propertyTile.name}.`,
-      turnOptions: {}
-    });
-    this.auctionsCompleted += 1;
-    this.auction = null;
+    this.feedMessage(`${winner.nickname} paid $${auction.highestBid} for ${auction.propertyTile.name}.`);
   }
 };
 
