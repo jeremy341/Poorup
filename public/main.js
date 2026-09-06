@@ -50,6 +50,7 @@ import {
   deleteProfile,
   saveUnlockedAchievements,
 } from "./clientState.js";
+import { applyServerState, AUCTION_MS } from "./clientStateSync.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -283,149 +284,39 @@ function serverTileFor(index) {
     || state.serverTiles.find((tile) => Number(tile.index) === (Number(index) % TILE_COUNT));
 }
 
-function applyServerState(snapshot) {
-  if (!snapshot?.room || !snapshot?.game) return;
-  // Audit #18: track server-vs-local clock skew from every snapshot so
-  // server-stamped deadlines (auction endsAt) stay honest on a skewed clock.
-  const serverTime = Number(snapshot.serverTime);
-  if (Number.isFinite(serverTime) && serverTime > 0) state.serverTimeOffset = serverTime - Date.now();
-  if (state.suppressRoomUpdates) return;
-  const previousPositions = new Map(state.players.map((player) => [player.id, Number(player.pos) || 0]));
-  setConnectionStatus("online");
-  const { room, game } = snapshot;
-  if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = room.roomCode || "";
-  state.roomVisibility = room.visibility === "public" ? "public" : "private";
-  state.hostId = room.hostId || null;
-  state.serverTiles = Array.isArray(game.tiles) ? game.tiles : [];
-  const remotePlayers = Array.isArray(game.players) ? game.players : room.players || [];
-  const turnOrder = Array.isArray(game.turnOrder) && game.turnOrder.length
-    ? game.turnOrder
-    : remotePlayers.map((player) => player.id);
-  state.players = remotePlayers.map((player) => ({
-    id: player.clientId === state.clientId ? "p1" : player.id,
-    serverId: player.id,
-    clientId: player.clientId,
-    accountId: player.accountId || null,
-    name: String(player.nickname || "PLAYER").toUpperCase(),
-    color: player.color || "#cfa75f",
-    textColor: player.color || "#e8d3ab",
-    cash: Number(player.cash) || 0,
-    pos: Number(player.position) || 0,
-    online: !player.disconnected,
-    bankrupt: Boolean(player.bankrupt),
-    inDebt: Boolean(player.inDebt),
-    bot: Boolean(player.isBot),
-    jailFree: Number(player.jailFreeCards) || 0,
-    bankLoan: player.bankLoan || null,
-    bankLoanOffer: player.bankLoanOffer || null,
-    casinoNet: Number(player.casinoNet) || 0,
-    marketPositions: player.marketPositions || {},
-    isHost: Boolean(player.isHost),
-    avatarGrid: Array.isArray(player.avatarGrid) ? player.avatarGrid : null,
-  })).sort((a, b) => {
-    if (a.clientId === state.clientId) return -1;
-    if (b.clientId === state.clientId) return 1;
-    return turnOrder.indexOf(a.serverId) - turnOrder.indexOf(b.serverId);
-  });
-  state.turnIndex = Math.max(0, state.players.findIndex((player) => player.serverId === game.currentPlayerId));
-  state.dice = Array.isArray(game.lastDice) ? game.lastDice : [0, 0];
-  state.roundNumber = Number(game.roundNumber) || 0;
-  state.globalEvent = game.globalEvent || null;
-  state.playerContracts = game.playerContracts || { pending: null, active: [] };
-  const pendingContract = state.playerContracts.pending;
-  const localServerId = state.players[0]?.serverId;
-  state.playerContractOffer = pendingContract && pendingContract.toPlayerId === localServerId ? pendingContract : null;
-  state.economy = {
-    ...state.economy,
-    ...(game.economy || {}),
-    casino: { ...state.economy.casino, ...(game.economy?.casino || {}) },
-    market: { ...state.economy.market, ...(game.economy?.market || {}) }
-  };
-  state.pool = Number(game.vacationPool) || 0;
-  state.houses = Object.fromEntries(state.serverTiles.map((tile) => [tile.index, Number(tile.houseCount) || 0]));
-  state.mortgaged = Object.fromEntries(state.serverTiles.filter((tile) => tile.mortgaged).map((tile) => [tile.index, true]));
-  state.owners = {};
-  state.serverTiles.forEach((tile) => {
-    if (!tile.ownerId) return;
-    const owner = state.players.find((player) => player.serverId === tile.ownerId);
-    if (owner) state.owners[tile.index] = owner.id;
-  });
-  state.jail = Object.fromEntries(remotePlayers.filter((player) => player.inJail).map((player) => [
-    player.clientId === state.clientId ? "p1" : player.id,
-    Number(player.jailTurns) || 1,
-  ]));
-  state.phase = game.started ? "playing" : state.phase === "setup" ? "setup" : "lobby";
-  const movementPlans = state.phase === "playing"
-    ? state.players
-        .map((player) => ({ player, from: previousPositions.get(player.id), to: Number(player.pos) || 0 }))
-        .filter(({ from, to }) => from != null && from !== to && (to - from + TILE_COUNT) % TILE_COUNT <= 12)
-    : [];
-  const turnKey = `${game.currentPlayerId || "none"}:${game.hasRolled ? "rolled" : "roll"}:${game.extraRollPending ? "extra" : "normal"}`;
-  const turnChanged = state.previousTurnKey !== turnKey;
-  state.previousTurnKey = turnKey;
-  state.turnStage = (game.hasRolled && !game.extraRollPending) || game.awaitingEndTurn ? "end" : "roll";
-  state.busy = false;
-  state.rolling = false;
-  state.log = (game.feed || []).map((entry) => typeof entry === "string" ? entry : entry.text).filter(Boolean).slice(0, 40);
-  state.settings = {
-    ...state.settings,
-    ...(room.settings || {}),
-    vacationPool: room.settings?.vacationCash ?? state.settings.vacationPool,
-    noRentInJail: room.settings?.noRentWhileInPrison ?? state.settings.noRentInJail,
-  };
-  state.pendingBuyTile = game.pendingPurchaseOffer?.tileIndex ?? null;
-  state.auction = game.auction ? {
-    tileIndex: Number(game.auction.tileIndex),
-    bid: Number(game.auction.highestBid) || 0,
-    leaderId: state.players.find((player) => player.serverId === game.auction.highestBidderId)?.id || null,
-    deadline: Number(game.auction.endsAt) || serverNow() + AUCTION_MS,
-    caps: {},
-    passed: Object.fromEntries((game.auction.passedPlayerIds || []).map((id) => [state.players.find((p) => p.serverId === id)?.id, true]).filter(([id]) => id)),
-  } : null;
-  // Snapshots update data unconditionally but must not hijack the page —
-  // only re-assert the game view while the player is mid-room-session and
-  // the parlor is the surface actually on screen (A4-F1).
-  if (state.phase !== "home" && !$("#view-game").classList.contains("is-hidden")) showView("game");
-  renderAll();
-  if (movementPlans.length) {
-    requestAnimationFrame(() => movementPlans.forEach(({ player, from, to }) => startPieceWalk(player.id, from, to)));
-  }
-  if (state.auction) {
-    renderAuction();
-    openSurface("#auction-modal", "#auction-pass");
-    clearInterval(auctionTimer);
-    auctionTimer = setInterval(tickAuction, 60);
-  } else {
-    clearInterval(auctionTimer);
-    auctionTimer = null;
-    closeSurface("#auction-modal");
-  }
-  const debt = game.pendingPayment;
-  state.pendingDebt = debt || null;
-  const retireBtn = $("#game-retire-btn");
-  if (retireBtn) {
-    const me = state.players[0];
-    retireBtn.disabled = !(state.phase === "playing" && me && !me.bankrupt && !me.inDebt && me.online !== false);
-  }
-  const meServerId = state.players[0]?.serverId;
-  if (debt && debt.playerId === meServerId && $("#bankruptcy-modal")?.classList.contains("is-hidden")) {
-    const meIndex = state.players.findIndex((player) => player.serverId === meServerId);
-    if (meIndex >= 0) openBankruptcyModal(meIndex, Number(debt.amountRemaining) || 0, debt.creditorId, debt.reason || "This payment is due.");
-  } else if (!debt) {
-    $("#bankruptcy-modal")?.classList.add("is-hidden");
-  }
-  if (game.lastWinner && !state.gameOver) {
-    showGameOver(game.lastWinner.nickname || "The winner", game.lastWinner.id);
-  }
-  if (turnChanged && state.phase === "playing" && state.turnIndex === 0) startTurnCountdown();
-  requestAnimationFrame(() => placePieces());
-}
-
 function updateServerSetting(key, value) {
   state.settings[key] = value;
   const serverKey = SERVER_SETTING_KEYS[key];
   if (serverKey) emitServer("set-setting", { key: serverKey, value }, () => {});
 }
+
+/* Host callbacks that keep DOM, timers, and rendering owned by main.js while
+   the pure snapshot syncers live in clientStateSync.js. */
+const serverSyncHost = {
+  setConnectionStatus,
+  showView,
+  renderAll,
+  startPieceWalk,
+  openBankruptcyModal,
+  showGameOver,
+  startTurnCountdown,
+  gameViewVisible: () => !$("#view-game").classList.contains("is-hidden"),
+  openAuctionSurface: () => {
+    renderAuction();
+    openSurface("#auction-modal", "#auction-pass");
+    clearInterval(auctionTimer);
+    auctionTimer = setInterval(tickAuction, 60);
+  },
+  closeAuctionSurface: () => {
+    clearInterval(auctionTimer);
+    auctionTimer = null;
+    closeSurface("#auction-modal");
+  },
+  retireButton: () => $("#game-retire-btn"),
+  bankruptcyHidden: () => Boolean($("#bankruptcy-modal")?.classList.contains("is-hidden")),
+  hideBankruptcyModal: () => $("#bankruptcy-modal")?.classList.add("is-hidden"),
+  placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
+};
 
 if (socket) {
   socket.on("connect", () => {
@@ -444,7 +335,7 @@ if (socket) {
     emitServer("restore-session", {}, (response) => handleRestoreSessionResponse(response, false));
   });
   socket.on("connect_error", () => setConnectionStatus("offline", true));
-  socket.on("update-state", applyServerState);
+  socket.on("update-state", (snapshot) => applyServerState(snapshot, serverSyncHost));
   socket.on("rooms-updated", (payload) => {
     roomsDirectory = Array.isArray(payload?.rooms) ? payload.rooms : roomsDirectory;
     if (!$("#rooms-modal").classList.contains("is-hidden")) renderRoomsList();
@@ -4828,8 +4719,6 @@ const BID_STEPS = [1, 20, 100];
 // Audit #18: single clock for auction deadlines. Matches the server's frame
 // once a snapshot has arrived (offset 0 before the first one).
 function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
-
-const AUCTION_MS = 5000;
 let auctionTimer = null;
 
 /** Human landed on a vacant lot: auto-show choice modal.
