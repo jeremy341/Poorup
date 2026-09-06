@@ -320,17 +320,30 @@ function contractOutgoingBlockHTML(outgoing) {
   return '<div class="player-contract-offer is-outgoing"><strong class="t-label f12 g100">CONTRACT SENT TO ' + esc(outgoing.toPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">' + esc(String(outgoing.kind || "loan").toUpperCase()) + ' · AWAITING REVIEW</span><button class="btn-dark" type="button" data-player-contract-cancel><span class="t-label f11">CANCEL</span></button></div>';
 }
 
+function contractHybridDetailHTML(contract) {
+  const remaining = Number(contract.remaining || 0).toLocaleString();
+  const dueRound = Number(contract.dueRound || 0);
+  const conversion = Number(contract.conversionShare || 0);
+  return "$" + remaining + " REMAINING · DUE R" + dueRound + " · CONVERTS " + conversion + "%";
+}
+
 function contractRowDetailHTML(contract) {
   if (contract.kind === "loan") {
     const remaining = Number(contract.remaining || 0).toLocaleString();
     const dueRound = Number(contract.dueRound || 0);
     return "$" + remaining + " REMAINING · DUE R" + dueRound;
   }
+  if (contract.kind === "hybrid") return contractHybridDetailHTML(contract);
   return Number(contract.equityShare || 0) + "% EQUITY";
 }
 
+function contractDebtKind(kind) {
+  if (kind === "loan") return true;
+  return kind === "hybrid";
+}
+
 function contractRepayHTML(contract, localServerId) {
-  if (contract.kind !== "loan") return "";
+  if (!contractDebtKind(contract.kind)) return "";
   if (contract.toPlayerId !== localServerId) return "";
   return '<button class="btn-dark" type="button" data-player-contract-repay="' + esc(contract.id) + '"><span class="t-label f11">REPAY</span></button>';
 }
@@ -349,7 +362,7 @@ function contractActiveBlock(ctx) {
 }
 
 function contractFormHTML(others) {
-  return '<form class="player-contract-form" data-player-contract-form><label class="account-field"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option></select></label><label class="account-field"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="financing-check"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
+  return '<form class="player-contract-form" data-player-contract-form><label class="account-field"><span class="t-micro g400">RECIPIENT</span><select class="setting-select" name="toPlayerId">' + others.map(player => '<option value="' + esc(player.serverId || player.id) + '">' + esc(player.name) + '</option>').join("") + '</select></label><label class="account-field"><span class="t-micro g400">TYPE</span><select class="setting-select" name="kind"><option value="loan">PLAYER LOAN</option><option value="equity">PROPERTY EQUITY</option><option value="hybrid">HYBRID NOTE</option></select></label><label class="account-field"><span class="t-micro g400">AMOUNT</span><input class="field" name="amount" type="number" min="1" max="5000" value="100" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PREMIUM %</span><input class="field" name="premiumRate" type="number" min="0" max="100" value="20" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">TERM · ROUNDS</span><input class="field" name="durationRounds" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">PROPERTY INDEX</span><input class="field" name="propertyIndex" type="number" min="0" max="39" value="1" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">COLLATERAL INDEX</span><input class="field" name="collateralTileIndex" type="number" min="0" max="39" placeholder="OPTIONAL" inputmode="numeric"></label><label class="account-field"><span class="t-micro g400">EQUITY SHARE %</span><input class="field" name="equityShare" type="number" min="5" max="100" value="10" inputmode="numeric"></label><label class="financing-check"><input type="checkbox" name="permanent"><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label><button class="btn-dark" type="submit"><span class="t-label f11">SEND CONTRACT</span></button></form>';
 }
 
 function contractOthersBlockHTML(others) {

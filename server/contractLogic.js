@@ -11,7 +11,7 @@ import {
   handlePlayerLoanDefault
 } from './bankruptcyLogic.js';
 
-export const CONTRACT_KINDS = new Set(['loan', 'equity']);
+export const CONTRACT_KINDS = new Set(['loan', 'equity', 'hybrid']);
 export const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
 const ACTIVE_CONTRACT_STATUSES = ['active', 'due'];
 const TABLE_OBLIGATION_FIELDS = [
@@ -62,7 +62,8 @@ function normalizeContractOffer(offer) {
     amount: Math.floor(Number(offer.amount)),
     requestId: String(offer.requestId || '').trim().slice(0, 100),
     durationRounds: Math.max(1, Math.min(20, Math.floor(Number(offer.durationRounds) || 3))),
-    premiumRate: Math.max(0, Math.min(100, Number(offer.premiumRate) || 0))
+    premiumRate: Math.max(0, Math.min(100, Number(offer.premiumRate) || 0)),
+    conversionShare: Math.max(5, Math.min(100, Math.floor(Number(offer.conversionShare) || 25)))
   };
 }
 
@@ -96,7 +97,8 @@ function draftContract(game, terms) {
     status: 'pending',
     collateralTileIndex: null,
     equityShare: 0,
-    equityControl: 'passive'
+    equityControl: 'passive',
+    conversionShare: 0
   };
 }
 
@@ -151,6 +153,33 @@ function equityDraftTerms(game, contract, offer, recipient) {
   return null;
 }
 
+// A hybrid note is a loan at accept time and converts into an equity share
+// only when it defaults past its cure turn. Proposal validates both legs:
+// the loan math plus the conversion target an equity draft would require.
+function hybridDraftTerms(game, contract, offer, recipient) {
+  const property = game.getTile(Number(offer.propertyIndex));
+  const conversion = Math.max(5, Math.min(100, Math.floor(Number(offer.conversionShare) || 25)));
+  if (!isEquityEligibleProperty(property, recipient.id)) {
+    return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
+  }
+  if (equityCapReached(property, conversion)) {
+    return { success: false, error: 'That property has no remaining equity to sell.' };
+  }
+  contract.totalDue = contract.amount + Math.ceil(contract.amount * (contract.premiumRate / 100));
+  contract.remaining = contract.totalDue;
+  contract.dueRound = game.roundNumber + contract.durationRounds;
+  contract.cureRound = contract.dueRound + 1;
+  contract.propertyIndex = property.index;
+  contract.conversionShare = conversion;
+  return null;
+}
+
+const TERM_BUILDERS = {
+  loan: loanDraftTerms,
+  equity: equityDraftTerms,
+  hybrid: hybridDraftTerms
+};
+
 export function proposeContract(game, socketId, offer = {}) {
   const fromPlayer = game.getPlayerBySocket(socketId);
   const toPlayer = game.getPlayerById(offer.toPlayerId);
@@ -168,9 +197,8 @@ export function proposeContract(game, socketId, offer = {}) {
     premiumRate: normalized.premiumRate,
     durationRounds: normalized.durationRounds
   });
-  const terms = normalized.kind === 'loan'
-    ? loanDraftTerms(game, contract, offer, toPlayer)
-    : equityDraftTerms(game, contract, offer, toPlayer);
+  const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
+  const terms = buildTerms(game, contract, offer, toPlayer);
   if (terms) return terms;
   game.pendingPlayerContract = contract;
   game.feedMessage(fromPlayer.nickname + ' sent a ' + normalized.kind + ' contract to ' + toPlayer.nickname + '.');
@@ -243,10 +271,17 @@ export function respondContract(game, socketId, accept, requestId = null) {
   return memoizeSuccess(game, key, result);
 }
 
+// A hybrid note repays like a loan until it converts; conversion ends the
+// debt leg, so converted contracts are never repayable.
+function repayableDebtKind(contract) {
+  if (contract.kind === 'loan') return true;
+  return contract.kind === 'hybrid';
+}
+
 function repayableLoan(contract, borrower) {
   if (!borrower) return false;
   if (!contract) return false;
-  if (contract.kind !== 'loan') return false;
+  if (!repayableDebtKind(contract)) return false;
   if (contract.toPlayerId !== borrower.id) return false;
   return ACTIVE_CONTRACT_STATUSES.includes(contract.status);
 }
@@ -323,8 +358,61 @@ function advanceLoanContract(game, contract) {
   if (contract.status === 'due') handleDueLoanContract(game, contract);
 }
 
+function hybridConversionEligible(game, contract) {
+  const borrower = game.getPlayerById(contract.toPlayerId);
+  if (!borrower) return false;
+  const property = game.getTile(contract.propertyIndex);
+  if (!isEquityEligibleProperty(property, borrower.id)) return false;
+  return !equityCapReached(property, contract.conversionShare);
+}
+
+function recordHybridConversion(game, contract, lender) {
+  const property = game.getTile(contract.propertyIndex);
+  const holders = property.equityShares || [];
+  property.equityShares = [...holders, {
+    holderId: lender.id,
+    share: contract.conversionShare,
+    contractId: contract.id,
+    control: 'passive'
+  }];
+}
+
+// A hybrid note converts instead of seizing: past the cure turn the lender
+// takes the agreed equity share and interest stops. When the conversion
+// target is gone (sold, mortgaged, built on, or full), the note falls back
+// to the plain loan-default path.
+function convertHybridContract(game, contract) {
+  if (!hybridConversionEligible(game, contract)) {
+    handlePlayerLoanDefault(game, contract);
+    return;
+  }
+  const lender = game.getPlayerById(contract.fromPlayerId);
+  const borrower = game.getPlayerById(contract.toPlayerId);
+  recordHybridConversion(game, contract, lender);
+  contract.status = 'converted';
+  contract.convertedRound = game.roundNumber;
+  game.feedMessage((lender?.nickname || 'PLAYER') + ' converted a hybrid note into ' + contract.conversionShare + '% equity from ' + (borrower?.nickname || 'PLAYER') + '.');
+}
+
+function handleDueHybridContract(game, contract) {
+  if (game.roundNumber <= contract.cureRound) return;
+  convertHybridContract(game, contract);
+}
+
+function advanceHybridContract(game, contract) {
+  if (contract.status === 'active') {
+    handleActiveLoanContract(game, contract);
+    return;
+  }
+  if (contract.status === 'due') handleDueHybridContract(game, contract);
+}
+
 function processContract(game, contract) {
   if (expireEquityContract(game, contract)) return;
+  if (contract.kind === 'hybrid') {
+    advanceHybridContract(game, contract);
+    return;
+  }
   advanceLoanContract(game, contract);
 }
 
@@ -367,12 +455,27 @@ function projectContract(game, contract, viewerPlayerId) {
   return { id: contract.id, kind: contract.kind, status: contract.status, createdRound: contract.createdRound, ...names };
 }
 
+// A converted hybrid note is live equity, so it stays visible alongside
+// active and due contracts instead of vanishing from the ledger.
+function contractIsLive(contract) {
+  if (ACTIVE_CONTRACT_STATUSES.includes(contract.status)) return true;
+  return contract.status === 'converted';
+}
+
+// An equity share earns and survives only while its contract is live: an
+// active agreement, or a converted hybrid note whose debt leg has ended.
+export function equityShareContractLive(contract) {
+  if (!contract) return false;
+  if (contract.status === 'active') return true;
+  return contract.status === 'converted';
+}
+
 export function playerContractSummary(game, viewerPlayerId = null) {
   const pending = game.pendingPlayerContract
     ? projectContract(game, game.pendingPlayerContract, viewerPlayerId)
     : null;
   const active = game.playerContracts
-    .filter(contract => ACTIVE_CONTRACT_STATUSES.includes(contract.status))
+    .filter(contractIsLive)
     .map(contract => projectContract(game, contract, viewerPlayerId));
   return { pending, active };
 }

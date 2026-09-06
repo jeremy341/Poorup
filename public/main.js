@@ -822,7 +822,7 @@ configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureAccountIdentity({ emitServer, say });
 configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal });
-configureTradeUi({ emitServer, say, renderChat, record });
+configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureProfileRender({ renderAchievements, loadSavedGame });
