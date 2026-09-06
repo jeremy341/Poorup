@@ -63,6 +63,7 @@ import {
 import {
   renderHud,
   startTurnCountdown,
+  stopTurnCountdown,
   configureTurnCountdown,
 } from "./clientHudRender.js";
 import {
@@ -2064,8 +2065,7 @@ function goHome() {
   // emptying here never leaves stale content behind.
   state.messages = [];
   state.log = [];
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
+  stopTurnCountdown();
   state.phase = "home";
   state.roomVisibility = "private";
   state.suppressRoomUpdates = true;
