@@ -154,7 +154,7 @@ class Room {
     existing.socketId = playerInfo.socketId;
     existing.disconnected = false;
     this.refreshReconnectNickname(existing, playerInfo.nickname);
-    this.refreshReconnectColor(existing, playerInfo.color);
+    this.refreshReconnectColor(existing, playerInfo.color, playerInfo.avatarGrid);
     this.refreshReconnectAvatarGrid(existing, playerInfo.avatarGrid);
     if (playerInfo.accountId) existing.accountId = playerInfo.accountId;
     return { success: true, player: existing };
@@ -166,10 +166,11 @@ class Room {
     if (safeNickname) player.nickname = safeNickname;
   }
 
-  refreshReconnectColor(player, color) {
+  refreshReconnectColor(player, color, avatarGrid) {
     if (typeof color !== 'string') return;
     if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
-    player.color = resolveFreeAppearanceColor(this.game.players, color, player);
+    const grid = avatarGrid === undefined ? player.avatarGrid : avatarGrid;
+    player.color = resolveFreeAppearanceColor(this.game.players, color, player, grid);
   }
 
   refreshReconnectAvatarGrid(player, avatarGrid) {
@@ -184,7 +185,7 @@ class Room {
       return { success: false, error: 'Room is full.' };
     }
     const player = new Player(playerInfo);
-    player.color = resolveFreeAppearanceColor(this.game.players, player.color, player);
+    player.color = resolveFreeAppearanceColor(this.game.players, player.color, player, player.avatarGrid);
     this.game.addPlayer(player);
     return { success: true, player };
   }
@@ -378,7 +379,7 @@ class RoomManager {
     const player = new Player({ ...hostInfo, isHost: true });
     const roomCode = hostInfo.roomCode || this.reserveRoomCode();
     const room = new Room(player, { roomName: hostInfo.roomName, visibility: hostInfo.visibility, roomCode });
-    player.color = resolveFreeAppearanceColor(room.game.players, player.color, player);
+    player.color = resolveFreeAppearanceColor(room.game.players, player.color, player, player.avatarGrid);
     this.rooms.set(room.roomCode, room);
     this.socketRoom.set(hostInfo.socketId, room);
     return room;

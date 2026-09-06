@@ -42,7 +42,7 @@ async function testCreateRoomCodeCollision() {
   assert.equal(manager.rooms.get(generated.roomCode), generated);
 }
 
-// Contract 6: addOrReconnectPlayer / createRoom de-conflicts colors.
+// Contract 6: addOrReconnectPlayer / createRoom de-conflicts icons.
 async function testJoinColorUniqueness() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', color: PRESET_COLORS[0] });
@@ -72,7 +72,20 @@ async function testJoinColorUniqueness() {
   assert.equal(playerOf(full, 'client-g').color, '#d74438');
 }
 
-// Contract 6: GameState.setPlayerAppearance rejects duplicate colors.
+// Contract 6: seating keeps a requested color when only the face differs.
+async function testJoinFaceIdentity() {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', color: '#d74438' });
+  const faced = room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B', color: '#d74438', avatarGrid: [[1]] });
+  assert.equal(faced.success, true);
+  assert.equal(playerOf(room, 'client-b').color, '#d74438');
+  // Exact duplicate (same color, generic face) falls back to the first free preset.
+  const dupe = room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C', color: '#d74438' });
+  assert.equal(dupe.success, true);
+  assert.equal(playerOf(room, 'client-c').color, '#286ea1');
+}
+
+// Contract 6: GameState.setPlayerAppearance rejects duplicate icons.
 async function testSetPlayerAppearance() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', color: '#d74438' });
@@ -80,20 +93,25 @@ async function testSetPlayerAppearance() {
   const a = playerOf(room, 'client-a');
   const b = playerOf(room, 'client-b');
   assert.equal(b.color, '#286ea1');
-  // Duplicate color rejected — a differing custom avatarGrid does not exempt it (color is the identity).
-  const dupe = room.game.setPlayerAppearance('socket-b', { color: '#d74438', avatarGrid: [[1, 0], [0, 1]] });
-  assert.equal(dupe.success, false);
-  assert.equal(dupe.error, 'That icon is already taken at this table.');
-  assert.equal(b.color, '#286ea1');
+  // Same color with a differing custom face is a different icon: allowed.
+  const faced = room.game.setPlayerAppearance('socket-b', { color: '#d74438', avatarGrid: [[1, 0], [0, 1]] });
+  assert.equal(faced.success, true);
+  assert.equal(b.color, '#d74438');
+  // Exact duplicate (same color, same generic face) is still rejected.
+  assert.deepEqual(room.game.setPlayerAppearance('socket-b', { color: '#d74438', avatarGrid: null }), { success: false, error: 'That icon is already taken at this table.' });
+  assert.equal(b.color, '#d74438');
   // Re-applying one's own look succeeds.
   assert.equal(room.game.setPlayerAppearance('socket-a', { color: '#d74438', nickname: 'A2', avatarGrid: null }).success, true);
   assert.equal(a.nickname, 'A2');
   // A free color applies.
   assert.equal(room.game.setPlayerAppearance('socket-b', { color: '#d9a62f' }).success, true);
   assert.equal(b.color, '#d9a62f');
-  // Identity applies to non-preset colors too.
+  // Identity applies to non-preset colors too: the same color with a
+  // different face is free, the exact duplicate is not.
   assert.equal(room.game.setPlayerAppearance('socket-b', { color: '#123456' }).success, true);
-  const offDupe = room.game.setPlayerAppearance('socket-a', { color: '#123456' });
+  assert.equal(room.game.setPlayerAppearance('socket-a', { color: '#123456' }).success, true);
+  assert.equal(a.color, '#123456');
+  const offDupe = room.game.setPlayerAppearance('socket-a', { color: '#123456', avatarGrid: [[1, 0], [0, 1]] });
   assert.equal(offDupe.success, false);
   assert.equal(offDupe.error, 'That icon is already taken at this table.');
   // Disconnected players are not "connected" and must not block a color.
@@ -829,8 +847,9 @@ function testStoresCharacterization() {
 
 const CONTRACT_SUITES = [
   ['contract 7 — createRoom generated codes never overwrite', testCreateRoomCodeCollision],
-  ['contract 6 — join/create color collision auto-assign', testJoinColorUniqueness],
-  ['contract 6 — setPlayerAppearance duplicate-color rejection', testSetPlayerAppearance],
+  ['contract 6 — join/create icon collision auto-assign', testJoinColorUniqueness],
+  ['contract 6 — seating keeps same-color different-face', testJoinFaceIdentity],
+  ['contract 6 — setPlayerAppearance duplicate-icon rejection', testSetPlayerAppearance],
   ['contract 4 — Room.hasConnectedHumans', testHasConnectedHumans],
   ['contract 5 — listPublicRooms browse purity', testListPublicRooms],
   ['contract 8 — getGameSummary players[] avatarGrid', testGameSummaryAvatarGrid],

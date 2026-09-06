@@ -1144,7 +1144,8 @@ a:focus-visible {
 }
 .airport-mark-card { width: 26px; }
 .airport-mark-popup { width: 52px; }
-.tile-owner { position: absolute; right: 2px; top: 2px; width: 6px; height: 6px; box-shadow: 0 0 0 1px var(--bg-canvas); }
+.tile-owner { position: absolute; right: 2px; top: 2px; width: 8px; height: 8px; box-shadow: 0 0 0 1px var(--bg-canvas); }
+.tile-owner > svg { display: block; width: 8px; height: 8px; }
 .tile-face {
   position: absolute;
   inset: 0;
