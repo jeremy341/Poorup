@@ -74,6 +74,7 @@ import { serverTileFor, ownsFullGroup } from "./clientDeedRules.js";
 import { cardFaceHTML } from "./clientCardsRender.js";
 import { deedLadderHTML, deedCardHTML } from "./clientDeedsRender.js";
 import { renderRightRail } from "./clientRailRender.js";
+import { renderGlobalEvent } from "./clientGlobalEventRender.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
@@ -3256,78 +3257,6 @@ function renderAll() {
 function tog(id, value) {
   const label = id.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
   return `<button class="tog${value ? " is-on" : ""}" data-setting="${id}" aria-label="${label}" aria-pressed="${value}" title="${label}"></button>`;
-}
-
-function renderGlobalEvent() {
-  const banner = $("#global-event-banner");
-  if (!banner) return;
-  const event = state.globalEvent;
-  const visible = state.phase === "playing" && event;
-  banner.classList.toggle("is-hidden", !visible);
-  if (!visible) return;
-  const accent = event.category === "CIVIC" ? "#d9a62f" : event.category === "INFRASTRUCTURE" ? "#286ea1" : "#d74438";
-  banner.style.setProperty("--event-accent", accent);
-  $("#global-event-kicker").textContent = event.phase === "voting" ? "TABLE VOTE" : `${event.category} · GLOBAL EVENT`;
-  $("#global-event-title").textContent = String(event.title || "GLOBAL EVENT");
-  $("#global-event-copy").textContent = String(event.summary || "The table is under a global effect.");
-  const effectLabels = {
-    rentMultiplier: "RENTS",
-    constructionBlocked: "BUILDING FROZEN",
-    buildingSaleMultiplier: "BUILDING SALES",
-    propertyValueMultiplier: "PROPERTY VALUE",
-    bankLoansBlocked: "BANK LOANS",
-    mortgagesBlocked: "MORTGAGES",
-    taxMultiplier: "TAXES",
-    buildingCostMultiplier: "BUILDING COST",
-    loanPremiumMultiplier: "LOAN PREMIUM",
-    airportRentMultiplier: "AIRPORT RENT",
-    airportCardsBlocked: "AIRPORT CARDS",
-    premiumRentMultiplier: "PREMIUM RENT",
-    leaderRentMultiplier: "LEADER RENT",
-    rentCap: "RENT CAP",
-    buildingLimitPerTurn: "BUILD LIMIT",
-    bankActionsBlocked: "BANK ACTIONS",
-    auctionBlocked: "AUCTIONS",
-    cashMultiplier: "CASH",
-    utilityRentMultiplier: "UTILITY RENT",
-    marketPriceMultiplier: "MARKET PRICE",
-    marketVolatility: "MARKET VOLATILITY",
-    casinoMaxBet: "CASINO MAX BET",
-    casinoEntryFee: "CASINO FEE",
-    tradingEnabled: "MARKET TRADING",
-    loanSettlementMultiplier: "LOAN SETTLEMENT",
-    rentControlStipend: "RENT STIPEND",
-    cashMultiplier: "CASH RESERVES",
-  };
-  const effectEl = $("#global-event-effects");
-  if (effectEl) {
-    effectEl.innerHTML = Object.entries(event.effects || {}).map(([key, value]) => {
-      const label = effectLabels[key] || key.replaceAll(/([A-Z])/g, " $1").toUpperCase();
-      const fixed = ["rentCap", "buildingLimitPerTurn", "casinoMaxBet", "casinoEntryFee", "buildingMaintenance", "rentControlStipend"].includes(key);
-      const shown = typeof value === "boolean"
-        ? (value ? "ON" : "OFF")
-        : fixed ? (["casinoMaxBet", "casinoEntryFee", "buildingMaintenance", "rentControlStipend"].includes(key) ? "$" + Number(value).toLocaleString() : String(value))
-          : (() => { const delta = Math.round((Number(value) - 1) * 100); return delta === 0 ? "100%" : `${delta > 0 ? "+" : ""}${delta}%`; })();
-      return `<span class="global-event-effect t-micro">${esc(label)} · ${esc(shown)}</span>`;
-    }).join("");
-  }
-  $("#global-event-rounds").textContent = event.phase === "voting"
-    ? "VOTE BEFORE NEXT ROUND"
-    : event.phase === "warning"
-      ? "ACTIVATES NEXT ROUND"
-      : event.phase === "recovery"
-        ? "RECOVERY · EFFECTS TAPERING"
-      : `${event.roundsRemaining || 0} ROUNDS LEFT`;
-  const choices = $("#global-event-choices");
-  if (!choices) return;
-  if (event.phase !== "voting" || !Array.isArray(event.choices)) {
-    choices.innerHTML = "";
-    return;
-  }
-  const me = state.players[0];
-  const voterId = me?.serverId || me?.id;
-  const voted = Boolean(voterId && event.votes?.[voterId]);
-  choices.innerHTML = event.choices.map((choice) => `<button class="global-event-choice" type="button" data-global-choice="${esc(choice.id)}" ${voted ? "disabled" : ""} title="${esc(choice.description || "Cast your vote")}">${esc(choice.label)}</button>`).join("");
 }
 
 function stepper(id, value, min, max) {
