@@ -46,7 +46,6 @@ import {
   configureRailEvents,
   onRailClick,
   onRailSubmit,
-  onRailChange,
 } from "./clientRailEvents.js";
 import { configureProfileRender } from "./clientProfileRender.js";
 import {
@@ -747,7 +746,6 @@ function bindRail() {
   // trade tab: open a trade with another player
   $("#rr-body").addEventListener("click", onRailClick);
   $("#rr-body").addEventListener("submit", onRailSubmit);
-  $("#rr-body").addEventListener("change", onRailChange);
 
   // popup
   $("#popup-scrim").addEventListener("click", closePopup);

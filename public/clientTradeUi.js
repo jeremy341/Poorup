@@ -21,7 +21,7 @@ export function configureTradeUi(hooks) {
 }
 
 let financingPreviewMode = "loan";
-let financingSurfaceMode = "offer";
+let financingView = "builder";
 let financingSurfaceContractId = null;
 let financingSurfaceTileIndex = null;
 const financingPreviewDraft = {
@@ -483,22 +483,11 @@ function financingContractRedacted(contract) {
   return contract.equityShare == null;
 }
 
-function financingDebtKind(kind) {
-  if (kind === "loan") return true;
-  return kind === "hybrid";
-}
-
 function financingRepayableContract(contract) {
   if (!financingContractMine(contract)) return false;
   if (contract.toPlayerId !== financingMyServerId()) return false;
   if (contract.status === "active") return true;
   return contract.status === "due";
-}
-
-function financingViewSurface(contract) {
-  if (contract.kind === "equity") return "ownership";
-  if (contract.kind === "hybrid" && contract.status === "converted") return "ownership";
-  return "contract";
 }
 
 function financingContractPickerHTML() {
@@ -540,13 +529,6 @@ function financingContractCopy(kind) {
 function financingContractRepayHTML(contract) {
   if (!financingRepayableContract(contract)) return "";
   return `<button class="btn-dark" type="button" data-financing-repay="${esc(contract.id)}"><span class="t-label f11">REPAY $${Number(contract.remaining || 0).toLocaleString()}</span></button>`;
-}
-
-function financingContractLiveHTML(contract) {
-  const status = String(contract.status || "active").toUpperCase();
-  const tone = contract.status === "due" ? "red" : "green";
-  const progress = financingRepayProgress(contract);
-  return `<section class="financing-surface-body" aria-labelledby="financing-contract-heading"><div class="financing-surface-kicker"><span class="t-micro g400">CONTRACT · LIVE</span><span class="t-label f11 ${tone}">${esc(status)} · ${esc(financingCureLine(contract))}</span></div><h3 class="t-section g100" id="financing-contract-heading">${esc(financingContractTitle(contract))}</h3><div class="financing-contract-grid"><div><span class="t-micro ink-3">BORROWER</span><strong class="t-label f13 g100">${esc(contract.toPlayerName || "PLAYER")}</strong></div><div><span class="t-micro ink-3">LENDER</span><strong class="t-label f13 g100">${esc(contract.fromPlayerName || "PLAYER")}</strong></div><div><span class="t-micro ink-3">ADVANCE</span><strong class="t-label f13 g100">$${Number(contract.amount || 0).toLocaleString()}</strong></div><div><span class="t-micro ink-3">REMAINING</span><strong class="t-label f13 g100">$${Number(contract.remaining || 0).toLocaleString()}</strong></div></div><div class="financing-ownership-bar"><span class="financing-ownership-primary" style="width:${progress.pct}%"></span><span class="financing-ownership-secondary" style="width:${100 - progress.pct}%"></span></div><p class="t-body ink-2 financing-surface-copy">$${progress.paid.toLocaleString()} paid of $${progress.total.toLocaleString()}. ${esc(financingContractCopy(contract.kind))}</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button>${financingContractRepayHTML(contract)}</div></section>`;
 }
 
 function financingTileShares(index) {
@@ -635,92 +617,124 @@ function financingDeedPickerHTML() {
   return `<div class="financing-surface-actions">` + deeds.map((tile) => `<button class="btn-dark" type="button" data-financing-deed="${tile.i}"><span class="t-label f11">${esc(tile.name)}</span></button>`).join("") + `</div>`;
 }
 
-function financingOwnershipLiveHTML(tile) {
-  const shares = financingTileShares(tile.i);
+function financingMissingContractHTML() {
+  return `<section class="financing-surface-body" aria-labelledby="financing-missing-heading"><div class="financing-surface-kicker"><span class="t-micro g400">NOT AVAILABLE</span></div><h3 class="t-section g100" id="financing-missing-heading">No live contract selected</h3><p class="t-body ink-2 financing-surface-copy">Pick a live deal below, or shape a new one on the offer surface.</p>${financingContractPickerHTML()}<div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-view="builder"><span class="t-label f11">SHAPE NEW DEAL</span></button></div></section>`;
+}
+
+function financingDealStatusTone(contract) {
+  if (contract.status === "due") return "red";
+  return "green";
+}
+
+function financingDealHeaderHTML(contract) {
+  const status = String(contract.status || "active").toUpperCase();
+  const tone = financingDealStatusTone(contract);
+  return `<div class="financing-surface-kicker"><span class="t-micro g400">DEAL · LIVE</span><span class="t-label f11 ${tone}">${esc(status)} · ${esc(financingCureLine(contract))}</span></div><h3 class="t-section g100">${esc(financingContractTitle(contract))}</h3>`;
+}
+
+function financingDealDebtKeyHTML(contract) {
+  const remaining = Number(contract.remaining || 0);
+  return `<div class="financing-default-amount"><span class="t-micro ink-3">OUTSTANDING BALANCE</span><strong class="t-money red">$${remaining.toLocaleString()}</strong></div>`;
+}
+
+function financingDealEquityKeyHTML(contract) {
+  const share = Number(contract.equityShare || 0);
+  return `<div class="financing-default-amount"><span class="t-micro ink-3">EQUITY SHARE</span><strong class="t-money green">${share}%</strong></div>`;
+}
+
+function financingDealKeyFigureHTML(contract) {
+  if (contract.kind === "equity") return financingDealEquityKeyHTML(contract);
+  return financingDealDebtKeyHTML(contract);
+}
+
+function financingDealShowsProgress(contract) {
+  if (contract.kind === "loan") return true;
+  if (contract.kind !== "hybrid") return false;
+  if (contract.status === "converted") return false;
+  return true;
+}
+
+function financingDealProgressBarHTML(progress) {
+  return `<div class="financing-ownership-bar"><span class="financing-ownership-primary" style="width:${progress.pct}%"></span><span class="financing-ownership-secondary" style="width:${100 - progress.pct}%"></span></div>`;
+}
+
+function financingDealProgressHTML(contract) {
+  if (!financingDealShowsProgress(contract)) return "";
+  const progress = financingRepayProgress(contract);
+  return `${financingDealProgressBarHTML(progress)}<p class="t-body ink-2 financing-surface-copy">$${progress.paid.toLocaleString()} paid of $${progress.total.toLocaleString()}.</p>`;
+}
+
+function financingDealIsDue(contract) {
+  return contract.status === "due";
+}
+
+function financingDealCureHTML(contract) {
+  if (!financingDealIsDue(contract)) return "";
+  return `<p class="t-micro red">${esc(financingCureLine(contract))}</p>`;
+}
+
+function financingDealCapShares(tile) {
+  if (!tile) return [];
+  return financingTileShares(tile.i);
+}
+
+function financingDealHasCapTable(tile) {
+  const shares = financingDealCapShares(tile);
+  if (shares.length) return true;
+  return false;
+}
+
+function financingDealCapRightsHTML(tile, shares) {
   const total = shares.reduce((sum, entry) => sum + Number(entry.share || 0), 0);
   const ownerPct = Math.max(0, 100 - total);
   const owner = financingOwnerMeta(tile);
   const splits = [ownerPct + "%", ...shares.map((entry) => Number(entry.share || 0) + "%")].join(" / ");
-  return `<section class="financing-surface-body" aria-labelledby="financing-ownership-heading"><div class="financing-surface-kicker"><span class="t-micro g400">CAP TABLE · LIVE</span><span class="t-label f11 g300">${total}% SHARED</span></div><h3 class="t-section g100" id="financing-ownership-heading">${esc(tile.name)} · shared economics</h3>${financingOwnershipBarHTML(shares, ownerPct, owner.color)}${financingOwnerRowsHTML(shares, ownerPct, owner.name, owner.color)}<div class="financing-rights-grid"><div><span class="t-micro ink-3">BASE RENT $${baseRentOf(tile)}</span><strong class="t-label f13 g100">$${baseRentOf(tile)} / TURN</strong></div><div><span class="t-micro ink-3">BUILDING RIGHTS</span><strong class="t-label f13 green">${esc(financingOwnershipBuildingRights(shares))}</strong></div><div><span class="t-micro ink-3">SALE PROCEEDS</span><strong class="t-label f13 g100">${esc(splits)}</strong></div><div><span class="t-micro ink-3">DURATION</span><strong class="t-label f13 g100">${esc(financingOwnershipDurations(shares))}</strong></div></div><p class="t-body ink-2 financing-surface-copy">A passive minority share does not block a complete street. Shared control is an explicit contract choice, not an accidental side effect of buying equity.</p>${financingDeedPickerHTML()}<div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button></div></section>`;
+  return `${financingOwnershipBarHTML(shares, ownerPct, owner.color)}${financingOwnerRowsHTML(shares, ownerPct, owner.name, owner.color)}<div class="financing-rights-grid"><div><span class="t-micro ink-3">BASE RENT $${baseRentOf(tile)}</span><strong class="t-label f13 g100">$${baseRentOf(tile)} / TURN</strong></div><div><span class="t-micro ink-3">BUILDING RIGHTS</span><strong class="t-label f13 green">${esc(financingOwnershipBuildingRights(shares))}</strong></div><div><span class="t-micro ink-3">SALE PROCEEDS</span><strong class="t-label f13 g100">${esc(splits)}</strong></div><div><span class="t-micro ink-3">DURATION</span><strong class="t-label f13 g100">${esc(financingOwnershipDurations(shares))}</strong></div></div>`;
 }
 
-function financingDueDebt(contract, mine) {
-  if (contract.status !== "due") return false;
-  if (contract.toPlayerId !== mine) return false;
-  if (contract.kind === "loan") return true;
-  return contract.kind === "hybrid";
+function financingDealCapTableHTML() {
+  const tile = financingOwnershipDeed();
+  if (!financingDealHasCapTable(tile)) return "";
+  const shares = financingDealCapShares(tile);
+  return `${financingDealCapRightsHTML(tile, shares)}${financingDeedPickerHTML()}`;
 }
 
-function financingSelectedDueDebt() {
-  const selected = financingSelectedContract();
-  if (!selected) return null;
-  if (selected.status !== "due") return null;
-  if (selected.toPlayerId !== financingMyServerId()) return null;
-  return selected;
+function financingDealCopyHTML(contract) {
+  return `<p class="t-body ink-2 financing-surface-copy">${esc(financingContractCopy(contract.kind))}</p>`;
 }
 
-function financingDefaultDebt() {
-  const selected = financingSelectedDueDebt();
-  if (selected) return selected;
-  const mine = financingMyServerId();
-  const dues = financingActiveContracts().filter((contract) => financingDueDebt(contract, mine));
-  dues.sort((a, b) => Number(a.cureRound || 0) - Number(b.cureRound || 0));
-  return dues[0] || null;
+function financingDealReasonHTML() {
+  return `<p class="t-micro ink-3">NO PAYMENT DUE ON THIS DEAL.</p>`;
 }
 
-function financingDefaultLiveHTML(contract) {
-  const remaining = Number(contract.remaining || 0);
-  const left = Number(contract.cureRound || 0) - Number(state.roundNumber || 0);
-  const countdown = left < 0 ? "CURE EXPIRED" : `${left} TURNS LEFT`;
-  return `<section class="financing-surface-body" aria-labelledby="financing-default-heading"><div class="financing-surface-kicker"><span class="t-micro red">CURE WINDOW · LIVE</span><span class="t-label f11 red">${countdown}</span></div><h3 class="t-section g100" id="financing-default-heading">${esc(financingContractTitle(contract))}</h3><div class="financing-default-amount"><span class="t-micro ink-3">OUTSTANDING BALANCE</span><strong class="t-money red">$${remaining.toLocaleString()}</strong></div><div class="financing-default-actions"><button class="cta-red" type="button" data-financing-repay="${esc(contract.id)}"><span class="cta-text cta-text-sm">PAY OUTSTANDING BALANCE</span></button><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button></div><p class="t-body ink-2 financing-surface-copy">Past the cure turn a loan seizes its collateral and a hybrid note converts. Interest stops when the contract resolves.</p></section>`;
+function financingDealActionHTML(contract) {
+  const repay = financingContractRepayHTML(contract);
+  if (repay) return `<div class="financing-surface-actions">${repay}</div>`;
+  return financingDealReasonHTML();
 }
 
-function financingNoDefaultHTML() {
-  return `<section class="financing-surface-body" aria-labelledby="financing-no-default-heading"><div class="financing-surface-kicker"><span class="t-micro g400">CURE WINDOW · LIVE</span></div><h3 class="t-section g100" id="financing-no-default-heading">No debts in default</h3><p class="t-body ink-2 financing-surface-copy">None of your loans or notes are past due. Your live deals are listed below.</p>${financingContractPickerHTML()}</section>`;
+function financingDealShapeHTML() {
+  return `<div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-view="builder"><span class="t-label f11">SHAPE NEW DEAL</span></button></div>`;
 }
 
-function financingNoSharedDeedsHTML() {
-  return `<section class="financing-surface-body" aria-labelledby="financing-no-deeds-heading"><div class="financing-surface-kicker"><span class="t-micro g400">CAP TABLE · LIVE</span></div><h3 class="t-section g100" id="financing-no-deeds-heading">No shared deeds</h3><p class="t-body ink-2 financing-surface-copy">No property carries equity shares right now. Shape an equity or hybrid deal on the offer surface.</p><div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button></div></section>`;
+function financingDealSelectedHTML(contract) {
+  return `<section class="financing-surface-body" aria-labelledby="financing-deal-heading"><div id="financing-deal-heading">${financingDealHeaderHTML(contract)}</div>${financingDealKeyFigureHTML(contract)}${financingDealProgressHTML(contract)}${financingDealCureHTML(contract)}${financingDealCapTableHTML()}${financingDealCopyHTML(contract)}${financingDealActionHTML(contract)}${financingDealShapeHTML()}</section>`;
 }
 
-function financingContractSurfaceHTML() {
+function financingDealViewHTML() {
   const contract = financingSelectedContract();
   if (!contract) return financingMissingContractHTML();
   if (financingContractRedacted(contract)) return financingMissingContractHTML();
-  return financingContractLiveHTML(contract);
+  return financingDealSelectedHTML(contract);
 }
 
-function financingOwnershipSurfaceHTML() {
-  const tile = financingOwnershipDeed();
-  if (!tile) return financingNoSharedDeedsHTML();
-  return financingOwnershipLiveHTML(tile);
+function financingBuilderHTML() {
+  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-recipient", label: "Counterparty", value: financingRecipientId(), options: financingRecipients() })}${financingNoDeedsHintHTML()}${dropdownHTML({ id: "finance-property", label: "Property (their deed)", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions is-solo"><button class="cta-red${financingHasEligibleProperty() ? "" : " financing-disabled-action"}" id="financing-send" type="button" ${financingHasEligibleProperty() ? "" : "disabled"}><span class="cta-text cta-text-sm">SEND CONTRACT</span></button></div></section>`;
 }
 
-function financingDefaultSurfaceHTML() {
-  const debt = financingDefaultDebt();
-  if (!debt) return financingNoDefaultHTML();
-  return financingDefaultLiveHTML(debt);
-}
-
-function financingMissingContractHTML() {
-  return `<section class="financing-surface-body" aria-labelledby="financing-missing-heading"><div class="financing-surface-kicker"><span class="t-micro g400">NOT AVAILABLE</span></div><h3 class="t-section g100" id="financing-missing-heading">No live contract selected</h3><p class="t-body ink-2 financing-surface-copy">Pick a live deal below, or shape a new one on the offer surface.</p>${financingContractPickerHTML()}<div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-surface="offer"><span class="t-label f11">OPEN OFFER</span></button></div></section>`;
-}
-
-function financingSurfaceTabsHTML() {
-  const tabs = [
-    ["offer", "OFFER"],
-    ["contract", "CONTRACT"],
-    ["ownership", "CO-OWNERSHIP"],
-    ["default", "DEFAULT"],
-  ];
-  return `<div class="financing-surface-tabs" id="financing-surface-tabs" role="tablist" aria-label="Financing surfaces">${tabs.map(([value, label]) => `<button class="financing-surface-tab${financingSurfaceMode === value ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingSurfaceMode === value}" data-financing-surface="${value}"><span class="t-label f11">${label}</span></button>`).join("")}</div>`;
-}
-
-function financingSurfaceBodyHTML() {
-  if (financingSurfaceMode === "contract") return financingContractSurfaceHTML();
-  if (financingSurfaceMode === "ownership") return financingOwnershipSurfaceHTML();
-  if (financingSurfaceMode === "default") return financingDefaultSurfaceHTML();
-  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-recipient", label: "Counterparty", value: financingRecipientId(), options: financingRecipients() })}${financingNoDeedsHintHTML()}${dropdownHTML({ id: "finance-property", label: "Property (their deed)", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions"><button class="cta-red${financingHasEligibleProperty() ? "" : " financing-disabled-action"}" id="financing-send" type="button" ${financingHasEligibleProperty() ? "" : "disabled"}><span class="cta-text cta-text-sm">SEND CONTRACT</span></button><button class="btn-dark" id="financing-live-rail" type="button"><span class="t-label f11">OPEN LIVE FINANCE</span></button></div></section>`;
+function financingViewBodyHTML() {
+  if (financingView === "deal") return financingDealViewHTML();
+  return financingBuilderHTML();
 }
 
 function syncFinancingRanges(root = $("#financing-card")) {
@@ -768,19 +782,6 @@ function onFinancingInput(card, event) {
   refreshFinancingPreview();
 }
 
-function openFinancingLiveRail() {
-  closeFinancingModal();
-  state.tab = "finance";
-  renderRightRail();
-}
-
-function onFinancingSurfaceTab(event) {
-  const button = event.target.closest("[data-financing-surface]");
-  if (!button) return;
-  financingSurfaceMode = button.dataset.financingSurface;
-  renderFinancingModal();
-}
-
 function sendFinancingRepay(contractId) {
   const contract = financingActiveContracts().find((c) => c.id === contractId);
   if (!contract) return;
@@ -795,30 +796,48 @@ function sendFinancingRepay(contractId) {
   });
 }
 
-function onFinancingSurfaceClick(event) {
+function onFinancingRepayNode(event) {
   const repay = event.target.closest("[data-financing-repay]");
-  if (repay) {
-    sendFinancingRepay(repay.dataset.financingRepay);
-    return;
-  }
+  if (!repay) return false;
+  sendFinancingRepay(repay.dataset.financingRepay);
+  return true;
+}
+
+function onFinancingPickNode(event) {
   const pick = event.target.closest("[data-financing-pick]");
-  if (pick) {
-    financingSurfaceContractId = pick.dataset.financingPick;
-    financingSurfaceTileIndex = null;
-    renderFinancingModal();
-    return;
-  }
-  const deed = event.target.closest("[data-financing-deed]");
-  if (deed) {
-    financingSurfaceTileIndex = Number(deed.dataset.financingDeed);
-    renderFinancingModal();
-    return;
-  }
-  const button = event.target.closest("[data-financing-surface]");
-  if (!button) return;
-  if (event.target.closest("#financing-surface-tabs")) return;
-  financingSurfaceMode = button.dataset.financingSurface;
+  if (!pick) return false;
+  financingSurfaceContractId = pick.dataset.financingPick;
+  financingSurfaceTileIndex = null;
   renderFinancingModal();
+  return true;
+}
+
+function onFinancingDeedNode(event) {
+  const deed = event.target.closest("[data-financing-deed]");
+  if (!deed) return false;
+  financingSurfaceTileIndex = Number(deed.dataset.financingDeed);
+  renderFinancingModal();
+  return true;
+}
+
+function financingViewRequested(value) {
+  if (value === "deal") return "deal";
+  return "builder";
+}
+
+function onFinancingViewNode(event) {
+  const button = event.target.closest("[data-financing-view]");
+  if (!button) return false;
+  financingView = financingViewRequested(button.dataset.financingView);
+  renderFinancingModal();
+  return true;
+}
+
+function onFinancingSurfaceClick(event) {
+  if (onFinancingRepayNode(event)) return;
+  if (onFinancingPickNode(event)) return;
+  if (onFinancingDeedNode(event)) return;
+  if (onFinancingViewNode(event)) return;
 }
 
 function onFinancingModeTab(event) {
@@ -858,9 +877,11 @@ function bindFinancingOfferSurface(card) {
 function wireFinancingChrome() {
   $("#financing-close")?.addEventListener("click", closeFinancingModal);
   $("#financing-send")?.addEventListener("click", sendFinancingContract);
-  $("#financing-live-rail")?.addEventListener("click", openFinancingLiveRail);
-  $("#financing-surface-tabs")?.addEventListener("click", onFinancingSurfaceTab);
   $("#finance-equity-permanent")?.addEventListener("change", onFinancingPermanentChange);
+}
+
+function financingIsBuilderView() {
+  return financingView !== "deal";
 }
 
 function renderFinancingModal() {
@@ -868,14 +889,14 @@ function renderFinancingModal() {
   if (!card) return;
   const modeLabels = { loan: "LOAN", equity: "EQUITY", hybrid: "HYBRID" };
   const header = `<div class="financing-head"><div><div class="t-micro g400">PARLOR DEAL BUILDER · LIVE TERMS</div><h2 class="t-section g100" id="financing-card-title">Shape a ${modeLabels[financingPreviewMode]} deal</h2></div><span class="t-micro financing-badge">LIVE FINANCE RAIL</span><button class="btn-dark financing-close" id="financing-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2 financing-description" id="financing-card-description">Pick a counterparty, shape the terms, and send. Every accepted term settles through the server ledger.</p>`;
-  card.innerHTML = `<div class="financing-body">${header}${financingSurfaceTabsHTML()}${financingSurfaceBodyHTML()}</div>`;
+  card.innerHTML = `<div class="financing-body">${header}${financingViewBodyHTML()}</div>`;
   syncFinancingRanges(card);
   wireFinancingChrome();
   if (!card.dataset.financingSurfaceBound) {
     card.addEventListener("click", onFinancingSurfaceClick);
     card.dataset.financingSurfaceBound = "true";
   }
-  if (financingSurfaceMode === "offer") bindFinancingOfferSurface(card);
+  if (financingIsBuilderView()) bindFinancingOfferSurface(card);
 }
 
 function ensureFinancingRecipient() {
@@ -899,24 +920,30 @@ export function openFinancingContract(contractId, trigger = null) {
   }
   financingSurfaceContractId = contractId;
   financingSurfaceTileIndex = null;
-  financingSurfaceMode = financingViewSurface(contract);
+  financingView = "deal";
   renderFinancingModal();
   openSurface("#financing-modal", "#financing-close");
   if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
 }
 
-export function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null, surface = "offer") {
+function financingPreviewModeFor(mode) {
+  if (mode === "equity") return "equity";
+  if (mode === "hybrid") return "hybrid";
+  return "loan";
+}
+
+export function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null) {
   if (!otherPlayers().length) {
     host.say("No other players at the table.");
     host.renderChat();
     return;
   }
-  financingPreviewMode = ["loan", "equity", "hybrid"].includes(mode) ? mode : "loan";
-  financingSurfaceMode = ["offer", "contract", "ownership", "default"].includes(surface) ? surface : "offer";
+  financingPreviewMode = financingPreviewModeFor(mode);
+  financingView = "builder";
   ensureFinancingDraft(propertyIndex);
   renderFinancingModal();
   openSurface("#financing-modal", "#financing-close");
-  if (financingSurfaceMode === "offer") $("#finance-recipient-trigger")?.focus({ preventScroll: true });
+  if (financingIsBuilderView()) $("#finance-recipient-trigger")?.focus({ preventScroll: true });
   if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
 }
 
