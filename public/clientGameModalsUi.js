@@ -32,6 +32,10 @@ export function configureGameModals(hooks) {
   host = { ...host, ...hooks };
 }
 
+/** Human landed on a vacant lot: auto-show choice modal.
+ *  - Auction mode: locked, BUY or AUCTION only.
+ *  - Normal mode: dismissible, BUY or PASS.
+ */
 function openChoiceModal(tile) {
   const me = state.players[0];
   const price = tile.price ?? 0;
@@ -97,6 +101,7 @@ function openChoiceModal(tile) {
   }
 }
 
+/** After a buy/auction decision the human's turn continues normally. */
 function afterLandingResolved() {
   host.renderAll();
 }
