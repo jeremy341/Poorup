@@ -1,15 +1,27 @@
 import crypto from 'crypto';
 import {
-  announceLoanDue,
   bankruptcyRefusal,
   clearQuitObligations,
-  contractSettlementRejection,
-  equitySharePayable,
-  handleDebtSettlement,
-  handlePlayerLoanDefault,
-  outstandingDebtFor,
-  resolveUnsecuredBankDefault
+  outstandingDebtFor
 } from './bankruptcyLogic.js';
+import {
+  playerContractSummary,
+  processContracts,
+  proposeContract,
+  repayContract,
+  respondContract,
+  settleEquityShares
+} from './contractLogic.js';
+import {
+  LOAN_OUTSTANDING_STATUSES,
+  bankLoanOffer,
+  bankLoanTerms,
+  defaultBankLoan,
+  hasLoanBackedCash,
+  processBankLoans,
+  repayBankLoan,
+  takeBankLoan
+} from './loanLogic.js';
 
 const DEFAULT_ROOM_SETTINGS = {
   maxPlayers: 4,
@@ -107,7 +119,6 @@ const CASINO_MAX_BET = 500;
 const CASINO_BET_COLORS = ['red', 'black', 'green'];
 // Loan states that keep borrowed cash pinned: the bank loan and the active
 // side of a player contract share this exact status pair.
-const LOAN_OUTSTANDING_STATUSES = ['active', 'due'];
 const MARKET_FEE_RATE = 0.02;
 const ROULETTE_RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 const MARKET_INSTRUMENTS = [
@@ -117,10 +128,9 @@ const MARKET_INSTRUMENTS = [
   ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
 ].map(([id, name, price]) => ({ id, name, price }));
 
-// Player-contract vocabularies and the market order gates, in the exact
-// historical check order; server/contracts-market.test.js pins every string.
-const CONTRACT_KINDS = new Set(['loan', 'equity']);
-const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
+// Player-contract vocabularies live in contractLogic.js; the market order
+// gates below are in the exact historical check order and
+// server/contracts-market.test.js pins every string.
 const MARKET_SIDES = ['buy', 'sell'];
 const MARKET_ORDER_GUARDS = [
   { test: game => !game.settings.market, error: 'Market access is off for this room.' },
@@ -148,8 +158,6 @@ const JAIL_MAX_TURNS = 3;
 const START_TILE_INDEX = 0;
 const GLOBAL_EVENT_COOLDOWN_ROUNDS = 3;
 const GLOBAL_EVENT_MIN_ROUND = 3;
-const BANK_LOAN_PRINCIPAL = 300;
-const BANK_LOAN_TERM_ROUNDS = 3;
 
 const GLOBAL_EVENT_DEFINITIONS = [
   {
@@ -1069,209 +1077,27 @@ class GameState {
   }
 
   playerContractSummary(viewerPlayerId = null) {
-    const nameFor = id => this.getPlayerById(id)?.nickname || 'PLAYER';
-    const project = contract => {
-      const own = Boolean(viewerPlayerId) && (contract.fromPlayerId === viewerPlayerId || contract.toPlayerId === viewerPlayerId);
-      const names = { fromPlayerName: nameFor(contract.fromPlayerId), toPlayerName: nameFor(contract.toPlayerId) };
-      if (own) return { ...contract, ...names };
-      return { id: contract.id, kind: contract.kind, status: contract.status, createdRound: contract.createdRound, ...names };
-    };
-    return {
-      pending: this.pendingPlayerContract ? project(this.pendingPlayerContract) : null,
-      active: this.playerContracts.filter(contract => ['active', 'due'].includes(contract.status)).map(project)
-    };
+    return playerContractSummary(this, viewerPlayerId);
   }
 
   proposePlayerContract(socketId, offer = {}) {
-    const fromPlayer = this.getPlayerBySocket(socketId);
-    const toPlayer = this.getPlayerById(offer.toPlayerId);
-    const kind = CONTRACT_KINDS.has(String(offer.kind)) ? String(offer.kind) : 'loan';
-    const amount = Math.floor(Number(offer.amount));
-    const requestId = String(offer.requestId || '').trim().slice(0, 100);
-    const transactionKey = requestId ? (fromPlayer?.id + ':contract:' + requestId) : null;
-    if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
-    const durationRounds = Math.max(1, Math.min(20, Math.floor(Number(offer.durationRounds) || 3)));
-    const premiumRate = Math.max(0, Math.min(100, Number(offer.premiumRate) || 0));
-    const rejection = this.contractProposalRejection(fromPlayer, toPlayer, amount);
-    if (rejection) return rejection;
-    const contract = this.baseContractTerms(fromPlayer, toPlayer, kind, amount, premiumRate, durationRounds);
-    const terms = (kind === 'loan' ? this.loanContractTerms : this.equityContractTerms).call(this, contract, offer, toPlayer);
-    if (terms) return terms;
-    this.pendingPlayerContract = contract;
-    this.feedMessage(fromPlayer.nickname + ' sent a ' + kind + ' contract to ' + toPlayer.nickname + '.');
-    const result = { success: true, contract };
-    if (transactionKey) this.contractTransactions.set(transactionKey, result);
-    return result;
-  }
-
-  // Guard order and wording are pinned by server/contracts-market.test.js.
-  contractProposalRejection(fromPlayer, toPlayer, amount) {
-    if (!this.isPairOfActivePlayers(fromPlayer, toPlayer)) return { success: false, error: 'Choose two active players.' };
-    if (fromPlayer.id !== this.currentPlayerId) return { success: false, error: 'Player contracts are proposed during your turn.' };
-    if (this.tableObligationOpen()) return { success: false, error: 'Resolve the current table obligation first.' };
-    if (!Number.isInteger(amount) || amount < 1 || fromPlayer.cash < amount) return { success: false, error: 'The lender does not have enough cash for that offer.' };
-    if (this.hasLoanBackedCash(fromPlayer)) return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
-    return null;
-  }
-
-  isPairOfActivePlayers(fromPlayer, toPlayer) {
-    if (!fromPlayer || !toPlayer || fromPlayer.id === toPlayer.id) return false;
-    return !fromPlayer.bankrupt && !toPlayer.bankrupt && !fromPlayer.disconnected && !toPlayer.disconnected;
-  }
-
-  tableObligationOpen() {
-    return [this.pendingPayment, this.auction, this.pendingPurchaseOffer, this.pendingTrade, this.pendingPlayerContract].some(Boolean);
-  }
-
-  baseContractTerms(fromPlayer, toPlayer, kind, amount, premiumRate, durationRounds) {
-    return {
-      id: 'contract_' + crypto.randomUUID(),
-      kind,
-      fromPlayerId: fromPlayer.id,
-      toPlayerId: toPlayer.id,
-      amount,
-      premiumRate,
-      durationRounds,
-      createdRound: this.roundNumber,
-      status: 'pending',
-      collateralTileIndex: null,
-      equityShare: 0,
-      equityControl: 'passive'
-    };
-  }
-
-  // Term builders mutate the draft contract and return null, or return the
-  // rejection when the loan/equity specifics are invalid.
-  loanContractTerms(contract, offer, borrower) {
-    const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
-    const collateral = collateralIndex == null ? null : this.getTile(collateralIndex);
-    if (collateral && (collateral.ownerId !== borrower.id || !this.isTradeableTile(collateral))) {
-      return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
-    }
-    contract.totalDue = contract.amount + Math.ceil(contract.amount * (contract.premiumRate / 100));
-    contract.remaining = contract.totalDue;
-    contract.dueRound = this.roundNumber + contract.durationRounds;
-    contract.cureRound = contract.dueRound + 1;
-    contract.collateralTileIndex = collateral?.index ?? null;
-    return null;
-  }
-
-  equityContractTerms(contract, offer, recipient) {
-    const property = this.getTile(Number(offer.propertyIndex));
-    const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
-    if (!this.isEquityEligibleProperty(property, recipient.id)) {
-      return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
-    }
-    const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
-    if (existingShare + share > 100) {
-      return { success: false, error: 'That property has no remaining equity to sell.' };
-    }
-    contract.propertyIndex = property.index;
-    contract.equityShare = share;
-    contract.equityControl = EQUITY_CONTROL_MODES.has(offer.equityControl) ? offer.equityControl : 'passive';
-    contract.expiresRound = offer.permanent ? null : this.roundNumber + contract.durationRounds;
-    return null;
-  }
-
-  isEquityEligibleProperty(property, ownerId) {
-    if (!property || property.type !== 'property' || property.ownerId !== ownerId) return false;
-    return !property.mortgaged && !(property.houseCount > 0);
+    return proposeContract(this, socketId, offer);
   }
 
   respondPlayerContract(socketId, accept, requestId = null) {
-    const player = this.getPlayerBySocket(socketId);
-    const transactionKey = requestId ? (player?.id + ':contract-response:' + String(requestId).slice(0, 100)) : null;
-    if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
-    const contract = this.pendingPlayerContract;
-    if (!player || !contract || contract.toPlayerId !== player.id) return { success: false, error: 'No matching player contract was found.' };
-    if (!accept) {
-      this.pendingPlayerContract = null;
-      this.feedMessage(player.nickname + ' declined the player contract.');
-      const result = { success: true, accepted: false };
-      if (transactionKey) this.contractTransactions.set(transactionKey, result);
-      return result;
-    }
-    const lender = this.getPlayerById(contract.fromPlayerId);
-    if (!lender || lender.bankrupt || lender.disconnected || lender.cash < contract.amount) {
-      this.pendingPlayerContract = null;
-      return { success: false, error: 'The lender can no longer fund that contract.' };
-    }
-    const settlementRejection = contractSettlementRejection(this, player, contract);
-    if (settlementRejection) return settlementRejection;
-    if (contract.kind === 'equity') {
-      const property = this.getTile(contract.propertyIndex);
-      property.equityShares = [...(property.equityShares || []), { holderId: lender.id, share: contract.equityShare, contractId: contract.id, control: contract.equityControl }];
-    }
-    lender.cash -= contract.amount;
-    player.cash += contract.amount;
-    contract.status = 'active';
-    contract.acceptedRound = this.roundNumber;
-    this.playerContracts.push(contract);
-    lender.playerContractIds.push(contract.id);
-    player.playerContractIds.push(contract.id);
-    this.pendingPlayerContract = null;
-    this.feedMessage(lender.nickname + ' and ' + player.nickname + ' activated a ' + contract.kind + ' contract.');
-    const result = { success: true, accepted: true, contract };
-    if (transactionKey) this.contractTransactions.set(transactionKey, result);
-    return result;
+    return respondContract(this, socketId, accept, requestId);
   }
 
-  repayPlayerContract(socketId, { contractId, amount, requestId } = {}) {
-    const borrower = this.getPlayerBySocket(socketId);
-    const transactionKey = requestId ? (borrower?.id + ':contract-repay:' + String(requestId).slice(0, 100)) : null;
-    if (transactionKey && this.contractTransactions.has(transactionKey)) return this.contractTransactions.get(transactionKey);
-    const contract = this.playerContractById(contractId);
-    const lender = contract ? this.getPlayerById(contract.fromPlayerId) : null;
-    if (!borrower || !contract || contract.kind !== 'loan' || contract.toPlayerId !== borrower.id || !['active', 'due'].includes(contract.status)) return { success: false, error: 'That loan is not available to repay.' };
-    const requested = amount == null ? contract.remaining : Math.floor(Number(amount));
-    const payment = Math.min(Math.max(0, requested), contract.remaining);
-    if (!payment || borrower.cash < payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
-    borrower.cash -= payment;
-    if (lender) lender.cash += payment;
-    contract.remaining -= payment;
-    if (contract.remaining <= 0) {
-      contract.remaining = 0;
-      contract.status = 'paid';
-      contract.paidRound = this.roundNumber;
-    }
-    this.feedMessage(borrower.nickname + ' repaid $' + payment + ' on a player loan.');
-    const result = { success: true, contract };
-    if (transactionKey) this.contractTransactions.set(transactionKey, result);
-    return result;
+  repayPlayerContract(socketId, payload = {}) {
+    return repayContract(this, socketId, payload);
   }
 
   processPlayerContracts() {
-    this.playerContracts.forEach(contract => {
-      if (contract.kind === 'equity' && contract.status === 'active' && contract.expiresRound && this.roundNumber >= contract.expiresRound) {
-        const property = this.getTile(contract.propertyIndex);
-        if (property) property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
-        contract.status = 'expired';
-        return;
-      }
-      if (contract.kind !== 'loan' || !['active', 'due'].includes(contract.status)) return;
-      if (contract.status === 'active' && this.roundNumber >= contract.dueRound) {
-        contract.status = 'due';
-        const borrower = this.getPlayerById(contract.toPlayerId);
-        if (borrower) announceLoanDue(this, contract, borrower);
-      } else if (contract.status === 'due' && this.roundNumber > contract.cureRound) {
-        handlePlayerLoanDefault(this, contract);
-      }
-    });
+    processContracts(this);
   }
 
   settleEquityShares(tile, owner, amountPaid) {
-    if (!tile?.equityShares?.length) return;
-    if (!owner || owner.bankrupt) return;
-    if (amountPaid <= 0) return;
-    tile.equityShares.forEach((share) => {
-      const payable = equitySharePayable(this, share);
-      if (!payable) return;
-      const payout = Math.min(owner.cash, Math.floor(amountPaid * (payable.sharePct / 100)));
-      if (payout <= 0) return;
-      owner.cash -= payout;
-      payable.holder.cash += payout;
-      payable.contract.rentCollected = (payable.contract.rentCollected || 0) + payout;
-    });
+    settleEquityShares(this, tile, owner, amountPaid);
   }
 
   globalEventDefinition(id) {
@@ -1650,129 +1476,27 @@ class GameState {
   }
 
   bankLoanTerms(player) {
-    const severity = this.settings.bankLoanSeverity === 'extreme' ? 'extreme' : this.settings.bankLoanSeverity === 'fair' ? 'fair' : 'predatory';
-    let premiumRate = severity === 'extreme' ? 0.8 : severity === 'fair' ? 0.2 : 0.5;
-    if (this.globalEventActive('inflation-spiral')) premiumRate *= 1.25;
-    const loanPremiumMultiplier = Number(this.activeEventEffects().loanPremiumMultiplier);
-    if (Number.isFinite(loanPremiumMultiplier) && loanPremiumMultiplier > 0) premiumRate *= loanPremiumMultiplier;
-    if (this.globalEvent?.phase === 'active' && this.globalEvent.id === 'city-election' && this.globalEvent.resolvedChoice === 'bank-first') premiumRate *= 0.8;
-    const principal = BANK_LOAN_PRINCIPAL;
-    const totalDue = principal + Math.ceil(principal * premiumRate);
-    const collateral = this.highestCollateralProperty(player);
-    return {
-      principal,
-      totalDue,
-      premium: totalDue - principal,
-      dueInRounds: BANK_LOAN_TERM_ROUNDS,
-      dueRound: this.roundNumber + BANK_LOAN_TERM_ROUNDS,
-      cureRound: this.roundNumber + BANK_LOAN_TERM_ROUNDS + 1,
-      collateralTileIndex: collateral?.index ?? null,
-      collateralName: collateral?.name || 'NONE',
-      severity
-    };
+    return bankLoanTerms(this, player);
   }
 
   getBankLoanOffer(player) {
-    if (!player || !this.settings.bankLoans) return { available: false, reason: 'Bank lending is disabled.' };
-    if (!this.started) return { available: false, reason: 'The game has not started.' };
-    if (this.globalEventActive('credit-freeze') || this.globalEventActive('bank-run') || this.activeEventEffects().bankLoansBlocked || this.activeEventEffects().bankActionsBlocked) return { available: false, reason: 'Credit is frozen by the active global event.' };
-    if (player.id !== this.currentPlayerId) return { available: false, reason: 'Bank credit is available during your turn.' };
-    if (player.bankLoan?.status === 'active' || player.bankLoan?.status === 'due') return { available: false, reason: 'You already have an active bank loan.' };
-    if (player.bankLoan?.status === 'defaulted') return { available: false, reason: 'Bank credit is suspended after your previous default.' };
-    if (player.cash > 250) return { available: false, reason: 'Emergency credit unlocks below $250 cash.' };
-    const terms = this.bankLoanTerms(player);
-    return { available: true, ...terms };
+    return bankLoanOffer(this, player);
   }
 
   takeBankLoan(socketId, requestId = null) {
-    const player = this.getPlayerBySocket(socketId);
-    const key = this.transactionKey(player?.id, 'bank-loan', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
-    const offer = this.getBankLoanOffer(player);
-    if (!offer.available) return { success: false, error: offer.reason };
-    if (player.cash < 50) player.badIdeaLoan = true;
-    player.bankLoanCount = (player.bankLoanCount || 0) + 1;
-    player.cash += offer.principal;
-    player.bankLoan = {
-      status: 'active',
-      principal: offer.principal,
-      totalDue: offer.totalDue,
-      remaining: offer.totalDue,
-      issuedRound: this.roundNumber,
-      dueRound: offer.dueRound,
-      cureRound: offer.cureRound,
-      collateralTileIndex: offer.collateralTileIndex,
-      severity: offer.severity
-    };
-    this.feedMessage(`${player.nickname} accepted a $${offer.principal} bank loan. $${offer.totalDue} is due by round ${offer.dueRound}.`);
-    return this.cacheTransaction(key, { success: true, loan: player.bankLoan });
+    return takeBankLoan(this, socketId, requestId);
   }
 
-  repayBankLoan(socketId, { amount, requestId } = {}) {
-   const player = this.getPlayerBySocket(socketId);
-    const key = this.transactionKey(player?.id, 'bank-repay', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
-    if (!player || player.id !== this.currentPlayerId) return { success: false, error: 'It is not your turn.' };
-    const loan = player.bankLoan;
-    if (!loan || !['active', 'due'].includes(loan.status)) return { success: false, error: 'You have no bank loan to repay.' };
-    const requested = amount == null ? loan.remaining : Math.floor(Number(amount));
-    if (!Number.isFinite(requested) || requested <= 0) return { success: false, error: 'Enter a valid repayment amount.' };
-    const amnesty = this.globalEventActive('debt-amnesty') && requested >= loan.remaining;
-    if (loan.status === 'due' && this.roundNumber === loan.cureRound) player.oneMoreTurn = true;
-    const settlementMultiplier = Number(this.activeEventEffects().loanSettlementMultiplier);
-    const discountedDue = Number.isFinite(settlementMultiplier) && settlementMultiplier > 0 ? Math.ceil(loan.remaining * settlementMultiplier) : loan.remaining;
-    const payment = Math.min(amnesty ? discountedDue : requested, loan.remaining);
-    if (player.cash < payment) return { success: false, error: `You need $${payment} to make this repayment.` };
-    player.cash -= payment;
-    loan.remaining -= payment;
-    if (amnesty) loan.remaining = 0;
-    if (loan.remaining <= 0) {
-      loan.remaining = 0;
-      loan.status = 'paid';
-      loan.paidRound = this.roundNumber;
-      this.feedMessage(`${player.nickname} repaid the bank loan in full.`);
-    } else {
-      this.feedMessage(`${player.nickname} repaid $${payment} on the bank loan. $${loan.remaining} remains.`);
-    }
-    return this.cacheTransaction(key, { success: true, loan });
+  repayBankLoan(socketId, payload = {}) {
+    return repayBankLoan(this, socketId, payload);
   }
 
   processBankLoans() {
-    this.players.forEach(player => {
-      const loan = player.bankLoan;
-      if (!loan || player.bankrupt || !['active', 'due'].includes(loan.status)) return;
-      if (loan.status === 'active' && this.roundNumber >= loan.dueRound) {
-        loan.status = 'due';
-        player.loanWarningSeen = true;
-        this.feedMessage(`${player.nickname}'s bank loan is due: $${loan.remaining}. One cure round remains.`);
-      } else if (loan.status === 'due' && this.roundNumber > loan.cureRound) {
-        this.defaultBankLoan(player);
-      }
-    });
+    processBankLoans(this);
   }
 
   defaultBankLoan(player) {
-    const loan = player.bankLoan;
-    if (!loan) return;
-    const collateral = loan.collateralTileIndex == null ? null : this.getTile(loan.collateralTileIndex);
-    if (collateral && collateral.ownerId === player.id) {
-      collateral.ownerId = null;
-      collateral.mortgaged = false;
-      collateral.houseCount = 0;
-      player.properties = player.properties.filter(index => index !== collateral.index);
-      player.collateralLost = true;
-      this.feedMessage(`${player.nickname} defaulted. The bank seized ${collateral.name}.`);
-    } else {
-      // The bank files a claim instead of eliminating the seat outright:
-      // the player now chooses between raising funds and declaring
-      // bankruptcy (the debt settlement path handles both).
-      resolveUnsecuredBankDefault(this, player, loan);
-      loan.remaining = 0;
-    }
-    loan.status = 'defaulted';
-    loan.defaultedRound = this.roundNumber;
+    defaultBankLoan(this, player);
   }
 
   movePlayer(player, steps, options = {}) {
@@ -2243,8 +1967,7 @@ class GameState {
   }
 
   hasLoanBackedCash(player) {
-    if (!player.bankLoan) return false;
-    return LOAN_OUTSTANDING_STATUSES.includes(player.bankLoan.status);
+    return hasLoanBackedCash(player);
   }
 
   // The spin itself: one pocket draw (randomInt is the only RNG call site on
