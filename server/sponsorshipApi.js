@@ -22,17 +22,47 @@ function sponsorshipApiContext(game, sponsorship = game.pendingSponsoredPurchase
   };
 }
 
+function sponsorshipRequestCheck(game, buyer, offer) {
+  if (!buyer || !livePlayer(buyer)) return { error: 'Sponsorship is unavailable.' };
+  if (buyer.id !== game.currentPlayerId || !offer || offer.playerId !== buyer.id) return { error: 'There is no open purchase to sponsor.' };
+  if (game.pendingSponsoredPurchase) return { error: 'A sponsorship request is already open.' };
+  const tile = game.getTile(Number(offer.tileIndex));
+  if (!tile || tile.ownerId !== null) return { error: 'That property is no longer available.' };
+  return { tile };
+}
+
+function contributionCheck(game, sponsor, ctx, payload) {
+  if (!ctx.sponsorship || !ctx.buyer || !ctx.tile || ctx.tile.ownerId !== null) return { error: 'That sponsorship is no longer available.', stale: true };
+  if (!livePlayer(sponsor)) return { error: 'Sponsorship is unavailable.' };
+  if (sponsor.id === ctx.buyer.id) return { error: 'The buyer cannot sponsor their own purchase.' };
+  if (ctx.sponsorship.contributions.some(entry => entry.sponsorId === sponsor.id)) return { error: 'You already contributed to this sponsorship.' };
+  const amount = positiveWhole(payload.amount);
+  if (!amount) return { error: 'Enter a whole-dollar contribution.' };
+  const contributed = ctx.sponsorship.contributions.reduce((sum, entry) => sum + entry.amount, 0);
+  const needed = Math.max(0, ctx.tile.price - ctx.buyer.cash - contributed);
+  if (amount > needed) return { error: `The remaining sponsorship need is $${needed}.` };
+  if (sponsor.cash < amount) return { error: 'You do not have enough available cash.' };
+  return { amount };
+}
+
+function acceptanceCheck(game, buyer, ctx) {
+  if (!buyer || !ctx.sponsorship || ctx.sponsorship.buyerId !== buyer.id) return { error: 'Only the sponsored buyer can accept this request.' };
+  if (!ctx.tile || ctx.tile.ownerId !== null || !game.pendingPurchaseOffer || game.pendingPurchaseOffer.playerId !== buyer.id) return { error: 'That property is no longer available.', stale: true };
+  const contributions = ctx.sponsorship.contributions.slice();
+  if (!contributions.length) return { error: 'Wait for at least one sponsor.' };
+  if (contributions.some(entry => !livePlayer(game.getPlayerById(entry.sponsorId)))) return { error: 'A sponsor is no longer available; the request was canceled.', stale: true };
+  const total = contributions.reduce((sum, entry) => sum + entry.amount, 0);
+  if (buyer.cash + total < ctx.tile.price) return { error: 'The sponsorship is still short of the purchase price.' };
+  return { contributions, total };
+}
+
 const sponsorshipApi = {
   requestPurchaseSponsorship(socketId) {
     const buyer = this.getPlayerBySocket(socketId);
     const offer = this.pendingPurchaseOffer;
-    if (!buyer || !livePlayer(buyer)) return { success: false, error: 'Sponsorship is unavailable.' };
-    if (buyer.id !== this.currentPlayerId || !offer || offer.playerId !== buyer.id) {
-      return { success: false, error: 'There is no open purchase to sponsor.' };
-    }
-    if (this.pendingSponsoredPurchase) return { success: false, error: 'A sponsorship request is already open.' };
-    const tile = this.getTile(Number(offer.tileIndex));
-    if (!tile || tile.ownerId !== null) return { success: false, error: 'That property is no longer available.' };
+    const check = sponsorshipRequestCheck(this, buyer, offer);
+    if (check.error) return { success: false, error: check.error };
+    const { tile } = check;
     this.pendingSponsoredPurchase = {
       id: crypto.randomUUID(),
       buyerId: buyer.id,
@@ -50,21 +80,10 @@ const sponsorshipApi = {
   contributeToSponsoredPurchase(socketId, payload = {}) {
     const sponsor = this.getPlayerBySocket(socketId);
     const ctx = sponsorshipApiContext(this);
-    if (!ctx.sponsorship || !ctx.buyer || !ctx.tile || ctx.tile.ownerId !== null) {
-      this.cancelSponsoredPurchase();
-      return { success: false, error: 'That sponsorship is no longer available.' };
-    }
-    if (!livePlayer(sponsor)) return { success: false, error: 'Sponsorship is unavailable.' };
-    if (sponsor.id === ctx.buyer.id) return { success: false, error: 'The buyer cannot sponsor their own purchase.' };
-    if (ctx.sponsorship.contributions.some(entry => entry.sponsorId === sponsor.id)) {
-      return { success: false, error: 'You already contributed to this sponsorship.' };
-    }
-    const amount = positiveWhole(payload.amount);
-    if (!amount) return { success: false, error: 'Enter a whole-dollar contribution.' };
-    const contributed = ctx.sponsorship.contributions.reduce((sum, entry) => sum + entry.amount, 0);
-    const needed = Math.max(0, ctx.tile.price - ctx.buyer.cash - contributed);
-    if (amount > needed) return { success: false, error: `The remaining sponsorship need is $${needed}.` };
-    if (sponsor.cash < amount) return { success: false, error: 'You do not have enough available cash.' };
+    const check = contributionCheck(this, sponsor, ctx, payload);
+    if (check.stale) this.cancelSponsoredPurchase();
+    if (check.error) return { success: false, error: check.error };
+    const { amount } = check;
     sponsor.cash -= amount;
     ctx.sponsorship.contributions.push({ sponsorId: sponsor.id, sponsorName: sponsor.nickname, amount });
     this.feedMessage(`${sponsor.nickname} reserved $${amount} toward ${ctx.tile.name}.`);
@@ -86,22 +105,10 @@ const sponsorshipApi = {
   acceptSponsoredPurchase(socketId) {
     const buyer = this.getPlayerBySocket(socketId);
     const ctx = sponsorshipApiContext(this);
-    if (!buyer || !ctx.sponsorship || ctx.sponsorship.buyerId !== buyer.id) {
-      return { success: false, error: 'Only the sponsored buyer can accept this request.' };
-    }
-    if (!ctx.tile || ctx.tile.ownerId !== null || !this.pendingPurchaseOffer || this.pendingPurchaseOffer.playerId !== buyer.id) {
-      this.cancelSponsoredPurchase();
-      return { success: false, error: 'That property is no longer available.' };
-    }
-    const contributions = ctx.sponsorship.contributions.slice();
-    if (!contributions.length) return { success: false, error: 'Wait for at least one sponsor.' };
-    const missingSponsor = contributions.some(entry => !livePlayer(this.getPlayerById(entry.sponsorId)));
-    if (missingSponsor) {
-      this.cancelSponsoredPurchase();
-      return { success: false, error: 'A sponsor is no longer available; the request was canceled.' };
-    }
-    const total = contributions.reduce((sum, entry) => sum + entry.amount, 0);
-    if (buyer.cash + total < ctx.tile.price) return { success: false, error: 'The sponsorship is still short of the purchase price.' };
+    const check = acceptanceCheck(this, buyer, ctx);
+    if (check.stale) this.cancelSponsoredPurchase();
+    if (check.error) return { success: false, error: check.error };
+    const { total } = check;
     buyer.cash += total;
     this.pendingSponsoredPurchase = null;
     this.acceptPurchaseOffer(buyer, ctx.tile);
