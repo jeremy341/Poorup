@@ -96,8 +96,8 @@ function onSocialTab(event, tab) {
   renderSocialSurface(socialRenderTarget(event));
 }
 
-function onSocialAccount() {
-  openAccountModal("register");
+function onSocialAccount(event) {
+  openAccountModal("register", event?.target?.closest("[data-social-action=account]") || event?.currentTarget);
 }
 
 function onSocialPlayer(player) {
@@ -140,7 +140,7 @@ function closeSocialFromEvent(event) {
 
 const SOCIAL_CLICKS = [
   ["[data-social-tab]", (node, event) => onSocialTab(event, node)],
-  ["[data-social-action=account]", () => onSocialAccount()],
+  ["[data-social-action=account]", (node, event) => onSocialAccount(event || node)],
   ["[data-social-player]", (node) => onSocialPlayer(node)],
   ["[data-social-request]", (node) => onSocialRequest(node)],
   ["[data-social-invite]", (node) => onSocialInvite(node)],
