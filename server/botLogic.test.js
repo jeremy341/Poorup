@@ -246,6 +246,17 @@ check('runBotTurn executes the classified phase against the room', async () => {
   assert.strictEqual(result.name, 'bankrupt');
 });
 
+check('contract response ownership alternates after a counter', () => {
+  const bot = { id: 'b1', isBot: true, bankrupt: false, disconnected: false };
+  const game = fakeGame({
+    current: { id: 'human' },
+    players: [bot],
+    pendingPlayerContract: { fromPlayerId: 'b1', toPlayerId: 'human', counterDepth: 1 }
+  });
+  assert.strictEqual(selectBotTurnTarget(game).id, 'b1');
+  assert.strictEqual(classifyBotTurnPhase(game, bot), 'contract');
+});
+
 check('AI advisor ranks an event vote through legal choice candidates', async () => {
   const room = fakeRoom([]);
   room.game.globalEvent = { phase: 'voting', choices: [{ id: 'low-tax', label: 'LOW TAX' }, { id: 'bank-first', label: 'BANK FIRST' }], votes: {} };
