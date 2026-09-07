@@ -218,9 +218,9 @@ function onProfileTabsKeydown(e) {
   next.focus();
 }
 
-function onProfileHeroAccountClick() {
-  if (state.account?.account) openAccountModal("edit");
-  else openAccountModal("register");
+function onProfileHeroAccountClick(event) {
+  if (state.account?.account) openAccountModal("edit", event.currentTarget);
+  else openAccountModal("register", event.currentTarget);
 }
 
 function onPlNewClick() {
@@ -323,9 +323,9 @@ export function bindProfileUi() {
     saveProfileDesign({ asNew: true, stay: true });
   });
   $("#pl-list")?.addEventListener("click", onProfileListClick);
-  $("#account-register-btn")?.addEventListener("click", () => openAccountModal("register"));
-  $("#account-login-btn")?.addEventListener("click", () => openAccountModal("login"));
-  $("#account-edit-btn")?.addEventListener("click", () => openAccountModal("edit"));
+  $("#account-register-btn")?.addEventListener("click", (event) => openAccountModal("register", event.currentTarget));
+  $("#account-login-btn")?.addEventListener("click", (event) => openAccountModal("login", event.currentTarget));
+  $("#account-edit-btn")?.addEventListener("click", (event) => openAccountModal("edit", event.currentTarget));
   $("#account-logout-btn")?.addEventListener("click", logoutAccount);
   $("#account-scrim")?.addEventListener("click", closeAccountModal);
 

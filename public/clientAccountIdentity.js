@@ -482,10 +482,11 @@ function accountFormSubmit(event, gate) {
   host.emitServer(eventName, payload, (response) => accountSubmitAck(response, gate));
 }
 
-export function openAccountModal(mode = "register") {
+export function openAccountModal(mode = "register", trigger = null) {
   accountModalMode = mode;
   const card = $("#account-card");
   if (!card) return;
+  if (trigger instanceof HTMLElement && !trigger.closest("#account-modal")) setSurfaceReturnFocus(trigger);
   card.innerHTML = accountModalHTML(mode);
   openSurface("#account-modal", accountFocusTarget(mode));
   $("#account-modal-close")?.addEventListener("click", closeAccountModal);

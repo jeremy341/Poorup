@@ -285,6 +285,17 @@ function publicAchievements(account, includePrivateHistory) {
   return entries.map(entry => ({ id: entry.id, unlockedAt: entry.unlockedAt || null })).slice(0, 100);
 }
 
+function publicPlayerStats(stats = {}) {
+  const gamesPlayed = num(stats.gamesPlayed);
+  const wins = num(stats.wins);
+  return {
+    gamesPlayed,
+    wins,
+    winRate: gamesPlayed ? Math.round((wins / gamesPlayed) * 100) : 0,
+    eventSurvival: num(stats.eventSurvival)
+  };
+}
+
 function publicAccount(account, includePrivateHistory = true) {
   if (!account) return null;
   return {
@@ -578,7 +589,7 @@ export class AccountStore {
       displayName: publicView.displayName,
       color: publicView.color,
       avatarGrid: publicView.avatarGrid,
-      stats: publicView.stats,
+      stats: publicPlayerStats(account.stats),
       achievements: includeAchievements ? publicAchievements(account, true) : publicView.achievements,
       achievementsPrivate: account.privacy?.achievements === 'private',
       historyPrivate: account.privacy?.history === 'private',
