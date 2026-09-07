@@ -81,52 +81,69 @@ function applyPropertyTransfer(state, indexes, fromSeat, toSeat) {
   state.properties = state.board.filter(tile => tile.ownerSeat === 'self' && tile.group).map(tile => ({ ...tile }));
 }
 
+function applyBuyCandidate(state, candidate, tile) {
+  state.cash = Math.max(0, state.cash - nonNegative(candidate.price || tile.price));
+  const target = state.board.find(entry => entry.index === tile.index);
+  if (target) Object.assign(target, { ownerSeat: 'self', mortgaged: false, houseCount: 0 });
+  state.properties = state.board.filter(entry => entry.ownerSeat === 'self' && entry.group).map(entry => ({ ...entry }));
+}
+
+function applyBuildCandidate(state, candidate, tile) {
+  state.cash = Math.max(0, state.cash - nonNegative(candidate.cost));
+  const target = state.board.find(entry => entry.index === tile.index);
+  if (target) target.houseCount = Math.min(5, nonNegative(target.houseCount) + 1);
+}
+
+function applyMortgageCandidate(state, candidate, tile) {
+  state.cash += nonNegative(candidate.proceeds);
+  const target = state.board.find(entry => entry.index === tile.index);
+  if (target) target.mortgaged = true;
+}
+
+function applyLoanCandidate(state, candidate) {
+  state.cash += nonNegative(candidate.principal);
+  state.bankLoan = { status: 'active', remaining: nonNegative(candidate.totalDue || candidate.principal), dueRound: candidate.dueRound || null };
+}
+
+function applyMarketCandidate(snapshot, state, candidate) {
+  const quote = nonNegative(snapshot.marketQuotes?.[candidate.instrumentId]) || 100;
+  const fee = Math.max(1, Math.ceil(quote * MARKET_FEE_RATE));
+  const quantity = nonNegative(candidate.quantity || 1);
+  state.cash = Math.max(0, state.cash - quote * quantity - fee);
+  const position = state.marketPositions[candidate.instrumentId] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
+  position.quantity += quantity;
+  position.averageCost = quote + fee;
+  state.marketPositions[candidate.instrumentId] = position;
+}
+
+function applyCasinoCandidate(snapshot, state, candidate) {
+  const fee = nonNegative(snapshot.rulesDigest?.casino?.entryFee);
+  const stake = nonNegative(candidate.stake);
+  state.cash = Math.max(0, state.cash - stake - fee);
+  // Conservative expectation: account for the house edge, never a lucky spin.
+  state.casinoNet -= Math.ceil(stake / 37) + fee;
+}
+
+function applyTradeCandidate(state, candidate) {
+  state.cash = Math.max(0, state.cash - nonNegative(candidate.giveCash) + nonNegative(candidate.requestCash));
+  applyPropertyTransfer(state, candidate.givePropertyIndexes, 'self', 'opponent-1');
+  applyPropertyTransfer(state, candidate.requestPropertyIndexes, 'opponent-1', 'self');
+}
+
+const CANDIDATE_APPLIERS = {
+  buy: (snapshot, state, candidate, tile) => tile && applyBuyCandidate(state, candidate, tile),
+  build: (snapshot, state, candidate, tile) => tile && applyBuildCandidate(state, candidate, tile),
+  mortgage: (snapshot, state, candidate, tile) => tile && applyMortgageCandidate(state, candidate, tile),
+  loan: (_snapshot, state, candidate) => applyLoanCandidate(state, candidate),
+  market: applyMarketCandidate,
+  casino: applyCasinoCandidate,
+  trade: (_snapshot, state, candidate) => applyTradeCandidate(state, candidate)
+};
+
 function applyCandidate(snapshot, state, candidate) {
+  const handler = CANDIDATE_APPLIERS[candidate?.kind];
   const tile = tileFor(snapshot, candidate?.tileIndex);
-  const kind = candidate?.kind;
-  if (kind === 'buy' && tile) {
-    state.cash = Math.max(0, state.cash - nonNegative(candidate.price || tile.price));
-    const target = state.board.find(entry => entry.index === tile.index);
-    if (target) {
-      target.ownerSeat = 'self';
-      target.mortgaged = false;
-      target.houseCount = 0;
-    }
-    state.properties = state.board.filter(entry => entry.ownerSeat === 'self' && entry.group).map(entry => ({ ...entry }));
-  } else if (kind === 'build' && tile) {
-    const cost = nonNegative(candidate.cost);
-    state.cash = Math.max(0, state.cash - cost);
-    const target = state.board.find(entry => entry.index === tile.index);
-    if (target) target.houseCount = Math.min(5, nonNegative(target.houseCount) + 1);
-  } else if (kind === 'mortgage' && tile) {
-    state.cash += nonNegative(candidate.proceeds);
-    const target = state.board.find(entry => entry.index === tile.index);
-    if (target) target.mortgaged = true;
-  } else if (kind === 'loan') {
-    state.cash += nonNegative(candidate.principal);
-    state.bankLoan = { status: 'active', remaining: nonNegative(candidate.totalDue || candidate.principal), dueRound: candidate.dueRound || null };
-  } else if (kind === 'market') {
-    const quote = nonNegative(snapshot.marketQuotes?.[candidate.instrumentId]) || 100;
-    const fee = Math.max(1, Math.ceil(quote * MARKET_FEE_RATE));
-    state.cash = Math.max(0, state.cash - quote * nonNegative(candidate.quantity || 1) - fee);
-    const position = state.marketPositions[candidate.instrumentId] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
-    position.quantity += nonNegative(candidate.quantity || 1);
-    position.averageCost = quote + fee;
-    state.marketPositions[candidate.instrumentId] = position;
-  } else if (kind === 'casino') {
-    const fee = nonNegative(snapshot.rulesDigest?.casino?.entryFee);
-    const stake = nonNegative(candidate.stake);
-    state.cash = Math.max(0, state.cash - stake - fee);
-    // The expected value is intentionally conservative: it accounts for the
-    // house edge but never assumes a lucky spin.
-    state.casinoNet -= Math.ceil(stake / 37) + fee;
-  } else if (kind === 'trade') {
-    const giveCash = nonNegative(candidate.giveCash);
-    const requestCash = nonNegative(candidate.requestCash);
-    state.cash = Math.max(0, state.cash - giveCash + requestCash);
-    applyPropertyTransfer(state, candidate.givePropertyIndexes, 'self', 'opponent-1');
-    applyPropertyTransfer(state, candidate.requestPropertyIndexes, 'opponent-1', 'self');
-  }
+  if (handler) handler(snapshot, state, candidate, tile);
 }
 
 function eventRentMultiplier(snapshot, tile) {
