@@ -39,3 +39,12 @@ Player A lands on a property (e.g., Accra) and cannot afford it. Player B offers
   purchase offer must still belong to the buyer at acceptance.
 - Reservations are returned on cancellation, stale ownership, disconnect, or
   bankruptcy; they never become a loan or equity share.
+
+## Bot behavior
+
+Bots use the same sponsorship API as humans. A bot buyer requests help only
+when the purchase is otherwise out of reach and the table has enough safe bot
+cash to cover the gap. A bot sponsor reserves only the amount still needed and
+keeps a fixed liquidity floor. The buyer accepts after the reservation fully
+covers the price; otherwise the request remains available for human players
+without repeatedly consuming bot turns.
