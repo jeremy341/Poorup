@@ -66,6 +66,9 @@ assert.equal(context.opponents.length, 1);
 assert.deepEqual(context.recentDecisions.map(entry => entry.actionId), ['mortgage:1', 'auction:pass']);
 assert.equal(context.recentDecisions[0].fallback, true);
 assert.equal(context.recentDecisions[0].success, false);
+assert.equal(context.decisionMemory.decisions, 2);
+assert.equal(context.decisionMemory.failures, 1);
+assert.equal(context.decisionMemory.actionRates[0].actionId, 'mortgage:1');
 
 const serialized = JSON.stringify(context);
 assert.equal(serialized.includes('context-host'), false);

@@ -166,6 +166,33 @@ function recentBotDecisions(game, bot) {
     }));
 }
 
+function botDecisionMemory(game, bot) {
+  const entries = Array.isArray(game?.botDecisionTrace)
+    ? game.botDecisionTrace.filter(entry => entry?.botId === bot.id)
+    : [];
+  const byAction = new Map();
+  const byPhase = new Map();
+  entries.forEach(entry => {
+    const action = String(entry.actionId || 'unknown').slice(0, 80);
+    const phase = String(entry.phase || 'unknown').slice(0, 24);
+    const actionRow = byAction.get(action) || { actionId: action, attempts: 0, successes: 0 };
+    actionRow.attempts += 1;
+    if (entry.success !== false) actionRow.successes += 1;
+    byAction.set(action, actionRow);
+    const phaseRow = byPhase.get(phase) || { phase, attempts: 0, successes: 0 };
+    phaseRow.attempts += 1;
+    if (entry.success !== false) phaseRow.successes += 1;
+    byPhase.set(phase, phaseRow);
+  });
+  return {
+    decisions: entries.length,
+    successes: entries.filter(entry => entry.success !== false).length,
+    failures: entries.filter(entry => entry.success === false).length,
+    actionRates: [...byAction.values()].slice(-8),
+    phaseRates: [...byPhase.values()].slice(-8)
+  };
+}
+
 function obligationView(game, bot) {
   const payment = game.pendingPayment;
   const purchase = game.pendingPurchaseOffer;
@@ -305,6 +332,7 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
     },
     turn: turnView(game || {}, safeBot),
     recentDecisions: recentBotDecisions(game || {}, safeBot),
+    decisionMemory: botDecisionMemory(game || {}, safeBot),
     board,
     opponents,
     obligations: obligationView(game || {}, safeBot),
