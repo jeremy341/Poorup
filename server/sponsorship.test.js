@@ -28,6 +28,7 @@ const requested = ctx.game.requestPurchaseSponsorship('s-buyer');
 assert.equal(requested.success, true);
 assert.equal(ctx.game.pendingSponsoredPurchase.tileIndex, ctx.tile.index);
 assert.equal(ctx.game.summarySponsoredPurchase().amountNeeded, ctx.tile.price - 20);
+assert.equal(ctx.game.proposeTrade('s-buyer', { toPlayerId: ctx.sponsor.id, giveCash: 1 }).success, false);
 
 const first = ctx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 20 });
 assert.equal(first.success, true);
