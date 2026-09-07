@@ -122,6 +122,8 @@ check('target selection: vote beats pending counterparty beats current', () => {
   assert.strictEqual(selectBotTurnTarget(pendingHuman).id, 'b1');
   const contract = fakeGame({ current: human, players: [bot1], pendingPlayerContract: { toPlayerId: 'b1' } });
   assert.strictEqual(selectBotTurnTarget(contract).id, 'b1');
+  const payment = fakeGame({ current: human, players: [bot1], pendingPayment: { playerId: 'b1' } });
+  assert.strictEqual(selectBotTurnTarget(payment).id, 'b1');
   const plain = fakeGame({ current: bot2 });
   assert.strictEqual(selectBotTurnTarget(plain).id, 'b2');
 });
@@ -133,6 +135,7 @@ check('botMayStillAct keeps voting/pending alive off-turn', () => {
   assert.strictEqual(botMayStillAct(fakeGame({ current: { ...bot, bankrupt: true }, players: [] }), bot), false);
   assert.strictEqual(botMayStillAct(fakeGame({ current: bot, players: [], globalEvent: { phase: 'voting' } }), bot), true);
   assert.strictEqual(botMayStillAct(fakeGame({ current: { id: 'x' }, players: [], pendingTrade: { toPlayerId: 'b1' } }), bot), true);
+  assert.strictEqual(botMayStillAct(fakeGame({ current: { id: 'x' }, players: [], pendingPayment: { playerId: 'b1' } }), bot), true);
 });
 
 check('phase classification order matches original if/else chain', () => {
