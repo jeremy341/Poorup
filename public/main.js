@@ -126,6 +126,12 @@ import {
   showGameOver,
 } from "./clientGameModalsUi.js";
 import {
+  bindSponsorshipUi,
+  closeSponsorshipModal,
+  configureSponsorshipUi,
+  requestSponsorship,
+} from "./clientSponsorshipUi.js";
+import {
   bindDeedDetail,
   closeDeedDetail,
   configureDeedDetail,
@@ -776,6 +782,7 @@ function bindEvents() {
   // buy/decline choice card, trade offer inbox, bankruptcy + round-over
   // cards, and the card reveal/gallery (clientGameModalsUi.js)
   bindGameModalSurfaces();
+  bindSponsorshipUi();
   bindDeedDetail();
 
   // profile editor, account and achievements surfaces (clientProfileBindings.js)
@@ -808,6 +815,7 @@ function bindEvents() {
     closeAccountModal,
     closeAchievementModal,
     closeFinancingModal,
+    closeSponsorshipModal,
     closeCardGallery,
     closeChoiceModalAsPass,
     closeRoomsModal,
@@ -832,7 +840,8 @@ configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderR
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureProfileRender({ renderAchievements, loadSavedGame });
-configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, startGame });
+configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openSponsorshipRequest: requestSponsorship, startGame });
+configureSponsorshipUi({ emitServer, say, renderChat });
 configureDeedDetail({ emitServer });
 configureProfileBindings({ showView, emitServer });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });

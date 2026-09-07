@@ -153,6 +153,7 @@ function turnView(game, bot) {
 function obligationView(game, bot) {
   const payment = game.pendingPayment;
   const purchase = game.pendingPurchaseOffer;
+  const sponsorship = game.pendingSponsoredPurchase;
   const auction = game.auction;
   const trade = game.pendingTrade;
   const contract = game.pendingPlayerContract;
@@ -166,6 +167,13 @@ function obligationView(game, bot) {
       ownerSeat: seatOf(game, bot, purchase.playerId),
       tileIndex: purchase.tileIndex ?? null,
       price: nonNegative(typeof game.getTile === 'function' ? game.getTile(purchase.tileIndex)?.price : 0)
+    } : null,
+    sponsorship: sponsorship ? {
+      ownerSeat: seatOf(game, bot, sponsorship.buyerId),
+      tileIndex: sponsorship.tileIndex ?? null,
+      price: nonNegative(typeof game.getTile === 'function' ? game.getTile(sponsorship.tileIndex)?.price : sponsorship.price),
+      totalContributed: nonNegative(sponsorship.contributions?.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)),
+      contributionCount: Array.isArray(sponsorship.contributions) ? sponsorship.contributions.length : 0
     } : null,
     auction: auction ? {
       tileIndex: auction.propertyTile?.index ?? null,

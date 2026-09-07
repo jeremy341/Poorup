@@ -16,6 +16,7 @@ const summaryApi = {
       extraRollPending: this.extraRollPending,
       awaitingEndTurn: this.awaitingEndTurn,
       pendingPurchaseOffer: this.pendingPurchaseOffer,
+      pendingSponsoredPurchase: this.summarySponsoredPurchase(),
       pendingPayment: this.pendingPayment,
       lastWinner: this.lastWinner,
       lastDice: this.lastDice,

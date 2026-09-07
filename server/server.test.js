@@ -67,7 +67,9 @@ async function checkNullPayloadStorm(socket, child) {
   const hostileEvents = [
     'set-setting', 'set-player-appearance', 'purchase-property',
     'decline-property', 'auction-bid', 'manage-property', 'respond-trade',
-    'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat'
+    'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat',
+    'request-sponsored-purchase', 'contribute-sponsored-purchase',
+    'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase'
   ];
   let allAnswered = true;
   for (const event of hostileEvents) {
