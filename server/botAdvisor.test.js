@@ -15,19 +15,39 @@ assert.equal(localDecision.fallback, true);
 assert.equal(localDecision.actionId, 'build:1');
 
 let calls = 0;
+let requestBody = null;
 const ai = new DeepSeekAdvisor({
   apiKey: 'test-key',
-  fetchImpl: async () => {
+  fetchImpl: async (_url, options) => {
     calls += 1;
+    requestBody = JSON.parse(options.body);
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"actionId":"roll","confidence":0.9,"reasonCode":"preserve-cash"}' } }] }) };
   }
 });
-const aiDecision = await ai.chooseAction({ candidates, personality: 'survivor', botBrain: 'auto', gameId: 'g-ai', decisionSequence: 1 });
+const aiDecision = await ai.chooseAction({
+  candidates,
+  personality: 'survivor',
+  botBrain: 'auto',
+  gameId: 'g-ai',
+  botId: 'private-seat-id',
+  phase: 'pre-roll',
+  roundNumber: 4,
+  botState: { cash: 1000, propertyCount: 2, bankLoanStatus: null },
+  opponentSummaries: [{ seat: 'player', cashBand: 'steady', propertyCount: 1 }],
+  decisionSequence: 1,
+  ruleVersion: 'bot-policy-v1'
+});
 assert.equal(aiDecision.provider, 'ai');
 assert.equal(aiDecision.fallback, false);
 assert.equal(aiDecision.actionId, 'roll');
 assert.equal(aiDecision.model, 'deepseek-v4-flash');
 assert.equal(calls, 1);
+const promptContext = JSON.parse(requestBody.messages[1].content);
+assert.equal(promptContext.phase, 'pre-roll');
+assert.equal(promptContext.roundNumber, 4);
+assert.equal(promptContext.botState.cash, 1000);
+assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'botId'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'gameId'), false);
 
 let quotaCalls = 0;
 const quota = new DeepSeekAdvisor({
