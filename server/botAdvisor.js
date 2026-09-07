@@ -180,6 +180,7 @@ export class DeepSeekAdvisor {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxDecisionsPerGame = DEFAULT_MAX_DECISIONS_PER_GAME,
     circuitCooldownMs = DEFAULT_CIRCUIT_COOLDOWN_MS,
+    shadow = false,
     fetchImpl = globalThis.fetch
   } = {}) {
     this.apiKey = apiKey || '';
@@ -188,6 +189,7 @@ export class DeepSeekAdvisor {
     this.timeoutMs = timeoutMs;
     this.maxDecisionsPerGame = Math.max(1, Math.floor(Number(maxDecisionsPerGame) || DEFAULT_MAX_DECISIONS_PER_GAME));
     this.circuitCooldownMs = Math.max(1000, Number(circuitCooldownMs) || DEFAULT_CIRCUIT_COOLDOWN_MS);
+    this.shadow = shadow === true;
     this.fetchImpl = fetchImpl;
     this.fallback = new DeterministicAdvisor();
     this.failureStreak = 0;
@@ -256,7 +258,7 @@ export class DeepSeekAdvisor {
     const response = await this.requestAdvisorAction(context);
     if (response.decision) {
       this.registerSuccess();
-      return {
+      const aiDecision = {
         ...response.decision,
         provider: 'ai',
         model: this.model,
@@ -264,6 +266,16 @@ export class DeepSeekAdvisor {
         difficulty: normalizeDifficulty(context.botDifficulty),
         fallback: false,
         latencyMs: Math.max(0, Date.now() - startedAt)
+      };
+      if (!this.shadow) return aiDecision;
+      const houseDecision = await this.fallbackDecision(context, 'shadow-mode', startedAt);
+      return {
+        ...houseDecision,
+        shadowActionId: aiDecision.actionId,
+        shadowConfidence: aiDecision.confidence,
+        shadowProvider: aiDecision.provider,
+        shadowAgreement: houseDecision.actionId === aiDecision.actionId,
+        shadowModel: aiDecision.model
       };
     }
     this.registerFailure(response.reason || 'provider');
@@ -281,6 +293,7 @@ export class DeepSeekAdvisor {
       failureStreak: this.failureStreak,
       aiCalls: this.aiCalls,
       fallbackCount: this.fallbackCalls,
+      shadow: this.shadow,
       lastFailure: this.lastFailure,
       budgetLimit: this.maxDecisionsPerGame
     };
@@ -354,6 +367,7 @@ export function createBotAdvisor(env = process.env) {
     endpoint: env?.DEEPSEEK_API_URL || 'https://api.deepseek.com/chat/completions',
     model: env?.DEEPSEEK_MODEL || 'deepseek-v4-flash',
     timeoutMs: env?.DEEPSEEK_TIMEOUT_MS || DEFAULT_TIMEOUT_MS,
-    maxDecisionsPerGame: env?.POORUP_BOT_AI_DECISIONS || DEFAULT_MAX_DECISIONS_PER_GAME
+    maxDecisionsPerGame: env?.POORUP_BOT_AI_DECISIONS || DEFAULT_MAX_DECISIONS_PER_GAME,
+    shadow: ['true', '1', 'on'].includes(String(env?.POORUP_BOT_AI_SHADOW || '').trim().toLowerCase())
   });
 }
