@@ -305,45 +305,31 @@ function counterContractOffer(game, bot) {
   return counter;
 }
 
-function botPaymentAction(room, bot, game) {
+function paymentTrace(result, fallbackReason, actionId, candidateIds) {
+  return attachBotDecision(result, { phase: 'payment', provider: 'deterministic', fallback: true, fallbackReason, actionId, candidateIds });
+}
+
+function tryDebtSale(room, bot, game) {
   const sell = debtSellCandidates(game, bot)[0];
-  if (sell) {
-    const result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: sell.tile.index, action: 'sell-house' }));
-    if (result?.success !== false) {
-      return attachBotDecision(result, {
-        phase: 'payment',
-        provider: 'deterministic',
-        fallback: true,
-        fallbackReason: 'debt-liquidation',
-        actionId: `sell:${sell.tile.index}`,
-        candidateIds: debtSellCandidates(game, bot).map(entry => `sell:${entry.tile.index}`).slice(0, 24)
-      });
-    }
-  }
+  if (!sell) return null;
+  const result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: sell.tile.index, action: 'sell-house' }));
+  if (result?.success === false) return null;
+  return paymentTrace(result, 'debt-liquidation', `sell:${sell.tile.index}`, debtSellCandidates(game, bot).map(entry => `sell:${entry.tile.index}`).slice(0, 24));
+}
+
+function tryEmergencyLoan(room, bot, game) {
   const offer = typeof game.getBankLoanOffer === 'function' ? game.getBankLoanOffer(bot) : null;
-  if (offer?.available && bot.id === game.currentPlayerId) {
-    const result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
-    if (result?.success) {
-      if (typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
-      return attachBotDecision(result, {
-        phase: 'payment',
-        provider: 'deterministic',
-        fallback: true,
-        fallbackReason: 'debt-loan-rescue',
-        actionId: 'loan:emergency',
-        candidateIds: ['loan:emergency', 'bankruptcy']
-      });
-    }
-  }
-  const result = room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
-  return attachBotDecision(result, {
-    phase: 'payment',
-    provider: 'deterministic',
-    fallback: true,
-    fallbackReason: 'no-legal-rescue',
-    actionId: 'bankruptcy',
-    candidateIds: ['bankruptcy']
-  });
+  if (!offer?.available || bot.id !== game.currentPlayerId) return null;
+  const result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
+  if (!result?.success) return null;
+  if (typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
+  return paymentTrace(result, 'debt-loan-rescue', 'loan:emergency', ['loan:emergency', 'bankruptcy']);
+}
+
+function botPaymentAction(room, bot, game) {
+  return tryDebtSale(room, bot, game)
+    || tryEmergencyLoan(room, bot, game)
+    || paymentTrace(room.runBotAction(bot.id, actor => room.declareBankruptcy(actor)), 'no-legal-rescue', 'bankruptcy', ['bankruptcy']);
 }
 
 function shouldAcceptContractResponse(game, bot, offer) {
