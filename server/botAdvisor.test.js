@@ -55,6 +55,7 @@ assert.equal(promptContext.botState.cash, 1000);
 assert.equal(promptContext.contextVersion, 'bot-context-v2');
 assert.equal(promptContext.rulesDigest.boardSize, 40);
 assert.equal(promptContext.turn.currentSeat, 'self');
+assert.equal(promptContext.planningHorizon, 1);
 assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'botId'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'gameId'), false);
 
