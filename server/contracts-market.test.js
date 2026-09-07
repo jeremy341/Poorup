@@ -61,6 +61,41 @@ check('loan contract derives totalDue, due and cure rounds, collateral', () => {
   assert.equal(contract.equityShare, 0);
 });
 
+check('borrower can negotiate every loan term before lender approval', () => {
+  const { game, a, b } = startedRoom();
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 12, durationRounds: 3, collateralTileIndex: 1 });
+  assert.equal(first.success, true);
+  const counter = game.counterPlayerContract('socket-b', { contractId: first.contract.id, kind: 'loan', amount: 150, premiumRate: 5, durationRounds: 5, collateralTileIndex: 1 });
+  assert.equal(counter.success, true);
+  assert.equal(counter.countered, true);
+  assert.equal(game.pendingPlayerContract.fromPlayerId, a.id);
+  assert.equal(game.pendingPlayerContract.toPlayerId, b.id);
+  assert.equal(game.pendingPlayerContract.amount, 150);
+  assert.equal(game.pendingPlayerContract.premiumRate, 5);
+  assert.equal(game.pendingPlayerContract.durationRounds, 5);
+  const accepted = game.respondPlayerContract('socket-a', true, 'counter-accept');
+  assert.equal(accepted.success, true);
+  assert.equal(a.cash, 1350);
+  assert.equal(b.cash, 1650);
+  assert.equal(game.pendingPlayerContract, null);
+});
+
+check('sender can adjust or cancel a pending contract without funding it', () => {
+  const { game, a, b } = startedRoom();
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 80, premiumRate: 10, durationRounds: 2 });
+  assert.equal(first.success, true);
+  const adjusted = game.adjustPlayerContract('socket-a', { contractId: first.contract.id, kind: 'loan', amount: 120, premiumRate: 4, durationRounds: 4 });
+  assert.equal(adjusted.success, true);
+  assert.equal(adjusted.adjusted, true);
+  assert.equal(game.pendingPlayerContract.amount, 120);
+  assert.equal(a.cash, 1500);
+  assert.equal(b.cash, 1500);
+  assert.deepEqual(game.adjustPlayerContract('socket-a', { contractId: 'stale', amount: 50 }), { success: false, error: 'That contract offer is no longer current.' });
+  assert.equal(game.pendingPlayerContract.amount, 120);
+});
+
 check('loan collateral must be an unencumbered borrower deed', () => {
   const { game, a, b } = startedRoom();
   const wrongOwner = game.getTile(1);

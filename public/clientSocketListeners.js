@@ -36,6 +36,8 @@ let host = {
   openChoiceModal: noop,
   openCardReveal: noop,
   openOfferModal: noop,
+  openDealDetails: noop,
+  renderDealDetailsIfOpen: noop,
   serverSyncHost: {},
 };
 
@@ -230,7 +232,10 @@ function onTradeOffer({ trade }) {
 function attachConnectionListeners(socket) {
   socket.on("connect", () => onSocketConnect(socket));
   socket.on("connect_error", () => host.setConnectionStatus("offline", true));
-  socket.on("update-state", (snapshot) => applyServerState(snapshot, host.serverSyncHost));
+  socket.on("update-state", (snapshot) => {
+    applyServerState(snapshot, host.serverSyncHost);
+    host.renderDealDetailsIfOpen();
+  });
   socket.on("rooms-updated", applyRoomsUpdated);
 }
 
@@ -253,6 +258,7 @@ function attachAccountListeners(socket) {
     state.playerContractOffer = contract || null;
     announceSocialNotification({ body: "A player contract is waiting in Finance." });
     renderRightRail();
+    if (contract?.id) host.openDealDetails("contract", contract.id);
   });
   socket.on("player-contract-update", onPlayerContractUpdate);
   socket.on("sponsorship-update", ({ sponsorship } = {}) => onSponsorshipUpdate(sponsorship));
