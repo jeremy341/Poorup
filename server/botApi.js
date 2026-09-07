@@ -9,7 +9,7 @@ const BOT_CANDIDATE_SOURCES = [
   { collect: (game, player) => game.botBuildCandidates(player) },
   { collect: (game, player) => game.botMortgageCandidates(player) },
   { collect: (game, player) => game.botLoanCandidate(player) },
-  { collect: (game, player) => game.botGroupTradeCandidate(player) },
+  { collect: (game, player, options) => options.expanded ? game.botGroupTradeCandidates(player) : game.botGroupTradeCandidate(player) },
   { collect: (game, player) => game.botMarketCandidate(player) },
   { collect: (game, player) => game.botCasinoCandidate(player) }
 ];
@@ -114,12 +114,12 @@ const botApi = {
   // Roll is always available; the pre-roll table appends the remaining
   // candidate sources in their historical order, then the stable sort ranks
   // them by score desc, risk asc.
-  getBotCandidates(player) {
+  getBotCandidates(player, options = {}) {
     if (!player?.isBot) return [];
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
     if (!this.hasRolled) {
       for (const source of BOT_CANDIDATE_SOURCES) {
-        candidates.push(...source.collect(this, player));
+        candidates.push(...source.collect(this, player, options));
       }
     }
     return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
@@ -178,26 +178,36 @@ const botApi = {
   },
 
   botGroupTradeCandidate(player) {
-    const partner = this.activePlayers().find(candidate => candidate.id !== player.id && !candidate.isBot);
-    if (!partner) return [];
-    const giveTile = this.firstTradeableOwnedTile(player);
-    const askTile = this.firstTradeableOwnedTile(partner);
-    if (!giveTile) return [];
-    if (!askTile) return [];
-    if (!giveTile.group) return [];
-    if (giveTile.group !== askTile.group) return [];
+    return this.botGroupTradeCandidates(player).slice(0, 1);
+  },
+
+  botGroupTradeCandidates(player) {
     const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
-    return [{
-      id: 'trade:' + partner.id + ':' + askTile.index,
-      kind: 'trade',
-      toPlayerId: partner.id,
-      givePropertyIndexes: [giveTile.index],
-      requestPropertyIndexes: [askTile.index],
-      giveCash: 0,
-      requestCash: ask.requestCash,
-      risk: 0.2,
-      score: ask.score
-    }];
+    const owned = player.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
+    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.isBot);
+    const candidates = [];
+    partners.forEach(partner => {
+      const requested = partner.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
+      owned.forEach(giveTile => requested.filter(askTile => askTile.group === giveTile.group).forEach(askTile => {
+        const botOwnedBefore = this.getGroupTiles(giveTile.group).filter(tile => tile.ownerId === player.id).length;
+        const botOwnedAfter = botOwnedBefore - 1 + (askTile.ownerId === partner.id ? 1 : 0);
+        const targetCount = this.getGroupTiles(giveTile.group).length;
+        const completesGroup = botOwnedAfter >= targetCount;
+        const breaksGroup = botOwnedBefore >= targetCount && botOwnedAfter < targetCount;
+        candidates.push({
+          id: 'trade:' + partner.id + ':' + askTile.index,
+          kind: 'trade',
+          toPlayerId: partner.id,
+          givePropertyIndexes: [giveTile.index],
+          requestPropertyIndexes: [askTile.index],
+          giveCash: 0,
+          requestCash: ask.requestCash,
+          risk: 0.2,
+          score: ask.score + (completesGroup ? 28 : 0) - (breaksGroup ? 30 : 0)
+        });
+      }));
+    });
+    return candidates.slice(0, 12);
   },
 
   firstTradeableOwnedTile(player) {
