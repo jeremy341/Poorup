@@ -266,6 +266,23 @@ function phaseChoiceCandidates(game, bot, phase) {
       choiceCandidate('contract:decline', 'decline', accept ? 1 : 8, 'DECLINE')
     ];
   }
+  if (phase === 'payment' && game.pendingPayment?.playerId === bot.id) {
+    const sellCandidates = debtSellCandidates(game, bot).slice(0, 12).map(entry => choiceCandidate(
+      `debt:sell:${entry.tile.index}`,
+      `sell:${entry.tile.index}`,
+      Math.max(1, Math.min(24, entry.score / 10)),
+      `SELL ${entry.tile.name}`
+    ));
+    const offer = typeof game.getBankLoanOffer === 'function' ? game.getBankLoanOffer(bot) : null;
+    const loanCandidate = offer?.available && bot.id === game.currentPlayerId
+      ? choiceCandidate('debt:loan', 'loan', 10 - Math.min(8, Number(offer.totalDue || 0) / 100), 'TAKE BANK LOAN')
+      : null;
+    return [
+      ...sellCandidates,
+      ...(loanCandidate ? [loanCandidate] : []),
+      choiceCandidate('debt:bankruptcy', 'bankruptcy', -20, 'DECLARE BANKRUPTCY')
+    ];
+  }
   return [];
 }
 
@@ -276,6 +293,18 @@ function runPhaseChoice(room, bot, game, phase, candidate) {
     return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: game.pendingTrade.id, accept: candidate.choiceId === 'accept' }));
   }
   if (phase === 'contract') return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
+  if (phase === 'payment') {
+    if (candidate.id.startsWith('debt:sell:')) {
+      const tileIndex = Number(candidate.id.slice('debt:sell:'.length));
+      return room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex, action: 'sell-house' }));
+    }
+    if (candidate.id === 'debt:loan') {
+      const result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
+      if (result?.success && typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
+      return result;
+    }
+    return room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
+  }
   return { success: false, error: 'No bot choice is available.' };
 }
 
@@ -347,7 +376,7 @@ export async function runBotTurn(room, bot, advisor) {
     ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
   if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
-  if (advisor?.supportsChoicePhases && ['vote', 'trade', 'contract'].includes(phase)) {
+  if (advisor?.supportsChoicePhases && ['vote', 'trade', 'contract', 'payment'].includes(phase)) {
     return runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase);
   }
   const result = PHASE_EXECUTORS[phase](room, bot, game);
