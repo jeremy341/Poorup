@@ -88,8 +88,14 @@ check('friends-only achievements stay hidden from outsider cards', () => {
   const account = store.getAccountById(registered.account.id);
   account.privacy.achievements = 'friends';
   account.achievements = [{ id: 'full-street', unlockedAt: '2026-01-01T00:00:00.000Z' }];
-  assert.deepStrictEqual(store.getPublicPlayerCard(account.id).achievements, []);
+  account.stats.gamesPlayed = 10;
+  account.stats.wins = 6;
+  account.stats.casinoNet = 9001;
+  account.stats.bankLoanDefaults = 4;
+  const publicCard = store.getPublicPlayerCard(account.id);
+  assert.deepStrictEqual(publicCard.achievements, []);
   assert.deepStrictEqual(store.getPublicPlayerCard(account.id, { includeAchievements: true }).achievements, account.achievements);
+  assert.deepStrictEqual(publicCard.stats, { gamesPlayed: 10, wins: 6, winRate: 60, eventSurvival: 0 });
 });
 
 fs.rmSync(tempDir, { recursive: true, force: true });
