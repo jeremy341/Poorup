@@ -2,6 +2,8 @@
 
 Status: implemented AI-first `AUTO` mode with a guaranteed no-AI fallback.
 Provider shadowing and production rollout gates remain intentionally staged.
+The current release includes a 20-game bounded no-AI economy simulation smoke
+suite; the larger balance campaign remains a follow-up gate.
 
 ## Product decision
 
