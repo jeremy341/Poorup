@@ -413,6 +413,7 @@ function createRuntime(deps) {
       fallbackReason: decision?.fallbackReason || 'auction-policy',
       actionId,
       confidence: Number.isFinite(Number(decision?.confidence)) ? decision.confidence : 0.55,
+      success: result?.success !== false,
       reasonCode: result?.success === false ? 'auction-rejected' : decision?.reasonCode || 'auction-policy',
       candidateIds: candidates.map(candidate => candidate.id)
     });
