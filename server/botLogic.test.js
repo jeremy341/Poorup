@@ -263,6 +263,21 @@ check('AI advisor ranks a trade response without leaving the room seam', async (
   assert.strictEqual(result.botDecision.actionId, 'trade:decline');
 });
 
+check('AI advisor can choose a legal debt rescue path', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingPayment = { playerId: 'b1', amountRemaining: 220 };
+  room.game.tiles = [];
+  room.game.currentPlayerId = 'b1';
+  room.game.getBankLoanOffer = () => ({ available: true, totalDue: 450, principal: 300 });
+  const advisor = { supportsChoicePhases: true, chooseAction: async context => {
+    assert.deepEqual(context.candidates.map(candidate => candidate.id), ['debt:loan', 'debt:bankruptcy']);
+    return { actionId: 'debt:loan', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'loan');
+  assert.strictEqual(result.botDecision.actionId, 'debt:loan');
+});
+
 check('payment phase sells a legal building before declaring bankruptcy', async () => {
   const log = [];
   const room = fakeRoom(log);
