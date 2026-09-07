@@ -83,7 +83,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const account = runtime.social.accountForSocket(socket, payload);
     const { clientId } = payload;
     runtime.clearDisconnectTimer(clientId);
-    const room = roomManager.restoreConnection(clientId, socket.id);
+    const room = roomManager.restoreConnection(clientId, socket.id, account?.id);
     if (!room) return reply(callback, { success: false, error: 'No active session found.' });
     joinRestoredRoom(room, account, clientId, callback);
   }
