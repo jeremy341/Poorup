@@ -15,6 +15,7 @@ import {
   isAuctionBotParticipant,
   auctionBidDecision
 } from './botLogic.js';
+import { buildBotStrategicContext } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
 
 const DISCONNECT_GRACE_MS = 10000;
@@ -360,33 +361,55 @@ function createRuntime(deps) {
     if (auctionBotTimers.has(key)) return;
     const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
     if (!bot) return;
-    const timer = setTimeout(() => beginBotAuctionBid(room, bot, key), 450);
+    const timer = setTimeout(() => {
+      beginBotAuctionBid(room, bot, key).catch(error => {
+        console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
+      });
+    }, 450);
     auctionBotTimers.set(key, timer);
   }
 
-  function beginBotAuctionBid(room, bot, key) {
+  async function beginBotAuctionBid(room, bot, key) {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
-    const { shouldBid, minimum } = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
-    const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
-    const trace = room.game.recordBotDecisionTrace({
+    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
+    const minimum = baseline.minimum;
+    const context = {
       botId: bot.id,
+      botBrain: room.settings.botBrain || 'auto',
+      botDifficulty: room.settings.botDifficulty || 'table',
       gameId: `${room.roomCode}:${room.game.startedAt || 'pending'}`,
       decisionSequence,
       ruleVersion: 'bot-policy-v1',
+      ...buildBotStrategicContext(room.game, bot, 'auction', decisionSequence)
+    };
+    const candidates = [
+      { id: 'auction:bid', kind: 'auction', amount: minimum, risk: minimum / Math.max(1, bot.cash), score: baseline.shouldBid ? 12 : 2 },
+      { id: 'auction:pass', kind: 'auction', risk: 0, score: baseline.shouldBid ? 1 : 10 }
+    ];
+    let decision = null;
+    if (botAdvisor.supportsChoicePhases) {
+      decision = await botAdvisor.chooseAction({ ...context, candidates, personality: bot.personality, event: room.game.globalEvent });
+    }
+    const actionId = decision?.actionId === 'auction:bid' || decision?.actionId === 'auction:pass'
+      ? decision.actionId
+      : baseline.shouldBid ? 'auction:bid' : 'auction:pass';
+    const shouldBid = actionId === 'auction:bid';
+    const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    const trace = room.game.recordBotDecisionTrace({
+      ...context,
       phase: 'auction',
-      provider: 'deterministic',
-      fallback: true,
-      fallbackReason: 'auction-policy',
-      brain: room.settings.botBrain || 'auto',
-      difficulty: room.settings.botDifficulty || 'table',
-      actionId: shouldBid ? 'auction:bid' : 'auction:pass',
-      confidence: 0.55,
-      reasonCode: result?.success === false ? 'auction-rejected' : 'auction-policy',
-      candidateIds: ['auction:bid', 'auction:pass']
+      ...decision,
+      provider: decision?.provider || 'deterministic',
+      fallback: decision?.fallback !== false,
+      fallbackReason: decision?.fallbackReason || 'auction-policy',
+      actionId,
+      confidence: Number.isFinite(Number(decision?.confidence)) ? decision.confidence : 0.55,
+      reasonCode: result?.success === false ? 'auction-rejected' : decision?.reasonCode || 'auction-policy',
+      candidateIds: candidates.map(candidate => candidate.id)
     });
     emitBotStatus(room, bot, 'chosen', trace);
     emitRoomState(room);

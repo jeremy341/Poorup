@@ -172,6 +172,11 @@ const botApi = {
       id: 'loan:emergency',
       kind: 'loan',
       principal: loan.principal,
+      totalDue: loan.totalDue,
+      premium: loan.premium,
+      dueRound: loan.dueRound,
+      cureRound: loan.cureRound,
+      collateralTileIndex: loan.collateralTileIndex,
       risk: loan.totalDue / loan.principal,
       score: BOT_LOAN_SCORES[player.personality] || BOT_LOAN_SCORE_DEFAULT
     }];

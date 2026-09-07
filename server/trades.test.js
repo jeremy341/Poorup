@@ -509,7 +509,18 @@ function botRoom(personality, cash) {
 const ROLL = { id: 'roll', kind: 'roll', risk: 0, score: 0 };
 const build = (tileIndex, cash, score) => ({ id: `build:${tileIndex}`, kind: 'build', tileIndex, cost: 50, risk: 50 / Math.max(1, cash), score });
 const mortgage = (tileIndex, proceeds, score) => ({ id: `mortgage:${tileIndex}`, kind: 'mortgage', tileIndex, proceeds, risk: 0.25, score });
-const loan = score => ({ id: 'loan:emergency', kind: 'loan', principal: 300, risk: 1.5, score });
+const loan = (score, offer = {}) => ({
+  id: 'loan:emergency',
+  kind: 'loan',
+  principal: 300,
+  totalDue: offer.totalDue,
+  premium: offer.premium,
+  dueRound: offer.dueRound,
+  cureRound: offer.cureRound,
+  collateralTileIndex: offer.collateralTileIndex,
+  risk: 1.5,
+  score
+});
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });
 const casino = (color, stake, score) => ({ id: 'casino:red', kind: 'casino', color, stake, risk: 0.55, score });
@@ -528,7 +539,7 @@ check('speculator at 150: full candidate array with score/risk/tie-order pinned'
   const { game, bot, a } = botRoom('speculator', 150);
   assert.deepEqual(game.getBotCandidates(bot), [
     market(150, 20),
-    loan(18),
+    loan(18, game.getBankLoanOffer(bot)),
     ...BUILDS_150,
     tradeAsk(a.id, 8, 0),
     ...MORTGAGES_150,
@@ -555,7 +566,7 @@ check('chaos at 120: green casino leads, non-speculator loan sinks below roll', 
     mortgage(3, 30, 8), mortgage(6, 50, 8), mortgage(8, 50, 8), mortgage(9, 60, 8),
     market(120, 4),
     ROLL,
-    loan(-20)
+    loan(-20, game.getBankLoanOffer(bot))
   ]);
 });
 
@@ -588,7 +599,7 @@ check('survivor at 150 mortgages score 24 above builds', () => {
     tradeAsk(a.id, 8, 0),
     market(150, 4),
     ROLL,
-    loan(-20)
+    loan(-20, game.getBankLoanOffer(bot))
   ]);
 });
 
