@@ -220,6 +220,7 @@ function rulesDigest(game) {
     trading: settings.trading !== false && effects.tradingEnabled !== false,
     bankLoans: settings.bankLoans !== false,
     bankLoanSeverity: settings.bankLoanSeverity || 'predatory',
+    sponsorship: { enabled: true, giftsOnly: true, forcedPurchase: true, loanOrEquity: false },
     casino: { enabled: settings.casino === true, ...casinoLimits, loanBackedCashAllowed: false },
     market: { enabled: settings.market === true, feeRate: MARKET_FEE_RATE, margin: false, shorting: false },
     cards: {
