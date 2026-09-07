@@ -1,6 +1,7 @@
 # Poorup Friends and Player Social System
 
-Status: design proposal.
+Status: implemented first release. Relationship, privacy, invite, history, and
+in-session overlay seams are live; scale/abuse telemetry remains follow-up.
 
 ## Product decision
 

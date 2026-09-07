@@ -1,6 +1,7 @@
 # Poorup Match History and In-Session Social UX
 
-Status: design proposal.
+Status: implemented server history/privacy projections and in-session overlays.
+Browser-level interaction coverage remains follow-up work.
 
 ## Product rule
 
