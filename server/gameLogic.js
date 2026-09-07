@@ -4,6 +4,8 @@ import {
   playerContractSummary,
   processContracts,
   proposeContract,
+  counterContract,
+  adjustContract,
   repayContract,
   respondContract,
   settleEquityShares
@@ -43,6 +45,7 @@ import { propertyApi } from './propertyApi.js';
 import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
 import { economyApi } from './economyApi.js';
 import { tradeApi } from './tradeApi.js';
+import { sponsorshipApi } from './sponsorshipApi.js';
 import { bankruptcyApi } from './bankruptcyApi.js';
 import { APPEARANCE_PRESET_COLORS, appearanceApi } from './appearanceApi.js';
 import { botApi } from './botApi.js';
@@ -139,6 +142,7 @@ class GameState {
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
     this.pendingPurchaseOffer = null;
+    this.pendingSponsoredPurchase = null;
     this.started = false;
     this.startedAt = null;
     this.feed = [];
@@ -166,6 +170,8 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.botDecisionSequence = 0;
+    this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
     this.treasureDeck = [...TREASURE_DECK];
   }
@@ -194,6 +200,7 @@ class GameState {
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
     this.pendingPurchaseOffer = null;
+    this.pendingSponsoredPurchase = null;
     this.started = false;
     this.startedAt = Date.now();
     this.feed = [];
@@ -221,6 +228,8 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.botDecisionSequence = 0;
+    this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
     this.treasureDeck = [...TREASURE_DECK];
     this.players.forEach(player => this.resetPlayerState(player));
@@ -292,8 +301,16 @@ class GameState {
     return proposeContract(this, socketId, offer);
   }
 
-  respondPlayerContract(socketId, accept, requestId = null) {
-    return respondContract(this, socketId, accept, requestId);
+  counterPlayerContract(socketId, offer = {}) {
+    return counterContract(this, socketId, offer);
+  }
+
+  adjustPlayerContract(socketId, offer = {}) {
+    return adjustContract(this, socketId, offer);
+  }
+
+  respondPlayerContract(socketId, accept, requestId = null, contractId = null) {
+    return respondContract(this, socketId, accept, requestId, contractId);
   }
 
   repayPlayerContract(socketId, payload = {}) {
@@ -631,8 +648,10 @@ class GameState {
     player.position = (player.position + steps) % this.tiles.length;
     const distanceToStart = (START_TILE_INDEX - oldPosition + this.tiles.length) % this.tiles.length || this.tiles.length;
     if (distanceToStart <= steps) {
-      player.cash += 200;
-      this.feedMessage(`${player.nickname} passed Start and collected $200.`);
+      const exactStart = distanceToStart === steps;
+      const reward = exactStart && this.settings.doubleGo ? 400 : 200;
+      player.cash += reward;
+      this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward}.`);
     }
     const tile = this.getTile(player.position);
     if (tile?.type === 'railroad') {
@@ -680,6 +699,7 @@ class GameState {
   }
 
   nextTurn() {
+    if (this.pendingSponsoredPurchase) this.cancelSponsoredPurchase();
     this.pendingPurchaseOffer = null;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
@@ -975,6 +995,7 @@ class GameState {
     this.currentPlayerId = null;
     this.hasRolled = false;
     this.pendingPurchaseOffer = null;
+    this.cancelSponsoredPurchase();
     this.auction = null;
     this.pendingTrade = null;
     this.pendingPlayerContract = null;
@@ -987,7 +1008,7 @@ class GameState {
 
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, bankruptcyApi, appearanceApi, botApi, summaryApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi);
 
 export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 

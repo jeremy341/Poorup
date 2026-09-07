@@ -1,6 +1,9 @@
 # Poorup AI Bot Plan
 
-Status: AI-first `AUTO` mode with a guaranteed no-AI fallback.
+Status: implemented AI-first `AUTO` mode with a guaranteed no-AI fallback.
+Provider shadowing and production rollout gates remain intentionally staged.
+The current release includes a 1,000-game bounded no-AI economy simulation
+gate; the longer balance campaign remains a follow-up gate.
 
 ## Product decision
 
@@ -89,9 +92,42 @@ Required adapter behavior:
 7. Open a circuit after repeated failures and probe again later.
 8. Never expose provider errors, API keys, or billing details to other players.
 
-Current code already has `server/botAdvisor.js` with deterministic fallback,
-timeout handling, and candidate validation. It still needs provider health,
-credit-budget accounting, circuit breaking, and model-version telemetry.
+Current code now has `server/botAdvisor.js` with deterministic fallback,
+timeout handling, candidate validation, JSON-object requests, quota detection,
+per-game budgets, circuit breaking, provider health, model metadata, and an
+opt-in shadow path. `server/botStrategicContext.js` supplies the versioned
+rules digest, board, position, turn, obligation, finance, event, and redacted
+opponent projection used by both provider and deterministic paths.
+The AI adapter can also rank legal civic votes, trade responses and bounded
+counteroffers, player-contract responses and bounded contract counters,
+debt-rescue choices, sponsorship contributions/acceptance, and auction bid/pass choices; the
+actual debt, loan, and auction settlement still retain deterministic server
+guards.
+
+### Sponsorship decisions
+
+Sponsorship is treated as a table obligation, not as a free-form generosity
+action. A bot buyer only requests sponsorship when it cannot buy, at least one
+other bot has enough cash above the fixed reserve, and the shortfall is
+fundable. Bot sponsors contribute at most the remaining need while retaining a
+cash floor; they never contribute twice. Once one or more reservations cover
+the shortfall, the buyer accepts and the server forces the named purchase.
+If no bot can safely fund the request, humans may still contribute and the bot
+waits without spinning a turn loop. All reservations, ownership, and refunds
+remain server-authoritative.
+
+### Runtime configuration
+
+The server keeps credentials in environment variables only. Set
+`DEEPSEEK_API_KEY` to enable the advisor, optionally override
+`DEEPSEEK_API_URL`, `DEEPSEEK_MODEL`, `DEEPSEEK_TIMEOUT_MS`, or
+`POORUP_BOT_AI_DECISIONS`, and leave the values unset for an automatic
+no-provider fallback. `POORUP_BOT_BRAIN=no-ai` (or the legacy
+`POORUP_BOT_ADVISOR=no-ai`) forces the deterministic path for a low-cost
+deployment. Set `POORUP_BOT_AI_SHADOW=true` to call the advisor while still
+executing the deterministic choice; the private trace records agreement and
+the shadow model. The key is never sent to clients or persisted in match
+history.
 
 ## Prompt contract
 
@@ -220,13 +256,13 @@ assertions must judge legality, state transitions, privacy, and side effects.
 
 ## Rollout
 
-1. Keep current deterministic policy as the compatibility baseline.
-2. Add `botBrain`/`botDifficulty` settings and sanitized snapshots.
-3. Add adapter health, quota budget, and circuit breaker.
-4. Run AI in shadow mode while the deterministic bot acts.
+1. Keep current deterministic policy as the compatibility baseline. **Done.**
+2. Add `botBrain`/`botDifficulty` settings and sanitized snapshots. **Done.**
+3. Add adapter health, quota budget, and circuit breaker. **Done.**
+4. Run AI in shadow mode while the deterministic bot acts. **Done behind configuration.**
 5. Compare actions/metrics without affecting player outcomes.
-6. Enable AI-first `AUTO` for selected rooms.
-7. Expose explicit `NO-AI` and show fallback status when needed.
+6. Enable AI-first `AUTO` for selected rooms. **Done behind configuration.**
+7. Expose explicit `NO-AI` and show fallback status when needed. **Done.**
 8. Add optional talk only after strategy reliability is proven.
 9. Consider self-play/AlphaZero-style research only after trace volume and
    balance evidence justify a trained model.

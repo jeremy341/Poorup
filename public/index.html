@@ -691,6 +691,7 @@
                 <div>
                   <span class="hud-name" id="hud-name">Stand By</span>
                   <span class="t-body ink-3 hud-note" id="hud-note">Join a room to get started.</span>
+                  <span class="t-micro hud-bot-status is-hidden" id="hud-bot-status" aria-live="polite"></span>
                   <span class="hud-loan-status is-hidden" id="hud-loan-status" aria-live="polite"></span>
                   <button class="btn-dark hud-jail-action is-hidden" id="pay-jail-fine" type="button">
                     <span class="t-label f11">PAY $50 TO LEAVE JAIL</span>
@@ -811,10 +812,22 @@
       <div class="popup-card deed-detail-card panel noise" id="deed-card-detail"></div>
     </div>
 
-    <!-- financing UI model (server financing is intentionally not enabled yet) -->
+    <!-- financing surface: player and bank contract actions share the server ledger -->
     <div class="popup is-hidden" id="financing-modal" role="dialog" aria-modal="true" aria-labelledby="financing-card-title" aria-describedby="financing-card-description" aria-hidden="true">
       <button class="popup-scrim" id="financing-scrim" aria-label="Close financing preview"></button>
       <div class="popup-card financing-card panel noise" id="financing-card"></div>
+    </div>
+
+    <!-- shared read-only pending deal details -->
+    <div class="popup is-hidden" id="deal-detail-modal" role="dialog" aria-modal="true" aria-labelledby="deal-detail-title" aria-hidden="true">
+      <button class="popup-scrim" id="deal-detail-scrim" aria-label="Close deal details"></button>
+      <div class="popup-card deal-detail-card panel noise" id="deal-detail-card"></div>
+    </div>
+
+    <!-- sponsored purchase escrow -->
+    <div class="popup is-hidden" id="sponsorship-modal" role="dialog" aria-modal="true" aria-labelledby="sponsorship-card-title" aria-hidden="true">
+      <button class="popup-scrim" id="sponsorship-scrim" aria-label="Close sponsorship"></button>
+      <div class="popup-card sponsorship-card panel noise" id="sponsorship-card"></div>
     </div>
 
     <!-- bankruptcy -->

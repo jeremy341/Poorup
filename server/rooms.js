@@ -288,12 +288,17 @@ class Room {
   }
 
   applyRoomSettingSideEffect(key, value) {
-    if (key !== 'startingCash') {
+    if (key === 'startingCash') {
+      this.game.players.forEach(player => {
+        player.cash = Number(value);
+      });
       return;
     }
-    this.game.players.forEach(player => {
-      player.cash = Number(value);
-    });
+    if (key === 'botPersonality') {
+      this.game.players.filter(player => player.isBot).forEach(player => {
+        player.personality = value;
+      });
+    }
   }
 
   startGame() {
@@ -369,6 +374,8 @@ class Room {
       isHost: player.isHost,
       ready: player.ready,
       isBot: player.isBot,
+      botBrain: player.isBot ? this.settings.botBrain : null,
+      botDifficulty: player.isBot ? this.settings.botDifficulty : null,
       accountId: player.accountId || null,
       avatarGrid: player.avatarGrid || null
     };
@@ -402,7 +409,12 @@ const GAME_PASSTHROUGHS = [
   'manageProperty',
   'proposeTrade',
   'respondToTrade',
+  'counterTrade',
+  'adjustTrade',
+  'cancelTrade',
   'proposePlayerContract',
+  'counterPlayerContract',
+  'adjustPlayerContract',
   'respondPlayerContract',
   'repayPlayerContract',
   'endTurn',
@@ -576,6 +588,7 @@ class RoomManager {
   }
 
   clearSeatPurchaseOffer(game, playerId) {
+    game.clearSponsoredPurchaseForPlayer?.(playerId);
     if (game.pendingPurchaseOffer?.playerId === playerId) game.pendingPurchaseOffer = null;
   }
 

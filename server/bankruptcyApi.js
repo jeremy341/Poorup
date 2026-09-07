@@ -57,6 +57,7 @@ const bankruptcyApi = {
 
   markPlayerBankrupt(player) {
     player.bankrupt = true;
+    this.clearSponsoredPurchaseForPlayer?.(player.id);
     player.bubbleSurvivor = false;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;

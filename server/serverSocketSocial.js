@@ -369,12 +369,17 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     return records.map(record => summarizeMatchHistoryRecordForViewer(record, viewer?.id, target.id));
   }
 
-  function leaderboardScope(rawScope) {
-    if (['all', 'month', 'friends'].includes(rawScope)) return rawScope;
+function leaderboardScope(rawScope) {
+    if (['all', 'season', 'month', 'friends'].includes(rawScope)) return rawScope;
     return 'all';
   }
 
   function leaderboardWindow(scope) {
+    if (scope === 'season') {
+      const now = new Date();
+      const quarterStartMonth = Math.floor(now.getUTCMonth() / 3) * 3;
+      return { since: Date.UTC(now.getUTCFullYear(), quarterStartMonth, 1) };
+    }
     if (scope !== 'month') return { since: null };
     return { since: Date.now() - MONTH_MS };
   }

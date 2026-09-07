@@ -1416,6 +1416,10 @@ a:focus-visible {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .hud-note { margin-top: 8px; display: block; }
+.hud-bot-status { display: block; margin-top: 6px; padding: 4px 6px; color: var(--gold-300); background: rgb(217 166 47 / 8%); border: 1px solid rgb(217 166 47 / 45%); font-variant-numeric: tabular-nums; }
+.hud-bot-status.is-thinking { color: var(--blue-player); border-color: rgb(40 110 161 / 70%); animation: bot-status-pulse 900ms ease-in-out infinite alternate; }
+@keyframes bot-status-pulse { from { opacity: .62; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hud-bot-status.is-thinking { animation: none; } }
 .hud-jail-action { margin-top: 10px; min-height: 32px; padding: 0 10px; }
 .t-money { text-shadow: 0 2px 0 rgb(0 0 0 / 50%); }
 .pool-val { font-size: 30px; }
@@ -1581,7 +1585,8 @@ a:focus-visible {
 }
 .lobby-player-you .lobby-av { border-color: var(--line-active); }
 .lobby-player-info { flex: 1; min-width: 0; }
-.lobby-player-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-player-name { display: flex; align-items: center; gap: 6px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-brain-icon { width: 16px; height: 16px; flex: 0 0 16px; image-rendering: pixelated; }
 .lobby-player-sub { margin-top: 4px; color: var(--text-muted); font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.04em; text-transform: uppercase; }
 .lobby-ready-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
 
@@ -1794,6 +1799,10 @@ a:focus-visible {
 .ranking-avatar { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line-default); }
 .ranking-player { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ranking-player strong, .ranking-player span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-trend { width: fit-content; }
+.ranking-trend-up { color: var(--green-status); }
+.ranking-trend-down { color: var(--red-bright); }
+.ranking-trend-flat { color: var(--text-muted); }
 .ranking-value { font-variant-numeric: tabular-nums; }
 .rankings-page-shell, .social-page-shell { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .rankings-hero, .social-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 18px; padding: clamp(16px, 2vw, 24px); border-color: var(--line-board); background: var(--surface-panel); }
@@ -2668,11 +2677,29 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .finance-bank-note { margin-top: 9px; color: var(--gold-muted); }
 .player-contracts { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border-color: var(--line-active); }
 .player-contract-offer { display: grid; gap: 6px; padding: 10px; background: rgba(217,166,47,.08); border: 1px solid var(--line-active); animation: event-banner-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.deal-collapsed { width: 100%; color: inherit; text-align: left; cursor: pointer; transition: background 160ms ease-out, border-color 160ms ease-out, transform 100ms ease-out; }
+.deal-collapsed:hover, .deal-collapsed:focus-visible { background: var(--surface-panel-raised); border-color: var(--gold-300); }
+.deal-collapsed:active { transform: scale(.985); }
+.deal-detail-card { max-width: 680px; }
+.deal-detail-body { padding: 20px; }
+.deal-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.deal-detail-title-wrap { display: flex; align-items: flex-start; gap: 11px; min-width: 0; }
+.deal-detail-mark { width: 32px; height: 32px; flex: 0 0 32px; image-rendering: pixelated; }
+.deal-detail-head h2 { margin-top: 7px; color: var(--gold-100); }
+.deal-detail-grid, .deal-detail-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 18px; }
+.deal-detail-grid > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 11px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.deal-detail-grid span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deal-detail-terms { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.deal-term { min-width: 0; padding: 10px; color: var(--gold-100); background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); overflow-wrap: anywhere; }
+.deal-detail-copy { margin-top: 16px; max-width: 66ch; }
+.deal-detail-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+.deal-detail-actions > button { width: 100%; min-height: 44px; }
+@media (prefers-reduced-motion: reduce) { .deal-collapsed { transition: none; } .deal-collapsed:active { transform: none; } }
 .player-contract-active { display: grid; gap: 6px; }
 .player-contract-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .player-contract-row > div { display: grid; gap: 4px; min-width: 0; }
 .player-contract-row strong, .player-contract-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.contract-offer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+.contract-offer-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 4px; }
 .player-contract-details { display: grid; gap: 9px; }
 .player-contract-details > summary { list-style: none; cursor: pointer; }
 .player-contract-details > summary::-webkit-details-marker { display: none; }
@@ -2794,6 +2821,21 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .financing-field input[type="range"]:focus-visible { outline: 2px solid var(--gold-100); outline-offset: 3px; }
 .financing-field input[type="range"]:active::-webkit-slider-thumb { background: var(--gold-050); }
 .financing-field input[type="range"]:active::-moz-range-thumb { background: var(--gold-050); }
+.sponsorship-card { max-width: 620px; }
+.sponsorship-body { padding: 20px; }
+.sponsorship-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.sponsorship-head h2 { margin-top: 7px; color: var(--gold-100); }
+.sponsorship-meter { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 18px; }
+.sponsorship-meter > div { display: flex; flex-direction: column; gap: 5px; padding: 9px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.sponsorship-meter .t-money { font-size: 20px; }
+.sponsorship-copy { margin-top: 15px; max-width: 64ch; }
+.sponsorship-list { display: grid; gap: 5px; margin-top: 16px; }
+.sponsorship-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.sponsorship-actions { display: grid; grid-template-columns: 1.25fr 1fr; gap: 9px; margin-top: 18px; }
+.sponsorship-actions > button { min-height: 44px; width: 100%; }
+.sponsorship-contribute { display: grid; gap: 7px; margin-top: 18px; }
+.sponsorship-contribute-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+.sponsorship-contribute-row .cta-red { min-width: 130px; }
 .financing-range { position: relative; display: flex; align-items: center; min-height: 24px; }
 .financing-range::before,
 .financing-range::after { content: ""; position: absolute; left: 0; top: 8px; height: 8px; pointer-events: none; }
@@ -2822,6 +2864,9 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .financing-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .financing-surface-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .financing-contract-grid, .financing-checkpoints { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sponsorship-meter { grid-template-columns: 1fr; }
+  .sponsorship-actions, .sponsorship-contribute-row { grid-template-columns: 1fr; }
+  .deal-detail-grid, .deal-detail-terms, .deal-detail-actions { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 768px) {

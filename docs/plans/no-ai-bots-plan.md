@@ -1,6 +1,7 @@
 # Poorup No-AI Bot Plan
 
-Status: production fallback and explicit low-cost mode.
+Status: implemented baseline, fallback, and explicit low-cost mode. Remaining
+items below are rollout/evaluation work, not a second bot architecture.
 
 ## Product decision
 
@@ -24,6 +25,11 @@ rules remain authoritative in `GameState`.
 
 Traditional bots separate *what is legal* from *what is desirable*. A legal
 action list is scored using immediate value, future value, risk, and liquidity.
+
+The baseline also emits proactive repayment candidates for player loans and
+hybrid debt. Due balances outrank ordinary actions; active balances are paid
+down only from cash above the bot's liquidity floor. Equity-only contracts do
+not create repayment candidates.
 For stochastic games, expected outcomes and bounded simulations are more useful
 than a pure minimax tree. UCT/MCTS was designed for non-deterministic and
 high-branching games and balances exploration against exploitation by sampling
@@ -141,7 +147,7 @@ personality must not duplicate guards or settlement code.
 - Bot identity and personality are visible in the roster; no hidden bonuses.
 - Reconnect never replays a settled bot action.
 
-## Current Poorup implementation and gaps
+## Current Poorup implementation
 
 Already present:
 
@@ -151,32 +157,57 @@ Already present:
 - `server/rooms.js` bot seats and server-authoritative execution.
 - `server/botAdvisor.js` deterministic advisor and optional provider adapter.
 
-Still needed for the complete no-AI product:
+Implemented in the current bot slice:
 
-- Persist `botBrain` and `botDifficulty` in room settings with `AUTO` default.
-- Add the Expert bounded-rollout evaluator behind a deterministic seed.
-- Add a visible non-blocking `CPU THINKING` status and decision latency readout.
-- Add replay traces containing candidate ids, selected id, and rule version.
-- Add full-game simulations to balance reserves, loans, casino, market, and
-  global-event survival.
+- `botBrain` and `botDifficulty` are normalized in room settings with `AUTO`
+  and `TABLE` defaults.
+- Expert uses a bounded, deterministic seeded lookahead evaluator.
+- The HUD shows non-blocking `CPU THINKING`, provider, fallback, and action
+  status with reduced-motion support.
+- Private match history stores candidate ids, selected id, provider, latency,
+  brain, difficulty, planning horizon, strategic score, game id, and rule
+  version.
+- AI-first provider selection falls back to this policy on quota or outage.
+- The versioned strategic snapshot includes exact bot position, board state,
+  rules digest, obligations, and redacted opponents without stable ids.
+- Future-value scoring now informs property purchases as well as pre-roll
+  build, mortgage, market, casino, and loan candidates.
+- Auction bid/pass choices are exposed to the AI adapter while the deterministic
+  auction settlement and affordability guards remain authoritative.
+- In AI mode, payment rescue exposes legal building-sale, bank-loan, and
+  bankruptcy candidates; the no-AI path keeps the same conservative sell-then-
+  loan fallback order.
+- Incoming trade responses may produce a bounded counteroffer in AI mode;
+  counter depth is capped so negotiations cannot loop forever.
+- Incoming player contracts use the same bounded counter path for loan, equity,
+  and hybrid terms; deterministic mode keeps accept/decline behavior.
+
+Remaining rollout work:
+
+- Expand the current 1,000-game bounded simulation gate into a longer balance
+  campaign for reserves, loans, casino, market, and global-event survival.
+  The opt-in `npm run bot:balance` command now runs a 2,500-game campaign
+  without slowing the normal regression suite.
+- Add a browser-level bot-status accessibility and reconnect test.
 
 ## Verification gates
 
 - 100% of selected actions pass the server legality seam.
 - Zero negative cash outside the existing debt/bankruptcy rules.
 - Zero hidden-information reads in a bot snapshot.
-- Zero deadlocks in 1,000 seeded full-game simulations.
+- Zero deadlocks in 1,000 seeded bounded full-game simulations with casino,
+  market, auctions, and global events enabled. **Verified.**
 - Replays with the same seed produce the same decisions.
 - p95 deterministic decision latency stays below 50 ms.
 - Bot win rate is measured by personality/difficulty, not hand-tuned bonuses.
 
 ## Rollout
 
-1. Add `botBrain`/`botDifficulty` normalization and snapshot fields.
-2. Keep current deterministic policy as House/Table.
-3. Add Expert seeded rollouts and replay traces.
-4. Add UI status, accessibility labels, and rules-page copy.
-5. Run balance simulations and held-out regression fixtures.
+1. Add `botBrain`/`botDifficulty` normalization and snapshot fields. **Done.**
+2. Keep current deterministic policy as House/Table. **Done.**
+3. Add Expert seeded rollouts and replay traces. **Done.**
+4. Add UI status, accessibility labels, and rules-page copy. **Done.**
+5. Run balance simulations and held-out regression fixtures. **Bounded gate done; longer balance campaign remains.**
 6. Enable `AUTO` AI selection only after the AI provider passes the same gates.
 
 ## Do not build

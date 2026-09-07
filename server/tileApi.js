@@ -203,8 +203,8 @@ const tileApi = {
     }
     this.feedMessage(`${player.nickname} cannot afford ${tile.name}.`);
     if (!this.settings.auction) {
-      this.resolveTurnAfterAction(options);
-      return { success: true };
+      this.pendingPurchaseOffer = { playerId: player.id, tileIndex: tile.index };
+      return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
     }
     const auction = this.startAuction(tile, player.id);
     if (auction && auction.success === false) return auction;

@@ -8,6 +8,7 @@
    inline block in main.js.
    ============================================================ */
 import { state, saveAccountSession } from "./clientState.js";
+import { $ } from "./clientDom.js";
 import { applyServerState } from "./clientStateSync.js";
 import { TILES, TILE_COUNT } from "./clientBoardData.js";
 import { serverTileFor } from "./clientDeedRules.js";
@@ -19,9 +20,11 @@ import {
 import { applyProfileToHomeUI, renderAccountPanel } from "./clientProfileRender.js";
 import {
   announceSocialNotification,
+  renderPlayerSurface,
   renderSocialSurface,
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
+import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
 
 let host = {
   setConnectionStatus: noop,
@@ -33,6 +36,8 @@ let host = {
   openChoiceModal: noop,
   openCardReveal: noop,
   openOfferModal: noop,
+  openDealDetails: noop,
+  renderDealDetailsIfOpen: noop,
   serverSyncHost: {},
 };
 
@@ -69,6 +74,41 @@ function onMythicalAchievement(notification) {
   announceSocialNotification(notification);
   state.social.notifications = [notification, ...(state.social.notifications || [])].slice(0, 50);
   renderSocialSurface("#social-page-content");
+}
+
+function onBotStatus(status) {
+  state.botStatus = status || null;
+  const label = $("#hud-bot-status");
+  if (!label || !status?.nickname) return;
+  clearTimeout(label._hideTimer);
+  label.classList.remove("is-hidden", "is-thinking");
+  if (status.state === "thinking") {
+    label.classList.add("is-thinking");
+    label.textContent = `${status.nickname} · CPU THINKING · ${String(status.brain || "auto").toUpperCase()}`;
+    return;
+  }
+  const brainLabel = status.fallback ? "HOUSE BRAIN" : "AI ADVISOR";
+  const actionLabel = status.actionId ? String(status.actionId).toUpperCase() : "ACTION COMPLETE";
+  label.textContent = `${status.nickname} · ${brainLabel} · ${actionLabel}`;
+  label._hideTimer = setTimeout(() => label.classList.add("is-hidden"), 3200);
+  if (status.actionId) {
+    host.say(`${status.nickname} chose ${status.actionId}${status.fallback ? " (house fallback)" : " (AI advisor)"}.`);
+    host.renderChat();
+  }
+}
+
+function syncSelectedPlayerRelationship() {
+  const accountId = state.selectedPlayer?.accountId;
+  if (!accountId) return;
+  const social = state.social || {};
+  if ((social.friends || []).some((friend) => friend.id === accountId)) {
+    state.selectedPlayerRelationship = "accepted";
+  } else if ((social.outgoing || []).some((request) => request.to?.id === accountId)) {
+    state.selectedPlayerRelationship = "requested";
+  } else {
+    state.selectedPlayerRelationship = "none";
+  }
+  if (!$("#player-modal")?.classList.contains("is-hidden")) renderPlayerSurface();
 }
 
 function mergeAchievementIntoAccount(notification) {
@@ -150,7 +190,7 @@ function onPurchaseOffer(offer) {
   state.pendingBuyTile = tile.i;
   const name = purchaseOfferName(serverTile, offer, tile);
   const price = purchaseOfferPrice(serverTile, offer, tile);
-  host.openChoiceModal({ ...tile, name, price });
+  host.openChoiceModal({ ...tile, name, price, canAfford: offer?.canAfford, canSeekSponsorship: offer?.canSeekSponsorship !== false });
 }
 
 function onCardReveal(reveal) {
@@ -192,19 +232,24 @@ function onTradeOffer({ trade }) {
 function attachConnectionListeners(socket) {
   socket.on("connect", () => onSocketConnect(socket));
   socket.on("connect_error", () => host.setConnectionStatus("offline", true));
-  socket.on("update-state", (snapshot) => applyServerState(snapshot, host.serverSyncHost));
+  socket.on("update-state", (snapshot) => {
+    applyServerState(snapshot, host.serverSyncHost);
+    host.renderDealDetailsIfOpen();
+  });
   socket.on("rooms-updated", applyRoomsUpdated);
 }
 
 function attachSocialListeners(socket) {
   socket.on("social-update", (social) => {
     state.social = social || state.social;
+    syncSelectedPlayerRelationship();
     renderSocialSurface("#social-page-content");
     renderSocialSurface("#social-card");
   });
   socket.on("social-notification", onSocialNotification);
   socket.on("mythical-achievement", onMythicalAchievement);
   socket.on("achievement-unlocked", onAchievementUnlocked);
+  socket.on("bot-status", onBotStatus);
 }
 
 function attachAccountListeners(socket) {
@@ -213,8 +258,10 @@ function attachAccountListeners(socket) {
     state.playerContractOffer = contract || null;
     announceSocialNotification({ body: "A player contract is waiting in Finance." });
     renderRightRail();
+    if (contract?.id) host.openDealDetails("contract", contract.id);
   });
   socket.on("player-contract-update", onPlayerContractUpdate);
+  socket.on("sponsorship-update", ({ sponsorship } = {}) => onSponsorshipUpdate(sponsorship));
 }
 
 function attachChatListeners(socket) {

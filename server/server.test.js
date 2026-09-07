@@ -66,8 +66,10 @@ async function checkNullPayloadStorm(socket, child) {
   // server must still be running afterwards.
   const hostileEvents = [
     'set-setting', 'set-player-appearance', 'purchase-property',
-    'decline-property', 'auction-bid', 'manage-property', 'respond-trade',
-    'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat'
+    'decline-property', 'auction-bid', 'manage-property', 'respond-trade', 'counter-trade', 'counter-player-contract', 'adjust-trade', 'cancel-trade', 'adjust-player-contract',
+    'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat',
+    'request-sponsored-purchase', 'contribute-sponsored-purchase',
+    'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase'
   ];
   let allAnswered = true;
   for (const event of hostileEvents) {
@@ -93,6 +95,8 @@ async function checkHappyPath(socket) {
   check('leave-room succeeds', left?.success === true);
   const rooms = await ask(socket, 'list-rooms', undefined);
   check('list-rooms succeeds with no payload', rooms?.success === true);
+  const season = await ask(socket, 'get-leaderboard-snapshot', { scope: 'season' });
+  check('season leaderboard snapshot is available', season?.success === true && season?.scope === 'season');
 }
 
 async function run() {

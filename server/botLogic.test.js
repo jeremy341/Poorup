@@ -17,6 +17,7 @@ import {
   auctionBidDecision,
   isAuctionBotParticipant,
   shouldBuyProperty,
+  sponsorshipContributionAmount,
   resolvePurchaseOffer,
   runBotTurn
 } from './botLogic.js';
@@ -122,6 +123,8 @@ check('target selection: vote beats pending counterparty beats current', () => {
   assert.strictEqual(selectBotTurnTarget(pendingHuman).id, 'b1');
   const contract = fakeGame({ current: human, players: [bot1], pendingPlayerContract: { toPlayerId: 'b1' } });
   assert.strictEqual(selectBotTurnTarget(contract).id, 'b1');
+  const payment = fakeGame({ current: human, players: [bot1], pendingPayment: { playerId: 'b1' } });
+  assert.strictEqual(selectBotTurnTarget(payment).id, 'b1');
   const plain = fakeGame({ current: bot2 });
   assert.strictEqual(selectBotTurnTarget(plain).id, 'b2');
 });
@@ -133,6 +136,7 @@ check('botMayStillAct keeps voting/pending alive off-turn', () => {
   assert.strictEqual(botMayStillAct(fakeGame({ current: { ...bot, bankrupt: true }, players: [] }), bot), false);
   assert.strictEqual(botMayStillAct(fakeGame({ current: bot, players: [], globalEvent: { phase: 'voting' } }), bot), true);
   assert.strictEqual(botMayStillAct(fakeGame({ current: { id: 'x' }, players: [], pendingTrade: { toPlayerId: 'b1' } }), bot), true);
+  assert.strictEqual(botMayStillAct(fakeGame({ current: { id: 'x' }, players: [], pendingPayment: { playerId: 'b1' } }), bot), true);
 });
 
 check('phase classification order matches original if/else chain', () => {
@@ -155,6 +159,7 @@ check('candidateAction maps kind to room action or roll fallback', () => {
   assert.deepStrictEqual(candidateAction({ kind: 'trade', id: 't1' }, bot), { type: 'trade', candidate: { kind: 'trade', id: 't1' } });
   assert.strictEqual(candidateAction({ kind: 'market' }, bot).type, 'market');
   assert.strictEqual(candidateAction({ kind: 'casino' }, bot).type, 'casino');
+  assert.strictEqual(candidateAction({ kind: 'repay', contractId: 'c1', amount: 20 }, bot).type, 'repay');
   assert.strictEqual(candidateAction({ kind: 'mortgage' }, bot).type, 'mortgage');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 799 }, bot).type, 'build');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 801 }, bot).type, 'roll');
@@ -204,7 +209,7 @@ function fakeRoom(log) {
     game: {
       roundNumber: 3,
       getTile: price,
-      getPlayerById: id => (id === 'lender' ? { bankrupt: false } : null),
+    getPlayerById: id => (id === 'lender' ? { bankrupt: false } : null),
       getCurrentPlayer: () => ({ id: 'b1', isBot: true }),
       getBotCandidates: () => []
     },
@@ -216,11 +221,13 @@ function fakeRoom(log) {
     voteGlobalEvent: (actor, policyId) => ({ name: 'vote:' + policyId }),
     respondToTrade: (actor, payload) => ({ name: 'respondTrade:' + payload.accept }),
     respondPlayerContract: (actor, accept) => ({ name: 'respondContract:' + accept }),
+    counterPlayerContract: () => ({ name: 'counterContract', success: true }),
     declareBankruptcy: () => ({ name: 'bankrupt' }),
     passAuction: () => ({ name: 'pass' }),
     endTurn: () => ({ name: 'endTurn' }),
     rollDice: () => ({ name: 'roll' }),
     proposeTrade: () => ({ name: 'propose', success: true }),
+    counterTrade: () => ({ name: 'counter', success: true }),
     tradeMarket: (actor, instrumentId, side, quantity) => ({ name: `market:${instrumentId}:${side}:${quantity}` }),
     placeCasinoBet: (actor, color, stake) => ({ name: `casino:${color}:${stake}` }),
     manageProperty: (actor, payload) => ({ name: `manage:${payload.action}:${payload.tileIndex}` }),
@@ -241,6 +248,122 @@ check('runBotTurn executes the classified phase against the room', async () => {
   assert.strictEqual(result.name, 'bankrupt');
 });
 
+check('sponsorship target selects an eligible bot contributor, then the buyer', () => {
+  const buyer = { id: 'buyer', isBot: true, cash: 20 };
+  const sponsor = { id: 'sponsor', isBot: true, cash: 600, bankrupt: false, disconnected: false };
+  const game = fakeGame({
+    current: buyer,
+    players: [buyer, sponsor],
+    getTile: () => ({ index: 4, price: 200 }),
+    pendingSponsoredPurchase: { buyerId: 'buyer', tileIndex: 4, price: 200, contributions: [] }
+  });
+  assert.strictEqual(selectBotTurnTarget(game), sponsor);
+  game.pendingSponsoredPurchase.contributions.push({ sponsorId: 'sponsor', amount: 180 });
+  assert.strictEqual(selectBotTurnTarget(game), buyer);
+});
+
+check('sponsorship contribution keeps a deterministic cash reserve', () => {
+  const sponsor = { id: 'sponsor', isBot: true, cash: 500 };
+  const game = fakeGame({
+    players: [sponsor, { id: 'buyer', cash: 100 }],
+    getTile: () => ({ price: 400 }),
+    pendingSponsoredPurchase: { buyerId: 'buyer', tileIndex: 4, price: 400, buyerCash: 20, contributions: [] }
+  });
+  assert.strictEqual(sponsorshipContributionAmount(game, sponsor), 300);
+  game.pendingSponsoredPurchase.contributions.push({ sponsorId: 'other', amount: 100 });
+  assert.strictEqual(sponsorshipContributionAmount(game, sponsor), 200);
+  game.pendingSponsoredPurchase.contributions.push({ sponsorId: 'sponsor', amount: 1 });
+  assert.strictEqual(sponsorshipContributionAmount(game, sponsor), 0);
+});
+
+check('contract response ownership alternates after a counter', () => {
+  const bot = { id: 'b1', isBot: true, bankrupt: false, disconnected: false };
+  const game = fakeGame({
+    current: { id: 'human' },
+    players: [bot],
+    pendingPlayerContract: { fromPlayerId: 'b1', toPlayerId: 'human', counterDepth: 1 }
+  });
+  assert.strictEqual(selectBotTurnTarget(game).id, 'b1');
+  assert.strictEqual(classifyBotTurnPhase(game, bot), 'contract');
+});
+
+check('AI advisor ranks an event vote through legal choice candidates', async () => {
+  const room = fakeRoom([]);
+  room.game.globalEvent = { phase: 'voting', choices: [{ id: 'low-tax', label: 'LOW TAX' }, { id: 'bank-first', label: 'BANK FIRST' }], votes: {} };
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'vote:bank-first', provider: 'ai', fallback: false }) };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'vote:bank-first');
+  assert.strictEqual(result.botDecision.provider, 'ai');
+  assert.deepEqual(result.botDecision.candidateIds, ['vote:low-tax', 'vote:bank-first']);
+});
+
+check('AI advisor ranks a trade response without leaving the room seam', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingTrade = { id: 'trade-1', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 200, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [] };
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'trade:decline', provider: 'ai', fallback: false }) };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'respondTrade:false');
+  assert.strictEqual(result.botDecision.actionId, 'trade:decline');
+});
+
+check('AI advisor can counter a close trade with a bounded premium', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingTrade = { id: 'trade-2', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 100, requestCash: 20, givePropertyIndexes: [5], requestPropertyIndexes: [], counterDepth: 0 };
+  const advisor = { supportsChoicePhases: true, chooseAction: async context => {
+    assert.deepEqual(context.candidates.map(candidate => candidate.id), ['trade:accept', 'trade:counter', 'trade:decline']);
+    assert.equal(context.candidates[1].offer.requestCash, 110);
+    return { actionId: 'trade:counter', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'counter');
+  assert.strictEqual(result.botDecision.actionId, 'trade:counter');
+});
+
+check('AI advisor can counter a player contract with safer terms', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingPlayerContract = { id: 'contract-2', toPlayerId: 'b1', fromPlayerId: 'lender', kind: 'loan', amount: 200, premiumRate: 30, durationRounds: 3, collateralTileIndex: null };
+  const advisor = { supportsChoicePhases: true, chooseAction: async context => {
+    assert.deepEqual(context.candidates.map(candidate => candidate.id), ['contract:accept', 'contract:counter', 'contract:decline']);
+    assert.equal(context.candidates[1].offer.premiumRate, 20);
+    assert.equal(context.candidates[1].offer.durationRounds, 4);
+    return { actionId: 'contract:counter', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'counterContract');
+  assert.strictEqual(result.botDecision.actionId, 'contract:counter');
+});
+
+check('AI advisor can choose a legal debt rescue path', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingPayment = { playerId: 'b1', amountRemaining: 220 };
+  room.game.tiles = [];
+  room.game.currentPlayerId = 'b1';
+  room.game.getBankLoanOffer = () => ({ available: true, totalDue: 450, principal: 300 });
+  const advisor = { supportsChoicePhases: true, chooseAction: async context => {
+    assert.deepEqual(context.candidates.map(candidate => candidate.id), ['debt:loan', 'debt:bankruptcy']);
+    return { actionId: 'debt:loan', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'loan');
+  assert.strictEqual(result.botDecision.actionId, 'debt:loan');
+});
+
+check('payment phase sells a legal building before declaring bankruptcy', async () => {
+  const log = [];
+  const room = fakeRoom(log);
+  const bot = { ...bot1, properties: [5], cash: 0 };
+  const tile = { index: 5, houseCount: 1, rent: 50 };
+  room.game.pendingPayment = { playerId: bot.id, amountRemaining: 80 };
+  room.game.getTile = () => tile;
+  room.game.canSellFromTile = () => true;
+  room.game.getPropertyHouseCost = () => 100;
+  room.game.buildingSaleMultiplier = () => 0.5;
+  const result = await runBotTurn(room, bot, advisorStub(null));
+  assert.strictEqual(result.name, 'manage:sell-house:5');
+  assert.strictEqual(result.botDecision.actionId, 'sell:5');
+  assert.strictEqual(result.botDecision.fallbackReason, 'debt-liquidation');
+});
+
 check('runBotTurn resolves post-roll purchase offers at most twice', async () => {
   const log = [];
   const room = fakeRoom(log);
@@ -257,6 +380,20 @@ check('runBotTurn runs advisor candidates through the action map', async () => {
   room.game.getBotCandidates = () => [{ id: 'c1', kind: 'market', instrumentId: 'ACME', side: 'buy', quantity: 2 }];
   const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'c1' }));
   assert.strictEqual(result.name, 'market:ACME:buy:2');
+});
+
+check('runBotTurn forwards brain settings and returns replay metadata', async () => {
+  const room = fakeRoom([]);
+  let received = null;
+  room.game.settings = { botBrain: 'no-ai', botDifficulty: 'expert' };
+  room.game.getBotCandidates = () => [{ id: 'c1', kind: 'market', instrumentId: 'ACME', side: 'buy', quantity: 1 }];
+  const advisor = { chooseAction: async context => { received = context; return { actionId: 'c1' }; } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(received.botBrain, 'no-ai');
+  assert.equal(received.botDifficulty, 'expert');
+  assert.equal(result.botDecision.provider, 'deterministic');
+  assert.equal(result.botDecision.fallback, true);
+  assert.deepEqual(result.botDecision.candidateIds, ['c1']);
 });
 
 check('runBotTurn aborts when the seat changed while the advisor thought', async () => {

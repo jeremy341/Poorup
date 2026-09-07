@@ -258,6 +258,7 @@ export function buildMatchRecordOptions(room) {
     roomVisibility: room.visibility,
     includeMatchDetails: true,
     playerCount: game.players.length,
+    botDecisions: Array.isArray(game.botDecisionTrace) ? game.botDecisionTrace.slice(-200) : [],
     globalEvents: matchRecordGlobalEvents(game),
     eventCombinations: matchRecordEventCombinations(game),
     tradesCompleted: game.tradesCompleted || 0,

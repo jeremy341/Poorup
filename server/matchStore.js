@@ -66,6 +66,36 @@ function sanitizeMarketEntry(entry) {
   };
 }
 
+function sanitizeBotDecision(entry) {
+  const source = entry || {};
+  return {
+    botId: clipString(source.botId, 80),
+    gameId: clipString(source.gameId, 120),
+    ruleVersion: clipString(source.ruleVersion, 32),
+    sequence: nonNegativeNumber(source.sequence),
+    phase: clipString(source.phase, 24),
+    provider: clipString(source.provider, 24),
+    fallback: source.fallback === true,
+    success: source.success !== false,
+    fallbackReason: clipString(source.fallbackReason, 40),
+    brain: clipString(source.brain, 12),
+    difficulty: clipString(source.difficulty, 12),
+    planningHorizon: Math.max(0, Math.min(3, Math.floor(numberValue(source.planningHorizon)))),
+    strategicScore: Number.isFinite(Number(source.strategicScore)) ? Number(source.strategicScore) : null,
+    actionId: clipString(source.actionId, 100),
+    confidence: Math.max(0, Math.min(1, Number(source.confidence) || 0)),
+    reasonCode: clipString(source.reasonCode, 40),
+    latencyMs: nonNegativeNumber(source.latencyMs),
+    candidateIds: stringList(source.candidateIds, 24),
+    shadowActionId: clipString(source.shadowActionId, 100),
+    shadowConfidence: source.shadowConfidence == null ? null : Math.max(0, Math.min(1, Number(source.shadowConfidence) || 0)),
+    shadowProvider: clipString(source.shadowProvider, 24),
+    shadowAgreement: source.shadowAgreement === true,
+    shadowModel: clipString(source.shadowModel, 48),
+    recordedAt: stringOrNull(source.recordedAt)
+  };
+}
+
 function contractStatus(value) {
   return typeof value === 'string' ? value.slice(0, 20) : 'unknown';
 }
@@ -121,6 +151,9 @@ function sanitizeMatch(record = {}) {
   };
   if (Object.prototype.hasOwnProperty.call(record, 'playerCount')) {
     match.playerCount = nonNegativeNumber(record.playerCount);
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'botDecisions')) {
+    match.botDecisions = safeArray(record.botDecisions, 200).map(sanitizeBotDecision);
   }
   return match;
 }

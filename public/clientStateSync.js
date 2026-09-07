@@ -110,6 +110,8 @@ function serverPlayerView(player) {
     isHost: Boolean(player.isHost),
     avatarGrid: gridOrNull(player.avatarGrid),
     personality: orNull(player.personality),
+    botBrain: orNull(player.botBrain),
+    botDifficulty: orNull(player.botDifficulty),
   };
 }
 
@@ -138,6 +140,7 @@ function syncRoundFlags(game) {
   state.roundNumber = num(game.roundNumber);
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
+  state.pendingTrade = orNull(game.pendingTrade);
 }
 
 function diceOf(game) {
@@ -151,7 +154,9 @@ function syncContractOffer() {
     state.playerContractOffer = null;
     return;
   }
-  if (pending.toPlayerId === localServerId()) {
+  const contractDepth = Math.max(0, Math.floor(Number(pending.counterDepth) || 0));
+  const responderId = contractDepth % 2 === 0 ? pending.toPlayerId : pending.fromPlayerId;
+  if (responderId === localServerId()) {
     state.playerContractOffer = pending;
     return;
   }
@@ -378,6 +383,7 @@ export function applyServerState(snapshot, host) {
   syncLog(game);
   syncRoomSettings(room);
   state.pendingBuyTile = nullish(game.pendingPurchaseOffer?.tileIndex, null);
+  state.sponsorship = game.pendingSponsoredPurchase || null;
   syncAuction(game);
   // Snapshots update data unconditionally but must not hijack the page —
   // only re-assert the game view while the player is mid-room-session and

@@ -509,7 +509,55 @@ function botRoom(personality, cash) {
 const ROLL = { id: 'roll', kind: 'roll', risk: 0, score: 0 };
 const build = (tileIndex, cash, score) => ({ id: `build:${tileIndex}`, kind: 'build', tileIndex, cost: 50, risk: 50 / Math.max(1, cash), score });
 const mortgage = (tileIndex, proceeds, score) => ({ id: `mortgage:${tileIndex}`, kind: 'mortgage', tileIndex, proceeds, risk: 0.25, score });
-const loan = score => ({ id: 'loan:emergency', kind: 'loan', principal: 300, risk: 1.5, score });
+const loan = (score, offer = {}) => ({
+  id: 'loan:emergency',
+  kind: 'loan',
+  principal: 300,
+  totalDue: offer.totalDue,
+  premium: offer.premium,
+  dueRound: offer.dueRound,
+  cureRound: offer.cureRound,
+  collateralTileIndex: offer.collateralTileIndex,
+  risk: 1.5,
+  score
+});
+
+check('counterTrade replaces the pending offer without transferring assets', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const a = playerOf(room, 'client-a');
+  const b = playerOf(room, 'client-b');
+  const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 100 });
+  assert.equal(first.success, true);
+  const counter = game.counterTrade('socket-b', { giveCash: 25, requestCash: 120 });
+  assert.equal(counter.success, true);
+  assert.equal(counter.countered, true);
+  assert.equal(game.pendingTrade.fromPlayerId, b.id);
+  assert.equal(game.pendingTrade.toPlayerId, a.id);
+  assert.equal(game.pendingTrade.giveCash, 25);
+  assert.equal(game.pendingTrade.requestCash, 120);
+  assert.equal(game.pendingTrade.counterDepth, 1);
+  assert.equal(a.cash, 1500);
+  assert.equal(b.cash, 1500);
+});
+
+check('sender can adjust or cancel a pending trade without transferring assets', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const a = playerOf(room, 'client-a');
+  const b = playerOf(room, 'client-b');
+  const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 30 });
+  const adjusted = game.adjustTrade('socket-a', { tradeId: first.trade.id, giveCash: 75, requestCash: 20 });
+  assert.equal(adjusted.success, true);
+  assert.equal(adjusted.adjusted, true);
+  assert.equal(game.pendingTrade.giveCash, 75);
+  assert.equal(game.pendingTrade.requestCash, 20);
+  assert.equal(a.cash, 1500);
+  assert.equal(b.cash, 1500);
+  assert.deepEqual(game.cancelTrade('socket-b', { tradeId: game.pendingTrade.id }), { success: false, error: 'Only the sending player can cancel this trade.' });
+  assert.equal(game.cancelTrade('socket-a', { tradeId: game.pendingTrade.id }).canceled, true);
+  assert.equal(game.pendingTrade, null);
+});
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });
 const casino = (color, stake, score) => ({ id: 'casino:red', kind: 'casino', color, stake, risk: 0.55, score });
@@ -528,7 +576,7 @@ check('speculator at 150: full candidate array with score/risk/tie-order pinned'
   const { game, bot, a } = botRoom('speculator', 150);
   assert.deepEqual(game.getBotCandidates(bot), [
     market(150, 20),
-    loan(18),
+    loan(18, game.getBankLoanOffer(bot)),
     ...BUILDS_150,
     tradeAsk(a.id, 8, 0),
     ...MORTGAGES_150,
@@ -555,7 +603,7 @@ check('chaos at 120: green casino leads, non-speculator loan sinks below roll', 
     mortgage(3, 30, 8), mortgage(6, 50, 8), mortgage(8, 50, 8), mortgage(9, 60, 8),
     market(120, 4),
     ROLL,
-    loan(-20)
+    loan(-20, game.getBankLoanOffer(bot))
   ]);
 });
 
@@ -588,7 +636,7 @@ check('survivor at 150 mortgages score 24 above builds', () => {
     tradeAsk(a.id, 8, 0),
     market(150, 4),
     ROLL,
-    loan(-20)
+    loan(-20, game.getBankLoanOffer(bot))
   ]);
 });
 
@@ -652,6 +700,27 @@ check('build candidates follow full-set and even-build rules; mortgages drop enc
   const candidates = ctx.game.getBotCandidates(ctx.bot);
   assert.deepEqual(candidates.filter(candidate => candidate.kind === 'build').map(candidate => candidate.tileIndex), [8, 9]);
   assert.deepEqual(candidates.filter(candidate => candidate.kind === 'mortgage').map(candidate => candidate.tileIndex), [3]);
+});
+
+check('player-loan repayment candidates pay due balances first and preserve active liquidity', () => {
+  const ctx = botRoom('builder', 500);
+  ctx.game.playerContracts = [
+    { id: 'active-loan', kind: 'loan', status: 'active', toPlayerId: ctx.bot.id, remaining: 400 },
+    { id: 'due-loan', kind: 'loan', status: 'due', toPlayerId: ctx.bot.id, remaining: 200 },
+    { id: 'equity', kind: 'equity', status: 'active', toPlayerId: ctx.bot.id, remaining: 100 }
+  ];
+  const repayments = ctx.game.getBotCandidates(ctx.bot).filter(candidate => candidate.kind === 'repay');
+  assert.deepEqual(repayments, [
+    { id: 'repay:due-loan', kind: 'repay', contractId: 'due-loan', amount: 200, remaining: 200, risk: 0.05, score: 32 },
+    { id: 'repay:active-loan', kind: 'repay', contractId: 'active-loan', amount: 320, remaining: 400, risk: 0.64, score: 11 }
+  ]);
+});
+
+check('event building limits do not emit already-forbidden build candidates', () => {
+  const ctx = botRoom('builder', 1500);
+  ctx.game.globalEvent = { phase: 'active', effects: { buildingLimitPerTurn: 1 } };
+  ctx.bot.buildActionsThisTurn = 1;
+  assert.equal(kindsOf(ctx).includes('build'), false);
 });
 
 check('after rolling, only the roll candidate remains', () => {

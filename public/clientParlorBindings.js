@@ -216,7 +216,19 @@ function announcePlayerFailure(response, message) {
 }
 
 function onPlayerFriend(targetId) {
-  host.emitServer("send-friend-request", { targetAccountId: targetId }, (response) => announcePlayerFailure(response, "Friend request could not be sent."));
+  const accepted = state.selectedPlayerRelationship === "accepted"
+    || (state.selectedPlayerRelationship === "none" && (state.social.friends || []).some((friend) => friend.id === targetId));
+  const eventName = accepted ? "remove-friend" : "send-friend-request";
+  const payload = accepted ? { otherAccountId: targetId } : { targetAccountId: targetId };
+  host.emitServer(eventName, payload, (response) => {
+    if (response?.success === false) {
+      announcePlayerFailure(response, accepted ? "Friend could not be removed." : "Friend request could not be sent.");
+      return;
+    }
+    state.selectedPlayerRelationship = accepted ? "none" : "requested";
+    if (accepted) state.social.friends = (state.social.friends || []).filter((friend) => friend.id !== targetId);
+    renderPlayerSurface();
+  });
 }
 
 function onPlayerInvite(targetId) {

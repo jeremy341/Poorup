@@ -25,7 +25,7 @@ const TRADE_PROPOSAL_GUARDS = [
   },
   {
     error: 'Another trade is already pending.',
-    rejects: game => Boolean(game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingTrade || game.pendingPlayerContract)
+    rejects: game => Boolean(game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract)
   },
   {
     error: 'Cash values must be valid numbers.',
@@ -91,6 +91,7 @@ const tradeApi = {
       requestCash: ctx.requestCash,
       givePropertyIndexes: ctx.givePropertyIndexes,
       requestPropertyIndexes: ctx.requestPropertyIndexes,
+      counterDepth: Math.max(0, Math.min(2, Math.floor(Number(offer.counterDepth) || 0))),
       createdAt: Date.now()
     };
     this.pendingTrade = trade;
@@ -143,6 +144,68 @@ const tradeApi = {
       return { success: false, error: guard.error };
     }
     return this.settleTradeOffer(ctx);
+  },
+
+  counterTrade(socketId, offer = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    const trade = this.pendingTrade;
+    if (!player || !trade || trade.toPlayerId !== player.id) {
+      return { success: false, error: 'Only the receiving player can counter this trade.' };
+    }
+    if (offer.tradeId && offer.tradeId !== trade.id) {
+      return { success: false, error: 'That trade offer is no longer current.' };
+    }
+    const previous = trade;
+    this.pendingTrade = null;
+    const result = this.proposeTrade(socketId, {
+      ...offer,
+      toPlayerId: trade.fromPlayerId,
+      counterDepth: Math.min(2, (trade.counterDepth || 0) + 1)
+    });
+    if (result?.success === false && !this.pendingTrade) this.pendingTrade = previous;
+    if (result?.success) {
+      this.feedMessage(`${player.nickname} countered the trade offer.`);
+      return { ...result, countered: true };
+    }
+    return result;
+  },
+
+  adjustTrade(socketId, offer = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    const trade = this.pendingTrade;
+    if (!player || !trade || trade.fromPlayerId !== player.id) {
+      return { success: false, error: 'Only the sending player can adjust this trade.' };
+    }
+    if (offer.tradeId && offer.tradeId !== trade.id) {
+      return { success: false, error: 'That trade offer is no longer current.' };
+    }
+    const previous = trade;
+    this.pendingTrade = null;
+    const result = this.proposeTrade(socketId, {
+      ...offer,
+      toPlayerId: trade.toPlayerId,
+      counterDepth: trade.counterDepth || 0
+    });
+    if (result?.success === false && !this.pendingTrade) this.pendingTrade = previous;
+    if (result?.success) {
+      this.feedMessage(`${player.nickname} adjusted the trade offer.`);
+      return { ...result, adjusted: true };
+    }
+    return result;
+  },
+
+  cancelTrade(socketId, payload = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    const trade = this.pendingTrade;
+    if (!player || !trade || trade.fromPlayerId !== player.id) {
+      return { success: false, error: 'Only the sending player can cancel this trade.' };
+    }
+    if (payload.tradeId && payload.tradeId !== trade.id) {
+      return { success: false, error: 'That trade offer is no longer current.' };
+    }
+    this.pendingTrade = null;
+    this.feedMessage(`${player.nickname} canceled the trade offer.`);
+    return { success: true, canceled: true };
   },
 
   // Deed re-resolution at accept time; pure tile lookups for the guards and

@@ -15,6 +15,7 @@ import {
   isAuctionBotParticipant,
   auctionBidDecision
 } from './botLogic.js';
+import { buildBotStrategicContext } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
 
 const DISCONNECT_GRACE_MS = 10000;
@@ -133,6 +134,9 @@ function createRuntime(deps) {
     emitPendingPurchase(room, socket, player);
     emitPendingTrade(room, socket, player);
     emitPendingContract(room, socket, player);
+    if (room.game.pendingSponsoredPurchase) {
+      socket.emit('sponsorship-update', { sponsorship: room.game.summarySponsoredPurchase() });
+    }
   }
 
   function emitPendingPurchase(room, socket, player) {
@@ -145,7 +149,9 @@ function createRuntime(deps) {
     socket.emit('purchase-offer', {
       tileIndex: tile.index,
       name: tile.name,
-      price: tile.price
+      price: tile.price,
+      canAfford: player.cash >= tile.price,
+      canSeekSponsorship: true
     });
   }
 
@@ -265,6 +271,10 @@ function createRuntime(deps) {
 
   function scheduleBotTurn(room) {
     if (!room?.game.started) return;
+    // Auctions have their own participant timer. Keeping the ordinary turn
+    // queue out of this phase prevents the current seat from issuing a
+    // rejected pass/bid while a different bot is the auction participant.
+    if (room.game.auction?.active) return;
     if (botTurnPending(room)) return;
     const bot = selectBotTurnTarget(room.game);
     if (!bot?.isBot) return;
@@ -298,11 +308,49 @@ function createRuntime(deps) {
     // botLogic.js and is covered by server/botLogic.test.js.
     if (!botMayStillAct(room.game, bot)) return;
     if (room.destroyed) return;
+    const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
+    emitBotStatus(room, bot, 'thinking', { decisionSequence });
     const result = await runBotTurn(room, bot, botAdvisor);
+    if (result?.botDecision) {
+      const trace = room.game.recordBotDecisionTrace(result.botDecision);
+      emitBotStatus(room, bot, 'chosen', trace);
+    }
     if (result?.noEmit) return;
     // Tail purchase resolution, second half of the post-roll double-check.
     resolvePurchaseOffer(room, bot, result);
     emitRoomState(room);
+  }
+
+  function emitBotStatus(room, bot, state, details = {}) {
+    const health = typeof botAdvisor.getHealth === 'function' ? botAdvisor.getHealth() : null;
+    const fallbackReason = publicBotFallbackReason(details.fallbackReason);
+    io.in(room.roomCode).emit('bot-status', {
+      playerId: bot.id,
+      nickname: bot.nickname,
+      state,
+      brain: details.brain || room.settings.botBrain || 'auto',
+      difficulty: details.difficulty || room.settings.botDifficulty || 'table',
+      provider: details.provider === 'ai' ? 'ai' : 'deterministic',
+      fallback: details.fallback === true,
+      fallbackReason,
+      actionId: details.actionId || null,
+      decisionSequence: details.sequence || details.decisionSequence || null,
+      latencyMs: details.latencyMs || 0,
+      healthState: health?.state === 'healthy' ? 'ready' : 'fallback'
+    });
+  }
+
+  // Keep provider credentials, billing/quota details, and raw error text out
+  // of the room-wide event. The private match trace retains the exact reason.
+  function publicBotFallbackReason(reason) {
+    const key = String(reason || '').toLowerCase();
+    if (!key) return null;
+    if (key === 'no-ai-mode') return 'no-ai-mode';
+    if (key === 'auction-policy' || key === 'phase-resolution' || key === 'deterministic-advisor') return 'house-policy';
+    if (key === 'quota' || key === 'quota-exhausted') return 'credits-exhausted';
+    if (key === 'game-budget') return 'game-budget';
+    if (key === 'circuit-open') return 'provider-cooldown';
+    return 'provider-unavailable';
   }
 
   function finishBotTurn(room) {
@@ -318,15 +366,58 @@ function createRuntime(deps) {
     if (auctionBotTimers.has(key)) return;
     const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
     if (!bot) return;
-    const timer = setTimeout(() => beginBotAuctionBid(room, bot, key), 450);
+    const timer = setTimeout(() => {
+      beginBotAuctionBid(room, bot, key).catch(error => {
+        console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
+      });
+    }, 450);
     auctionBotTimers.set(key, timer);
   }
 
-  function beginBotAuctionBid(room, bot, key) {
+  async function beginBotAuctionBid(room, bot, key) {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
-    const { shouldBid, minimum } = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
-    room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
+    room.game.botDecisionSequence = decisionSequence;
+    emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
+    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
+    const minimum = baseline.minimum;
+    const context = {
+      botId: bot.id,
+      botBrain: room.settings.botBrain || 'auto',
+      botDifficulty: room.settings.botDifficulty || 'table',
+      gameId: `${room.roomCode}:${room.game.startedAt || 'pending'}`,
+      decisionSequence,
+      ruleVersion: 'bot-policy-v1',
+      ...buildBotStrategicContext(room.game, bot, 'auction', decisionSequence)
+    };
+    const candidates = [
+      { id: 'auction:bid', kind: 'auction', amount: minimum, risk: minimum / Math.max(1, bot.cash), score: baseline.shouldBid ? 12 : 2 },
+      { id: 'auction:pass', kind: 'auction', risk: 0, score: baseline.shouldBid ? 1 : 10 }
+    ];
+    let decision = null;
+    if (botAdvisor.supportsChoicePhases) {
+      decision = await botAdvisor.chooseAction({ ...context, candidates, personality: bot.personality, event: room.game.globalEvent });
+    }
+    const actionId = decision?.actionId === 'auction:bid' || decision?.actionId === 'auction:pass'
+      ? decision.actionId
+      : baseline.shouldBid ? 'auction:bid' : 'auction:pass';
+    const shouldBid = actionId === 'auction:bid';
+    const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    const trace = room.game.recordBotDecisionTrace({
+      ...context,
+      phase: 'auction',
+      ...decision,
+      provider: decision?.provider || 'deterministic',
+      fallback: decision?.fallback !== false,
+      fallbackReason: decision?.fallbackReason || 'auction-policy',
+      actionId,
+      confidence: Number.isFinite(Number(decision?.confidence)) ? decision.confidence : 0.55,
+      success: result?.success !== false,
+      reasonCode: result?.success === false ? 'auction-rejected' : decision?.reasonCode || 'auction-policy',
+      candidateIds: candidates.map(candidate => candidate.id)
+    });
+    emitBotStatus(room, bot, 'chosen', trace);
     emitRoomState(room);
   }
 
@@ -413,6 +504,10 @@ function createRuntime(deps) {
   function clearPendingObligations(room, game, player, reason) {
     const context = { room, game, player, reason };
     CANCELLED_OBLIGATIONS.forEach(obligation => cancelObligation(context, obligation));
+    if (game.clearSponsoredPurchaseForPlayer?.(player.id)) {
+      io.in(room.roomCode).emit('sponsorship-update', { sponsorship: game.summarySponsoredPurchase() });
+      io.in(room.roomCode).emit('system-message', { text: `${player.nickname}'s sponsorship reservation was released.` });
+    }
   }
 
   function cancelObligation(context, obligation) {

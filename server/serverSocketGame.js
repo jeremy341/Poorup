@@ -39,9 +39,14 @@ const GAME_VERB_HANDLERS = [
   { event: 'end-turn', verb: 'endTurn', args: NO_ARGS },
   { event: 'manage-property', verb: 'manageProperty', args: p => [{ tileIndex: p.tileIndex, action: p.action }], message: true },
   { event: 'propose-trade', verb: 'proposeTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade']) },
+  { event: 'counter-trade', verb: 'counterTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade', 'countered']) },
+  { event: 'adjust-trade', verb: 'adjustTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade', 'adjusted']) },
+  { event: 'cancel-trade', verb: 'cancelTrade', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['canceled']) },
   { event: 'respond-trade', verb: 'respondToTrade', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['accepted']) },
   { event: 'propose-player-contract', verb: 'proposePlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['contract']) },
-  { event: 'respond-player-contract', verb: 'respondPlayerContract', args: p => [p.accept === true, p.requestId], relay: { event: 'player-contract-update', field: 'contract', recipient: 'fromPlayerId' }, ackExtras: pickAckFields(['contract', 'accepted']) },
+  { event: 'counter-player-contract', verb: 'counterPlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: 'fromPlayerId' }, ackExtras: pickAckFields(['contract', 'countered']) },
+  { event: 'adjust-player-contract', verb: 'adjustPlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['contract', 'adjusted']) },
+  { event: 'respond-player-contract', verb: 'respondPlayerContract', args: p => [p.accept === true, p.requestId, p.contractId], relay: { event: 'player-contract-update', field: 'contract', recipient: 'fromPlayerId' }, ackExtras: pickAckFields(['contract', 'accepted']) },
   { event: 'repay-player-contract', verb: 'repayPlayerContract', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['contract']) },
   { event: 'pay-jail-fine', verb: 'payJailFine', args: NO_ARGS, message: true },
   { event: 'use-jail-free', verb: 'useJailFree', args: NO_ARGS, message: true },
@@ -62,6 +67,11 @@ function registerGameSocketHandlers(on, socket, runtime) {
   on('get-bank-loan-offer', handleBankLoanOffer);
   on('get-economy-snapshot', handleEconomySnapshot);
   on('place-casino-bet', handlePlaceCasinoBet);
+  on('request-sponsored-purchase', (_payload, callback) => handleSponsorship('request', {}, callback));
+  on('contribute-sponsored-purchase', (payload, callback) => handleSponsorship('contribute', payload || {}, callback));
+  on('withdraw-sponsored-purchase', (_payload, callback) => handleSponsorship('withdraw', {}, callback));
+  on('accept-sponsored-purchase', (_payload, callback) => handleSponsorship('accept', {}, callback));
+  on('decline-sponsored-purchase', (_payload, callback) => handleSponsorship('decline', {}, callback));
 
   function handleRollDice(_payload, callback) {
     const room = runtime.getRoomForSocket(socket, callback);
@@ -128,18 +138,39 @@ function registerGameSocketHandlers(on, socket, runtime) {
     announceCasinoSpin(runtime, socket, room, result);
     reply(callback, roomVerbAck(result, pickAckFields(['result', 'economy'])));
   }
+
+  function handleSponsorship(action, payload, callback) {
+    const room = runtime.getRoomForSocket(socket, callback);
+    if (!room) return;
+    const methods = {
+      request: () => room.game.requestPurchaseSponsorship(socket.id),
+      contribute: () => room.game.contributeToSponsoredPurchase(socket.id, payload),
+      withdraw: () => room.game.withdrawSponsoredPurchase(socket.id),
+      accept: () => room.game.acceptSponsoredPurchase(socket.id),
+      decline: () => room.game.declineSponsoredPurchase(socket.id)
+    };
+    const result = methods[action]?.() || { success: false, error: 'Unknown sponsorship action.' };
+    runtime.emitRoomState(room);
+    runtime.io.in(room.roomCode).emit('sponsorship-update', { sponsorship: room.game.summarySponsoredPurchase() });
+    reply(callback, result);
+  }
 }
 
 function announceRollOutcomes(runtime, socket, room, result) {
-  emitRollPurchaseOffer(socket, result);
+  emitRollPurchaseOffer(socket, room, result);
   announceRollAuction(runtime, room, result);
   emitResultMessage(runtime.io, room, result);
   emitRollCardReveal(socket, result);
 }
 
-function emitRollPurchaseOffer(socket, result) {
+function emitRollPurchaseOffer(socket, room, result) {
   if (!result?.purchaseOffer) return;
-  socket.emit('purchase-offer', result.purchaseOffer);
+  const player = room.game.getPlayerBySocket(socket.id);
+  socket.emit('purchase-offer', {
+    ...result.purchaseOffer,
+    canAfford: Boolean(player && player.cash >= result.purchaseOffer.price),
+    canSeekSponsorship: true
+  });
 }
 
 function announceRollAuction(runtime, room, result) {
