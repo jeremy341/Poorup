@@ -217,14 +217,17 @@ export function openConfirmModal({ title = "Confirm action", message = "", confi
     </div>`;
   hydrateSprites(card);
   openSurface("#confirm-modal", "#confirm-cancel");
-  $("#confirm-scrim")?.addEventListener("click", closeConfirmModal);
-  $("#confirm-cancel")?.addEventListener("click", closeConfirmModal);
-  $("#confirm-accept")?.addEventListener("click", () => {
+  const scrim = $("#confirm-scrim");
+  const cancel = $("#confirm-cancel");
+  const accept = $("#confirm-accept");
+  if (scrim) scrim.onclick = closeConfirmModal;
+  if (cancel) cancel.onclick = closeConfirmModal;
+  if (accept) accept.onclick = () => {
     const action = pendingConfirmation;
     pendingConfirmation = null;
     closeSurface("#confirm-modal");
     action?.();
-  });
+  };
 }
 
 export function closeConfirmModal() {

@@ -14,6 +14,11 @@ const CHAT_COOLDOWN_MS = 500;
 // run token alive long enough for a normal session without making it durable.
 const PATROL_RUN_MAX_MS = 10 * 60 * 1000;
 const MYTHICAL_ANNOUNCEMENT_KEYS_CAP = 500;
+const SECRET_ACHIEVEMENT_IDS = new Set([
+  'bubble-survivor', 'short-the-street', 'no-floor', 'moral-hazard',
+  'grounded-tourist', 'stagflation-trader', 'compromised-council',
+  'double-headline', '41st-tile', 'null-player', 'black-ledger'
+]);
 
 function recentTimestamps(buckets, key) {
   const now = Date.now();
@@ -128,7 +133,13 @@ function createSocialApi(deps) {
   }
 
   function publicPlayerCard(accountId, viewerId = null) {
-    const card = accountStore.getPublicPlayerCard(accountId);
+    const target = accountStore.getAccountById(accountId);
+    const canSeeFriendAchievements = Boolean(viewerId && viewerId !== accountId
+      && target?.privacy?.achievements !== 'private'
+      && socialStore.friendshipBetween(viewerId, accountId)?.status === 'accepted');
+    const card = accountStore.getPublicPlayerCard(accountId, {
+      includeAchievements: viewerId === accountId || canSeeFriendAchievements
+    });
     if (!card) return card;
     if (!viewerId) return card;
     if (viewerId === accountId) return card;
@@ -149,6 +160,7 @@ function createSocialApi(deps) {
       accountId: candidate.accountId,
       achievementId: candidate.achievementId,
       gameId,
+      eventSequence: unlockKey,
       evidenceHash: crypto.createHash('sha256').update(unlockKey).digest('hex')
     });
     if (!unlock.created) return false;
@@ -162,13 +174,22 @@ function createSocialApi(deps) {
   }
 
   function announceAchievement(candidate, record, unlockKey) {
+    const player = accountStore.getPublicAccountById(record.accountId);
     const payload = {
       kind: 'achievement-unlocked',
+      playerId: record.accountId,
+      playerDisplayName: player?.displayName || 'A player',
       achievementId: record.achievementId,
       title: candidate.title,
       rarity: candidate.rarity,
       body: candidate.body,
-      createdAt: record.unlockedAt
+      secret: SECRET_ACHIEVEMENT_IDS.has(record.achievementId),
+      titleVisible: true,
+      unlockedAt: record.unlockedAt,
+      createdAt: record.unlockedAt,
+      gameId: record.gameId,
+      eventSequence: record.eventSequence || unlockKey,
+      evidenceHash: record.evidenceHash
     };
     socketsForAccount(candidate.accountId).forEach(candidateSocket => candidateSocket.emit('achievement-unlocked', payload));
     notifyAccount(candidate.accountId, payload);

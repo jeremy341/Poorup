@@ -205,7 +205,7 @@ const cardApi = {
 
   cardRentAmount(destination, card, wantedType) {
     if (wantedType === 'utility') {
-      return (Number(this.lastDice[0]) + Number(this.lastDice[1])) * (card.multiplier || 10);
+      return this.diceTotal() * (card.multiplier || 10);
     }
     return this.calculateRent(destination) * (card.multiplier || 2);
   },

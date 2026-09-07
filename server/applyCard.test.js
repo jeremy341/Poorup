@@ -526,3 +526,28 @@ for (const [name, [setup, card]] of Object.entries(CASES)) {
 }
 console.log(`applyCard tests: ${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exitCode = 1;
+
+// Regression: a movement card to an owned utility can be resolved before a
+// normal roll has populated lastDice. The utility contract still uses the
+// Monopoly minimum dice total (2), never a zero-dollar rent calculation.
+try {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 's-pre-roll-a', clientId: 'c-pre-roll-a', nickname: 'Ada' });
+  room.addOrReconnectPlayer({ socketId: 's-pre-roll-b', clientId: 'c-pre-roll-b', nickname: 'Bob' });
+  const game = room.game;
+  game.started = true;
+  game.currentPlayerId = game.players[0].id;
+  game.hasRolled = true;
+  game.players.forEach((player) => { player.cash = 1000; });
+  game.players[0].position = 6;
+  game.tiles[12].ownerId = game.players[1].id;
+  game.lastDice = [0, 0];
+  const result = game.applyCard(game.players[0], { action: 'nearestUtility', multiplier: 10 }, {});
+  assert.deepEqual({ result, payer: game.players[0].cash, owner: game.players[1].cash }, {
+    result: { success: true }, payer: 980, owner: 1020
+  });
+  console.log('PASS — applyCard nearestUtility-pre-roll uses minimum dice total');
+} catch (error) {
+  console.log(`FAIL — applyCard nearestUtility-pre-roll: ${error.message}`);
+  process.exitCode = 1;
+}
