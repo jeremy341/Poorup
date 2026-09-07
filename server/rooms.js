@@ -457,11 +457,37 @@ class RoomManager {
     return this.socketRoom.get(socketId) || null;
   }
 
-  restoreConnection(clientId, socketId) {
+  restoreConnection(clientId, socketId, accountId = null) {
     const room = this.findLiveRoomFor(clientId) || this.findRoomFor(clientId);
+    if (room) {
+      const player = room.game.getPlayerByClient(clientId);
+      if (!player) return null;
+      player.socketId = socketId;
+      player.disconnected = false;
+      this.socketRoom.set(socketId, room);
+      return room;
+    }
+    return this.restoreAccountSeat(accountId, clientId, socketId);
+  }
+
+  // Tab-restart recovery: a reopened tab has a fresh clientId (sessionStorage
+  // dies with the tab), so clientId matching cannot find the seat. The
+  // account session survives in localStorage, so a disconnected seat owned
+  // by the same account is reclaimed under the new clientId. Connected seats
+  // never match: a live tab keeps its seat and the newcomer is rejected,
+  // preserving one-seat-per-tab.
+  restoreAccountSeat(accountId, clientId, socketId) {
+    if (!accountId) return null;
+    if (!clientId) return null;
+    const room = [...this.rooms.values()].find(roomItem => {
+      const player = roomItem.game.players.find(p => p.accountId === accountId);
+      if (!player) return false;
+      return player.disconnected;
+    });
     if (!room) return null;
-    const player = room.game.getPlayerByClient(clientId);
+    const player = room.game.players.find(p => p.accountId === accountId);
     if (!player) return null;
+    player.clientId = clientId;
     player.socketId = socketId;
     player.disconnected = false;
     this.socketRoom.set(socketId, room);
