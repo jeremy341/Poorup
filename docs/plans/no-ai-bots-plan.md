@@ -172,6 +172,8 @@ Implemented in the current bot slice:
 - In AI mode, payment rescue exposes legal building-sale, bank-loan, and
   bankruptcy candidates; the no-AI path keeps the same conservative sell-then-
   loan fallback order.
+- Incoming trade responses may produce a bounded counteroffer in AI mode;
+  counter depth is capped so negotiations cannot loop forever.
 
 Remaining rollout work:
 

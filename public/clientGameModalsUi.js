@@ -173,6 +173,7 @@ function openOfferModal(offer) {
   $("#offer-counter").addEventListener("click", () => {
     // swap into the trade editor pre-loaded with the bot's proposal
     state.tradeWith = offer.from;
+    state.tradeCounterId = offer.id;
     state.tradeMyDeeds = new Set(offer.wantDeeds);
     state.tradeTheirDeeds = new Set(offer.giveDeeds);
     state.tradeMyCash = offer.wantCash;

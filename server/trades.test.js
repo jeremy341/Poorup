@@ -521,6 +521,25 @@ const loan = (score, offer = {}) => ({
   risk: 1.5,
   score
 });
+
+check('counterTrade replaces the pending offer without transferring assets', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const a = playerOf(room, 'client-a');
+  const b = playerOf(room, 'client-b');
+  const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 100 });
+  assert.equal(first.success, true);
+  const counter = game.counterTrade('socket-b', { giveCash: 25, requestCash: 120 });
+  assert.equal(counter.success, true);
+  assert.equal(counter.countered, true);
+  assert.equal(game.pendingTrade.fromPlayerId, b.id);
+  assert.equal(game.pendingTrade.toPlayerId, a.id);
+  assert.equal(game.pendingTrade.giveCash, 25);
+  assert.equal(game.pendingTrade.requestCash, 120);
+  assert.equal(game.pendingTrade.counterDepth, 1);
+  assert.equal(a.cash, 1500);
+  assert.equal(b.cash, 1500);
+});
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });
 const casino = (color, stake, score) => ({ id: 'casino:red', kind: 'casino', color, stake, risk: 0.55, score });

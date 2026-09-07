@@ -1039,6 +1039,7 @@ function tradeModalHTML({ me, other, otherSeed, myDeeds, theirDeeds }) {
 
 function resetTradeSelection(playerId) {
   state.tradeWith = playerId;
+  state.tradeCounterId = null;
   state.tradeMyDeeds = new Set();
   state.tradeTheirDeeds = new Set();
   state.tradeMyCash = 0;
@@ -1115,6 +1116,7 @@ export function openTradeModal(playerId) {
 
 export function closeTradeModal() {
   state.tradeWith = null;
+  state.tradeCounterId = null;
   closeSurface("#trade-modal");
 }
 
@@ -1176,7 +1178,9 @@ function tradeRejected(response) {
 function emitTradeOffer(me, other, myCash, theirCash) {
   const giveDeeds = [...state.tradeMyDeeds];
   const wantDeeds = [...state.tradeTheirDeeds];
-  host.emitServer("propose-trade", {
+  const eventName = state.tradeCounterId ? "counter-trade" : "propose-trade";
+  host.emitServer(eventName, {
+    ...(state.tradeCounterId ? { tradeId: state.tradeCounterId } : {}),
     toPlayerId: other.serverId || other.id,
     givePropertyIndexes: giveDeeds,
     requestPropertyIndexes: wantDeeds,
@@ -1191,6 +1195,7 @@ function emitTradeOffer(me, other, myCash, theirCash) {
     host.record(`OFFER SENT TO ${other.name}`);
     host.say(`Offer sent to ${other.name}.`, me);
     host.renderChat();
+    state.tradeCounterId = null;
   });
   closeTradeModal();
 }

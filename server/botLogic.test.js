@@ -224,6 +224,7 @@ function fakeRoom(log) {
     endTurn: () => ({ name: 'endTurn' }),
     rollDice: () => ({ name: 'roll' }),
     proposeTrade: () => ({ name: 'propose', success: true }),
+    counterTrade: () => ({ name: 'counter', success: true }),
     tradeMarket: (actor, instrumentId, side, quantity) => ({ name: `market:${instrumentId}:${side}:${quantity}` }),
     placeCasinoBet: (actor, color, stake) => ({ name: `casino:${color}:${stake}` }),
     manageProperty: (actor, payload) => ({ name: `manage:${payload.action}:${payload.tileIndex}` }),
@@ -261,6 +262,19 @@ check('AI advisor ranks a trade response without leaving the room seam', async (
   const result = await runBotTurn(room, bot1, advisor);
   assert.strictEqual(result.name, 'respondTrade:false');
   assert.strictEqual(result.botDecision.actionId, 'trade:decline');
+});
+
+check('AI advisor can counter a close trade with a bounded premium', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingTrade = { id: 'trade-2', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 100, requestCash: 20, givePropertyIndexes: [5], requestPropertyIndexes: [], counterDepth: 0 };
+  const advisor = { supportsChoicePhases: true, chooseAction: async context => {
+    assert.deepEqual(context.candidates.map(candidate => candidate.id), ['trade:accept', 'trade:counter', 'trade:decline']);
+    assert.equal(context.candidates[1].offer.requestCash, 110);
+    return { actionId: 'trade:counter', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'counter');
+  assert.strictEqual(result.botDecision.actionId, 'trade:counter');
 });
 
 check('AI advisor can choose a legal debt rescue path', async () => {

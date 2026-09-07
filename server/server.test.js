@@ -66,7 +66,7 @@ async function checkNullPayloadStorm(socket, child) {
   // server must still be running afterwards.
   const hostileEvents = [
     'set-setting', 'set-player-appearance', 'purchase-property',
-    'decline-property', 'auction-bid', 'manage-property', 'respond-trade',
+    'decline-property', 'auction-bid', 'manage-property', 'respond-trade', 'counter-trade',
     'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat',
     'request-sponsored-purchase', 'contribute-sponsored-purchase',
     'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase'

@@ -409,6 +409,7 @@ const GAME_PASSTHROUGHS = [
   'manageProperty',
   'proposeTrade',
   'respondToTrade',
+  'counterTrade',
   'proposePlayerContract',
   'respondPlayerContract',
   'repayPlayerContract',

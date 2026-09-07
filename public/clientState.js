@@ -166,6 +166,7 @@ const state = {
   selectedTile: null,
   tab: "deeds",
   tradeWith: null,
+  tradeCounterId: null,
   tradeMyDeeds: new Set(),
   tradeTheirDeeds: new Set(),
   tradeMyCash: 0,

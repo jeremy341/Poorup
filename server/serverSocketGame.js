@@ -39,6 +39,7 @@ const GAME_VERB_HANDLERS = [
   { event: 'end-turn', verb: 'endTurn', args: NO_ARGS },
   { event: 'manage-property', verb: 'manageProperty', args: p => [{ tileIndex: p.tileIndex, action: p.action }], message: true },
   { event: 'propose-trade', verb: 'proposeTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade']) },
+  { event: 'counter-trade', verb: 'counterTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade', 'countered']) },
   { event: 'respond-trade', verb: 'respondToTrade', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['accepted']) },
   { event: 'propose-player-contract', verb: 'proposePlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['contract']) },
   { event: 'respond-player-contract', verb: 'respondPlayerContract', args: p => [p.accept === true, p.requestId], relay: { event: 'player-contract-update', field: 'contract', recipient: 'fromPlayerId' }, ackExtras: pickAckFields(['contract', 'accepted']) },
