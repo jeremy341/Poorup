@@ -174,6 +174,8 @@ Implemented in the current bot slice:
   loan fallback order.
 - Incoming trade responses may produce a bounded counteroffer in AI mode;
   counter depth is capped so negotiations cannot loop forever.
+- Incoming player contracts use the same bounded counter path for loan, equity,
+  and hybrid terms; deterministic mode keeps accept/decline behavior.
 
 Remaining rollout work:
 

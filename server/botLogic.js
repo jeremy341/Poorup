@@ -215,6 +215,26 @@ function counterTradeOffer(game, bot) {
   };
 }
 
+function counterContractOffer(game, bot) {
+  const contract = game.pendingPlayerContract;
+  if (!contract || contract.toPlayerId !== bot.id) return null;
+  if (Number(contract.counterDepth) >= 2) return null;
+  const counter = {
+    contractId: contract.id,
+    kind: contract.kind,
+    amount: Math.max(1, Math.floor(Number(contract.amount) || 1)),
+    premiumRate: Math.max(0, Math.floor(Number(contract.premiumRate || 0) - 10)),
+    durationRounds: Math.min(20, Math.max(1, Math.floor(Number(contract.durationRounds) || 3) + 1)),
+    propertyIndex: contract.propertyIndex ?? null,
+    collateralTileIndex: contract.collateralTileIndex ?? null,
+    equityShare: contract.equityShare || 0,
+    equityControl: contract.equityControl || 'passive',
+    conversionShare: contract.conversionShare || 25,
+    permanent: contract.expiresRound == null
+  };
+  return counter;
+}
+
 function botPaymentAction(room, bot, game) {
   const sell = debtSellCandidates(game, bot)[0];
   if (sell) {
@@ -284,10 +304,13 @@ function phaseChoiceCandidates(game, bot, phase) {
     const offer = game.pendingPlayerContract;
     const lender = game.getPlayerById(offer.fromPlayerId);
     const accept = shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
-    return [
+    const candidates = [
       choiceCandidate('contract:accept', 'accept', accept ? 12 : 2, 'ACCEPT'),
       choiceCandidate('contract:decline', 'decline', accept ? 1 : 8, 'DECLINE')
     ];
+    const counter = counterContractOffer(game, bot);
+    if (counter) candidates.splice(1, 0, { ...choiceCandidate('contract:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
+    return candidates;
   }
   if (phase === 'payment' && game.pendingPayment?.playerId === bot.id) {
     const sellCandidates = debtSellCandidates(game, bot).slice(0, 12).map(entry => choiceCandidate(
@@ -316,7 +339,10 @@ function runPhaseChoice(room, bot, game, phase, candidate) {
     if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
     return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: game.pendingTrade.id, accept: candidate.choiceId === 'accept' }));
   }
-  if (phase === 'contract') return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
+  if (phase === 'contract') {
+    if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterPlayerContract(actor, candidate.offer));
+    return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
+  }
   if (phase === 'payment') {
     if (candidate.id.startsWith('debt:sell:')) {
       const tileIndex = Number(candidate.id.slice('debt:sell:'.length));
