@@ -69,6 +69,11 @@ const botApi = {
       reasonCode: entry.reasonCode ? String(entry.reasonCode).slice(0, 40) : 'unknown',
       latencyMs: Math.max(0, Math.floor(finiteOrZero(entry.latencyMs))),
       candidateIds: Array.isArray(entry.candidateIds) ? entry.candidateIds.filter(id => typeof id === 'string').slice(0, 24).map(id => id.slice(0, 100)) : [],
+      shadowActionId: entry.shadowActionId ? String(entry.shadowActionId).slice(0, 100) : null,
+      shadowConfidence: entry.shadowConfidence == null ? null : Math.max(0, Math.min(1, finiteOrZero(entry.shadowConfidence))),
+      shadowProvider: entry.shadowProvider ? String(entry.shadowProvider).slice(0, 24) : null,
+      shadowAgreement: entry.shadowAgreement === true,
+      shadowModel: entry.shadowModel ? String(entry.shadowModel).slice(0, 48) : null,
       recordedAt: new Date().toISOString()
     };
     this.botDecisionTrace = Array.isArray(this.botDecisionTrace) ? this.botDecisionTrace : [];
