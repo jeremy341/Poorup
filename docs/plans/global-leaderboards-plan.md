@@ -1,7 +1,8 @@
 # Poorup Global Leaderboards
 
-Status: implemented all-time, monthly, and friends-only projection plus a
-rebuildable recent trend indicator. Seasons and rewards remain follow-up work.
+Status: implemented all-time, seasonal, monthly, and friends-only projection
+plus a rebuildable recent trend indicator. Seasonal rewards remain follow-up
+work.
 
 ## Product decision
 

@@ -95,6 +95,8 @@ async function checkHappyPath(socket) {
   check('leave-room succeeds', left?.success === true);
   const rooms = await ask(socket, 'list-rooms', undefined);
   check('list-rooms succeeds with no payload', rooms?.success === true);
+  const season = await ask(socket, 'get-leaderboard-snapshot', { scope: 'season' });
+  check('season leaderboard snapshot is available', season?.success === true && season?.scope === 'season');
 }
 
 async function run() {
