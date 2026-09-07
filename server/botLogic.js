@@ -381,7 +381,7 @@ const CANDIDATE_RUNNERS = {
 
 async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 'pre-roll') {
   const game = room.game;
-  const candidates = game.getBotCandidates(bot);
+  const candidates = game.getBotCandidates(bot, { expanded: true });
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
