@@ -1,6 +1,9 @@
 # Poorup Player, Profile, Achievement, and Social System Audit
 
-Status: architecture and UX plan. This is the source of truth for the next social implementation wave.
+Status: historical baseline. The first social implementation wave is live in
+the modular server/client surfaces; use the focused friends, rankings,
+achievements, and match-history plans for current status. Remaining work is
+scale, abuse telemetry, and browser-level coverage.
 
 ## Executive decisions
 
@@ -20,7 +23,10 @@ Riot’s companion experience separates profile identity from social communicati
 
 Epic Online Services describes the useful platform primitives as friend management, rich presence, invitations, unified overlays, player data, and trust/safety controls. [Epic Online Services accounts and social](https://onlineservices.epicgames.com/en-US/accounts-social)
 
-## Current-state audit
+## Current-state audit (historical snapshot)
+
+The table below records the pre-implementation baseline and is retained for
+traceability. It is not a current bug list.
 
 ### What already exists
 
