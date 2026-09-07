@@ -89,7 +89,7 @@ function handleDealAction(action, kind, deal) {
   if (!event) return;
   const payload = kind === "trade"
     ? action === "cancel" ? { tradeId: deal.id } : { tradeId: deal.id, accept: action === "accept" }
-    : action === "cancel" ? { contractId: deal.id } : { accept: action === "accept", requestId: `${action}-${deal.id}` };
+    : action === "cancel" ? { contractId: deal.id } : { contractId: deal.id, accept: action === "accept", requestId: `${action}-${deal.id}` };
   host.emitServer(event, payload, response => {
     if (response?.success === false) {
       host.say(response.error || "The deal could not be updated.");
