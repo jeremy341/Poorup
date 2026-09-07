@@ -35,6 +35,7 @@ export const AUCTION_COMFORT_RATIO = 0.7;
 
 // Property purchase keeps this much cash in reserve before buying.
 export const PURCHASE_RESERVE_CASH = 120;
+export const SPONSORSHIP_RESERVE_CASH = 180;
 
 function attachBotDecision(result, decision) {
   if (!result || typeof result !== 'object') return result;
@@ -79,6 +80,9 @@ export function selectBotTurnTarget(game) {
   if (voting) return voting;
   const pending = findPendingCounterpart(game);
   if (pending?.isBot) return pending;
+  // A sponsorship can remain open for human contributors. Do not repeatedly
+  // wake the buyer's turn while it is waiting for the table.
+  if (game.pendingSponsoredPurchase) return null;
   return game.getCurrentPlayer();
 }
 
@@ -88,6 +92,21 @@ function findVotingBot(game) {
 }
 
 function findPendingCounterpart(game) {
+  if (game.pendingSponsoredPurchase) {
+    const sponsorship = game.pendingSponsoredPurchase;
+    const buyer = game.getPlayerById(sponsorship.buyerId);
+    const tile = game.getTile(Number(sponsorship.tileIndex));
+    const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(buyer?.cash || 0) - contributed);
+    // Let the buyer finish first once at least one sponsor has reserved cash.
+    if (buyer?.isBot && sponsorship.contributions?.length && needed <= 0) return buyer;
+    const sponsor = game.players.find(player => player.isBot
+      && player.id !== sponsorship.buyerId
+      && !player.bankrupt
+      && !player.disconnected
+      && !(sponsorship.contributions || []).some(entry => entry.sponsorId === player.id));
+    if (sponsor) return sponsor;
+  }
   if (game.pendingTrade) return game.getPlayerById(game.pendingTrade.toPlayerId) || null;
   if (game.pendingPlayerContract) return game.getPlayerById(contractResponderId(game.pendingPlayerContract)) || null;
   if (game.pendingPayment?.playerId) return game.getPlayerById(game.pendingPayment.playerId) || null;
@@ -105,7 +124,7 @@ function contractResponderId(contract) {
 
 export function botMayStillAct(game, bot) {
   if (!bot) return false;
-  if (isVotingTurn(game) || isPendingFor(game, bot) || game.pendingPayment?.playerId === bot.id) return true;
+  if (isVotingTurn(game) || isPendingFor(game, bot) || isSponsorshipActor(game, bot) || game.pendingPayment?.playerId === bot.id) return true;
   return isSeatedActor(game, bot);
 }
 
@@ -122,12 +141,25 @@ export function isPendingFor(game, bot) {
   return game.pendingTrade?.toPlayerId === bot.id || contractResponderId(game.pendingPlayerContract) === bot.id;
 }
 
+function isSponsorshipActor(game, bot) {
+  const sponsorship = game.pendingSponsoredPurchase;
+  if (!sponsorship || !bot || bot.bankrupt || bot.disconnected) return false;
+  if (sponsorship.buyerId === bot.id) {
+    const tile = typeof game.getTile === 'function' ? game.getTile(Number(sponsorship.tileIndex)) : null;
+    const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(bot.cash || 0) - contributed);
+    return Boolean(sponsorship.contributions?.length && needed <= 0);
+  }
+  return !(sponsorship.contributions || []).some(entry => entry.sponsorId === bot.id);
+}
+
 // Ordered phase state machine - the array order IS the historical if/else
 // priority, and each guard keeps its exact original condition.
 const PHASES = [
   { id: 'vote', guard: (game, bot) => isVotingTurn(game) && !game.globalEvent.votes?.[bot.id] },
   { id: 'trade', guard: (game, bot) => game.pendingTrade?.toPlayerId === bot.id },
   { id: 'contract', guard: (game, bot) => contractResponderId(game.pendingPlayerContract) === bot.id },
+  { id: 'sponsorship', guard: (game, bot) => isSponsorshipActor(game, bot) },
   { id: 'payment', guard: (game, bot) => game.pendingPayment?.playerId === bot.id },
   { id: 'auction', guard: game => Boolean(game.auction?.active) },
   { id: 'end-turn', guard: game => Boolean(game.awaitingEndTurn) },
@@ -178,6 +210,30 @@ export function isAuctionBotParticipant(auction, player) {
 
 export function shouldBuyProperty(bot, tile) {
   return Boolean(tile) && bot.cash >= Number(tile.price || 0) + PURCHASE_RESERVE_CASH;
+}
+
+export function sponsorshipContributionAmount(game, bot) {
+  const sponsorship = game?.pendingSponsoredPurchase;
+  if (!sponsorship || !bot || bot.id === sponsorship.buyerId) return 0;
+  if ((sponsorship.contributions || []).some(entry => entry.sponsorId === bot.id)) return 0;
+  const tile = typeof game.getTile === 'function' ? game.getTile(Number(sponsorship.tileIndex)) : null;
+  const buyer = typeof game.getPlayerById === 'function' ? game.getPlayerById(sponsorship.buyerId) : null;
+  const buyerCash = buyer ? Number(buyer.cash || 0) : Number(sponsorship.buyerCash || 0);
+  const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - buyerCash - contributed);
+  const available = Math.max(0, Math.floor(Number(bot.cash || 0) - SPONSORSHIP_RESERVE_CASH));
+  return Math.min(needed, available);
+}
+
+function shouldSeekSponsorship(game, bot, tile) {
+  if (!game?.pendingPurchaseOffer || game.pendingPurchaseOffer.playerId !== bot.id || !tile) return false;
+  if (shouldBuyProperty(bot, tile)) return false;
+  const needed = Math.max(0, Number(tile.price || 0) - Number(bot.cash || 0));
+  if (needed <= 0) return false;
+  const potential = game.players
+    .filter(player => player.id !== bot.id && player.isBot && !player.bankrupt && !player.disconnected)
+    .reduce((sum, player) => sum + Math.max(0, Number(player.cash || 0) - SPONSORSHIP_RESERVE_CASH), 0);
+  return potential >= needed;
 }
 
 function shouldBuyWithPlan(game, bot, tile) {
@@ -339,6 +395,21 @@ function phaseChoiceCandidates(game, bot, phase) {
     if (counter) candidates.splice(1, 0, { ...choiceCandidate('contract:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
     return candidates;
   }
+  if (phase === 'sponsorship' && game.pendingSponsoredPurchase) {
+    const sponsorship = game.pendingSponsoredPurchase;
+    if (sponsorship.buyerId === bot.id) {
+      const tile = game.getTile(Number(sponsorship.tileIndex));
+      const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(bot.cash || 0) - contributed);
+      return sponsorship.contributions?.length && needed <= 0
+        ? [choiceCandidate('sponsorship:accept', 'accept', 18, 'ACCEPT SPONSORSHIP')]
+        : [choiceCandidate('sponsorship:wait', 'wait', 1, 'WAIT FOR SPONSORS')];
+    }
+    const amount = sponsorshipContributionAmount(game, bot);
+    return amount > 0
+      ? [choiceCandidate('sponsorship:contribute', 'contribute', 8, `RESERVE $${amount}`), choiceCandidate('sponsorship:skip', 'skip', 1, 'KEEP CASH')]
+      : [choiceCandidate('sponsorship:skip', 'skip', 1, 'KEEP CASH')];
+  }
   if (phase === 'payment' && game.pendingPayment?.playerId === bot.id) {
     const sellCandidates = debtSellCandidates(game, bot).slice(0, 12).map(entry => choiceCandidate(
       `debt:sell:${entry.tile.index}`,
@@ -369,6 +440,14 @@ function runPhaseChoice(room, bot, game, phase, candidate) {
   if (phase === 'contract') {
     if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterPlayerContract(actor, candidate.offer));
     return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
+  }
+  if (phase === 'sponsorship') {
+    if (candidate.choiceId === 'accept') return room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
+    if (candidate.choiceId === 'contribute') {
+      const amount = sponsorshipContributionAmount(game, bot);
+      return room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }));
+    }
+    return { success: true, noEmit: true, botDecision: { reasonCode: 'sponsorship-wait' } };
   }
   if (phase === 'payment') {
     if (candidate.id.startsWith('debt:sell:')) {
@@ -427,6 +506,16 @@ const PHASE_EXECUTORS = {
     const acceptable = shouldAcceptContractResponse(game, bot, offer);
     return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, acceptable));
   },
+  sponsorship: (room, bot, game) => {
+    const sponsorship = game.pendingSponsoredPurchase;
+    if (sponsorship?.buyerId === bot.id && sponsorship.contributions?.length) {
+      return room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
+    }
+    const amount = sponsorshipContributionAmount(game, bot);
+    return amount > 0
+      ? room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }))
+      : { success: true, noEmit: true };
+  },
   payment: botPaymentAction,
   auction: (room, bot) => room.runBotAction(bot.id, actor => room.passAuction(actor)),
   'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
@@ -452,7 +541,7 @@ export async function runBotTurn(room, bot, advisor) {
     ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
   if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
-  if (advisor?.supportsChoicePhases && ['vote', 'trade', 'contract', 'payment'].includes(phase)) {
+  if (advisor?.supportsChoicePhases && ['vote', 'trade', 'contract', 'sponsorship', 'payment'].includes(phase)) {
     return runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase);
   }
   const result = PHASE_EXECUTORS[phase](room, bot, game);
@@ -516,6 +605,9 @@ export function resolvePurchaseOffer(room, bot, result) {
   if (!result?.purchaseOffer) return result;
   const tile = room.game.getTile(result.purchaseOffer.tileIndex);
   const canBuy = shouldBuyWithPlan(room.game, bot, tile);
+  if (!canBuy && shouldSeekSponsorship(room.game, bot, tile)) {
+    return room.runBotAction(bot.id, actor => room.game.requestPurchaseSponsorship(actor));
+  }
   return room.runBotAction(bot.id, actor => canBuy
     ? room.purchaseProperty(actor, tile.index)
     : room.declineProperty(actor, tile.index));

@@ -100,9 +100,21 @@ rules digest, board, position, turn, obligation, finance, event, and redacted
 opponent projection used by both provider and deterministic paths.
 The AI adapter can also rank legal civic votes, trade responses and bounded
 counteroffers, player-contract responses and bounded contract counters,
-debt-rescue choices, and auction bid/pass choices; the
+debt-rescue choices, sponsorship contributions/acceptance, and auction bid/pass choices; the
 actual debt, loan, and auction settlement still retain deterministic server
 guards.
+
+### Sponsorship decisions
+
+Sponsorship is treated as a table obligation, not as a free-form generosity
+action. A bot buyer only requests sponsorship when it cannot buy, at least one
+other bot has enough cash above the fixed reserve, and the shortfall is
+fundable. Bot sponsors contribute at most the remaining need while retaining a
+cash floor; they never contribute twice. Once one or more reservations cover
+the shortfall, the buyer accepts and the server forces the named purchase.
+If no bot can safely fund the request, humans may still contribute and the bot
+waits without spinning a turn loop. All reservations, ownership, and refunds
+remain server-authoritative.
 
 ### Runtime configuration
 

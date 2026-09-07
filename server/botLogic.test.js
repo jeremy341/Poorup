@@ -17,6 +17,7 @@ import {
   auctionBidDecision,
   isAuctionBotParticipant,
   shouldBuyProperty,
+  sponsorshipContributionAmount,
   resolvePurchaseOffer,
   runBotTurn
 } from './botLogic.js';
@@ -244,6 +245,34 @@ check('runBotTurn executes the classified phase against the room', async () => {
   room.game.pendingPayment = { playerId: 'b1' };
   const result = await runBotTurn(room, bot1, advisorStub(null));
   assert.strictEqual(result.name, 'bankrupt');
+});
+
+check('sponsorship target selects an eligible bot contributor, then the buyer', () => {
+  const buyer = { id: 'buyer', isBot: true, cash: 20 };
+  const sponsor = { id: 'sponsor', isBot: true, cash: 600, bankrupt: false, disconnected: false };
+  const game = fakeGame({
+    current: buyer,
+    players: [buyer, sponsor],
+    getTile: () => ({ index: 4, price: 200 }),
+    pendingSponsoredPurchase: { buyerId: 'buyer', tileIndex: 4, price: 200, contributions: [] }
+  });
+  assert.strictEqual(selectBotTurnTarget(game), sponsor);
+  game.pendingSponsoredPurchase.contributions.push({ sponsorId: 'sponsor', amount: 180 });
+  assert.strictEqual(selectBotTurnTarget(game), buyer);
+});
+
+check('sponsorship contribution keeps a deterministic cash reserve', () => {
+  const sponsor = { id: 'sponsor', isBot: true, cash: 500 };
+  const game = fakeGame({
+    players: [sponsor, { id: 'buyer', cash: 100 }],
+    getTile: () => ({ price: 400 }),
+    pendingSponsoredPurchase: { buyerId: 'buyer', tileIndex: 4, price: 400, buyerCash: 20, contributions: [] }
+  });
+  assert.strictEqual(sponsorshipContributionAmount(game, sponsor), 300);
+  game.pendingSponsoredPurchase.contributions.push({ sponsorId: 'other', amount: 100 });
+  assert.strictEqual(sponsorshipContributionAmount(game, sponsor), 200);
+  game.pendingSponsoredPurchase.contributions.push({ sponsorId: 'sponsor', amount: 1 });
+  assert.strictEqual(sponsorshipContributionAmount(game, sponsor), 0);
 });
 
 check('contract response ownership alternates after a counter', () => {
