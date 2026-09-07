@@ -104,7 +104,7 @@ function sanitizeContractEntry(contract) {
 }
 
 function sanitizeMatch(record = {}) {
-  return {
+  const match = {
     matchId: clipString(record.matchId, 80),
     completedAt: stringOr(record.completedAt, new Date().toISOString()),
     durationSeconds: nonNegativeNumber(record.durationSeconds),
@@ -119,6 +119,10 @@ function sanitizeMatch(record = {}) {
     market: safeArray(record.market, 8).map(sanitizeMarketEntry),
     playerContracts: safeArray(record.playerContracts, 20).map(sanitizeContractEntry),
   };
+  if (Object.prototype.hasOwnProperty.call(record, 'playerCount')) {
+    match.playerCount = nonNegativeNumber(record.playerCount);
+  }
+  return match;
 }
 
 export class MatchStore {

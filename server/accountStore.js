@@ -83,6 +83,9 @@ function countContracts(record, accountId, include) {
   return (record.playerContracts || []).filter((contract) => include(contract, accountId)).length;
 }
 
+const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
+const equityLikeContract = contract => contract?.kind === 'equity' || (contract?.kind === 'hybrid' && contract?.status === 'converted');
+
 function realizedMarketPnl(record, accountId) {
   const market = (record.market || []).find((entry) => entry.accountId === accountId);
   return Object.values(market?.positions || {}).reduce((sum, position) => sum + (num(position.realizedPnl)), 0);
@@ -145,7 +148,7 @@ function computePlacementById(players) {
 }
 
 function buildMatchRecord(matchId, matchMeta, participants) {
-  return {
+  const record = {
     matchId,
     completedAt: matchMeta.completedAt || new Date().toISOString(),
     durationSeconds: nonNegative(matchMeta.durationSeconds),
@@ -160,6 +163,10 @@ function buildMatchRecord(matchId, matchMeta, participants) {
     market: clippedList(matchMeta.market, 8),
     playerContracts: clippedList(matchMeta.playerContracts, 20)
   };
+  if (matchMeta.includeMatchDetails) {
+    record.playerCount = Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length));
+  }
+  return record;
 }
 
 // One delta function per stat key, applied to the live player object of a
@@ -177,10 +184,10 @@ const RESULT_STAT_UPDATES = {
   casinoNet: (player, ctx) => num(ctx.casino.find(entry => entry.accountId === player.accountId)?.net) || 0,
   marketProfit: (player, ctx) => Object.values(ctx.market.find(entry => entry.accountId === player.accountId)?.positions || {})
     .reduce((sum, position) => sum + (Number(position.realizedPnl) || 0), 0),
-  playerLoansGiven: (player, ctx) => ctx.contracts.filter(c => c.fromAccountId === player.accountId && c.kind === 'loan').length,
-  playerLoansRepaid: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && c.kind === 'loan' && c.status === 'paid').length,
-  playerLoanDefaults: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && c.kind === 'loan' && c.status === 'defaulted').length,
-  equityDeals: (player, ctx) => ctx.contracts.filter(c => c.kind === 'equity' && (c.fromAccountId === player.accountId || c.toAccountId === player.accountId)).length
+  playerLoansGiven: (player, ctx) => ctx.contracts.filter(c => c.fromAccountId === player.accountId && loanLikeContract(c)).length,
+  playerLoansRepaid: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && loanLikeContract(c) && c.status === 'paid').length,
+  playerLoanDefaults: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && loanLikeContract(c) && c.status === 'defaulted').length,
+  equityDeals: (player, ctx) => ctx.contracts.filter(c => equityLikeContract(c) && (c.fromAccountId === player.accountId || c.toAccountId === player.accountId)).length
 };
 
 function matchHistoryEntry(player, matchId, winnerId) {
@@ -226,10 +233,10 @@ const WINDOW_STAT_UPDATES = {
   bankLoanDefaults: participant => (participant.bankLoanStatus === 'defaulted' ? 1 : 0),
   casinoNet: participant => num(participant.casinoNet),
   marketProfit: (participant, record, account) => realizedMarketPnl(record, account.id),
-  playerLoansGiven: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.fromAccountId === id && contract.kind === 'loan'),
-  playerLoansRepaid: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.toAccountId === id && contract.kind === 'loan' && contract.status === 'paid'),
-  playerLoanDefaults: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.toAccountId === id && contract.kind === 'loan' && contract.status === 'defaulted'),
-  equityDeals: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.kind === 'equity' && (contract.fromAccountId === id || contract.toAccountId === id))
+  playerLoansGiven: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.fromAccountId === id && loanLikeContract(contract)),
+  playerLoansRepaid: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.toAccountId === id && loanLikeContract(contract) && contract.status === 'paid'),
+  playerLoanDefaults: (participant, record, account) => countContracts(record, account.id, (contract, id) => contract.toAccountId === id && loanLikeContract(contract) && contract.status === 'defaulted'),
+  equityDeals: (participant, record, account) => countContracts(record, account.id, (contract, id) => equityLikeContract(contract) && (contract.fromAccountId === id || contract.toAccountId === id))
 };
 
 function windowRecords(account, since) {
@@ -273,7 +280,7 @@ function publicHistory(history, includePrivateHistory) {
 }
 
 function publicAchievements(account, includePrivateHistory) {
-  if (account.privacy?.achievements === 'private' && !includePrivateHistory) return [];
+  if (!includePrivateHistory && ['private', 'friends'].includes(account.privacy?.achievements)) return [];
   const entries = Array.isArray(account.achievements) ? account.achievements : [];
   return entries.map(entry => ({ id: entry.id, unlockedAt: entry.unlockedAt || null })).slice(0, 100);
 }
@@ -500,7 +507,11 @@ export class AccountStore {
     const matchId = matchMeta.gameId || `match_${crypto.randomUUID()}`;
     const activePlayers = players.filter(player => player);
     const placementById = computePlacementById(activePlayers);
-    const participants = activePlayers.map(player => participantFromPlayer(player, { placementById, winnerId }));
+    const participants = activePlayers.map(player => participantFromPlayer(player, {
+      placementById,
+      winnerId,
+      includeMatchDetails: matchMeta.includeMatchDetails === true
+    }));
     const matchRecord = buildMatchRecord(matchId, matchMeta, participants);
     let changed = false;
     activePlayers.forEach((player) => {
@@ -557,17 +568,18 @@ export class AccountStore {
     return this.accounts.get(handle) || null;
   }
 
-  getPublicPlayerCard(accountId) {
-    const account = this.getPublicAccountById(accountId);
+  getPublicPlayerCard(accountId, { includeAchievements = false } = {}) {
+    const account = this.getAccountById(accountId);
     if (!account) return null;
+    const publicView = publicAccount(account, false);
     return {
-      id: account.id,
-      username: account.username,
-      displayName: account.displayName,
-      color: account.color,
-      avatarGrid: account.avatarGrid,
-      stats: account.stats,
-      achievements: account.privacy?.achievements === 'private' ? [] : account.achievements,
+      id: publicView.id,
+      username: publicView.username,
+      displayName: publicView.displayName,
+      color: publicView.color,
+      avatarGrid: publicView.avatarGrid,
+      stats: publicView.stats,
+      achievements: includeAchievements ? publicAchievements(account, true) : publicView.achievements,
       achievementsPrivate: account.privacy?.achievements === 'private',
       historyPrivate: account.privacy?.history === 'private',
       historyFriendsOnly: account.privacy?.history === 'friends',

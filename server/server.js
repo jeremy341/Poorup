@@ -71,9 +71,9 @@ server.listen(PORT, () => {
 });
 
 // Last-resort crash guards. Every known throw site is caught at its seam
-// (handler scaffold, bot timer try/catch); if anything still escapes, log
-// it loudly and stay alive for the players already connected instead of
-// taking every room down with one bad stack.
+// (handler scaffold, bot timer try/catch). If an unknown exception still
+// escapes, log it loudly and terminate so the process supervisor can restart
+// from a clean state instead of serving corrupted room state.
 process.on('uncaughtException', (error) => {
   console.error('UNCAUGHT EXCEPTION:', error);
   process.exit(1);

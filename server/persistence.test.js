@@ -81,6 +81,17 @@ check('missing file: clean empty start with no quarantine siblings', () => {
   assert.strictEqual(corruptSibling(filePath).length, 0);
 });
 
+check('friends-only achievements stay hidden from outsider cards', () => {
+  const filePath = fileFor('achievement-privacy');
+  const store = new AccountStore(filePath);
+  const registered = register(store, 'achievementowner');
+  const account = store.getAccountById(registered.account.id);
+  account.privacy.achievements = 'friends';
+  account.achievements = [{ id: 'full-street', unlockedAt: '2026-01-01T00:00:00.000Z' }];
+  assert.deepStrictEqual(store.getPublicPlayerCard(account.id).achievements, []);
+  assert.deepStrictEqual(store.getPublicPlayerCard(account.id, { includeAchievements: true }).achievements, account.achievements);
+});
+
 fs.rmSync(tempDir, { recursive: true, force: true });
 const failed = results.filter(ok => !ok).length;
 console.log(`persistence tests: ${results.length - failed} passed, ${failed} failed`);

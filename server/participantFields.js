@@ -14,6 +14,19 @@ export const flag = (value) => value === true;
 export const setSize = (value) => (value instanceof Set ? value.size : 0);
 
 const text = (value, maxLength) => (typeof value === 'string' ? value.slice(0, maxLength) : null);
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+function avatarFromRecord(value) {
+  if (!Array.isArray(value)) return null;
+  return Array.from({ length: 8 }, (_, y) => Array.from({ length: 8 }, (_, x) => {
+    const cell = value[y]?.[x];
+    return typeof cell === 'string' && COLOR_RE.test(cell) ? cell.toLowerCase() : null;
+  }));
+}
+
+function stringList(value, limit) {
+  return Array.isArray(value) ? value.slice(0, limit).filter(item => typeof item === 'string').map(item => item.slice(0, 80)) : [];
+}
 
 // One descriptor per participant field, in output order.
 export const PARTICIPANT_FIELDS = [
@@ -89,12 +102,22 @@ export const PARTICIPANT_FIELDS = [
   { key: 'hiddenMovementSequence', fromRecord: (v) => flag(v?.hiddenMovementSequence), fromPlayer: (p) => flag(p.hiddenMovementSequence) },
 ];
 
+const MATCH_DETAIL_FIELDS = [
+  { key: 'avatarAtMatch', fromRecord: (v) => avatarFromRecord(v?.avatarAtMatch), fromPlayer: (p) => avatarFromRecord(p.avatarGrid) },
+  { key: 'completedGroups', fromRecord: (v) => nonNegative(v?.completedGroups ?? v?.fullGroups), fromPlayer: (p) => setSize(p.fullGroups) },
+  { key: 'achievementsUnlocked', fromRecord: (v) => stringList(v?.achievementsUnlocked, 32), fromPlayer: (p) => stringList(p.achievementsUnlocked, 32) },
+  { key: 'mythicalUnlocked', fromRecord: (v) => flag(v?.mythicalUnlocked), fromPlayer: (p) => flag(p.mythicalUnlocked) },
+];
+
 // Build one participant from a record-shaped object (matchStore input).
 export function sanitizeParticipant(participant) {
   const result = {};
   PARTICIPANT_FIELDS.forEach((field) => {
     result[field.key] = field.fromRecord(participant);
   });
+  if (MATCH_DETAIL_FIELDS.some(field => Object.prototype.hasOwnProperty.call(participant || {}, field.key))) {
+    MATCH_DETAIL_FIELDS.forEach((field) => { result[field.key] = field.fromRecord(participant); });
+  }
   return result;
 }
 
@@ -104,5 +127,8 @@ export function participantFromPlayer(player, context) {
   PARTICIPANT_FIELDS.forEach((field) => {
     result[field.key] = field.fromPlayer(player, context);
   });
+  if (context?.includeMatchDetails) {
+    MATCH_DETAIL_FIELDS.forEach((field) => { result[field.key] = field.fromPlayer(player, context); });
+  }
   return result;
 }
