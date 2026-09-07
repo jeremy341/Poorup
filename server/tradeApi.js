@@ -25,7 +25,7 @@ const TRADE_PROPOSAL_GUARDS = [
   },
   {
     error: 'Another trade is already pending.',
-    rejects: game => Boolean(game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingTrade || game.pendingPlayerContract)
+    rejects: game => Boolean(game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract)
   },
   {
     error: 'Cash values must be valid numbers.',
