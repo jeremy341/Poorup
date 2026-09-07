@@ -265,6 +265,10 @@ function createRuntime(deps) {
 
   function scheduleBotTurn(room) {
     if (!room?.game.started) return;
+    // Auctions have their own participant timer. Keeping the ordinary turn
+    // queue out of this phase prevents the current seat from issuing a
+    // rejected pass/bid while a different bot is the auction participant.
+    if (room.game.auction?.active) return;
     if (botTurnPending(room)) return;
     const bot = selectBotTurnTarget(room.game);
     if (!bot?.isBot) return;
