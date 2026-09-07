@@ -1,6 +1,7 @@
 # Poorup Casino, Market, and Global-Event Economy
 
-Status: implementation blueprint. This document defines the contracts for the two optional economy systems before gameplay code is introduced.
+Status: implemented optional economy contracts. Further balance tuning and
+market-depth work remain follow-up items.
 
 ## 1. Product decision
 
