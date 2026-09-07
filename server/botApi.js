@@ -3,6 +3,7 @@
 // arrays keep the original collector order; the final sort is stable, so
 // ties keep this sequence. kind values are the contract consumed by
 // botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
+import { MARKET_FEE_RATE } from './marketLogic.js';
 
 const BOT_CANDIDATE_SOURCES = [
   { collect: (game, player) => game.botBuildCandidates(player) },
@@ -197,13 +198,19 @@ const botApi = {
     if ((player.marketActionsThisTurn || 0) >= 1) return [];
     const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
     if (!marketId) return [];
+    const quote = Number(this.marketQuotes[marketId]) || 100;
+    const fee = Math.max(1, Math.ceil(quote * MARKET_FEE_RATE));
+    if (player.cash < quote + fee) return [];
+    if (this.hasLoanBackedCash?.(player)) return [];
     return [{
       id: 'market:' + marketId,
       kind: 'market',
       instrumentId: marketId,
       side: 'buy',
       quantity: 1,
-      risk: riskAgainstCash(Number(this.marketQuotes[marketId]) || 100, player.cash),
+      // Keep the historical quote-based risk telemetry stable; the fee is a
+      // legality check above, not a personality-score signal.
+      risk: riskAgainstCash(quote, player.cash),
       score: BOT_MARKET_SCORES[player.personality] || BOT_MARKET_SCORE_DEFAULT
     }];
   },
@@ -214,11 +221,15 @@ const botApi = {
     if (!['shark', 'chaos'].includes(player.personality)) return [];
     if (player.cash <= 20) return [];
     const spec = BOT_CASINO_SPECS[player.personality];
+    if (this.hasLoanBackedCash?.(player)) return [];
+    const entryFee = Number(this.casinoLimits?.().entryFee) || 0;
+    const stake = Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate)));
+    if (player.cash < stake + entryFee) return [];
     return [{
       id: 'casino:red',
       kind: 'casino',
       color: spec.color,
-      stake: Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate))),
+      stake,
       risk: 0.55,
       score: spec.score
     }];
