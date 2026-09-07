@@ -350,12 +350,13 @@ function declineContract(game, player) {
   return { success: true, accepted: false };
 }
 
-export function respondContract(game, socketId, accept, requestId = null) {
+export function respondContract(game, socketId, accept, requestId = null, contractId = null) {
   const player = game.getPlayerBySocket(socketId);
   const key = transactionKey('contract-response', player?.id, requestId ? String(requestId).slice(0, 100) : null);
   const cached = memoizedResult(game, key);
   if (cached) return cached;
   const contract = game.pendingPlayerContract;
+  if (contractId && contract?.id !== contractId) return { success: false, error: 'No matching player contract was found.' };
   if (!responseTargetMatches(player, contract)) return { success: false, error: 'No matching player contract was found.' };
   const borrower = game.getPlayerById(contract.toPlayerId);
   const result = accept ? acceptContract(game, borrower, contract) : declineContract(game, player);

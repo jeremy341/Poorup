@@ -219,6 +219,7 @@ function fakeRoom(log) {
     voteGlobalEvent: (actor, policyId) => ({ name: 'vote:' + policyId }),
     respondToTrade: (actor, payload) => ({ name: 'respondTrade:' + payload.accept }),
     respondPlayerContract: (actor, accept) => ({ name: 'respondContract:' + accept }),
+    counterPlayerContract: () => ({ name: 'counterContract', success: true }),
     declareBankruptcy: () => ({ name: 'bankrupt' }),
     passAuction: () => ({ name: 'pass' }),
     endTurn: () => ({ name: 'endTurn' }),
@@ -275,6 +276,20 @@ check('AI advisor can counter a close trade with a bounded premium', async () =>
   const result = await runBotTurn(room, bot1, advisor);
   assert.strictEqual(result.name, 'counter');
   assert.strictEqual(result.botDecision.actionId, 'trade:counter');
+});
+
+check('AI advisor can counter a player contract with safer terms', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingPlayerContract = { id: 'contract-2', toPlayerId: 'b1', fromPlayerId: 'lender', kind: 'loan', amount: 200, premiumRate: 30, durationRounds: 3, collateralTileIndex: null };
+  const advisor = { supportsChoicePhases: true, chooseAction: async context => {
+    assert.deepEqual(context.candidates.map(candidate => candidate.id), ['contract:accept', 'contract:counter', 'contract:decline']);
+    assert.equal(context.candidates[1].offer.premiumRate, 20);
+    assert.equal(context.candidates[1].offer.durationRounds, 4);
+    return { actionId: 'contract:counter', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.strictEqual(result.name, 'counterContract');
+  assert.strictEqual(result.botDecision.actionId, 'contract:counter');
 });
 
 check('AI advisor can choose a legal debt rescue path', async () => {

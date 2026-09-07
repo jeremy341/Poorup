@@ -99,8 +99,8 @@ opt-in shadow path. `server/botStrategicContext.js` supplies the versioned
 rules digest, board, position, turn, obligation, finance, event, and redacted
 opponent projection used by both provider and deterministic paths.
 The AI adapter can also rank legal civic votes, trade responses and bounded
-counteroffers, player-contract responses, debt-rescue choices, and auction
-bid/pass choices; the
+counteroffers, player-contract responses and bounded contract counters,
+debt-rescue choices, and auction bid/pass choices; the
 actual debt, loan, and auction settlement still retain deterministic server
 guards.
 
