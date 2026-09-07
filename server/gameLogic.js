@@ -648,8 +648,10 @@ class GameState {
     player.position = (player.position + steps) % this.tiles.length;
     const distanceToStart = (START_TILE_INDEX - oldPosition + this.tiles.length) % this.tiles.length || this.tiles.length;
     if (distanceToStart <= steps) {
-      player.cash += 200;
-      this.feedMessage(`${player.nickname} passed Start and collected $200.`);
+      const exactStart = distanceToStart === steps;
+      const reward = exactStart && this.settings.doubleGo ? 400 : 200;
+      player.cash += reward;
+      this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward}.`);
     }
     const tile = this.getTile(player.position);
     if (tile?.type === 'railroad') {
