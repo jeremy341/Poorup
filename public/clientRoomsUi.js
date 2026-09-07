@@ -436,9 +436,6 @@ function createRoomMeta(name, vis, code) {
 }
 
 function bindRoomsOpeners() {
-  $("#browse-rooms-btn")?.addEventListener("click", () => openRoomsModal("browse"));
-  $("#open-rooms-btn")?.addEventListener("click", () => openRoomsModal("browse"));
-  $("#create-room-btn")?.addEventListener("click", () => openRoomsModal("create"));
   $("#open-create-btn")?.addEventListener("click", () => openRoomsModal("create"));
   $("#open-join-btn")?.addEventListener("click", () => openRoomsModal("join"));
   $("#rooms-close")?.addEventListener("click", closeRoomsModal);

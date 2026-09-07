@@ -1,6 +1,6 @@
 # Poorup Development Workflow
 
-_Last updated: 2026-09-04. This is the contract between contributors (human or
+_Last updated: 2026-09-07. This is the contract between contributors (human or
 AI) and `main`._
 
 ## The rule
@@ -35,11 +35,13 @@ branch → PR → GitHub Actions (lint + tests + coverage + boot)
 
 Responsibilities, one line each:
 
-- **GitHub Actions** — does the code actually run? `npm run lint`,
-  `npm run coverage` (the gameLogic contract suites + persistence
-  characterization, merged under one c8 pass by `server/coverage-runner.js`),
+- **GitHub Actions** — does the code actually run? `npm run lint`, the full
+  `npm test` contract/integration suite, and `npm run coverage` (the covered
+  contract suites + persistence characterization, merged under one c8 pass by
+  `server/coverage-runner.js`),
   a wire-test step (`server/server.test.js`) that boots the real server and
-  proves the socket-handler scaffold, and a boot smoke that curls the app shell.
+  proves the socket-handler scaffold, and a boot smoke that syntax-checks every
+  shipped JS module and curls the app shell.
 - **Copilot code review** — logic/bug-oriented AI review of the diff. Cannot
   approve or merge; treats its comments as signals, not orders.
 - **CodeScene** — maintainability: complexity, duplicated logic, temporal

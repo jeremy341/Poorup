@@ -58,8 +58,10 @@ function flipLogDrawer() {
 
 export function closeLogDrawer() {
   const drawer = $("#log-drawer");
+  const restoreFocus = drawer?.contains(document.activeElement);
   drawer.classList.remove("is-open");
   drawer.setAttribute("aria-hidden", "true");
+  if (restoreFocus) $("#log-toggle-btn")?.focus({ preventScroll: true });
 }
 
 export function toggleLogDrawerFromButton() {

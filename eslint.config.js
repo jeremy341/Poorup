@@ -6,7 +6,7 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["node_modules/**", "coverage/**", "server/data/**", "public/**", "supplied/**", ".ulpi/**"],
+    ignores: ["node_modules/**", "coverage/**", "server/data/**", "supplied/**", ".ulpi/**"],
   },
   js.configs.recommended,
   {
@@ -24,6 +24,25 @@ export default [
       "no-unused-vars": ["warn", { args: "none", caughtErrors: "none" }],
       "no-empty": ["warn", { allowEmptyCatch: true }],
       "no-control-regex": "off",
+    },
+  },
+  {
+    files: ["public/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: "module",
+      globals: {
+        ...globals.browser,
+        io: "readonly",
+        ResizeObserver: "readonly",
+      },
+    },
+    rules: {
+      // Browser modules are intentionally decomposed around shared host
+      // hooks; keep unused parameters visible without blocking the release
+      // gate while the client cleanup ledger is worked down.
+      "no-unused-vars": ["warn", { args: "none", caughtErrors: "none" }],
+      "no-empty": ["warn", { allowEmptyCatch: true }],
     },
   },
 ];

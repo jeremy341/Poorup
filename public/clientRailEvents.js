@@ -3,7 +3,8 @@
    (player contracts, market, bank loans, financing, deeds,
    trades, casino). Handlers run in the exact order of the old
    if-chain; disabled controls fall through like they did before.
-   Game-bound functions are injected by the entry module.
+   Game-bound functions are injected by the entry module. Repayment controls
+   pass an optional amount while preserving the server's full-pay default.
    ============================================================ */
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
@@ -64,7 +65,11 @@ function onContractResponse(node) {
 
 function onContractRepay(node) {
   if (!node) return false;
-  contractEmit("repay-player-contract", { contractId: node.dataset.playerContractRepay, requestId: host.createRequestId("contract-repay") }, "The player loan could not be repaid.");
+  const input = node.closest(".contract-repay-controls")?.querySelector("[data-contract-repay-amount]");
+  const amount = Math.floor(Number(input?.value) || 0);
+  const payload = { contractId: node.dataset.playerContractRepay, requestId: host.createRequestId("contract-repay") };
+  if (amount > 0) payload.amount = amount;
+  contractEmit("repay-player-contract", payload, "The player loan could not be repaid.");
   return true;
 }
 
@@ -101,7 +106,13 @@ function onMarketOrder(node) {
 function onBankAction(node) {
   if (!node || node.disabled) return false;
   const eventName = node.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
-  host.emitServer(eventName, { requestId: host.createRequestId(eventName) }, (response) => {
+  const payload = { requestId: host.createRequestId(eventName) };
+  if (eventName === "repay-bank-loan") {
+    const input = node.closest(".finance-repay-controls")?.querySelector("[data-bank-repay-amount]");
+    const amount = Math.floor(Number(input?.value) || 0);
+    if (amount > 0) payload.amount = amount;
+  }
+  host.emitServer(eventName, payload, (response) => {
     if (response?.success === false) {
       ackFailure(response, "The bank transaction could not be completed.");
     }

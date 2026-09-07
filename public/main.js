@@ -741,6 +741,11 @@ function onRailTabClick(e) {
 function bindRail() {
   // tabs
   $("#tabs").addEventListener("click", onRailTabClick);
+  $("#rr-manage")?.addEventListener("click", () => {
+    state.tab = "market";
+    renderRightRail();
+    refreshEconomySnapshot();
+  });
 
   // deeds tab: buy a vacant tile directly (kept for any future action buttons)
   // trade tab: open a trade with another player
@@ -842,6 +847,7 @@ configureLobbyUi({
   clearSave,
   renderPlayers,
   closeRoomsModal,
+  goHome,
 });
 configureNightShift({
   emitServer,

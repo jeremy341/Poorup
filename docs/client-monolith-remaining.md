@@ -1,4 +1,9 @@
-# Client monolith (public/main.js) — remaining CodeScene violations
+# Client monolith (public/main.js) — historical baseline
+
+> **Status: SUPERSEDED.** This document was generated after Phase 19. The
+> current entry module is approximately 863 lines, with the later Phase 20–25
+> slices extracted into focused client modules. Re-run CodeScene and refresh
+> the hotspot list before using this file to plan new refactors.
 
 Regenerated after Phase 19 (HEAD of branch `refactor/main-monolith`).
 main.js score: **4.14** (was 2.54 at Phase 11 start). LOC: **2,515** (was 3,623).
