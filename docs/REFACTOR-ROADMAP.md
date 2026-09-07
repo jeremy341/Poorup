@@ -8,7 +8,7 @@ not execute this list as a bulk refactor._
 
 > **Historical baseline.** PRs #40–#44 landed the remaining client/server
 > extraction slices after this measurement. The current client entry module is
-> approximately 863 lines; refresh the CodeScene table before opening another
+> approximately 892 lines (measured 2026-09-07); refresh the CodeScene table before opening another
 > refactor plan.
 
 ## Ground rules
