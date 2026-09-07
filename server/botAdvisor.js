@@ -112,6 +112,26 @@ function deterministicChoice(candidates = [], personality = 'survivor', difficul
   };
 }
 
+function planningAnnotatedCandidates(context = {}, candidates = []) {
+  if (!context?.contextVersion || !Array.isArray(context.board) || !context.board.length) return candidates;
+  const difficulty = normalizeDifficulty(context.botDifficulty);
+  const ranked = rankCandidates(context, candidates, { difficulty, seed: context.gameId });
+  const evaluations = new Map(ranked.map(entry => [entry.candidate.id, entry.evaluation]));
+  return candidates.map(candidate => {
+    const evaluation = evaluations.get(candidate.id);
+    if (!evaluation) return candidate;
+    return {
+      ...candidate,
+      planningHorizon: evaluation.horizon,
+      futureScore: Math.round(evaluation.score * 100) / 100,
+      expectedRent: Math.round(evaluation.expectedRent * 100) / 100,
+      expectedRisk: Math.round(evaluation.expectedRisk * 100) / 100,
+      projectedLiquidity: Math.round(evaluation.liquidity * 100) / 100,
+      projectedCompleteGroups: evaluation.completeGroups
+    };
+  });
+}
+
 function advisorActionId(payload, candidates) {
   const actionId = typeof payload?.actionId === 'string' ? payload.actionId : '';
   if (!actionId) return '';
@@ -309,16 +329,18 @@ export class DeepSeekAdvisor {
     };
   }
 
-  advisorUserPrompt({ contextVersion, candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, turn, board, obligations, rulesDigest, activeEvent, event }) {
+  advisorUserPrompt({ contextVersion, candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, turn, board, obligations, rulesDigest, activeEvent, event, gameId }) {
     const brief = event ? { id: event.id, phase: event.phase, roundsRemaining: event.roundsRemaining, effects: event.effects } : null;
+    const safeDifficulty = normalizeDifficulty(botDifficulty);
+    const annotatedCandidates = planningAnnotatedCandidates({ contextVersion, botDifficulty: safeDifficulty, gameId, board, botState, rulesDigest }, candidates);
     return JSON.stringify({
       contextVersion: String(contextVersion || 'bot-context-v2').slice(0, 32),
       ruleVersion: String(ruleVersion || 'bot-policy-v1').slice(0, 32),
       phase: String(phase || 'pre-roll').slice(0, 24),
       roundNumber: Math.max(0, Math.floor(Number(roundNumber) || 0)),
       personality,
-      botDifficulty: normalizeDifficulty(botDifficulty),
-      planningHorizon: planningHorizon(normalizeDifficulty(botDifficulty)),
+      botDifficulty: safeDifficulty,
+      planningHorizon: planningHorizon(safeDifficulty),
       botState: botState || {},
       turn: turn || {},
       board: Array.isArray(board) ? board.slice(0, 40) : [],
@@ -327,7 +349,7 @@ export class DeepSeekAdvisor {
       rulesDigest: rulesDigest || {},
       activeEvent: activeEvent || null,
       event: brief,
-      candidates: Array.isArray(candidates) ? candidates.slice(0, 32) : []
+      candidates: Array.isArray(annotatedCandidates) ? annotatedCandidates.slice(0, 32) : []
     });
   }
 
