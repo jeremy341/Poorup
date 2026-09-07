@@ -24,6 +24,7 @@ import {
   renderSocialSurface,
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
+import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
 
 let host = {
   setConnectionStatus: noop,
@@ -187,7 +188,7 @@ function onPurchaseOffer(offer) {
   state.pendingBuyTile = tile.i;
   const name = purchaseOfferName(serverTile, offer, tile);
   const price = purchaseOfferPrice(serverTile, offer, tile);
-  host.openChoiceModal({ ...tile, name, price });
+  host.openChoiceModal({ ...tile, name, price, canAfford: offer?.canAfford, canSeekSponsorship: offer?.canSeekSponsorship !== false });
 }
 
 function onCardReveal(reveal) {
@@ -254,6 +255,7 @@ function attachAccountListeners(socket) {
     renderRightRail();
   });
   socket.on("player-contract-update", onPlayerContractUpdate);
+  socket.on("sponsorship-update", ({ sponsorship } = {}) => onSponsorshipUpdate(sponsorship));
 }
 
 function attachChatListeners(socket) {

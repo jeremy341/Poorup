@@ -380,6 +380,7 @@ export function applyServerState(snapshot, host) {
   syncLog(game);
   syncRoomSettings(room);
   state.pendingBuyTile = nullish(game.pendingPurchaseOffer?.tileIndex, null);
+  state.sponsorship = game.pendingSponsoredPurchase || null;
   syncAuction(game);
   // Snapshots update data unconditionally but must not hijack the page —
   // only re-assert the game view while the player is mid-room-session and

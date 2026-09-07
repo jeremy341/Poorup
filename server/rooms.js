@@ -583,6 +583,7 @@ class RoomManager {
   }
 
   clearSeatPurchaseOffer(game, playerId) {
+    game.clearSponsoredPurchaseForPlayer?.(playerId);
     if (game.pendingPurchaseOffer?.playerId === playerId) game.pendingPurchaseOffer = null;
   }
 

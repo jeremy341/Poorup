@@ -43,6 +43,7 @@ import { propertyApi } from './propertyApi.js';
 import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
 import { economyApi } from './economyApi.js';
 import { tradeApi } from './tradeApi.js';
+import { sponsorshipApi } from './sponsorshipApi.js';
 import { bankruptcyApi } from './bankruptcyApi.js';
 import { APPEARANCE_PRESET_COLORS, appearanceApi } from './appearanceApi.js';
 import { botApi } from './botApi.js';
@@ -139,6 +140,7 @@ class GameState {
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
     this.pendingPurchaseOffer = null;
+    this.pendingSponsoredPurchase = null;
     this.started = false;
     this.startedAt = null;
     this.feed = [];
@@ -196,6 +198,7 @@ class GameState {
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
     this.pendingPurchaseOffer = null;
+    this.pendingSponsoredPurchase = null;
     this.started = false;
     this.startedAt = Date.now();
     this.feed = [];
@@ -684,6 +687,7 @@ class GameState {
   }
 
   nextTurn() {
+    if (this.pendingSponsoredPurchase) this.cancelSponsoredPurchase();
     this.pendingPurchaseOffer = null;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
@@ -979,6 +983,7 @@ class GameState {
     this.currentPlayerId = null;
     this.hasRolled = false;
     this.pendingPurchaseOffer = null;
+    this.cancelSponsoredPurchase();
     this.auction = null;
     this.pendingTrade = null;
     this.pendingPlayerContract = null;
@@ -991,7 +996,7 @@ class GameState {
 
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, bankruptcyApi, appearanceApi, botApi, summaryApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi);
 
 export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 

@@ -45,6 +45,7 @@ const propertyApi = {
     if (!this.pendingPurchaseOffer) return unavailable;
     if (this.pendingPurchaseOffer.playerId !== player.id) return unavailable;
     if (this.pendingPurchaseOffer.tileIndex !== tileIndex) return unavailable;
+    if (this.pendingSponsoredPurchase?.buyerId === player.id) return { success: false, error: 'Resolve the open sponsorship before buying this property.' };
     if (player.cash < tile.price) return { success: false, error: 'Insufficient cash to purchase this property.' };
     return null;
   },
@@ -69,6 +70,7 @@ const propertyApi = {
     if (this.globalEventActive('housing-bubble')) player.boughtDuringHousingBubble = true;
     this.refreshPlayerGroups(player);
     this.feedMessage(`${player.nickname} purchased ${tile.name} for $${tile.price}.`);
+    this.pendingSponsoredPurchase = null;
     this.pendingPurchaseOffer = null;
     this.resolveTurnAfterAction();
   },
@@ -79,6 +81,7 @@ const propertyApi = {
     const tile = this.getTile(coercedIndex);
     const rejection = this.declineOfferRejection(player, tile, coercedIndex);
     if (rejection) return rejection;
+    this.cancelSponsoredPurchase?.();
     this.pendingPurchaseOffer = null;
     if (!this.settings.auction) {
       this.feedMessage(`${player.nickname} declined to buy ${tile.name}.`);
@@ -173,6 +176,7 @@ const propertyApi = {
     if (this.pendingTrade) return blocked;
     if (this.pendingPlayerContract) return blocked;
     if (this.pendingPurchaseOffer) return blocked;
+    if (this.pendingSponsoredPurchase) return blocked;
     return null;
   },
 
