@@ -158,6 +158,9 @@ function expectedLandingValue(snapshot, state, horizon) {
         const landing = (position + move) % boardLength;
         const chance = probability * moveProbability;
         if (position + move >= boardLength) cashFlow += number(snapshot.rulesDigest?.passStartCash, 200) * chance;
+        if (landing === 0 && position + move === boardLength && snapshot.rulesDigest?.doubleGo) {
+          cashFlow += number(snapshot.rulesDigest?.passStartCash, 200) * chance;
+        }
         nextPositions.set(landing, (nextPositions.get(landing) || 0) + chance);
         const tile = state.board.find(entry => entry.index === landing);
         if (!tile) return;

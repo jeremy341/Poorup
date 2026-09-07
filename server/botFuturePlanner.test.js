@@ -39,10 +39,14 @@ const loanWithoutTerms = evaluateCandidate(snapshot, { id: 'loan:emergency', kin
 const loanWithTerms = evaluateCandidate(snapshot, {
   id: 'loan:emergency', kind: 'loan', principal: 300, totalDue: 450, premium: 150, dueRound: 4, cureRound: 5
 }, { difficulty: 'table', seed: 'same' });
+const doubleGoSnapshot = { ...snapshot, rulesDigest: { ...snapshot.rulesDigest, doubleGo: true } };
+const normalFlow = evaluateCandidate(snapshot, { id: 'roll', kind: 'roll' }, { difficulty: 'table', seed: 'same' });
+const boostedFlow = evaluateCandidate(doubleGoSnapshot, { id: 'roll', kind: 'roll' }, { difficulty: 'table', seed: 'same' });
 assert.equal(build.horizon, 3);
 assert.equal(mortgage.horizon, 1);
 assert.equal(Number.isFinite(build.score), true);
 assert.equal(Number.isFinite(build.expectedCashFlow), true);
+assert.equal(boostedFlow.expectedCashFlow >= normalFlow.expectedCashFlow, true);
 assert.equal(mortgage.liquidity, 530);
 assert.equal(purchase.liquidity, 400);
 assert.equal(loanWithTerms.score < loanWithoutTerms.score, true);
