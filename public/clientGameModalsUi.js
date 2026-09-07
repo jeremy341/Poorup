@@ -23,6 +23,7 @@ let host = {
   renderChat: noop,
   renderAll: noop,
   buyTile: noop,
+  openSponsorshipRequest: noop,
   startGame: noop,
 };
 
@@ -70,7 +71,7 @@ function openChoiceModal(tile) {
           : `<button class="btn-dark choice-btn" id="choice-pass">
               <span class="t-label">PASS</span>
               <span class="t-micro">DECLINE</span>
-            </button>`
+            </button>${tile.canSeekSponsorship ? `<button class="btn-dark choice-btn" id="choice-sponsor"><span class="t-label">SEEK SPONSORS</span><span class="t-micro">FORCED BUY</span></button>` : ""}`
         }
       </div>
       <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY — MUST AUCTION") : "Click outside or press ESC to revisit this choice."}</p>
@@ -98,6 +99,11 @@ function openChoiceModal(tile) {
     });
   } else {
     $("#choice-pass").addEventListener("click", closeChoiceModalAsPass);
+    $("#choice-sponsor")?.addEventListener("click", () => {
+      const tileIndex = state.pendingBuyTile;
+      closeSurface("#choice-modal");
+      host.openSponsorshipRequest(tileIndex);
+    });
   }
 }
 

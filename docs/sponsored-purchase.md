@@ -1,5 +1,9 @@
 # Sponsored Purchase
 
+**Status: implemented.** Sponsorship is an in-room, server-authoritative
+escrow flow. It is available from an open purchase offer and does not create a
+loan, equity share, or separate social contract.
+
 ## Concept
 Player A lands on a property (e.g., Accra) and cannot afford it. Player B offers to chip in money to fund the purchase, under the condition that Player A **must** buy that specific property.
 

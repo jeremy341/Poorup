@@ -134,6 +134,9 @@ function createRuntime(deps) {
     emitPendingPurchase(room, socket, player);
     emitPendingTrade(room, socket, player);
     emitPendingContract(room, socket, player);
+    if (room.game.pendingSponsoredPurchase) {
+      socket.emit('sponsorship-update', { sponsorship: room.game.summarySponsoredPurchase() });
+    }
   }
 
   function emitPendingPurchase(room, socket, player) {
@@ -146,7 +149,9 @@ function createRuntime(deps) {
     socket.emit('purchase-offer', {
       tileIndex: tile.index,
       name: tile.name,
-      price: tile.price
+      price: tile.price,
+      canAfford: player.cash >= tile.price,
+      canSeekSponsorship: true
     });
   }
 
@@ -498,6 +503,10 @@ function createRuntime(deps) {
   function clearPendingObligations(room, game, player, reason) {
     const context = { room, game, player, reason };
     CANCELLED_OBLIGATIONS.forEach(obligation => cancelObligation(context, obligation));
+    if (game.clearSponsoredPurchaseForPlayer?.(player.id)) {
+      io.in(room.roomCode).emit('sponsorship-update', { sponsorship: game.summarySponsoredPurchase() });
+      io.in(room.roomCode).emit('system-message', { text: `${player.nickname}'s sponsorship reservation was released.` });
+    }
   }
 
   function cancelObligation(context, obligation) {

@@ -18,6 +18,7 @@ const TABLE_OBLIGATION_FIELDS = [
   'pendingPayment',
   'auction',
   'pendingPurchaseOffer',
+  'pendingSponsoredPurchase',
   'pendingTrade',
   'pendingPlayerContract'
 ];

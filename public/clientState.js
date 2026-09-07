@@ -174,6 +174,7 @@ const state = {
   mortgaged: {},   // { [tileId]: true }
   offers: [],      // pending bot→human trade offers
   pendingBuyTile: null, // tile the human must resolve (buy/auction) before ending
+  sponsorship: null,    // optional escrowed contribution flow for the open purchase
   auction: null,        // live auction state object
   deedDetail: null,     // tile index currently open in the deed/house manager
   jail: {},             // { playerId: turnsRemaining }

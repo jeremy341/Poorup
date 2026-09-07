@@ -79,6 +79,7 @@ const QUIT_OBLIGATIONS = [
 ];
 
 export function clearQuitObligations(game, player) {
+  game.clearSponsoredPurchaseForPlayer?.(player.id);
   if (game.pendingPurchaseOffer?.playerId === player.id) game.pendingPurchaseOffer = null;
   QUIT_OBLIGATIONS.forEach(({ key, suffix }) => {
     const obligation = game[key];

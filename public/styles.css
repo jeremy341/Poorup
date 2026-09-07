@@ -2799,6 +2799,21 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .financing-field input[type="range"]:focus-visible { outline: 2px solid var(--gold-100); outline-offset: 3px; }
 .financing-field input[type="range"]:active::-webkit-slider-thumb { background: var(--gold-050); }
 .financing-field input[type="range"]:active::-moz-range-thumb { background: var(--gold-050); }
+.sponsorship-card { max-width: 620px; }
+.sponsorship-body { padding: 20px; }
+.sponsorship-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.sponsorship-head h2 { margin-top: 7px; color: var(--gold-100); }
+.sponsorship-meter { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 18px; }
+.sponsorship-meter > div { display: flex; flex-direction: column; gap: 5px; padding: 9px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.sponsorship-meter .t-money { font-size: 20px; }
+.sponsorship-copy { margin-top: 15px; max-width: 64ch; }
+.sponsorship-list { display: grid; gap: 5px; margin-top: 16px; }
+.sponsorship-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.sponsorship-actions { display: grid; grid-template-columns: 1.25fr 1fr; gap: 9px; margin-top: 18px; }
+.sponsorship-actions > button { min-height: 44px; width: 100%; }
+.sponsorship-contribute { display: grid; gap: 7px; margin-top: 18px; }
+.sponsorship-contribute-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+.sponsorship-contribute-row .cta-red { min-width: 130px; }
 .financing-range { position: relative; display: flex; align-items: center; min-height: 24px; }
 .financing-range::before,
 .financing-range::after { content: ""; position: absolute; left: 0; top: 8px; height: 8px; pointer-events: none; }
@@ -2827,6 +2842,8 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .financing-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .financing-surface-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .financing-contract-grid, .financing-checkpoints { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sponsorship-meter { grid-template-columns: 1fr; }
+  .sponsorship-actions, .sponsorship-contribute-row { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 768px) {

@@ -114,6 +114,7 @@ const economyApi = {
       this.pendingPayment,
       this.auction,
       this.pendingPurchaseOffer,
+      this.pendingSponsoredPurchase,
       this.pendingTrade,
       this.pendingPlayerContract
     ].some(Boolean);
