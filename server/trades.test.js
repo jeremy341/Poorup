@@ -654,6 +654,13 @@ check('build candidates follow full-set and even-build rules; mortgages drop enc
   assert.deepEqual(candidates.filter(candidate => candidate.kind === 'mortgage').map(candidate => candidate.tileIndex), [3]);
 });
 
+check('event building limits do not emit already-forbidden build candidates', () => {
+  const ctx = botRoom('builder', 1500);
+  ctx.game.globalEvent = { phase: 'active', effects: { buildingLimitPerTurn: 1 } };
+  ctx.bot.buildActionsThisTurn = 1;
+  assert.equal(kindsOf(ctx).includes('build'), false);
+});
+
 check('after rolling, only the roll candidate remains', () => {
   const { game, bot } = botRoom('chaos', 120);
   game.hasRolled = true;

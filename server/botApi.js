@@ -124,6 +124,8 @@ const botApi = {
   },
 
   botBuildCandidates(player) {
+    const buildLimit = Number(this.activeEventEffects?.().buildingLimitPerTurn);
+    if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) return [];
     return this.tiles
       .filter(tile => this.canBuildOnTile(player, tile))
       .map(tile => this.botBuildCandidateFor(tile, player));
@@ -200,6 +202,7 @@ const botApi = {
 
   botMarketCandidate(player) {
     if (!this.settings.market) return [];
+    if (this.activeEventEffects?.().tradingEnabled === false) return [];
     if ((player.marketActionsThisTurn || 0) >= 1) return [];
     const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
     if (!marketId) return [];

@@ -136,13 +136,14 @@ function findVotingBot(game) {
 
 function findPendingCounterpart(game) {
   const pending = game.pendingTrade || game.pendingPlayerContract;
-  if (!pending) return null;
-  return game.getPlayerById(pending.toPlayerId) || null;
+  if (pending) return game.getPlayerById(pending.toPlayerId) || null;
+  if (game.pendingPayment?.playerId) return game.getPlayerById(game.pendingPayment.playerId) || null;
+  return null;
 }
 
 export function botMayStillAct(game, bot) {
   if (!bot) return false;
-  if (isVotingTurn(game) || isPendingFor(game, bot)) return true;
+  if (isVotingTurn(game) || isPendingFor(game, bot) || game.pendingPayment?.playerId === bot.id) return true;
   return isSeatedActor(game, bot);
 }
 
