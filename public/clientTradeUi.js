@@ -9,7 +9,6 @@ import { $, esc, clamp } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES, GROUP_COLOR, RENT_TABLE } from "./clientBoardData.js";
 import { spriteHTML, avatarHTML } from "./clientSprites.js";
-import { renderRightRail } from "./clientRailRender.js";
 import { openSurface, closeSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 
 let host = { emitServer: noop, say: noop, renderChat: noop, record: noop, createRequestId: noop, renderRightRail: noop };
@@ -528,7 +527,8 @@ function financingContractCopy(kind) {
 
 function financingContractRepayHTML(contract) {
   if (!financingRepayableContract(contract)) return "";
-  return `<button class="btn-dark" type="button" data-financing-repay="${esc(contract.id)}"><span class="t-label f11">REPAY $${Number(contract.remaining || 0).toLocaleString()}</span></button>`;
+  const remaining = Math.max(1, Math.floor(Number(contract.remaining) || 1));
+  return `<div class="contract-repay-controls"><label class="t-micro ink-3" for="financing-repay-${esc(contract.id)}">AMOUNT</label><input class="field contract-repay-input" id="financing-repay-${esc(contract.id)}" data-contract-repay-amount type="number" min="1" max="${remaining}" step="1" value="${remaining}" inputmode="numeric" aria-label="Amount to repay on player contract"><button class="btn-dark" type="button" data-financing-repay="${esc(contract.id)}"><span class="t-label f11">REPAY</span></button></div>`;
 }
 
 function financingTileShares(index) {
@@ -785,7 +785,11 @@ function onFinancingInput(card, event) {
 function sendFinancingRepay(contractId) {
   const contract = financingActiveContracts().find((c) => c.id === contractId);
   if (!contract) return;
-  host.emitServer("repay-player-contract", { contractId, requestId: host.createRequestId("contract-repay") }, (response) => {
+  const input = $("#financing-repay-" + contractId);
+  const amount = Math.floor(Number(input?.value) || 0);
+  const payload = { contractId, requestId: host.createRequestId("contract-repay") };
+  if (amount > 0) payload.amount = amount;
+  host.emitServer("repay-player-contract", payload, (response) => {
     if (response?.success === false) {
       host.say(response.error || "The player loan could not be repaid.");
       host.renderChat();

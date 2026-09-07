@@ -48,9 +48,9 @@ function financeActionsBlock(loanAction) {
 }
 
 function repayActionHTML(loan, disabled) {
-  const amount = Number(loan.remaining || 0).toLocaleString();
+  const remaining = Math.max(1, Math.floor(Number(loan.remaining) || 1));
   const flag = disabled ? "disabled" : "";
-  return `<button class="cta-red finance-bank-action" type="button" data-bank-action="repay" ${flag}><span class="cta-text cta-text-sm">REPAY $${amount}</span></button>`;
+  return `<div class="finance-repay-controls"><label class="t-micro ink-3" for="bank-repay-amount">AMOUNT TO REPAY</label><input class="field finance-repay-input" id="bank-repay-amount" data-bank-repay-amount type="number" min="1" max="${remaining}" step="1" value="${remaining}" inputmode="numeric" ${flag} aria-label="Amount to repay on bank loan"><button class="cta-red finance-bank-action" type="button" data-bank-action="repay" ${flag}><span class="cta-text cta-text-sm">REPAY</span></button></div>`;
 }
 
 function takeActionHTML(offer, disabled) {
@@ -379,7 +379,8 @@ function contractRepayHTML(contract, localServerId) {
   if (!contractDebtKind(contract.kind)) return "";
   if (!contractRepayableStatus(contract)) return "";
   if (contract.toPlayerId !== localServerId) return "";
-  return '<button class="btn-dark" type="button" data-player-contract-repay="' + esc(contract.id) + '"><span class="t-label f11">REPAY</span></button>';
+  const remaining = Math.max(1, Math.floor(Number(contract.remaining) || 1));
+  return '<div class="contract-repay-controls"><label class="t-micro ink-3" for="contract-repay-' + esc(contract.id) + '">AMOUNT</label><input class="field contract-repay-input" id="contract-repay-' + esc(contract.id) + '" data-contract-repay-amount type="number" min="1" max="' + remaining + '" step="1" value="' + remaining + '" inputmode="numeric" aria-label="Amount to repay on player contract"><button class="btn-dark" type="button" data-player-contract-repay="' + esc(contract.id) + '"><span class="t-label f11">REPAY</span></button></div>';
 }
 
 function contractRowHTML(contract, localServerId) {

@@ -6,6 +6,11 @@ local run of `cs review` over every analyzable file) plus churn from
 below show both axes. One hotspot per PR, behavior frozen by `npm test`. Do
 not execute this list as a bulk refactor._
 
+> **Historical baseline.** PRs #40–#44 landed the remaining client/server
+> extraction slices after this measurement. The current client entry module is
+> approximately 863 lines; refresh the CodeScene table before opening another
+> refactor plan.
+
 ## Ground rules
 
 - Each row = one `refactor/*` branch → one PR → green CI → merge. No mixing.

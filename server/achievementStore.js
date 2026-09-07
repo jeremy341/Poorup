@@ -6,11 +6,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'achievements.json');
 
+const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
+
 function sanitize(record = {}) {
   return {
     accountId: typeof record.accountId === 'string' ? record.accountId : null,
     achievementId: typeof record.achievementId === 'string' ? record.achievementId.slice(0, 80) : null,
     gameId: typeof record.gameId === 'string' ? record.gameId.slice(0, 80) : null,
+    eventSequence: typeof record.eventSequence === 'string' ? record.eventSequence.slice(0, 180) : null,
     unlockedAt: typeof record.unlockedAt === 'string' ? record.unlockedAt : new Date().toISOString(),
     evidenceHash: typeof record.evidenceHash === 'string' ? record.evidenceHash.slice(0, 128) : null,
   };
@@ -60,9 +63,9 @@ const ACHIEVEMENT_RULES = [
   { achievementId: '41st-tile', title: 'THE 41ST TILE', rarity: 'MYTHICAL', body: 'There are forty tiles. You stepped on one more.', test: ({ participant, isWinner }) => isWinner && participant.hiddenMovementSequence },
   { achievementId: 'null-player', title: 'THE NULL PLAYER', rarity: 'MYTHICAL', body: 'Your wallet was empty. The turn continued.', test: ({ participant, isWinner }) => isWinner && participant.zeroCashReached && !participant.bankrupt },
   { achievementId: 'black-ledger', title: 'THE BLACK LEDGER', rarity: 'MYTHICAL', body: 'The bank closed the book. Something inside kept counting.', test: ({ participant, isWinner }) => isWinner && participant.comboExperienced && participant.collateralLost },
-  { achievementId: 'generous-lender', title: 'GENEROUS LENDER', rarity: 'UNCOMMON', body: 'You funded a player loan that was fully repaid.', test: ({ participant, contracts }) => contracts.some(contract => contract.kind === 'loan' && contract.status === 'paid' && contract.fromAccountId === participant.accountId) },
-  { achievementId: 'silent-partner', title: 'SILENT PARTNER', rarity: 'RARE', body: 'You completed a player loan without collateral.', test: ({ participant, contracts }) => contracts.some(contract => contract.kind === 'loan' && contract.status === 'paid' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex == null) },
-  { achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A player loan default cost the collateral deed.', test: ({ participant, contracts }) => contracts.some(contract => contract.kind === 'loan' && contract.status === 'defaulted' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex != null) },
+  { achievementId: 'generous-lender', title: 'GENEROUS LENDER', rarity: 'UNCOMMON', body: 'You funded a player loan that was fully repaid.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId) },
+  { achievementId: 'silent-partner', title: 'SILENT PARTNER', rarity: 'RARE', body: 'You completed a player loan without collateral.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex == null) },
+  { achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A player loan default cost the collateral deed.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'defaulted' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex != null) },
   { achievementId: 'crisis-manager', title: 'CRISIS MANAGER', rarity: 'RARE', body: 'You stayed solvent through a global headline.', test: ({ participant }) => participant.globalEventsExperienced > 0 && !participant.bankrupt },
   { achievementId: 'double-headline', title: 'DOUBLE HEADLINE', rarity: 'LEGENDARY', body: 'You survived two global headlines in one game.', test: ({ globalEvents }) => globalEvents.length >= 2 },
   { achievementId: 'clean-exit', title: 'CLEAN EXIT', rarity: 'UNCOMMON', body: 'You repaid a bank loan before default.', test: ({ participant }) => participant.bankLoanStatus === 'paid' && !participant.bankLoanDefaulted },

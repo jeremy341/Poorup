@@ -165,19 +165,23 @@ export function matchHistoryPrivacyError(viewer, target, friendship) {
 // Viewer-scoped projection used for every history request that is not the
 // owner reading their own records.
 export function summarizeMatchHistoryRecordForViewer(record, viewerId, targetId) {
+  const participants = record.participants.map(participant => ({
+    displayNameAtMatch: participant.displayNameAtMatch,
+    avatarAtMatch: participant.avatarAtMatch || null,
+    finalPlacement: participant.finalPlacement,
+    propertyCount: participant.propertyCount,
+    completedGroups: Number(participant.completedGroups) || 0,
+    bankrupt: participant.bankrupt,
+    isViewedPlayer: participant.accountId === targetId,
+    sharedWithViewer: Boolean(viewerId && record.participants.some(entry => entry.accountId === viewerId))
+  }));
   return {
     matchId: record.matchId,
     completedAt: record.completedAt,
     roundCount: record.roundCount,
     roomVisibility: record.roomVisibility,
-    participants: record.participants.map(participant => ({
-      displayNameAtMatch: participant.displayNameAtMatch,
-      finalPlacement: participant.finalPlacement,
-      propertyCount: participant.propertyCount,
-      bankrupt: participant.bankrupt,
-      isViewedPlayer: participant.accountId === targetId,
-      sharedWithViewer: Boolean(viewerId && record.participants.some(entry => entry.accountId === viewerId))
-    })),
+    playerCount: Number(record.playerCount) || participants.length,
+    participants,
     globalEvents: record.globalEvents,
     eventCombinations: record.eventCombinations,
     tradesCompleted: record.tradesCompleted,
@@ -252,6 +256,8 @@ export function buildMatchRecordOptions(room) {
     durationSeconds: game.startedAt ? (Date.now() - game.startedAt) / 1000 : 0,
     roundCount: game.roundNumber,
     roomVisibility: room.visibility,
+    includeMatchDetails: true,
+    playerCount: game.players.length,
     globalEvents: matchRecordGlobalEvents(game),
     eventCombinations: matchRecordEventCombinations(game),
     tradesCompleted: game.tradesCompleted || 0,

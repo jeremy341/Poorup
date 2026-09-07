@@ -109,7 +109,6 @@ function afterLandingResolved() {
 function closeChoiceModalAsPass() {
   if (state.settings.auction) return;
   const tile = state.pendingBuyTile != null ? TILES[state.pendingBuyTile] : null;
-  const me = state.players[0];
   if (tile) {
     host.emitServer("decline-property", { tileIndex: tile.i }, (response) => {
       if (response?.success === false) {
@@ -197,7 +196,9 @@ function bankruptPlayer(idx, creditorId) {
       if (response?.success === false) {
         host.say(response.error || "Bankruptcy could not be declared.");
         host.renderChat();
+        return;
       }
+      closeSurface("#bankruptcy-modal");
     });
     return;
 }

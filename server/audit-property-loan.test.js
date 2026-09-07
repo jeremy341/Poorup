@@ -203,6 +203,11 @@ check('FIX3 bank loan blocked while inDebt', () => {
   assert.deepEqual(ctx.game.takeBankLoan('socket-a', 'audit-indebt'), { success: false, error: BANK_LIVENESS_ERROR });
 });
 
+check('FIX3 unknown socket reports unavailable bank credit', () => {
+  const ctx = loanRoom();
+  assert.deepEqual(ctx.game.takeBankLoan('socket-missing', 'audit-unknown'), { success: false, error: BANK_LIVENESS_ERROR });
+});
+
 check('FIX3 bank loan still succeeds for a live solvent seat', () => {
   const ctx = loanRoom();
   const result = ctx.game.takeBankLoan('socket-a', 'audit-clean');

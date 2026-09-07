@@ -8,6 +8,7 @@
    ============================================================ */
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
+import { TILES } from "./clientBoardData.js";
 import { avatarHTML } from "./clientSprites.js";
 import { AUCTION_MS } from "./clientStateSync.js";
 import { accentOf, popIconHTML, kindLabel } from "./clientPopupUi.js";
