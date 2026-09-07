@@ -86,6 +86,9 @@ async function simulate(seedValue) {
     room.setRoomSetting('market', true);
     room.setRoomSetting('globalEvents', true);
     assert.equal(room.startGame().success, true);
+    ['builder', 'speculator', 'chaos'].forEach((personality, index) => {
+      if (room.game.players[index]) room.game.players[index].personality = personality;
+    });
 
     const advisor = new DeterministicAdvisor();
     let steps = 0;

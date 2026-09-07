@@ -124,6 +124,8 @@ const botApi = {
   },
 
   botBuildCandidates(player) {
+    const buildLimit = Number(this.activeEventEffects?.().buildingLimitPerTurn);
+    if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) return [];
     return this.tiles
       .filter(tile => this.canBuildOnTile(player, tile))
       .map(tile => this.botBuildCandidateFor(tile, player));
