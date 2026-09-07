@@ -94,7 +94,10 @@ Required adapter behavior:
 
 Current code now has `server/botAdvisor.js` with deterministic fallback,
 timeout handling, candidate validation, JSON-object requests, quota detection,
-per-game budgets, circuit breaking, provider health, and model metadata.
+per-game budgets, circuit breaking, provider health, model metadata, and an
+opt-in shadow path. `server/botStrategicContext.js` supplies the versioned
+rules digest, board, position, turn, obligation, finance, event, and redacted
+opponent projection used by both provider and deterministic paths.
 
 ### Runtime configuration
 

@@ -299,16 +299,22 @@ export class DeepSeekAdvisor {
     };
   }
 
-  advisorUserPrompt({ candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, event }) {
+  advisorUserPrompt({ contextVersion, candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, turn, board, obligations, rulesDigest, activeEvent, event }) {
     const brief = event ? { id: event.id, phase: event.phase, roundsRemaining: event.roundsRemaining, effects: event.effects } : null;
     return JSON.stringify({
+      contextVersion: String(contextVersion || 'bot-context-v2').slice(0, 32),
       ruleVersion: String(ruleVersion || 'bot-policy-v1').slice(0, 32),
       phase: String(phase || 'pre-roll').slice(0, 24),
       roundNumber: Math.max(0, Math.floor(Number(roundNumber) || 0)),
       personality,
       botDifficulty: normalizeDifficulty(botDifficulty),
       botState: botState || {},
+      turn: turn || {},
+      board: Array.isArray(board) ? board.slice(0, 40) : [],
       opponentSummaries: Array.isArray(opponentSummaries) ? opponentSummaries.slice(0, 6) : [],
+      obligations: obligations || {},
+      rulesDigest: rulesDigest || {},
+      activeEvent: activeEvent || null,
       event: brief,
       candidates: Array.isArray(candidates) ? candidates.slice(0, 32) : []
     });

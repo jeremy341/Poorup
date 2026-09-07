@@ -4,6 +4,7 @@
 // testable in isolation (server/botLogic.test.js pins the exact answers).
 // The server keeps only scheduling and execution; it asks these helpers what
 // a bot should do and runs the answer through room.runBotAction.
+import { buildBotStrategicContext } from './botStrategicContext.js';
 
 // Global-event voting: personality -> preferred policy id.
 export const EVENT_POLICY_BY_PERSONALITY = {
@@ -37,55 +38,6 @@ export const PURCHASE_RESERVE_CASH = 120;
 function attachBotDecision(result, decision) {
   if (!result || typeof result !== 'object') return result;
   return { ...result, botDecision: decision };
-}
-
-function cashBand(cash, startingCash) {
-  const value = Number(cash) || 0;
-  const baseline = Math.max(1, Number(startingCash) || 1500);
-  if (value <= 0) return 'empty';
-  if (value < baseline * 0.35) return 'low';
-  if (value < baseline) return 'steady';
-  return 'strong';
-}
-
-// The provider receives enough context to rank strategy, but never receives
-// stable account/socket identifiers or another player's private contracts.
-function advisorContext(game, bot, phase, decisionSequence) {
-  const startingCash = game.settings?.startingCash;
-  const playerList = Array.isArray(game.players) ? game.players : [];
-  const botPositions = Object.fromEntries(Object.entries(bot.marketPositions || {}).map(([id, position]) => [
-    String(id).slice(0, 40),
-    { quantity: Math.max(0, Math.floor(Number(position?.quantity) || 0)) }
-  ]));
-  const opponents = playerList
-    .filter(player => player.id !== bot.id)
-    .slice(0, 6)
-    .map(player => ({
-      seat: player.isBot ? 'cpu' : 'player',
-      cashBand: cashBand(player.cash, startingCash),
-      propertyCount: Array.isArray(player.properties) ? player.properties.length : 0,
-      completeGroups: typeof game.playerGroups === 'function' ? game.playerGroups(player).length : 0,
-      inJail: Boolean(player.inJail),
-      bankrupt: Boolean(player.bankrupt),
-      disconnected: Boolean(player.disconnected)
-    }));
-  return {
-    phase,
-    roundNumber: Math.max(0, Math.floor(Number(game.roundNumber) || 0)),
-    decisionSequence,
-    botState: {
-      cash: Math.max(0, Math.floor(Number(bot.cash) || 0)),
-      propertyCount: Array.isArray(bot.properties) ? bot.properties.length : 0,
-      buildingCount: typeof game.buildingsForMaintenance === 'function' ? game.buildingsForMaintenance(bot) : 0,
-      inJail: Boolean(bot.inJail),
-      jailTurns: Math.max(0, Math.floor(Number(bot.jailTurns) || 0)),
-      bankLoanStatus: typeof bot.bankLoan?.status === 'string' ? bot.bankLoan.status : null,
-      bankLoanRemaining: Math.max(0, Math.floor(Number(bot.bankLoan?.remaining) || 0)),
-      marketPositions: botPositions,
-      casinoNet: Math.floor(Number(bot.casinoNet) || 0)
-    },
-    opponentSummaries: opponents
-  };
 }
 
 export function selectGlobalEventPolicy(globalEvent, personality) {
@@ -258,7 +210,7 @@ export async function runBotTurn(room, bot, advisor) {
     gameId: `${room.roomCode}:${game.startedAt || 'pending'}`,
     decisionSequence,
     ruleVersion: 'bot-policy-v1',
-    ...advisorContext(game, bot, phase, decisionSequence)
+    ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
   if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
   const result = PHASE_EXECUTORS[phase](room, bot, game);
