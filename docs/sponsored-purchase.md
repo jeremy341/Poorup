@@ -22,14 +22,20 @@ Player A lands on a property (e.g., Accra) and cannot afford it. Player B offers
 - No interest/repayment — it's a gift tied to a forced purchase
 - Side deals (e.g., "I'll pay $200 but you owe me $50 later") are separate player contracts
 
-## UI Sketch
-- New "Sponsorship" mode in the finance tab
-- Sponsor selects: recipient, property (bank-owned only), amount
-- Recipient sees incoming sponsorship offers with "Accept & Buy" or "Decline"
-- On accept: atomic transaction — transfer cash + charge property price
+## UI
+- The landing choice card exposes `SEEK SPONSORS` without leaving the game.
+- Every seated player sees the sponsorship modal with the bank-owned property,
+  amount still needed, reservations, and their legal contribute/withdraw action.
+- The buyer sees `ACCEPT & BUY` only after the full price is reserved, or can
+  cancel and return every reservation.
+- On accept: one server transaction transfers the reserved gifts and charges
+  the property price immediately.
 
 ## Implementation Notes
-- New trade type: `sponsored-purchase`
-- Server-side validation: property must be bank-owned at time of acceptance
-- Server-side enforcement: after cash transfer, immediately call `chargePlayer(propertyCost)` on the recipient
-- UI: Filter property dropdown to only show unowned tiles in sponsorship mode
+- Server methods: `requestPurchaseSponsorship`,
+  `contributeToSponsoredPurchase`, `withdrawSponsoredPurchase`,
+  `acceptSponsoredPurchase`, and `declineSponsoredPurchase`.
+- Server-side validation: the property must remain bank-owned and the original
+  purchase offer must still belong to the buyer at acceptance.
+- Reservations are returned on cancellation, stale ownership, disconnect, or
+  bankruptcy; they never become a loan or equity share.
