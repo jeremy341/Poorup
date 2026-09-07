@@ -432,38 +432,50 @@ function phaseChoiceCandidates(game, bot, phase) {
   return [];
 }
 
+function runTradeChoice(room, bot, game, candidate) {
+  if (!game.pendingTrade) return { success: false, error: 'No matching trade offer was found.' };
+  if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
+  return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: game.pendingTrade.id, accept: candidate.choiceId === 'accept' }));
+}
+
+function runContractChoice(room, bot, _game, candidate) {
+  if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterPlayerContract(actor, candidate.offer));
+  return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
+}
+
+function runSponsorshipChoice(room, bot, game, candidate) {
+  if (candidate.choiceId === 'accept') return room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
+  if (candidate.choiceId === 'contribute') {
+    const amount = sponsorshipContributionAmount(game, bot);
+    return room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }));
+  }
+  return { success: true, noEmit: true, botDecision: { reasonCode: 'sponsorship-wait' } };
+}
+
+function runPaymentChoice(room, bot, game, candidate) {
+  if (candidate.id.startsWith('debt:sell:')) {
+    const tileIndex = Number(candidate.id.slice('debt:sell:'.length));
+    return room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex, action: 'sell-house' }));
+  }
+  if (candidate.id === 'debt:loan') {
+    const result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
+    if (result?.success && typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
+    return result;
+  }
+  return room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
+}
+
+const PHASE_CHOICE_RUNNERS = {
+  vote: (room, bot, _game, candidate) => room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, candidate.choiceId)),
+  trade: runTradeChoice,
+  contract: runContractChoice,
+  sponsorship: runSponsorshipChoice,
+  payment: runPaymentChoice
+};
+
 function runPhaseChoice(room, bot, game, phase, candidate) {
-  if (phase === 'vote') return room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, candidate.choiceId));
-  if (phase === 'trade') {
-    if (!game.pendingTrade) return { success: false, error: 'No matching trade offer was found.' };
-    if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
-    return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: game.pendingTrade.id, accept: candidate.choiceId === 'accept' }));
-  }
-  if (phase === 'contract') {
-    if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterPlayerContract(actor, candidate.offer));
-    return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
-  }
-  if (phase === 'sponsorship') {
-    if (candidate.choiceId === 'accept') return room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
-    if (candidate.choiceId === 'contribute') {
-      const amount = sponsorshipContributionAmount(game, bot);
-      return room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }));
-    }
-    return { success: true, noEmit: true, botDecision: { reasonCode: 'sponsorship-wait' } };
-  }
-  if (phase === 'payment') {
-    if (candidate.id.startsWith('debt:sell:')) {
-      const tileIndex = Number(candidate.id.slice('debt:sell:'.length));
-      return room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex, action: 'sell-house' }));
-    }
-    if (candidate.id === 'debt:loan') {
-      const result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
-      if (result?.success && typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
-      return result;
-    }
-    return room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
-  }
-  return { success: false, error: 'No bot choice is available.' };
+  const runner = PHASE_CHOICE_RUNNERS[phase];
+  return runner ? runner(room, bot, game, candidate) : { success: false, error: 'No bot choice is available.' };
 }
 
 async function runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase) {
