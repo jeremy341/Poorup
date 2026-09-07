@@ -104,7 +104,8 @@ function findPendingCounterpart(game) {
       && player.id !== sponsorship.buyerId
       && !player.bankrupt
       && !player.disconnected
-      && !(sponsorship.contributions || []).some(entry => entry.sponsorId === player.id));
+      && !(sponsorship.contributions || []).some(entry => entry.sponsorId === player.id)
+      && sponsorshipContributionAmount(game, player) > 0);
     if (sponsor) return sponsor;
   }
   if (game.pendingTrade) return game.getPlayerById(game.pendingTrade.toPlayerId) || null;
@@ -407,8 +408,8 @@ function phaseChoiceCandidates(game, bot, phase) {
     }
     const amount = sponsorshipContributionAmount(game, bot);
     return amount > 0
-      ? [choiceCandidate('sponsorship:contribute', 'contribute', 8, `RESERVE $${amount}`), choiceCandidate('sponsorship:skip', 'skip', 1, 'KEEP CASH')]
-      : [choiceCandidate('sponsorship:skip', 'skip', 1, 'KEEP CASH')];
+      ? [choiceCandidate('sponsorship:contribute', 'contribute', 8, `RESERVE $${amount}`)]
+      : [];
   }
   if (phase === 'payment' && game.pendingPayment?.playerId === bot.id) {
     const sellCandidates = debtSellCandidates(game, bot).slice(0, 12).map(entry => choiceCandidate(
