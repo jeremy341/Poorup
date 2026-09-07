@@ -42,6 +42,8 @@ const trace = room.game.recordBotDecisionTrace({
   fallbackReason: 'no-ai-mode',
   brain: 'no-ai',
   difficulty: 'house',
+  planningHorizon: 3,
+  strategicScore: 42.5,
   actionId: 'roll',
   confidence: 0.45,
   reasonCode: 'deterministic-house',
@@ -51,6 +53,8 @@ const trace = room.game.recordBotDecisionTrace({
 assert.equal(trace.actionId, 'roll');
 assert.equal(trace.botId, bot.id);
 assert.equal(trace.ruleVersion, 'bot-policy-v1');
+assert.equal(trace.planningHorizon, 3);
+assert.equal(trace.strategicScore, 42.5);
 assert.equal(room.game.botDecisionTrace.length, 1);
 
 for (let sequence = 4; sequence <= 205; sequence += 1) {
