@@ -209,7 +209,8 @@ export class DeepSeekAdvisor {
     if (!this.circuitOpenUntil) return false;
     if (Date.now() < this.circuitOpenUntil) return true;
     this.circuitOpenUntil = 0;
-    if (!this.quotaExhausted) this.failureStreak = 0;
+    this.quotaExhausted = false;
+    this.failureStreak = 0;
     return false;
   }
 
@@ -247,7 +248,7 @@ export class DeepSeekAdvisor {
     if (mode === 'no-ai') return this.fallbackDecision(context, 'no-ai-mode', startedAt);
     if (!context.candidates?.length) return this.fallbackDecision(context, 'no-candidates', startedAt);
     if (!this.apiKey) return this.fallbackDecision(context, 'missing-credentials', startedAt);
-    if (this.quotaExhausted) return this.fallbackDecision(context, 'quota-exhausted', startedAt);
+    if (this.quotaExhausted && this.circuitIsOpen()) return this.fallbackDecision(context, 'quota-exhausted', startedAt);
     if (this.circuitIsOpen()) return this.fallbackDecision(context, 'circuit-open', startedAt);
     if (!this.consumeGameBudget(context.gameId)) return this.fallbackDecision(context, 'game-budget', startedAt);
 
