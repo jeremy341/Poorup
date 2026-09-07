@@ -309,8 +309,8 @@ class GameState {
     return adjustContract(this, socketId, offer);
   }
 
-  respondPlayerContract(socketId, accept, requestId = null) {
-    return respondContract(this, socketId, accept, requestId);
+  respondPlayerContract(socketId, accept, requestId = null, contractId = null) {
+    return respondContract(this, socketId, accept, requestId, contractId);
   }
 
   repayPlayerContract(socketId, payload = {}) {

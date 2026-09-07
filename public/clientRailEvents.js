@@ -58,7 +58,7 @@ function onContractResponse(node) {
     return true;
   }
   const accept = node.dataset.playerContractAction === "accept";
-  host.emitServer("respond-player-contract", { accept, requestId: host.createRequestId("contract-response") }, (response) => {
+  host.emitServer("respond-player-contract", { contractId: state.playerContractOffer?.id, accept, requestId: host.createRequestId("contract-response") }, (response) => {
     if (response?.success === false) {
       ackFailure(response, "The player contract could not be updated.");
       return;
