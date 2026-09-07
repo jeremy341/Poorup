@@ -181,10 +181,10 @@ Remaining rollout work:
 
 ## Rollout
 
-1. Add `botBrain`/`botDifficulty` normalization and snapshot fields.
-2. Keep current deterministic policy as House/Table.
-3. Add Expert seeded rollouts and replay traces.
-4. Add UI status, accessibility labels, and rules-page copy.
+1. Add `botBrain`/`botDifficulty` normalization and snapshot fields. **Done.**
+2. Keep current deterministic policy as House/Table. **Done.**
+3. Add Expert seeded rollouts and replay traces. **Done.**
+4. Add UI status, accessibility labels, and rules-page copy. **Done.**
 5. Run balance simulations and held-out regression fixtures.
 6. Enable `AUTO` AI selection only after the AI provider passes the same gates.
 
