@@ -336,6 +336,7 @@ function createRuntime(deps) {
     const key = String(reason || '').toLowerCase();
     if (!key) return null;
     if (key === 'no-ai-mode') return 'no-ai-mode';
+    if (key === 'auction-policy' || key === 'phase-resolution' || key === 'deterministic-advisor') return 'house-policy';
     if (key === 'quota' || key === 'quota-exhausted') return 'credits-exhausted';
     if (key === 'game-budget') return 'game-budget';
     if (key === 'circuit-open') return 'provider-cooldown';
@@ -362,8 +363,28 @@ function createRuntime(deps) {
   function beginBotAuctionBid(room, bot, key) {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
+    const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
+    room.game.botDecisionSequence = decisionSequence;
+    emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
     const { shouldBid, minimum } = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
-    room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    const trace = room.game.recordBotDecisionTrace({
+      botId: bot.id,
+      gameId: `${room.roomCode}:${room.game.startedAt || 'pending'}`,
+      decisionSequence,
+      ruleVersion: 'bot-policy-v1',
+      phase: 'auction',
+      provider: 'deterministic',
+      fallback: true,
+      fallbackReason: 'auction-policy',
+      brain: room.settings.botBrain || 'auto',
+      difficulty: room.settings.botDifficulty || 'table',
+      actionId: shouldBid ? 'auction:bid' : 'auction:pass',
+      confidence: 0.55,
+      reasonCode: result?.success === false ? 'auction-rejected' : 'auction-policy',
+      candidateIds: ['auction:bid', 'auction:pass']
+    });
+    emitBotStatus(room, bot, 'chosen', trace);
     emitRoomState(room);
   }
 
