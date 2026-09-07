@@ -159,6 +159,7 @@ check('candidateAction maps kind to room action or roll fallback', () => {
   assert.deepStrictEqual(candidateAction({ kind: 'trade', id: 't1' }, bot), { type: 'trade', candidate: { kind: 'trade', id: 't1' } });
   assert.strictEqual(candidateAction({ kind: 'market' }, bot).type, 'market');
   assert.strictEqual(candidateAction({ kind: 'casino' }, bot).type, 'casino');
+  assert.strictEqual(candidateAction({ kind: 'repay', contractId: 'c1', amount: 20 }, bot).type, 'repay');
   assert.strictEqual(candidateAction({ kind: 'mortgage' }, bot).type, 'mortgage');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 799 }, bot).type, 'build');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 801 }, bot).type, 'roll');
