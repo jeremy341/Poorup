@@ -298,11 +298,48 @@ function createRuntime(deps) {
     // botLogic.js and is covered by server/botLogic.test.js.
     if (!botMayStillAct(room.game, bot)) return;
     if (room.destroyed) return;
+    const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
+    emitBotStatus(room, bot, 'thinking', { decisionSequence });
     const result = await runBotTurn(room, bot, botAdvisor);
+    if (result?.botDecision) {
+      const trace = room.game.recordBotDecisionTrace(result.botDecision);
+      emitBotStatus(room, bot, 'chosen', trace);
+    }
     if (result?.noEmit) return;
     // Tail purchase resolution, second half of the post-roll double-check.
     resolvePurchaseOffer(room, bot, result);
     emitRoomState(room);
+  }
+
+  function emitBotStatus(room, bot, state, details = {}) {
+    const health = typeof botAdvisor.getHealth === 'function' ? botAdvisor.getHealth() : null;
+    const fallbackReason = publicBotFallbackReason(details.fallbackReason);
+    io.in(room.roomCode).emit('bot-status', {
+      playerId: bot.id,
+      nickname: bot.nickname,
+      state,
+      brain: details.brain || room.settings.botBrain || 'auto',
+      difficulty: details.difficulty || room.settings.botDifficulty || 'table',
+      provider: details.provider === 'ai' ? 'ai' : 'deterministic',
+      fallback: details.fallback === true,
+      fallbackReason,
+      actionId: details.actionId || null,
+      decisionSequence: details.sequence || details.decisionSequence || null,
+      latencyMs: details.latencyMs || 0,
+      healthState: health?.state === 'healthy' ? 'ready' : 'fallback'
+    });
+  }
+
+  // Keep provider credentials, billing/quota details, and raw error text out
+  // of the room-wide event. The private match trace retains the exact reason.
+  function publicBotFallbackReason(reason) {
+    const key = String(reason || '').toLowerCase();
+    if (!key) return null;
+    if (key === 'no-ai-mode') return 'no-ai-mode';
+    if (key === 'quota' || key === 'quota-exhausted') return 'credits-exhausted';
+    if (key === 'game-budget') return 'game-budget';
+    if (key === 'circuit-open') return 'provider-cooldown';
+    return 'provider-unavailable';
   }
 
   function finishBotTurn(room) {

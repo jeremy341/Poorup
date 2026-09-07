@@ -259,6 +259,20 @@ check('runBotTurn runs advisor candidates through the action map', async () => {
   assert.strictEqual(result.name, 'market:ACME:buy:2');
 });
 
+check('runBotTurn forwards brain settings and returns replay metadata', async () => {
+  const room = fakeRoom([]);
+  let received = null;
+  room.game.settings = { botBrain: 'no-ai', botDifficulty: 'expert' };
+  room.game.getBotCandidates = () => [{ id: 'c1', kind: 'market', instrumentId: 'ACME', side: 'buy', quantity: 1 }];
+  const advisor = { chooseAction: async context => { received = context; return { actionId: 'c1' }; } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(received.botBrain, 'no-ai');
+  assert.equal(received.botDifficulty, 'expert');
+  assert.equal(result.botDecision.provider, 'deterministic');
+  assert.equal(result.botDecision.fallback, true);
+  assert.deepEqual(result.botDecision.candidateIds, ['c1']);
+});
+
 check('runBotTurn aborts when the seat changed while the advisor thought', async () => {
   const log = [];
   const room = fakeRoom(log);
