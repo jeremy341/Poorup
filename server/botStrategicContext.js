@@ -2,7 +2,7 @@
 // authoritative GameState; it never executes an action or exposes stable
 // account/socket identifiers. Keep it separate from bot execution so a future
 // simulator and the AI adapter can consume the same snapshot contract.
-import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX } from './gameData.js';
+import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX, SURPRISE_DECK, TREASURE_DECK } from './gameData.js';
 import { MARKET_FEE_RATE } from './marketLogic.js';
 
 export const BOT_CONTEXT_VERSION = 'bot-context-v2';
@@ -108,6 +108,20 @@ function ownCasinoView(bot) {
   };
 }
 
+function cardExpectedCash(deck, playerCount) {
+  const opponents = Math.max(0, Number(playerCount || 1) - 1);
+  if (!Array.isArray(deck) || !deck.length) return 0;
+  const total = deck.reduce((sum, card) => {
+    const amount = Number(card.amount) || 0;
+    if (card.action === 'collect' || card.action === 'collectStart') return sum + amount;
+    if (card.action === 'pay') return sum - amount;
+    if (card.action === 'collectFromEach') return sum + amount * opponents;
+    if (card.action === 'payEach') return sum - amount * opponents;
+    return sum;
+  }, 0);
+  return Math.round((total / deck.length) * 100) / 100;
+}
+
 function opponentView(game, bot, player, index) {
   return {
     seat: `opponent-${index + 1}`,
@@ -200,6 +214,12 @@ function rulesDigest(game) {
     bankLoanSeverity: settings.bankLoanSeverity || 'predatory',
     casino: { enabled: settings.casino === true, ...casinoLimits, loanBackedCashAllowed: false },
     market: { enabled: settings.market === true, feeRate: MARKET_FEE_RATE, margin: false, shorting: false },
+    cards: {
+      surpriseCount: SURPRISE_DECK.length,
+      treasureCount: TREASURE_DECK.length,
+      surpriseExpectedCash: cardExpectedCash(SURPRISE_DECK, game.players?.length),
+      treasureExpectedCash: cardExpectedCash(TREASURE_DECK, game.players?.length)
+    },
     globalEvents: { enabled: Boolean(settings.globalEvents), activeEffects: { ...effects } }
   };
 }

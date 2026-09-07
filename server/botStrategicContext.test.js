@@ -54,6 +54,8 @@ assert.equal(context.obligations.payment.creditorSeat, 'opponent-2');
 assert.equal(context.activeEvent.id, 'housing-bubble');
 assert.equal(context.rulesDigest.version, BOT_RULE_VERSION);
 assert.equal(context.rulesDigest.boardSize, 40);
+assert.equal(context.rulesDigest.cards.surpriseCount, 16);
+assert.equal(context.rulesDigest.cards.treasureCount, 16);
 assert.equal(context.rulesDigest.globalEvents.activeEffects.constructionBlocked, true);
 assert.equal(context.opponents.length, 1);
 

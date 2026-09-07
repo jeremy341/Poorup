@@ -5,8 +5,11 @@
 import { MARKET_FEE_RATE } from './marketLogic.js';
 
 export const PLANNING_HORIZONS = { house: 0, table: 1, expert: 3 };
-const EXPECTED_MOVE = 7;
 const MAX_HORIZON = 3;
+const DICE_TOTALS = [
+  [2, 1 / 36], [3, 2 / 36], [4, 3 / 36], [5, 4 / 36], [6, 5 / 36],
+  [7, 6 / 36], [8, 5 / 36], [9, 4 / 36], [10, 3 / 36], [11, 2 / 36], [12, 1 / 36]
+];
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -125,21 +128,49 @@ function applyCandidate(snapshot, state, candidate) {
   }
 }
 
+function eventRentMultiplier(snapshot, tile) {
+  const effects = snapshot.rulesDigest?.globalEvents?.activeEffects || {};
+  let multiplier = number(effects.rentMultiplier, 1);
+  if (tile.type === 'railroad') multiplier *= number(effects.airportRentMultiplier, 1);
+  if (tile.type === 'utility') multiplier *= number(effects.utilityRentMultiplier, 1);
+  if (tile.group === 'Dark Blue') multiplier *= number(effects.premiumRentMultiplier, 1);
+  return Math.max(0, multiplier);
+}
+
+function expectedCardDelta(snapshot, tile) {
+  if (tile.type === 'chance') return number(snapshot.rulesDigest?.cards?.surpriseExpectedCash);
+  if (tile.type === 'chest') return number(snapshot.rulesDigest?.cards?.treasureExpectedCash);
+  return 0;
+}
+
 function expectedLandingValue(snapshot, state, horizon) {
   const boardLength = Math.max(1, (snapshot.board || []).length || 40);
   let rent = 0;
   let risk = 0;
-  let position = state.position;
+  let cardDelta = 0;
+  let positions = new Map([[state.position, 1]]);
   for (let turn = 0; turn < horizon; turn += 1) {
-    position = (position + EXPECTED_MOVE) % boardLength;
-    const tile = state.board.find(entry => entry.index === position);
-    if (!tile) continue;
-    if (tileOwner(tile) === 'self') rent += number(tile.rent) * (1 + number(tile.houseCount) * 0.45);
-    if (tileOwner(tile).startsWith('opponent')) risk += number(tile.rent) * (1 + number(tile.houseCount) * 0.45);
-    if (tile.type === 'tax') risk += number(tile.price || tile.amount);
+    const nextPositions = new Map();
+    positions.forEach((probability, position) => {
+      DICE_TOTALS.forEach(([move, moveProbability]) => {
+        const landing = (position + move) % boardLength;
+        const chance = probability * moveProbability;
+        nextPositions.set(landing, (nextPositions.get(landing) || 0) + chance);
+        const tile = state.board.find(entry => entry.index === landing);
+        if (!tile) return;
+        const buildings = 1 + number(tile.houseCount) * 0.45;
+        const rentValue = number(tile.rent) * buildings * eventRentMultiplier(snapshot, tile);
+        if (tileOwner(tile) === 'self' && !tile.mortgaged) rent += rentValue * chance;
+        if (tileOwner(tile).startsWith('opponent') && !tile.mortgaged) risk += rentValue * chance;
+        if (tile.type === 'tax') risk += number(tile.price || tile.amount) * number(snapshot.rulesDigest?.globalEvents?.activeEffects?.taxMultiplier, 1) * chance;
+        cardDelta += expectedCardDelta(snapshot, tile) * chance;
+      });
+    });
+    positions = nextPositions;
   }
   state.expectedRent = rent;
   state.expectedRisk = risk;
+  state.expectedCardDelta = cardDelta;
 }
 
 function groupPotential(snapshot, state) {
@@ -194,6 +225,7 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
   const strategic = liquidityValue(snapshot, state)
     + state.expectedRent * 0.65
     - state.expectedRisk * 0.5
+    + state.expectedCardDelta * 0.35
     + groupPotential(snapshot, state)
     + (afterGroups - beforeGroups) * 90
     + eventHedgeValue(snapshot, state)
@@ -204,6 +236,7 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
     horizon,
     expectedRent: state.expectedRent,
     expectedRisk: state.expectedRisk,
+    expectedCardDelta: state.expectedCardDelta,
     liquidity: state.cash,
     completeGroups: afterGroups
   };
