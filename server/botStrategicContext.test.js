@@ -37,6 +37,11 @@ game.globalEvent = {
   choices: null
 };
 game.pendingPayment = { playerId: bot.id, amountRemaining: 140, creditorId: human.id };
+game.botDecisionTrace = [
+  { botId: bot.id, sequence: 4, phase: 'pre-roll', actionId: 'mortgage:1', fallback: true, strategicScore: 3.5, reasonCode: 'cash-buffer' },
+  { botId: human.id, sequence: 5, phase: 'pre-roll', actionId: 'roll', fallback: false },
+  { botId: bot.id, sequence: 6, phase: 'auction', actionId: 'auction:pass', fallback: false, strategicScore: -2, reasonCode: 'reserve' }
+];
 
 const context = buildBotStrategicContext(game, bot, 'payment', 7);
 assert.equal(context.contextVersion, BOT_CONTEXT_VERSION);
@@ -58,10 +63,12 @@ assert.equal(context.rulesDigest.cards.surpriseCount, 16);
 assert.equal(context.rulesDigest.cards.treasureCount, 16);
 assert.equal(context.rulesDigest.globalEvents.activeEffects.constructionBlocked, true);
 assert.equal(context.opponents.length, 1);
+assert.deepEqual(context.recentDecisions.map(entry => entry.actionId), ['mortgage:1', 'auction:pass']);
+assert.equal(context.recentDecisions[0].fallback, true);
 
 const serialized = JSON.stringify(context);
 assert.equal(serialized.includes('context-host'), false);
 assert.equal(serialized.includes('context-human'), false);
 assert.equal(serialized.includes('accountId'), false);
 assert.equal(serialized.includes('socketId'), false);
-console.log('bot strategic context: 16 passed, 0 failed');
+console.log('bot strategic context: 18 passed, 0 failed');

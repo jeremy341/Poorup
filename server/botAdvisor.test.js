@@ -56,6 +56,7 @@ assert.equal(promptContext.contextVersion, 'bot-context-v2');
 assert.equal(promptContext.rulesDigest.boardSize, 40);
 assert.equal(promptContext.turn.currentSeat, 'self');
 assert.equal(promptContext.planningHorizon, 1);
+assert.deepEqual(promptContext.recentDecisions, []);
 assert.equal(promptContext.candidates[0].planningHorizon, 1);
 assert.equal(Number.isFinite(promptContext.candidates[0].futureScore), true);
 assert.equal(Number.isFinite(promptContext.candidates[0].projectedLiquidity), true);
