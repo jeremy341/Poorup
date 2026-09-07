@@ -151,11 +151,13 @@ const botApi = {
   },
 
   botMortgageCandidateFor(tile, player) {
+    const valueMultiplier = Number(this.activeEventEffects?.().propertyValueMultiplier);
+    const multiplier = Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1;
     return {
       id: 'mortgage:' + tile.index,
       kind: 'mortgage',
       tileIndex: tile.index,
-      proceeds: Math.floor((tile.price || 0) / 2),
+      proceeds: Math.floor((tile.price || 0) / 2 * multiplier),
       risk: 0.25,
       score: BOT_MORTGAGE_SCORES[player.personality] || BOT_MORTGAGE_SCORE_DEFAULT
     };
