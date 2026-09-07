@@ -702,6 +702,20 @@ check('build candidates follow full-set and even-build rules; mortgages drop enc
   assert.deepEqual(candidates.filter(candidate => candidate.kind === 'mortgage').map(candidate => candidate.tileIndex), [3]);
 });
 
+check('player-loan repayment candidates pay due balances first and preserve active liquidity', () => {
+  const ctx = botRoom('builder', 500);
+  ctx.game.playerContracts = [
+    { id: 'active-loan', kind: 'loan', status: 'active', toPlayerId: ctx.bot.id, remaining: 400 },
+    { id: 'due-loan', kind: 'loan', status: 'due', toPlayerId: ctx.bot.id, remaining: 200 },
+    { id: 'equity', kind: 'equity', status: 'active', toPlayerId: ctx.bot.id, remaining: 100 }
+  ];
+  const repayments = ctx.game.getBotCandidates(ctx.bot).filter(candidate => candidate.kind === 'repay');
+  assert.deepEqual(repayments, [
+    { id: 'repay:due-loan', kind: 'repay', contractId: 'due-loan', amount: 200, remaining: 200, risk: 0.05, score: 32 },
+    { id: 'repay:active-loan', kind: 'repay', contractId: 'active-loan', amount: 320, remaining: 400, risk: 0.64, score: 11 }
+  ]);
+});
+
 check('event building limits do not emit already-forbidden build candidates', () => {
   const ctx = botRoom('builder', 1500);
   ctx.game.globalEvent = { phase: 'active', effects: { buildingLimitPerTurn: 1 } };

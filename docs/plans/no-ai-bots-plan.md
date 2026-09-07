@@ -25,6 +25,11 @@ rules remain authoritative in `GameState`.
 
 Traditional bots separate *what is legal* from *what is desirable*. A legal
 action list is scored using immediate value, future value, risk, and liquidity.
+
+The baseline also emits proactive repayment candidates for player loans and
+hybrid debt. Due balances outrank ordinary actions; active balances are paid
+down only from cash above the bot's liquidity floor. Equity-only contracts do
+not create repayment candidates.
 For stochastic games, expected outcomes and bounded simulations are more useful
 than a pure minimax tree. UCT/MCTS was designed for non-deterministic and
 high-branching games and balances exploration against exploitation by sampling
