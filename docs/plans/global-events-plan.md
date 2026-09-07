@@ -1,6 +1,9 @@
 # Poorup Global Events
 
-Status: design proposal. This document supersedes the prototype settings that exposed event mode, duration, and event count separately.
+Status: implemented staged catalog and lifecycle. Balance simulations and
+additional rollout telemetry remain follow-up work. This document supersedes
+the prototype settings that exposed event mode, duration, and event count
+separately.
 
 ## Design decision
 
