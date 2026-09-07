@@ -19,7 +19,9 @@ let host = {
   buyTile: noop,
   openTradeModal: noop,
   openFinancingModal: noop,
+  openFinancingNegotiation: noop,
   openFinancingContract: noop,
+  openDealDetails: noop,
 };
 
 function noop() {}
@@ -51,6 +53,10 @@ function onContractCancel(node) {
 
 function onContractResponse(node) {
   if (!node) return false;
+  if (node.dataset.playerContractAction === "negotiate") {
+    host.openFinancingNegotiation(state.playerContractOffer?.id, node);
+    return true;
+  }
   const accept = node.dataset.playerContractAction === "accept";
   host.emitServer("respond-player-contract", { accept, requestId: host.createRequestId("contract-response") }, (response) => {
     if (response?.success === false) {
@@ -60,6 +66,14 @@ function onContractResponse(node) {
     state.playerContractOffer = null;
     host.renderRightRail();
   });
+  return true;
+}
+
+function onDealView(node) {
+  if (!node) return false;
+  const [kind, id] = String(node.dataset.dealView || "").split(":");
+  if (!kind || !id) return false;
+  host.openDealDetails(kind, id, node);
   return true;
 }
 
@@ -152,6 +166,7 @@ function onFinanceView(node) {
 const RAIL_CLICKS = [
   ["[data-player-contract-cancel]", onContractCancel],
   ["[data-player-contract-action]", onContractResponse],
+  ["[data-deal-view]", onDealView],
   ["[data-player-contract-repay]", onContractRepay],
   ["[data-market-order]", onMarketOrder],
   ["[data-bank-action]", onBankAction],

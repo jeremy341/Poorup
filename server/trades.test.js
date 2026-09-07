@@ -540,6 +540,24 @@ check('counterTrade replaces the pending offer without transferring assets', () 
   assert.equal(a.cash, 1500);
   assert.equal(b.cash, 1500);
 });
+
+check('sender can adjust or cancel a pending trade without transferring assets', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const a = playerOf(room, 'client-a');
+  const b = playerOf(room, 'client-b');
+  const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 30 });
+  const adjusted = game.adjustTrade('socket-a', { tradeId: first.trade.id, giveCash: 75, requestCash: 20 });
+  assert.equal(adjusted.success, true);
+  assert.equal(adjusted.adjusted, true);
+  assert.equal(game.pendingTrade.giveCash, 75);
+  assert.equal(game.pendingTrade.requestCash, 20);
+  assert.equal(a.cash, 1500);
+  assert.equal(b.cash, 1500);
+  assert.deepEqual(game.cancelTrade('socket-b', { tradeId: game.pendingTrade.id }), { success: false, error: 'Only the sending player can cancel this trade.' });
+  assert.equal(game.cancelTrade('socket-a', { tradeId: game.pendingTrade.id }).canceled, true);
+  assert.equal(game.pendingTrade, null);
+});
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });
 const casino = (color, stake, score) => ({ id: 'casino:red', kind: 'casino', color, stake, risk: 0.55, score });

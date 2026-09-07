@@ -14,7 +14,6 @@ import { avatarHTML } from "./clientSprites.js";
 import { closeSurface, openSurface, syncSurfaceA11y } from "./clientSurfaces.js";
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 import { startAuction } from "./clientAuctionUi.js";
-import { renderTradeModal } from "./clientTradeUi.js";
 import { goHome } from "./clientLobbyUi.js";
 
 let host = {
@@ -23,6 +22,7 @@ let host = {
   renderChat: noop,
   renderAll: noop,
   buyTile: noop,
+  openTradeNegotiation: noop,
   openSponsorshipRequest: noop,
   startGame: noop,
 };
@@ -151,8 +151,7 @@ function openOfferModal(offer) {
       </p>
       <div class="offer-actions">
         <button class="cta-red offer-btn" id="offer-accept"><span class="cta-text cta-text-sm">Accept</span></button>
-        <button class="btn-dark offer-btn" id="offer-counter"><span class="t-label f12">Counter</span></button>
-        <button class="btn-dark offer-btn" id="offer-reject"><span class="t-label f12">Reject</span></button>
+        <button class="btn-dark offer-btn" id="offer-counter"><span class="t-label f12">Negotiate</span></button>
       </div>
       <p class="t-micro ink-3 offer-note">Trades only transfer cash or deeds offered here.</p>
     </div>`;
@@ -171,31 +170,13 @@ function openOfferModal(offer) {
       return;
   });
   $("#offer-counter").addEventListener("click", () => {
-    // swap into the trade editor pre-loaded with the bot's proposal
-    state.tradeWith = offer.from;
-    state.tradeCounterId = offer.id;
-    state.tradeMyDeeds = new Set(offer.wantDeeds);
-    state.tradeTheirDeeds = new Set(offer.giveDeeds);
-    state.tradeMyCash = offer.wantCash;
-    state.tradeTheirCash = offer.giveCash;
-    const o = state.offers.find((x) => x === offer);
-    if (o) state.offers.splice(state.offers.indexOf(o), 1);
     closeSurface("#offer-modal");
-    renderTradeModal();
-    openSurface("#trade-modal", "#trade-close");
+    host.openTradeNegotiation(offer);
   });
-  $("#offer-reject").addEventListener("click", rejectOpenOffer);
 }
 
 function rejectOpenOffer() {
-  const offer = state.offers.shift();
-  if (offer) {
-    host.emitServer("respond-trade", { tradeId: offer.id, accept: false }, () => {});
-    closeSurface("#offer-modal");
-    return;
-  }
   closeSurface("#offer-modal");
-  host.renderChat();
 }
 
 function bankruptPlayer(idx, creditorId) {
@@ -392,7 +373,7 @@ function closeCardModalFromScrim() {
 
 export function bindGameModalSurfaces() {
   // trade offer inbox
-  $("#offer-scrim")?.addEventListener("click", rejectOpenOffer);
+  $("#offer-scrim")?.addEventListener("click", () => closeSurface("#offer-modal"));
 
   $("#game-retire-btn")?.addEventListener("click", onRetireClick);
 

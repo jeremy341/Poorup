@@ -167,6 +167,7 @@ const state = {
   tab: "deeds",
   tradeWith: null,
   tradeCounterId: null,
+  tradeAdjustId: null,
   tradeMyDeeds: new Set(),
   tradeTheirDeeds: new Set(),
   tradeMyCash: 0,
@@ -174,6 +175,7 @@ const state = {
   houses: {},      // { [tileId]: 0..4 | 5(hotel) }
   mortgaged: {},   // { [tileId]: true }
   offers: [],      // pending bot→human trade offers
+  pendingTrade: null,
   pendingBuyTile: null, // tile the human must resolve (buy/auction) before ending
   sponsorship: null,    // optional escrowed contribution flow for the open purchase
   auction: null,        // live auction state object
@@ -182,6 +184,7 @@ const state = {
   roundNumber: 0,
   globalEvent: null,
   playerContractOffer: null,
+  negotiationContractId: null,
   playerContracts: { pending: null, active: [] },
   social: { friends: [], requests: [], outgoing: [], invites: [], notifications: [], recentPlayers: [] },
   socialSearchResults: [],

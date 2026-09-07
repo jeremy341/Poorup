@@ -321,12 +321,22 @@ function contractOfferHybridHTML(offer) {
 
 function contractOfferBlockHTML(offer) {
   if (!offer) return "";
-  return '<div class="player-contract-offer"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS' + esc(contractOfferHybridHTML(offer)) + '</span><div class="contract-offer-actions"><button class="cta-red" type="button" data-player-contract-action="accept"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-player-contract-action="decline"><span class="t-label f11">DECLINE</span></button></div></div>';
+  return '<button class="player-contract-offer deal-collapsed" type="button" data-deal-view="contract:' + esc(offer.id) + '"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS' + esc(contractOfferHybridHTML(offer)) + '</span><span class="t-micro g400">VIEW DEAL · ACCEPT OR NEGOTIATE</span></button>';
 }
 
 function contractOutgoingBlockHTML(outgoing) {
   if (!outgoing) return "";
-  return '<div class="player-contract-offer is-outgoing"><strong class="t-label f12 g100">CONTRACT SENT TO ' + esc(outgoing.toPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">' + esc(String(outgoing.kind || "loan").toUpperCase()) + ' · AWAITING REVIEW</span><button class="btn-dark" type="button" data-player-contract-cancel><span class="t-label f11">CANCEL</span></button></div>';
+  return '<button class="player-contract-offer is-outgoing deal-collapsed" type="button" data-deal-view="contract:' + esc(outgoing.id) + '"><strong class="t-label f12 g100">CONTRACT SENT TO ' + esc(outgoing.toPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">' + esc(String(outgoing.kind || "loan").toUpperCase()) + ' · AWAITING REVIEW</span><span class="t-micro g400">VIEW DEAL · ADJUST OR CANCEL</span></button>';
+}
+
+function tradeRailBlockHTML(trade, localServerId) {
+  if (!trade) return "";
+  const outgoing = trade.fromPlayerId === localServerId;
+  const other = outgoing ? trade.toPlayerName : trade.fromPlayerName;
+  const cash = Number(outgoing ? trade.giveCash : trade.requestCash) || 0;
+  const deeds = (outgoing ? trade.givePropertyIndexes : trade.requestPropertyIndexes) || [];
+  const headline = `$${cash.toLocaleString()} CASH · ${deeds.length} DEED${deeds.length === 1 ? "" : "S"}`;
+  return '<button class="player-contract-offer deal-collapsed ' + (outgoing ? 'is-outgoing' : '') + '" type="button" data-deal-view="trade:' + esc(trade.id) + '"><strong class="t-label f12 g100">TRADE ' + (outgoing ? 'TO ' : 'FROM ') + esc(other || "PLAYER") + '</strong><span class="t-micro ink-3">' + esc(headline) + ' · ' + (outgoing ? 'AWAITING REVIEW' : 'NEEDS YOU') + '</span><span class="t-micro g400">VIEW DEAL · ' + (outgoing ? 'ADJUST OR CANCEL' : 'ACCEPT OR NEGOTIATE') + '</span></button>';
 }
 
 function contractHybridDetailHTML(contract) {
@@ -546,5 +556,7 @@ export function playerContractRailHTML() {
   const ctx = contractContext();
   const dueDebts = financeMyDueDebts(ctx.active, ctx.localServerId);
   const equityEntries = financeEquityEntries(ctx.localServerId);
-  return '<section class="player-contracts panel noise">' + financeHeaderHTML(ctx.offer, dueDebts, ctx.active) + financeNeedsZoneHTML(ctx.offer, dueDebts, ctx.localServerId) + financePositionsZoneHTML(ctx, equityEntries) + financeSendHTML() + '</section>';
+  const trade = state.pendingTrade && (state.pendingTrade.fromPlayerId === ctx.localServerId || state.pendingTrade.toPlayerId === ctx.localServerId) ? state.pendingTrade : null;
+  const tradeBlock = tradeRailBlockHTML(trade, ctx.localServerId);
+  return '<section class="player-contracts panel noise">' + financeHeaderHTML(ctx.offer, dueDebts, ctx.active) + (tradeBlock ? financeSubheadHTML("TRADE") + tradeBlock : "") + financeNeedsZoneHTML(ctx.offer, dueDebts, ctx.localServerId) + financePositionsZoneHTML(ctx, equityEntries) + financeSendHTML() + '</section>';
 }

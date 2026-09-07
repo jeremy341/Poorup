@@ -170,6 +170,44 @@ const tradeApi = {
     return result;
   },
 
+  adjustTrade(socketId, offer = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    const trade = this.pendingTrade;
+    if (!player || !trade || trade.fromPlayerId !== player.id) {
+      return { success: false, error: 'Only the sending player can adjust this trade.' };
+    }
+    if (offer.tradeId && offer.tradeId !== trade.id) {
+      return { success: false, error: 'That trade offer is no longer current.' };
+    }
+    const previous = trade;
+    this.pendingTrade = null;
+    const result = this.proposeTrade(socketId, {
+      ...offer,
+      toPlayerId: trade.toPlayerId,
+      counterDepth: trade.counterDepth || 0
+    });
+    if (result?.success === false && !this.pendingTrade) this.pendingTrade = previous;
+    if (result?.success) {
+      this.feedMessage(`${player.nickname} adjusted the trade offer.`);
+      return { ...result, adjusted: true };
+    }
+    return result;
+  },
+
+  cancelTrade(socketId, payload = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    const trade = this.pendingTrade;
+    if (!player || !trade || trade.fromPlayerId !== player.id) {
+      return { success: false, error: 'Only the sending player can cancel this trade.' };
+    }
+    if (payload.tradeId && payload.tradeId !== trade.id) {
+      return { success: false, error: 'That trade offer is no longer current.' };
+    }
+    this.pendingTrade = null;
+    this.feedMessage(`${player.nickname} canceled the trade offer.`);
+    return { success: true, canceled: true };
+  },
+
   // Deed re-resolution at accept time; pure tile lookups for the guards and
   // the settlement transfer below.
   tradeSettlementContext(trade) {
