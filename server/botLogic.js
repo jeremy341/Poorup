@@ -38,7 +38,7 @@ export const PURCHASE_RESERVE_CASH = 120;
 
 function attachBotDecision(result, decision) {
   if (!result || typeof result !== 'object') return result;
-  return { ...result, botDecision: decision };
+  return { ...result, botDecision: { ...decision, success: result.success !== false } };
 }
 
 export function selectGlobalEventPolicy(globalEvent, personality) {
