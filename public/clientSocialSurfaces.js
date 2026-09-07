@@ -828,7 +828,7 @@ function currentFriendStatus(accountId) {
 }
 
 function friendButtonLabel(status) {
-  if (status === "accepted") return "FRIENDS";
+  if (status === "accepted") return "REMOVE FRIEND";
   if (status === "requested") return "REQUEST SENT";
   return "SEND FRIEND REQUEST";
 }
@@ -852,7 +852,7 @@ function disabledWhen(off) {
 }
 
 function playerActionBits(player, canSocial, friendStatus) {
-  const friendReady = canSocial && friendStatus !== "accepted" && friendStatus !== "requested";
+  const friendReady = canSocial && friendStatus !== "requested";
   return {
     friendAttr: disabledWhen(!friendReady),
     canSocialAttr: disabledWhen(!canSocial),

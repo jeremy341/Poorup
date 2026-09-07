@@ -20,6 +20,7 @@ import {
 import { applyProfileToHomeUI, renderAccountPanel } from "./clientProfileRender.js";
 import {
   announceSocialNotification,
+  renderPlayerSurface,
   renderSocialSurface,
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
@@ -91,6 +92,20 @@ function onBotStatus(status) {
     host.say(`${status.nickname} chose ${status.actionId}${status.fallback ? " (house fallback)" : " (AI advisor)"}.`);
     host.renderChat();
   }
+}
+
+function syncSelectedPlayerRelationship() {
+  const accountId = state.selectedPlayer?.accountId;
+  if (!accountId) return;
+  const social = state.social || {};
+  if ((social.friends || []).some((friend) => friend.id === accountId)) {
+    state.selectedPlayerRelationship = "accepted";
+  } else if ((social.outgoing || []).some((request) => request.to?.id === accountId)) {
+    state.selectedPlayerRelationship = "requested";
+  } else {
+    state.selectedPlayerRelationship = "none";
+  }
+  if (!$("#player-modal")?.classList.contains("is-hidden")) renderPlayerSurface();
 }
 
 function mergeAchievementIntoAccount(notification) {
@@ -221,6 +236,7 @@ function attachConnectionListeners(socket) {
 function attachSocialListeners(socket) {
   socket.on("social-update", (social) => {
     state.social = social || state.social;
+    syncSelectedPlayerRelationship();
     renderSocialSurface("#social-page-content");
     renderSocialSurface("#social-card");
   });
