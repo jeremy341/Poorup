@@ -2,6 +2,7 @@
 // the AI advisor only ranks an already-legal candidate list and can never write
 // directly to GameState. Provider failures, quota exhaustion, malformed output,
 // and timeouts return to the deterministic path immediately.
+import { planningHorizon, rankCandidates } from './botFuturePlanner.js';
 const DEFAULT_TIMEOUT_MS = 600;
 const DEFAULT_MAX_DECISIONS_PER_GAME = 120;
 const DEFAULT_CIRCUIT_COOLDOWN_MS = 30_000;
@@ -88,10 +89,15 @@ function deterministicChoice(candidates = [], personality = 'survivor', difficul
   const safePersonality = PERSONALITIES.has(personality) ? personality : 'survivor';
   const safeDifficulty = normalizeDifficulty(difficulty);
   const config = DIFFICULTY_CONFIG[safeDifficulty];
+  const planned = context?.contextVersion && Array.isArray(context.board) && context.board.length
+    ? new Map(rankCandidates(context, candidates, { difficulty: safeDifficulty, seed: context.gameId }).map(entry => [entry.candidate.id, entry.evaluation]))
+    : null;
   const scored = candidates.map((candidate, index) => {
     const base = (Number(candidate.score) || 0) + personalityBonus(safePersonality, candidate);
     const lookahead = safeDifficulty === 'expert' ? expertRolloutValue(candidate, context, index) : 0;
-    return { candidate, score: base + lookahead, index };
+    const future = planned?.get(candidate.id);
+    const strategic = future ? Math.max(-30, Math.min(30, future.score / 10)) : 0;
+    return { candidate, score: base + lookahead + strategic, index, future };
   });
   scored.sort(compareScoredChoices);
   const selected = scored[0]?.candidate || null;
@@ -100,7 +106,9 @@ function deterministicChoice(candidates = [], personality = 'survivor', difficul
     actionId: selected.id,
     confidence: config.confidence,
     reasonCode: `deterministic-${safeDifficulty}`,
-    fallback: true
+    fallback: true,
+    planningHorizon: planningHorizon(safeDifficulty),
+    strategicScore: Number.isFinite(scored[0]?.future?.score) ? Math.round(scored[0].future.score * 100) / 100 : null
   };
 }
 
