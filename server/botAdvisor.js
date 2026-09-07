@@ -2,6 +2,7 @@
 // the AI advisor only ranks an already-legal candidate list and can never write
 // directly to GameState. Provider failures, quota exhaustion, malformed output,
 // and timeouts return to the deterministic path immediately.
+import { planningHorizon, rankCandidates } from './botFuturePlanner.js';
 const DEFAULT_TIMEOUT_MS = 600;
 const DEFAULT_MAX_DECISIONS_PER_GAME = 120;
 const DEFAULT_CIRCUIT_COOLDOWN_MS = 30_000;
@@ -88,10 +89,15 @@ function deterministicChoice(candidates = [], personality = 'survivor', difficul
   const safePersonality = PERSONALITIES.has(personality) ? personality : 'survivor';
   const safeDifficulty = normalizeDifficulty(difficulty);
   const config = DIFFICULTY_CONFIG[safeDifficulty];
+  const planned = context?.contextVersion && Array.isArray(context.board) && context.board.length
+    ? new Map(rankCandidates(context, candidates, { difficulty: safeDifficulty, seed: context.gameId }).map(entry => [entry.candidate.id, entry.evaluation]))
+    : null;
   const scored = candidates.map((candidate, index) => {
     const base = (Number(candidate.score) || 0) + personalityBonus(safePersonality, candidate);
     const lookahead = safeDifficulty === 'expert' ? expertRolloutValue(candidate, context, index) : 0;
-    return { candidate, score: base + lookahead, index };
+    const future = planned?.get(candidate.id);
+    const strategic = future ? Math.max(-30, Math.min(30, future.score / 10)) : 0;
+    return { candidate, score: base + lookahead + strategic, index, future };
   });
   scored.sort(compareScoredChoices);
   const selected = scored[0]?.candidate || null;
@@ -100,7 +106,9 @@ function deterministicChoice(candidates = [], personality = 'survivor', difficul
     actionId: selected.id,
     confidence: config.confidence,
     reasonCode: `deterministic-${safeDifficulty}`,
-    fallback: true
+    fallback: true,
+    planningHorizon: planningHorizon(safeDifficulty),
+    strategicScore: Number.isFinite(scored[0]?.future?.score) ? Math.round(scored[0].future.score * 100) / 100 : null
   };
 }
 
@@ -299,16 +307,22 @@ export class DeepSeekAdvisor {
     };
   }
 
-  advisorUserPrompt({ candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, event }) {
+  advisorUserPrompt({ contextVersion, candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, turn, board, obligations, rulesDigest, activeEvent, event }) {
     const brief = event ? { id: event.id, phase: event.phase, roundsRemaining: event.roundsRemaining, effects: event.effects } : null;
     return JSON.stringify({
+      contextVersion: String(contextVersion || 'bot-context-v2').slice(0, 32),
       ruleVersion: String(ruleVersion || 'bot-policy-v1').slice(0, 32),
       phase: String(phase || 'pre-roll').slice(0, 24),
       roundNumber: Math.max(0, Math.floor(Number(roundNumber) || 0)),
       personality,
       botDifficulty: normalizeDifficulty(botDifficulty),
       botState: botState || {},
+      turn: turn || {},
+      board: Array.isArray(board) ? board.slice(0, 40) : [],
       opponentSummaries: Array.isArray(opponentSummaries) ? opponentSummaries.slice(0, 6) : [],
+      obligations: obligations || {},
+      rulesDigest: rulesDigest || {},
+      activeEvent: activeEvent || null,
       event: brief,
       candidates: Array.isArray(candidates) ? candidates.slice(0, 32) : []
     });

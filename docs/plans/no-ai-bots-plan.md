@@ -162,6 +162,8 @@ Implemented in the current bot slice:
 - Private match history stores candidate ids, selected id, provider, latency,
   brain, difficulty, game id, and rule version.
 - AI-first provider selection falls back to this policy on quota or outage.
+- The versioned strategic snapshot includes exact bot position, board state,
+  rules digest, obligations, and redacted opponents without stable ids.
 
 Remaining rollout work:
 
