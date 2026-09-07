@@ -1,6 +1,8 @@
 # Poorup Achievement Announcements and Collection UI
 
-Status: design proposal for the next achievement UI slice.
+Status: implemented achievement collection, modal details, filters, and
+server-wide Mythical announcement surface. Further visual telemetry remains
+follow-up work.
 
 ## Unlock announcement behavior
 

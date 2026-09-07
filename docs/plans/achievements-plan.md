@@ -1,6 +1,9 @@
 # Poorup Achievements and Secrets
 
-Status: design proposal. Achievements are a progression and discovery layer across normal play, global events, secret combinations, and Parlor Patrol.
+Status: implemented server-verified catalog and profile collection. Rarity
+telemetry and long-term tuning remain follow-up work. Achievements are a
+progression and discovery layer across normal play, global events, secret
+combinations, and Parlor Patrol.
 
 ## Design goals
 

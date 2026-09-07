@@ -1,6 +1,7 @@
 # Poorup Global Leaderboards
 
-Status: design proposal.
+Status: implemented all-time, monthly, and friends-only projection. Seasons,
+trends, and rewards remain follow-up work.
 
 ## Product decision
 
