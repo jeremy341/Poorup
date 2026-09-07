@@ -174,7 +174,8 @@ Remaining rollout work:
 - 100% of selected actions pass the server legality seam.
 - Zero negative cash outside the existing debt/bankruptcy rules.
 - Zero hidden-information reads in a bot snapshot.
-- Zero deadlocks in 1,000 seeded bounded full-game simulations. **Verified.**
+- Zero deadlocks in 1,000 seeded bounded full-game simulations with casino,
+  market, auctions, and global events enabled. **Verified.**
 - Replays with the same seed produce the same decisions.
 - p95 deterministic decision latency stays below 50 ms.
 - Bot win rate is measured by personality/difficulty, not hand-tuned bonuses.

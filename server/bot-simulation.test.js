@@ -84,6 +84,7 @@ async function simulate(seedValue) {
     room.setRoomSetting('auction', true);
     room.setRoomSetting('casino', true);
     room.setRoomSetting('market', true);
+    room.setRoomSetting('globalEvents', true);
     assert.equal(room.startGame().success, true);
 
     const advisor = new DeterministicAdvisor();
