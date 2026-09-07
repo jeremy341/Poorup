@@ -150,6 +150,22 @@ check('market blocked on pendingPurchaseOffer', () => {
   assert.equal(retry.success, true);
 });
 
+// Design pin: anytime-trading is intended. Loans, market, casino and bank
+// loans require your turn; trades propose and settle on anyone's turn.
+// Table obligations still block both legs (covered above).
+check('trade proposes and settles off-turn by design', () => {
+  const { game, a, b } = startedRoom();
+  game.currentPlayerId = a.id;
+  const cashA = a.cash;
+  const cashB = b.cash;
+  const proposed = game.proposeTrade('socket-b', { toPlayerId: a.id, giveCash: 10 });
+  assert.equal(proposed.success, true);
+  const settled = game.respondToTrade('socket-a', { tradeId: proposed.trade.id, accept: true });
+  assert.equal(settled.success, true);
+  assert.equal(a.cash, cashA + 10);
+  assert.equal(b.cash, cashB - 10);
+});
+
 const failed = results.filter((r) => !r).length;
 console.log(`\naudit trade+auction tests: ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -9,6 +9,11 @@ import crypto from 'crypto';
 // GameState.proposeTrade, kept in the original evaluation order so a single
 // error string wins exactly as before. The context is fully normalized up
 // front (pure lookups only), and every predicate reads just that context.
+//
+// Deliberate design, not a gap: trades have NO turn guard. Loans, market,
+// casino and bank loans require your turn; player-to-player trades may be
+// proposed and settled on anyone's turn. Table obligations (payment, auction,
+// purchase offer, pending trade/contract) still block both legs.
 const TRADE_PROPOSAL_GUARDS = [
   {
     error: 'Choose a valid trade partner.',
