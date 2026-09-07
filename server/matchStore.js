@@ -84,6 +84,11 @@ function sanitizeBotDecision(entry) {
     reasonCode: clipString(source.reasonCode, 40),
     latencyMs: nonNegativeNumber(source.latencyMs),
     candidateIds: stringList(source.candidateIds, 24),
+    shadowActionId: clipString(source.shadowActionId, 100),
+    shadowConfidence: source.shadowConfidence == null ? null : Math.max(0, Math.min(1, Number(source.shadowConfidence) || 0)),
+    shadowProvider: clipString(source.shadowProvider, 24),
+    shadowAgreement: source.shadowAgreement === true,
+    shadowModel: clipString(source.shadowModel, 48),
     recordedAt: stringOrNull(source.recordedAt)
   };
 }

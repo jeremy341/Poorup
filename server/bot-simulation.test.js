@@ -15,7 +15,7 @@ import {
   selectBotTurnTarget
 } from './botLogic.js';
 
-const SIMULATION_COUNT = 20;
+const SIMULATION_COUNT = 1_000;
 const STEP_LIMIT = 2_000;
 const STALL_LIMIT = 8;
 
