@@ -167,6 +167,8 @@ Implemented in the current bot slice:
   rules digest, obligations, and redacted opponents without stable ids.
 - Future-value scoring now informs property purchases as well as pre-roll
   build, mortgage, market, casino, and loan candidates.
+- Auction bid/pass choices are exposed to the AI adapter while the deterministic
+  auction settlement and affordability guards remain authoritative.
 
 Remaining rollout work:
 
