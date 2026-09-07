@@ -80,7 +80,16 @@ function applyPropertyTransfer(state, indexes, fromSeat, toSeat) {
 function applyCandidate(snapshot, state, candidate) {
   const tile = tileFor(snapshot, candidate?.tileIndex);
   const kind = candidate?.kind;
-  if (kind === 'build' && tile) {
+  if (kind === 'buy' && tile) {
+    state.cash = Math.max(0, state.cash - nonNegative(candidate.price || tile.price));
+    const target = state.board.find(entry => entry.index === tile.index);
+    if (target) {
+      target.ownerSeat = 'self';
+      target.mortgaged = false;
+      target.houseCount = 0;
+    }
+    state.properties = state.board.filter(entry => entry.ownerSeat === 'self' && entry.group).map(entry => ({ ...entry }));
+  } else if (kind === 'build' && tile) {
     const cost = nonNegative(candidate.cost);
     state.cash = Math.max(0, state.cash - cost);
     const target = state.board.find(entry => entry.index === tile.index);

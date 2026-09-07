@@ -5,6 +5,7 @@
 // The server keeps only scheduling and execution; it asks these helpers what
 // a bot should do and runs the answer through room.runBotAction.
 import { buildBotStrategicContext } from './botStrategicContext.js';
+import { evaluateCandidate } from './botFuturePlanner.js';
 
 // Global-event voting: personality -> preferred policy id.
 export const EVENT_POLICY_BY_PERSONALITY = {
@@ -170,6 +171,16 @@ export function shouldBuyProperty(bot, tile) {
   return Boolean(tile) && bot.cash >= Number(tile.price || 0) + PURCHASE_RESERVE_CASH;
 }
 
+function shouldBuyWithPlan(game, bot, tile) {
+  if (!shouldBuyProperty(bot, tile)) return false;
+  if (!Array.isArray(game.tiles)) return true;
+  const snapshot = buildBotStrategicContext(game, bot, 'purchase', game.botDecisionSequence || 0);
+  const difficulty = game.settings?.botDifficulty || 'table';
+  const buy = evaluateCandidate(snapshot, { id: `buy:${tile.index}`, kind: 'buy', tileIndex: tile.index, price: tile.price, risk: 0, score: 0 }, { difficulty, seed: `${game.startedAt || 'pending'}:purchase` });
+  const pass = evaluateCandidate(snapshot, { id: `pass:${tile.index}`, kind: 'pass', tileIndex: tile.index, risk: 0, score: 0 }, { difficulty, seed: `${game.startedAt || 'pending'}:purchase` });
+  return buy.score >= pass.score;
+}
+
 function debtSellCandidates(game, bot) {
   if (typeof game.getTile !== 'function' || typeof game.canSellFromTile !== 'function') return [];
   return (bot.properties || [])
@@ -225,6 +236,74 @@ function botPaymentAction(room, bot, game) {
   });
 }
 
+function choiceCandidate(id, choiceId, score, label) {
+  return { id, kind: 'choice', choiceId, score, risk: score > 0 ? 0.1 : 0.2, label };
+}
+
+function phaseChoiceCandidates(game, bot, phase) {
+  if (phase === 'vote') {
+    const preferred = selectGlobalEventPolicy(game.globalEvent, bot.personality)?.id;
+    return (game.globalEvent?.choices || []).map(choice => choiceCandidate(
+      `vote:${choice.id}`,
+      choice.id,
+      choice.id === preferred ? 12 : 6,
+      choice.label
+    ));
+  }
+  if (phase === 'trade' && game.pendingTrade) {
+    const accept = shouldAcceptTrade(game.pendingTrade, index => game.getTile(index), bot.personality);
+    return [
+      choiceCandidate('trade:accept', 'accept', accept ? 12 : 2, 'ACCEPT'),
+      choiceCandidate('trade:decline', 'decline', accept ? 1 : 8, 'DECLINE')
+    ];
+  }
+  if (phase === 'contract' && game.pendingPlayerContract) {
+    const offer = game.pendingPlayerContract;
+    const lender = game.getPlayerById(offer.fromPlayerId);
+    const accept = shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
+    return [
+      choiceCandidate('contract:accept', 'accept', accept ? 12 : 2, 'ACCEPT'),
+      choiceCandidate('contract:decline', 'decline', accept ? 1 : 8, 'DECLINE')
+    ];
+  }
+  return [];
+}
+
+function runPhaseChoice(room, bot, game, phase, candidate) {
+  if (phase === 'vote') return room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, candidate.choiceId));
+  if (phase === 'trade') {
+    if (!game.pendingTrade) return { success: false, error: 'No matching trade offer was found.' };
+    return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: game.pendingTrade.id, accept: candidate.choiceId === 'accept' }));
+  }
+  if (phase === 'contract') return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
+  return { success: false, error: 'No bot choice is available.' };
+}
+
+async function runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase) {
+  const game = room.game;
+  const candidates = phaseChoiceCandidates(game, bot, phase);
+  if (!candidates.length) return PHASE_EXECUTORS[phase](room, bot, game);
+  const decision = await advisor.chooseAction({
+    ...decisionContext,
+    candidates,
+    personality: bot.personality,
+    event: game.globalEvent
+  });
+  const selected = candidates.find(candidate => candidate.id === decision?.actionId) || candidates[0];
+  const trace = {
+    ...decisionContext,
+    ...decision,
+    phase,
+    provider: decision?.provider || 'deterministic',
+    fallback: decision?.fallback !== false,
+    fallbackReason: decision?.fallbackReason || 'choice-phase-fallback',
+    actionId: selected.id,
+    candidateIds: candidates.map(candidate => candidate.id)
+  };
+  const result = runPhaseChoice(room, bot, game, phase, selected);
+  return attachBotDecision(result, trace);
+}
+
 // One small executor per phase, keyed by the state machine above. Each
 // returns the room action result, exactly as the original branches did.
 const PHASE_EXECUTORS = {
@@ -268,6 +347,9 @@ export async function runBotTurn(room, bot, advisor) {
     ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
   if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
+  if (advisor?.supportsChoicePhases && ['vote', 'trade', 'contract'].includes(phase)) {
+    return runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase);
+  }
   const result = PHASE_EXECUTORS[phase](room, bot, game);
   return attachBotDecision(result, {
     ...decisionContext,
@@ -328,7 +410,7 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
 export function resolvePurchaseOffer(room, bot, result) {
   if (!result?.purchaseOffer) return result;
   const tile = room.game.getTile(result.purchaseOffer.tileIndex);
-  const canBuy = shouldBuyProperty(bot, tile);
+  const canBuy = shouldBuyWithPlan(room.game, bot, tile);
   return room.runBotAction(bot.id, actor => canBuy
     ? room.purchaseProperty(actor, tile.index)
     : room.declineProperty(actor, tile.index));

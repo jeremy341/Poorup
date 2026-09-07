@@ -165,6 +165,8 @@ Implemented in the current bot slice:
 - AI-first provider selection falls back to this policy on quota or outage.
 - The versioned strategic snapshot includes exact bot position, board state,
   rules digest, obligations, and redacted opponents without stable ids.
+- Future-value scoring now informs property purchases as well as pre-roll
+  build, mortgage, market, casino, and loan candidates.
 
 Remaining rollout work:
 
