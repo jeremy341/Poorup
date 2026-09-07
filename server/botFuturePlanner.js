@@ -48,7 +48,8 @@ function stateClone(snapshot) {
     bankLoan: bot.bankLoan ? { ...bot.bankLoan } : null,
     casinoNet: number(bot.casino?.net),
     expectedRent: 0,
-    expectedRisk: 0
+    expectedRisk: 0,
+    expectedCashFlow: 0
   };
 }
 
@@ -148,6 +149,7 @@ function expectedLandingValue(snapshot, state, horizon) {
   let rent = 0;
   let risk = 0;
   let cardDelta = 0;
+  let cashFlow = 0;
   let positions = new Map([[state.position, 1]]);
   for (let turn = 0; turn < horizon; turn += 1) {
     const nextPositions = new Map();
@@ -155,6 +157,7 @@ function expectedLandingValue(snapshot, state, horizon) {
       DICE_TOTALS.forEach(([move, moveProbability]) => {
         const landing = (position + move) % boardLength;
         const chance = probability * moveProbability;
+        if (position + move >= boardLength) cashFlow += number(snapshot.rulesDigest?.passStartCash, 200) * chance;
         nextPositions.set(landing, (nextPositions.get(landing) || 0) + chance);
         const tile = state.board.find(entry => entry.index === landing);
         if (!tile) return;
@@ -171,6 +174,7 @@ function expectedLandingValue(snapshot, state, horizon) {
   state.expectedRent = rent;
   state.expectedRisk = risk;
   state.expectedCardDelta = cardDelta;
+  state.expectedCashFlow = cashFlow;
 }
 
 function groupPotential(snapshot, state) {
@@ -226,6 +230,7 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
     + state.expectedRent * 0.65
     - state.expectedRisk * 0.5
     + state.expectedCardDelta * 0.35
+    + state.expectedCashFlow * 0.25
     + groupPotential(snapshot, state)
     + (afterGroups - beforeGroups) * 90
     + eventHedgeValue(snapshot, state)
@@ -237,6 +242,7 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
     expectedRent: state.expectedRent,
     expectedRisk: state.expectedRisk,
     expectedCardDelta: state.expectedCardDelta,
+    expectedCashFlow: state.expectedCashFlow,
     liquidity: state.cash,
     completeGroups: afterGroups
   };

@@ -42,6 +42,7 @@ const loanWithTerms = evaluateCandidate(snapshot, {
 assert.equal(build.horizon, 3);
 assert.equal(mortgage.horizon, 1);
 assert.equal(Number.isFinite(build.score), true);
+assert.equal(Number.isFinite(build.expectedCashFlow), true);
 assert.equal(mortgage.liquidity, 530);
 assert.equal(purchase.liquidity, 400);
 assert.equal(loanWithTerms.score < loanWithoutTerms.score, true);
