@@ -88,10 +88,19 @@ function findVotingBot(game) {
 }
 
 function findPendingCounterpart(game) {
-  const pending = game.pendingTrade || game.pendingPlayerContract;
-  if (pending) return game.getPlayerById(pending.toPlayerId) || null;
+  if (game.pendingTrade) return game.getPlayerById(game.pendingTrade.toPlayerId) || null;
+  if (game.pendingPlayerContract) return game.getPlayerById(contractResponderId(game.pendingPlayerContract)) || null;
   if (game.pendingPayment?.playerId) return game.getPlayerById(game.pendingPayment.playerId) || null;
   return null;
+}
+
+function contractLastProposerId(contract) {
+  const depth = Math.max(0, Math.floor(Number(contract?.counterDepth) || 0));
+  return depth % 2 === 0 ? contract?.fromPlayerId : contract?.toPlayerId;
+}
+
+function contractResponderId(contract) {
+  return contractLastProposerId(contract) === contract?.fromPlayerId ? contract?.toPlayerId : contract?.fromPlayerId;
 }
 
 export function botMayStillAct(game, bot) {
@@ -110,7 +119,7 @@ export function isVotingTurn(game) {
 }
 
 export function isPendingFor(game, bot) {
-  return game.pendingTrade?.toPlayerId === bot.id || game.pendingPlayerContract?.toPlayerId === bot.id;
+  return game.pendingTrade?.toPlayerId === bot.id || contractResponderId(game.pendingPlayerContract) === bot.id;
 }
 
 // Ordered phase state machine - the array order IS the historical if/else
@@ -118,7 +127,7 @@ export function isPendingFor(game, bot) {
 const PHASES = [
   { id: 'vote', guard: (game, bot) => isVotingTurn(game) && !game.globalEvent.votes?.[bot.id] },
   { id: 'trade', guard: (game, bot) => game.pendingTrade?.toPlayerId === bot.id },
-  { id: 'contract', guard: (game, bot) => game.pendingPlayerContract?.toPlayerId === bot.id },
+  { id: 'contract', guard: (game, bot) => contractResponderId(game.pendingPlayerContract) === bot.id },
   { id: 'payment', guard: (game, bot) => game.pendingPayment?.playerId === bot.id },
   { id: 'auction', guard: game => Boolean(game.auction?.active) },
   { id: 'end-turn', guard: game => Boolean(game.awaitingEndTurn) },
@@ -217,14 +226,17 @@ function counterTradeOffer(game, bot) {
 
 function counterContractOffer(game, bot) {
   const contract = game.pendingPlayerContract;
-  if (!contract || contract.toPlayerId !== bot.id) return null;
+  if (!contract || contractResponderId(contract) !== bot.id) return null;
   if (Number(contract.counterDepth) >= 2) return null;
+  const lenderResponding = contract.fromPlayerId === bot.id;
   const counter = {
     contractId: contract.id,
     kind: contract.kind,
     amount: Math.max(1, Math.floor(Number(contract.amount) || 1)),
-    premiumRate: Math.max(0, Math.floor(Number(contract.premiumRate || 0) - 10)),
-    durationRounds: Math.min(20, Math.max(1, Math.floor(Number(contract.durationRounds) || 3) + 1)),
+    premiumRate: Math.max(0, Math.min(100, Math.floor(Number(contract.premiumRate || 0) + (lenderResponding ? 10 : -10)))),
+    durationRounds: lenderResponding
+      ? Math.max(1, Math.floor(Number(contract.durationRounds) || 3) - 1)
+      : Math.min(20, Math.max(1, Math.floor(Number(contract.durationRounds) || 3) + 1)),
     propertyIndex: contract.propertyIndex ?? null,
     collateralTileIndex: contract.collateralTileIndex ?? null,
     equityShare: contract.equityShare || 0,
@@ -276,6 +288,22 @@ function botPaymentAction(room, bot, game) {
   });
 }
 
+function shouldAcceptContractResponse(game, bot, offer) {
+  if (!offer) return false;
+  if (offer.toPlayerId === bot.id) {
+    const lender = game.getPlayerById(offer.fromPlayerId);
+    return shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
+  }
+  // A lender reviewing a counter keeps the same funding guard, and prefers
+  // not to accept a zero-return or excessively long revision.
+  if (offer.fromPlayerId === bot.id) {
+    const premium = Number(offer.premiumRate) || 0;
+    const duration = Number(offer.durationRounds) || 0;
+    return premium >= 0 && duration >= 1 && duration <= 20 && bot.cash >= Number(offer.amount || 0);
+  }
+  return false;
+}
+
 function choiceCandidate(id, choiceId, score, label) {
   return { id, kind: 'choice', choiceId, score, risk: score > 0 ? 0.1 : 0.2, label };
 }
@@ -302,8 +330,7 @@ function phaseChoiceCandidates(game, bot, phase) {
   }
   if (phase === 'contract' && game.pendingPlayerContract) {
     const offer = game.pendingPlayerContract;
-    const lender = game.getPlayerById(offer.fromPlayerId);
-    const accept = shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
+    const accept = shouldAcceptContractResponse(game, bot, offer);
     const candidates = [
       choiceCandidate('contract:accept', 'accept', accept ? 12 : 2, 'ACCEPT'),
       choiceCandidate('contract:decline', 'decline', accept ? 1 : 8, 'DECLINE')
@@ -397,8 +424,7 @@ const PHASE_EXECUTORS = {
   },
   contract: (room, bot, game) => {
     const offer = game.pendingPlayerContract;
-    const lender = game.getPlayerById(offer.fromPlayerId);
-    const acceptable = shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
+    const acceptable = shouldAcceptContractResponse(game, bot, offer);
     return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, acceptable));
   },
   payment: botPaymentAction,

@@ -296,7 +296,9 @@ function isOtherHuman(player) {
 
 function outgoingContract(pending, localServerId) {
   if (!pending) return null;
-  if (pending.fromPlayerId === localServerId) return pending;
+  const contractDepth = Math.max(0, Math.floor(Number(pending.counterDepth) || 0));
+  const lastProposerId = contractDepth % 2 === 0 ? pending.fromPlayerId : pending.toPlayerId;
+  if (lastProposerId === localServerId) return pending;
   return null;
 }
 

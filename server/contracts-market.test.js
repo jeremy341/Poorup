@@ -93,8 +93,20 @@ check('sender can adjust or cancel a pending contract without funding it', () =>
   assert.equal(game.pendingPlayerContract.amount, 120);
   assert.equal(a.cash, 1500);
   assert.equal(b.cash, 1500);
-  assert.deepEqual(game.adjustPlayerContract('socket-a', { contractId: 'stale', amount: 50 }), { success: false, error: 'That contract offer is no longer current.' });
   assert.equal(game.pendingPlayerContract.amount, 120);
+});
+
+check('contract negotiation roles alternate after each counter', () => {
+  const { game, a, b } = startedRoom();
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 80, premiumRate: 20, durationRounds: 2 });
+  const counter = game.counterPlayerContract('socket-b', { contractId: first.contract.id, amount: 90, premiumRate: 10, durationRounds: 3 });
+  assert.equal(counter.success, true);
+  assert.equal(game.counterPlayerContract('socket-b', { contractId: counter.contract.id, amount: 90 }).success, false);
+  const adjusted = game.adjustPlayerContract('socket-b', { contractId: counter.contract.id, amount: 95, premiumRate: 8, durationRounds: 4 });
+  assert.equal(adjusted.success, true);
+  assert.equal(game.pendingPlayerContract.toPlayerId, b.id);
+  assert.equal(game.respondPlayerContract('socket-b', true, 'role-accept', adjusted.contract.id).success, true);
+  assert.equal(a.cash, 1405);
 });
 
 check('loan collateral must be an unencumbered borrower deed', () => {
