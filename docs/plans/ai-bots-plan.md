@@ -98,9 +98,9 @@ per-game budgets, circuit breaking, provider health, model metadata, and an
 opt-in shadow path. `server/botStrategicContext.js` supplies the versioned
 rules digest, board, position, turn, obligation, finance, event, and redacted
 opponent projection used by both provider and deterministic paths.
-The AI adapter can also rank legal civic votes, trade responses, and player-
-contract responses; mandatory debt/auction execution retains deterministic
-server guards.
+The AI adapter can also rank legal civic votes, trade responses, player-
+contract responses, and auction bid/pass choices; mandatory debt and auction
+settlement still retain deterministic server guards.
 
 ### Runtime configuration
 
