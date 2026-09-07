@@ -285,9 +285,19 @@ export class DeepSeekAdvisor {
     };
   }
 
-  advisorUserPrompt({ candidates, personality, botDifficulty, event }) {
+  advisorUserPrompt({ candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, event }) {
     const brief = event ? { id: event.id, phase: event.phase, roundsRemaining: event.roundsRemaining, effects: event.effects } : null;
-    return JSON.stringify({ personality, botDifficulty: normalizeDifficulty(botDifficulty), event: brief, candidates });
+    return JSON.stringify({
+      ruleVersion: String(ruleVersion || 'bot-policy-v1').slice(0, 32),
+      phase: String(phase || 'pre-roll').slice(0, 24),
+      roundNumber: Math.max(0, Math.floor(Number(roundNumber) || 0)),
+      personality,
+      botDifficulty: normalizeDifficulty(botDifficulty),
+      botState: botState || {},
+      opponentSummaries: Array.isArray(opponentSummaries) ? opponentSummaries.slice(0, 6) : [],
+      event: brief,
+      candidates: Array.isArray(candidates) ? candidates.slice(0, 32) : []
+    });
   }
 
   advisorRequestPayload(context) {
