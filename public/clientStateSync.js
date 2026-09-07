@@ -154,7 +154,9 @@ function syncContractOffer() {
     state.playerContractOffer = null;
     return;
   }
-  if (pending.toPlayerId === localServerId()) {
+  const contractDepth = Math.max(0, Math.floor(Number(pending.counterDepth) || 0));
+  const responderId = contractDepth % 2 === 0 ? pending.toPlayerId : pending.fromPlayerId;
+  if (responderId === localServerId()) {
     state.playerContractOffer = pending;
     return;
   }
