@@ -179,6 +179,7 @@ const CANDIDATE_MAPPERS = [
   { kind: 'trade', takes: () => true, type: 'trade' },
   { kind: 'market', takes: () => true, type: 'market' },
   { kind: 'casino', takes: () => true, type: 'casino' },
+  { kind: 'repay', takes: () => true, type: 'repay' },
   { kind: 'build', takes: (candidate, bot) => bot.cash >= candidate.cost + 200, type: 'build' },
   { kind: 'mortgage', takes: () => true, type: 'mortgage' },
   { kind: 'loan', takes: (candidate, bot) => bot.personality === 'speculator', type: 'loan' }
@@ -571,6 +572,11 @@ const CANDIDATE_RUNNERS = {
   build: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'build-house' })),
   mortgage: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'mortgage' })),
   loan: (room, bot) => room.runBotAction(bot.id, actor => room.takeBankLoan(actor)),
+  repay: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.repayPlayerContract(actor, {
+    contractId: candidate.contractId,
+    amount: candidate.amount,
+    requestId: `bot-repay-${room.roomCode}-${room.game.roundNumber}-${candidate.contractId}`
+  })),
   roll: (room, bot) => room.runBotAction(bot.id, actor => room.rollDice(actor))
 };
 

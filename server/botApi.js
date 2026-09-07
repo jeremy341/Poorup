@@ -8,6 +8,7 @@ import { MARKET_FEE_RATE } from './marketLogic.js';
 const BOT_CANDIDATE_SOURCES = [
   { collect: (game, player) => game.botBuildCandidates(player) },
   { collect: (game, player) => game.botMortgageCandidates(player) },
+  { collect: (game, player) => game.botRepaymentCandidates(player) },
   { collect: (game, player) => game.botLoanCandidate(player) },
   { collect: (game, player, options) => options.expanded ? game.botGroupTradeCandidates(player) : game.botGroupTradeCandidate(player) },
   { collect: (game, player) => game.botMarketCandidate(player) },
@@ -181,6 +182,36 @@ const botApi = {
       risk: loan.totalDue / loan.principal,
       score: BOT_LOAN_SCORES[player.personality] || BOT_LOAN_SCORE_DEFAULT
     }];
+  },
+
+  // Repay player loans proactively when the bot can do so without draining
+  // its liquidity floor. Due contracts are settled first; active contracts
+  // are paid down only when the remaining balance is comfortably affordable.
+  botRepaymentCandidates(player) {
+    const contracts = Array.isArray(this.playerContracts) ? this.playerContracts : [];
+    return contracts
+      .filter(contract => contract
+        && ['loan', 'hybrid'].includes(contract.kind)
+        && ['active', 'due'].includes(contract.status)
+        && contract.toPlayerId === player.id
+        && Number(contract.remaining) > 0)
+      .map(contract => {
+        const remaining = Math.max(0, Math.floor(Number(contract.remaining) || 0));
+        const due = contract.status === 'due';
+        const available = Math.max(0, Math.floor(Number(player.cash || 0) - (due ? 0 : 180)));
+        const amount = Math.min(remaining, available);
+        if (amount <= 0) return null;
+        return {
+          id: 'repay:' + contract.id,
+          kind: 'repay',
+          contractId: contract.id,
+          amount,
+          remaining,
+          risk: due ? 0.05 : amount / Math.max(1, player.cash),
+          score: due ? 32 : 11
+        };
+      })
+      .filter(Boolean);
   },
 
   botGroupTradeCandidate(player) {

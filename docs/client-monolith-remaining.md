@@ -1,12 +1,13 @@
 # Client monolith (public/main.js) — historical baseline
 
 > **Status: SUPERSEDED.** This document was generated after Phase 19. The
-> current entry module is approximately 863 lines, with the later Phase 20–25
+> current entry module is approximately 892 lines (measured 2026-09-07), with the later Phase 20–25
 > slices extracted into focused client modules. Re-run CodeScene and refresh
 > the hotspot list before using this file to plan new refactors.
 
-Regenerated after Phase 19 (HEAD of branch `refactor/main-monolith`).
-main.js score: **4.14** (was 2.54 at Phase 11 start). LOC: **2,515** (was 3,623).
+Regenerated after Phase 19 (HEAD of branch `refactor/main-monolith`). The
+historical CodeScene score and LOC below are retained for provenance only;
+they are not current measurements. Current LOC: **892**.
 Top-level `function` decls: **101** (was 146); CodeScene's total-function module flag
 remains until the rooms/lobby + turn + socket clusters are extracted (needs < 75).
 
