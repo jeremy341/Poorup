@@ -34,6 +34,11 @@ export const AUCTION_COMFORT_RATIO = 0.7;
 // Property purchase keeps this much cash in reserve before buying.
 export const PURCHASE_RESERVE_CASH = 120;
 
+function attachBotDecision(result, decision) {
+  if (!result || typeof result !== 'object') return result;
+  return { ...result, botDecision: decision };
+}
+
 export function selectGlobalEventPolicy(globalEvent, personality) {
   const preferred = EVENT_POLICY_BY_PERSONALITY[personality] || DEFAULT_EVENT_POLICY;
   return globalEvent?.choices?.find(choice => choice.id === preferred) || globalEvent?.choices?.[0] || null;
@@ -192,9 +197,28 @@ const PHASE_EXECUTORS = {
 // action result. Purchase offers carry over to the caller's tail resolution
 // for the second pass, matching the original inline double-check.
 export async function runBotTurn(room, bot, advisor) {
-  const phase = classifyBotTurnPhase(room.game, bot);
-  if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor);
-  return PHASE_EXECUTORS[phase](room, bot, room.game);
+  const game = room.game;
+  const phase = classifyBotTurnPhase(game, bot);
+  const decisionSequence = (game.botDecisionSequence || 0) + 1;
+  game.botDecisionSequence = decisionSequence;
+  const decisionContext = {
+    botId: bot.id,
+    botBrain: game.settings?.botBrain || 'auto',
+    botDifficulty: game.settings?.botDifficulty || 'table',
+    gameId: `${room.roomCode}:${game.startedAt || 'pending'}`,
+    decisionSequence,
+    ruleVersion: 'bot-policy-v1'
+  };
+  if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
+  const result = PHASE_EXECUTORS[phase](room, bot, game);
+  return attachBotDecision(result, {
+    ...decisionContext,
+    phase,
+    provider: 'deterministic',
+    fallback: true,
+    fallbackReason: 'phase-resolution',
+    candidateIds: []
+  });
 }
 
 // Candidate kind -> the room call it implies; the table order preserves the
@@ -214,16 +238,31 @@ const CANDIDATE_RUNNERS = {
   roll: (room, bot) => room.runBotAction(bot.id, actor => room.rollDice(actor))
 };
 
-async function runAdvisorTurn(room, bot, advisor) {
+async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 'pre-roll') {
   const game = room.game;
   const candidates = game.getBotCandidates(bot);
-  const decision = await advisor.chooseAction({ candidates, personality: bot.personality, event: game.globalEvent });
+  const decision = await advisor.chooseAction({
+    ...decisionContext,
+    candidates,
+    personality: bot.personality,
+    event: game.globalEvent
+  });
+  const trace = {
+    ...decisionContext,
+    ...decision,
+    phase,
+    provider: decision?.provider || 'deterministic',
+    fallback: decision?.fallback !== false,
+    fallbackReason: decision?.fallbackReason || 'deterministic-advisor',
+    candidateIds: candidates.map(candidate => candidate.id).filter(Boolean).slice(0, 24)
+  };
   // The advisor call is async; if the seat moved on while it thought, the
   // original code aborted the tick without emitting.
-  if (game.getCurrentPlayer()?.id !== bot.id) return { noEmit: true };
+  if (game.getCurrentPlayer()?.id !== bot.id) return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' } };
   const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
   const action = candidateAction(candidate, bot);
-  return CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
+  const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
+  return attachBotDecision(result, trace);
 }
 
 // Applies one pending purchase offer for the bot, if the result carries it.

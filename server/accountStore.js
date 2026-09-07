@@ -165,6 +165,7 @@ function buildMatchRecord(matchId, matchMeta, participants) {
   };
   if (matchMeta.includeMatchDetails) {
     record.playerCount = Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length));
+    record.botDecisions = clippedList(matchMeta.botDecisions, 200);
   }
   return record;
 }

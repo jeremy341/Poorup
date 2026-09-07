@@ -45,6 +45,7 @@ function renderHudLobby() {
   nameEl.style.color = "#cfa75f";
   $("#hud-note").style.display = "block";
   $("#hud-note").textContent = "Set rules on the right, then press Start Round.";
+  $("#hud-bot-status")?.classList.add("is-hidden");
   $("#hud-loan-status")?.classList.add("is-hidden");
   $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
   $("#hud-pool").textContent = "$0";

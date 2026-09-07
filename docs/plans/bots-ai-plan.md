@@ -1,6 +1,6 @@
-# Poorup Bots and AI Decision Layer
+# Poorup Bots and AI Decision Layer (historical)
 
-Status: design proposal. This plan turns bots from scripted turn actors into decision-capable opponents while keeping the game deterministic, fair, and playable if no model is available.
+Status: superseded by [`no-ai-bots-plan.md`](./no-ai-bots-plan.md) and [`ai-bots-plan.md`](./ai-bots-plan.md). Retained for historical context.
 
 ## Design decision
 

@@ -45,7 +45,37 @@ const BOT_LOAN_SCORE_DEFAULT = -20;
 const BOT_MARKET_SCORES = { speculator: 20 };
 const BOT_MARKET_SCORE_DEFAULT = 4;
 
+function finiteOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
 const botApi = {
+  recordBotDecisionTrace(entry = {}) {
+    const trace = {
+      botId: entry.botId ? String(entry.botId).slice(0, 80) : null,
+      gameId: entry.gameId ? String(entry.gameId).slice(0, 120) : null,
+      ruleVersion: String(entry.ruleVersion || 'bot-policy-v1').slice(0, 32),
+      sequence: Math.max(0, Math.floor(finiteOrZero(entry.decisionSequence))),
+      phase: String(entry.phase || 'unknown').slice(0, 24),
+      provider: String(entry.provider || 'deterministic').slice(0, 24),
+      fallback: entry.fallback === true,
+      fallbackReason: entry.fallbackReason ? String(entry.fallbackReason).slice(0, 40) : null,
+      brain: String(entry.brain || this.settings.botBrain || 'auto').slice(0, 12),
+      difficulty: String(entry.difficulty || this.settings.botDifficulty || 'table').slice(0, 12),
+      actionId: entry.actionId ? String(entry.actionId).slice(0, 100) : null,
+      confidence: Math.max(0, Math.min(1, finiteOrZero(entry.confidence))),
+      reasonCode: entry.reasonCode ? String(entry.reasonCode).slice(0, 40) : 'unknown',
+      latencyMs: Math.max(0, Math.floor(finiteOrZero(entry.latencyMs))),
+      candidateIds: Array.isArray(entry.candidateIds) ? entry.candidateIds.filter(id => typeof id === 'string').slice(0, 24).map(id => id.slice(0, 100)) : [],
+      recordedAt: new Date().toISOString()
+    };
+    this.botDecisionTrace = Array.isArray(this.botDecisionTrace) ? this.botDecisionTrace : [];
+    this.botDecisionTrace.push(trace);
+    if (this.botDecisionTrace.length > 200) this.botDecisionTrace.splice(0, this.botDecisionTrace.length - 200);
+    return trace;
+  },
+
   runBotAction(playerId, action) {
     const bot = this.getPlayerById(playerId);
     const rejection = this.botActionRejection(bot, action);
