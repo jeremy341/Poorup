@@ -140,6 +140,7 @@ function syncRoundFlags(game) {
   state.roundNumber = num(game.roundNumber);
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
+  state.pendingTrade = orNull(game.pendingTrade);
 }
 
 function diceOf(game) {

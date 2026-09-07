@@ -4,6 +4,8 @@ import {
   playerContractSummary,
   processContracts,
   proposeContract,
+  counterContract,
+  adjustContract,
   repayContract,
   respondContract,
   settleEquityShares
@@ -297,6 +299,14 @@ class GameState {
 
   proposePlayerContract(socketId, offer = {}) {
     return proposeContract(this, socketId, offer);
+  }
+
+  counterPlayerContract(socketId, offer = {}) {
+    return counterContract(this, socketId, offer);
+  }
+
+  adjustPlayerContract(socketId, offer = {}) {
+    return adjustContract(this, socketId, offer);
   }
 
   respondPlayerContract(socketId, accept, requestId = null) {

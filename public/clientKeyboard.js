@@ -119,6 +119,7 @@ const ESCAPE_GATES = [
   { visible: () => modalOpen("#social-modal"), escape: () => closeSurface("#social-modal") },
   { visible: () => modalOpen("#player-modal"), escape: () => closeSurface("#player-modal") },
   { visible: () => modalOpen("#financing-modal"), escape: () => host.closeFinancingModal() },
+  { visible: () => modalOpen("#deal-detail-modal"), escape: () => host.closeDealDetails() },
   { visible: () => modalOpen("#card-gallery"), escape: () => host.closeCardGallery() },
   { visible: () => Boolean(state.auction), escape: preventEscape },
 ];
