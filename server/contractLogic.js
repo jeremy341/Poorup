@@ -212,9 +212,9 @@ export function proposeContract(game, socketId, offer = {}) {
 // intentionally off-turn for the borrower because it is a response to an
 // already-open table obligation; the normal lender-funding guards still run.
 export function counterContract(game, socketId, offer = {}) {
-  const borrower = game.getPlayerBySocket(socketId);
+  const responder = game.getPlayerBySocket(socketId);
   const current = game.pendingPlayerContract;
-  if (!borrower || !current || current.toPlayerId !== borrower.id) {
+  if (!responder || !current || contractResponderId(current) !== responder.id) {
     return { success: false, error: 'Only the receiving player can negotiate this contract.' };
   }
   if (offer.contractId && offer.contractId !== current.id) {
@@ -224,38 +224,6 @@ export function counterContract(game, socketId, offer = {}) {
     return { success: false, error: 'This contract has reached its negotiation limit.' };
   }
   const lender = game.getPlayerById(current.fromPlayerId);
-  const normalized = normalizeContractOffer({ ...current, ...offer });
-  const rejection = contractProposalRejectionWithoutTurn(game, lender, borrower, normalized.amount);
-  if (rejection) return rejection;
-  const contract = draftContract(game, {
-    fromPlayer: lender,
-    toPlayer: borrower,
-    kind: normalized.kind,
-    amount: normalized.amount,
-    premiumRate: normalized.premiumRate,
-    durationRounds: normalized.durationRounds
-  });
-  const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
-  const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
-  if (terms) return terms;
-  contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
-  game.pendingPlayerContract = contract;
-  game.feedMessage(borrower.nickname + ' negotiated the ' + normalized.kind + ' contract terms.');
-  return { success: true, countered: true, contract };
-}
-
-export function adjustContract(game, socketId, offer = {}) {
-  const lender = game.getPlayerBySocket(socketId);
-  const current = game.pendingPlayerContract;
-  if (!lender || !current || current.fromPlayerId !== lender.id) {
-    return { success: false, error: 'Only the sending player can adjust this contract.' };
-  }
-  if (offer.contractId && offer.contractId !== current.id) {
-    return { success: false, error: 'That contract offer is no longer current.' };
-  }
-  if (Number(current.counterDepth) >= 2) {
-    return { success: false, error: 'This contract has reached its negotiation limit.' };
-  }
   const borrower = game.getPlayerById(current.toPlayerId);
   const normalized = normalizeContractOffer({ ...current, ...offer });
   const rejection = contractProposalRejectionWithoutTurn(game, lender, borrower, normalized.amount);
@@ -273,7 +241,41 @@ export function adjustContract(game, socketId, offer = {}) {
   if (terms) return terms;
   contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
   game.pendingPlayerContract = contract;
-  game.feedMessage(lender.nickname + ' adjusted the ' + normalized.kind + ' contract terms.');
+  game.feedMessage(responder.nickname + ' negotiated the ' + normalized.kind + ' contract terms.');
+  return { success: true, countered: true, contract };
+}
+
+export function adjustContract(game, socketId, offer = {}) {
+  const editor = game.getPlayerBySocket(socketId);
+  const current = game.pendingPlayerContract;
+  if (!editor || !current || contractLastProposerId(current) !== editor.id) {
+    return { success: false, error: 'Only the sending player can adjust this contract.' };
+  }
+  if (offer.contractId && offer.contractId !== current.id) {
+    return { success: false, error: 'That contract offer is no longer current.' };
+  }
+  if (Number(current.counterDepth) >= 2) {
+    return { success: false, error: 'This contract has reached its negotiation limit.' };
+  }
+  const lender = game.getPlayerById(current.fromPlayerId);
+  const borrower = game.getPlayerById(current.toPlayerId);
+  const normalized = normalizeContractOffer({ ...current, ...offer });
+  const rejection = contractProposalRejectionWithoutTurn(game, lender, borrower, normalized.amount);
+  if (rejection) return rejection;
+  const contract = draftContract(game, {
+    fromPlayer: lender,
+    toPlayer: borrower,
+    kind: normalized.kind,
+    amount: normalized.amount,
+    premiumRate: normalized.premiumRate,
+    durationRounds: normalized.durationRounds
+  });
+  const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
+  const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
+  if (terms) return terms;
+  contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
+  game.pendingPlayerContract = contract;
+  game.feedMessage(editor.nickname + ' adjusted the ' + normalized.kind + ' contract terms.');
   return { success: true, adjusted: true, contract };
 }
 
@@ -287,8 +289,16 @@ function contractProposalRejectionWithoutTurn(game, fromPlayer, toPlayer, amount
 function responseTargetMatches(player, contract) {
   if (!player) return false;
   if (!contract) return false;
-  if (contract.toPlayerId === player.id) return true;
-  return Number(contract.counterDepth) > 0 && contract.fromPlayerId === player.id;
+  return contractResponderId(contract) === player.id;
+}
+
+function contractLastProposerId(contract) {
+  const depth = Math.max(0, Math.floor(Number(contract?.counterDepth) || 0));
+  return depth % 2 === 0 ? contract?.fromPlayerId : contract?.toPlayerId;
+}
+
+function contractResponderId(contract) {
+  return contractLastProposerId(contract) === contract?.fromPlayerId ? contract?.toPlayerId : contract?.fromPlayerId;
 }
 
 function lenderCanStillFund(lender, contract) {

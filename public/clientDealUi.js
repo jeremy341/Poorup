@@ -39,16 +39,19 @@ function tradeDetailHTML(trade) {
 }
 
 function contractDetailHTML(contract) {
-  const mine = contract.toPlayerId === localServerId();
+  const contractDepth = Math.max(0, Math.floor(Number(contract.counterDepth) || 0));
+  const needsResponse = contractDepth % 2 === 0
+    ? contract.toPlayerId === localServerId()
+    : contract.fromPlayerId === localServerId();
   const kind = String(contract.kind || "loan").toUpperCase();
   const terms = [`$${Number(contract.amount || 0).toLocaleString()} ADVANCE`, `${Number(contract.premiumRate || 0)}% PREMIUM`, `${Number(contract.durationRounds || 0)} ROUNDS`];
   if (contract.kind === "loan" && contract.collateralTileIndex != null) terms.push(`COLLATERAL · ${TILES[Number(contract.collateralTileIndex)]?.name || "DEED"}`);
   if (contract.kind === "equity") terms.push(`${Number(contract.equityShare || 0)}% EQUITY`, contract.expiresRound == null ? "FOREVER" : "TERM-LIMITED");
   if (contract.kind === "hybrid") terms.push(`${Number(contract.conversionShare || 0)}% CONVERSION`, TILES[Number(contract.propertyIndex)]?.name || "PROPERTY");
-  const actions = mine
+  const actions = needsResponse
     ? `${dealActionButton("accept", "ACCEPT", true)}${dealActionButton("negotiate", "NEGOTIATE")}${dealActionButton("decline", "DECLINE")}`
     : `${dealActionButton("adjust", "ADJUST", true)}${dealActionButton("cancel", "CANCEL OFFER")}`;
-  return `<div class="deal-detail-body"><div class="deal-detail-head"><div class="deal-detail-title-wrap"><img class="deal-detail-mark" src="/assets/negotiation.svg" alt="" aria-hidden="true"/><div><span class="t-micro g400">${kind} · ${mine ? "NEEDS YOU" : "AWAITING REVIEW"}</span><h2 class="t-section g100" id="deal-detail-title">${esc(contract.fromPlayerName || "PLAYER")} → ${esc(contract.toPlayerName || "PLAYER")}</h2></div></div><button class="btn-dark" type="button" id="deal-detail-close"><span class="t-label f11">CLOSE</span></button></div><div class="deal-detail-terms">${terms.map(term => `<span class="deal-term t-label f11 g100">${esc(term)}</span>`).join("")}</div><p class="t-body ink-2 deal-detail-copy">Review every parameter before accepting. Editing sends a new proposal; no cash moves until the funding player accepts.</p><div class="deal-detail-actions">${actions}</div></div>`;
+  return `<div class="deal-detail-body"><div class="deal-detail-head"><div class="deal-detail-title-wrap"><img class="deal-detail-mark" src="/assets/negotiation.svg" alt="" aria-hidden="true"/><div><span class="t-micro g400">${kind} · ${needsResponse ? "NEEDS YOU" : "AWAITING REVIEW"}</span><h2 class="t-section g100" id="deal-detail-title">${esc(contract.fromPlayerName || "PLAYER")} → ${esc(contract.toPlayerName || "PLAYER")}</h2></div></div><button class="btn-dark" type="button" id="deal-detail-close"><span class="t-label f11">CLOSE</span></button></div><div class="deal-detail-terms">${terms.map(term => `<span class="deal-term t-label f11 g100">${esc(term)}</span>`).join("")}</div><p class="t-body ink-2 deal-detail-copy">Review every parameter before accepting. Editing sends a new proposal; no cash moves until the funding player accepts.</p><div class="deal-detail-actions">${actions}</div></div>`;
 }
 
 function findDeal() {

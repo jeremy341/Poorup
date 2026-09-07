@@ -24,6 +24,7 @@ let financingView = "builder";
 let financingSurfaceContractId = null;
 let financingSurfaceTileIndex = null;
 let financingNegotiationContractId = null;
+let financingNegotiationAction = "counter";
 const financingNegotiationDraft = {
   kind: "loan",
   amount: 100,
@@ -781,7 +782,8 @@ function negotiationPreviewHTML(contract) {
 
 function financingNegotiationHTML(contract) {
   const proposer = contract.fromPlayerName || "PLAYER";
-  return `<section class="financing-surface-body" aria-labelledby="financing-negotiate-heading"><div class="financing-surface-kicker"><span class="t-micro g400">NEGOTIATION · ${esc(String(contract.kind || "loan").toUpperCase())}</span><span class="t-label f11 g100">FROM ${esc(proposer)}</span></div><h3 class="t-section g100" id="financing-negotiate-heading">Adjust the deal terms</h3><p class="t-body ink-2 financing-surface-copy">Tune every parameter for this ${esc(contract.kind || "loan")} deal. The proposer keeps the funding side; you are sending a counteroffer.</p><div class="financing-form">${negotiationFieldsHTML(contract)}</div><section class="financing-preview" id="negotiation-preview" aria-live="polite">${negotiationPreviewHTML(contract)}</section><div class="financing-actions is-solo"><button class="cta-red" id="financing-negotiate-send" type="button"><span class="cta-text cta-text-sm">SEND COUNTER</span></button></div></section>`;
+  const adjusting = financingNegotiationAction === "adjust";
+  return `<section class="financing-surface-body" aria-labelledby="financing-negotiate-heading"><div class="financing-surface-kicker"><span class="t-micro g400">${adjusting ? "ADJUSTMENT" : "NEGOTIATION"} · ${esc(String(contract.kind || "loan").toUpperCase())}</span><span class="t-label f11 g100">${adjusting ? "TO" : "FROM"} ${esc(adjusting ? contract.toPlayerName || "PLAYER" : proposer)}</span></div><h3 class="t-section g100" id="financing-negotiate-heading">Adjust the deal terms</h3><p class="t-body ink-2 financing-surface-copy">Tune every parameter for this ${esc(contract.kind || "loan")} deal. No cash moves until the other player accepts the revised terms.</p><div class="financing-form">${negotiationFieldsHTML(contract)}</div><section class="financing-preview" id="negotiation-preview" aria-live="polite">${negotiationPreviewHTML(contract)}</section><div class="financing-actions is-solo"><button class="cta-red" id="financing-negotiate-send" type="button"><span class="cta-text cta-text-sm">${adjusting ? "SEND ADJUSTMENT" : "SEND COUNTER"}</span></button></div></section>`;
 }
 
 function currentNegotiationContract() {
@@ -892,7 +894,7 @@ function negotiationPayload(contract) {
 function sendFinancingNegotiation() {
   const contract = currentNegotiationContract();
   if (!contract || contract.id !== financingNegotiationContractId) return;
-  host.emitServer("counter-player-contract", negotiationPayload(contract), (response) => {
+  host.emitServer(financingNegotiationAction === "adjust" ? "adjust-player-contract" : "counter-player-contract", negotiationPayload(contract), (response) => {
     if (response?.success === false) {
       host.say(response.error || "The contract counteroffer could not be sent.");
       host.renderChat();
@@ -1108,6 +1110,9 @@ export function openFinancingNegotiation(contractId, trigger = null) {
   }
   financingNegotiationContractId = contractId;
   state.negotiationContractId = contractId;
+  const contractDepth = Math.max(0, Math.floor(Number(contract.counterDepth) || 0));
+  const lastProposerId = contractDepth % 2 === 0 ? contract.fromPlayerId : contract.toPlayerId;
+  financingNegotiationAction = lastProposerId === financingMyServerId() ? "adjust" : "counter";
   loadNegotiationDraft(contract);
   financingPreviewMode = contract.kind || "loan";
   financingView = "negotiate";
@@ -1118,6 +1123,7 @@ export function openFinancingNegotiation(contractId, trigger = null) {
 
 export function closeFinancingModal() {
   financingNegotiationContractId = null;
+  financingNegotiationAction = "counter";
   state.negotiationContractId = null;
   closeSurface("#financing-modal");
 }
