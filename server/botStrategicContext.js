@@ -150,6 +150,21 @@ function turnView(game, bot) {
   };
 }
 
+function recentBotDecisions(game, bot) {
+  if (!Array.isArray(game?.botDecisionTrace)) return [];
+  return game.botDecisionTrace
+    .filter(entry => entry?.botId === bot.id)
+    .slice(-6)
+    .map(entry => ({
+      sequence: nonNegative(entry.sequence ?? entry.decisionSequence),
+      phase: String(entry.phase || 'unknown').slice(0, 24),
+      actionId: typeof entry.actionId === 'string' ? entry.actionId.slice(0, 80) : null,
+      fallback: entry.fallback === true,
+      strategicScore: Number.isFinite(Number(entry.strategicScore)) ? Number(entry.strategicScore) : null,
+      reasonCode: typeof entry.reasonCode === 'string' ? entry.reasonCode.slice(0, 40) : null
+    }));
+}
+
 function obligationView(game, bot) {
   const payment = game.pendingPayment;
   const purchase = game.pendingPurchaseOffer;
@@ -288,6 +303,7 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
       casino: ownCasinoView(safeBot)
     },
     turn: turnView(game || {}, safeBot),
+    recentDecisions: recentBotDecisions(game || {}, safeBot),
     board,
     opponents,
     obligations: obligationView(game || {}, safeBot),
