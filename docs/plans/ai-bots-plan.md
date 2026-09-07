@@ -1,6 +1,7 @@
 # Poorup AI Bot Plan
 
-Status: AI-first `AUTO` mode with a guaranteed no-AI fallback.
+Status: implemented AI-first `AUTO` mode with a guaranteed no-AI fallback.
+Provider shadowing and production rollout gates remain intentionally staged.
 
 ## Product decision
 
@@ -89,9 +90,19 @@ Required adapter behavior:
 7. Open a circuit after repeated failures and probe again later.
 8. Never expose provider errors, API keys, or billing details to other players.
 
-Current code already has `server/botAdvisor.js` with deterministic fallback,
-timeout handling, and candidate validation. It still needs provider health,
-credit-budget accounting, circuit breaking, and model-version telemetry.
+Current code now has `server/botAdvisor.js` with deterministic fallback,
+timeout handling, candidate validation, JSON-object requests, quota detection,
+per-game budgets, circuit breaking, provider health, and model metadata.
+
+### Runtime configuration
+
+The server keeps credentials in environment variables only. Set
+`DEEPSEEK_API_KEY` to enable the advisor, optionally override
+`DEEPSEEK_API_URL`, `DEEPSEEK_MODEL`, `DEEPSEEK_TIMEOUT_MS`, or
+`POORUP_BOT_AI_DECISIONS`, and leave the values unset for an automatic
+no-provider fallback. `POORUP_BOT_BRAIN=no-ai` (or the legacy
+`POORUP_BOT_ADVISOR=no-ai`) forces the deterministic path for a low-cost
+deployment. The key is never sent to clients or persisted in match history.
 
 ## Prompt contract
 
@@ -220,13 +231,13 @@ assertions must judge legality, state transitions, privacy, and side effects.
 
 ## Rollout
 
-1. Keep current deterministic policy as the compatibility baseline.
-2. Add `botBrain`/`botDifficulty` settings and sanitized snapshots.
-3. Add adapter health, quota budget, and circuit breaker.
+1. Keep current deterministic policy as the compatibility baseline. **Done.**
+2. Add `botBrain`/`botDifficulty` settings and sanitized snapshots. **Done.**
+3. Add adapter health, quota budget, and circuit breaker. **Done.**
 4. Run AI in shadow mode while the deterministic bot acts.
 5. Compare actions/metrics without affecting player outcomes.
-6. Enable AI-first `AUTO` for selected rooms.
-7. Expose explicit `NO-AI` and show fallback status when needed.
+6. Enable AI-first `AUTO` for selected rooms. **Done behind configuration.**
+7. Expose explicit `NO-AI` and show fallback status when needed. **Done.**
 8. Add optional talk only after strategy reliability is proven.
 9. Consider self-play/AlphaZero-style research only after trace volume and
    balance evidence justify a trained model.

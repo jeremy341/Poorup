@@ -166,6 +166,8 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.botDecisionSequence = 0;
+    this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
     this.treasureDeck = [...TREASURE_DECK];
   }
@@ -221,6 +223,8 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.botDecisionSequence = 0;
+    this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
     this.treasureDeck = [...TREASURE_DECK];
     this.players.forEach(player => this.resetPlayerState(player));

@@ -22,6 +22,10 @@ const DEFAULT_ROOM_SETTINGS = {
   bankruptMode: 'elim',
   bots: 0,
   botPersonality: 'survivor',
+  // AUTO prefers the configured AI advisor and falls back to the deterministic
+  // house brain when credits, network, or provider health are unavailable.
+  botBrain: 'auto',
+  botDifficulty: 'table',
   startingCash: 1500,
   bankLoans: true,
   bankLoanSeverity: 'predatory',
@@ -41,6 +45,8 @@ const ROOM_FLAG_TRUE_VALUES = [true, 'true', 1, '1'];
 // key uses ROOM_FLAG_TRUE_VALUES.
 const GLOBAL_EVENT_ON_VALUES = [true, 'true', 'on', 'rare', 'hardcore', 1, '1'];
 const ROOM_BOT_PERSONALITIES = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'];
+const ROOM_BOT_BRAINS = ['auto', 'ai', 'no-ai'];
+const ROOM_BOT_DIFFICULTIES = ['house', 'table', 'expert'];
 // Legacy clients may still send these fields; the server owns scaling now.
 const LEGACY_SCALED_SETTINGS = ['globalEventDuration', 'globalEventMax'];
 
@@ -75,6 +81,16 @@ function normalizeBotPersonality(value) {
   return ROOM_BOT_PERSONALITIES.includes(lowered) ? lowered : 'survivor';
 }
 
+function normalizeBotBrain(value) {
+  const lowered = String(value).trim().toLowerCase().replace('_', '-');
+  return ROOM_BOT_BRAINS.includes(lowered) ? lowered : 'auto';
+}
+
+function normalizeBotDifficulty(value) {
+  const lowered = String(value).trim().toLowerCase();
+  return ROOM_BOT_DIFFICULTIES.includes(lowered) ? lowered : 'table';
+}
+
 const ROOM_SETTING_NORMALIZERS = {
   maxPlayers: value => clampSetting(value, 2, 4),
   // Bots are clamped against the live maxPlayers so seat math stays coherent.
@@ -86,7 +102,9 @@ const ROOM_SETTING_NORMALIZERS = {
   globalEventDuration: value => snapFlooredSetting(value, 10, 10, 5),
   globalEventMax: value => snapFlooredSetting(value, 2, 2, 1),
   globalEvents: value => GLOBAL_EVENT_ON_VALUES.includes(value),
-  botPersonality: normalizeBotPersonality
+  botPersonality: normalizeBotPersonality,
+  botBrain: normalizeBotBrain,
+  botDifficulty: normalizeBotDifficulty
 };
 
 export {
@@ -94,6 +112,8 @@ export {
   GLOBAL_EVENT_ON_VALUES,
   LEGACY_SCALED_SETTINGS,
   ROOM_BOT_PERSONALITIES,
+  ROOM_BOT_BRAINS,
+  ROOM_BOT_DIFFICULTIES,
   ROOM_FLAG_TRUE_VALUES,
   ROOM_SETTING_NORMALIZERS,
   SETTING_REJECTED

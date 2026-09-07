@@ -80,6 +80,8 @@ const summaryApi = {
       ready: player.ready,
       isBot: player.isBot,
       personality: player.isBot ? player.personality : null,
+      botBrain: player.isBot ? this.settings.botBrain : null,
+      botDifficulty: player.isBot ? this.settings.botDifficulty : null,
       clientId: player.clientId,
       accountId: player.accountId || null,
       avatarGrid: player.avatarGrid || null

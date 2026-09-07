@@ -8,6 +8,7 @@
    inline block in main.js.
    ============================================================ */
 import { state, saveAccountSession } from "./clientState.js";
+import { $ } from "./clientDom.js";
 import { applyServerState } from "./clientStateSync.js";
 import { TILES, TILE_COUNT } from "./clientBoardData.js";
 import { serverTileFor } from "./clientDeedRules.js";
@@ -69,6 +70,27 @@ function onMythicalAchievement(notification) {
   announceSocialNotification(notification);
   state.social.notifications = [notification, ...(state.social.notifications || [])].slice(0, 50);
   renderSocialSurface("#social-page-content");
+}
+
+function onBotStatus(status) {
+  state.botStatus = status || null;
+  const label = $("#hud-bot-status");
+  if (!label || !status?.nickname) return;
+  clearTimeout(label._hideTimer);
+  label.classList.remove("is-hidden", "is-thinking");
+  if (status.state === "thinking") {
+    label.classList.add("is-thinking");
+    label.textContent = `${status.nickname} · CPU THINKING · ${String(status.brain || "auto").toUpperCase()}`;
+    return;
+  }
+  const brainLabel = status.fallback ? "HOUSE BRAIN" : "AI ADVISOR";
+  const actionLabel = status.actionId ? String(status.actionId).toUpperCase() : "ACTION COMPLETE";
+  label.textContent = `${status.nickname} · ${brainLabel} · ${actionLabel}`;
+  label._hideTimer = setTimeout(() => label.classList.add("is-hidden"), 3200);
+  if (status.actionId) {
+    host.say(`${status.nickname} chose ${status.actionId}${status.fallback ? " (house fallback)" : " (AI advisor)"}.`);
+    host.renderChat();
+  }
 }
 
 function mergeAchievementIntoAccount(notification) {
@@ -205,6 +227,7 @@ function attachSocialListeners(socket) {
   socket.on("social-notification", onSocialNotification);
   socket.on("mythical-achievement", onMythicalAchievement);
   socket.on("achievement-unlocked", onAchievementUnlocked);
+  socket.on("bot-status", onBotStatus);
 }
 
 function attachAccountListeners(socket) {

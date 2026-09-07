@@ -110,6 +110,8 @@ function serverPlayerView(player) {
     isHost: Boolean(player.isHost),
     avatarGrid: gridOrNull(player.avatarGrid),
     personality: orNull(player.personality),
+    botBrain: orNull(player.botBrain),
+    botDifficulty: orNull(player.botDifficulty),
   };
 }
 

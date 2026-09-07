@@ -196,6 +196,7 @@ const state = {
   selectedPlayerView: "profile",
   selectedPlayerHistory: null,
   selectedPlayerHistoryScope: "all",
+  botStatus: null,
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
   sound: loadSoundPreference(), // global effects toggle
@@ -215,6 +216,8 @@ const state = {
     bankruptMode:    "elim",  // "elim" | "debt" (debt = give assets, stay in)
     bots:            0,        // reserved CPU seats; bot turns are added separately
     botPersonality: "survivor",
+    botBrain:        "auto",  // "auto" | "ai" | "no-ai"
+    botDifficulty:   "table", // "house" | "table" | "expert"
     bankLoans:       true,
     bankLoanSeverity: "predatory",
     globalEvents:    false,

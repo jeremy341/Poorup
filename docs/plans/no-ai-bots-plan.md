@@ -1,6 +1,7 @@
 # Poorup No-AI Bot Plan
 
-Status: production fallback and explicit low-cost mode.
+Status: implemented baseline, fallback, and explicit low-cost mode. Remaining
+items below are rollout/evaluation work, not a second bot architecture.
 
 ## Product decision
 
@@ -141,7 +142,7 @@ personality must not duplicate guards or settlement code.
 - Bot identity and personality are visible in the roster; no hidden bonuses.
 - Reconnect never replays a settled bot action.
 
-## Current Poorup implementation and gaps
+## Current Poorup implementation
 
 Already present:
 
@@ -151,14 +152,22 @@ Already present:
 - `server/rooms.js` bot seats and server-authoritative execution.
 - `server/botAdvisor.js` deterministic advisor and optional provider adapter.
 
-Still needed for the complete no-AI product:
+Implemented in the current bot slice:
 
-- Persist `botBrain` and `botDifficulty` in room settings with `AUTO` default.
-- Add the Expert bounded-rollout evaluator behind a deterministic seed.
-- Add a visible non-blocking `CPU THINKING` status and decision latency readout.
-- Add replay traces containing candidate ids, selected id, and rule version.
+- `botBrain` and `botDifficulty` are normalized in room settings with `AUTO`
+  and `TABLE` defaults.
+- Expert uses a bounded, deterministic seeded lookahead evaluator.
+- The HUD shows non-blocking `CPU THINKING`, provider, fallback, and action
+  status with reduced-motion support.
+- Private match history stores candidate ids, selected id, provider, latency,
+  brain, difficulty, game id, and rule version.
+- AI-first provider selection falls back to this policy on quota or outage.
+
+Remaining rollout work:
+
 - Add full-game simulations to balance reserves, loans, casino, market, and
   global-event survival.
+- Add a browser-level bot-status accessibility and reconnect test.
 
 ## Verification gates
 

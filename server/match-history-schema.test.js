@@ -20,13 +20,16 @@ const players = [
   { id: 'p2', accountId: bob.id, nickname: 'History Bob', avatarGrid: null, cash: 700, properties: [], bankrupt: false, fullGroups: new Set() }
 ];
 const record = accounts.recordGameResults(players, 'p1', {
-  gameId: 'history-v2', roomVisibility: 'public', includeMatchDetails: true, playerCount: 2
+  gameId: 'history-v2', roomVisibility: 'public', includeMatchDetails: true, playerCount: 2,
+  botDecisions: [{ sequence: 1, phase: 'pre-roll', provider: 'ai', fallback: false, actionId: 'roll', candidateIds: ['roll'], recordedAt: '2026-09-07T00:00:00.000Z' }]
 });
 assert.equal(record.playerCount, 2);
 assert.deepEqual(record.participants[0].avatarAtMatch, grid);
 assert.equal(record.participants[0].completedGroups, 1);
 assert.deepEqual(record.participants[0].achievementsUnlocked, []);
 assert.equal(record.participants[0].mythicalUnlocked, false);
+assert.equal(record.botDecisions.length, 1);
+assert.equal(record.botDecisions[0].provider, 'ai');
 
 annotateMatchAchievements(record, [{ accountId: alice.id, achievementId: '41st-tile', rarity: 'MYTHICAL' }]);
 assert.deepEqual(record.participants[0].achievementsUnlocked, ['41st-tile']);
@@ -36,6 +39,7 @@ const matches = new MatchStore(path.join(dir, 'matches.json'));
 assert.equal(matches.record(record).created, true);
 const loaded = matches.get('history-v2');
 assert.equal(loaded.playerCount, 2);
+assert.equal(loaded.botDecisions[0].actionId, 'roll');
 assert.deepEqual(loaded.participants[0].avatarAtMatch, grid);
 assert.deepEqual(loaded.participants[0].achievementsUnlocked, ['41st-tile']);
 assert.equal(loaded.participants[0].mythicalUnlocked, true);
