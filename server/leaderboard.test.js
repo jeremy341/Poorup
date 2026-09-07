@@ -77,6 +77,16 @@ check('window stats with empty history zero all but patrol', () => {
   assert.strictEqual(windowed.wins, 0, 'no matchHistory means no wins');
   assert.strictEqual(windowed.patrolBest, 900, 'patrol is copied from stored stats');
 });
+check('leaderboard rows expose a rebuildable recent trend', () => {
+  const alice = store.accounts.get('alice');
+  alice.matchHistory = Array.from({ length: 10 }, (_, index) => ({
+    matchId: `trend-${index}`,
+    completedAt: `2026-02-${String(20 - index).padStart(2, '0')}T00:00:00.000Z`,
+    participants: [{ accountId: alice.id, finalPlacement: index < 3 || index === 5 ? 1 : 2 }]
+  }));
+  const row = store.getLeaderboard('wins').find(entry => entry.username === 'alice');
+  assert.deepStrictEqual(row.trend, { direction: 'up', delta: 2 });
+});
 
 const failed = results.filter(ok => !ok).length;
 console.log(`leaderboard tests: ${results.length - failed} passed, ${failed} failed`);

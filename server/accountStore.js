@@ -241,6 +241,7 @@ const WINDOW_STAT_UPDATES = {
 };
 
 function windowRecords(account, since) {
+  if (!since) return Array.isArray(account.matchHistory) ? account.matchHistory : [];
   return (account.matchHistory || []).filter(record => Date.parse(record.completedAt || '') >= since);
 }
 
@@ -258,6 +259,18 @@ function achievementTallies(account, since) {
   };
 }
 
+function leaderboardTrend(account, since) {
+  const records = windowRecords(account, since);
+  const winsIn = (entries) => entries.reduce((sum, record) => {
+    const participant = findParticipant(record, account.id);
+    return sum + (participant?.finalPlacement === 1 ? 1 : 0);
+  }, 0);
+  const recent = records.slice(0, 5);
+  const previous = records.slice(5, 10);
+  const delta = winsIn(recent) - winsIn(previous);
+  return { direction: delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat', delta };
+}
+
 function leaderboardRow(store, account, metric, options) {
   const stats = store.getWindowStats(account, options.since || null);
   const tallies = achievementTallies(account, options.since);
@@ -268,7 +281,8 @@ function leaderboardRow(store, account, metric, options) {
     value: resolveMetricValue(metric, stats, { achievementScore: tallies.score, mythicalCount: tallies.mythical }),
     games: num(stats.gamesPlayed), wins: num(stats.wins), achievements: tallies.count,
     achievementScore: tallies.score, mythical: tallies.mythical,
-    bankLoanRepayments: num(stats.bankLoanRepayments), bankLoanDefaults: num(stats.bankLoanDefaults)
+    bankLoanRepayments: num(stats.bankLoanRepayments), bankLoanDefaults: num(stats.bankLoanDefaults),
+    trend: leaderboardTrend(account, options.since)
   };
 }
 

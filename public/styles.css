@@ -1799,6 +1799,10 @@ a:focus-visible {
 .ranking-avatar { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line-default); }
 .ranking-player { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ranking-player strong, .ranking-player span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-trend { width: fit-content; }
+.ranking-trend-up { color: var(--green-status); }
+.ranking-trend-down { color: var(--red-bright); }
+.ranking-trend-flat { color: var(--text-muted); }
 .ranking-value { font-variant-numeric: tabular-nums; }
 .rankings-page-shell, .social-page-shell { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .rankings-hero, .social-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 18px; padding: clamp(16px, 2vw, 24px); border-color: var(--line-board); background: var(--surface-panel); }
