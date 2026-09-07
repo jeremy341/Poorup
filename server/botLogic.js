@@ -195,6 +195,26 @@ function debtSellCandidates(game, bot) {
     .sort((a, b) => b.score - a.score || b.proceeds - a.proceeds || a.tile.index - b.tile.index);
 }
 
+function counterTradeOffer(game, bot) {
+  const trade = game.pendingTrade;
+  if (!trade || trade.toPlayerId !== bot.id) return null;
+  if (Number(trade.counterDepth) >= 2) return null;
+  const givePropertyIndexes = (trade.requestPropertyIndexes || [])
+    .map(Number)
+    .filter(index => (bot.properties || []).includes(index));
+  const requestPropertyIndexes = (trade.givePropertyIndexes || []).map(Number);
+  const requestedCash = Math.max(0, Math.floor(Number(trade.giveCash) || 0));
+  const premium = Math.max(10, Math.ceil(requestedCash * 0.1));
+  return {
+    toPlayerId: trade.fromPlayerId,
+    givePropertyIndexes,
+    requestPropertyIndexes,
+    giveCash: Math.max(0, Math.floor(Number(trade.requestCash) || 0)),
+    requestCash: requestedCash + premium,
+    counterDepth: Math.min(2, (trade.counterDepth || 0) + 1)
+  };
+}
+
 function botPaymentAction(room, bot, game) {
   const sell = debtSellCandidates(game, bot)[0];
   if (sell) {
@@ -252,10 +272,13 @@ function phaseChoiceCandidates(game, bot, phase) {
   }
   if (phase === 'trade' && game.pendingTrade) {
     const accept = shouldAcceptTrade(game.pendingTrade, index => game.getTile(index), bot.personality);
-    return [
+    const candidates = [
       choiceCandidate('trade:accept', 'accept', accept ? 12 : 2, 'ACCEPT'),
       choiceCandidate('trade:decline', 'decline', accept ? 1 : 8, 'DECLINE')
     ];
+    const counter = counterTradeOffer(game, bot);
+    if (counter) candidates.splice(1, 0, { ...choiceCandidate('trade:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
+    return candidates;
   }
   if (phase === 'contract' && game.pendingPlayerContract) {
     const offer = game.pendingPlayerContract;
@@ -290,6 +313,7 @@ function runPhaseChoice(room, bot, game, phase, candidate) {
   if (phase === 'vote') return room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, candidate.choiceId));
   if (phase === 'trade') {
     if (!game.pendingTrade) return { success: false, error: 'No matching trade offer was found.' };
+    if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
     return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: game.pendingTrade.id, accept: candidate.choiceId === 'accept' }));
   }
   if (phase === 'contract') return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));

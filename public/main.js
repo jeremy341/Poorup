@@ -78,12 +78,21 @@ import {
 import {
   configureTradeUi,
   openFinancingModal,
+  openFinancingNegotiation,
   openFinancingContract,
   closeFinancingModal,
   openTradeModal,
+  openTradeNegotiation,
   closeTradeModal,
 } from "./clientTradeUi.js";
 import { bindParlorSurfaces } from "./clientParlorBindings.js";
+import {
+  bindDealUi,
+  closeDealDetails,
+  configureDealUi,
+  openDealDetails,
+  renderDealDetailsIfOpen,
+} from "./clientDealUi.js";
 import {
   renderPatrolHud,
   startHomeClock,
@@ -284,6 +293,8 @@ configureSocketListeners(socket, {
   openChoiceModal,
   openCardReveal,
   openOfferModal,
+  renderDealDetailsIfOpen,
+  openDealDetails,
   serverSyncHost,
 });
 
@@ -782,6 +793,7 @@ function bindEvents() {
   // buy/decline choice card, trade offer inbox, bankruptcy + round-over
   // cards, and the card reveal/gallery (clientGameModalsUi.js)
   bindGameModalSurfaces();
+  bindDealUi();
   bindSponsorshipUi();
   bindDeedDetail();
 
@@ -823,6 +835,7 @@ function bindEvents() {
     rejectOpenOffer,
     closeDeedDetail,
     closeTradeModal,
+    closeDealDetails,
     closePopup,
     primaryTurnAction,
   });
@@ -834,13 +847,14 @@ function bindEvents() {
    ============================================================ */
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
+configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation });
 configureAccountIdentity({ emitServer, say });
-configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingContract });
+configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails });
 configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureProfileRender({ renderAchievements, loadSavedGame });
-configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openSponsorshipRequest: requestSponsorship, startGame });
+configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, renderChat });
 configureDeedDetail({ emitServer });
 configureProfileBindings({ showView, emitServer });
