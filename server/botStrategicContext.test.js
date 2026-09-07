@@ -38,7 +38,7 @@ game.globalEvent = {
 };
 game.pendingPayment = { playerId: bot.id, amountRemaining: 140, creditorId: human.id };
 game.botDecisionTrace = [
-  { botId: bot.id, sequence: 4, phase: 'pre-roll', actionId: 'mortgage:1', fallback: true, strategicScore: 3.5, reasonCode: 'cash-buffer' },
+  { botId: bot.id, sequence: 4, phase: 'pre-roll', actionId: 'mortgage:1', fallback: true, success: false, strategicScore: 3.5, reasonCode: 'cash-buffer' },
   { botId: human.id, sequence: 5, phase: 'pre-roll', actionId: 'roll', fallback: false },
   { botId: bot.id, sequence: 6, phase: 'auction', actionId: 'auction:pass', fallback: false, strategicScore: -2, reasonCode: 'reserve' }
 ];
@@ -65,6 +65,7 @@ assert.equal(context.rulesDigest.globalEvents.activeEffects.constructionBlocked,
 assert.equal(context.opponents.length, 1);
 assert.deepEqual(context.recentDecisions.map(entry => entry.actionId), ['mortgage:1', 'auction:pass']);
 assert.equal(context.recentDecisions[0].fallback, true);
+assert.equal(context.recentDecisions[0].success, false);
 
 const serialized = JSON.stringify(context);
 assert.equal(serialized.includes('context-host'), false);

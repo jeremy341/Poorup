@@ -76,6 +76,7 @@ function sanitizeBotDecision(entry) {
     phase: clipString(source.phase, 24),
     provider: clipString(source.provider, 24),
     fallback: source.fallback === true,
+    success: source.success !== false,
     fallbackReason: clipString(source.fallbackReason, 40),
     brain: clipString(source.brain, 12),
     difficulty: clipString(source.difficulty, 12),

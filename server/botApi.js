@@ -61,6 +61,7 @@ const botApi = {
       phase: String(entry.phase || 'unknown').slice(0, 24),
       provider: String(entry.provider || 'deterministic').slice(0, 24),
       fallback: entry.fallback === true,
+      success: entry.success !== false,
       fallbackReason: entry.fallbackReason ? String(entry.fallbackReason).slice(0, 40) : null,
       brain: String(entry.brain || this.settings.botBrain || 'auto').slice(0, 12),
       difficulty: String(entry.difficulty || this.settings.botDifficulty || 'table').slice(0, 12),

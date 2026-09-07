@@ -160,6 +160,7 @@ function recentBotDecisions(game, bot) {
       phase: String(entry.phase || 'unknown').slice(0, 24),
       actionId: typeof entry.actionId === 'string' ? entry.actionId.slice(0, 80) : null,
       fallback: entry.fallback === true,
+      success: entry.success !== false,
       strategicScore: Number.isFinite(Number(entry.strategicScore)) ? Number(entry.strategicScore) : null,
       reasonCode: typeof entry.reasonCode === 'string' ? entry.reasonCode.slice(0, 40) : null
     }));

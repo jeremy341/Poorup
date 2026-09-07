@@ -55,10 +55,11 @@ assert.equal(trace.botId, bot.id);
 assert.equal(trace.ruleVersion, 'bot-policy-v1');
 assert.equal(trace.planningHorizon, 3);
 assert.equal(trace.strategicScore, 42.5);
+assert.equal(trace.success, true);
 assert.equal(room.game.botDecisionTrace.length, 1);
 
 for (let sequence = 4; sequence <= 205; sequence += 1) {
-  room.game.recordBotDecisionTrace({ botId: bot.id, decisionSequence: sequence, actionId: 'roll' });
+  room.game.recordBotDecisionTrace({ botId: bot.id, decisionSequence: sequence, actionId: 'roll', success: sequence !== 6 });
 }
 assert.equal(room.game.botDecisionTrace.length, 200);
 assert.equal(room.game.botDecisionTrace[0].sequence, 6);
