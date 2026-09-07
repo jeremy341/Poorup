@@ -75,6 +75,7 @@ check('borrower can negotiate every loan term before lender approval', () => {
   assert.equal(game.pendingPlayerContract.amount, 150);
   assert.equal(game.pendingPlayerContract.premiumRate, 5);
   assert.equal(game.pendingPlayerContract.durationRounds, 5);
+  assert.deepEqual(game.respondPlayerContract('socket-a', true, 'stale', 'contract-stale'), { success: false, error: 'No matching player contract was found.' });
   const accepted = game.respondPlayerContract('socket-a', true, 'counter-accept');
   assert.equal(accepted.success, true);
   assert.equal(a.cash, 1350);
