@@ -64,6 +64,22 @@ const quotaSecond = await quota.chooseAction({ candidates, botBrain: 'ai', gameI
 assert.equal(quotaSecond.fallbackReason, 'quota-exhausted');
 assert.equal(quotaCalls, 1);
 
+let recoveringCalls = 0;
+const recovering = new DeepSeekAdvisor({
+  apiKey: 'test-key',
+  circuitCooldownMs: 1000,
+  fetchImpl: async () => {
+    recoveringCalls += 1;
+    if (recoveringCalls === 1) return { ok: false, status: 429, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"actionId":"roll","confidence":0.7}' } }] }) };
+  }
+});
+await recovering.chooseAction({ candidates, botBrain: 'auto', gameId: 'g-recover', decisionSequence: 1 });
+recovering.circuitOpenUntil = Date.now() - 1;
+const recovered = await recovering.chooseAction({ candidates, botBrain: 'auto', gameId: 'g-recover', decisionSequence: 2 });
+assert.equal(recovered.provider, 'ai');
+assert.equal(recoveringCalls, 2);
+
 let noAiCalls = 0;
 const noAi = new DeepSeekAdvisor({ apiKey: 'test-key', fetchImpl: async () => { noAiCalls += 1; return null; } });
 const noAiDecision = await noAi.chooseAction({ candidates, botBrain: 'no-ai', gameId: 'g-no-ai' });

@@ -165,8 +165,9 @@ Implemented in the current bot slice:
 
 Remaining rollout work:
 
-- Add full-game simulations to balance reserves, loans, casino, market, and
-  global-event survival.
+- Expand the current 20-game bounded simulation smoke suite into a 1,000-seed
+  balance campaign for reserves, loans, casino, market, and global-event
+  survival.
 - Add a browser-level bot-status accessibility and reconnect test.
 
 ## Verification gates
