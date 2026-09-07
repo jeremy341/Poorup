@@ -244,6 +244,22 @@ check('runBotTurn executes the classified phase against the room', async () => {
   assert.strictEqual(result.name, 'bankrupt');
 });
 
+check('payment phase sells a legal building before declaring bankruptcy', async () => {
+  const log = [];
+  const room = fakeRoom(log);
+  const bot = { ...bot1, properties: [5], cash: 0 };
+  const tile = { index: 5, houseCount: 1, rent: 50 };
+  room.game.pendingPayment = { playerId: bot.id, amountRemaining: 80 };
+  room.game.getTile = () => tile;
+  room.game.canSellFromTile = () => true;
+  room.game.getPropertyHouseCost = () => 100;
+  room.game.buildingSaleMultiplier = () => 0.5;
+  const result = await runBotTurn(room, bot, advisorStub(null));
+  assert.strictEqual(result.name, 'manage:sell-house:5');
+  assert.strictEqual(result.botDecision.actionId, 'sell:5');
+  assert.strictEqual(result.botDecision.fallbackReason, 'debt-liquidation');
+});
+
 check('runBotTurn resolves post-roll purchase offers at most twice', async () => {
   const log = [];
   const room = fakeRoom(log);

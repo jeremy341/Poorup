@@ -170,6 +170,61 @@ export function shouldBuyProperty(bot, tile) {
   return Boolean(tile) && bot.cash >= Number(tile.price || 0) + PURCHASE_RESERVE_CASH;
 }
 
+function debtSellCandidates(game, bot) {
+  if (typeof game.getTile !== 'function' || typeof game.canSellFromTile !== 'function') return [];
+  return (bot.properties || [])
+    .map(index => game.getTile(index))
+    .filter(tile => tile && tile.houseCount > 0 && game.canSellFromTile(bot, tile))
+    .map(tile => {
+      const cost = typeof game.getPropertyHouseCost === 'function' ? game.getPropertyHouseCost(tile) : 0;
+      const proceeds = Math.max(0, Math.floor(cost * (typeof game.buildingSaleMultiplier === 'function' ? game.buildingSaleMultiplier() : 0.5)));
+      const rentLoss = Math.max(0, (typeof game.calculateRent === 'function' ? game.calculateRent(tile) : Number(tile.rent) || 0) - (Number(tile.rent) || 0));
+      return { tile, proceeds, score: proceeds - rentLoss * 0.2 };
+    })
+    .sort((a, b) => b.score - a.score || b.proceeds - a.proceeds || a.tile.index - b.tile.index);
+}
+
+function botPaymentAction(room, bot, game) {
+  const sell = debtSellCandidates(game, bot)[0];
+  if (sell) {
+    const result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: sell.tile.index, action: 'sell-house' }));
+    if (result?.success !== false) {
+      return attachBotDecision(result, {
+        phase: 'payment',
+        provider: 'deterministic',
+        fallback: true,
+        fallbackReason: 'debt-liquidation',
+        actionId: `sell:${sell.tile.index}`,
+        candidateIds: debtSellCandidates(game, bot).map(entry => `sell:${entry.tile.index}`).slice(0, 24)
+      });
+    }
+  }
+  const offer = typeof game.getBankLoanOffer === 'function' ? game.getBankLoanOffer(bot) : null;
+  if (offer?.available && bot.id === game.currentPlayerId) {
+    const result = room.runBotAction(bot.id, actor => room.takeBankLoan(actor));
+    if (result?.success) {
+      if (typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
+      return attachBotDecision(result, {
+        phase: 'payment',
+        provider: 'deterministic',
+        fallback: true,
+        fallbackReason: 'debt-loan-rescue',
+        actionId: 'loan:emergency',
+        candidateIds: ['loan:emergency', 'bankruptcy']
+      });
+    }
+  }
+  const result = room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
+  return attachBotDecision(result, {
+    phase: 'payment',
+    provider: 'deterministic',
+    fallback: true,
+    fallbackReason: 'no-legal-rescue',
+    actionId: 'bankruptcy',
+    candidateIds: ['bankruptcy']
+  });
+}
+
 // One small executor per phase, keyed by the state machine above. Each
 // returns the room action result, exactly as the original branches did.
 const PHASE_EXECUTORS = {
@@ -188,7 +243,7 @@ const PHASE_EXECUTORS = {
     const acceptable = shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
     return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, acceptable));
   },
-  payment: (room, bot) => room.runBotAction(bot.id, actor => room.declareBankruptcy(actor)),
+  payment: botPaymentAction,
   auction: (room, bot) => room.runBotAction(bot.id, actor => room.passAuction(actor)),
   'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
   'post-roll': (room, bot) => resolvePurchaseOffer(room, bot, room.runBotAction(bot.id, actor => room.rollDice(actor)))
@@ -216,11 +271,12 @@ export async function runBotTurn(room, bot, advisor) {
   const result = PHASE_EXECUTORS[phase](room, bot, game);
   return attachBotDecision(result, {
     ...decisionContext,
+    ...(result?.botDecision || {}),
     phase,
-    provider: 'deterministic',
-    fallback: true,
-    fallbackReason: 'phase-resolution',
-    candidateIds: []
+    provider: result?.botDecision?.provider || 'deterministic',
+    fallback: result?.botDecision?.fallback !== false,
+    fallbackReason: result?.botDecision?.fallbackReason || 'phase-resolution',
+    candidateIds: result?.botDecision?.candidateIds || []
   });
 }
 

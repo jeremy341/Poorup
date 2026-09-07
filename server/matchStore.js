@@ -79,6 +79,8 @@ function sanitizeBotDecision(entry) {
     fallbackReason: clipString(source.fallbackReason, 40),
     brain: clipString(source.brain, 12),
     difficulty: clipString(source.difficulty, 12),
+    planningHorizon: Math.max(0, Math.min(3, Math.floor(numberValue(source.planningHorizon)))),
+    strategicScore: Number.isFinite(Number(source.strategicScore)) ? Number(source.strategicScore) : null,
     actionId: clipString(source.actionId, 100),
     confidence: Math.max(0, Math.min(1, Number(source.confidence) || 0)),
     reasonCode: clipString(source.reasonCode, 40),

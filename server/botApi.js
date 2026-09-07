@@ -64,6 +64,8 @@ const botApi = {
       fallbackReason: entry.fallbackReason ? String(entry.fallbackReason).slice(0, 40) : null,
       brain: String(entry.brain || this.settings.botBrain || 'auto').slice(0, 12),
       difficulty: String(entry.difficulty || this.settings.botDifficulty || 'table').slice(0, 12),
+      planningHorizon: Math.max(0, Math.min(3, Math.floor(finiteOrZero(entry.planningHorizon)))),
+      strategicScore: Number.isFinite(Number(entry.strategicScore)) ? Number(entry.strategicScore) : null,
       actionId: entry.actionId ? String(entry.actionId).slice(0, 100) : null,
       confidence: Math.max(0, Math.min(1, finiteOrZero(entry.confidence))),
       reasonCode: entry.reasonCode ? String(entry.reasonCode).slice(0, 40) : 'unknown',
