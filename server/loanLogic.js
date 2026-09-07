@@ -97,7 +97,7 @@ function borrowerSeatRejection(player) {
 }
 
 function creditFacilityRejection(game, player) {
-  if (!player) return 'Bank lending is disabled.';
+  if (!player) return 'Bank credit is unavailable right now.';
   if (!game.settings.bankLoans) return 'Bank lending is disabled.';
   const seat = borrowerSeatRejection(player);
   if (seat) return seat;

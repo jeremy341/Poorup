@@ -19,7 +19,6 @@ import {
 } from "./clientProfileRender.js";
 import { openConfirmModal } from "./clientSurfaces.js";
 import {
-  renderAchievements,
   openAchievementModal,
   closeAchievementModal,
   setAchievementFilter,
@@ -143,7 +142,6 @@ function stayAfterSave(saved) {
 function saveProfileDesign({ asNew = false, stay = false } = {}) {
   const d = state.profileDraft;
   if (!d) return null;
-  const designName = String(d.designName || "").trim().slice(0, 12).toUpperCase() || "UNTITLED DESIGN";
   const saved = upsertProfile(draftProfilePayload(d, asNew));
   if (saved === "limit") {
     announceProfileSave(`You can only save up to ${MAX_PROFILES} designs. Delete one to make room.`);

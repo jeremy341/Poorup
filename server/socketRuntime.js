@@ -34,6 +34,19 @@ const CANCELLED_OBLIGATIONS = [
   { key: 'pendingPlayerContract', label: 'player contract' }
 ];
 
+export function annotateMatchAchievements(matchRecord, candidates = []) {
+  if (!matchRecord || !Array.isArray(matchRecord.participants)) return matchRecord;
+  matchRecord.participants.forEach((participant) => {
+    const unlocked = candidates
+      .filter(candidate => candidate.accountId === participant.accountId)
+      .map(candidate => candidate.achievementId)
+      .filter(id => typeof id === 'string');
+    participant.achievementsUnlocked = [...new Set(unlocked)].slice(0, 32);
+    participant.mythicalUnlocked = candidates.some(candidate => candidate.accountId === participant.accountId && candidate.rarity === 'MYTHICAL');
+  });
+  return matchRecord;
+}
+
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, botAdvisor, social } = deps;
   const auctionTimers = new Map();
@@ -77,10 +90,11 @@ function createRuntime(deps) {
 
   function recordRoomStats(room) {
     const matchRecord = accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, buildMatchRecordOptions(room));
-    matchStore.record(matchRecord);
     const historyReader = accountId => accountStore.getMatchHistory(accountId);
-    achievementStore.evaluateMatch(matchRecord, historyReader)
-      .forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
+    const candidates = achievementStore.evaluateMatch(matchRecord, historyReader);
+    annotateMatchAchievements(matchRecord, candidates);
+    matchStore.record(matchRecord);
+    candidates.forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
     // Refresh the owner’s private profile immediately after settlement so
     // completed-game stats, history, and achievement counts are current while
     // the player is still in the game shell.

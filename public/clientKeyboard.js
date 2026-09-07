@@ -135,7 +135,6 @@ const LATER_GATES = [
 ];
 
 function cardModalOpen() {
-  if (state.card) return false;
   return modalOpen("#card-modal");
 }
 

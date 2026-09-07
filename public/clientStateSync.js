@@ -66,11 +66,6 @@ function previousPositionsOf() {
   return new Map(state.players.map((player) => [player.id, num(player.pos)]));
 }
 
-function visibilityOf(room) {
-  if (room.visibility === "public") return "public";
-  return "private";
-}
-
 function syncRoom(room) {
   if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = orDefault(room.roomCode, "");
   state.roomVisibility = orDefault(room.visibility === "public" ? "public" : null, "private");

@@ -44,6 +44,7 @@ let host = {
   clearSave: noop,
   renderPlayers: noop,
   closeRoomsModal: noop,
+  goHome: noop,
 };
 
 function noop() {}
@@ -697,6 +698,8 @@ export function bindLobbyUi() {
     setTableAppearanceOverride(choice);
   });
   $("#su-start").addEventListener("click", enterLobby);
+  $("#setup-close")?.addEventListener("click", () => host.goHome());
+  $("#setup-wrap .setup-scrim")?.addEventListener("click", () => host.goHome());
 
   // quick table: starts a default-rules round immediately
   $("#quick-table-btn")?.addEventListener("click", () => {

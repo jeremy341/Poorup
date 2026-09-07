@@ -46,7 +46,6 @@ const EFFECT_LABELS = {
   buildingLimitPerTurn: "BUILD LIMIT",
   bankActionsBlocked: "BANK ACTIONS",
   auctionBlocked: "AUCTIONS",
-  cashMultiplier: "CASH",
   utilityRentMultiplier: "UTILITY RENT",
   marketPriceMultiplier: "MARKET PRICE",
   marketVolatility: "MARKET VOLATILITY",
