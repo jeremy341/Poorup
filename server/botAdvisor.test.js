@@ -32,8 +32,14 @@ const aiDecision = await ai.chooseAction({
   botId: 'private-seat-id',
   phase: 'pre-roll',
   roundNumber: 4,
+  contextVersion: 'bot-context-v2',
   botState: { cash: 1000, propertyCount: 2, bankLoanStatus: null },
   opponentSummaries: [{ seat: 'player', cashBand: 'steady', propertyCount: 1 }],
+  turn: { currentSeat: 'self', hasRolled: false },
+  board: [{ index: 0, type: 'start', ownerSeat: 'bank' }],
+  obligations: { payment: null },
+  rulesDigest: { version: 'bot-policy-v2', boardSize: 40 },
+  activeEvent: null,
   decisionSequence: 1,
   ruleVersion: 'bot-policy-v1'
 });
@@ -46,6 +52,9 @@ const promptContext = JSON.parse(requestBody.messages[1].content);
 assert.equal(promptContext.phase, 'pre-roll');
 assert.equal(promptContext.roundNumber, 4);
 assert.equal(promptContext.botState.cash, 1000);
+assert.equal(promptContext.contextVersion, 'bot-context-v2');
+assert.equal(promptContext.rulesDigest.boardSize, 40);
+assert.equal(promptContext.turn.currentSeat, 'self');
 assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'botId'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'gameId'), false);
 
