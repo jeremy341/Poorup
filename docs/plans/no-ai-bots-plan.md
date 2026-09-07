@@ -169,6 +169,9 @@ Implemented in the current bot slice:
   build, mortgage, market, casino, and loan candidates.
 - Auction bid/pass choices are exposed to the AI adapter while the deterministic
   auction settlement and affordability guards remain authoritative.
+- In AI mode, payment rescue exposes legal building-sale, bank-loan, and
+  bankruptcy candidates; the no-AI path keeps the same conservative sell-then-
+  loan fallback order.
 
 Remaining rollout work:
 
