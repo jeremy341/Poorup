@@ -104,7 +104,10 @@ The server keeps credentials in environment variables only. Set
 `POORUP_BOT_AI_DECISIONS`, and leave the values unset for an automatic
 no-provider fallback. `POORUP_BOT_BRAIN=no-ai` (or the legacy
 `POORUP_BOT_ADVISOR=no-ai`) forces the deterministic path for a low-cost
-deployment. The key is never sent to clients or persisted in match history.
+deployment. Set `POORUP_BOT_AI_SHADOW=true` to call the advisor while still
+executing the deterministic choice; the private trace records agreement and
+the shadow model. The key is never sent to clients or persisted in match
+history.
 
 ## Prompt contract
 
@@ -236,7 +239,7 @@ assertions must judge legality, state transitions, privacy, and side effects.
 1. Keep current deterministic policy as the compatibility baseline. **Done.**
 2. Add `botBrain`/`botDifficulty` settings and sanitized snapshots. **Done.**
 3. Add adapter health, quota budget, and circuit breaker. **Done.**
-4. Run AI in shadow mode while the deterministic bot acts.
+4. Run AI in shadow mode while the deterministic bot acts. **Done behind configuration.**
 5. Compare actions/metrics without affecting player outcomes.
 6. Enable AI-first `AUTO` for selected rooms. **Done behind configuration.**
 7. Expose explicit `NO-AI` and show fallback status when needed. **Done.**

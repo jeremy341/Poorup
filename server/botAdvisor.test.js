@@ -94,6 +94,18 @@ const noProvider = new DeepSeekAdvisor({ apiKey: 'test-key', fetchImpl: null });
 const noProviderDecision = await noProvider.chooseAction({ candidates, botBrain: 'auto', gameId: 'g-provider' });
 assert.equal(noProviderDecision.fallbackReason, 'provider');
 
+const shadow = new DeepSeekAdvisor({
+  apiKey: 'test-key',
+  shadow: true,
+  fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"actionId":"roll","confidence":0.8}' } }] }) })
+});
+const shadowDecision = await shadow.chooseAction({ candidates, botBrain: 'auto', gameId: 'g-shadow' });
+assert.equal(shadowDecision.provider, 'deterministic');
+assert.equal(shadowDecision.fallbackReason, 'shadow-mode');
+assert.equal(shadowDecision.shadowActionId, 'roll');
+assert.equal(shadowDecision.shadowAgreement, false);
+assert.equal(shadow.getHealth().shadow, true);
+
 let transientCalls = 0;
 const transient = new DeepSeekAdvisor({
   apiKey: 'test-key',
@@ -114,4 +126,4 @@ assert.equal((await budget.chooseAction({ candidates, botBrain: 'ai', gameId: 'g
 
 assert.equal(createBotAdvisor({ DEEPSEEK_API_KEY: 'test-key' }) instanceof DeepSeekAdvisor, true);
 assert.equal(createBotAdvisor({ POORUP_BOT_ADVISOR: 'no-ai', DEEPSEEK_API_KEY: 'test-key' }) instanceof DeterministicAdvisor, true);
-console.log('bot advisor modes and fallback: 13 passed, 0 failed');
+console.log('bot advisor modes and fallback: 18 passed, 0 failed');
