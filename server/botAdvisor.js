@@ -160,6 +160,7 @@ function classifyHttpFailure(status) {
 export class DeterministicAdvisor {
   constructor({ defaultMode = 'no-ai' } = {}) {
     this.defaultMode = normalizeBrain(defaultMode);
+    this.supportsChoicePhases = false;
   }
 
   async chooseAction(context = {}) {
@@ -198,6 +199,7 @@ export class DeepSeekAdvisor {
     this.maxDecisionsPerGame = Math.max(1, Math.floor(Number(maxDecisionsPerGame) || DEFAULT_MAX_DECISIONS_PER_GAME));
     this.circuitCooldownMs = Math.max(1000, Number(circuitCooldownMs) || DEFAULT_CIRCUIT_COOLDOWN_MS);
     this.shadow = shadow === true;
+    this.supportsChoicePhases = true;
     this.fetchImpl = fetchImpl;
     this.fallback = new DeterministicAdvisor();
     this.failureStreak = 0;

@@ -34,10 +34,12 @@ assert.equal(planningHorizon('expert'), 3);
 const before = JSON.stringify(snapshot);
 const build = evaluateCandidate(snapshot, { id: 'build:1', kind: 'build', tileIndex: 1, cost: 50, risk: 0.1 }, { difficulty: 'expert', seed: 'same' });
 const mortgage = evaluateCandidate(snapshot, { id: 'mortgage:1', kind: 'mortgage', tileIndex: 1, proceeds: 30, risk: 0.25 }, { difficulty: 'table', seed: 'same' });
+const purchase = evaluateCandidate(snapshot, { id: 'buy:6', kind: 'buy', tileIndex: 6, price: 100, risk: 0.2 }, { difficulty: 'table', seed: 'same' });
 assert.equal(build.horizon, 3);
 assert.equal(mortgage.horizon, 1);
 assert.equal(Number.isFinite(build.score), true);
 assert.equal(mortgage.liquidity, 530);
+assert.equal(purchase.liquidity, 400);
 assert.equal(JSON.stringify(snapshot), before);
 
 const candidates = [
