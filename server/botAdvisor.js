@@ -126,6 +126,7 @@ function planningAnnotatedCandidates(context = {}, candidates = []) {
       futureScore: Math.round(evaluation.score * 100) / 100,
       expectedRent: Math.round(evaluation.expectedRent * 100) / 100,
       expectedRisk: Math.round(evaluation.expectedRisk * 100) / 100,
+      expectedCashFlow: Math.round((evaluation.expectedCashFlow || 0) * 100) / 100,
       projectedLiquidity: Math.round(evaluation.liquidity * 100) / 100,
       projectedCompleteGroups: evaluation.completeGroups
     };
