@@ -177,6 +177,8 @@ Remaining rollout work:
 
 - Expand the current 1,000-game bounded simulation gate into a longer balance
   campaign for reserves, loans, casino, market, and global-event survival.
+  The opt-in `npm run bot:balance` command now runs a 2,500-game campaign
+  without slowing the normal regression suite.
 - Add a browser-level bot-status accessibility and reconnect test.
 
 ## Verification gates

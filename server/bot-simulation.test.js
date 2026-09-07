@@ -15,8 +15,8 @@ import {
   selectBotTurnTarget
 } from './botLogic.js';
 
-const SIMULATION_COUNT = 1_000;
-const STEP_LIMIT = 2_000;
+const SIMULATION_COUNT = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_SIMULATION_COUNT) || 1_000));
+const STEP_LIMIT = Math.max(100, Math.floor(Number(process.env.POORUP_BOT_STEP_LIMIT) || 2_000));
 const STALL_LIMIT = 8;
 
 function stateFingerprint(game) {
