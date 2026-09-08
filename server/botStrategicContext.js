@@ -55,23 +55,28 @@ function ownPropertyView(game, bot) {
     .filter(Boolean);
 }
 
+function contractView(contract, bot) {
+  const borrower = contract.toPlayerId === bot.id;
+  return {
+    kind: contract.kind,
+    role: borrower ? 'borrower' : 'lender',
+    status: contract.status,
+    amount: nonNegative(contract.amount),
+    remaining: nonNegative(contract.remaining),
+    premiumRate: Math.max(0, Number(contract.premiumRate) || 0),
+    durationRounds: nonNegative(contract.durationRounds),
+    dueRound: contract.dueRound == null ? null : nonNegative(contract.dueRound),
+    collateralTileIndex: borrower ? contract.collateralTileIndex ?? null : null,
+    equityShare: borrower ? Math.max(0, Number(contract.equityShare) || 0) : null,
+    conversionShare: borrower ? Math.max(0, Number(contract.conversionShare) || 0) : null
+  };
+}
+
 function ownContractView(game, bot) {
   return (game.playerContracts || [])
     .filter(contract => contract.fromPlayerId === bot.id || contract.toPlayerId === bot.id)
     .slice(0, 20)
-    .map(contract => ({
-      kind: contract.kind,
-      role: contract.toPlayerId === bot.id ? 'borrower' : 'lender',
-      status: contract.status,
-      amount: nonNegative(contract.amount),
-      remaining: nonNegative(contract.remaining),
-      premiumRate: Math.max(0, Number(contract.premiumRate) || 0),
-      durationRounds: nonNegative(contract.durationRounds),
-      dueRound: contract.dueRound == null ? null : nonNegative(contract.dueRound),
-      collateralTileIndex: contract.toPlayerId === bot.id ? contract.collateralTileIndex ?? null : null,
-      equityShare: contract.toPlayerId === bot.id ? Math.max(0, Number(contract.equityShare) || 0) : null,
-      conversionShare: contract.toPlayerId === bot.id ? Math.max(0, Number(contract.conversionShare) || 0) : null
-    }));
+    .map(contract => contractView(contract, bot));
 }
 
 function ownLoanView(bot) {
@@ -111,14 +116,14 @@ function ownCasinoView(bot) {
 function cardExpectedCash(deck, playerCount) {
   const opponents = Math.max(0, Number(playerCount || 1) - 1);
   if (!Array.isArray(deck) || !deck.length) return 0;
-  const total = deck.reduce((sum, card) => {
-    const amount = Number(card.amount) || 0;
-    if (card.action === 'collect' || card.action === 'collectStart') return sum + amount;
-    if (card.action === 'pay') return sum - amount;
-    if (card.action === 'collectFromEach') return sum + amount * opponents;
-    if (card.action === 'payEach') return sum - amount * opponents;
-    return sum;
-  }, 0);
+  const deltas = {
+    collect: amount => amount,
+    collectStart: amount => amount,
+    pay: amount => -amount,
+    collectFromEach: amount => amount * opponents,
+    payEach: amount => -amount * opponents
+  };
+  const total = deck.reduce((sum, card) => sum + (deltas[card.action]?.(Number(card.amount) || 0) || 0), 0);
   return Math.round((total / deck.length) * 100) / 100;
 }
 
@@ -166,6 +171,13 @@ function recentBotDecisions(game, bot) {
     }));
 }
 
+function incrementDecisionRate(map, key, identity, success) {
+  const row = map.get(key) || { ...identity, attempts: 0, successes: 0 };
+  row.attempts += 1;
+  row.successes += success ? 1 : 0;
+  map.set(key, row);
+}
+
 function botDecisionMemory(game, bot) {
   const entries = Array.isArray(game?.botDecisionTrace)
     ? game.botDecisionTrace.filter(entry => entry?.botId === bot.id)
@@ -175,14 +187,9 @@ function botDecisionMemory(game, bot) {
   entries.forEach(entry => {
     const action = String(entry.actionId || 'unknown').slice(0, 80);
     const phase = String(entry.phase || 'unknown').slice(0, 24);
-    const actionRow = byAction.get(action) || { actionId: action, attempts: 0, successes: 0 };
-    actionRow.attempts += 1;
-    if (entry.success !== false) actionRow.successes += 1;
-    byAction.set(action, actionRow);
-    const phaseRow = byPhase.get(phase) || { phase, attempts: 0, successes: 0 };
-    phaseRow.attempts += 1;
-    if (entry.success !== false) phaseRow.successes += 1;
-    byPhase.set(phase, phaseRow);
+    const success = entry.success !== false;
+    incrementDecisionRate(byAction, action, { actionId: action }, success);
+    incrementDecisionRate(byPhase, phase, { phase }, success);
   });
   return {
     decisions: entries.length,
@@ -193,52 +200,65 @@ function botDecisionMemory(game, bot) {
   };
 }
 
-function obligationView(game, bot) {
-  const payment = game.pendingPayment;
-  const purchase = game.pendingPurchaseOffer;
-  const sponsorship = game.pendingSponsoredPurchase;
-  const auction = game.auction;
-  const trade = game.pendingTrade;
-  const contract = game.pendingPlayerContract;
+function participantRole(item, bot) {
+  if (item?.toPlayerId === bot.id) return 'recipient';
+  if (item?.fromPlayerId === bot.id) return 'sender';
+  return 'other';
+}
+
+function paymentObligation(game, bot) {
+  const item = game.pendingPayment;
+  return item ? { ownerSeat: seatOf(game, bot, item.playerId), amountRemaining: nonNegative(item.amountRemaining), creditorSeat: seatOf(game, bot, item.creditorId) } : null;
+}
+
+function purchaseObligation(game, bot) {
+  const item = game.pendingPurchaseOffer;
+  return item ? { ownerSeat: seatOf(game, bot, item.playerId), tileIndex: item.tileIndex ?? null, price: nonNegative(typeof game.getTile === 'function' ? game.getTile(item.tileIndex)?.price : 0) } : null;
+}
+
+function sponsorshipObligation(game, bot) {
+  const item = game.pendingSponsoredPurchase;
+  if (!item) return null;
   return {
-    payment: payment ? {
-      ownerSeat: seatOf(game, bot, payment.playerId),
-      amountRemaining: nonNegative(payment.amountRemaining),
-      creditorSeat: seatOf(game, bot, payment.creditorId)
-    } : null,
-    purchase: purchase ? {
-      ownerSeat: seatOf(game, bot, purchase.playerId),
-      tileIndex: purchase.tileIndex ?? null,
-      price: nonNegative(typeof game.getTile === 'function' ? game.getTile(purchase.tileIndex)?.price : 0)
-    } : null,
-    sponsorship: sponsorship ? {
-      ownerSeat: seatOf(game, bot, sponsorship.buyerId),
-      tileIndex: sponsorship.tileIndex ?? null,
-      price: nonNegative(typeof game.getTile === 'function' ? game.getTile(sponsorship.tileIndex)?.price : sponsorship.price),
-      totalContributed: nonNegative(sponsorship.contributions?.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)),
-      contributionCount: Array.isArray(sponsorship.contributions) ? sponsorship.contributions.length : 0
-    } : null,
-    auction: auction ? {
-      tileIndex: auction.propertyTile?.index ?? null,
-      highestBid: nonNegative(auction.highestBid),
-      highestBidderSeat: seatOf(game, bot, auction.highestBidderId),
-      participantCount: Array.isArray(auction.participants) ? auction.participants.length : 0,
-      passedCount: Array.isArray(auction.passedPlayerIds) ? auction.passedPlayerIds.length : 0
-    } : null,
-    trade: trade ? {
-      role: trade.toPlayerId === bot.id ? 'recipient' : trade.fromPlayerId === bot.id ? 'sender' : 'other',
-      giveCash: trade.fromPlayerId === bot.id ? nonNegative(trade.giveCash) : nonNegative(trade.requestCash),
-      requestCash: trade.fromPlayerId === bot.id ? nonNegative(trade.requestCash) : nonNegative(trade.giveCash),
-      givePropertyIndexes: (trade.fromPlayerId === bot.id ? trade.givePropertyIndexes || [] : trade.requestPropertyIndexes || []).slice(0, 12),
-      requestPropertyIndexes: (trade.fromPlayerId === bot.id ? trade.requestPropertyIndexes || [] : trade.givePropertyIndexes || []).slice(0, 12)
-    } : null,
-    contract: contract ? {
-      role: contract.toPlayerId === bot.id ? 'recipient' : contract.fromPlayerId === bot.id ? 'sender' : 'other',
-      kind: contract.kind,
-      amount: nonNegative(contract.amount),
-      premiumRate: Math.max(0, Number(contract.premiumRate) || 0),
-      durationRounds: nonNegative(contract.durationRounds)
-    } : null
+    ownerSeat: seatOf(game, bot, item.buyerId),
+    tileIndex: item.tileIndex ?? null,
+    price: nonNegative(typeof game.getTile === 'function' ? game.getTile(item.tileIndex)?.price : item.price),
+    totalContributed: nonNegative(item.contributions?.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)),
+    contributionCount: Array.isArray(item.contributions) ? item.contributions.length : 0
+  };
+}
+
+function auctionObligation(game, bot) {
+  const item = game.auction;
+  return item ? { tileIndex: item.propertyTile?.index ?? null, highestBid: nonNegative(item.highestBid), highestBidderSeat: seatOf(game, bot, item.highestBidderId), participantCount: Array.isArray(item.participants) ? item.participants.length : 0, passedCount: Array.isArray(item.passedPlayerIds) ? item.passedPlayerIds.length : 0 } : null;
+}
+
+function tradeObligation(game, bot) {
+  const item = game.pendingTrade;
+  if (!item) return null;
+  const sender = item.fromPlayerId === bot.id;
+  return {
+    role: participantRole(item, bot),
+    giveCash: nonNegative(sender ? item.giveCash : item.requestCash),
+    requestCash: nonNegative(sender ? item.requestCash : item.giveCash),
+    givePropertyIndexes: (sender ? item.givePropertyIndexes || [] : item.requestPropertyIndexes || []).slice(0, 12),
+    requestPropertyIndexes: (sender ? item.requestPropertyIndexes || [] : item.givePropertyIndexes || []).slice(0, 12)
+  };
+}
+
+function contractObligation(game, bot) {
+  const item = game.pendingPlayerContract;
+  return item ? { role: participantRole(item, bot), kind: item.kind, amount: nonNegative(item.amount), premiumRate: Math.max(0, Number(item.premiumRate) || 0), durationRounds: nonNegative(item.durationRounds) } : null;
+}
+
+function obligationView(game, bot) {
+  return {
+    payment: paymentObligation(game, bot),
+    purchase: purchaseObligation(game, bot),
+    sponsorship: sponsorshipObligation(game, bot),
+    auction: auctionObligation(game, bot),
+    trade: tradeObligation(game, bot),
+    contract: contractObligation(game, bot)
   };
 }
 
