@@ -34,6 +34,7 @@ files fail closed.
 | `npm pack --dry-run` | PASS — 227 files; npm warns that no `.npmignore` exists |
 | Bot balance campaign | PASS — 2,500 bounded games, 1,994 completed within 2,000 steps, 0 stalled |
 | Bot status/reconnect wire probe | PASS — 18/18 checks, repeated successfully |
+| Release hardening seams | PASS — 11 CORS/rate-limiter checks |
 | `git diff --check` | PASS |
 | CodeScene delta | UNVERIFIED — local CLI could not authenticate to `codescene.io/oauth2/token` in this environment |
 
@@ -50,15 +51,15 @@ Room and game projections are now viewer-scoped: only the viewer’s own seat
 receives `clientId`; remote seats keep their server player ID but no resume
 credential. Direct projection assertions and the live server wire suite pass.
 
-### R1 — Production CORS is unrestricted
+### R1 — Production CORS is permissive unless configured
 
 **Evidence:** `server/server.js:27-31` configures Socket.IO with
 `cors: { origin: '*' }`.
 
-This is acceptable for a public, token-in-payload prototype, but it allows any
-website to open sockets to the deployment and increases abuse/DoS surface. A
-production deployment should set an allow-list through an environment-backed
-origin function and keep `*` only for local development. This is a deployment
+The server now supports an environment-backed allow-list through
+`POORUP_ALLOWED_ORIGINS` and emits a production warning when it is missing.
+Without that variable the compatibility default remains permissive for local
+development. A public deployment must set the allow-list; this is a deployment
 hardening requirement, not a game-rule defect.
 
 ### R1 — JSON persistence is single-process and has no write lock
@@ -93,13 +94,13 @@ store should either fail the mutation while preserving the old file or use a
 transactional datastore; do not rely on the direct-write fallback for
 multi-instance durability.
 
-### R2 — Gameplay payload abuse needs broader rate limits
+### R2 — Gameplay payload abuse needs edge limits (server baseline added)
 
-The server has chat/social/patrol limits and now caps trade property legs at
-40 (`server/tradeApi.js`). Most game verbs are cheap and server-authoritative,
-but a hostile client can still send high-frequency rejected intents. Add a
-socket/IP token bucket at the edge before public launch if the deployment is
-exposed to untrusted traffic.
+The server now applies a per-socket ingress token bucket before handlers, with
+deployment-tunable `POORUP_SOCKET_RATE_LIMIT` and
+`POORUP_SOCKET_RATE_WINDOW_MS`. Chat/social/patrol limits and the 40-leg trade
+cap remain in place. Add an IP/edge limiter as a second layer before public
+launch if the deployment is exposed to untrusted traffic.
 
 ## Verified non-findings
 
@@ -129,7 +130,7 @@ controlled playtest after setting deployment secrets and backing up
 Before an unrestricted public production launch, resolve or explicitly accept:
 
 1. CodeScene verification (blocked here by unavailable OAuth/network access).
-2. An allow-listed production CORS origin.
+2. Set `POORUP_ALLOWED_ORIGINS` to an allow-list in production.
 3. A decision on the non-atomic write fallback and an operational backup plan
    for the JSON stores.
 4. Edge-level rate limiting and operational backups for the JSON stores.
