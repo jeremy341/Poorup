@@ -81,6 +81,17 @@ check('missing file: clean empty start with no quarantine siblings', () => {
   assert.strictEqual(corruptSibling(filePath).length, 0);
 });
 
+check('unreadable file: non-missing read errors fail closed', () => {
+  const original = fs.readFileSync;
+  const error = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+  fs.readFileSync = () => { throw error; };
+  try {
+    assert.throws(() => new AccountStore(fileFor('unreadable')), /permission denied/);
+  } finally {
+    fs.readFileSync = original;
+  }
+});
+
 check('friends-only achievements stay hidden from outsider cards', () => {
   const filePath = fileFor('achievement-privacy');
   const store = new AccountStore(filePath);
