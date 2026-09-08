@@ -101,6 +101,43 @@ async function checkHappyPath(socket) {
   check('season leaderboard snapshot is available', season?.success === true && season?.scope === 'season');
 }
 
+async function checkBotStatusAndReconnect(socket, child) {
+  const clientId = 'bot-status-client';
+  const created = await ask(socket, 'create-room', { clientId, nickname: 'Bot Probe' });
+  check('bot probe room creates', created?.success === true);
+  await ask(socket, 'set-setting', { key: 'bots', value: 1 });
+  await ask(socket, 'set-setting', { key: 'auction', value: false });
+  const started = await ask(socket, 'start-game', {});
+  check('bot probe round starts', started?.success === true);
+
+  const stateUpdate = nextEvent(socket, 'update-state');
+  const rolled = await ask(socket, 'roll-dice', {});
+  const snapshot = await stateUpdate;
+  check('bot probe human roll succeeds', rolled?.success === true);
+  if (snapshot?.game?.pendingPurchaseOffer) {
+    await ask(socket, 'decline-property', { tileIndex: snapshot.game.pendingPurchaseOffer.tileIndex });
+  }
+  const botStatus = nextEvent(socket, 'bot-status');
+  await ask(socket, 'end-turn', {});
+  const status = await botStatus;
+  check('bot status is announced with a safe public payload', status?.state === 'thinking' && status?.nickname && ['ai', 'deterministic'].includes(status.provider));
+  check('server survives bot status flow', child.exitCode === null);
+
+  socket.close();
+  await wait(250);
+  const replacement = io(BASE, { reconnection: false });
+  try {
+    await connect(replacement);
+    const update = nextEvent(replacement, 'update-state');
+    const restored = await ask(replacement, 'restore-session', { clientId });
+    const restoredSnapshot = await update;
+    check('reconnect restores the bot probe room', restored?.success === true && restoredSnapshot?.room?.players?.some(player => player.nickname === 'Bot Probe'));
+    check('reconnect returns the live authoritative snapshot', restoredSnapshot?.game?.started === true && restoredSnapshot?.game?.currentPlayerId);
+  } finally {
+    replacement.close();
+  }
+}
+
 async function run() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-server-wire-'));
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
@@ -122,6 +159,7 @@ async function run() {
 
     await checkNullPayloadStorm(socket, child);
     await checkHappyPath(socket);
+    await checkBotStatusAndReconnect(socket, child);
 
     check('no uncaught exception was logged', !serverLog.includes('UNCAUGHT EXCEPTION'));
   } finally {
@@ -129,6 +167,16 @@ async function run() {
     child.kill();
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+}
+
+function nextEvent(socket, event, timeoutMs = 5000) {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    socket.once(event, payload => {
+      clearTimeout(timer);
+      resolve(payload);
+    });
+  });
 }
 
 const watchdog = setTimeout(() => {
