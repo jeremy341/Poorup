@@ -16,8 +16,11 @@ function loadJson(filePath) {
   let raw;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
-  } catch {
-    return { value: null, missing: true, corrupt: false };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { value: null, missing: true, corrupt: false };
+    // A permission/sharing failure is not an empty store. Fail fast so a
+    // later mutation cannot overwrite data that was never successfully read.
+    throw error;
   }
   try {
     return { value: JSON.parse(raw), missing: false, corrupt: false };
@@ -55,7 +58,12 @@ function writeJson(filePath, value) {
     console.error(`Store ${path.basename(filePath)} atomic rename failed; falling back to direct write.`, renameError);
     try {
       fs.writeFileSync(filePath, data, 'utf8');
-      fs.fsyncSync(fs.openSync(filePath, 'r'));
+      const fallbackHandle = fs.openSync(filePath, 'r');
+      try {
+        fs.fsyncSync(fallbackHandle);
+      } finally {
+        fs.closeSync(fallbackHandle);
+      }
     } catch (fallbackError) {
       console.error(`Store ${path.basename(filePath)} fallback write also failed.`, fallbackError);
     }

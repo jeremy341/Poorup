@@ -338,7 +338,7 @@ class Room {
     return this.game.getBankLoanOffer(this.game.getPlayerBySocket(socketId));
   }
 
-  getRoomSummary() {
+  getRoomSummary(viewerPlayerId = null) {
     // Legacy clients may still send these fields; the server owns scaling now,
     // so they never leave the server side of the wire.
     const publicSettings = { ...this.settings };
@@ -353,16 +353,15 @@ class Room {
       capacity: this.settings.maxPlayers,
       hostId: this.hostId,
       settings: publicSettings,
-      players: this.game.players.map(player => this.summarySeat(player)),
+      players: this.game.players.map(player => this.summarySeat(player, viewerPlayerId)),
       started: this.game.started,
       vacationPool: this.game.vacationPool
     };
   }
 
-  summarySeat(player) {
-    return {
+  summarySeat(player, viewerPlayerId = null) {
+    const entry = {
       id: player.id,
-      clientId: player.clientId,
       nickname: player.nickname,
       color: player.color,
       cash: player.cash,
@@ -379,6 +378,8 @@ class Room {
       accountId: player.accountId || null,
       avatarGrid: player.avatarGrid || null
     };
+    if (viewerPlayerId && player.id === viewerPlayerId) entry.clientId = player.clientId;
+    return entry;
   }
 
   getDirectorySummary() {
