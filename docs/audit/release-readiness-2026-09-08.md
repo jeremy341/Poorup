@@ -5,8 +5,9 @@
 This is a read-only release audit of the current server, persistence, socket,
 game-rule, bot, economy, social, test, dependency, and CI surfaces. No UI or
 frontend source files were changed during this audit. One server-only hardening
-fix was applied: oversized and duplicate trade property legs are now bounded
-and deduplicated before validation/settlement.
+fixes were applied: oversized and duplicate trade property legs are now
+bounded and deduplicated before validation/settlement, and unreadable store
+files fail closed.
 
 ## Repository state
 
@@ -117,8 +118,8 @@ Before an unrestricted public production launch, resolve or explicitly accept:
 
 1. CodeScene verification (blocked here by unavailable OAuth/network access).
 2. An allow-listed production CORS origin.
-3. A read-only/error path for non-`ENOENT` store failures and a decision on
-   the non-atomic write fallback.
+3. A decision on the non-atomic write fallback and an operational backup plan
+   for the JSON stores.
 4. Edge-level rate limiting and operational backups for the JSON stores.
 
 These items do not require UI changes and are independent of the board layout.
