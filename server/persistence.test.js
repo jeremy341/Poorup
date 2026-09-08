@@ -7,6 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { AccountStore } from './accountStore.js';
+import { writeJson } from './storeIO.js';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-persist-'));
 const results = [];
@@ -79,6 +80,21 @@ check('missing file: clean empty start with no quarantine siblings', () => {
   const store = new AccountStore(filePath);
   assert.strictEqual(store.accounts.size, 0);
   assert.strictEqual(corruptSibling(filePath).length, 0);
+});
+
+check('rename failure: old store stays intact instead of direct truncation', () => {
+  const filePath = fileFor('rename-failure');
+  fs.writeFileSync(filePath, JSON.stringify(['old']), 'utf8');
+  const originalRename = fs.renameSync;
+  fs.renameSync = () => { throw new Error('rename unavailable'); };
+  try {
+    assert.throws(() => writeJson(filePath, ['new']), /Atomic store write failed/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), ['old']);
+    assert.ok(fs.readdirSync(tempDir).some(entry => entry.startsWith('rename-failure.json.') && entry.endsWith('.tmp')));
+  } finally {
+    fs.renameSync = originalRename;
+    fs.readdirSync(tempDir).filter(entry => entry.startsWith('rename-failure.json.') && entry.endsWith('.tmp')).forEach(entry => fs.rmSync(path.join(tempDir, entry), { force: true }));
+  }
 });
 
 check('unreadable file: non-missing read errors fail closed', () => {

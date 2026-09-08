@@ -20,14 +20,23 @@ import { registerAccountSocketHandlers } from './serverSocketAccount.js';
 import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 import { resolveStorePaths } from './serverStorePaths.js';
+import { createCorsOrigin } from './serverConfig.js';
+import { createSocketRateLimiter } from './socketRateLimiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
+const socketRateLimiter = createSocketRateLimiter({
+  max: process.env.POORUP_SOCKET_RATE_LIMIT,
+  windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
+});
+if (process.env.NODE_ENV === 'production' && !String(process.env.POORUP_ALLOWED_ORIGINS || '').trim()) {
+  console.warn('POORUP_ALLOWED_ORIGINS is unset; Socket.IO CORS remains permissive for this deployment.');
+}
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: createCorsOrigin(process.env) }
 });
 
 // The supplied plain-client project is the production static UI. Keep the
@@ -55,13 +64,14 @@ const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matc
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
-  const on = createSafeEmitter(socket);
+  const on = createSafeEmitter(socket, { allow: socketId => socketRateLimiter.allow(socketId) });
 
   registerAccountSocketHandlers(on, socket, runtime);
   registerGameSocketHandlers(on, socket, runtime);
   registerSocialSocketHandlers(on, socket, runtime);
 
   socket.on('disconnect', () => {
+    socketRateLimiter.forget(socket.id);
     runtime.handleSocketDisconnect(socket);
   });
 });
