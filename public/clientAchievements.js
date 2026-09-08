@@ -8,7 +8,7 @@ const ACHIEVEMENTS = [
   { id: "full-street", category: "visible", title: "FULL STREET", short: "Complete a country group.", detail: "Own every property in one color group at the same time.", rarity: "UNCOMMON" },
   { id: "even-builder", category: "visible", title: "EVEN BUILDER", short: "Build without breaking the street.", detail: "Build a complete group while following every even-build rule.", rarity: "UNCOMMON" },
   { id: "auction-ghost", category: "visible", title: "AUCTION GHOST", short: "Win below the asking price.", detail: "Win an auction with a final bid below the deed’s listed price.", rarity: "RARE" },
-  { id: "clean-exit", category: "visible", title: "CLEAN EXIT", short: "Repay a bank loan early.", detail: "Repay a bank loan in full before its due round.", rarity: "UNCOMMON" },
+  { id: "clean-exit", category: "visible", title: "CLEAN EXIT", short: "Repay a bank loan cleanly.", detail: "Repay a bank loan in full without defaulting.", rarity: "UNCOMMON" },
   { id: "collateral-damage", category: "visible", title: "COLLATERAL DAMAGE", short: "Learn what default costs.", detail: "Default on a player or bank loan and lose its collateral deed.", rarity: "RARE" },
   { id: "bad-idea-good-timing", category: "visible", title: "BAD IDEA, GOOD TIMING", short: "Borrow from the edge.", detail: "Take emergency bank credit with less than $50 cash and survive the game.", rarity: "RARE" },
   { id: "debt-free", category: "visible", title: "DEBT FREE", short: "Finish with clean books.", detail: "Complete a game with no active bank or player debt.", rarity: "UNCOMMON" },
@@ -42,7 +42,7 @@ const ACHIEVEMENTS = [
   { id: "one-more-turn", category: "visible", title: "ONE MORE TURN", short: "Pay on the final cure round.", detail: "Survive a bank-loan warning and repay on the final cure round.", rarity: "EPIC" },
   { id: "group-therapy", category: "social", title: "GROUP THERAPY", short: "Trade across three deeds.", detail: "Complete a trade involving three different properties.", rarity: "UNCOMMON" },
   { id: "hostile-bidder", category: "visible", title: "HOSTILE BIDDER", short: "Win two auctions.", detail: "Win two auctions in one game.", rarity: "RARE" },
-  { id: "empty-streets", category: "visible", title: "EMPTY STREETS", short: "Win without a full group.", detail: "Win without ever completing a property group.", rarity: "EPIC" },
+  { id: "empty-streets", category: "visible", title: "EMPTY STREETS", short: "Win without a full group.", detail: "Win without completing a property group.", rarity: "EPIC" },
   { id: "event-tourist", category: "global", title: "EVENT TOURIST", short: "Collect disasters.", detail: "Experience three different global events across your account history.", rarity: "RARE" },
   { id: "public-enemy", category: "global", title: "PUBLIC ENEMY", short: "Survive the investigation vote.", detail: "Win an Anti-Monopoly Investigation vote against yourself.", rarity: "LEGENDARY" },
   { id: "silent-partner", category: "social", title: "SILENT PARTNER", short: "Lend without collateral.", detail: "Complete a player-loan contract without owning the collateral.", rarity: "RARE" },
@@ -54,7 +54,7 @@ const ACHIEVEMENTS = [
   { id: "market-maker", category: "global", title: "MARKET MAKER", short: "Trade through the noise.", detail: "Complete ten market orders in one game.", rarity: "RARE" },
   { id: "crisis-investor", category: "global", title: "CRISIS INVESTOR", short: "Buy the fear discount.", detail: "Buy a market index while a negative global event is active and sell it for a profit after recovery.", rarity: "EPIC" },
   { id: "41st-tile", category: "secret", title: "THE 41ST TILE", short: "Step outside the board.", clue: "There are forty tiles. You stepped on one more.", detail: "Trigger the hidden movement sequence, then win the game.", rarity: "MYTHICAL", secret: true },
-  { id: "null-player", category: "secret", title: "THE NULL PLAYER", short: "Continue from nothing.", clue: "Your wallet was empty. The turn continued. The table refuses to remember why.", detail: "Reach exactly $0, avoid bankruptcy, complete another turn, and win.", rarity: "MYTHICAL", secret: true },
+  { id: "null-player", category: "secret", title: "THE NULL PLAYER", short: "Continue from nothing.", clue: "Your wallet was empty. The turn continued. The table refuses to remember why.", detail: "Reach exactly $0, avoid bankruptcy, and win.", rarity: "MYTHICAL", secret: true },
   { id: "black-ledger", category: "secret", title: "THE BLACK LEDGER", short: "Close the book yourself.", clue: "The bank closed the book. Something inside kept counting.", detail: "Survive a curated crisis combination after losing collateral, then win.", rarity: "MYTHICAL", secret: true },
 ];
 

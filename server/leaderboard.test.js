@@ -13,7 +13,7 @@ const GOLDEN = {
   wins: ['alice:6', 'carol:6', 'bob:3'],
   rate: ['carol:75', 'alice:60'],
   games: ['alice:10', 'carol:8', 'bob:4'],
-  achievements: ['alice:1110', 'carol:60', 'bob:10'],
+  achievements: ['alice:1060', 'carol:60', 'bob:10'],
   mythical: ['alice:1', 'carol:0', 'bob:0'],
   bankruptcies: ['carol:2', 'alice:1', 'bob:0'],
   events: ['bob:5', 'alice:2', 'carol:0'],
