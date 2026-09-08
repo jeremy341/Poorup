@@ -236,6 +236,14 @@ check('insufficient cash rejects buy before any mutation', () => {
   assert.equal(a.marketActionsThisTurn, 0); // seeded, not mutated by the rejected order
 });
 
+check('market order initializes a legacy missing position map', () => {
+  const { game, a } = marketRoom();
+  a.cash = 1000;
+  a.marketPositions = undefined;
+  assert.equal(game.tradeMarket('socket-a', 'brazil', 'buy', 1).success, true);
+  assert.equal(a.marketPositions.brazil.quantity, 1);
+});
+
 check('crisis buys record under active multiplier<1 and flag profit on higher sell', () => {
   const { game, a } = marketRoom();
   a.cash = 10_000;
@@ -250,6 +258,17 @@ check('crisis buys record under active multiplier<1 and flag profit on higher se
   assert.equal(game.tradeMarket('socket-a', 'brazil', 'sell', 1).success, true);
   assert.equal(a.crisisMarketProfit, true);
   assert.equal(a.crisisMarketBuys.brazil, undefined);
+});
+
+check('market event price shock applies once per active event', () => {
+  const { game } = marketRoom();
+  game.marketQuotes.brazil = 100;
+  game.globalEvent = { id: 'housing-bubble', phase: 'active', startedRound: 3, effects: { marketPriceMultiplier: 0.5, marketVolatility: 0.0001 } };
+  game.advanceMarket();
+  assert.equal(game.marketQuotes.brazil <= 51, true);
+  game.marketQuotes.brazil = 100;
+  game.advanceMarket();
+  assert.equal(game.marketQuotes.brazil >= 99, true);
 });
 
 check('requestId replays return the memoized market result', () => {
@@ -305,6 +324,14 @@ check('hybrid accept moves cash with no equity recorded yet', () => {
   assert.deepEqual(property.equityShares || [], []);
 });
 
+check('hybrid conversion target stays encumbered until the note resolves', () => {
+  const { game, contract, property, b } = hybridRoom();
+  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  assert.equal(game.isTradeableTile(property), false);
+  assert.equal(game.canMortgageTile(b, property), false);
+  assert.equal(contract.status, 'active');
+});
+
 check('hybrid accept revalidates the conversion target at settlement', () => {
   const { game, a, property } = hybridRoom();
   property.ownerId = a.id;
@@ -316,6 +343,29 @@ check('hybrid repays to paid before the due round', () => {
   assert.equal(game.respondPlayerContract('socket-b', true).success, true);
   assert.equal(game.repayPlayerContract('socket-b', { contractId: contract.id }).success, true);
   assert.equal(contract.status, 'paid');
+});
+
+check('player-loan repayment rejects a missing lender without destroying cash', () => {
+  const { game, b } = startedRoom();
+  assert.equal(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 10 }).success, true);
+  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  const contract = game.playerContracts[0];
+  game.removePlayerByClient('client-a');
+  const cashBefore = b.cash;
+  const result = game.repayPlayerContract('socket-b', { contractId: contract.id });
+  assert.deepEqual(result, { success: false, error: 'That loan is no longer available to repay.' });
+  assert.equal(b.cash, cashBefore);
+  assert.equal(contract.status, 'active');
+});
+
+check('contract acceptance rechecks loan-backed lender cash', () => {
+  const { game, a, b } = startedRoom();
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100 });
+  assert.equal(first.success, true);
+  a.bankLoan = { status: 'active', remaining: 450 };
+  assert.deepEqual(game.respondPlayerContract('socket-b', true, null, first.contract.id), { success: false, error: 'Loan-backed cash cannot be used for player contracts.' });
+  assert.equal(game.pendingPlayerContract, null);
+  assert.equal(a.cash, 1500);
 });
 
 function convertedHybrid() {

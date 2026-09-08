@@ -172,6 +172,7 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
@@ -232,6 +233,7 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
@@ -336,10 +338,10 @@ class GameState {
 
   isPlayerContractCollateral(player, tile) {
     return Boolean(player && tile && this.playerContracts?.some(contract =>
-      contract.kind === 'loan'
+      ['loan', 'hybrid'].includes(contract.kind)
       && ['active', 'due'].includes(contract.status)
       && contract.toPlayerId === player.id
-      && Number(contract.collateralTileIndex) === Number(tile.index)
+      && Number(contract.kind === 'hybrid' ? contract.propertyIndex : contract.collateralTileIndex) === Number(tile.index)
     ));
   }
 
@@ -416,7 +418,7 @@ class GameState {
 
   attachDeedToOwner(toPlayer, tile) {
     if (!toPlayer) return;
-    toPlayer.properties.push(tile.index);
+    if (!toPlayer.properties.includes(tile.index)) toPlayer.properties.push(tile.index);
     this.refreshPlayerGroups(toPlayer);
   }
 
@@ -716,7 +718,7 @@ class GameState {
     }
     const next = this.findNextTurnSeat();
     if (!this.nextSeatIsPlayable(next)) {
-      this.announceWaitingForSeat();
+      this.announceWaitingForSeat(next.player);
       return;
     }
     if (this.turnOrderWrapped(next)) this.advanceRound();
@@ -748,8 +750,8 @@ class GameState {
     return !next.player.disconnected;
   }
 
-  announceWaitingForSeat() {
-    const waiting = this.getPlayerById(this.currentPlayerId);
+  announceWaitingForSeat(waiting = null) {
+    waiting ||= this.getPlayerById(this.currentPlayerId);
     if (!waiting) return;
     if (waiting.bankrupt) return;
     this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
@@ -900,6 +902,14 @@ class GameState {
     return true;
   }
 
+  removeQueuedPaymentsForPlayer(playerId) {
+    if (!playerId || !Array.isArray(this.pendingPaymentQueue)) return;
+    this.pendingPaymentQueue = this.pendingPaymentQueue.filter(entry => {
+      const payment = entry?.payment;
+      return payment?.playerId !== playerId && payment?.creditorId !== playerId;
+    });
+  }
+
   // Remainder path replays the debt hooks exactly once. Equity debts replay
   // through their stored indexes in settlePendingEquityShares, so the generic
   // hook only runs for non-equity debts (today: vacation-pool tax). Partial
@@ -985,6 +995,7 @@ class GameState {
     if (offer && offer.playerId === player.id) return { success: false, error: 'Resolve the property offer before ending the turn.' };
     const pending = this.pendingPayment;
     if (pending && pending.playerId === player.id) return { success: false, error: 'Settle your debt before ending the turn.' };
+    if (this.pendingSponsoredPurchase) return { success: false, error: 'Resolve the open sponsorship before ending the turn.' };
     const dealReason = this.pendingDealBlockReason(player);
     if (dealReason) return { success: false, error: dealReason };
     return null;
@@ -1001,7 +1012,10 @@ class GameState {
   }
 
   endGame() {
-    const winner = this.connectedNonBankruptPlayers().filter(p => !p.inDebt)[0] || this.nonBankruptPlayers().filter(p => !p.inDebt)[0];
+    // A disconnected seat is not an eligible winner. If every solvent seat
+    // has gone offline, finish without crowning a ghost; a supervisor can
+    // still retain the match record for diagnostics.
+    const winner = this.connectedNonBankruptPlayers().find(player => !player.inDebt) || null;
     if (this.globalEvent) {
       const event = this.globalEvent;
       if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {

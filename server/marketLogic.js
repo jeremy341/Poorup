@@ -48,7 +48,10 @@ export function advanceMarket(game) {
   if (!game.settings.market) return;
   game.marketRound += 1;
   const spread = marketSpread(game);
-  const modifier = marketPriceModifier(game);
+  const event = game.globalEvent?.phase === 'active' ? game.globalEvent : null;
+  const eventKey = event ? `${event.id}:${event.startedRound || 0}` : null;
+  const modifier = eventKey && game.marketModifierEventKey !== eventKey ? marketPriceModifier(game) : 1;
+  game.marketModifierEventKey = eventKey;
   Object.keys(game.marketQuotes).forEach((id) => {
     const drift = (randomFloat() * (spread * 2)) - spread;
     game.marketQuotes[id] = Math.max(10, Math.round(game.marketQuotes[id] * (1 + drift) * modifier));

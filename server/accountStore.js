@@ -84,7 +84,11 @@ function countContracts(record, accountId, include) {
   return (record.playerContracts || []).filter((contract) => include(contract, accountId)).length;
 }
 
-const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
+// A hybrid is a loan only while its debt leg is active/due/settled; once it
+// converts, the remaining live instrument is equity and must not inflate the
+// player-loan leaderboard counters.
+const loanLikeContract = contract => contract?.kind === 'loan'
+  || (contract?.kind === 'hybrid' && contract.status !== 'converted');
 const equityLikeContract = contract => contract?.kind === 'equity' || (contract?.kind === 'hybrid' && contract?.status === 'converted');
 
 function realizedMarketPnl(record, accountId) {
@@ -396,7 +400,7 @@ export class AccountStore {
   }
 
   load() {
-    const { value } = loadJson(this.filePath);
+    const { value } = loadJson(this.filePath, loaded => Array.isArray(loaded));
     if (!value) return;
     const entries = value;
     if (!Array.isArray(entries)) return;
@@ -430,8 +434,14 @@ export class AccountStore {
     for (const [token, username] of this.sessions) {
       if (username === account.username) {
         this.sessions.delete(token);
-        if (account.sessionTokenHash) this.sessionHashes.delete(account.sessionTokenHash);
       }
+    }
+    // Remove every persisted hash for this account, not only the latest field
+    // on the record. This also cleans hashes written by older builds so a
+    // rotated or logged-out token can never be reanimated from the fallback
+    // index.
+    for (const [tokenHash, username] of this.sessionHashes) {
+      if (username === account.username) this.sessionHashes.delete(tokenHash);
     }
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token);
@@ -518,6 +528,9 @@ export class AccountStore {
     const account = this.sessionAccount(sessionToken);
     if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
     if (account) {
+      for (const [tokenHash, username] of this.sessionHashes) {
+        if (username === account.username) this.sessionHashes.delete(tokenHash);
+      }
       account.sessionTokenHash = null;
       this.persist();
     }
