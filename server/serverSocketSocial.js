@@ -393,7 +393,7 @@ function leaderboardScope(rawScope) {
   function leaderboardGuardedQuery(payload, callback, buildAck) {
     const viewer = accountForSocket(socket, payload);
     const scope = leaderboardScope(payload.scope);
-    const options = leaderboardWindow(scope);
+    const options = { ...leaderboardWindow(scope), primaryMetric: payload.metric };
     if (scope !== 'friends') return buildAck(scope, options);
     const accountIds = friendScopeAccountIds(viewer);
     if (!accountIds) return reply(callback, { success: false, error: 'Sign in to view friend rankings.' });
@@ -406,7 +406,8 @@ function leaderboardScope(rawScope) {
   }
 
   function snapshotAck(callback, scope, options) {
-    const snapshot = accountStore.getLeaderboardSnapshot(undefined, options);
+    const primaryMetric = LEADERBOARD_METRICS.includes(options.primaryMetric) ? options.primaryMetric : null;
+    const snapshot = accountStore.getLeaderboardSnapshot(undefined, { ...options, primaryMetric });
     reply(callback, { success: true, scope, ...snapshot });
   }
 

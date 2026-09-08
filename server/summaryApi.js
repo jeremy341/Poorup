@@ -24,6 +24,7 @@ const summaryApi = {
       players: this.players.map(player => this.summaryPlayerEntry(player, viewerPlayerId)),
       feed: this.feed,
       roundNumber: this.roundNumber,
+      turnDeadline: Number(this.turnDeadline) || 0,
       globalEvent: this.summaryGlobalEvent(),
       globalEventHistory: this.globalEventHistory,
       auction: this.summaryAuction(),

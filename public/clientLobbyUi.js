@@ -321,6 +321,7 @@ function renderLobbyRail() {
   // rail should only ever appear once a round is actually live.
   const preGame = state.phase === "setup" || state.phase === "lobby";
   const locked = state.phase === "setup";
+  const hostLocked = state.phase === "lobby" && !state.players[0]?.isHost;
   $("#right-rail-game").classList.toggle("is-hidden", preGame);
   $("#right-rail-lobby").classList.toggle("is-hidden", !preGame);
   if (!preGame) return;
@@ -337,7 +338,9 @@ function renderLobbyRail() {
           <strong style="color:var(--gold-300)">FINISH SETUP TO CONTINUE</strong><br>
           Your active design is ready. Press "Enter Parlor" on the left to seat the table, or change it there for this table only.
         </div>`
-      : "",
+      : hostLocked
+        ? `<div class="settings-rule lobby-lock-note"><strong style="color:var(--gold-300)">HOST CONTROLS THIS TABLE</strong><br>The room host owns settings and starts the round. You can review the rules while you wait.</div>`
+        : "",
     lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
     lobbySection("Table Rules", [
       settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
@@ -386,8 +389,12 @@ function renderLobbyRail() {
   ].join("");
 
   const startBtn = $("#lobby-start-btn");
-  startBtn.disabled = locked;
-  startBtn.querySelector(".cta-text").textContent = locked ? "Finish Setup First" : "Start Round";
+  startBtn.disabled = locked || hostLocked;
+  startBtn.querySelector(".cta-text").textContent = locked ? "Finish Setup First" : hostLocked ? "Host Starts Round" : "Start Round";
+  $("#lobby-settings-body").querySelectorAll("[data-setting], [data-step]").forEach((control) => {
+    control.disabled = locked || hostLocked;
+    if (locked || hostLocked) control.setAttribute("aria-disabled", "true");
+  });
 }
 
 function buildPreviewSelf() {
@@ -614,6 +621,7 @@ function isStepperEnabled(stepBtn) {
 }
 
 function onToggleSetting(togBtn) {
+  if (togBtn.disabled) return;
   const key = togBtn.dataset.setting;
   state.settings[key] = !state.settings[key];
   host.updateServerSetting(key, state.settings[key]);

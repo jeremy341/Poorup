@@ -141,6 +141,7 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
+    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
@@ -199,6 +200,7 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
+    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;

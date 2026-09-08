@@ -15,7 +15,7 @@ import {
   isAuctionBotParticipant,
   auctionBidDecision
 } from './botLogic.js';
-import { buildBotStrategicContext } from './botStrategicContext.js';
+import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
 
 const DISCONNECT_GRACE_MS = 10000;
@@ -53,6 +53,7 @@ function createRuntime(deps) {
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
+  const turnTimers = new Map();
   const botDecisionLocks = new Set();
   const auctionBotTimers = new Map();
   let roomsUpdatedTimer = null;
@@ -82,6 +83,7 @@ function createRuntime(deps) {
         recordRoomStats(room);
       }
       broadcastRoomState(room);
+      scheduleTurnTimer(room);
       scheduleBotTurn(room);
       scheduleBotAuction(room);
     } catch (error) {
@@ -225,6 +227,42 @@ function createRuntime(deps) {
     auctionTimers.delete(room.roomCode);
   }
 
+  function clearTurnTimer(room) {
+    if (!room) return;
+    const timer = turnTimers.get(room.roomCode);
+    if (timer) clearTimeout(timer);
+    turnTimers.delete(room.roomCode);
+    room.turnTimerWatch = null;
+    if (room.game) room.game.turnDeadline = 0;
+  }
+
+  function scheduleTurnTimer(room) {
+    if (!room?.game?.started) {
+      clearTurnTimer(room);
+      return;
+    }
+    const seconds = Math.max(0, Math.floor(Number(room.settings?.turnTimer) || 0));
+    const current = afkWatchTarget(room.game);
+    if (!seconds || !current) {
+      clearTurnTimer(room);
+      return;
+    }
+    const key = `${current.id}:${room.game.roundNumber}:${room.game.startedAt || 0}`;
+    if (room.turnTimerWatch?.key === key) return;
+    clearTurnTimer(room);
+    const deadline = Date.now() + seconds * 1000;
+    room.game.turnDeadline = deadline;
+    room.turnTimerWatch = { key, playerId: current.id, deadline };
+    const timer = setTimeout(() => {
+      const watch = room.turnTimerWatch;
+      const active = room.game.getCurrentPlayer();
+      if (!watch || watch.key !== key || active?.id !== current.id || !room.game.started) return;
+      clearTurnTimer(room);
+      expireAfkTurn(room, room.game, active);
+    }, seconds * 1000);
+    turnTimers.set(room.roomCode, timer);
+  }
+
   function clearDisconnectTimer(clientId) {
     const timer = disconnectTimers.get(clientId);
     if (timer) {
@@ -248,6 +286,7 @@ function createRuntime(deps) {
     const roomCode = room.roomCode;
     room.destroyed = true;
     clearAuctionTimer(room);
+    clearTurnTimer(room);
     clearDisconnectTimersForRoom(room);
     clearTimeout(auctionBotTimers.get(roomCode));
     auctionBotTimers.delete(roomCode);
@@ -388,7 +427,7 @@ function createRuntime(deps) {
       botDifficulty: room.settings.botDifficulty || 'table',
       gameId: `${room.roomCode}:${room.game.startedAt || 'pending'}`,
       decisionSequence,
-      ruleVersion: 'bot-policy-v1',
+      ruleVersion: BOT_RULE_VERSION,
       ...buildBotStrategicContext(room.game, bot, 'auction', decisionSequence)
     };
     const candidates = [
