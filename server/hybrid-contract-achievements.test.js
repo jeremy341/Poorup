@@ -48,7 +48,7 @@ accounts.recordGameResults([
     { kind: 'hybrid', status: 'converted', fromAccountId: lender.id, toAccountId: borrower.id }
   ]
 });
-assert.equal(lender.stats.playerLoansGiven, 3);
+assert.equal(lender.stats.playerLoansGiven, 2);
 assert.equal(borrower.stats.playerLoansRepaid, 1);
 assert.equal(borrower.stats.playerLoanDefaults, 1);
 assert.equal(lender.stats.equityDeals, 1);

@@ -52,6 +52,14 @@ check('same-clientId fast reload still restores without account', () => {
   assert.equal(room.game.getPlayerByClient('client-a').socketId, 'socket-a-new');
 });
 
+check('reconnecting during a started game cannot rename a seat', () => {
+  const { room } = roomWithAccountSeat();
+  assert.equal(room.startGame().success, true);
+  const result = room.addOrReconnectPlayer({ socketId: 'socket-a-new', clientId: 'client-a', nickname: 'Imposter', accountId: 'acct-1' });
+  assert.equal(result.success, true);
+  assert.equal(room.game.getPlayerByClient('client-a').nickname, 'A');
+});
+
 check('a different account cannot reclaim an account seat by clientId', () => {
   const { manager, room } = roomWithAccountSeat();
   const restored = manager.restoreConnection('client-a', 'socket-attacker', 'acct-evil');
@@ -88,6 +96,12 @@ check('an anonymous socket cannot rebind an account seat by clientId', () => {
   const result = room.addOrReconnectPlayer({ socketId: 'socket-anon', clientId: 'client-a', nickname: 'Intruder' });
   assert.deepEqual(result, { success: false, error: 'That seat is already linked to another account.' });
   assert.equal(room.game.getPlayerByClient('client-a').socketId, 'socket-a');
+});
+
+check('an account cannot claim a second seat in the same room', () => {
+  const { room } = roomWithAccountSeat();
+  const result = room.addOrReconnectPlayer({ socketId: 'socket-a-second', clientId: 'client-a-second', nickname: 'A second tab', accountId: 'acct-1' });
+  assert.deepEqual(result, { success: false, error: 'This account is already seated in this room.' });
 });
 
 check('live seat in another tab is not hijacked via account', () => {

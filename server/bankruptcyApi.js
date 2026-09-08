@@ -8,6 +8,7 @@ import { LOAN_OUTSTANDING_STATUSES } from './loanLogic.js';
 import {
   bankruptcyRefusal,
   clearQuitObligations,
+  handlePlayerLoanDefault,
   outstandingDebtFor
 } from './bankruptcyLogic.js';
 
@@ -48,8 +49,8 @@ const bankruptcyApi = {
     this.liquidateMarketPositions(player);
     this.sweepCashToCreditor(player, creditor);
     if (!creditor) player.cash = 0;
-    this.forfeitOrReleaseProperties(player, creditor);
     this.settleContractsOnBankruptcy(player);
+    this.forfeitOrReleaseProperties(player, creditor);
     player.inDebt = true;
     this.feedMessage(creditor
       ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
@@ -102,6 +103,7 @@ const bankruptcyApi = {
   // deed is handed over.
   sweepCashToCreditor(player, creditor) {
     if (!creditor) return;
+    if (creditor.bankrupt) return;
     if (player.cash <= 0) return;
     creditor.cash += player.cash;
     player.cash = 0;
@@ -137,7 +139,13 @@ const bankruptcyApi = {
   // else is left untouched, exactly as the original if-ladder.
   settleBankruptContract(player, contract) {
     if (contract.kind === 'hybrid') {
-      this.terminateEquityContract(contract);
+      if (contract.toPlayerId === player.id) {
+        // The borrower still owes the funded principal; bankruptcy defaults
+        // the loan leg. Only a converted hybrid behaves as an equity claim.
+        handlePlayerLoanDefault(this, contract);
+      } else {
+        this.terminateEquityContract(contract);
+      }
       return;
     }
     if (contract.kind !== 'loan') {
@@ -211,9 +219,11 @@ const bankruptcyApi = {
   },
 
   releasePropertyTile(player, tile) {
+    this.terminateTileEquityShares?.(tile);
     tile.ownerId = null;
     tile.houseCount = 0;
     tile.mortgaged = false;
+    tile.equityShares = [];
     player.properties = player.properties.filter(index => index !== tile.index);
   },
 
@@ -229,14 +239,10 @@ const bankruptcyApi = {
 
   // The last seat standing wins immediately; otherwise the bankrupt current
   // player forfeits the turn.
-  // endGame-hook verdict (audit FIX3c): GameState.endGame clears
-  // pendingPurchaseOffer, auction and pendingTrade but leaves
-  // pendingPayment, pendingPaymentTurnOptions and pendingPlayerContract.
-  // No hook exists in this mixin or in rooms.js covering every endGame
-  // caller (GameState.nextTurn calls endGame when one seat remains;
-  // only the bankruptcy path funnels through concludeBankruptRound here).
-  // Overriding endGame in this mixin would duplicate its 14-line body and
-  // drift. Left uncleared here; fix belongs in gameLogic.js endGame.
+  // GameState.endGame owns the final table teardown and clears every pending
+  // obligation, including the payment queue. This mixin only decides whether
+  // a departing seat is eliminated or remains in debt before that shared
+  // end-game path runs.
   concludeBankruptRound(player) {
     const active = this.nonBankruptPlayers().filter(p => !p.inDebt);
     if (active.length <= 1) {

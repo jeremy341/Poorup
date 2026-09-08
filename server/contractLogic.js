@@ -291,6 +291,10 @@ export function adjustContract(game, socketId, offer = {}) {
 
 function contractProposalRejectionWithoutTurn(game, fromPlayer, toPlayer, amount) {
   if (!isPairOfActivePlayers(fromPlayer, toPlayer)) return { success: false, error: 'Choose two active players.' };
+  const otherObligationOpen = TABLE_OBLIGATION_FIELDS
+    .filter(field => field !== 'pendingPlayerContract')
+    .some(field => Boolean(game[field]));
+  if (otherObligationOpen) return { success: false, error: 'Resolve the current table obligation first.' };
   if (!lenderCanFund(fromPlayer, amount)) return { success: false, error: 'The lender does not have enough cash for that offer.' };
   if (game.hasLoanBackedCash(fromPlayer)) return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
   return null;
@@ -354,6 +358,10 @@ function acceptContract(game, player, contract) {
     game.pendingPlayerContract = null;
     return { success: false, error: 'The lender can no longer fund that contract.' };
   }
+  if (game.hasLoanBackedCash(lender)) {
+    game.pendingPlayerContract = null;
+    return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
+  }
   if (!borrowerCanReceive(player)) {
     game.pendingPlayerContract = null;
     return { success: false, error: 'The contract can no longer be accepted.' };
@@ -411,15 +419,16 @@ export function repayContract(game, socketId, payload = {}) {
   if (cached) return cached;
   const contract = game.playerContractById(contractId);
   if (!repayableLoan(contract, borrower)) return { success: false, error: 'That loan is not available to repay.' };
+  const lender = game.getPlayerById(contract.fromPlayerId);
+  if (!lender) return { success: false, error: 'That loan is no longer available to repay.' };
   const payment = repaymentAmount(contract, amount);
   if (!payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
   if (borrower.cash < payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
-  const result = settleLoanRepayment(game, contract, borrower, payment);
+  const result = settleLoanRepayment(game, contract, borrower, payment, lender);
   return memoizeSuccess(game, key, result);
 }
 
-function settleLoanRepayment(game, contract, borrower, payment) {
-  const lender = game.getPlayerById(contract.fromPlayerId);
+function settleLoanRepayment(game, contract, borrower, payment, lender = null) {
   borrower.cash -= payment;
   if (lender) lender.cash += payment;
   contract.remaining -= payment;
