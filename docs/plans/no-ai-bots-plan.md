@@ -184,19 +184,18 @@ Implemented in the current bot slice:
 
 Remaining rollout work:
 
-- Expand the current 1,000-game bounded simulation gate into a longer balance
-  campaign for reserves, loans, casino, market, and global-event survival.
-  The opt-in `npm run bot:balance` command now runs a 2,500-game campaign
-  without slowing the normal regression suite.
 - Add a browser-level bot-status accessibility and reconnect test.
+
+The longer `npm run bot:balance` campaign is now verified: 2,500 bounded games,
+1,994 completed within the step budget, and zero stalled simulations.
 
 ## Verification gates
 
 - 100% of selected actions pass the server legality seam.
 - Zero negative cash outside the existing debt/bankruptcy rules.
 - Zero hidden-information reads in a bot snapshot.
-- Zero deadlocks in 1,000 seeded bounded full-game simulations with casino,
-  market, auctions, and global events enabled. **Verified.**
+- Zero deadlocks in seeded bounded full-game simulations with casino, market,
+  auctions, and global events enabled. **Verified at 1,000 and 2,500 games.**
 - Replays with the same seed produce the same decisions.
 - p95 deterministic decision latency stays below 50 ms.
 - Bot win rate is measured by personality/difficulty, not hand-tuned bonuses.
@@ -207,7 +206,7 @@ Remaining rollout work:
 2. Keep current deterministic policy as House/Table. **Done.**
 3. Add Expert seeded rollouts and replay traces. **Done.**
 4. Add UI status, accessibility labels, and rules-page copy. **Done.**
-5. Run balance simulations and held-out regression fixtures. **Bounded gate done; longer balance campaign remains.**
+5. Run balance simulations and held-out regression fixtures. **Done; 2,500-game campaign verified.**
 6. Enable `AUTO` AI selection only after the AI provider passes the same gates.
 
 ## Do not build
