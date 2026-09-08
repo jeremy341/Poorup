@@ -354,6 +354,9 @@ function createRuntime(deps) {
       const trace = room.game.recordBotDecisionTrace(result.botDecision);
       emitBotStatus(room, bot, 'chosen', trace);
     }
+    if (result?.botChat) {
+      io.in(room.roomCode).emit('chat-message', { text: result.botChat, nickname: bot.nickname, senderId: bot.id, bot: true });
+    }
     if (result?.noEmit) return;
     // Tail purchase resolution, second half of the post-roll double-check.
     resolvePurchaseOffer(room, bot, result);

@@ -4,6 +4,9 @@ Status: implemented AI-first `AUTO` mode with a guaranteed no-AI fallback.
 Provider shadowing and production rollout gates remain intentionally staged.
 The current release includes verified 1,000- and 2,500-game bounded no-AI
 economy simulation gates; browser-level bot-status coverage remains follow-up.
+AI and NO-AI now share the expanded action candidate contract, including jail
+choices, debt repayment, proactive contracts, portfolio rebalancing, rich
+multi-leg trades, and safe table talk.
 
 ## Product decision
 

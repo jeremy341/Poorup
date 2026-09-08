@@ -606,7 +606,7 @@ const RULES_SECTIONS = [
     title: "CPU seats follow the same contracts",
     status: "LIVE",
     summary: "Bots are reserved seats in the lobby and use the same server rules as human players. They are not allowed to bypass turn gates or money checks.",
-    content: `<ul class="rules-bullets"><li>Bots buy, pass, build, mortgage, trade, and bid according to a bounded risk profile.</li><li>A bot preserves a cash buffer for rent, taxes, and known obligations.</li><li>Bots never borrow money to gamble and cannot see private player information.</li><li>AI Advisor is preferred in AUTO mode; the deterministic House Brain takes over automatically when credits, network, or provider health fail.</li><li>NO-AI mode skips provider calls entirely. Every decision still resolves through the same server action events and appears in the log.</li></ul>`,
+    content: `<ul class="rules-bullets"><li>Bots buy, pass, build, sell buildings, mortgage, unmortgage, trade, make player-loan/equity/hybrid offers, and bid according to a bounded risk profile.</li><li>They can choose jail fine, Get Out of Prison card, bank-loan repayment, market sell/rebalancing, and sponsorship actions.</li><li>A bot preserves a cash buffer for rent, taxes, debt, and known obligations.</li><li>Bots never borrow money to gamble and cannot see private player information.</li><li>AI Advisor is preferred in AUTO mode; the deterministic House Brain takes over automatically when credits, network, or provider health fail.</li><li>NO-AI mode skips provider calls entirely. Both modes use the same server action events, table chat signals, and legality checks.</li></ul>`,
   },
   {
     id: "social-profile",

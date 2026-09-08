@@ -4,11 +4,14 @@
 // ties keep this sequence. kind values are the contract consumed by
 // botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
 import { MARKET_FEE_RATE } from './marketLogic.js';
+import { JAIL_FINE } from './gameData.js';
 
 const BOT_CANDIDATE_SOURCES = [
+  { collect: (game, player) => game.botJailCandidates(player) },
   { collect: (game, player) => game.botBuildCandidates(player) },
   { collect: (game, player) => game.botMortgageCandidates(player) },
   { collect: (game, player) => game.botRepaymentCandidates(player) },
+  { collect: (game, player) => game.botBankLoanRepaymentCandidates(player) },
   { collect: (game, player) => game.botLoanCandidate(player) },
   { collect: (game, player, options) => options.expanded ? game.botGroupTradeCandidates(player) : game.botGroupTradeCandidate(player) },
   { collect: (game, player) => game.botMarketCandidate(player) },
@@ -22,6 +25,15 @@ const BOT_CANDIDATE_SOURCES = [
 const BOT_CASINO_SPECS = {
   chaos: { color: 'green', stakeRate: 0.08, score: 18 },
   shark: { color: 'red', stakeRate: 0.03, score: 11 }
+};
+
+const BOT_TABLE_TALK = {
+  builder: 'I am building the street one square at a time.',
+  shark: 'The table is pricing risk incorrectly.',
+  survivor: 'Cash first. The next rent bill is always closer than it looks.',
+  speculator: 'The numbers are moving; I am watching the spread.',
+  diplomat: 'There is probably a deal that leaves both wallets standing.',
+  chaos: 'I have a plan. It is not the safe one.'
 };
 
 const BOT_TRADE_ASKS = {
@@ -119,12 +131,48 @@ const botApi = {
   getBotCandidates(player, options = {}) {
     if (!player?.isBot) return [];
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
+    if (!this.hasRolled && player.inJail && options.parity) {
+      return candidates.concat(this.botJailCandidates(player)).sort((a, b) => b.score - a.score || a.risk - b.risk);
+    }
     if (!this.hasRolled) {
       for (const source of BOT_CANDIDATE_SOURCES) {
         candidates.push(...source.collect(this, player, options));
       }
+      if (options.parity) {
+        candidates.push(...this.botSellCandidates(player));
+        candidates.push(...this.botUnmortgageCandidates(player));
+        candidates.push(...this.botContractCandidates(player));
+        candidates.push(...this.botRichTradeCandidates(player));
+        candidates.push(...this.botMarketCandidates(player).filter(candidate => candidate.side === 'sell'));
+        candidates.push(...this.botSocialCandidates(player));
+      }
     }
     return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+  },
+
+  botJailCandidates(player) {
+    if (!player?.inJail) return [];
+    const choices = [];
+    if (player.cash >= JAIL_FINE) choices.push({ id: 'jail:fine', kind: 'jail-fine', risk: JAIL_FINE / Math.max(1, player.cash), score: player.jailTurns >= 2 ? 14 : 8 });
+    if (player.jailFreeCards > 0) choices.push({ id: 'jail:free', kind: 'jail-free', risk: 0.05, score: player.jailTurns >= 2 ? 16 : 7 });
+    return choices;
+  },
+
+  botSocialCandidates(player) {
+    const sequence = Math.max(0, Math.floor(Number(this.botDecisionSequence) || 0));
+    if (!player || sequence === 0 || sequence % 6 !== 0) return [];
+    return [{ id: 'chat:table-talk', kind: 'chat', text: BOT_TABLE_TALK[player.personality] || BOT_TABLE_TALK.survivor, risk: 0, score: 1 }];
+  },
+
+  botBankLoanRepaymentCandidates(player) {
+    const loan = player?.bankLoan;
+    if (!loan || !['active', 'due'].includes(loan.status)) return [];
+    if (player.id !== this.currentPlayerId) return [];
+    const remaining = Math.max(0, Math.floor(Number(loan.remaining) || 0));
+    const reserve = loan.status === 'due' ? 0 : 180;
+    const amount = Math.min(remaining, Math.max(0, Math.floor(Number(player.cash || 0) - reserve)));
+    if (amount <= 0) return [];
+    return [{ id: 'bank-repay:' + player.id + ':' + (player.bankLoanCount || loan.issuedRound || 0), kind: 'bank-repay', amount, remaining, issuedRound: loan.issuedRound || 0, dueRound: loan.dueRound || 0, loanCount: player.bankLoanCount || 0, risk: amount / Math.max(1, player.cash), score: loan.status === 'due' ? 34 : 13 }];
   },
 
   botBuildCandidates(player) {
@@ -152,6 +200,32 @@ const botApi = {
     return this.tiles
       .filter(tile => this.canMortgageTile(player, tile))
       .map(tile => this.botMortgageCandidateFor(tile, player));
+  },
+
+  botSellCandidates(player) {
+    if (!player || player.id !== this.currentPlayerId) return [];
+    const crisis = Boolean(this.globalEventActive?.('housing-bubble'));
+    if (!crisis && Number(player.cash || 0) >= Number(this.settings.startingCash || 1500) * 0.5) return [];
+    return (player.properties || [])
+      .map(index => this.getTile(index))
+      .filter(tile => tile && tile.houseCount > 0 && this.canSellFromTile(player, tile))
+      .map(tile => {
+        const proceeds = Math.max(0, Math.floor(this.getPropertyHouseCost(tile) * this.buildingSaleMultiplier()));
+        return { id: 'sell:' + tile.index, kind: 'sell', tileIndex: tile.index, proceeds, risk: 0.12, score: crisis ? 15 : 10 };
+      });
+  },
+
+  botUnmortgageCandidates(player) {
+    if (!player || player.id !== this.currentPlayerId) return [];
+    return (player.properties || [])
+      .map(index => this.getTile(index))
+      .filter(tile => tile && this.canUnmortgageTile(player, tile))
+      .map(tile => {
+        const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
+        if (player.cash < cost + 180) return null;
+        return { id: 'unmortgage:' + tile.index, kind: 'unmortgage', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: 9 };
+      })
+      .filter(Boolean);
   },
 
   botMortgageCandidateFor(tile, player) {
@@ -219,6 +293,7 @@ const botApi = {
   },
 
   botGroupTradeCandidates(player) {
+    if (this.settings.trading === false) return [];
     const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
     const owned = player.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
     const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.isBot);
@@ -245,6 +320,65 @@ const botApi = {
       }));
     });
     return candidates.slice(0, 12);
+  },
+
+  botRichTradeCandidates(player) {
+    if (this.settings.trading === false) return [];
+    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.bankrupt && !candidate.disconnected);
+    const owned = (player.properties || []).map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group).slice(0, 3);
+    if (owned.length < 2) return [];
+    return partners.flatMap(partner => {
+      const requested = (partner.properties || []).map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group).slice(0, 3);
+      if (requested.length < 2) return [];
+      return [{
+        id: 'trade:rich:' + partner.id,
+        kind: 'trade',
+        rich: true,
+        toPlayerId: partner.id,
+        givePropertyIndexes: owned.slice(0, 2).map(tile => tile.index),
+        requestPropertyIndexes: requested.slice(0, 2).map(tile => tile.index),
+        giveCash: 0,
+        requestCash: Math.max(0, Math.floor((requested[0].price + requested[1].price - owned[0].price - owned[1].price) * 0.2)),
+        risk: 0.3,
+        score: 18
+      }];
+    }).slice(0, 4);
+  },
+
+  botContractCandidates(player) {
+    if (!player || player.id !== this.currentPlayerId) return [];
+    const reserve = Math.max(180, Number(this.settings.startingCash || 1500) * 0.2);
+    const lenderCash = Number(player.cash || 0);
+    if (lenderCash <= reserve + 100) return [];
+    const targets = this.activePlayers()
+      .filter(target => target.id !== player.id && !target.bankrupt && !target.disconnected)
+      .sort((a, b) => Number(a.cash || 0) - Number(b.cash || 0))
+      .slice(0, 2);
+    const result = [];
+    targets.forEach(target => {
+      const amount = Math.min(300, Math.max(100, Math.floor(Math.max(0, lenderCash - reserve) / 3)));
+      result.push({ id: 'contract:loan:' + target.id, kind: 'contract-propose', offer: { toPlayerId: target.id, kind: 'loan', amount, premiumRate: 35, durationRounds: 3, collateralTileIndex: null }, risk: amount / lenderCash, score: 10 + Math.max(0, 300 - Number(target.cash || 0)) / 100 });
+      const property = (target.properties || []).map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile) && tile.houseCount === 0 && !tile.mortgaged);
+      if (!property) return;
+      result.push({ id: 'contract:equity:' + target.id + ':' + property.index, kind: 'contract-propose', offer: { toPlayerId: target.id, kind: 'equity', amount: Math.min(200, Math.max(50, Math.floor((lenderCash - reserve) / 5))), premiumRate: 0, durationRounds: 10, propertyIndex: property.index, equityShare: 15, equityControl: 'passive', permanent: false }, risk: 0.2, score: 8 });
+      result.push({ id: 'contract:hybrid:' + target.id + ':' + property.index, kind: 'contract-propose', offer: { toPlayerId: target.id, kind: 'hybrid', amount: Math.min(200, Math.max(50, Math.floor((lenderCash - reserve) / 5))), premiumRate: 25, durationRounds: 4, propertyIndex: property.index, conversionShare: 25 }, risk: 0.3, score: 7 });
+    });
+    return result.slice(0, 8);
+  },
+
+  botMarketCandidates(player) {
+    const buy = this.botMarketCandidate(player);
+    if (!this.settings.market || (player.marketActionsThisTurn || 0) >= 1) return buy;
+    const sells = Object.entries(player.marketPositions || {}).map(([id, position]) => {
+      const quantity = Math.max(0, Math.floor(Number(position?.quantity) || 0));
+      if (!quantity) return null;
+      const quote = Number(this.marketQuotes[id]) || 100;
+      const average = Number(position.averageCost) || quote;
+      const profitable = quote > average;
+      if (!profitable && Number(player.cash || 0) > Number(this.settings.startingCash || 1500) * 0.35) return null;
+      return { id: 'market:sell:' + id, kind: 'market', instrumentId: id, side: 'sell', quantity, risk: 0.1, score: profitable ? 15 : 8 };
+    }).filter(Boolean);
+    return [...buy, ...sells].slice(0, 8);
   },
 
   firstTradeableOwnedTile(player) {
