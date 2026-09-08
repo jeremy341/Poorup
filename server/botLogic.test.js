@@ -160,6 +160,13 @@ check('candidateAction maps kind to room action or roll fallback', () => {
   assert.strictEqual(candidateAction({ kind: 'market' }, bot).type, 'market');
   assert.strictEqual(candidateAction({ kind: 'casino' }, bot).type, 'casino');
   assert.strictEqual(candidateAction({ kind: 'repay', contractId: 'c1', amount: 20 }, bot).type, 'repay');
+  assert.strictEqual(candidateAction({ kind: 'bank-repay', amount: 20 }, bot).type, 'bank-repay');
+  assert.strictEqual(candidateAction({ kind: 'jail-fine' }, bot).type, 'jail-fine');
+  assert.strictEqual(candidateAction({ kind: 'jail-free' }, bot).type, 'jail-free');
+  assert.strictEqual(candidateAction({ kind: 'sell' }, bot).type, 'sell');
+  assert.strictEqual(candidateAction({ kind: 'unmortgage' }, bot).type, 'unmortgage');
+  assert.strictEqual(candidateAction({ kind: 'contract-propose' }, bot).type, 'contract-propose');
+  assert.strictEqual(candidateAction({ kind: 'chat' }, bot).type, 'chat');
   assert.strictEqual(candidateAction({ kind: 'mortgage' }, bot).type, 'mortgage');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 799 }, bot).type, 'build');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 801 }, bot).type, 'roll');
@@ -232,6 +239,10 @@ function fakeRoom(log) {
     placeCasinoBet: (actor, color, stake) => ({ name: `casino:${color}:${stake}` }),
     manageProperty: (actor, payload) => ({ name: `manage:${payload.action}:${payload.tileIndex}` }),
     takeBankLoan: () => ({ name: 'loan' }),
+    repayBankLoan: () => ({ name: 'bank-repay', success: true }),
+    payJailFine: () => ({ name: 'jail-fine', success: true }),
+    useJailFree: () => ({ name: 'jail-free', success: true }),
+    proposePlayerContract: () => ({ name: 'contract-propose', success: true }),
     purchaseProperty: (actor, index) => ({ name: `buy:${index}` }),
     declineProperty: (actor, index) => ({ name: `decline:${index}` })
   };
@@ -412,6 +423,17 @@ check('runBotTurn trade candidate rolls after a successful proposal', async () =
   room.rollDice = () => ({ name: 'rolled', success: true });
   const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'c1' }));
   assert.strictEqual(result.name, 'rolled');
+});
+
+check('runBotTurn falls back to a legal roll after a rejected parity action', async () => {
+  const room = fakeRoom([]);
+  room.game.getBotCandidates = () => [{ id: 'bank-repay:1', kind: 'bank-repay', amount: 100, remaining: 100, loanCount: 1 }];
+  room.repayBankLoan = () => ({ success: false, error: 'loan changed' });
+  room.rollDice = () => ({ name: 'fallback-roll', success: true });
+  const result = await runBotTurn(room, bot1, advisorStub(null));
+  assert.strictEqual(result.name, 'fallback-roll');
+  assert.strictEqual(result.botDecision.actionId, 'roll');
+  assert.strictEqual(result.botDecision.fallbackReason, 'candidate-rejected');
 });
 
 check('resolvePurchaseOffer applies one offer or passes through', () => {

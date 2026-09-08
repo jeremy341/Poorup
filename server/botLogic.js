@@ -176,12 +176,19 @@ export function classifyBotTurnPhase(game, bot) {
 // Each mapper answers "does this personality take this candidate?"; the
 // first true wins, and anything unmatched (or no candidate) is plain roll.
 const CANDIDATE_MAPPERS = [
+  { kind: 'jail-fine', takes: () => true, type: 'jail-fine' },
+  { kind: 'jail-free', takes: () => true, type: 'jail-free' },
+  { kind: 'chat', takes: () => true, type: 'chat' },
   { kind: 'trade', takes: () => true, type: 'trade' },
+  { kind: 'contract-propose', takes: () => true, type: 'contract-propose' },
   { kind: 'market', takes: () => true, type: 'market' },
   { kind: 'casino', takes: () => true, type: 'casino' },
   { kind: 'repay', takes: () => true, type: 'repay' },
+  { kind: 'bank-repay', takes: () => true, type: 'bank-repay' },
   { kind: 'build', takes: (candidate, bot) => bot.cash >= candidate.cost + 200, type: 'build' },
+  { kind: 'sell', takes: () => true, type: 'sell' },
   { kind: 'mortgage', takes: () => true, type: 'mortgage' },
+  { kind: 'unmortgage', takes: () => true, type: 'unmortgage' },
   { kind: 'loan', takes: (candidate, bot) => bot.personality === 'speculator', type: 'loan' }
 ];
 
@@ -551,6 +558,9 @@ export async function runBotTurn(room, bot, advisor) {
 // Candidate kind -> the room call it implies; the table order preserves the
 // original if/else chain, including roll as the unmatched fallback.
 const CANDIDATE_RUNNERS = {
+  'jail-fine': (room, bot) => room.runBotAction(bot.id, actor => room.payJailFine(actor)),
+  'jail-free': (room, bot) => room.runBotAction(bot.id, actor => room.useJailFree(actor)),
+  chat: (_room, _bot, candidate) => ({ success: true, botChat: String(candidate.text || '').slice(0, 180) }),
   trade: (room, bot, candidate) => {
     const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, candidate));
     if (!proposal?.success) return proposal;
@@ -559,20 +569,24 @@ const CANDIDATE_RUNNERS = {
   },
   market: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.tradeMarket(actor, candidate.instrumentId, candidate.side, candidate.quantity, 'bot-market-' + room.roomCode + '-' + room.game.roundNumber)),
   casino: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.placeCasinoBet(actor, candidate.color, candidate.stake, 'bot-casino-' + room.roomCode + '-' + room.game.roundNumber)),
+  'contract-propose': (room, bot, candidate) => room.runBotAction(bot.id, actor => room.proposePlayerContract(actor, candidate.offer)),
   build: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'build-house' })),
+  sell: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'sell-house' })),
   mortgage: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'mortgage' })),
+  unmortgage: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: candidate.tileIndex, action: 'unmortgage' })),
+  'bank-repay': (room, bot, candidate) => room.runBotAction(bot.id, actor => room.repayBankLoan(actor, { amount: candidate.amount, requestId: `bot-bank-repay-${room.roomCode}-${candidate.loanCount || candidate.issuedRound || 0}-${candidate.dueRound || 0}-${candidate.remaining || 0}` })),
   loan: (room, bot) => room.runBotAction(bot.id, actor => room.takeBankLoan(actor)),
   repay: (room, bot, candidate) => room.runBotAction(bot.id, actor => room.repayPlayerContract(actor, {
     contractId: candidate.contractId,
     amount: candidate.amount,
-    requestId: `bot-repay-${room.roomCode}-${room.game.roundNumber}-${candidate.contractId}`
+    requestId: `bot-repay-${room.roomCode}-${room.game.roundNumber}-${candidate.contractId}-${candidate.remaining || 0}`
   })),
   roll: (room, bot) => room.runBotAction(bot.id, actor => room.rollDice(actor))
 };
 
 async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 'pre-roll') {
   const game = room.game;
-  const candidates = game.getBotCandidates(bot, { expanded: true });
+  const candidates = game.getBotCandidates(bot, { expanded: true, parity: true });
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
@@ -594,6 +608,10 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
   const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
   const action = candidateAction(candidate, bot);
   const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
+  if (result?.success === false && action.type !== 'roll') {
+    const fallback = CANDIDATE_RUNNERS.roll(room, bot, { id: 'roll', kind: 'roll' });
+    return attachBotDecision(fallback, { ...trace, actionId: 'roll', fallbackReason: 'candidate-rejected' });
+  }
   return attachBotDecision(result, trace);
 }
 

@@ -108,8 +108,17 @@ function applyLoanCandidate(state, candidate) {
 
 function applyMarketCandidate(snapshot, state, candidate) {
   const quote = nonNegative(snapshot.marketQuotes?.[candidate.instrumentId]) || 100;
-  const fee = Math.max(1, Math.ceil(quote * MARKET_FEE_RATE));
   const quantity = nonNegative(candidate.quantity || 1);
+  const fee = Math.max(1, Math.ceil(quote * quantity * MARKET_FEE_RATE));
+  if (candidate.side === 'sell') {
+    const position = state.marketPositions[candidate.instrumentId];
+    if (!position || position.quantity < quantity) return;
+    state.cash += Math.max(0, quote * quantity - fee);
+    position.quantity -= quantity;
+    position.realizedPnl = number(position.realizedPnl) + Math.max(0, (quote - number(position.averageCost)) * quantity - fee);
+    if (position.quantity <= 0) delete state.marketPositions[candidate.instrumentId];
+    return;
+  }
   state.cash = Math.max(0, state.cash - quote * quantity - fee);
   const position = state.marketPositions[candidate.instrumentId] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
   position.quantity += quantity;
