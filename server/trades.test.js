@@ -729,6 +729,66 @@ check('after rolling, only the roll candidate remains', () => {
   assert.deepEqual(game.getBotCandidates(bot), [ROLL]);
 });
 
+check('parity mode exposes strategic jail choices', () => {
+  const ctx = botRoom('survivor', 500);
+  ctx.bot.inJail = true;
+  ctx.bot.jailFreeCards = 1;
+  const candidates = ctx.game.getBotCandidates(ctx.bot, { parity: true });
+  assert.deepEqual(candidates.map(candidate => candidate.kind).sort(), ['jail-fine', 'jail-free', 'roll'].sort());
+});
+
+check('parity mode exposes proactive bank repayment', () => {
+  const ctx = botRoom('survivor', 500);
+  ctx.bot.bankLoan = { status: 'active', remaining: 450 };
+  const repayment = ctx.game.getBotCandidates(ctx.bot, { parity: true }).find(candidate => candidate.kind === 'bank-repay');
+  assert.equal(repayment.amount, 320);
+  assert.equal(repayment.contractId, undefined);
+});
+
+check('parity mode exposes portfolio sell and unmortgage actions', () => {
+  const ctx = botRoom('builder', 500);
+  ctx.game.getTile(6).houseCount = 1;
+  ctx.game.getTile(3).mortgaged = true;
+  const kinds = ctx.game.getBotCandidates(ctx.bot, { parity: true }).map(candidate => candidate.kind);
+  assert.equal(kinds.includes('sell'), true);
+  assert.equal(kinds.includes('unmortgage'), true);
+});
+
+check('parity mode exposes market sell candidates', () => {
+  const ctx = botRoom('speculator', 500);
+  ctx.bot.marketPositions = { brazil: { quantity: 2, averageCost: 50, realizedPnl: 0 } };
+  ctx.game.marketQuotes.brazil = 180;
+  const sell = ctx.game.getBotCandidates(ctx.bot, { parity: true }).find(candidate => candidate.kind === 'market' && candidate.side === 'sell');
+  assert.equal(sell.instrumentId, 'brazil');
+  assert.equal(sell.quantity, 2);
+});
+
+check('parity mode exposes proactive loan, equity, and hybrid offers', () => {
+  const ctx = botRoom('diplomat', 1000);
+  ctx.a.cash = 80;
+  own(ctx.room, ctx.a, [1]);
+  const offers = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'contract-propose');
+  assert.equal(offers.some(candidate => candidate.offer.kind === 'loan'), true);
+  assert.equal(offers.some(candidate => candidate.offer.kind === 'equity'), true);
+  assert.equal(offers.some(candidate => candidate.offer.kind === 'hybrid'), true);
+});
+
+check('parity mode exposes bounded multi-leg trade candidates', () => {
+  const ctx = botRoom('diplomat', 1000);
+  own(ctx.room, ctx.a, [1, 4]);
+  const rich = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'trade' && candidate.rich);
+  assert.equal(rich.some(candidate => candidate.givePropertyIndexes.length > 1 || candidate.requestPropertyIndexes.length > 1), true);
+});
+
+check('parity mode exposes throttled table-talk for bot seats', () => {
+  const ctx = botRoom('diplomat', 1000);
+  ctx.game.botDecisionSequence = 6;
+  const chat = ctx.game.getBotCandidates(ctx.bot, { parity: true }).find(candidate => candidate.kind === 'chat');
+  assert.equal(chat.text.includes('deal'), true);
+  ctx.game.botDecisionSequence = 7;
+  assert.equal(ctx.game.getBotCandidates(ctx.bot, { parity: true }).some(candidate => candidate.kind === 'chat'), false);
+});
+
 console.log(`\n${passed + failures.length} trade/candidate checks — ${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   process.exitCode = 1;
