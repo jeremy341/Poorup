@@ -82,8 +82,8 @@ function createRuntime(deps) {
       if (room.game.lastWinner && !room.statsRecorded) {
         recordRoomStats(room);
       }
-      broadcastRoomState(room);
       scheduleTurnTimer(room);
+      broadcastRoomState(room);
       scheduleBotTurn(room);
       scheduleBotAuction(room);
     } catch (error) {

@@ -3172,7 +3172,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .dice-rolling, .token-pop, .chest, .boot-in, .blink, .piece.is-hopping, .face-cell:hover { animation: none !important; }
   .piece.is-moving, .log-drawer { transition: none !important; }
-  .popup-card, .panel, .hud-cell { transition: none !important; }
+  .popup-card, .panel, .hud-cell, .global-event-banner { transition: none !important; animation: none !important; }
 }
 
 @media (forced-colors: active) {

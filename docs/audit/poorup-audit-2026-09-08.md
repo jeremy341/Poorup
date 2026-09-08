@@ -14,19 +14,21 @@ This audit covers the current Poorup modular monolith across:
 The live pass used the running app at the available desktop viewport, with the
 1920×1080/2560×1440 target checked against the responsive CSS. Static checks
 used the current source tree, the existing server/client lint gates, and the
-pure integration/audit suites. No audit fix was applied while collecting these
-findings.
+pure integration/audit suites. The findings below were collected before the
+implementation pass; the resolution ledger at the end records the fixes now
+applied on top of this baseline.
 
 ## Current worktree state
 
 - Branch: `codex/codescene-cleanup`
 - Base: merged `main` (`c62cd64`)
-- Existing uncommitted CodeScene refactors: `server/botFuturePlanner.js`,
-  `server/botStrategicContext.js`
-- Audit-fix work started but not yet committed: `server/accountStore.js`,
-  `server/game-results.test.js`, `server/server.js`, `server/serverStorePaths.js`,
-  `server/serverStorePaths.test.js`
-- These pending changes must be reviewed and tested before any merge.
+- CodeScene refactors and the first audit-fix commit are present in history.
+- The current implementation pass is recorded in commit `07baba0` on
+  `codex/codescene-cleanup`.
+- The ignored local `server/data/*.json` files still contain historical test
+  accounts from earlier runs. They were deliberately not deleted because this
+  workspace may contain user data; future wire tests now use a temporary data
+  directory.
 
 ## Verification summary
 
@@ -402,3 +404,26 @@ The current Vercel Web Interface Guidelines reinforce the same findings:
 The audit findings above are the repository-specific violations of those rules;
 the source checklist was fetched on 2026-09-08 from the Vercel guideline
 command document.
+
+## Resolution ledger — implementation pass
+
+| Finding | Status | Resolution |
+| --- | --- | --- |
+| P0-1 test-store contamination | RESOLVED | Wire suites use a temporary `POORUP_DATA_DIR`; the existing ignored data is preserved for manual triage. |
+| P0-2 settlement replay | RESOLVED | Per-account match identity prevents duplicate stats while allowing partial retries. |
+| P1-1 bot controls | RESOLVED | Brain and difficulty keys now travel through the authoritative setting path. |
+| P1-2 turn timer | RESOLVED | Runtime schedules a server deadline per turn and expires every blocking obligation; the HUD renders the server clock. |
+| P1-3 rankings refresh/error | RESOLVED | In-game scope/metric changes request fresh snapshots, stale responses are ignored, and failures render a retry state. |
+| P1-4 card previews | RESOLVED | Design-preview card URLs can open the card surface from home without weakening normal game-popup guards. |
+| P1-5–P1-8 bot context | RESOLVED | Opponent summaries, complete-group math, lender terms, rule-version traces, and stale offer IDs are now consistent. |
+| P1-9 unsecured loans | RESOLVED | Loan mode omits the deed picker and enables sending a valid unsecured offer. |
+| P1-10/P1-11 achievements | RESOLVED | Debt/collateral/headline predicates and copy are aligned; rarity weights now match the catalog. |
+| P2 accessibility | RESOLVED | Dialog IDs, ranking filter semantics, color/chat labels, and friends-only achievement copy are corrected. |
+| P2 motion/typography | RESOLVED | Finance rows use a local entrance keyframe, reduced motion disables it, and the loaded Silkscreen face replaces the missing font. |
+| P2 payload/history | RESOLVED | Secondary leaderboard columns are capped at three rows and match cards use an explicit viewed-participant marker. |
+| P2-10 Manage Portfolio | RESOLVED | The control now routes to Holdings/Deeds instead of the unrelated Market rail. |
+| P3 stale handlers | RESOLVED | Removed obsolete contract-action selectors; guarded mini-board code remains harmless legacy preview support. |
+
+Remaining intentional housekeeping: ignored local data files may contain old
+test accounts and should be backed up/triaged by the project owner before a
+release. No production data is deleted by the audit fix.

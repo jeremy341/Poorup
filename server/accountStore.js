@@ -15,9 +15,9 @@ const ACHIEVEMENT_POINTS = { common: 10, uncommon: 25, rare: 50, epic: 100, lege
 const ACHIEVEMENT_RARITY_BY_ID = new Map([
   ...['first-deed', 'last-wallet-standing', 'one-dollar-hedge', 'first-index', 'patrol-rookie'].map(id => [id, 'common']),
   ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular'].map(id => [id, 'uncommon']),
-  ...['auction-ghost', 'collateral-damage', 'bad-idea-good-timing', 'prison-break', 'no-refunds', 'rent-reaper', 'fire-sale', 'tax-evasion', 'underdog', 'hostile-bidder', 'event-tourist', 'silent-partner', 'roulette-regular', 'market-maker', 'grounded-tourist', 'coalition-builder', 'patrol-ace', 'crisis-manager', 'unanimous'].map(id => [id, 'rare']),
-  ...['empty-streets', 'liquidity-king', 'public-works', 'airport-hopper', 'group-therapy', 'short-the-street', 'moral-hazard', 'treasure-map', 'all-in', 'crisis-investor', 'clean-run', 'bubble-survivor', 'stagflation-trader', 'one-more-turn'].map(id => [id, 'epic']),
-  ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular'].map(id => [id, 'uncommon']),
+  ...['auction-ghost', 'collateral-damage', 'bad-idea-good-timing', 'prison-break', 'no-refunds', 'rent-reaper', 'fire-sale', 'tax-evasion', 'underdog', 'hostile-bidder', 'event-tourist', 'silent-partner', 'roulette-regular', 'market-maker', 'grounded-tourist', 'coalition-builder', 'patrol-ace', 'crisis-manager', 'unanimous', 'public-works'].map(id => [id, 'rare']),
+  ...['empty-streets', 'liquidity-king', 'short-the-street', 'moral-hazard', 'treasure-map', 'all-in', 'crisis-investor', 'clean-run', 'bubble-survivor', 'stagflation-trader', 'one-more-turn'].map(id => [id, 'epic']),
+  ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular', 'airport-hopper', 'group-therapy'].map(id => [id, 'uncommon']),
   ...['double-headline', 'no-floor', 'compromised-council', 'public-enemy'].map(id => [id, 'legendary']),
   ...['41st-tile', 'null-player', 'black-ledger'].map(id => [id, 'mythical'])
 ]);
