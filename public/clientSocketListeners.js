@@ -97,6 +97,16 @@ function onBotStatus(status) {
   }
 }
 
+function clearBotStatus() {
+  state.botStatus = null;
+  const label = $("#hud-bot-status");
+  if (!label) return;
+  clearTimeout(label._hideTimer);
+  label.classList.add("is-hidden");
+  label.classList.remove("is-thinking");
+  label.textContent = "";
+}
+
 function syncSelectedPlayerRelationship() {
   const accountId = state.selectedPlayer?.accountId;
   if (!accountId) return;
@@ -274,7 +284,10 @@ function attachTableListeners(socket) {
   socket.on("card-reveal", onCardReveal);
   socket.on("trade-offer", onTradeOffer);
   // Registration order preserved: disconnect closed the original block.
-  socket.on("disconnect", () => host.setConnectionStatus("reconnecting", true));
+  socket.on("disconnect", () => {
+    clearBotStatus();
+    host.setConnectionStatus("reconnecting", true);
+  });
 }
 
 export function configureSocketListeners(socket, hooks) {
