@@ -60,18 +60,17 @@ check('trade acceptance uses personality factor on leg values', () => {
   // give = 500, ask = 450. Non-shark bar: 450*0.8=360 -> accept. Shark bar: 450*1.1=495 -> accept.
   assert.strictEqual(shouldAcceptTrade(trade, price, 'builder'), true);
   assert.strictEqual(shouldAcceptTrade(trade, price, 'shark'), true);
-  // give = 400, ask = 400: non-shark 320 accept; shark 440 decline.
+  // give = 400, ask = 400: non-shark 320 accept; shark 440 is exactly fair.
   const even = { giveCash: 400, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [] };
   assert.strictEqual(shouldAcceptTrade(even, price, 'survivor'), true);
   assert.strictEqual(shouldAcceptTrade(even, price, 'shark'), false);
   // Boundary: give exactly at bar accepts (>=).
   const edge = { giveCash: 320, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [] };
   assert.strictEqual(shouldAcceptTrade(edge, price, 'builder'), true);
-  // Boundary: 400*1.1 is 440.00000000000006 in floating point, so a give of
-  // exactly 440 does NOT clear the shark bar; 441 does. The original inline
-  // expression had the same behavior - this pins reality, not intuition.
+  // Boundary: whole-dollar comparison must accept the exact 1.1x bar rather
+  // than rejecting it because of binary floating-point noise.
   const edgeShark = { giveCash: 440, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [] };
-  assert.strictEqual(shouldAcceptTrade(edgeShark, price, 'shark'), false);
+  assert.strictEqual(shouldAcceptTrade(edgeShark, price, 'shark'), true);
   assert.strictEqual(shouldAcceptTrade({ ...edgeShark, giveCash: 441 }, price, 'shark'), true);
   assert.strictEqual(tradeLegValue({ cash: '10', propertyIndexes: [5, 7] }, price), 610);
   assert.strictEqual(tradeLegValue(undefined, price), 0);

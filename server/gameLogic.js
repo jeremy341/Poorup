@@ -990,15 +990,19 @@ class GameState {
   }
 
   pendingFlowRejection(player) {
-    if (this.auction && this.auction.active) return { success: false, error: 'Finish the active auction before ending the turn.' };
-    const offer = this.pendingPurchaseOffer;
-    if (offer && offer.playerId === player.id) return { success: false, error: 'Resolve the property offer before ending the turn.' };
-    const pending = this.pendingPayment;
-    if (pending && pending.playerId === player.id) return { success: false, error: 'Settle your debt before ending the turn.' };
-    if (this.pendingSponsoredPurchase) return { success: false, error: 'Resolve the open sponsorship before ending the turn.' };
-    const dealReason = this.pendingDealBlockReason(player);
-    if (dealReason) return { success: false, error: dealReason };
-    return null;
+    const error = this.pendingFlowError(player);
+    return error ? { success: false, error } : null;
+  }
+
+  pendingFlowError(player) {
+    const blockers = [
+      [Boolean(this.auction?.active), 'Finish the active auction before ending the turn.'],
+      [this.pendingPurchaseOffer?.playerId === player.id, 'Resolve the property offer before ending the turn.'],
+      [this.pendingPayment?.playerId === player.id, 'Settle your debt before ending the turn.'],
+      [Boolean(this.pendingSponsoredPurchase), 'Resolve the open sponsorship before ending the turn.']
+    ];
+    const blocker = blockers.find(([active]) => active);
+    return blocker?.[1] || this.pendingDealBlockReason(player);
   }
 
   skipDisconnectedCurrentPlayer() {
