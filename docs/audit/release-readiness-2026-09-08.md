@@ -14,13 +14,13 @@ closed until configured.
 ## Repository state
 
 - Branch: `codex/codescene-cleanup`
-- Working tree: clean after the audit fix commit
+- Working tree: clean for the audit scope after the audit fix commit; an
+  unrelated pre-existing README edit is intentionally preserved.
 - Base: merged `main` at `c62cd64`
-- Latest audit-fix commits include `315785d` (audit evidence), `77b9062`
-  (include release checks in coverage), `d8a87dd` (preserve stores when atomic
-  rename fails), `c6968c8` (release hardening gates), and `eb49ed3`
-  (viewer-scoped resume identifiers). The current uncommitted server fixes are
-  listed below and must be committed before handoff.
+- Latest audit-fix commit is `d4749e4` (server release paths), preceded by
+  `315785d` (audit evidence), `77b9062` (include release checks in coverage),
+  `d8a87dd` (preserve stores when atomic rename fails), `c6968c8` (release
+  hardening gates), and `eb49ed3` (viewer-scoped resume identifiers).
 - JSON stores under `server/data/` remain ignored and local. They were not
   deleted or rewritten during this audit.
 
