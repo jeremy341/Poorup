@@ -7,6 +7,7 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'achievements.json');
 
 const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
+const NEGATIVE_GLOBAL_EVENTS = new Set(['housing-bubble', 'credit-freeze', 'inflation-spiral', 'anti-monopoly', 'interest-rate-shock', 'energy-crisis', 'labor-strike', 'currency-devaluation', 'supply-chain', 'tax-audit', 'bank-run', 'transit-shutdown', 'foreclosure-spiral', 'stagflation', 'travel-chaos', 'legitimacy-crisis', 'construction-shutdown', 'moral-hazard']);
 
 function sanitize(record = {}) {
   return {
@@ -66,8 +67,8 @@ const ACHIEVEMENT_RULES = [
   { achievementId: 'generous-lender', title: 'GENEROUS LENDER', rarity: 'UNCOMMON', body: 'You funded a player loan that was fully repaid.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId) },
   { achievementId: 'silent-partner', title: 'SILENT PARTNER', rarity: 'RARE', body: 'You completed a player loan without collateral.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex == null) },
   { achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A loan default cost the collateral deed.', test: ({ participant, contracts }) => (participant.collateralLost && participant.bankLoanDefaulted) || contracts.some(contract => loanLikeContract(contract) && contract.status === 'defaulted' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex != null) },
-  { achievementId: 'crisis-manager', title: 'CRISIS MANAGER', rarity: 'RARE', body: 'You stayed solvent through a global headline.', test: ({ participant }) => participant.globalEventsExperienced > 0 && !participant.bankrupt },
-  { achievementId: 'double-headline', title: 'DOUBLE HEADLINE', rarity: 'LEGENDARY', body: 'You survived two global headlines in one game.', test: ({ participant, globalEvents }) => participant.globalEventsSurvived >= 2 || globalEvents.length >= 2 },
+  { achievementId: 'crisis-manager', title: 'CRISIS MANAGER', rarity: 'RARE', body: 'You stayed solvent through a negative global headline.', test: ({ participant, globalEvents }) => participant.globalEventsExperienced > 0 && globalEvents.some(event => NEGATIVE_GLOBAL_EVENTS.has(event)) && !participant.bankrupt },
+  { achievementId: 'double-headline', title: 'DOUBLE HEADLINE', rarity: 'LEGENDARY', body: 'You survived two global headlines in one game.', test: ({ participant }) => participant.globalEventsSurvived >= 2 },
   { achievementId: 'clean-exit', title: 'CLEAN EXIT', rarity: 'UNCOMMON', body: 'You repaid a bank loan before default.', test: ({ participant }) => participant.bankLoanStatus === 'paid' && !participant.bankLoanDefaulted },
   { achievementId: 'debt-free', title: 'DEBT FREE', rarity: 'UNCOMMON', body: 'You finished the game with clean books.', test: ({ participant, contracts }) => (!participant.bankLoanStatus || participant.bankLoanStatus === 'paid') && !contracts.some(contract => loanLikeContract(contract) && ['active', 'due', 'defaulted'].includes(contract.status) && contract.toAccountId === participant.accountId) },
   { achievementId: 'treasure-map', title: 'TREASURE MAP', rarity: 'EPIC', body: 'You drew every Treasure card across your account history.', test: ({ treasureCardCount }) => treasureCardCount >= 16 },
