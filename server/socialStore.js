@@ -117,7 +117,7 @@ export class SocialStore {
   }
 
   load() {
-    const { value } = loadJson(this.filePath);
+    const { value } = loadJson(this.filePath, loaded => loaded && typeof loaded === 'object' && !Array.isArray(loaded));
     if (!value) return;
     const raw = value;
     this.friendships = objectArray(raw.friendships);

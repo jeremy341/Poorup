@@ -159,7 +159,7 @@ export class AchievementStore {
   }
 
   load() {
-    const { value } = loadJson(this.filePath);
+    const { value } = loadJson(this.filePath, loaded => Array.isArray(loaded));
     if (!value) return;
     const records = Array.isArray(value) ? value : [];
     records.forEach((entry) => {

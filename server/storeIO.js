@@ -12,7 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-function loadJson(filePath) {
+function loadJson(filePath, shapeValidator = null) {
   let raw;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
@@ -23,7 +23,12 @@ function loadJson(filePath) {
     throw error;
   }
   try {
-    return { value: JSON.parse(raw), missing: false, corrupt: false };
+    const value = JSON.parse(raw);
+    if (typeof shapeValidator === 'function' && !shapeValidator(value)) {
+      quarantine(filePath, raw);
+      return { value: null, missing: false, corrupt: true };
+    }
+    return { value, missing: false, corrupt: false };
   } catch {
     quarantine(filePath, raw);
     return { value: null, missing: false, corrupt: true };
