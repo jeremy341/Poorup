@@ -161,40 +161,70 @@ function expectedCardDelta(snapshot, tile) {
   return 0;
 }
 
+function passStartValue(snapshot, position, move, boardLength) {
+  if (position + move < boardLength) return 0;
+  const base = number(snapshot.rulesDigest?.passStartCash, 200);
+  const exactBonus = position + move === boardLength && snapshot.rulesDigest?.doubleGo ? base : 0;
+  return base + exactBonus;
+}
+
+function landingRentRisk(snapshot, tile) {
+  const buildings = 1 + number(tile.houseCount) * 0.45;
+  const rent = number(tile.rent) * buildings * eventRentMultiplier(snapshot, tile);
+  const owner = tileOwner(tile);
+  return {
+    rent: owner === 'self' && !tile.mortgaged ? rent : 0,
+    risk: owner.startsWith('opponent') && !tile.mortgaged ? rent : 0
+  };
+}
+
+function landingTaxRisk(snapshot, tile) {
+  if (tile.type !== 'tax') return 0;
+  return number(tile.price || tile.amount) * number(snapshot.rulesDigest?.globalEvents?.activeEffects?.taxMultiplier, 1);
+}
+
+function landingOutcome(snapshot, state, position, move, probability, boardLength) {
+  const landing = (position + move) % boardLength;
+  const tile = state.board.find(entry => entry.index === landing);
+  const rentRisk = tile ? landingRentRisk(snapshot, tile) : { rent: 0, risk: 0 };
+  return {
+    landing,
+    probability,
+    rent: rentRisk.rent * probability,
+    risk: (rentRisk.risk + (tile ? landingTaxRisk(snapshot, tile) : 0)) * probability,
+    cardDelta: (tile ? expectedCardDelta(snapshot, tile) : 0) * probability,
+    cashFlow: passStartValue(snapshot, position, move, boardLength) * probability
+  };
+}
+
+function turnOutcomes(snapshot, state, positions, boardLength) {
+  const outcomes = [];
+  positions.forEach((probability, position) => {
+    DICE_TOTALS.forEach(([move, moveProbability]) => outcomes.push(landingOutcome(snapshot, state, position, move, probability * moveProbability, boardLength)));
+  });
+  return outcomes;
+}
+
+function nextPositionMap(outcomes) {
+  return outcomes.reduce((next, outcome) => {
+    next.set(outcome.landing, (next.get(outcome.landing) || 0) + outcome.probability);
+    return next;
+  }, new Map());
+}
+
 function expectedLandingValue(snapshot, state, horizon) {
   const boardLength = Math.max(1, (snapshot.board || []).length || 40);
-  let rent = 0;
-  let risk = 0;
-  let cardDelta = 0;
-  let cashFlow = 0;
+  const totals = { rent: 0, risk: 0, cardDelta: 0, cashFlow: 0 };
   let positions = new Map([[state.position, 1]]);
   for (let turn = 0; turn < horizon; turn += 1) {
-    const nextPositions = new Map();
-    positions.forEach((probability, position) => {
-      DICE_TOTALS.forEach(([move, moveProbability]) => {
-        const landing = (position + move) % boardLength;
-        const chance = probability * moveProbability;
-        if (position + move >= boardLength) cashFlow += number(snapshot.rulesDigest?.passStartCash, 200) * chance;
-        if (landing === 0 && position + move === boardLength && snapshot.rulesDigest?.doubleGo) {
-          cashFlow += number(snapshot.rulesDigest?.passStartCash, 200) * chance;
-        }
-        nextPositions.set(landing, (nextPositions.get(landing) || 0) + chance);
-        const tile = state.board.find(entry => entry.index === landing);
-        if (!tile) return;
-        const buildings = 1 + number(tile.houseCount) * 0.45;
-        const rentValue = number(tile.rent) * buildings * eventRentMultiplier(snapshot, tile);
-        if (tileOwner(tile) === 'self' && !tile.mortgaged) rent += rentValue * chance;
-        if (tileOwner(tile).startsWith('opponent') && !tile.mortgaged) risk += rentValue * chance;
-        if (tile.type === 'tax') risk += number(tile.price || tile.amount) * number(snapshot.rulesDigest?.globalEvents?.activeEffects?.taxMultiplier, 1) * chance;
-        cardDelta += expectedCardDelta(snapshot, tile) * chance;
-      });
-    });
-    positions = nextPositions;
+    const outcomes = turnOutcomes(snapshot, state, positions, boardLength);
+    outcomes.forEach(outcome => Object.keys(totals).forEach(key => { totals[key] += outcome[key]; }));
+    positions = nextPositionMap(outcomes);
   }
-  state.expectedRent = rent;
-  state.expectedRisk = risk;
-  state.expectedCardDelta = cardDelta;
-  state.expectedCashFlow = cashFlow;
+  state.expectedRent = totals.rent;
+  state.expectedRisk = totals.risk;
+  state.expectedCardDelta = totals.cardDelta;
+  state.expectedCashFlow = totals.cashFlow;
 }
 
 function groupPotential(snapshot, state) {
@@ -218,11 +248,12 @@ function debtRisk(state) {
 
 function eventHedgeValue(snapshot, state) {
   const effects = snapshot.rulesDigest?.globalEvents?.activeEffects || {};
-  let value = 0;
-  if (effects.constructionBlocked) value -= state.properties.reduce((sum, tile) => sum + nonNegative(tile.houseCount), 0) * 2;
-  if (effects.rentMultiplier && number(effects.rentMultiplier) < 1) value -= state.expectedRisk * 0.15;
-  if (effects.buildingCostMultiplier && number(effects.buildingCostMultiplier) > 1) value -= state.properties.length * 2;
-  return value;
+  const penalties = [
+    effects.constructionBlocked ? state.properties.reduce((sum, tile) => sum + nonNegative(tile.houseCount), 0) * 2 : 0,
+    effects.rentMultiplier && number(effects.rentMultiplier) < 1 ? state.expectedRisk * 0.15 : 0,
+    effects.buildingCostMultiplier && number(effects.buildingCostMultiplier) > 1 ? state.properties.length * 2 : 0
+  ];
+  return -penalties.reduce((sum, penalty) => sum + penalty, 0);
 }
 
 function seedValue(seed, candidateId) {
