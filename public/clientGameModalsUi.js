@@ -297,9 +297,9 @@ function openVoluntaryExitModal() {
   });
 }
 
-function openCardReveal(tile, ev) {
+function openCardReveal(tile, ev, options = {}) {
   $("#card-reveal").innerHTML = cardFaceHTML(tile, ev, { buttonId: "cr-ok" });
-  openSurface("#card-modal", "#cr-ok");
+  openSurface("#card-modal", "#cr-ok", options);
   $("#cr-ok").addEventListener("click", () => {
     state.card = null;
     closeSurface("#card-modal");
@@ -349,7 +349,7 @@ function openCardPreviewCard(kind) {
   const event = deck.find((entry) => entry.action === "moveTo") || deck[0];
   if (!event) return;
   const cash = Number(event.cash) || 0;
-  requestAnimationFrame(() => openCardReveal(tile, { ...event, cash }));
+  requestAnimationFrame(() => openCardReveal(tile, { ...event, cash }, { allowHome: true }));
 }
 
 function isMyOwnDebt(debt) {

@@ -414,12 +414,12 @@
             <section class="panel noise pad16">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Identity</h2></div>
               <label class="profile-field"><span class="t-label f12 g-muted profile-label">Design Name</span><input id="profile-name" class="field" maxlength="12" placeholder="MIDNIGHT SET" /></label>
-              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Token Color</span><div class="profile-swatches" id="profile-swatches"></div><div class="profile-custom-color"><span class="t-micro ink-3">custom</span><input type="color" id="profile-color-picker" class="color-input" value="#d74438" /></div></div>
+              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Token Color</span><div class="profile-swatches" id="profile-swatches"></div><label class="profile-custom-color"><span class="t-micro ink-3">custom</span><input type="color" id="profile-color-picker" class="color-input" aria-label="Custom token color" value="#d74438" /></label></div>
               <div class="profile-field"><span class="t-label f12 g-muted profile-label">Live Preview</span><div class="profile-preview-row"><div class="profile-preview-av" id="profile-preview-av"></div><div class="profile-preview-info"><div class="t-label f13" id="profile-preview-name" style="color:#d74438">MARLOWE</div><div class="t-micro ink-3">$1,500 · seat preview</div></div></div></div>
             </section>
             <section class="panel noise pad16">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Draw Your Face</h2><span class="t-micro ink-3 face-hint">CLICK OR DRAG TO PAINT</span></div>
-              <div class="face-editor-row"><div class="face-canvas-wrap"><div class="face-canvas" id="face-canvas"></div></div><div class="face-tools"><div class="face-palette" id="face-palette"></div><div class="face-custom-color"><span class="t-micro ink-3">custom ink</span><input type="color" id="face-color-picker" class="color-input" value="#f0d9ac" /></div><button class="btn-dark face-tool-btn is-active" id="face-tool-paint" type="button"><span class="t-label f11">PAINT</span></button><button class="btn-dark face-tool-btn" id="face-tool-erase" type="button"><span class="t-label f11">ERASER</span></button><button class="btn-dark face-tool-btn" id="face-clear-btn" type="button"><span class="t-label f11">CLEAR</span></button><button class="btn-dark face-tool-btn" id="face-default-btn" type="button"><span class="t-label f11">DEFAULT FACE</span></button></div></div>
+              <div class="face-editor-row"><div class="face-canvas-wrap"><div class="face-canvas" id="face-canvas"></div></div><div class="face-tools"><div class="face-palette" id="face-palette"></div><label class="face-custom-color"><span class="t-micro ink-3">custom ink</span><input type="color" id="face-color-picker" class="color-input" aria-label="Custom face color" value="#f0d9ac" /></label><button class="btn-dark face-tool-btn is-active" id="face-tool-paint" type="button"><span class="t-label f11">PAINT</span></button><button class="btn-dark face-tool-btn" id="face-tool-erase" type="button"><span class="t-label f11">ERASER</span></button><button class="btn-dark face-tool-btn" id="face-clear-btn" type="button"><span class="t-label f11">CLEAR</span></button><button class="btn-dark face-tool-btn" id="face-default-btn" type="button"><span class="t-label f11">DEFAULT FACE</span></button></div></div>
               <p class="t-micro ink-3 face-footnote">8×8 PIXEL GRID · SAVED TO THIS BROWSER</p>
             </section>
           </div>
@@ -505,12 +505,12 @@
       <div class="popup-card panel noise achievement-detail-modal" id="achievement-detail-card"></div>
     </div>
 
-    <div class="popup is-hidden" id="rankings-modal" role="dialog" aria-modal="true" aria-labelledby="rankings-title" aria-describedby="rankings-description" aria-hidden="true">
+    <div class="popup is-hidden" id="rankings-modal" role="dialog" aria-modal="true" aria-labelledby="rankings-modal-title" aria-describedby="rankings-modal-description" aria-hidden="true">
       <button class="popup-scrim" id="rankings-scrim" aria-label="Close rankings"></button>
       <div class="popup-card panel noise social-surface-card" id="rankings-card"></div>
     </div>
 
-    <div class="popup is-hidden" id="social-modal" role="dialog" aria-modal="true" aria-labelledby="social-title" aria-describedby="social-description" aria-hidden="true">
+    <div class="popup is-hidden" id="social-modal" role="dialog" aria-modal="true" aria-labelledby="social-modal-title" aria-describedby="social-modal-description" aria-hidden="true">
       <button class="popup-scrim" id="social-scrim" aria-label="Close social panel"></button>
       <div class="popup-card panel noise social-surface-card" id="social-card"></div>
     </div>
@@ -592,7 +592,7 @@
             </div>
             <div class="chat-body thin-scroll" id="chat-body"></div>
             <form class="chat-form" id="chat-form">
-              <input class="field chat-input" id="chat-input" placeholder="Join the room to chat…" maxlength="120" disabled />
+              <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" placeholder="Join the room to chat…" maxlength="120" disabled />
               <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
                 <span data-sprite="send" data-size="3"></span>
               </button>

@@ -15,8 +15,9 @@ const ACHIEVEMENT_POINTS = { common: 10, uncommon: 25, rare: 50, epic: 100, lege
 const ACHIEVEMENT_RARITY_BY_ID = new Map([
   ...['first-deed', 'last-wallet-standing', 'one-dollar-hedge', 'first-index', 'patrol-rookie'].map(id => [id, 'common']),
   ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular'].map(id => [id, 'uncommon']),
-  ...['auction-ghost', 'collateral-damage', 'bad-idea-good-timing', 'prison-break', 'no-refunds', 'rent-reaper', 'fire-sale', 'airport-hopper', 'tax-evasion', 'underdog', 'group-therapy', 'hostile-bidder', 'event-tourist', 'silent-partner', 'roulette-regular', 'market-maker', 'grounded-tourist', 'coalition-builder', 'patrol-ace', 'crisis-manager', 'unanimous'].map(id => [id, 'rare']),
-  ...['empty-streets', 'liquidity-king', 'public-works', 'short-the-street', 'moral-hazard', 'treasure-map', 'all-in', 'crisis-investor', 'clean-run', 'bubble-survivor', 'stagflation-trader'].map(id => [id, 'epic']),
+  ...['auction-ghost', 'collateral-damage', 'bad-idea-good-timing', 'prison-break', 'no-refunds', 'rent-reaper', 'fire-sale', 'tax-evasion', 'underdog', 'hostile-bidder', 'event-tourist', 'silent-partner', 'roulette-regular', 'market-maker', 'grounded-tourist', 'coalition-builder', 'patrol-ace', 'crisis-manager', 'unanimous'].map(id => [id, 'rare']),
+  ...['empty-streets', 'liquidity-king', 'public-works', 'airport-hopper', 'group-therapy', 'short-the-street', 'moral-hazard', 'treasure-map', 'all-in', 'crisis-investor', 'clean-run', 'bubble-survivor', 'stagflation-trader', 'one-more-turn'].map(id => [id, 'epic']),
+  ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular'].map(id => [id, 'uncommon']),
   ...['double-headline', 'no-floor', 'compromised-council', 'public-enemy'].map(id => [id, 'legendary']),
   ...['41st-tile', 'null-player', 'black-ledger'].map(id => [id, 'mythical'])
 ]);
@@ -278,6 +279,7 @@ function leaderboardTrend(account, since) {
 function leaderboardRow(store, account, metric, options) {
   const stats = store.getWindowStats(account, options.since || null);
   const tallies = achievementTallies(account, options.since);
+  if (metric !== 'patrol' && num(stats.gamesPlayed) < 1) return null;
   if (metric === 'rate' && num(stats.gamesPlayed) < 5) return null;
   return {
     accountId: account.id, displayName: account.displayName, username: account.username,
@@ -612,6 +614,7 @@ export class AccountStore {
       stats: publicPlayerStats(account.stats),
       achievements: includeAchievements ? publicAchievements(account, true) : publicView.achievements,
       achievementsPrivate: account.privacy?.achievements === 'private',
+      achievementsFriendsOnly: account.privacy?.achievements === 'friends',
       historyPrivate: account.privacy?.history === 'private',
       historyFriendsOnly: account.privacy?.history === 'friends',
       // Match history is served through the authorized history endpoint so
@@ -654,7 +657,8 @@ export class AccountStore {
           displayNameAtMatch: participant.displayNameAtMatch,
           finalPlacement: participant.finalPlacement,
           propertyCount: participant.propertyCount,
-          bankrupt: participant.bankrupt
+          bankrupt: participant.bankrupt,
+          isViewedPlayer: participant.accountId === accountId
         })),
         globalEvents: Array.isArray(record.globalEvents) ? record.globalEvents : [],
         eventCombinations: Array.isArray(record.eventCombinations) ? record.eventCombinations : [],
@@ -684,7 +688,8 @@ export class AccountStore {
     const accounts = [...this.accounts.values()].filter(account => !Array.isArray(options.accountIds) || options.accountIds.includes(account.id));
     const rows = accounts.map(account => leaderboardRow(this, account, metric, options)).filter(Boolean);
     rows.sort((a, b) => b.value - a.value || b.wins - a.wins || a.displayName.localeCompare(b.displayName));
-    return rows.slice(0, 100);
+    const limit = Math.max(1, Math.min(100, Math.floor(Number(options.limit) || 100)));
+    return rows.slice(0, limit);
   }
 
   getLeaderboardSnapshot(metrics = ['wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'], options = {}) {
@@ -692,7 +697,7 @@ export class AccountStore {
     const selected = allowed.length ? [...new Set(allowed)] : ['wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'];
     return {
       generatedAt: new Date().toISOString(),
-      metrics: Object.fromEntries(selected.map(metric => [metric, this.getLeaderboard(metric, options)])),
+      metrics: Object.fromEntries(selected.map(metric => [metric, this.getLeaderboard(metric, { ...options, limit: options.primaryMetric === metric ? 100 : 3 })])),
     };
   }
 }

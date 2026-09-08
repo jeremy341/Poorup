@@ -141,23 +141,19 @@ function hudStageKind(cur) {
 let turnDeadline = 0;
 let turnTimerInterval = null;
 let turnTimerLeft = 0;
-let countdownHooks = { endTurn: () => {} };
-
-export function configureTurnCountdown(hooks) {
-  countdownHooks = hooks;
+export function configureTurnCountdown(_hooks) {
+  // Kept as a compatibility seam; expiry is now resolved by the server.
 }
 
 function autoEndExpiredTurn() {
   if (state.phase !== "playing") return;
   if (state.turnIndex !== 0) return;
-  if (state.turnStage !== "end") return;
-  if (state.pendingBuyTile != null) return;
-  if (state.auction) return;
-  countdownHooks.endTurn(0);
+  // Expiry is server-authoritative. The local clock only renders feedback;
+  // the runtime clears obligations and advances the turn atomically.
 }
 
 function countdownTick() {
-  turnTimerLeft = Math.max(0, turnDeadline - Date.now());
+  turnTimerLeft = Math.max(0, turnDeadline - serverNow());
   updateTurnTimerState();
   if (turnTimerLeft > 0) return;
   clearInterval(turnTimerInterval);
@@ -174,19 +170,23 @@ export function stopTurnCountdown() {
 export function startTurnCountdown() {
   stopTurnCountdown();
   if (state.settings.turnTimer <= 0 || state.turnIndex !== 0) return;
-  turnDeadline = Date.now() + state.settings.turnTimer * 1000;
+  turnDeadline = Number(state.turnDeadline) || (Date.now() + (state.serverTimeOffset || 0) + state.settings.turnTimer * 1000);
   turnTimerInterval = setInterval(countdownTick, 120);
 }
 
 export function updateTurnTimerState() {
   const timerEl = $("#hud-timer");
   if (!timerEl) return;
-  const left = Math.max(0, (turnDeadline - Date.now()) / 1000);
+  const left = Math.max(0, (turnDeadline - serverNow()) / 1000);
   const shown = timerShownNow();
   timerEl.classList.toggle("is-hidden", !shown);
   if (!shown) return;
   timerEl.textContent = `${left.toFixed(1)}s`;
   timerEl.classList.toggle("is-low", left <= 5);
+}
+
+function serverNow() {
+  return Date.now() + (state.serverTimeOffset || 0);
 }
 
 function timerShownNow() {

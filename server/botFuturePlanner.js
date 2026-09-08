@@ -46,6 +46,7 @@ function stateClone(snapshot) {
     board: boardClone(snapshot),
     marketPositions: JSON.parse(JSON.stringify(bot.marketPositions || {})),
     bankLoan: bot.bankLoan ? { ...bot.bankLoan } : null,
+    contracts: (bot.contracts || []).map(contract => ({ ...contract })),
     casinoNet: number(bot.casino?.net),
     expectedRent: 0,
     expectedRisk: 0,
@@ -135,6 +136,7 @@ const CANDIDATE_APPLIERS = {
   build: (snapshot, state, candidate, tile) => tile && applyBuildCandidate(state, candidate, tile),
   mortgage: (snapshot, state, candidate, tile) => tile && applyMortgageCandidate(state, candidate, tile),
   loan: (_snapshot, state, candidate) => applyLoanCandidate(state, candidate),
+  repay: (_snapshot, state, candidate) => applyRepayCandidate(state, candidate),
   market: applyMarketCandidate,
   casino: applyCasinoCandidate,
   trade: (_snapshot, state, candidate) => applyTradeCandidate(state, candidate)
@@ -159,6 +161,15 @@ function expectedCardDelta(snapshot, tile) {
   if (tile.type === 'chance') return number(snapshot.rulesDigest?.cards?.surpriseExpectedCash);
   if (tile.type === 'chest') return number(snapshot.rulesDigest?.cards?.treasureExpectedCash);
   return 0;
+}
+
+function applyRepayCandidate(state, candidate) {
+  const contract = state.contracts.find(entry => entry.id === candidate.contractId);
+  const amount = Math.min(state.cash, nonNegative(candidate.amount));
+  if (!contract || amount <= 0) return;
+  state.cash -= amount;
+  contract.remaining = Math.max(0, nonNegative(contract.remaining) - amount);
+  if (contract.remaining === 0) contract.status = 'paid';
 }
 
 function passStartValue(snapshot, position, move, boardLength) {

@@ -4,7 +4,7 @@
 // testable in isolation (server/botLogic.test.js pins the exact answers).
 // The server keeps only scheduling and execution; it asks these helpers what
 // a bot should do and runs the answer through room.runBotAction.
-import { buildBotStrategicContext } from './botStrategicContext.js';
+import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { evaluateCandidate } from './botFuturePlanner.js';
 
 // Global-event voting: personality -> preferred policy id.
@@ -406,12 +406,17 @@ function phaseChoiceCandidates(game, bot, phase) {
 function runTradeChoice(room, bot, game, candidate) {
   if (!game.pendingTrade) return { success: false, error: 'No matching trade offer was found.' };
   if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
-  return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: game.pendingTrade.id, accept: candidate.choiceId === 'accept' }));
+  const tradeId = game.pendingTrade.id;
+  if (candidate.tradeId && candidate.tradeId !== tradeId) return { success: false, error: 'The offer changed while the bot was thinking.' };
+  return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId, accept: candidate.choiceId === 'accept' }));
 }
 
-function runContractChoice(room, bot, _game, candidate) {
+function runContractChoice(room, bot, game, candidate) {
+  if (!game.pendingPlayerContract) return { success: false, error: 'No matching player contract was found.' };
+  const contractId = game.pendingPlayerContract.id;
+  if (candidate.contractId && candidate.contractId !== contractId) return { success: false, error: 'The contract changed while the bot was thinking.' };
   if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterPlayerContract(actor, candidate.offer));
-  return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept'));
+  return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept', null, contractId));
 }
 
 function runSponsorshipChoice(room, bot, game, candidate) {
@@ -460,6 +465,8 @@ async function runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase)
     event: game.globalEvent
   });
   const selected = candidates.find(candidate => candidate.id === decision?.actionId) || candidates[0];
+  if (phase === 'trade' && game.pendingTrade) selected.tradeId = game.pendingTrade.id;
+  if (phase === 'contract' && game.pendingPlayerContract) selected.contractId = game.pendingPlayerContract.id;
   const trace = {
     ...decisionContext,
     ...decision,
@@ -522,7 +529,7 @@ export async function runBotTurn(room, bot, advisor) {
     botDifficulty: game.settings?.botDifficulty || 'table',
     gameId: `${room.roomCode}:${game.startedAt || 'pending'}`,
     decisionSequence,
-    ruleVersion: 'bot-policy-v1',
+    ruleVersion: BOT_RULE_VERSION,
     ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
   if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);

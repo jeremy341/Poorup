@@ -215,15 +215,20 @@ function socialFetchAndRender(target) {
   host.emitServer("get-social-data", {}, (response) => socialDataAck(response, target));
 }
 
-function leaderboardSnapshotAck(snapshot, target) {
+function leaderboardSnapshotAck(snapshot, target, requestId) {
+  if (requestId !== state.leaderboard.requestId) return;
   state.leaderboard.loading = false;
   applyLeaderboardSnapshot(snapshot);
   renderRankingsSurface(target);
 }
 
-function requestLeaderboardSnapshot(target) {
+export function requestLeaderboardSnapshot(target) {
+  const requestId = state.leaderboard.requestId + 1;
+  state.leaderboard.requestId = requestId;
   state.leaderboard.loading = true;
-  host.emitServer("get-leaderboard-snapshot", { scope: state.leaderboard.scope }, (snapshot) => leaderboardSnapshotAck(snapshot, target));
+  state.leaderboard.error = "";
+  renderRankingsSurface(target);
+  host.emitServer("get-leaderboard-snapshot", { scope: state.leaderboard.scope, metric: state.leaderboard.metric }, (snapshot) => leaderboardSnapshotAck(snapshot, target, requestId));
 }
 
 function publicPlayerAck(response) {
@@ -316,6 +321,7 @@ export function openInGameSocialSurface(kind) {
   if (kind === "rankings") {
     renderRankingsSurface("#rankings-card");
     openSurface("#rankings-modal", "#rankings-close");
+    requestLeaderboardSnapshot("#rankings-card");
   } else if (kind === "social") {
     renderSocialSurface("#social-card");
     openSurface("#social-modal", "#social-close");
@@ -339,7 +345,14 @@ function normalizeRankingScope(scope) {
 }
 
 function applyLeaderboardSnapshot(snapshot) {
-  if (!snapshot?.success) return;
+  if (!snapshot?.success) {
+    state.leaderboard.snapshots = {};
+    state.leaderboard.rows = [];
+    state.leaderboard.generatedAt = null;
+    state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
+    return;
+  }
+  state.leaderboard.error = "";
   state.leaderboard.snapshots = snapshot.metrics || {};
   state.leaderboard.generatedAt = snapshot.generatedAt || null;
   state.leaderboard.scope = snapshot.scope || state.leaderboard.scope;
@@ -431,7 +444,9 @@ function scopesTabs() {
 }
 
 function ledgerRowsHTML(currentRows) {
-  return state.leaderboard.loading ? `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>` : currentRows.length ? currentRows.map((row, index) => { const trend = row.trend || { direction: "flat", delta: 0 }; const trendLabel = trend.direction === "up" ? "TREND UP" : trend.direction === "down" ? "TREND DOWN" : "TREND FLAT"; return `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)} · ${row.games} GAMES · ${row.wins} WINS</span><span class="t-micro ranking-trend ranking-trend-${trend.direction}" aria-label="${trendLabel}">${trendLabel}${trend.delta ? ` · ${trend.delta > 0 ? "+" : ""}${trend.delta}` : ""}</span></span><strong class="ranking-value t-label f16 ${state.leaderboard.metric === "rate" ? "g300" : "green"}">${rankingValueLabel(state.leaderboard.metric, row.value)}</strong></button>`; }).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
+  if (state.leaderboard.loading) return `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>`;
+  if (state.leaderboard.error) return `<div class="social-empty ranking-error" role="alert"><p class="t-body ink-2">${esc(state.leaderboard.error)}</p><button class="btn-dark" type="button" data-ranking-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
+  return currentRows.length ? currentRows.map((row, index) => { const trend = row.trend || { direction: "flat", delta: 0 }; const trendLabel = trend.direction === "up" ? "TREND UP" : trend.direction === "down" ? "TREND DOWN" : "TREND FLAT"; return `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)} · ${row.games} GAMES · ${row.wins} WINS</span><span class="t-micro ranking-trend ranking-trend-${trend.direction}" aria-label="${trendLabel}">${trendLabel}${trend.delta ? ` · ${trend.delta > 0 ? "+" : ""}${trend.delta}` : ""}</span></span><strong class="ranking-value t-label f16 ${state.leaderboard.metric === "rate" ? "g300" : "green"}">${rankingValueLabel(state.leaderboard.metric, row.value)}</strong></button>`; }).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
 }
 
 function rankingSearchResultsHTML() {
@@ -458,7 +473,7 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
   const dataWindow = state.leaderboard.scope === "season" ? "Current calendar-quarter season." : state.leaderboard.scope === "month" ? "Last 30 days of completed matches." : state.leaderboard.scope === "friends" ? "You and accepted friends only." : "All verified completed matches.";
-  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">A wide standings ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><section class="rankings-metric-deck" aria-label="Top players across every ranking">${Object.keys(RANKING_LABELS).map((metric) => rankingMetricColumnHTML(metric, columnRows(snapshots, metric, currentRows))).join("")}</section><div class="rankings-main-grid"><section class="rankings-ledger panel noise" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-ledger-head"><div><span class="t-micro g400">FULL PLAYER LEDGER</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3></div><span class="t-micro ink-3">SORTED DESCENDING · ${scopeLabel()}</span></div><div class="ranking-scopes" role="tablist" aria-label="Ranking scope">${scopes}</div><div class="ranking-metrics" role="tablist" aria-label="Primary ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate needs five completed games; achievement score uses rarity-weighted points. Rankings use verified server records only.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">OPTIONAL ADD-ONS</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">DATA WINDOW</span><span class="t-body ink-2">${dataWindow}</span></div></aside></div></div>`;
+  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">A wide standings ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><section class="rankings-metric-deck" aria-label="Top players across every ranking">${Object.keys(RANKING_LABELS).map((metric) => rankingMetricColumnHTML(metric, columnRows(snapshots, metric, currentRows))).join("")}</section><div class="rankings-main-grid"><section class="rankings-ledger panel noise" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-ledger-head"><div><span class="t-micro g400">FULL PLAYER LEDGER</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3></div><span class="t-micro ink-3">SORTED DESCENDING · ${scopeLabel()}</span></div><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><div class="ranking-metrics" role="toolbar" aria-label="Primary ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate needs five completed games; achievement score uses rarity-weighted points. Rankings use verified server records only.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">OPTIONAL ADD-ONS</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">DATA WINDOW</span><span class="t-body ink-2">${dataWindow}</span></div></aside></div></div>`;
   const rankingResults = rankingSearchResultsHTML();
   const rankingSearch = document.createElement("section");
   rankingSearch.className = "rankings-search-band panel noise";
@@ -844,7 +859,7 @@ function playerIdentityBits(player) {
 function playerFactsBits(player) {
   const games = player.stats?.gamesPlayed ?? "—";
   const wins = player.stats?.wins ?? "—";
-  const achievements = player.achievementsPrivate ? "PRIVATE" : (player.achievements?.length ?? "—");
+  const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "—");
   const mutual = player.mutualFriends ?? "—";
   return { games, wins, achievements, mutual };
 }
@@ -882,7 +897,8 @@ function placementLabel(participant) {
 
 function playerMatchRowHTML(match, player) {
   const participants = match.participants || [];
-  const participant = participants.find((entry) => entry.displayNameAtMatch === player.displayName);
+  const participant = participants.find((entry) => entry.isViewedPlayer)
+    || participants.find((entry) => entry.displayNameAtMatch === player.displayName);
   const placement = placementLabel(participant);
   const date = esc(String(match.completedAt || "").slice(0, 10));
   const tone = placement === "WIN" ? "green" : "g100";
