@@ -138,8 +138,8 @@ function focusPreferred(surface, focusSelector) {
   target?.focus({ preventScroll: true });
 }
 
-export function openSurface(selector, focusSelector) {
-  if (blockedAsGamePopup(selector)) return;
+export function openSurface(selector, focusSelector, options = {}) {
+  if (!options.allowHome && blockedAsGamePopup(selector)) return;
   const surface = $(selector);
   if (!surface) return;
   const wasVisible = !surface.classList.contains("is-hidden");

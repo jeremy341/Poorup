@@ -5,6 +5,8 @@
 // refactor can be proven behavior-preserving. Wire-level only: no store
 // internals are imported.
 import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
@@ -71,8 +73,9 @@ async function openSocket(clientSockets) {
 // Harness: one server for the whole ordered scenario list; sockets created by
 // a scenario stay open (server-side room membership carries across blocks).
 async function withServer(runScenarios) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-rooms-wire-'));
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    env: { ...process.env, PORT: String(PORT) },
+    env: { ...process.env, PORT: String(PORT), POORUP_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let serverLog = '';
@@ -86,6 +89,7 @@ async function withServer(runScenarios) {
   } finally {
     for (const socket of ctx.clientSockets) socket.close();
     child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }
 
