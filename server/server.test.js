@@ -113,13 +113,20 @@ async function checkBotStatusAndReconnect(socket, child) {
   const started = await ask(socket, 'start-game', {});
   check('bot probe round starts', started?.success === true);
 
-  const stateUpdate = nextEvent(socket, 'update-state');
-  const rolled = await ask(socket, 'roll-dice', {});
-  const snapshot = await stateUpdate;
-  check('bot probe human roll succeeds', rolled?.success === true);
-  if (snapshot?.game?.pendingPurchaseOffer) {
-    await ask(socket, 'decline-property', { tileIndex: snapshot.game.pendingPurchaseOffer.tileIndex });
+  let rolled = null;
+  let snapshot = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const stateUpdate = nextEvent(socket, 'update-state');
+    rolled = await ask(socket, 'roll-dice', {});
+    snapshot = await stateUpdate;
+    if (snapshot?.game?.pendingPurchaseOffer) {
+      const afterDecline = nextEvent(socket, 'update-state');
+      await ask(socket, 'decline-property', { tileIndex: snapshot.game.pendingPurchaseOffer.tileIndex });
+      snapshot = await afterDecline;
+    }
+    if (!snapshot?.game?.extraRollPending) break;
   }
+  check('bot probe human roll succeeds', rolled?.success === true && snapshot?.game?.awaitingEndTurn === true);
   const ended = await ask(socket, 'end-turn', {});
   await wait(1200);
   socket.off('bot-status', onStatus);
