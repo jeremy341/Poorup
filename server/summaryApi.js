@@ -84,10 +84,12 @@ const summaryApi = {
       personality: player.isBot ? player.personality : null,
       botBrain: player.isBot ? this.settings.botBrain : null,
       botDifficulty: player.isBot ? this.settings.botDifficulty : null,
-      clientId: player.clientId,
       accountId: player.accountId || null,
       avatarGrid: player.avatarGrid || null
     };
+    if (viewerPlayerId && player.id === viewerPlayerId) {
+      entry.clientId = player.clientId;
+    }
     if (viewerPlayerId && player.id === viewerPlayerId) {
       entry.marketPositions = { ...(player.marketPositions || {}) };
     }
