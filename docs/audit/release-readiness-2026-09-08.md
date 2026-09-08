@@ -2,22 +2,22 @@
 
 ## Scope and constraint
 
-This is a read-only release audit of the current server, persistence, socket,
-game-rule, bot, economy, social, test, dependency, and CI surfaces. No UI or
-frontend source files were changed during this audit. One server-only hardening
-fixes were applied: oversized and duplicate trade property legs are now
-bounded and deduplicated before validation/settlement, and unreadable store
-files fail closed.
+This is a release audit of the current server, persistence, socket, game-rule,
+bot, economy, social, test, dependency, and CI surfaces. No UI or frontend
+source files were changed during this audit. Targeted server-only hardening
+fixes were applied: trade property legs are bounded and deduplicated, unreadable
+store files fail closed, atomic rename failures preserve the previous snapshot,
+resume identifiers are viewer-scoped, and socket ingress has a bounded rate
+limiter with configurable production CORS.
 
 ## Repository state
 
 - Branch: `codex/codescene-cleanup`
 - Working tree: clean after the audit fix commit
 - Base: merged `main` at `c62cd64`
-- Latest audit-fix commits include `2e65c54` (trade input normalization) and
-  `b523d4a` (fail-closed persistence reads), followed by the current release
-  checks below. The current privacy projection fix is being validated in this
-  pass.
+- Latest audit-fix commits include `d8a87dd` (preserve stores when atomic rename
+  fails), `c6968c8` (release hardening gates), `eb49ed3` (viewer-scoped resume
+  identifiers), and `77b9062` (include release checks in coverage).
 - JSON stores under `server/data/` remain ignored and local. They were not
   deleted or rewritten during this audit.
 
@@ -28,7 +28,7 @@ files fail closed.
 | `npm test` | PASS — complete contract, persistence, bot, event, economy, socket, social, and history suite |
 | `npm run lint` | PASS — server ESLint |
 | `npm run lint:client` | PASS — client ESLint; inspected only, no UI edits |
-| `npm run coverage` | PASS — 92.85% statements, 82.35% branches, 92.39% functions |
+| `npm run coverage` | PASS — 92.85% statements, 82.35% branches, 92.39% functions (last completed run; a later redundant 1,000-game instrumented rerun was stopped after the normal suite had already passed) |
 | `npm audit --omit=dev --audit-level=moderate` | PASS — 0 vulnerabilities |
 | `node --check` | PASS — 120 shipped JavaScript files |
 | `npm pack --dry-run` | PASS — 227 files; npm warns that no `.npmignore` exists |
@@ -54,8 +54,9 @@ credential. Direct projection assertions and the live server wire suite pass.
 
 ### R1 — Production CORS is permissive unless configured
 
-**Evidence:** `server/server.js:27-31` configures Socket.IO with
-`cors: { origin: '*' }`.
+**Evidence:** Socket.IO CORS behavior is controlled by
+`POORUP_ALLOWED_ORIGINS`; an unset value intentionally keeps the local
+development compatibility default permissive.
 
 The server now supports an environment-backed allow-list through
 `POORUP_ALLOWED_ORIGINS` and emits a production warning when it is missing.
