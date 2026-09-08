@@ -235,6 +235,18 @@ check('FIX4 issued loan falls back to NONE with no deed', () => {
   assert.equal(result.loan.collateralName, 'NONE');
 });
 
+check('FIX4 bank collateral excludes deeds that already carry equity shares', () => {
+  const ctx = loanRoom();
+  const tile = ctx.game.getTile(1);
+  tile.ownerId = ctx.borrower.id;
+  tile.equityShares = [{ holderId: 'equity-holder', share: 20, contractId: 'equity-1' }];
+  ctx.borrower.properties.push(tile.index);
+  const result = ctx.game.takeBankLoan('socket-a', 'audit-equity-collateral');
+  assert.equal(result.success, true);
+  assert.equal(result.loan.collateralTileIndex, null);
+  assert.equal(result.loan.collateralName, 'NONE');
+});
+
 const failed = results.filter((entry) => entry !== true).length;
 console.log(`\naudit property-loan tests: ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

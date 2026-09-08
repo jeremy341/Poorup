@@ -4,6 +4,7 @@
 // limits, and viewer-scoped projection fields).
 import assert from 'assert';
 import {
+  normalizeClientId,
   normalizeNickname,
   normalizeRoomCode,
   normalizeRoomName,
@@ -31,6 +32,13 @@ function check(name, fn) {
 
 const HEX = '#A1B2C3';
 const AVATAR_OK = Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => HEX));
+
+check('normalizeClientId accepts bounded strings and rejects structured payloads', () => {
+  assert.strictEqual(normalizeClientId('  tab-123  '), 'tab-123');
+  assert.strictEqual(normalizeClientId('x'.repeat(140)).length, 120);
+  assert.strictEqual(normalizeClientId({ id: 'attacker' }), '');
+  assert.strictEqual(normalizeClientId(null), '');
+});
 
 check('normalizeNickname trims, caps at 24, and rejects non-strings', () => {
   assert.strictEqual(normalizeNickname('  Space Name  '), 'Space Name');

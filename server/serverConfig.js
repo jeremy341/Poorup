@@ -15,5 +15,11 @@ export function isOriginAllowed(origin, configuredOrigins = []) {
 
 export function createCorsOrigin(env = process.env) {
   const configuredOrigins = parseAllowedOrigins(env);
-  return (origin, callback) => callback(null, isOriginAllowed(origin, configuredOrigins));
+  const production = String(env?.NODE_ENV || '').trim().toLowerCase() === 'production';
+  return (origin, callback) => {
+    const allowed = configuredOrigins.length
+      ? isOriginAllowed(origin, configuredOrigins)
+      : (!production || !origin);
+    callback(null, allowed);
+  };
 }

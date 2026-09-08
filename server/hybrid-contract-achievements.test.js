@@ -23,6 +23,15 @@ assert.equal(ids.includes('generous-lender'), true);
 assert.equal(ids.includes('silent-partner'), true);
 assert.equal(ids.includes('collateral-damage'), true);
 
+const crisisIds = achievementStore.evaluateMatch({
+  matchId: 'crisis-achievement-match',
+  participants: [{ accountId: 'acct_a', finalPlacement: 1, globalEventsExperienced: 1, bankrupt: false }],
+  globalEvents: ['HOUSING BUBBLE POP'],
+  eventCombinations: [],
+  playerContracts: []
+}).map(entry => entry.achievementId);
+assert.equal(crisisIds.includes('crisis-manager'), true);
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-hybrid-stats-'));
 const accounts = new AccountStore(path.join(dir, 'accounts.json'));
 accounts.register({ username: 'hybridlender', displayName: 'Hybrid Lender', password: 'hunter2hunter2' });
@@ -44,4 +53,4 @@ assert.equal(borrower.stats.playerLoansRepaid, 1);
 assert.equal(borrower.stats.playerLoanDefaults, 1);
 assert.equal(lender.stats.equityDeals, 1);
 assert.equal(borrower.stats.equityDeals, 1);
-console.log('hybrid contract achievements and stats: 2 passed, 0 failed');
+console.log('hybrid contract achievements and stats: 3 passed, 0 failed');
