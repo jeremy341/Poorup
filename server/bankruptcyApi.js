@@ -138,27 +138,29 @@ const bankruptcyApi = {
   // otherwise it simply terminates with no collateral to seize. Anything
   // else is left untouched, exactly as the original if-ladder.
   settleBankruptContract(player, contract) {
-    if (contract.kind === 'hybrid') {
-      if (contract.toPlayerId === player.id) {
-        // The borrower still owes the funded principal; bankruptcy defaults
-        // the loan leg. Only a converted hybrid behaves as an equity claim.
-        handlePlayerLoanDefault(this, contract);
-      } else {
-        this.terminateEquityContract(contract);
-      }
+    if (contract.kind === 'hybrid') return this.settleBankruptHybrid(player, contract);
+    if (contract.kind === 'loan') return this.settleBankruptLoan(player, contract);
+    if (contract.kind === 'equity') this.terminateEquityContract(contract);
+  },
+
+  settleBankruptHybrid(player, contract) {
+    if (contract.toPlayerId === player.id) {
+      // The borrower still owes the funded principal; bankruptcy defaults the
+      // loan leg. Only a converted hybrid behaves as an equity claim.
+      handlePlayerLoanDefault(this, contract);
       return;
     }
-    if (contract.kind !== 'loan') {
-      if (contract.kind === 'equity') this.terminateEquityContract(contract);
-      return;
-    }
-    // The pending-payment filter already guarantees one side is the
-    // bankrupt player, so a loan not owed by them is one they issued.
+    this.terminateEquityContract(contract);
+  },
+
+  settleBankruptLoan(player, contract) {
+    // The pending-payment filter guarantees one side is the bankrupt player,
+    // so a loan not owed by them is one they issued.
     if (contract.toPlayerId === player.id) {
       this.seizeCollateralForLender(player, contract);
-    } else {
-      this.terminateContract(contract);
+      return;
     }
+    this.terminateContract(contract);
   },
 
   seizeCollateralForLender(player, contract) {

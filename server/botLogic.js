@@ -53,10 +53,16 @@ export function tradeLegValue(leg, getTile) {
   return cash + properties;
 }
 
+function clearsTradeBar(giveValue, askValue, factor) {
+  // Game currency is whole dollars. Compare cents after scaling so a fair
+  // $440 offer is not rejected as 440.00000000000006 by binary floating point.
+  return Math.round(giveValue * 100) >= Math.round(askValue * factor * 100);
+}
+
 export function shouldAcceptTrade(trade, getTile, personality) {
   const giveValue = tradeLegValue({ cash: trade.giveCash, propertyIndexes: trade.givePropertyIndexes }, getTile);
   const askValue = tradeLegValue({ cash: trade.requestCash, propertyIndexes: trade.requestPropertyIndexes }, getTile);
-  return giveValue >= askValue * (TRADE_ACCEPT_FACTOR[personality] || DEFAULT_TRADE_ACCEPT_FACTOR);
+  return clearsTradeBar(giveValue, askValue, TRADE_ACCEPT_FACTOR[personality] || DEFAULT_TRADE_ACCEPT_FACTOR);
 }
 
 export function shouldAcceptPlayerContract(offer, bot, lender, personality) {

@@ -109,6 +109,18 @@ function normalizeColor(value, fallback = '#d74438') {
   return COLOR_RE.test(String(value || '')) ? String(value).toLowerCase() : fallback;
 }
 
+function revokeLiveSessions(store, username) {
+  for (const [token, owner] of store.sessions) {
+    if (owner === username) store.sessions.delete(token);
+  }
+}
+
+function revokePersistedSessionHashes(store, username) {
+  for (const [tokenHash, owner] of store.sessionHashes) {
+    if (owner === username) store.sessionHashes.delete(tokenHash);
+  }
+}
+
 function sanitizeAvatarGrid(value) {
   if (!Array.isArray(value)) return null;
   return Array.from({ length: FACE_SIZE }, (_, y) =>
@@ -431,18 +443,12 @@ export class AccountStore {
   }
 
   issueSession(account) {
-    for (const [token, username] of this.sessions) {
-      if (username === account.username) {
-        this.sessions.delete(token);
-      }
-    }
+    revokeLiveSessions(this, account.username);
     // Remove every persisted hash for this account, not only the latest field
     // on the record. This also cleans hashes written by older builds so a
     // rotated or logged-out token can never be reanimated from the fallback
     // index.
-    for (const [tokenHash, username] of this.sessionHashes) {
-      if (username === account.username) this.sessionHashes.delete(tokenHash);
-    }
+    revokePersistedSessionHashes(this, account.username);
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token);
     this.sessions.set(token, account.username);
@@ -528,9 +534,7 @@ export class AccountStore {
     const account = this.sessionAccount(sessionToken);
     if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
     if (account) {
-      for (const [tokenHash, username] of this.sessionHashes) {
-        if (username === account.username) this.sessionHashes.delete(tokenHash);
-      }
+      revokePersistedSessionHashes(this, account.username);
       account.sessionTokenHash = null;
       this.persist();
     }
