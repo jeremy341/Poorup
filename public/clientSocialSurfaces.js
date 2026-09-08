@@ -344,20 +344,25 @@ function normalizeRankingScope(scope) {
   return "all";
 }
 
-function applyLeaderboardSnapshot(snapshot) {
-  if (!snapshot?.success) {
-    state.leaderboard.snapshots = {};
-    state.leaderboard.rows = [];
-    state.leaderboard.generatedAt = null;
-    state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
-    return;
-  }
+function clearLeaderboardSnapshot(snapshot) {
+  state.leaderboard.snapshots = {};
+  state.leaderboard.rows = [];
+  state.leaderboard.generatedAt = null;
+  state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
+}
+
+function storeLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = "";
   state.leaderboard.snapshots = snapshot.metrics || {};
   state.leaderboard.generatedAt = snapshot.generatedAt || null;
   state.leaderboard.scope = snapshot.scope || state.leaderboard.scope;
   const rows = state.leaderboard.snapshots[state.leaderboard.metric];
   if (rows) state.leaderboard.rows = rows;
+}
+
+function applyLeaderboardSnapshot(snapshot) {
+  if (!snapshot?.success) return clearLeaderboardSnapshot(snapshot);
+  storeLeaderboardSnapshot(snapshot);
 }
 
 export function openRankingsSurface(metric = "wins", scope = state.leaderboard.scope || "all") {
