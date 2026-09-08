@@ -63,4 +63,9 @@ for (let sequence = 4; sequence <= 205; sequence += 1) {
 }
 assert.equal(room.game.botDecisionTrace.length, 200);
 assert.equal(room.game.botDecisionTrace[0].sequence, 6);
-console.log('bot-brain room settings: 8 passed, 0 failed');
+bot.disconnected = true;
+assert.deepEqual(room.runBotAction(bot.id, () => ({ success: true })), { success: false, error: 'Bot is unavailable.' });
+bot.disconnected = false;
+bot.bankrupt = true;
+assert.deepEqual(room.runBotAction(bot.id, () => ({ success: true })), { success: false, error: 'Bot is unavailable.' });
+console.log('bot-brain room settings: 10 passed, 0 failed');

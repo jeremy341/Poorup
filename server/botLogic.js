@@ -83,6 +83,13 @@ export function selectBotTurnTarget(game) {
   // A sponsorship can remain open for human contributors. Do not repeatedly
   // wake the buyer's turn while it is waiting for the table.
   if (game.pendingSponsoredPurchase) return null;
+  // The sender must wait for the human recipient after opening a deal. Without
+  // this guard the post-roll finance pass would keep proposing the same offer
+  // while the pending obligation correctly blocks ending the turn.
+  const current = game.getCurrentPlayer?.();
+  if (current?.isBot && game.pendingTrade?.fromPlayerId === current.id) return null;
+  if (current?.isBot && game.pendingPlayerContract
+    && contractLastProposerId(game.pendingPlayerContract) === current.id) return null;
   return game.getCurrentPlayer();
 }
 
@@ -163,10 +170,24 @@ const PHASES = [
   { id: 'sponsorship', guard: (game, bot) => isSponsorshipActor(game, bot) },
   { id: 'payment', guard: (game, bot) => game.pendingPayment?.playerId === bot.id },
   { id: 'auction', guard: game => Boolean(game.auction?.active) },
-  { id: 'end-turn', guard: game => Boolean(game.awaitingEndTurn) },
+  // Preserve the original end-turn priority for jail/other resolved flows;
+  // the post-roll action guard below runs first only when finance actions are
+  // actually available.
+  { id: 'end-turn', guard: game => Boolean(game.awaitingEndTurn) && !game.hasRolled },
   { id: 'pre-roll', guard: game => !game.hasRolled },
+  // A resolved landing still leaves the finance rail open. Give bots the
+  // same post-roll action window as humans, but only when a legal action is
+  // available; otherwise the normal end-turn gate wins.
+  { id: 'post-roll', guard: (game, bot) => game.hasRolled && hasPostRollBotAction(game, bot) },
+  { id: 'end-turn', guard: game => Boolean(game.awaitingEndTurn) },
   { id: 'post-roll', guard: () => true }
 ];
+
+function hasPostRollBotAction(game, bot) {
+  if (typeof game?.getBotCandidates !== 'function') return false;
+  const candidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: true });
+  return candidates.some(candidate => candidate?.kind !== 'end-turn' && candidate?.kind !== 'roll');
+}
 
 export function classifyBotTurnPhase(game, bot) {
   return (PHASES.find(phase => phase.guard(game, bot)) || PHASES[PHASES.length - 1]).id;
@@ -179,6 +200,8 @@ const CANDIDATE_MAPPERS = [
   { kind: 'jail-fine', takes: () => true, type: 'jail-fine' },
   { kind: 'jail-free', takes: () => true, type: 'jail-free' },
   { kind: 'chat', takes: () => true, type: 'chat' },
+  { kind: 'purchase', takes: () => true, type: 'purchase' },
+  { kind: 'end-turn', takes: () => true, type: 'end-turn' },
   { kind: 'trade', takes: () => true, type: 'trade' },
   { kind: 'contract-propose', takes: () => true, type: 'contract-propose' },
   { kind: 'market', takes: () => true, type: 'market' },
@@ -532,7 +555,13 @@ const PHASE_EXECUTORS = {
   payment: botPaymentAction,
   auction: (room, bot) => room.runBotAction(bot.id, actor => room.passAuction(actor)),
   'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
-  'post-roll': (room, bot) => resolvePurchaseOffer(room, bot, room.runBotAction(bot.id, actor => room.rollDice(actor)))
+  'post-roll': (room, bot, game) => {
+    if (game.pendingPurchaseOffer?.playerId === bot.id) {
+      return resolvePurchaseOffer(room, bot, { success: true, purchaseOffer: game.pendingPurchaseOffer });
+    }
+    if (game.awaitingEndTurn) return room.runBotAction(bot.id, actor => room.endTurn(actor));
+    return { success: true, noEmit: true, botDecision: { reasonCode: 'post-roll-no-op' } };
+  }
 };
 
 // Executes the classified phase against the room (the room only enters this
@@ -553,7 +582,7 @@ export async function runBotTurn(room, bot, advisor) {
     ruleVersion: BOT_RULE_VERSION,
     ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
-  if (phase === 'pre-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
+  if (phase === 'pre-roll' || phase === 'post-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
   if (advisor?.supportsChoicePhases && ['vote', 'trade', 'contract', 'sponsorship', 'payment'].includes(phase)) {
     return runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase);
   }
@@ -581,9 +610,18 @@ const CANDIDATE_RUNNERS = {
   'jail-fine': (room, bot) => room.runBotAction(bot.id, actor => room.payJailFine(actor)),
   'jail-free': (room, bot) => room.runBotAction(bot.id, actor => room.useJailFree(actor)),
   chat: (_room, _bot, candidate) => ({ success: true, botChat: String(candidate.text || '').slice(0, 180) }),
+  purchase: (room, bot, candidate) => resolvePurchaseOffer(room, bot, {
+    success: true,
+    purchaseOffer: { playerId: bot.id, tileIndex: candidate.tileIndex }
+  }),
+  'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
   trade: (room, bot, candidate) => {
     const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, candidate));
     if (!proposal?.success) return proposal;
+    // Player-to-player trades may be proposed after movement. Only the
+    // pre-roll path should immediately roll; rolling again would reject a
+    // valid post-roll trade and strand the bot.
+    if (room.game?.hasRolled) return proposal;
     const rolled = room.runBotAction(bot.id, actor => room.rollDice(actor));
     return rolled?.success ? rolled : proposal;
   },
@@ -606,7 +644,7 @@ const CANDIDATE_RUNNERS = {
 
 async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 'pre-roll') {
   const game = room.game;
-  const candidates = game.getBotCandidates(bot, { expanded: true, parity: true });
+  const candidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: phase === 'post-roll' });
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
@@ -626,11 +664,17 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
   // original code aborted the tick without emitting.
   if (game.getCurrentPlayer()?.id !== bot.id || !botSeatStillLive(game, bot)) return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' } };
   const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
+  if (!candidate) {
+    return attachBotDecision({ success: true, noEmit: true }, { ...trace, reasonCode: 'no-legal-action' });
+  }
   const action = candidateAction(candidate, bot);
   const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
   if (result?.success === false && action.type !== 'roll') {
-    const fallback = CANDIDATE_RUNNERS.roll(room, bot, { id: 'roll', kind: 'roll' });
-    return attachBotDecision(fallback, { ...trace, actionId: 'roll', fallbackReason: 'candidate-rejected' });
+    const fallbackCandidate = phase === 'post-roll'
+      ? { id: 'end-turn', kind: 'end-turn' }
+      : { id: 'roll', kind: 'roll' };
+    const fallback = CANDIDATE_RUNNERS[fallbackCandidate.kind](room, bot, fallbackCandidate);
+    return attachBotDecision(fallback, { ...trace, actionId: fallbackCandidate.id, fallbackReason: 'candidate-rejected' });
   }
   return attachBotDecision(result, trace);
 }

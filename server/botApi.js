@@ -108,6 +108,7 @@ const botApi = {
   botActionRejection(bot, action) {
     if (!bot) return { success: false, error: 'Bot not found.' };
     if (!bot.isBot) return { success: false, error: 'Bot not found.' };
+    if (bot.bankrupt || bot.disconnected) return { success: false, error: 'Bot is unavailable.' };
     if (typeof action !== 'function') return { success: false, error: 'Bot not found.' };
     return null;
   },
@@ -130,6 +131,7 @@ const botApi = {
   // them by score desc, risk asc.
   getBotCandidates(player, options = {}) {
     if (!player?.isBot) return [];
+    if (options.postRoll) return this.botPostRollCandidates(player, options);
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
     if (!this.hasRolled && player.inJail && options.parity) {
       return candidates.concat(this.botJailCandidates(player)).sort((a, b) => b.score - a.score || a.risk - b.risk);
@@ -147,6 +149,49 @@ const botApi = {
         candidates.push(...this.botSocialCandidates(player));
       }
     }
+    return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+  },
+
+  // Once movement has resolved, humans may still use the finance rail before
+  // ending their turn. Keep that same window available to both bot brains. A
+  // pending purchase is the only table obligation that takes precedence over
+  // the normal finance actions; otherwise candidates are legal post-roll
+  // verbs and a low-priority explicit end-turn sentinel.
+  botPostRollCandidates(player, options = {}) {
+    if (!player?.isBot || player.id !== this.currentPlayerId) return [];
+    const offer = this.pendingPurchaseOffer;
+    if (offer?.playerId === player.id) {
+      const tile = this.getTile(offer.tileIndex);
+      return [{
+        id: 'purchase:' + offer.tileIndex,
+        kind: 'purchase',
+        tileIndex: offer.tileIndex,
+        price: Number(tile?.price) || 0,
+        risk: Number(tile?.price || 0) / Math.max(1, Number(player.cash || 0)),
+        score: 26
+      }];
+    }
+    if (offer) return [];
+
+    const candidates = [];
+    candidates.push(...this.botRepaymentCandidates(player));
+    candidates.push(...this.botBankLoanRepaymentCandidates(player));
+    candidates.push(...this.botMortgageCandidates(player));
+    candidates.push(...this.botUnmortgageCandidates(player));
+    // The pre-roll table exposes emergency credit to every personality for
+    // backward-compatible scoring, but only speculators are willing to take
+    // an elective loan in the post-roll finance window. Other personalities
+    // reserve loans for the dedicated debt-rescue phase.
+    if (player.personality === 'speculator') candidates.push(...this.botLoanCandidate(player));
+    if (options.parity) {
+      candidates.push(...this.botContractCandidates(player));
+      candidates.push(...this.botRichTradeCandidates(player));
+      candidates.push(...(options.expanded ? this.botGroupTradeCandidates(player) : this.botGroupTradeCandidate(player)));
+      candidates.push(...this.botMarketCandidates(player));
+      candidates.push(...this.botCasinoCandidate(player));
+      candidates.push(...this.botSocialCandidates(player));
+    }
+    candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
     return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
   },
 
@@ -221,7 +266,8 @@ const botApi = {
       .map(index => this.getTile(index))
       .filter(tile => tile && this.canUnmortgageTile(player, tile))
       .map(tile => {
-        const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
+        const multiplier = typeof this.propertyValueMultiplier === 'function' ? this.propertyValueMultiplier() : 1;
+        const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * multiplier);
         if (player.cash < cost + 180) return null;
         return { id: 'unmortgage:' + tile.index, kind: 'unmortgage', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: 9 };
       })
