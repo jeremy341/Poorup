@@ -46,6 +46,31 @@ function seatPersonality(personality) {
   return 'survivor';
 }
 
+function roomSettingChangeRejected(room, key) {
+  return room.game.started
+    || !Object.prototype.hasOwnProperty.call(room.settings, key)
+    || LEGACY_SCALED_SETTINGS.includes(key);
+}
+
+function normalizedRoomSetting(room, key, value) {
+  const normalizer = ROOM_SETTING_NORMALIZERS[key];
+  return normalizer ? normalizer(value, room) : room.defaultRoomSettingValue(key, value);
+}
+
+function capacityAllowsSetting(room, key, value) {
+  if (key !== 'maxPlayers') return true;
+  const humanSeats = room.game.players.filter(player => !player.isBot && !player.disconnected && !player.bankrupt).length;
+  return value >= humanSeats;
+}
+
+function syncBotCapacity(room, key, value) {
+  if (key !== 'maxPlayers') return;
+  const maxBots = Math.max(0, value - 1);
+  if (Number(room.settings.bots) <= maxBots) return;
+  room.settings.bots = maxBots;
+  room.game.settings.bots = maxBots;
+}
+
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
     this.id = crypto.randomUUID();
@@ -273,33 +298,12 @@ class Room {
   }
 
   setRoomSetting(key, value) {
-    if (this.game.started) {
-      return;
-    }
-    if (!Object.prototype.hasOwnProperty.call(this.settings, key)) {
-      return;
-    }
-    if (LEGACY_SCALED_SETTINGS.includes(key)) {
-      return;
-    }
-    const normalizer = ROOM_SETTING_NORMALIZERS[key];
-    const nextValue = normalizer ? normalizer(value, this) : this.defaultRoomSettingValue(key, value);
-    if (nextValue === SETTING_REJECTED) {
-      return;
-    }
-    if (key === 'maxPlayers') {
-      const humanSeats = this.game.players.filter(player => !player.isBot && !player.disconnected && !player.bankrupt).length;
-      if (nextValue < humanSeats) return;
-    }
+    if (roomSettingChangeRejected(this, key)) return;
+    const nextValue = normalizedRoomSetting(this, key, value);
+    if (nextValue === SETTING_REJECTED || !capacityAllowsSetting(this, key, nextValue)) return;
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
-    if (key === 'maxPlayers') {
-      const maxBots = Math.max(0, nextValue - 1);
-      if (Number(this.settings.bots) > maxBots) {
-        this.settings.bots = maxBots;
-        this.game.settings.bots = maxBots;
-      }
-    }
+    syncBotCapacity(this, key, nextValue);
     this.applyRoomSettingSideEffect(key, nextValue);
   }
 

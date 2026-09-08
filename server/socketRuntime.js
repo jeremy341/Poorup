@@ -493,18 +493,24 @@ function createRuntime(deps) {
   // --- auction/disconnect timers -------------------------------------------
 
   function scheduleAuctionFinish(room) {
-    if (!room?.game.auction?.active || room.destroyed) return;
+    const auction = room?.game.auction;
+    if (!auction?.active || room.destroyed) return;
     const roomCode = room.roomCode;
     clearAuctionTimer(room);
-    const endsAt = room.game.auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
+    const endsAt = auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
     const delay = Math.max(0, endsAt - Date.now());
-    const timer = setTimeout(() => finishAuctionIfStillActive(roomCode), delay);
+    // Capture the auction object itself, not just the room code. A stale
+    // callback that survives clearTimeout must never finish a newer auction in
+    // the same room.
+    const timer = setTimeout(() => finishAuctionIfStillActive(roomCode, auction), delay);
     auctionTimers.set(roomCode, timer);
   }
 
-  function finishAuctionIfStillActive(roomCode) {
+  function finishAuctionIfStillActive(roomCode, expectedAuction) {
     const currentRoom = roomManager.getRoom(roomCode);
-    if (!currentRoom?.game.auction?.active) {
+    if (!currentRoom?.game.auction?.active || (expectedAuction && currentRoom.game.auction !== expectedAuction)) {
+      // Do not clear a timer for a newer auction when an older callback fires.
+      if (currentRoom?.game.auction && expectedAuction && currentRoom.game.auction !== expectedAuction) return;
       clearAuctionTimer({ roomCode });
       return;
     }
