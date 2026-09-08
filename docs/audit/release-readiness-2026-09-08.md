@@ -14,7 +14,8 @@ and deduplicated before validation/settlement.
 - Working tree: clean after the audit fix commit
 - Base: merged `main` at `c62cd64`
 - Latest audit-fix commits include `2e65c54` (trade input normalization) and
-  the current release checks below.
+  `b523d4a` (fail-closed persistence reads), followed by the current release
+  checks below.
 - JSON stores under `server/data/` remain ignored and local. They were not
   deleted or rewritten during this audit.
 
@@ -58,16 +59,14 @@ The current architecture is release-safe only as a single-instance service;
 use one instance or move stores behind a transactional database before
 horizontal scaling.
 
-### R2 — Unreadable-store errors are treated like missing files
+### R2 — Unreadable-store errors were treated like missing files (RESOLVED)
 
 **Evidence:** `server/storeIO.js:15-21` catches every read error and returns
-`missing: true`.
+`missing: true`. This audit changed the seam to recognize only `ENOENT` as a
+missing file and fail fast for permission/sharing errors (`server/storeIO.js`).
 
-An `EACCES`, sharing violation, or transient filesystem failure can therefore
-look like an empty store. A later mutation may attempt to persist over a file
-that was never successfully read. Corrupt JSON is quarantined correctly, but
-non-`ENOENT` read failures should be surfaced as a read-only/error state before
-public production release.
+The regression suite now covers the non-`ENOENT` path. Corrupt JSON continues
+to be quarantined, while unreadable files cannot silently become empty stores.
 
 ### R2 — Rename fallback is not atomic
 
