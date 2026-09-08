@@ -247,8 +247,10 @@ function runCasinoMarketSmoke() {
 
   const publicSummary = room.game.getGameSummary();
   assert.equal('marketPositions' in publicSummary.players[0], false);
+  assert.equal('clientId' in publicSummary.players[0], false);
   const ownerSummary = room.game.getGameSummary(room.game.players[0].id);
   assert.equal(ownerSummary.players.find(entry => entry.id === room.game.players[0].id).marketPositions.brazil.quantity, 1);
+  assert.equal(ownerSummary.players.find(entry => entry.id === room.game.players[0].id).clientId, room.game.players[0].clientId);
   assert.equal(publicSummary.economy.market.enabled, true);
 }
 

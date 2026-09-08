@@ -16,7 +16,8 @@ files fail closed.
 - Base: merged `main` at `c62cd64`
 - Latest audit-fix commits include `2e65c54` (trade input normalization) and
   `b523d4a` (fail-closed persistence reads), followed by the current release
-  checks below.
+  checks below. The current privacy projection fix is being validated in this
+  pass.
 - JSON stores under `server/data/` remain ignored and local. They were not
   deleted or rewritten during this audit.
 
@@ -37,6 +38,17 @@ files fail closed.
 | CodeScene delta | UNVERIFIED — local CLI could not authenticate to `codescene.io/oauth2/token` in this environment |
 
 ## Server-only findings
+
+### R1 — Resume client IDs were exposed in room snapshots (RESOLVED)
+
+**Evidence:** `server/rooms.js` and `server/summaryApi.js` previously serialized
+`clientId` for every seat, while `restore-session` accepts a client ID as a
+resume key. A remote observer could reuse a leaked identifier to subscribe to
+the room without owning that seat.
+
+Room and game projections are now viewer-scoped: only the viewer’s own seat
+receives `clientId`; remote seats keep their server player ID but no resume
+credential. Direct projection assertions and the live server wire suite pass.
 
 ### R1 — Production CORS is unrestricted
 

@@ -113,7 +113,6 @@ function createRuntime(deps) {
   }
 
   function broadcastRoomState(room) {
-    const roomSummary = room.getRoomSummary();
     const serverTime = Date.now();
     // Game summaries now carry owner-only loan and contract terms. Emit a
     // viewer-scoped projection so another seat can see that a loan exists
@@ -122,7 +121,7 @@ function createRuntime(deps) {
       if (!candidate.rooms.has(room.roomCode)) return;
       const viewer = room.getPlayerBySocket(candidate.id);
       candidate.emit('update-state', {
-        room: roomSummary,
+        room: room.getRoomSummary(viewer?.id || null),
         game: room.game.getGameSummary(viewer?.id || null),
         serverTime
       });
