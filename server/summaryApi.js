@@ -63,7 +63,7 @@ const summaryApi = {
   },
 
   summaryPlayerEntry(player, viewerPlayerId) {
-    return {
+    const entry = {
       id: player.id,
       nickname: player.nickname,
       color: player.color,
@@ -88,6 +88,10 @@ const summaryApi = {
       accountId: player.accountId || null,
       avatarGrid: player.avatarGrid || null
     };
+    if (viewerPlayerId && player.id === viewerPlayerId) {
+      entry.marketPositions = { ...(player.marketPositions || {}) };
+    }
+    return entry;
   },
 
   // Loan privacy: the viewer sees their own full loan, everyone else only
