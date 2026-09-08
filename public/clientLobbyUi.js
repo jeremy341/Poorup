@@ -350,13 +350,17 @@ function renderLobbyRail() {
   // appearance) and "lobby" (configuring rules) — the in-game Holdings
   // rail should only ever appear once a round is actually live.
   const preGame = state.phase === "setup" || state.phase === "lobby";
-  const locked = state.phase === "setup";
-  const hostLocked = state.phase === "lobby" && !state.players[0]?.isHost;
   $("#right-rail-game").classList.toggle("is-hidden", preGame);
   $("#right-rail-lobby").classList.toggle("is-hidden", !preGame);
   if (!preGame) return;
+  return renderLobbyRailContent(
+    state.settings,
+    state.phase === "setup",
+    state.phase === "lobby" && !state.players[0]?.isHost,
+  );
+}
 
-  const s = state.settings;
+function renderLobbyRailContent(s, locked, hostLocked) {
   const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
   const existingBots = seated.filter((p) => p.bot).length;
   const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
