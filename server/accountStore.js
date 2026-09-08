@@ -219,6 +219,10 @@ function applyMatchResult(account, player, result) {
   account.matchHistory = [result.matchRecord, ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
 }
 
+function accountAlreadyRecordedMatch(account, matchId) {
+  return (account.matchHistory || []).some(entry => entry?.matchId === matchId);
+}
+
 // The same fifteen deltas recomputed from stored match records, for
 // time-windowed views. Wins intentionally differ from the live ladder:
 // history replays use the recorded final placement, not winnerId.
@@ -544,6 +548,7 @@ export class AccountStore {
       if (!player.accountId) return;
       const account = this.getAccountById(player.accountId);
       if (!account) return;
+      if (accountAlreadyRecordedMatch(account, matchId)) return;
       applyMatchResult(account, player, { matchRecord, matchMeta, winnerId });
       changed = true;
     });

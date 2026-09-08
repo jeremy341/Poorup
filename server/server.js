@@ -19,6 +19,7 @@ import { createRuntime } from './socketRuntime.js';
 import { registerAccountSocketHandlers } from './serverSocketAccount.js';
 import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
+import { resolveStorePaths } from './serverStorePaths.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,10 +42,11 @@ app.get('*', (req, res, next) => {
 });
 
 const roomManager = new RoomManager();
-const accountStore = new AccountStore();
-const socialStore = new SocialStore();
-const matchStore = new MatchStore();
-const achievementStore = new AchievementStore();
+const storePaths = resolveStorePaths(process.env);
+const accountStore = new AccountStore(storePaths.accounts);
+const socialStore = new SocialStore(storePaths.social);
+const matchStore = new MatchStore(storePaths.matches);
+const achievementStore = new AchievementStore(storePaths.achievements);
 const botAdvisor = createBotAdvisor();
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore });
