@@ -45,30 +45,6 @@ function contractEmit(event, payload, message) {
   });
 }
 
-function onContractCancel(node) {
-  if (!node) return false;
-  contractEmit("cancel-player-contract", { requestId: host.createRequestId("contract-cancel") }, "The pending contract could not be canceled.");
-  return true;
-}
-
-function onContractResponse(node) {
-  if (!node) return false;
-  if (node.dataset.playerContractAction === "negotiate") {
-    host.openFinancingNegotiation(state.playerContractOffer?.id, node);
-    return true;
-  }
-  const accept = node.dataset.playerContractAction === "accept";
-  host.emitServer("respond-player-contract", { contractId: state.playerContractOffer?.id, accept, requestId: host.createRequestId("contract-response") }, (response) => {
-    if (response?.success === false) {
-      ackFailure(response, "The player contract could not be updated.");
-      return;
-    }
-    state.playerContractOffer = null;
-    host.renderRightRail();
-  });
-  return true;
-}
-
 function onDealView(node) {
   if (!node) return false;
   const [kind, id] = String(node.dataset.dealView || "").split(":");
@@ -164,8 +140,6 @@ function onFinanceView(node) {
 }
 
 const RAIL_CLICKS = [
-  ["[data-player-contract-cancel]", onContractCancel],
-  ["[data-player-contract-action]", onContractResponse],
   ["[data-deal-view]", onDealView],
   ["[data-player-contract-repay]", onContractRepay],
   ["[data-market-order]", onMarketOrder],
