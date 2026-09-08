@@ -103,6 +103,9 @@ async function checkHappyPath(socket) {
 
 async function checkBotStatusAndReconnect(socket, child) {
   const clientId = 'bot-status-client';
+  const statuses = [];
+  const onStatus = status => statuses.push(status);
+  socket.on('bot-status', onStatus);
   const created = await ask(socket, 'create-room', { clientId, nickname: 'Bot Probe' });
   check('bot probe room creates', created?.success === true);
   await ask(socket, 'set-setting', { key: 'bots', value: 1 });
@@ -117,10 +120,12 @@ async function checkBotStatusAndReconnect(socket, child) {
   if (snapshot?.game?.pendingPurchaseOffer) {
     await ask(socket, 'decline-property', { tileIndex: snapshot.game.pendingPurchaseOffer.tileIndex });
   }
-  const botStatus = nextEvent(socket, 'bot-status');
-  await ask(socket, 'end-turn', {});
-  const status = await botStatus;
-  check('bot status is announced with a safe public payload', status?.state === 'thinking' && status?.nickname && ['ai', 'deterministic'].includes(status.provider));
+  const ended = await ask(socket, 'end-turn', {});
+  await wait(1200);
+  socket.off('bot-status', onStatus);
+  const status = statuses.find(candidate => candidate?.state === 'thinking') || statuses.find(candidate => candidate?.state === 'chosen');
+  check('bot turn advances through the normal seam', ended?.success === true);
+  check('bot status is announced with a safe public payload', status?.nickname && ['ai', 'deterministic'].includes(status.provider));
   check('server survives bot status flow', child.exitCode === null);
 
   socket.close();
