@@ -421,6 +421,7 @@ command document.
 | P2 accessibility | RESOLVED | Dialog IDs, ranking filter semantics, color/chat labels, and friends-only achievement copy are corrected. |
 | P2 motion/typography | RESOLVED | Finance rows use a local entrance keyframe, reduced motion disables it, and the loaded Silkscreen face replaces the missing font. |
 | P2 payload/history | RESOLVED | Secondary leaderboard columns are capped at three rows and match cards use an explicit viewed-participant marker. |
+| Market portfolio projection | RESOLVED | Market positions are included only in the owner-scoped game snapshot, so BUY/SELL controls reflect live holdings without leaking them. |
 | P2-10 Manage Portfolio | RESOLVED | The control now routes to Holdings/Deeds instead of the unrelated Market rail. |
 | P3 stale handlers | RESOLVED | Removed obsolete contract-action selectors; guarded mini-board code remains harmless legacy preview support. |
 
