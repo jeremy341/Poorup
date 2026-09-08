@@ -5,22 +5,24 @@
 This is a release audit of the current server, persistence, socket, game-rule,
 bot, economy, social, test, dependency, and CI surfaces. No UI or frontend
 source files were changed during this audit. Targeted server-only correctness
-and hardening fixes were applied: trade property legs are bounded and
-deduplicated, unreadable stores fail closed, atomic rename failures preserve
-the previous snapshot, resume identifiers are viewer-scoped, socket ingress
-has a bounded rate limiter and packet-size cap, and production CORS fails
-closed until configured.
+and hardening fixes were applied across authentication, persistence, money and
+deed settlement, contracts, global events, sockets, and both bot brains.
+Trade property legs are bounded and deduplicated, unreadable stores fail
+closed, atomic rename failures preserve the previous snapshot, resume
+identifiers are viewer-scoped, socket ingress has a bounded rate limiter and
+packet-size cap, production CORS fails closed until configured, and bots now
+share the human post-roll finance window instead of being roll-only.
 
 ## Repository state
 
 - Branch: `codex/codescene-cleanup`
-- Working tree: clean for the audit scope after the audit fix commit; an
-  unrelated pre-existing README edit is intentionally preserved.
+- Working tree: audit changes are ready to commit; an unrelated pre-existing
+  README edit and the user-supplied raw audit notes are intentionally
+  preserved.
 - Base: merged `main` at `c62cd64`
-- Latest audit-fix commit is `d4749e4` (server release paths), preceded by
-  `315785d` (audit evidence), `77b9062` (include release checks in coverage),
-  `d8a87dd` (preserve stores when atomic rename fails), `c6968c8` (release
-  hardening gates), and `eb49ed3` (viewer-scoped resume identifiers).
+- Latest committed audit-fix commits are `d4749e4` (server release paths) and
+  `d48a98e` (expanded audit record); the current follow-up patch covers the
+  deep money, auth, persistence, lifecycle, and bot findings below.
 - JSON stores under `server/data/` remain ignored and local. They were not
   deleted or rewritten during this audit.
 
@@ -28,21 +30,58 @@ closed until configured.
 
 | Gate | Result |
 | --- | --- |
-| `npm test` | PASS — complete contract, persistence, bot, event, economy, socket, social, and history suite (`POORUP_BOT_SIMULATION_COUNT=100`) |
+| `npm test` | PASS — complete contract, persistence, bot, event, economy, socket, social, and history suite (`POORUP_BOT_SIMULATION_COUNT=100`; socket child-process run verified outside the restricted sandbox) |
 | `npm run lint` | PASS — server ESLint |
 | `npm run lint:client` | PASS — client ESLint; inspected only, no UI edits |
-| `npm run coverage` | PASS — 91.67% statements, 81.60% branches, 90.95% functions (`POORUP_BOT_SIMULATION_COUNT=100`) |
+| `npm run coverage` | PASS — 90.47% statements, 79.13% branches, 88.87% functions (`POORUP_BOT_SIMULATION_COUNT=100`) |
 | `npm audit --omit=dev --audit-level=moderate` | PASS — 0 vulnerabilities |
-| `node --check` | PASS — 120 shipped JavaScript files |
+| `node --check` | PASS — all server JavaScript files (81 files) |
 | `npm pack --dry-run` | PASS — 227 files; npm warns that no `.npmignore` exists |
 | Rename-failure persistence probe | PASS — previous snapshot preserved and temp recovery file retained |
-| Bot balance campaign | PASS — 2,500 bounded games, 1,994 completed within 2,000 steps, 0 stalled |
+| Bot balance campaign | PASS — 2,500 bounded games, 1,994 completed within 2,000 steps, 0 stalled (baseline campaign; the 100-game post-roll regression campaign also passes) |
 | Bot status/reconnect wire probe | PASS — 18/18 checks, repeated successfully |
 | Release hardening seams | PASS — 13 CORS/rate-limiter checks |
 | `git diff --check` | PASS |
 | CodeScene delta | UNVERIFIED — local CLI could not authenticate to `codescene.io/oauth2/token` in this environment |
 
 ## Server-only findings
+
+### Deep follow-up fixes (RESOLVED)
+
+The second line-by-line pass closed the remaining verified server defects from
+the raw audit notes:
+
+- session rotation and logout now revoke every persisted token hash;
+- explicit invalid tokens clear cached socket identity, while no-token
+  reconnects use the cache only when it is still valid;
+- valid JSON with the wrong root shape is quarantined for every store;
+- bankrupt creditors cannot receive in-flight rent or liquidation cash;
+- mortgage and unmortgage pricing use the same event value multiplier;
+- auction and bank-release deed paths terminate stale equity and deduplicate
+  ownership;
+- debt-mode bankruptcy settles contracts before forfeiting deeds, and hybrid
+  borrowers default the funded loan leg correctly;
+- missing-lender repayments preserve borrower cash;
+- market shocks apply once per event activation, while interest shocks and
+  labor-strike shortfalls create their intended settlement records;
+- hybrid collateral remains encumbered for build, mortgage, sale, and trade;
+- disconnected/dead bots are rejected, hybrid stats/history fields are
+  preserved, and pending payment queues are activated and cleaned safely;
+- end-game winner selection excludes disconnected seats; started-game leaves
+  settle obligations and assets; house/hotel limits and the room trading flag
+  are enforced by the server;
+- stale joins, duplicate account seats, stale contract cancels, bounded client
+  identifiers, unauthenticated invites, and malformed social records are
+  rejected or sanitized;
+- the deterministic and AI bot paths now expose the post-roll purchase,
+  repayment, mortgage/unmortgage, market, casino, contract, trade, chat, and
+  safe end-turn candidates. A sender waits instead of repeatedly reopening a
+  pending human deal.
+
+The stable opaque `accountId` remains in the existing room/profile protocol as
+the lookup key for the current social client. It is not a session credential;
+changing that protocol would be a separate privacy/API migration and was
+outside the no-UI-change audit scope.
 
 ### R1 — Resume client IDs were exposed in room snapshots (RESOLVED)
 

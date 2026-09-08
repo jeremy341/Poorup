@@ -405,9 +405,34 @@ check('runBotTurn resolves post-roll purchase offers at most twice', async () =>
   const log = [];
   const room = fakeRoom(log);
   room.game.hasRolled = true;
-  room.rollDice = () => ({ name: 'roll', purchaseOffer: { tileIndex: 5 } });
+  room.game.pendingPurchaseOffer = { playerId: 'b1', tileIndex: 5 };
+  room.game.getBotCandidates = () => [{ id: 'purchase:5', kind: 'purchase', tileIndex: 5, score: 26 }];
   const result = await runBotTurn(room, bot1, advisorStub(null));
   assert.strictEqual(result.name, 'buy:5');
+});
+
+check('post-roll bot pass exposes finance actions and an explicit end turn', () => {
+  const room = fakeRoom([]);
+  room.game.hasRolled = true;
+  room.game.awaitingEndTurn = true;
+  room.game.getBotCandidates = () => [
+    { id: 'market:ACME', kind: 'market', instrumentId: 'ACME', side: 'sell', quantity: 1, score: 15 },
+    { id: 'end-turn', kind: 'end-turn', score: -50 }
+  ];
+  assert.strictEqual(classifyBotTurnPhase(room.game, bot1), 'post-roll');
+});
+
+check('post-roll trade proposals do not attempt a second dice roll', async () => {
+  const log = [];
+  const room = fakeRoom(log);
+  room.game.hasRolled = true;
+  room.game.getBotCandidates = () => [{ id: 'trade:human', kind: 'trade', toPlayerId: 'human', score: 10 }];
+  let rolls = 0;
+  room.proposeTrade = () => ({ name: 'propose', success: true });
+  room.rollDice = () => { rolls += 1; return { name: 'rolled', success: true }; };
+  const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'trade:human' }));
+  assert.strictEqual(result.name, 'propose');
+  assert.strictEqual(rolls, 0);
 });
 
 check('runBotTurn runs advisor candidates through the action map', async () => {
