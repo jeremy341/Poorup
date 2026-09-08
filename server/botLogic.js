@@ -405,9 +405,9 @@ function phaseChoiceCandidates(game, bot, phase) {
 
 function runTradeChoice(room, bot, game, candidate) {
   if (!game.pendingTrade) return { success: false, error: 'No matching trade offer was found.' };
-  if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
   const tradeId = game.pendingTrade.id;
   if (candidate.tradeId && candidate.tradeId !== tradeId) return { success: false, error: 'The offer changed while the bot was thinking.' };
+  if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
   return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId, accept: candidate.choiceId === 'accept' }));
 }
 
