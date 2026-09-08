@@ -138,6 +138,7 @@ function syncTurnPointer(game) {
 function syncRoundFlags(game) {
   state.dice = diceOf(game);
   state.roundNumber = num(game.roundNumber);
+  state.turnDeadline = num(game.turnDeadline);
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
   state.pendingTrade = orNull(game.pendingTrade);

@@ -124,16 +124,13 @@ check('history entries pin result/won/cash/properties', () => {
 });
 
 const second = store.recordGameResults(fixturePlayers(), 'p1', fixtureMeta());
-check('re-recording the same match dedupes history but doubles stats', () => {
+check('re-recording the same match is idempotent for account history and stats', () => {
   assert.strictEqual(byName('alice').matchHistory.length, 1);
-  assert.strictEqual(byName('alice').matchHistory[0], second);
-  assert.strictEqual(byName('alice').stats.gamesPlayed, 2);
-  assert.strictEqual(byName('alice').stats.wins, 2);
-  assert.strictEqual(byName('alice').stats.casinoNet, -100);
-  assert.strictEqual(byName('alice').stats.marketProfit, 181);
-  assert.strictEqual(byName('alice').stats.rentCollected, 1220);
-  assert.strictEqual(byName('bob').stats.playerLoansRepaid, 2);
-  assert.strictEqual(byName('carol').stats.equityDeals, 2);
+  assert.strictEqual(byName('alice').matchHistory[0], record);
+  assert.strictEqual(second.matchId, record.matchId);
+  assert.deepStrictEqual(byName('alice').stats, GOLDEN_ALICE);
+  assert.deepStrictEqual(byName('bob').stats, GOLDEN_BOB);
+  assert.deepStrictEqual(byName('carol').stats, GOLDEN_CAROL);
 });
 
 check('null players do not crash placement', () => {

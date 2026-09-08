@@ -4,6 +4,8 @@
 // error ack instead, keeps the process alive, and that the normal socket
 // flow still works end to end.
 import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { io } from 'socket.io-client';
@@ -100,8 +102,9 @@ async function checkHappyPath(socket) {
 }
 
 async function run() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-server-wire-'));
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    env: { ...process.env, PORT: String(PORT) },
+    env: { ...process.env, PORT: String(PORT), POORUP_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let serverLog = '';
@@ -124,6 +127,7 @@ async function run() {
   } finally {
     if (socket) socket.close();
     child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }
 

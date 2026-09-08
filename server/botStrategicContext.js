@@ -58,6 +58,7 @@ function ownPropertyView(game, bot) {
 function contractView(contract, bot) {
   const borrower = contract.toPlayerId === bot.id;
   return {
+    id: String(contract.id || '').slice(0, 80),
     kind: contract.kind,
     role: borrower ? 'borrower' : 'lender',
     status: contract.status,
@@ -66,9 +67,10 @@ function contractView(contract, bot) {
     premiumRate: Math.max(0, Number(contract.premiumRate) || 0),
     durationRounds: nonNegative(contract.durationRounds),
     dueRound: contract.dueRound == null ? null : nonNegative(contract.dueRound),
-    collateralTileIndex: borrower ? contract.collateralTileIndex ?? null : null,
-    equityShare: borrower ? Math.max(0, Number(contract.equityShare) || 0) : null,
-    conversionShare: borrower ? Math.max(0, Number(contract.conversionShare) || 0) : null
+    propertyIndex: contract.propertyIndex ?? null,
+    collateralTileIndex: contract.collateralTileIndex ?? null,
+    equityShare: Math.max(0, Number(contract.equityShare) || 0),
+    conversionShare: Math.max(0, Number(contract.conversionShare) || 0)
   };
 }
 
@@ -134,7 +136,9 @@ function opponentView(game, bot, player, index) {
     position: nonNegative(player.position),
     cashBand: cashBand(player.cash, game.settings?.startingCash),
     propertyCount: Array.isArray(player.properties) ? player.properties.length : 0,
-    completeGroups: typeof game.playerGroups === 'function' ? game.playerGroups(player).length : 0,
+    completeGroups: typeof game.hasFullSet === 'function' && typeof game.playerGroups === 'function'
+      ? game.playerGroups(player).filter(group => game.hasFullSet(player.id, group)).length
+      : 0,
     inJail: player.inJail === true,
     bankrupt: player.bankrupt === true,
     disconnected: player.disconnected === true

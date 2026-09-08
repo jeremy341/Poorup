@@ -3,7 +3,9 @@
 // directly to GameState. Provider failures, quota exhaustion, malformed output,
 // and timeouts return to the deterministic path immediately.
 import { planningHorizon, rankCandidates } from './botFuturePlanner.js';
-const DEFAULT_TIMEOUT_MS = 600;
+// A remote advisor needs enough time to reason about the complete table. The
+// deterministic brain remains the immediate fallback if this budget expires.
+const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_MAX_DECISIONS_PER_GAME = 120;
 const DEFAULT_CIRCUIT_COOLDOWN_MS = 30_000;
 const CIRCUIT_FAILURE_THRESHOLD = 2;
@@ -330,7 +332,7 @@ export class DeepSeekAdvisor {
     };
   }
 
-  advisorUserPrompt({ contextVersion, candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, ruleVersion, turn, board, obligations, rulesDigest, activeEvent, event, gameId, recentDecisions, decisionMemory }) {
+  advisorUserPrompt({ contextVersion, candidates, personality, botDifficulty, phase, roundNumber, botState, opponentSummaries, opponents, ruleVersion, turn, board, obligations, rulesDigest, activeEvent, event, gameId, recentDecisions, decisionMemory }) {
     const brief = event ? { id: event.id, phase: event.phase, roundsRemaining: event.roundsRemaining, effects: event.effects } : null;
     const safeDifficulty = normalizeDifficulty(botDifficulty);
     const annotatedCandidates = planningAnnotatedCandidates({ contextVersion, botDifficulty: safeDifficulty, gameId, board, botState, rulesDigest }, candidates);
@@ -347,7 +349,7 @@ export class DeepSeekAdvisor {
       recentDecisions: Array.isArray(recentDecisions) ? recentDecisions.slice(-6) : [],
       decisionMemory: decisionMemory || { decisions: 0, successes: 0, failures: 0, actionRates: [], phaseRates: [] },
       board: Array.isArray(board) ? board.slice(0, 40) : [],
-      opponentSummaries: Array.isArray(opponentSummaries) ? opponentSummaries.slice(0, 6) : [],
+      opponentSummaries: Array.isArray(opponents) ? opponents.slice(0, 6) : Array.isArray(opponentSummaries) ? opponentSummaries.slice(0, 6) : [],
       obligations: obligations || {},
       rulesDigest: rulesDigest || {},
       activeEvent: activeEvent || null,
