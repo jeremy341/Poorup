@@ -15,7 +15,7 @@ const PLAYER_NOT_FOUND = { success: false, error: 'Player not found.' };
 
 function registerSocialSocketHandlers(on, socket, runtime) {
   const { accountStore, socialStore, matchStore } = runtime;
-  const { accountForSocket, allowSocialAction, chatBlockedInRoom, chatRateLimited, emitSocialUpdate, maxPlausiblePatrolScore, notifyAccount, patrolAchievementCandidates, patrolRunError, patrolRunPlausible, patrolRuns, publicPlayerCard, recentPlayers, recordVerifiedAchievement, socialSummary } = runtime.social;
+  const { accountForSocket, allowSocialAction, chatBlockedInRoom, chatRateLimited, emitSocialUpdate, maxPlausiblePatrolScore, notifyAccount, patrolAchievementCandidates, patrolRunError, patrolRunPlausible, prunePatrolRuns, patrolRuns, publicPlayerCard, recentPlayers, recordVerifiedAchievement, socialSummary } = runtime.social;
 
   on('send-chat', (payload = {}, callback) => {
     const text = normalizeChatText(payload.text);
@@ -158,7 +158,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('clear-recent-players', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to clear recent players.' });
-    const result = accountStore.clearRecentPlayers(payload.sessionToken);
+    const result = accountStore.clearRecentPlayersForAccount(account.id);
     if (result.success) emitSocialUpdate(account.id);
     reply(callback, result);
   });
@@ -174,8 +174,13 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   on('send-room-invite', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to send room invites.' });
     const room = runtime.getRoomForSocket(socket, callback);
-    if (!account || !room) return;
+    if (!room) return;
+    const seated = room.getPlayerBySocket(socket.id);
+    if (!seated || seated.accountId !== account.id) {
+      return reply(callback, { success: false, error: 'Only the signed-in seat can send room invites.' });
+    }
     if (!allowSocialAction(account.id, 'room-invite')) return reply(callback, { success: false, error: 'Too many invites. Try again in a minute.' });
     const target = accountStore.getPublicAccountById(payload.targetAccountId);
     if (!target) return reply(callback, PLAYER_NOT_FOUND);
@@ -200,6 +205,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to sync Parlor Patrol achievements.' });
     if (!allowSocialAction(account.id, 'patrol-run')) return reply(callback, { success: false, error: 'Too many patrol runs. Try again in a minute.' });
+    prunePatrolRuns();
     const runToken = crypto.randomBytes(24).toString('base64url');
     patrolRuns.set(runToken, { accountId: account.id, socketId: socket.id, startedAt: Date.now(), submitted: false });
     reply(callback, { success: true, runToken });

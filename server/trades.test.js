@@ -220,6 +220,16 @@ check('propose normalizes malformed legs: non-array to empty, strings to numbers
   assert.equal(stringy.trade.requestCash, 12);
 });
 
+check('propose normalizes cash legs to whole dollars', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const b = playerOf(room, 'client-b');
+  const result = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 10.9, requestCash: 5.8 });
+  assert.equal(result.success, true);
+  assert.equal(result.trade.giveCash, 10);
+  assert.equal(result.trade.requestCash, 5);
+});
+
 check('room-level proposeTrade and respondToTrade delegate to the game', () => {
   const room = tradeRoom();
   const b = playerOf(room, 'client-b');
@@ -557,6 +567,20 @@ check('sender can adjust or cancel a pending trade without transferring assets',
   assert.deepEqual(game.cancelTrade('socket-b', { tradeId: game.pendingTrade.id }), { success: false, error: 'Only the sending player can cancel this trade.' });
   assert.equal(game.cancelTrade('socket-a', { tradeId: game.pendingTrade.id }).canceled, true);
   assert.equal(game.pendingTrade, null);
+});
+
+check('trade adjustment increments and enforces the negotiation depth cap', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const b = playerOf(room, 'client-b');
+  const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 30 });
+  const adjusted = game.adjustTrade('socket-a', { tradeId: first.trade.id, giveCash: 40 });
+  assert.equal(adjusted.success, true);
+  assert.equal(game.pendingTrade.counterDepth, 1);
+  const adjustedAgain = game.adjustTrade('socket-a', { tradeId: adjusted.trade.id, giveCash: 50 });
+  assert.equal(adjustedAgain.success, true);
+  assert.equal(game.pendingTrade.counterDepth, 2);
+  assert.deepEqual(game.adjustTrade('socket-a', { tradeId: adjustedAgain.trade.id, giveCash: 60 }), { success: false, error: 'This trade has reached its negotiation limit.' });
 });
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });

@@ -10,6 +10,14 @@ export function normalizeNickname(value) {
   return value.trim().slice(0, 24);
 }
 
+// Tab session identifiers are opaque bearer values, not arbitrary JSON. Keep
+// them bounded and string-only before they reach room maps or persistence
+// projections; an omitted value still lets the server mint a fresh seat id.
+export function normalizeClientId(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 120);
+}
+
 export function normalizeRoomCode(value) {
   if (typeof value !== 'string') return '';
   return value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);

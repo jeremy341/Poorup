@@ -43,4 +43,9 @@ assert.equal(loaded.botDecisions[0].actionId, 'roll');
 assert.deepEqual(loaded.participants[0].avatarAtMatch, grid);
 assert.deepEqual(loaded.participants[0].achievementsUnlocked, ['41st-tile']);
 assert.equal(loaded.participants[0].mythicalUnlocked, true);
-console.log('match-history v2 schema and achievement annotation: 4 passed, 0 failed');
+for (let index = 0; index < 510; index += 1) {
+  matches.matches.set(`retention-${index}`, { matchId: `retention-${index}`, completedAt: new Date(index).toISOString(), participants: [] });
+}
+matches.persist();
+assert.equal(matches.matches.size, 500);
+console.log('match-history v2 schema and achievement annotation: 5 passed, 0 failed');

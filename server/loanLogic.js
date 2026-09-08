@@ -169,12 +169,6 @@ function settlementDiscount(game, loan) {
   return Math.ceil(loan.remaining * multiplier);
 }
 
-function markCureRoundRepayment(game, player, loan) {
-  if (loan.status !== 'due') return;
-  if (game.roundNumber !== loan.cureRound) return;
-  player.oneMoreTurn = true;
-}
-
 function repaymentAmountError(requested) {
   if (!Number.isFinite(requested)) return 'Enter a valid repayment amount.';
   if (requested <= 0) return 'Enter a valid repayment amount.';
@@ -188,7 +182,6 @@ function repaymentPlan(game, player, loan, amount) {
   const amountError = repaymentAmountError(requested);
   if (amountError) return { error: amountError };
   const amnesty = debtAmnestyApplies(game, requested, loan);
-  markCureRoundRepayment(game, player, loan);
   const discountedDue = settlementDiscount(game, loan);
   const payment = Math.min(amnesty ? discountedDue : requested, loan.remaining);
   if (player.cash < payment) return { error: `You need $${payment} to make this repayment.` };
@@ -196,6 +189,7 @@ function repaymentPlan(game, player, loan, amount) {
 }
 
 function settleLoanRepayment(game, player, loan, plan) {
+  const paidOnFinalCureRound = loan.status === 'due' && game.roundNumber === loan.cureRound;
   player.cash -= plan.payment;
   loan.remaining -= plan.payment;
   if (plan.amnesty) loan.remaining = 0;
@@ -206,6 +200,7 @@ function settleLoanRepayment(game, player, loan, plan) {
   loan.remaining = 0;
   loan.status = 'paid';
   loan.paidRound = game.roundNumber;
+  if (paidOnFinalCureRound) player.oneMoreTurn = true;
   game.feedMessage(`${player.nickname} repaid the bank loan in full.`);
 }
 
@@ -245,9 +240,14 @@ export function defaultBankLoan(game, player) {
 }
 
 function seizeLoanCollateral(game, player, collateral) {
+  // Legacy or hand-repaired state may still carry equity entries. Terminate
+  // them before the bank takes the deed so no holder can keep collecting from
+  // a property that no longer has an owner.
+  game.terminateTileEquityShares?.(collateral);
   collateral.ownerId = null;
   collateral.mortgaged = false;
   collateral.houseCount = 0;
+  collateral.equityShares = [];
   player.properties = player.properties.filter(index => index !== collateral.index);
   player.collateralLost = true;
   game.feedMessage(`${player.nickname} defaulted. The bank seized ${collateral.name}.`);

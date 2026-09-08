@@ -196,6 +196,10 @@ const auctionApi = {
     auction.propertyTile.mortgaged = false;
     auction.propertyTile.houseCount = 0;
     winner.properties.push(auction.propertyTile.index);
+    // Auctions are another acquisition path. Keep the same completed-group
+    // facts as direct purchases and trades so rent rules and achievements do
+    // not lag behind the visible ownership state.
+    this.refreshPlayerGroups(winner);
   },
 
   recordAuctionWin(auction, winner) {

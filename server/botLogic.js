@@ -465,15 +465,29 @@ async function runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase)
   const game = room.game;
   const candidates = phaseChoiceCandidates(game, bot, phase);
   if (!candidates.length) return PHASE_EXECUTORS[phase](room, bot, game);
+  // Capture the offer version before the asynchronous provider call. A human
+  // may counter, cancel, or replace the deal while the AI is thinking; the
+  // old choice must never be rebound to the newer offer after the await.
+  const pendingTradeId = phase === 'trade' ? game.pendingTrade?.id || null : null;
+  const pendingContractId = phase === 'contract' ? game.pendingPlayerContract?.id || null : null;
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
     personality: bot.personality,
     event: game.globalEvent
   });
+  if (!botSeatStillLive(game, bot)) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...decision, phase, reasonCode: 'seat-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) } };
+  }
+  if (phase === 'trade' && game.pendingTrade?.id !== pendingTradeId) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...decision, phase, reasonCode: 'offer-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) } };
+  }
+  if (phase === 'contract' && game.pendingPlayerContract?.id !== pendingContractId) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...decision, phase, reasonCode: 'offer-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) } };
+  }
   const selected = candidates.find(candidate => candidate.id === decision?.actionId) || candidates[0];
-  if (phase === 'trade' && game.pendingTrade) selected.tradeId = game.pendingTrade.id;
-  if (phase === 'contract' && game.pendingPlayerContract) selected.contractId = game.pendingPlayerContract.id;
+  if (phase === 'trade') selected.tradeId = pendingTradeId;
+  if (phase === 'contract') selected.contractId = pendingContractId;
   const trace = {
     ...decisionContext,
     ...decision,
@@ -555,6 +569,12 @@ export async function runBotTurn(room, bot, advisor) {
   });
 }
 
+function botSeatStillLive(game, bot) {
+  if (!bot || bot.bankrupt || bot.disconnected) return false;
+  if (!Array.isArray(game?.players)) return true;
+  return game.players.some(player => player?.id === bot.id && player === bot);
+}
+
 // Candidate kind -> the room call it implies; the table order preserves the
 // original if/else chain, including roll as the unmatched fallback.
 const CANDIDATE_RUNNERS = {
@@ -604,7 +624,7 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
   };
   // The advisor call is async; if the seat moved on while it thought, the
   // original code aborted the tick without emitting.
-  if (game.getCurrentPlayer()?.id !== bot.id) return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' } };
+  if (game.getCurrentPlayer()?.id !== bot.id || !botSeatStillLive(game, bot)) return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' } };
   const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
   const action = candidateAction(candidate, bot);
   const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);

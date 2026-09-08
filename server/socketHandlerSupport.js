@@ -29,8 +29,15 @@ function getRoomForSocket(runtime, socket, callback) {
 
 // sessionToken -> account, for handlers that act on a signed-in socket.
 function resolveAccount(accountStore, socket, payload = {}) {
-  const account = accountStore.sessionAccount(payload.sessionToken) || accountStore.getPublicAccountById(socket.data?.accountId);
+  // An explicitly supplied token is authoritative. Never fall back to a
+  // socket's cached account after that token fails, otherwise a logout or
+  // revocation on another device leaves the old socket authenticated.
+  const hasExplicitToken = payload && payload.sessionToken !== undefined && payload.sessionToken !== null;
+  const account = hasExplicitToken
+    ? accountStore.sessionAccount(payload.sessionToken)
+    : accountStore.getPublicAccountById(socket.data?.accountId);
   if (account) socket.data.accountId = account.id;
+  if (!account) socket.data.accountId = null;
   return account;
 }
 

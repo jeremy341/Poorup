@@ -133,6 +133,20 @@ check('equity terms clamp share, verify owner, cap at 100 percent', () => {
   assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 5 }), { success: false, error: 'That property has no remaining equity to sell.' });
 });
 
+check('permanent equity terms survive negotiation', () => {
+  const { game, b } = startedRoom();
+  const property = game.getTile(1);
+  property.ownerId = b.id;
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 20, permanent: true });
+  assert.equal(first.success, true);
+  assert.equal(game.pendingPlayerContract.permanent, true);
+  assert.equal(game.pendingPlayerContract.expiresRound, null);
+  const adjusted = game.adjustPlayerContract('socket-a', { contractId: first.contract.id, amount: 60, equityShare: 25 });
+  assert.equal(adjusted.success, true);
+  assert.equal(game.pendingPlayerContract.permanent, true);
+  assert.equal(game.pendingPlayerContract.expiresRound, null);
+});
+
 check('requestId replays return the memoized contract result', () => {
   const { game, b } = startedRoom();
   const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10, requestId: 'abc' });

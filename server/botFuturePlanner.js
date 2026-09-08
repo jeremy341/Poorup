@@ -114,15 +114,17 @@ function applyMarketCandidate(snapshot, state, candidate) {
     const position = state.marketPositions[candidate.instrumentId];
     if (!position || position.quantity < quantity) return;
     state.cash += Math.max(0, quote * quantity - fee);
+    position.realizedPnl = number(position.realizedPnl) + (quote - number(position.averageCost)) * quantity - fee;
     position.quantity -= quantity;
-    position.realizedPnl = number(position.realizedPnl) + Math.max(0, (quote - number(position.averageCost)) * quantity - fee);
     if (position.quantity <= 0) delete state.marketPositions[candidate.instrumentId];
     return;
   }
   state.cash = Math.max(0, state.cash - quote * quantity - fee);
   const position = state.marketPositions[candidate.instrumentId] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
+  const existingQuantity = nonNegative(position.quantity);
+  const existingCost = number(position.averageCost) * existingQuantity;
   position.quantity += quantity;
-  position.averageCost = quote + fee;
+  position.averageCost = (existingCost + quote * quantity + fee) / Math.max(1, existingQuantity + quantity);
   state.marketPositions[candidate.instrumentId] = position;
 }
 

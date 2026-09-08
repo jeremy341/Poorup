@@ -78,7 +78,7 @@ const cardApi = {
     if (dynamicActions.includes(card.action)) {
       return this.dynamicCardCash(player, card, cashBefore, positionBefore);
     }
-    if (card.action === 'pay') return -(Number(card.amount) || 0);
+    if (card.action === 'pay') return player.cash - cashBefore;
     if (card.action === 'collect') return this.collectCardCash(card);
     if (card.action === 'collectStart') return this.collectCardCash(card);
     return 0;

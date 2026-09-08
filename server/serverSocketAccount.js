@@ -5,6 +5,7 @@
 // style; every ack payload, system-message text, and emit order is
 // wire-identical (server/rooms.test.js pins the error strings and order).
 import {
+  normalizeClientId,
   normalizeRoomCode,
   normalizeAvatarGrid,
   buildRoomParticipant,
@@ -42,17 +43,18 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   on('account-register', sessionGrantHandler(payload => accountStore.register(payload)));
   on('account-login', sessionGrantHandler(payload => accountStore.login(payload)));
-  on('account-restore', sessionGrantHandler(payload => accountStore.restore(payload.sessionToken)));
+  on('account-restore', sessionGrantHandler(payload => accountStore.restore(payload.sessionToken), true));
 
   on('set-setting', handleSetSetting);
   on('start-game', handleStartGame);
 
   // register/login/restore share the exact same flow: run the store verb,
   // adopt the session account on the socket, forward the store's ack verbatim.
-  function sessionGrantHandler(run) {
+  function sessionGrantHandler(run, clearOnFailure = false) {
     return function sessionGrant(payload = {}, callback) {
       const result = run(payload);
       if (result?.account?.id) socket.data.accountId = result.account.id;
+      else if (clearOnFailure) socket.data.accountId = null;
       reply(callback, result);
     };
   }
@@ -81,10 +83,11 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   function handleRestoreSession(payload = {}, callback) {
     const account = runtime.social.accountForSocket(socket, payload);
-    const { clientId } = payload;
-    runtime.clearDisconnectTimer(clientId);
-    const room = roomManager.restoreConnection(clientId, socket.id, account?.id);
+    const clientId = normalizeClientId(payload.clientId);
+    if (!clientId) return reply(callback, { success: false, error: 'No active session found.' });
+    const room = roomManager.restoreConnection(clientId, socket.id, account?.id, previousClientId => runtime.clearDisconnectTimer(previousClientId));
     if (!room) return reply(callback, { success: false, error: 'No active session found.' });
+    runtime.clearDisconnectTimer(clientId);
     joinRestoredRoom(room, account, clientId, callback);
   }
 
@@ -112,16 +115,15 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   function handleCreateRoom(payload, callback) {
-    const { clientId } = payload || {};
-    const account = runtime.accountFromPayload(payload);
+    const clientId = normalizeClientId(payload?.clientId);
+    const account = runtime.social.accountForSocket(socket, payload);
     const request = buildCreateRoomRequest(payload, account);
     if (request.accountId) socket.data.accountId = request.accountId;
     const validationError = validateCreateRoomRequest(request);
     if (validationError) return reply(callback, { success: false, error: validationError });
     const conflict = privateCodeConflict(request);
     if (conflict) return reply(callback, { success: false, error: conflict });
-    runtime.clearDisconnectTimer(clientId);
-    leavePreviousRoom(clientId);
+    leavePreviousRoom(clientId, account);
     runtime.leaveAllGameRooms(socket);
     const room = roomManager.createRoom(toRoomCreationOptions(request, clientId, socket.id));
     socket.join(room.roomCode);
@@ -144,21 +146,46 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     return 'That private room code is already in use. Choose another.';
   }
 
-  function leavePreviousRoom(clientId) {
+  function leavePreviousRoom(clientId, account) {
     const previousRoom = roomManager.getRoomByClient(clientId);
+    const previousPlayer = previousRoom?.game.getPlayerByClient(clientId);
+    if (!previousPlayer || !canManageSeat(previousRoom, previousPlayer, account)) return false;
+    runtime.clearDisconnectTimer(clientId);
     const departedPlayerId = previousRoom?.game.getPlayerByClient(clientId)?.id;
     const oldRoom = roomManager.leaveRoomByClient(clientId, socket.id);
-    if (!oldRoom) return;
+    if (!oldRoom) return false;
     if (departedPlayerId) {
       runtime.reassignHostIfNeeded(oldRoom, departedPlayerId);
     }
     runtime.emitRoomState(oldRoom);
+    return true;
+  }
+
+  // A room action carries a clientId for tab-restart recovery, but that value
+  // must not let an unrelated socket evict somebody else's seat. The current
+  // socket may release its own seat; an authenticated account may also
+  // release its own disconnected seat after a tab restart. Guest seats have
+  // no durable identity and therefore require the owning socket.
+  function canManageSeat(room, player, account) {
+    if (!room || !player) return false;
+    const mappedRoom = roomManager.getRoomBySocket(socket.id);
+    const mappedPlayer = mappedRoom?.getPlayerBySocket(socket.id);
+    if (mappedRoom === room && mappedPlayer?.id === player.id) return true;
+    if (!account?.id) return false;
+    if (player.accountId !== account.id) return false;
+    return Boolean(player.disconnected);
   }
 
   function handleLeaveRoom(payload = {}, callback) {
-    const { clientId } = payload || {};
+    const clientId = normalizeClientId(payload?.clientId);
     if (!clientId) {
       return reply(callback, { success: false, error: 'A client session is required to leave.' });
+    }
+    const account = runtime.social.accountForSocket(socket, payload);
+    const targetRoom = roomManager.getRoomByClient(clientId);
+    const targetPlayer = targetRoom?.game.getPlayerByClient(clientId);
+    if (targetPlayer && !canManageSeat(targetRoom, targetPlayer, account)) {
+      return reply(callback, { success: false, error: 'No active session found.' });
     }
     runtime.clearDisconnectTimer(clientId);
     const currentRoom = roomManager.getRoomByClient(clientId);
@@ -188,25 +215,32 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   function handleJoinRoom(payload, callback) {
     const roomCode = normalizeRoomCode(payload?.roomCode);
-    const account = runtime.accountFromPayload(payload);
+    const account = runtime.social.accountForSocket(socket, payload);
     const participant = buildRoomParticipant(payload, account);
     if (participant.accountId) socket.data.accountId = participant.accountId;
-    const { clientId } = payload || {};
+    const clientId = normalizeClientId(payload?.clientId);
     const validationError = validateJoinRoomRequest({ roomCode, nickname: participant.nickname });
     if (validationError) {
       return reply(callback, { success: false, error: validationError });
     }
-    runtime.clearDisconnectTimer(clientId);
     const room = roomManager.getRoom(roomCode);
     if (!room) {
       return reply(callback, { success: false, error: 'Room not found.' });
     }
-    runtime.leaveAllGameRooms(socket);
-    runtime.detachSocketFromOtherRoom(socket, room);
+    const existingSeat = room.game.getPlayerByClient(clientId);
+    if (existingSeat?.socketId && existingSeat.socketId !== socket.id && !existingSeat.disconnected) {
+      return reply(callback, { success: false, error: 'That seat is already in use.' });
+    }
     const result = room.addOrReconnectPlayer(toJoinPlayerInfo(participant, clientId, socket.id));
     if (!result.success) {
       return reply(callback, { success: false, error: result.error });
     }
+    runtime.clearDisconnectTimer(clientId);
+    // Do not abandon the current room until the target seat has passed all
+    // capacity/state checks. A failed join must leave the player exactly where
+    // they were, including their socket-room membership and seat mapping.
+    runtime.leaveAllGameRooms(socket);
+    runtime.detachSocketFromOtherRoom(socket, room);
     completeRoomJoin(room, participant, result);
     reply(callback, roomAccessAck(room));
     runtime.scheduleRoomsUpdated();

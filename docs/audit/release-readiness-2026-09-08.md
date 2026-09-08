@@ -4,20 +4,23 @@
 
 This is a release audit of the current server, persistence, socket, game-rule,
 bot, economy, social, test, dependency, and CI surfaces. No UI or frontend
-source files were changed during this audit. Targeted server-only hardening
-fixes were applied: trade property legs are bounded and deduplicated, unreadable
-store files fail closed, atomic rename failures preserve the previous snapshot,
-resume identifiers are viewer-scoped, and socket ingress has a bounded rate
-limiter with configurable production CORS.
+source files were changed during this audit. Targeted server-only correctness
+and hardening fixes were applied: trade property legs are bounded and
+deduplicated, unreadable stores fail closed, atomic rename failures preserve
+the previous snapshot, resume identifiers are viewer-scoped, socket ingress
+has a bounded rate limiter and packet-size cap, and production CORS fails
+closed until configured.
 
 ## Repository state
 
 - Branch: `codex/codescene-cleanup`
 - Working tree: clean after the audit fix commit
 - Base: merged `main` at `c62cd64`
-- Latest audit-fix commits include `d8a87dd` (preserve stores when atomic rename
-  fails), `c6968c8` (release hardening gates), `eb49ed3` (viewer-scoped resume
-  identifiers), and `77b9062` (include release checks in coverage).
+- Latest audit-fix commits include `315785d` (audit evidence), `77b9062`
+  (include release checks in coverage), `d8a87dd` (preserve stores when atomic
+  rename fails), `c6968c8` (release hardening gates), and `eb49ed3`
+  (viewer-scoped resume identifiers). The current uncommitted server fixes are
+  listed below and must be committed before handoff.
 - JSON stores under `server/data/` remain ignored and local. They were not
   deleted or rewritten during this audit.
 
@@ -25,17 +28,17 @@ limiter with configurable production CORS.
 
 | Gate | Result |
 | --- | --- |
-| `npm test` | PASS — complete contract, persistence, bot, event, economy, socket, social, and history suite |
+| `npm test` | PASS — complete contract, persistence, bot, event, economy, socket, social, and history suite (`POORUP_BOT_SIMULATION_COUNT=100`) |
 | `npm run lint` | PASS — server ESLint |
 | `npm run lint:client` | PASS — client ESLint; inspected only, no UI edits |
-| `npm run coverage` | PASS — 92.85% statements, 82.35% branches, 92.39% functions (last completed run; a later redundant 1,000-game instrumented rerun was stopped after the normal suite had already passed) |
+| `npm run coverage` | PASS — 91.67% statements, 81.60% branches, 90.95% functions (`POORUP_BOT_SIMULATION_COUNT=100`) |
 | `npm audit --omit=dev --audit-level=moderate` | PASS — 0 vulnerabilities |
 | `node --check` | PASS — 120 shipped JavaScript files |
 | `npm pack --dry-run` | PASS — 227 files; npm warns that no `.npmignore` exists |
 | Rename-failure persistence probe | PASS — previous snapshot preserved and temp recovery file retained |
 | Bot balance campaign | PASS — 2,500 bounded games, 1,994 completed within 2,000 steps, 0 stalled |
 | Bot status/reconnect wire probe | PASS — 18/18 checks, repeated successfully |
-| Release hardening seams | PASS — 11 CORS/rate-limiter checks |
+| Release hardening seams | PASS — 13 CORS/rate-limiter checks |
 | `git diff --check` | PASS |
 | CodeScene delta | UNVERIFIED — local CLI could not authenticate to `codescene.io/oauth2/token` in this environment |
 
@@ -52,17 +55,16 @@ Room and game projections are now viewer-scoped: only the viewer’s own seat
 receives `clientId`; remote seats keep their server player ID but no resume
 credential. Direct projection assertions and the live server wire suite pass.
 
-### R1 — Production CORS is permissive unless configured
+### R1 — Production CORS requires deployment configuration
 
 **Evidence:** Socket.IO CORS behavior is controlled by
-`POORUP_ALLOWED_ORIGINS`; an unset value intentionally keeps the local
-development compatibility default permissive.
+`POORUP_ALLOWED_ORIGINS`; an unset production value now fails closed for
+browser origins, while local development remains permissive.
 
-The server now supports an environment-backed allow-list through
+The server supports an environment-backed allow-list through
 `POORUP_ALLOWED_ORIGINS` and emits a production warning when it is missing.
-Without that variable the compatibility default remains permissive for local
-development. A public deployment must set the allow-list; this is a deployment
-hardening requirement, not a game-rule defect.
+A public deployment must set the allow-list or browsers will be unable to open
+the socket; this is an explicit deployment requirement, not a game-rule defect.
 
 ### R1 — JSON persistence is single-process and has no write lock
 
@@ -98,9 +100,52 @@ datastore is still required for multi-instance durability.
 
 The server now applies a per-socket ingress token bucket before handlers, with
 deployment-tunable `POORUP_SOCKET_RATE_LIMIT` and
-`POORUP_SOCKET_RATE_WINDOW_MS`. Chat/social/patrol limits and the 40-leg trade
-cap remain in place. Add an IP/edge limiter as a second layer before public
-launch if the deployment is exposed to untrusted traffic.
+`POORUP_SOCKET_RATE_WINDOW_MS`, plus a 100 KB Socket.IO packet cap. Chat/social/
+patrol limits and the 40-leg trade cap remain in place. Add an IP/edge limiter
+as a second layer before public launch if the deployment is exposed to
+untrusted traffic.
+
+### R1 — Account/guest seat takeover and failed-join cleanup (RESOLVED)
+
+Reconnect and join paths now reject mismatched account identities, reject a
+second live socket trying to rebind a seat, bound client-session identifiers,
+and authorize leave/create cleanup against the owning socket or account. A
+failed join no longer detaches the socket from its existing room.
+
+### R1 — Multiple simultaneous debt defaults overwrote one another (RESOLVED)
+
+Independent unsecured bank defaults are now queued behind the active payment
+obligation. Clearing a payment activates the next claim, and game reset/end
+clears the queue so no default disappears silently.
+
+### R1 — Started-game leave orphaned assets (RESOLVED)
+
+An explicit mid-round leave now settles the departing seat's obligations,
+liquidates market positions, terminates contracts, releases deeds, and removes
+the seat without leaving owner IDs pointing at a missing player.
+
+### R2 — Stale deal and bot decisions (RESOLVED)
+
+Contract cancellation now validates the contract ID. Trade adjustment/counter
+depth is capped. AI trade/contract choices and auction bids capture the offer
+version and abandon the action if a human changes it while the provider is
+thinking.
+
+### R2 — Economy/achievement consistency (RESOLVED)
+
+Auction ownership refreshes completed-group facts, final-cure repayment only
+sets its achievement fact after a successful full payment, crisis achievements
+recognize both event IDs and projected titles, and card payment results report
+the actual amount paid when a debt is partial. Existing equity shares cannot be
+used as bank collateral.
+
+### R2 — Store/input hardening (RESOLVED)
+
+Social and account match-history loaders filter malformed records; match history
+retention is bounded in memory as well as on disk; failed temp writes clean up
+partial files; login rejects oversized passwords before scrypt; and the recent
+player clear action works from an authenticated socket without resending a
+token.
 
 ## Verified non-findings
 
@@ -110,8 +155,10 @@ launch if the deployment is exposed to untrusted traffic.
   persisted (`server/accountStore.js:347-351,438-443`).
 - AI credentials and provider failures stay server-side; prompts use a
   redacted candidate/context projection.
-- Room codes are random six-character values and public-room responses omit
-  the code.
+- Room codes are random six-character values. Public directory rows are
+  rendered as OPEN TABLE by the client; the existing directory protocol still
+  carries an internal join code for the current client contract, while private
+  access acks explicitly reveal the invite code.
 - Trade, contract, auction, economy, settlement, bankruptcy, and reconnect
   actions are server-authoritative and covered by contract tests.
 - Test wire servers now use temporary store directories; normal application
@@ -130,7 +177,8 @@ controlled playtest after setting deployment secrets and backing up
 Before an unrestricted public production launch, resolve or explicitly accept:
 
 1. CodeScene verification (blocked here by unavailable OAuth/network access).
-2. Set `POORUP_ALLOWED_ORIGINS` to an allow-list in production.
+2. Set `POORUP_ALLOWED_ORIGINS` to an allow-list in production (otherwise the
+   fail-closed CORS policy intentionally blocks browser clients).
 3. An operational backup plan for the JSON stores.
 4. Edge-level/IP rate limiting as a second layer beyond the in-process limiter.
 

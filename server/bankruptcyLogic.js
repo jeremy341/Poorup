@@ -31,7 +31,11 @@ function loanCollateralRejection(game, player, contract) {
 function propertyShareRejection(game, player, contract, share) {
   const property = game.getTile(contract.propertyIndex);
   if (!deedStillHeldBy(property, player.id)) return rejectContract(game, 'The equity property is no longer available.');
-  const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+  const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+  const existingShare = shares.reduce((sum, entry) => {
+    const value = Number(entry?.share);
+    return sum + (Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
+  }, 0);
   if (existingShare + share > 100) return rejectContract(game, 'The property has no remaining equity.');
   return null;
 }
@@ -81,6 +85,14 @@ const QUIT_OBLIGATIONS = [
 export function clearQuitObligations(game, player) {
   game.clearSponsoredPurchaseForPlayer?.(player.id);
   if (game.pendingPurchaseOffer?.playerId === player.id) game.pendingPurchaseOffer = null;
+  // A pending payment cannot keep running after either side exits. The
+  // debtor's current cash is handled by the bankruptcy caller first; this
+  // clear only removes the now-unresolvable table gate. Keep it silent so the
+  // existing bankruptcy announcement remains the first user-facing result.
+  const pendingPayment = game.pendingPayment;
+  if (pendingPayment && (pendingPayment.playerId === player.id || pendingPayment.creditorId === player.id)) {
+    game.clearPendingPayment();
+  }
   QUIT_OBLIGATIONS.forEach(({ key, suffix }) => {
     const obligation = game[key];
     if (!obligation) return;
@@ -156,7 +168,7 @@ export function equitySharePayable(game, share) {
   const sharePct = Number(share.share);
   if (!Number.isFinite(sharePct)) return null;
   if (sharePct <= 0) return null;
-  return { contract, holder, sharePct };
+  return { contract, holder, sharePct: Math.min(100, sharePct) };
 }
 
 // The bank files a claim instead of eliminating the seat outright: the

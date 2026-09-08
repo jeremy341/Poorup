@@ -148,6 +148,21 @@ check('FIX3a uninvolved quit leaves pendingPayment alone', () => {
   assert.deepEqual(ctx.game.pendingPaymentTurnOptions, { turn: 'test' });
 });
 
+check('FIX3a started-game leave releases owned deeds and market positions', () => {
+  const ctx = startedWith([SEAT_B, SEAT_C]);
+  const player = ctx.game.getPlayerByClient('client-b');
+  const deed = ctx.game.getTile(1);
+  deed.ownerId = player.id;
+  player.properties = [deed.index];
+  player.marketPositions = { brazil: { quantity: 2, averageCost: 120, realizedPnl: 0 } };
+  ctx.manager.leaveRoomByClient('client-b', 'socket-b');
+  assert.equal(ctx.game.getPlayerByClient('client-b'), undefined);
+  assert.equal(deed.ownerId, null);
+  assert.deepEqual(player.properties, []);
+  assert.equal(player.marketPositions.brazil.quantity, 0);
+  assert.equal(ctx.game.playerContracts.some(contract => contract.fromPlayerId === player.id || contract.toPlayerId === player.id), false);
+});
+
 check('FIX3a bank debt survives uninvolved quit but debtor quit clears', () => {
   const ctx = startedWith([SEAT_B, SEAT_C]);
   const b = ctx.game.getPlayerByClient('client-b');

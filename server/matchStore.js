@@ -180,6 +180,10 @@ export class MatchStore {
       .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))
       .slice(0, MAX_MATCHES);
     writeJson(this.filePath, records);
+    // Keep the in-memory index bounded as well as the serialized file. A
+    // long-lived public server otherwise grows forever even though only the
+    // newest 500 matches are retained on disk.
+    this.matches = new Map(records.map(record => [record.matchId, record]));
   }
 
   record(record) {
@@ -204,3 +208,5 @@ export class MatchStore {
       .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   }
 }
+
+export { sanitizeMatch };

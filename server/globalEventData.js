@@ -258,6 +258,7 @@ const GLOBAL_EVENT_SETTLEMENT_STEPS = [
     appliesTo: (game, event) => ['bank-run', 'moral-hazard'].includes(event.id) && event.resolvedChoice === 'emergency-bailout',
     handler: 'settleEmergencyBailout'
   },
+  { appliesTo: (game, event) => event.id !== 'debt-amnesty' && Number(event.effects?.loanPremiumMultiplier) > 1, handler: 'settleInterestRateShock' },
   { appliesTo: (game, event) => event.id === 'tax-audit' && Boolean(event.targetPlayerId), handler: 'settleTaxAuditPenalty' }
 ];
 

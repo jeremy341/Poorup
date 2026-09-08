@@ -155,6 +155,7 @@ class GameState {
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
+    this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
     this.lastWinner = null;
@@ -214,6 +215,7 @@ class GameState {
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
+    this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
     this.lastWinner = null;
@@ -354,6 +356,7 @@ class GameState {
     if (tile.type !== 'property') return false;
     if (tile.mortgaged) return false;
     if (tile.houseCount > 0) return false;
+    if (tile.equityShares?.length) return false;
     return !this.isPlayerContractCollateral(player, tile);
   }
 
@@ -385,7 +388,8 @@ class GameState {
   }
 
   terminateTileEquityShares(tile) {
-    (tile.equityShares || []).forEach(share => {
+    const shares = Array.isArray(tile?.equityShares) ? tile.equityShares : [];
+    shares.forEach(share => {
       const contract = this.playerContractById(share.contractId);
       if (!equityShareContractLive(contract)) return;
       contract.status = 'terminated';
@@ -807,7 +811,7 @@ class GameState {
       this.tenderPartialDebt(player, creditor, partial, hooks);
     }
     const remaining = amount - partial;
-    this.pendingPayment = {
+    const pending = {
       playerId: player.id,
       creditorId: creditor ? creditor.id : null,
       amountRemaining: remaining,
@@ -815,6 +819,16 @@ class GameState {
       equityTileIndex: hooks.equityTileIndex ?? null,
       equityOwnerId: hooks.equityOwnerId ?? null
     };
+    if (this.pendingPayment) {
+      // Round processing can mature several independent debts at once. Keep
+      // the existing table gate and queue later claims instead of silently
+      // overwriting the first debtor.
+      this.pendingPaymentQueue ||= [];
+      this.pendingPaymentQueue.push({ payment: pending, hooks, turnOptions });
+      this.feedMessage(`${player.nickname} owes $${remaining}; the payment is queued behind the current debt.`);
+      return;
+    }
+    this.pendingPayment = pending;
     this.pendingPaymentHooks = hooks;
     this.pendingPaymentTurnOptions = turnOptions;
     this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
@@ -873,10 +887,17 @@ class GameState {
     return !player.disconnected;
   }
 
-  clearPendingPayment() {
+  clearPendingPayment(activateNext = true) {
+    const shouldActivateNext = activateNext && this.started;
     this.pendingPayment = null;
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
+    const next = shouldActivateNext ? this.pendingPaymentQueue?.shift() : null;
+    if (!next) return false;
+    this.pendingPayment = next.payment;
+    this.pendingPaymentHooks = next.hooks;
+    this.pendingPaymentTurnOptions = next.turnOptions;
+    return true;
   }
 
   // Remainder path replays the debt hooks exactly once. Equity debts replay
@@ -1002,6 +1023,7 @@ class GameState {
     this.pendingTrade = null;
     this.pendingPlayerContract = null;
     this.clearPendingPayment();
+    this.pendingPaymentQueue = [];
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;

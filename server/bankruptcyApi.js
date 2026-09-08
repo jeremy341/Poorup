@@ -42,6 +42,10 @@ const bankruptcyApi = {
   },
 
   handleDebtBankruptcy(player, creditor) {
+    // Debt mode keeps the seat alive, but it still liquidates every market
+    // position before cash/assets are transferred. Otherwise a player could
+    // declare bankruptcy, remain in debt, and keep an unbounded portfolio.
+    this.liquidateMarketPositions(player);
     this.sweepCashToCreditor(player, creditor);
     if (!creditor) player.cash = 0;
     this.forfeitOrReleaseProperties(player, creditor);
@@ -82,7 +86,6 @@ const bankruptcyApi = {
       const quantity = Math.max(0, Number(position.quantity) || 0);
       return sum + proceedsOf(id, quantity);
     }, 0);
-    if (marketLiquidation <= 0) return;
     entries.forEach(([id, position]) => {
       const quantity = Math.max(0, Number(position.quantity) || 0);
       position.realizedPnl = (Number(position.realizedPnl) || 0)
@@ -90,6 +93,7 @@ const bankruptcyApi = {
       position.quantity = 0;
       position.averageCost = 0;
     });
+    if (marketLiquidation <= 0) return;
     player.cash += Math.floor(marketLiquidation);
     this.feedMessage(`${player.nickname}'s market positions were liquidated for $${Math.floor(marketLiquidation)}.`);
   },
@@ -172,7 +176,10 @@ const bankruptcyApi = {
 
   terminateEquityContract(contract) {
     const property = this.getTile(contract.propertyIndex);
-    if (property) property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
+    if (property) {
+      const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+      property.equityShares = shares.filter(entry => entry.contractId !== contract.id);
+    }
     this.terminateContract(contract);
   },
 

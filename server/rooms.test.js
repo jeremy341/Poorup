@@ -95,6 +95,9 @@ async function withServer(runScenarios) {
 
 async function validationAcks(ctx) {
   ctx.anon = await ctx.open();
+  ctx.check('send-room-invite without an account returns a visible error',
+    ackEquals(await ctx.ask(ctx.anon, 'send-room-invite', { targetAccountId: 'acct_nope' }),
+      { success: false, error: 'Sign in to send room invites.' }));
   ctx.check('create-room without nickname acks the exact nickname error',
     ackEquals(await ctx.ask(ctx.anon, 'create-room', { clientId: 'anon-1' }),
       { success: false, error: 'Nickname is required.' }));
@@ -175,6 +178,9 @@ async function accountRegistrations(ctx) {
   ctx.sockA = await ctx.open();
   ctx.regA = await ctx.ask(ctx.sockA, 'account-register', { username: `rm_a_${RUN_TAG}`, displayName: 'Room Alice', password: 'Password123!' });
   ctx.check('account A registers with a session token', hasSession(ctx.regA) && Boolean(ctx.regA?.account?.id));
+  ctx.check('an invalid explicit token cannot reuse A\'s cached socket identity',
+    ackEquals(await ctx.ask(ctx.sockA, 'get-social-data', { sessionToken: 'revoked-token' }),
+      { success: false, error: 'Sign in to use social features.' }));
   ctx.sockB = await ctx.open();
   ctx.regB = await ctx.ask(ctx.sockB, 'account-register', { username: `rm_b_${RUN_TAG}`, displayName: 'Room Berta', password: 'Password123!' });
   ctx.check('account B registers with a session token', hasSession(ctx.regB));
@@ -211,6 +217,9 @@ async function inviteFixtures(ctx) {
   ctx.check('A creates the invite fixture room INVT01',
     ackEquals(await ctx.ask(sockA, 'create-room', { sessionToken: regA.sessionToken, clientId: 'a-1', nickname: 'Ignored', visibility: 'private', roomCode: 'INVT01' }),
       { success: true, roomCode: 'INVT01', visibility: 'private' }));
+  ctx.check('a different account token cannot invite from A\'s seat',
+    ackEquals(await ctx.ask(sockA, 'send-room-invite', { sessionToken: regB.sessionToken, targetAccountId: ctx.regC.account.id }),
+      { success: false, error: 'Only the signed-in seat can send room invites.' }));
   const inviteSent = await ctx.ask(sockA, 'send-room-invite', { sessionToken: regA.sessionToken, targetAccountId: regB.account.id });
   ctx.check('A invites friend B to the room', inviteOk(inviteSent, 'INVT01'));
   ctx.check('invite fixture host lowers capacity to two seats',
@@ -275,6 +284,8 @@ async function matchHistoryPrivacy(ctx) {
     ackEquals(await ctx.ask(ctx.anon, 'get-match-history', { accountId: 'acct_does_not_exist' }), { success: false, error: 'Player not found.' }));
   ctx.check('A sees their own empty history as an empty array',
     ackEquals(await ctx.ask(sockA, 'get-match-history', { sessionToken: regA.sessionToken }), { success: true, history: [] }));
+  ctx.check('A can clear recent players using the authenticated socket session',
+    ackEquals(await ctx.ask(sockA, 'clear-recent-players', {}), { success: true }));
   ctx.check('a stranger cannot read A history under the friends default',
     ackEquals(await ctx.ask(sockC, 'get-match-history', { sessionToken: regC.sessionToken, accountId: regA.account.id }),
       { success: false, error: 'Match history is visible to the owner and accepted friends.' }));
@@ -319,8 +330,12 @@ async function contractGateSetup(ctx) {
 
 async function contractReleasesOnDisconnect(ctx) {
   ctx.check('C is seated with a known id', Boolean(ctx.ctSeatC));
-  ctx.check('A proposes a contract to the idle C',
-    (await ctx.ask(ctx.sockCT, 'propose-player-contract', { toPlayerId: ctx.ctSeatC, kind: 'loan', amount: 50 }))?.success === true);
+  const contractOffer = await ctx.ask(ctx.sockCT, 'propose-player-contract', { toPlayerId: ctx.ctSeatC, kind: 'loan', amount: 50 });
+  ctx.ctContractId = contractOffer?.contract?.id;
+  ctx.check('A proposes a contract to the idle C', contractOffer?.success === true && Boolean(ctx.ctContractId));
+  ctx.check('a stale contract cancel cannot cancel the current offer',
+    ackEquals(await ctx.ask(ctx.sockCT, 'cancel-player-contract', { contractId: 'stale-contract' }),
+      { success: false, error: 'That contract offer is no longer current.' }));
   ctx.check('B is gated by the pending contract before the disconnect',
     ackEquals(await ctx.ask(ctx.sockCB, 'place-casino-bet', { color: 'red', stake: 10 }),
       { success: false, error: 'Resolve the table obligation before betting.' }));
@@ -336,6 +351,33 @@ async function voluntaryRetireWire(ctx) {
   await wait(250);
   ctx.check('the table sees B eliminated',
     (ctx.latestCB()?.game?.players || []).find(player => player.nickname === 'Betty')?.bankrupt === true);
+}
+
+async function seatOwnershipGuards(ctx) {
+  const owner = await ctx.open();
+  const intruder = await ctx.open();
+  ctx.check('owner creates a private seat-ownership fixture',
+    ackEquals(await ctx.ask(owner, 'create-room', { clientId: 'owned-seat', nickname: 'Owner', visibility: 'private', roomCode: 'SEAT01' }),
+      { success: true, roomCode: 'SEAT01', visibility: 'private' }));
+  ctx.check('an unrelated socket cannot leave another seat by clientId',
+    ackEquals(await ctx.ask(intruder, 'leave-room', { clientId: 'owned-seat' }),
+      { success: false, error: 'No active session found.' }));
+  ctx.check('an unrelated live socket cannot rebind another guest seat',
+    ackEquals(await ctx.ask(intruder, 'join-room', { clientId: 'owned-seat', roomCode: 'SEAT01', nickname: 'Intruder' }),
+      { success: false, error: 'That seat is already in use.' }));
+  const fullHost = await ctx.open();
+  const fullGuest = await ctx.open();
+  await ctx.ask(fullHost, 'create-room', { clientId: 'full-host', nickname: 'Full Host', visibility: 'private', roomCode: 'FULL02' });
+  await ctx.ask(fullHost, 'set-setting', { key: 'maxPlayers', value: 2 });
+  await ctx.ask(fullGuest, 'join-room', { clientId: 'full-guest', roomCode: 'FULL02', nickname: 'Full Guest' });
+  await ctx.ask(fullHost, 'start-game', {});
+  ctx.check('a failed join does not abandon the existing room seat',
+    ackEquals(await ctx.ask(owner, 'join-room', { clientId: 'owned-seat', roomCode: 'FULL02', nickname: 'Owner' }),
+      { success: false, error: 'Game is already in progress.' }));
+  ctx.check('the owner remains host after the failed join',
+    ackEquals(await ctx.ask(owner, 'set-setting', { key: 'maxPlayers', value: 3 }), { success: true }));
+  ctx.check('the owning socket can leave its seat',
+    ackEquals(await ctx.ask(owner, 'leave-room', { clientId: 'owned-seat' }), { success: true }));
 }
 
 async function serverSurvival(ctx) {
@@ -359,6 +401,7 @@ const SCENARIOS = [
   contractGateSetup,
   contractReleasesOnDisconnect,
   voluntaryRetireWire,
+  seatOwnershipGuards,
   serverSurvival
 ];
 
