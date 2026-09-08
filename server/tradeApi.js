@@ -5,6 +5,13 @@
 // gameLogic.js assigns this object onto GameState.prototype.
 import crypto from 'crypto';
 
+const MAX_TRADE_PROPERTIES = 40;
+
+function normalizePropertyIndexes(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.slice(0, MAX_TRADE_PROPERTIES).map(Number))];
+}
+
 // Trade proposal rejection rules as data: one entry per original if-clause of
 // GameState.proposeTrade, kept in the original evaluation order so a single
 // error string wins exactly as before. The context is fully normalized up
@@ -107,8 +114,8 @@ const tradeApi = {
     const toPlayer = this.getPlayerById(offer.toPlayerId);
     const giveCash = Math.max(0, Number(offer.giveCash || 0));
     const requestCash = Math.max(0, Number(offer.requestCash || 0));
-    const givePropertyIndexes = Array.isArray(offer.givePropertyIndexes) ? offer.givePropertyIndexes.map(Number) : [];
-    const requestPropertyIndexes = Array.isArray(offer.requestPropertyIndexes) ? offer.requestPropertyIndexes.map(Number) : [];
+    const givePropertyIndexes = normalizePropertyIndexes(offer.givePropertyIndexes);
+    const requestPropertyIndexes = normalizePropertyIndexes(offer.requestPropertyIndexes);
     const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
     const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
     return { fromPlayer, toPlayer, giveCash, requestCash, givePropertyIndexes, requestPropertyIndexes, giveTiles, requestTiles };

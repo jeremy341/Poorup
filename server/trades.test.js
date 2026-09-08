@@ -729,6 +729,21 @@ check('after rolling, only the roll candidate remains', () => {
   assert.deepEqual(game.getBotCandidates(bot), [ROLL]);
 });
 
+check('propose normalizes duplicate and oversized property legs', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const a = playerOf(room, 'client-a');
+  const b = playerOf(room, 'client-b');
+  own(room, a, [1]);
+  const result = game.proposeTrade('socket-a', {
+    toPlayerId: b.id,
+    givePropertyIndexes: Array.from({ length: 200 }, () => 1),
+    requestPropertyIndexes: []
+  });
+  assert.equal(result.success, true);
+  assert.deepEqual(game.pendingTrade.givePropertyIndexes, [1]);
+});
+
 check('parity mode exposes strategic jail choices', () => {
   const ctx = botRoom('survivor', 500);
   ctx.bot.inJail = true;
