@@ -184,7 +184,12 @@ Implemented in the current bot slice:
 
 Remaining rollout work:
 
-- Add a browser-level bot-status accessibility and reconnect test.
+- Add a browser-level bot-status accessibility and reconnect test; the wire
+  status/reconnect coverage is now verified in `server/server.test.js`.
+
+Action-parity slice now covers jail decisions, bank-loan repayment, proactive
+loan/equity/hybrid offers, sell/unmortgage portfolio management, market sells,
+bounded multi-leg trades, and throttled safe table talk for both AI and NO-AI.
 
 The longer `npm run bot:balance` campaign is now verified: 2,500 bounded games,
 1,994 completed within the step budget, and zero stalled simulations.
