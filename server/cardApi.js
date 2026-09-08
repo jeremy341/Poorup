@@ -36,10 +36,9 @@ const cardApi = {
     if (deckName === 'treasure') this.recordTreasureSighting(player, card);
     this.feedMessage(`${player.nickname} drew a card: ${card.text}`);
     const cashBefore = player.cash;
-    const positionBefore = player.position;
     const result = this.applyCard(player, card, options);
     if (deckName === 'surprise') this.maybeTriggerGlobalEvent('surprise');
-    const cash = this.cardCashAfterPlay(player, card, cashBefore, positionBefore);
+    const cash = this.cardCashAfterPlay(player, card, cashBefore);
     return {
       ...(result || { success: true }),
       cardReveal: { tileIndex: player.position, text: card.text, action: card.action, cash }
@@ -73,22 +72,20 @@ const cardApi = {
   // The cardReveal cash figure: the dynamic-delta actions read the real
   // balance change (minus the pass-Start salary on movement cards); pay and
   // collect actions report their nominal amount under the low-tax discount.
-  cardCashAfterPlay(player, card, cashBefore, positionBefore) {
+  cardCashAfterPlay(player, card, cashBefore) {
     const dynamicActions = ['repairs', 'payEach', 'collectFromEach', 'nearestRailroad', 'nearestUtility'];
     if (dynamicActions.includes(card.action)) {
-      return this.dynamicCardCash(player, card, cashBefore, positionBefore);
+      return this.dynamicCardCash(player, cashBefore);
     }
+    if (['move', 'moveTo', 'moveBack'].includes(card.action)) return player.cash - cashBefore;
     if (card.action === 'pay') return player.cash - cashBefore;
     if (card.action === 'collect') return this.collectCardCash(card);
     if (card.action === 'collectStart') return this.collectCardCash(card);
     return 0;
   },
 
-  dynamicCardCash(player, card, cashBefore, positionBefore) {
-    let cash = player.cash - cashBefore;
-    if (!['nearestRailroad', 'nearestUtility'].includes(card.action)) return cash;
-    if (player.position < positionBefore) cash -= 200;
-    return cash;
+  dynamicCardCash(player, cashBefore) {
+    return player.cash - cashBefore;
   },
 
   collectCardCash(card) {
@@ -133,7 +130,7 @@ const cardApi = {
   },
 
   collectCard(player, card) {
-    const amount = Number(card.amount) || 0;
+    const amount = Number(card.amount) || 200;
     const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
     player.cash += paid;
     this.feedMessage(`${player.nickname} collected $${paid}.`);
@@ -205,7 +202,8 @@ const cardApi = {
 
   cardRentAmount(destination, card, wantedType) {
     if (wantedType === 'utility') {
-      return this.diceTotal() * (card.multiplier || 10);
+      const base = this.diceTotal() * (card.multiplier || 10);
+      return this.applyEventRentModifiers(base, destination);
     }
     return this.calculateRent(destination) * (card.multiplier || 2);
   },

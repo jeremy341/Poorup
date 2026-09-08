@@ -636,6 +636,39 @@ check('bankruptcy — no creditor releases deeds (mortgage and houses cleared)',
   assert.equal(game.currentPlayerId, game.getPlayerBySocket('socket-a').id);
 });
 
+check('bankruptcy — releasing a deed also terminates its equity holders', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const borrower = game.getPlayerBySocket('socket-b');
+  const tile = game.getTile(1);
+  tile.ownerId = borrower.id;
+  borrower.properties = [tile.index];
+  game.playerContracts = [{ id: 'equity-release', kind: 'equity', status: 'active', fromPlayerId: game.players[0].id, toPlayerId: borrower.id, propertyIndex: tile.index, equityShare: 20 }];
+  tile.equityShares = [{ contractId: 'equity-release', holderId: game.players[0].id, share: 20 }];
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
+  assert.deepEqual(tile.equityShares, []);
+  assert.equal(game.playerContractById('equity-release').status, 'terminated');
+});
+
+check('debt mode — contract collateral settles before rent-creditor forfeiture', () => {
+  const room = trioRoom();
+  const game = room.game;
+  game.settings.bankruptMode = 'debt';
+  const lender = game.getPlayerBySocket('socket-a');
+  const borrower = game.getPlayerBySocket('socket-b');
+  const rentCreditor = game.getPlayerBySocket('socket-c');
+  const tile = game.getTile(1);
+  tile.ownerId = borrower.id;
+  borrower.properties = [tile.index];
+  game.playerContracts = [{ id: 'debt-collateral', kind: 'loan', status: 'active', fromPlayerId: lender.id, toPlayerId: borrower.id, collateralTileIndex: tile.index }];
+  game.pendingPayment = { playerId: borrower.id, creditorId: rentCreditor.id, amountRemaining: 50, reason: 'rent' };
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
+  assert.equal(borrower.inDebt, true);
+  assert.equal(tile.ownerId, lender.id);
+  assert.equal(game.playerContractById('debt-collateral').status, 'defaulted');
+  assert.equal(rentCreditor.properties.includes(tile.index), false);
+});
+
 check('bankruptcy — contracts settle before deeds move', () => {
   const room = trioRoom();
   const game = room.game;
@@ -964,6 +997,21 @@ check('round debt processing queues independent unsecured defaults', () => {
   assert.equal(game.trySettlePendingPayment(), true);
   assert.equal(game.pendingPayment, null);
   assert.equal(game.pendingPaymentQueue.length, 0);
+});
+
+check('leaving a queued debtor removes its orphaned payment claim', () => {
+  const room = trioRoom();
+  const game = room.game;
+  game.roundNumber = 10;
+  game.players.forEach(player => {
+    player.cash = 0;
+    player.bankLoan = { status: 'due', remaining: 300, dueRound: 8, cureRound: 9 };
+  });
+  game.processBankLoans();
+  const queued = game.pendingPaymentQueue.map(entry => entry.payment.playerId);
+  const leavingId = queued[0];
+  game.removeQueuedPaymentsForPlayer(leavingId);
+  assert.equal(game.pendingPaymentQueue.some(entry => entry.payment.playerId === leavingId), false);
 });
 
 console.log(`casino-bankruptcy tests: ${passed + failures.length} checks — ${passed} passed, ${failures.length} failed`);

@@ -184,6 +184,7 @@ class Room {
   }
 
   refreshReconnectNickname(player, nickname) {
+    if (this.game.started) return;
     if (typeof nickname !== 'string') return;
     const safeNickname = nickname.trim().slice(0, 24);
     if (safeNickname) player.nickname = safeNickname;
@@ -244,6 +245,9 @@ class Room {
   seatNewPlayer(playerInfo) {
     if (this.game.started) {
       return { success: false, error: 'Game is already in progress.' };
+    }
+    if (playerInfo.accountId && this.game.players.some(player => player.accountId === playerInfo.accountId)) {
+      return { success: false, error: 'This account is already seated in this room.' };
     }
     if (!this.game.canJoin()) {
       return { success: false, error: 'Room is full.' };
@@ -596,11 +600,16 @@ class RoomManager {
     // A voluntary leave is final. Remove every reference that could otherwise
     // leave orphaned deeds/market holdings or live contracts pointing at a
     // player no longer present in the table.
+    const pending = game.pendingPayment;
+    const creditor = pending?.playerId === player.id && pending.creditorId
+      ? game.getPlayerById(pending.creditorId)
+      : null;
     this.clearPendingSeatObligations(game, player);
     game.markPlayerBankrupt?.(player);
     game.liquidateMarketPositions?.(player);
+    game.sweepCashToCreditor?.(player, creditor);
     game.settleContractsOnBankruptcy?.(player);
-    game.forfeitOrReleaseProperties?.(player, null);
+    game.forfeitOrReleaseProperties?.(player, creditor);
     game.feedMessage(`${player.nickname} left the table.`);
   }
 
@@ -637,6 +646,7 @@ class RoomManager {
   }
 
   clearSeatPendingPayment(game, player) {
+    game.removeQueuedPaymentsForPlayer?.(player.id);
     if (this.seatIsPaymentDebtor(game, player.id)) {
       this.cancelSeatPayment(game, player);
       return;
@@ -701,6 +711,8 @@ class RoomManager {
     if (!auction.active) return;
     if (auction.highestBidderId !== playerId) return;
     auction.highestBidderId = null;
+    auction.highestBid = 0;
+    auction.lastBidAt = 0;
   }
 }
 

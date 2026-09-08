@@ -34,6 +34,7 @@ export function isTradeableTile(game, tile) {
 function ownedUnmortgagedProperty(game, player, tile) {
   if (tile.type !== 'property') return false;
   if (tile.ownerId !== player.id) return false;
+  if (tileEncumbered(game, player, tile)) return false;
   return !tile.mortgaged;
 }
 
@@ -51,8 +52,29 @@ function buildOwnershipAllows(game, player, tile) {
 
 function buildGroupAllows(game, player, tile, groupTiles) {
   if (!groupTiles.length) return false;
+  if (!buildingSupplyAllows(game, tile)) return false;
   if (groupTiles.some(entry => entry.mortgaged)) return false;
   return evenBuildAllows(game, player, tile, groupTiles);
+}
+
+function buildingSupplyAllows(game, tile) {
+  const level = Math.max(0, Math.min(5, Number(tile?.houseCount) || 0));
+  if (level >= 5) return false;
+  const tiles = Array.isArray(game.tiles) ? game.tiles : [];
+  const houseLimitValue = Number(game.settings?.houseLimit);
+  const hotelLimitValue = Number(game.settings?.hotelLimit);
+  const houseLimit = Number.isFinite(houseLimitValue) ? Math.max(0, Math.floor(houseLimitValue)) : 32;
+  const hotelLimit = Number.isFinite(hotelLimitValue) ? Math.max(0, Math.floor(hotelLimitValue)) : 12;
+  let housesUsed = 0;
+  let hotelsUsed = 0;
+  tiles.forEach(entry => {
+    if (entry?.type !== 'property') return;
+    const count = Math.max(0, Math.min(5, Number(entry.houseCount) || 0));
+    if (count >= 5) hotelsUsed += 1;
+    else housesUsed += count;
+  });
+  if (level === 4) return hotelsUsed < hotelLimit;
+  return housesUsed < houseLimit;
 }
 
 function evenBuildAllows(game, player, tile, groupTiles) {

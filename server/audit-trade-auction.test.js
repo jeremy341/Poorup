@@ -110,6 +110,17 @@ check('auction acquisition refreshes completed property groups', () => {
   assert.equal(winner.fullGroups.has('Brown'), true);
 });
 
+check('auction acquisition clears stale equity and duplicate deed references', () => {
+  const { game, tile, winner } = auctionFixture(40, 1500);
+  game.playerContracts = [{ id: 'legacy-equity', status: 'active' }];
+  tile.equityShares = [{ contractId: 'legacy-equity', holderId: 'holder', share: 20 }];
+  winner.properties = [tile.index];
+  game.finishAuction();
+  assert.deepEqual(tile.equityShares, []);
+  assert.equal(game.playerContractById('legacy-equity').status, 'terminated');
+  assert.deepEqual(winner.properties, [tile.index]);
+});
+
 check('trade proposal blocked during pendingPayment', () => {
   const { game, b } = startedRoom();
   const toPlayer = game.getPlayerById(b.id);
@@ -117,6 +128,12 @@ check('trade proposal blocked during pendingPayment', () => {
   game.pendingPayment = { playerId: 'x', creditorId: null, amountRemaining: 1, reason: 'r' };
   assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 500 }), { success: false, error: 'Another trade is already pending.' });
   assert.equal(game.pendingTrade, null);
+});
+
+check('trade proposal respects the room trading toggle', () => {
+  const { game, b } = startedRoom();
+  game.settings.trading = false;
+  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Trading is disabled for this room.' });
 });
 
 check('trade proposal blocked during auction', () => {

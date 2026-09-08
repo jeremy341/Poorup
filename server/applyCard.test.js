@@ -554,6 +554,28 @@ try {
 
 try {
   const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 's-energy-a', clientId: 'c-energy-a', nickname: 'Ada' });
+  room.addOrReconnectPlayer({ socketId: 's-energy-b', clientId: 'c-energy-b', nickname: 'Bob' });
+  const game = room.game;
+  const payer = game.players[0];
+  const owner = game.players[1];
+  payer.position = 6;
+  payer.cash = 1000;
+  owner.cash = 1000;
+  game.tiles[12].ownerId = owner.id;
+  game.lastDice = [3, 4];
+  game.globalEvent = { id: 'energy-crisis', phase: 'active', effects: { utilityRentMultiplier: 1.5 } };
+  game.applyCard(payer, { action: 'nearestUtility', multiplier: 10 }, {});
+  assert.equal(payer.cash, 895);
+  assert.equal(owner.cash, 1105);
+  console.log('PASS — applyCard utility rent honors active event modifiers');
+} catch (error) {
+  console.log(`FAIL — applyCard utility event modifier: ${error.message}`);
+  process.exitCode = 1;
+}
+
+try {
+  const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 's-pay-a', clientId: 'c-pay-a', nickname: 'Ada' });
   room.addOrReconnectPlayer({ socketId: 's-pay-b', clientId: 'c-pay-b', nickname: 'Bob' });
   const game = room.game;
@@ -566,5 +588,41 @@ try {
   console.log('PASS — applyCard pay reveal reports actual partial payment');
 } catch (error) {
   console.log(`FAIL — applyCard pay reveal: ${error.message}`);
+  process.exitCode = 1;
+}
+
+try {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 's-collect-a', clientId: 'c-collect-a', nickname: 'Ada' });
+  room.addOrReconnectPlayer({ socketId: 's-collect-b', clientId: 'c-collect-b', nickname: 'Bob' });
+  const player = room.game.players[0];
+  player.cash = 100;
+  const game = room.game;
+  game.applyCard(player, { action: 'collect' }, {});
+  assert.equal(player.cash, 300);
+  assert.equal(game.cardCashAfterPlay(player, { action: 'collect' }, 100, player.position), 200);
+  console.log('PASS — applyCard collect reveal matches default payout');
+} catch (error) {
+  console.log(`FAIL — applyCard collect default: ${error.message}`);
+  process.exitCode = 1;
+}
+
+try {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 's-move-a', clientId: 'c-move-a', nickname: 'Ada' });
+  room.addOrReconnectPlayer({ socketId: 's-move-b', clientId: 'c-move-b', nickname: 'Bob' });
+  const game = room.game;
+  const payer = game.players[0];
+  const owner = game.players[1];
+  payer.position = 20;
+  payer.cash = 1000;
+  owner.cash = 1000;
+  game.tiles[3].ownerId = owner.id;
+  const before = payer.cash;
+  game.applyCard(payer, { action: 'moveTo', tileIndex: 3 }, {});
+  assert.equal(game.cardCashAfterPlay(payer, { action: 'moveTo', tileIndex: 3 }, before), 190);
+  console.log('PASS — applyCard movement reveal includes salary and rent');
+} catch (error) {
+  console.log(`FAIL — applyCard movement reveal: ${error.message}`);
   process.exitCode = 1;
 }

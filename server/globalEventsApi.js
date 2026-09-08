@@ -398,6 +398,14 @@ const globalEventsApi = {
     if (player.cash === 0) player.zeroCashReached = true;
     if (paid < due) {
       this.feedMessage(`${player.nickname} could only pay $${paid} of $${due} in labor-strike maintenance.`);
+      this.openDebtSettlement({
+        player,
+        creditor: null,
+        amount: due - paid,
+        message: 'The labor strike maintenance bill remains outstanding.',
+        turnOptions: {},
+        hooks: {}
+      });
       return;
     }
     this.feedMessage(`${player.nickname} paid $${paid} in labor-strike maintenance.`);

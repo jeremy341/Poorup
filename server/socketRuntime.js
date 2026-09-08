@@ -708,6 +708,7 @@ function createRuntime(deps) {
       accountId: account.id
     });
     if (!joined.success) return { success: false, error: joined.error };
+    clearDisconnectTimer(clientId);
     roomManager.socketRoom.set(socket.id, room);
     socket.join(room.roomCode);
     const result = socialStore.respondInvite(account.id, payload.inviteId, true);

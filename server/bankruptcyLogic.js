@@ -63,6 +63,7 @@ export function bankruptcyRefusal(game, player) {
   if (!player) return { success: false, error: 'Player not found.' };
   if (!game.started) return { success: false, error: 'The game has not started.' };
   if (player.bankrupt) return { success: false, error: 'That player is already out of the game.' };
+  if (player.disconnected) return { success: false, error: 'That player is unavailable right now.' };
   return null;
 }
 
@@ -84,6 +85,7 @@ const QUIT_OBLIGATIONS = [
 
 export function clearQuitObligations(game, player) {
   game.clearSponsoredPurchaseForPlayer?.(player.id);
+  game.removeQueuedPaymentsForPlayer?.(player.id);
   if (game.pendingPurchaseOffer?.playerId === player.id) game.pendingPurchaseOffer = null;
   // A pending payment cannot keep running after either side exits. The
   // debtor's current cash is handled by the bankruptcy caller first; this

@@ -31,6 +31,10 @@ const TRADE_PROPOSAL_GUARDS = [
     rejects: (game, ctx) => ctx.fromPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.bankrupt || ctx.toPlayer.disconnected
   },
   {
+    error: 'Trading is disabled for this room.',
+    rejects: game => game.settings.trading === false
+  },
+  {
     error: 'Another trade is already pending.',
     rejects: game => Boolean(game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract)
   },

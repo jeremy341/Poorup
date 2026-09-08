@@ -65,4 +65,16 @@ assert.equal(staleCtx.game.contributeToSponsoredPurchase('s-sponsor-2', { amount
 assert.equal(staleCtx.sponsor.cash, 500);
 assert.equal(staleCtx.game.pendingSponsoredPurchase, null);
 
-console.log('sponsored purchase: 19 passed, 0 failed');
+const financedCtx = fixture();
+assert.equal(financedCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+financedCtx.sponsor.bankLoan = { status: 'active', remaining: 300 };
+assert.deepEqual(financedCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 15 }), { success: false, error: 'Loan-backed cash cannot fund sponsorships.' });
+assert.equal(financedCtx.sponsor.cash, 500);
+
+const blockedCtx = fixture();
+assert.equal(blockedCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+blockedCtx.game.pendingTrade = { id: 'trade-open' };
+assert.deepEqual(blockedCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 15 }), { success: false, error: 'Resolve the table obligation before sponsoring.' });
+assert.equal(blockedCtx.sponsor.cash, 500);
+
+console.log('sponsored purchase: 21 passed, 0 failed');
