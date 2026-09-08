@@ -47,10 +47,17 @@ function writeJson(filePath, value) {
   const tempPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   const handle = fs.openSync(tempPath, 'w');
   try {
-    fs.writeFileSync(handle, data, 'utf8');
-    fs.fsyncSync(handle);
-  } finally {
-    fs.closeSync(handle);
+    try {
+      fs.writeFileSync(handle, data, 'utf8');
+      fs.fsyncSync(handle);
+    } finally {
+      fs.closeSync(handle);
+    }
+  } catch (error) {
+    // A failed write/fsync cannot produce a recoverable snapshot. Remove the
+    // partial temp file while preserving the previous destination file.
+    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    throw error;
   }
   try {
     fs.renameSync(tempPath, filePath);

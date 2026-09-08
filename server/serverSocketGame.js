@@ -87,17 +87,20 @@ function registerGameSocketHandlers(on, socket, runtime) {
     if (!room) return;
     const cached = runtime.cachedContractCancel(room, socket, payload);
     if (cached) return reply(callback, cached);
-    const rejected = contractCancelRejection(room);
+    const rejected = contractCancelRejection(room, payload);
     if (rejected) return reply(callback, rejected);
     reply(callback, finalizeContractCancel(room, payload));
   }
 
-  function contractCancelRejection(room) {
+  function contractCancelRejection(room, payload = {}) {
     const contract = room.game.pendingPlayerContract;
     if (!contract) return NO_PENDING_CONTRACT;
     const player = room.getPlayerBySocket(socket.id);
     if (!player) return NO_PENDING_CONTRACT;
     if (contract.fromPlayerId !== player.id) return NO_PENDING_CONTRACT;
+    if (payload.contractId && payload.contractId !== contract.id) {
+      return { success: false, error: 'That contract offer is no longer current.' };
+    }
     return null;
   }
 

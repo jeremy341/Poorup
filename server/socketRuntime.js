@@ -6,7 +6,7 @@
 // feed text, ack shapes) is pinned by server/rooms.test.js and
 // server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
-import { normalizeAvatarGrid, buildMatchRecordOptions } from './roomSetup.js';
+import { normalizeAvatarGrid, normalizeClientId, buildMatchRecordOptions } from './roomSetup.js';
 import {
   selectBotTurnTarget,
   botMayStillAct,
@@ -23,7 +23,10 @@ const DISCONNECT_GRACE_MS = 10000;
 // game forever (the disconnect-grace skip only fires on real disconnects), so
 // each turn owner gets a bounded budget; the timeout is env-tunable for tests.
 const TURN_AFK_CHECK_INTERVAL_MS = 15 * 1000;
-const TURN_AFK_TIMEOUT_MS = Number(process.env.TURN_AFK_TIMEOUT_MS || 180000);
+const configuredAfkTimeout = Number(process.env.TURN_AFK_TIMEOUT_MS);
+const TURN_AFK_TIMEOUT_MS = Number.isFinite(configuredAfkTimeout) && configuredAfkTimeout > 0
+  ? Math.max(1000, configuredAfkTimeout)
+  : 180000;
 const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
 const ROOMS_UPDATED_DEBOUNCE_MS = 750;
@@ -77,11 +80,18 @@ function createRuntime(deps) {
   }
 
   function emitRoomState(room) {
-    if (!room) return;
+    if (!room || room.destroyed) return;
     try {
       if (room.game.lastWinner && !room.statsRecorded) {
         recordRoomStats(room);
       }
+    } catch (error) {
+      // A store outage must not prevent connected clients from receiving the
+      // authoritative in-memory game state. The next state emission retries
+      // settlement while this broadcast path remains available.
+      console.error('recordRoomStats failed for room', room.roomCode, error);
+    }
+    try {
       scheduleTurnTimer(room);
       broadcastRoomState(room);
       scheduleBotTurn(room);
@@ -308,7 +318,7 @@ function createRuntime(deps) {
   // --- bots ----------------------------------------------------------------
 
   function scheduleBotTurn(room) {
-    if (!room?.game.started) return;
+    if (!room?.game.started || room.destroyed) return;
     // Auctions have their own participant timer. Keeping the ordinary turn
     // queue out of this phase prevents the current seat from issuing a
     // rejected pass/bid while a different bot is the auction participant.
@@ -349,6 +359,7 @@ function createRuntime(deps) {
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     emitBotStatus(room, bot, 'thinking', { decisionSequence });
     const result = await runBotTurn(room, bot, botAdvisor);
+    if (room.destroyed) return;
     if (result?.botDecision) {
       const trace = room.game.recordBotDecisionTrace(result.botDecision);
       emitBotStatus(room, bot, 'chosen', trace);
@@ -401,6 +412,7 @@ function createRuntime(deps) {
   }
 
   function scheduleBotAuction(room) {
+    if (room?.destroyed) return;
     const auction = room?.game.auction;
     if (!auction?.active) return;
     const key = room.roomCode;
@@ -418,6 +430,7 @@ function createRuntime(deps) {
   async function beginBotAuctionBid(room, bot, key) {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
+    const auctionVersion = auctionIdentity(room.game.auction);
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
@@ -440,6 +453,7 @@ function createRuntime(deps) {
     if (botAdvisor.supportsChoicePhases) {
       decision = await botAdvisor.chooseAction({ ...context, candidates, personality: bot.personality, event: room.game.globalEvent });
     }
+    if (room.destroyed || !sameAuction(room.game.auction, auctionVersion)) return;
     const actionId = decision?.actionId === 'auction:bid' || decision?.actionId === 'auction:pass'
       ? decision.actionId
       : baseline.shouldBid ? 'auction:bid' : 'auction:pass';
@@ -467,10 +481,19 @@ function createRuntime(deps) {
     return room.placeAuctionBid(actor, minimum);
   }
 
+  function auctionIdentity(auction) {
+    if (!auction) return null;
+    return `${auction.startedAt || 0}:${auction.propertyTile?.index ?? 'unknown'}`;
+  }
+
+  function sameAuction(auction, identity) {
+    return Boolean(auction?.active && identity && auctionIdentity(auction) === identity);
+  }
+
   // --- auction/disconnect timers -------------------------------------------
 
   function scheduleAuctionFinish(room) {
-    if (!room?.game.auction?.active) return;
+    if (!room?.game.auction?.active || room.destroyed) return;
     const roomCode = room.roomCode;
     clearAuctionTimer(room);
     const endsAt = room.game.auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
@@ -652,20 +675,32 @@ function createRuntime(deps) {
   // handler stays a validate -> delegate -> respond flow.
   function acceptRoomInvite(socket, account, invite, payload) {
     if (!invite) return { success: false, error: 'That room invite has expired.' };
+    if (Date.parse(invite.expiresAt || '') <= Date.now()) {
+      // Mark the stale record before doing any seat mutation. Previously an
+      // invite that expired between lookup and acceptance could still join a
+      // room even though the response returned an expiry error.
+      socialStore.respondInvite(account.id, invite.id, true);
+      return { success: false, error: 'That room invite has expired.' };
+    }
     const room = roomManager.getRoom(invite.roomCode);
     if (!room) return { success: false, error: 'That room no longer exists.' };
     if (room.game.started) return { success: false, error: 'That round has already started.' };
     if (!room.game.canJoin()) return { success: false, error: 'That room is full.' };
-    const clientId = String(payload.clientId || '').trim();
+    const clientId = normalizeClientId(payload.clientId);
     if (!clientId) return { success: false, error: 'A client session is required to join.' };
     return joinRoomViaInvite(socket, account, room, payload);
   }
 
   function joinRoomViaInvite(socket, account, room, payload) {
+    const clientId = normalizeClientId(payload.clientId);
+    const existing = room.game.getPlayerByClient(clientId);
+    if (existing?.socketId && existing.socketId !== socket.id && !existing.disconnected) {
+      return { success: false, error: 'That seat is already in use.' };
+    }
     detachSocketFromOtherRoom(socket, room);
     leaveAllGameRooms(socket);
     const joined = room.addOrReconnectPlayer({
-      clientId: String(payload.clientId || '').trim(),
+      clientId,
       socketId: socket.id,
       nickname: account.displayName,
       color: account.color,

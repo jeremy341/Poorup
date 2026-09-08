@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { participantFromPlayer } from './participantFields.js';
+import { sanitizeMatch } from './matchStore.js';
 import { loadJson, writeJson } from './storeIO.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -379,7 +380,7 @@ function normalizeLoadedAccount(handle, account) {
     stats: sanitizeStats(account.stats),
     history: sanitizeHistory(account.history),
     achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
-    matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50) : [],
+    matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50).map(sanitizeMatch) : [],
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null
   };
@@ -495,7 +496,7 @@ export class AccountStore {
   login({ username, password } = {}) {
     const handle = normalizeUsername(username);
     const account = this.accounts.get(handle);
-    if (!hasCredentialShape(account, password)) {
+    if (!hasCredentialShape(account, password) || !validPasswordShape(password)) {
       return { success: false, error: 'Username or password is incorrect.' };
     }
     const expected = Buffer.from(account.passwordHash, 'hex');
@@ -637,6 +638,12 @@ export class AccountStore {
 
   clearRecentPlayers(sessionToken) {
     const account = this.sessionAccount(sessionToken);
+    if (!account) return { success: false, error: 'Sign in to clear recent players.' };
+    return this.clearRecentPlayersForAccount(account.id);
+  }
+
+  clearRecentPlayersForAccount(accountId) {
+    const account = this.getAccountById(accountId);
     if (!account) return { success: false, error: 'Sign in to clear recent players.' };
     account.recentClearedAt = new Date().toISOString();
     this.persist();

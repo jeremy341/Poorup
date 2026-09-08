@@ -629,6 +629,21 @@ function testLetTheLedgerRunAndTaxAuditSettlement() {
   assert.equal(t.cash, 10);
 }
 
+function testInterestRateShockSettlement() {
+  const room = makeEventRoom();
+  const game = room.game;
+  game.players.forEach(player => {
+    player.bankLoan = { status: 'active', principal: 300, totalDue: 450, remaining: 450 };
+  });
+  game.activateGlobalEvent(game.globalEventDefinition('interest-rate-shock'));
+  game.advanceRound();
+  assert.equal(game.globalEvent.phase, 'active');
+  assert.equal(game.players[0].bankLoan.remaining, 608);
+  assert.equal(game.players[0].bankLoan.totalDue, 608);
+  game.applyGlobalEventActivationSettlements();
+  assert.equal(game.players[0].bankLoan.remaining, 608);
+}
+
 function testHousingBubbleSurvivorFlags() {
   const room = makeEventRoom();
   const game = room.game;
@@ -683,6 +698,7 @@ const CONTRACT_SUITES = [
   ['settlements — currency devaluation + zero-cash flag', testCurrencyDevaluationSettlement],
   ['settlements — bank-run bailout', testBankRunBailoutSettlement],
   ['settlements — ledger-run no-op + tax-audit amounts', testLetTheLedgerRunAndTaxAuditSettlement],
+  ['settlements — interest-rate shock reprices existing loans once', testInterestRateShockSettlement],
   ['phases — housing-bubble survivor flags', testHousingBubbleSurvivorFlags],
   ['effects — active-phase queries', testActivePhaseEffectQueries]
 ];

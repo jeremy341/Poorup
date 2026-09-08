@@ -31,6 +31,10 @@ function safeNickname(nickname) {
   return safe || 'Player';
 }
 
+function safeClientId(clientId) {
+  return typeof clientId === 'string' ? clientId.trim().slice(0, 120) : '';
+}
+
 function safeSeatColor(color) {
   if (typeof color !== 'string') return '#35a653';
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return '#35a653';
@@ -45,7 +49,7 @@ function seatPersonality(personality) {
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
     this.id = crypto.randomUUID();
-    this.clientId = clientId || this.id;
+    this.clientId = safeClientId(clientId) || this.id;
     this.socketId = socketId;
     this.nickname = safeNickname(nickname);
     this.color = safeSeatColor(color);
@@ -151,6 +155,16 @@ class Room {
   }
 
   reconnectPlayer(existing, playerInfo) {
+    // A clientId is a bearer key for guest seats, but it must never let a
+    // different signed-in account take over an account-owned seat (or attach
+    // its account to a guest seat). Fast reloads without a token remain
+    // supported because the clientId itself is the session credential.
+    if (playerInfo.accountId && existing.accountId !== playerInfo.accountId) {
+      return { success: false, error: 'That seat is already linked to another account.' };
+    }
+    if (!playerInfo.accountId && existing.accountId && existing.socketId !== playerInfo.socketId) {
+      return { success: false, error: 'That seat is already linked to another account.' };
+    }
     if (this.reconnectGridIsInvalid(playerInfo.avatarGrid)) {
       return { success: false, error: AVATAR_GRID_ERROR };
     }
@@ -269,8 +283,19 @@ class Room {
     if (nextValue === SETTING_REJECTED) {
       return;
     }
+    if (key === 'maxPlayers') {
+      const humanSeats = this.game.players.filter(player => !player.isBot && !player.disconnected && !player.bankrupt).length;
+      if (nextValue < humanSeats) return;
+    }
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
+    if (key === 'maxPlayers') {
+      const maxBots = Math.max(0, nextValue - 1);
+      if (Number(this.settings.bots) > maxBots) {
+        this.settings.bots = maxBots;
+        this.game.settings.bots = maxBots;
+      }
+    }
     this.applyRoomSettingSideEffect(key, nextValue);
   }
 
@@ -470,17 +495,20 @@ class RoomManager {
     return this.socketRoom.get(socketId) || null;
   }
 
-  restoreConnection(clientId, socketId, accountId = null) {
-    const room = this.findLiveRoomFor(clientId) || this.findRoomFor(clientId);
+  restoreConnection(clientId, socketId, accountId = null, onAccountSeatReclaimed = null) {
+    const safeId = safeClientId(clientId);
+    if (!safeId) return null;
+    const room = this.findLiveRoomFor(safeId) || this.findRoomFor(safeId);
     if (room) {
-      const player = room.game.getPlayerByClient(clientId);
+      const player = room.game.getPlayerByClient(safeId);
       if (!player) return null;
+      if (accountId && player.accountId !== accountId) return null;
       player.socketId = socketId;
       player.disconnected = false;
       this.socketRoom.set(socketId, room);
       return room;
     }
-    return this.restoreAccountSeat(accountId, clientId, socketId);
+    return this.restoreAccountSeat(accountId, safeId, socketId, onAccountSeatReclaimed);
   }
 
   // Tab-restart recovery: a reopened tab has a fresh clientId (sessionStorage
@@ -489,7 +517,7 @@ class RoomManager {
   // by the same account is reclaimed under the new clientId. Connected seats
   // never match: a live tab keeps its seat and the newcomer is rejected,
   // preserving one-seat-per-tab.
-  restoreAccountSeat(accountId, clientId, socketId) {
+  restoreAccountSeat(accountId, clientId, socketId, onAccountSeatReclaimed = null) {
     if (!accountId) return null;
     if (!clientId) return null;
     const room = [...this.rooms.values()].find(roomItem => {
@@ -500,6 +528,8 @@ class RoomManager {
     if (!room) return null;
     const player = room.game.players.find(p => p.accountId === accountId);
     if (!player) return null;
+    const previousClientId = player.clientId;
+    if (typeof onAccountSeatReclaimed === 'function') onAccountSeatReclaimed(previousClientId);
     player.clientId = clientId;
     player.socketId = socketId;
     player.disconnected = false;
@@ -557,8 +587,21 @@ class RoomManager {
   releaseSeat(game, player) {
     const playerId = player.id;
     const wasCurrentTurn = this.wasCurrentTurnSeat(game, playerId);
+    if (game.started) this.releaseStartedSeatAssets(game, player);
     game.removePlayerByClient(player.clientId);
     if (game.started) this.clearStartedGameSeat(game, player, wasCurrentTurn);
+  }
+
+  releaseStartedSeatAssets(game, player) {
+    // A voluntary leave is final. Remove every reference that could otherwise
+    // leave orphaned deeds/market holdings or live contracts pointing at a
+    // player no longer present in the table.
+    this.clearPendingSeatObligations(game, player);
+    game.markPlayerBankrupt?.(player);
+    game.liquidateMarketPositions?.(player);
+    game.settleContractsOnBankruptcy?.(player);
+    game.forfeitOrReleaseProperties?.(player, null);
+    game.feedMessage(`${player.nickname} left the table.`);
   }
 
   wasCurrentTurnSeat(game, playerId) {
