@@ -2,8 +2,8 @@
 
 Status: implemented AI-first `AUTO` mode with a guaranteed no-AI fallback.
 Provider shadowing and production rollout gates remain intentionally staged.
-The current release includes a 1,000-game bounded no-AI economy simulation
-gate; the longer balance campaign remains a follow-up gate.
+The current release includes verified 1,000- and 2,500-game bounded no-AI
+economy simulation gates; browser-level bot-status coverage remains follow-up.
 
 ## Product decision
 
