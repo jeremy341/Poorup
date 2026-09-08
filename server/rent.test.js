@@ -8,7 +8,7 @@
 // method; the modifier-table extraction must keep it green.
 import { RoomManager } from './gameLogic.js';
 
-const GOLDEN = {"mortgaged":0,"property-plain":10,"property-h1":50,"property-h2":150,"property-h3":450,"property-h4":800,"property-h5-hotel":1250,"property-clamped-level":1250,"double-rent-full-group":20,"double-rent-off":10,"double-rent-partial-group":10,"utility-one-owned":28,"utility-both-owned":70,"utility-no-dice":8,"utility-unowned":12,"utility-unowned-zero-rent":20,"railroad-1":25,"railroad-2":50,"railroad-3":100,"railroad-4":200,"railroad-unowned":25,"bubble-property":32,"bubble-excludes-global-multiplier":32,"strike-railroad-zero":0,"strike-skips-airport-multiplier":0,"airport-multiplier":75,"tourism-railroad":43,"tourism-dark-blue":45,"tourism-skips-premium-multiplier":45,"premium-multiplier":70,"anti-monopoly-target":6,"anti-monopoly-dismissed":10,"anti-monopoly-non-target":10,"energy-crisis-utility":42,"energy-crisis-skips-utility-multiplier":42,"utility-multiplier":56,"election-public-works-property":7,"global-rent-multiplier":20,"global-rent-multiplier-zero-skips":10,"global-rent-multiplier-nan-skips":10,"cap-applies":30,"cap-zero-skips":25,"start-tile":0};
+const GOLDEN = {"mortgaged":0,"property-plain":10,"property-h1":50,"property-h2":150,"property-h3":450,"property-h4":800,"property-h5-hotel":1250,"property-clamped-level":1250,"double-rent-full-group":20,"double-rent-off":10,"double-rent-partial-group":10,"utility-one-owned":28,"utility-both-owned":70,"utility-mortgaged-sibling":28,"utility-no-dice":8,"utility-unowned":12,"utility-unowned-zero-rent":20,"railroad-1":25,"railroad-2":50,"railroad-mortgaged-sibling":25,"railroad-3":100,"railroad-4":200,"railroad-unowned":25,"bubble-property":32,"bubble-excludes-global-multiplier":32,"strike-railroad-zero":0,"strike-skips-airport-multiplier":0,"airport-multiplier":75,"tourism-railroad":43,"tourism-dark-blue":45,"tourism-skips-premium-multiplier":45,"premium-multiplier":70,"anti-monopoly-target":6,"anti-monopoly-dismissed":10,"anti-monopoly-non-target":10,"energy-crisis-utility":42,"energy-crisis-skips-utility-multiplier":42,"utility-multiplier":56,"election-public-works-property":7,"global-rent-multiplier":20,"global-rent-multiplier-zero-skips":10,"global-rent-multiplier-nan-skips":10,"cap-applies":30,"cap-zero-skips":25,"start-tile":0};
 
 const own = (game, index, owner = 0) => { game.tiles[index].ownerId = game.players[owner].id; };
 const event = (game, id, extra = {}) => { game.globalEvent = { id, phase: 'active', ...extra }; };
@@ -27,11 +27,13 @@ const CASES = {
   'double-rent-partial-group': [(g) => { own(g, 1); g.settings.doubleRent = true; }, 1],
   'utility-one-owned': [(g) => { own(g, 12); g.lastDice = [3, 4]; }, 12],
   'utility-both-owned': [(g) => { own(g, 12); own(g, 28); g.lastDice = [3, 4]; }, 12],
+  'utility-mortgaged-sibling': [(g) => { own(g, 12); own(g, 28); g.tiles[28].mortgaged = true; g.lastDice = [3, 4]; }, 12],
   'utility-no-dice': [(g) => { own(g, 12); g.lastDice = [0, 0]; }, 12],
   'utility-unowned': [() => {}, 12],
   'utility-unowned-zero-rent': [(g) => { g.tiles[28].rent = 0; }, 28],
   'railroad-1': [(g) => own(g, 5), 5],
   'railroad-2': [(g) => { own(g, 5); own(g, 15); }, 5],
+  'railroad-mortgaged-sibling': [(g) => { own(g, 5); own(g, 15); g.tiles[15].mortgaged = true; }, 5],
   'railroad-3': [(g) => { own(g, 5); own(g, 15); own(g, 25); }, 5],
   'railroad-4': [(g) => { own(g, 5); own(g, 15); own(g, 25); own(g, 35); }, 5],
   'railroad-unowned': [() => {}, 5],

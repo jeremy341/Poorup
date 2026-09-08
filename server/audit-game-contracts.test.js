@@ -52,6 +52,13 @@ check('hybrid conversion with lender gone falls back to loan default', () => {
   assert.deepEqual(property.equityShares || [], []);
 });
 
+check('bankrupt hybrid borrower defaults the funded loan leg', () => {
+  const { game, b, contract } = hybridAccepted();
+  b.bankrupt = true;
+  game.settleContractsOnBankruptcy(b);
+  assert.equal(contract.status, 'defaulted');
+});
+
 check('accept rejects a bankrupt borrower and clears pending', () => {
   const { game, b } = startedRoom();
   const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
@@ -67,6 +74,19 @@ check('accept rejects a disconnected borrower and clears pending', () => {
   b.disconnected = true;
   assert.deepEqual(game.respondPlayerContract('socket-b', true), { success: false, error: 'The contract can no longer be accepted.' });
   assert.equal(game.pendingPlayerContract, null);
+});
+
+check('contract counters respect other table obligations', () => {
+  const fields = ['pendingPayment', 'auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingTrade'];
+  fields.forEach(field => {
+    const { game, b } = startedRoom();
+    const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
+    assert.equal(first.success, true);
+    game[field] = {};
+    const counter = game.counterPlayerContract('socket-b', { contractId: first.contract.id, amount: 60 });
+    assert.deepEqual(counter, { success: false, error: 'Resolve the current table obligation first.' }, field);
+    assert.equal(game.pendingPlayerContract.id, first.contract.id);
+  });
 });
 
 check('remainder settlement replays non-equity hooks once', () => {
@@ -109,6 +129,13 @@ check('end turn blocked on involving trade or contract only', () => {
   assert.equal(game.endTurnRejection(a), null);
 });
 
+check('end turn cannot silently cancel an open sponsorship', () => {
+  const { game, a } = startedRoom();
+  game.awaitingEndTurn = true;
+  game.pendingSponsoredPurchase = { buyerId: a.id, contributions: [] };
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the open sponsorship before ending the turn.' });
+});
+
 check('endGame clears contract and payment obligations', () => {
   const { game, a } = startedRoom();
   game.pendingPlayerContract = { id: 'x' };
@@ -129,6 +156,15 @@ check('bankrupt creditors are not enriched', () => {
   assert.equal(b.cash, cashB);
 });
 
+check('bankruptcy cash sweep never pays a bankrupt creditor', () => {
+  const { game, a, b } = startedRoom();
+  a.bankrupt = true;
+  b.cash = 100;
+  game.sweepCashToCreditor(b, a);
+  assert.equal(a.cash, 1500);
+  assert.equal(b.cash, 100);
+});
+
 check('disconnected payer cannot settle and clears the debt', () => {
   const { game, b } = startedRoom();
   game.pendingPayment = { playerId: b.id, creditorId: null, amountRemaining: 10, reason: 'r' };
@@ -136,6 +172,29 @@ check('disconnected payer cannot settle and clears the debt', () => {
   assert.equal(game.pendingPayerCanSettle(b), false);
   assert.equal(game.trySettlePendingPayment(), false);
   assert.equal(game.pendingPayment, null);
+});
+
+check('disconnected seats cannot declare bankruptcy through a retained socket key', () => {
+  const { game, b } = startedRoom();
+  b.disconnected = true;
+  assert.deepEqual(game.declareBankruptcy('socket-b'), { success: false, error: 'That player is unavailable right now.' });
+  assert.equal(b.bankrupt, false);
+});
+
+check('endGame never crowns a disconnected ghost seat', () => {
+  const { game, a, b } = startedRoom();
+  a.disconnected = true;
+  b.bankrupt = true;
+  game.endGame();
+  assert.equal(game.lastWinner, null);
+  assert.equal(game.started, false);
+});
+
+check('waiting-for-seat notices identify the disconnected next player', () => {
+  const { game, b } = startedRoom();
+  b.disconnected = true;
+  game.announceWaitingForSeat(b);
+  assert.equal(game.feed[0].text, `Waiting for ${b.nickname} to reconnect…`);
 });
 
 const failed = results.filter(r => !r).length;

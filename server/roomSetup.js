@@ -228,7 +228,7 @@ function matchRecordCasinoRows(players) {
 function matchRecordMarketPositions(player) {
   return Object.fromEntries(Object.entries(player.marketPositions || {}).map(([instrumentId, position]) => [
     instrumentId,
-    { quantity: Number(position.quantity) || 0, realizedPnl: Number(position.realizedPnl) || 0 }
+    { quantity: Math.max(0, Math.floor(Number(position.quantity) || 0)), averageCost: Math.max(0, Number(position.averageCost) || 0), realizedPnl: Number(position.realizedPnl) || 0 }
   ]));
 }
 
@@ -251,6 +251,9 @@ function matchRecordPlayerContracts(game) {
     premiumRate: contract.premiumRate,
     equityShare: contract.equityShare,
     collateralTileIndex: contract.collateralTileIndex ?? null,
+    propertyIndex: contract.propertyIndex ?? null,
+    conversionShare: contract.conversionShare ?? 0,
+    equityControl: contract.equityControl ?? null,
     status: contract.status
   }));
 }

@@ -65,7 +65,7 @@ const rentApi = {
   },
 
   ownedUtilityCount(owner) {
-    return this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id).length;
+    return this.tiles.filter(entry => entry.type === 'utility' && entry.ownerId === owner.id && !entry.mortgaged).length;
   },
 
   diceTotal() {
@@ -75,7 +75,7 @@ const rentApi = {
   railroadBaseRent(tile) {
     const owner = this.getPlayerById(tile.ownerId);
     if (!owner) return RAILROAD_RENT[0];
-    const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id).length;
+    const ownedRailroads = this.tiles.filter(entry => entry.type === 'railroad' && entry.ownerId === owner.id && !entry.mortgaged).length;
     return RAILROAD_RENT[Math.min(Math.max(ownedRailroads, 1), RAILROAD_RENT.length) - 1];
   },
 

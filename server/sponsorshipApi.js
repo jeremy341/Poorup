@@ -3,6 +3,7 @@
 // reserved immediately, then atomically returned or folded into the buyer's
 // purchase; no separate debt or equity relationship is created.
 import crypto from 'crypto';
+import { hasLoanBackedCash } from './loanLogic.js';
 
 function positiveWhole(value) {
   const amount = Math.floor(Number(value));
@@ -34,6 +35,10 @@ function sponsorshipRequestCheck(game, buyer, offer) {
 function contributionCheck(game, sponsor, ctx, payload) {
   if (!ctx.sponsorship || !ctx.buyer || !ctx.tile || ctx.tile.ownerId !== null) return { error: 'That sponsorship is no longer available.', stale: true };
   if (!livePlayer(sponsor)) return { error: 'Sponsorship is unavailable.' };
+  if (hasLoanBackedCash(sponsor)) return { error: 'Loan-backed cash cannot fund sponsorships.' };
+  if (game.pendingPayment || game.auction || game.pendingTrade || game.pendingPlayerContract) {
+    return { error: 'Resolve the table obligation before sponsoring.' };
+  }
   if (sponsor.id === ctx.buyer.id) return { error: 'The buyer cannot sponsor their own purchase.' };
   if (ctx.sponsorship.contributions.some(entry => entry.sponsorId === sponsor.id)) return { error: 'You already contributed to this sponsorship.' };
   const amount = positiveWhole(payload.amount);

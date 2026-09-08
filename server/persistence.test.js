@@ -7,6 +7,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { AccountStore } from './accountStore.js';
+import { AchievementStore } from './achievementStore.js';
+import { MatchStore } from './matchStore.js';
 import { SocialStore } from './socialStore.js';
 import { writeJson } from './storeIO.js';
 
@@ -42,6 +44,21 @@ check('round-trip: persisted accounts reload identically', () => {
   register(first, 'roundtripper');
   const second = new AccountStore(filePath);
   assert.strictEqual(second.findAccountByUsername('roundtripper')?.username, 'roundtripper');
+});
+
+check('logout and session rotation revoke every token hash', () => {
+  const filePath = fileFor('session-revocation');
+  const store = new AccountStore(filePath);
+  const registered = register(store, 'sessionbound');
+  assert.equal(store.sessionAccount(registered.sessionToken)?.username, 'sessionbound');
+  assert.deepEqual(store.logout(registered.sessionToken), { success: true });
+  assert.equal(store.sessionAccount(registered.sessionToken), null);
+  const loggedIn = store.login({ username: 'sessionbound', password: 'hunter2hunter2' });
+  assert.equal(loggedIn.success, true);
+  const rotated = store.login({ username: 'sessionbound', password: 'hunter2hunter2' });
+  assert.equal(rotated.success, true);
+  assert.equal(store.sessionAccount(loggedIn.sessionToken), null);
+  assert.equal(store.sessionAccount(rotated.sessionToken)?.username, 'sessionbound');
 });
 
 check('corrupt file: opens empty and quarantines the bytes', () => {
@@ -81,6 +98,25 @@ check('missing file: clean empty start with no quarantine siblings', () => {
   const store = new AccountStore(filePath);
   assert.strictEqual(store.accounts.size, 0);
   assert.strictEqual(corruptSibling(filePath).length, 0);
+});
+
+check('valid JSON with the wrong root shape is quarantined by every store', () => {
+  const cases = [
+    ['account-shape', AccountStore, { unexpected: true }, store => store.accounts.size],
+    ['social-shape', SocialStore, [], store => store.friendships.length],
+    ['match-shape', MatchStore, { unexpected: true }, store => store.matches.size],
+    ['achievement-shape', AchievementStore, { unexpected: true }, store => store.records.size]
+  ];
+  cases.forEach(([name, Store, value, sizeOf]) => {
+    const filePath = fileFor(name);
+    const bytes = JSON.stringify(value);
+    fs.writeFileSync(filePath, bytes, 'utf8');
+    const store = new Store(filePath);
+    assert.equal(sizeOf(store), 0, name);
+    const quarantined = corruptSibling(filePath);
+    assert.equal(quarantined.length, 1, name);
+    assert.equal(fs.readFileSync(path.join(tempDir, quarantined[0]), 'utf8'), bytes, name);
+  });
 });
 
 check('rename failure: old store stays intact instead of direct truncation', () => {
