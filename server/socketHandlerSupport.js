@@ -88,11 +88,15 @@ function announceVerbResult(io, room, result, definition) {
 // the whole server. This wrapper normalizes the payload, guarantees a
 // callable callback, and converts any synchronous or asynchronous
 // handler failure into a logged, ack'd error instead of a crash.
-function createSafeEmitter(socket) {
+function createSafeEmitter(socket, options = {}) {
   return function on(event, handler) {
     socket.on(event, (rawPayload, rawCallback) => {
       const payload = normalizeWirePayload(rawPayload);
       const callback = normalizeWireCallback(rawCallback);
+      if (typeof options.allow === 'function' && !options.allow(socket.id)) {
+        callback({ success: false, error: 'Too many requests. Try again shortly.' });
+        return;
+      }
       runSocketHandler(handler, payload, callback, event);
     });
   };

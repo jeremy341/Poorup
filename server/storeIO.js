@@ -55,19 +55,11 @@ function writeJson(filePath, value) {
   try {
     fs.renameSync(tempPath, filePath);
   } catch (renameError) {
-    console.error(`Store ${path.basename(filePath)} atomic rename failed; falling back to direct write.`, renameError);
-    try {
-      fs.writeFileSync(filePath, data, 'utf8');
-      const fallbackHandle = fs.openSync(filePath, 'r');
-      try {
-        fs.fsyncSync(fallbackHandle);
-      } finally {
-        fs.closeSync(fallbackHandle);
-      }
-    } catch (fallbackError) {
-      console.error(`Store ${path.basename(filePath)} fallback write also failed.`, fallbackError);
-    }
-    try { fs.unlinkSync(tempPath); } catch { /* best-effort temp cleanup */ }
+    // Never truncate the previous snapshot after an atomic rename fails. The
+    // fully-written temp file remains available for operator recovery, and
+    // the caller receives a failure instead of a false durable success.
+    console.error(`Store ${path.basename(filePath)} atomic rename failed; previous snapshot preserved.`, renameError);
+    throw new Error(`Atomic store write failed for ${path.basename(filePath)}.`, { cause: renameError });
   }
 }
 
