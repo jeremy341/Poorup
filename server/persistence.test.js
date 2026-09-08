@@ -95,6 +95,8 @@ check('friends-only achievements stay hidden from outsider cards', () => {
   const publicCard = store.getPublicPlayerCard(account.id);
   assert.deepStrictEqual(publicCard.achievements, []);
   assert.deepStrictEqual(store.getPublicPlayerCard(account.id, { includeAchievements: true }).achievements, account.achievements);
+  assert.equal(store.getPublicPlayerCard(account.id, { includeAchievements: true }).achievementsFriendsOnly, false);
+  assert.equal(publicCard.achievementsFriendsOnly, true);
   assert.deepStrictEqual(publicCard.stats, { gamesPlayed: 10, wins: 6, winRate: 60, eventSurvival: 0 });
 });
 
