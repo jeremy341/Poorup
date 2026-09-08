@@ -7,6 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { AccountStore } from './accountStore.js';
+import { SocialStore } from './socialStore.js';
 import { writeJson } from './storeIO.js';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-persist-'));
@@ -106,6 +107,47 @@ check('unreadable file: non-missing read errors fail closed', () => {
   } finally {
     fs.readFileSync = original;
   }
+});
+
+check('malformed social records are filtered instead of crashing the store', () => {
+  const filePath = fileFor('social-malformed');
+  fs.writeFileSync(filePath, JSON.stringify({
+    friendships: [null, 'bad', { id: 'friend-1', requesterId: 'a', addresseeId: 'b', status: 'accepted' }],
+    blocks: [null, { blockerId: 'a', blockedId: 'b' }],
+    invites: [null, { id: 'invite-1', recipientId: 'b', status: 'pending' }],
+    reports: [null, { id: 'report-1', reporterId: 'a', reportedId: 'b' }],
+    notifications: { a: [null, { id: 'notice-1', title: 'HELLO' }] }
+  }), 'utf8');
+  const store = new SocialStore(filePath);
+  assert.equal(store.friendships.length, 1);
+  assert.equal(store.blocks.length, 1);
+  assert.equal(store.invites.length, 1);
+  assert.equal(store.reports.length, 1);
+  assert.equal(store.listFor('a').friends.length, 1);
+  assert.equal(store.listFor('a').notifications.length, 1);
+});
+
+check('login rejects oversized passwords before running scrypt', () => {
+  const filePath = fileFor('login-size');
+  const store = new AccountStore(filePath);
+  register(store, 'loginbound');
+  const result = store.login({ username: 'loginbound', password: 'x'.repeat(73) });
+  assert.deepEqual(result, { success: false, error: 'Username or password is incorrect.' });
+});
+
+check('malformed account match history is sanitized before profile reads', () => {
+  const filePath = fileFor('history-malformed');
+  const store = new AccountStore(filePath);
+  const registered = register(store, 'historybound');
+  const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  raw[0].matchHistory = [{ matchId: 'bad-match', participants: null, globalEvents: 'not-an-array' }];
+  fs.writeFileSync(filePath, JSON.stringify(raw), 'utf8');
+  const reloaded = new AccountStore(filePath);
+  assert.deepEqual(reloaded.getPublicMatchSummaries(registered.account.id), [{
+    matchId: 'bad-match', completedAt: reloaded.getMatchHistory(registered.account.id)[0].completedAt,
+    roundCount: 0, roomVisibility: 'public', participants: [], globalEvents: [], eventCombinations: [],
+    tradesCompleted: 0, auctionsCompleted: 0
+  }]);
 });
 
 check('friends-only achievements stay hidden from outsider cards', () => {

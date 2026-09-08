@@ -33,10 +33,14 @@ const socketRateLimiter = createSocketRateLimiter({
   windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
 });
 if (process.env.NODE_ENV === 'production' && !String(process.env.POORUP_ALLOWED_ORIGINS || '').trim()) {
-  console.warn('POORUP_ALLOWED_ORIGINS is unset; Socket.IO CORS remains permissive for this deployment.');
+  console.warn('POORUP_ALLOWED_ORIGINS is unset; browser-origin Socket.IO requests are blocked until an allow-list is configured.');
 }
 const io = new Server(server, {
-  cors: { origin: createCorsOrigin(process.env) }
+  cors: { origin: createCorsOrigin(process.env) },
+  // All game payloads are compact (an avatar is at most 8×8 cells). Keep
+  // oversized Socket.IO packets from consuming memory before the per-event
+  // rate limiter gets a chance to reject them.
+  maxHttpBufferSize: 100_000
 });
 
 // The supplied plain-client project is the production static UI. Keep the

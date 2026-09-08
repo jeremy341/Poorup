@@ -19,7 +19,7 @@ function metadataOrEmpty(metadata) {
   return metadata && typeof metadata === 'object' ? metadata : {};
 }
 
-function cleanNotification(notification) {
+function cleanNotification(notification = {}) {
   return {
     id: notification.id,
     kind: notification.kind,
@@ -33,6 +33,14 @@ function cleanNotification(notification) {
 
 function arrayOrEmpty(value) {
   return Array.isArray(value) ? value : [];
+}
+
+const MAX_SOCIAL_RECORDS = 10_000;
+
+function objectArray(value) {
+  return arrayOrEmpty(value)
+    .filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry))
+    .slice(0, MAX_SOCIAL_RECORDS);
 }
 
 // True when (first, second) is the unordered pair (x, y). Encapsulates the
@@ -112,16 +120,23 @@ export class SocialStore {
     const { value } = loadJson(this.filePath);
     if (!value) return;
     const raw = value;
-    this.friendships = arrayOrEmpty(raw.friendships);
-    this.blocks = arrayOrEmpty(raw.blocks);
-    this.invites = arrayOrEmpty(raw.invites);
-    this.reports = arrayOrEmpty(raw.reports);
-    Object.entries(raw.notifications || {}).forEach(([accountId, items]) => {
-      this.notifications.set(accountId, Array.isArray(items) ? items.map(cleanNotification) : []);
+    this.friendships = objectArray(raw.friendships);
+    this.blocks = objectArray(raw.blocks);
+    this.invites = objectArray(raw.invites);
+    this.reports = objectArray(raw.reports);
+    const notifications = raw.notifications && typeof raw.notifications === 'object' && !Array.isArray(raw.notifications)
+      ? raw.notifications
+      : {};
+    Object.entries(notifications).forEach(([accountId, items]) => {
+      this.notifications.set(accountId, arrayOrEmpty(items).filter(item => item && typeof item === 'object').slice(0, 100).map(cleanNotification));
     });
   }
 
   persist() {
+    this.friendships = this.friendships.slice(-MAX_SOCIAL_RECORDS);
+    this.blocks = this.blocks.slice(-MAX_SOCIAL_RECORDS);
+    this.invites = this.invites.slice(-MAX_SOCIAL_RECORDS);
+    this.reports = this.reports.slice(-MAX_SOCIAL_RECORDS);
     writeJson(this.filePath, {
       friendships: this.friendships,
       blocks: this.blocks,

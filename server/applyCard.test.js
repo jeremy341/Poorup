@@ -551,3 +551,20 @@ try {
   console.log(`FAIL — applyCard nearestUtility-pre-roll: ${error.message}`);
   process.exitCode = 1;
 }
+
+try {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 's-pay-a', clientId: 'c-pay-a', nickname: 'Ada' });
+  room.addOrReconnectPlayer({ socketId: 's-pay-b', clientId: 'c-pay-b', nickname: 'Bob' });
+  const game = room.game;
+  const player = game.players[0];
+  player.cash = 20;
+  const before = player.cash;
+  game.applyCard(player, { action: 'pay', amount: 50 }, {});
+  assert.equal(game.pendingPayment.amountRemaining, 30);
+  assert.equal(game.cardCashAfterPlay(player, { action: 'pay', amount: 50 }, before, player.position), -20);
+  console.log('PASS — applyCard pay reveal reports actual partial payment');
+} catch (error) {
+  console.log(`FAIL — applyCard pay reveal: ${error.message}`);
+  process.exitCode = 1;
+}

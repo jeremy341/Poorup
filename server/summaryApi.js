@@ -49,7 +49,7 @@ const summaryApi = {
       mortgaged: tile.mortgaged,
       houseCount: tile.houseCount || 0,
       houseCost: this.getPropertyHouseCost(tile),
-      equityShares: (tile.equityShares || []).map(share => this.summaryEquityEntry(share))
+      equityShares: (Array.isArray(tile.equityShares) ? tile.equityShares : []).map(share => this.summaryEquityEntry(share))
     };
   },
 

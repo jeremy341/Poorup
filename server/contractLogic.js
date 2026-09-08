@@ -135,7 +135,11 @@ function isEquityEligibleProperty(property, ownerId) {
 }
 
 function equityCapReached(property, share) {
-  const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+  const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+  const existingShare = shares.reduce((sum, entry) => {
+    const value = Number(entry?.share);
+    return sum + (Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
+  }, 0);
   return existingShare + share > 100;
 }
 
@@ -151,7 +155,13 @@ function equityDraftTerms(game, contract, offer, recipient) {
   contract.propertyIndex = property.index;
   contract.equityShare = share;
   contract.equityControl = EQUITY_CONTROL_MODES.has(offer.equityControl) ? offer.equityControl : 'passive';
-  contract.expiresRound = offer.permanent ? null : game.roundNumber + contract.durationRounds;
+  // Preserve a permanent equity term across counters/adjustments. Existing
+  // contracts carry an explicit expiresRound, so a merged null value means
+  // "permanent"; an initial offer without either field remains temporary.
+  const hasExistingExpiry = Object.prototype.hasOwnProperty.call(offer, 'expiresRound');
+  const permanent = offer.permanent === true || (hasExistingExpiry && offer.expiresRound == null);
+  contract.permanent = permanent;
+  contract.expiresRound = permanent ? null : game.roundNumber + contract.durationRounds;
   return null;
 }
 
@@ -310,7 +320,7 @@ function lenderCanStillFund(lender, contract) {
 
 function recordEquityShare(game, contract, lender) {
   const property = game.getTile(contract.propertyIndex);
-  const holders = property.equityShares || [];
+  const holders = Array.isArray(property.equityShares) ? property.equityShares : [];
   property.equityShares = [...holders, {
     holderId: lender.id,
     share: contract.equityShare,
@@ -433,7 +443,8 @@ function expireEquityContract(game, contract) {
   if (!equityContractExpired(game, contract)) return false;
   const property = game.getTile(contract.propertyIndex);
   if (property) {
-    property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
+    const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+    property.equityShares = shares.filter(entry => entry.contractId !== contract.id);
   }
   contract.status = 'expired';
   return true;
@@ -470,7 +481,7 @@ function hybridConversionEligible(game, contract) {
 
 function recordHybridConversion(game, contract, lender) {
   const property = game.getTile(contract.propertyIndex);
-  const holders = property.equityShares || [];
+  const holders = Array.isArray(property.equityShares) ? property.equityShares : [];
   property.equityShares = [...holders, {
     holderId: lender.id,
     share: contract.conversionShare,
@@ -527,7 +538,7 @@ export function processContracts(game) {
 }
 
 export function settleEquityShares(game, tile, owner, amountPaid) {
-  if (!tile?.equityShares?.length) return;
+  if (!Array.isArray(tile?.equityShares) || !tile.equityShares.length) return;
   if (!owner) return;
   if (owner.bankrupt) return;
   if (amountPaid <= 0) return;

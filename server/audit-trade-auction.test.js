@@ -100,6 +100,16 @@ check('auction charge precedes transfer for a solvent winner', () => {
   assert.equal(feedHas(game, `${winner.nickname} won the auction for ${tile.name} at $200.`), true);
 });
 
+check('auction acquisition refreshes completed property groups', () => {
+  const { game, tile, winner } = auctionFixture(40, 1500);
+  const companion = game.getTile(3);
+  companion.ownerId = winner.id;
+  winner.properties = [companion.index];
+  game.finishAuction();
+  assert.equal(winner.properties.includes(tile.index), true);
+  assert.equal(winner.fullGroups.has('Brown'), true);
+});
+
 check('trade proposal blocked during pendingPayment', () => {
   const { game, b } = startedRoom();
   const toPlayer = game.getPlayerById(b.id);

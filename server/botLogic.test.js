@@ -317,6 +317,19 @@ check('AI advisor ranks a trade response without leaving the room seam', async (
   assert.strictEqual(result.botDecision.actionId, 'trade:decline');
 });
 
+check('AI advisor abandons a trade decision when the offer changes mid-thought', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingTrade = { id: 'trade-old', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 200, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [] };
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => {
+    room.game.pendingTrade = { id: 'trade-new', toPlayerId: 'b1', fromPlayerId: 'other', giveCash: 1, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [] };
+    return { actionId: 'trade:accept', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'offer-changed');
+  assert.equal(room.game.pendingTrade.id, 'trade-new');
+});
+
 check('AI advisor can counter a close trade with a bounded premium', async () => {
   const room = fakeRoom([]);
   room.game.pendingTrade = { id: 'trade-2', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 100, requestCash: 20, givePropertyIndexes: [5], requestPropertyIndexes: [], counterDepth: 0 };
@@ -342,6 +355,19 @@ check('AI advisor can counter a player contract with safer terms', async () => {
   const result = await runBotTurn(room, bot1, advisor);
   assert.strictEqual(result.name, 'counterContract');
   assert.strictEqual(result.botDecision.actionId, 'contract:counter');
+});
+
+check('AI advisor abandons a contract decision when the offer changes mid-thought', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingPlayerContract = { id: 'contract-old', toPlayerId: 'b1', fromPlayerId: 'lender', kind: 'loan', amount: 200, premiumRate: 30, durationRounds: 3, collateralTileIndex: null };
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => {
+    room.game.pendingPlayerContract = { id: 'contract-new', toPlayerId: 'b1', fromPlayerId: 'other', kind: 'loan', amount: 1, premiumRate: 0, durationRounds: 1, collateralTileIndex: null };
+    return { actionId: 'contract:accept', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'offer-changed');
+  assert.equal(room.game.pendingPlayerContract.id, 'contract-new');
 });
 
 check('AI advisor can choose a legal debt rescue path', async () => {
@@ -413,6 +439,19 @@ check('runBotTurn aborts when the seat changed while the advisor thought', async
   room.game.getCurrentPlayer = () => ({ id: 'someone-else', isBot: true });
   const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'x' }));
   assert.strictEqual(result.noEmit, true);
+});
+
+check('runBotTurn aborts when the bot is eliminated while the advisor thinks', async () => {
+  const log = [];
+  const room = fakeRoom(log);
+  const bot = { ...bot1 };
+  const advisor = { chooseAction: async () => {
+    bot.bankrupt = true;
+    return { actionId: 'roll' };
+  } };
+  const result = await runBotTurn(room, bot, advisor);
+  assert.strictEqual(result.noEmit, true);
+  assert.strictEqual(result.botDecision.reasonCode, 'seat-changed');
 });
 
 check('runBotTurn trade candidate rolls after a successful proposal', async () => {

@@ -17,6 +17,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=moderate
       - run: npm run lint
       - run: npm run lint:client
       - name: Full contract and integration suite
