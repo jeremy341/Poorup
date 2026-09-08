@@ -32,6 +32,7 @@ files fail closed.
 | `npm audit --omit=dev --audit-level=moderate` | PASS — 0 vulnerabilities |
 | `node --check` | PASS — 120 shipped JavaScript files |
 | `npm pack --dry-run` | PASS — 227 files; npm warns that no `.npmignore` exists |
+| Rename-failure persistence probe | PASS — previous snapshot preserved and temp recovery file retained |
 | Bot balance campaign | PASS — 2,500 bounded games, 1,994 completed within 2,000 steps, 0 stalled |
 | Bot status/reconnect wire probe | PASS — 18/18 checks, repeated successfully |
 | Release hardening seams | PASS — 11 CORS/rate-limiter checks |
@@ -82,17 +83,15 @@ missing file and fail fast for permission/sharing errors (`server/storeIO.js`).
 The regression suite now covers the non-`ENOENT` path. Corrupt JSON continues
 to be quarantined, while unreadable files cannot silently become empty stores.
 
-### R2 — Rename fallback is not atomic
+### R2 — Rename fallback is not atomic (RESOLVED)
 
-**Evidence:** `server/storeIO.js:52-63` falls back to direct write after a
-failed rename. The fallback descriptor is now closed correctly, but direct
-write can still truncate the previous file if the process or host fails during
-that write.
+**Evidence:** `server/storeIO.js:52-63` previously fell back to direct write
+after a failed rename, which could truncate the previous file.
 
-The normal path is safe and covered by persistence tests. A production-grade
-store should either fail the mutation while preserving the old file or use a
-transactional datastore; do not rely on the direct-write fallback for
-multi-instance durability.
+The implementation now preserves the previous snapshot, leaves the complete
+temp file for recovery, and throws a durable-write error. Normal and
+rename-failure paths are both covered by persistence tests. A transactional
+datastore is still required for multi-instance durability.
 
 ### R2 — Gameplay payload abuse needs edge limits (server baseline added)
 
@@ -131,8 +130,7 @@ Before an unrestricted public production launch, resolve or explicitly accept:
 
 1. CodeScene verification (blocked here by unavailable OAuth/network access).
 2. Set `POORUP_ALLOWED_ORIGINS` to an allow-list in production.
-3. A decision on the non-atomic write fallback and an operational backup plan
-   for the JSON stores.
-4. Edge-level rate limiting and operational backups for the JSON stores.
+3. An operational backup plan for the JSON stores.
+4. Edge-level/IP rate limiting as a second layer beyond the in-process limiter.
 
 These items do not require UI changes and are independent of the board layout.
