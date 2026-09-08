@@ -613,7 +613,7 @@ export class AccountStore {
       stats: publicPlayerStats(account.stats),
       achievements: includeAchievements ? publicAchievements(account, true) : publicView.achievements,
       achievementsPrivate: account.privacy?.achievements === 'private',
-      achievementsFriendsOnly: account.privacy?.achievements === 'friends',
+      achievementsFriendsOnly: account.privacy?.achievements === 'friends' && !includeAchievements,
       historyPrivate: account.privacy?.history === 'private',
       historyFriendsOnly: account.privacy?.history === 'friends',
       // Match history is served through the authorized history endpoint so
