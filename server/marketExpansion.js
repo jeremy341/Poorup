@@ -140,15 +140,18 @@ function openOption(game, player, instrument, payload) {
   const totalPremium = premium * quantity;
   const id = `opt_${game.roundNumber}_${player.id.slice(0, 8)}_${player.optionPositions.length + 1}`;
   const expiryRound = optionExpiry(game.roundNumber, payload.expiryRounds);
-  const collateral = role === 'writer' ? Math.max(strike * quantity, quoteFor(game, instrument) * quantity) : 0;
+  // Buyers also reserve a worst-case cash amount in this first release. It
+  // keeps options fully collateralized even before peer-to-peer assignment is
+  // introduced, so exercise/expiry can never mint uncovered cash.
+  const collateral = Math.max(strike * quantity, quoteFor(game, instrument) * quantity);
   if (role === 'writer') {
     if (player.cash < collateral) return { success: false, error: 'Option writers must fully collateralize the position.' };
     player.cash -= collateral;
     player.reservedCash += collateral;
-  } else if (player.cash < totalPremium) {
-    return { success: false, error: 'You do not have enough cash for that option premium.' };
   } else {
-    player.cash -= totalPremium;
+    if (player.cash < totalPremium + collateral) return { success: false, error: 'You need premium and collateral cash for that option.' };
+    player.cash -= totalPremium + collateral;
+    player.reservedCash += collateral;
   }
   const option = { id, instrumentId: instrument.id, side, role, quantity, strike, premium, expiryRound, collateral, status: 'open', exercised: false };
   player.optionPositions.push(option);
@@ -166,6 +169,9 @@ function exerciseOption(game, player, optionId) {
   const payout = intrinsic * option.quantity;
   if (option.role === 'writer') return { success: false, error: 'Writers cannot exercise their own option.' };
   player.cash += payout;
+  player.cash += option.collateral;
+  player.reservedCash = Math.max(0, player.reservedCash - option.collateral);
+  option.collateral = 0;
   option.status = 'exercised';
   option.exercised = true;
   return { success: true, action: 'exercise-option', optionId, payout, quote };
@@ -181,8 +187,11 @@ function closeOption(game, player, optionId) {
     player.cash += option.collateral;
     player.reservedCash = Math.max(0, player.reservedCash - option.collateral);
   } else {
+    player.cash += option.collateral;
+    player.reservedCash = Math.max(0, player.reservedCash - option.collateral);
     player.cash += Math.floor(intrinsic * option.quantity * 0.8);
   }
+  option.collateral = 0;
   option.status = 'closed';
   return { success: true, action: 'close-position', optionId, payout: Math.floor(intrinsic * option.quantity * 0.8) };
 }
@@ -195,7 +204,11 @@ function forceLiquidate(game, player, inventory) {
     if (option.role === 'writer') {
       player.cash += Math.max(0, Number(option.collateral) || 0);
       player.reservedCash = Math.max(0, player.reservedCash - (Number(option.collateral) || 0));
+    } else {
+      player.cash += Math.max(0, Number(option.collateral) || 0);
+      player.reservedCash = Math.max(0, player.reservedCash - (Number(option.collateral) || 0));
     }
+    option.collateral = 0;
     option.status = 'expired';
     actions.push('option-expiry');
   });

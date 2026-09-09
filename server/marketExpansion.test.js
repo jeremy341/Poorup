@@ -32,6 +32,7 @@ assert.equal(derivatives.openOption('a', { instrumentId: 'brazil', side: 'call',
 assert.equal(derivatives.game.players[0].optionPositions.length, 1);
 derivatives.game.marketQuotes.brazil = 140;
 assert.equal(derivatives.exerciseOption('a', option.option.id, 'exercise-1').success, true);
+assert.ok(derivatives.game.players[0].cash >= 0);
 const writer = roomAt('derivatives');
 writer.game.players[0].cash = 100;
 assert.equal(writer.openOption('a', { instrumentId: 'brazil', role: 'writer', side: 'call', quantity: 2, strike: 100 }).success, false);
