@@ -280,6 +280,10 @@ function matchRecordPlayerContracts(game) {
 // accountStore.recordGameResults when a finished room settles its stats.
 export function buildMatchRecordOptions(room) {
   const game = room.game;
+  const accountPlayers = game.players.filter(player => !player.isBot && player.accountId);
+  const afkOnly = accountPlayers.length > 0
+    && game.afkTurnCount > 0
+    && game.humanActionCount === 0;
   return {
     gameId: `match_${room.roomCode}_${game.startedAt || Date.now()}`,
     durationSeconds: game.startedAt ? (Date.now() - game.startedAt) / 1000 : 0,
@@ -295,6 +299,7 @@ export function buildMatchRecordOptions(room) {
     includeMatchDetails: true,
     playerCount: game.players.length,
     botOnly: game.players.length > 0 && game.players.every(player => player.isBot),
+    afkOnly,
     botDecisions: Array.isArray(game.botDecisionTrace) ? game.botDecisionTrace.slice(-200) : [],
     globalEvents: matchRecordGlobalEvents(game),
     eventCombinations: matchRecordEventCombinations(game),

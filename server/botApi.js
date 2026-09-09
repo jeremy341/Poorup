@@ -193,6 +193,7 @@ const botApi = {
       candidates.push(...this.botCasinoCandidate(player));
       candidates.push(...this.botSocialCandidates(player));
     }
+    if (this.settings.market) candidates.push({ id: 'end-finance-window', kind: 'end-finance-window', risk: 0, score: -49 });
     candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
     return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
   },

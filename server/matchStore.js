@@ -161,6 +161,7 @@ function sanitizeMatch(record = {}) {
     match.playerCount = nonNegativeNumber(record.playerCount);
   }
   if (Object.prototype.hasOwnProperty.call(record, 'botOnly')) match.botOnly = record.botOnly === true;
+  if (Object.prototype.hasOwnProperty.call(record, 'afkOnly')) match.afkOnly = record.afkOnly === true;
   // Versioned ruleset metadata lets history and rewards distinguish a
   // Standard Classic match from a Metro or After Hours match without leaking
   // private terms. Older records simply omit these optional fields.

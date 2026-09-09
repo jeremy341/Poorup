@@ -1658,7 +1658,6 @@ a:focus-visible {
 .social-surface-card { max-width: 720px; max-height: min(86vh, 760px); }
 .social-page-main { width: 100%; max-width: 1100px; margin: 0 auto; padding: 18px 16px 40px; }
 .social-page-main > .social-surface-head { background: var(--surface-panel); border: 1px solid var(--line-board); }
-.social-page-main > .social-tabs, .social-page-main > .ranking-metrics { border: 1px solid var(--line-subtle); border-top: 0; }
 .social-page-main > .social-search { padding-inline: 0; }
 .social-page-main > .social-search-results { padding-inline: 0; }
 .social-page-main > .social-surface-body, .social-page-main > .ranking-list { max-height: none; min-height: 360px; padding-inline: 0; }
@@ -1758,10 +1757,10 @@ a:focus-visible {
 .social-surface-head h2 { margin-top: 7px; color: var(--gold-050); }
 .social-surface-head p { margin-top: 8px; max-width: 58ch; }
 .social-close { min-height: 34px; padding: 0 10px; flex-shrink: 0; }
-.social-tabs, .ranking-metrics { display: flex; gap: 3px; padding: 4px; background: var(--surface-panel-deep); border-bottom: 1px solid var(--line-dark); }
-.social-tab, .ranking-metric { min-height: 38px; padding: 0 10px; color: var(--text-muted); border: 1px solid transparent; }
-.social-tab:hover, .ranking-metric:hover { color: var(--gold-100); background: var(--surface-button-dark); }
-.social-tab.is-active, .ranking-metric.is-active { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); }
+.social-tabs { display: flex; gap: 3px; padding: 4px; background: var(--surface-panel-deep); border-bottom: 1px solid var(--line-dark); }
+.social-tab { min-height: 38px; padding: 0 10px; color: var(--text-muted); border: 1px solid transparent; }
+.social-tab:hover { color: var(--gold-100); background: var(--surface-button-dark); }
+.social-tab.is-active { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); }
 .social-search { display: flex; gap: 8px; padding: 12px 20px 0; }
 .social-search input { flex: 1; min-width: 0; }
 .social-search-results { display: grid; gap: 6px; padding: 8px 20px 0; }
@@ -1829,6 +1828,7 @@ a:focus-visible {
 .season-row, .season-reward { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 35px; padding: 5px 7px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .season-row-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .season-reward { grid-template-columns: minmax(0, 1fr) auto; }
+.season-reward.is-claimed { border-color: var(--line-active); background: rgb(53 166 83 / 8%); }
 .season-reward > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .season-reward button { min-height: 28px; padding: 0 8px; }
 .season-panel-note { margin-top: 12px; padding-top: 9px; border-top: 1px dashed var(--line-subtle); }
@@ -1859,31 +1859,13 @@ a:focus-visible {
 .rankings-context { padding: 0; gap: 0; }
 .rankings-context .season-panel { padding: 0; border: 0; background: transparent; }
 .rankings-context-reading { display: flex; flex-direction: column; gap: 11px; padding: 16px; min-height: 0; }
-.rankings-metric-deck { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 8px; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
-.ranking-metric-column { min-width: 0; padding: 11px; background: var(--surface-panel); border: 1px solid var(--line-subtle); box-shadow: inset 0 1px 0 rgb(232 211 171 / 4%); }
 .ranking-scopes { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 14px 0; }
 .ranking-scope { min-height: 30px; padding: 4px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line-subtle); cursor: pointer; }
 .ranking-scope.is-active { color: var(--gold-100); border-color: var(--gold-300); background: rgba(217,166,47,.08); }
-.ranking-metric-column:first-child { border-color: var(--line-active); }
-.ranking-column-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-bottom: 9px; border-bottom: 1px solid var(--line-dark); }
-.ranking-column-head > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.ranking-column-action { min-height: 28px; padding: 0 7px; }
-.ranking-column-list { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
-.ranking-mini-row { display: grid; grid-template-columns: 18px 28px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-width: 0; padding: 6px 5px; text-align: left; background: var(--surface-panel-deep); border: 1px solid transparent; }
-.ranking-mini-row:hover, .ranking-mini-row:focus-visible { background: var(--surface-panel-raised); border-color: var(--line-active); }
-.ranking-mini-place { color: var(--gold-400); font-family: var(--font-numeric); font-size: 9px; }
-.ranking-mini-avatar { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--line-subtle); }
-.ranking-mini-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ranking-mini-name strong, .ranking-mini-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ranking-mini-value { font-variant-numeric: tabular-nums; }
-.ranking-column-empty { padding: 9px 5px; }
 .rankings-main-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(270px, 0.75fr); gap: 14px; flex: 1; min-height: 0; }
-.rankings-ledger, .rankings-context, .social-network-rail, .social-feed, .social-context { min-height: 0; overflow: hidden; }
-.rankings-ledger { display: flex; flex-direction: column; }
-.rankings-ledger-head, .social-feed-head, .social-rail-head, .social-context-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
-.rankings-ledger-head h3, .social-feed-head h3, .social-context-head h3 { margin-top: 6px; color: var(--gold-050); }
-.rankings-ledger .ranking-metrics { flex-shrink: 0; }
-.rankings-ledger .ranking-list { flex: 1; min-height: 0; max-height: none; padding: 10px 14px 14px; overflow-y: auto; }
+.rankings-context, .social-network-rail, .social-feed, .social-context { min-height: 0; overflow: hidden; }
+.social-feed-head, .social-rail-head, .social-context-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
+.social-feed-head h3, .social-context-head h3 { margin-top: 6px; color: var(--gold-050); }
 .rankings-context { display: flex; flex-direction: column; gap: 11px; padding: 16px; background: var(--surface-panel); border-color: var(--line-subtle); }
 .rankings-context h3 { margin-top: 5px; color: var(--gold-050); }
 .rankings-context-list { display: grid; gap: 7px; }
@@ -1934,7 +1916,6 @@ a:focus-visible {
   .rankings-page-shell.is-modal .rankings-hero,
   .social-page-shell.is-modal .social-hero { grid-template-columns: 1fr; }
   .rankings-hero-stats, .social-hero-stats { grid-column: auto; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .rankings-metric-deck { grid-template-columns: repeat(5, minmax(180px, 1fr)); }
   .rankings-stage-head { flex-direction: column; gap: 12px; }
   .ranking-stage-controls { width: 100%; justify-content: space-between; }
   .ranking-position { flex: 1; }
@@ -2606,6 +2587,12 @@ a:focus-visible {
 .collection-item.is-owned { border-color: var(--line-active); }
 .collection-item-head, .collection-item-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .collection-item-foot { margin-top: auto; padding-top: 7px; border-top: 1px dashed var(--line-dark); }
+.collection-item-foot > span { margin-right: auto; }
+.collection-preview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 12px; padding: 12px; border-color: var(--line-active); background: var(--surface-panel-deep); }
+.collection-preview-mark { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line-active); background: var(--surface-panel); }
+.collection-preview-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.collection-preview-copy h3 { color: var(--gold-050); }
+.collection-preview-copy p { max-width: 68ch; }
 .collection-glyph { display: grid; place-items: center; width: 28px; height: 28px; color: var(--gold-300); font-family: var(--font-numeric); font-size: 18px; border: 1px solid var(--line-active); }
 .collection-glyph img { width: 24px; height: 24px; image-rendering: pixelated; }
 .rarity-label { font-family: var(--font-pixel); font-size: 9px; letter-spacing: .08em; color: var(--gold-300); }
@@ -2617,7 +2604,7 @@ a:focus-visible {
 .rarity-mythical .rarity-label { color: #e18d8d; }
 .collection-item-foot button { min-height: 28px; padding: 0 8px; }
 .collection-empty { display: grid; gap: 8px; min-height: 130px; place-items: center; align-content: center; text-align: center; }
-@media (max-width: 640px) { .collection-toolbar { align-items: flex-start; flex-direction: column; } .collection-grid { max-height: none; } }
+@media (max-width: 640px) { .collection-toolbar { align-items: flex-start; flex-direction: column; } .collection-grid { max-height: none; } .collection-preview { grid-template-columns: auto minmax(0, 1fr); } .collection-preview > button { grid-column: 1 / -1; width: 100%; } }
 .profile-tab-panel { margin-top: 16px; animation: profile-panel-in 160ms ease-out both; }
 @keyframes profile-panel-in { from { opacity: 0.55; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .profile-overview-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 16px; }
@@ -2820,11 +2807,15 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .casino-choice input { position: absolute; opacity: 0; pointer-events: none; }
 .casino-choice-red:has(input:checked) { color: #e36b5f; }
 .casino-choice-black:has(input:checked) { color: var(--ink-1); }
-.casino-choice-green:has(input:checked) { color: var(--green); }
+.casino-choice-green:has(input:checked) { color: var(--green-status); }
 .casino-stake, .market-quantity { display: grid; gap: 5px; }
 .casino-stake .field, .market-quantity .field { width: 100%; }
 .economy-result { padding: 9px; color: var(--gold-100); background: rgba(217,166,47,.08); border-left: 2px solid var(--gold-300); font: 500 10px var(--font-mono); letter-spacing: .06em; }
 .economy-note { line-height: 1.5; }
+.market-risk-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.market-risk-strip > div { display: grid; gap: 3px; min-width: 0; padding: 7px 6px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.market-risk-strip strong { color: var(--gold-100); font-variant-numeric: tabular-nums; }
+.market-risk-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .market-list { display: flex; flex-direction: column; gap: 5px; min-height: 0; max-height: 360px; overflow-y: auto; }
 .market-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
 .market-row > div { display: grid; gap: 3px; min-width: 0; }
@@ -2841,6 +2832,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 @media (max-width: 760px) {
   .right-rail .tabs { display: flex; overflow-x: auto; }
   .right-rail .tab { min-width: 92px; }
+  .market-risk-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .finance-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 12px; text-align: center; background: var(--surface-panel-deep); border: 1px dashed var(--line-subtle); }
 .finance-empty > span:first-child { color: var(--gold-400); }
@@ -3025,8 +3017,8 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .achievements-progress strong { display: inline; margin-right: 7px; }
   .achievements-panel { max-height: max(240px, calc(100vh - 460px)); }
   .social-surface-card { max-height: 92vh; }
-  .social-tabs, .ranking-metrics { overflow-x: auto; }
-  .social-tab, .ranking-metric { flex: 0 0 auto; }
+  .social-tabs { overflow-x: auto; }
+  .social-tab { flex: 0 0 auto; }
   .player-profile-actions { grid-template-columns: 1fr; }
   .player-profile-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

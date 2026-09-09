@@ -222,6 +222,13 @@ export class SeasonStore {
     return { season: clone(source), rows: accountId ? rows.filter(row => row.accountId === accountId) : rows };
   }
 
+  claimedRewards(accountId, seasonId, now = Date.now()) {
+    const id = safeAccountId(accountId);
+    const source = seasonId ? this.seasons.get(seasonId) : this.ensureCurrent(now);
+    if (!id || !source) return [];
+    return [...(source.claims[id] || [])].slice(0, 64);
+  }
+
   claimReward(accountId, rewardId, now = Date.now()) {
     const id = safeAccountId(accountId);
     const reward = REWARD_TRACK.find(item => item.id === rewardId);

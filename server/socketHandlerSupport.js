@@ -70,6 +70,7 @@ function makeRoomVerbHandler(socket, runtime, definition) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room[definition.verb](socket.id, ...definition.args(payload));
+    if (result?.success !== false) room.game.recordHumanAction?.(room.getPlayerBySocket(socket.id));
     refreshLiveAuction(runtime, definition, room, result);
     runtime.emitRoomState(room);
     announceVerbResult(runtime.io, room, result, definition);

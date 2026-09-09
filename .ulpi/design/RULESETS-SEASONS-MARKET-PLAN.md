@@ -1,7 +1,8 @@
 # Poorup Rulesets, Seasons, Market Expansion, and Board Variants
 
-Status: planning only. This document is an implementation handoff, not a
-request to change production code yet.
+Status: implemented in the modular monolith; this document remains the
+product/design contract. See `docs/audit/expansion-implementation.md` for the
+delivery record and current verification evidence.
 
 ## Design Read
 

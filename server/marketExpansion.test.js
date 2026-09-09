@@ -30,6 +30,8 @@ const option = derivatives.openOption('a', { instrumentId: 'brazil', side: 'call
 assert.equal(option.success, true);
 assert.equal(derivatives.openOption('a', { instrumentId: 'brazil', side: 'call', quantity: 1, strike: 80, premium: 10, expiryRounds: 3, requestId: 'opt-1' }).option.id, option.option.id);
 assert.equal(derivatives.game.players[0].optionPositions.length, 1);
+const openOptionCandidates = derivatives.game.marketExpansionCandidates(derivatives.game.players[0]);
+assert.equal(openOptionCandidates.some(candidate => candidate.kind === 'close-position' && candidate.optionId === option.option.id), true);
 derivatives.game.marketQuotes.brazil = 140;
 assert.equal(derivatives.exerciseOption('a', option.option.id, 'exercise-1').success, true);
 assert.ok(derivatives.game.players[0].cash >= 0);

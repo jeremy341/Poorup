@@ -246,7 +246,12 @@ function expansionCandidates(game, player) {
   if (complexityAllows(game, 'shorting') && player.cash > 200) candidates.push({ id: 'market:open-short', kind: 'open-short', score: 3 });
   if (Object.values(player.shortPositions).some(position => position.quantity > 0)) candidates.push({ id: 'market:cover-short', kind: 'cover-short', score: 10 });
   if (complexityAllows(game, 'derivatives') && player.cash > 100) candidates.push({ id: 'market:open-option', kind: 'open-option', score: 2 });
-  if ((player.optionPositions || []).some(option => option.status === 'open')) candidates.push({ id: 'market:exercise-option', kind: 'exercise-option', score: 8 });
+  const openOptions = (player.optionPositions || []).filter(option => option.status === 'open');
+  if (openOptions.some(option => option.role !== 'writer')) candidates.push({ id: 'market:exercise-option', kind: 'exercise-option', score: 8 });
+  if (openOptions.length) {
+    const option = openOptions[0];
+    candidates.push({ id: 'market:close-position:' + option.id, kind: 'close-position', optionId: option.id, score: 7 });
+  }
   return candidates;
 }
 

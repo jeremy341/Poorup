@@ -14,6 +14,7 @@ import { applyProfileToHomeUI, renderAccountPanel, requireGuestAlias } from "./c
 import { closeSurface, openSurface } from "./clientSurfaces.js";
 import { parlorNotice } from "./clientSocialSurfaces.js";
 import { renderHomeLocalTime, renderPatrolHud } from "./clientHomeAmbient.js";
+import { saveRulesetPreset } from "./clientSanitize.js";
 
 export const lobbyState = {
   roomsDirectory: [],
@@ -522,7 +523,10 @@ export function renderHomeSignals() {
 }
 
 function onRulesetInput(e) {
-  if (e.target.id === "rc-ruleset-preset") lobbyState.createRoomSettings.rulesetPreset = e.target.value;
+  if (e.target.id === "rc-ruleset-preset") {
+    lobbyState.createRoomSettings.rulesetPreset = e.target.value;
+    saveRulesetPreset(e.target.value);
+  }
   if (e.target.id === "rc-board-variant") lobbyState.createRoomSettings.boardVariant = e.target.value;
 }
 

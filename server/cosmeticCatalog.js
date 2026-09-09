@@ -13,8 +13,11 @@ const COSMETIC_CATALOG = Object.freeze([
   { id: 'frame-silver', type: 'avatar-frame', name: 'SILVER SIGNAL', rarity: 'UNCOMMON', cost: 0, description: 'A cool signal frame earned through a strong season.' },
   { id: 'frame-gold', type: 'avatar-frame', name: 'GOLD LEDGER', rarity: 'RARE', cost: 0, description: 'A stamped gold frame for verified placement.' },
   { id: 'frame-ledger', type: 'avatar-frame', name: 'LEDGER BLACK', rarity: 'EPIC', cost: 0, description: 'A quiet black frame with a gold register mark.' },
+  { id: 'token-border-brass', type: 'token-border', name: 'BRASS BORDER', rarity: 'UNCOMMON', cost: 120, description: 'A brass edge around your board token.' },
   { id: 'stamp-parlor-star', type: 'victory-stamp', name: 'PARLOR STAR', rarity: 'LEGENDARY', cost: 0, description: 'A pixel star stamped after a top-percentile season.' },
   { id: 'title-night-shift', type: 'profile-title', name: 'NIGHT SHIFT', rarity: 'UNCOMMON', cost: 0, description: 'For players who kept the table moving.' },
+  { id: 'emote-ledger-nod', type: 'chat-emote', name: 'LEDGER NOD', rarity: 'COMMON', cost: 90, description: 'A compact table emote for a clean deal.' },
+  { id: 'achievement-frame-echo', type: 'achievement-frame', name: 'ECHO FRAME', rarity: 'EPIC', cost: 260, description: 'A frame reserved for the achievement shelf.' },
   { id: 'board-ink-grid', type: 'board-skin', name: 'INK GRID', rarity: 'RARE', cost: 300, description: 'A dark ink board treatment. Cosmetic only.' },
   { id: 'cardback-signal', type: 'card-back', name: 'SIGNAL BACK', rarity: 'UNCOMMON', cost: 180, description: 'A striped signal back for your decks.' },
   { id: 'dice-brass', type: 'dice-face', name: 'BRASS PIPS', rarity: 'RARE', cost: 240, description: 'Brass pips with the Poorup mark.' },
@@ -95,7 +98,7 @@ export class CosmeticStore {
     return { success: true, created: true, item: { ...item }, snapshot: this.snapshot(accountId) };
   }
 
-  claim(accountId, cosmeticId, { claimKey, allowPaid = true } = {}) {
+  claim(accountId, cosmeticId, { claimKey, allowPaid = true, allowSeason = false } = {}) {
     const account = this.account(accountId);
     const item = COSMETIC_CATALOG.find(candidate => candidate.id === cosmeticId);
     const key = safeId(claimKey, 160);
@@ -107,6 +110,7 @@ export class CosmeticStore {
       return { success: true, created: false, item: { ...item }, snapshot: this.snapshot(accountId) };
     }
     const cost = Math.max(0, Math.floor(Number(item.cost) || 0));
+    if (key.startsWith('season:') && !allowSeason) return { success: false, error: 'Season cosmetics must be claimed from the active season ledger.' };
     if (cost === 0 && !key.startsWith('season:')) return { success: false, error: 'This cosmetic must be earned through a verified season reward.' };
     if (cost > 0 && (!allowPaid || account.tokens < cost)) return { success: false, error: 'Not enough Parlor Tokens for this cosmetic.' };
     account.tokens -= cost;

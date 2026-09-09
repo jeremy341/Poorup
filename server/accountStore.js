@@ -184,6 +184,7 @@ function buildMatchRecord(matchId, matchMeta, participants) {
     record.playerCount = Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length));
     record.botDecisions = clippedList(matchMeta.botDecisions, 200);
     record.botOnly = matchMeta.botOnly === true;
+    if (matchMeta.afkOnly === true) record.afkOnly = true;
   }
   ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(matchMeta, key)) {

@@ -27,6 +27,16 @@ the compatibility path; new surfaces are additive.
 - Playwright covers 1920×1080, 1366×768, 1024×768, and 390×844 navigation,
   presets, Rules, Rankings, Collection, reduced-motion anchors, and live bot
   status semantics.
+- Home `ENTRY`, `SYNC`, and `LOBBIES` signals are native controls: account
+  identity and connection state are live, while the lobby count is refreshed
+  from the server directory and protected against stale responses.
+- Rankings uses one primary ledger stage with arrow/keyboard metric navigation,
+  a compact season context rail, and claimed-reward status. Collection covers
+  all planned cosmetic categories and provides an in-place item detail view.
+- Quick Table remembers the last selected Classic/After Hours preset, and
+  Custom tables expose their base preset explicitly.
+- AI/NO-AI market candidates include option close and an explicit finance-window
+  exit, using the same server-authoritative runner path.
 
 ## Skill application notes
 

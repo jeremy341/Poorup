@@ -185,6 +185,8 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.humanActionCount = 0;
+    this.afkTurnCount = 0;
     this.telemetryLog = [];
     const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
@@ -213,6 +215,11 @@ class GameState {
       roundNumber: Math.max(0, Number(this.roundNumber) || 0)
     });
     if (this.telemetryLog.length > 200) this.telemetryLog.splice(0, this.telemetryLog.length - 200);
+  }
+
+  recordHumanAction(player) {
+    if (!player || player.isBot || player.bankrupt || player.disconnected) return;
+    this.humanActionCount = Math.max(0, Math.floor(Number(this.humanActionCount) || 0)) + 1;
   }
 
   resetForNewGame() {
@@ -263,6 +270,8 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.humanActionCount = 0;
+    this.afkTurnCount = 0;
     this.telemetryLog = [];
     const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));

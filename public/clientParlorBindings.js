@@ -45,16 +45,6 @@ function onRankingScope(scope, inGameModal) {
   openRankingsSurface(state.leaderboard.metric, scope.dataset.rankingScope);
 }
 
-function onRankingMetric(metric, inGameModal) {
-  if (inGameModal) {
-    state.leaderboard.metric = metric.dataset.rankingMetric;
-    renderRankingsSurface("#rankings-card");
-    requestLeaderboardSnapshot("#rankings-card");
-    return;
-  }
-  openRankingsSurface(metric.dataset.rankingMetric);
-}
-
 function focusRankingStep(surface, direction) {
   requestAnimationFrame(() => {
     const button = document.querySelector(`${surface} [data-ranking-step="${direction}"]`);
@@ -94,8 +84,6 @@ function handleRankingClick(event) {
   }
   const scope = event.target.closest("[data-ranking-scope]");
   if (scope) { onRankingScope(scope, inGameModal); return; }
-  const metric = event.target.closest("[data-ranking-metric]");
-  if (metric) { onRankingMetric(metric, inGameModal); return; }
   const player = event.target.closest("[data-ranking-player]");
   if (player) openPlayerSurface(player.dataset.rankingPlayer);
   const reward = event.target.closest("[data-season-claim]");
