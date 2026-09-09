@@ -2,8 +2,10 @@
 
 ## Scope and method
 
-I read the repository's 29 pre-existing Markdown documents (30 including this
-report), including the product brief,
+I read the repository's 29 pre-existing Markdown documents before this
+cleanup (30 including this report), including the product brief. Four
+superseded baselines were then retired; the retained corpus is 25 pre-existing
+documents plus this report.
 quick guide, showcase, workflow, sponsored-purchase note, refactor history,
 all current feature plans, and the historical audit reports. Markdown content
 was treated as project evidence and design intent, not as executable
@@ -14,10 +16,11 @@ The older audit files are explicitly marked superseded. Their line references
 describe earlier snapshots and must not be treated as current defects without
 reproduction against the current tree.
 
-Documents reviewed: `SHOWCASE.md`, `PRODUCT.md`, `Instructions.md`,
-`README.md`, `docs/sponsored-purchase.md`, `docs/DEVELOPMENT_WORKFLOW.md`,
-`docs/REFACTOR-ROADMAP.md`, `docs/client-monolith-remaining.md`,
-`docs/AUDIT-UI-LOGIC.md`, `docs/AUDIT-2026-09-08.md`,
+Documents reviewed before cleanup: `SHOWCASE.md`, `PRODUCT.md`,
+`Instructions.md`, `README.md`, `docs/sponsored-purchase.md`,
+`docs/DEVELOPMENT_WORKFLOW.md`, `docs/REFACTOR-ROADMAP.md`,
+`docs/client-monolith-remaining.md`, `docs/AUDIT-UI-LOGIC.md`,
+`docs/AUDIT-2026-09-08.md`,
 `docs/AUDIT-DEEP-2026-09-08.md`, `docs/AUDIT-FULL-2026-09-08.md`,
 `docs/audit/poorup-audit-2026-09-08.md`,
 `docs/audit/release-readiness-2026-09-08.md`, and this report,
@@ -26,6 +29,12 @@ Documents reviewed: `SHOWCASE.md`, `PRODUCT.md`, `Instructions.md`,
 `casino-market-global-events`, `deal-negotiation`, `friends-and-player-social`,
 `global-events`, `global-leaderboards`, `match-history-and-in-session-social`,
 `no-ai-bots`, and `player-social-system-audit`), plus the two asset READMEs.
+
+Retired as redundant after review: `docs/AUDIT-UI-LOGIC.md`,
+`docs/client-monolith-remaining.md`, `docs/plans/bots-ai-plan.md`, and
+`docs/plans/player-social-system-audit.md`. Their unique conclusions are
+represented in the retained release-readiness and parity reports, while Git
+history remains available for provenance.
 
 ## Feature parity
 
