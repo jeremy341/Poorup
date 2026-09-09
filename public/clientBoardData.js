@@ -10,6 +10,10 @@ const GROUP_COLOR = {
   yellow: "#b18a2e",
   green: "#4b853d",
   blue: "#286ea1",
+  gold: "#c88f2e",
+  silver: "#8aa3ae",
+  "metro gold": "#c88f2e",
+  "metro silver": "#8aa3ae",
 };
 
 /**
@@ -32,14 +36,18 @@ const RENT_TABLE = {
   blue:    { base: 35,  rents: [35, 175, 525, 1575, 2800, 4000], housePrice: 200 },
   railroad:{ base: 25,  rents: [25, 50, 100, 200],             housePrice: 0 },
   utility: { base: 12,  rents: [12, 24,  48,  72],              housePrice: 0 },
+  gold:    { base: 34,  rents: [34, 170, 510, 1530, 2200, 3200], housePrice: 200 },
+  silver:  { base: 38,  rents: [38, 190, 570, 1710, 2500, 3600], housePrice: 200 },
+  "metro gold":   { base: 34, rents: [34, 170, 510, 1530, 2200, 3200], housePrice: 200 },
+  "metro silver": { base: 38, rents: [38, 190, 570, 1710, 2500, 3600], housePrice: 200 },
 };
 
 const MAX_HOUSES = 4;        // 1..4 houses allowed
 const HOTEL_LEVEL = 5;       // 5 = hotel (replaces 4 houses)
-const GROUP_TARGETS = { brown: 2, cyan: 3, magenta: 3, orange: 3, red: 3, yellow: 3, green: 3, blue: 2 };
+const GROUP_TARGETS = { brown: 2, cyan: 3, magenta: 3, orange: 3, red: 3, yellow: 3, green: 3, blue: 2, gold: 2, silver: 2, "metro gold": 2, "metro silver": 2 };
 
 
-const TILES = [
+const STANDARD_TILES = [
   { i: 0, name: "START", kind: "corner-go", col: 1, row: 1, side: "top" },
   { i: 1, name: "SALVADOR", kind: "property", col: 2, row: 1, side: "top", ...{ price: 60, rent: 10, group: "brown" } },
   { i: 2, name: "TREASURE", kind: "chest", col: 3, row: 1, side: "top" },
@@ -81,9 +89,10 @@ const TILES = [
   { i: 38, name: "PREMIUM TAX", kind: "tax", col: 1, row: 3, side: "left", ...{ price: 75 } },
   { i: 39, name: "MARINA BAY", kind: "property", col: 1, row: 2, side: "left", ...{ price: 400, rent: 50, group: "blue" } },
 ];
-const TILE_COUNT = TILES.length;
+let TILES = STANDARD_TILES;
+let TILE_COUNT = TILES.length;
 const START_TILE_INDEX = 0;
-const JAIL_TILE_INDEX = TILES.find((tile) => tile.kind === "corner-jail")?.i ?? 10;
+let JAIL_TILE_INDEX = TILES.find((tile) => tile.kind === "corner-jail")?.i ?? 10;
 
 const CHANCE_EVENTS = [
   { text: "ADVANCE TO MARINA BAY", action: "moveTo", tileIndex: 39, cash: 0 },
@@ -121,6 +130,74 @@ const CHEST_EVENTS = [
   { text: "BEAUTY CONTEST — COLLECT $10", action: "collect", amount: 10, cash: 10 },
   { text: "INHERITANCE — COLLECT $100", action: "collect", amount: 100, cash: 100 },
 ];
+
+const STANDARD_BY_INDEX = Object.fromEntries(STANDARD_TILES.map(tile => [tile.i, tile]));
+const STANDARD_TILE_IDS = [
+  "start", "salvador", "treasure-1", "rio", "earnings-tax", "acc-airport", "accra", "surprise-1", "tema", "kumasi", "passing-by", "pattaya", "electric-company", "chiang-mai", "bangkok", "bkk-airport", "kyoto", "treasure-2", "osaka", "tokyo", "vacation", "eindhoven", "surprise-2", "rotterdam", "amsterdam", "ams-airport", "calgary", "vancouver", "water-company", "toronto", "go-to-prison", "bern", "geneva", "treasure-3", "zurich", "mb-airport", "surprise-3", "downtown", "premium-tax", "marina-bay"
+];
+const METRO_SEMANTIC_IDS = [
+  "start", "salvador", "treasure-1", "rio", "earnings-tax", "acc-airport", "accra", "surprise-1", "tema", "kumasi",
+  "lagos", "abuja", "surprise-4", "passing-by", "pattaya", "electric-company", "chiang-mai", "bangkok", "bkk-airport", "kyoto",
+  "treasure-2", "osaka", "tokyo", "seoul", "busan", "icn-airport", "vacation", "eindhoven", "surprise-2", "rotterdam", "amsterdam",
+  "ams-airport", "calgary", "vancouver", "water-company", "toronto", "jnb-airport", "power-grid", "city-levy", "go-to-prison", "bern",
+  "geneva", "treasure-3", "zurich", "mb-airport", "surprise-3", "downtown", "premium-tax", "marina-bay", "waterworks", "treasure-4", "transit-tax"
+];
+
+function metroFrom(sourceIndex, tileId, overrides = {}) {
+  const source = STANDARD_BY_INDEX[sourceIndex] || {};
+  return { ...source, ...overrides, i: 0, tileId, name: String(overrides.name || source.name || tileId).toUpperCase() };
+}
+
+function withMetroPosition(tile, index) {
+  const size = 14;
+  const next = { ...tile, i: index };
+  if (index <= 13) return { ...next, col: index + 1, row: 1, side: "top" };
+  if (index <= 26) return { ...next, col: size, row: index - 12, side: "right" };
+  if (index <= 39) return { ...next, col: size - (index - 26), row: size, side: "bottom" };
+  return { ...next, col: 1, row: size - (index - 39), side: "left" };
+}
+
+const METRO_TILES = METRO_SEMANTIC_IDS.map((tileId, index) => {
+  const sourceIndex = {
+    lagos: 9, abuja: 9, "surprise-4": 7, seoul: 19, busan: 19, "icn-airport": 15,
+    "jnb-airport": 35, "power-grid": 12, "city-levy": 38, waterworks: 28, "treasure-4": 33, "transit-tax": 38
+  }[tileId] ?? STANDARD_TILE_IDS.indexOf(tileId);
+  const overrides = {
+    lagos: { name: "LAGOS", group: "metro gold", price: 340, rent: 34 },
+    abuja: { name: "ABUJA", group: "metro gold", price: 360, rent: 36 },
+    seoul: { name: "SEOUL", group: "metro silver", price: 380, rent: 38 },
+    busan: { name: "BUSAN", group: "metro silver", price: 420, rent: 42 },
+    "icn-airport": { name: "ICN AIRPORT", kind: "railroad", price: 200, rent: 25 },
+    "jnb-airport": { name: "JNB AIRPORT", kind: "railroad", price: 200, rent: 25 },
+    "power-grid": { name: "POWER GRID", kind: "utility", price: 150, rent: 12 },
+    "city-levy": { name: "CITY LEVY", kind: "tax", price: 100 },
+    waterworks: { name: "WATERWORKS", kind: "utility", price: 150, rent: 12 },
+    "treasure-4": { name: "TREASURE", kind: "chest" },
+    "transit-tax": { name: "TRANSIT TAX", kind: "tax", price: 100 }
+  }[tileId] || {};
+  return withMetroPosition(metroFrom(sourceIndex >= 0 ? sourceIndex : index, tileId, overrides), index);
+});
+
+function setBoardVariant(variant = "standard-40") {
+  const next = variant === "metro-52" ? METRO_TILES : STANDARD_TILES;
+  TILES = next;
+  TILE_COUNT = next.length;
+  JAIL_TILE_INDEX = next.find((tile) => tile.kind === "corner-jail")?.i ?? (variant === "metro-52" ? 13 : 10);
+  const grid = document.querySelector("#board-grid");
+  const holder = document.querySelector(".board-holder");
+  holder?.classList.toggle("is-metro", variant === "metro-52");
+  if (grid) {
+    grid.style.setProperty("--board-grid-size", variant === "metro-52" ? "14" : "11");
+    grid.style.setProperty("--board-inner-count", variant === "metro-52" ? "12" : "9");
+    grid.style.setProperty("--board-inner-span", variant === "metro-52" ? "12" : "9");
+    grid.dataset.boardVariant = variant;
+  }
+  return next;
+}
+
+function boardVariant() {
+  return TILES === METRO_TILES ? "metro-52" : "standard-40";
+}
 export function mortgageValue(tile) {
   return Math.floor((tile.price || 0) * 0.5);
 }
@@ -141,4 +218,8 @@ export {
   JAIL_TILE_INDEX,
   CHANCE_EVENTS,
   CHEST_EVENTS,
+  METRO_TILES,
+  STANDARD_TILES,
+  boardVariant,
+  setBoardVariant,
 };

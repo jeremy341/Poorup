@@ -58,3 +58,27 @@ jobs:
           done
           curl -fsS localhost:8099/ | grep -qi poorup
           kill $SERVER_PID
+
+  browser:
+    name: browser QA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Start the local parlor
+        run: |
+          PORT=8099 node server/server.js > /tmp/poorup-browser.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS localhost:8099/ >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+      - name: Four-viewport UI and accessibility contract
+        env:
+          POORUP_QA_BASE_URL: http://127.0.0.1:8099
+        run: npm run test:browser -- --workers=2

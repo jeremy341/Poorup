@@ -48,6 +48,7 @@ import {
   onRailSubmit,
 } from "./clientRailEvents.js";
 import { configureProfileRender } from "./clientProfileRender.js";
+import { configureCosmetics, renderCollection } from "./clientCosmetics.js";
 import {
   configureNightShift,
   nightShiftState,
@@ -236,6 +237,11 @@ const SERVER_SETTING_KEYS = {
   botPersonality: "botPersonality",
   botBrain: "botBrain",
   botDifficulty: "botDifficulty",
+  rulesetPreset: "rulesetPreset",
+  rulesetBase: "rulesetBase",
+  rulesetOverrides: "rulesetOverrides",
+  boardVariant: "boardVariant",
+  marketComplexity: "marketComplexity",
 };
 
 function emitServer(event, payload = {}, callback) {
@@ -281,6 +287,7 @@ const serverSyncHost = {
   bankruptcyHidden: () => Boolean($("#bankruptcy-modal")?.classList.contains("is-hidden")),
   hideBankruptcyModal: () => $("#bankruptcy-modal")?.classList.add("is-hidden"),
   placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
+  rebuildBoard: () => buildBoard(onTileClick),
 };
 
 configureTurnCountdown({ endTurn });
@@ -854,7 +861,8 @@ configureRailEvents({ emitServer, say, renderChat, renderRightRail, createReques
 configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
-configureProfileRender({ renderAchievements, loadSavedGame });
+configureCosmetics({ emitServer, announce: message => parlorNotice("COLLECTION", message) });
+configureProfileRender({ renderAchievements, renderCollection, loadSavedGame });
 configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, renderChat });
 configureDeedDetail({ emitServer });
@@ -870,6 +878,7 @@ configureLobbyUi({
   renderChat,
   clearSave,
   renderPlayers,
+  rebuildBoard: () => buildBoard(onTileClick),
   closeRoomsModal,
   goHome,
 });

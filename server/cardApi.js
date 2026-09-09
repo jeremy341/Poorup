@@ -155,7 +155,10 @@ const cardApi = {
   },
 
   moveToCard(player, card, options) {
-    const destination = this.getTile(card.tileIndex);
+    const destinationIndex = card.tileId && typeof this.tileIndexForId === 'function'
+      ? this.tileIndexForId(card.tileId)
+      : card.tileIndex;
+    const destination = this.getTile(Number(destinationIndex));
     if (!destination) return RESOLVE_TAIL;
     this.awardStartSalaryIfPassed(player, destination);
     player.position = destination.index;
@@ -164,9 +167,12 @@ const cardApi = {
   },
 
   moveCard(player, card, options) {
-    const destTile = this.getTile(card.tileIndex);
+    const destinationIndex = card.tileId && typeof this.tileIndexForId === 'function'
+      ? this.tileIndexForId(card.tileId)
+      : card.tileIndex;
+    const destTile = this.getTile(Number(destinationIndex));
     if (!destTile) return RESOLVE_TAIL;
-    player.position = card.tileIndex;
+    player.position = destTile.index;
     this.feedMessage(`${player.nickname} moved to ${destTile.name}.`);
     const moveOptions = destTile.type === 'vacation' ? { ...options, skipVacationCollect: true } : options;
     return this.applyTile(player, destTile, moveOptions);

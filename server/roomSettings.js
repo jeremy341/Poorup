@@ -34,6 +34,14 @@ const DEFAULT_ROOM_SETTINGS = {
   globalEvents: false,
   casino: false,
   market: false,
+  // Ruleset metadata is stored alongside the legacy setting vocabulary so a
+  // reconnect can restore the exact table contract without a second engine.
+  rulesetPreset: 'classic',
+  rulesetBase: 'classic',
+  rulesetOverrides: [],
+  boardVariant: 'standard-40',
+  rulesetRevision: 1,
+  marketComplexity: 'basic',
   // Kept for backwards-compatible snapshots only; client values are ignored.
   globalEventDuration: 5,
   globalEventMax: 1
@@ -47,6 +55,10 @@ const GLOBAL_EVENT_ON_VALUES = [true, 'true', 'on', 'rare', 'hardcore', 1, '1'];
 const ROOM_BOT_PERSONALITIES = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'];
 const ROOM_BOT_BRAINS = ['auto', 'ai', 'no-ai'];
 const ROOM_BOT_DIFFICULTIES = ['house', 'table', 'expert'];
+const ROOM_RULESET_PRESETS = ['classic', 'after-hours', 'custom'];
+const ROOM_RULESET_BASES = ['classic', 'after-hours'];
+const ROOM_BOARD_VARIANTS = ['standard-40', 'metro-52'];
+const ROOM_MARKET_COMPLEXITIES = ['basic', 'margin', 'shorting', 'derivatives'];
 // Legacy clients may still send these fields; the server owns scaling now.
 const LEGACY_SCALED_SETTINGS = ['globalEventDuration', 'globalEventMax'];
 
@@ -91,8 +103,37 @@ function normalizeBotDifficulty(value) {
   return ROOM_BOT_DIFFICULTIES.includes(lowered) ? lowered : 'table';
 }
 
+function normalizeRulesetPreset(value) {
+  const lowered = String(value).trim().toLowerCase();
+  return ROOM_RULESET_PRESETS.includes(lowered) ? lowered : 'classic';
+}
+
+function normalizeRulesetBase(value) {
+  const lowered = String(value).trim().toLowerCase();
+  return ROOM_RULESET_BASES.includes(lowered) ? lowered : 'classic';
+}
+
+function normalizeBoardVariant(value) {
+  const lowered = String(value).trim().toLowerCase();
+  return ROOM_BOARD_VARIANTS.includes(lowered) ? lowered : 'standard-40';
+}
+
+function normalizeMarketComplexity(value) {
+  const lowered = String(value).trim().toLowerCase();
+  return ROOM_MARKET_COMPLEXITIES.includes(lowered) ? lowered : 'basic';
+}
+
+function normalizeRulesetOverrides(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(entry => entry && typeof entry.key === 'string')
+    .slice(0, 32)
+    .map(entry => ({ key: entry.key.trim().slice(0, 60), value: entry.value }))
+    .filter(entry => entry.key);
+}
+
 const ROOM_SETTING_NORMALIZERS = {
-  maxPlayers: value => clampSetting(value, 2, 4),
+  maxPlayers: (value, room) => clampSetting(value, 2, room?.settings?.boardVariant === 'metro-52' ? 6 : 4),
   // Bots are clamped against the live maxPlayers so seat math stays coherent.
   bots: (value, room) => clampSetting(value, 0, room.settings.maxPlayers - 1),
   startingCash: floorSettingAtZero,
@@ -104,7 +145,12 @@ const ROOM_SETTING_NORMALIZERS = {
   globalEvents: value => GLOBAL_EVENT_ON_VALUES.includes(value),
   botPersonality: normalizeBotPersonality,
   botBrain: normalizeBotBrain,
-  botDifficulty: normalizeBotDifficulty
+  botDifficulty: normalizeBotDifficulty,
+  rulesetPreset: normalizeRulesetPreset,
+  rulesetBase: normalizeRulesetBase,
+  rulesetOverrides: normalizeRulesetOverrides,
+  boardVariant: normalizeBoardVariant,
+  marketComplexity: normalizeMarketComplexity
 };
 
 export {
@@ -114,6 +160,10 @@ export {
   ROOM_BOT_PERSONALITIES,
   ROOM_BOT_BRAINS,
   ROOM_BOT_DIFFICULTIES,
+  ROOM_RULESET_PRESETS,
+  ROOM_RULESET_BASES,
+  ROOM_BOARD_VARIANTS,
+  ROOM_MARKET_COMPLEXITIES,
   ROOM_FLAG_TRUE_VALUES,
   ROOM_SETTING_NORMALIZERS,
   SETTING_REJECTED

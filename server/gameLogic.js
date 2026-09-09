@@ -1,4 +1,4 @@
-import { freshMarketQuotes } from './marketLogic.js';
+import { freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
 import {
   equityShareContractLive,
   playerContractSummary,
@@ -31,9 +31,6 @@ import {
   JAIL_FINE,
   JAIL_MAX_TURNS,
   START_TILE_INDEX,
-  SURPRISE_DECK,
-  TREASURE_DECK,
-  cloneTiles,
   rollDice,
   shuffleArray
 } from './gameData.js';
@@ -51,6 +48,7 @@ import { APPEARANCE_PRESET_COLORS, appearanceApi } from './appearanceApi.js';
 import { botApi } from './botApi.js';
 import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
+import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -68,6 +66,12 @@ const PLAYER_STATE_DEFAULTS = [
   ['casinoOneDollar', false],
   ['casinoBetsThisRound', 0],
   ['marketPositions', () => ({})],
+  ['marginBalance', 0],
+  ['marginMaintenance', 0],
+  ['marginPositions', () => ({})],
+  ['shortPositions', () => ({})],
+  ['optionPositions', () => []],
+  ['reservedCash', 0],
   ['marketTrades', 0],
   ['marketActionsThisTurn', 0],
   ['crisisMarketBuys', () => ({})],
@@ -128,11 +132,14 @@ const PLAYER_STATE_DEFAULTS = [
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
+    this.boardVariant = this.settings.boardVariant || 'standard-40';
+    this.ruleset = null;
+    this.rulesetDigest = null;
     this.reset();
   }
 
   reset() {
-    this.tiles = cloneTiles();
+    this.tiles = tilesForVariant(this.boardVariant);
     this.players = [];
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
@@ -165,18 +172,23 @@ class GameState {
     this.globalEventHistory = [];
     this.globalEventCooldown = 0;
     this.globalEventsTriggered = 0;
+    this.globalEventTriggerSource = null;
     this.midpointMarked = false;
     this.casinoLastResult = null;
     this.casinoLedger = [];
     this.marketLedger = [];
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
+    this.marketShortInventory = {};
+    this.marketInstruments = MARKET_INSTRUMENTS;
     this.marketRound = 0;
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
-    this.surpriseDeck = [...SURPRISE_DECK];
-    this.treasureDeck = [...TREASURE_DECK];
+    this.telemetryLog = [];
+    const decks = decksForVariant(this.boardVariant);
+    this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
+    this.treasureDeck = decks.treasure.map(card => ({ ...card }));
   }
 
   resetPlayerState(player) {
@@ -192,8 +204,20 @@ class GameState {
     return player;
   }
 
+  recordTelemetryEvent(kind, data = {}) {
+    if (!Array.isArray(this.telemetryLog)) this.telemetryLog = [];
+    const safeData = data && typeof data === 'object' ? { ...data } : {};
+    this.telemetryLog.push({
+      kind: String(kind || '').slice(0, 40),
+      data: safeData,
+      roundNumber: Math.max(0, Number(this.roundNumber) || 0)
+    });
+    if (this.telemetryLog.length > 200) this.telemetryLog.splice(0, this.telemetryLog.length - 200);
+  }
+
   resetForNewGame() {
-    this.tiles = cloneTiles();
+    this.boardVariant = this.settings.boardVariant || this.boardVariant || 'standard-40';
+    this.tiles = tilesForVariant(this.boardVariant);
     this.currentPlayerId = null;
     this.turnOrder = [];
     this.lastDice = [0, 0];
@@ -226,18 +250,23 @@ class GameState {
     this.globalEventHistory = [];
     this.globalEventCooldown = 0;
     this.globalEventsTriggered = 0;
+    this.globalEventTriggerSource = null;
     this.midpointMarked = false;
     this.casinoLastResult = null;
     this.casinoLedger = [];
     this.marketLedger = [];
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
+    this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, 50]));
+    this.marketInstruments = MARKET_INSTRUMENTS;
     this.marketRound = 0;
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
-    this.surpriseDeck = [...SURPRISE_DECK];
-    this.treasureDeck = [...TREASURE_DECK];
+    this.telemetryLog = [];
+    const decks = decksForVariant(this.boardVariant);
+    this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
+    this.treasureDeck = decks.treasure.map(card => ({ ...card }));
     this.players.forEach(player => this.resetPlayerState(player));
   }
 
@@ -269,6 +298,16 @@ class GameState {
 
   getTile(index) {
     return this.tiles.find(tile => tile.index === index);
+  }
+
+  tileIndexForId(tileId) {
+    const index = tileIndexById(this.boardVariant, tileId);
+    return index == null ? null : index;
+  }
+
+  getTileById(tileId) {
+    const index = this.tileIndexForId(tileId);
+    return index == null ? null : this.getTile(index);
   }
 
   getGroupTiles(group) {

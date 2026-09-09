@@ -12,7 +12,9 @@ const PROPERTY_HOUSE_COST_BY_GROUP = {
   Red: 150,
   Yellow: 150,
   Green: 200,
-  'Dark Blue': 200
+  'Dark Blue': 200,
+  'Metro Gold': 200,
+  'Metro Silver': 200
 };
 const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
 const RAILROAD_RENT = [25, 50, 100, 200];
