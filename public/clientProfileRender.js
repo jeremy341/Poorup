@@ -664,11 +664,8 @@ export function renderProfileEditor() {
   if (!d) return;
   const deleteBtn = $("#profile-delete-btn");
   if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
-  const saveLabel = $("#profile-save-btn")?.querySelector(".cta-text");
+  const saveLabel = $("#pl-save-btn")?.querySelector(".cta-text");
   if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
-  const modeLabel = $("#profile-editor-mode");
-  if (modeLabel) modeLabel.textContent = state.editingProfileId ? "EDIT PLAYER DESIGN" : "NEW PLAYER DESIGN";
-
   // identity swatches
   $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map((c) => swatchHTML(c, d)).join("");
   $("#profile-color-picker").value = d.color;
