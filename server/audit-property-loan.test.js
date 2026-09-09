@@ -185,6 +185,14 @@ check('FIX2 string tileIndex is coerced for decline', () => {
   assert.equal(ctx.game.pendingPurchaseOffer, null);
 });
 
+check('FIX2 string tileIndex is coerced for property management', () => {
+  const ctx = ownedRoom();
+  const tile = ctx.give(1);
+  ctx.owner.cash = 0;
+  assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: '1', action: 'mortgage' }).success, true);
+  assert.equal(tile.mortgaged, true);
+});
+
 check('FIX3 bank loan blocked for bankrupt seat', () => {
   const ctx = loanRoom();
   ctx.borrower.bankrupt = true;
@@ -232,6 +240,18 @@ check('FIX4 issued loan falls back to NONE with no deed', () => {
   const ctx = loanRoom();
   const result = ctx.game.takeBankLoan('socket-a', 'audit-none');
   assert.equal(result.success, true);
+  assert.equal(result.loan.collateralName, 'NONE');
+});
+
+check('FIX4 bank collateral excludes deeds that already carry equity shares', () => {
+  const ctx = loanRoom();
+  const tile = ctx.game.getTile(1);
+  tile.ownerId = ctx.borrower.id;
+  tile.equityShares = [{ holderId: 'equity-holder', share: 20, contractId: 'equity-1' }];
+  ctx.borrower.properties.push(tile.index);
+  const result = ctx.game.takeBankLoan('socket-a', 'audit-equity-collateral');
+  assert.equal(result.success, true);
+  assert.equal(result.loan.collateralTileIndex, null);
   assert.equal(result.loan.collateralName, 'NONE');
 });
 

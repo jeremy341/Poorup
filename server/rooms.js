@@ -31,6 +31,10 @@ function safeNickname(nickname) {
   return safe || 'Player';
 }
 
+function safeClientId(clientId) {
+  return typeof clientId === 'string' ? clientId.trim().slice(0, 120) : '';
+}
+
 function safeSeatColor(color) {
   if (typeof color !== 'string') return '#35a653';
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return '#35a653';
@@ -42,10 +46,35 @@ function seatPersonality(personality) {
   return 'survivor';
 }
 
+function roomSettingChangeRejected(room, key) {
+  return room.game.started
+    || !Object.prototype.hasOwnProperty.call(room.settings, key)
+    || LEGACY_SCALED_SETTINGS.includes(key);
+}
+
+function normalizedRoomSetting(room, key, value) {
+  const normalizer = ROOM_SETTING_NORMALIZERS[key];
+  return normalizer ? normalizer(value, room) : room.defaultRoomSettingValue(key, value);
+}
+
+function capacityAllowsSetting(room, key, value) {
+  if (key !== 'maxPlayers') return true;
+  const humanSeats = room.game.players.filter(player => !player.isBot && !player.disconnected && !player.bankrupt).length;
+  return value >= humanSeats;
+}
+
+function syncBotCapacity(room, key, value) {
+  if (key !== 'maxPlayers') return;
+  const maxBots = Math.max(0, value - 1);
+  if (Number(room.settings.bots) <= maxBots) return;
+  room.settings.bots = maxBots;
+  room.game.settings.bots = maxBots;
+}
+
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
     this.id = crypto.randomUUID();
-    this.clientId = clientId || this.id;
+    this.clientId = safeClientId(clientId) || this.id;
     this.socketId = socketId;
     this.nickname = safeNickname(nickname);
     this.color = safeSeatColor(color);
@@ -151,6 +180,16 @@ class Room {
   }
 
   reconnectPlayer(existing, playerInfo) {
+    // A clientId is a bearer key for guest seats, but it must never let a
+    // different signed-in account take over an account-owned seat (or attach
+    // its account to a guest seat). Fast reloads without a token remain
+    // supported because the clientId itself is the session credential.
+    if (playerInfo.accountId && existing.accountId !== playerInfo.accountId) {
+      return { success: false, error: 'That seat is already linked to another account.' };
+    }
+    if (!playerInfo.accountId && existing.accountId && existing.socketId !== playerInfo.socketId) {
+      return { success: false, error: 'That seat is already linked to another account.' };
+    }
     if (this.reconnectGridIsInvalid(playerInfo.avatarGrid)) {
       return { success: false, error: AVATAR_GRID_ERROR };
     }
@@ -170,6 +209,7 @@ class Room {
   }
 
   refreshReconnectNickname(player, nickname) {
+    if (this.game.started) return;
     if (typeof nickname !== 'string') return;
     const safeNickname = nickname.trim().slice(0, 24);
     if (safeNickname) player.nickname = safeNickname;
@@ -231,6 +271,9 @@ class Room {
     if (this.game.started) {
       return { success: false, error: 'Game is already in progress.' };
     }
+    if (playerInfo.accountId && this.game.players.some(player => player.accountId === playerInfo.accountId)) {
+      return { success: false, error: 'This account is already seated in this room.' };
+    }
     if (!this.game.canJoin()) {
       return { success: false, error: 'Room is full.' };
     }
@@ -255,22 +298,12 @@ class Room {
   }
 
   setRoomSetting(key, value) {
-    if (this.game.started) {
-      return;
-    }
-    if (!Object.prototype.hasOwnProperty.call(this.settings, key)) {
-      return;
-    }
-    if (LEGACY_SCALED_SETTINGS.includes(key)) {
-      return;
-    }
-    const normalizer = ROOM_SETTING_NORMALIZERS[key];
-    const nextValue = normalizer ? normalizer(value, this) : this.defaultRoomSettingValue(key, value);
-    if (nextValue === SETTING_REJECTED) {
-      return;
-    }
+    if (roomSettingChangeRejected(this, key)) return;
+    const nextValue = normalizedRoomSetting(this, key, value);
+    if (nextValue === SETTING_REJECTED || !capacityAllowsSetting(this, key, nextValue)) return;
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
+    syncBotCapacity(this, key, nextValue);
     this.applyRoomSettingSideEffect(key, nextValue);
   }
 
@@ -338,7 +371,7 @@ class Room {
     return this.game.getBankLoanOffer(this.game.getPlayerBySocket(socketId));
   }
 
-  getRoomSummary() {
+  getRoomSummary(viewerPlayerId = null) {
     // Legacy clients may still send these fields; the server owns scaling now,
     // so they never leave the server side of the wire.
     const publicSettings = { ...this.settings };
@@ -353,16 +386,15 @@ class Room {
       capacity: this.settings.maxPlayers,
       hostId: this.hostId,
       settings: publicSettings,
-      players: this.game.players.map(player => this.summarySeat(player)),
+      players: this.game.players.map(player => this.summarySeat(player, viewerPlayerId)),
       started: this.game.started,
       vacationPool: this.game.vacationPool
     };
   }
 
-  summarySeat(player) {
-    return {
+  summarySeat(player, viewerPlayerId = null) {
+    const entry = {
       id: player.id,
-      clientId: player.clientId,
       nickname: player.nickname,
       color: player.color,
       cash: player.cash,
@@ -379,6 +411,8 @@ class Room {
       accountId: player.accountId || null,
       avatarGrid: player.avatarGrid || null
     };
+    if (viewerPlayerId && player.id === viewerPlayerId) entry.clientId = player.clientId;
+    return entry;
   }
 
   getDirectorySummary() {
@@ -469,17 +503,20 @@ class RoomManager {
     return this.socketRoom.get(socketId) || null;
   }
 
-  restoreConnection(clientId, socketId, accountId = null) {
-    const room = this.findLiveRoomFor(clientId) || this.findRoomFor(clientId);
+  restoreConnection(clientId, socketId, accountId = null, onAccountSeatReclaimed = null) {
+    const safeId = safeClientId(clientId);
+    if (!safeId) return null;
+    const room = this.findLiveRoomFor(safeId) || this.findRoomFor(safeId);
     if (room) {
-      const player = room.game.getPlayerByClient(clientId);
+      const player = room.game.getPlayerByClient(safeId);
       if (!player) return null;
+      if (accountId && player.accountId !== accountId) return null;
       player.socketId = socketId;
       player.disconnected = false;
       this.socketRoom.set(socketId, room);
       return room;
     }
-    return this.restoreAccountSeat(accountId, clientId, socketId);
+    return this.restoreAccountSeat(accountId, safeId, socketId, onAccountSeatReclaimed);
   }
 
   // Tab-restart recovery: a reopened tab has a fresh clientId (sessionStorage
@@ -488,7 +525,7 @@ class RoomManager {
   // by the same account is reclaimed under the new clientId. Connected seats
   // never match: a live tab keeps its seat and the newcomer is rejected,
   // preserving one-seat-per-tab.
-  restoreAccountSeat(accountId, clientId, socketId) {
+  restoreAccountSeat(accountId, clientId, socketId, onAccountSeatReclaimed = null) {
     if (!accountId) return null;
     if (!clientId) return null;
     const room = [...this.rooms.values()].find(roomItem => {
@@ -499,6 +536,8 @@ class RoomManager {
     if (!room) return null;
     const player = room.game.players.find(p => p.accountId === accountId);
     if (!player) return null;
+    const previousClientId = player.clientId;
+    if (typeof onAccountSeatReclaimed === 'function') onAccountSeatReclaimed(previousClientId);
     player.clientId = clientId;
     player.socketId = socketId;
     player.disconnected = false;
@@ -556,8 +595,26 @@ class RoomManager {
   releaseSeat(game, player) {
     const playerId = player.id;
     const wasCurrentTurn = this.wasCurrentTurnSeat(game, playerId);
+    if (game.started) this.releaseStartedSeatAssets(game, player);
     game.removePlayerByClient(player.clientId);
     if (game.started) this.clearStartedGameSeat(game, player, wasCurrentTurn);
+  }
+
+  releaseStartedSeatAssets(game, player) {
+    // A voluntary leave is final. Remove every reference that could otherwise
+    // leave orphaned deeds/market holdings or live contracts pointing at a
+    // player no longer present in the table.
+    const pending = game.pendingPayment;
+    const creditor = pending?.playerId === player.id && pending.creditorId
+      ? game.getPlayerById(pending.creditorId)
+      : null;
+    this.clearPendingSeatObligations(game, player);
+    game.markPlayerBankrupt?.(player);
+    game.liquidateMarketPositions?.(player);
+    game.sweepCashToCreditor?.(player, creditor);
+    game.settleContractsOnBankruptcy?.(player);
+    game.forfeitOrReleaseProperties?.(player, creditor);
+    game.feedMessage(`${player.nickname} left the table.`);
   }
 
   wasCurrentTurnSeat(game, playerId) {
@@ -593,6 +650,7 @@ class RoomManager {
   }
 
   clearSeatPendingPayment(game, player) {
+    game.removeQueuedPaymentsForPlayer?.(player.id);
     if (this.seatIsPaymentDebtor(game, player.id)) {
       this.cancelSeatPayment(game, player);
       return;
@@ -657,6 +715,8 @@ class RoomManager {
     if (!auction.active) return;
     if (auction.highestBidderId !== playerId) return;
     auction.highestBidderId = null;
+    auction.highestBid = 0;
+    auction.lastBidAt = 0;
   }
 }
 

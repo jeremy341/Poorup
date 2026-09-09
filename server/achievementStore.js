@@ -7,6 +7,26 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'achievements.json');
 
 const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
+// Match records intentionally store human-readable event titles, while older
+// records and test fixtures may contain stable event ids. Keep both forms in
+// one predicate so the crisis achievement cannot silently disappear after a
+// title projection.
+const NEGATIVE_GLOBAL_EVENTS = new Set([
+  'housing-bubble', 'HOUSING BUBBLE POP', 'credit-freeze', 'CREDIT FREEZE',
+  'inflation-spiral', 'INFLATION SPIRAL', 'anti-monopoly', 'ANTI-MONOPOLY INVESTIGATION',
+  'interest-rate-shock', 'INTEREST RATE SHOCK', 'energy-crisis', 'ENERGY CRISIS',
+  'labor-strike', 'LABOR STRIKE', 'currency-devaluation', 'CURRENCY DEVALUATION',
+  'supply-chain', 'SUPPLY CHAIN BREAKDOWN', 'tax-audit', 'TAX SCANDAL AUDIT',
+  'bank-run', 'BANK RUN', 'transit-shutdown', 'TRANSIT SHUTDOWN',
+  'foreclosure-spiral', 'FORECLOSURE SPIRAL', 'stagflation', 'STAGFLATION',
+  'travel-chaos', 'TRAVEL CHAOS', 'legitimacy-crisis', 'LEGITIMACY CRISIS',
+  'construction-shutdown', 'CONSTRUCTION SHUTDOWN', 'moral-hazard', 'TOO BIG TO FAIL'
+]);
+
+function isNegativeGlobalEvent(event) {
+  if (NEGATIVE_GLOBAL_EVENTS.has(event)) return true;
+  return NEGATIVE_GLOBAL_EVENTS.has(String(event || '').trim().toUpperCase());
+}
 
 function sanitize(record = {}) {
   return {
@@ -65,11 +85,11 @@ const ACHIEVEMENT_RULES = [
   { achievementId: 'black-ledger', title: 'THE BLACK LEDGER', rarity: 'MYTHICAL', body: 'The bank closed the book. Something inside kept counting.', test: ({ participant, isWinner }) => isWinner && participant.comboExperienced && participant.collateralLost },
   { achievementId: 'generous-lender', title: 'GENEROUS LENDER', rarity: 'UNCOMMON', body: 'You funded a player loan that was fully repaid.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId) },
   { achievementId: 'silent-partner', title: 'SILENT PARTNER', rarity: 'RARE', body: 'You completed a player loan without collateral.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex == null) },
-  { achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A player loan default cost the collateral deed.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'defaulted' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex != null) },
-  { achievementId: 'crisis-manager', title: 'CRISIS MANAGER', rarity: 'RARE', body: 'You stayed solvent through a global headline.', test: ({ participant }) => participant.globalEventsExperienced > 0 && !participant.bankrupt },
-  { achievementId: 'double-headline', title: 'DOUBLE HEADLINE', rarity: 'LEGENDARY', body: 'You survived two global headlines in one game.', test: ({ globalEvents }) => globalEvents.length >= 2 },
+  { achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A loan default cost the collateral deed.', test: ({ participant, contracts }) => (participant.collateralLost && participant.bankLoanDefaulted) || contracts.some(contract => loanLikeContract(contract) && contract.status === 'defaulted' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex != null) },
+  { achievementId: 'crisis-manager', title: 'CRISIS MANAGER', rarity: 'RARE', body: 'You stayed solvent through a negative global headline.', test: ({ participant, globalEvents }) => participant.globalEventsExperienced > 0 && globalEvents.some(isNegativeGlobalEvent) && !participant.bankrupt },
+  { achievementId: 'double-headline', title: 'DOUBLE HEADLINE', rarity: 'LEGENDARY', body: 'You survived two global headlines in one game.', test: ({ participant }) => participant.globalEventsSurvived >= 2 },
   { achievementId: 'clean-exit', title: 'CLEAN EXIT', rarity: 'UNCOMMON', body: 'You repaid a bank loan before default.', test: ({ participant }) => participant.bankLoanStatus === 'paid' && !participant.bankLoanDefaulted },
-  { achievementId: 'debt-free', title: 'DEBT FREE', rarity: 'UNCOMMON', body: 'You finished the game with clean books.', test: ({ participant }) => !participant.bankLoanStatus || participant.bankLoanStatus === 'paid' },
+  { achievementId: 'debt-free', title: 'DEBT FREE', rarity: 'UNCOMMON', body: 'You finished the game with clean books.', test: ({ participant, contracts }) => (!participant.bankLoanStatus || participant.bankLoanStatus === 'paid') && !contracts.some(contract => loanLikeContract(contract) && ['active', 'due', 'defaulted'].includes(contract.status) && contract.toAccountId === participant.accountId) },
   { achievementId: 'treasure-map', title: 'TREASURE MAP', rarity: 'EPIC', body: 'You drew every Treasure card across your account history.', test: ({ treasureCardCount }) => treasureCardCount >= 16 },
   { achievementId: 'event-tourist', title: 'EVENT TOURIST', rarity: 'RARE', body: 'You experienced three different global events.', test: ({ eventCount }) => eventCount >= 3 },
 ];
@@ -139,7 +159,7 @@ export class AchievementStore {
   }
 
   load() {
-    const { value } = loadJson(this.filePath);
+    const { value } = loadJson(this.filePath, loaded => Array.isArray(loaded));
     if (!value) return;
     const records = Array.isArray(value) ? value : [];
     records.forEach((entry) => {

@@ -141,6 +141,7 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
+    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
@@ -154,6 +155,7 @@ class GameState {
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
+    this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
     this.lastWinner = null;
@@ -170,6 +172,7 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
@@ -199,6 +202,7 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
+    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
@@ -212,6 +216,7 @@ class GameState {
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
+    this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
     this.lastWinner = null;
@@ -228,6 +233,7 @@ class GameState {
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
     this.marketRound = 0;
+    this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.surpriseDeck = [...SURPRISE_DECK];
@@ -332,10 +338,10 @@ class GameState {
 
   isPlayerContractCollateral(player, tile) {
     return Boolean(player && tile && this.playerContracts?.some(contract =>
-      contract.kind === 'loan'
+      ['loan', 'hybrid'].includes(contract.kind)
       && ['active', 'due'].includes(contract.status)
       && contract.toPlayerId === player.id
-      && Number(contract.collateralTileIndex) === Number(tile.index)
+      && Number(contract.kind === 'hybrid' ? contract.propertyIndex : contract.collateralTileIndex) === Number(tile.index)
     ));
   }
 
@@ -352,6 +358,7 @@ class GameState {
     if (tile.type !== 'property') return false;
     if (tile.mortgaged) return false;
     if (tile.houseCount > 0) return false;
+    if (tile.equityShares?.length) return false;
     return !this.isPlayerContractCollateral(player, tile);
   }
 
@@ -383,7 +390,8 @@ class GameState {
   }
 
   terminateTileEquityShares(tile) {
-    (tile.equityShares || []).forEach(share => {
+    const shares = Array.isArray(tile?.equityShares) ? tile.equityShares : [];
+    shares.forEach(share => {
       const contract = this.playerContractById(share.contractId);
       if (!equityShareContractLive(contract)) return;
       contract.status = 'terminated';
@@ -410,7 +418,7 @@ class GameState {
 
   attachDeedToOwner(toPlayer, tile) {
     if (!toPlayer) return;
-    toPlayer.properties.push(tile.index);
+    if (!toPlayer.properties.includes(tile.index)) toPlayer.properties.push(tile.index);
     this.refreshPlayerGroups(toPlayer);
   }
 
@@ -710,7 +718,7 @@ class GameState {
     }
     const next = this.findNextTurnSeat();
     if (!this.nextSeatIsPlayable(next)) {
-      this.announceWaitingForSeat();
+      this.announceWaitingForSeat(next.player);
       return;
     }
     if (this.turnOrderWrapped(next)) this.advanceRound();
@@ -742,8 +750,8 @@ class GameState {
     return !next.player.disconnected;
   }
 
-  announceWaitingForSeat() {
-    const waiting = this.getPlayerById(this.currentPlayerId);
+  announceWaitingForSeat(waiting = null) {
+    waiting ||= this.getPlayerById(this.currentPlayerId);
     if (!waiting) return;
     if (waiting.bankrupt) return;
     this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
@@ -805,7 +813,7 @@ class GameState {
       this.tenderPartialDebt(player, creditor, partial, hooks);
     }
     const remaining = amount - partial;
-    this.pendingPayment = {
+    const pending = {
       playerId: player.id,
       creditorId: creditor ? creditor.id : null,
       amountRemaining: remaining,
@@ -813,6 +821,16 @@ class GameState {
       equityTileIndex: hooks.equityTileIndex ?? null,
       equityOwnerId: hooks.equityOwnerId ?? null
     };
+    if (this.pendingPayment) {
+      // Round processing can mature several independent debts at once. Keep
+      // the existing table gate and queue later claims instead of silently
+      // overwriting the first debtor.
+      this.pendingPaymentQueue ||= [];
+      this.pendingPaymentQueue.push({ payment: pending, hooks, turnOptions });
+      this.feedMessage(`${player.nickname} owes $${remaining}; the payment is queued behind the current debt.`);
+      return;
+    }
+    this.pendingPayment = pending;
     this.pendingPaymentHooks = hooks;
     this.pendingPaymentTurnOptions = turnOptions;
     this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
@@ -871,10 +889,25 @@ class GameState {
     return !player.disconnected;
   }
 
-  clearPendingPayment() {
+  clearPendingPayment(activateNext = true) {
+    const shouldActivateNext = activateNext && this.started;
     this.pendingPayment = null;
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
+    const next = shouldActivateNext ? this.pendingPaymentQueue?.shift() : null;
+    if (!next) return false;
+    this.pendingPayment = next.payment;
+    this.pendingPaymentHooks = next.hooks;
+    this.pendingPaymentTurnOptions = next.turnOptions;
+    return true;
+  }
+
+  removeQueuedPaymentsForPlayer(playerId) {
+    if (!playerId || !Array.isArray(this.pendingPaymentQueue)) return;
+    this.pendingPaymentQueue = this.pendingPaymentQueue.filter(entry => {
+      const payment = entry?.payment;
+      return payment?.playerId !== playerId && payment?.creditorId !== playerId;
+    });
   }
 
   // Remainder path replays the debt hooks exactly once. Equity debts replay
@@ -957,14 +990,19 @@ class GameState {
   }
 
   pendingFlowRejection(player) {
-    if (this.auction && this.auction.active) return { success: false, error: 'Finish the active auction before ending the turn.' };
-    const offer = this.pendingPurchaseOffer;
-    if (offer && offer.playerId === player.id) return { success: false, error: 'Resolve the property offer before ending the turn.' };
-    const pending = this.pendingPayment;
-    if (pending && pending.playerId === player.id) return { success: false, error: 'Settle your debt before ending the turn.' };
-    const dealReason = this.pendingDealBlockReason(player);
-    if (dealReason) return { success: false, error: dealReason };
-    return null;
+    const error = this.pendingFlowError(player);
+    return error ? { success: false, error } : null;
+  }
+
+  pendingFlowError(player) {
+    const blockers = [
+      [Boolean(this.auction?.active), 'Finish the active auction before ending the turn.'],
+      [this.pendingPurchaseOffer?.playerId === player.id, 'Resolve the property offer before ending the turn.'],
+      [this.pendingPayment?.playerId === player.id, 'Settle your debt before ending the turn.'],
+      [Boolean(this.pendingSponsoredPurchase), 'Resolve the open sponsorship before ending the turn.']
+    ];
+    const blocker = blockers.find(([active]) => active);
+    return blocker?.[1] || this.pendingDealBlockReason(player);
   }
 
   skipDisconnectedCurrentPlayer() {
@@ -978,7 +1016,10 @@ class GameState {
   }
 
   endGame() {
-    const winner = this.connectedNonBankruptPlayers().filter(p => !p.inDebt)[0] || this.nonBankruptPlayers().filter(p => !p.inDebt)[0];
+    // A disconnected seat is not an eligible winner. If every solvent seat
+    // has gone offline, finish without crowning a ghost; a supervisor can
+    // still retain the match record for diagnostics.
+    const winner = this.connectedNonBankruptPlayers().find(player => !player.inDebt) || null;
     if (this.globalEvent) {
       const event = this.globalEvent;
       if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
@@ -1000,6 +1041,7 @@ class GameState {
     this.pendingTrade = null;
     this.pendingPlayerContract = null;
     this.clearPendingPayment();
+    this.pendingPaymentQueue = [];
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;

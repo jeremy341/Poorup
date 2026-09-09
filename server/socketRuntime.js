@@ -6,7 +6,7 @@
 // feed text, ack shapes) is pinned by server/rooms.test.js and
 // server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
-import { normalizeAvatarGrid, buildMatchRecordOptions } from './roomSetup.js';
+import { normalizeAvatarGrid, normalizeClientId, buildMatchRecordOptions } from './roomSetup.js';
 import {
   selectBotTurnTarget,
   botMayStillAct,
@@ -15,7 +15,7 @@ import {
   isAuctionBotParticipant,
   auctionBidDecision
 } from './botLogic.js';
-import { buildBotStrategicContext } from './botStrategicContext.js';
+import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
 
 const DISCONNECT_GRACE_MS = 10000;
@@ -23,7 +23,10 @@ const DISCONNECT_GRACE_MS = 10000;
 // game forever (the disconnect-grace skip only fires on real disconnects), so
 // each turn owner gets a bounded budget; the timeout is env-tunable for tests.
 const TURN_AFK_CHECK_INTERVAL_MS = 15 * 1000;
-const TURN_AFK_TIMEOUT_MS = Number(process.env.TURN_AFK_TIMEOUT_MS || 180000);
+const configuredAfkTimeout = Number(process.env.TURN_AFK_TIMEOUT_MS);
+const TURN_AFK_TIMEOUT_MS = Number.isFinite(configuredAfkTimeout) && configuredAfkTimeout > 0
+  ? Math.max(1000, configuredAfkTimeout)
+  : 180000;
 const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
 const ROOMS_UPDATED_DEBOUNCE_MS = 750;
@@ -53,6 +56,7 @@ function createRuntime(deps) {
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
+  const turnTimers = new Map();
   const botDecisionLocks = new Set();
   const auctionBotTimers = new Map();
   let roomsUpdatedTimer = null;
@@ -76,11 +80,19 @@ function createRuntime(deps) {
   }
 
   function emitRoomState(room) {
-    if (!room) return;
+    if (!room || room.destroyed) return;
     try {
       if (room.game.lastWinner && !room.statsRecorded) {
         recordRoomStats(room);
       }
+    } catch (error) {
+      // A store outage must not prevent connected clients from receiving the
+      // authoritative in-memory game state. The next state emission retries
+      // settlement while this broadcast path remains available.
+      console.error('recordRoomStats failed for room', room.roomCode, error);
+    }
+    try {
+      scheduleTurnTimer(room);
       broadcastRoomState(room);
       scheduleBotTurn(room);
       scheduleBotAuction(room);
@@ -111,7 +123,6 @@ function createRuntime(deps) {
   }
 
   function broadcastRoomState(room) {
-    const roomSummary = room.getRoomSummary();
     const serverTime = Date.now();
     // Game summaries now carry owner-only loan and contract terms. Emit a
     // viewer-scoped projection so another seat can see that a loan exists
@@ -120,7 +131,7 @@ function createRuntime(deps) {
       if (!candidate.rooms.has(room.roomCode)) return;
       const viewer = room.getPlayerBySocket(candidate.id);
       candidate.emit('update-state', {
-        room: roomSummary,
+        room: room.getRoomSummary(viewer?.id || null),
         game: room.game.getGameSummary(viewer?.id || null),
         serverTime
       });
@@ -225,6 +236,42 @@ function createRuntime(deps) {
     auctionTimers.delete(room.roomCode);
   }
 
+  function clearTurnTimer(room) {
+    if (!room) return;
+    const timer = turnTimers.get(room.roomCode);
+    if (timer) clearTimeout(timer);
+    turnTimers.delete(room.roomCode);
+    room.turnTimerWatch = null;
+    if (room.game) room.game.turnDeadline = 0;
+  }
+
+  function scheduleTurnTimer(room) {
+    if (!room?.game?.started) {
+      clearTurnTimer(room);
+      return;
+    }
+    const seconds = Math.max(0, Math.floor(Number(room.settings?.turnTimer) || 0));
+    const current = afkWatchTarget(room.game);
+    if (!seconds || !current) {
+      clearTurnTimer(room);
+      return;
+    }
+    const key = `${current.id}:${room.game.roundNumber}:${room.game.startedAt || 0}`;
+    if (room.turnTimerWatch?.key === key) return;
+    clearTurnTimer(room);
+    const deadline = Date.now() + seconds * 1000;
+    room.game.turnDeadline = deadline;
+    room.turnTimerWatch = { key, playerId: current.id, deadline };
+    const timer = setTimeout(() => {
+      const watch = room.turnTimerWatch;
+      const active = room.game.getCurrentPlayer();
+      if (!watch || watch.key !== key || active?.id !== current.id || !room.game.started) return;
+      clearTurnTimer(room);
+      expireAfkTurn(room, room.game, active);
+    }, seconds * 1000);
+    turnTimers.set(room.roomCode, timer);
+  }
+
   function clearDisconnectTimer(clientId) {
     const timer = disconnectTimers.get(clientId);
     if (timer) {
@@ -248,6 +295,7 @@ function createRuntime(deps) {
     const roomCode = room.roomCode;
     room.destroyed = true;
     clearAuctionTimer(room);
+    clearTurnTimer(room);
     clearDisconnectTimersForRoom(room);
     clearTimeout(auctionBotTimers.get(roomCode));
     auctionBotTimers.delete(roomCode);
@@ -270,7 +318,7 @@ function createRuntime(deps) {
   // --- bots ----------------------------------------------------------------
 
   function scheduleBotTurn(room) {
-    if (!room?.game.started) return;
+    if (!room?.game.started || room.destroyed) return;
     // Auctions have their own participant timer. Keeping the ordinary turn
     // queue out of this phase prevents the current seat from issuing a
     // rejected pass/bid while a different bot is the auction participant.
@@ -311,9 +359,13 @@ function createRuntime(deps) {
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     emitBotStatus(room, bot, 'thinking', { decisionSequence });
     const result = await runBotTurn(room, bot, botAdvisor);
+    if (room.destroyed) return;
     if (result?.botDecision) {
       const trace = room.game.recordBotDecisionTrace(result.botDecision);
       emitBotStatus(room, bot, 'chosen', trace);
+    }
+    if (result?.botChat) {
+      io.in(room.roomCode).emit('chat-message', { text: result.botChat, nickname: bot.nickname, senderId: bot.id, bot: true });
     }
     if (result?.noEmit) return;
     // Tail purchase resolution, second half of the post-roll double-check.
@@ -360,6 +412,7 @@ function createRuntime(deps) {
   }
 
   function scheduleBotAuction(room) {
+    if (room?.destroyed) return;
     const auction = room?.game.auction;
     if (!auction?.active) return;
     const key = room.roomCode;
@@ -377,6 +430,7 @@ function createRuntime(deps) {
   async function beginBotAuctionBid(room, bot, key) {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
+    const auctionVersion = auctionIdentity(room.game.auction);
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
@@ -388,7 +442,7 @@ function createRuntime(deps) {
       botDifficulty: room.settings.botDifficulty || 'table',
       gameId: `${room.roomCode}:${room.game.startedAt || 'pending'}`,
       decisionSequence,
-      ruleVersion: 'bot-policy-v1',
+      ruleVersion: BOT_RULE_VERSION,
       ...buildBotStrategicContext(room.game, bot, 'auction', decisionSequence)
     };
     const candidates = [
@@ -399,6 +453,7 @@ function createRuntime(deps) {
     if (botAdvisor.supportsChoicePhases) {
       decision = await botAdvisor.chooseAction({ ...context, candidates, personality: bot.personality, event: room.game.globalEvent });
     }
+    if (room.destroyed || !sameAuction(room.game.auction, auctionVersion)) return;
     const actionId = decision?.actionId === 'auction:bid' || decision?.actionId === 'auction:pass'
       ? decision.actionId
       : baseline.shouldBid ? 'auction:bid' : 'auction:pass';
@@ -426,21 +481,36 @@ function createRuntime(deps) {
     return room.placeAuctionBid(actor, minimum);
   }
 
+  function auctionIdentity(auction) {
+    if (!auction) return null;
+    return `${auction.startedAt || 0}:${auction.propertyTile?.index ?? 'unknown'}`;
+  }
+
+  function sameAuction(auction, identity) {
+    return Boolean(auction?.active && identity && auctionIdentity(auction) === identity);
+  }
+
   // --- auction/disconnect timers -------------------------------------------
 
   function scheduleAuctionFinish(room) {
-    if (!room?.game.auction?.active) return;
+    const auction = room?.game.auction;
+    if (!auction?.active || room.destroyed) return;
     const roomCode = room.roomCode;
     clearAuctionTimer(room);
-    const endsAt = room.game.auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
+    const endsAt = auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
     const delay = Math.max(0, endsAt - Date.now());
-    const timer = setTimeout(() => finishAuctionIfStillActive(roomCode), delay);
+    // Capture the auction object itself, not just the room code. A stale
+    // callback that survives clearTimeout must never finish a newer auction in
+    // the same room.
+    const timer = setTimeout(() => finishAuctionIfStillActive(roomCode, auction), delay);
     auctionTimers.set(roomCode, timer);
   }
 
-  function finishAuctionIfStillActive(roomCode) {
+  function finishAuctionIfStillActive(roomCode, expectedAuction) {
     const currentRoom = roomManager.getRoom(roomCode);
-    if (!currentRoom?.game.auction?.active) {
+    if (!currentRoom?.game.auction?.active || (expectedAuction && currentRoom.game.auction !== expectedAuction)) {
+      // Do not clear a timer for a newer auction when an older callback fires.
+      if (currentRoom?.game.auction && expectedAuction && currentRoom.game.auction !== expectedAuction) return;
       clearAuctionTimer({ roomCode });
       return;
     }
@@ -611,20 +681,32 @@ function createRuntime(deps) {
   // handler stays a validate -> delegate -> respond flow.
   function acceptRoomInvite(socket, account, invite, payload) {
     if (!invite) return { success: false, error: 'That room invite has expired.' };
+    if (Date.parse(invite.expiresAt || '') <= Date.now()) {
+      // Mark the stale record before doing any seat mutation. Previously an
+      // invite that expired between lookup and acceptance could still join a
+      // room even though the response returned an expiry error.
+      socialStore.respondInvite(account.id, invite.id, true);
+      return { success: false, error: 'That room invite has expired.' };
+    }
     const room = roomManager.getRoom(invite.roomCode);
     if (!room) return { success: false, error: 'That room no longer exists.' };
     if (room.game.started) return { success: false, error: 'That round has already started.' };
     if (!room.game.canJoin()) return { success: false, error: 'That room is full.' };
-    const clientId = String(payload.clientId || '').trim();
+    const clientId = normalizeClientId(payload.clientId);
     if (!clientId) return { success: false, error: 'A client session is required to join.' };
     return joinRoomViaInvite(socket, account, room, payload);
   }
 
   function joinRoomViaInvite(socket, account, room, payload) {
+    const clientId = normalizeClientId(payload.clientId);
+    const existing = room.game.getPlayerByClient(clientId);
+    if (existing?.socketId && existing.socketId !== socket.id && !existing.disconnected) {
+      return { success: false, error: 'That seat is already in use.' };
+    }
     detachSocketFromOtherRoom(socket, room);
     leaveAllGameRooms(socket);
     const joined = room.addOrReconnectPlayer({
-      clientId: String(payload.clientId || '').trim(),
+      clientId,
       socketId: socket.id,
       nickname: account.displayName,
       color: account.color,
@@ -632,6 +714,7 @@ function createRuntime(deps) {
       accountId: account.id
     });
     if (!joined.success) return { success: false, error: joined.error };
+    clearDisconnectTimer(clientId);
     roomManager.socketRoom.set(socket.id, room);
     socket.join(room.roomCode);
     const result = socialStore.respondInvite(account.id, payload.inviteId, true);

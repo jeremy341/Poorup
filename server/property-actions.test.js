@@ -121,6 +121,20 @@ check('event building limit caps per-turn builds', () => {
   assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }).success, true);
 });
 
+check('shared house and hotel supplies cap construction', () => {
+  const { game, owner, give } = ownedRoom();
+  const first = give(1);
+  const second = give(3);
+  owner.cash = 5000;
+  game.settings.houseLimit = 1;
+  delete game.canBuildOnTile;
+  assert.equal(game.manageProperty('socket-a', { tileIndex: first.index, action: 'build-house' }).success, true);
+  reject(game, 'socket-a', second.index, 'build-house', 'You cannot build on this property right now.');
+  first.houseCount = 4;
+  game.settings.hotelLimit = 0;
+  reject(game, 'socket-a', first.index, 'build-house', 'You cannot build on this property right now.');
+});
+
 check('public-works election tracks builds, evenBuild counts, bubble rebuild flags', () => {
   const { game, owner, give } = ownedRoom();
   give(1);
@@ -179,6 +193,18 @@ check('event value multiplier scales mortgage proceeds', () => {
   const half = Math.floor((tile.price || 0) / 2);
   assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
   assert.equal(owner.cash, half * 2);
+});
+
+check('event value multiplier keeps unmortgage pricing symmetric', () => {
+  const { game, owner, give } = ownedRoom();
+  const tile = give(1);
+  tile.mortgaged = true;
+  game.globalEvent = { id: 'test-value', phase: 'active', effects: { propertyValueMultiplier: 0.8 } };
+  const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * 0.8);
+  owner.cash = cost;
+  assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'unmortgage' }).success, true);
+  assert.equal(owner.cash, 0);
+  assert.equal(tile.mortgaged, false);
 });
 
 check('mortgage blocked while buildings stand; unmortgage requires mortgage', () => {

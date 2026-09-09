@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { participantFromPlayer } from './participantFields.js';
+import { sanitizeMatch } from './matchStore.js';
 import { loadJson, writeJson } from './storeIO.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,9 +15,9 @@ const MYTHICAL_ACHIEVEMENT_IDS = new Set(['41st-tile', 'null-player', 'black-led
 const ACHIEVEMENT_POINTS = { common: 10, uncommon: 25, rare: 50, epic: 100, legendary: 250, mythical: 1000 };
 const ACHIEVEMENT_RARITY_BY_ID = new Map([
   ...['first-deed', 'last-wallet-standing', 'one-dollar-hedge', 'first-index', 'patrol-rookie'].map(id => [id, 'common']),
-  ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular'].map(id => [id, 'uncommon']),
-  ...['auction-ghost', 'collateral-damage', 'bad-idea-good-timing', 'prison-break', 'no-refunds', 'rent-reaper', 'fire-sale', 'airport-hopper', 'tax-evasion', 'underdog', 'group-therapy', 'hostile-bidder', 'event-tourist', 'silent-partner', 'roulette-regular', 'market-maker', 'grounded-tourist', 'coalition-builder', 'patrol-ace', 'crisis-manager', 'unanimous'].map(id => [id, 'rare']),
-  ...['empty-streets', 'liquidity-king', 'public-works', 'short-the-street', 'moral-hazard', 'treasure-map', 'all-in', 'crisis-investor', 'clean-run', 'bubble-survivor', 'stagflation-trader'].map(id => [id, 'epic']),
+  ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular', 'airport-hopper', 'group-therapy'].map(id => [id, 'uncommon']),
+  ...['auction-ghost', 'collateral-damage', 'bad-idea-good-timing', 'prison-break', 'no-refunds', 'rent-reaper', 'fire-sale', 'tax-evasion', 'underdog', 'hostile-bidder', 'event-tourist', 'silent-partner', 'roulette-regular', 'market-maker', 'grounded-tourist', 'coalition-builder', 'patrol-ace', 'crisis-manager', 'unanimous', 'public-works'].map(id => [id, 'rare']),
+  ...['empty-streets', 'liquidity-king', 'short-the-street', 'moral-hazard', 'treasure-map', 'all-in', 'crisis-investor', 'clean-run', 'bubble-survivor', 'stagflation-trader', 'one-more-turn'].map(id => [id, 'epic']),
   ...['double-headline', 'no-floor', 'compromised-council', 'public-enemy'].map(id => [id, 'legendary']),
   ...['41st-tile', 'null-player', 'black-ledger'].map(id => [id, 'mythical'])
 ]);
@@ -83,7 +84,11 @@ function countContracts(record, accountId, include) {
   return (record.playerContracts || []).filter((contract) => include(contract, accountId)).length;
 }
 
-const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
+// A hybrid is a loan only while its debt leg is active/due/settled; once it
+// converts, the remaining live instrument is equity and must not inflate the
+// player-loan leaderboard counters.
+const loanLikeContract = contract => contract?.kind === 'loan'
+  || (contract?.kind === 'hybrid' && contract.status !== 'converted');
 const equityLikeContract = contract => contract?.kind === 'equity' || (contract?.kind === 'hybrid' && contract?.status === 'converted');
 
 function realizedMarketPnl(record, accountId) {
@@ -102,6 +107,18 @@ function normalizeDisplayName(value, fallback = 'PLAYER') {
 
 function normalizeColor(value, fallback = '#d74438') {
   return COLOR_RE.test(String(value || '')) ? String(value).toLowerCase() : fallback;
+}
+
+function revokeLiveSessions(store, username) {
+  for (const [token, owner] of store.sessions) {
+    if (owner === username) store.sessions.delete(token);
+  }
+}
+
+function revokePersistedSessionHashes(store, username) {
+  for (const [tokenHash, owner] of store.sessionHashes) {
+    if (owner === username) store.sessionHashes.delete(tokenHash);
+  }
 }
 
 function sanitizeAvatarGrid(value) {
@@ -219,6 +236,10 @@ function applyMatchResult(account, player, result) {
   account.matchHistory = [result.matchRecord, ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
 }
 
+function accountAlreadyRecordedMatch(account, matchId) {
+  return (account.matchHistory || []).some(entry => entry?.matchId === matchId);
+}
+
 // The same fifteen deltas recomputed from stored match records, for
 // time-windowed views. Wins intentionally differ from the live ladder:
 // history replays use the recorded final placement, not winnerId.
@@ -274,6 +295,7 @@ function leaderboardTrend(account, since) {
 function leaderboardRow(store, account, metric, options) {
   const stats = store.getWindowStats(account, options.since || null);
   const tallies = achievementTallies(account, options.since);
+  if (metric !== 'patrol' && num(stats.gamesPlayed) < 1) return null;
   if (metric === 'rate' && num(stats.gamesPlayed) < 5) return null;
   return {
     accountId: account.id, displayName: account.displayName, username: account.username,
@@ -374,7 +396,7 @@ function normalizeLoadedAccount(handle, account) {
     stats: sanitizeStats(account.stats),
     history: sanitizeHistory(account.history),
     achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
-    matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50) : [],
+    matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50).map(sanitizeMatch) : [],
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null
   };
@@ -390,7 +412,7 @@ export class AccountStore {
   }
 
   load() {
-    const { value } = loadJson(this.filePath);
+    const { value } = loadJson(this.filePath, loaded => Array.isArray(loaded));
     if (!value) return;
     const entries = value;
     if (!Array.isArray(entries)) return;
@@ -421,12 +443,12 @@ export class AccountStore {
   }
 
   issueSession(account) {
-    for (const [token, username] of this.sessions) {
-      if (username === account.username) {
-        this.sessions.delete(token);
-        if (account.sessionTokenHash) this.sessionHashes.delete(account.sessionTokenHash);
-      }
-    }
+    revokeLiveSessions(this, account.username);
+    // Remove every persisted hash for this account, not only the latest field
+    // on the record. This also cleans hashes written by older builds so a
+    // rotated or logged-out token can never be reanimated from the fallback
+    // index.
+    revokePersistedSessionHashes(this, account.username);
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token);
     this.sessions.set(token, account.username);
@@ -490,7 +512,7 @@ export class AccountStore {
   login({ username, password } = {}) {
     const handle = normalizeUsername(username);
     const account = this.accounts.get(handle);
-    if (!hasCredentialShape(account, password)) {
+    if (!hasCredentialShape(account, password) || !validPasswordShape(password)) {
       return { success: false, error: 'Username or password is incorrect.' };
     }
     const expected = Buffer.from(account.passwordHash, 'hex');
@@ -512,6 +534,7 @@ export class AccountStore {
     const account = this.sessionAccount(sessionToken);
     if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
     if (account) {
+      revokePersistedSessionHashes(this, account.username);
       account.sessionTokenHash = null;
       this.persist();
     }
@@ -544,6 +567,7 @@ export class AccountStore {
       if (!player.accountId) return;
       const account = this.getAccountById(player.accountId);
       if (!account) return;
+      if (accountAlreadyRecordedMatch(account, matchId)) return;
       applyMatchResult(account, player, { matchRecord, matchMeta, winnerId });
       changed = true;
     });
@@ -607,6 +631,7 @@ export class AccountStore {
       stats: publicPlayerStats(account.stats),
       achievements: includeAchievements ? publicAchievements(account, true) : publicView.achievements,
       achievementsPrivate: account.privacy?.achievements === 'private',
+      achievementsFriendsOnly: account.privacy?.achievements === 'friends' && !includeAchievements,
       historyPrivate: account.privacy?.history === 'private',
       historyFriendsOnly: account.privacy?.history === 'friends',
       // Match history is served through the authorized history endpoint so
@@ -631,6 +656,12 @@ export class AccountStore {
   clearRecentPlayers(sessionToken) {
     const account = this.sessionAccount(sessionToken);
     if (!account) return { success: false, error: 'Sign in to clear recent players.' };
+    return this.clearRecentPlayersForAccount(account.id);
+  }
+
+  clearRecentPlayersForAccount(accountId) {
+    const account = this.getAccountById(accountId);
+    if (!account) return { success: false, error: 'Sign in to clear recent players.' };
     account.recentClearedAt = new Date().toISOString();
     this.persist();
     return { success: true };
@@ -649,7 +680,8 @@ export class AccountStore {
           displayNameAtMatch: participant.displayNameAtMatch,
           finalPlacement: participant.finalPlacement,
           propertyCount: participant.propertyCount,
-          bankrupt: participant.bankrupt
+          bankrupt: participant.bankrupt,
+          isViewedPlayer: participant.accountId === accountId
         })),
         globalEvents: Array.isArray(record.globalEvents) ? record.globalEvents : [],
         eventCombinations: Array.isArray(record.eventCombinations) ? record.eventCombinations : [],
@@ -679,7 +711,8 @@ export class AccountStore {
     const accounts = [...this.accounts.values()].filter(account => !Array.isArray(options.accountIds) || options.accountIds.includes(account.id));
     const rows = accounts.map(account => leaderboardRow(this, account, metric, options)).filter(Boolean);
     rows.sort((a, b) => b.value - a.value || b.wins - a.wins || a.displayName.localeCompare(b.displayName));
-    return rows.slice(0, 100);
+    const limit = Math.max(1, Math.min(100, Math.floor(Number(options.limit) || 100)));
+    return rows.slice(0, limit);
   }
 
   getLeaderboardSnapshot(metrics = ['wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'], options = {}) {
@@ -687,7 +720,7 @@ export class AccountStore {
     const selected = allowed.length ? [...new Set(allowed)] : ['wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'];
     return {
       generatedAt: new Date().toISOString(),
-      metrics: Object.fromEntries(selected.map(metric => [metric, this.getLeaderboard(metric, options)])),
+      metrics: Object.fromEntries(selected.map(metric => [metric, this.getLeaderboard(metric, { ...options, limit: options.primaryMetric === metric ? 100 : 3 })])),
     };
   }
 }

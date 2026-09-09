@@ -19,14 +19,28 @@ import { createRuntime } from './socketRuntime.js';
 import { registerAccountSocketHandlers } from './serverSocketAccount.js';
 import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
+import { resolveStorePaths } from './serverStorePaths.js';
+import { createCorsOrigin } from './serverConfig.js';
+import { createSocketRateLimiter } from './socketRateLimiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
+const socketRateLimiter = createSocketRateLimiter({
+  max: process.env.POORUP_SOCKET_RATE_LIMIT,
+  windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
+});
+if (process.env.NODE_ENV === 'production' && !String(process.env.POORUP_ALLOWED_ORIGINS || '').trim()) {
+  console.warn('POORUP_ALLOWED_ORIGINS is unset; browser-origin Socket.IO requests are blocked until an allow-list is configured.');
+}
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: createCorsOrigin(process.env) },
+  // All game payloads are compact (an avatar is at most 8×8 cells). Keep
+  // oversized Socket.IO packets from consuming memory before the per-event
+  // rate limiter gets a chance to reject them.
+  maxHttpBufferSize: 100_000
 });
 
 // The supplied plain-client project is the production static UI. Keep the
@@ -41,10 +55,11 @@ app.get('*', (req, res, next) => {
 });
 
 const roomManager = new RoomManager();
-const accountStore = new AccountStore();
-const socialStore = new SocialStore();
-const matchStore = new MatchStore();
-const achievementStore = new AchievementStore();
+const storePaths = resolveStorePaths(process.env);
+const accountStore = new AccountStore(storePaths.accounts);
+const socialStore = new SocialStore(storePaths.social);
+const matchStore = new MatchStore(storePaths.matches);
+const achievementStore = new AchievementStore(storePaths.achievements);
 const botAdvisor = createBotAdvisor();
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore });
@@ -53,13 +68,14 @@ const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matc
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
-  const on = createSafeEmitter(socket);
+  const on = createSafeEmitter(socket, { allow: socketId => socketRateLimiter.allow(socketId) });
 
   registerAccountSocketHandlers(on, socket, runtime);
   registerGameSocketHandlers(on, socket, runtime);
   registerSocialSocketHandlers(on, socket, runtime);
 
   socket.on('disconnect', () => {
+    socketRateLimiter.forget(socket.id);
     runtime.handleSocketDisconnect(socket);
   });
 });

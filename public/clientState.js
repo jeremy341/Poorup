@@ -182,6 +182,7 @@ const state = {
   deedDetail: null,     // tile index currently open in the deed/house manager
   jail: {},             // { playerId: turnsRemaining }
   roundNumber: 0,
+  turnDeadline: 0,
   globalEvent: null,
   playerContractOffer: null,
   negotiationContractId: null,
@@ -192,7 +193,7 @@ const state = {
   socialTab: "friends",
   rulesSection: "start-here",
   rulesQuery: "",
-  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false },
+  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false, error: "", requestId: 0 },
   rankingSearchQuery: "",
   rankingSearchResults: [],
   economy: { casino: { enabled: false, maxBet: 500, lastResult: null, net: 0 }, market: { enabled: false, round: 0, feeRate: 0.02, quotes: {}, positions: {} } },

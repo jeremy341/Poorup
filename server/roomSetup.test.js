@@ -4,6 +4,7 @@
 // limits, and viewer-scoped projection fields).
 import assert from 'assert';
 import {
+  normalizeClientId,
   normalizeNickname,
   normalizeRoomCode,
   normalizeRoomName,
@@ -31,6 +32,13 @@ function check(name, fn) {
 
 const HEX = '#A1B2C3';
 const AVATAR_OK = Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => HEX));
+
+check('normalizeClientId accepts bounded strings and rejects structured payloads', () => {
+  assert.strictEqual(normalizeClientId('  tab-123  '), 'tab-123');
+  assert.strictEqual(normalizeClientId('x'.repeat(140)).length, 120);
+  assert.strictEqual(normalizeClientId({ id: 'attacker' }), '');
+  assert.strictEqual(normalizeClientId(null), '');
+});
 
 check('normalizeNickname trims, caps at 24, and rejects non-strings', () => {
   assert.strictEqual(normalizeNickname('  Space Name  '), 'Space Name');
@@ -216,12 +224,13 @@ check('buildMatchRecordOptions matches the emitRoomState settlement shape', () =
     { accountId: 'acct_a', bets: 2, net: -5 },
     { accountId: null, bets: 0, net: 0 }
   ]);
-  assert.deepStrictEqual(options.market[0], { accountId: 'acct_a', positions: { bonds: { quantity: 3, realizedPnl: 0 } } });
+  assert.deepStrictEqual(options.market[0], { accountId: 'acct_a', positions: { bonds: { quantity: 3, averageCost: 0, realizedPnl: 0 } } });
   assert.strictEqual(options.playerContracts.length, 2);
   assert.deepStrictEqual(options.playerContracts[0], {
     id: 'pc1', kind: 'loan', fromPlayerId: 'p1', toPlayerId: 'p2',
     fromAccountId: 'acct_a', toAccountId: null, amount: 50, premiumRate: 0.2,
-    equityShare: null, collateralTileIndex: 7, status: 'active'
+    equityShare: null, collateralTileIndex: 7, propertyIndex: null,
+    conversionShare: 0, equityControl: null, status: 'active'
   });
   assert.strictEqual(options.playerContracts[1].collateralTileIndex, null);
 });

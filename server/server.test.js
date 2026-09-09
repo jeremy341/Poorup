@@ -4,6 +4,8 @@
 // error ack instead, keeps the process alive, and that the normal socket
 // flow still works end to end.
 import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { io } from 'socket.io-client';
@@ -99,9 +101,59 @@ async function checkHappyPath(socket) {
   check('season leaderboard snapshot is available', season?.success === true && season?.scope === 'season');
 }
 
+async function checkBotStatusAndReconnect(socket, child) {
+  const clientId = 'bot-status-client';
+  const statuses = [];
+  const onStatus = status => statuses.push(status);
+  socket.on('bot-status', onStatus);
+  const created = await ask(socket, 'create-room', { clientId, nickname: 'Bot Probe' });
+  check('bot probe room creates', created?.success === true);
+  await ask(socket, 'set-setting', { key: 'bots', value: 1 });
+  await ask(socket, 'set-setting', { key: 'auction', value: false });
+  const started = await ask(socket, 'start-game', {});
+  check('bot probe round starts', started?.success === true);
+
+  let rolled = null;
+  let snapshot = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const stateUpdate = nextEvent(socket, 'update-state');
+    rolled = await ask(socket, 'roll-dice', {});
+    snapshot = await stateUpdate;
+    if (snapshot?.game?.pendingPurchaseOffer) {
+      const afterDecline = nextEvent(socket, 'update-state');
+      await ask(socket, 'decline-property', { tileIndex: snapshot.game.pendingPurchaseOffer.tileIndex });
+      snapshot = await afterDecline;
+    }
+    if (!snapshot?.game?.extraRollPending) break;
+  }
+  check('bot probe human roll succeeds', rolled?.success === true && snapshot?.game?.awaitingEndTurn === true);
+  const ended = await ask(socket, 'end-turn', {});
+  await wait(1200);
+  socket.off('bot-status', onStatus);
+  const status = statuses.find(candidate => candidate?.state === 'thinking') || statuses.find(candidate => candidate?.state === 'chosen');
+  check('bot turn advances through the normal seam', ended?.success === true);
+  check('bot status is announced with a safe public payload', status?.nickname && ['ai', 'deterministic'].includes(status.provider));
+  check('server survives bot status flow', child.exitCode === null);
+
+  socket.close();
+  await wait(250);
+  const replacement = io(BASE, { reconnection: false });
+  try {
+    await connect(replacement);
+    const update = nextEvent(replacement, 'update-state');
+    const restored = await ask(replacement, 'restore-session', { clientId });
+    const restoredSnapshot = await update;
+    check('reconnect restores the bot probe room', restored?.success === true && restoredSnapshot?.room?.players?.some(player => player.nickname === 'Bot Probe'));
+    check('reconnect returns the live authoritative snapshot', restoredSnapshot?.game?.started === true && restoredSnapshot?.game?.currentPlayerId);
+  } finally {
+    replacement.close();
+  }
+}
+
 async function run() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-server-wire-'));
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    env: { ...process.env, PORT: String(PORT) },
+    env: { ...process.env, PORT: String(PORT), POORUP_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let serverLog = '';
@@ -119,12 +171,24 @@ async function run() {
 
     await checkNullPayloadStorm(socket, child);
     await checkHappyPath(socket);
+    await checkBotStatusAndReconnect(socket, child);
 
     check('no uncaught exception was logged', !serverLog.includes('UNCAUGHT EXCEPTION'));
   } finally {
     if (socket) socket.close();
     child.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
+}
+
+function nextEvent(socket, event, timeoutMs = 5000) {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    socket.once(event, payload => {
+      clearTimeout(timer);
+      resolve(payload);
+    });
+  });
 }
 
 const watchdog = setTimeout(() => {

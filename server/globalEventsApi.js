@@ -351,6 +351,21 @@ const globalEventsApi = {
     });
   },
 
+  settleInterestRateShock(event) {
+    const multiplier = Number(event.effects?.loanPremiumMultiplier);
+    if (!Number.isFinite(multiplier) || multiplier <= 1) return;
+    this.activePlayers().forEach(player => {
+      const loan = player.bankLoan;
+      if (!loan || !['active', 'due'].includes(loan.status)) return;
+      const remaining = Math.max(0, Math.floor(Number(loan.remaining) || 0));
+      if (!remaining) return;
+      const repriced = Math.ceil(remaining * multiplier);
+      loan.remaining = repriced;
+      loan.totalDue = Math.max(repriced, Math.floor(Number(loan.totalDue) || 0));
+      this.feedMessage(`${player.nickname}'s bank loan was repriced to $${repriced} by ${String(event.title || 'the active event').toLowerCase()}.`);
+    });
+  },
+
   settleTaxAuditPenalty() {
     const event = this.globalEvent;
     const target = this.getPlayerById(event.targetPlayerId);
@@ -383,6 +398,14 @@ const globalEventsApi = {
     if (player.cash === 0) player.zeroCashReached = true;
     if (paid < due) {
       this.feedMessage(`${player.nickname} could only pay $${paid} of $${due} in labor-strike maintenance.`);
+      this.openDebtSettlement({
+        player,
+        creditor: null,
+        amount: due - paid,
+        message: 'The labor strike maintenance bill remains outstanding.',
+        turnOptions: {},
+        hooks: {}
+      });
       return;
     }
     this.feedMessage(`${player.nickname} paid $${paid} in labor-strike maintenance.`);

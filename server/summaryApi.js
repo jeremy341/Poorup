@@ -24,6 +24,7 @@ const summaryApi = {
       players: this.players.map(player => this.summaryPlayerEntry(player, viewerPlayerId)),
       feed: this.feed,
       roundNumber: this.roundNumber,
+      turnDeadline: Number(this.turnDeadline) || 0,
       globalEvent: this.summaryGlobalEvent(),
       globalEventHistory: this.globalEventHistory,
       auction: this.summaryAuction(),
@@ -48,7 +49,7 @@ const summaryApi = {
       mortgaged: tile.mortgaged,
       houseCount: tile.houseCount || 0,
       houseCost: this.getPropertyHouseCost(tile),
-      equityShares: (tile.equityShares || []).map(share => this.summaryEquityEntry(share))
+      equityShares: (Array.isArray(tile.equityShares) ? tile.equityShares : []).map(share => this.summaryEquityEntry(share))
     };
   },
 
@@ -62,7 +63,7 @@ const summaryApi = {
   },
 
   summaryPlayerEntry(player, viewerPlayerId) {
-    return {
+    const entry = {
       id: player.id,
       nickname: player.nickname,
       color: player.color,
@@ -83,10 +84,16 @@ const summaryApi = {
       personality: player.isBot ? player.personality : null,
       botBrain: player.isBot ? this.settings.botBrain : null,
       botDifficulty: player.isBot ? this.settings.botDifficulty : null,
-      clientId: player.clientId,
       accountId: player.accountId || null,
       avatarGrid: player.avatarGrid || null
     };
+    if (viewerPlayerId && player.id === viewerPlayerId) {
+      entry.clientId = player.clientId;
+    }
+    if (viewerPlayerId && player.id === viewerPlayerId) {
+      entry.marketPositions = { ...(player.marketPositions || {}) };
+    }
+    return entry;
   },
 
   // Loan privacy: the viewer sees their own full loan, everyone else only

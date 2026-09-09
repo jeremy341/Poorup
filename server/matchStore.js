@@ -60,9 +60,17 @@ function sanitizeCasinoEntry(entry) {
 }
 
 function sanitizeMarketEntry(entry) {
+  const positions = plainObjectOr(entry?.positions);
   return {
     accountId: stringOrNull(entry?.accountId),
-    positions: plainObjectOr(entry?.positions),
+    positions: Object.fromEntries(Object.entries(positions).slice(0, 32).map(([instrumentId, position]) => {
+      const source = position && typeof position === 'object' ? position : {};
+      const clean = {};
+      if (Object.prototype.hasOwnProperty.call(source, 'quantity')) clean.quantity = Math.max(0, Math.min(1_000_000, Math.floor(numberValue(source.quantity))));
+      if (Object.prototype.hasOwnProperty.call(source, 'averageCost')) clean.averageCost = nonNegativeNumber(source.averageCost);
+      if (Object.prototype.hasOwnProperty.call(source, 'realizedPnl')) clean.realizedPnl = numberValue(source.realizedPnl);
+      return [String(instrumentId).slice(0, 40), clean];
+    })),
   };
 }
 
@@ -166,7 +174,7 @@ export class MatchStore {
   }
 
   load() {
-    const { value } = loadJson(this.filePath);
+    const { value } = loadJson(this.filePath, loaded => Array.isArray(loaded));
     if (!value) return;
     const records = Array.isArray(value) ? value : [];
     records.forEach((record) => {
@@ -180,6 +188,10 @@ export class MatchStore {
       .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))
       .slice(0, MAX_MATCHES);
     writeJson(this.filePath, records);
+    // Keep the in-memory index bounded as well as the serialized file. A
+    // long-lived public server otherwise grows forever even though only the
+    // newest 500 matches are retained on disk.
+    this.matches = new Map(records.map(record => [record.matchId, record]));
   }
 
   record(record) {
@@ -204,3 +216,5 @@ export class MatchStore {
       .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   }
 }
+
+export { sanitizeMatch };

@@ -10,6 +10,14 @@ export function normalizeNickname(value) {
   return value.trim().slice(0, 24);
 }
 
+// Tab session identifiers are opaque bearer values, not arbitrary JSON. Keep
+// them bounded and string-only before they reach room maps or persistence
+// projections; an omitted value still lets the server mint a fresh seat id.
+export function normalizeClientId(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 120);
+}
+
 export function normalizeRoomCode(value) {
   if (typeof value !== 'string') return '';
   return value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
@@ -220,7 +228,7 @@ function matchRecordCasinoRows(players) {
 function matchRecordMarketPositions(player) {
   return Object.fromEntries(Object.entries(player.marketPositions || {}).map(([instrumentId, position]) => [
     instrumentId,
-    { quantity: Number(position.quantity) || 0, realizedPnl: Number(position.realizedPnl) || 0 }
+    { quantity: Math.max(0, Math.floor(Number(position.quantity) || 0)), averageCost: Math.max(0, Number(position.averageCost) || 0), realizedPnl: Number(position.realizedPnl) || 0 }
   ]));
 }
 
@@ -243,6 +251,9 @@ function matchRecordPlayerContracts(game) {
     premiumRate: contract.premiumRate,
     equityShare: contract.equityShare,
     collateralTileIndex: contract.collateralTileIndex ?? null,
+    propertyIndex: contract.propertyIndex ?? null,
+    conversionShare: contract.conversionShare ?? 0,
+    equityControl: contract.equityControl ?? null,
     status: contract.status
   }));
 }

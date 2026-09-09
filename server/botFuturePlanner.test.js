@@ -39,6 +39,8 @@ const loanWithoutTerms = evaluateCandidate(snapshot, { id: 'loan:emergency', kin
 const loanWithTerms = evaluateCandidate(snapshot, {
   id: 'loan:emergency', kind: 'loan', principal: 300, totalDue: 450, premium: 150, dueRound: 4, cureRound: 5
 }, { difficulty: 'table', seed: 'same' });
+const sellSnapshot = { ...snapshot, marketQuotes: { brazil: 180 }, botState: { ...snapshot.botState, marketPositions: { brazil: { quantity: 2, averageCost: 50, realizedPnl: 0 } } } };
+const marketSell = evaluateCandidate(sellSnapshot, { id: 'market:sell:brazil', kind: 'market', instrumentId: 'brazil', side: 'sell', quantity: 2 }, { difficulty: 'table', seed: 'same' });
 const doubleGoSnapshot = { ...snapshot, rulesDigest: { ...snapshot.rulesDigest, doubleGo: true } };
 const normalFlow = evaluateCandidate(snapshot, { id: 'roll', kind: 'roll' }, { difficulty: 'table', seed: 'same' });
 const boostedFlow = evaluateCandidate(doubleGoSnapshot, { id: 'roll', kind: 'roll' }, { difficulty: 'table', seed: 'same' });
@@ -50,6 +52,7 @@ assert.equal(boostedFlow.expectedCashFlow >= normalFlow.expectedCashFlow, true);
 assert.equal(mortgage.liquidity, 530);
 assert.equal(purchase.liquidity, 400);
 assert.equal(loanWithTerms.score < loanWithoutTerms.score, true);
+assert.equal(marketSell.liquidity, 852);
 assert.equal(JSON.stringify(snapshot), before);
 
 const candidates = [

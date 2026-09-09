@@ -68,7 +68,7 @@
   --red-action: #af2a21;
   --red-action-hover: #be3126;
   --red-action-pressed: #98231c;
-  --red-bright: #d74438;
+  --red-bright: #e36b5f;
   --red-dark: #87231e;
 
   --green-status: #35a653;
@@ -88,7 +88,7 @@
 
   --font-display: "Pixelify Sans", "Courier New", monospace;
   --font-ui: "Pixelify Sans", "Courier New", monospace;
-  --font-pixel: "Press Start 2P", "Courier New", monospace;
+  --font-pixel: "Silkscreen", "Courier New", monospace;
   --font-body: "Pixelify Sans", "Courier New", monospace;
   --font-numeric: "Silkscreen", "Courier New", monospace;
   --cursor-reticle: url("/assets/parlor-patrol/crosshair.svg") 16 16;
@@ -207,7 +207,7 @@ a:focus-visible {
 }
 .t-micro {
   font-family: var(--font-pixel);
-  font-size: 8px; line-height: 1.4;
+  font-size: 9px; line-height: 1.4;
   letter-spacing: 0.04em; text-transform: uppercase;
 }
 .t-micro.ink-3,
@@ -2676,7 +2676,8 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .finance-repay-controls .finance-bank-action, .contract-repay-controls > button { min-width: 72px; }
 .finance-bank-note { margin-top: 9px; color: var(--gold-muted); }
 .player-contracts { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border-color: var(--line-active); }
-.player-contract-offer { display: grid; gap: 6px; padding: 10px; background: rgba(217,166,47,.08); border: 1px solid var(--line-active); animation: event-banner-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.player-contract-offer { display: grid; gap: 6px; padding: 10px; background: rgba(217,166,47,.08); border: 1px solid var(--line-active); animation: deal-row-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+@keyframes deal-row-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .deal-collapsed { width: 100%; color: inherit; text-align: left; cursor: pointer; transition: background 160ms ease-out, border-color 160ms ease-out, transform 100ms ease-out; }
 .deal-collapsed:hover, .deal-collapsed:focus-visible { background: var(--surface-panel-raised); border-color: var(--gold-300); }
 .deal-collapsed:active { transform: scale(.985); }
@@ -2694,7 +2695,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .deal-detail-copy { margin-top: 16px; max-width: 66ch; }
 .deal-detail-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
 .deal-detail-actions > button { width: 100%; min-height: 44px; }
-@media (prefers-reduced-motion: reduce) { .deal-collapsed { transition: none; } .deal-collapsed:active { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .deal-collapsed, .player-contract-offer { transition: none; animation: none; } .deal-collapsed:active { transform: none; } }
 .player-contract-active { display: grid; gap: 6px; }
 .player-contract-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .player-contract-row > div { display: grid; gap: 4px; min-width: 0; }
@@ -3171,7 +3172,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .dice-rolling, .token-pop, .chest, .boot-in, .blink, .piece.is-hopping, .face-cell:hover { animation: none !important; }
   .piece.is-moving, .log-drawer { transition: none !important; }
-  .popup-card, .panel, .hud-cell { transition: none !important; }
+  .popup-card, .panel, .hud-cell, .global-event-banner { transition: none !important; animation: none !important; }
 }
 
 @media (forced-colors: active) {

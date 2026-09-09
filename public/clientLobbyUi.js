@@ -315,29 +315,59 @@ function lobbyPlayerRowHTML(p, seed) {
   </div>`;
 }
 
+function lobbySetupNotice(locked, hostLocked) {
+  if (locked) {
+    return `<div class="settings-rule lobby-lock-note">
+          <strong style="color:var(--gold-300)">FINISH SETUP TO CONTINUE</strong><br>
+          Your active design is ready. Press "Enter Parlor" on the left to seat the table, or change it there for this table only.
+        </div>`;
+  }
+  if (hostLocked) {
+    return `<div class="settings-rule lobby-lock-note"><strong style="color:var(--gold-300)">HOST CONTROLS THIS TABLE</strong><br>The room host owns settings and starts the round. You can review the rules while you wait.</div>`;
+  }
+  return "";
+}
+
+function lobbyRulesSnapshot(settings) {
+  return `<div class="settings-rule">
+      <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
+      ${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start ·
+      ${settings.vacationPool ? "pool on" : "no pool"} ·
+      ${settings.trading ? "trading on" : "no trades"} ·
+      ${settings.auction ? "auction on" : "no auction"} ·
+      ${settings.bankLoans ? `${String(settings.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off"} ·
+      ${settings.globalEvents ? "global events on" : "global events off"} ·
+      ${settings.casino ? "casino on" : "casino off"} ·
+      ${settings.market ? "market on" : "market off"} ·
+      ${settings.bots ? `bot ${String(settings.botBrain || "auto").toLowerCase()} · ${String(settings.botPersonality || "survivor").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}` : "no bots"} ·
+      ${settings.turnTimer ? settings.turnTimer + "s timer" : "no timer"} ·
+      ${settings.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
+    </div>`;
+}
+
 function renderLobbyRail() {
   // the settings rail owns the right column for both "setup" (choosing
   // appearance) and "lobby" (configuring rules) — the in-game Holdings
   // rail should only ever appear once a round is actually live.
   const preGame = state.phase === "setup" || state.phase === "lobby";
-  const locked = state.phase === "setup";
   $("#right-rail-game").classList.toggle("is-hidden", preGame);
   $("#right-rail-lobby").classList.toggle("is-hidden", !preGame);
   if (!preGame) return;
+  return renderLobbyRailContent(
+    state.settings,
+    state.phase === "setup",
+    state.phase === "lobby" && !state.players[0]?.isHost,
+  );
+}
 
-  const s = state.settings;
+function renderLobbyRailContent(s, locked, hostLocked) {
   const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
   const existingBots = seated.filter((p) => p.bot).length;
   const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
   const previewPlayers = [...seated, ...botPreviews].slice(0, s.maxPlayers);
 
   $("#lobby-settings-body").innerHTML = [
-    locked
-      ? `<div class="settings-rule lobby-lock-note">
-          <strong style="color:var(--gold-300)">FINISH SETUP TO CONTINUE</strong><br>
-          Your active design is ready. Press "Enter Parlor" on the left to seat the table, or change it there for this table only.
-        </div>`
-      : "",
+    lobbySetupNotice(locked, hostLocked),
     lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
     lobbySection("Table Rules", [
       settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
@@ -369,25 +399,16 @@ function renderLobbyRail() {
     lobbySection("Turn Timer", [
       settingRow("Timer Per Turn", "Seconds allowed per move (0 = off).", sel("turnTimer", s.turnTimer, [["0","OFF"],["30","30 SEC"],["60","60 SEC"],["120","2 MIN"]])),
     ]),
-    `<div class="settings-rule">
-      <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
-      ${s.maxPlayers} players · $${Number(s.startingCash).toLocaleString()} start ·
-      ${s.vacationPool ? "pool on" : "no pool"} ·
-      ${s.trading ? "trading on" : "no trades"} ·
-      ${s.auction ? "auction on" : "no auction"} ·
-      ${s.bankLoans ? `${String(s.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off"} ·
-      ${s.globalEvents ? "global events on" : "global events off"} ·
-     ${s.casino ? "casino on" : "casino off"} ·
-     ${s.market ? "market on" : "market off"} ·
-      ${s.bots ? `bot ${String(s.botBrain || "auto").toLowerCase()} · ${String(s.botPersonality || "survivor").toLowerCase()} · ${String(s.botDifficulty || "table").toLowerCase()}` : "no bots"} ·
-      ${s.turnTimer ? s.turnTimer + "s timer" : "no timer"} ·
-      ${s.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
-    </div>`,
+    lobbyRulesSnapshot(s),
   ].join("");
 
   const startBtn = $("#lobby-start-btn");
-  startBtn.disabled = locked;
-  startBtn.querySelector(".cta-text").textContent = locked ? "Finish Setup First" : "Start Round";
+  startBtn.disabled = locked || hostLocked;
+  startBtn.querySelector(".cta-text").textContent = locked ? "Finish Setup First" : hostLocked ? "Host Starts Round" : "Start Round";
+  $("#lobby-settings-body").querySelectorAll("[data-setting], [data-step]").forEach((control) => {
+    control.disabled = locked || hostLocked;
+    if (locked || hostLocked) control.setAttribute("aria-disabled", "true");
+  });
 }
 
 function buildPreviewSelf() {
@@ -614,6 +635,7 @@ function isStepperEnabled(stepBtn) {
 }
 
 function onToggleSetting(togBtn) {
+  if (togBtn.disabled) return;
   const key = togBtn.dataset.setting;
   state.settings[key] = !state.settings[key];
   host.updateServerSetting(key, state.settings[key]);

@@ -29,8 +29,15 @@ function getRoomForSocket(runtime, socket, callback) {
 
 // sessionToken -> account, for handlers that act on a signed-in socket.
 function resolveAccount(accountStore, socket, payload = {}) {
-  const account = accountStore.sessionAccount(payload.sessionToken) || accountStore.getPublicAccountById(socket.data?.accountId);
+  // An explicitly supplied token is authoritative. Never fall back to a
+  // socket's cached account after that token fails, otherwise a logout or
+  // revocation on another device leaves the old socket authenticated.
+  const hasExplicitToken = payload && payload.sessionToken !== undefined && payload.sessionToken !== null;
+  const account = hasExplicitToken
+    ? accountStore.sessionAccount(payload.sessionToken)
+    : accountStore.getPublicAccountById(socket.data?.accountId);
   if (account) socket.data.accountId = account.id;
+  if (!account) socket.data.accountId = null;
   return account;
 }
 
@@ -88,11 +95,15 @@ function announceVerbResult(io, room, result, definition) {
 // the whole server. This wrapper normalizes the payload, guarantees a
 // callable callback, and converts any synchronous or asynchronous
 // handler failure into a logged, ack'd error instead of a crash.
-function createSafeEmitter(socket) {
+function createSafeEmitter(socket, options = {}) {
   return function on(event, handler) {
     socket.on(event, (rawPayload, rawCallback) => {
       const payload = normalizeWirePayload(rawPayload);
       const callback = normalizeWireCallback(rawCallback);
+      if (typeof options.allow === 'function' && !options.allow(socket.id)) {
+        callback({ success: false, error: 'Too many requests. Try again shortly.' });
+        return;
+      }
       runSocketHandler(handler, payload, callback, event);
     });
   };

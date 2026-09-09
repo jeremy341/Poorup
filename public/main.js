@@ -234,6 +234,8 @@ const SERVER_SETTING_KEYS = {
   market: "market",
   bots: "bots",
   botPersonality: "botPersonality",
+  botBrain: "botBrain",
+  botDifficulty: "botDifficulty",
 };
 
 function emitServer(event, payload = {}, callback) {
@@ -759,9 +761,8 @@ function bindRail() {
   // tabs
   $("#tabs").addEventListener("click", onRailTabClick);
   $("#rr-manage")?.addEventListener("click", () => {
-    state.tab = "market";
+    state.tab = "deeds";
     renderRightRail();
-    refreshEconomySnapshot();
   });
 
   // deeds tab: buy a vacant tile directly (kept for any future action buttons)

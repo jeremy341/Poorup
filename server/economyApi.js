@@ -219,6 +219,7 @@ const economyApi = {
 
   executeMarketOrder(ctx) {
     const plan = this.marketOrderPlan(ctx.instrument, ctx.id, ctx.amount);
+    ctx.player.marketPositions ||= {};
     const position = ctx.player.marketPositions[ctx.id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
     const leg = ctx.direction === 'buy' ? this.applyMarketBuy : this.applyMarketSell;
     const legRejection = leg.call(this, ctx.player, ctx.id, position, plan);

@@ -66,7 +66,7 @@ const propertyApi = {
     tile.ownerId = player.id;
     tile.mortgaged = false;
     tile.houseCount = 0;
-    player.properties.push(tile.index);
+    if (!player.properties.includes(tile.index)) player.properties.push(tile.index);
     if (this.globalEventActive('housing-bubble')) player.boughtDuringHousingBubble = true;
     this.refreshPlayerGroups(player);
     this.feedMessage(`${player.nickname} purchased ${tile.name} for $${tile.price}.`);
@@ -126,7 +126,7 @@ const propertyApi = {
   manageProperty(socketId, payload = {}) {
     const { tileIndex, action } = payload || {};
     const player = this.getPlayerBySocket(socketId);
-    const tile = this.getTile(tileIndex);
+    const tile = this.getTile(Number(tileIndex));
     const rejection = this.propertyActionRejection(player, tile, action);
     if (rejection) return rejection;
     const handlerName = PROPERTY_ACTION_HANDLERS[action];
@@ -294,7 +294,7 @@ const propertyApi = {
     if (!this.canUnmortgageTile(player, tile)) {
       return { success: false, error: 'You cannot unmortgage this property right now.' };
     }
-    const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1);
+    const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * this.propertyValueMultiplier());
     if (player.cash < cost) {
       return { success: false, error: 'Insufficient cash to unmortgage this property.' };
     }

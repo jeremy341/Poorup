@@ -629,6 +629,34 @@ function testLetTheLedgerRunAndTaxAuditSettlement() {
   assert.equal(t.cash, 10);
 }
 
+function testInterestRateShockSettlement() {
+  const room = makeEventRoom();
+  const game = room.game;
+  game.players.forEach(player => {
+    player.bankLoan = { status: 'active', principal: 300, totalDue: 450, remaining: 450 };
+  });
+  game.activateGlobalEvent(game.globalEventDefinition('interest-rate-shock'));
+  game.advanceRound();
+  assert.equal(game.globalEvent.phase, 'active');
+  assert.equal(game.players[0].bankLoan.remaining, 608);
+  assert.equal(game.players[0].bankLoan.totalDue, 608);
+  game.applyGlobalEventActivationSettlements();
+  assert.equal(game.players[0].bankLoan.remaining, 608);
+}
+
+function testLaborStrikeShortfallCreatesDebt() {
+  const room = makeEventRoom();
+  const game = room.game;
+  const player = game.players[0];
+  ownsFullBrownGroup(game, player);
+  game.getTile(1).houseCount = 2;
+  player.cash = 0;
+  game.globalEvent = { id: 'labor-strike', phase: 'active', roundsRemaining: 2, durationRounds: 2, effects: { buildingMaintenance: 20 } };
+  game.advanceGlobalEventPhase();
+  assert.equal(game.pendingPayment.playerId, player.id);
+  assert.equal(game.pendingPayment.amountRemaining, 40);
+}
+
 function testHousingBubbleSurvivorFlags() {
   const room = makeEventRoom();
   const game = room.game;
@@ -683,6 +711,8 @@ const CONTRACT_SUITES = [
   ['settlements — currency devaluation + zero-cash flag', testCurrencyDevaluationSettlement],
   ['settlements — bank-run bailout', testBankRunBailoutSettlement],
   ['settlements — ledger-run no-op + tax-audit amounts', testLetTheLedgerRunAndTaxAuditSettlement],
+  ['settlements — interest-rate shock reprices existing loans once', testInterestRateShockSettlement],
+  ['settlements — labor-strike shortfalls become payable debt', testLaborStrikeShortfallCreatesDebt],
   ['phases — housing-bubble survivor flags', testHousingBubbleSurvivorFlags],
   ['effects — active-phase queries', testActivePhaseEffectQueries]
 ];

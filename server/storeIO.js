@@ -12,15 +12,23 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-function loadJson(filePath) {
+function loadJson(filePath, shapeValidator = null) {
   let raw;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
-  } catch {
-    return { value: null, missing: true, corrupt: false };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { value: null, missing: true, corrupt: false };
+    // A permission/sharing failure is not an empty store. Fail fast so a
+    // later mutation cannot overwrite data that was never successfully read.
+    throw error;
   }
   try {
-    return { value: JSON.parse(raw), missing: false, corrupt: false };
+    const value = JSON.parse(raw);
+    if (typeof shapeValidator === 'function' && !shapeValidator(value)) {
+      quarantine(filePath, raw);
+      return { value: null, missing: false, corrupt: true };
+    }
+    return { value, missing: false, corrupt: false };
   } catch {
     quarantine(filePath, raw);
     return { value: null, missing: false, corrupt: true };
@@ -44,22 +52,26 @@ function writeJson(filePath, value) {
   const tempPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   const handle = fs.openSync(tempPath, 'w');
   try {
-    fs.writeFileSync(handle, data, 'utf8');
-    fs.fsyncSync(handle);
-  } finally {
-    fs.closeSync(handle);
+    try {
+      fs.writeFileSync(handle, data, 'utf8');
+      fs.fsyncSync(handle);
+    } finally {
+      fs.closeSync(handle);
+    }
+  } catch (error) {
+    // A failed write/fsync cannot produce a recoverable snapshot. Remove the
+    // partial temp file while preserving the previous destination file.
+    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    throw error;
   }
   try {
     fs.renameSync(tempPath, filePath);
   } catch (renameError) {
-    console.error(`Store ${path.basename(filePath)} atomic rename failed; falling back to direct write.`, renameError);
-    try {
-      fs.writeFileSync(filePath, data, 'utf8');
-      fs.fsyncSync(fs.openSync(filePath, 'r'));
-    } catch (fallbackError) {
-      console.error(`Store ${path.basename(filePath)} fallback write also failed.`, fallbackError);
-    }
-    try { fs.unlinkSync(tempPath); } catch { /* best-effort temp cleanup */ }
+    // Never truncate the previous snapshot after an atomic rename fails. The
+    // fully-written temp file remains available for operator recovery, and
+    // the caller receives a failure instead of a false durable success.
+    console.error(`Store ${path.basename(filePath)} atomic rename failed; previous snapshot preserved.`, renameError);
+    throw new Error(`Atomic store write failed for ${path.basename(filePath)}.`, { cause: renameError });
   }
 }
 

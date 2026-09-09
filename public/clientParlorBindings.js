@@ -17,6 +17,7 @@ import {
   renderRankingsSurface,
   openPlayerSurface,
   renderPlayerSurface,
+  requestLeaderboardSnapshot,
 } from "./clientSocialSurfaces.js";
 
 let host = { emitServer: noop, leaveRoomForHome: noop };
@@ -36,6 +37,7 @@ function onRankingScope(scope, inGameModal) {
   if (inGameModal) {
     state.leaderboard.scope = scope.dataset.rankingScope;
     renderRankingsSurface("#rankings-card");
+    requestLeaderboardSnapshot("#rankings-card");
     return;
   }
   openRankingsSurface(state.leaderboard.metric, scope.dataset.rankingScope);
@@ -45,6 +47,7 @@ function onRankingMetric(metric, inGameModal) {
   if (inGameModal) {
     state.leaderboard.metric = metric.dataset.rankingMetric;
     renderRankingsSurface("#rankings-card");
+    requestLeaderboardSnapshot("#rankings-card");
     return;
   }
   openRankingsSurface(metric.dataset.rankingMetric);
@@ -57,6 +60,10 @@ function closeRankingsFromEvent(event) {
 
 function handleRankingClick(event) {
   const inGameModal = event.currentTarget?.id === "rankings-card" && rankingScopeInGame();
+  if (event.target.closest("[data-ranking-retry]")) {
+    requestLeaderboardSnapshot(rankingSearchSurface(event));
+    return;
+  }
   const scope = event.target.closest("[data-ranking-scope]");
   if (scope) { onRankingScope(scope, inGameModal); return; }
   const metric = event.target.closest("[data-ranking-metric]");

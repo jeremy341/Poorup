@@ -220,6 +220,16 @@ check('propose normalizes malformed legs: non-array to empty, strings to numbers
   assert.equal(stringy.trade.requestCash, 12);
 });
 
+check('propose normalizes cash legs to whole dollars', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const b = playerOf(room, 'client-b');
+  const result = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 10.9, requestCash: 5.8 });
+  assert.equal(result.success, true);
+  assert.equal(result.trade.giveCash, 10);
+  assert.equal(result.trade.requestCash, 5);
+});
+
 check('room-level proposeTrade and respondToTrade delegate to the game', () => {
   const room = tradeRoom();
   const b = playerOf(room, 'client-b');
@@ -558,6 +568,20 @@ check('sender can adjust or cancel a pending trade without transferring assets',
   assert.equal(game.cancelTrade('socket-a', { tradeId: game.pendingTrade.id }).canceled, true);
   assert.equal(game.pendingTrade, null);
 });
+
+check('trade adjustment increments and enforces the negotiation depth cap', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const b = playerOf(room, 'client-b');
+  const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 30 });
+  const adjusted = game.adjustTrade('socket-a', { tradeId: first.trade.id, giveCash: 40 });
+  assert.equal(adjusted.success, true);
+  assert.equal(game.pendingTrade.counterDepth, 1);
+  const adjustedAgain = game.adjustTrade('socket-a', { tradeId: adjusted.trade.id, giveCash: 50 });
+  assert.equal(adjustedAgain.success, true);
+  assert.equal(game.pendingTrade.counterDepth, 2);
+  assert.deepEqual(game.adjustTrade('socket-a', { tradeId: adjustedAgain.trade.id, giveCash: 60 }), { success: false, error: 'This trade has reached its negotiation limit.' });
+});
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });
 const casino = (color, stake, score) => ({ id: 'casino:red', kind: 'casino', color, stake, risk: 0.55, score });
@@ -727,6 +751,81 @@ check('after rolling, only the roll candidate remains', () => {
   const { game, bot } = botRoom('chaos', 120);
   game.hasRolled = true;
   assert.deepEqual(game.getBotCandidates(bot), [ROLL]);
+});
+
+check('propose normalizes duplicate and oversized property legs', () => {
+  const room = tradeRoom();
+  const game = room.game;
+  const a = playerOf(room, 'client-a');
+  const b = playerOf(room, 'client-b');
+  own(room, a, [1]);
+  const result = game.proposeTrade('socket-a', {
+    toPlayerId: b.id,
+    givePropertyIndexes: Array.from({ length: 200 }, () => 1),
+    requestPropertyIndexes: []
+  });
+  assert.equal(result.success, true);
+  assert.deepEqual(game.pendingTrade.givePropertyIndexes, [1]);
+});
+
+check('parity mode exposes strategic jail choices', () => {
+  const ctx = botRoom('survivor', 500);
+  ctx.bot.inJail = true;
+  ctx.bot.jailFreeCards = 1;
+  const candidates = ctx.game.getBotCandidates(ctx.bot, { parity: true });
+  assert.deepEqual(candidates.map(candidate => candidate.kind).sort(), ['jail-fine', 'jail-free', 'roll'].sort());
+});
+
+check('parity mode exposes proactive bank repayment', () => {
+  const ctx = botRoom('survivor', 500);
+  ctx.bot.bankLoan = { status: 'active', remaining: 450 };
+  const repayment = ctx.game.getBotCandidates(ctx.bot, { parity: true }).find(candidate => candidate.kind === 'bank-repay');
+  assert.equal(repayment.amount, 320);
+  assert.equal(repayment.contractId, undefined);
+});
+
+check('parity mode exposes portfolio sell and unmortgage actions', () => {
+  const ctx = botRoom('builder', 500);
+  ctx.game.getTile(6).houseCount = 1;
+  ctx.game.getTile(3).mortgaged = true;
+  const kinds = ctx.game.getBotCandidates(ctx.bot, { parity: true }).map(candidate => candidate.kind);
+  assert.equal(kinds.includes('sell'), true);
+  assert.equal(kinds.includes('unmortgage'), true);
+});
+
+check('parity mode exposes market sell candidates', () => {
+  const ctx = botRoom('speculator', 500);
+  ctx.bot.marketPositions = { brazil: { quantity: 2, averageCost: 50, realizedPnl: 0 } };
+  ctx.game.marketQuotes.brazil = 180;
+  const sell = ctx.game.getBotCandidates(ctx.bot, { parity: true }).find(candidate => candidate.kind === 'market' && candidate.side === 'sell');
+  assert.equal(sell.instrumentId, 'brazil');
+  assert.equal(sell.quantity, 2);
+});
+
+check('parity mode exposes proactive loan, equity, and hybrid offers', () => {
+  const ctx = botRoom('diplomat', 1000);
+  ctx.a.cash = 80;
+  own(ctx.room, ctx.a, [1]);
+  const offers = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'contract-propose');
+  assert.equal(offers.some(candidate => candidate.offer.kind === 'loan'), true);
+  assert.equal(offers.some(candidate => candidate.offer.kind === 'equity'), true);
+  assert.equal(offers.some(candidate => candidate.offer.kind === 'hybrid'), true);
+});
+
+check('parity mode exposes bounded multi-leg trade candidates', () => {
+  const ctx = botRoom('diplomat', 1000);
+  own(ctx.room, ctx.a, [1, 4]);
+  const rich = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'trade' && candidate.rich);
+  assert.equal(rich.some(candidate => candidate.givePropertyIndexes.length > 1 || candidate.requestPropertyIndexes.length > 1), true);
+});
+
+check('parity mode exposes throttled table-talk for bot seats', () => {
+  const ctx = botRoom('diplomat', 1000);
+  ctx.game.botDecisionSequence = 6;
+  const chat = ctx.game.getBotCandidates(ctx.bot, { parity: true }).find(candidate => candidate.kind === 'chat');
+  assert.equal(chat.text.includes('deal'), true);
+  ctx.game.botDecisionSequence = 7;
+  assert.equal(ctx.game.getBotCandidates(ctx.bot, { parity: true }).some(candidate => candidate.kind === 'chat'), false);
 });
 
 console.log(`\n${passed + failures.length} trade/candidate checks — ${passed} passed, ${failures.length} failed`);

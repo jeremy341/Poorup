@@ -148,6 +148,37 @@ check('FIX3a uninvolved quit leaves pendingPayment alone', () => {
   assert.deepEqual(ctx.game.pendingPaymentTurnOptions, { turn: 'test' });
 });
 
+check('FIX3a started-game leave releases owned deeds and market positions', () => {
+  const ctx = startedWith([SEAT_B, SEAT_C]);
+  const player = ctx.game.getPlayerByClient('client-b');
+  const deed = ctx.game.getTile(1);
+  deed.ownerId = player.id;
+  player.properties = [deed.index];
+  player.marketPositions = { brazil: { quantity: 2, averageCost: 120, realizedPnl: 0 } };
+  ctx.manager.leaveRoomByClient('client-b', 'socket-b');
+  assert.equal(ctx.game.getPlayerByClient('client-b'), undefined);
+  assert.equal(deed.ownerId, null);
+  assert.deepEqual(player.properties, []);
+  assert.equal(player.marketPositions.brazil.quantity, 0);
+  assert.equal(ctx.game.playerContracts.some(contract => contract.fromPlayerId === player.id || contract.toPlayerId === player.id), false);
+});
+
+check('FIX3a started-game leave transfers assets to an in-flight rent creditor', () => {
+  const ctx = startedWith([SEAT_B, SEAT_C]);
+  const player = ctx.game.getPlayerByClient('client-b');
+  const creditor = ctx.game.getPlayerByClient('client-a');
+  const deed = ctx.game.getTile(1);
+  deed.ownerId = player.id;
+  player.properties = [deed.index];
+  player.cash = 125;
+  ctx.game.pendingPayment = { playerId: player.id, creditorId: creditor.id, amountRemaining: 500, reason: 'rent' };
+  const creditorCash = creditor.cash;
+  ctx.manager.leaveRoomByClient('client-b', 'socket-b');
+  assert.equal(creditor.cash, creditorCash + 125);
+  assert.equal(deed.ownerId, creditor.id);
+  assert.equal(ctx.game.pendingPayment, null);
+});
+
 check('FIX3a bank debt survives uninvolved quit but debtor quit clears', () => {
   const ctx = startedWith([SEAT_B, SEAT_C]);
   const b = ctx.game.getPlayerByClient('client-b');
@@ -160,14 +191,14 @@ check('FIX3a bank debt survives uninvolved quit but debtor quit clears', () => {
   assert.equal(ctx.game.pendingPaymentTurnOptions, null);
 });
 
-// FIX3b: auction lead revoked on leader quit.
-check('FIX3b quitting auction leader revokes lead but keeps bid', () => {
+// FIX3b: auction lead revoked on leader quit and the stale floor is cleared.
+check('FIX3b quitting auction leader resets the stale bid floor', () => {
   const ctx = startedWith([SEAT_B, SEAT_C]);
   const b = ctx.game.getPlayerByClient('client-b');
   ctx.game.auction = { active: true, highestBidderId: b.id, highestBid: 100 };
   ctx.manager.leaveRoomByClient('client-b', 'socket-b');
   assert.equal(ctx.game.auction.highestBidderId, null);
-  assert.equal(ctx.game.auction.highestBid, 100);
+  assert.equal(ctx.game.auction.highestBid, 0);
 });
 
 check('FIX3b non-leader quit leaves auction lead intact', () => {

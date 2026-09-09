@@ -13,6 +13,8 @@ const CHAT_COOLDOWN_MS = 500;
 // Night Shift can continue through several one-minute waves. Keep one signed
 // run token alive long enough for a normal session without making it durable.
 const PATROL_RUN_MAX_MS = 10 * 60 * 1000;
+const PATROL_RUN_RETENTION_MS = PATROL_RUN_MAX_MS + 30 * 1000;
+const PATROL_RUN_CAP = 2_000;
 const MYTHICAL_ANNOUNCEMENT_KEYS_CAP = 500;
 const SECRET_ACHIEVEMENT_IDS = new Set([
   'bubble-survivor', 'short-the-street', 'no-floor', 'moral-hazard',
@@ -254,6 +256,18 @@ function createSocialApi(deps) {
     return false;
   }
 
+  function prunePatrolRuns() {
+    const cutoff = Date.now() - PATROL_RUN_RETENTION_MS;
+    patrolRuns.forEach((run, token) => {
+      if (!run || Number(run.startedAt) < cutoff) patrolRuns.delete(token);
+    });
+    while (patrolRuns.size >= PATROL_RUN_CAP) {
+      const oldest = patrolRuns.keys().next().value;
+      if (!oldest) break;
+      patrolRuns.delete(oldest);
+    }
+  }
+
   function chatBlockedInRoom(room, player) {
     if (!player?.accountId) return false;
     return room.game.players.some(other => blockedRoomMember(player, other));
@@ -277,6 +291,7 @@ function createSocialApi(deps) {
     patrolAchievementCandidates,
     patrolRunError,
     patrolRunPlausible,
+    prunePatrolRuns,
     patrolRuns,
     publicPlayerCard,
     recentPlayers,

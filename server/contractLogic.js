@@ -135,7 +135,11 @@ function isEquityEligibleProperty(property, ownerId) {
 }
 
 function equityCapReached(property, share) {
-  const existingShare = (property.equityShares || []).reduce((sum, entry) => sum + Number(entry.share || 0), 0);
+  const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+  const existingShare = shares.reduce((sum, entry) => {
+    const value = Number(entry?.share);
+    return sum + (Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
+  }, 0);
   return existingShare + share > 100;
 }
 
@@ -151,7 +155,13 @@ function equityDraftTerms(game, contract, offer, recipient) {
   contract.propertyIndex = property.index;
   contract.equityShare = share;
   contract.equityControl = EQUITY_CONTROL_MODES.has(offer.equityControl) ? offer.equityControl : 'passive';
-  contract.expiresRound = offer.permanent ? null : game.roundNumber + contract.durationRounds;
+  // Preserve a permanent equity term across counters/adjustments. Existing
+  // contracts carry an explicit expiresRound, so a merged null value means
+  // "permanent"; an initial offer without either field remains temporary.
+  const hasExistingExpiry = Object.prototype.hasOwnProperty.call(offer, 'expiresRound');
+  const permanent = offer.permanent === true || (hasExistingExpiry && offer.expiresRound == null);
+  contract.permanent = permanent;
+  contract.expiresRound = permanent ? null : game.roundNumber + contract.durationRounds;
   return null;
 }
 
@@ -281,6 +291,10 @@ export function adjustContract(game, socketId, offer = {}) {
 
 function contractProposalRejectionWithoutTurn(game, fromPlayer, toPlayer, amount) {
   if (!isPairOfActivePlayers(fromPlayer, toPlayer)) return { success: false, error: 'Choose two active players.' };
+  const otherObligationOpen = TABLE_OBLIGATION_FIELDS
+    .filter(field => field !== 'pendingPlayerContract')
+    .some(field => Boolean(game[field]));
+  if (otherObligationOpen) return { success: false, error: 'Resolve the current table obligation first.' };
   if (!lenderCanFund(fromPlayer, amount)) return { success: false, error: 'The lender does not have enough cash for that offer.' };
   if (game.hasLoanBackedCash(fromPlayer)) return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
   return null;
@@ -310,7 +324,7 @@ function lenderCanStillFund(lender, contract) {
 
 function recordEquityShare(game, contract, lender) {
   const property = game.getTile(contract.propertyIndex);
-  const holders = property.equityShares || [];
+  const holders = Array.isArray(property.equityShares) ? property.equityShares : [];
   property.equityShares = [...holders, {
     holderId: lender.id,
     share: contract.equityShare,
@@ -343,6 +357,10 @@ function acceptContract(game, player, contract) {
   if (!lenderCanStillFund(lender, contract)) {
     game.pendingPlayerContract = null;
     return { success: false, error: 'The lender can no longer fund that contract.' };
+  }
+  if (game.hasLoanBackedCash(lender)) {
+    game.pendingPlayerContract = null;
+    return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
   }
   if (!borrowerCanReceive(player)) {
     game.pendingPlayerContract = null;
@@ -401,15 +419,16 @@ export function repayContract(game, socketId, payload = {}) {
   if (cached) return cached;
   const contract = game.playerContractById(contractId);
   if (!repayableLoan(contract, borrower)) return { success: false, error: 'That loan is not available to repay.' };
+  const lender = game.getPlayerById(contract.fromPlayerId);
+  if (!lender) return { success: false, error: 'That loan is no longer available to repay.' };
   const payment = repaymentAmount(contract, amount);
   if (!payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
   if (borrower.cash < payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
-  const result = settleLoanRepayment(game, contract, borrower, payment);
+  const result = settleLoanRepayment(game, contract, borrower, payment, lender);
   return memoizeSuccess(game, key, result);
 }
 
-function settleLoanRepayment(game, contract, borrower, payment) {
-  const lender = game.getPlayerById(contract.fromPlayerId);
+function settleLoanRepayment(game, contract, borrower, payment, lender = null) {
   borrower.cash -= payment;
   if (lender) lender.cash += payment;
   contract.remaining -= payment;
@@ -433,7 +452,8 @@ function expireEquityContract(game, contract) {
   if (!equityContractExpired(game, contract)) return false;
   const property = game.getTile(contract.propertyIndex);
   if (property) {
-    property.equityShares = (property.equityShares || []).filter(entry => entry.contractId !== contract.id);
+    const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+    property.equityShares = shares.filter(entry => entry.contractId !== contract.id);
   }
   contract.status = 'expired';
   return true;
@@ -470,7 +490,7 @@ function hybridConversionEligible(game, contract) {
 
 function recordHybridConversion(game, contract, lender) {
   const property = game.getTile(contract.propertyIndex);
-  const holders = property.equityShares || [];
+  const holders = Array.isArray(property.equityShares) ? property.equityShares : [];
   property.equityShares = [...holders, {
     holderId: lender.id,
     share: contract.conversionShare,
@@ -527,7 +547,7 @@ export function processContracts(game) {
 }
 
 export function settleEquityShares(game, tile, owner, amountPaid) {
-  if (!tile?.equityShares?.length) return;
+  if (!Array.isArray(tile?.equityShares) || !tile.equityShares.length) return;
   if (!owner) return;
   if (owner.bankrupt) return;
   if (amountPaid <= 0) return;

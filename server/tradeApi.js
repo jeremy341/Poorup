@@ -5,6 +5,13 @@
 // gameLogic.js assigns this object onto GameState.prototype.
 import crypto from 'crypto';
 
+const MAX_TRADE_PROPERTIES = 40;
+
+function normalizePropertyIndexes(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.slice(0, MAX_TRADE_PROPERTIES).map(Number))];
+}
+
 // Trade proposal rejection rules as data: one entry per original if-clause of
 // GameState.proposeTrade, kept in the original evaluation order so a single
 // error string wins exactly as before. The context is fully normalized up
@@ -22,6 +29,10 @@ const TRADE_PROPOSAL_GUARDS = [
   {
     error: 'Both players must be active to trade.',
     rejects: (game, ctx) => ctx.fromPlayer.bankrupt || ctx.fromPlayer.disconnected || ctx.toPlayer.bankrupt || ctx.toPlayer.disconnected
+  },
+  {
+    error: 'Trading is disabled for this room.',
+    rejects: game => game.settings.trading === false
   },
   {
     error: 'Another trade is already pending.',
@@ -105,10 +116,13 @@ const tradeApi = {
   tradeProposalContext(socketId, offer) {
     const fromPlayer = this.getPlayerBySocket(socketId);
     const toPlayer = this.getPlayerById(offer.toPlayerId);
-    const giveCash = Math.max(0, Number(offer.giveCash || 0));
-    const requestCash = Math.max(0, Number(offer.requestCash || 0));
-    const givePropertyIndexes = Array.isArray(offer.givePropertyIndexes) ? offer.givePropertyIndexes.map(Number) : [];
-    const requestPropertyIndexes = Array.isArray(offer.requestPropertyIndexes) ? offer.requestPropertyIndexes.map(Number) : [];
+    // Cash is integer game currency. Keep non-finite values intact so the
+    // guard can return its validation error, while flooring valid decimals
+    // prevents fractional balances from entering settlement arithmetic.
+    const giveCash = Math.max(0, Math.floor(Number(offer.giveCash || 0)));
+    const requestCash = Math.max(0, Math.floor(Number(offer.requestCash || 0)));
+    const givePropertyIndexes = normalizePropertyIndexes(offer.givePropertyIndexes);
+    const requestPropertyIndexes = normalizePropertyIndexes(offer.requestPropertyIndexes);
     const giveTiles = givePropertyIndexes.map(index => this.getTile(index));
     const requestTiles = requestPropertyIndexes.map(index => this.getTile(index));
     return { fromPlayer, toPlayer, giveCash, requestCash, givePropertyIndexes, requestPropertyIndexes, giveTiles, requestTiles };
@@ -155,6 +169,9 @@ const tradeApi = {
     if (offer.tradeId && offer.tradeId !== trade.id) {
       return { success: false, error: 'That trade offer is no longer current.' };
     }
+    if (Number(trade.counterDepth) >= 2) {
+      return { success: false, error: 'This trade has reached its negotiation limit.' };
+    }
     const previous = trade;
     this.pendingTrade = null;
     const result = this.proposeTrade(socketId, {
@@ -179,12 +196,15 @@ const tradeApi = {
     if (offer.tradeId && offer.tradeId !== trade.id) {
       return { success: false, error: 'That trade offer is no longer current.' };
     }
+    if (Number(trade.counterDepth) >= 2) {
+      return { success: false, error: 'This trade has reached its negotiation limit.' };
+    }
     const previous = trade;
     this.pendingTrade = null;
     const result = this.proposeTrade(socketId, {
       ...offer,
       toPlayerId: trade.toPlayerId,
-      counterDepth: trade.counterDepth || 0
+      counterDepth: Math.min(2, (trade.counterDepth || 0) + 1)
     });
     if (result?.success === false && !this.pendingTrade) this.pendingTrade = previous;
     if (result?.success) {
