@@ -1,11 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-labelledby="favicon-title favicon-desc" shape-rendering="crispEdges">
   <title id="favicon-title">Poorup</title>
-  <desc id="favicon-desc">Pixelated cream and gold ledger bars on a dark parlor tile.</desc>
-  <path fill="#01070a" d="M3 1h26v2h2v26h-2v2H3v-2H1V3h2z"/>
-  <path fill="#071314" d="M4 4h24v24H4z"/>
-  <path fill="#3a382a" d="M4 27h24v1H4zM4 4h24v1H4z"/>
-  <path fill="#f0d9ac" d="M6 21h3v6H6zm4-4h3v10h-3z"/>
-  <path fill="#e8d3ab" d="M14 14h3v13h-3zm4-3h3v16h-3zm4-5h3v21h-3z"/>
-  <path fill="#cfa75f" d="M26 8h2v19h-2zM13 27h15v1H13z"/>
-  <path fill="#286ea1" d="M6 27h7v1H6z"/>
+  <desc id="favicon-desc">A pixel Poorup mark: a framed parlor tile with a P ledger glyph.</desc>
+  <path fill="#01070a" d="M2 0h28v2h2v28h-2v2H2v-2H0V2h2z"/>
+  <path fill="#c88f2e" d="M5 3h22v2H5zM3 5h2v22H3zM27 5h2v22h-2zM5 27h22v2H5z"/>
+  <path fill="#071314" d="M7 7h18v18H7z"/>
+  <path fill="#e8d3ab" d="M10 9h4v14h-4zM14 9h7v3h-7zM19 12h4v6h-4zM14 15h6v3h-6z"/>
+  <path fill="#f0d9ac" d="M10 9h2v12h-2zM14 9h5v2h-5z"/>
+  <path fill="#af2a21" d="M22 21h3v3h-3z"/>
 </svg>
