@@ -19,6 +19,7 @@ import {
   renderPlayerSurface,
   requestLeaderboardSnapshot,
   requestSeason,
+  RANKING_ORDER,
 } from "./clientSocialSurfaces.js";
 
 let host = { emitServer: noop, leaveRoomForHome: noop };
@@ -54,6 +55,26 @@ function onRankingMetric(metric, inGameModal) {
   openRankingsSurface(metric.dataset.rankingMetric);
 }
 
+function focusRankingStep(surface, direction) {
+  requestAnimationFrame(() => {
+    const button = document.querySelector(`${surface} [data-ranking-step="${direction}"]`);
+    button?.focus({ preventScroll: true });
+  });
+}
+
+function onRankingStep(step, inGameModal, surface) {
+  const current = Math.max(0, RANKING_ORDER.indexOf(state.leaderboard.metric));
+  const next = (current + step + RANKING_ORDER.length) % RANKING_ORDER.length;
+  state.leaderboard.metric = RANKING_ORDER[next];
+  if (inGameModal) {
+    renderRankingsSurface(surface);
+    requestLeaderboardSnapshot(surface);
+  } else {
+    openRankingsSurface(state.leaderboard.metric, state.leaderboard.scope);
+  }
+  focusRankingStep(surface, String(step > 0 ? 1 : -1));
+}
+
 function closeRankingsFromEvent(event) {
   if (event.currentTarget?.id === "rankings-page-content") leaveRoomForHome();
   else closeSurface("#rankings-modal");
@@ -61,8 +82,14 @@ function closeRankingsFromEvent(event) {
 
 function handleRankingClick(event) {
   const inGameModal = event.currentTarget?.id === "rankings-card" && rankingScopeInGame();
+  const surface = rankingSearchSurface(event);
+  const step = event.target.closest("[data-ranking-step]");
+  if (step) {
+    onRankingStep(Number(step.dataset.rankingStep) || 1, inGameModal, surface);
+    return;
+  }
   if (event.target.closest("[data-ranking-retry]")) {
-    requestLeaderboardSnapshot(rankingSearchSurface(event));
+    requestLeaderboardSnapshot(surface);
     return;
   }
   const scope = event.target.closest("[data-ranking-scope]");
@@ -80,6 +107,30 @@ function handleRankingClick(event) {
     });
   }
   if (event.target.closest(".rankings-close, #rankings-close")) closeRankingsFromEvent(event);
+}
+
+function handleRankingKeydown(event) {
+  if (!event.target.closest("[data-ranking-stage]")) return;
+  let step = 0;
+  if (event.key === "ArrowLeft") step = -1;
+  if (event.key === "ArrowRight") step = 1;
+  if (event.key === "Home") step = -RANKING_ORDER.length;
+  if (event.key === "End") step = RANKING_ORDER.length;
+  if (!step) return;
+  event.preventDefault();
+  const current = Math.max(0, RANKING_ORDER.indexOf(state.leaderboard.metric));
+  const next = event.key === "Home" ? 0 : event.key === "End" ? RANKING_ORDER.length - 1 : (current + step + RANKING_ORDER.length) % RANKING_ORDER.length;
+  const direction = next > current || event.key === "End" ? 1 : -1;
+  const surface = event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
+  const inGameModal = event.currentTarget?.id === "rankings-card" && rankingScopeInGame();
+  state.leaderboard.metric = RANKING_ORDER[next];
+  if (inGameModal) {
+    renderRankingsSurface(surface);
+    requestLeaderboardSnapshot(surface);
+  } else {
+    openRankingsSurface(state.leaderboard.metric, state.leaderboard.scope);
+  }
+  focusRankingStep(surface, String(direction));
 }
 
 function rankingSearchSurface(event) {
@@ -314,6 +365,8 @@ function bindRankingsListeners() {
   $("#player-list")?.addEventListener("click", onPlayerListClick);
   $("#rankings-card")?.addEventListener("click", handleRankingClick);
   $("#rankings-page-content")?.addEventListener("click", handleRankingClick);
+  $("#rankings-card")?.addEventListener("keydown", handleRankingKeydown);
+  $("#rankings-page-content")?.addEventListener("keydown", handleRankingKeydown);
   $("#rankings-card")?.addEventListener("submit", handleRankingSubmit);
   $("#rankings-page-content")?.addEventListener("submit", handleRankingSubmit);
 }

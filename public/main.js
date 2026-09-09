@@ -117,6 +117,9 @@ import {
   closeRoomsModal,
   configureRoomsUi,
   openRoomsModal,
+  requestRoomsDirectory,
+  refreshHomeDirectory,
+  renderHomeSignals,
   renderHome,
   setHomeTab,
   syncGlobalNavigation,
@@ -340,10 +343,14 @@ function say(text, who) {
 function setConnectionStatus(status, announce = false) {
   if (state.connectionStatus === status) {
     renderConnectionStatus();
+    renderHomeSignals();
+    refreshHomeDirectory();
     return;
   }
   state.connectionStatus = status;
   renderConnectionStatus();
+  renderHomeSignals();
+  refreshHomeDirectory();
   if (announce) {
     const copy = CONNECTION_COPY[status] || CONNECTION_COPY.offline;
     const message = status === "online" ? "Live table connection restored." : `Table connection ${copy.toLowerCase()}.`;
@@ -645,6 +652,21 @@ function onHomeTabClick(button) {
   }
 }
 
+function onHomeSignalClick(event) {
+  const signal = event.target.closest("[data-home-signal]");
+  if (!signal) return;
+  const kind = signal.dataset.homeSignal;
+  if (kind === "entry") {
+    openProfileEditor("home", homeProfileEditTarget());
+    return;
+  }
+  if (kind === "sync") {
+    requestRoomsDirectory();
+    return;
+  }
+  if (kind === "lobbies") openRoomsModal("browse");
+}
+
 function onRulesSectionClick(event) {
   const chapter = event.target.closest("[data-rules-section]");
   if (chapter) openRulesSurface(chapter.dataset.rulesSection);
@@ -668,6 +690,7 @@ function bindHomeNavigation() {
   // Home destinations. Play stays in the stage; rooms uses the existing
   // server-backed directory surface; profile keeps the current editor flow.
   $("#home-nav")?.addEventListener("click", onHomeNavClick);
+  $("#home-signal-line")?.addEventListener("click", onHomeSignalClick);
   document.querySelectorAll("[data-top-surface]").forEach((button) => {
     button.addEventListener("click", () => onTopSurfaceClick(button));
   });
@@ -862,7 +885,7 @@ configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderR
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureCosmetics({ emitServer, announce: message => parlorNotice("COLLECTION", message) });
-configureProfileRender({ renderAchievements, renderCollection, loadSavedGame });
+configureProfileRender({ renderAchievements, renderCollection, loadSavedGame, renderHomeSignals });
 configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, renderChat });
 configureDeedDetail({ emitServer });

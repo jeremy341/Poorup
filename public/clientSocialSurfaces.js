@@ -396,7 +396,35 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
   requestSeason("#rankings-page-content");
 }
 
-const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
+export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
+export const RANKING_ORDER = Object.keys(RANKING_LABELS);
+
+const RANKING_DESCRIPTIONS = {
+  wins: "Completed server rounds won. Ties are resolved by verified wins, then name.",
+  rate: "Verified win percentage. Five completed games are required before a rate ranks.",
+  games: "Completed server rounds. Preview, duplicate, abandoned, and bot-only games stay out.",
+  achievements: "Rarity-weighted achievement score earned across completed rounds.",
+  mythical: "Mythical achievements unlocked. These are announced server-wide when earned.",
+  bankruptcies: "Rounds survived without being the first wallet to break.",
+  events: "Global events survived, measured from server event outcomes.",
+  auctions: "Verified auctions won while keeping bids and settlements legal.",
+  rent: "Cash collected from property rent in completed rounds.",
+  casino: "Net fictional casino result. Wager volume never grants rank points.",
+  market: "Net fictional market result after disclosed fees and obligations.",
+  playerloans: "Player-to-player loan offers completed and settled.",
+  equity: "Equity deals completed with server-authoritative settlement.",
+  loans: "Loan obligations paid on time, including proactive repayments.",
+  patrol: "Best verified Patrol score from the home easter egg.",
+};
+
+function rankingDescription(metric) {
+  return RANKING_DESCRIPTIONS[metric] || "Verified server records only.";
+}
+
+function rankingPosition(metric) {
+  const index = Math.max(0, RANKING_ORDER.indexOf(metric));
+  return { index, label: `${String(index + 1).padStart(2, "0")} / ${String(RANKING_ORDER.length).padStart(2, "0")}` };
+}
 
 function rankingValueLabel(metric, value) {
   if (metric === "rate") return `${Number(value) || 0}%`;
@@ -404,23 +432,10 @@ function rankingValueLabel(metric, value) {
   return String(Number(value) || 0);
 }
 
-function rankingMetricColumnHTML(metric, rows) {
-  const label = RANKING_LABELS[metric];
-  const topRows = rows.slice(0, 3);
-  return `<section class="ranking-metric-column" aria-labelledby="ranking-column-${metric}"><div class="ranking-column-head"><div><span class="t-micro g400">${label}</span><strong class="t-label f12 g100" id="ranking-column-${metric}">${topRows.length ? `TOP ${topRows.length}` : "NO VERIFIED PLAYERS"}</strong></div><button class="btn-dark ranking-column-action" type="button" data-ranking-metric="${metric}" aria-label="View full ${label.toLowerCase()} ranking"><span class="t-label f11">VIEW</span></button></div><div class="ranking-column-list">${topRows.length ? topRows.map((row, index) => `<button class="ranking-mini-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-mini-place">${String(index + 1).padStart(2, "0")}</span><span class="ranking-mini-avatar">${avatarHTML(row, 2, index)}</span><span class="ranking-mini-name"><strong class="t-label f11 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)}</span></span><strong class="ranking-mini-value t-label f12 ${metric === "rate" ? "g300" : "green"}">${rankingValueLabel(metric, row.value)}</strong></button>`).join("") : `<span class="ranking-column-empty t-micro ink-3">NO VERIFIED DATA</span>`}</div></section>`;
-}
-
 function leaderboardCurrentRows(snapshots) {
   const rows = snapshots[state.leaderboard.metric];
   if (rows) return rows;
   return state.leaderboard.rows || [];
-}
-
-function columnRows(snapshots, metric, currentRows) {
-  const rows = snapshots[metric];
-  if (rows) return rows;
-  if (metric === state.leaderboard.metric) return currentRows;
-  return [];
 }
 
 function rankingSelfBits(currentRows) {
@@ -461,10 +476,6 @@ function rankingsShellClass(pageSurface) {
 function rankingsCloseButton(pageSurface) {
   if (pageSurface) return "";
   return '<button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button>';
-}
-
-function metricsTabs() {
-  return Object.entries(RANKING_LABELS).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}" aria-pressed="${state.leaderboard.metric === id}"><span class="t-label f11">${label}</span></button>`).join("");
 }
 
 function scopesTabs() {
@@ -509,20 +520,19 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const selfRank = self.selfRank;
   const selfTone = rankingSelfTone(self.selfRow);
   const selfStat = rankingSelfStat(self.selfRow);
-  const metrics = metricsTabs();
   const scopes = scopesTabs();
   const rows = ledgerRowsHTML(currentRows);
   const syncLabel = generatedLabel();
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
   const dataWindow = state.leaderboard.scope === "season" ? "Current calendar-quarter season." : state.leaderboard.scope === "month" ? "Last 30 days of completed matches." : state.leaderboard.scope === "friends" ? "You and accepted friends only." : "All verified completed matches.";
-  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">A wide standings ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><section class="rankings-metric-deck" aria-label="Top players across every ranking">${Object.keys(RANKING_LABELS).map((metric) => rankingMetricColumnHTML(metric, columnRows(snapshots, metric, currentRows))).join("")}</section><div class="rankings-main-grid"><section class="rankings-ledger panel noise" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-ledger-head"><div><span class="t-micro g400">FULL PLAYER LEDGER</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3></div><span class="t-micro ink-3">SORTED DESCENDING · ${scopeLabel()}</span></div><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><div class="ranking-metrics" role="toolbar" aria-label="Primary ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate needs five completed games; achievement score uses rarity-weighted points. Rankings use verified server records only.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">OPTIONAL ADD-ONS</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">DATA WINDOW</span><span class="t-body ink-2">${dataWindow}</span></div></aside></div></div>`;
+  const position = rankingPosition(state.leaderboard.metric);
+  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div><div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="rankings-season-slot">${seasonPanelHTML()}</div><div class="rankings-context-reading"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate needs five completed games; achievement score uses rarity-weighted points. Rankings use verified server records only.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">OPTIONAL ADD-ONS</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">DATA WINDOW</span><span class="t-body ink-2">${dataWindow}</span></div></div></aside></div></div>`;
   const rankingResults = rankingSearchResultsHTML();
   const rankingSearch = document.createElement("section");
   rankingSearch.className = "rankings-search-band panel noise";
   rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="rankings-${surfaceKey}-search" name="ranking-username" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}"><span class="t-micro ink-3">Exact username lookup · public identity only</span></label><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="rankings-search-results">${rankingResults}</div></form>`;
-  card.querySelector(".rankings-hero")?.insertAdjacentElement("afterend", rankingSearch);
-  rankingSearch.insertAdjacentHTML("afterend", seasonPanelHTML());
+  card.querySelector(".rankings-search-slot")?.replaceWith(rankingSearch);
 }
 
 const RULES_SECTIONS = [

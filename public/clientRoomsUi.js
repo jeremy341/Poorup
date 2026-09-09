@@ -18,6 +18,9 @@ import { renderHomeLocalTime, renderPatrolHud } from "./clientHomeAmbient.js";
 export const lobbyState = {
   roomsDirectory: [],
   roomsLoading: false,
+  roomsDirectoryLoaded: false,
+  roomsDirectoryFetchedAt: 0,
+  roomsDirectoryRequestId: 0,
   roomsDirectoryTimeout: null,
   roomsFilter: "all",
   roomModalTab: "browse", // "browse" | "create" | "join"
@@ -206,21 +209,25 @@ function paintJoinDescription(signedIn) {
   : "Enter the room code and the name you want to use at the table.";
 }
 
-function requestRoomsDirectory() {
+export function requestRoomsDirectory() {
+  const requestId = ++lobbyState.roomsDirectoryRequestId;
   lobbyState.roomsLoading = true;
+  renderHomeSignals();
   renderRoomsList();
   clearTimeout(lobbyState.roomsDirectoryTimeout);
   lobbyState.roomsDirectoryTimeout = setTimeout(() => {
     lobbyState.roomsDirectoryTimeout = null;
-    if (!lobbyState.roomsLoading) return;
+    if (!lobbyState.roomsLoading || requestId !== lobbyState.roomsDirectoryRequestId) return;
     lobbyState.roomsLoading = false;
+    renderHomeSignals();
     renderRoomsList();
     parlorNotice("BROWSE", "Public tables could not be loaded — try again.");
   }, 5000);
-  host.emitServer("list-rooms", {}, applyRoomsDirectoryResponse);
+  host.emitServer("list-rooms", {}, (response) => applyRoomsDirectoryResponse(response, requestId));
 }
 
-function applyRoomsDirectoryResponse(response) {
+function applyRoomsDirectoryResponse(response, requestId = lobbyState.roomsDirectoryRequestId) {
+  if (requestId !== lobbyState.roomsDirectoryRequestId) return;
   clearTimeout(lobbyState.roomsDirectoryTimeout);
   lobbyState.roomsDirectoryTimeout = null;
   lobbyState.roomsLoading = false;
@@ -228,12 +235,15 @@ function applyRoomsDirectoryResponse(response) {
     failRoomsDirectory(response);
   } else {
     lobbyState.roomsDirectory = Array.isArray(response?.rooms) ? response.rooms : [];
+    lobbyState.roomsDirectoryLoaded = true;
+    lobbyState.roomsDirectoryFetchedAt = Date.now();
   }
+  renderHomeSignals();
   renderRoomsList();
 }
 
 function failRoomsDirectory(response) {
-  lobbyState.roomsDirectory = [];
+  if (!lobbyState.roomsDirectoryLoaded) lobbyState.roomsDirectory = [];
   parlorNotice("BROWSE", response.error || "Public tables could not be loaded.");
   host.say(response.error || "Public tables could not be loaded.");
   host.renderChat();
@@ -241,6 +251,9 @@ function failRoomsDirectory(response) {
 
 export function applyRoomsUpdated(payload) {
   lobbyState.roomsDirectory = Array.isArray(payload?.rooms) ? payload.rooms : lobbyState.roomsDirectory;
+  lobbyState.roomsDirectoryLoaded = true;
+  lobbyState.roomsDirectoryFetchedAt = Date.now();
+  renderHomeSignals();
   if (!$("#rooms-modal").classList.contains("is-hidden")) renderRoomsList();
 }
 
@@ -264,10 +277,19 @@ export function renderHome() {
   paintSkyline($("#home-skyline-copy"), SKYLINE);
   buildMiniBoard();
   renderRoomsList();
+  renderHomeSignals();
+  refreshHomeDirectory();
   renderAccountPanel();
   applyProfileToHomeUI();
   renderConnectionStatus();
+  renderHomeSignals();
   hydrateSprites();
+}
+
+export function refreshHomeDirectory() {
+  if (state.phase !== "home" || state.connectionStatus !== "online" || lobbyState.roomsLoading) return;
+  const stale = Date.now() - Number(lobbyState.roomsDirectoryFetchedAt || 0) > 15000;
+  if (!lobbyState.roomsDirectoryLoaded || stale) requestRoomsDirectory();
 }
 
 const MINI_GROUPS = ["#7b5029", "#3e7d7b", "#a04e6f", "#87231e", "#4b853d", "#286ea1"];
@@ -450,6 +472,53 @@ function createRoomMeta(name, vis, code) {
   };
   if (vis === "private") meta.roomCode = code;
   return meta;
+}
+
+const HOME_CONNECTION_SIGNAL = {
+  connecting: "CONNECTING…",
+  online: "LIVE SERVER",
+  reconnecting: "RECONNECTING…",
+  offline: "OFFLINE",
+};
+
+/** Paint the compact home status strip without rebuilding the home page. */
+export function renderHomeSignals() {
+  const entry = $("[data-home-signal=entry]");
+  const sync = $("[data-home-signal=sync]");
+  const lobbies = $("[data-home-signal=lobbies]");
+  const account = state.account?.account || null;
+  const displayName = String(account?.displayName || "").trim();
+  const username = String(account?.username || "").trim();
+  if (entry) {
+    const value = entry.querySelector("#home-signal-entry-value");
+    const signedIn = Boolean(account);
+    if (value) value.textContent = signedIn ? (displayName || (username ? `@${username}` : "ACCOUNT")) : "NO ACCOUNT";
+    entry.dataset.signedIn = String(signedIn);
+    entry.title = signedIn ? `Open account @${username || displayName}` : "Open guest profile or create an account";
+    entry.setAttribute("aria-label", signedIn
+      ? `Open account ${displayName || username}${username ? `, @${username}` : ""}`
+      : "Open guest profile or create an account");
+  }
+  const status = state.connectionStatus || "offline";
+  if (sync) {
+    const value = sync.querySelector("#home-signal-sync-value");
+    if (value) value.textContent = HOME_CONNECTION_SIGNAL[status] || "OFFLINE";
+    sync.dataset.connection = status;
+    sync.setAttribute("aria-label", `Refresh live room directory · ${HOME_CONNECTION_SIGNAL[status] || "OFFLINE"}`);
+  }
+  if (lobbies) {
+    const value = lobbies.querySelector("#home-signal-lobbies-value");
+    const copy = lobbyState.roomsLoading && !lobbyState.roomsDirectoryLoaded
+      ? "SYNCING…"
+      : lobbyState.roomsDirectoryLoaded
+        ? `${lobbyState.roomsDirectory.length} LOBBIES`
+        : "— LOBBIES";
+    if (value) value.textContent = copy;
+    lobbies.dataset.loaded = String(lobbyState.roomsDirectoryLoaded);
+    lobbies.setAttribute("aria-label", lobbyState.roomsDirectoryLoaded
+      ? `Browse ${lobbyState.roomsDirectory.length} public lobbies`
+      : "Browse public lobbies");
+  }
 }
 
 function onRulesetInput(e) {
