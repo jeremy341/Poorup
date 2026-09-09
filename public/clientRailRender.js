@@ -166,10 +166,25 @@ function marketRowHTML(id, label, quotes, positions) {
         return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong><span class="market-actions"><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="buy">BUY</button><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="sell" ' + sellDisabledAttr(position) + '>SELL</button></span></div>';
 }
 
+function advancedMarketActions(id, market, position) {
+  const complexity = market.complexity || "basic";
+  const actions = [];
+  if (["margin", "shorting", "derivatives"].includes(complexity)) actions.push('<button class="btn-dark" type="button" data-market-advanced="open-margin" data-market-id="' + id + '">MARGIN</button>');
+  if (["shorting", "derivatives"].includes(complexity)) actions.push('<button class="btn-dark" type="button" data-market-advanced="open-short" data-market-id="' + id + '">SHORT</button>');
+  if (Number(position?.quantity) > 0) actions.push('<button class="btn-dark" type="button" data-market-advanced="cover-short" data-market-id="' + id + '">COVER</button>');
+  if (complexity === "derivatives") actions.push('<button class="btn-dark" type="button" data-market-advanced="open-option" data-market-id="' + id + '">OPTION</button>');
+  const option = (market.options || []).find(entry => entry.instrumentId === id && entry.status === "open");
+  if (option) {
+    actions.push('<button class="btn-dark" type="button" data-market-advanced="exercise-option" data-market-id="' + id + '" data-market-option-id="' + option.id + '">EXERCISE</button>');
+    actions.push('<button class="btn-dark" type="button" data-market-advanced="close-position" data-market-id="' + id + '" data-market-option-id="' + option.id + '">CLOSE</button>');
+  }
+  return actions.join("");
+}
+
 function marketRowsHTML(market) {
   const quotes = market.quotes || {};
   const positions = market.positions || state.players[0]?.marketPositions || {};
-  return Object.entries(MARKET_LABELS).map(([id, label]) => marketRowHTML(id, label, quotes, positions)).join("");
+  return Object.entries(MARKET_LABELS).map(([id, label]) => marketRowHTML(id, label, quotes, positions) + `<div class="market-advanced-actions">${advancedMarketActions(id, market, market.shorts?.positions?.[id])}</div>`).join("");
 }
 
 function marketRound(market) {
@@ -184,7 +199,9 @@ function railMarketBodyHTML() {
   const market = state.economy?.market || {};
   if (!market.enabled) return MARKET_OFF_HTML;
   const rows = marketRowsHTML(market);
-  return '<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ' + marketRound(market) + '</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div></div><label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label><div class="market-list thin-scroll">' + rows + '</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ' + marketFeePercent(market) + '% settlement fee applies. No leverage or shorting.</p></section>';
+  const complexity = String(market.complexity || "basic").toUpperCase();
+  const expansion = complexity === "BASIC" ? "No leverage, shorting, or derivatives." : `COMPLEXITY ${complexity} · obligations are fully disclosed and collateralized.`;
+  return '<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ' + marketRound(market) + '</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div><span class="t-micro g300">' + complexity + '</span></div><label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label>' + (["MARGIN", "SHORTING", "DERIVATIVES"].includes(complexity) ? '<div class="market-expansion-toolbar"><label><span class="t-micro ink-3">REDUCE MARGIN</span><input class="field" id="market-margin-amount" type="number" min="1" value="50"></label><button class="btn-dark" type="button" data-market-advanced="reduce-margin"><span class="t-label f11">REDUCE</span></button></div>' : '') + (complexity === "DERIVATIVES" ? '<div class="market-derivative-fields"><label><span class="t-micro ink-3">STRIKE</span><input class="field" id="market-strike" type="number" min="10" value="100"></label><label><span class="t-micro ink-3">PREMIUM</span><input class="field" id="market-premium" type="number" min="1" value="10"></label><label><span class="t-micro ink-3">EXPIRY ROUNDS</span><input class="field" id="market-expiry" type="number" min="1" max="20" value="3"></label><label><span class="t-micro ink-3">OPTION SIDE</span><select class="field" name="market-option-side"><option value="call">CALL</option><option value="put">PUT</option></select></label><label><span class="t-micro ink-3">POSITION</span><select class="field" name="market-option-role"><option value="writer">WRITE · COLLATERALIZED</option><option value="buyer">BUY · PREMIUM</option></select></label></div>' : '') + '<div class="market-list thin-scroll">' + rows + '</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ' + marketFeePercent(market) + '% settlement fee applies. ' + expansion + '</p></section>';
 }
 
 function railDeedRowHTML(tile) {

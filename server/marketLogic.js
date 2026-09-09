@@ -21,6 +21,7 @@ export const MARKET_ORDER_GUARDS = [
   { test: (game, player) => player.id !== game.currentPlayerId, error: 'Market orders are available during your turn.' },
   { test: (game, player) => (player.marketActionsThisTurn || 0) >= 1, error: 'You have already placed a market order this turn.' },
   { test: game => game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
+  { test: (game, player) => game.marginMaintenanceDue?.(player), error: 'Settle your margin maintenance before trading.' },
   { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
 ];
 

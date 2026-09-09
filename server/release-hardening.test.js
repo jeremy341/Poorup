@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createCorsOrigin, isOriginAllowed, parseAllowedOrigins } from './serverConfig.js';
+import { assertProductionCors, createCorsOrigin, isOriginAllowed, parseAllowedOrigins } from './serverConfig.js';
 import { createSocketRateLimiter } from './socketRateLimiter.js';
 
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: ' https://poorup.example, https://play.example ' }), ['https://poorup.example', 'https://play.example']);
@@ -13,6 +13,8 @@ createCorsOrigin({ NODE_ENV: 'production' })('https://unexpected.example', (_err
 assert.equal(productionOriginResult, false);
 createCorsOrigin({ NODE_ENV: 'production' })(undefined, (_error, allowed) => { productionOriginResult = allowed; });
 assert.equal(productionOriginResult, true);
+assert.throws(() => assertProductionCors({ NODE_ENV: 'production' }), /POORUP_ALLOWED_ORIGINS/);
+assert.equal(assertProductionCors({ NODE_ENV: 'production', POORUP_ALLOWED_ORIGINS: 'https://poorup.example' }), true);
 
 let now = 0;
 const limiter = createSocketRateLimiter({ max: 2, windowMs: 1000, now: () => now });

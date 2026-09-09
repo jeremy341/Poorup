@@ -23,3 +23,9 @@ export function createCorsOrigin(env = process.env) {
     callback(null, allowed);
   };
 }
+
+export function assertProductionCors(env = process.env) {
+  const production = String(env?.NODE_ENV || '').trim().toLowerCase() === 'production';
+  if (production && !parseAllowedOrigins(env).length) throw new Error('POORUP_ALLOWED_ORIGINS must be configured in production.');
+  return true;
+}

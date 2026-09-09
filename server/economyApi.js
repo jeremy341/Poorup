@@ -15,6 +15,21 @@ import {
   marketOrderRejection as rejectMarketOrder
 } from './marketLogic.js';
 import { hasLoanBackedCash as cashIsLoanBacked } from './loanLogic.js';
+import {
+  coverShort,
+  expansionCandidates,
+  expansionGuard,
+  exerciseOption,
+  closeOption,
+  forceLiquidate,
+  integerAmount,
+  maintenanceDue,
+  marketInstrument,
+  openMargin,
+  openOption,
+  openShort,
+  reduceMargin
+} from './marketExpansion.js';
 
 const CASINO_MAX_BET = 500;
 const CASINO_BET_COLORS = ['red', 'black', 'green'];
@@ -67,7 +82,11 @@ const economyApi = {
         round: this.marketRound,
         feeRate: MARKET_FEE_RATE,
         quotes: { ...this.marketQuotes },
-        positions: { ...(player?.marketPositions || {}) }
+        positions: { ...(player?.marketPositions || {}) },
+        complexity: this.settings.marketComplexity || 'basic',
+        margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, positions: { ...(player.marginPositions || {}) } } : null,
+        shorts: player ? { positions: { ...(player.shortPositions || {}) }, borrowable: { ...(this.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0 } : null,
+        options: player ? (player.optionPositions || []).map(option => ({ ...option })) : []
       }
     };
   },
@@ -182,6 +201,15 @@ const economyApi = {
 
   advanceMarket() {
     stepMarketQuotes(this);
+    if (!this.settings.market) return;
+    this.recordTelemetryEvent?.('market-volatility', { roundNumber: this.marketRound, complexity: this.settings.marketComplexity || 'basic' });
+    this.players.forEach(player => {
+      const forced = forceLiquidate(this, player, this.marketShortInventory || (this.marketShortInventory = {}));
+      if (forced.length) {
+        this.feedMessage(`${player.nickname} faced ${forced.join(' and ')}.`);
+        this.recordTelemetryEvent?.('market-liquidation', { actionCount: forced.length, actions: forced });
+      }
+    });
   },
 
   tradeMarket(socketId, ...order) {
@@ -233,6 +261,7 @@ const economyApi = {
     player.marketTrades = (player.marketTrades || 0) + 1;
     player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
     this.recordMarketLedger(ctx, plan);
+    this.recordTelemetryEvent?.('market-volatility', { action: ctx.direction, instrumentId: ctx.id, quantity: ctx.amount });
     this.feedMessage(this.marketFeedLine(ctx));
     const result = { success: true, order: this.marketOrderReceipt(ctx, plan), economy: this.economySnapshot(player.id) };
     return this.cacheTransaction(key, result);
@@ -274,6 +303,121 @@ const economyApi = {
 
   applyMarketSell(player, id, position, order) {
     return marketSellLeg({ game: this, player, id, position, ...order });
+  },
+
+  marketExpansionCandidates(player) {
+    return expansionCandidates(this, player);
+  },
+
+  marginMaintenanceDue(player) {
+    return maintenanceDue(this, player);
+  },
+
+  openMargin(socketId, instrumentId, quantity, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const instrument = marketInstrument(MARKET_INSTRUMENTS, instrumentId);
+    const amount = integerAmount(quantity, 1000);
+    const rejection = expansionGuard(this, player, 'margin', 'open');
+    if (rejection) return { success: false, error: rejection };
+    if (!instrument || !amount) return { success: false, error: 'Choose a valid margin order.' };
+    const key = this.transactionKey(player.id, 'margin-open', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const result = openMargin(this, player, instrument, amount);
+    if (result.success) {
+      this.marketLedger = [{ transactionId: key || crypto.randomUUID(), ...result, playerId: player.id, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
+      result.economy = this.economySnapshot(player.id);
+      this.recordTelemetryEvent?.('market-volatility', { action: 'open-margin', instrumentId, quantity: amount });
+      return this.cacheTransaction(key, result);
+    }
+    return result;
+  },
+
+  reduceMargin(socketId, amount, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const rejection = expansionGuard(this, player, 'margin', 'reduce');
+    if (rejection) return { success: false, error: rejection };
+    const key = this.transactionKey(player.id, 'margin-reduce', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const result = reduceMargin(player, integerAmount(amount, 1_000_000));
+    if (result.success) { result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'reduce-margin', amount: result.amount }); return this.cacheTransaction(key, result); }
+    return result;
+  },
+
+  openShort(socketId, instrumentId, quantity, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const instrument = marketInstrument(MARKET_INSTRUMENTS, instrumentId);
+    const amount = integerAmount(quantity, 1000);
+    const rejection = expansionGuard(this, player, 'shorting', 'open');
+    if (rejection) return { success: false, error: rejection };
+    if (this.globalEventActive?.('credit-freeze') || this.globalEventActive?.('bank-run')) return { success: false, error: 'New short positions are paused by the active global event.' };
+    if (!instrument || !amount) return { success: false, error: 'Choose a valid short order.' };
+    this.marketShortInventory ||= Object.fromEntries(MARKET_INSTRUMENTS.map(entry => [entry.id, 50]));
+    const key = this.transactionKey(player.id, 'short-open', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const result = openShort(this, player, instrument, amount, this.marketShortInventory);
+    if (result.success) { player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
+    return result;
+  },
+
+  coverShort(socketId, instrumentId, quantity, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const instrument = marketInstrument(MARKET_INSTRUMENTS, instrumentId);
+    const amount = integerAmount(quantity, 1000);
+    const rejection = expansionGuard(this, player, 'shorting', 'manage');
+    if (rejection) return { success: false, error: rejection };
+    if (!instrument || !amount) return { success: false, error: 'Choose a valid cover order.' };
+    this.marketShortInventory ||= Object.fromEntries(MARKET_INSTRUMENTS.map(entry => [entry.id, 50]));
+    const key = this.transactionKey(player.id, 'short-cover', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const result = coverShort(this, player, instrument, amount, this.marketShortInventory);
+    if (result.success) { player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
+    return result;
+  },
+
+  openOption(socketId, payload = {}) {
+    const player = this.getPlayerBySocket(socketId);
+    const instrument = marketInstrument(MARKET_INSTRUMENTS, payload.instrumentId);
+    const rejection = expansionGuard(this, player, 'derivatives', 'open');
+    if (rejection) return { success: false, error: rejection };
+    if (!instrument) return { success: false, error: 'Choose a valid option instrument.' };
+    const key = this.transactionKey(player.id, 'option-open', payload.requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const result = openOption(this, player, instrument, payload);
+    if (result.success) {
+      result.economy = this.economySnapshot(player.id);
+      this.recordTelemetryEvent?.('market-volatility', { action: result.action, instrumentId: instrument.id, quantity: Number(payload.quantity) || 0 });
+      return this.cacheTransaction(key, result);
+    }
+    return result;
+  },
+
+  exerciseOption(socketId, optionId, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const rejection = expansionGuard(this, player, 'derivatives', 'manage');
+    if (rejection) return { success: false, error: rejection };
+    const key = this.transactionKey(player.id, 'option-exercise', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const result = exerciseOption(this, player, String(optionId || '').slice(0, 120));
+    if (result.success) { result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'exercise-option' }); return this.cacheTransaction(key, result); }
+    return result;
+  },
+
+  closePosition(socketId, optionId, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const rejection = expansionGuard(this, player, 'derivatives', 'manage');
+    if (rejection) return { success: false, error: rejection };
+    const key = this.transactionKey(player.id, 'option-close', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    const result = closeOption(this, player, String(optionId || '').slice(0, 120));
+    if (result.success) { result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'close-position' }); return this.cacheTransaction(key, result); }
+    return result;
   }
 };
 

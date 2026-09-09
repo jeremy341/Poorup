@@ -14,7 +14,7 @@ import { MAX_PROFILES, profileDesignName } from "./clientSanitize.js";
 const PROFILE_SWATCHES = ["#d74438", "#286ea1", "#d9a62f", "#35a653", "#a04e6f", "#3e7d7b", "#7b5029", "#cfa75f"];
 const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5c5033", "#01070a", "#ffffff", "#d74438", "#35a653", "#286ea1", "#d9a62f"];
 
-let host = { renderAchievements: () => {}, loadSavedGame: () => null };
+let host = { renderAchievements: () => {}, renderCollection: () => {}, loadSavedGame: () => null };
 
 export function configureProfileRender(hooks) {
   host = { ...host, ...hooks };
@@ -154,6 +154,7 @@ export function renderProfileSummary() {
   renderProfileStatistics();
   renderProfileHistory();
   host.renderAchievements();
+  host.renderCollection();
 }
 
 export function formatStatDate(value) {

@@ -69,7 +69,7 @@ async function checkNullPayloadStorm(socket, child) {
   const hostileEvents = [
     'set-setting', 'set-player-appearance', 'purchase-property',
     'decline-property', 'auction-bid', 'manage-property', 'respond-trade', 'counter-trade', 'counter-player-contract', 'adjust-trade', 'cancel-trade', 'adjust-player-contract',
-    'take-bank-loan', 'market-order', 'place-casino-bet', 'send-chat',
+    'take-bank-loan', 'market-order', 'open-margin', 'reduce-margin', 'open-short', 'cover-short', 'open-option', 'exercise-option', 'close-position', 'place-casino-bet', 'send-chat',
     'request-sponsored-purchase', 'contribute-sponsored-purchase',
     'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase'
   ];
