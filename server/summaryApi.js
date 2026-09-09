@@ -10,6 +10,8 @@ const summaryApi = {
   getGameSummary(viewerPlayerId = null) {
     return {
       started: this.started,
+      boardVariant: this.boardVariant || this.settings?.boardVariant || 'standard-40',
+      rulesetDigest: this.rulesetDigest || this.ruleset?.digest || null,
       currentPlayerId: this.currentPlayerId,
       turnOrder: this.turnOrder || [],
       hasRolled: this.hasRolled,
@@ -31,12 +33,13 @@ const summaryApi = {
       pendingTrade: this.pendingTrade,
       vacationPool: this.vacationPool,
       playerContracts: this.playerContractSummary(viewerPlayerId),
-      economy: this.summaryEconomy()
+      economy: this.summaryEconomy(),
+      ruleset: this.summaryRuleset()
     };
   },
 
   summaryTileEntry(tile) {
-    return {
+    const entry = {
       index: tile.index,
       name: tile.name,
       type: tile.type,
@@ -50,6 +53,22 @@ const summaryApi = {
       houseCount: tile.houseCount || 0,
       houseCost: this.getPropertyHouseCost(tile),
       equityShares: (Array.isArray(tile.equityShares) ? tile.equityShares : []).map(share => this.summaryEquityEntry(share))
+    };
+    if (tile.tileId) entry.tileId = tile.tileId;
+    return entry;
+  },
+
+  summaryRuleset() {
+    if (!this.ruleset) return null;
+    return {
+      preset: this.ruleset.rulesetPreset,
+      base: this.ruleset.rulesetBase,
+      boardVariant: this.ruleset.boardVariant,
+      revision: this.ruleset.rulesetRevision,
+      digest: this.rulesetDigest || this.ruleset.digest,
+      overrides: this.ruleset.rulesetOverrides.map(entry => ({ ...entry })),
+      effectiveSettings: this.legacyRuleset ? { ...this.settings } : { ...this.ruleset.effectiveSettings },
+      legacyCompatibility: this.legacyRuleset === true
     };
   },
 
@@ -155,6 +174,7 @@ const summaryApi = {
         enabled: Boolean(this.settings.market),
         round: this.marketRound,
         feeRate: MARKET_FEE_RATE,
+        complexity: this.settings.marketComplexity || 'basic',
         quotes: { ...this.marketQuotes }
       }
     };

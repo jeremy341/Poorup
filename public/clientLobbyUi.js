@@ -22,6 +22,7 @@ import {
 } from "./clientSanitize.js";
 import { avatarHTML } from "./clientSprites.js";
 import { placePieces } from "./clientBoardRender.js";
+import { setBoardVariant } from "./clientBoardData.js";
 import { renderTopNav } from "./clientTopNavRender.js";
 import {
   applyProfileToHomeUI,
@@ -44,6 +45,7 @@ let host = {
   clearSave: noop,
   renderPlayers: noop,
   closeRoomsModal: noop,
+  rebuildBoard: noop,
   goHome: noop,
 };
 
@@ -329,8 +331,12 @@ function lobbySetupNotice(locked, hostLocked) {
 }
 
 function lobbyRulesSnapshot(settings) {
+  const preset = String(settings.rulesetPreset || state.ruleset?.preset || "classic").toUpperCase();
+  const board = String(settings.boardVariant || state.boardVariant || "standard-40").toUpperCase();
+  const overrides = Array.isArray(settings.rulesetOverrides) ? settings.rulesetOverrides.length : 0;
   return `<div class="settings-rule">
       <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
+      ${preset} · ${board}${overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : ""}<br>
       ${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start ·
       ${settings.vacationPool ? "pool on" : "no pool"} ·
       ${settings.trading ? "trading on" : "no trades"} ·
@@ -370,7 +376,10 @@ function renderLobbyRailContent(s, locked, hostLocked) {
     lobbySetupNotice(locked, hostLocked),
     lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
     lobbySection("Table Rules", [
-      settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
+      settingRow("Ruleset Preset", "Classic is the clean baseline; After Hours enables Poorup systems by default.", sel("rulesetPreset", s.rulesetPreset || "classic", [["classic", "CLASSIC"], ["after-hours", "AFTER HOURS"], ["custom", "CUSTOM"]])),
+      settingRow("Board Variant", "Board size changes capacity and spaces, never the Classic 40 layout.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD 40 · 2–4"], ["metro-52", "METRO 52 · 2–6"]])),
+      settingRow("Custom Overrides", "Host-only changes are recorded on the active preset.", `<span class="ruleset-override-control"><span class="t-label f11 g400" id="ruleset-override-count">${Array.isArray(s.rulesetOverrides) ? s.rulesetOverrides.length : 0} OVERRIDES</span><button class="btn-dark ruleset-reset-btn" type="button" data-reset-ruleset ${(!Array.isArray(s.rulesetOverrides) || !s.rulesetOverrides.length) ? "disabled" : ""}><span class="t-label f11">RESET TO PRESET</span></button></span>`),
+      settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
       settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
       settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
       settingRow("Bot Brain", "AI is preferred; the house brain takes over when credits or service are unavailable.", sel("botBrain", s.botBrain, [["auto","AUTO · AI → NO-AI"],["ai","AI · FALLBACK ON"],["no-ai","NO-AI · OFFLINE"]])),
@@ -388,6 +397,7 @@ function renderLobbyRailContent(s, locked, hostLocked) {
       settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
       settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
       settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
+      settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
     ]),
     lobbySection("Global Events", [
       settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
@@ -464,6 +474,10 @@ function resetTableForEntry(requestedCode) {
   state.suppressRoomUpdates = false;
   state.roomCode = requestedCode;
   state.roomVisibility = entryRoomVisibility(requestedCode);
+  state.boardVariant = "standard-40";
+  state.ruleset = null;
+  setBoardVariant("standard-40");
+  host.rebuildBoard?.();
   state.phase = "setup";
   state.tableAppearanceOverride = null;
   state.setupTab = typeof state.appearance === "string" ? "custom" : "preset";
@@ -627,6 +641,16 @@ function onLobbySettingsClick(e) {
   }
   const stepBtn = e.target.closest("[data-step]");
   if (isStepperEnabled(stepBtn)) onStepperSetting(stepBtn);
+  const reset = e.target.closest("[data-reset-ruleset]");
+  if (reset && !reset.disabled) resetRuleset();
+}
+
+function resetRuleset() {
+  const base = state.settings.rulesetBase || (state.settings.rulesetPreset === "after-hours" ? "after-hours" : "classic");
+  state.settings.rulesetOverrides = [];
+  host.updateServerSetting("rulesetBase", base);
+  host.updateServerSetting("rulesetOverrides", []);
+  renderLobbyRail();
 }
 
 function isStepperEnabled(stepBtn) {
@@ -643,7 +667,7 @@ function onToggleSetting(togBtn) {
 }
 
 function stepperLimits(key) {
-  if (key === "maxPlayers") return [2, 4];
+  if (key === "maxPlayers") return [2, state.settings.boardVariant === "metro-52" ? 6 : 4];
   if (key === "bots") return [0, Math.max(0, Number(state.settings.maxPlayers) - 1)];
   return [0, 999];
 }
@@ -736,6 +760,7 @@ export function bindLobbyUi() {
     state.settings.vacationPool = true;
     state.settings.trading = true;
     state.settings.auction = false;
+    state.pendingRoomMeta = { roomName: "QUICK TABLE", visibility: "public", rulesetPreset: "classic", boardVariant: "standard-40" };
     state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
       enterParlor();
       return;

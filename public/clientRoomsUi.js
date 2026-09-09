@@ -25,6 +25,8 @@ export const lobbyState = {
     name: "",
     visibility: "public", // "public" | "private"
     code: "",
+    rulesetPreset: "classic",
+    boardVariant: "standard-40",
   },
 };
 
@@ -65,6 +67,9 @@ function roomRowHTML(r) {
         <span class="t-micro ink-3 room-meta-item">SEATS ${r.seats}/${r.cap}</span>
         <span class="t-micro ink-3 room-meta-item">OPEN ${open}</span>
         <span class="t-micro ink-3 room-meta-item">BANK ${r.bank}</span>
+        <span class="t-micro g400 room-meta-item">${String(r.rulesetPreset || "classic").toUpperCase()}</span>
+        <span class="t-micro g400 room-meta-item">${String(r.boardVariant || "standard-40").toUpperCase()}</span>
+        <span class="t-micro ink-3 room-meta-item">${Array.isArray(r.addOns) && r.addOns.length ? r.addOns.join(" · ") : "NO ADD-ONS"}</span>
         <span class="t-micro g-muted room-meta-item">${r.note}</span>
       </div>
     </div>
@@ -108,6 +113,10 @@ function updateCreateRoomUI() {
   document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.vis === lobbyState.createRoomSettings.visibility);
   });
+  const preset = $("#rc-ruleset-preset");
+  if (preset && preset.value !== lobbyState.createRoomSettings.rulesetPreset) preset.value = lobbyState.createRoomSettings.rulesetPreset;
+  const board = $("#rc-board-variant");
+  if (board && board.value !== lobbyState.createRoomSettings.boardVariant) board.value = lobbyState.createRoomSettings.boardVariant;
 }
 
 function syncCreateRoomCode(codeInput, settings) {
@@ -431,8 +440,21 @@ function invalidPrivateCode() {
 }
 
 function createRoomMeta(name, vis, code) {
-  if (vis === "private") return { roomName: name, visibility: vis, roomCode: code };
-  return { roomName: name, visibility: vis };
+  const meta = {
+    roomName: name,
+    visibility: vis,
+    // Room creation defaults to the documented Classic baseline. The richer
+    // preset controls live in the existing in-room settings rail.
+    rulesetPreset: lobbyState.createRoomSettings.rulesetPreset || "classic",
+    boardVariant: lobbyState.createRoomSettings.boardVariant || "standard-40",
+  };
+  if (vis === "private") meta.roomCode = code;
+  return meta;
+}
+
+function onRulesetInput(e) {
+  if (e.target.id === "rc-ruleset-preset") lobbyState.createRoomSettings.rulesetPreset = e.target.value;
+  if (e.target.id === "rc-board-variant") lobbyState.createRoomSettings.boardVariant = e.target.value;
 }
 
 function bindRoomsOpeners() {
@@ -456,6 +478,8 @@ function bindRoomsModal() {
   // room creation form interactions
   $("#rc-vis-selector")?.addEventListener("click", onVisibilityPick);
   $("#rc-room-code")?.addEventListener("input", onRoomCodeInput);
+  $("#rc-ruleset-preset")?.addEventListener("change", onRulesetInput);
+  $("#rc-board-variant")?.addEventListener("change", onRulesetInput);
   $("#rc-create-btn")?.addEventListener("click", onCreateRoomClick);
 }
 

@@ -37,6 +37,7 @@ function tileView(game, bot, tile) {
   if (!tile) return null;
   return {
     index: tile.index,
+    tileId: tile.tileId || null,
     name: tile.name,
     type: tile.type,
     group: tile.group || null,
@@ -103,6 +104,18 @@ function ownMarketView(bot) {
       realizedPnl: Number(position?.realizedPnl) || 0
     }
   ]));
+}
+
+function ownMarketExpansionView(bot) {
+  return {
+    margin: {
+      balance: nonNegative(bot.marginBalance),
+      maintenance: nonNegative(bot.marginMaintenance),
+      positions: Object.fromEntries(Object.entries(bot.marginPositions || {}).map(([id, position]) => [String(id).slice(0, 40), { quantity: nonNegative(position?.quantity), averageCost: Math.max(0, Number(position?.averageCost) || 0) }]))
+    },
+    shorts: Object.fromEntries(Object.entries(bot.shortPositions || {}).map(([id, position]) => [String(id).slice(0, 40), { quantity: nonNegative(position?.quantity), entryQuote: Math.max(0, Number(position?.entryQuote) || 0), collateral: nonNegative(position?.collateral) }])),
+    options: (bot.optionPositions || []).slice(0, 12).map(option => ({ id: String(option.id || '').slice(0, 80), instrumentId: option.instrumentId, side: option.side, role: option.role, quantity: nonNegative(option.quantity), strike: nonNegative(option.strike), expiryRound: nonNegative(option.expiryRound), status: option.status }))
+  };
 }
 
 function ownCasinoView(bot) {
@@ -273,6 +286,10 @@ function rulesDigest(game) {
   return {
     version: BOT_RULE_VERSION,
     boardSize: Array.isArray(game.tiles) ? game.tiles.length : 40,
+    boardVariant: game.boardVariant || game.settings?.boardVariant || 'standard-40',
+    rulesetPreset: game.ruleset?.rulesetPreset || game.settings?.rulesetPreset || 'classic',
+    rulesetRevision: game.ruleset?.rulesetRevision || game.settings?.rulesetRevision || 1,
+    rulesetDigest: typeof game.rulesetDigest === 'string' ? game.rulesetDigest.slice(0, 200) : null,
     startTileIndex: START_TILE_INDEX,
     passStartCash: 200,
     doubleGo: settings.doubleGo === true,
@@ -289,7 +306,7 @@ function rulesDigest(game) {
     bankLoanSeverity: settings.bankLoanSeverity || 'predatory',
     sponsorship: { enabled: true, giftsOnly: true, forcedPurchase: true, loanOrEquity: false },
     casino: { enabled: settings.casino === true, ...casinoLimits, loanBackedCashAllowed: false },
-    market: { enabled: settings.market === true, feeRate: MARKET_FEE_RATE, margin: false, shorting: false },
+    market: { enabled: settings.market === true, feeRate: MARKET_FEE_RATE, complexity: settings.marketComplexity || 'basic', margin: settings.marketComplexity === 'margin' || settings.marketComplexity === 'shorting' || settings.marketComplexity === 'derivatives', shorting: settings.marketComplexity === 'shorting' || settings.marketComplexity === 'derivatives', derivatives: settings.marketComplexity === 'derivatives', borrowableUnits: 50, maintenanceRate: 0.25 },
     cards: {
       surpriseCount: SURPRISE_DECK.length,
       treasureCount: TREASURE_DECK.length,
@@ -352,6 +369,7 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
       bankLoan: ownLoanView(safeBot),
       contracts: typeof game?.playerContracts !== 'undefined' ? ownContractView(game, safeBot) : [],
       marketPositions: ownMarketView(safeBot),
+      marketExpansion: ownMarketExpansionView(safeBot),
       casino: ownCasinoView(safeBot)
     },
     turn: turnView(game || {}, safeBot),

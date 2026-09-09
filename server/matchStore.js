@@ -160,10 +160,27 @@ function sanitizeMatch(record = {}) {
   if (Object.prototype.hasOwnProperty.call(record, 'playerCount')) {
     match.playerCount = nonNegativeNumber(record.playerCount);
   }
+  if (Object.prototype.hasOwnProperty.call(record, 'botOnly')) match.botOnly = record.botOnly === true;
+  // Versioned ruleset metadata lets history and rewards distinguish a
+  // Standard Classic match from a Metro or After Hours match without leaking
+  // private terms. Older records simply omit these optional fields.
+  if (Object.prototype.hasOwnProperty.call(record, 'seasonId')) match.seasonId = stringOr(record.seasonId, '');
+  if (Object.prototype.hasOwnProperty.call(record, 'rulesetPreset')) match.rulesetPreset = stringOr(record.rulesetPreset, 'classic');
+  if (Object.prototype.hasOwnProperty.call(record, 'rulesetBase')) match.rulesetBase = stringOr(record.rulesetBase, 'classic');
+  if (Object.prototype.hasOwnProperty.call(record, 'boardVariant')) match.boardVariant = stringOr(record.boardVariant, 'standard-40');
+  if (Object.prototype.hasOwnProperty.call(record, 'rulesetRevision')) match.rulesetRevision = nonNegativeNumber(record.rulesetRevision);
+  if (Object.prototype.hasOwnProperty.call(record, 'balanceRevision')) match.balanceRevision = nonNegativeNumber(record.balanceRevision);
+  if (Object.prototype.hasOwnProperty.call(record, 'rulesetDigest')) match.rulesetDigest = clipString(record.rulesetDigest, 200);
+  if (Object.prototype.hasOwnProperty.call(record, 'rulesetOverrides')) match.rulesetOverrides = safeArray(record.rulesetOverrides, 32).map(entry => ({ key: clipString(entry?.key, 60), value: primitiveValue(entry?.value) }));
   if (Object.prototype.hasOwnProperty.call(record, 'botDecisions')) {
     match.botDecisions = safeArray(record.botDecisions, 200).map(sanitizeBotDecision);
   }
   return match;
+}
+
+function primitiveValue(value) {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') return value;
+  return String(value);
 }
 
 export class MatchStore {

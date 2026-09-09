@@ -99,8 +99,10 @@ function renderRoomCopy(code, isPublic) {
 }
 
 function lobbyTagText(code, isPublic) {
-  if (isPublic) return "AFTER HOURS · PUBLIC";
-  return `AFTER HOURS ${code}`;
+  const preset = String(state.ruleset?.preset || state.settings?.rulesetPreset || "classic").toUpperCase();
+  const board = String(state.boardVariant || state.settings?.boardVariant || "standard-40").toUpperCase();
+  if (isPublic) return `${preset} · ${board} · PUBLIC`;
+  return `${preset} · ${board} · ${code}`;
 }
 
 function turnTagText() {
