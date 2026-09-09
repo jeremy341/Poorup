@@ -18,6 +18,7 @@ import {
   openPlayerSurface,
   renderPlayerSurface,
   requestLeaderboardSnapshot,
+  requestSeason,
 } from "./clientSocialSurfaces.js";
 
 let host = { emitServer: noop, leaveRoomForHome: noop };
@@ -70,6 +71,14 @@ function handleRankingClick(event) {
   if (metric) { onRankingMetric(metric, inGameModal); return; }
   const player = event.target.closest("[data-ranking-player]");
   if (player) openPlayerSurface(player.dataset.rankingPlayer);
+  const reward = event.target.closest("[data-season-claim]");
+  if (reward) {
+    host.emitServer("claim-season-reward", { rewardId: reward.dataset.seasonClaim }, (response) => {
+      if (response?.success === false) announceSocialNotification({ body: response.error || "Reward could not be claimed." });
+      else { state.cosmetics = response.cosmetics || state.cosmetics; announceSocialNotification({ title: "SEASON REWARD", body: response.created === false ? "Reward already claimed." : "Reward claimed and added to your collection." }); }
+      requestSeason(rankingSearchSurface(event));
+    });
+  }
   if (event.target.closest(".rankings-close, #rankings-close")) closeRankingsFromEvent(event);
 }
 

@@ -93,6 +93,32 @@ function onMarketOrder(node) {
   return true;
 }
 
+function onMarketAdvanced(node) {
+  if (!node || node.disabled) return false;
+  const action = node.dataset.marketAdvanced;
+  const id = node.dataset.marketId;
+  const quantity = marketQuantity();
+  let eventName = "";
+  let payload = { instrumentId: id, quantity, requestId: host.createRequestId(`market-${action}`) };
+  if (action === "open-margin") eventName = "open-margin";
+  else if (action === "reduce-margin") { eventName = "reduce-margin"; payload = { amount: Math.floor(Number($("#market-margin-amount")?.value) || 1), requestId: host.createRequestId("market-reduce-margin") }; }
+  else if (action === "open-short") eventName = "open-short";
+  else if (action === "cover-short") eventName = "cover-short";
+  else if (action === "open-option") {
+    eventName = "open-option";
+    payload = { instrumentId: id, quantity, side: document.querySelector("[name=market-option-side]")?.value || "call", role: document.querySelector("[name=market-option-role]")?.value || "writer", strike: Math.floor(Number($("#market-strike")?.value) || 100), premium: Math.floor(Number($("#market-premium")?.value) || 10), expiryRounds: Math.floor(Number($("#market-expiry")?.value) || 3) };
+  }
+  else if (action === "exercise-option") { eventName = "exercise-option"; payload = { optionId: node.dataset.marketOptionId, requestId: host.createRequestId("market-exercise") }; }
+  else if (action === "close-position") { eventName = "close-position"; payload = { optionId: node.dataset.marketOptionId, requestId: host.createRequestId("market-close") }; }
+  if (!eventName) return false;
+  host.emitServer(eventName, payload, (response) => {
+    if (response?.success === false) { ackFailure(response, "Market position could not be updated."); return; }
+    mergeEconomySnapshot(response);
+    host.renderRightRail();
+  });
+  return true;
+}
+
 function onBankAction(node) {
   if (!node || node.disabled) return false;
   const eventName = node.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
@@ -143,6 +169,7 @@ const RAIL_CLICKS = [
   ["[data-deal-view]", onDealView],
   ["[data-player-contract-repay]", onContractRepay],
   ["[data-market-order]", onMarketOrder],
+  ["[data-market-advanced]", onMarketAdvanced],
   ["[data-bank-action]", onBankAction],
   ["[data-finance-open]", onFinanceOpen],
   ["[data-buy]", onBuyTile],
