@@ -11,6 +11,7 @@ const GUEST_ALIAS_KEY = "poorup.guest.alias.v1";
 const ACTIVE_DESIGN_KEY = "poorup.active-design.v1";
 const SOUND_KEY = "poorup.sound.enabled.v1";
 const MUSIC_KEY = "poorup.music.enabled.v1";
+const RULESET_PRESET_KEY = "poorup.ruleset.preset.v1";
 
 const APPEARANCES = [
   { label: "CRIMSON", baseName: "MARLOWE", color: "#d74438", textColor: "#d74438" },
@@ -129,6 +130,23 @@ function loadMusicPreference() {
 
 function saveMusicPreference(enabled) {
   try { localStorage.setItem(MUSIC_KEY, enabled ? "1" : "0"); } catch { /* storage unavailable */ }
+}
+
+function loadRulesetPreset() {
+  try {
+    const value = String(localStorage.getItem(RULESET_PRESET_KEY) || "").trim().toLowerCase();
+    return ["classic", "after-hours"].includes(value) ? value : "classic";
+  } catch {
+    return "classic";
+  }
+}
+
+function saveRulesetPreset(value) {
+  const preset = ["classic", "after-hours"].includes(String(value || "").trim().toLowerCase())
+    ? String(value).trim().toLowerCase()
+    : "classic";
+  try { localStorage.setItem(RULESET_PRESET_KEY, preset); } catch { /* storage unavailable */ }
+  return preset;
 }
 
 function loadGuestAlias() {
@@ -338,6 +356,7 @@ export {
   ACTIVE_DESIGN_KEY,
   SOUND_KEY,
   MUSIC_KEY,
+  RULESET_PRESET_KEY,
   sanitizeProfile,
   profileDesignName,
   loadProfiles,
@@ -348,6 +367,8 @@ export {
   saveSoundPreference,
   loadMusicPreference,
   saveMusicPreference,
+  loadRulesetPreset,
+  saveRulesetPreset,
   loadGuestAlias,
   saveGuestAlias,
   sanitizeAccountSession,

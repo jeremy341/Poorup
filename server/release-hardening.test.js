@@ -3,6 +3,7 @@ import { assertProductionCors, createCorsOrigin, isOriginAllowed, parseAllowedOr
 import { createSocketRateLimiter } from './socketRateLimiter.js';
 
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: ' https://poorup.example, https://play.example ' }), ['https://poorup.example', 'https://play.example']);
+assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: 'https://poorup.example/' }), ['https://poorup.example']);
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: '' }), []);
 assert.equal(isOriginAllowed(undefined, ['https://poorup.example']), true);
 assert.equal(isOriginAllowed('https://poorup.example', ['https://poorup.example']), true);
@@ -14,6 +15,7 @@ assert.equal(productionOriginResult, false);
 createCorsOrigin({ NODE_ENV: 'production' })(undefined, (_error, allowed) => { productionOriginResult = allowed; });
 assert.equal(productionOriginResult, true);
 assert.throws(() => assertProductionCors({ NODE_ENV: 'production' }), /POORUP_ALLOWED_ORIGINS/);
+assert.throws(() => assertProductionCors({ NODE_ENV: 'production', POORUP_ALLOWED_ORIGINS: 'not-an-origin' }), /valid origins/);
 assert.equal(assertProductionCors({ NODE_ENV: 'production', POORUP_ALLOWED_ORIGINS: 'https://poorup.example' }), true);
 
 let now = 0;

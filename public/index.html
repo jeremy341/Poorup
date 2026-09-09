@@ -141,10 +141,22 @@
                 Roll, buy the block, charge rent, feed the vacation pot. Last wallet standing keeps the
                 table. Usually around twelve minutes, sometimes a vendetta.
               </p>
-              <div class="home-signal-line" aria-label="Poorup facts">
-                <span class="home-signal"><span class="t-micro ink-3">ENTRY</span><span class="t-label f11 g100">NO ACCOUNT</span></span>
-                <span class="home-signal"><span class="t-micro ink-3">SYNC</span><span class="t-label f11 green">REAL-TIME</span></span>
-                <span class="home-signal"><span class="t-micro ink-3">LOBBIES</span><span class="t-label f11 g300">40 LOBBIES</span></span>
+              <div class="home-signal-line" id="home-signal-line" aria-label="Poorup live status">
+                <button class="home-signal" type="button" data-home-signal="entry" aria-describedby="home-signal-entry-help">
+                  <span class="t-micro ink-3">ENTRY</span>
+                  <span class="t-label f11 g100" id="home-signal-entry-value">NO ACCOUNT</span>
+                  <span class="sr-only" id="home-signal-entry-help">Open your account or guest profile.</span>
+                </button>
+                <button class="home-signal" type="button" data-home-signal="sync" aria-describedby="home-signal-sync-help">
+                  <span class="t-micro ink-3">SYNC</span>
+                  <span class="t-label f11 green" id="home-signal-sync-value">CONNECTING…</span>
+                  <span class="sr-only" id="home-signal-sync-help">Refresh the live public room directory.</span>
+                </button>
+                <button class="home-signal" type="button" data-home-signal="lobbies" aria-describedby="home-signal-lobbies-help">
+                  <span class="t-micro ink-3">LOBBIES</span>
+                  <span class="t-label f11 g300" id="home-signal-lobbies-value">— LOBBIES</span>
+                  <span class="sr-only" id="home-signal-lobbies-help">Browse the current public rooms.</span>
+                </button>
               </div>
             </div>
 

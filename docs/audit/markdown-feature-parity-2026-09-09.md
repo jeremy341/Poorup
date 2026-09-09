@@ -48,10 +48,10 @@ history remains available for provenance.
 | Achievements | Server verification, rarity catalog, secret/Mythical handling, modal collection and filters | `server/achievementStore.js`, `server/socketSocialApi.js`, client collection, history tests | Live; telemetry remains tuning work |
 | Mythical announcements | Only Mythical achievements use the server-wide generic notice | `recordVerifiedAchievement` and social achievement contract test | Live and covered |
 | Social and history | In-session player cards, friends, blocks, reports, invites, recent players, privacy projections | `server/serverSocketSocial.js`, `server/socialStore.js`, socket/privacy tests | Live; browser-level coverage remains a gap |
-| Rankings | All-time, month/season, friends scope, trends, achievement and economy metrics | `AccountStore.getLeaderboard*`, leaderboard tests, rankings surface | Live; seasonal rewards are not built |
+| Rankings | All-time, month/season, friends scope, trends, achievement and economy metrics | `AccountStore.getLeaderboard*`, leaderboard tests, one-stage Rankings surface, season ledger | Live; seasonal rewards and claims are server-verified |
 | Global events | One ON/OFF setting, derived timing/duration/severity, warnings, recovery, curated combinations | `server/globalEventsApi.js`, `globalEventData.js`, 22-suite event tests | Live; balance telemetry remains follow-up |
 | Casino | Optional fictional European roulette with server-settled odds and idempotency | `server/economyApi.js`, casino tests, rules copy | Live; no real-money path by design |
-| Market | Optional fictional indexes with one order/turn, fees, no margin/shorting/options | `server/marketLogic.js`, contracts/market tests, rules copy | Live at first-release scope; market-depth features are intentionally absent |
+| Market | Optional fictional indexes with one order/turn, fees, no margin/shorting/options | `server/marketLogic.js`, `server/marketExpansion.js`, Finance rail, contracts/market tests | Live with staged, fully collateralized margin, shorting, and derivatives |
 | Bots | AI-first AUTO plus deterministic NO-AI fallback, legal candidates, events, contracts, economy and post-roll actions | `server/botAdvisor.js`, `botLogic.js`, `botApi.js`, full CI simulation | Live; browser-level bot-status a11y test remains |
 | Rules | Top-level docs/book surface with live versus planned explanations | `public/clientSocialSurfaces.js`, rules markup and navigation | Live |
 | Favicon | A project-branded pixel asset linked from the document head | New `public/favicon.svg` and `<link rel="icon">` in `public/index.html` | Added in this change |
@@ -61,17 +61,16 @@ history remains available for provenance.
 These are intentionally unimplemented or staged in the Markdown plans. They
 should not be filed as regressions:
 
-- seasonal ranking rewards and archived season history;
+- archived season history beyond the bounded active-season projection;
 - long-term rarity/unlock-rate telemetry and balance tuning;
-- deeper market instruments such as margin, shorting, options, transfers, or
-  real-company data;
+- real-company data, transfers, naked writing, and multi-leg derivatives;
 - self-play or AlphaZero-style bot training;
 - a production AI provider rollout beyond the server adapter and fallback;
 - a separate social service or database before scale requires one;
 - real-money casino, deposits, withdrawals, cash-out, prizes, or securities;
 - public political figures or real-world political targeting in events;
-- browser-level accessibility/reconnect automation for bot status and nested
-  social overlays.
+- self-play training and a production AI-provider rollout beyond the server
+  adapter and fallback.
 
 The plans themselves label these as non-goals, rollout work, or follow-up
 telemetry. Their absence is therefore a scope decision, not a defect.
@@ -116,10 +115,11 @@ These are not silently marked fixed:
    Whether a friends-only achievement score should disappear from the global
    board is a product-policy decision; changing it without a public visibility
    setting would make the achievement board misleading.
-4. **Browser-only UX coverage:** the documented keyboard/touch checks for the
-   face canvas, nested social overlays, and bot-status surface are coverage
-   gaps, not server correctness failures. They remain the next UI/a11y workstream
-   and were outside the no-visual-change audit scope.
+4. **Browser-only UX coverage:** the Playwright matrix now covers the home
+  signals, Rankings stage, presets, Metro 52, Rules, Collection entry, social
+  pages, and bot-status anchor. Face-canvas painting and nested in-round social
+  actions still need an authenticated fixture; they are coverage gaps, not
+  server correctness failures.
 
 ## Release conclusion
 

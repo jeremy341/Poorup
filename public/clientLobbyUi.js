@@ -19,6 +19,7 @@ import {
   MAX_PROFILES,
   profileDesignName,
   saveActiveDesignId,
+  loadRulesetPreset,
 } from "./clientSanitize.js";
 import { avatarHTML } from "./clientSprites.js";
 import { placePieces } from "./clientBoardRender.js";
@@ -377,6 +378,9 @@ function renderLobbyRailContent(s, locked, hostLocked) {
     lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
     lobbySection("Table Rules", [
       settingRow("Ruleset Preset", "Classic is the clean baseline; After Hours enables Poorup systems by default.", sel("rulesetPreset", s.rulesetPreset || "classic", [["classic", "CLASSIC"], ["after-hours", "AFTER HOURS"], ["custom", "CUSTOM"]])),
+      s.rulesetPreset === "custom"
+        ? settingRow("Ruleset Base", "Custom starts from this preset before explicit overrides are applied.", sel("rulesetBase", s.rulesetBase || "classic", [["classic", "CLASSIC"], ["after-hours", "AFTER HOURS"]]))
+        : "",
       settingRow("Board Variant", "Board size changes capacity and spaces, never the Classic 40 layout.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD 40 · 2–4"], ["metro-52", "METRO 52 · 2–6"]])),
       settingRow("Custom Overrides", "Host-only changes are recorded on the active preset.", `<span class="ruleset-override-control"><span class="t-label f11 g400" id="ruleset-override-count">${Array.isArray(s.rulesetOverrides) ? s.rulesetOverrides.length : 0} OVERRIDES</span><button class="btn-dark ruleset-reset-btn" type="button" data-reset-ruleset ${(!Array.isArray(s.rulesetOverrides) || !s.rulesetOverrides.length) ? "disabled" : ""}><span class="t-label f11">RESET TO PRESET</span></button></span>`),
       settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
@@ -753,14 +757,16 @@ export function bindLobbyUi() {
   $("#setup-close")?.addEventListener("click", () => host.goHome());
   $("#setup-wrap .setup-scrim")?.addEventListener("click", () => host.goHome());
 
-  // quick table: starts a default-rules round immediately
+  // Quick Table reuses the last deliberate preset choice; first use falls
+  // back to the safe Classic baseline. It remains a public Standard-40 room.
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
+    const preset = loadRulesetPreset();
     state.quickJoin = true;
     state.settings.vacationPool = true;
     state.settings.trading = true;
     state.settings.auction = false;
-    state.pendingRoomMeta = { roomName: "QUICK TABLE", visibility: "public", rulesetPreset: "classic", boardVariant: "standard-40" };
+    state.pendingRoomMeta = { roomName: "QUICK TABLE", visibility: "public", rulesetPreset: preset, boardVariant: "standard-40" };
     state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
       enterParlor();
       return;

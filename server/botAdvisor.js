@@ -348,7 +348,9 @@ export class DeepSeekAdvisor {
       turn: turn || {},
       recentDecisions: Array.isArray(recentDecisions) ? recentDecisions.slice(-6) : [],
       decisionMemory: decisionMemory || { decisions: 0, successes: 0, failures: 0, actionRates: [], phaseRates: [] },
-      board: Array.isArray(board) ? board.slice(0, 40) : [],
+      // Metro 52 needs its complete semantic board in the provider prompt;
+      // keep room for the reserved Grand 64 contract without exposing more.
+      board: Array.isArray(board) ? board.slice(0, 64) : [],
       opponentSummaries: Array.isArray(opponents) ? opponents.slice(0, 6) : Array.isArray(opponentSummaries) ? opponentSummaries.slice(0, 6) : [],
       obligations: obligations || {},
       rulesDigest: rulesDigest || {},
