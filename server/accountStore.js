@@ -183,6 +183,17 @@ function buildMatchRecord(matchId, matchMeta, participants) {
   if (matchMeta.includeMatchDetails) {
     record.playerCount = Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length));
     record.botDecisions = clippedList(matchMeta.botDecisions, 200);
+    record.botOnly = matchMeta.botOnly === true;
+  }
+  ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(matchMeta, key)) {
+      record[key] = typeof matchMeta[key] === 'string' ? matchMeta[key].slice(0, 200) : Math.max(0, Number(matchMeta[key]) || 0);
+    }
+  });
+  if (Object.prototype.hasOwnProperty.call(matchMeta, 'rulesetOverrides')) {
+    record.rulesetOverrides = clippedList(matchMeta.rulesetOverrides, 32)
+      .filter(entry => entry && typeof entry.key === 'string')
+      .map(entry => ({ key: entry.key.slice(0, 60), value: entry.value }));
   }
   return record;
 }

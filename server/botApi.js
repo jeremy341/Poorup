@@ -145,7 +145,8 @@ const botApi = {
         candidates.push(...this.botUnmortgageCandidates(player));
         candidates.push(...this.botContractCandidates(player));
         candidates.push(...this.botRichTradeCandidates(player));
-        candidates.push(...this.botMarketCandidates(player).filter(candidate => candidate.side === 'sell'));
+      candidates.push(...this.botMarketCandidates(player).filter(candidate => candidate.side === 'sell'));
+      candidates.push(...this.botMarketExpansionCandidates(player));
         candidates.push(...this.botSocialCandidates(player));
       }
     }
@@ -188,6 +189,7 @@ const botApi = {
       candidates.push(...this.botRichTradeCandidates(player));
       candidates.push(...(options.expanded ? this.botGroupTradeCandidates(player) : this.botGroupTradeCandidate(player)));
       candidates.push(...this.botMarketCandidates(player));
+      candidates.push(...this.botMarketExpansionCandidates(player));
       candidates.push(...this.botCasinoCandidate(player));
       candidates.push(...this.botSocialCandidates(player));
     }
@@ -425,6 +427,24 @@ const botApi = {
       return { id: 'market:sell:' + id, kind: 'market', instrumentId: id, side: 'sell', quantity, risk: 0.1, score: profitable ? 15 : 8 };
     }).filter(Boolean);
     return [...buy, ...sells].slice(0, 8);
+  },
+
+  botMarketExpansionCandidates(player) {
+    if (!this.settings.market || typeof this.marketExpansionCandidates !== 'function') return [];
+    const source = this.marketExpansionCandidates(player) || [];
+    const instrumentId = Object.entries(this.marketQuotes || {}).sort(([, a], [, b]) => Number(a) - Number(b))[0]?.[0] || 'brazil';
+    return source.map(candidate => {
+      if (candidate.kind === 'open-margin') return { ...candidate, instrumentId, quantity: 1 };
+      if (candidate.kind === 'reduce-margin') return { ...candidate, amount: Math.min(200, Math.floor(player.cash || 0)) };
+      if (candidate.kind === 'open-short') return { ...candidate, instrumentId, quantity: 1 };
+      if (candidate.kind === 'cover-short') {
+        const id = Object.entries(player.shortPositions || {}).find(([, position]) => Number(position?.quantity) > 0)?.[0] || instrumentId;
+        return { ...candidate, instrumentId: id, quantity: 1 };
+      }
+      if (candidate.kind === 'open-option') return { ...candidate, instrumentId, quantity: 1, side: 'call', strike: Number(this.marketQuotes?.[instrumentId]) || 100, premium: 10, expiryRounds: 3 };
+      if (candidate.kind === 'exercise-option') return { ...candidate, optionId: player.optionPositions?.find(option => option.status === 'open')?.id };
+      return candidate;
+    }).filter(candidate => candidate.kind !== 'exercise-option' || candidate.optionId);
   },
 
   firstTradeableOwnedTile(player) {

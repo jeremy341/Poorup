@@ -52,7 +52,7 @@ export function annotateMatchAchievements(matchRecord, candidates = []) {
 }
 
 function createRuntime(deps) {
-  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, botAdvisor, social } = deps;
+  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social } = deps;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
@@ -106,8 +106,42 @@ function createRuntime(deps) {
     const historyReader = accountId => accountStore.getMatchHistory(accountId);
     const candidates = achievementStore.evaluateMatch(matchRecord, historyReader);
     annotateMatchAchievements(matchRecord, candidates);
+    const seasonResult = seasonStore?.recordMatch(matchRecord);
+    if (seasonResult?.recorded) matchRecord.seasonId = seasonResult.season.id;
     matchStore.record(matchRecord);
     candidates.forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
+    if (seasonResult?.recorded) {
+      telemetryStore?.record('match-complete', {
+        playerCount: matchRecord.playerCount,
+        roundCount: matchRecord.roundCount,
+        botOnly: matchRecord.participants.every(participant => !participant.accountId)
+      }, {
+        seasonId: seasonResult.season.id,
+        rulesetRevision: matchRecord.rulesetRevision,
+        balanceRevision: matchRecord.balanceRevision,
+        boardVariant: matchRecord.boardVariant
+      });
+      const telemetryVersions = {
+        seasonId: seasonResult.season.id,
+        rulesetRevision: matchRecord.rulesetRevision,
+        balanceRevision: matchRecord.balanceRevision,
+        boardVariant: matchRecord.boardVariant
+      };
+      (room.game.telemetryLog || []).forEach(entry => {
+        telemetryStore?.record(entry.kind, { ...(entry.data || {}), roundNumber: entry.roundNumber }, { ...telemetryVersions, eventId: entry.data?.eventId });
+      });
+      telemetryStore?.record('market-volatility', { marketRows: matchRecord.market.length, marketTrades: matchRecord.participants.reduce((sum, participant) => sum + (Number(participant.marketTrades) || 0), 0) }, telemetryVersions);
+      const bankruptcies = matchRecord.participants.filter(participant => participant.bankrupt).length;
+      if (bankruptcies) telemetryStore?.record('bankruptcy', { count: bankruptcies }, telemetryVersions);
+      candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId }, telemetryVersions));
+      (matchRecord.botDecisions || []).slice(-200).forEach(decision => telemetryStore?.record('bot-outcome', {
+        provider: decision.provider,
+        fallback: decision.fallback,
+        success: decision.success,
+        phase: decision.phase,
+        actionId: decision.actionId
+      }, telemetryVersions));
+    }
     // Refresh the owner’s private profile immediately after settlement so
     // completed-game stats, history, and achievement counts are current while
     // the player is still in the game shell.
@@ -777,6 +811,9 @@ function createRuntime(deps) {
     io,
     leaveAllGameRooms,
     matchStore,
+    seasonStore,
+    cosmeticStore,
+    telemetryStore,
     reassignHostIfNeeded,
     roomManager,
     scheduleAuctionFinish,
