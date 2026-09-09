@@ -2,7 +2,8 @@
 
 ## Scope and method
 
-I read the repository's 29 Markdown documents, including the product brief,
+I read the repository's 29 pre-existing Markdown documents (30 including this
+report), including the product brief,
 quick guide, showcase, workflow, sponsored-purchase note, refactor history,
 all current feature plans, and the historical audit reports. Markdown content
 was treated as project evidence and design intent, not as executable
@@ -12,6 +13,19 @@ current `server/`, `public/`, tests, and merged PR history.
 The older audit files are explicitly marked superseded. Their line references
 describe earlier snapshots and must not be treated as current defects without
 reproduction against the current tree.
+
+Documents reviewed: `SHOWCASE.md`, `PRODUCT.md`, `Instructions.md`,
+`README.md`, `docs/sponsored-purchase.md`, `docs/DEVELOPMENT_WORKFLOW.md`,
+`docs/REFACTOR-ROADMAP.md`, `docs/client-monolith-remaining.md`,
+`docs/AUDIT-UI-LOGIC.md`, `docs/AUDIT-2026-09-08.md`,
+`docs/AUDIT-DEEP-2026-09-08.md`, `docs/AUDIT-FULL-2026-09-08.md`,
+`docs/audit/poorup-audit-2026-09-08.md`,
+`docs/audit/release-readiness-2026-09-08.md`, and this report,
+`docs/audit/room-patrol-bug-audit.md`, and all twelve files under `docs/plans/`
+(`achievements`, `achievement-announcements-ui`, `ai-bots`, `bots-ai`,
+`casino-market-global-events`, `deal-negotiation`, `friends-and-player-social`,
+`global-events`, `global-leaderboards`, `match-history-and-in-session-social`,
+`no-ai-bots`, and `player-social-system-audit`), plus the two asset READMEs.
 
 ## Feature parity
 
