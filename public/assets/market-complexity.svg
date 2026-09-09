@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges" role="img" aria-labelledby="title desc">
+  <title id="title">Market complexity mark</title>
+  <desc id="desc">Three pixel ledger bars rising from left to right.</desc>
+  <path fill="#061011" d="M0 0h32v32H0z"/>
+  <path fill="#5c5033" d="M4 26h24v2H4z"/>
+  <path fill="#8aa3ae" d="M6 19h4v7H6zM14 13h4v13h-4z"/>
+  <path fill="#c88f2e" d="M22 6h4v20h-4z"/>
+  <path fill="#f0d9ac" d="M7 17h2v2H7zM15 11h2v2h-2zM23 4h2v2h-2z"/>
+</svg>

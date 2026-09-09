@@ -53,6 +53,13 @@ const GAME_VERB_HANDLERS = [
   { event: 'take-bank-loan', verb: 'takeBankLoan', args: pickArgs(['requestId']), message: true, ackExtras: pickAckFields(['loan']) },
   { event: 'repay-bank-loan', verb: 'repayBankLoan', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['loan']) },
   { event: 'market-order', verb: 'tradeMarket', args: pickArgs(['instrumentId', 'side', 'quantity', 'requestId']), ackExtras: pickAckFields(['order', 'economy']) },
+  { event: 'open-margin', verb: 'openMargin', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'reduce-margin', verb: 'reduceMargin', args: pickArgs(['amount', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'open-short', verb: 'openShort', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'cover-short', verb: 'coverShort', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'open-option', verb: 'openOption', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['option', 'economy']) },
+  { event: 'exercise-option', verb: 'exerciseOption', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },
+  { event: 'close-position', verb: 'closePosition', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },
   { event: 'vote-global-event', verb: 'voteGlobalEvent', args: pickArgs(['choiceId']) },
   { event: 'declare-bankruptcy', verb: 'declareBankruptcy', args: NO_ARGS }
 ];

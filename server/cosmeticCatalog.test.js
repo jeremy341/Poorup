@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { CosmeticStore } from './cosmeticCatalog.js';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-cosmetic-'));
+const store = new CosmeticStore(path.join(dir, 'cosmetics.json'));
+assert.ok(store.catalog().length >= 10);
+assert.equal(store.grantTokens('a', 500).tokens, 500);
+assert.equal(store.claim('a', 'board-ink-grid', { claimKey: 'shop:board' }).created, true);
+assert.equal(store.claim('a', 'board-ink-grid', { claimKey: 'shop:board' }).created, false);
+assert.equal(store.claim('a', 'frame-gold', { claimKey: 'season:S1:reward', allowPaid: false }).created, true);
+assert.equal(store.claim('a', 'frame-ledger', { claimKey: 'shop:free' }).success, false);
+assert.equal(store.equip('a', 'board-ink-grid').success, true);
+assert.equal(store.equip('a', 'dice-brass').success, false);
+assert.equal(store.claim('a', 'dice-brass', { claimKey: 'shop:dice' }).success, false);
+assert.equal(store.claim('a', 'dice-brass', { claimKey: 'shop:dice' }).error, 'Not enough Parlor Tokens for this cosmetic.');
+const snapshot = store.snapshot('a');
+assert.equal(snapshot.equipped['board-skin'], 'board-ink-grid');
+assert.equal(snapshot.owned.includes('board-ink-grid'), true);
+fs.rmSync(dir, { recursive: true, force: true });
+console.log('cosmetic catalog: 10 passed, 0 failed');

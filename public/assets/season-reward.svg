@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges" role="img" aria-labelledby="title desc">
+  <title id="title">Season reward mark</title>
+  <desc id="desc">A pixel ledger ribbon with a gold star.</desc>
+  <path fill="#061011" d="M0 0h32v32H0z"/>
+  <path fill="#5c5033" d="M4 4h24v3H4zM4 25h24v3H4zM4 7h3v18H4zM25 7h3v18h-3z"/>
+  <path fill="#c88f2e" d="M14 8h4v3h3v4h-3v3h-4v-3h-3v-4h3zM11 18h10v3H11z"/>
+  <path fill="#f0d9ac" d="M14 11h4v3h-4zM8 22h16v2H8z"/>
+</svg>

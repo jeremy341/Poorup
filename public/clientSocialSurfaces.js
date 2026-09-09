@@ -322,6 +322,7 @@ export function openInGameSocialSurface(kind) {
     renderRankingsSurface("#rankings-card");
     openSurface("#rankings-modal", "#rankings-close");
     requestLeaderboardSnapshot("#rankings-card");
+    requestSeason("#rankings-card");
   } else if (kind === "social") {
     renderSocialSurface("#social-card");
     openSurface("#social-modal", "#social-close");
@@ -351,6 +352,27 @@ function clearLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
 }
 
+function seasonAck(response, target) {
+  state.season.loading = false;
+  if (!response?.success) {
+    state.season.error = response?.error || "Season data is temporarily unavailable.";
+  } else {
+    state.season.error = "";
+    state.season.current = response.season || null;
+    state.season.metric = response.metric || state.season.metric;
+    state.season.rows = Array.isArray(response.rows) ? response.rows : [];
+    state.season.rewards = Array.isArray(response.rewards) ? response.rewards : (response.season?.rewardTrack || []);
+  }
+  renderRankingsSurface(target);
+}
+
+export function requestSeason(target = "#rankings-page-content") {
+  state.season.loading = true;
+  state.season.error = "";
+  renderRankingsSurface(target);
+  host.emitServer("get-season", { metric: state.season.metric }, (response) => seasonAck(response, target));
+}
+
 function storeLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = "";
   state.leaderboard.snapshots = snapshot.metrics || {};
@@ -371,6 +393,7 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
   host.showView("rankings");
   renderRankingsSurface("#rankings-page-content");
   requestLeaderboardSnapshot("#rankings-page-content");
+  requestSeason("#rankings-page-content");
 }
 
 const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
@@ -460,6 +483,21 @@ return Array.isArray(state.rankingSearchResults) && state.rankingSearchResults.l
     : state.rankingSearchQuery ? `<span class="t-micro ink-3">NO EXACT USERNAME MATCH.</span>` : "";
 }
 
+function seasonDateLabel(value) {
+  if (!value) return "NO ACTIVE SEASON";
+  return String(value).slice(0, 10);
+}
+
+function seasonPanelHTML() {
+  const season = state.season.current;
+  if (state.season.loading) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">LOADING VERIFIED SEASON…</p></section>`;
+  if (state.season.error) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(state.season.error)}</p></section>`;
+  if (!season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
+  const rows = (state.season.rows || []).slice(0, 3).map((row, index) => `<div class="season-row"><span class="t-label f12 g300">${String(index + 1).padStart(2, "0")}</span><span class="season-row-name"><strong class="t-label f11 g100">${esc(row.displayName || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(row.username || "player")} · ${row.games || 0} GAMES</span></span><strong class="t-label f12 green">${row.points || 0}</strong></div>`).join("");
+  const rewards = (state.season.rewards || []).slice(0, 4).map(reward => `<div class="season-reward"><div><strong class="t-label f11 g100">${esc(String(reward.id || "REWARD").replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${reward.track === "placement" ? `${Math.round(Number(reward.threshold || 0) * 100)}% PLACEMENT` : `${reward.threshold} ${String(reward.track || "MASTER").toUpperCase()}`}</span></div><button class="btn-dark" type="button" data-season-claim="${esc(reward.id)}" ${state.account?.account ? "" : "disabled"}><span class="t-label f11">CLAIM</span></button></div>`).join("");
+  return `<section class="season-panel panel noise" aria-labelledby="season-panel-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div></div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
+}
+
 export function renderRankingsSurface(target = "#rankings-card") {
   const card = surfaceCard(target, "#rankings-card");
   if (!card) return;
@@ -482,8 +520,9 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const rankingResults = rankingSearchResultsHTML();
   const rankingSearch = document.createElement("section");
   rankingSearch.className = "rankings-search-band panel noise";
-  rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="rankings-${surfaceKey}-search" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}"><span class="t-micro ink-3">Exact username lookup · public identity only</span></label><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="rankings-search-results">${rankingResults}</div></form>`;
+  rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="rankings-${surfaceKey}-search" name="ranking-username" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}"><span class="t-micro ink-3">Exact username lookup · public identity only</span></label><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="rankings-search-results">${rankingResults}</div></form>`;
   card.querySelector(".rankings-hero")?.insertAdjacentElement("afterend", rankingSearch);
+  rankingSearch.insertAdjacentHTML("afterend", seasonPanelHTML());
 }
 
 const RULES_SECTIONS = [
@@ -651,6 +690,20 @@ const RULES_SECTIONS = [
   },
 ];
 
+// Expansion contract: keeping this chapter data-driven lets the Rules-book
+// explain new presets without adding another top-level navigation surface.
+RULES_SECTIONS.push({
+  id: "rulesets-market-seasons",
+  label: "RULESETS & SEASONS",
+  kicker: "19 · EXPANSION",
+  title: "Choose the table, then earn the record",
+  status: "LIVE",
+  summary: "A single rules engine supports Classic, After Hours, Custom, Metro 52, seasonal standings, and cosmetic rewards.",
+  content: `<h3 class="t-section g300">Presets</h3><ul class="rules-bullets"><li>Classic is the default Standard 40 table with optional Poorup economy systems off. Hosts can still enable any existing setting.</li><li>After Hours uses the same legality guards with bank loans, casino, market, and global events enabled by default.</li><li>Custom starts from a base preset and records every override. The lobby shows the count and offers RESET TO PRESET.</li><li>Metro 52 uses 13 spaces per side, corners at 0, 13, 26, and 39, and supports up to six seats. Grand 64 is reserved until it passes balance and accessibility gates.</li></ul><h3 class="t-section g300">Season rewards</h3><p class="t-body ink-2">Eight-week seasons score verified completed matches. Win rate needs five games; bot-only, preview, abandoned, duplicate, and AFK-only records do not qualify. Rank points never come from casino volume.</p><h3 class="t-section g300">Market complexity</h3><p class="t-body ink-2">Basic enables buy/sell indexes. Margin adds a maintenance obligation, Shorting adds finite borrowable units and deterministic buy-ins, and Derivatives adds fully collateralized calls and puts. Every tier uses the same server candidate list for humans and bots.</p>`
+});
+const marketRulesChapter = RULES_SECTIONS.find((section) => section.id === "casino-market");
+if (marketRulesChapter) marketRulesChapter.content = marketRulesChapter.content.replace("without margin, shorting, options, or real-world securities.", "with staged margin, shorting, and fully collateralized options when the host enables a higher Market Complexity tier; real-world securities remain excluded.");
+
 function rulesSectionById(id) {
   return RULES_SECTIONS.find((section) => section.id === id) || RULES_SECTIONS[0];
 }
@@ -711,7 +764,8 @@ function rulesNextNav(next) {
 }
 
 function rulesArticleHTML(active, activeIndex, prevNav, nextNav) {
-  return `<article class="rules-book-page noise" aria-labelledby="rules-book-page-heading"><div class="rules-book-page-scroll thin-scroll" id="rules-book-page-scroll"><div class="rules-article-head"><div><span class="t-micro g400">${active.kicker}</span><h2 class="t-section g100" id="rules-book-page-heading" tabindex="-1">${active.title}</h2><p class="t-body ink-2 rules-article-summary">${active.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${active.status.toLowerCase()}">${active.status}</span><span class="t-micro ink-3">${String(activeIndex + 1).padStart(2, "0")} / ${String(RULES_SECTIONS.length).padStart(2, "0")}</span></div></div><div class="rules-article-body">${active.content}</div></div><footer class="rules-book-page-footer"><button class="btn-dark rules-page-turn" type="button" data-rules-section="${prevNav.id}" ${prevNav.disabled} aria-label="Previous chapter"><span aria-hidden="true">‹</span><span class="t-label f11">${prevNav.label}</span></button><span class="t-micro ink-3">CHAPTER ${String(activeIndex + 1).padStart(2, "0")} · FIELD MANUAL</span><button class="btn-dark rules-page-turn" type="button" data-rules-section="${nextNav.id}" ${nextNav.disabled} aria-label="Next chapter"><span class="t-label f11">${nextNav.label}</span><span aria-hidden="true">›</span></button></footer></article>`;
+  const activeContract = active.id === "board-tiles" && state.ruleset ? `<div class="rules-inline-note"><span class="t-micro g400">ACTIVE BOARD</span><span class="t-body ink-2">${esc(String(state.ruleset.boardVariant || state.boardVariant || "standard-40").toUpperCase())} · ${state.ruleset.boardVariant === "metro-52" ? "52 SPACES · 13 PER SIDE · CORNERS 0/13/26/39" : "40 SPACES · 10 PER SIDE · CORNERS 0/10/20/30"}</span></div>` : "";
+  return `<article class="rules-book-page noise" aria-labelledby="rules-book-page-heading"><div class="rules-book-page-scroll thin-scroll" id="rules-book-page-scroll"><div class="rules-article-head"><div><span class="t-micro g400">${active.kicker}</span><h2 class="t-section g100" id="rules-book-page-heading" tabindex="-1">${active.title}</h2><p class="t-body ink-2 rules-article-summary">${active.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${active.status.toLowerCase()}">${active.status}</span><span class="t-micro ink-3">${String(activeIndex + 1).padStart(2, "0")} / ${String(RULES_SECTIONS.length).padStart(2, "0")}</span></div></div>${activeContract}<div class="rules-article-body">${active.content}</div></div><footer class="rules-book-page-footer"><button class="btn-dark rules-page-turn" type="button" data-rules-section="${prevNav.id}" ${prevNav.disabled} aria-label="Previous chapter"><span aria-hidden="true">‹</span><span class="t-label f11">${prevNav.label}</span></button><span class="t-micro ink-3">CHAPTER ${String(activeIndex + 1).padStart(2, "0")} · FIELD MANUAL</span><button class="btn-dark rules-page-turn" type="button" data-rules-section="${nextNav.id}" ${nextNav.disabled} aria-label="Next chapter"><span aria-hidden="true">›</span><span class="t-label f11">${nextNav.label}</span></button></footer></article>`;
 }
 
 function rulesEmptyArticleHTML() {
@@ -747,10 +801,10 @@ export function renderRulesSurface(target = "#rules-page-content") {
   root.innerHTML = `<div class="rules-shell">
     <div class="rules-intro panel noise">
       <div class="rules-intro-icon"><img src="/assets/rules-book.svg" alt="" width="36" height="36"></div>
-      <div class="rules-intro-copy"><div class="t-micro g400">AFTER-HOURS FIELD MANUAL</div><h1 class="t-section g100" id="rules-page-title">Poorup Rules</h1><p class="t-body ink-2">A readable guide to the board, the economy, the people, and the systems that keep a table fair.</p></div>
+      <div class="rules-intro-copy"><div class="t-micro g400">AFTER-HOURS FIELD MANUAL</div><h1 class="t-section g100" id="rules-page-title">Poorup Rules</h1><p class="t-body ink-2">A readable guide to the board, the economy, the people, and the systems that keep a table fair.</p>${state.ruleset ? `<p class="t-micro rules-active-contract"><span class="g400">ACTIVE TABLE</span> · ${esc(String(state.ruleset.preset || "classic").toUpperCase())} · ${esc(String(state.ruleset.boardVariant || "standard-40").toUpperCase())} · ${Array.isArray(state.ruleset.overrides) ? state.ruleset.overrides.length : 0} OVERRIDES</p>` : ""}</div>
       <div class="rules-intro-meta"><span class="t-micro ink-3">REFERENCE BUILD</span><strong class="t-label f12 g100">v2.4 · LIVE CONTRACTS</strong></div>
     </div>
-    <div class="rules-toolbar panel noise" role="search"><label class="rules-search-label" for="rules-search"><span class="t-micro g400">FIND IN RULES</span><input class="field" id="rules-search" type="search" value="${searchValue}" placeholder="SEARCH THE FIELD MANUAL…" autocomplete="off"></label><span class="t-micro ink-3 rules-search-count" id="rules-search-count">${filteredSections.length} SECTIONS</span></div>
+    <div class="rules-toolbar panel noise" role="search"><label class="rules-search-label" for="rules-search"><span class="t-micro g400">FIND IN RULES</span><input class="field" id="rules-search" name="rules-query" type="search" value="${searchValue}" placeholder="SEARCH THE FIELD MANUAL…" autocomplete="off"></label><span class="t-micro ink-3 rules-search-count" id="rules-search-count">${filteredSections.length} SECTIONS</span></div>
     <div class="rules-book-spread">
       <aside class="rules-index panel noise" aria-label="Rules sections"><div class="rules-index-head"><span class="t-micro g400">CONTENTS</span><span class="t-micro ink-3">${RULES_SECTIONS.length} CHAPTERS</span></div><nav class="rules-index-nav" aria-label="Rules chapters">${RULES_SECTIONS.map((section, index) => `<button class="rules-index-link${indexLinkClasses(section, active, query)}" type="button" data-rules-section="${section.id}" aria-current="${indexAriaCurrent(section, active)}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span></button>`).join("")}</nav></aside>
       ${article}
