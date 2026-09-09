@@ -3,10 +3,12 @@
 ## Scope and constraint
 
 This is a release audit of the current server, persistence, socket, game-rule,
-bot, economy, social, test, dependency, and CI surfaces. No UI or frontend
-source files were changed during this audit. Targeted server-only correctness
-and hardening fixes were applied across authentication, persistence, money and
-deed settlement, contracts, global events, sockets, and both bot brains.
+bot, economy, social, test, dependency, and CI surfaces. No visual or
+interaction UI behavior was changed during this audit. Two client render
+helpers were extracted without changing their markup output to clear the
+CodeScene hotspot gate. Targeted server-only correctness and hardening fixes
+were applied across authentication, persistence, money and deed settlement,
+contracts, global events, sockets, and both bot brains.
 Trade property legs are bounded and deduplicated, unreadable stores fail
 closed, atomic rename failures preserve the previous snapshot, resume
 identifiers are viewer-scoped, socket ingress has a bounded rate limiter and
