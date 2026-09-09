@@ -244,6 +244,25 @@
                 </div>
               </div>
 
+              <div class="rc-field rc-ruleset-fields">
+                <label class="t-label f12 g-muted" for="rc-ruleset-preset">Ruleset Preset</label>
+                <select class="field rc-input" id="rc-ruleset-preset">
+                  <option value="classic" selected>CLASSIC · STANDARD RULES</option>
+                  <option value="after-hours">AFTER HOURS · POORUP SYSTEMS</option>
+                  <option value="custom">CUSTOM · SET IN LOBBY</option>
+                </select>
+                <span class="t-micro ink-3">Classic starts clean. You can enable every optional system in the host rail.</span>
+              </div>
+
+              <div class="rc-field rc-ruleset-fields">
+                <label class="t-label f12 g-muted" for="rc-board-variant">Board Variant</label>
+                <select class="field rc-input" id="rc-board-variant">
+                  <option value="standard-40" selected>STANDARD 40 · 2–4 PLAYERS</option>
+                  <option value="metro-52">METRO 52 · 2–6 PLAYERS</option>
+                </select>
+                <span class="t-micro ink-3">Metro expands the board without changing the Classic footprint rules.</span>
+              </div>
+
               <div class="rc-field is-hidden" id="rc-private-code-field">
                 <label class="t-label f12 g-muted" for="rc-room-code">Private Room Code</label>
                 <div class="rc-code-entry">
@@ -354,6 +373,7 @@
           <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
           <button class="profile-tab" id="profile-tab-history" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-history" data-profile-tab="history"><span class="t-label f11">HISTORY</span></button>
           <button class="profile-tab" id="profile-tab-achievements" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-achievements" data-profile-tab="achievements"><span class="t-label f11">ACHIEVEMENTS</span><span class="profile-tab-count" id="profile-achievement-count">0/52</span></button>
+          <button class="profile-tab" id="profile-tab-collection" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-collection" data-profile-tab="collection"><span class="t-label f11">COLLECTION</span><span class="profile-tab-count" id="profile-collection-count">0</span></button>
           <button class="profile-tab" id="profile-tab-account" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-account" data-profile-tab="account"><span class="t-label f11">ACCOUNT &amp; PREFERENCES</span></button>
         </nav>
 
@@ -446,6 +466,13 @@
               <label class="achievement-filter-field"><span class="t-micro ink-3">RARITY</span><select class="setting-select achievement-filter-select" id="achievement-rarity-filter"><option value="all">ALL RARITIES</option><option value="common">COMMON</option><option value="uncommon">UNCOMMON</option><option value="rare">RARE</option><option value="epic">EPIC</option><option value="legendary">LEGENDARY</option><option value="mythical">MYTHICAL</option></select></label>
             </div>
             <div class="achievements-grid" id="achievements-grid"></div>
+          </section>
+        </section>
+
+        <section class="profile-tab-panel is-hidden" id="profile-panel-collection" role="tabpanel" aria-labelledby="profile-tab-collection" tabindex="0">
+          <section class="panel noise pad16 collection-panel" aria-labelledby="collection-heading">
+            <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300" id="collection-heading">Parlor Collection</h2><span class="hair"></span><span class="t-micro ink-3">EARNED · NONCOMPETITIVE</span></div>
+            <div id="profile-collection-content"></div>
           </section>
         </section>
 

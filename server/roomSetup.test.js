@@ -112,6 +112,10 @@ check('buildCreateRoomRequest pins visibility and only codes private rooms', () 
   const publicRequest = buildCreateRoomRequest({ nickname: 'Host', visibility: 'junk', roomCode: 'ZZZZZZ', roomName: 'Parlor' }, null);
   assert.strictEqual(publicRequest.requestedRoomCode, '');
   assert.strictEqual(publicRequest.roomName, 'Parlor');
+  const expansion = buildCreateRoomRequest({ nickname: 'Host', visibility: 'public', rulesetPreset: 'after-hours', boardVariant: 'metro-52', marketComplexity: 'margin' }, null);
+  assert.equal(expansion.rulesetPreset, 'after-hours');
+  assert.equal(expansion.boardVariant, 'metro-52');
+  assert.equal(expansion.marketComplexity, 'margin');
 });
 
 check('validateCreateRoomRequest checks nickname first, then private code length', () => {

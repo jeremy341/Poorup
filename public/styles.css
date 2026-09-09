@@ -1087,6 +1087,7 @@ a:focus-visible {
   max-height: 100%;
   margin: 0 auto;
 }
+.board-holder.is-metro { min-width: 560px; min-height: 560px; }
 
 .board-frame {
   position: relative;
@@ -1100,9 +1101,12 @@ a:focus-visible {
   box-shadow: 0 0 0 1px #101916, inset 0 0 0 1px rgb(232 211 171 / 5%), 0 4px 14px rgb(0 0 0 / 55%);
 }
 .board-grid {
+  --board-grid-size: 11;
+  --board-inner-count: 9;
+  --board-inner-span: 9;
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) repeat(9, minmax(0, 1fr)) minmax(0, 1.18fr);
-  grid-template-rows: minmax(0, 1.18fr) repeat(9, minmax(0, 1fr)) minmax(0, 1.18fr);
+  grid-template-columns: minmax(0, 1.18fr) repeat(var(--board-inner-count), minmax(0, 1fr)) minmax(0, 1.18fr);
+  grid-template-rows: minmax(0, 1.18fr) repeat(var(--board-inner-count), minmax(0, 1fr)) minmax(0, 1.18fr);
   gap: 2px;
   height: 100%;
   width: 100%;
@@ -1270,8 +1274,8 @@ a:focus-visible {
 
 .center-field {
   position: relative;
-  grid-column: 2 / span 9;
-  grid-row: 2 / span 9;
+  grid-column: 2 / span var(--board-inner-span);
+  grid-row: 2 / span var(--board-inner-span);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   overflow: hidden;
   background: var(--surface-board-center);
@@ -1667,6 +1671,7 @@ a:focus-visible {
 .rules-intro-copy { min-width: 0; flex: 1; }
 .rules-intro-copy h1 { margin-top: 7px; color: var(--gold-050); }
 .rules-intro-copy p { max-width: 72ch; margin-top: 9px; }
+.rules-active-contract { color: var(--gold-100); }
 .rules-intro-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; text-align: right; flex-shrink: 0; }
 .rules-toolbar { display: flex; align-items: flex-end; gap: 16px; padding: 12px 16px; background: var(--surface-panel-deep); border-color: var(--line-subtle); }
 .rules-search-label { display: flex; flex-direction: column; gap: 6px; min-width: min(520px, 100%); flex: 1; }
@@ -1816,6 +1821,17 @@ a:focus-visible {
 .rankings-search-label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .rankings-search-submit { align-self: end; min-width: 84px; min-height: 44px; }
 .rankings-search-results { grid-column: 1 / -1; display: grid; gap: 5px; padding-top: 6px; }
+.season-panel { padding: 14px 16px; border-color: var(--line-board); background: var(--surface-panel); }
+.season-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line-dark); }
+.season-panel-head h3 { margin: 5px 0 4px; color: var(--gold-050); }
+.season-panel-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .95fr); gap: 14px; margin-top: 12px; }
+.season-list, .season-rewards { display: grid; gap: 5px; margin-top: 7px; }
+.season-row, .season-reward { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 35px; padding: 5px 7px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.season-row-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.season-reward { grid-template-columns: minmax(0, 1fr) auto; }
+.season-reward > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.season-reward button { min-height: 28px; padding: 0 8px; }
+.season-panel-note { margin-top: 12px; padding-top: 9px; border-top: 1px dashed var(--line-subtle); }
 .ranking-search-result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 36px; padding: 5px 8px; text-align: left; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
 .ranking-search-result:hover, .ranking-search-result:focus-visible { border-color: var(--line-active); background: var(--surface-panel-raised); }
 .rankings-hero-copy h2, .social-hero-copy h2 { margin-top: 7px; color: var(--gold-050); }
@@ -1907,6 +1923,8 @@ a:focus-visible {
   .social-search-submit { width: 100%; }
   .rankings-search { grid-template-columns: 1fr; }
   .rankings-search-submit { width: 100%; }
+  .market-derivative-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .season-panel-grid { grid-template-columns: 1fr; }
 }
 .player-profile-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 0; }
 .player-profile-head > div:last-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
@@ -2189,6 +2207,10 @@ a:focus-visible {
   .chat-panel { min-height: 0; }
 }
 
+@media (max-width: 1399px) and (min-width: 768px) {
+  .board-area:has(.board-holder.is-metro) { overflow: auto; align-items: flex-start; padding: 8px; }
+}
+
 @media (min-width: 1536px) {
   .hud { grid-template-columns: minmax(160px, 1fr) minmax(170px, 1fr) minmax(160px, 0.8fr) minmax(170px, 1fr) minmax(240px, 1.1fr); }
   .hud-roll { grid-column: span 1; }
@@ -2401,6 +2423,14 @@ a:focus-visible {
 }
 
 @media (max-width: 640px) {
+  /* The global destinations remain reachable on phones as a compact second
+     header row instead of disappearing with the desktop nav. Horizontal
+     scrolling keeps every tab at a readable touch target. */
+  .hdr { min-height: 76px; height: auto; flex-wrap: wrap; gap: 7px; padding-block: 8px; }
+  .hdr .home-nav { display: flex; order: 3; flex: 1 0 100%; width: 100%; max-width: 100%; margin: 0; overflow-x: auto; scrollbar-width: none; }
+  .hdr .home-nav::-webkit-scrollbar { display: none; }
+  .hdr .home-nav-tab { flex: 0 0 auto; min-width: max-content; padding-inline: 10px; }
+
   .profile-editor-actions {
     position: sticky;
     bottom: 8px;
@@ -2527,6 +2557,26 @@ a:focus-visible {
 .profile-tab:hover { color: var(--gold-100); background: var(--surface-button-dark); }
 .profile-tab.is-active { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); }
 .profile-tab-count { display: inline-block; margin-left: 6px; color: var(--gold-400); font-family: var(--font-numeric); font-size: 9px; }
+.collection-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 14px; padding: 12px 0 14px; border-bottom: 1px solid var(--line-dark); }
+.collection-toolbar > div { display: flex; flex-direction: column; gap: 4px; }
+.collection-toolbar strong { color: var(--gold-050); }
+.collection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 14px; max-height: min(560px, calc(100vh - 420px)); overflow-y: auto; padding: 2px 4px 4px 2px; scrollbar-gutter: stable; }
+.collection-item { display: flex; flex-direction: column; gap: 7px; min-height: 150px; padding: 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.collection-item.is-owned { border-color: var(--line-active); }
+.collection-item-head, .collection-item-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.collection-item-foot { margin-top: auto; padding-top: 7px; border-top: 1px dashed var(--line-dark); }
+.collection-glyph { display: grid; place-items: center; width: 28px; height: 28px; color: var(--gold-300); font-family: var(--font-numeric); font-size: 18px; border: 1px solid var(--line-active); }
+.collection-glyph img { width: 24px; height: 24px; image-rendering: pixelated; }
+.rarity-label { font-family: var(--font-pixel); font-size: 9px; letter-spacing: .08em; color: var(--gold-300); }
+.rarity-common .rarity-label { color: #8db8d8; }
+.rarity-uncommon .rarity-label { color: #35a653; }
+.rarity-rare .rarity-label { color: #8aa3ae; }
+.rarity-epic .rarity-label { color: #b983d0; }
+.rarity-legendary .rarity-label { color: #e2a84d; }
+.rarity-mythical .rarity-label { color: #e18d8d; }
+.collection-item-foot button { min-height: 28px; padding: 0 8px; }
+.collection-empty { display: grid; gap: 8px; min-height: 130px; place-items: center; align-content: center; text-align: center; }
+@media (max-width: 640px) { .collection-toolbar { align-items: flex-start; flex-direction: column; } .collection-grid { max-height: none; } }
 .profile-tab-panel { margin-top: 16px; animation: profile-panel-in 160ms ease-out both; }
 @keyframes profile-panel-in { from { opacity: 0.55; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .profile-overview-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 16px; }
@@ -2739,6 +2789,13 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .market-row > div { display: grid; gap: 3px; min-width: 0; }
 .market-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .market-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.market-advanced-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(74px, 1fr)); gap: 4px; margin: -3px 0 4px; }
+.market-advanced-actions button { min-height: 26px; padding: 0 5px; color: var(--gold-300); font-family: var(--font-pixel); font-size: 8px; }
+.market-expansion-toolbar, .market-derivative-fields { display: grid; gap: 6px; margin-top: 8px; }
+.market-expansion-toolbar { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.market-derivative-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.market-expansion-toolbar label, .market-derivative-fields label { display: grid; gap: 4px; }
+.market-expansion-toolbar button { min-height: 34px; padding: 0 9px; }
 .market-actions .btn-dark { min-height: 30px; padding: 4px 6px; }
 @media (max-width: 760px) {
   .right-rail .tabs { display: flex; overflow-x: auto; }
