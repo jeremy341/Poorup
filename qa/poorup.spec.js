@@ -8,6 +8,18 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#music-toggle-btn')).toHaveAttribute('aria-label', /parlor music/i);
   });
 
+  test('home status signals are interactive and directory-backed', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#home-signal-line [data-home-signal]')).toHaveCount(3);
+    await expect(page.locator('[data-home-signal=entry]')).toHaveAttribute('aria-label', /profile|account/i);
+    await expect(page.locator('[data-home-signal=lobbies] #home-signal-lobbies-value')).toContainText(/LOBBIES|SYNCING/);
+    await page.locator('[data-home-signal=lobbies]').click();
+    await expect(page.locator('#rooms-modal')).not.toHaveClass(/is-hidden/);
+    await page.keyboard.press('Escape');
+    await page.locator('[data-home-signal=sync]').click();
+    await expect(page.locator('[data-home-signal=sync]')).toHaveAttribute('aria-label', /live room directory/i);
+  });
+
   test('create table exposes preset and board choices', async ({ page }) => {
     await page.goto('/');
     await page.locator('#open-create-btn').click();
@@ -39,6 +51,22 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#view-profile')).toBeVisible();
     await page.locator('#profile-tab-collection').click();
     await expect(page.locator('#profile-panel-collection')).toBeVisible();
+  });
+
+  test('rankings uses one readable stage with keyboard metric navigation', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#home-rankings-tab').click();
+    const stage = page.locator('#rankings-page-content [data-ranking-stage]');
+    await expect(stage).toBeVisible();
+    await expect(stage.locator('[data-ranking-step="-1"]')).toHaveAttribute('aria-label', /previous/i);
+    await expect(stage.locator('[data-ranking-step="1"]')).toHaveAttribute('aria-label', /next/i);
+    const heading = stage.locator('h3');
+    await expect(heading).toContainText('WINS');
+    await stage.locator('[data-ranking-step="1"]').click();
+    await expect(heading).toContainText(/GAMES|WIN RATE/);
+    await stage.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(heading).toContainText('WINS');
   });
 
   test('bot status has a live-region anchor and social page is not a modal', async ({ page }) => {

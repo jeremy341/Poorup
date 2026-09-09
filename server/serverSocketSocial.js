@@ -183,7 +183,10 @@ function registerSocialSocketHandlers(on, socket, runtime) {
       const profile = accountStore.getPublicAccountById(row.accountId);
       return { ...row, username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null };
     });
-    reply(callback, { success: true, season: publicSeasonSummary(standings.season), metric, rows, rewards: standings.season?.rewardTrack || [] });
+    const claimedRewardIds = account && standings.season
+      ? (seasonStore.claimedRewards?.(account.id, standings.season.id) || [])
+      : [];
+    reply(callback, { success: true, season: publicSeasonSummary(standings.season), metric, rows, rewards: standings.season?.rewardTrack || [], claimedRewardIds });
   });
 
   on('claim-season-reward', (payload = {}, callback) => {
@@ -195,7 +198,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!claimed?.success) return reply(callback, claimed || { success: false, error: 'Season reward is unavailable.' });
     if (claimed.created && cosmeticStore) {
       const reward = claimed.reward;
-      if (reward.cosmeticId) cosmeticStore.claim(account.id, reward.cosmeticId, { claimKey: `season:${claimed.season.id}:${reward.id}`, allowPaid: false });
+      if (reward.cosmeticId) cosmeticStore.claim(account.id, reward.cosmeticId, { claimKey: `season:${claimed.season.id}:${reward.id}`, allowPaid: false, allowSeason: true });
       if (reward.tokens) cosmeticStore.grantTokens(account.id, reward.tokens);
     }
     runtime.telemetryStore?.record('reward-claimed', { rewardId: claimed.reward.id, created: claimed.created }, { seasonId: claimed.season.id });

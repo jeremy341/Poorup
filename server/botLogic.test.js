@@ -167,6 +167,8 @@ check('candidateAction maps kind to room action or roll fallback', () => {
   assert.strictEqual(candidateAction({ kind: 'contract-propose' }, bot).type, 'contract-propose');
   assert.strictEqual(candidateAction({ kind: 'chat' }, bot).type, 'chat');
   assert.strictEqual(candidateAction({ kind: 'mortgage' }, bot).type, 'mortgage');
+  assert.strictEqual(candidateAction({ kind: 'close-position', optionId: 'opt-1' }, bot).type, 'close-position');
+  assert.strictEqual(candidateAction({ kind: 'end-finance-window' }, bot).type, 'end-turn');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 799 }, bot).type, 'build');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 801 }, bot).type, 'roll');
   assert.strictEqual(candidateAction({ kind: 'loan' }, bot).type, 'loan');
