@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
+import { tilesForVariant } from './boardRegistry.js';
 import {
   DEFAULT_ROOM_SETTINGS,
   LEGACY_SCALED_SETTINGS,
@@ -16,6 +17,12 @@ import {
 } from './roomSettings.js';
 import { AVATAR_GRID_ERROR, isValidAvatarGrid, resolveFreeAppearanceColor } from './appearanceApi.js';
 import { GameState } from './gameLogic.js';
+import {
+  boardVariantMeta,
+  resolveRuleset,
+  safeBoardVariant,
+  safePreset
+} from './rulesetRegistry.js';
 
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -104,6 +111,12 @@ class Player {
     this.casinoOneDollar = false;
     this.casinoBetsThisRound = 0;
     this.marketPositions = {};
+    this.marginBalance = 0;
+    this.marginMaintenance = 0;
+    this.marginPositions = {};
+    this.shortPositions = {};
+    this.optionPositions = [];
+    this.reservedCash = 0;
     this.marketTrades = 0;
     this.marketActionsThisTurn = 0;
     this.crisisMarketBuys = {};
@@ -162,15 +175,84 @@ class Player {
 }
 
 class Room {
-  constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
+  constructor(hostPlayer, {
+    roomName = 'AFTER HOURS',
+    visibility = 'public',
+    roomCode = '',
+    rulesetPreset,
+    rulesetBase,
+    rulesetOverrides,
+    boardVariant,
+    marketComplexity
+  } = {}) {
     this.roomCode = roomCode || createRoomCode();
     this.roomName = roomName;
     this.visibility = visibility;
     this.statsRecorded = false;
     this.hostId = hostPlayer.id;
-    this.settings = { ...DEFAULT_ROOM_SETTINGS };
+    this.settings = {
+      ...DEFAULT_ROOM_SETTINGS,
+      ...(rulesetPreset !== undefined ? { rulesetPreset } : {}),
+      ...(rulesetBase !== undefined ? { rulesetBase } : {}),
+      ...(rulesetOverrides !== undefined ? { rulesetOverrides } : {}),
+      ...(boardVariant !== undefined ? { boardVariant } : {}),
+      ...(marketComplexity !== undefined ? { marketComplexity } : {})
+    };
+    this.settings.rulesetOverrides = Array.isArray(this.settings.rulesetOverrides)
+      ? this.settings.rulesetOverrides.map(entry => ({ ...entry }))
+      : [];
+    this.rulesetExplicit = rulesetPreset !== undefined || rulesetBase !== undefined || boardVariant !== undefined || rulesetOverrides !== undefined || marketComplexity !== undefined;
+    this.rulesetBaseExplicit = rulesetBase !== undefined;
+    if (marketComplexity !== undefined && !this.settings.rulesetOverrides.some(entry => entry.key === 'marketComplexity')) {
+      this.settings.rulesetOverrides.push({ key: 'marketComplexity', value: marketComplexity });
+    }
+    this.refreshRuleset();
     this.game = new GameState(this.settings);
+    this.game.ruleset = this.ruleset;
+    this.game.legacyRuleset = !this.rulesetExplicit;
+    this.game.boardVariant = this.ruleset.boardVariant;
     this.game.addPlayer(hostPlayer);
+  }
+
+  refreshRuleset() {
+    const boardVariant = safeBoardVariant(this.settings.boardVariant);
+    const preset = safePreset(this.settings.rulesetPreset);
+    const derivedBase = this.rulesetBaseExplicit
+      ? this.settings.rulesetBase
+      : (preset === 'after-hours' ? 'after-hours' : 'classic');
+    const ruleset = resolveRuleset({
+      rulesetPreset: preset,
+      rulesetBase: derivedBase,
+      rulesetOverrides: this.settings.rulesetOverrides,
+      boardVariant,
+      settings: this.settings,
+      rulesetRevision: this.settings.rulesetRevision
+    });
+    this.settings.rulesetPreset = ruleset.rulesetPreset;
+    this.settings.rulesetBase = ruleset.rulesetBase;
+    this.settings.boardVariant = ruleset.boardVariant;
+    this.settings.rulesetRevision = ruleset.rulesetRevision;
+    this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
+    this.settings.rulesetOverrides = ruleset.rulesetOverrides.map(entry => ({ ...entry }));
+    // Rooms created by older tests/clients keep their legacy raw settings;
+    // explicit ruleset rooms apply the preset defaults to live legality.
+    if (this.rulesetExplicit) {
+      Object.assign(this.settings, ruleset.effectiveSettings);
+      ['bankLoans', 'casino', 'market', 'globalEvents'].forEach(key => {
+        this.settings[key] = Boolean(ruleset.effectiveSettings[key]);
+      });
+      this.settings.maxPlayers = Math.max(2, Math.min(boardVariantMeta(boardVariant).maxPlayers, Number(this.settings.maxPlayers) || 4));
+      this.settings.bots = Math.min(Math.max(0, Number(this.settings.bots) || 0), this.settings.maxPlayers - 1);
+      this.settings.rulesetPreset = ruleset.rulesetPreset;
+      this.settings.rulesetBase = ruleset.rulesetBase;
+      this.settings.rulesetOverrides = ruleset.rulesetOverrides.map(entry => ({ ...entry }));
+      this.settings.boardVariant = ruleset.boardVariant;
+      this.settings.rulesetRevision = ruleset.rulesetRevision;
+      this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
+    }
+    this.ruleset = ruleset;
+    this.rulesetDigest = ruleset.digest;
+    return ruleset;
   }
 
   addOrReconnectPlayer(playerInfo) {
@@ -303,6 +385,37 @@ class Room {
     if (nextValue === SETTING_REJECTED || !capacityAllowsSetting(this, key, nextValue)) return;
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
+    const rulesetMetaKeys = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
+    if (this.rulesetExplicit && (!rulesetMetaKeys.includes(key) || key === 'marketComplexity')) {
+      const overrides = new Map((this.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
+      overrides.set(key, nextValue);
+      this.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
+    }
+    if (['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'].includes(key)) {
+      this.rulesetExplicit = true;
+      if (key === 'rulesetBase') this.rulesetBaseExplicit = true;
+      if (key === 'rulesetPreset' && nextValue !== 'custom') this.settings.rulesetOverrides = [];
+      this.refreshRuleset();
+      Object.assign(this.game.settings, this.settings);
+      this.game.boardVariant = this.ruleset.boardVariant;
+      this.game.ruleset = this.ruleset;
+    } else if (this.rulesetExplicit) {
+      this.refreshRuleset();
+      Object.assign(this.game.settings, this.settings);
+      this.game.ruleset = this.ruleset;
+    }
+    if (key === 'boardVariant') {
+      const meta = boardVariantMeta(this.settings.boardVariant);
+      if (!this.game.started) {
+        this.game.boardVariant = this.settings.boardVariant;
+        this.game.tiles = tilesForVariant(this.game.boardVariant);
+      }
+      if (this.settings.maxPlayers > meta.maxPlayers) {
+        this.settings.maxPlayers = meta.maxPlayers;
+        this.game.settings.maxPlayers = meta.maxPlayers;
+        syncBotCapacity(this, 'maxPlayers', meta.maxPlayers);
+      }
+    }
     syncBotCapacity(this, key, nextValue);
     this.applyRoomSettingSideEffect(key, nextValue);
   }
@@ -336,6 +449,10 @@ class Room {
 
   startGame() {
     this.ensureBots();
+    this.refreshRuleset();
+    this.game.ruleset = Object.freeze({ ...this.ruleset, effectiveSettings: Object.freeze({ ...this.ruleset.effectiveSettings }) });
+    this.game.rulesetDigest = this.ruleset.digest;
+    this.game.boardVariant = this.ruleset.boardVariant;
     const result = this.game.startGame();
     if (result?.success) this.statsRecorded = false;
     return result;
@@ -386,6 +503,21 @@ class Room {
       capacity: this.settings.maxPlayers,
       hostId: this.hostId,
       settings: publicSettings,
+      ruleset: {
+        preset: this.ruleset.rulesetPreset,
+        base: this.ruleset.rulesetBase,
+        overrides: this.ruleset.rulesetOverrides.map(entry => ({ ...entry })),
+        boardVariant: this.ruleset.boardVariant,
+        revision: this.ruleset.rulesetRevision,
+        digest: this.game.rulesetDigest || this.ruleset.digest,
+        effectiveSettings: this.rulesetExplicit ? { ...this.ruleset.effectiveSettings } : { ...this.settings },
+        legacyCompatibility: !this.rulesetExplicit
+      },
+      board: {
+        variant: this.ruleset.boardVariant,
+        spaces: boardVariantMeta(this.ruleset.boardVariant).spaces,
+        corners: boardVariantMeta(this.ruleset.boardVariant).corners
+      },
       players: this.game.players.map(player => this.summarySeat(player, viewerPlayerId)),
       started: this.game.started,
       vacationPool: this.game.vacationPool
@@ -426,8 +558,18 @@ class Room {
       bank: `$${Number(this.settings.startingCash).toLocaleString()}`,
       state: started ? 'live' : 'open',
       visibility: this.visibility,
+      rulesetPreset: this.ruleset.rulesetPreset,
+      boardVariant: this.ruleset.boardVariant,
+      addOns: this.enabledAddOns(),
       note: started ? 'round live' : 'waiting for players'
     };
+  }
+
+  enabledAddOns() {
+    const settings = this.rulesetExplicit ? (this.ruleset?.effectiveSettings || this.settings) : this.settings;
+    return ['bankLoans', 'casino', 'market', 'globalEvents']
+      .filter(key => Boolean(settings[key]))
+      .map(key => key === 'globalEvents' ? 'events' : key.replace('bankLoans', 'bank loans'));
   }
 }
 
@@ -458,6 +600,14 @@ const GAME_PASSTHROUGHS = [
   'repayBankLoan',
   'placeCasinoBet',
   'tradeMarket',
+  'openMargin',
+  'reduceMargin',
+  'openShort',
+  'coverShort',
+  'openOption',
+  'exerciseOption',
+  'closePosition',
+  'marketExpansionCandidates',
   'runBotAction',
   'voteGlobalEvent',
   'declareBankruptcy'
@@ -478,7 +628,16 @@ class RoomManager {
   createRoom(hostInfo) {
     const player = new Player({ ...hostInfo, isHost: true });
     const roomCode = hostInfo.roomCode || this.reserveRoomCode();
-    const room = new Room(player, { roomName: hostInfo.roomName, visibility: hostInfo.visibility, roomCode });
+    const room = new Room(player, {
+      roomName: hostInfo.roomName,
+      visibility: hostInfo.visibility,
+      roomCode,
+      rulesetPreset: hostInfo.rulesetPreset,
+      rulesetBase: hostInfo.rulesetBase,
+      rulesetOverrides: hostInfo.rulesetOverrides,
+      boardVariant: hostInfo.boardVariant,
+      marketComplexity: hostInfo.marketComplexity
+    });
     player.color = resolveFreeAppearanceColor(room.game.players, player.color, player, player.avatarGrid);
     this.rooms.set(room.roomCode, room);
     this.socketRoom.set(hostInfo.socketId, room);
