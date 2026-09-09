@@ -630,6 +630,7 @@ function createRuntime(deps) {
   // reusable helper for a still-connected player — skipDisconnectedCurrentPlayer
   // is gated on player.disconnected and no-ops here.
   function expireAfkTurn(room, game, player) {
+    game.afkTurnCount = Math.max(0, Math.floor(Number(game.afkTurnCount) || 0)) + 1;
     clearPendingObligations(room, game, player, 'turn timeout');
     game.pendingPurchaseOffer = null;
     if (game.pendingPayment?.playerId === player.id) {

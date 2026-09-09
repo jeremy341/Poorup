@@ -156,7 +156,7 @@ function tileFaceHTML(tile) {
     return `<span class="tile-face tile-face-special"><span class="t-tile tile-name">${words}</span><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`;
   }
   if (tile.kind === "tax") {
-    return `<span class="tile-face"><span class="t-tile tile-name">${words}</span></span>`;
+    return `<span class="tile-face"><span class="t-tile tile-name">${words}</span>${priceLineHTML(tile)}</span>`;
   }
   const price = priceLineHTML(tile);
   return `<span class="tile-face"><span class="t-tile tile-name">${words}</span><span class="tile-icon">${tileIconHTML(tile)}</span>${price}</span>`;

@@ -265,6 +265,7 @@ function syncRoomSettings(room) {
     rulesetBase: room.ruleset?.base || incoming.rulesetBase || state.settings.rulesetBase,
     rulesetOverrides: room.ruleset?.overrides || incoming.rulesetOverrides || state.settings.rulesetOverrides,
     boardVariant: room.ruleset?.boardVariant || incoming.boardVariant || state.settings.boardVariant,
+    marketComplexity: effective.marketComplexity || incoming.marketComplexity || state.settings.marketComplexity,
   };
 }
 

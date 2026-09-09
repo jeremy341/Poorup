@@ -149,6 +149,8 @@ const CANDIDATE_APPLIERS = {
   loan: (_snapshot, state, candidate) => applyLoanCandidate(state, candidate),
   repay: (_snapshot, state, candidate) => applyRepayCandidate(state, candidate),
   market: applyMarketCandidate,
+  'close-position': (_snapshot, _state, _candidate) => {},
+  'end-finance-window': (_snapshot, _state, _candidate) => {},
   casino: applyCasinoCandidate,
   trade: (_snapshot, state, candidate) => applyTradeCandidate(state, candidate)
 };

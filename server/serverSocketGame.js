@@ -31,6 +31,10 @@ function pickAckFields(fields) {
 const NO_ARGS = () => [];
 const WHOLE_PAYLOAD = payload => [payload];
 
+function recordHumanAction(room, socket, result) {
+  if (result?.success !== false) room.game.recordHumanAction?.(room.getPlayerBySocket(socket.id));
+}
+
 const GAME_VERB_HANDLERS = [
   { event: 'purchase-property', verb: 'purchaseProperty', args: pickArgs(['tileIndex']), message: true },
   { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted), message: true },
@@ -84,6 +88,7 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.rollDice(socket.id);
+    recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
     announceRollOutcomes(runtime, socket, room, result);
     reply(callback, roomVerbAck(result));
@@ -96,7 +101,9 @@ function registerGameSocketHandlers(on, socket, runtime) {
     if (cached) return reply(callback, cached);
     const rejected = contractCancelRejection(room, payload);
     if (rejected) return reply(callback, rejected);
-    reply(callback, finalizeContractCancel(room, payload));
+    const result = finalizeContractCancel(room, payload);
+    recordHumanAction(room, socket, result);
+    reply(callback, result);
   }
 
   function contractCancelRejection(room, payload = {}) {
@@ -144,6 +151,7 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.placeCasinoBet(socket.id, payload.color, payload.stake, payload.requestId);
+    recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
     announceCasinoSpin(runtime, socket, room, result);
     reply(callback, roomVerbAck(result, pickAckFields(['result', 'economy'])));
@@ -160,6 +168,7 @@ function registerGameSocketHandlers(on, socket, runtime) {
       decline: () => room.game.declineSponsoredPurchase(socket.id)
     };
     const result = methods[action]?.() || { success: false, error: 'Unknown sponsorship action.' };
+    recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
     runtime.io.in(room.roomCode).emit('sponsorship-update', { sponsorship: room.game.summarySponsoredPurchase() });
     reply(callback, result);
