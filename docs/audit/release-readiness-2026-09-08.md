@@ -15,14 +15,14 @@ share the human post-roll finance window instead of being roll-only.
 
 ## Repository state
 
-- Branch: `codex/codescene-cleanup`
-- Working tree: audit changes are ready to commit; an unrelated pre-existing
-  README edit and the user-supplied raw audit notes are intentionally
-  preserved.
+- Branch: `codex/codescene-cleanup` (merged through PR #50)
+- Working tree: the audit commits are merged; an unrelated pre-existing README
+  edit is intentionally preserved.
 - Base: merged `main` at `c62cd64`
-- Latest committed audit-fix commits are `d4749e4` (server release paths) and
-  `d48a98e` (expanded audit record); the current follow-up patch covers the
-  deep money, auth, persistence, lifecycle, and bot findings below.
+- Merge commit: `4d71cee` on `origin/main`
+- Audit-fix commits include `d4749e4`, `d48a98e`, `355e58c`, `3c3a246`,
+  `e100a0c`, `da517a3`, `468e78a`, `4a950ed`, `d07f090`, `a900da6`, and
+  `994bdd6`; the raw audit notes remain archived under `docs/`.
 - JSON stores under `server/data/` remain ignored and local. They were not
   deleted or rewritten during this audit.
 
@@ -42,7 +42,7 @@ share the human post-roll finance window instead of being roll-only.
 | Bot status/reconnect wire probe | PASS — 18/18 checks, repeated successfully |
 | Release hardening seams | PASS — 13 CORS/rate-limiter checks |
 | `git diff --check` | PASS |
-| CodeScene delta | UNVERIFIED — local CLI could not authenticate to `codescene.io/oauth2/token` in this environment |
+| CodeScene delta | PASS — hosted CodeScene quality gate on PR #50 after hotspot refactors |
 
 ## Server-only findings
 
@@ -215,10 +215,9 @@ controlled playtest after setting deployment secrets and backing up
 
 Before an unrestricted public production launch, resolve or explicitly accept:
 
-1. CodeScene verification (blocked here by unavailable OAuth/network access).
-2. Set `POORUP_ALLOWED_ORIGINS` to an allow-list in production (otherwise the
-   fail-closed CORS policy intentionally blocks browser clients).
-3. An operational backup plan for the JSON stores.
-4. Edge-level/IP rate limiting as a second layer beyond the in-process limiter.
+1. Set `POORUP_ALLOWED_ORIGINS` to an allow-list in production (otherwise the
+  fail-closed CORS policy intentionally blocks browser clients).
+2. An operational backup plan for the JSON stores.
+3. Edge-level/IP rate limiting as a second layer beyond the in-process limiter.
 
 These items do not require UI changes and are independent of the board layout.
