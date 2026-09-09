@@ -705,6 +705,7 @@ a:focus-visible {
 .profile-library { margin-top: 14px; max-width: 480px; }
 .pl-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .pl-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.pl-head-actions .profile-delete { margin-right: 0; }
 .pl-save { min-height: 30px; padding: 0 12px; }
 .pl-save .cta-text { font-size: 11px; }
 .pl-new { height: 30px; padding: 0 12px; }
@@ -1816,9 +1817,12 @@ a:focus-visible {
 .rankings-hero-mark img, .social-hero-mark img { width: 32px; height: 32px; image-rendering: pixelated; }
 .rankings-hero-copy, .social-hero-copy { min-width: 0; }
 .rankings-search-band { padding: 10px 14px; background: var(--surface-panel-deep); border-color: var(--line-subtle); }
-.rankings-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
-.rankings-search-label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.rankings-search-submit { align-self: end; min-width: 84px; min-height: 44px; }
+.rankings-search { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.rankings-search-field { display: grid; gap: 5px; min-width: 0; }
+.rankings-search-label { display: block; min-width: 0; }
+.rankings-search-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+.rankings-search-controls .field { width: 100%; min-width: 0; }
+.rankings-search-submit { align-self: stretch; min-width: 84px; min-height: 44px; }
 .rankings-search-results { grid-column: 1 / -1; display: grid; gap: 5px; padding-top: 6px; }
 .season-panel { padding: 14px 16px; border-color: var(--line-board); background: var(--surface-panel); }
 .season-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line-dark); }
@@ -1855,10 +1859,11 @@ a:focus-visible {
 .ranking-stage-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .rankings-stage:focus-visible { outline: 2px solid var(--gold-300); outline-offset: -2px; }
 .rankings-stage .ranking-list { flex: 1; min-height: 0; max-height: none; padding: 12px 14px 16px; overflow-y: auto; overscroll-behavior: contain; }
-.rankings-season-slot { padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
-.rankings-context { padding: 0; gap: 0; }
-.rankings-context .season-panel { padding: 0; border: 0; background: transparent; }
-.rankings-context-reading { display: flex; flex-direction: column; gap: 11px; padding: 16px; min-height: 0; }
+.rankings-season-slot { display: flex; flex: 1; min-height: 0; padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
+.rankings-context { align-self: stretch; }
+.rankings-context .season-panel { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0; border: 0; background: transparent; }
+.rankings-context .season-panel-grid { grid-template-columns: 1fr; align-content: start; flex: 1; overflow-y: auto; padding-right: 2px; }
+.rankings-context .season-list, .rankings-context .season-rewards { max-height: none; }
 .ranking-scopes { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 14px 0; }
 .ranking-scope { min-height: 30px; padding: 4px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line-subtle); cursor: pointer; }
 .ranking-scope.is-active { color: var(--gold-100); border-color: var(--gold-300); background: rgba(217,166,47,.08); }
@@ -1866,11 +1871,7 @@ a:focus-visible {
 .rankings-context, .social-network-rail, .social-feed, .social-context { min-height: 0; overflow: hidden; }
 .social-feed-head, .social-rail-head, .social-context-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
 .social-feed-head h3, .social-context-head h3 { margin-top: 6px; color: var(--gold-050); }
-.rankings-context { display: flex; flex-direction: column; gap: 11px; padding: 16px; background: var(--surface-panel); border-color: var(--line-subtle); }
-.rankings-context h3 { margin-top: 5px; color: var(--gold-050); }
-.rankings-context-list { display: grid; gap: 7px; }
-.rankings-context-list > div { display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
-.rankings-context-foot { display: flex; flex-direction: column; gap: 6px; margin-top: auto; padding-top: 12px; border-top: 1px dashed var(--line-subtle); }
+.rankings-context { display: flex; flex-direction: column; gap: 0; padding: 0; align-self: stretch; background: var(--surface-panel); border-color: var(--line-subtle); }
 .social-page-shell.is-page { height: 100%; }
 .social-search-band { flex-shrink: 0; padding: 12px 16px; background: var(--surface-panel-deep); border-color: var(--line-subtle); }
 .social-search-band .social-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 0; }
@@ -1906,7 +1907,7 @@ a:focus-visible {
   .rankings-hero-stats { grid-column: 1 / -1; }
   .social-hero-stats { grid-column: 1 / -1; }
   .rankings-main-grid { grid-template-columns: 1fr; }
-  .rankings-context { max-height: 430px; overflow-y: auto; }
+  .rankings-context { align-self: stretch; max-height: 430px; overflow-y: auto; }
   .social-network-grid { grid-template-columns: minmax(210px, 0.75fr) minmax(0, 1.25fr); }
   .social-context { grid-column: 1 / -1; max-height: 240px; }
 }
@@ -1929,6 +1930,7 @@ a:focus-visible {
   .social-search-band .social-search { grid-template-columns: 1fr; }
   .social-search-submit { width: 100%; }
   .rankings-search { grid-template-columns: 1fr; }
+  .rankings-search-controls { grid-template-columns: 1fr; }
   .rankings-search-submit { width: 100%; }
   .market-derivative-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .season-panel-grid { grid-template-columns: 1fr; }
@@ -2284,23 +2286,6 @@ a:focus-visible {
   #view-rankings .hdr-brand,
   #view-social .hdr-brand { margin-right: -40px; }
 }
-.profile-save-btn { height: 40px; padding: 0 20px; }
-.profile-editor-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  background: var(--surface-panel-deep);
-  border-color: var(--line-board);
-}
-.profile-editor-actions-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.profile-editor-actions-copy .t-micro:last-child { color: var(--text-muted); }
-.profile-editor-actions-buttons { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
-.profile-editor-actions-buttons .profile-delete { margin-right: 0; }
-.profile-editor-actions-buttons .profile-save-btn { min-width: 154px; }
-
 .profile-main { width: 100%; max-width: 1100px; margin: 0 auto; padding: 14px 14px 32px; }
 .profile-library-panel { margin-bottom: 16px; }
 .account-panel { margin-bottom: 16px; }
@@ -2438,19 +2423,6 @@ a:focus-visible {
   .hdr .home-nav::-webkit-scrollbar { display: none; }
   .hdr .home-nav-tab { flex: 0 0 auto; min-width: max-content; padding-inline: 10px; }
 
-  .profile-editor-actions {
-    position: sticky;
-    bottom: 8px;
-    z-index: 8;
-    align-items: stretch;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px;
-    box-shadow: 0 -4px 12px rgb(0 0 0 / 32%);
-  }
-  .profile-editor-actions-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .profile-editor-actions-buttons .profile-save-btn { grid-column: 1 / -1; width: 100%; }
-  .profile-editor-actions-buttons .btn-dark { width: 100%; }
 }
 
 /* ============================================================
@@ -2542,7 +2514,6 @@ a:focus-visible {
 .profile-hero-state { margin-top: 8px; color: var(--gold-400); }
 .profile-hero-state.is-account { color: var(--green-status); }
 .profile-hero-account { min-height: 40px; padding: 0 14px; flex-shrink: 0; }
-.profile-save-label { font-size: 20px; }
 .profile-stat-rail {
   display: grid;
   grid-template-columns: repeat(4, minmax(110px, 1fr)) minmax(150px, 1.2fr);

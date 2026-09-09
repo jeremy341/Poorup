@@ -323,7 +323,7 @@ export function bindProfileUi() {
   $("#profile-collection-content")?.addEventListener("click", (e) => handleCosmeticClick(e));
   $("#achievement-scrim")?.addEventListener("click", closeAchievementModal);
   $("#pl-save-btn")?.addEventListener("click", () => {
-    saveProfileDesign({ asNew: true, stay: true });
+    saveProfileDesign({ asNew: !state.editingProfileId, stay: true });
   });
   $("#pl-list")?.addEventListener("click", onProfileListClick);
   $("#account-register-btn")?.addEventListener("click", (event) => openAccountModal("register", event.currentTarget));
@@ -389,7 +389,6 @@ export function bindProfileUi() {
   });
 
   // profile editor — save / cancel / back
-  $("#profile-save-btn")?.addEventListener("click", () => closeProfileEditor(true));
   $("#profile-cancel-btn")?.addEventListener("click", () => closeProfileEditor(false));
   $("#profile-back-btn")?.addEventListener("click", () => closeProfileEditor(false));
 }

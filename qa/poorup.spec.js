@@ -49,17 +49,33 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#social-page-content')).toBeVisible();
     await page.locator('#view-social [data-home-tab="profile"]').click();
     await expect(page.locator('#view-profile')).toBeVisible();
+    await expect(page.locator('#profile-panel-designs .profile-editor-actions')).toHaveCount(0);
+    await expect(page.locator('#profile-panel-designs #pl-save-btn')).toHaveCount(1);
+    await expect(page.locator('#profile-panel-designs #profile-cancel-btn')).toBeVisible();
     await page.locator('#profile-tab-collection').click();
     await expect(page.locator('#profile-panel-collection')).toBeVisible();
   });
 
-  test('rankings uses one readable stage with keyboard metric navigation', async ({ page }) => {
+  test('rankings uses one readable stage with keyboard metric navigation', async ({ page }, testInfo) => {
     await page.goto('/');
     await page.locator('#home-rankings-tab').click();
     const stage = page.locator('#rankings-page-content [data-ranking-stage]');
     await expect(stage).toBeVisible();
     await expect(stage.locator('[data-ranking-step="-1"]')).toHaveAttribute('aria-label', /previous/i);
     await expect(stage.locator('[data-ranking-step="1"]')).toHaveAttribute('aria-label', /next/i);
+    await expect(page.locator('#rankings-page-content .rankings-context-reading')).toHaveCount(0);
+    const inputBox = await page.locator('#rankings-page-content [data-ranking-search-input]').boundingBox();
+    const findBox = await page.locator('#rankings-page-content .rankings-search-submit').boundingBox();
+    expect(inputBox).not.toBeNull();
+    expect(findBox).not.toBeNull();
+    expect(Math.abs(inputBox.height - findBox.height)).toBeLessThan(1);
+    if (testInfo.project.name === 'desktop-1920') {
+      const stageBox = await stage.boundingBox();
+      const seasonBox = await page.locator('#rankings-page-content .rankings-context').boundingBox();
+      expect(stageBox).not.toBeNull();
+      expect(seasonBox).not.toBeNull();
+      expect(Math.abs(stageBox.height - seasonBox.height)).toBeLessThan(1);
+    }
     const heading = stage.locator('h3');
     await expect(heading).toContainText('WINS');
     await stage.locator('[data-ranking-step="1"]').click();
