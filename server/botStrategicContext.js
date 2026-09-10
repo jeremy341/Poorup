@@ -106,16 +106,59 @@ function ownMarketView(bot) {
   ]));
 }
 
+function marketExpansionPositionView(position, extra = {}) {
+  return {
+    quantity: nonNegative(position?.quantity),
+    averageCost: Math.max(0, Number(position?.averageCost) || 0),
+    ...extra
+  };
+}
+
+function marginPositionsView(bot) {
+  return Object.fromEntries(Object.entries(bot.marginPositions || {}).map(([id, position]) => [
+    String(id).slice(0, 40),
+    marketExpansionPositionView(position)
+  ]));
+}
+
+function shortPositionsView(bot) {
+  return Object.fromEntries(Object.entries(bot.shortPositions || {}).map(([id, position]) => [
+    String(id).slice(0, 40),
+    {
+      quantity: nonNegative(position?.quantity),
+      entryQuote: Math.max(0, Number(position?.entryQuote) || 0),
+      collateral: nonNegative(position?.collateral)
+    }
+  ]));
+}
+
+function optionPositionView(option) {
+  return {
+    id: String(option.id || '').slice(0, 80),
+    instrumentId: option.instrumentId,
+    side: option.side,
+    role: option.role,
+    quantity: nonNegative(option.quantity),
+    strike: nonNegative(option.strike),
+    premium: nonNegative(option.premium),
+    reserveHeld: nonNegative(option.reserveHeld),
+    maxPayout: nonNegative(option.maxPayout),
+    expiryRound: nonNegative(option.expiryRound),
+    status: option.status,
+    exercised: option.exercised === true
+  };
+}
+
 function ownMarketExpansionView(bot) {
   return {
     margin: {
       balance: nonNegative(bot.marginBalance),
       maintenance: nonNegative(bot.marginMaintenance),
-      positions: Object.fromEntries(Object.entries(bot.marginPositions || {}).map(([id, position]) => [String(id).slice(0, 40), { quantity: nonNegative(position?.quantity), averageCost: Math.max(0, Number(position?.averageCost) || 0) }]))
+      positions: marginPositionsView(bot)
     },
-    shorts: Object.fromEntries(Object.entries(bot.shortPositions || {}).map(([id, position]) => [String(id).slice(0, 40), { quantity: nonNegative(position?.quantity), entryQuote: Math.max(0, Number(position?.entryQuote) || 0), collateral: nonNegative(position?.collateral) }])),
+    shorts: shortPositionsView(bot),
     shortDefaultDebt: nonNegative(bot.shortDefaultDebt),
-    options: (bot.optionPositions || []).slice(0, 12).map(option => ({ id: String(option.id || '').slice(0, 80), instrumentId: option.instrumentId, side: option.side, role: option.role, quantity: nonNegative(option.quantity), strike: nonNegative(option.strike), premium: nonNegative(option.premium), reserveHeld: nonNegative(option.reserveHeld), maxPayout: nonNegative(option.maxPayout), expiryRound: nonNegative(option.expiryRound), status: option.status, exercised: option.exercised === true }))
+    options: (bot.optionPositions || []).slice(0, 12).map(optionPositionView)
   };
 }
 
@@ -280,13 +323,17 @@ function obligationView(game, bot) {
   };
 }
 
+function firstTruthyOr(values, fallback) {
+  return values.find(Boolean) || fallback;
+}
+
 function rulesetMetadata(game) {
   const settings = game.settings || {};
   const rules = game.ruleset || {};
   return {
-    boardVariant: game.boardVariant || settings.boardVariant || 'standard-40',
-    rulesetPreset: rules.rulesetPreset || settings.rulesetPreset || 'classic',
-    rulesetRevision: rules.rulesetRevision || settings.rulesetRevision || 1,
+    boardVariant: firstTruthyOr([game.boardVariant, settings.boardVariant], 'standard-40'),
+    rulesetPreset: firstTruthyOr([rules.rulesetPreset, settings.rulesetPreset], 'classic'),
+    rulesetRevision: firstTruthyOr([rules.rulesetRevision, settings.rulesetRevision], 1),
     rulesetDigest: typeof game.rulesetDigest === 'string' ? game.rulesetDigest.slice(0, 200) : null
   };
 }
