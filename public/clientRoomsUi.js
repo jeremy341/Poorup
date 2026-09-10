@@ -78,7 +78,7 @@ function roomRowHTML(r) {
       </div>
     </div>
     <div class="room-actions">
-      <button class="btn-dark" data-join="${r.code}" ${full ? "disabled" : ""}>
+      <button class="btn-dark" ${isPrivate ? 'data-join="' + r.code + '"' : 'data-join-id="' + (r.roomId || "") + '"'} ${full ? "disabled" : ""}>
         <span class="t-label f11">${full ? "FULL" : "JOIN"}</span>
       </button>
       ${isPrivate ? `<button class="btn-dark" data-copy="${r.code}" title="Copy code"><span class="t-label f11">COPY</span></button>` : ""}
@@ -382,20 +382,29 @@ function onRoomTabsClick(e) {
 function onRoomsListClick(e) {
   const copyBtn = e.target.closest("[data-copy]");
   if (copyBtn) {
-    try { navigator.clipboard?.writeText(copyBtn.dataset.copy); } catch { /* no clipboard */ }
-    copyBtn.querySelector("span").textContent = "COPIED";
-    setTimeout(() => { copyBtn.querySelector("span").textContent = "COPY"; }, 900);
+    const finish = (label) => {
+      copyBtn.querySelector("span").textContent = label;
+      if (label === "COPIED") setTimeout(() => { copyBtn.querySelector("span").textContent = "COPY"; }, 900);
+    };
+    try {
+      const result = navigator.clipboard?.writeText(copyBtn.dataset.copy);
+      if (result?.then) result.then(() => finish("COPIED")).catch(() => finish("COPY FAILED"));
+      else finish("COPY FAILED");
+    } catch {
+      finish("COPY FAILED");
+    }
     return;
   }
-  const btn = e.target.closest("[data-join]");
+  const btn = e.target.closest("[data-join], [data-join-id]");
   if (canJoinRoomRow(btn)) {
     closeRoomsModal();
-    host.enterParlor(btn.dataset.join);
+    host.enterParlor(btn.dataset.join ? btn.dataset.join : { roomId: btn.dataset.joinId });
   }
 }
 
 function canJoinRoomRow(btn) {
   if (!btn) return false;
+  if (btn.dataset.joinId !== undefined && !btn.dataset.joinId) return false;
   return !btn.disabled;
 }
 

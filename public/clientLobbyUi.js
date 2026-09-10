@@ -517,9 +517,10 @@ function resetTableForEntry(requestedCode) {
   requestAnimationFrame(() => placePieces());
 }
 
-function parlorEntryPayload(event, requestedCode, meta) {
+function parlorEntryPayload(event, requestedCode, meta, requestedRoomId = "") {
   return {
     roomCode: requestedCode || undefined,
+    roomId: requestedRoomId || undefined,
     nickname: state.alias.trim() || meta.baseName,
     color: meta.color,
     avatarGrid: meta.avatarGrid || null,
@@ -569,11 +570,13 @@ function onParlorEntryResponse(response, event) {
 
 export function enterParlor(code) {
   if (!requireGuestAlias()) return;
-  const requestedCode = String(code || "").trim().toUpperCase();
+  const descriptor = code && typeof code === "object" ? code : { roomCode: code };
+  const requestedCode = String(descriptor.roomCode || "").trim().toUpperCase();
+  const requestedRoomId = String(descriptor.roomId || "").trim().slice(0, 120);
   resetTableForEntry(requestedCode);
   const meta = getAppearanceMeta(activeAppearance());
-  const event = requestedCode ? "join-room" : "create-room";
-  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta), (response) => onParlorEntryResponse(response, event));
+  const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
+  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta, requestedRoomId), (response) => onParlorEntryResponse(response, event));
 }
 
 function enterLobby() {

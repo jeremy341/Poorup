@@ -48,6 +48,7 @@ function renderHudLobby() {
   $("#hud-bot-status")?.classList.add("is-hidden");
   $("#hud-loan-status")?.classList.add("is-hidden");
   $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
+  if ($("#hud-cash-action")) $("#hud-cash-action").disabled = true;
   $("#hud-pool").textContent = "$0";
   $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
   $("#roll-btn").disabled = true;
@@ -278,6 +279,7 @@ export function renderHud() {
     : "Join a room to get started.";
   renderHudLoan(cur, waiting);
   $("#hud-cash").textContent = `$${waiting ? "0" : cur.cash.toLocaleString()}`;
+  if ($("#hud-cash-action")) $("#hud-cash-action").disabled = waiting;
   $("#hud-pool").textContent = `$${waiting ? 0 : state.pool}`;
   renderHudDice(waiting);
   renderHudRollButton(waiting);

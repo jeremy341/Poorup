@@ -166,7 +166,20 @@ const state = {
   owners: {},
   highlight: null,
   selectedTile: null,
-  tab: "deeds",
+  // Right-rail intent. Legacy values are normalized by the renderer so a
+  // reconnect or an older saved tab cannot strand the player on a dead view.
+  tab: "holdings",
+  dealsFilter: "needs-you",
+  activityMode: "indexes",
+  financeBankOpen: false,
+  panelVisibility: {
+    players: true,
+    chat: true,
+    rightRail: true,
+    hud: "full",
+  },
+  walletView: "account",
+  walletItemId: null,
   tradeWith: null,
   tradeCounterId: null,
   tradeAdjustId: null,
@@ -231,6 +244,9 @@ const state = {
     botDifficulty:   "table", // "house" | "table" | "expert"
     bankLoans:       true,
     bankLoanSeverity: "predatory",
+    items:           false,
+    bankAccountUpgrades: false,
+    predictionMarket: false,
     globalEvents:    false,
     casino:          false,
     market:          false,

@@ -29,6 +29,33 @@ import {
   renderTopNav,
 } from "./clientTopNavRender.js";
 import { renderRightRail } from "./clientRailRender.js";
+import {
+  bindWalletUi,
+  closeWalletModal,
+  configureWalletUi,
+  openWalletModal,
+  renderWalletModalIfOpen,
+} from "./clientWalletUi.js";
+import {
+  bindMarketUi,
+  closeMarketDesk,
+  configureMarketUi,
+  openMarketDesk,
+  renderMarketDeskIfOpen,
+} from "./clientMarketUi.js";
+import {
+  bindCasinoUi,
+  closeCasinoDesk,
+  configureCasinoUi,
+  openCasinoDesk,
+  renderCasinoDeskIfOpen,
+} from "./clientCasinoUi.js";
+import {
+  bindPanelMenu,
+  closePanelMenu,
+  isPanelMenuOpen,
+  renderPanelMenu,
+} from "./clientPanelMenu.js";
 import { renderGlobalEvent } from "./clientGlobalEventRender.js";
 import {
   configureSurfaces,
@@ -135,7 +162,7 @@ import {
   openBankruptcyModal,
   openChoiceModal,
   openOfferModal,
-  rejectOpenOffer,
+  closeOfferWithoutResponse,
   showGameOver,
 } from "./clientGameModalsUi.js";
 import {
@@ -499,6 +526,10 @@ function renderAll() {
   renderGlobalEvent();
   renderHud();
   renderRightRail();
+  renderWalletModalIfOpen();
+  renderMarketDeskIfOpen();
+  renderCasinoDeskIfOpen();
+  renderPanelMenu();
   renderSetup();
   renderLobbyRail();
   if (state.deedDetail != null) renderDeedDetail();
@@ -578,6 +609,7 @@ function buyTile(tile) {
    ============================================================ */
 function showView(name) {
   if (name !== "home" && nightShiftState.active) stopNightShift();
+  if (name !== "game") closePanelMenu({ restore: false });
   $("#view-home").classList.toggle("is-hidden", name !== "home");
   $("#view-game").classList.toggle("is-hidden", name !== "game");
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
@@ -719,9 +751,15 @@ function bindDrawerAndBoardModes() {
     btn.addEventListener("click", () => applyLogDrawerFilter(btn));
   });
 
-  // focus / mobile board mode
-  $("#focus-btn")?.addEventListener("click", () => $("#view-game").classList.toggle("is-focus"));
-  $("#panels-btn")?.addEventListener("click", () => $(".rail-left")?.classList.toggle("is-open"));
+  // focus / panel visibility controls
+  $("#focus-btn")?.addEventListener("click", (event) => {
+    const view = $("#view-game");
+    if (!view) return;
+    const focused = view.classList.toggle("is-focus");
+    event.currentTarget.setAttribute("aria-pressed", String(focused));
+    if (focused) closePanelMenu({ restore: false });
+  });
+  bindPanelMenu();
 }
 
 function bindAmbientExits() {
@@ -740,6 +778,10 @@ function bindGameActions() {
   // game → home
   $("#brand-home").addEventListener("click", goHome);
   $("#tn-room-copy").addEventListener("click", copyRoomCode);
+  $("#hud-cash-action")?.addEventListener("click", (event) => {
+    if (event.currentTarget.disabled) return;
+    openWalletModal("account", event.currentTarget);
+  });
 
   $("#global-event-choices")?.addEventListener("click", onGlobalEventVoteClick);
 
@@ -775,8 +817,15 @@ function bindBoardLayout() {
 }
 
 function tabNeedsEconomySnapshot() {
-  if (state.tab === "casino") return true;
-  return state.tab === "market";
+  return state.tab === "activity";
+}
+
+function openSurfaceFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const route = params.get("rules") || params.get("surface");
+  if (route === "book" || route === "rules") openRulesSurface();
+  else if (route === "rankings") openRankingsSurface();
+  else if (route === "social") openSocialSurface();
 }
 
 function onRailTabClick(e) {
@@ -787,18 +836,35 @@ function onRailTabClick(e) {
   if (tabNeedsEconomySnapshot()) refreshEconomySnapshot();
 }
 
+function onRailTabKeyDown(event) {
+  const tab = event.target.closest('[role="tab"]');
+  if (!tab) return;
+  const list = tab.parentElement;
+  const tabs = [...list.querySelectorAll('[role="tab"]')];
+  if (!tabs.length) return;
+  let index = tabs.indexOf(tab);
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") index = (index + 1) % tabs.length;
+  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") index = (index - 1 + tabs.length) % tabs.length;
+  else if (event.key === "Home") index = 0;
+  else if (event.key === "End") index = tabs.length - 1;
+  else return;
+  event.preventDefault();
+  tabs[index].focus({ preventScroll: true });
+  tabs[index].click();
+}
+
 function bindRail() {
   // tabs
   $("#tabs").addEventListener("click", onRailTabClick);
-  $("#rr-manage")?.addEventListener("click", () => {
-    state.tab = "deeds";
-    renderRightRail();
-  });
+  $("#tabs").addEventListener("keydown", onRailTabKeyDown);
 
-  // deeds tab: buy a vacant tile directly (kept for any future action buttons)
-  // trade tab: open a trade with another player
+  // Holdings, Deals, and Activity actions are delegated from the rail body.
   $("#rr-body").addEventListener("click", onRailClick);
+  $("#rr-body").addEventListener("keydown", onRailTabKeyDown);
   $("#rr-body").addEventListener("submit", onRailSubmit);
+  $("#rr-body").addEventListener("toggle", (event) => {
+    if (event.target.matches("details.finance-bank")) state.financeBankOpen = event.target.open;
+  }, true);
 
   // popup
   $("#popup-scrim").addEventListener("click", closePopup);
@@ -825,6 +891,9 @@ function bindEvents() {
   // cards, and the card reveal/gallery (clientGameModalsUi.js)
   bindGameModalSurfaces();
   bindDealUi();
+  bindWalletUi();
+  bindMarketUi();
+  bindCasinoUi();
   bindSponsorshipUi();
   bindDeedDetail();
 
@@ -858,12 +927,17 @@ function bindEvents() {
     closeAccountModal,
     closeAchievementModal,
     closeFinancingModal,
+    closeWalletModal,
+    closeMarketDesk,
+    closeCasinoDesk,
+    closePanelMenu,
+    isPanelMenuOpen,
     closeSponsorshipModal,
     closeCardGallery,
     closeChoiceModalAsPass,
     closeRoomsModal,
     closeProfileEditor,
-    rejectOpenOffer,
+    closeOfferWithoutResponse,
     closeDeedDetail,
     closeTradeModal,
     closeDealDetails,
@@ -880,16 +954,19 @@ configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation });
 configureAccountIdentity({ emitServer, say });
-configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails });
+configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot });
+configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
+configureMarketUi({ emitServer, renderRightRail, createRequestId, say, renderChat });
+configureCasinoUi({ emitServer, renderRightRail, createRequestId, say, renderChat, playSound, refreshEconomySnapshot });
 configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, renderChat });
 configurePopup({ buyTile, record });
 configureCosmetics({ emitServer, announce: message => parlorNotice("COLLECTION", message) });
 configureProfileRender({ renderAchievements, renderCollection, loadSavedGame, renderHomeSignals });
-configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
+configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openHoldings: () => { state.tab = "holdings"; renderRightRail(); }, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, renderChat });
 configureDeedDetail({ emitServer });
-configureProfileBindings({ showView, emitServer });
+configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });
 configureRoomsUi({ emitServer, say, renderChat, enterParlor });
 configureLobbyUi({
@@ -923,3 +1000,4 @@ bindEvents();
 renderAll();
 showView("home");
 openCardPreviewFromUrl();
+openSurfaceFromUrl();

@@ -147,6 +147,23 @@ export function parlorNotice(title, message) {
   announceSocialNotification({ kind: "parlor-error", title, message });
 }
 
+function pageFocusCanMove() {
+  const active = document.activeElement;
+  if (!active || active === document.body) return true;
+  const owner = active.closest?.(".view");
+  return Boolean(owner?.classList.contains("is-hidden"));
+}
+
+function focusSocialPage() {
+  if (!pageFocusCanMove()) return;
+  requestAnimationFrame(() => $("#social-page-content .social-feed")?.focus({ preventScroll: true }));
+}
+
+function focusRankingsPage() {
+  if (!pageFocusCanMove()) return;
+  requestAnimationFrame(() => $("#rankings-page-content [data-ranking-stage]")?.focus({ preventScroll: true }));
+}
+
 export function socialPlayerRowHTML(player, actionLabel = "VIEW") {
   if (!player) return "";
   const id = player.id || player.accountId;
@@ -166,6 +183,7 @@ export function openSocialSurface(tab = "friends") {
   state.socialTab = ["friends", "requests", "invites", "recent", "notifications"].includes(tab) ? tab : "friends";
   host.showView("social");
   renderSocialSurface("#social-page-content");
+  focusSocialPage();
   socialFetchAndRender("#social-page-content");
 }
 
@@ -208,6 +226,7 @@ function socialDataAck(response, target) {
   if (response?.success && response.social) {
     state.social = response.social;
     renderSocialSurface(target);
+    if (target === "#social-page-content") focusSocialPage();
   }
 }
 
@@ -220,6 +239,7 @@ function leaderboardSnapshotAck(snapshot, target, requestId) {
   state.leaderboard.loading = false;
   applyLeaderboardSnapshot(snapshot);
   renderRankingsSurface(target);
+  if (target === "#rankings-page-content") focusRankingsPage();
 }
 
 export function requestLeaderboardSnapshot(target) {
@@ -233,7 +253,8 @@ export function requestLeaderboardSnapshot(target) {
 
 function publicPlayerAck(response) {
   if (response?.success && response.player) {
-    state.selectedPlayer = { ...state.selectedPlayer, ...response.player };
+    const seat = state.selectedPlayer;
+    state.selectedPlayer = { ...seat, ...response.player, id: seat?.id || response.player.id, serverId: seat?.serverId || seat?.id, accountId: response.player.id };
     state.selectedPlayerRelationship = response.relationship;
     renderPlayerSurface();
   }
@@ -312,7 +333,7 @@ export function renderSocialSurface(target = "#social-card") {
   const hero = socialHeroContext(social, pageSurface);
   const rail = socialRailContext(signedIn);
   const info = socialTableContext();
-  card.innerHTML = `<div class="${hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${hero.inboxCount}</strong></div></div>${hero.closeBtn}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${searchValue}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, social, count)}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
+  card.innerHTML = `<div class="${hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${hero.inboxCount}</strong></div></div>${hero.closeBtn}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${searchValue}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, social, count)}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
 }
 
 
@@ -352,19 +373,24 @@ function clearLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
 }
 
-function seasonAck(response, target) {
-  state.season.loading = false;
+function applySeasonResponse(response) {
   if (!response?.success) {
     state.season.error = response?.error || "Season data is temporarily unavailable.";
-  } else {
-    state.season.error = "";
-    state.season.current = response.season || null;
-    state.season.metric = response.metric || state.season.metric;
-    state.season.rows = Array.isArray(response.rows) ? response.rows : [];
-    state.season.rewards = Array.isArray(response.rewards) ? response.rewards : (response.season?.rewardTrack || []);
-    state.season.claimedRewardIds = Array.isArray(response.claimedRewardIds) ? response.claimedRewardIds : [];
+    return;
   }
+  state.season.error = "";
+  state.season.current = response.season || null;
+  state.season.metric = response.metric || state.season.metric;
+  state.season.rows = Array.isArray(response.rows) ? response.rows : [];
+  state.season.rewards = Array.isArray(response.rewards) ? response.rewards : (response.season?.rewardTrack || []);
+  state.season.claimedRewardIds = Array.isArray(response.claimedRewardIds) ? response.claimedRewardIds : [];
+}
+
+function seasonAck(response, target) {
+  state.season.loading = false;
+  applySeasonResponse(response);
   renderRankingsSurface(target);
+  if (target === "#rankings-page-content") focusRankingsPage();
 }
 
 export function requestSeason(target = "#rankings-page-content") {
@@ -393,6 +419,7 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
   state.leaderboard.scope = normalizeRankingScope(scope);
   host.showView("rankings");
   renderRankingsSurface("#rankings-page-content");
+  focusRankingsPage();
   requestLeaderboardSnapshot("#rankings-page-content");
   requestSeason("#rankings-page-content");
 }
@@ -642,7 +669,7 @@ const RULES_SECTIONS = [
     title: "Borrow only when the table can carry it",
     status: "LIVE",
     summary: "Player loans and bank loans are separate contracts. Both are recorded, visible, and resolved before a player can quietly spend beyond their means.",
-    content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, premium, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan, equity, or hybrid deal is a social contract recorded in the room history. Incoming deals can be negotiated from the Finance rail; the sender can adjust or cancel before acceptance.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">Elimination removes a busted player from the active turn order. Debt Deal mode can transfer assets and keep the player in the table when the room setting allows it.</p>`,
+    content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, premium, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan, equity, or hybrid deal is a social contract recorded in the room history. Incoming deals can be negotiated from the Deals rail; the sender can adjust or cancel before acceptance.</p><h3 class="t-section g300">Wallet &amp; items</h3><p class="t-body ink-2">Press Cash On Hand to open the Wallet &amp; Items workbench. Account and Items are two views of the same private round ledger, so closing the modal never accepts, sells, or cancels anything.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">Elimination removes a busted player from the active turn order. Debt Deal mode can transfer assets and keep the player in the table when the room setting allows it.</p>`,
   },
   {
     id: "global-events",
@@ -843,7 +870,9 @@ export function openPlayerSurface(playerId) {
   state.selectedPlayerHistoryScope = "all";
   renderPlayerSurface();
   openSurface("#player-modal", "#player-modal-close");
-  if (state.selectedPlayer.accountId) {
+  if (state.selectedPlayer.accountLinked && state.selectedPlayer.roomPlayerId) {
+    host.emitServer("get-public-player-card", { roomPlayerId: state.selectedPlayer.roomPlayerId }, publicPlayerAck);
+  } else if (state.selectedPlayer.accountId) {
     host.emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, publicPlayerAck);
   }
 }
@@ -993,7 +1022,7 @@ function renderRecentMatches(card, player) {
 }
 
 function historyScopesHTML() {
-  return [["all", "ALL"], ["with-me", "WITH ME"], ["global", "GLOBAL EVENTS"]].map(([id, label]) => `<button class="player-history-scope${state.selectedPlayerHistoryScope === id ? " is-active" : ""}" type="button" data-player-history-scope="${id}" aria-pressed="${state.selectedPlayerHistoryScope === id}"><span class="t-label f11">${label}</span></button>`).join("");
+  return [["all", "ALL"], ["with-me", "WITH ME"], ["global", "GLOBAL EVENTS"]].map(([id, label]) => `<button class="player-history-scope${state.selectedPlayerHistoryScope === id ? " is-active" : ""}" type="button" role="tab" data-player-history-scope="${id}" aria-selected="${state.selectedPlayerHistoryScope === id}"><span class="t-label f11">${label}</span></button>`).join("");
 }
 
 function renderPlayerHistoryView(card, player) {

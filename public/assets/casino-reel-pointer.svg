@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges" role="img" aria-labelledby="title desc">
+  <title id="title">Roulette reel pointer</title>
+  <desc id="desc">A gold pixel pointer marking the settled card.</desc>
+  <path fill="#01070A" d="M2 1h12v4h-2v3h-2v3H8v4H6v-4H4V8H2z"/>
+  <path fill="#F0D9AC" d="M4 2h8v3h-2v3H8v3H6V8H4z"/>
+  <path fill="#C88F2E" d="M6 11h4v2H6z"/>
+</svg>

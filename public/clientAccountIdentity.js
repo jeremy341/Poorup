@@ -35,7 +35,7 @@ function syncAchievementFilterButtons() {
   document.querySelectorAll("#achievements-filters [data-achievement-filter]").forEach((button) => {
     const active = button.dataset.achievementFilter === state.achievementFilter;
     button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", String(active));
+    button.setAttribute("aria-pressed", String(active));
   });
 }
 
@@ -260,7 +260,7 @@ function accountSubmitLabel(edit, register) {
 
 function accountTabsHTML(edit, register) {
   if (edit) return "";
-  return `<div class="account-modal-tabs" role="tablist" aria-label="Account actions"><button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" role="tab" aria-selected="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" role="tab" aria-selected="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`;
+  return `<div class="account-modal-tabs" role="toolbar" aria-label="Account actions"><button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" aria-pressed="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" aria-pressed="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`;
 }
 
 function accountUsernameFieldHTML(edit, register, account) {

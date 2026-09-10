@@ -1,7 +1,7 @@
 /* ============================================================
-   RIGHT RAIL: holdings/finance/casino/market/trade/log panel plus
-   the live player-contract rail. Byte-identical markup; complex
-   computations split into small helpers.
+   RIGHT RAIL: holdings/deals/activity panel plus the live player-contract
+   rail. Complex computations stay in small helpers so every tab renders from
+   the same server snapshot.
    ============================================================ */
 import { $, esc } from "./clientDom.js";
 import { avatarHTML, hydrateSprites } from "./clientSprites.js";
@@ -112,16 +112,12 @@ function railFinanceBodyHTML() {
   const me = state.players[0];
   const loan = me?.bankLoan;
   const offer = me?.bankLoanOffer;
+  if (state.settings.bankLoans === false && !loan && !offer) return "";
   const loanCopy = bankLoanCopy(loan, offer);
   const bankActionDisabled = state.phase !== "playing" || state.turnIndex !== 0;
   const loanAction = bankLoanActionHTML(loan, offer, bankActionDisabled);
   const loanMetrics = bankLoanMetrics(loan, offer);
-  return '<details class="finance-bank panel noise"><summary class="finance-bank-head">' + financeBankHeadHTML(loan) + '</summary>' + financeMetricsBlock(loanMetrics) + '<p class="t-body ink-2 finance-bank-copy">' + esc(loanCopy) + '</p>' + financeActionsBlock(loanAction) + '<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></details>';
-}
-
-function casinoFeeSuffix(entryFee) {
-  if (!entryFee) return "";
-  return ' · EVENT FEE $' + entryFee.toLocaleString();
+  return '<details class="finance-bank panel noise"' + (state.financeBankOpen ? ' open' : '') + '><summary class="finance-bank-head">' + financeBankHeadHTML(loan) + '</summary>' + financeMetricsBlock(loanMetrics) + '<p class="t-body ink-2 finance-bank-copy">' + esc(loanCopy) + '</p>' + financeActionsBlock(loanAction) + '<p class="t-micro ink-3 finance-bank-note">Predatory terms are fixed at acceptance. The bank never negotiates.</p></details>';
 }
 
 function casinoResultCopy(last) {
@@ -138,11 +134,9 @@ const CASINO_OFF_HTML = '<section class="economy-empty panel noise"><img src="/a
 function railCasinoBodyHTML() {
   const casino = state.economy?.casino || {};
   if (!casino.enabled) return CASINO_OFF_HTML;
-  const maxBet = Number(casino.maxBet || 500);
-  const entryFee = Number(casino.entryFee || 0);
   const last = casino.lastResult;
   const resultCopy = casinoResultCopy(last);
-  return '<section class="economy-surface casino-surface" aria-labelledby="casino-heading"><div class="economy-surface-head"><img src="/assets/casino-wheel.svg" alt="" width="32" height="32"><div><span class="t-micro g400">EUROPEAN WHEEL · SERVER SETTLED</span><h3 class="t-section g100" id="casino-heading">Place a bet</h3></div></div><div class="casino-odds" aria-label="Roulette odds"><span><strong>RED</strong><small>18 / 37 · 1:1</small></span><span><strong>BLACK</strong><small>18 / 37 · 1:1</small></span><span><strong class="green">GREEN 0</strong><small>1 / 37 · 35:1</small></span></div><form class="casino-form" data-casino-form><fieldset><legend class="t-micro ink-3">SELECT POCKET</legend><div class="casino-choice-row"><label class="casino-choice casino-choice-red"><input type="radio" name="casino-color" value="red" checked><span class="t-label f11">RED</span></label><label class="casino-choice casino-choice-black"><input type="radio" name="casino-color" value="black"><span class="t-label f11">BLACK</span></label><label class="casino-choice casino-choice-green"><input type="radio" name="casino-color" value="green"><span class="t-label f11">GREEN 0</span></label></div></fieldset><label class="casino-stake"><span class="t-micro ink-3">STAKE · MAX $' + maxBet.toLocaleString() + casinoFeeSuffix(entryFee) + '</span><input class="field" name="stake" type="number" min="1" max="' + maxBet + '" step="1" value="10" inputmode="numeric"></label><button class="cta-red" type="submit"><span class="cta-text cta-text-sm">SPIN THE WHEEL</span></button></form><div class="economy-result" aria-live="polite">' + resultCopy + '</div><p class="t-micro ink-3 economy-note">Fictional board money only. Loan-backed cash cannot enter the casino.</p></section>';
+  return `<section class="economy-surface casino-surface" aria-labelledby="casino-heading"><div class="economy-surface-head"><img src="/assets/casino-wheel.svg" alt="" width="32" height="32"><div><span class="t-micro g400">EUROPEAN WHEEL · SERVER SETTLED</span><h3 class="t-section g100" id="casino-heading">Place a bet</h3></div></div><div class="casino-odds" aria-label="Roulette odds"><span><strong>RED</strong><small>18 / 37 · 1:1</small></span><span><strong>BLACK</strong><small>18 / 37 · 1:1</small></span><span><strong class="green">GREEN 0</strong><small>1 / 37 · 35:1</small></span></div><button class="btn-dark casino-desk-open" type="button" data-casino-desk aria-haspopup="dialog" aria-controls="casino-modal"><span class="t-label f11">OPEN CASINO DESK</span></button><div class="economy-result" aria-live="polite">${resultCopy}</div><p class="t-micro ink-3 economy-note">Fictional board money only. Loan-backed cash cannot enter the casino. Bets open in the Casino Desk.</p></section>`;
 }
 
 const MARKET_LABELS = { brazil: "BRAZIL", ghana: "GHANA", thailand: "THAILAND", japan: "JAPAN", netherlands: "NETHERLANDS", canada: "CANADA", switzerland: "SWITZERLAND", singapore: "SINGAPORE", airports: "AIRPORTS", utilities: "UTILITIES", property: "PROPERTY" };
@@ -166,25 +160,10 @@ function marketRowHTML(id, label, quotes, positions) {
         return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong><span class="market-actions"><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="buy">BUY</button><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="sell" ' + sellDisabledAttr(position) + '>SELL</button></span></div>';
 }
 
-function advancedMarketActions(id, market, position) {
-  const complexity = market.complexity || "basic";
-  const actions = [];
-  if (["margin", "shorting", "derivatives"].includes(complexity)) actions.push('<button class="btn-dark" type="button" data-market-advanced="open-margin" data-market-id="' + id + '">MARGIN</button>');
-  if (["shorting", "derivatives"].includes(complexity)) actions.push('<button class="btn-dark" type="button" data-market-advanced="open-short" data-market-id="' + id + '">SHORT</button>');
-  if (Number(position?.quantity) > 0) actions.push('<button class="btn-dark" type="button" data-market-advanced="cover-short" data-market-id="' + id + '">COVER</button>');
-  if (complexity === "derivatives") actions.push('<button class="btn-dark" type="button" data-market-advanced="open-option" data-market-id="' + id + '">OPTION</button>');
-  const option = (market.options || []).find(entry => entry.instrumentId === id && entry.status === "open");
-  if (option) {
-    actions.push('<button class="btn-dark" type="button" data-market-advanced="exercise-option" data-market-id="' + id + '" data-market-option-id="' + option.id + '">EXERCISE</button>');
-    actions.push('<button class="btn-dark" type="button" data-market-advanced="close-position" data-market-id="' + id + '" data-market-option-id="' + option.id + '">CLOSE</button>');
-  }
-  return actions.join("");
-}
-
 function marketRowsHTML(market) {
   const quotes = market.quotes || {};
   const positions = market.positions || state.players[0]?.marketPositions || {};
-  return Object.entries(MARKET_LABELS).map(([id, label]) => marketRowHTML(id, label, quotes, positions) + `<div class="market-advanced-actions">${advancedMarketActions(id, market, market.shorts?.positions?.[id])}</div>`).join("");
+  return Object.entries(MARKET_LABELS).map(([id, label]) => marketRowHTML(id, label, quotes, positions)).join("");
 }
 
 function marketRound(market) {
@@ -208,8 +187,10 @@ function railMarketBodyHTML() {
   if (!market.enabled) return MARKET_OFF_HTML;
   const rows = marketRowsHTML(market);
   const complexity = String(market.complexity || "basic").toUpperCase();
-  const expansion = complexity === "BASIC" ? "No leverage, shorting, or derivatives." : `COMPLEXITY ${complexity} · obligations are fully disclosed and collateralized.`;
-  return '<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ' + marketRound(market) + '</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div><span class="t-micro g300">' + complexity + '</span></div>' + marketRiskSummaryHTML(market) + '<label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label>' + (["MARGIN", "SHORTING", "DERIVATIVES"].includes(complexity) ? '<div class="market-expansion-toolbar"><label><span class="t-micro ink-3">REDUCE MARGIN</span><input class="field" id="market-margin-amount" type="number" min="1" value="50"></label><button class="btn-dark" type="button" data-market-advanced="reduce-margin"><span class="t-label f11">REDUCE</span></button></div>' : '') + (complexity === "DERIVATIVES" ? '<div class="market-derivative-fields"><label><span class="t-micro ink-3">STRIKE</span><input class="field" id="market-strike" type="number" min="10" value="100"></label><label><span class="t-micro ink-3">PREMIUM</span><input class="field" id="market-premium" type="number" min="1" value="10"></label><label><span class="t-micro ink-3">EXPIRY ROUNDS</span><input class="field" id="market-expiry" type="number" min="1" max="20" value="3"></label><label><span class="t-micro ink-3">OPTION SIDE</span><select class="field" name="market-option-side"><option value="call">CALL</option><option value="put">PUT</option></select></label><label><span class="t-micro ink-3">POSITION</span><select class="field" name="market-option-role"><option value="writer">WRITE · COLLATERALIZED</option><option value="buyer">BUY · PREMIUM</option></select></div>' : '') + '<div class="market-list thin-scroll">' + rows + '</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ' + marketFeePercent(market) + '% settlement fee applies. ' + expansion + '</p></section>';
+  const expansion = complexity === "BASIC"
+    ? "No leverage, shorting, or derivatives."
+    : `COMPLEXITY ${complexity} · obligations are fully disclosed and collateralized.`;
+  return `<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ${marketRound(market)}</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div><span class="t-micro g300">${complexity}</span></div>${marketRiskSummaryHTML(market)}<label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label><button class="btn-dark market-desk-open" type="button" data-market-desk aria-haspopup="dialog" aria-controls="market-modal"><span class="t-label f11">OPEN MARKET DESK</span></button><div class="market-list thin-scroll">${rows}</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ${marketFeePercent(market)}% settlement fee applies. ${expansion} Advanced actions open in the Market Desk.</p></section>`;
 }
 
 function railDeedRowHTML(tile) {
@@ -222,59 +203,129 @@ function railDeedsBodyHTML(owned) {
   return owned.map(railDeedRowHTML).join("");
 }
 
-function renderRailTradeBody(body) {
-  if (!state.settings.trading) {
-    body.innerHTML = `<p class="t-body rr-empty">TRADING IS OFF FOR THIS ROUND.</p>`;
-    return;
-  }
-  const others = state.players.filter((p) => p.id !== "p1");
-  if (!others.length) {
-    body.innerHTML = `<p class="t-body rr-empty">NO OTHER PLAYERS AT THE TABLE.</p>`;
-    return;
-  }
-  body.innerHTML = others.map((p) => tradePlayerRowHTML(p, state.players.indexOf(p))).join("");
+const LEGACY_RAIL_TABS = {
+  deeds: "holdings",
+  trade: "deals",
+  finance: "deals",
+  log: "holdings",
+  casino: "activity",
+  market: "activity",
+};
+
+function normalizeRailTab(value) {
+  const next = LEGACY_RAIL_TABS[value] || value;
+  return ["holdings", "deals", "activity"].includes(next) ? next : "holdings";
 }
 
-function renderRailLogBody(body) {
-  if (!state.log.length) {
-    body.innerHTML = `<p class="t-body ink-3">NOTHING HAS HAPPENED YET.</p>`;
-    return;
-  }
-  body.innerHTML = state.log.map((l, i) => `<p class="t-body log-line"><span class="log-n">${String(state.log.length - i).padStart(2, "0")} </span>${esc(l)}</p>`).join("");
+function normalizeDealsFilter(value) {
+  return ["needs-you", "active", "outgoing"].includes(value) ? value : "needs-you";
+}
+
+function normalizeActivityMode(value) {
+  return ["indexes", "predictions", "casino"].includes(value) ? value : "indexes";
+}
+
+function itemEntriesForPlayer(player) {
+  const source = player?.items;
+  if (Array.isArray(source)) return source.filter(item => item && typeof item === "object");
+  if (!source || typeof source !== "object") return [];
+  return Object.entries(source).map(([itemId, item]) => ({ itemId, ...(item || {}) }));
+}
+
+function itemCountForPlayer(player) {
+  return itemEntriesForPlayer(player).reduce((sum, item) => sum + Math.max(0, Math.floor(Number(item.quantity) || 0)), 0);
+}
+
+function holdingsAccountHTML(player) {
+  const tier = Math.max(1, Math.floor(Number(player?.bankAccountTier) || 1));
+  const tierNames = { 1: "STANDARD", 2: "SPARKASSE PREMIUM", 3: "AMERICAN EXPRESS BLACK" };
+  const accountEnabled = Boolean(player?.bankAccountUpgrade || state.settings.bankAccountUpgrades);
+  const status = accountEnabled ? `${tierNames[tier] || `TIER ${tier}`} · ROUND ACCOUNT` : "STANDARD · ACCOUNT TIERS OFF";
+  const actionLabel = accountEnabled ? "OPEN WALLET" : "VIEW WALLET";
+  return `<section class="rail-section holdings-account" aria-labelledby="holdings-account-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-account-heading">ACCOUNT</span><span class="t-micro ink-3">${esc(status)}</span></div><div class="holdings-account-row"><div><strong class="t-label f12 g100">$${Number(player?.cash || 0).toLocaleString()} CASH</strong><span class="t-micro ink-3">${player?.bankLoan?.status ? `BANK CREDIT · ${String(player.bankLoan.status).toUpperCase()}` : "NO BANK CREDIT"}</span></div><button class="btn-dark" type="button" data-wallet-open="account" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">${actionLabel}</span></button></div></section>`;
+}
+
+function holdingsItemsHTML(player) {
+  const items = itemEntriesForPlayer(player);
+  if (!items.length) return `<section class="rail-section holdings-items" aria-labelledby="holdings-items-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-items-heading">ITEMS</span><span class="t-micro ink-3">0 HELD</span></div><div class="holdings-empty"><span class="t-micro ink-3">NO ITEMS THIS ROUND.</span><button class="btn-dark" type="button" data-wallet-open="items" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">OPEN ITEMS</span></button></div></section>`;
+  const rows = items.map(item => {
+    const id = esc(item.itemId || item.id || "ITEM");
+    const label = esc(item.name || String(item.itemId || item.id || "ITEM").replaceAll("-", " ").toUpperCase());
+    const quantity = Math.max(0, Math.floor(Number(item.quantity) || 0));
+    return `<div class="holding-item-row"><span class="holding-item-glyph" aria-hidden="true">✦</span><div><strong class="t-label f11 g100">${label}</strong><span class="t-micro ink-3">QTY ${quantity} · ${esc(String(item.rarity || "COMMON").toUpperCase())}</span></div><button class="btn-dark" type="button" data-wallet-open="items" data-wallet-item="${id}" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">VIEW</span></button></div>`;
+  }).join("");
+  return `<section class="rail-section holdings-items" aria-labelledby="holdings-items-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-items-heading">ITEMS</span><span class="t-micro ink-3">${itemCountForPlayer(player)} HELD</span></div><div class="holding-item-list">${rows}</div><button class="btn-dark holdings-items-open" type="button" data-wallet-open="items" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">OPEN ITEMS</span></button></section>`;
+}
+
+function railHoldingsBodyHTML(owned) {
+  const player = state.players[0] || {};
+  return holdingsAccountHTML(player) + holdingsItemsHTML(player) + `<section class="rail-section holdings-deeds" aria-labelledby="holdings-deeds-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-deeds-heading">DEEDS</span><span class="t-micro ink-3">${owned.length} OWNED</span></div>${railDeedsBodyHTML(owned)}</section>`;
+}
+
+function dealsFilterHTML() {
+  const current = normalizeDealsFilter(state.dealsFilter);
+  return `<div class="deals-filter-bar" role="tablist" aria-label="Deal views"><button class="deals-filter${current === "needs-you" ? " is-active" : ""}" id="deals-filter-needs-you" type="button" role="tab" aria-selected="${current === "needs-you"}" aria-controls="deals-panel" data-deals-filter="needs-you"><span class="t-label f11">NEEDS YOU</span></button><button class="deals-filter${current === "active" ? " is-active" : ""}" id="deals-filter-active" type="button" role="tab" aria-selected="${current === "active"}" aria-controls="deals-panel" data-deals-filter="active"><span class="t-label f11">ACTIVE</span></button><button class="deals-filter${current === "outgoing" ? " is-active" : ""}" id="deals-filter-outgoing" type="button" role="tab" aria-selected="${current === "outgoing"}" aria-controls="deals-panel" data-deals-filter="outgoing"><span class="t-label f11">OUTGOING</span></button></div>`;
+}
+
+function dealsPlayerDirectoryHTML(filter) {
+  if (filter !== "needs-you") return "";
+  if (!state.settings.trading) return `<section class="rail-section deals-directory"><span class="t-micro ink-3">PLAYER DEALS</span><p class="t-body ink-3 rr-empty">TRADING IS OFF FOR THIS ROUND.</p></section>`;
+  const others = state.players.filter((player) => player.id !== "p1");
+  if (!others.length) return `<section class="rail-section deals-directory"><span class="t-micro ink-3">PLAYER DEALS</span><p class="t-body ink-3 rr-empty">NO OTHER PLAYERS AT THE TABLE.</p></section>`;
+  const rows = others.map((player) => tradePlayerRowHTML(player, state.players.indexOf(player))).join("");
+  return `<section class="rail-section deals-directory" aria-labelledby="deals-directory-heading"><div class="rail-section-head"><span class="t-micro g400" id="deals-directory-heading">PLAYER DEALS</span><span class="t-micro ink-3">${others.length} AVAILABLE</span></div><div class="deals-player-list">${rows}</div></section>`;
+}
+
+function railDealsBodyHTML() {
+  const filter = normalizeDealsFilter(state.dealsFilter);
+  state.dealsFilter = filter;
+  const contractHTML = playerContractRailHTML(filter);
+  const bankHTML = filter === "outgoing" ? "" : railFinanceBodyHTML();
+  return `<div class="deals-surface" id="deals-panel" role="tabpanel" aria-labelledby="deals-filter-${filter}">${dealsFilterHTML()}${dealsPlayerDirectoryHTML(filter)}${contractHTML}${bankHTML}<p class="t-micro ink-3 deals-note">Close any detail view to keep the deal pending. Only an explicit action changes the ledger.</p></div>`;
+}
+
+function activityModeTabsHTML() {
+  const current = normalizeActivityMode(state.activityMode);
+  const tabs = [["indexes", "INDEXES"], ["predictions", "PREDICTIONS"], ["casino", "CASINO"]];
+  return `<div class="activity-mode-tabs" role="tablist" aria-label="Activity views">${tabs.map(([id, label]) => `<button class="activity-mode-tab${current === id ? " is-active" : ""}" id="activity-mode-${id}" type="button" role="tab" aria-selected="${current === id}" aria-controls="activity-mode-panel-${id}" data-activity-mode="${id}"><span class="t-label f11">${label}</span></button>`).join("")}</div>`;
+}
+
+function railPredictionsBodyHTML() {
+  const predictions = Array.isArray(state.economy?.predictions) ? state.economy.predictions : [];
+  if (!predictions.length) return `<section class="economy-empty panel noise"><img src="/assets/market-chart.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">PREDICTIONS ARE QUIET</strong><p class="t-body ink-2">No fictional prediction tickets are open for this round. Locked outcomes are settled by the server.</p></section>`;
+  const rows = predictions.slice(0, 20).map((prediction) => `<div class="prediction-summary-row"><div><strong class="t-label f11 g100">${esc(prediction.title || prediction.market || "PREDICTION")}</strong><span class="t-micro ink-3">${esc(String(prediction.status || "OPEN").toUpperCase())} · LOCK R${Number(prediction.lockRound || 0)}</span></div><span class="t-label f12 g300">$${Number(prediction.stake || 0).toLocaleString()}</span></div>`).join("");
+  return `<section class="economy-surface prediction-surface"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL TICKETS · SERVER SETTLED</span><h3 class="t-section g100">Predictions</h3></div></div><div class="prediction-list thin-scroll">${rows}</div><p class="t-micro ink-3 economy-note">Virtual board cash only. Odds, fees, lock round, and maximum profit are shown before confirmation.</p></section>`;
+}
+
+function railActivityBodyHTML() {
+  const mode = normalizeActivityMode(state.activityMode);
+  state.activityMode = mode;
+  let content = railMarketBodyHTML();
+  if (mode === "predictions") content = railPredictionsBodyHTML();
+  if (mode === "casino") content = railCasinoBodyHTML();
+  return `<div class="activity-surface">${activityModeTabsHTML()}<div class="activity-mode-content" id="activity-mode-panel-${mode}" role="tabpanel" aria-labelledby="activity-mode-${mode}">${content}</div></div>`;
 }
 
 function renderRailBody(owned) {
   const body = $("#rr-body");
-  const tab = state.tab;
-  if (tab === "finance") {
-    body.innerHTML = playerContractRailHTML();
-    body.innerHTML += railFinanceBodyHTML();
+  const tab = normalizeRailTab(state.tab);
+  state.tab = tab;
+  if (tab === "deals") {
+    body.innerHTML = railDealsBodyHTML();
     hydrateSprites();
     return;
   }
-  if (tab === "casino") {
-    body.innerHTML = railCasinoBodyHTML();
+  if (tab === "activity") {
+    body.innerHTML = railActivityBodyHTML();
     return;
   }
-  if (tab === "market") {
-    body.innerHTML = railMarketBodyHTML();
-    return;
-  }
-  if (tab === "deeds") {
-    body.innerHTML = railDeedsBodyHTML(owned);
-    return;
-  }
-  if (tab === "trade") {
-    renderRailTradeBody(body);
-    return;
-  }
-  renderRailLogBody(body);
+  body.innerHTML = railHoldingsBodyHTML(owned);
+  hydrateSprites();
 }
 
 function railTitleText(tab) {
-  if (tab === "finance") return "Financing";
-  if (tab === "casino") return "Casino";
-  if (tab === "market") return "Market";
+  if (tab === "deals") return "Deals";
+  if (tab === "activity") return "Activity";
   return "Holdings";
 }
 
@@ -289,10 +340,22 @@ function marketCountText() {
 }
 
 function railCountText(tab, owned) {
-  if (tab === "finance") return "BANK + PLAYERS";
-  if (tab === "casino") return casinoCountText();
-  if (tab === "market") return marketCountText();
-  return `${owned.length} DEEDS`;
+  if (tab === "deals") {
+    const localId = state.players[0]?.serverId;
+    const trade = state.pendingTrade;
+    const pendingTrade = trade && trade.toPlayerId === localId;
+    const activeContracts = Array.isArray(state.playerContracts?.active) ? state.playerContracts.active : [];
+    const due = activeContracts.filter(contract => contract.status === "due" && contract.toPlayerId === localId).length;
+    const needs = (state.playerContractOffer ? 1 : 0) + (pendingTrade ? 1 : 0) + due;
+    return needs + " NEED YOU · " + activeContracts.length + " ACTIVE";
+  }
+  if (tab === "activity") {
+    const mode = normalizeActivityMode(state.activityMode);
+    if (mode === "casino") return casinoCountText();
+    if (mode === "predictions") return `${Array.isArray(state.economy?.predictions) ? state.economy.predictions.length : 0} TICKETS`;
+    return marketCountText();
+  }
+  return `${owned.length} DEEDS · ${itemCountForPlayer(state.players[0])} ITEMS`;
 }
 
 function renderRailHeader(owned) {
@@ -310,6 +373,7 @@ function renderRailHeader(owned) {
 
 export function renderRightRail() {
   const owned = TILES.filter((t) => state.owners[t.i] === "p1");
+  state.tab = normalizeRailTab(state.tab);
   renderRailHeader(owned);
   renderRailBody(owned);
 }
@@ -438,15 +502,14 @@ function financeMyDueDebts(active, localServerId) {
   return active.filter((contract) => isMyDueDebt(contract, localServerId));
 }
 
-function financeNeedsCount(offer, dueDebts) {
-  if (offer) return 1 + dueDebts.length;
-  return dueDebts.length;
+function financeNeedsCount(offer, dueDebts, trade) {
+  return (offer ? 1 : 0) + dueDebts.length + (trade ? 1 : 0);
 }
 
-function financeHeaderHTML(offer, dueDebts, active) {
-  const needs = financeNeedsCount(offer, dueDebts);
+function financeHeaderHTML(offer, dueDebts, active, trade) {
+  const needs = financeNeedsCount(offer, dueDebts, trade);
   const live = active.length;
-  return '<div class="finance-status"><span class="t-micro ink-3">FINANCE</span><span class="t-label f11 g-muted">' + needs + ' NEED YOU · ' + live + ' LIVE</span></div>';
+  return '<div class="finance-status"><span class="t-micro ink-3">DEALS</span><span class="t-label f11 g-muted">' + needs + ' NEED YOU · ' + live + ' ACTIVE</span></div>';
 }
 
 function byCureRound(a, b) {
@@ -566,24 +629,44 @@ function financePositionsGlobalEmpty(offer, outgoing, active, equityRowsHTML) {
   return true;
 }
 
-function financePositionsZoneHTML(ctx, equityEntries) {
+function financePositionsZoneHTML(ctx, equityEntries, includeOutgoing = true) {
   const owedBy = financeOwedByRowsHTML(ctx.active, ctx.localServerId);
   const owedTo = financeOwedToRowsHTML(ctx.active, ctx.localServerId);
   const equityRows = financeEquityRowsHTML(equityEntries);
-  const outgoingHTML = contractOutgoingBlockHTML(ctx.outgoing);
-  if (financePositionsGlobalEmpty(ctx.offer, ctx.outgoing, ctx.active, equityRows)) return '<div class="player-contract-active"><span class="t-micro g400">YOUR POSITIONS</span><span class="t-micro ink-3">No live deals. Send one when ready.</span></div>';
+  const outgoingHTML = includeOutgoing ? contractOutgoingBlockHTML(ctx.outgoing) : "";
+  const empty = includeOutgoing
+    ? financePositionsGlobalEmpty(ctx.offer, ctx.outgoing, ctx.active, equityRows)
+    : (!owedBy && !owedTo && !equityRows);
+  if (empty) return '<div class="player-contract-active"><span class="t-micro g400">YOUR POSITIONS</span><span class="t-micro ink-3">No live deals. Send one when ready.</span></div>';
   return '<div class="player-contract-active"><span class="t-micro g400">YOUR POSITIONS</span>' + financeOwedBySectionHTML(owedBy) + financeOwedToSectionHTML(owedTo) + financeEquitySectionHTML(equityRows) + financeAwaitingSectionHTML(outgoingHTML) + '</div>';
+}
+
+function financeOutgoingZoneHTML(ctx, trade) {
+  const contractHTML = contractOutgoingBlockHTML(ctx.outgoing);
+  const tradeHTML = trade && trade.fromPlayerId === ctx.localServerId ? tradeRailBlockHTML(trade, ctx.localServerId) : "";
+  if (!contractHTML && !tradeHTML) return '<div class="player-contract-active"><span class="t-micro g400">OUTGOING</span><span class="t-micro ink-3">No offers waiting for review.</span></div>';
+  return '<div class="player-contract-active"><span class="t-micro g400">OUTGOING</span>' + (tradeHTML ? financeSubheadHTML("TRADE") + tradeHTML : "") + (contractHTML ? financeSubheadHTML("CONTRACT") + contractHTML : "") + '</div>';
 }
 
 function financeSendHTML() {
   return '<div class="finance-rail-actions"><button class="btn-dark" type="button" data-finance-open="loan"><span class="t-label f11">SEND A DEAL</span></button></div>';
 }
 
-export function playerContractRailHTML() {
+export function playerContractRailHTML(filter = state.dealsFilter) {
+  const currentFilter = normalizeDealsFilter(filter);
   const ctx = contractContext();
   const dueDebts = financeMyDueDebts(ctx.active, ctx.localServerId);
   const equityEntries = financeEquityEntries(ctx.localServerId);
   const trade = state.pendingTrade && (state.pendingTrade.fromPlayerId === ctx.localServerId || state.pendingTrade.toPlayerId === ctx.localServerId) ? state.pendingTrade : null;
-  const tradeBlock = tradeRailBlockHTML(trade, ctx.localServerId);
-  return '<section class="player-contracts panel noise">' + financeHeaderHTML(ctx.offer, dueDebts, ctx.active) + (tradeBlock ? financeSubheadHTML("TRADE") + tradeBlock : "") + financeNeedsZoneHTML(ctx.offer, dueDebts, ctx.localServerId) + financePositionsZoneHTML(ctx, equityEntries) + financeSendHTML() + '</section>';
+  let body = financeHeaderHTML(ctx.offer, dueDebts, ctx.active, trade && trade.toPlayerId === ctx.localServerId ? trade : null);
+  if (currentFilter === "needs-you") {
+    const tradeBlock = trade && trade.toPlayerId === ctx.localServerId ? tradeRailBlockHTML(trade, ctx.localServerId) : "";
+    body += tradeBlock ? financeSubheadHTML("TRADE") + tradeBlock : "";
+    body += financeNeedsZoneHTML(ctx.offer, dueDebts, ctx.localServerId);
+  } else if (currentFilter === "outgoing") {
+    body += financeOutgoingZoneHTML(ctx, trade);
+  } else {
+    body += financePositionsZoneHTML(ctx, equityEntries, false);
+  }
+  return '<section class="player-contracts">' + body + financeSendHTML() + '</section>';
 }

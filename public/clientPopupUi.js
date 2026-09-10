@@ -10,7 +10,6 @@ import { state } from "./clientState.js";
 import { GROUP_COLOR, RENT_TABLE, HOTEL_LEVEL } from "./clientBoardData.js";
 import { spriteHTML } from "./clientSprites.js";
 import { renderBoardState } from "./clientBoardRender.js";
-import { renderRightRail } from "./clientRailRender.js";
 import { openSurface, closeSurface } from "./clientSurfaces.js";
 
 let host = { buyTile: noop, record: noop };
@@ -176,13 +175,18 @@ function popAuctionHintHTML(unowned) {
 
 function popCanBuyNow(tile) {
   const me = state.players[0];
-  return me.cash >= (tile.price ?? 0) && state.phase === "playing" && state.turnIndex === 0 && !state.busy;
+  return state.pendingBuyTile === tile.i
+    && me.cash >= (tile.price ?? 0)
+    && state.phase === "playing"
+    && state.turnIndex === 0
+    && !state.busy;
 }
 
 function popBuyLabel(tile) {
   const me = state.players[0];
   if (state.phase !== "playing") return "JOIN TO BUY";
   if (state.turnIndex !== 0) return "NOT YOUR TURN";
+  if (state.pendingBuyTile !== tile.i) return "WAIT FOR LANDING";
   if (me.cash < (tile.price ?? 0)) return "INSUFFICIENT FUNDS";
   return "BUY DEED";
 }
@@ -259,5 +263,4 @@ export function onTileClick(tile) {
   host.record(`INSPECTED ${tile.name}${tile.price ? ` — $${tile.price}` : ""}${owner ? ` — OWNED BY ${owner.name}` : ""}`);
   openPopup(tile);
   renderBoardState();
-  if (state.tab === "log") renderRightRail();
 }
