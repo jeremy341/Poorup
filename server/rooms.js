@@ -24,6 +24,8 @@ import {
   safePreset
 } from './rulesetRegistry.js';
 
+const RULESET_META_KEYS = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
+
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
@@ -91,6 +93,48 @@ function resetPlayerMarketState(player) {
   player.marketActionsThisTurn = 0;
   player.crisisMarketBuys = {};
   player.crisisMarketProfit = false;
+}
+
+function settingCapturesOverride(room, key) {
+  return room.rulesetExplicit && (!RULESET_META_KEYS.includes(key) || key === 'marketComplexity');
+}
+
+function captureSettingOverride(room, key, value) {
+  if (!settingCapturesOverride(room, key)) return;
+  const overrides = new Map((room.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
+  overrides.set(key, value);
+  room.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
+}
+
+function syncRulesetState(room) {
+  room.refreshRuleset();
+  Object.assign(room.game.settings, room.settings);
+  room.game.boardVariant = room.ruleset.boardVariant;
+  room.game.ruleset = room.ruleset;
+}
+
+function applyRulesetSetting(room, key, value) {
+  if (RULESET_META_KEYS.includes(key)) {
+    room.rulesetExplicit = true;
+    if (key === 'rulesetBase') room.rulesetBaseExplicit = true;
+    if (key === 'rulesetPreset' && value !== 'custom') room.settings.rulesetOverrides = [];
+    syncRulesetState(room);
+    return;
+  }
+  if (room.rulesetExplicit) syncRulesetState(room);
+}
+
+function applyBoardVariantSetting(room) {
+  const meta = boardVariantMeta(room.settings.boardVariant);
+  if (!room.game.started) {
+    room.game.boardVariant = room.settings.boardVariant;
+    room.game.tiles = tilesForVariant(room.game.boardVariant);
+  }
+  if (room.settings.maxPlayers > meta.maxPlayers) {
+    room.settings.maxPlayers = meta.maxPlayers;
+    room.game.settings.maxPlayers = meta.maxPlayers;
+    syncBotCapacity(room, 'maxPlayers', meta.maxPlayers);
+  }
 }
 
 class Player {
@@ -393,37 +437,9 @@ class Room {
     if (nextValue === SETTING_REJECTED || !capacityAllowsSetting(this, key, nextValue)) return;
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
-    const rulesetMetaKeys = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
-    if (this.rulesetExplicit && (!rulesetMetaKeys.includes(key) || key === 'marketComplexity')) {
-      const overrides = new Map((this.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
-      overrides.set(key, nextValue);
-      this.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
-    }
-    if (['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'].includes(key)) {
-      this.rulesetExplicit = true;
-      if (key === 'rulesetBase') this.rulesetBaseExplicit = true;
-      if (key === 'rulesetPreset' && nextValue !== 'custom') this.settings.rulesetOverrides = [];
-      this.refreshRuleset();
-      Object.assign(this.game.settings, this.settings);
-      this.game.boardVariant = this.ruleset.boardVariant;
-      this.game.ruleset = this.ruleset;
-    } else if (this.rulesetExplicit) {
-      this.refreshRuleset();
-      Object.assign(this.game.settings, this.settings);
-      this.game.ruleset = this.ruleset;
-    }
-    if (key === 'boardVariant') {
-      const meta = boardVariantMeta(this.settings.boardVariant);
-      if (!this.game.started) {
-        this.game.boardVariant = this.settings.boardVariant;
-        this.game.tiles = tilesForVariant(this.game.boardVariant);
-      }
-      if (this.settings.maxPlayers > meta.maxPlayers) {
-        this.settings.maxPlayers = meta.maxPlayers;
-        this.game.settings.maxPlayers = meta.maxPlayers;
-        syncBotCapacity(this, 'maxPlayers', meta.maxPlayers);
-      }
-    }
+    captureSettingOverride(this, key, nextValue);
+    applyRulesetSetting(this, key, nextValue);
+    if (key === 'boardVariant') applyBoardVariantSetting(this);
     syncBotCapacity(this, key, nextValue);
     this.applyRoomSettingSideEffect(key, nextValue);
   }
