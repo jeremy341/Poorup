@@ -42,6 +42,43 @@ const BOT_TRADE_ASKS = {
 };
 const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
 
+function pendingPurchaseCandidate(game, player, offer) {
+  if (offer?.playerId !== player.id) return null;
+  const tile = game.getTile(offer.tileIndex);
+  return {
+    id: 'purchase:' + offer.tileIndex,
+    kind: 'purchase',
+    tileIndex: offer.tileIndex,
+    price: Number(tile?.price) || 0,
+    risk: Number(tile?.price || 0) / Math.max(1, Number(player.cash || 0)),
+    score: 26
+  };
+}
+
+function appendPostRollParityCandidates(game, player, options, candidates) {
+  if (!options.parity) return;
+  candidates.push(...game.botContractCandidates(player));
+  candidates.push(...game.botRichTradeCandidates(player));
+  candidates.push(...(options.expanded ? game.botGroupTradeCandidates(player) : game.botGroupTradeCandidate(player)));
+  candidates.push(...game.botMarketCandidates(player));
+  candidates.push(...game.botMarketExpansionCandidates(player));
+  candidates.push(...game.botCasinoCandidate(player));
+  candidates.push(...game.botSocialCandidates(player));
+}
+
+function postRollCandidates(game, player, options) {
+  const candidates = [];
+  candidates.push(...game.botRepaymentCandidates(player));
+  candidates.push(...game.botBankLoanRepaymentCandidates(player));
+  candidates.push(...game.botMortgageCandidates(player));
+  candidates.push(...game.botUnmortgageCandidates(player));
+  if (player.personality === 'speculator') candidates.push(...game.botLoanCandidate(player));
+  appendPostRollParityCandidates(game, player, options, candidates);
+  if (game.settings.market) candidates.push({ id: 'end-finance-window', kind: 'end-finance-window', risk: 0, score: -49 });
+  candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
+  return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+}
+
 // Candidate risk against a cash floor of 1, so collectors never divide by
 // zero while keeping the original ternary-ladder values verbatim.
 function riskAgainstCash(amount, cash) {
@@ -161,41 +198,10 @@ const botApi = {
   botPostRollCandidates(player, options = {}) {
     if (!player?.isBot || player.id !== this.currentPlayerId) return [];
     const offer = this.pendingPurchaseOffer;
-    if (offer?.playerId === player.id) {
-      const tile = this.getTile(offer.tileIndex);
-      return [{
-        id: 'purchase:' + offer.tileIndex,
-        kind: 'purchase',
-        tileIndex: offer.tileIndex,
-        price: Number(tile?.price) || 0,
-        risk: Number(tile?.price || 0) / Math.max(1, Number(player.cash || 0)),
-        score: 26
-      }];
-    }
+    const purchase = pendingPurchaseCandidate(this, player, offer);
+    if (purchase) return [purchase];
     if (offer) return [];
-
-    const candidates = [];
-    candidates.push(...this.botRepaymentCandidates(player));
-    candidates.push(...this.botBankLoanRepaymentCandidates(player));
-    candidates.push(...this.botMortgageCandidates(player));
-    candidates.push(...this.botUnmortgageCandidates(player));
-    // The pre-roll table exposes emergency credit to every personality for
-    // backward-compatible scoring, but only speculators are willing to take
-    // an elective loan in the post-roll finance window. Other personalities
-    // reserve loans for the dedicated debt-rescue phase.
-    if (player.personality === 'speculator') candidates.push(...this.botLoanCandidate(player));
-    if (options.parity) {
-      candidates.push(...this.botContractCandidates(player));
-      candidates.push(...this.botRichTradeCandidates(player));
-      candidates.push(...(options.expanded ? this.botGroupTradeCandidates(player) : this.botGroupTradeCandidate(player)));
-      candidates.push(...this.botMarketCandidates(player));
-      candidates.push(...this.botMarketExpansionCandidates(player));
-      candidates.push(...this.botCasinoCandidate(player));
-      candidates.push(...this.botSocialCandidates(player));
-    }
-    if (this.settings.market) candidates.push({ id: 'end-finance-window', kind: 'end-finance-window', risk: 0, score: -49 });
-    candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
-    return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+    return postRollCandidates(this, player, options);
   },
 
   botJailCandidates(player) {
