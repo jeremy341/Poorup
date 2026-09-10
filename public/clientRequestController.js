@@ -1,7 +1,7 @@
 // One acknowledgement/timeout seam for client actions that mutate server
 // state. Late acknowledgements are ignored after timeout; the request ID stays
 // in the payload so a reconnect refresh can safely re-read an idempotent result.
-export function emitWithTimeout(emitServer, eventName, payload, onResponse, { timeoutMs = 8_000, onTimeout } = {}) {
+export function emitWithTimeout(emitServer, eventName, payload, { onResponse, timeoutMs = 8_000, onTimeout } = {}) {
   let settled = false;
   const timer = setTimeout(() => {
     if (settled) return;
