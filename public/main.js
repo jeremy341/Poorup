@@ -836,18 +836,22 @@ function onRailTabClick(e) {
   if (tabNeedsEconomySnapshot()) refreshEconomySnapshot();
 }
 
+function railTabIndex(key, index, length) {
+  if (key === "Home") return 0;
+  if (key === "End") return length - 1;
+  if (key === "ArrowRight" || key === "ArrowDown") return (index + 1) % length;
+  if (key === "ArrowLeft" || key === "ArrowUp") return (index - 1 + length) % length;
+  return -1;
+}
+
 function onRailTabKeyDown(event) {
   const tab = event.target.closest('[role="tab"]');
   if (!tab) return;
   const list = tab.parentElement;
   const tabs = [...list.querySelectorAll('[role="tab"]')];
   if (!tabs.length) return;
-  let index = tabs.indexOf(tab);
-  if (event.key === "ArrowRight" || event.key === "ArrowDown") index = (index + 1) % tabs.length;
-  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") index = (index - 1 + tabs.length) % tabs.length;
-  else if (event.key === "Home") index = 0;
-  else if (event.key === "End") index = tabs.length - 1;
-  else return;
+  const index = railTabIndex(event.key, tabs.indexOf(tab), tabs.length);
+  if (index < 0) return;
   event.preventDefault();
   tabs[index].focus({ preventScroll: true });
   tabs[index].click();
