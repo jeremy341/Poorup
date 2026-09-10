@@ -13,6 +13,7 @@
     <div class="sr-live" id="system-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
     <div class="toast-stack" id="toast-stack" aria-hidden="true"></div>
+    <div class="theme-page-world" id="theme-page-world" aria-hidden="true"></div>
 
     <!-- ============================ HOME VIEW ============================ -->
     <div class="view" id="view-home">
@@ -74,6 +75,7 @@
       <main class="home-main">
         <!-- title screen -->
         <section class="title-screen noise vignette">
+          <div class="theme-home-world" id="theme-home-world" data-theme-layer="home" aria-hidden="true"></div>
           <div class="home-house-drift" aria-hidden="true">
             <div class="home-house-drift-track">
               <svg
@@ -476,7 +478,7 @@
             <div id="account-guest-state"><p class="t-body ink-2 account-copy">Save your identity and stats across rooms while keeping guest play account-free.</p><div class="account-actions"><button class="cta-red account-action-btn" type="button" id="account-register-btn"><span class="cta-text cta-text-sm">Create Account</span></button><button class="btn-dark account-action-btn" type="button" id="account-login-btn"><span class="t-label f12">Sign In</span></button></div></div>
             <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p></div>
           </section>
-          <section class="panel noise pad16 profile-preferences"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Preferences</h2></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Table sound</span><span class="t-micro ink-3">UI cues, trades, hits, and actions.</span></div><span class="t-label f11 g-muted" id="profile-sound-state">SOUND OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Parlor music</span><span class="t-micro ink-3">The soundtrack continues while you play.</span></div><span class="t-label f11 g-muted" id="profile-music-state">MUSIC OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Guest play</span><span class="t-micro ink-3">No account is required to create or join a room.</span></div><span class="t-label f11 green">AVAILABLE</span></div></section>
+          <section class="panel noise pad16 profile-preferences"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Preferences</h2><span class="hair"></span><button class="btn-dark theme-open-btn" id="theme-open-btn" type="button" data-theme-trigger aria-haspopup="dialog" aria-expanded="false" aria-controls="theme-popover"><span class="t-label f11">LOOK</span></button></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Table sound</span><span class="t-micro ink-3">UI cues, trades, hits, and actions.</span></div><span class="t-label f11 g-muted" id="profile-sound-state">SOUND OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Parlor music</span><span class="t-micro ink-3">The soundtrack continues while you play.</span></div><span class="t-label f11 g-muted" id="profile-music-state">MUSIC OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Guest play</span><span class="t-micro ink-3">No account is required to create or join a room.</span></div><span class="t-label f11 green">AVAILABLE</span></div></section>
         </section>
       </main>
     </div>
@@ -653,7 +655,8 @@
             <div class="board-holder">
               <div class="board-frame noise vignette" id="board-frame">
                 <div class="board-grid" id="board-grid">
-                  <div class="center-field noise" id="center-field">
+          <div class="center-field noise" id="center-field">
+                    <div class="theme-board-world" id="theme-board-world" data-theme-layer="board" aria-hidden="true"></div>
                     <svg class="skyline center-skyline" viewBox="0 0 88 36" shape-rendering="crispEdges" aria-hidden="true" id="board-skyline"></svg>
                     <div class="cf-inner">
                       <div class="cf-logo-row">
