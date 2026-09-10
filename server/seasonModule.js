@@ -79,29 +79,59 @@ export function publicSeasonSummary(season) {
   };
 }
 
+function normalizedStatus(value) {
+  return ['active', 'complete', 'upcoming'].includes(value) ? value : 'complete';
+}
+
+function normalizedRewardTrack(value) {
+  return Array.isArray(value)
+    ? value.slice(0, 32).map(item => ({ ...item }))
+    : REWARD_TRACK.map(reward => ({ ...reward }));
+}
+
+function normalizedMatches(value) {
+  return Array.isArray(value) ? value.filter(id => typeof id === 'string').slice(-1000) : [];
+}
+
+function validStandingEntry(id, row) {
+  if (!id) return false;
+  if (!row || typeof row !== 'object') return false;
+  return true;
+}
+
+function normalizedStandings(value) {
+  const standings = {};
+  Object.entries(value || {}).slice(0, 5000).forEach(([accountId, row]) => {
+    const id = safeAccountId(accountId);
+    if (!validStandingEntry(id, row)) return;
+    standings[id] = normalizeStanding(row);
+  });
+  return standings;
+}
+
+function normalizedClaims(value) {
+  const claims = {};
+  Object.entries(value || {}).slice(0, 5000).forEach(([accountId, rewards]) => {
+    const id = safeAccountId(accountId);
+    if (!id) return;
+    claims[id] = Array.isArray(rewards) ? rewards.filter(item => typeof item === 'string').slice(0, 64) : [];
+  });
+  return claims;
+}
+
 function normalizeSeason(source) {
   if (!source || typeof source !== 'object') return null;
   const season = {
     id: safeSeasonId(source.id),
     startsAt: typeof source.startsAt === 'string' ? source.startsAt : new Date(0).toISOString(),
     endsAt: typeof source.endsAt === 'string' ? source.endsAt : new Date(0).toISOString(),
-    status: ['active', 'complete', 'upcoming'].includes(source.status) ? source.status : 'complete',
+    status: normalizedStatus(source.status),
     revision: Math.max(1, Math.floor(Number(source.revision) || 1)),
-    rewardTrack: Array.isArray(source.rewardTrack) ? source.rewardTrack.slice(0, 32).map(item => ({ ...item })) : REWARD_TRACK.map(reward => ({ ...reward })),
-    matches: Array.isArray(source.matches) ? source.matches.filter(id => typeof id === 'string').slice(-1000) : [],
-    standings: {},
-    claims: {}
+    rewardTrack: normalizedRewardTrack(source.rewardTrack),
+    matches: normalizedMatches(source.matches),
+    standings: normalizedStandings(source.standings),
+    claims: normalizedClaims(source.claims)
   };
-  Object.entries(source.standings || {}).slice(0, 5000).forEach(([accountId, row]) => {
-    const id = safeAccountId(accountId);
-    if (!id || !row || typeof row !== 'object') return;
-    season.standings[id] = normalizeStanding(row);
-  });
-  Object.entries(source.claims || {}).slice(0, 5000).forEach(([accountId, rewards]) => {
-    const id = safeAccountId(accountId);
-    if (!id) return;
-    season.claims[id] = Array.isArray(rewards) ? rewards.filter(item => typeof item === 'string').slice(0, 64) : [];
-  });
   return season.id ? season : null;
 }
 
@@ -137,10 +167,20 @@ function normalizeStanding(row = {}) {
 }
 
 export function eligibleSeasonMatch(record) {
+  if (!validSeasonRecord(record)) return false;
+  if (invalidSeasonFlags(record)) return false;
+  return record.participants.some(participant => Boolean(safeAccountId(participant.accountId)));
+}
+
+function validSeasonRecord(record) {
   if (!record || typeof record !== 'object') return false;
-  if (!record.matchId || !Array.isArray(record.participants) || record.participants.length < 2) return false;
-  if (record.abandoned === true || record.preview === true || record.duplicate === true || record.afkOnly === true || record.botOnly === true) return false;
-  return record.participants.some(participant => safeAccountId(participant.accountId));
+  if (!record.matchId) return false;
+  if (!Array.isArray(record.participants)) return false;
+  return record.participants.length >= 2;
+}
+
+function invalidSeasonFlags(record) {
+  return ['abandoned', 'preview', 'duplicate', 'afkOnly', 'botOnly'].some(flag => record[flag] === true);
 }
 
 function participantPoints(participant) {
@@ -182,27 +222,45 @@ export function seasonMetricValue(metric, row = {}) {
   return Object.prototype.hasOwnProperty.call(values, metric) ? values[metric] : row.points;
 }
 
-function updateStanding(row, participant, completedAt, record) {
-  const next = normalizeStanding(row);
-  const accountId = safeAccountId(participant.accountId);
+function updateStandingCore(next, participant) {
   const placement = Number(participant.finalPlacement);
   next.games += 1;
   next.wins += placement === 1 ? 1 : 0;
   next.points += participantPoints(participant);
   next.participation = Math.min(PARTICIPATION_CAP, next.participation + 1);
-  next.fairTrades += Math.max(0, Math.floor(Number(participant.fairTrades ?? participant.tradesCompleted) || 0));
-  next.eventSurvival += Math.max(0, Math.floor(Number(participant.globalEventsSurvived) || 0));
+  next.fairTrades += nonNegativeInt(participant.fairTrades ?? participant.tradesCompleted);
+  next.eventSurvival += nonNegativeInt(participant.globalEventsSurvived);
   next.debtDiscipline += participant.bankLoanStatus === 'paid' ? 1 : 0;
   next.mastery += Math.min(100, next.eventSurvival * 4 + next.fairTrades * 3 + next.debtDiscipline * 6);
   next.mythical += participant.mythicalUnlocked === true ? 1 : 0;
   next.bankruptcies += participant.bankrupt === true ? 1 : 0;
-  next.auctionWins += Math.max(0, Math.floor(Number(participant.auctionWins) || 0));
-  next.rentCollected += Math.max(0, Math.floor(Number(participant.rentCollected) || 0));
+  next.auctionWins += nonNegativeInt(participant.auctionWins);
+  next.rentCollected += nonNegativeInt(participant.rentCollected);
+}
+
+function isLoanContractFor(contract, accountId) {
+  return contract.fromAccountId === accountId
+    && (contract.kind === 'loan' || (contract.kind === 'hybrid' && contract.status !== 'converted'));
+}
+
+function isEquityContractFor(contract, accountId) {
+  const kindMatches = contract.kind === 'equity' || (contract.kind === 'hybrid' && contract.status === 'converted');
+  return kindMatches && (contract.fromAccountId === accountId || contract.toAccountId === accountId);
+}
+
+function updateStandingRecords(next, participant, accountId, record) {
   const casino = (record?.casino || []).find(item => item.accountId === accountId);
   next.casinoNet += Number(casino?.net) || Number(participant.casinoNet) || 0;
   next.marketProfit += marketProfitMetric(record, accountId);
-  next.playerLoansGiven += contractMetric(record, accountId, (contract, id) => contract.fromAccountId === id && (contract.kind === 'loan' || (contract.kind === 'hybrid' && contract.status !== 'converted')));
-  next.equityDeals += contractMetric(record, accountId, (contract, id) => (contract.kind === 'equity' || (contract.kind === 'hybrid' && contract.status === 'converted')) && (contract.fromAccountId === id || contract.toAccountId === id));
+  next.playerLoansGiven += contractMetric(record, accountId, isLoanContractFor);
+  next.equityDeals += contractMetric(record, accountId, isEquityContractFor);
+}
+
+function updateStanding(row, participant, completedAt, record) {
+  const next = normalizeStanding(row);
+  const accountId = safeAccountId(participant.accountId);
+  updateStandingCore(next, participant);
+  updateStandingRecords(next, participant, accountId, record);
   next.lastMatchAt = completedAt;
   return next;
 }

@@ -13,7 +13,15 @@ const PRIVATE_KEYS = new Set(['chat', 'message', 'text', 'hiddenCards', 'private
 const ALLOWED_KINDS = new Set(['match-complete', 'event-eligible', 'event-triggered', 'event-choice', 'event-recovered', 'market-volatility', 'market-liquidation', 'achievement-unlocked', 'reward-claimed', 'bot-outcome', 'bankruptcy', 'comeback']);
 
 function safePrimitive(value) {
-  if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') return value;
+  if (value === null) return value;
+  switch (typeof value) {
+    case 'boolean':
+    case 'number':
+    case 'string':
+      return value;
+    default:
+      break;
+  }
   return undefined;
 }
 
@@ -30,6 +38,24 @@ function sanitize(value, depth = 0) {
     if (clean !== undefined) result[String(key).slice(0, 60)] = clean;
   });
   return result;
+}
+
+function telemetryEntry(eventKind, payload, versions) {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    kind: eventKind,
+    createdAt: new Date().toISOString(),
+    seasonId: String(versions.seasonId || 'unseasoned').slice(0, 80),
+    rulesetRevision: Math.max(0, Math.floor(Number(versions.rulesetRevision) || 0)),
+    balanceRevision: Math.max(0, Math.floor(Number(versions.balanceRevision) || 0)),
+    boardVariant: String(versions.boardVariant || 'standard-40').slice(0, 40),
+    eventId: versions.eventId ? String(versions.eventId).slice(0, 80) : null,
+    data: sanitize(payload) || {}
+  };
+}
+
+function trimTelemetry(events) {
+  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
 }
 
 export class TelemetryStore {
@@ -51,19 +77,9 @@ export class TelemetryStore {
   record(kind, payload = {}, versions = {}) {
     const eventKind = String(kind || '').trim().slice(0, 40);
     if (!ALLOWED_KINDS.has(eventKind)) return { success: false, recorded: false, error: 'Telemetry kind is not allowed.' };
-    const entry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      kind: eventKind,
-      createdAt: new Date().toISOString(),
-      seasonId: String(versions.seasonId || 'unseasoned').slice(0, 80),
-      rulesetRevision: Math.max(0, Math.floor(Number(versions.rulesetRevision) || 0)),
-      balanceRevision: Math.max(0, Math.floor(Number(versions.balanceRevision) || 0)),
-      boardVariant: String(versions.boardVariant || 'standard-40').slice(0, 40),
-      eventId: versions.eventId ? String(versions.eventId).slice(0, 80) : null,
-      data: sanitize(payload) || {}
-    };
+    const entry = telemetryEntry(eventKind, payload, versions);
     this.events.push(entry);
-    if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
+    trimTelemetry(this.events);
     // Flush each write: low-volume balancing data should survive a process
     // restart, and the bounded array keeps the operation predictable.
     this.persist();

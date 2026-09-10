@@ -391,7 +391,7 @@ const economyApi = {
     const pause = shortTradingPause(this);
     if (pause) return { success: false, error: pause };
     if (!instrument || !amount) return { success: false, error: 'Choose a valid short order.' };
-    const result = openShort(this, player, instrument, amount, shortInventory(this));
+    const result = openShort(this, player, { instrument, amount, inventory: shortInventory(this) });
     if (result.success) { player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1; player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
     return result;
   },
@@ -407,7 +407,7 @@ const economyApi = {
     const key = this.transactionKey(player.id, 'short-cover', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
-    const result = coverShort(this, player, instrument, amount, this.marketShortInventory);
+    const result = coverShort(this, player, { instrument, amount, inventory: this.marketShortInventory });
     if (result.success) { player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
     return result;
   },
