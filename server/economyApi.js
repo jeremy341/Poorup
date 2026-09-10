@@ -41,6 +41,42 @@ function roulettePocketColor(pocket) {
   return ROULETTE_RED.has(pocket) ? 'red' : 'black';
 }
 
+function casinoSnapshot(game, player, limits) {
+  return {
+    enabled: Boolean(game.settings.casino),
+    maxBet: limits.maxBet,
+    entryFee: limits.entryFee,
+    lastResult: game.casinoLastResult ? { ...game.casinoLastResult } : null,
+    net: Number(player?.casinoNet) || 0
+  };
+}
+
+function marketSnapshot(game, player) {
+  return {
+    enabled: Boolean(game.settings.market),
+    round: game.marketRound,
+    feeRate: MARKET_FEE_RATE,
+    quotes: { ...game.marketQuotes },
+    positions: { ...(player?.marketPositions || {}) },
+    complexity: game.settings.marketComplexity || 'basic',
+    margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, positions: { ...(player.marginPositions || {}) } } : null,
+    shorts: player ? { positions: { ...(player.shortPositions || {}) }, borrowable: { ...(game.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0, defaultDebt: Number(player.shortDefaultDebt) || 0 } : null,
+    optionReserve: Number(game.marketOptionReserve) || 0,
+    options: player ? (player.optionPositions || []).map(option => ({ ...option })) : []
+  };
+}
+
+function shortTradingPause(game) {
+  return game.globalEventActive?.('credit-freeze') || game.globalEventActive?.('bank-run')
+    ? 'New short positions are paused by the active global event.'
+    : null;
+}
+
+function shortInventory(game) {
+  game.marketShortInventory ||= Object.fromEntries(MARKET_INSTRUMENTS.map(entry => [entry.id, 50]));
+  return game.marketShortInventory;
+}
+
 const economyApi = {
   casinoLimits() {
     const effects = this.activeEventEffects();
@@ -70,24 +106,8 @@ const economyApi = {
     const player = playerId ? this.getPlayerById(playerId) : null;
     const casinoLimits = this.casinoLimits();
     return {
-      casino: {
-        enabled: Boolean(this.settings.casino),
-        maxBet: casinoLimits.maxBet,
-        entryFee: casinoLimits.entryFee,
-        lastResult: this.casinoLastResult ? { ...this.casinoLastResult } : null,
-        net: Number(player?.casinoNet) || 0
-      },
-      market: {
-        enabled: Boolean(this.settings.market),
-        round: this.marketRound,
-        feeRate: MARKET_FEE_RATE,
-        quotes: { ...this.marketQuotes },
-        positions: { ...(player?.marketPositions || {}) },
-        complexity: this.settings.marketComplexity || 'basic',
-        margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, positions: { ...(player.marginPositions || {}) } } : null,
-        shorts: player ? { positions: { ...(player.shortPositions || {}) }, borrowable: { ...(this.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0 } : null,
-        options: player ? (player.optionPositions || []).map(option => ({ ...option })) : []
-      }
+      casino: casinoSnapshot(this, player, casinoLimits),
+      market: marketSnapshot(this, player)
     };
   },
 
@@ -178,7 +198,19 @@ const economyApi = {
     this.recordCasinoLedger(player, ledgerEntry);
     this.casinoLastResult = { playerId: player.id, color: choice, pocket, resultColor, net, roundNumber: this.roundNumber };
     this.feedMessage(`${player.nickname} bet $${amount} on ${choice.toUpperCase()} and ${won ? 'won' : 'lost'} $${Math.abs(net)}.`);
-    return this.cacheTransaction(key, { success: true, result: { ...ledgerEntry, balanceAfter: player.cash }, economy: this.economySnapshot(player.id) });
+    const spinId = crypto.randomUUID();
+    const durationMs = 4_200;
+    const presentation = {
+      reelSeed: crypto.randomUUID(),
+      targetIndex: 32,
+      durationMs,
+      revealDeadline: Date.now() + durationMs
+    };
+    return this.cacheTransaction(key, {
+      success: true,
+      result: { ...ledgerEntry, balanceAfter: player.cash, spinId, presentation },
+      economy: this.economySnapshot(player.id)
+    });
   },
 
   // Bankroll facts: max/total staked, the sticky all-in and one-dollar
@@ -204,6 +236,7 @@ const economyApi = {
     if (!this.settings.market) return;
     this.recordTelemetryEvent?.('market-volatility', { roundNumber: this.marketRound, complexity: this.settings.marketComplexity || 'basic' });
     this.players.forEach(player => {
+      if (player.bankrupt) return;
       const forced = forceLiquidate(this, player, this.marketShortInventory || (this.marketShortInventory = {}));
       if (forced.length) {
         this.feedMessage(`${player.nickname} faced ${forced.join(' and ')}.`);
@@ -317,14 +350,15 @@ const economyApi = {
     const player = this.getPlayerBySocket(socketId);
     const instrument = marketInstrument(MARKET_INSTRUMENTS, instrumentId);
     const amount = integerAmount(quantity, 1000);
+    const key = this.transactionKey(player?.id, 'margin-open', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
     const rejection = expansionGuard(this, player, 'margin', 'open');
     if (rejection) return { success: false, error: rejection };
     if (!instrument || !amount) return { success: false, error: 'Choose a valid margin order.' };
-    const key = this.transactionKey(player.id, 'margin-open', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
     const result = openMargin(this, player, instrument, amount);
     if (result.success) {
+      player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       this.marketLedger = [{ transactionId: key || crypto.randomUUID(), ...result, playerId: player.id, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
       result.economy = this.economySnapshot(player.id);
       this.recordTelemetryEvent?.('market-volatility', { action: 'open-margin', instrumentId, quantity: amount });
@@ -349,16 +383,16 @@ const economyApi = {
     const player = this.getPlayerBySocket(socketId);
     const instrument = marketInstrument(MARKET_INSTRUMENTS, instrumentId);
     const amount = integerAmount(quantity, 1000);
-    const rejection = expansionGuard(this, player, 'shorting', 'open');
-    if (rejection) return { success: false, error: rejection };
-    if (this.globalEventActive?.('credit-freeze') || this.globalEventActive?.('bank-run')) return { success: false, error: 'New short positions are paused by the active global event.' };
-    if (!instrument || !amount) return { success: false, error: 'Choose a valid short order.' };
-    this.marketShortInventory ||= Object.fromEntries(MARKET_INSTRUMENTS.map(entry => [entry.id, 50]));
-    const key = this.transactionKey(player.id, 'short-open', requestId);
+    const key = this.transactionKey(player?.id, 'short-open', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
-    const result = openShort(this, player, instrument, amount, this.marketShortInventory);
-    if (result.success) { player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
+    const rejection = expansionGuard(this, player, 'shorting', 'open');
+    if (rejection) return { success: false, error: rejection };
+    const pause = shortTradingPause(this);
+    if (pause) return { success: false, error: pause };
+    if (!instrument || !amount) return { success: false, error: 'Choose a valid short order.' };
+    const result = openShort(this, player, instrument, amount, shortInventory(this));
+    if (result.success) { player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1; player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
     return result;
   },
 
@@ -381,14 +415,15 @@ const economyApi = {
   openOption(socketId, payload = {}) {
     const player = this.getPlayerBySocket(socketId);
     const instrument = marketInstrument(MARKET_INSTRUMENTS, payload.instrumentId);
+    const key = this.transactionKey(player?.id, 'option-open', payload.requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
     const rejection = expansionGuard(this, player, 'derivatives', 'open');
     if (rejection) return { success: false, error: rejection };
     if (!instrument) return { success: false, error: 'Choose a valid option instrument.' };
-    const key = this.transactionKey(player.id, 'option-open', payload.requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
     const result = openOption(this, player, instrument, payload);
     if (result.success) {
+      player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       result.economy = this.economySnapshot(player.id);
       this.recordTelemetryEvent?.('market-volatility', { action: result.action, instrumentId: instrument.id, quantity: Number(payload.quantity) || 0 });
       return this.cacheTransaction(key, result);

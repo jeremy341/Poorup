@@ -272,6 +272,41 @@ const propertyApi = {
     return eventSaleMultiplier;
   },
 
+  propertyActionProjection(player, tile) {
+    if (!player || !tile || tile.ownerId !== player.id) return null;
+    const houseCost = this.getPropertyHouseCost(tile);
+    const saleValue = Math.floor(houseCost * this.buildingSaleMultiplier());
+    const mortgageValue = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
+    const unmortgageCost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * this.propertyValueMultiplier());
+    const reasonFor = (action) => {
+      const gate = this.propertyActionRejection(player, tile, action);
+      if (gate) return gate.error;
+      if (action === 'build-house') {
+        if (!this.canBuildOnTile(player, tile)) return 'You cannot build on this property right now.';
+        const limit = this.buildingLimitRejection(player, Number(this.activeEventEffects().buildingLimitPerTurn));
+        if (limit) return limit.error;
+        if (player.cash < houseCost) return 'Insufficient cash to build a house.';
+      }
+      if (action === 'sell-house' && !this.canSellFromTile(player, tile)) return 'You cannot sell a house from this property right now.';
+      if (action === 'mortgage' && !this.canMortgageTile(player, tile)) return 'You cannot mortgage this property right now.';
+      if (action === 'unmortgage') {
+        if (!this.canUnmortgageTile(player, tile)) return 'You cannot unmortgage this property right now.';
+        if (player.cash < unmortgageCost) return 'Insufficient cash to unmortgage this property.';
+      }
+      return null;
+    };
+    const action = (name, cost) => {
+      const reason = reasonFor(name);
+      return { enabled: !reason, cost, reason };
+    };
+    return {
+      buildHouse: action('build-house', houseCost),
+      sellHouse: action('sell-house', saleValue),
+      mortgage: action('mortgage', mortgageValue),
+      unmortgage: action('unmortgage', unmortgageCost)
+    };
+  },
+
   mortgagePropertyAction(player, tile) {
     if (!this.canMortgageTile(player, tile)) {
       return { success: false, error: 'You cannot mortgage this property right now.' };

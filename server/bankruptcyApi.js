@@ -5,6 +5,7 @@
 // the market liquidation line landing before any deed moves.
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import { LOAN_OUTSTANDING_STATUSES } from './loanLogic.js';
+import { liquidateAllMarketPositions as liquidateExpandedMarketPositions } from './marketExpansion.js';
 import {
   bankruptcyRefusal,
   clearQuitObligations,
@@ -72,11 +73,20 @@ const bankruptcyApi = {
     }
   },
 
+  liquidateAllMarketPositions(player) {
+    const result = liquidateExpandedMarketPositions(this, player, this.marketShortInventory || (this.marketShortInventory = {}));
+    if (result.actions?.length) {
+      this.feedMessage(player.nickname + "'s advanced market positions were settled (" + result.actions.join(', ') + ").");
+    }
+    return result;
+  },
+
   // Positions are force-sold at the current quote minus the market fee and
   // floored into cash; zero-proceeding holdings are dropped silently. The
   // per-position realized P&L (net proceeds over average cost) is recorded
   // so post-game stats see the forced exit, not just voluntary sells.
   liquidateMarketPositions(player) {
+    this.liquidateAllMarketPositions(player);
     const entries = Object.entries(player.marketPositions || {});
     const proceedsOf = (id, quantity) => {
       const quote = Math.max(0, Number(this.marketQuotes[id]) || 0);

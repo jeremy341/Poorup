@@ -4,6 +4,16 @@ import { spawnSync } from 'child_process';
 
 const suites = ['server/rulesetRegistry.test.js', 'server/boardRegistry.test.js', 'server/seasonModule.test.js', 'server/cosmeticCatalog.test.js', 'server/telemetryModule.test.js', 'server/marketExpansion.test.js', 'server/backupStore.test.js', 'server/httpRateLimiter.test.js', 'server/persistenceMode.test.js', 'server/gameLogic.test.js', 'server/applyCard.test.js', 'server/rent.test.js', 'server/persistence.test.js', 'server/leaderboard.test.js', 'server/game-results.test.js', 'server/property-actions.test.js', 'server/contracts-market.test.js', 'server/sponsorship.test.js', 'server/double-go.test.js', 'server/botLogic.test.js', 'server/botAdvisor.test.js', 'server/bot-brain.test.js', 'server/botStrategicContext.test.js', 'server/botFuturePlanner.test.js', 'server/bot-simulation.test.js', 'server/global-events.test.js', 'server/trades.test.js', 'server/casino-bankruptcy.test.js', 'server/roomSetup.test.js', 'server/release-hardening.test.js', 'server/hybrid-contract-achievements.test.js'];
 let failed = 0;
+suites.push(
+  'server/market-settlement-audit.test.js',
+  'server/lifecycle-audit.test.js',
+  'server/card-deck-audit.test.js',
+  'server/rooms-directory-audit.test.js',
+  'server/account-session-audit.test.js',
+  'server/season-reward-audit.test.js',
+  'server/season-metrics-audit.test.js',
+  'server/summary-privacy-audit.test.js'
+);
 for (const suite of suites) {
   const run = spawnSync(process.execPath, [suite], { stdio: 'inherit' });
   if (run.status !== 0) failed += 1;

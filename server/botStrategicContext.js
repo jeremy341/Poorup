@@ -114,7 +114,8 @@ function ownMarketExpansionView(bot) {
       positions: Object.fromEntries(Object.entries(bot.marginPositions || {}).map(([id, position]) => [String(id).slice(0, 40), { quantity: nonNegative(position?.quantity), averageCost: Math.max(0, Number(position?.averageCost) || 0) }]))
     },
     shorts: Object.fromEntries(Object.entries(bot.shortPositions || {}).map(([id, position]) => [String(id).slice(0, 40), { quantity: nonNegative(position?.quantity), entryQuote: Math.max(0, Number(position?.entryQuote) || 0), collateral: nonNegative(position?.collateral) }])),
-    options: (bot.optionPositions || []).slice(0, 12).map(option => ({ id: String(option.id || '').slice(0, 80), instrumentId: option.instrumentId, side: option.side, role: option.role, quantity: nonNegative(option.quantity), strike: nonNegative(option.strike), expiryRound: nonNegative(option.expiryRound), status: option.status }))
+    shortDefaultDebt: nonNegative(bot.shortDefaultDebt),
+    options: (bot.optionPositions || []).slice(0, 12).map(option => ({ id: String(option.id || '').slice(0, 80), instrumentId: option.instrumentId, side: option.side, role: option.role, quantity: nonNegative(option.quantity), strike: nonNegative(option.strike), premium: nonNegative(option.premium), reserveHeld: nonNegative(option.reserveHeld), maxPayout: nonNegative(option.maxPayout), expiryRound: nonNegative(option.expiryRound), status: option.status, exercised: option.exercised === true }))
   };
 }
 

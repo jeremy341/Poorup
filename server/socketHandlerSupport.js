@@ -35,9 +35,14 @@ function resolveAccount(accountStore, socket, payload = {}) {
   const hasExplicitToken = payload && payload.sessionToken !== undefined && payload.sessionToken !== null;
   const account = hasExplicitToken
     ? accountStore.sessionAccount(payload.sessionToken)
-    : accountStore.getPublicAccountById(socket.data?.accountId);
-  if (account) socket.data.accountId = account.id;
-  if (!account) socket.data.accountId = null;
+    : accountStore.accountForSessionHash?.(socket.data?.sessionTokenHash, socket.data?.accountId);
+  if (account) {
+    socket.data.accountId = account.id;
+    if (hasExplicitToken) socket.data.sessionTokenHash = accountStore.sessionTokenHashFor?.(payload.sessionToken) || null;
+  } else {
+    socket.data.accountId = null;
+    socket.data.sessionTokenHash = null;
+  }
   return account;
 }
 

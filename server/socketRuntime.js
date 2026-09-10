@@ -258,6 +258,7 @@ function createRuntime(deps) {
   function detachStartedSeat(oldRoom, oldPlayer) {
     oldPlayer.disconnected = true;
     oldPlayer.socketId = null;
+    oldPlayer.disconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
     reassignHostIfNeeded(oldRoom, oldPlayer.id);
     emitRoomState(oldRoom);
   }
@@ -559,6 +560,7 @@ function createRuntime(deps) {
     const player = room.getPlayerBySocket(socketId);
     if (!player) return;
     clearDisconnectTimer(player.clientId);
+    player.disconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
     const timer = setTimeout(() => expireDisconnectedSeat(room, player, socketId), DISCONNECT_GRACE_MS);
     disconnectTimers.set(player.clientId, timer);
   }
@@ -573,6 +575,7 @@ function createRuntime(deps) {
     if (currentPlayer.socketId !== socketId) return;
     currentPlayer.disconnected = true;
     currentPlayer.socketId = null;
+    currentPlayer.disconnectDeadline = 0;
     roomManager.socketRoom.delete(socketId);
     reassignHostIfNeeded(currentRoom, currentPlayer.id);
     clearPendingObligations(currentRoom, currentRoom.game, currentPlayer, 'disconnect');
@@ -608,6 +611,7 @@ function createRuntime(deps) {
   function clearPendingObligations(room, game, player, reason) {
     const context = { room, game, player, reason };
     CANCELLED_OBLIGATIONS.forEach(obligation => cancelObligation(context, obligation));
+    game.removeQueuedPaymentsForPlayer?.(player.id);
     if (game.clearSponsoredPurchaseForPlayer?.(player.id)) {
       io.in(room.roomCode).emit('sponsorship-update', { sponsorship: game.summarySponsoredPurchase() });
       io.in(room.roomCode).emit('system-message', { text: `${player.nickname}'s sponsorship reservation was released.` });

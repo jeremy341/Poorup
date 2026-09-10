@@ -78,6 +78,21 @@ function syncBotCapacity(room, key, value) {
   room.game.settings.bots = maxBots;
 }
 
+function resetPlayerMarketState(player) {
+  player.marketPositions = {};
+  player.marginBalance = 0;
+  player.marginMaintenance = 0;
+  player.marginPositions = {};
+  player.shortPositions = {};
+  player.shortDefaultDebt = 0;
+  player.optionPositions = [];
+  player.reservedCash = 0;
+  player.marketTrades = 0;
+  player.marketActionsThisTurn = 0;
+  player.crisisMarketBuys = {};
+  player.crisisMarketProfit = false;
+}
+
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
     this.id = crypto.randomUUID();
@@ -110,17 +125,7 @@ class Player {
     this.casinoAllIn = false;
     this.casinoOneDollar = false;
     this.casinoBetsThisRound = 0;
-    this.marketPositions = {};
-    this.marginBalance = 0;
-    this.marginMaintenance = 0;
-    this.marginPositions = {};
-    this.shortPositions = {};
-    this.optionPositions = [];
-    this.reservedCash = 0;
-    this.marketTrades = 0;
-    this.marketActionsThisTurn = 0;
-    this.crisisMarketBuys = {};
-    this.crisisMarketProfit = false;
+    resetPlayerMarketState(this);
     this.playerContractIds = [];
     this.auctionWins = 0;
     this.rentCollected = 0;
@@ -170,6 +175,7 @@ class Player {
     this.hiddenMovementSequence = false;
     this.bankrupt = false;
     this.disconnected = false;
+    this.disconnectDeadline = 0;
     this.ready = false;
   }
 }
@@ -186,6 +192,7 @@ class Room {
     marketComplexity
   } = {}) {
     this.roomCode = roomCode || createRoomCode();
+    this.publicId = 'room_' + crypto.randomUUID();
     this.roomName = roomName;
     this.visibility = visibility;
     this.statsRecorded = false;
@@ -277,6 +284,7 @@ class Room {
     }
     existing.socketId = playerInfo.socketId;
     existing.disconnected = false;
+    existing.disconnectDeadline = 0;
     this.refreshReconnectNickname(existing, playerInfo.nickname);
     this.refreshReconnectAppearance(existing, playerInfo.color, playerInfo.avatarGrid);
     this.refreshReconnectAccount(existing, playerInfo.accountId);
@@ -540,7 +548,9 @@ class Room {
       isBot: player.isBot,
       botBrain: player.isBot ? this.settings.botBrain : null,
       botDifficulty: player.isBot ? this.settings.botDifficulty : null,
-      accountId: player.accountId || null,
+      accountId: viewerPlayerId && player.id === viewerPlayerId ? (player.accountId || null) : null,
+      accountLinked: Boolean(player.accountId),
+      roomPlayerId: player.id,
       avatarGrid: player.avatarGrid || null
     };
     if (viewerPlayerId && player.id === viewerPlayerId) entry.clientId = player.clientId;
@@ -551,7 +561,8 @@ class Room {
     const active = this.game.players.filter(player => !player.disconnected && !player.bankrupt);
     const started = this.game.started;
     return {
-      code: this.roomCode,
+      roomId: this.publicId,
+      code: this.visibility === 'private' ? this.roomCode : null,
       name: this.roomName,
       seats: active.length,
       cap: this.settings.maxPlayers,
@@ -658,6 +669,11 @@ class RoomManager {
     return this.rooms.get(String(roomCode).toUpperCase()) || null;
   }
 
+  getRoomByPublicId(publicId) {
+    if (!publicId) return null;
+    return [...this.rooms.values()].find(room => room.publicId === String(publicId).trim()) || null;
+  }
+
   getRoomBySocket(socketId) {
     return this.socketRoom.get(socketId) || null;
   }
@@ -672,6 +688,7 @@ class RoomManager {
       if (accountId && player.accountId !== accountId) return null;
       player.socketId = socketId;
       player.disconnected = false;
+      player.disconnectDeadline = 0;
       this.socketRoom.set(socketId, room);
       return room;
     }
@@ -700,6 +717,7 @@ class RoomManager {
     player.clientId = clientId;
     player.socketId = socketId;
     player.disconnected = false;
+    player.disconnectDeadline = 0;
     this.socketRoom.set(socketId, room);
     return room;
   }
@@ -787,6 +805,12 @@ class RoomManager {
       game.turnOrder = game.turnOrder.filter(id => id !== playerId);
     }
     this.clearPendingSeatObligations(game, player);
+    const survivors = game.connectedNonBankruptPlayers();
+    if (survivors.length <= 1) {
+      game.currentPlayerId = survivors[0]?.id || null;
+      game.endGame();
+      return;
+    }
     if (!wasCurrentTurn) return;
     // nextTurn() treats an unknown current id as "before the first seat"
     // and hands the dice to the next surviving player in turn order.

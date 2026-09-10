@@ -70,6 +70,7 @@ const PLAYER_STATE_DEFAULTS = [
   ['marginMaintenance', 0],
   ['marginPositions', () => ({})],
   ['shortPositions', () => ({})],
+  ['shortDefaultDebt', 0],
   ['optionPositions', () => []],
   ['reservedCash', 0],
   ['marketTrades', 0],
@@ -127,6 +128,7 @@ const PLAYER_STATE_DEFAULTS = [
   ['inDebt', false],
   ['ready', false],
   ['disconnected', false],
+  ['disconnectDeadline', 0],
 ];
 
 class GameState {
@@ -179,6 +181,7 @@ class GameState {
     this.marketLedger = [];
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
+    this.marketOptionReserve = 100_000;
     this.marketShortInventory = {};
     this.marketInstruments = MARKET_INSTRUMENTS;
     this.marketRound = 0;
@@ -264,6 +267,7 @@ class GameState {
     this.marketLedger = [];
     this.economyTransactions = new Map();
     this.marketQuotes = freshMarketQuotes();
+    this.marketOptionReserve = 100_000;
     this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, 50]));
     this.marketInstruments = MARKET_INSTRUMENTS;
     this.marketRound = 0;
@@ -760,7 +764,15 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    if (this.nonBankruptPlayers().length <= 1) {
+    const connected = this.connectedNonBankruptPlayers();
+    if (connected.length <= 1) {
+      const waiting = this.players.find(player => player.disconnected
+        && Number(player.disconnectDeadline) > Date.now()
+        && !player.bankrupt);
+      if (waiting) {
+        this.announceWaitingForSeat(waiting);
+        return;
+      }
       this.endGame();
       return;
     }

@@ -6,6 +6,52 @@
 import { AUCTION_DURATION_MS } from './auctionApi.js';
 import { MARKET_FEE_RATE } from './marketLogic.js';
 
+function isViewerSeat(player, viewerPlayerId) {
+  return Boolean(viewerPlayerId && player.id === viewerPlayerId);
+}
+
+function playerSummaryFields(game, player, viewerPlayerId) {
+  return {
+    id: player.id,
+    nickname: player.nickname,
+    color: player.color,
+    cash: player.cash,
+    position: player.position,
+    inJail: player.inJail,
+    jailTurns: player.jailTurns || 0,
+    jailFreeCards: player.jailFreeCards || 0,
+    bankLoan: game.summaryBankLoan(player, viewerPlayerId),
+    bankLoanOffer: game.summaryBankLoanOffer(player, viewerPlayerId),
+    bankrupt: player.bankrupt,
+    inDebt: player.inDebt,
+    disconnected: player.disconnected,
+    isHost: player.isHost,
+    properties: player.properties,
+    ready: player.ready,
+    isBot: player.isBot,
+    personality: player.isBot ? player.personality : null,
+    botBrain: player.isBot ? game.settings.botBrain : null,
+    botDifficulty: player.isBot ? game.settings.botDifficulty : null
+  };
+}
+
+function playerViewerFields(player, viewerPlayerId) {
+  const ownSeat = isViewerSeat(player, viewerPlayerId);
+  const fields = {
+    // Account IDs are durable social identifiers. Keep them owner-scoped;
+    // in-room cards can resolve an opponent through the roomPlayerId seam.
+    accountId: ownSeat ? (player.accountId || null) : null,
+    accountLinked: Boolean(player.accountId),
+    roomPlayerId: player.id,
+    avatarGrid: player.avatarGrid || null
+  };
+  if (ownSeat) {
+    fields.clientId = player.clientId;
+    fields.marketPositions = { ...(player.marketPositions || {}) };
+  }
+  return fields;
+}
+
 const summaryApi = {
   getGameSummary(viewerPlayerId = null) {
     return {
@@ -22,7 +68,7 @@ const summaryApi = {
       pendingPayment: this.pendingPayment,
       lastWinner: this.lastWinner,
       lastDice: this.lastDice,
-      tiles: this.tiles.map(tile => this.summaryTileEntry(tile)),
+      tiles: this.tiles.map(tile => this.summaryTileEntry(tile, viewerPlayerId)),
       players: this.players.map(player => this.summaryPlayerEntry(player, viewerPlayerId)),
       feed: this.feed,
       roundNumber: this.roundNumber,
@@ -38,7 +84,7 @@ const summaryApi = {
     };
   },
 
-  summaryTileEntry(tile) {
+  summaryTileEntry(tile, viewerPlayerId = null) {
     const entry = {
       index: tile.index,
       name: tile.name,
@@ -54,6 +100,8 @@ const summaryApi = {
       houseCost: this.getPropertyHouseCost(tile),
       equityShares: (Array.isArray(tile.equityShares) ? tile.equityShares : []).map(share => this.summaryEquityEntry(share))
     };
+    const viewer = viewerPlayerId ? this.getPlayerById(viewerPlayerId) : null;
+    if (viewer && tile.ownerId === viewer.id) entry.propertyActions = this.propertyActionProjection(viewer, tile);
     if (tile.tileId) entry.tileId = tile.tileId;
     return entry;
   },
@@ -82,37 +130,10 @@ const summaryApi = {
   },
 
   summaryPlayerEntry(player, viewerPlayerId) {
-    const entry = {
-      id: player.id,
-      nickname: player.nickname,
-      color: player.color,
-      cash: player.cash,
-      position: player.position,
-      inJail: player.inJail,
-      jailTurns: player.jailTurns || 0,
-      jailFreeCards: player.jailFreeCards || 0,
-      bankLoan: this.summaryBankLoan(player, viewerPlayerId),
-      bankLoanOffer: this.summaryBankLoanOffer(player, viewerPlayerId),
-      bankrupt: player.bankrupt,
-      inDebt: player.inDebt,
-      disconnected: player.disconnected,
-      isHost: player.isHost,
-      properties: player.properties,
-      ready: player.ready,
-      isBot: player.isBot,
-      personality: player.isBot ? player.personality : null,
-      botBrain: player.isBot ? this.settings.botBrain : null,
-      botDifficulty: player.isBot ? this.settings.botDifficulty : null,
-      accountId: player.accountId || null,
-      avatarGrid: player.avatarGrid || null
+    return {
+      ...playerSummaryFields(this, player, viewerPlayerId),
+      ...playerViewerFields(player, viewerPlayerId)
     };
-    if (viewerPlayerId && player.id === viewerPlayerId) {
-      entry.clientId = player.clientId;
-    }
-    if (viewerPlayerId && player.id === viewerPlayerId) {
-      entry.marketPositions = { ...(player.marketPositions || {}) };
-    }
-    return entry;
   },
 
   // Loan privacy: the viewer sees their own full loan, everyone else only
