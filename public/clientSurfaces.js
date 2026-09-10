@@ -9,21 +9,39 @@ import { hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 
 const SURFACE_SELECTORS = [
-  "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#deal-detail-modal", "#choice-modal", "#sponsorship-modal",
-  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bankruptcy-modal",
+  "#log-drawer", "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#deal-detail-modal", "#choice-modal", "#sponsorship-modal",
+  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#bankruptcy-modal",
   "#card-modal", "#card-gallery", "#gameover-modal",
 ];
 
 /* Table popups belong only to a live game — blocked while parked at parlor home. */
 const GAME_POPUP = new Set([
   "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal", "#deal-detail-modal",
-  "#auction-modal", "#financing-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
+  "#auction-modal", "#financing-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
 ]);
 let nextTableNoticeAt = 0;
 let surfaceReturnFocus = null;
+let surfaceStack = [];
+const surfaceReturns = new Map();
 const surfaceInertNodes = new Set();
 let pendingConfirmation = null;
 let notice = () => {};
+
+function surfaceVisible(el) {
+  if (!el) return false;
+  if (el.id === "log-drawer") return el.classList.contains("is-open");
+  return !el.classList.contains("is-hidden");
+}
+
+function setSurfaceHidden(el, hidden) {
+  if (!el) return;
+  if (el.id === "log-drawer") {
+    el.classList.toggle("is-open", !hidden);
+  } else {
+    el.classList.toggle("is-hidden", hidden);
+  }
+  el.setAttribute("aria-hidden", String(hidden));
+}
 
 export function configureSurfaces(hooks) {
   notice = hooks.notice;
@@ -34,9 +52,14 @@ export function setSurfaceReturnFocus(el) {
 }
 
 export function visibleSurfaces() {
-  return SURFACE_SELECTORS
+  const visible = SURFACE_SELECTORS
     .map((selector) => $(selector))
-    .filter((el) => el && !el.classList.contains("is-hidden"));
+    .filter(surfaceVisible);
+  return visible.sort((a, b) => {
+    const aIndex = surfaceStack.indexOf("#" + a.id);
+    const bIndex = surfaceStack.indexOf("#" + b.id);
+    return (aIndex < 0 ? -1 : aIndex) - (bIndex < 0 ? -1 : bIndex);
+  });
 }
 
 export function surfaceFocusable(surface) {
@@ -58,7 +81,7 @@ function inertNode(node, active) {
 }
 
 function markSurfaceAria(el) {
-  const hidden = el.classList.contains("is-hidden");
+  const hidden = !surfaceVisible(el);
   el.setAttribute("aria-hidden", String(hidden));
   if (hidden) return;
   el.setAttribute("aria-modal", "true");
@@ -142,10 +165,15 @@ export function openSurface(selector, focusSelector, options = {}) {
   if (!options.allowHome && blockedAsGamePopup(selector)) return;
   const surface = $(selector);
   if (!surface) return;
-  const wasVisible = !surface.classList.contains("is-hidden");
+  const wasVisible = surfaceVisible(surface);
   rememberReturnFocus();
-  surface.classList.remove("is-hidden");
-  surface.setAttribute("aria-hidden", "false");
+  if (!wasVisible) {
+    surfaceStack = surfaceStack.filter(entry => entry !== selector);
+    surfaceStack.push(selector);
+    if (surfaceReturnFocus) surfaceReturns.set(selector, surfaceReturnFocus);
+    surfaceReturnFocus = null;
+  }
+  setSurfaceHidden(surface, false);
   syncSurfaceA11y();
   if (wasVisible) return;
   requestAnimationFrame(() => focusPreferred(surface, focusSelector));
@@ -161,11 +189,17 @@ function restoreReturnFocus() {
 export function closeSurface(selector) {
   const surface = $(selector);
   if (!surface) return;
-  surface.classList.add("is-hidden");
-  surface.setAttribute("aria-hidden", "true");
+  const returnFocus = surfaceReturns.get(selector) || null;
+  surfaceReturns.delete(selector);
+  surfaceStack = surfaceStack.filter(entry => entry !== selector);
+  setSurfaceHidden(surface, true);
   const active = syncSurfaceA11y();
   if (active) {
     surfaceFocusable(active)[0]?.focus({ preventScroll: true });
+    return;
+  }
+  if (returnFocus && document.contains(returnFocus)) {
+    returnFocus.focus({ preventScroll: true });
     return;
   }
   restoreReturnFocus();
@@ -173,12 +207,11 @@ export function closeSurface(selector) {
 
 export function closeAllSurfaces() {
   pendingConfirmation = null;
+  surfaceStack = [];
+  surfaceReturns.clear();
   SURFACE_SELECTORS.forEach((selector) => {
     const surface = $(selector);
-    if (surface) {
-      surface.classList.add("is-hidden");
-      surface.setAttribute("aria-hidden", "true");
-    }
+    setSurfaceHidden(surface, true);
   });
   syncSurfaceA11y();
   surfaceReturnFocus = null;

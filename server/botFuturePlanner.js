@@ -45,6 +45,8 @@ function stateClone(snapshot) {
     properties: (bot.properties || []).map(tile => ({ ...tile })),
     board: boardClone(snapshot),
     marketPositions: JSON.parse(JSON.stringify(bot.marketPositions || {})),
+    marketExpansion: JSON.parse(JSON.stringify(bot.marketExpansion || {})),
+    shortDefaultDebt: nonNegative(bot.marketExpansion?.shortDefaultDebt),
     bankLoan: bot.bankLoan ? { ...bot.bankLoan } : null,
     contracts: (bot.contracts || []).map(contract => ({ ...contract })),
     casinoNet: number(bot.casino?.net),
@@ -138,8 +140,53 @@ function applyCasinoCandidate(snapshot, state, candidate) {
 
 function applyTradeCandidate(state, candidate) {
   state.cash = Math.max(0, state.cash - nonNegative(candidate.giveCash) + nonNegative(candidate.requestCash));
-  applyPropertyTransfer(state, candidate.givePropertyIndexes, 'self', 'opponent-1');
-  applyPropertyTransfer(state, candidate.requestPropertyIndexes, 'opponent-1', 'self');
+  const partnerSeat = candidate.toPlayerSeat || 'opponent-1';
+  applyPropertyTransfer(state, candidate.givePropertyIndexes, 'self', partnerSeat);
+  applyPropertyTransfer(state, candidate.requestPropertyIndexes, partnerSeat, 'self');
+}
+
+function applyMarketExpansionCandidate(snapshot, state, candidate) {
+  const quote = nonNegative(snapshot.marketQuotes?.[candidate.instrumentId]) || 100;
+  const quantity = nonNegative(candidate.quantity || 1);
+  const expansion = state.marketExpansion || (state.marketExpansion = {});
+  const margin = expansion.margin || (expansion.margin = { balance: 0, maintenance: 0, positions: {} });
+  margin.positions ||= {};
+  const shorts = expansion.shorts || (expansion.shorts = {});
+  const shortPositions = shorts.positions || (shorts.positions = {});
+  const fee = Math.max(1, Math.ceil(quote * quantity * MARKET_FEE_RATE));
+  if (candidate.kind === 'open-margin') {
+    state.cash = Math.max(0, state.cash - fee);
+    const position = margin.positions[candidate.instrumentId] || { quantity: 0, averageCost: 0 };
+    position.averageCost = ((number(position.averageCost) * nonNegative(position.quantity)) + quote * quantity) / Math.max(1, nonNegative(position.quantity) + quantity);
+    position.quantity = nonNegative(position.quantity) + quantity;
+    margin.positions[candidate.instrumentId] = position;
+    margin.balance = number(margin.balance) + quote * quantity;
+    margin.maintenance = number(margin.maintenance) + quote * quantity * 0.25;
+  } else if (candidate.kind === 'reduce-margin') {
+    const repayment = Math.min(number(margin.balance), nonNegative(candidate.amount));
+    state.cash = Math.max(0, state.cash - repayment);
+    margin.balance = Math.max(0, number(margin.balance) - repayment);
+  } else if (candidate.kind === 'open-short') {
+    const gross = quote * quantity;
+    const collateral = Math.ceil(gross * 0.5);
+    state.cash = Math.max(0, state.cash + gross - fee - collateral);
+    shorts.reservedCash = number(shorts.reservedCash) + collateral;
+    const position = shortPositions[candidate.instrumentId] || { quantity: 0, entryQuote: 0, collateral: 0 };
+    position.entryQuote = ((number(position.entryQuote) * nonNegative(position.quantity)) + gross) / Math.max(1, nonNegative(position.quantity) + quantity);
+    position.quantity = nonNegative(position.quantity) + quantity;
+    position.collateral = number(position.collateral) + collateral;
+    shortPositions[candidate.instrumentId] = position;
+  } else if (candidate.kind === 'cover-short') {
+    const position = shortPositions[candidate.instrumentId];
+    if (!position) return;
+    const collateral = Math.min(number(position.collateral), number(shorts.reservedCash));
+    state.cash = Math.max(0, state.cash - Math.max(0, quote * quantity + fee - collateral));
+    shorts.reservedCash = Math.max(0, number(shorts.reservedCash) - collateral);
+    position.quantity = Math.max(0, nonNegative(position.quantity) - quantity);
+    if (!position.quantity) delete shortPositions[candidate.instrumentId];
+  } else if (candidate.kind === 'open-option') {
+    state.cash = Math.max(0, state.cash - nonNegative(candidate.premium || 10) * quantity);
+  }
 }
 
 const CANDIDATE_APPLIERS = {
@@ -149,6 +196,13 @@ const CANDIDATE_APPLIERS = {
   loan: (_snapshot, state, candidate) => applyLoanCandidate(state, candidate),
   repay: (_snapshot, state, candidate) => applyRepayCandidate(state, candidate),
   market: applyMarketCandidate,
+  'open-margin': applyMarketExpansionCandidate,
+  'reduce-margin': applyMarketExpansionCandidate,
+  'open-short': applyMarketExpansionCandidate,
+  'cover-short': applyMarketExpansionCandidate,
+  'open-option': applyMarketExpansionCandidate,
+  'close-position': (_snapshot, _state, _candidate) => {},
+  'end-finance-window': (_snapshot, _state, _candidate) => {},
   casino: applyCasinoCandidate,
   trade: (_snapshot, state, candidate) => applyTradeCandidate(state, candidate)
 };
@@ -164,7 +218,7 @@ function eventRentMultiplier(snapshot, tile) {
   let multiplier = number(effects.rentMultiplier, 1);
   if (tile.type === 'railroad') multiplier *= number(effects.airportRentMultiplier, 1);
   if (tile.type === 'utility') multiplier *= number(effects.utilityRentMultiplier, 1);
-  if (tile.group === 'Dark Blue') multiplier *= number(effects.premiumRentMultiplier, 1);
+  if (tile.group === 'Dark Blue' || tile.group === 'Metro Silver') multiplier *= number(effects.premiumRentMultiplier, 1);
   return Math.max(0, multiplier);
 }
 
@@ -264,8 +318,10 @@ function liquidityValue(snapshot, state) {
 }
 
 function debtRisk(state) {
-  if (!state.bankLoan) return 0;
-  return number(state.bankLoan.remaining) * 0.12;
+  const bank = state.bankLoan ? number(state.bankLoan.remaining) * 0.12 : 0;
+  const margin = number(state.marketExpansion?.margin?.balance) * 0.12;
+  const short = number(state.shortDefaultDebt) * 0.2;
+  return bank + margin + short;
 }
 
 function eventHedgeValue(snapshot, state) {

@@ -31,6 +31,10 @@ function pickAckFields(fields) {
 const NO_ARGS = () => [];
 const WHOLE_PAYLOAD = payload => [payload];
 
+function recordHumanAction(room, socket, result) {
+  if (result?.success !== false) room.game.recordHumanAction?.(room.getPlayerBySocket(socket.id));
+}
+
 const GAME_VERB_HANDLERS = [
   { event: 'purchase-property', verb: 'purchaseProperty', args: pickArgs(['tileIndex']), message: true },
   { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted), message: true },
@@ -53,6 +57,13 @@ const GAME_VERB_HANDLERS = [
   { event: 'take-bank-loan', verb: 'takeBankLoan', args: pickArgs(['requestId']), message: true, ackExtras: pickAckFields(['loan']) },
   { event: 'repay-bank-loan', verb: 'repayBankLoan', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['loan']) },
   { event: 'market-order', verb: 'tradeMarket', args: pickArgs(['instrumentId', 'side', 'quantity', 'requestId']), ackExtras: pickAckFields(['order', 'economy']) },
+  { event: 'open-margin', verb: 'openMargin', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'reduce-margin', verb: 'reduceMargin', args: pickArgs(['amount', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'open-short', verb: 'openShort', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'cover-short', verb: 'coverShort', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'open-option', verb: 'openOption', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['option', 'economy']) },
+  { event: 'exercise-option', verb: 'exerciseOption', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },
+  { event: 'close-position', verb: 'closePosition', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },
   { event: 'vote-global-event', verb: 'voteGlobalEvent', args: pickArgs(['choiceId']) },
   { event: 'declare-bankruptcy', verb: 'declareBankruptcy', args: NO_ARGS }
 ];
@@ -77,6 +88,7 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.rollDice(socket.id);
+    recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
     announceRollOutcomes(runtime, socket, room, result);
     reply(callback, roomVerbAck(result));
@@ -89,7 +101,9 @@ function registerGameSocketHandlers(on, socket, runtime) {
     if (cached) return reply(callback, cached);
     const rejected = contractCancelRejection(room, payload);
     if (rejected) return reply(callback, rejected);
-    reply(callback, finalizeContractCancel(room, payload));
+    const result = finalizeContractCancel(room, payload);
+    recordHumanAction(room, socket, result);
+    reply(callback, result);
   }
 
   function contractCancelRejection(room, payload = {}) {
@@ -137,6 +151,7 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room.placeCasinoBet(socket.id, payload.color, payload.stake, payload.requestId);
+    recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
     announceCasinoSpin(runtime, socket, room, result);
     reply(callback, roomVerbAck(result, pickAckFields(['result', 'economy'])));
@@ -153,6 +168,7 @@ function registerGameSocketHandlers(on, socket, runtime) {
       decline: () => room.game.declineSponsoredPurchase(socket.id)
     };
     const result = methods[action]?.() || { success: false, error: 'Unknown sponsorship action.' };
+    recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
     runtime.io.in(room.roomCode).emit('sponsorship-update', { sponsorship: room.game.summarySponsoredPurchase() });
     reply(callback, result);

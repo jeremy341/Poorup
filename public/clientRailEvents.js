@@ -1,6 +1,6 @@
 /* ============================================================
    RAIL EVENTS: the click/submit dispatch tables for #rr-body
-   (player contracts, market, bank loans, financing, deeds,
+   (holdings, deals, activity, market, bank loans, financing,
    trades, casino). Handlers run in the exact order of the old
    if-chain; disabled controls fall through like they did before.
    Game-bound functions are injected by the entry module. Repayment controls
@@ -9,6 +9,7 @@
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
+import { emitWithTimeout } from "./clientRequestController.js";
 
 let host = {
   emitServer: noop,
@@ -22,6 +23,10 @@ let host = {
   openFinancingNegotiation: noop,
   openFinancingContract: noop,
   openDealDetails: noop,
+  openWalletModal: noop,
+  openMarketDesk: noop,
+  openCasinoDesk: noop,
+  refreshEconomySnapshot: noop,
 };
 
 function noop() {}
@@ -35,13 +40,47 @@ function ackFailure(response, message) {
   host.renderChat();
 }
 
-function contractEmit(event, payload, message) {
-  host.emitServer(event, payload, (response) => {
-    if (response?.success === false) {
-      ackFailure(response, message);
-      return;
+function markPending(node) {
+  if (!node || node.disabled) return false;
+  node.disabled = true;
+  node.setAttribute("aria-busy", "true");
+  node.dataset.pending = "true";
+  const label = node.querySelector(".cta-text, .t-label");
+  if (label) {
+    label.dataset.previousLabel = label.textContent;
+    label.textContent = "PROCESSING…";
+  }
+  return true;
+}
+
+function clearPending(node) {
+  if (!node) return;
+  node.disabled = false;
+  node.removeAttribute("aria-busy");
+  delete node.dataset.pending;
+  const label = node.querySelector(".cta-text, .t-label");
+  if (label?.dataset.previousLabel) {
+    label.textContent = label.dataset.previousLabel;
+    delete label.dataset.previousLabel;
+  }
+}
+
+function contractEmit(event, payload, message, pendingNode = null) {
+  emitWithTimeout(host.emitServer, event, payload, {
+    onResponse: response => {
+      if (response?.success === false) {
+        clearPending(pendingNode);
+        ackFailure(response, message);
+        return;
+      }
+      host.renderRightRail();
+    },
+    onTimeout: () => {
+      clearPending(pendingNode);
+      host.say("The deal response timed out. Your Finance rail will refresh when the connection returns.");
+      host.renderChat();
+      host.refreshEconomySnapshot();
     }
-    host.renderRightRail();
   });
 }
 
@@ -55,11 +94,12 @@ function onDealView(node) {
 
 function onContractRepay(node) {
   if (!node) return false;
+  if (!markPending(node)) return false;
   const input = node.closest(".contract-repay-controls")?.querySelector("[data-contract-repay-amount]");
   const amount = Math.floor(Number(input?.value) || 0);
   const payload = { contractId: node.dataset.playerContractRepay, requestId: host.createRequestId("contract-repay") };
   if (amount > 0) payload.amount = amount;
-  contractEmit("repay-player-contract", payload, "The player loan could not be repaid.");
+  contractEmit("repay-player-contract", payload, "The player loan could not be repaid.", node);
   return true;
 }
 
@@ -80,21 +120,31 @@ function mergeEconomySnapshot(response) {
 }
 
 function onMarketOrder(node) {
-  if (!node || node.disabled) return false;
+  if (!node || !markPending(node)) return false;
   const quantity = marketQuantity();
-  host.emitServer("market-order", { instrumentId: node.dataset.marketId, side: node.dataset.marketSide, quantity, requestId: host.createRequestId("market") }, (response) => {
-    if (response?.success === false) {
-      ackFailure(response, "Market order could not be completed.");
-      return;
+  const requestId = host.createRequestId("market");
+  emitWithTimeout(host.emitServer, "market-order", { instrumentId: node.dataset.marketId, side: node.dataset.marketSide, quantity, requestId }, {
+    onResponse: response => {
+      if (response?.success === false) {
+        clearPending(node);
+        ackFailure(response, "Market order could not be completed.");
+        return;
+      }
+      mergeEconomySnapshot(response);
+      host.renderRightRail();
+    },
+    onTimeout: () => {
+      clearPending(node);
+      host.say("Market response timed out. Your positions will refresh when the connection returns.");
+      host.renderChat();
+      host.refreshEconomySnapshot();
     }
-    mergeEconomySnapshot(response);
-    host.renderRightRail();
   });
   return true;
 }
 
 function onBankAction(node) {
-  if (!node || node.disabled) return false;
+  if (!node || !markPending(node)) return false;
   const eventName = node.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
   const payload = { requestId: host.createRequestId(eventName) };
   if (eventName === "repay-bank-loan") {
@@ -102,9 +152,20 @@ function onBankAction(node) {
     const amount = Math.floor(Number(input?.value) || 0);
     if (amount > 0) payload.amount = amount;
   }
-  host.emitServer(eventName, payload, (response) => {
-    if (response?.success === false) {
-      ackFailure(response, "The bank transaction could not be completed.");
+  emitWithTimeout(host.emitServer, eventName, payload, {
+    onResponse: response => {
+      if (response?.success === false) {
+        clearPending(node);
+        ackFailure(response, "The bank transaction could not be completed.");
+        return;
+      }
+      host.refreshEconomySnapshot();
+    },
+    onTimeout: () => {
+      clearPending(node);
+      host.say("Bank response timed out. Your wallet will refresh when the connection returns.");
+      host.renderChat();
+      host.refreshEconomySnapshot();
     }
   });
   return true;
@@ -118,6 +179,43 @@ function financeOpenMode(node) {
 function onFinanceOpen(node) {
   if (!node) return false;
   host.openFinancingModal(financeOpenMode(node), null, node);
+  return true;
+}
+
+function onWalletOpen(node) {
+  if (!node) return false;
+  host.openWalletModal(node.dataset.walletOpen || "account", node);
+  return true;
+}
+
+function onMarketDeskOpen(node) {
+  if (!node) return false;
+  host.openMarketDesk(node);
+  return true;
+}
+
+function onCasinoDeskOpen(node) {
+  if (!node) return false;
+  host.openCasinoDesk(node);
+  return true;
+}
+
+function onDealsFilter(node) {
+  if (!node) return false;
+  state.dealsFilter = node.dataset.dealsFilter || "needs-you";
+  state.tab = "deals";
+  host.renderRightRail();
+  requestAnimationFrame(() => document.querySelector(`#deals-filter-${state.dealsFilter}`)?.focus({ preventScroll: true }));
+  return true;
+}
+
+function onActivityMode(node) {
+  if (!node) return false;
+  state.activityMode = node.dataset.activityMode || "indexes";
+  state.tab = "activity";
+  host.renderRightRail();
+  requestAnimationFrame(() => document.querySelector(`#activity-mode-${state.activityMode}`)?.focus({ preventScroll: true }));
+  host.refreshEconomySnapshot();
   return true;
 }
 
@@ -140,6 +238,11 @@ function onFinanceView(node) {
 }
 
 const RAIL_CLICKS = [
+  ["[data-wallet-open]", onWalletOpen],
+  ["[data-market-desk]", onMarketDeskOpen],
+  ["[data-casino-desk]", onCasinoDeskOpen],
+  ["[data-deals-filter]", onDealsFilter],
+  ["[data-activity-mode]", onActivityMode],
   ["[data-deal-view]", onDealView],
   ["[data-player-contract-repay]", onContractRepay],
   ["[data-market-order]", onMarketOrder],
@@ -157,35 +260,7 @@ export function onRailClick(event) {
   }
 }
 
-function casinoBet(form) {
-  const color = form.querySelector("input[name=casino-color]:checked")?.value || "red";
-  const stake = Math.max(1, Math.floor(Number(form.querySelector("[name=stake]")?.value) || 0));
-  return { color, stake };
-}
-
-function onCasinoForm(event, form) {
-  event.preventDefault();
-  const bet = casinoBet(form);
-  host.emitServer("place-casino-bet", { ...bet, requestId: host.createRequestId("casino") }, (response) => {
-    if (response?.success === false) {
-      ackFailure(response, "Casino bet could not be completed.");
-      return;
-    }
-    mergeEconomySnapshot(response);
-    host.renderRightRail();
-  });
-  return true;
-}
-
-const RAIL_SUBMITS = [
-  ["[data-casino-form]", onCasinoForm],
-];
-
-export function onRailSubmit(event) {
-  for (const [selector, handler] of RAIL_SUBMITS) {
-    const form = event.target.closest(selector);
-    if (!form) continue;
-    handler(event, form);
-    return;
-  }
+export function onRailSubmit() {
+  // Activity forms live in their focused modals. Keep this seam for the
+  // existing rail binding so future Holdings forms can opt in explicitly.
 }

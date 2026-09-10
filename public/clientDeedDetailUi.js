@@ -76,12 +76,15 @@ function closeDeedDetail() {
 function renderDeedDetail() {
   if (state.deedDetail == null) return;
   const tile = TILES[state.deedDetail];
+  const serverTile = state.serverTiles.find(entry => Number(entry.index) === Number(tile.i)) || null;
+  const projectedActions = serverTile?.propertyActions || null;
   const me = state.players[0];
   const mine = state.owners[tile.i] === "p1";
   const isProperty = tile.kind === "property";
   const level = state.houses[tile.i] || 0;
   const isMortgaged = !!state.mortgaged[tile.i];
   const table = isProperty ? RENT_TABLE[tile.group] : null;
+  const houseCost = isProperty ? Number(serverTile?.houseCost) || table.housePrice : 0;
   const hasSet = isProperty && ownsFullGroup("p1", tile.group);
   const nextLevel = level + 1;
 
@@ -90,21 +93,22 @@ function renderDeedDetail() {
   if (isProperty && mine) {
     const atCapHouses = nextLevel < HOTEL_LEVEL && houseCount() >= state.settings.houseLimit;
     const atCapHotels = nextLevel === HOTEL_LEVEL && hotelCount() >= state.settings.hotelLimit;
-    const canAfford = me.cash >= table.housePrice;
+    const canAfford = me.cash >= houseCost;
     const evenOk = canBuildEvenly(tile, nextLevel);
     const maxed = level >= HOTEL_LEVEL;
 
     let reason = "";
-    if (isMortgaged) reason = "Unmortgage this deed before building on it.";
+    if (projectedActions?.buildHouse && !projectedActions.buildHouse.enabled) reason = projectedActions.buildHouse.reason;
+    else if (isMortgaged) reason = "Unmortgage this deed before building on it.";
     else if (!hasSet) reason = `You need every ${tile.group.toUpperCase()} deed to build here.`;
     else if (maxed) reason = "Fully developed — hotel already built.";
     else if (!evenOk) reason = "Build evenly: raise the lower deeds in this set first.";
     else if (atCapHouses) reason = "The bank is out of houses.";
     else if (atCapHotels) reason = "The bank is out of hotels.";
-    else if (!canAfford) reason = `You need $${table.housePrice} to build here.`;
+    else if (!canAfford) reason = `You need $${houseCost} to build here.`;
 
-    const canBuild = !reason;
-    const canSell = level > 0 && canSellEvenly(tile, level - 1);
+    const canBuild = projectedActions?.buildHouse ? projectedActions.buildHouse.enabled : !reason;
+    const canSell = projectedActions?.sellHouse ? projectedActions.sellHouse.enabled : level > 0 && canSellEvenly(tile, level - 1);
     const buyLabel = nextLevel === HOTEL_LEVEL ? "BUY HOTEL" : "BUY HOUSE";
     const sellLabel = level === HOTEL_LEVEL ? "SELL HOTEL" : "SELL HOUSE";
 
@@ -113,11 +117,11 @@ function renderDeedDetail() {
         <div class="dd-build-actions">
           <button class="cta-red dd-build-btn" id="dd-buy" ${canBuild ? "" : "disabled"}>
             <span class="t-label">${buyLabel}</span>
-            <span class="t-micro">$${table.housePrice}</span>
+            <span class="t-micro">$${houseCost}</span>
           </button>
           <button class="btn-dark dd-build-btn dd-sell-btn" id="dd-sell" ${canSell ? "" : "disabled"}>
             <span class="t-label">${sellLabel}</span>
-            <span class="t-micro">+$${Math.floor(table.housePrice / 2)}</span>
+            <span class="t-micro">+$${projectedActions?.sellHouse?.cost ?? Math.floor(houseCost / 2)}</span>
           </button>
         </div>
         ${reason ? `<p class="dd-build-msg" style="margin-top:10px">${esc(reason)}</p>` : ""}
@@ -126,9 +130,10 @@ function renderDeedDetail() {
     buildBlock = `<div class="dd-build"><p class="dd-build-msg">${tile.kind === "railroad" ? "Railroad rent scales with how many railroads you hold." : "Utility rent scales with how many utilities you hold."}</p></div>`;
   }
 
+  const mortgageAction = isMortgaged ? projectedActions?.unmortgage : projectedActions?.mortgage;
   const mortgageBtn = mine
-    ? `<button class="btn-dark dd-close" id="dd-mortgage">
-        <span class="t-label f11">${isMortgaged ? `UNMORTGAGE $${unmortgageCost(tile)}` : `MORTGAGE +$${mortgageValue(tile)}`}</span>
+    ? `<button class="btn-dark dd-close" id="dd-mortgage" ${mortgageAction && !mortgageAction.enabled ? "disabled" : ""}>
+        <span class="t-label f11">${isMortgaged ? `UNMORTGAGE $${mortgageAction?.cost ?? unmortgageCost(tile)}` : `MORTGAGE +$${mortgageAction?.cost ?? mortgageValue(tile)}`}</span>
       </button>`
     : "";
 
@@ -148,7 +153,7 @@ function renderDeedDetail() {
         ${popRow("PRICE", `$${tile.price}`, "g300")}
         ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, "green")}
         ${isProperty ? popRow("COLOR SET", tile.group.toUpperCase(), hasSet ? "green" : "g-muted") : ""}
-        ${isProperty ? popRow("HOUSE COST", `$${table.housePrice}`, "g300") : ""}
+        ${isProperty ? popRow("HOUSE COST", `$${houseCost}`, "g300") : ""}
       </div>
 
       <div class="dd-ladder">${deedLadderHTML(tile)}</div>

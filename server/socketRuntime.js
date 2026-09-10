@@ -51,8 +51,77 @@ export function annotateMatchAchievements(matchRecord, candidates = []) {
   return matchRecord;
 }
 
+function recordMatchTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  telemetryStore?.record('match-complete', {
+    playerCount: matchRecord.playerCount,
+    roundCount: matchRecord.roundCount,
+    botOnly: matchRecord.participants.every(participant => !participant.accountId)
+  }, telemetryVersions);
+}
+
+function recordLoggedTelemetry(context) {
+  const { telemetryStore, room, telemetryVersions } = context;
+  (room.game.telemetryLog || []).forEach(entry => {
+    telemetryStore?.record(entry.kind, { ...(entry.data || {}), roundNumber: entry.roundNumber }, { ...telemetryVersions, eventId: entry.data?.eventId });
+  });
+}
+
+function recordMarketTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  telemetryStore?.record('market-volatility', {
+    marketRows: matchRecord.market.length,
+    marketTrades: matchRecord.participants.reduce((sum, participant) => sum + (Number(participant.marketTrades) || 0), 0)
+  }, telemetryVersions);
+}
+
+function recordBankruptcyTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  const bankruptcies = matchRecord.participants.filter(participant => participant.bankrupt).length;
+  if (bankruptcies) telemetryStore?.record('bankruptcy', { count: bankruptcies }, telemetryVersions);
+}
+
+function recordAchievementTelemetry(context) {
+  const { telemetryStore, candidates, telemetryVersions } = context;
+  candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId }, telemetryVersions));
+}
+
+function recordBotTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  (matchRecord.botDecisions || []).slice(-200).forEach(decision => telemetryStore?.record('bot-outcome', {
+    provider: decision.provider,
+    fallback: decision.fallback,
+    success: decision.success,
+    phase: decision.phase,
+    actionId: decision.actionId
+  }, telemetryVersions));
+}
+
+function recordSeasonTelemetry(context) {
+  const { telemetryStore, room, matchRecord, candidates, seasonResult } = context;
+  if (!seasonResult?.recorded) return;
+  const telemetryContext = {
+    telemetryStore,
+    room,
+    matchRecord,
+    candidates,
+    telemetryVersions: {
+      seasonId: seasonResult.season.id,
+      rulesetRevision: matchRecord.rulesetRevision,
+      balanceRevision: matchRecord.balanceRevision,
+      boardVariant: matchRecord.boardVariant
+    }
+  };
+  recordMatchTelemetry(telemetryContext);
+  recordLoggedTelemetry(telemetryContext);
+  recordMarketTelemetry(telemetryContext);
+  recordBankruptcyTelemetry(telemetryContext);
+  recordAchievementTelemetry(telemetryContext);
+  recordBotTelemetry(telemetryContext);
+}
+
 function createRuntime(deps) {
-  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, botAdvisor, social } = deps;
+  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social } = deps;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
@@ -106,8 +175,11 @@ function createRuntime(deps) {
     const historyReader = accountId => accountStore.getMatchHistory(accountId);
     const candidates = achievementStore.evaluateMatch(matchRecord, historyReader);
     annotateMatchAchievements(matchRecord, candidates);
+    const seasonResult = seasonStore?.recordMatch(matchRecord);
+    if (seasonResult?.recorded) matchRecord.seasonId = seasonResult.season.id;
     matchStore.record(matchRecord);
     candidates.forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
+    recordSeasonTelemetry({ telemetryStore, room, matchRecord, candidates, seasonResult });
     // Refresh the owner’s private profile immediately after settlement so
     // completed-game stats, history, and achievement counts are current while
     // the player is still in the game shell.
@@ -224,6 +296,7 @@ function createRuntime(deps) {
   function detachStartedSeat(oldRoom, oldPlayer) {
     oldPlayer.disconnected = true;
     oldPlayer.socketId = null;
+    oldPlayer.disconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
     reassignHostIfNeeded(oldRoom, oldPlayer.id);
     emitRoomState(oldRoom);
   }
@@ -525,6 +598,7 @@ function createRuntime(deps) {
     const player = room.getPlayerBySocket(socketId);
     if (!player) return;
     clearDisconnectTimer(player.clientId);
+    player.disconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
     const timer = setTimeout(() => expireDisconnectedSeat(room, player, socketId), DISCONNECT_GRACE_MS);
     disconnectTimers.set(player.clientId, timer);
   }
@@ -539,6 +613,7 @@ function createRuntime(deps) {
     if (currentPlayer.socketId !== socketId) return;
     currentPlayer.disconnected = true;
     currentPlayer.socketId = null;
+    currentPlayer.disconnectDeadline = 0;
     roomManager.socketRoom.delete(socketId);
     reassignHostIfNeeded(currentRoom, currentPlayer.id);
     clearPendingObligations(currentRoom, currentRoom.game, currentPlayer, 'disconnect');
@@ -574,6 +649,7 @@ function createRuntime(deps) {
   function clearPendingObligations(room, game, player, reason) {
     const context = { room, game, player, reason };
     CANCELLED_OBLIGATIONS.forEach(obligation => cancelObligation(context, obligation));
+    game.removeQueuedPaymentsForPlayer?.(player.id);
     if (game.clearSponsoredPurchaseForPlayer?.(player.id)) {
       io.in(room.roomCode).emit('sponsorship-update', { sponsorship: game.summarySponsoredPurchase() });
       io.in(room.roomCode).emit('system-message', { text: `${player.nickname}'s sponsorship reservation was released.` });
@@ -596,6 +672,7 @@ function createRuntime(deps) {
   // reusable helper for a still-connected player — skipDisconnectedCurrentPlayer
   // is gated on player.disconnected and no-ops here.
   function expireAfkTurn(room, game, player) {
+    game.afkTurnCount = Math.max(0, Math.floor(Number(game.afkTurnCount) || 0)) + 1;
     clearPendingObligations(room, game, player, 'turn timeout');
     game.pendingPurchaseOffer = null;
     if (game.pendingPayment?.playerId === player.id) {
@@ -777,6 +854,9 @@ function createRuntime(deps) {
     io,
     leaveAllGameRooms,
     matchStore,
+    seasonStore,
+    cosmeticStore,
+    telemetryStore,
     reassignHostIfNeeded,
     roomManager,
     scheduleAuctionFinish,

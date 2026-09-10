@@ -14,7 +14,10 @@ import { MAX_PROFILES, profileDesignName } from "./clientSanitize.js";
 const PROFILE_SWATCHES = ["#d74438", "#286ea1", "#d9a62f", "#35a653", "#a04e6f", "#3e7d7b", "#7b5029", "#cfa75f"];
 const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5c5033", "#01070a", "#ffffff", "#d74438", "#35a653", "#286ea1", "#d9a62f"];
 
-let host = { renderAchievements: () => {}, loadSavedGame: () => null };
+function noop() {}
+function noopNull() { return null; }
+
+let host = { renderAchievements: noop, renderCollection: noop, loadSavedGame: noopNull, renderHomeSignals: noop };
 
 export function configureProfileRender(hooks) {
   host = { ...host, ...hooks };
@@ -154,6 +157,7 @@ export function renderProfileSummary() {
   renderProfileStatistics();
   renderProfileHistory();
   host.renderAchievements();
+  host.renderCollection();
 }
 
 export function formatStatDate(value) {
@@ -617,6 +621,7 @@ export function applyProfileToHomeUI() {
   const resumeBtn = $("#resume-btn");
   if (resumeBtn) resumeBtn.classList.toggle("is-hidden", !host.loadSavedGame());
   renderGuestAliasField();
+  host.renderHomeSignals();
 }
 
 function syncAliasInput(input, signedIn) {
@@ -644,17 +649,17 @@ export function requireGuestAlias() {
 
 function swatchHTML(c, d) {
   const active = c.toLowerCase() === d.color.toLowerCase();
-  return `<button type="button" class="profile-swatch${active ? " is-active" : ""}" style="background:${c}" data-color="${c}" title="${c}"></button>`;
+  return `<button type="button" class="profile-swatch${active ? " is-active" : ""}" style="background:${c}" data-color="${c}" title="${c}" aria-label="Player color ${c}" aria-pressed="${active}"></button>`;
 }
 
 function faceSwatchHTML(c, d) {
   const active = d.tool === "paint" && c.toLowerCase() === d.paintColor.toLowerCase();
-  return `<button type="button" class="face-swatch${active ? " is-active" : ""}" style="background:${c}" data-ink="${c}" title="${c}"></button>`;
+  return `<button type="button" class="face-swatch${active ? " is-active" : ""}" style="background:${c}" data-ink="${c}" title="${c}" aria-label="Paint color ${c}" aria-pressed="${active}"></button>`;
 }
 
 function faceCellHTML(c, x, y) {
   const style = c ? `background-color:${c};background-image:none` : "";
-  return `<span class="face-cell" data-x="${x}" data-y="${y}" style="${style}"></span>`;
+  return `<button type="button" class="face-cell" data-x="${x}" data-y="${y}" style="${style}" aria-label="Paint pixel row ${y + 1} column ${x + 1}"></button>`;
 }
 
 export function renderProfileEditor() {
@@ -662,11 +667,8 @@ export function renderProfileEditor() {
   if (!d) return;
   const deleteBtn = $("#profile-delete-btn");
   if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
-  const saveLabel = $("#profile-save-btn")?.querySelector(".cta-text");
+  const saveLabel = $("#pl-save-btn")?.querySelector(".cta-text");
   if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
-  const modeLabel = $("#profile-editor-mode");
-  if (modeLabel) modeLabel.textContent = state.editingProfileId ? "EDIT PLAYER DESIGN" : "NEW PLAYER DESIGN";
-
   // identity swatches
   $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map((c) => swatchHTML(c, d)).join("");
   $("#profile-color-picker").value = d.color;

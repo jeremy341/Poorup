@@ -28,8 +28,9 @@ function modalOpen(selector) {
 
 function typingTag(target) {
   const tag = target?.tagName;
-  if (tag === "INPUT") return true;
-  return tag === "TEXTAREA";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return true;
+  if (target?.isContentEditable) return true;
+  return Boolean(target?.closest?.("button, [role=button], [role=tab], [role=menuitem], [contenteditable=true]"));
 }
 
 function editableTarget(target) {
@@ -97,6 +98,26 @@ function handleSurfaceTab(event, activeSurface) {
   next.focus({ preventScroll: true });
 }
 
+function handleTabNavigation(event) {
+  if (event.defaultPrevented) return false;
+  const tab = event.target?.closest?.('[role="tab"]');
+  const list = tab?.closest?.('[role="tablist"]');
+  if (!tab || !list) return false;
+  const tabs = [...list.querySelectorAll('[role="tab"]:not([disabled])')];
+  const current = tabs.indexOf(tab);
+  if (current < 0) return false;
+  let nextIndex;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (current + 1) % tabs.length;
+  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (current - 1 + tabs.length) % tabs.length;
+  else if (event.key === "Home") nextIndex = 0;
+  else if (event.key === "End") nextIndex = tabs.length - 1;
+  else return false;
+  event.preventDefault();
+  tabs[nextIndex].focus({ preventScroll: true });
+  tabs[nextIndex].click();
+  return true;
+}
+
 function handleNightShiftOpen(event) {
   const nightShiftOpen = !$("#night-shift").classList.contains("is-hidden");
   if (!nightShiftOpen) return false;
@@ -119,6 +140,9 @@ const ESCAPE_GATES = [
   { visible: () => modalOpen("#social-modal"), escape: () => closeSurface("#social-modal") },
   { visible: () => modalOpen("#player-modal"), escape: () => closeSurface("#player-modal") },
   { visible: () => modalOpen("#financing-modal"), escape: () => host.closeFinancingModal() },
+  { visible: () => modalOpen("#wallet-modal"), escape: () => host.closeWalletModal() },
+  { visible: () => modalOpen("#market-modal"), escape: () => host.closeMarketDesk() },
+  { visible: () => modalOpen("#casino-modal"), escape: () => host.closeCasinoDesk() },
   { visible: () => modalOpen("#sponsorship-modal"), escape: () => host.closeSponsorshipModal() },
   { visible: () => modalOpen("#deal-detail-modal"), escape: () => host.closeDealDetails() },
   { visible: () => modalOpen("#card-gallery"), escape: () => host.closeCardGallery() },
@@ -128,13 +152,40 @@ const ESCAPE_GATES = [
 const LATER_GATES = [
   { visible: () => modalOpen("#rooms-modal"), escape: () => host.closeRoomsModal() },
   { visible: () => Boolean(state.profileDraft), escape: () => host.closeProfileEditor(false) },
-  { visible: () => modalOpen("#offer-modal"), escape: () => host.rejectOpenOffer() },
+  { visible: () => modalOpen("#offer-modal"), escape: () => host.closeOfferWithoutResponse() },
   { visible: () => cardModalOpen(), escape: () => closeCardModal() },
   { visible: () => gameOverOpen(), escape: preventEscape },
   { visible: () => state.deedDetail != null, escape: () => host.closeDeedDetail() },
   { visible: () => Boolean(state.tradeWith), escape: () => host.closeTradeModal() },
   { visible: () => Boolean(state.selectedTile), escape: () => host.closePopup() },
 ];
+
+const TOP_SURFACE_ESCAPE = {
+  "account-modal": () => host.closeAccountModal(),
+  "confirm-modal": () => closeConfirmModal(),
+  "achievement-modal": () => host.closeAchievementModal(),
+  "rankings-modal": () => closeSurface("#rankings-modal"),
+  "social-modal": () => closeSurface("#social-modal"),
+  "player-modal": () => closeSurface("#player-modal"),
+  "financing-modal": () => host.closeFinancingModal(),
+  "wallet-modal": () => host.closeWalletModal(),
+  "market-modal": () => host.closeMarketDesk(),
+  "casino-modal": () => host.closeCasinoDesk(),
+  "sponsorship-modal": () => host.closeSponsorshipModal(),
+  "deal-detail-modal": () => host.closeDealDetails(),
+  "card-gallery": () => host.closeCardGallery(),
+  "card-modal": () => closeCardModal(),
+  "rooms-modal": () => host.closeRoomsModal(),
+  "setup-wrap": () => host.goHome(),
+  "deed-modal": () => host.closeDeedDetail(),
+  "trade-modal": () => host.closeTradeModal(),
+  "popup": () => host.closePopup(),
+  "choice-modal": () => host.closeChoiceModalAsPass(),
+  "auction-modal": preventEscape,
+  "gameover-modal": preventEscape,
+  "bankruptcy-modal": preventEscape,
+  "log-drawer": () => closeLogDrawer(),
+};
 
 function cardModalOpen() {
   return modalOpen("#card-modal");
@@ -192,7 +243,21 @@ function consumeGates(event, gates) {
 }
 
 function handleModalEscape(event) {
+  if (event.key === "Escape" && host.isPanelMenuOpen?.()) {
+    event.preventDefault();
+    host.closePanelMenu();
+    return true;
+  }
   if (handleSetupEscape(event)) return true;
+  const top = visibleSurfaces().at(-1);
+  const closeTop = top ? TOP_SURFACE_ESCAPE[top.id] : null;
+  if (closeTop) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeTop();
+    }
+    return true;
+  }
   if (consumeGates(event, ESCAPE_GATES)) return true;
   if (handlePendingBuy(event)) return true;
   if (consumeGates(event, LATER_GATES)) return true;
@@ -248,6 +313,7 @@ function onKeyDown(event) {
     handleSurfaceTab(event, activeSurface);
     return;
   }
+  if (handleTabNavigation(event)) return;
   if (handleNightShiftOpen(event)) return;
   if (handleModalEscape(event)) return;
   handleGameShortcuts(event, target);

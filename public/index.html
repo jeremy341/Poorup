@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="32x32" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/socket.io/socket.io.js"></script>
     <title>Poorup — After-Hours Game Parlor</title>
@@ -140,10 +141,22 @@
                 Roll, buy the block, charge rent, feed the vacation pot. Last wallet standing keeps the
                 table. Usually around twelve minutes, sometimes a vendetta.
               </p>
-              <div class="home-signal-line" aria-label="Poorup facts">
-                <span class="home-signal"><span class="t-micro ink-3">ENTRY</span><span class="t-label f11 g100">NO ACCOUNT</span></span>
-                <span class="home-signal"><span class="t-micro ink-3">SYNC</span><span class="t-label f11 green">REAL-TIME</span></span>
-                <span class="home-signal"><span class="t-micro ink-3">LOBBIES</span><span class="t-label f11 g300">40 LOBBIES</span></span>
+              <div class="home-signal-line" id="home-signal-line" aria-label="Poorup live status">
+                <button class="home-signal" type="button" data-home-signal="entry" aria-describedby="home-signal-entry-help">
+                  <span class="t-micro ink-3">ENTRY</span>
+                  <span class="t-label f11 g100" id="home-signal-entry-value">NO ACCOUNT</span>
+                  <span class="sr-only" id="home-signal-entry-help">Open your account or guest profile.</span>
+                </button>
+                <button class="home-signal" type="button" data-home-signal="sync" aria-describedby="home-signal-sync-help">
+                  <span class="t-micro ink-3">SYNC</span>
+                  <span class="t-label f11 green" id="home-signal-sync-value">CONNECTING…</span>
+                  <span class="sr-only" id="home-signal-sync-help">Refresh the live public room directory.</span>
+                </button>
+                <button class="home-signal" type="button" data-home-signal="lobbies" aria-describedby="home-signal-lobbies-help">
+                  <span class="t-micro ink-3">LOBBIES</span>
+                  <span class="t-label f11 g300" id="home-signal-lobbies-value">— LOBBIES</span>
+                  <span class="sr-only" id="home-signal-lobbies-help">Browse the current public rooms.</span>
+                </button>
               </div>
             </div>
 
@@ -243,6 +256,25 @@
                 </div>
               </div>
 
+              <div class="rc-field rc-ruleset-fields">
+                <label class="t-label f12 g-muted" for="rc-ruleset-preset">Ruleset Preset</label>
+                <select class="field rc-input" id="rc-ruleset-preset">
+                  <option value="classic" selected>CLASSIC · STANDARD RULES</option>
+                  <option value="after-hours">AFTER HOURS · POORUP SYSTEMS</option>
+                  <option value="custom">CUSTOM · SET IN LOBBY</option>
+                </select>
+                <span class="t-micro ink-3">Classic starts clean. You can enable every optional system in the host rail.</span>
+              </div>
+
+              <div class="rc-field rc-ruleset-fields">
+                <label class="t-label f12 g-muted" for="rc-board-variant">Board Variant</label>
+                <select class="field rc-input" id="rc-board-variant">
+                  <option value="standard-40" selected>STANDARD 40 · 2–4 PLAYERS</option>
+                  <option value="metro-52">METRO 52 · 2–6 PLAYERS</option>
+                </select>
+                <span class="t-micro ink-3">Metro expands the board without changing the Classic footprint rules.</span>
+              </div>
+
               <div class="rc-field is-hidden" id="rc-private-code-field">
                 <label class="t-label f12 g-muted" for="rc-room-code">Private Room Code</label>
                 <div class="rc-code-entry">
@@ -332,7 +364,7 @@
             <div class="profile-hero-avatar" id="profile-hero-avatar" aria-hidden="true"></div>
             <div class="profile-hero-copy">
               <div class="t-micro g400">PLAYER IDENTITY</div>
-              <h1 class="profile-hero-name" id="profile-hero-name">PLAYER</h1>
+              <h1 class="profile-hero-name" id="profile-hero-name" tabindex="-1">PLAYER</h1>
               <div class="profile-hero-handle t-body ink-2" id="profile-hero-handle">GUEST MODE</div>
               <div class="profile-hero-state t-micro" id="profile-hero-state">LOCAL PLAYER · READY FOR THE NEXT TABLE</div>
             </div>
@@ -353,6 +385,7 @@
           <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
           <button class="profile-tab" id="profile-tab-history" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-history" data-profile-tab="history"><span class="t-label f11">HISTORY</span></button>
           <button class="profile-tab" id="profile-tab-achievements" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-achievements" data-profile-tab="achievements"><span class="t-label f11">ACHIEVEMENTS</span><span class="profile-tab-count" id="profile-achievement-count">0/52</span></button>
+          <button class="profile-tab" id="profile-tab-collection" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-collection" data-profile-tab="collection"><span class="t-label f11">COLLECTION</span><span class="profile-tab-count" id="profile-collection-count">0</span></button>
           <button class="profile-tab" id="profile-tab-account" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-account" data-profile-tab="account"><span class="t-label f11">ACCOUNT &amp; PREFERENCES</span></button>
         </nav>
 
@@ -383,28 +416,10 @@
         </section>
 
         <section class="profile-tab-panel" id="profile-panel-designs" role="tabpanel" aria-labelledby="profile-tab-designs" tabindex="0">
-          <div class="profile-editor-actions panel noise" role="group" aria-label="Profile editor actions">
-            <div class="profile-editor-actions-copy">
-              <span class="t-micro g400">DESIGN WORKSPACE</span>
-              <span class="t-label f12 g100" id="profile-editor-mode">EDIT PLAYER DESIGN</span>
-              <span class="t-micro ink-3">Changes stay local until you save them.</span>
-            </div>
-            <div class="profile-editor-actions-buttons">
-              <button class="btn-dark profile-delete is-hidden" type="button" id="profile-delete-btn">
-                <span class="t-label f12">DELETE</span>
-              </button>
-              <button class="btn-dark hdr-rules" type="button" id="profile-cancel-btn">
-                <span class="t-label f12">CANCEL</span>
-              </button>
-              <button class="cta-red profile-save-btn" type="button" id="profile-save-btn">
-                <span class="cta-text profile-save-label">Save Profile</span>
-              </button>
-            </div>
-          </div>
           <section class="panel noise pad16 profile-library-panel" id="profile-library">
             <div class="pl-head">
               <div><div class="t-micro g400">PLAYER DESIGNS</div><div class="t-label f12 g100">Saved profiles</div></div>
-              <div class="pl-head-actions"><button class="cta-red pl-save" type="button" id="pl-save-btn"><span class="cta-text cta-text-sm">SAVE DESIGN</span></button><button class="btn-dark pl-new" type="button" id="pl-new-btn"><span class="t-label f11">+ NEW DESIGN</span></button></div>
+              <div class="pl-head-actions"><button class="btn-dark profile-delete is-hidden" type="button" id="profile-delete-btn"><span class="t-label f11">DELETE</span></button><button class="btn-dark hdr-rules" type="button" id="profile-cancel-btn"><span class="t-label f11">CANCEL</span></button><button class="cta-red pl-save" type="button" id="pl-save-btn"><span class="cta-text cta-text-sm">SAVE DESIGN</span></button><button class="btn-dark pl-new" type="button" id="pl-new-btn"><span class="t-label f11">+ NEW DESIGN</span></button></div>
             </div>
             <p class="t-micro profile-save-status" id="profile-save-status" role="status" aria-live="polite"></p>
             <div class="pl-list" id="pl-list"></div>
@@ -432,19 +447,26 @@
         <section class="profile-tab-panel is-hidden" id="profile-panel-achievements" role="tabpanel" aria-labelledby="profile-tab-achievements" tabindex="0">
           <section class="panel noise pad16 achievements-panel" aria-labelledby="achievements-heading">
             <div class="achievements-intro"><div><div class="t-micro g400">PARLOR RECORDS · DISCOVERY</div><h2 class="t-section g100" id="achievements-heading">Achievements</h2><p class="t-body ink-2">Small decisions, strange headlines, and impossible recoveries. Every badge has a story.</p></div><div class="achievements-progress" id="achievements-progress" aria-live="polite"><strong class="t-label f20 g100" id="achievements-progress-value">0/52</strong></div></div>
-            <div class="achievements-filter-bar" id="achievements-filters" role="tablist" aria-label="Achievement filters">
-              <button class="achievement-filter is-active" type="button" role="tab" aria-selected="true" data-achievement-filter="all"><span class="t-label f11">ALL</span></button>
-              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="visible"><span class="t-label f11">TABLECRAFT</span></button>
-              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="global"><span class="t-label f11">GLOBAL EVENTS</span></button>
-              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="social"><span class="t-label f11">SOCIAL</span></button>
-              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="secret"><span class="t-label f11">SECRETS</span></button>
-              <button class="achievement-filter" type="button" role="tab" aria-selected="false" data-achievement-filter="minigame"><span class="t-label f11">PATROL</span></button>
+            <div class="achievements-filter-bar" id="achievements-filters" role="toolbar" aria-label="Achievement filters">
+              <button class="achievement-filter is-active" type="button" aria-pressed="true" data-achievement-filter="all"><span class="t-label f11">ALL</span></button>
+              <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="visible"><span class="t-label f11">TABLECRAFT</span></button>
+              <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="global"><span class="t-label f11">GLOBAL EVENTS</span></button>
+              <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="social"><span class="t-label f11">SOCIAL</span></button>
+              <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="secret"><span class="t-label f11">SECRETS</span></button>
+              <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="minigame"><span class="t-label f11">PATROL</span></button>
             </div>
             <div class="achievement-filter-controls">
               <label class="achievement-filter-field"><span class="t-micro ink-3">WHEN EARNED</span><select class="setting-select achievement-filter-select" id="achievement-date-filter"><option value="all">ALL DATES</option><option value="recent">LAST 7 DAYS</option><option value="month">LAST 30 DAYS</option><option value="newest">NEWEST FIRST</option><option value="oldest">OLDEST FIRST</option></select></label>
               <label class="achievement-filter-field"><span class="t-micro ink-3">RARITY</span><select class="setting-select achievement-filter-select" id="achievement-rarity-filter"><option value="all">ALL RARITIES</option><option value="common">COMMON</option><option value="uncommon">UNCOMMON</option><option value="rare">RARE</option><option value="epic">EPIC</option><option value="legendary">LEGENDARY</option><option value="mythical">MYTHICAL</option></select></label>
             </div>
             <div class="achievements-grid" id="achievements-grid"></div>
+          </section>
+        </section>
+
+        <section class="profile-tab-panel is-hidden" id="profile-panel-collection" role="tabpanel" aria-labelledby="profile-tab-collection" tabindex="0">
+          <section class="panel noise pad16 collection-panel" aria-labelledby="collection-heading">
+            <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300" id="collection-heading">Parlor Collection</h2><span class="hair"></span><span class="t-micro ink-3">EARNED · NONCOMPETITIVE</span></div>
+            <div id="profile-collection-content"></div>
           </section>
         </section>
 
@@ -554,19 +576,29 @@
             <span class="t-label f11 ink-3">TURN</span>
             <span class="t-label f13 g300" id="tn-turnlabel">SETUP</span>
           </div>
-          <button class="btn-dark hdr-rules" type="button" id="log-toggle-btn" title="Event log [L]">
+          <button class="btn-dark hdr-rules" type="button" id="log-toggle-btn" title="Event log [L]" aria-controls="log-drawer" aria-expanded="false" aria-haspopup="dialog">
             <span class="t-label f12">LOG</span>
           </button>
-          <button class="btn-dark hdr-rules fn-only" type="button" id="focus-btn" title="Focus board">
+          <button class="btn-dark hdr-rules fn-only" type="button" id="focus-btn" title="Focus board" aria-pressed="false">
             <span class="t-label f12">FOCUS</span>
           </button>
-          <button class="btn-dark hdr-rules fn-only" type="button" id="panels-btn" title="Panels">
+          <button class="btn-dark hdr-rules fn-only" type="button" id="panels-btn" title="Panel layout" aria-controls="panel-menu" aria-expanded="false" aria-haspopup="dialog">
             <span class="t-label f12">PANELS</span>
           </button>
           <button class="btn-dark hdr-rules hdr-retire" type="button" id="game-retire-btn" title="Leave the table" disabled><span class="t-label f12">BANKRUPT</span></button>
           <button class="btn-dark hdr-rules" type="button" id="game-social-btn" data-top-surface="social"><span class="t-label f12">SOCIAL</span></button>
           <button class="btn-dark audio-toggle" type="button" id="game-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img id="game-sound-toggle-icon" src="/assets/sound-off.svg" alt="" width="24" height="24"></button>
           <button class="btn-dark audio-toggle" type="button" id="game-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img id="game-music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24"></button>
+        </div>
+        <div class="panel-menu is-hidden" id="panel-menu" role="dialog" aria-modal="false" aria-labelledby="panel-menu-title" aria-hidden="true">
+          <div class="panel-menu-head"><div><span class="t-micro g400">TABLE VIEW</span><h2 class="t-section g100" id="panel-menu-title">Panel Layout</h2></div><button class="btn-dark" id="panel-menu-close" type="button"><span class="t-label f11">CLOSE</span></button></div>
+          <div class="panel-menu-options">
+            <label class="panel-option"><span><strong class="t-label f11">PLAYERS</strong><small class="t-micro ink-3">Seat list and turn order</small></span><input type="checkbox" data-panel-toggle="players" checked></label>
+            <label class="panel-option"><span><strong class="t-label f11">CHAT</strong><small class="t-micro ink-3">Parlor messages</small></span><input type="checkbox" data-panel-toggle="chat" checked></label>
+            <label class="panel-option"><span><strong class="t-label f11">RIGHT RAIL</strong><small class="t-micro ink-3">Holdings, deals, activity</small></span><input type="checkbox" data-panel-toggle="rightRail" checked></label>
+            <label class="panel-option"><span><strong class="t-label f11">HUD DENSITY</strong><small class="t-micro ink-3">Turn information stays visible</small></span><select class="field" id="panel-hud-density"><option value="full">FULL</option><option value="compact">COMPACT</option></select></label>
+          </div>
+          <p class="t-micro ink-3 panel-menu-note">Required payments, auctions, bankruptcy, global headlines, and the roll action cannot be hidden.</p>
         </div>
       </header>
 
@@ -705,10 +737,10 @@
 
             <div class="hud-cell noise">
               <span class="t-label f11 g400">Cash On Hand</span>
-              <div class="hud-body hud-split">
+              <button class="hud-body hud-split hud-cash-action" id="hud-cash-action" type="button" aria-haspopup="dialog" aria-controls="wallet-modal" aria-label="Open wallet and items">
                 <span class="t-money green" id="hud-cash">$0</span>
                 <span data-sprite="note" data-size="4"></span>
-              </div>
+              </button>
             </div>
 
             <div class="hud-cell noise">
@@ -745,17 +777,11 @@
             <span class="t-micro ink-3 rr-count" id="rr-count">0 DEEDS</span>
           </div>
           <div class="tabs" id="tabs" role="tablist" aria-label="Holdings views">
-            <button class="tab is-active" id="tab-deeds" role="tab" aria-selected="true" aria-controls="rr-body" data-tab="deeds"><span class="t-label f12">MY DEEDS</span><span class="tab-underline"></span></button>
-            <button class="tab" id="tab-trade" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="trade"><span class="t-label f12">TRADE</span><span class="tab-underline"></span></button>
-            <button class="tab" id="tab-log" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="log"><span class="t-label f12">LOG</span><span class="tab-underline"></span></button>
-            <button class="tab" id="tab-finance" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="finance"><span class="t-label f12">FINANCE</span><span class="tab-underline"></span></button>
-            <button class="tab" id="tab-casino" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="casino"><span class="t-label f12">CASINO</span><span class="tab-underline"></span></button>
-            <button class="tab" id="tab-market" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="market"><span class="t-label f12">MARKET</span><span class="tab-underline"></span></button>
+            <button class="tab is-active" id="tab-holdings" role="tab" aria-selected="true" aria-controls="rr-body" data-tab="holdings"><span class="t-label f12">HOLDINGS</span><span class="tab-underline"></span></button>
+            <button class="tab" id="tab-deals" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="deals"><span class="t-label f12">DEALS</span><span class="tab-underline"></span></button>
+            <button class="tab" id="tab-activity" role="tab" aria-selected="false" aria-controls="rr-body" data-tab="activity"><span class="t-label f12">ACTIVITY</span><span class="tab-underline"></span></button>
           </div>
-          <div class="rr-body thin-scroll" id="rr-body" role="tabpanel" aria-labelledby="tab-deeds" tabindex="0"></div>
-          <div class="rr-foot">
-            <button class="btn-dark rr-manage" id="rr-manage" type="button"><span class="t-label f13">MANAGE PORTFOLIO</span></button>
-          </div>
+          <div class="rr-body thin-scroll" id="rr-body" role="tabpanel" aria-labelledby="tab-holdings" tabindex="0"></div>
         </section>
 
         <!-- RIGHT RAIL — lobby mode (settings) -->
@@ -818,6 +844,24 @@
       <div class="popup-card financing-card panel noise" id="financing-card"></div>
     </div>
 
+    <!-- wallet and earned item workbench -->
+    <div class="popup is-hidden" id="wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-modal-title" aria-describedby="wallet-modal-description" aria-hidden="true">
+      <button class="popup-scrim" id="wallet-scrim" aria-label="Close wallet and items"></button>
+      <div class="popup-card wallet-card panel noise" id="wallet-card"></div>
+    </div>
+
+    <!-- focused advanced market workbench -->
+    <div class="popup is-hidden" id="market-modal" role="dialog" aria-modal="true" aria-labelledby="market-modal-title" aria-describedby="market-modal-description" aria-hidden="true">
+      <button class="popup-scrim" id="market-scrim" aria-label="Close market desk"></button>
+      <div class="popup-card market-desk-card panel noise" id="market-card"></div>
+    </div>
+
+    <!-- focused casino wager and settled-result workbench -->
+    <div class="popup is-hidden" id="casino-modal" role="dialog" aria-modal="true" aria-labelledby="casino-modal-title" aria-describedby="casino-modal-description" aria-hidden="true">
+      <button class="popup-scrim" id="casino-scrim" aria-label="Close casino desk"></button>
+      <div class="popup-card casino-desk-card panel noise" id="casino-card"></div>
+    </div>
+
     <!-- shared read-only pending deal details -->
     <div class="popup is-hidden" id="deal-detail-modal" role="dialog" aria-modal="true" aria-labelledby="deal-detail-title" aria-hidden="true">
       <button class="popup-scrim" id="deal-detail-scrim" aria-label="Close deal details"></button>
@@ -865,11 +909,11 @@
     </div>
 
     <!-- event log drawer -->
-    <aside class="log-drawer" id="log-drawer" aria-hidden="true" aria-label="Event log">
-      <div class="log-drawer-head">
-        <div class="section-title" style="margin-bottom:0">
-          <span data-sprite="diamond" data-size="3"></span>
-          <h2 class="t-section g300">Event Log</h2>
+    <aside class="log-drawer" id="log-drawer" role="dialog" aria-modal="true" aria-labelledby="log-drawer-title" aria-hidden="true">
+        <div class="log-drawer-head">
+          <div class="section-title" style="margin-bottom:0">
+            <span data-sprite="diamond" data-size="3"></span>
+            <h2 class="t-section g300" id="log-drawer-title">Event Log</h2>
         </div>
         <button class="btn-dark" id="drawer-close" type="button"><span class="t-label f11">CLOSE</span></button>
       </div>

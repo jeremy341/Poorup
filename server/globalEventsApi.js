@@ -91,6 +91,7 @@ const globalEventsApi = {
     });
     this.globalEvent.phase = 'recovery';
     this.globalEvent.roundsRemaining = 1;
+    this.recordTelemetryEvent?.('event-recovered', { eventId: this.globalEvent.id, title: this.globalEvent.title });
     this.feedMessage(`${this.globalEvent.title} has ended. The table enters recovery.`);
   },
 
@@ -166,7 +167,10 @@ const globalEventsApi = {
     if (this.globalEventLimitReached(combo)) return;
     const eventPool = this.globalEventCandidatePool(combo);
     if (!eventPool.length) return;
-    if (randomFloat() >= this.globalEventTriggerChance(source)) return;
+    const chance = this.globalEventTriggerChance(source);
+    this.recordTelemetryEvent?.('event-eligible', { source, chance, candidates: eventPool.map(event => event.id).slice(0, 12), combination: combo?.id || null });
+    if (randomFloat() >= chance) return;
+    this.globalEventTriggerSource = source;
     this.activateGlobalEvent(this.selectWeightedGlobalEvent(eventPool), combo);
   },
 
@@ -232,6 +236,8 @@ const globalEventsApi = {
       player.globalEventsExperienced = (player.globalEventsExperienced || 0) + 1;
     });
     this.globalEventsTriggered += 1;
+    this.recordTelemetryEvent?.('event-triggered', { eventId: this.globalEvent.id, source: this.globalEventTriggerSource || 'round', combination: combo?.id || null, durationRounds: this.globalEvent.durationRounds });
+    this.globalEventTriggerSource = null;
     this.feedMessage(this.globalEvent.choices
       ? `${this.globalEvent.title} is live. The table votes before the next round.`
       : `${this.globalEvent.title} is building. The table has one round to prepare.`);
@@ -273,6 +279,7 @@ const globalEventsApi = {
     if (!event || event.phase !== 'voting') return;
     const winners = this.globalEventVoteWinners(event);
     event.resolvedChoice = winners.length ? winners[randomInt(0, winners.length - 1)] : event.choices?.[0]?.id || null;
+    this.recordTelemetryEvent?.('event-choice', { eventId: event.id, turnout: Object.keys(event.votes || {}).length, voters: this.activePlayers().length, resolvedChoice: event.resolvedChoice });
     this.applyGlobalEventVoteOutcomes(event);
     event.phase = 'active';
     event.startedRound = this.roundNumber;

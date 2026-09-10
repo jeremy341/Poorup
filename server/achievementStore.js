@@ -183,6 +183,14 @@ export class AchievementStore {
     return { created: true, record: next };
   }
 
+  remove(accountId, achievementId) {
+    const key = this.key(accountId, achievementId);
+    if (!this.records.has(key)) return false;
+    this.records.delete(key);
+    this.persist();
+    return true;
+  }
+
   listForAccount(accountId) {
     return [...this.records.values()].filter((record) => record.accountId === accountId);
   }

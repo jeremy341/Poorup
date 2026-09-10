@@ -103,6 +103,7 @@ function creditFacilityRejection(game, player) {
   if (seat) return seat;
   if (!game.started) return 'The game has not started.';
   if (creditFrozen(game)) return 'Credit is frozen by the active global event.';
+  if (game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract) return 'Resolve the table obligation before borrowing.';
   if (player.id !== game.currentPlayerId) return 'Bank credit is available during your turn.';
   return null;
 }
@@ -233,8 +234,8 @@ export function defaultBankLoan(game, player) {
     // The bank files a claim instead of eliminating the seat outright: the
     // player now chooses between raising funds and declaring bankruptcy.
     resolveUnsecuredBankDefault(game, player, loan);
-    loan.remaining = 0;
   }
+  loan.remaining = 0;
   loan.status = 'defaulted';
   loan.defaultedRound = game.roundNumber;
 }

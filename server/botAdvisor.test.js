@@ -140,6 +140,15 @@ const budget = new DeepSeekAdvisor({ apiKey: 'test-key', maxDecisionsPerGame: 1,
 await budget.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-budget', decisionSequence: 1 });
 assert.equal((await budget.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-budget', decisionSequence: 2 })).fallbackReason, 'game-budget');
 
+const metroPrompt = JSON.parse(ai.advisorUserPrompt({
+  contextVersion: 'bot-context-v2',
+  board: Array.from({ length: 52 }, (_, index) => ({ index, type: 'property' })),
+  candidates,
+  botDifficulty: 'table',
+  gameId: 'metro-prompt'
+}));
+assert.equal(metroPrompt.board.length, 52);
+
 assert.equal(createBotAdvisor({ DEEPSEEK_API_KEY: 'test-key' }) instanceof DeepSeekAdvisor, true);
 assert.equal(createBotAdvisor({ POORUP_BOT_ADVISOR: 'no-ai', DEEPSEEK_API_KEY: 'test-key' }) instanceof DeterministicAdvisor, true);
-console.log('bot advisor modes and fallback: 18 passed, 0 failed');
+console.log('bot advisor modes and fallback: 19 passed, 0 failed');

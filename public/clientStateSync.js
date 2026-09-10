@@ -5,7 +5,7 @@
    DOM, or owns timers lives behind `host` callbacks in main.js.
    ============================================================ */
 import { state } from "./clientState.js";
-import { TILE_COUNT } from "./clientBoardData.js";
+import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
 
 export const AUCTION_MS = 5000;
 
@@ -66,10 +66,15 @@ function previousPositionsOf() {
   return new Map(state.players.map((player) => [player.id, num(player.pos)]));
 }
 
-function syncRoom(room) {
+function syncRoom(room, game = null) {
+  const nextVariant = room?.board?.variant || room?.ruleset?.boardVariant || room?.settings?.boardVariant || game?.boardVariant || "standard-40";
+  const changed = state.boardVariant !== nextVariant;
   if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = orDefault(room.roomCode, "");
   state.roomVisibility = orDefault(room.visibility === "public" ? "public" : null, "private");
   state.hostId = room.hostId || null;
+  state.boardVariant = nextVariant;
+  state.ruleset = room.ruleset || null;
+  return changed;
 }
 
 function syncServerTiles(game) {
@@ -93,6 +98,8 @@ function serverPlayerView(player) {
     serverId: player.id,
     clientId: player.clientId,
     accountId: orNull(player.accountId),
+    accountLinked: player.accountLinked === true,
+    roomPlayerId: player.roomPlayerId || player.id,
     name: String(orDefault(player.nickname, "PLAYER")).toUpperCase(),
     color: orDefault(player.color, "#cfa75f"),
     textColor: orDefault(player.color, "#e8d3ab"),
@@ -105,6 +112,11 @@ function serverPlayerView(player) {
     jailFree: num(player.jailFreeCards),
     bankLoan: orNull(player.bankLoan),
     bankLoanOffer: orNull(player.bankLoanOffer),
+    bankAccountTier: Number(player.bankAccountTier) || 1,
+    bankAccount: orNull(player.bankAccount),
+    bankAccountUpgrade: orNull(player.bankAccountUpgrade),
+    reservedCash: num(player.reservedCash),
+    items: player.items && typeof player.items === "object" ? player.items : {},
     casinoNet: num(player.casinoNet),
     marketPositions: orDefault(player.marketPositions, {}),
     isHost: Boolean(player.isHost),
@@ -249,11 +261,18 @@ function syncLog(game) {
 
 function syncRoomSettings(room) {
   const incoming = room.settings || {};
+  const effective = room.ruleset?.effectiveSettings || {};
   state.settings = {
     ...state.settings,
     ...incoming,
-    vacationPool: nullish(incoming.vacationCash, state.settings.vacationPool),
-    noRentInJail: nullish(incoming.noRentWhileInPrison, state.settings.noRentInJail),
+    ...effective,
+    vacationPool: nullish(effective.vacationCash, nullish(incoming.vacationCash, state.settings.vacationPool)),
+    noRentInJail: nullish(effective.noRentWhileInPrison, nullish(incoming.noRentWhileInPrison, state.settings.noRentInJail)),
+    rulesetPreset: room.ruleset?.preset || incoming.rulesetPreset || state.settings.rulesetPreset,
+    rulesetBase: room.ruleset?.base || incoming.rulesetBase || state.settings.rulesetBase,
+    rulesetOverrides: room.ruleset?.overrides || incoming.rulesetOverrides || state.settings.rulesetOverrides,
+    boardVariant: room.ruleset?.boardVariant || incoming.boardVariant || state.settings.boardVariant,
+    marketComplexity: effective.marketComplexity || incoming.marketComplexity || state.settings.marketComplexity,
   };
 }
 
@@ -361,7 +380,11 @@ export function applyServerState(snapshot, host) {
   const previousPositions = previousPositionsOf();
   host.setConnectionStatus("online");
   const { room, game } = snapshot;
-  syncRoom(room);
+  const boardChanged = syncRoom(room, game);
+  if (boardChanged) {
+    setBoardVariant(state.boardVariant);
+    host.rebuildBoard?.();
+  }
   syncServerTiles(game);
   const remotePlayers = remotePlayersOf(game, room);
   const turnOrder = turnOrderOf(game, remotePlayers);

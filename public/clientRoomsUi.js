@@ -14,10 +14,14 @@ import { applyProfileToHomeUI, renderAccountPanel, requireGuestAlias } from "./c
 import { closeSurface, openSurface } from "./clientSurfaces.js";
 import { parlorNotice } from "./clientSocialSurfaces.js";
 import { renderHomeLocalTime, renderPatrolHud } from "./clientHomeAmbient.js";
+import { saveRulesetPreset } from "./clientSanitize.js";
 
 export const lobbyState = {
   roomsDirectory: [],
   roomsLoading: false,
+  roomsDirectoryLoaded: false,
+  roomsDirectoryFetchedAt: 0,
+  roomsDirectoryRequestId: 0,
   roomsDirectoryTimeout: null,
   roomsFilter: "all",
   roomModalTab: "browse", // "browse" | "create" | "join"
@@ -25,6 +29,8 @@ export const lobbyState = {
     name: "",
     visibility: "public", // "public" | "private"
     code: "",
+    rulesetPreset: "classic",
+    boardVariant: "standard-40",
   },
 };
 
@@ -65,11 +71,14 @@ function roomRowHTML(r) {
         <span class="t-micro ink-3 room-meta-item">SEATS ${r.seats}/${r.cap}</span>
         <span class="t-micro ink-3 room-meta-item">OPEN ${open}</span>
         <span class="t-micro ink-3 room-meta-item">BANK ${r.bank}</span>
+        <span class="t-micro g400 room-meta-item">${String(r.rulesetPreset || "classic").toUpperCase()}</span>
+        <span class="t-micro g400 room-meta-item">${String(r.boardVariant || "standard-40").toUpperCase()}</span>
+        <span class="t-micro ink-3 room-meta-item">${Array.isArray(r.addOns) && r.addOns.length ? r.addOns.join(" · ") : "NO ADD-ONS"}</span>
         <span class="t-micro g-muted room-meta-item">${r.note}</span>
       </div>
     </div>
     <div class="room-actions">
-      <button class="btn-dark" data-join="${r.code}" ${full ? "disabled" : ""}>
+      <button class="btn-dark" ${isPrivate ? 'data-join="' + r.code + '"' : 'data-join-id="' + (r.roomId || "") + '"'} ${full ? "disabled" : ""}>
         <span class="t-label f11">${full ? "FULL" : "JOIN"}</span>
       </button>
       ${isPrivate ? `<button class="btn-dark" data-copy="${r.code}" title="Copy code"><span class="t-label f11">COPY</span></button>` : ""}
@@ -108,6 +117,10 @@ function updateCreateRoomUI() {
   document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.vis === lobbyState.createRoomSettings.visibility);
   });
+  const preset = $("#rc-ruleset-preset");
+  if (preset && preset.value !== lobbyState.createRoomSettings.rulesetPreset) preset.value = lobbyState.createRoomSettings.rulesetPreset;
+  const board = $("#rc-board-variant");
+  if (board && board.value !== lobbyState.createRoomSettings.boardVariant) board.value = lobbyState.createRoomSettings.boardVariant;
 }
 
 function syncCreateRoomCode(codeInput, settings) {
@@ -197,21 +210,25 @@ function paintJoinDescription(signedIn) {
   : "Enter the room code and the name you want to use at the table.";
 }
 
-function requestRoomsDirectory() {
+export function requestRoomsDirectory() {
+  const requestId = ++lobbyState.roomsDirectoryRequestId;
   lobbyState.roomsLoading = true;
+  renderHomeSignals();
   renderRoomsList();
   clearTimeout(lobbyState.roomsDirectoryTimeout);
   lobbyState.roomsDirectoryTimeout = setTimeout(() => {
     lobbyState.roomsDirectoryTimeout = null;
-    if (!lobbyState.roomsLoading) return;
+    if (!lobbyState.roomsLoading || requestId !== lobbyState.roomsDirectoryRequestId) return;
     lobbyState.roomsLoading = false;
+    renderHomeSignals();
     renderRoomsList();
     parlorNotice("BROWSE", "Public tables could not be loaded — try again.");
   }, 5000);
-  host.emitServer("list-rooms", {}, applyRoomsDirectoryResponse);
+  host.emitServer("list-rooms", {}, (response) => applyRoomsDirectoryResponse(response, requestId));
 }
 
-function applyRoomsDirectoryResponse(response) {
+function applyRoomsDirectoryResponse(response, requestId = lobbyState.roomsDirectoryRequestId) {
+  if (requestId !== lobbyState.roomsDirectoryRequestId) return;
   clearTimeout(lobbyState.roomsDirectoryTimeout);
   lobbyState.roomsDirectoryTimeout = null;
   lobbyState.roomsLoading = false;
@@ -219,12 +236,15 @@ function applyRoomsDirectoryResponse(response) {
     failRoomsDirectory(response);
   } else {
     lobbyState.roomsDirectory = Array.isArray(response?.rooms) ? response.rooms : [];
+    lobbyState.roomsDirectoryLoaded = true;
+    lobbyState.roomsDirectoryFetchedAt = Date.now();
   }
+  renderHomeSignals();
   renderRoomsList();
 }
 
 function failRoomsDirectory(response) {
-  lobbyState.roomsDirectory = [];
+  if (!lobbyState.roomsDirectoryLoaded) lobbyState.roomsDirectory = [];
   parlorNotice("BROWSE", response.error || "Public tables could not be loaded.");
   host.say(response.error || "Public tables could not be loaded.");
   host.renderChat();
@@ -232,6 +252,9 @@ function failRoomsDirectory(response) {
 
 export function applyRoomsUpdated(payload) {
   lobbyState.roomsDirectory = Array.isArray(payload?.rooms) ? payload.rooms : lobbyState.roomsDirectory;
+  lobbyState.roomsDirectoryLoaded = true;
+  lobbyState.roomsDirectoryFetchedAt = Date.now();
+  renderHomeSignals();
   if (!$("#rooms-modal").classList.contains("is-hidden")) renderRoomsList();
 }
 
@@ -255,10 +278,19 @@ export function renderHome() {
   paintSkyline($("#home-skyline-copy"), SKYLINE);
   buildMiniBoard();
   renderRoomsList();
+  renderHomeSignals();
+  refreshHomeDirectory();
   renderAccountPanel();
   applyProfileToHomeUI();
   renderConnectionStatus();
+  renderHomeSignals();
   hydrateSprites();
+}
+
+export function refreshHomeDirectory() {
+  if (state.phase !== "home" || state.connectionStatus !== "online" || lobbyState.roomsLoading) return;
+  const stale = Date.now() - Number(lobbyState.roomsDirectoryFetchedAt || 0) > 15000;
+  if (!lobbyState.roomsDirectoryLoaded || stale) requestRoomsDirectory();
 }
 
 const MINI_GROUPS = ["#7b5029", "#3e7d7b", "#a04e6f", "#87231e", "#4b853d", "#286ea1"];
@@ -350,20 +382,29 @@ function onRoomTabsClick(e) {
 function onRoomsListClick(e) {
   const copyBtn = e.target.closest("[data-copy]");
   if (copyBtn) {
-    try { navigator.clipboard?.writeText(copyBtn.dataset.copy); } catch { /* no clipboard */ }
-    copyBtn.querySelector("span").textContent = "COPIED";
-    setTimeout(() => { copyBtn.querySelector("span").textContent = "COPY"; }, 900);
+    const finish = (label) => {
+      copyBtn.querySelector("span").textContent = label;
+      if (label === "COPIED") setTimeout(() => { copyBtn.querySelector("span").textContent = "COPY"; }, 900);
+    };
+    try {
+      const result = navigator.clipboard?.writeText(copyBtn.dataset.copy);
+      if (result?.then) result.then(() => finish("COPIED")).catch(() => finish("COPY FAILED"));
+      else finish("COPY FAILED");
+    } catch {
+      finish("COPY FAILED");
+    }
     return;
   }
-  const btn = e.target.closest("[data-join]");
+  const btn = e.target.closest("[data-join], [data-join-id]");
   if (canJoinRoomRow(btn)) {
     closeRoomsModal();
-    host.enterParlor(btn.dataset.join);
+    host.enterParlor(btn.dataset.join ? btn.dataset.join : { roomId: btn.dataset.joinId });
   }
 }
 
 function canJoinRoomRow(btn) {
   if (!btn) return false;
+  if (btn.dataset.joinId !== undefined && !btn.dataset.joinId) return false;
   return !btn.disabled;
 }
 
@@ -431,8 +472,98 @@ function invalidPrivateCode() {
 }
 
 function createRoomMeta(name, vis, code) {
-  if (vis === "private") return { roomName: name, visibility: vis, roomCode: code };
-  return { roomName: name, visibility: vis };
+  const meta = {
+    roomName: name,
+    visibility: vis,
+    // Room creation defaults to the documented Classic baseline. The richer
+    // preset controls live in the existing in-room settings rail.
+    rulesetPreset: lobbyState.createRoomSettings.rulesetPreset || "classic",
+    boardVariant: lobbyState.createRoomSettings.boardVariant || "standard-40",
+  };
+  if (vis === "private") meta.roomCode = code;
+  return meta;
+}
+
+const HOME_CONNECTION_SIGNAL = {
+  connecting: "CONNECTING…",
+  online: "LIVE SERVER",
+  reconnecting: "RECONNECTING…",
+  offline: "OFFLINE",
+};
+
+function renderEntrySignal(entry, account) {
+  if (!entry) return;
+  const details = entrySignalDetails(account);
+  setSignalText(entry.querySelector("#home-signal-entry-value"), details.value);
+  entry.dataset.signedIn = String(details.signedIn);
+  entry.title = details.title;
+  entry.setAttribute("aria-label", details.ariaLabel);
+}
+
+function setSignalText(node, value) {
+  if (node) node.textContent = value;
+}
+
+function entrySignalDetails(account) {
+  const identity = entryIdentity(account);
+  return {
+    signedIn: identity.signedIn,
+    ...entrySignalLabels(identity)
+  };
+}
+
+function entryIdentity(account) {
+  const displayName = String(account?.displayName || "").trim();
+  const username = String(account?.username || "").trim();
+  const signedIn = Boolean(account);
+  const fallbackValue = username ? `@${username}` : "ACCOUNT";
+  return { displayName, username, signedIn, identity: displayName || fallbackValue };
+}
+
+function entrySignalLabels({ displayName, username, signedIn, identity }) {
+  return {
+    value: signedIn ? identity : "NO ACCOUNT",
+    title: signedIn ? `Open account @${username || displayName}` : "Open guest profile or create an account",
+    ariaLabel: signedIn
+      ? `Open account ${identity}${username ? `, @${username}` : ""}`
+      : "Open guest profile or create an account"
+  };
+}
+
+function renderSyncSignal(sync) {
+  if (!sync) return;
+  const status = state.connectionStatus || "offline";
+  const copy = HOME_CONNECTION_SIGNAL[status] || "OFFLINE";
+  const value = sync.querySelector("#home-signal-sync-value");
+  setSignalText(value, copy);
+  sync.dataset.connection = status;
+  sync.setAttribute("aria-label", `Refresh live room directory · ${copy}`);
+}
+
+function renderLobbiesSignal(lobbies) {
+  if (!lobbies) return;
+  const loaded = lobbyState.roomsDirectoryLoaded;
+  const copy = lobbyState.roomsLoading && !loaded ? "SYNCING…" : loaded ? `${lobbyState.roomsDirectory.length} LOBBIES` : "— LOBBIES";
+  const value = lobbies.querySelector("#home-signal-lobbies-value");
+  if (value) value.textContent = copy;
+  lobbies.dataset.loaded = String(loaded);
+  lobbies.setAttribute("aria-label", loaded ? `Browse ${lobbyState.roomsDirectory.length} public lobbies` : "Browse public lobbies");
+}
+
+/** Paint the compact home status strip without rebuilding the home page. */
+export function renderHomeSignals() {
+  const account = state.account?.account || null;
+  renderEntrySignal($("[data-home-signal=entry]"), account);
+  renderSyncSignal($("[data-home-signal=sync]"));
+  renderLobbiesSignal($("[data-home-signal=lobbies]"));
+}
+
+function onRulesetInput(e) {
+  if (e.target.id === "rc-ruleset-preset") {
+    lobbyState.createRoomSettings.rulesetPreset = e.target.value;
+    saveRulesetPreset(e.target.value);
+  }
+  if (e.target.id === "rc-board-variant") lobbyState.createRoomSettings.boardVariant = e.target.value;
 }
 
 function bindRoomsOpeners() {
@@ -456,6 +587,8 @@ function bindRoomsModal() {
   // room creation form interactions
   $("#rc-vis-selector")?.addEventListener("click", onVisibilityPick);
   $("#rc-room-code")?.addEventListener("input", onRoomCodeInput);
+  $("#rc-ruleset-preset")?.addEventListener("change", onRulesetInput);
+  $("#rc-board-variant")?.addEventListener("change", onRulesetInput);
   $("#rc-create-btn")?.addEventListener("click", onCreateRoomClick);
 }
 

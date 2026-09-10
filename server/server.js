@@ -19,15 +19,35 @@ import { createRuntime } from './socketRuntime.js';
 import { registerAccountSocketHandlers } from './serverSocketAccount.js';
 import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
-import { resolveStorePaths } from './serverStorePaths.js';
-import { createCorsOrigin } from './serverConfig.js';
+import { resolveAuxiliaryStorePaths, resolveStorePaths } from './serverStorePaths.js';
+import { SeasonStore } from './seasonModule.js';
+import { CosmeticStore } from './cosmeticCatalog.js';
+import { TelemetryStore } from './telemetryModule.js';
+import { assertProductionCors, createCorsOrigin } from './serverConfig.js';
 import { createSocketRateLimiter } from './socketRateLimiter.js';
+import { createHttpRateLimiter } from './httpRateLimiter.js';
+import { backupJsonStores } from './backupStore.js';
+import { assertPersistenceMode } from './persistenceMode.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+assertPersistenceMode(process.env);
+assertProductionCors(process.env);
 
 const app = express();
 const server = http.createServer(app);
+const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
+if (trustedProxyHops > 0) app.set('trust proxy', trustedProxyHops);
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  next();
+});
+app.use(createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxyHops > 0 }));
 const socketRateLimiter = createSocketRateLimiter({
   max: process.env.POORUP_SOCKET_RATE_LIMIT,
   windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
@@ -53,17 +73,37 @@ app.get('*', (req, res, next) => {
     if (err) next(err);
   });
 });
+app.use((_req, res) => res.status(404).type('text').send('Not found.'));
+app.use((error, _req, res, _next) => {
+  console.error('HTTP request failed:', error?.message || 'unknown error');
+  res.status(500).type('text').send('The parlor is temporarily unavailable.');
+});
 
 const roomManager = new RoomManager();
 const storePaths = resolveStorePaths(process.env);
+const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
+const allStorePaths = { ...storePaths, ...auxiliaryStorePaths };
 const accountStore = new AccountStore(storePaths.accounts);
 const socialStore = new SocialStore(storePaths.social);
 const matchStore = new MatchStore(storePaths.matches);
 const achievementStore = new AchievementStore(storePaths.achievements);
+const seasonStore = new SeasonStore(auxiliaryStorePaths.seasons);
+const cosmeticStore = new CosmeticStore(auxiliaryStorePaths.cosmetics);
+const telemetryStore = new TelemetryStore(auxiliaryStorePaths.telemetry);
+const backupDirectory = String(process.env.POORUP_BACKUP_DIR || '').trim();
+if (backupDirectory) {
+  const intervalMs = Math.max(60_000, Number(process.env.POORUP_BACKUP_INTERVAL_MS) || 15 * 60 * 1000);
+  const runBackup = () => {
+    try { backupJsonStores(allStorePaths, backupDirectory); } catch (error) { console.error('Backup rotation failed:', error); }
+  };
+  runBackup();
+  const backupTimer = setInterval(runBackup, intervalMs);
+  backupTimer.unref?.();
+}
 const botAdvisor = createBotAdvisor();
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore });
-const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, botAdvisor, social });
+const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social });
 
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);

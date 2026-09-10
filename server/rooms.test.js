@@ -135,6 +135,14 @@ async function capacityAndRejoin(ctx) {
   ctx.check('create-room public acks a null room code and public visibility',
     ackEquals(await ctx.ask(ctx.host, 'create-room', { clientId: 'c1', nickname: 'Host One', visibility: 'garbage' }),
       { success: true, roomCode: null, visibility: 'public' }));
+  ctx.publicJoiner = await ctx.open();
+  const directory = await ctx.ask(ctx.publicJoiner, 'list-rooms', {});
+  const publicListing = directory.rooms.find(room => room.visibility === 'public');
+  ctx.check('public directory hides the private code and exposes a direct-join id',
+    publicListing && publicListing.code === null && typeof publicListing.roomId === 'string');
+  ctx.check('public directory direct join does not require a room code',
+    ackEquals(await ctx.ask(ctx.publicJoiner, 'join-room', { clientId: 'public-joiner', roomId: publicListing.roomId, nickname: 'Public Joiner' }),
+      { success: true, roomCode: null, visibility: 'public' }));
   ctx.check('host can change settings before the game starts',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'maxPlayers', value: 2 }), { success: true }));
   // The public room has no visible code; create a fresh private fixture.

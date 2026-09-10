@@ -5,7 +5,7 @@
    ============================================================ */
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
-import { focusSurface } from "./clientSurfaces.js";
+import { focusSurface, syncSurfaceA11y } from "./clientSurfaces.js";
 
 let drawerFilter = "all";
 
@@ -53,6 +53,8 @@ function flipLogDrawer() {
   drawer.classList.toggle("is-open");
   const open = drawer.classList.contains("is-open");
   drawer.setAttribute("aria-hidden", String(!open));
+  $("#log-toggle-btn")?.setAttribute("aria-expanded", String(open));
+  syncSurfaceA11y();
   return open;
 }
 
@@ -61,6 +63,8 @@ export function closeLogDrawer() {
   const restoreFocus = drawer?.contains(document.activeElement);
   drawer.classList.remove("is-open");
   drawer.setAttribute("aria-hidden", "true");
+  $("#log-toggle-btn")?.setAttribute("aria-expanded", "false");
+  syncSurfaceA11y();
   if (restoreFocus) $("#log-toggle-btn")?.focus({ preventScroll: true });
 }
 
@@ -71,7 +75,10 @@ export function toggleLogDrawerFromButton() {
 }
 
 export function toggleLogDrawerFromKey() {
-  if (flipLogDrawer()) renderLogDrawer();
+  if (flipLogDrawer()) {
+    renderLogDrawer();
+    focusSurface("#log-drawer", "#drawer-close");
+  }
 }
 
 export function applyLogDrawerFilter(button) {

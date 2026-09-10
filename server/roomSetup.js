@@ -23,6 +23,11 @@ export function normalizeRoomCode(value) {
   return value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
 }
 
+export function normalizeRoomId(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 120);
+}
+
 export function normalizeRoomName(value) {
   if (typeof value !== 'string') return 'AFTER HOURS';
   return value.trim().replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 24) || 'AFTER HOURS';
@@ -87,12 +92,16 @@ export function buildRoomParticipant(payload, account) {
 export function buildCreateRoomRequest(payload, account) {
   const participant = buildRoomParticipant(payload, account);
   const visibility = normalizeVisibility(payload?.visibility);
-  return {
+  const request = {
     ...participant,
     visibility,
     roomName: normalizeRoomName(payload?.roomName),
     requestedRoomCode: visibility === 'private' ? normalizeRoomCode(payload?.roomCode) : ''
   };
+  ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(payload || {}, key)) request[key] = payload[key];
+  });
+  return request;
 }
 
 // Returns the exact rejection message for the first failing check, or null.
@@ -109,8 +118,8 @@ export function validateCreateRoomRequest(request) {
 
 // Returns the exact rejection message for the first failing check, or null.
 // Check order must stay: room code, then nickname.
-export function validateJoinRoomRequest({ roomCode, nickname }) {
-  if (!roomCode) {
+export function validateJoinRoomRequest({ roomCode, roomId, nickname }) {
+  if (!roomCode && !roomId) {
     return 'Room code is required.';
   }
   if (!nickname) {
@@ -120,7 +129,7 @@ export function validateJoinRoomRequest({ roomCode, nickname }) {
 }
 
 export function toRoomCreationOptions(request, clientId, socketId) {
-  return {
+  const options = {
     clientId,
     socketId,
     nickname: request.nickname,
@@ -131,6 +140,10 @@ export function toRoomCreationOptions(request, clientId, socketId) {
     visibility: request.visibility,
     roomCode: request.requestedRoomCode || undefined
   };
+  ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(request || {}, key)) options[key] = request[key];
+  });
+  return options;
 }
 
 export function toJoinPlayerInfo(participant, clientId, socketId) {
@@ -183,7 +196,7 @@ export function summarizeMatchHistoryRecordForViewer(record, viewerId, targetId)
     isViewedPlayer: participant.accountId === targetId,
     sharedWithViewer: Boolean(viewerId && record.participants.some(entry => entry.accountId === viewerId))
   }));
-  return {
+  const summary = {
     matchId: record.matchId,
     completedAt: record.completedAt,
     roundCount: record.roundCount,
@@ -195,6 +208,10 @@ export function summarizeMatchHistoryRecordForViewer(record, viewerId, targetId)
     tradesCompleted: record.tradesCompleted,
     auctionsCompleted: record.auctionsCompleted
   };
+  ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(record, key)) summary[key] = record[key];
+  });
+  return summary;
 }
 
 function matchRecordGlobalEvents(game) {
@@ -226,10 +243,16 @@ function matchRecordCasinoRows(players) {
 }
 
 function matchRecordMarketPositions(player) {
-  return Object.fromEntries(Object.entries(player.marketPositions || {}).map(([instrumentId, position]) => [
+  const positions = Object.fromEntries(Object.entries(player.marketPositions || {}).map(([instrumentId, position]) => [
     instrumentId,
     { quantity: Math.max(0, Math.floor(Number(position.quantity) || 0)), averageCost: Math.max(0, Number(position.averageCost) || 0), realizedPnl: Number(position.realizedPnl) || 0 }
   ]));
+  if (Number(player.marginBalance) > 0 || Number(player.marginMaintenance) > 0 || Object.keys(player.marginPositions || {}).length) {
+    positions.__margin = { balance: Math.max(0, Number(player.marginBalance) || 0), maintenance: Math.max(0, Number(player.marginMaintenance) || 0), positions: Object.keys(player.marginPositions || {}).length };
+  }
+  if (Object.keys(player.shortPositions || {}).length) positions.__shorts = { positions: Object.keys(player.shortPositions || {}).length, quantity: Object.values(player.shortPositions || {}).reduce((sum, item) => sum + Math.max(0, Math.floor(Number(item?.quantity) || 0)), 0) };
+  if ((player.optionPositions || []).length) positions.__options = { open: player.optionPositions.filter(option => option.status === 'open').length, total: player.optionPositions.length };
+  return positions;
 }
 
 function matchRecordMarketRows(players) {
@@ -262,13 +285,26 @@ function matchRecordPlayerContracts(game) {
 // accountStore.recordGameResults when a finished room settles its stats.
 export function buildMatchRecordOptions(room) {
   const game = room.game;
+  const accountPlayers = game.players.filter(player => !player.isBot && player.accountId);
+  const afkOnly = accountPlayers.length > 0
+    && game.afkTurnCount > 0
+    && game.humanActionCount === 0;
   return {
     gameId: `match_${room.roomCode}_${game.startedAt || Date.now()}`,
     durationSeconds: game.startedAt ? (Date.now() - game.startedAt) / 1000 : 0,
     roundCount: game.roundNumber,
     roomVisibility: room.visibility,
+    rulesetPreset: room.ruleset?.rulesetPreset || room.settings?.rulesetPreset || 'classic',
+    rulesetBase: room.ruleset?.rulesetBase || room.settings?.rulesetBase || 'classic',
+    rulesetOverrides: room.ruleset?.rulesetOverrides || room.settings?.rulesetOverrides || [],
+    boardVariant: room.ruleset?.boardVariant || room.settings?.boardVariant || 'standard-40',
+    rulesetRevision: room.ruleset?.rulesetRevision || room.settings?.rulesetRevision || 1,
+    rulesetDigest: room.game.rulesetDigest || room.ruleset?.digest || null,
+    balanceRevision: room.ruleset?.balanceRevision || 1,
     includeMatchDetails: true,
     playerCount: game.players.length,
+    botOnly: game.players.length > 0 && game.players.every(player => player.isBot),
+    afkOnly,
     botDecisions: Array.isArray(game.botDecisionTrace) ? game.botDecisionTrace.slice(-200) : [],
     globalEvents: matchRecordGlobalEvents(game),
     eventCombinations: matchRecordEventCombinations(game),

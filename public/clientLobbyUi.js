@@ -19,9 +19,11 @@ import {
   MAX_PROFILES,
   profileDesignName,
   saveActiveDesignId,
+  loadRulesetPreset,
 } from "./clientSanitize.js";
 import { avatarHTML } from "./clientSprites.js";
 import { placePieces } from "./clientBoardRender.js";
+import { setBoardVariant } from "./clientBoardData.js";
 import { renderTopNav } from "./clientTopNavRender.js";
 import {
   applyProfileToHomeUI,
@@ -44,6 +46,7 @@ let host = {
   clearSave: noop,
   renderPlayers: noop,
   closeRoomsModal: noop,
+  rebuildBoard: noop,
   goHome: noop,
 };
 
@@ -329,20 +332,38 @@ function lobbySetupNotice(locked, hostLocked) {
 }
 
 function lobbyRulesSnapshot(settings) {
+  const preset = String(settings.rulesetPreset || state.ruleset?.preset || "classic").toUpperCase();
+  const board = String(settings.boardVariant || state.boardVariant || "standard-40").toUpperCase();
+  const overrides = Array.isArray(settings.rulesetOverrides) ? settings.rulesetOverrides.length : 0;
+  const overrideCopy = overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : "";
+  const players = `${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start`;
   return `<div class="settings-rule">
       <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
-      ${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start ·
-      ${settings.vacationPool ? "pool on" : "no pool"} ·
-      ${settings.trading ? "trading on" : "no trades"} ·
-      ${settings.auction ? "auction on" : "no auction"} ·
-      ${settings.bankLoans ? `${String(settings.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off"} ·
-      ${settings.globalEvents ? "global events on" : "global events off"} ·
-      ${settings.casino ? "casino on" : "casino off"} ·
-      ${settings.market ? "market on" : "market off"} ·
-      ${settings.bots ? `bot ${String(settings.botBrain || "auto").toLowerCase()} · ${String(settings.botPersonality || "survivor").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}` : "no bots"} ·
+      ${preset} · ${board}${overrideCopy}<br>
+      ${players} · ${toggleCopy(settings.vacationPool, "pool on", "no pool")} ·
+      ${toggleCopy(settings.trading, "trading on", "no trades")} ·
+      ${toggleCopy(settings.auction, "auction on", "no auction")} ·
+      ${bankLoanCopy(settings)} ·
+      ${toggleCopy(settings.globalEvents, "global events on", "global events off")} ·
+      ${toggleCopy(settings.casino, "casino on", "casino off")} ·
+      ${toggleCopy(settings.market, "market on", "market off")} ·
+      ${botCopy(settings)} ·
       ${settings.turnTimer ? settings.turnTimer + "s timer" : "no timer"} ·
       ${settings.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
     </div>`;
+}
+
+function toggleCopy(enabled, on, off) {
+  return enabled ? on : off;
+}
+
+function bankLoanCopy(settings) {
+  return settings.bankLoans ? `${String(settings.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off";
+}
+
+function botCopy(settings) {
+  if (!settings.bots) return "no bots";
+  return `bot ${String(settings.botBrain || "auto").toLowerCase()} · ${String(settings.botPersonality || "survivor").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
 }
 
 function renderLobbyRail() {
@@ -360,48 +381,59 @@ function renderLobbyRail() {
   );
 }
 
-function renderLobbyRailContent(s, locked, hostLocked) {
-  const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
-  const existingBots = seated.filter((p) => p.bot).length;
-  const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
-  const previewPlayers = [...seated, ...botPreviews].slice(0, s.maxPlayers);
+function lobbyTableRules(s) {
+  return lobbySection("Table Rules", [
+    settingRow("Ruleset Preset", "Classic is the clean baseline; After Hours enables Poorup systems by default.", sel("rulesetPreset", s.rulesetPreset || "classic", [["classic", "CLASSIC"], ["after-hours", "AFTER HOURS"], ["custom", "CUSTOM"]])),
+    s.rulesetPreset === "custom"
+      ? settingRow("Ruleset Base", "Custom starts from this preset before explicit overrides are applied.", sel("rulesetBase", s.rulesetBase || "classic", [["classic", "CLASSIC"], ["after-hours", "AFTER HOURS"]]))
+      : "",
+    settingRow("Board Variant", "Board size changes capacity and spaces, never the Classic 40 layout.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD 40 · 2–4"], ["metro-52", "METRO 52 · 2–6"]])),
+    settingRow("Custom Overrides", "Host-only changes are recorded on the active preset.", `<span class="ruleset-override-control"><span class="t-label f11 g400" id="ruleset-override-count">${Array.isArray(s.rulesetOverrides) ? s.rulesetOverrides.length : 0} OVERRIDES</span><button class="btn-dark ruleset-reset-btn" type="button" data-reset-ruleset ${(!Array.isArray(s.rulesetOverrides) || !s.rulesetOverrides.length) ? "disabled" : ""}><span class="t-label f11">RESET TO PRESET</span></button></span>`),
+    settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
+    settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
+    settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
+    settingRow("Bot Brain", "AI is preferred; the house brain takes over when credits or service are unavailable.", sel("botBrain", s.botBrain, [["auto","AUTO · AI → NO-AI"],["ai","AI · FALLBACK ON"],["no-ai","NO-AI · OFFLINE"]])),
+    settingRow("Bot Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
+    settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
+    settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
+    settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
+  ]);
+}
 
-  $("#lobby-settings-body").innerHTML = [
+function lobbyEconomy(s) {
+  return lobbySection("Economy", [
+    settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
+    settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
+    settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
+    settingRow("Bankruptcy", "How to handle a bust player.", sel("bankruptMode", s.bankruptMode, [["elim","ELIMINATE"],["debt","DEBT DEAL"]])),
+    settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
+    settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
+    settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
+    settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
+    settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
+  ]);
+}
+
+function lobbyOptionalSections(s) {
+  return [
+    lobbySection("Global Events", [settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents)))]),
+    lobbySection("Building", [settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"]])), settingRowNum("Hotel Limit", "Total hotels in the bank.", sel("hotelLimit", s.hotelLimit, [["6","6 HOTELS"],["12","12 HOTELS"]]))]),
+    lobbySection("Turn Timer", [settingRow("Timer Per Turn", "Seconds allowed per move (0 = off).", sel("turnTimer", s.turnTimer, [["0","OFF"],["30","30 SEC"],["60","60 SEC"],["120","2 MIN"]]))]),
+  ];
+}
+
+function lobbySectionsMarkup(s, locked, hostLocked, previewPlayers) {
+  return [
     lobbySetupNotice(locked, hostLocked),
     lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
-    lobbySection("Table Rules", [
-      settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, 4)),
-      settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
-      settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
-      settingRow("Bot Brain", "AI is preferred; the house brain takes over when credits or service are unavailable.", sel("botBrain", s.botBrain, [["auto","AUTO · AI → NO-AI"],["ai","AI · FALLBACK ON"],["no-ai","NO-AI · OFFLINE"]])),
-      settingRow("Bot Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
-      settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
-      settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
-      settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
-    ]),
-    lobbySection("Economy", [
-      settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
-      settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
-      settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
-      settingRow("Bankruptcy", "How to handle a bust player.", sel("bankruptMode", s.bankruptMode, [["elim","ELIMINATE"],["debt","DEBT DEAL"]])),
-      settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
-      settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
-      settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
-      settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
-    ]),
-    lobbySection("Global Events", [
-      settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
-    ]),
-    lobbySection("Building", [
-      settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"]])),
-      settingRowNum("Hotel Limit", "Total hotels in the bank.", sel("hotelLimit", s.hotelLimit, [["6","6 HOTELS"],["12","12 HOTELS"]])),
-    ]),
-    lobbySection("Turn Timer", [
-      settingRow("Timer Per Turn", "Seconds allowed per move (0 = off).", sel("turnTimer", s.turnTimer, [["0","OFF"],["30","30 SEC"],["60","60 SEC"],["120","2 MIN"]])),
-    ]),
+    lobbyTableRules(s),
+    lobbyEconomy(s),
+    ...lobbyOptionalSections(s),
     lobbyRulesSnapshot(s),
   ].join("");
+}
 
+function applyLobbyLockState(locked, hostLocked) {
   const startBtn = $("#lobby-start-btn");
   startBtn.disabled = locked || hostLocked;
   startBtn.querySelector(".cta-text").textContent = locked ? "Finish Setup First" : hostLocked ? "Host Starts Round" : "Start Round";
@@ -409,6 +441,15 @@ function renderLobbyRailContent(s, locked, hostLocked) {
     control.disabled = locked || hostLocked;
     if (locked || hostLocked) control.setAttribute("aria-disabled", "true");
   });
+}
+
+function renderLobbyRailContent(s, locked, hostLocked) {
+  const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
+  const existingBots = seated.filter((p) => p.bot).length;
+  const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
+  const previewPlayers = [...seated, ...botPreviews].slice(0, s.maxPlayers);
+  $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked, previewPlayers);
+  applyLobbyLockState(locked, hostLocked);
 }
 
 function buildPreviewSelf() {
@@ -464,6 +505,10 @@ function resetTableForEntry(requestedCode) {
   state.suppressRoomUpdates = false;
   state.roomCode = requestedCode;
   state.roomVisibility = entryRoomVisibility(requestedCode);
+  state.boardVariant = "standard-40";
+  state.ruleset = null;
+  setBoardVariant("standard-40");
+  host.rebuildBoard?.();
   state.phase = "setup";
   state.tableAppearanceOverride = null;
   state.setupTab = typeof state.appearance === "string" ? "custom" : "preset";
@@ -499,9 +544,10 @@ function resetTableForEntry(requestedCode) {
   requestAnimationFrame(() => placePieces());
 }
 
-function parlorEntryPayload(event, requestedCode, meta) {
+function parlorEntryPayload(event, requestedCode, meta, requestedRoomId = "") {
   return {
     roomCode: requestedCode || undefined,
+    roomId: requestedRoomId || undefined,
     nickname: state.alias.trim() || meta.baseName,
     color: meta.color,
     avatarGrid: meta.avatarGrid || null,
@@ -551,11 +597,13 @@ function onParlorEntryResponse(response, event) {
 
 export function enterParlor(code) {
   if (!requireGuestAlias()) return;
-  const requestedCode = String(code || "").trim().toUpperCase();
+  const descriptor = code && typeof code === "object" ? code : { roomCode: code };
+  const requestedCode = String(descriptor.roomCode || "").trim().toUpperCase();
+  const requestedRoomId = String(descriptor.roomId || "").trim().slice(0, 120);
   resetTableForEntry(requestedCode);
   const meta = getAppearanceMeta(activeAppearance());
-  const event = requestedCode ? "join-room" : "create-room";
-  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta), (response) => onParlorEntryResponse(response, event));
+  const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
+  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta, requestedRoomId), (response) => onParlorEntryResponse(response, event));
 }
 
 function enterLobby() {
@@ -627,6 +675,16 @@ function onLobbySettingsClick(e) {
   }
   const stepBtn = e.target.closest("[data-step]");
   if (isStepperEnabled(stepBtn)) onStepperSetting(stepBtn);
+  const reset = e.target.closest("[data-reset-ruleset]");
+  if (reset && !reset.disabled) resetRuleset();
+}
+
+function resetRuleset() {
+  const base = state.settings.rulesetBase || (state.settings.rulesetPreset === "after-hours" ? "after-hours" : "classic");
+  state.settings.rulesetOverrides = [];
+  host.updateServerSetting("rulesetBase", base);
+  host.updateServerSetting("rulesetOverrides", []);
+  renderLobbyRail();
 }
 
 function isStepperEnabled(stepBtn) {
@@ -643,7 +701,7 @@ function onToggleSetting(togBtn) {
 }
 
 function stepperLimits(key) {
-  if (key === "maxPlayers") return [2, 4];
+  if (key === "maxPlayers") return [2, state.settings.boardVariant === "metro-52" ? 6 : 4];
   if (key === "bots") return [0, Math.max(0, Number(state.settings.maxPlayers) - 1)];
   return [0, 999];
 }
@@ -729,13 +787,16 @@ export function bindLobbyUi() {
   $("#setup-close")?.addEventListener("click", () => host.goHome());
   $("#setup-wrap .setup-scrim")?.addEventListener("click", () => host.goHome());
 
-  // quick table: starts a default-rules round immediately
+  // Quick Table reuses the last deliberate preset choice; first use falls
+  // back to the safe Classic baseline. It remains a public Standard-40 room.
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
+    const preset = loadRulesetPreset();
     state.quickJoin = true;
     state.settings.vacationPool = true;
     state.settings.trading = true;
     state.settings.auction = false;
+    state.pendingRoomMeta = { roomName: "QUICK TABLE", visibility: "public", rulesetPreset: preset, boardVariant: "standard-40" };
     state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
       enterParlor();
       return;

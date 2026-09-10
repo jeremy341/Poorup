@@ -14,6 +14,47 @@ const PROPERTY_ACTION_HANDLERS = {
 
 const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
 
+function buildActionReason(game, player, tile, houseCost) {
+  if (!game.canBuildOnTile(player, tile)) return 'You cannot build on this property right now.';
+  const limit = game.buildingLimitRejection(player, Number(game.activeEventEffects().buildingLimitPerTurn));
+  if (limit) return limit.error;
+  if (player.cash < houseCost) return 'Insufficient cash to build a house.';
+  return null;
+}
+
+function unmortgageActionReason(game, player, tile, unmortgageCost) {
+  if (!game.canUnmortgageTile(player, tile)) return 'You cannot unmortgage this property right now.';
+  if (player.cash < unmortgageCost) return 'Insufficient cash to unmortgage this property.';
+  return null;
+}
+
+function propertyActionSpecificReason({ game, player, tile, action, costs }) {
+  if (action === 'build-house') return buildActionReason(game, player, tile, costs.houseCost);
+  if (action === 'sell-house' && !game.canSellFromTile(player, tile)) return 'You cannot sell a house from this property right now.';
+  if (action === 'mortgage' && !game.canMortgageTile(player, tile)) return 'You cannot mortgage this property right now.';
+  if (action === 'unmortgage') return unmortgageActionReason(game, player, tile, costs.unmortgageCost);
+  return null;
+}
+
+function propertyActionReason(context) {
+  const { game, player, tile, action } = context;
+  const gate = game.propertyActionRejection(player, tile, action);
+  if (gate) return gate.error;
+  return propertyActionSpecificReason(context);
+}
+
+function projectedAction(context) {
+  const reason = propertyActionReason(context);
+  const { cost } = context;
+  return { enabled: !reason, cost, reason };
+}
+
+function ownsProperty(player, tile) {
+  if (!player) return false;
+  if (!tile) return false;
+  return tile.ownerId === player.id;
+}
+
 const propertyApi = {
   purchaseProperty(socketId, tileIndex) {
     const player = this.getPlayerBySocket(socketId);
@@ -270,6 +311,21 @@ const propertyApi = {
     if (!Number.isFinite(eventSaleMultiplier)) return 0.5;
     if (eventSaleMultiplier < 0) return 0.5;
     return eventSaleMultiplier;
+  },
+
+  propertyActionProjection(player, tile) {
+    if (!ownsProperty(player, tile)) return null;
+    const houseCost = this.getPropertyHouseCost(tile);
+    const saleValue = Math.floor(houseCost * this.buildingSaleMultiplier());
+    const mortgageValue = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
+    const unmortgageCost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * this.propertyValueMultiplier());
+    const costs = { houseCost, unmortgageCost };
+    return {
+      buildHouse: projectedAction({ game: this, player, tile, action: 'build-house', cost: houseCost, costs }),
+      sellHouse: projectedAction({ game: this, player, tile, action: 'sell-house', cost: saleValue, costs }),
+      mortgage: projectedAction({ game: this, player, tile, action: 'mortgage', cost: mortgageValue, costs }),
+      unmortgage: projectedAction({ game: this, player, tile, action: 'unmortgage', cost: unmortgageCost, costs })
+    };
   },
 
   mortgagePropertyAction(player, tile) {

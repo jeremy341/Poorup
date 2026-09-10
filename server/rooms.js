@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
+import { tilesForVariant } from './boardRegistry.js';
 import {
   DEFAULT_ROOM_SETTINGS,
   LEGACY_SCALED_SETTINGS,
@@ -16,6 +17,14 @@ import {
 } from './roomSettings.js';
 import { AVATAR_GRID_ERROR, isValidAvatarGrid, resolveFreeAppearanceColor } from './appearanceApi.js';
 import { GameState } from './gameLogic.js';
+import {
+  boardVariantMeta,
+  resolveRuleset,
+  safeBoardVariant,
+  safePreset
+} from './rulesetRegistry.js';
+
+const RULESET_META_KEYS = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
 
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -71,6 +80,63 @@ function syncBotCapacity(room, key, value) {
   room.game.settings.bots = maxBots;
 }
 
+function resetPlayerMarketState(player) {
+  player.marketPositions = {};
+  player.marginBalance = 0;
+  player.marginMaintenance = 0;
+  player.marginPositions = {};
+  player.shortPositions = {};
+  player.shortDefaultDebt = 0;
+  player.optionPositions = [];
+  player.reservedCash = 0;
+  player.marketTrades = 0;
+  player.marketActionsThisTurn = 0;
+  player.crisisMarketBuys = {};
+  player.crisisMarketProfit = false;
+}
+
+function settingCapturesOverride(room, key) {
+  return room.rulesetExplicit && (!RULESET_META_KEYS.includes(key) || key === 'marketComplexity');
+}
+
+function captureSettingOverride(room, key, value) {
+  if (!settingCapturesOverride(room, key)) return;
+  const overrides = new Map((room.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
+  overrides.set(key, value);
+  room.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
+}
+
+function syncRulesetState(room) {
+  room.refreshRuleset();
+  Object.assign(room.game.settings, room.settings);
+  room.game.boardVariant = room.ruleset.boardVariant;
+  room.game.ruleset = room.ruleset;
+}
+
+function applyRulesetSetting(room, key, value) {
+  if (RULESET_META_KEYS.includes(key)) {
+    room.rulesetExplicit = true;
+    if (key === 'rulesetBase') room.rulesetBaseExplicit = true;
+    if (key === 'rulesetPreset' && value !== 'custom') room.settings.rulesetOverrides = [];
+    syncRulesetState(room);
+    return;
+  }
+  if (room.rulesetExplicit) syncRulesetState(room);
+}
+
+function applyBoardVariantSetting(room) {
+  const meta = boardVariantMeta(room.settings.boardVariant);
+  if (!room.game.started) {
+    room.game.boardVariant = room.settings.boardVariant;
+    room.game.tiles = tilesForVariant(room.game.boardVariant);
+  }
+  if (room.settings.maxPlayers > meta.maxPlayers) {
+    room.settings.maxPlayers = meta.maxPlayers;
+    room.game.settings.maxPlayers = meta.maxPlayers;
+    syncBotCapacity(room, 'maxPlayers', meta.maxPlayers);
+  }
+}
+
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
     this.id = crypto.randomUUID();
@@ -103,11 +169,7 @@ class Player {
     this.casinoAllIn = false;
     this.casinoOneDollar = false;
     this.casinoBetsThisRound = 0;
-    this.marketPositions = {};
-    this.marketTrades = 0;
-    this.marketActionsThisTurn = 0;
-    this.crisisMarketBuys = {};
-    this.crisisMarketProfit = false;
+    resetPlayerMarketState(this);
     this.playerContractIds = [];
     this.auctionWins = 0;
     this.rentCollected = 0;
@@ -157,20 +219,91 @@ class Player {
     this.hiddenMovementSequence = false;
     this.bankrupt = false;
     this.disconnected = false;
+    this.disconnectDeadline = 0;
     this.ready = false;
   }
 }
 
 class Room {
-  constructor(hostPlayer, { roomName = 'AFTER HOURS', visibility = 'public', roomCode = '' } = {}) {
+  constructor(hostPlayer, {
+    roomName = 'AFTER HOURS',
+    visibility = 'public',
+    roomCode = '',
+    rulesetPreset,
+    rulesetBase,
+    rulesetOverrides,
+    boardVariant,
+    marketComplexity
+  } = {}) {
     this.roomCode = roomCode || createRoomCode();
+    this.publicId = 'room_' + crypto.randomUUID();
     this.roomName = roomName;
     this.visibility = visibility;
     this.statsRecorded = false;
     this.hostId = hostPlayer.id;
-    this.settings = { ...DEFAULT_ROOM_SETTINGS };
+    this.settings = {
+      ...DEFAULT_ROOM_SETTINGS,
+      ...(rulesetPreset !== undefined ? { rulesetPreset } : {}),
+      ...(rulesetBase !== undefined ? { rulesetBase } : {}),
+      ...(rulesetOverrides !== undefined ? { rulesetOverrides } : {}),
+      ...(boardVariant !== undefined ? { boardVariant } : {}),
+      ...(marketComplexity !== undefined ? { marketComplexity } : {})
+    };
+    this.settings.rulesetOverrides = Array.isArray(this.settings.rulesetOverrides)
+      ? this.settings.rulesetOverrides.map(entry => ({ ...entry }))
+      : [];
+    this.rulesetExplicit = rulesetPreset !== undefined || rulesetBase !== undefined || boardVariant !== undefined || rulesetOverrides !== undefined || marketComplexity !== undefined;
+    this.rulesetBaseExplicit = rulesetBase !== undefined;
+    if (marketComplexity !== undefined && !this.settings.rulesetOverrides.some(entry => entry.key === 'marketComplexity')) {
+      this.settings.rulesetOverrides.push({ key: 'marketComplexity', value: marketComplexity });
+    }
+    this.refreshRuleset();
     this.game = new GameState(this.settings);
+    this.game.ruleset = this.ruleset;
+    this.game.legacyRuleset = !this.rulesetExplicit;
+    this.game.boardVariant = this.ruleset.boardVariant;
     this.game.addPlayer(hostPlayer);
+  }
+
+  refreshRuleset() {
+    const boardVariant = safeBoardVariant(this.settings.boardVariant);
+    const preset = safePreset(this.settings.rulesetPreset);
+    const derivedBase = this.rulesetBaseExplicit
+      ? this.settings.rulesetBase
+      : (preset === 'after-hours' ? 'after-hours' : 'classic');
+    const ruleset = resolveRuleset({
+      rulesetPreset: preset,
+      rulesetBase: derivedBase,
+      rulesetOverrides: this.settings.rulesetOverrides,
+      boardVariant,
+      settings: this.settings,
+      rulesetRevision: this.settings.rulesetRevision
+    });
+    this.settings.rulesetPreset = ruleset.rulesetPreset;
+    this.settings.rulesetBase = ruleset.rulesetBase;
+    this.settings.boardVariant = ruleset.boardVariant;
+    this.settings.rulesetRevision = ruleset.rulesetRevision;
+    this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
+    this.settings.rulesetOverrides = ruleset.rulesetOverrides.map(entry => ({ ...entry }));
+    // Rooms created by older tests/clients keep their legacy raw settings;
+    // explicit ruleset rooms apply the preset defaults to live legality.
+    if (this.rulesetExplicit) {
+      Object.assign(this.settings, ruleset.effectiveSettings);
+      ['bankLoans', 'casino', 'market', 'globalEvents'].forEach(key => {
+        this.settings[key] = Boolean(ruleset.effectiveSettings[key]);
+      });
+      this.settings.maxPlayers = Math.max(2, Math.min(boardVariantMeta(boardVariant).maxPlayers, Number(this.settings.maxPlayers) || 4));
+      this.settings.bots = Math.min(Math.max(0, Number(this.settings.bots) || 0), this.settings.maxPlayers - 1);
+      this.settings.rulesetPreset = ruleset.rulesetPreset;
+      this.settings.rulesetBase = ruleset.rulesetBase;
+      this.settings.rulesetOverrides = ruleset.rulesetOverrides.map(entry => ({ ...entry }));
+      this.settings.boardVariant = ruleset.boardVariant;
+      this.settings.rulesetRevision = ruleset.rulesetRevision;
+      this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
+    }
+    this.ruleset = ruleset;
+    this.rulesetDigest = ruleset.digest;
+    return ruleset;
   }
 
   addOrReconnectPlayer(playerInfo) {
@@ -195,6 +328,7 @@ class Room {
     }
     existing.socketId = playerInfo.socketId;
     existing.disconnected = false;
+    existing.disconnectDeadline = 0;
     this.refreshReconnectNickname(existing, playerInfo.nickname);
     this.refreshReconnectAppearance(existing, playerInfo.color, playerInfo.avatarGrid);
     this.refreshReconnectAccount(existing, playerInfo.accountId);
@@ -303,6 +437,9 @@ class Room {
     if (nextValue === SETTING_REJECTED || !capacityAllowsSetting(this, key, nextValue)) return;
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
+    captureSettingOverride(this, key, nextValue);
+    applyRulesetSetting(this, key, nextValue);
+    if (key === 'boardVariant') applyBoardVariantSetting(this);
     syncBotCapacity(this, key, nextValue);
     this.applyRoomSettingSideEffect(key, nextValue);
   }
@@ -336,6 +473,10 @@ class Room {
 
   startGame() {
     this.ensureBots();
+    this.refreshRuleset();
+    this.game.ruleset = Object.freeze({ ...this.ruleset, effectiveSettings: Object.freeze({ ...this.ruleset.effectiveSettings }) });
+    this.game.rulesetDigest = this.ruleset.digest;
+    this.game.boardVariant = this.ruleset.boardVariant;
     const result = this.game.startGame();
     if (result?.success) this.statsRecorded = false;
     return result;
@@ -386,6 +527,21 @@ class Room {
       capacity: this.settings.maxPlayers,
       hostId: this.hostId,
       settings: publicSettings,
+      ruleset: {
+        preset: this.ruleset.rulesetPreset,
+        base: this.ruleset.rulesetBase,
+        overrides: this.ruleset.rulesetOverrides.map(entry => ({ ...entry })),
+        boardVariant: this.ruleset.boardVariant,
+        revision: this.ruleset.rulesetRevision,
+        digest: this.game.rulesetDigest || this.ruleset.digest,
+        effectiveSettings: this.rulesetExplicit ? { ...this.ruleset.effectiveSettings } : { ...this.settings },
+        legacyCompatibility: !this.rulesetExplicit
+      },
+      board: {
+        variant: this.ruleset.boardVariant,
+        spaces: boardVariantMeta(this.ruleset.boardVariant).spaces,
+        corners: boardVariantMeta(this.ruleset.boardVariant).corners
+      },
       players: this.game.players.map(player => this.summarySeat(player, viewerPlayerId)),
       started: this.game.started,
       vacationPool: this.game.vacationPool
@@ -408,7 +564,9 @@ class Room {
       isBot: player.isBot,
       botBrain: player.isBot ? this.settings.botBrain : null,
       botDifficulty: player.isBot ? this.settings.botDifficulty : null,
-      accountId: player.accountId || null,
+      accountId: viewerPlayerId && player.id === viewerPlayerId ? (player.accountId || null) : null,
+      accountLinked: Boolean(player.accountId),
+      roomPlayerId: player.id,
       avatarGrid: player.avatarGrid || null
     };
     if (viewerPlayerId && player.id === viewerPlayerId) entry.clientId = player.clientId;
@@ -419,15 +577,26 @@ class Room {
     const active = this.game.players.filter(player => !player.disconnected && !player.bankrupt);
     const started = this.game.started;
     return {
-      code: this.roomCode,
+      roomId: this.publicId,
+      code: this.visibility === 'private' ? this.roomCode : null,
       name: this.roomName,
       seats: active.length,
       cap: this.settings.maxPlayers,
       bank: `$${Number(this.settings.startingCash).toLocaleString()}`,
       state: started ? 'live' : 'open',
       visibility: this.visibility,
+      rulesetPreset: this.ruleset.rulesetPreset,
+      boardVariant: this.ruleset.boardVariant,
+      addOns: this.enabledAddOns(),
       note: started ? 'round live' : 'waiting for players'
     };
+  }
+
+  enabledAddOns() {
+    const settings = this.rulesetExplicit ? (this.ruleset?.effectiveSettings || this.settings) : this.settings;
+    return ['bankLoans', 'casino', 'market', 'globalEvents']
+      .filter(key => Boolean(settings[key]))
+      .map(key => key === 'globalEvents' ? 'events' : key.replace('bankLoans', 'bank loans'));
   }
 }
 
@@ -458,6 +627,14 @@ const GAME_PASSTHROUGHS = [
   'repayBankLoan',
   'placeCasinoBet',
   'tradeMarket',
+  'openMargin',
+  'reduceMargin',
+  'openShort',
+  'coverShort',
+  'openOption',
+  'exerciseOption',
+  'closePosition',
+  'marketExpansionCandidates',
   'runBotAction',
   'voteGlobalEvent',
   'declareBankruptcy'
@@ -478,7 +655,16 @@ class RoomManager {
   createRoom(hostInfo) {
     const player = new Player({ ...hostInfo, isHost: true });
     const roomCode = hostInfo.roomCode || this.reserveRoomCode();
-    const room = new Room(player, { roomName: hostInfo.roomName, visibility: hostInfo.visibility, roomCode });
+    const room = new Room(player, {
+      roomName: hostInfo.roomName,
+      visibility: hostInfo.visibility,
+      roomCode,
+      rulesetPreset: hostInfo.rulesetPreset,
+      rulesetBase: hostInfo.rulesetBase,
+      rulesetOverrides: hostInfo.rulesetOverrides,
+      boardVariant: hostInfo.boardVariant,
+      marketComplexity: hostInfo.marketComplexity
+    });
     player.color = resolveFreeAppearanceColor(room.game.players, player.color, player, player.avatarGrid);
     this.rooms.set(room.roomCode, room);
     this.socketRoom.set(hostInfo.socketId, room);
@@ -499,6 +685,11 @@ class RoomManager {
     return this.rooms.get(String(roomCode).toUpperCase()) || null;
   }
 
+  getRoomByPublicId(publicId) {
+    if (!publicId) return null;
+    return [...this.rooms.values()].find(room => room.publicId === String(publicId).trim()) || null;
+  }
+
   getRoomBySocket(socketId) {
     return this.socketRoom.get(socketId) || null;
   }
@@ -513,6 +704,7 @@ class RoomManager {
       if (accountId && player.accountId !== accountId) return null;
       player.socketId = socketId;
       player.disconnected = false;
+      player.disconnectDeadline = 0;
       this.socketRoom.set(socketId, room);
       return room;
     }
@@ -541,6 +733,7 @@ class RoomManager {
     player.clientId = clientId;
     player.socketId = socketId;
     player.disconnected = false;
+    player.disconnectDeadline = 0;
     this.socketRoom.set(socketId, room);
     return room;
   }
@@ -628,6 +821,12 @@ class RoomManager {
       game.turnOrder = game.turnOrder.filter(id => id !== playerId);
     }
     this.clearPendingSeatObligations(game, player);
+    const survivors = game.connectedNonBankruptPlayers();
+    if (survivors.length <= 1) {
+      game.currentPlayerId = survivors[0]?.id || null;
+      game.endGame();
+      return;
+    }
     if (!wasCurrentTurn) return;
     // nextTurn() treats an unknown current id as "before the first seat"
     // and hands the dice to the next surviving player in turn order.

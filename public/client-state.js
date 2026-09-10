@@ -24,7 +24,12 @@ function mapPlayerFinance(player) {
     pos: Number(player.position) || 0,
     cash: Number(player.cash) || 0,
     properties: safeArray(player.properties),
-    playerContractIds: safeArray(player.playerContractIds)
+    playerContractIds: safeArray(player.playerContractIds),
+    bankAccountTier: Number(player.bankAccountTier) || 1,
+    bankAccount: player.bankAccount && typeof player.bankAccount === 'object' ? player.bankAccount : null,
+    bankAccountUpgrade: player.bankAccountUpgrade && typeof player.bankAccountUpgrade === 'object' ? player.bankAccountUpgrade : null,
+    reservedCash: Number(player.reservedCash) || 0,
+    items: player.items && typeof player.items === 'object' ? player.items : {}
   };
 }
 

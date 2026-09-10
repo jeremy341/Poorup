@@ -164,8 +164,36 @@ function computePlacementById(players) {
     .map((player, index) => [player.id, index + 1]));
 }
 
+function matchDetailFields(matchMeta, participants) {
+  if (!matchMeta.includeMatchDetails) return {};
+  const fields = {
+    playerCount: Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length)),
+    botDecisions: clippedList(matchMeta.botDecisions, 200),
+    botOnly: matchMeta.botOnly === true
+  };
+  if (matchMeta.afkOnly === true) fields.afkOnly = true;
+  return fields;
+}
+
+function rulesetFieldValue(value) {
+  return typeof value === 'string' ? value.slice(0, 200) : Math.max(0, Number(value) || 0);
+}
+
+function rulesetFields(matchMeta) {
+  const fields = {};
+  ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(matchMeta, key)) fields[key] = rulesetFieldValue(matchMeta[key]);
+  });
+  if (Object.prototype.hasOwnProperty.call(matchMeta, 'rulesetOverrides')) {
+    fields.rulesetOverrides = clippedList(matchMeta.rulesetOverrides, 32)
+      .filter(entry => entry && typeof entry.key === 'string')
+      .map(entry => ({ key: entry.key.slice(0, 60), value: entry.value }));
+  }
+  return fields;
+}
+
 function buildMatchRecord(matchId, matchMeta, participants) {
-  const record = {
+  return {
     matchId,
     completedAt: matchMeta.completedAt || new Date().toISOString(),
     durationSeconds: nonNegative(matchMeta.durationSeconds),
@@ -178,13 +206,10 @@ function buildMatchRecord(matchId, matchMeta, participants) {
     auctionsCompleted: nonNegative(matchMeta.auctionsCompleted),
     casino: clippedList(matchMeta.casino, 8),
     market: clippedList(matchMeta.market, 8),
-    playerContracts: clippedList(matchMeta.playerContracts, 20)
+    playerContracts: clippedList(matchMeta.playerContracts, 20),
+    ...matchDetailFields(matchMeta, participants),
+    ...rulesetFields(matchMeta)
   };
-  if (matchMeta.includeMatchDetails) {
-    record.playerCount = Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length));
-    record.botDecisions = clippedList(matchMeta.botDecisions, 200);
-  }
-  return record;
 }
 
 // One delta function per stat key, applied to the live player object of a
@@ -442,6 +467,21 @@ export class AccountStore {
     return username ? this.accounts.get(username) || null : null;
   }
 
+  sessionTokenHashFor(sessionToken) {
+    if (typeof sessionToken !== 'string' || !sessionToken) return null;
+    const hash = hashSessionToken(sessionToken);
+    return this.sessionHashes.has(hash) ? hash : null;
+  }
+
+  accountForSessionHash(tokenHash, expectedAccountId = null) {
+    if (typeof tokenHash !== 'string' || !tokenHash) return null;
+    const username = this.sessionHashes.get(tokenHash);
+    const account = username ? this.accounts.get(username) || null : null;
+    if (!account) return null;
+    if (expectedAccountId && account.id !== expectedAccountId) return null;
+    return account;
+  }
+
   issueSession(account) {
     revokeLiveSessions(this, account.username);
     // Remove every persisted hash for this account, not only the latest field
@@ -587,6 +627,17 @@ export class AccountStore {
     account.achievements = [entry, ...entries].slice(0, 100);
     this.persist();
     return { success: true, created: true, achievement: entry };
+  }
+
+  removeAchievement(accountId, achievementId) {
+    const account = [...this.accounts.values()].find((candidate) => candidate.id === accountId);
+    if (!account || typeof achievementId !== 'string') return false;
+    const entries = Array.isArray(account.achievements) ? account.achievements : [];
+    const next = entries.filter(entry => entry?.id !== achievementId);
+    if (next.length === entries.length) return false;
+    account.achievements = next;
+    this.persist();
+    return true;
   }
 
   recordPatrolResult(accountId, { score = 0, misses = 0 } = {}) {

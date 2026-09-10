@@ -147,6 +147,23 @@ export function parlorNotice(title, message) {
   announceSocialNotification({ kind: "parlor-error", title, message });
 }
 
+function pageFocusCanMove() {
+  const active = document.activeElement;
+  if (!active || active === document.body) return true;
+  const owner = active.closest?.(".view");
+  return Boolean(owner?.classList.contains("is-hidden"));
+}
+
+function focusSocialPage() {
+  if (!pageFocusCanMove()) return;
+  requestAnimationFrame(() => $("#social-page-content .social-feed")?.focus({ preventScroll: true }));
+}
+
+function focusRankingsPage() {
+  if (!pageFocusCanMove()) return;
+  requestAnimationFrame(() => $("#rankings-page-content [data-ranking-stage]")?.focus({ preventScroll: true }));
+}
+
 export function socialPlayerRowHTML(player, actionLabel = "VIEW") {
   if (!player) return "";
   const id = player.id || player.accountId;
@@ -166,6 +183,7 @@ export function openSocialSurface(tab = "friends") {
   state.socialTab = ["friends", "requests", "invites", "recent", "notifications"].includes(tab) ? tab : "friends";
   host.showView("social");
   renderSocialSurface("#social-page-content");
+  focusSocialPage();
   socialFetchAndRender("#social-page-content");
 }
 
@@ -208,6 +226,7 @@ function socialDataAck(response, target) {
   if (response?.success && response.social) {
     state.social = response.social;
     renderSocialSurface(target);
+    if (target === "#social-page-content") focusSocialPage();
   }
 }
 
@@ -220,6 +239,7 @@ function leaderboardSnapshotAck(snapshot, target, requestId) {
   state.leaderboard.loading = false;
   applyLeaderboardSnapshot(snapshot);
   renderRankingsSurface(target);
+  if (target === "#rankings-page-content") focusRankingsPage();
 }
 
 export function requestLeaderboardSnapshot(target) {
@@ -232,11 +252,20 @@ export function requestLeaderboardSnapshot(target) {
 }
 
 function publicPlayerAck(response) {
-  if (response?.success && response.player) {
-    state.selectedPlayer = { ...state.selectedPlayer, ...response.player };
-    state.selectedPlayerRelationship = response.relationship;
-    renderPlayerSurface();
-  }
+  if (!publicPlayerResponseValid(response)) return;
+  applyPublicPlayerCard(response);
+}
+
+function publicPlayerResponseValid(response) {
+  if (!response?.success) return false;
+  return Boolean(response.player);
+}
+
+function applyPublicPlayerCard(response) {
+  const seat = state.selectedPlayer;
+  state.selectedPlayer = { ...seat, ...response.player, id: seat?.id || response.player.id, serverId: seat?.serverId || seat?.id, accountId: response.player.id };
+  state.selectedPlayerRelationship = response.relationship;
+  renderPlayerSurface();
 }
 
 function signinBodyHTML() {
@@ -312,7 +341,7 @@ export function renderSocialSurface(target = "#social-card") {
   const hero = socialHeroContext(social, pageSurface);
   const rail = socialRailContext(signedIn);
   const info = socialTableContext();
-  card.innerHTML = `<div class="${hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${hero.inboxCount}</strong></div></div>${hero.closeBtn}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${searchValue}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, social, count)}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
+  card.innerHTML = `<div class="${hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${hero.inboxCount}</strong></div></div>${hero.closeBtn}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${searchValue}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, social, count)}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
 }
 
 
@@ -322,6 +351,7 @@ export function openInGameSocialSurface(kind) {
     renderRankingsSurface("#rankings-card");
     openSurface("#rankings-modal", "#rankings-close");
     requestLeaderboardSnapshot("#rankings-card");
+    requestSeason("#rankings-card");
   } else if (kind === "social") {
     renderSocialSurface("#social-card");
     openSurface("#social-modal", "#social-close");
@@ -351,6 +381,51 @@ function clearLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
 }
 
+function seasonRowsFromResponse(response) {
+  return Array.isArray(response.rows) ? response.rows : [];
+}
+
+function seasonRewardsFromResponse(response) {
+  return Array.isArray(response.rewards) ? response.rewards : (response.season?.rewardTrack || []);
+}
+
+function seasonClaimsFromResponse(response) {
+  return Array.isArray(response.claimedRewardIds) ? response.claimedRewardIds : [];
+}
+
+function seasonStateFromResponse(response) {
+  return {
+    current: response.season || null,
+    metric: response.metric || state.season.metric,
+    rows: seasonRowsFromResponse(response),
+    rewards: seasonRewardsFromResponse(response),
+    claimedRewardIds: seasonClaimsFromResponse(response)
+  };
+}
+
+function applySeasonResponse(response) {
+  if (!response?.success) {
+    state.season.error = response?.error || "Season data is temporarily unavailable.";
+    return;
+  }
+  state.season.error = "";
+  Object.assign(state.season, seasonStateFromResponse(response));
+}
+
+function seasonAck(response, target) {
+  state.season.loading = false;
+  applySeasonResponse(response);
+  renderRankingsSurface(target);
+  if (target === "#rankings-page-content") focusRankingsPage();
+}
+
+export function requestSeason(target = "#rankings-page-content") {
+  state.season.loading = true;
+  state.season.error = "";
+  renderRankingsSurface(target);
+  host.emitServer("get-season", { metric: state.season.metric }, (response) => seasonAck(response, target));
+}
+
 function storeLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = "";
   state.leaderboard.snapshots = snapshot.metrics || {};
@@ -370,10 +445,40 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
   state.leaderboard.scope = normalizeRankingScope(scope);
   host.showView("rankings");
   renderRankingsSurface("#rankings-page-content");
+  focusRankingsPage();
   requestLeaderboardSnapshot("#rankings-page-content");
+  requestSeason("#rankings-page-content");
 }
 
-const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
+export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
+export const RANKING_ORDER = Object.keys(RANKING_LABELS);
+
+const RANKING_DESCRIPTIONS = {
+  wins: "Completed server rounds won. Ties are resolved by verified wins, then name.",
+  rate: "Verified win percentage. Five completed games are required before a rate ranks.",
+  games: "Completed server rounds. Preview, duplicate, abandoned, and bot-only games stay out.",
+  achievements: "Rarity-weighted achievement score earned across completed rounds.",
+  mythical: "Mythical achievements unlocked. These are announced server-wide when earned.",
+  bankruptcies: "Rounds survived without being the first wallet to break.",
+  events: "Global events survived, measured from server event outcomes.",
+  auctions: "Verified auctions won while keeping bids and settlements legal.",
+  rent: "Cash collected from property rent in completed rounds.",
+  casino: "Net fictional casino result. Wager volume never grants rank points.",
+  market: "Net fictional market result after disclosed fees and obligations.",
+  playerloans: "Player-to-player loan offers completed and settled.",
+  equity: "Equity deals completed with server-authoritative settlement.",
+  loans: "Loan obligations paid on time, including proactive repayments.",
+  patrol: "Best verified Patrol score from the home easter egg.",
+};
+
+function rankingDescription(metric) {
+  return RANKING_DESCRIPTIONS[metric] || "Verified server records only.";
+}
+
+function rankingPosition(metric) {
+  const index = Math.max(0, RANKING_ORDER.indexOf(metric));
+  return { index, label: `${String(index + 1).padStart(2, "0")} / ${String(RANKING_ORDER.length).padStart(2, "0")}` };
+}
 
 function rankingValueLabel(metric, value) {
   if (metric === "rate") return `${Number(value) || 0}%`;
@@ -381,23 +486,11 @@ function rankingValueLabel(metric, value) {
   return String(Number(value) || 0);
 }
 
-function rankingMetricColumnHTML(metric, rows) {
-  const label = RANKING_LABELS[metric];
-  const topRows = rows.slice(0, 3);
-  return `<section class="ranking-metric-column" aria-labelledby="ranking-column-${metric}"><div class="ranking-column-head"><div><span class="t-micro g400">${label}</span><strong class="t-label f12 g100" id="ranking-column-${metric}">${topRows.length ? `TOP ${topRows.length}` : "NO VERIFIED PLAYERS"}</strong></div><button class="btn-dark ranking-column-action" type="button" data-ranking-metric="${metric}" aria-label="View full ${label.toLowerCase()} ranking"><span class="t-label f11">VIEW</span></button></div><div class="ranking-column-list">${topRows.length ? topRows.map((row, index) => `<button class="ranking-mini-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-mini-place">${String(index + 1).padStart(2, "0")}</span><span class="ranking-mini-avatar">${avatarHTML(row, 2, index)}</span><span class="ranking-mini-name"><strong class="t-label f11 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)}</span></span><strong class="ranking-mini-value t-label f12 ${metric === "rate" ? "g300" : "green"}">${rankingValueLabel(metric, row.value)}</strong></button>`).join("") : `<span class="ranking-column-empty t-micro ink-3">NO VERIFIED DATA</span>`}</div></section>`;
-}
-
 function leaderboardCurrentRows(snapshots) {
   const rows = snapshots[state.leaderboard.metric];
   if (rows) return rows;
+  if (state.leaderboard.loading) return [];
   return state.leaderboard.rows || [];
-}
-
-function columnRows(snapshots, metric, currentRows) {
-  const rows = snapshots[metric];
-  if (rows) return rows;
-  if (metric === state.leaderboard.metric) return currentRows;
-  return [];
 }
 
 function rankingSelfBits(currentRows) {
@@ -440,10 +533,6 @@ function rankingsCloseButton(pageSurface) {
   return '<button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button>';
 }
 
-function metricsTabs() {
-  return Object.entries(RANKING_LABELS).map(([id, label]) => `<button class="ranking-metric${state.leaderboard.metric === id ? " is-active" : ""}" type="button" data-ranking-metric="${id}" aria-pressed="${state.leaderboard.metric === id}"><span class="t-label f11">${label}</span></button>`).join("");
-}
-
 function scopesTabs() {
   return [["all", "ALL TIME"], ["season", "THIS SEASON"], ["month", "30 DAYS"], ["friends", "FRIENDS"]].map(([id, label]) => `<button class="ranking-scope${state.leaderboard.scope === id ? " is-active" : ""}" type="button" data-ranking-scope="${id}" aria-pressed="${state.leaderboard.scope === id}"><span class="t-label f11">${label}</span></button>`).join("");
 }
@@ -460,6 +549,58 @@ return Array.isArray(state.rankingSearchResults) && state.rankingSearchResults.l
     : state.rankingSearchQuery ? `<span class="t-micro ink-3">NO EXACT USERNAME MATCH.</span>` : "";
 }
 
+function seasonDateLabel(value) {
+  if (!value) return "NO ACTIVE SEASON";
+  return String(value).slice(0, 10);
+}
+
+function seasonStatusPanelHTML() {
+  if (state.season.loading) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">LOADING VERIFIED SEASON…</p></section>`;
+  if (state.season.error) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(state.season.error)}</p></section>`;
+  if (!state.season.current) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
+  return "";
+}
+
+function seasonPlacementRows(rows) {
+  return rows.map((row, index) => `<div class="season-row"><span class="t-label f12 g300">${String(index + 1).padStart(2, "0")}</span><span class="season-row-name"><strong class="t-label f11 g100">${esc(row.displayName || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(row.username || "player")} · ${row.games || 0} GAMES</span></span><strong class="t-label f12 green">${row.points || 0}</strong></div>`).join("");
+}
+
+function seasonRewardThreshold(reward, track) {
+  return reward.track === "placement" ? `${Math.round(Number(reward.threshold || 0) * 100)}% PLACEMENT` : `${reward.threshold} ${track}`;
+}
+
+function seasonRewardAction(reward, claimed, signedIn) {
+  const rewardId = String(reward.id || "REWARD");
+  const isClaimed = claimed.has(rewardId);
+  return {
+    rewardId,
+    isClaimed,
+    label: isClaimed ? "CLAIMED" : signedIn ? "CLAIM" : "SIGN IN",
+    disabled: !signedIn || isClaimed
+  };
+}
+
+function seasonRewardRows(rewards, claimed, signedIn) {
+  return rewards.map(reward => {
+    const rewardId = String(reward.id || "REWARD");
+    const track = String(reward.track || "mastery").toUpperCase();
+    const action = seasonRewardAction(reward, claimed, signedIn);
+    const threshold = seasonRewardThreshold(reward, track);
+    const tokenCopy = reward.tokens ? ` · ${reward.tokens} TOKENS` : "";
+    return `<div class="season-reward${action.isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${tokenCopy}</span></div><button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${action.disabled ? "disabled" : ""}><span class="t-label f11">${action.label}</span></button></div>`;
+  }).join("");
+}
+
+function seasonPanelHTML(surfaceKey = "page") {
+  const status = seasonStatusPanelHTML();
+  if (status) return status;
+  const season = state.season.current;
+  const rows = seasonPlacementRows((state.season.rows || []).slice(0, 3));
+  const claimed = new Set(state.season.claimedRewardIds || []);
+  const rewards = seasonRewardRows(state.season.rewards || [], claimed, Boolean(state.account?.account));
+  return `<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div></div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
+}
+
 export function renderRankingsSurface(target = "#rankings-card") {
   const card = surfaceCard(target, "#rankings-card");
   if (!card) return;
@@ -471,19 +612,18 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const selfRank = self.selfRank;
   const selfTone = rankingSelfTone(self.selfRow);
   const selfStat = rankingSelfStat(self.selfRow);
-  const metrics = metricsTabs();
   const scopes = scopesTabs();
   const rows = ledgerRowsHTML(currentRows);
   const syncLabel = generatedLabel();
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
-  const dataWindow = state.leaderboard.scope === "season" ? "Current calendar-quarter season." : state.leaderboard.scope === "month" ? "Last 30 days of completed matches." : state.leaderboard.scope === "friends" ? "You and accepted friends only." : "All verified completed matches.";
-  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">A wide standings ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><section class="rankings-metric-deck" aria-label="Top players across every ranking">${Object.keys(RANKING_LABELS).map((metric) => rankingMetricColumnHTML(metric, columnRows(snapshots, metric, currentRows))).join("")}</section><div class="rankings-main-grid"><section class="rankings-ledger panel noise" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-ledger-head"><div><span class="t-micro g400">FULL PLAYER LEDGER</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3></div><span class="t-micro ink-3">SORTED DESCENDING · ${scopeLabel()}</span></div><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><div class="ranking-metrics" role="toolbar" aria-label="Primary ranking metric">${metrics}</div><div class="ranking-list thin-scroll">${rows}</div></section><aside class="rankings-context panel noise" aria-labelledby="rankings-${surfaceKey}-context-title"><div class="t-micro g400">HOW TO READ THE LEDGER</div><h3 class="t-section g100" id="rankings-${surfaceKey}-context-title">The table remembers</h3><p class="t-body ink-2">Only completed server rounds count. Win rate needs five completed games; achievement score uses rarity-weighted points. Rankings use verified server records only.</p><div class="rankings-context-list"><div><span class="t-micro ink-3">TIE BREAK</span><strong class="t-label f12 g100">WINS, THEN NAME</strong></div><div><span class="t-micro ink-3">PRIVACY</span><strong class="t-label f12 g100">PUBLIC STATS ONLY</strong></div><div><span class="t-micro ink-3">ECONOMY</span><strong class="t-label f12 g300">OPTIONAL ADD-ONS</strong></div></div><div class="rankings-context-foot"><span class="t-micro g400">DATA WINDOW</span><span class="t-body ink-2">${dataWindow}</span></div></aside></div></div>`;
+  const position = rankingPosition(state.leaderboard.metric);
+  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div><div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
   const rankingResults = rankingSearchResultsHTML();
   const rankingSearch = document.createElement("section");
   rankingSearch.className = "rankings-search-band panel noise";
-  rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="rankings-${surfaceKey}-search" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}"><span class="t-micro ink-3">Exact username lookup · public identity only</span></label><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="rankings-search-results">${rankingResults}</div></form>`;
-  card.querySelector(".rankings-hero")?.insertAdjacentElement("afterend", rankingSearch);
+  rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><div class="rankings-search-field"><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span></label><div class="rankings-search-controls"><input class="field" id="rankings-${surfaceKey}-search" name="ranking-username" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}" aria-describedby="rankings-${surfaceKey}-search-help"><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button></div><span class="t-micro ink-3" id="rankings-${surfaceKey}-search-help">Exact username lookup · public identity only</span></div><div class="rankings-search-results">${rankingResults}</div></form>`;
+  card.querySelector(".rankings-search-slot")?.replaceWith(rankingSearch);
 }
 
 const RULES_SECTIONS = [
@@ -584,7 +724,7 @@ const RULES_SECTIONS = [
     title: "Borrow only when the table can carry it",
     status: "LIVE",
     summary: "Player loans and bank loans are separate contracts. Both are recorded, visible, and resolved before a player can quietly spend beyond their means.",
-    content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, premium, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan, equity, or hybrid deal is a social contract recorded in the room history. Incoming deals can be negotiated from the Finance rail; the sender can adjust or cancel before acceptance.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">Elimination removes a busted player from the active turn order. Debt Deal mode can transfer assets and keep the player in the table when the room setting allows it.</p>`,
+    content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, premium, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan, equity, or hybrid deal is a social contract recorded in the room history. Incoming deals can be negotiated from the Deals rail; the sender can adjust or cancel before acceptance.</p><h3 class="t-section g300">Wallet &amp; items</h3><p class="t-body ink-2">Press Cash On Hand to open the Wallet &amp; Items workbench. Account and Items are two views of the same private round ledger, so closing the modal never accepts, sells, or cancels anything.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">Elimination removes a busted player from the active turn order. Debt Deal mode can transfer assets and keep the player in the table when the room setting allows it.</p>`,
   },
   {
     id: "global-events",
@@ -602,7 +742,7 @@ const RULES_SECTIONS = [
     title: "Optional systems, clearly marked",
     status: "LIVE",
     summary: "The Casino and fictional Market are optional, server-settled room add-ons. They use board money only and remain off in classic rooms.",
-    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. It uses fictional board money only. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. Players buy and sell without margin, shorting, options, or real-world securities. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems are OFF by default in classic rooms.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">OPTIONAL · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
+    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. It uses fictional board money only. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. BASIC supports buy and sell. MARGIN adds a maintenance obligation, SHORTING adds finite borrowable units and deterministic buy-ins, and DERIVATIVES adds fully collateralized calls and puts. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems are OFF by default in Classic rooms and enabled by default in After Hours.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">OPTIONAL · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
   },
   {
     id: "bots",
@@ -650,6 +790,20 @@ const RULES_SECTIONS = [
     content: `<h3 class="t-section g300">Reconnect</h3><p class="t-body ink-2">A reconnect receives the latest server snapshot, room membership, turn stage, open obligation, event banner, and player appearance. It does not replay settled cash or card transactions.</p><h3 class="t-section g300">Accessibility</h3><ul class="rules-bullets"><li>All actions use native buttons, links, inputs, or selects.</li><li>Focus rings remain visible and blocking surfaces manage keyboard focus.</li><li>State is not communicated by color alone. Labels, symbols, and status text accompany color.</li><li>Reduced-motion preferences disable decorative movement while preserving state changes.</li><li>Audio effects and music are independent, global toggles with accessible names.</li></ul>`,
   },
 ];
+
+// Expansion contract: keeping this chapter data-driven lets the Rules-book
+// explain new presets without adding another top-level navigation surface.
+RULES_SECTIONS.push({
+  id: "rulesets-market-seasons",
+  label: "RULESETS & SEASONS",
+  kicker: "19 · EXPANSION",
+  title: "Choose the table, then earn the record",
+  status: "LIVE",
+  summary: "A single rules engine supports Classic, After Hours, Custom, Metro 52, seasonal standings, and cosmetic rewards.",
+  content: `<h3 class="t-section g300">Presets</h3><ul class="rules-bullets"><li>Classic is the default Standard 40 table with optional Poorup economy systems off. Hosts can still enable any existing setting.</li><li>After Hours uses the same legality guards with bank loans, casino, market, and global events enabled by default.</li><li>Custom starts from a base preset and records every override. The lobby shows the count and offers RESET TO PRESET.</li><li>Metro 52 uses 13 spaces per side, corners at 0, 13, 26, and 39, and supports up to six seats. Grand 64 is reserved until it passes balance and accessibility gates.</li></ul><h3 class="t-section g300">Season rewards</h3><p class="t-body ink-2">Eight-week seasons score verified completed matches. Win rate needs five games; bot-only, preview, abandoned, duplicate, and AFK-only records do not qualify. Rank points never come from casino volume.</p><h3 class="t-section g300">Market complexity</h3><p class="t-body ink-2">Basic enables buy/sell indexes. Margin adds a maintenance obligation, Shorting adds finite borrowable units and deterministic buy-ins, and Derivatives adds fully collateralized calls and puts. Every tier uses the same server candidate list for humans and bots.</p>`
+});
+const marketRulesChapter = RULES_SECTIONS.find((section) => section.id === "casino-market");
+if (marketRulesChapter) marketRulesChapter.content = marketRulesChapter.content.replace("without margin, shorting, options, or real-world securities.", "with staged margin, shorting, and fully collateralized options when the host enables a higher Market Complexity tier; real-world securities remain excluded.");
 
 function rulesSectionById(id) {
   return RULES_SECTIONS.find((section) => section.id === id) || RULES_SECTIONS[0];
@@ -711,7 +865,8 @@ function rulesNextNav(next) {
 }
 
 function rulesArticleHTML(active, activeIndex, prevNav, nextNav) {
-  return `<article class="rules-book-page noise" aria-labelledby="rules-book-page-heading"><div class="rules-book-page-scroll thin-scroll" id="rules-book-page-scroll"><div class="rules-article-head"><div><span class="t-micro g400">${active.kicker}</span><h2 class="t-section g100" id="rules-book-page-heading" tabindex="-1">${active.title}</h2><p class="t-body ink-2 rules-article-summary">${active.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${active.status.toLowerCase()}">${active.status}</span><span class="t-micro ink-3">${String(activeIndex + 1).padStart(2, "0")} / ${String(RULES_SECTIONS.length).padStart(2, "0")}</span></div></div><div class="rules-article-body">${active.content}</div></div><footer class="rules-book-page-footer"><button class="btn-dark rules-page-turn" type="button" data-rules-section="${prevNav.id}" ${prevNav.disabled} aria-label="Previous chapter"><span aria-hidden="true">‹</span><span class="t-label f11">${prevNav.label}</span></button><span class="t-micro ink-3">CHAPTER ${String(activeIndex + 1).padStart(2, "0")} · FIELD MANUAL</span><button class="btn-dark rules-page-turn" type="button" data-rules-section="${nextNav.id}" ${nextNav.disabled} aria-label="Next chapter"><span class="t-label f11">${nextNav.label}</span><span aria-hidden="true">›</span></button></footer></article>`;
+  const activeContract = active.id === "board-tiles" && state.ruleset ? `<div class="rules-inline-note"><span class="t-micro g400">ACTIVE BOARD</span><span class="t-body ink-2">${esc(String(state.ruleset.boardVariant || state.boardVariant || "standard-40").toUpperCase())} · ${state.ruleset.boardVariant === "metro-52" ? "52 SPACES · 13 PER SIDE · CORNERS 0/13/26/39" : "40 SPACES · 10 PER SIDE · CORNERS 0/10/20/30"}</span></div>` : "";
+  return `<article class="rules-book-page noise" aria-labelledby="rules-book-page-heading"><div class="rules-book-page-scroll thin-scroll" id="rules-book-page-scroll"><div class="rules-article-head"><div><span class="t-micro g400">${active.kicker}</span><h2 class="t-section g100" id="rules-book-page-heading" tabindex="-1">${active.title}</h2><p class="t-body ink-2 rules-article-summary">${active.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${active.status.toLowerCase()}">${active.status}</span><span class="t-micro ink-3">${String(activeIndex + 1).padStart(2, "0")} / ${String(RULES_SECTIONS.length).padStart(2, "0")}</span></div></div>${activeContract}<div class="rules-article-body">${active.content}</div></div><footer class="rules-book-page-footer"><button class="btn-dark rules-page-turn" type="button" data-rules-section="${prevNav.id}" ${prevNav.disabled} aria-label="Previous chapter"><span aria-hidden="true">‹</span><span class="t-label f11">${prevNav.label}</span></button><span class="t-micro ink-3">CHAPTER ${String(activeIndex + 1).padStart(2, "0")} · FIELD MANUAL</span><button class="btn-dark rules-page-turn" type="button" data-rules-section="${nextNav.id}" ${nextNav.disabled} aria-label="Next chapter"><span aria-hidden="true">›</span><span class="t-label f11">${nextNav.label}</span></button></footer></article>`;
 }
 
 function rulesEmptyArticleHTML() {
@@ -747,10 +902,10 @@ export function renderRulesSurface(target = "#rules-page-content") {
   root.innerHTML = `<div class="rules-shell">
     <div class="rules-intro panel noise">
       <div class="rules-intro-icon"><img src="/assets/rules-book.svg" alt="" width="36" height="36"></div>
-      <div class="rules-intro-copy"><div class="t-micro g400">AFTER-HOURS FIELD MANUAL</div><h1 class="t-section g100" id="rules-page-title">Poorup Rules</h1><p class="t-body ink-2">A readable guide to the board, the economy, the people, and the systems that keep a table fair.</p></div>
+      <div class="rules-intro-copy"><div class="t-micro g400">AFTER-HOURS FIELD MANUAL</div><h1 class="t-section g100" id="rules-page-title">Poorup Rules</h1><p class="t-body ink-2">A readable guide to the board, the economy, the people, and the systems that keep a table fair.</p>${state.ruleset ? `<p class="t-micro rules-active-contract"><span class="g400">ACTIVE TABLE</span> · ${esc(String(state.ruleset.preset || "classic").toUpperCase())} · ${esc(String(state.ruleset.boardVariant || "standard-40").toUpperCase())} · ${Array.isArray(state.ruleset.overrides) ? state.ruleset.overrides.length : 0} OVERRIDES</p>` : ""}</div>
       <div class="rules-intro-meta"><span class="t-micro ink-3">REFERENCE BUILD</span><strong class="t-label f12 g100">v2.4 · LIVE CONTRACTS</strong></div>
     </div>
-    <div class="rules-toolbar panel noise" role="search"><label class="rules-search-label" for="rules-search"><span class="t-micro g400">FIND IN RULES</span><input class="field" id="rules-search" type="search" value="${searchValue}" placeholder="SEARCH THE FIELD MANUAL…" autocomplete="off"></label><span class="t-micro ink-3 rules-search-count" id="rules-search-count">${filteredSections.length} SECTIONS</span></div>
+    <div class="rules-toolbar panel noise" role="search"><label class="rules-search-label" for="rules-search"><span class="t-micro g400">FIND IN RULES</span><input class="field" id="rules-search" name="rules-query" type="search" value="${searchValue}" placeholder="SEARCH THE FIELD MANUAL…" autocomplete="off"></label><span class="t-micro ink-3 rules-search-count" id="rules-search-count">${filteredSections.length} SECTIONS</span></div>
     <div class="rules-book-spread">
       <aside class="rules-index panel noise" aria-label="Rules sections"><div class="rules-index-head"><span class="t-micro g400">CONTENTS</span><span class="t-micro ink-3">${RULES_SECTIONS.length} CHAPTERS</span></div><nav class="rules-index-nav" aria-label="Rules chapters">${RULES_SECTIONS.map((section, index) => `<button class="rules-index-link${indexLinkClasses(section, active, query)}" type="button" data-rules-section="${section.id}" aria-current="${indexAriaCurrent(section, active)}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span></button>`).join("")}</nav></aside>
       ${article}
@@ -770,7 +925,9 @@ export function openPlayerSurface(playerId) {
   state.selectedPlayerHistoryScope = "all";
   renderPlayerSurface();
   openSurface("#player-modal", "#player-modal-close");
-  if (state.selectedPlayer.accountId) {
+  if (state.selectedPlayer.accountLinked && state.selectedPlayer.roomPlayerId) {
+    host.emitServer("get-public-player-card", { roomPlayerId: state.selectedPlayer.roomPlayerId }, publicPlayerAck);
+  } else if (state.selectedPlayer.accountId) {
     host.emitServer("get-public-player-card", { accountId: state.selectedPlayer.accountId }, publicPlayerAck);
   }
 }
@@ -920,7 +1077,7 @@ function renderRecentMatches(card, player) {
 }
 
 function historyScopesHTML() {
-  return [["all", "ALL"], ["with-me", "WITH ME"], ["global", "GLOBAL EVENTS"]].map(([id, label]) => `<button class="player-history-scope${state.selectedPlayerHistoryScope === id ? " is-active" : ""}" type="button" data-player-history-scope="${id}" aria-pressed="${state.selectedPlayerHistoryScope === id}"><span class="t-label f11">${label}</span></button>`).join("");
+  return [["all", "ALL"], ["with-me", "WITH ME"], ["global", "GLOBAL EVENTS"]].map(([id, label]) => `<button class="player-history-scope${state.selectedPlayerHistoryScope === id ? " is-active" : ""}" type="button" role="tab" data-player-history-scope="${id}" aria-selected="${state.selectedPlayerHistoryScope === id}"><span class="t-label f11">${label}</span></button>`).join("");
 }
 
 function renderPlayerHistoryView(card, player) {
