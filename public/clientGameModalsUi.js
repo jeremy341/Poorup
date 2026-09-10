@@ -22,6 +22,7 @@ let host = {
   renderChat: noop,
   renderAll: noop,
   buyTile: noop,
+  openHoldings: noop,
   openTradeNegotiation: noop,
   openSponsorshipRequest: noop,
   startGame: noop,
@@ -175,7 +176,7 @@ function openOfferModal(offer) {
   });
 }
 
-function rejectOpenOffer() {
+function closeOfferWithoutResponse() {
   closeSurface("#offer-modal");
 }
 
@@ -255,14 +256,15 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
       </div>
       <p class="t-body ink-2 bank-copy">${esc(label)}. You're $${amount - p.cash} short. Sell houses and mortgage deeds — or hand everything to ${creditor ? esc(creditor.name) : "the bank"} and bow out.</p>
       <div class="bank-actions">
-        <button class="cta-red bank-btn" id="bank-liquidate"><span class="cta-text cta-text-sm">Liquidate & Pay</span></button>
+        <button class="btn-dark bank-btn" id="bank-liquidate"><span class="t-label f12">Open Holdings</span></button>
         <button class="btn-dark bank-btn" id="bank-declare"><span class="t-label f12">Declare Bankruptcy</span></button>
       </div>
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-liquidate");
   $("#bank-liquidate").addEventListener("click", () => {
     closeSurface("#bankruptcy-modal");
-      host.say("Use Holdings to sell houses or mortgage deeds, then the debt will settle automatically.");
+      host.openHoldings();
+      host.say("Holdings is open. Sell houses or mortgage deeds, then return here to settle the debt.");
       host.renderChat();
       return;
   });
@@ -382,4 +384,4 @@ export function bindGameModalSurfaces() {
   $("#card-gallery .card-gallery-scrim")?.addEventListener("click", closeCardGallery);
 }
 
-export { openChoiceModal, openCardReveal, openOfferModal, openBankruptcyModal, showGameOver, closeChoiceModalAsPass, rejectOpenOffer, openCardGallery, closeCardGallery, openCardPreviewFromUrl };
+export { openChoiceModal, openCardReveal, openOfferModal, openBankruptcyModal, showGameOver, closeChoiceModalAsPass, closeOfferWithoutResponse, openCardGallery, closeCardGallery, openCardPreviewFromUrl };

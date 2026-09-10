@@ -646,17 +646,17 @@ export function requireGuestAlias() {
 
 function swatchHTML(c, d) {
   const active = c.toLowerCase() === d.color.toLowerCase();
-  return `<button type="button" class="profile-swatch${active ? " is-active" : ""}" style="background:${c}" data-color="${c}" title="${c}"></button>`;
+  return `<button type="button" class="profile-swatch${active ? " is-active" : ""}" style="background:${c}" data-color="${c}" title="${c}" aria-label="Player color ${c}" aria-pressed="${active}"></button>`;
 }
 
 function faceSwatchHTML(c, d) {
   const active = d.tool === "paint" && c.toLowerCase() === d.paintColor.toLowerCase();
-  return `<button type="button" class="face-swatch${active ? " is-active" : ""}" style="background:${c}" data-ink="${c}" title="${c}"></button>`;
+  return `<button type="button" class="face-swatch${active ? " is-active" : ""}" style="background:${c}" data-ink="${c}" title="${c}" aria-label="Paint color ${c}" aria-pressed="${active}"></button>`;
 }
 
 function faceCellHTML(c, x, y) {
   const style = c ? `background-color:${c};background-image:none` : "";
-  return `<span class="face-cell" data-x="${x}" data-y="${y}" style="${style}"></span>`;
+  return `<button type="button" class="face-cell" data-x="${x}" data-y="${y}" style="${style}" aria-label="Paint pixel row ${y + 1} column ${x + 1}"></button>`;
 }
 
 export function renderProfileEditor() {

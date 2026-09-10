@@ -12,6 +12,11 @@ const DEFAULT_FILE = path.join(__dirname, 'data', 'seasons.json');
 const SEASON_LENGTH_MS = 8 * 7 * 24 * 60 * 60 * 1000;
 const PARTICIPATION_CAP = 10;
 const WIN_RATE_MINIMUM = 5;
+export const SEASON_METRICS = Object.freeze([
+  'wins', 'games', 'rate', 'achievements', 'mythical', 'bankruptcies',
+  'events', 'auctions', 'rent', 'casino', 'market', 'playerloans',
+  'equity', 'loans', 'patrol'
+]);
 
 const REWARD_TRACK = Object.freeze([
   { id: 'season-bronze', track: 'placement', threshold: 0.50, cosmeticId: 'frame-copper', tokens: 40 },
@@ -100,16 +105,33 @@ function normalizeSeason(source) {
   return season.id ? season : null;
 }
 
+function nonNegativeInt(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function numericValue(value) {
+  return Number(value) || 0;
+}
+
 function normalizeStanding(row = {}) {
   return {
-    games: Math.max(0, Math.floor(Number(row.games) || 0)),
-    wins: Math.max(0, Math.floor(Number(row.wins) || 0)),
-    points: Math.max(0, Math.floor(Number(row.points) || 0)),
-    participation: Math.max(0, Math.floor(Number(row.participation) || 0)),
-    mastery: Math.max(0, Math.floor(Number(row.mastery) || 0)),
-    fairTrades: Math.max(0, Math.floor(Number(row.fairTrades) || 0)),
-    eventSurvival: Math.max(0, Math.floor(Number(row.eventSurvival) || 0)),
-    debtDiscipline: Math.max(0, Math.floor(Number(row.debtDiscipline) || 0)),
+    games: nonNegativeInt(row.games),
+    wins: nonNegativeInt(row.wins),
+    points: nonNegativeInt(row.points),
+    participation: nonNegativeInt(row.participation),
+    mastery: nonNegativeInt(row.mastery),
+    fairTrades: nonNegativeInt(row.fairTrades),
+    eventSurvival: nonNegativeInt(row.eventSurvival),
+    debtDiscipline: nonNegativeInt(row.debtDiscipline),
+    mythical: nonNegativeInt(row.mythical),
+    bankruptcies: nonNegativeInt(row.bankruptcies),
+    auctionWins: nonNegativeInt(row.auctionWins),
+    rentCollected: nonNegativeInt(row.rentCollected),
+    casinoNet: numericValue(row.casinoNet),
+    marketProfit: numericValue(row.marketProfit),
+    playerLoansGiven: nonNegativeInt(row.playerLoansGiven),
+    equityDeals: nonNegativeInt(row.equityDeals),
+    patrolBest: nonNegativeInt(row.patrolBest),
     lastMatchAt: typeof row.lastMatchAt === 'string' ? row.lastMatchAt : null
   };
 }
@@ -130,8 +152,39 @@ function participantPoints(participant) {
   return placementPoints + eventPoints + tradePoints + debtPoints;
 }
 
-function updateStanding(row, participant, completedAt) {
+function contractMetric(record, accountId, predicate) {
+  return (record?.playerContracts || []).filter(contract => predicate(contract, accountId)).length;
+}
+
+function marketProfitMetric(record, accountId) {
+  const entry = (record?.market || []).find(item => item.accountId === accountId);
+  return Object.values(entry?.positions || {}).reduce((sum, position) => sum + (Number(position?.realizedPnl) || 0), 0);
+}
+
+export function seasonMetricValue(metric, row = {}) {
+  const values = {
+    wins: row.wins,
+    games: row.games,
+    rate: row.rate == null ? null : Math.round(row.rate * 100),
+    achievements: row.mastery,
+    mythical: row.mythical,
+    bankruptcies: row.bankruptcies,
+    events: row.eventSurvival,
+    auctions: row.auctionWins,
+    rent: row.rentCollected,
+    casino: row.casinoNet,
+    market: row.marketProfit,
+    playerloans: row.playerLoansGiven,
+    equity: row.equityDeals,
+    loans: row.debtDiscipline,
+    patrol: row.patrolBest
+  };
+  return Object.prototype.hasOwnProperty.call(values, metric) ? values[metric] : row.points;
+}
+
+function updateStanding(row, participant, completedAt, record) {
   const next = normalizeStanding(row);
+  const accountId = safeAccountId(participant.accountId);
   const placement = Number(participant.finalPlacement);
   next.games += 1;
   next.wins += placement === 1 ? 1 : 0;
@@ -141,20 +194,30 @@ function updateStanding(row, participant, completedAt) {
   next.eventSurvival += Math.max(0, Math.floor(Number(participant.globalEventsSurvived) || 0));
   next.debtDiscipline += participant.bankLoanStatus === 'paid' ? 1 : 0;
   next.mastery += Math.min(100, next.eventSurvival * 4 + next.fairTrades * 3 + next.debtDiscipline * 6);
+  next.mythical += participant.mythicalUnlocked === true ? 1 : 0;
+  next.bankruptcies += participant.bankrupt === true ? 1 : 0;
+  next.auctionWins += Math.max(0, Math.floor(Number(participant.auctionWins) || 0));
+  next.rentCollected += Math.max(0, Math.floor(Number(participant.rentCollected) || 0));
+  const casino = (record?.casino || []).find(item => item.accountId === accountId);
+  next.casinoNet += Number(casino?.net) || Number(participant.casinoNet) || 0;
+  next.marketProfit += marketProfitMetric(record, accountId);
+  next.playerLoansGiven += contractMetric(record, accountId, (contract, id) => contract.fromAccountId === id && (contract.kind === 'loan' || (contract.kind === 'hybrid' && contract.status !== 'converted')));
+  next.equityDeals += contractMetric(record, accountId, (contract, id) => (contract.kind === 'equity' || (contract.kind === 'hybrid' && contract.status === 'converted')) && (contract.fromAccountId === id || contract.toAccountId === id));
   next.lastMatchAt = completedAt;
   return next;
 }
 
 function sortStandings(season, metric = 'points') {
   const rows = Object.entries(season.standings).map(([accountId, row]) => ({ accountId, ...normalizeStanding(row) }));
-  const key = metric === 'wins' ? 'wins' : metric === 'rate' ? 'rate' : metric === 'mastery' ? 'mastery' : 'points';
   rows.forEach(row => { row.rate = row.games >= WIN_RATE_MINIMUM ? row.wins / row.games : null; });
   rows.sort((a, b) => {
-    const av = a[key] == null ? -1 : a[key];
-    const bv = b[key] == null ? -1 : b[key];
+    const avRaw = seasonMetricValue(metric, a);
+    const bvRaw = seasonMetricValue(metric, b);
+    const av = avRaw == null ? -1 : avRaw;
+    const bv = bvRaw == null ? -1 : bvRaw;
     return bv - av || b.points - a.points || a.accountId.localeCompare(b.accountId);
   });
-  return rows.map((row, index) => ({ ...row, rank: index + 1, percentile: rows.length ? (rows.length - index) / rows.length : 0 }));
+  return rows.map((row, index) => ({ ...row, value: seasonMetricValue(metric, row), rank: index + 1, percentile: rows.length ? (rows.length - index) / rows.length : 0 }));
 }
 
 export class SeasonStore {
@@ -209,7 +272,7 @@ export class SeasonStore {
     record.participants.forEach(participant => {
       const accountId = safeAccountId(participant.accountId);
       if (!accountId) return;
-      season.standings[accountId] = updateStanding(season.standings[accountId], participant, completedAt);
+      season.standings[accountId] = updateStanding(season.standings[accountId], participant, completedAt, record);
     });
     this.persist();
     return { success: true, recorded: true, season: clone(season) };
@@ -231,8 +294,8 @@ export class SeasonStore {
 
   claimReward(accountId, rewardId, now = Date.now()) {
     const id = safeAccountId(accountId);
-    const reward = REWARD_TRACK.find(item => item.id === rewardId);
     const season = this.ensureCurrent(now);
+    const reward = season.rewardTrack.find(item => item.id === rewardId);
     if (!id || !reward) return { success: false, error: 'Season reward is unavailable.' };
     const claims = season.claims[id] || [];
     if (claims.includes(reward.id)) return { success: true, created: false, reward: { ...reward }, season: clone(season) };

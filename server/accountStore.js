@@ -454,6 +454,21 @@ export class AccountStore {
     return username ? this.accounts.get(username) || null : null;
   }
 
+  sessionTokenHashFor(sessionToken) {
+    if (typeof sessionToken !== 'string' || !sessionToken) return null;
+    const hash = hashSessionToken(sessionToken);
+    return this.sessionHashes.has(hash) ? hash : null;
+  }
+
+  accountForSessionHash(tokenHash, expectedAccountId = null) {
+    if (typeof tokenHash !== 'string' || !tokenHash) return null;
+    const username = this.sessionHashes.get(tokenHash);
+    const account = username ? this.accounts.get(username) || null : null;
+    if (!account) return null;
+    if (expectedAccountId && account.id !== expectedAccountId) return null;
+    return account;
+  }
+
   issueSession(account) {
     revokeLiveSessions(this, account.username);
     // Remove every persisted hash for this account, not only the latest field
@@ -599,6 +614,17 @@ export class AccountStore {
     account.achievements = [entry, ...entries].slice(0, 100);
     this.persist();
     return { success: true, created: true, achievement: entry };
+  }
+
+  removeAchievement(accountId, achievementId) {
+    const account = [...this.accounts.values()].find((candidate) => candidate.id === accountId);
+    if (!account || typeof achievementId !== 'string') return false;
+    const entries = Array.isArray(account.achievements) ? account.achievements : [];
+    const next = entries.filter(entry => entry?.id !== achievementId);
+    if (next.length === entries.length) return false;
+    account.achievements = next;
+    this.persist();
+    return true;
   }
 
   recordPatrolResult(accountId, { score = 0, misses = 0 } = {}) {

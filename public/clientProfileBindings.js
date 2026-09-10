@@ -33,7 +33,7 @@ import { setActiveAppearance, renderSetup, renderLobbyRail, leaveRoomForHome } f
 import { closeRoomsModal, renderHome } from "./clientRoomsUi.js";
 import { handleCosmeticClick, requestCosmetics } from "./clientCosmetics.js";
 
-let host = { showView: noop, emitServer: noop };
+let host = { showView: noop, emitServer: noop, notice: noop };
 
 function noop() {}
 
@@ -95,6 +95,7 @@ function openProfileEditor(fromPhase, profileId) {
   renderProfileLibrary();
   host.showView("profile");
   setProfileTab(state.profileTab);
+  requestAnimationFrame(() => $("#profile-hero-name")?.focus({ preventScroll: true }));
 }
 
 function announceProfileSave(message) {
@@ -227,7 +228,7 @@ function onProfileHeroAccountClick(event) {
 
 function onPlNewClick() {
   if (state.profiles.length >= MAX_PROFILES) {
-    alert(`You can only save up to ${MAX_PROFILES} custom designs. Delete one to make room.`);
+    host.notice(`You can only save up to ${MAX_PROFILES} custom designs. Delete one to make room.`);
     return;
   }
   openProfileEditor("home");
@@ -287,6 +288,35 @@ function onFaceMouseDown(e) {
 }
 
 function onFaceMouseOver(e) {
+  if (!isPainting) return;
+  const cell = e.target.closest(".face-cell");
+  if (!cell) return;
+  paintFaceCell(Number(cell.dataset.x), Number(cell.dataset.y));
+}
+
+function onFaceCellClick(e) {
+  const cell = e.target.closest(".face-cell");
+  if (!cell) return;
+  paintFaceCell(Number(cell.dataset.x), Number(cell.dataset.y));
+}
+
+function onFaceCellKeydown(e) {
+  const cell = e.target.closest(".face-cell");
+  if (!cell) return;
+  if (e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  paintFaceCell(Number(cell.dataset.x), Number(cell.dataset.y));
+}
+
+function onFacePointerDown(e) {
+  const cell = e.target.closest(".face-cell");
+  if (!cell) return;
+  isPainting = true;
+  cell.setPointerCapture?.(e.pointerId);
+  paintFaceCell(Number(cell.dataset.x), Number(cell.dataset.y));
+}
+
+function onFacePointerMove(e) {
   if (!isPainting) return;
   const cell = e.target.closest(".face-cell");
   if (!cell) return;
@@ -355,7 +385,12 @@ export function bindProfileUi() {
   const faceCanvasEl = $("#face-canvas");
   faceCanvasEl?.addEventListener("mousedown", onFaceMouseDown);
   faceCanvasEl?.addEventListener("mouseover", onFaceMouseOver);
+  faceCanvasEl?.addEventListener("click", onFaceCellClick);
+  faceCanvasEl?.addEventListener("keydown", onFaceCellKeydown);
+  faceCanvasEl?.addEventListener("pointerdown", onFacePointerDown);
+  faceCanvasEl?.addEventListener("pointermove", onFacePointerMove);
   window.addEventListener("mouseup", () => { isPainting = false; });
+  window.addEventListener("pointerup", () => { isPainting = false; });
   faceCanvasEl?.addEventListener("dragstart", (e) => e.preventDefault());
 
   // profile editor — ink palette + tools
