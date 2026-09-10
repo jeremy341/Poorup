@@ -45,20 +45,66 @@ export function renderCollection(target = '#profile-collection-content') {
   const root = $(target);
   if (!root) return;
   const data = state.cosmetics || {};
-  if (data.loading) { root.innerHTML = '<p class="t-body ink-3 collection-empty">LOADING COLLECTION…</p>'; return; }
-  if (data.error) { root.innerHTML = `<div class="collection-empty"><span class="t-micro g400">COLLECTION LOCKED</span><p class="t-body ink-2">${esc(data.error)}</p></div>`; return; }
-  const owned = new Set(data.owned || []);
-  const catalog = Array.isArray(data.catalog) ? data.catalog : [];
-  const count = $('#profile-collection-count');
-  if (count) count.textContent = String(owned.size);
-  if (!catalog.length) { root.innerHTML = '<div class="collection-empty"><span class="t-micro g400">NO COSMETICS SYNCED</span><p class="t-body ink-2">Sign in to earn Parlor Tokens and keep your visual collection between tables.</p></div>'; return; }
-  const preview = catalog.find(item => item.id === state.cosmeticPreviewId) || null;
-  const previewOwned = preview ? owned.has(preview.id) : false;
-  const previewEquipped = preview ? Object.values(data.equipped || {}).includes(preview.id) : false;
-  root.innerHTML = `<div class="collection-toolbar"><div><span class="t-micro g400">PARLOR TOKENS</span><strong class="t-label f20 g300">${Number(data.tokens || 0).toLocaleString()}</strong></div><span class="t-micro ink-3">${owned.size}/${catalog.length} OWNED · COSMETICS NEVER CHANGE GAMEPLAY</span></div>${previewHTML(preview, previewOwned, previewEquipped)}<div class="collection-grid">${catalog.map(item => { const isOwned = owned.has(item.id); const equipped = Object.values(data.equipped || {}).includes(item.id); const paid = Number(item.cost || 0) > 0; const action = isOwned ? `<button class="btn-dark" type="button" data-cosmetic-equip="${esc(item.id)}" data-cosmetic-slot="${esc(item.type || '')}"><span class="t-label f11">${equipped ? 'EQUIPPED' : 'EQUIP'}</span></button>` : paid ? `<button class="btn-dark" type="button" data-cosmetic-claim="${esc(item.id)}" ${Number(data.tokens || 0) < item.cost ? 'disabled' : ''}><span class="t-label f11">CLAIM</span></button>` : `<button class="btn-dark" type="button" disabled title="Earn this item from a verified season reward"><span class="t-label f11">EARN</span></button>`; return `<article class="${cosmeticClass(item, isOwned)}"><div class="collection-item-head">${itemGlyph(item)}<span class="rarity-label">${esc(item.rarity || 'COMMON')}</span></div><strong class="t-label f12 g100">${esc(item.name || item.id)}</strong><p class="t-micro ink-3">${esc(item.description || '')}</p><div class="collection-item-foot"><button class="btn-dark" type="button" data-cosmetic-preview="${esc(item.id)}"><span class="t-label f11">DETAILS</span></button><span class="t-micro ${isOwned ? 'green' : 'g300'}">${equipped ? 'EQUIPPED' : isOwned ? 'OWNED' : paid ? `${item.cost} TOKENS` : 'SEASON REWARD'}</span>${action}</div></article>`; }).join('')}</div>`;
+  renderCollectionContent(root, data);
 }
 
-export function handleCosmeticClick(event, target = '#profile-collection-content') {
+function renderCollectionContent(root, data) {
+  const status = collectionStatusHTML(data);
+  if (status) { root.innerHTML = status; return; }
+  const owned = new Set(data.owned || []);
+  const catalog = Array.isArray(data.catalog) ? data.catalog : [];
+  updateCollectionCount(owned);
+  root.innerHTML = collectionCatalogHTML({ data, owned, catalog, ...collectionPreviewState(data, catalog, owned) });
+}
+
+function updateCollectionCount(owned) {
+  const count = $('#profile-collection-count');
+  if (count) count.textContent = String(owned.size);
+}
+
+function collectionPreviewState(data, catalog, owned) {
+  const preview = catalog.find(item => item.id === state.cosmeticPreviewId) || null;
+  return {
+    preview,
+    previewOwned: Boolean(preview && owned.has(preview.id)),
+    previewEquipped: Boolean(preview && Object.values(data.equipped || {}).includes(preview.id))
+  };
+}
+
+function collectionStatusHTML(data) {
+  if (data.loading) return '<p class="t-body ink-3 collection-empty">LOADING COLLECTION…</p>';
+  if (data.error) return `<div class="collection-empty"><span class="t-micro g400">COLLECTION LOCKED</span><p class="t-body ink-2">${esc(data.error)}</p></div>`;
+  return '';
+}
+
+function collectionEmptyHTML() {
+  return '<div class="collection-empty"><span class="t-micro g400">NO COSMETICS SYNCED</span><p class="t-body ink-2">Sign in to earn Parlor Tokens and keep your visual collection between tables.</p></div>';
+}
+
+function cosmeticActionHTML(item, isOwned, equipped, tokens) {
+  if (isOwned) return `<button class="btn-dark" type="button" data-cosmetic-equip="${esc(item.id)}" data-cosmetic-slot="${esc(item.type || '')}"><span class="t-label f11">${equipped ? 'EQUIPPED' : 'EQUIP'}</span></button>`;
+  if (Number(item.cost || 0) > 0) return `<button class="btn-dark" type="button" data-cosmetic-claim="${esc(item.id)}" ${tokens < item.cost ? 'disabled' : ''}><span class="t-label f11">CLAIM</span></button>`;
+  return '<button class="btn-dark" type="button" disabled title="Earn this item from a verified season reward"><span class="t-label f11">EARN</span></button>';
+}
+
+function collectionItemHTML(item, owned, equippedIds, tokens) {
+  const isOwned = owned.has(item.id);
+  const equipped = equippedIds.has(item.id);
+  const paid = Number(item.cost || 0) > 0;
+  const action = cosmeticActionHTML(item, isOwned, equipped, tokens);
+  const status = equipped ? 'EQUIPPED' : isOwned ? 'OWNED' : paid ? `${item.cost} TOKENS` : 'SEASON REWARD';
+  return `<article class="${cosmeticClass(item, isOwned)}"><div class="collection-item-head">${itemGlyph(item)}<span class="rarity-label">${esc(item.rarity || 'COMMON')}</span></div><strong class="t-label f12 g100">${esc(item.name || item.id)}</strong><p class="t-micro ink-3">${esc(item.description || '')}</p><div class="collection-item-foot"><button class="btn-dark" type="button" data-cosmetic-preview="${esc(item.id)}"><span class="t-label f11">DETAILS</span></button><span class="t-micro ${isOwned ? 'green' : 'g300'}">${status}</span>${action}</div></article>`;
+}
+
+function collectionCatalogHTML({ data, owned, catalog, preview, previewOwned, previewEquipped }) {
+  if (!catalog.length) return collectionEmptyHTML();
+  const equippedIds = new Set(Object.values(data.equipped || {}));
+  const tokens = Number(data.tokens || 0);
+  const grid = catalog.map(item => collectionItemHTML(item, owned, equippedIds, tokens)).join('');
+  return `<div class="collection-toolbar"><div><span class="t-micro g400">PARLOR TOKENS</span><strong class="t-label f20 g300">${tokens.toLocaleString()}</strong></div><span class="t-micro ink-3">${owned.size}/${catalog.length} OWNED · COSMETICS NEVER CHANGE GAMEPLAY</span></div>${previewHTML(preview, previewOwned, previewEquipped)}<div class="collection-grid">${grid}</div>`;
+}
+
+function cosmeticPreviewAction(event, target) {
   const closePreview = event.target.closest('[data-cosmetic-preview-close]');
   if (closePreview) {
     state.cosmeticPreviewId = null;
@@ -71,16 +117,35 @@ export function handleCosmeticClick(event, target = '#profile-collection-content
     renderCollection(target);
     return true;
   }
+  return false;
+}
+
+function cosmeticMutationTarget(event) {
   const claim = event.target.closest('[data-cosmetic-claim]');
   const equip = event.target.closest('[data-cosmetic-equip]');
-  if (!claim && !equip) return false;
-  const id = (claim || equip).dataset.cosmeticClaim || (claim || equip).dataset.cosmeticEquip;
-  const eventName = claim ? 'claim-cosmetic' : 'equip-cosmetic';
-  const payload = claim ? { cosmeticId: id, claimKey: `shop:${id}` } : { cosmeticId: id, slot: (equip || {}).dataset?.cosmeticSlot };
+  if (!claim && !equip) return null;
+  const source = claim || equip;
+  const id = claim ? claim.dataset.cosmeticClaim : equip.dataset.cosmeticEquip;
+  return {
+    id,
+    eventName: claim ? 'claim-cosmetic' : 'equip-cosmetic',
+    payload: claim ? { cosmeticId: id, claimKey: `shop:${id}` } : { cosmeticId: id, slot: source.dataset?.cosmeticSlot }
+  };
+}
+
+function submitCosmeticMutation(action, target) {
+  const { eventName, payload } = action;
   host.emitServer(eventName, payload, response => {
     if (!response?.success) host.announce(response?.error || 'Cosmetic action could not be completed.');
     else state.cosmetics = { ...state.cosmetics, ...(response.snapshot || {}) };
     renderCollection(target);
   });
+}
+
+export function handleCosmeticClick(event, target = '#profile-collection-content') {
+  if (cosmeticPreviewAction(event, target)) return true;
+  const action = cosmeticMutationTarget(event);
+  if (!action) return false;
+  submitCosmeticMutation(action, target);
   return true;
 }

@@ -12,33 +12,49 @@ function defaults() {
   return { players: true, chat: true, rightRail: true, hud: "full" };
 }
 
-function visibility() {
-  if (!state.panelVisibilityLoaded) {
-    try {
-      const saved = JSON.parse(localStorage.getItem(PANEL_PREF_KEY) || "null");
-      if (saved && typeof saved === "object") state.panelVisibility = { ...state.panelVisibility, ...saved };
-    } catch { /* storage unavailable or malformed; use safe defaults */ }
-    state.panelVisibilityLoaded = true;
-  }
+function loadSavedVisibility() {
+  if (state.panelVisibilityLoaded) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(PANEL_PREF_KEY) || "null");
+    if (saved && typeof saved === "object") state.panelVisibility = { ...state.panelVisibility, ...saved };
+  } catch { /* storage unavailable or malformed; use safe defaults */ }
+  state.panelVisibilityLoaded = true;
+}
+
+function normalizeVisibility() {
   state.panelVisibility = { ...defaults(), ...(state.panelVisibility || {}) };
   if (!["full", "compact"].includes(state.panelVisibility.hud)) state.panelVisibility.hud = "full";
   if (!state.panelVisibility.players && !state.panelVisibility.chat) state.panelVisibility.chat = true;
   return state.panelVisibility;
 }
 
-function persistVisibility() {
-  try { localStorage.setItem(PANEL_PREF_KEY, JSON.stringify(visibility())); } catch { /* storage unavailable */ }
+function visibility() {
+  loadSavedVisibility();
+  return normalizeVisibility();
 }
 
-export function applyPanelVisibility() {
-  const next = visibility();
+function applyLeftRailClasses(next) {
   $(".rail-left")?.classList.toggle("is-panel-hidden", !next.players && !next.chat);
   $(".rail-left")?.classList.toggle("is-players-hidden", !next.players);
   $(".rail-left")?.classList.toggle("is-chat-hidden", !next.chat);
-  $("#right-rail-game")?.classList.toggle("is-panel-hidden", !next.rightRail);
   $("#view-game")?.classList.toggle("is-left-rail-hidden", !next.players && !next.chat);
+}
+
+function applyRightRailClasses(next) {
+  $("#right-rail-game")?.classList.toggle("is-panel-hidden", !next.rightRail);
   $("#view-game")?.classList.toggle("is-right-rail-hidden", !next.rightRail);
+}
+
+function applyRailClasses(next) {
+  applyLeftRailClasses(next);
+  applyRightRailClasses(next);
+}
+
+function applyHudDensity(next) {
   $("#hud")?.classList.toggle("is-compact", next.hud === "compact");
+}
+
+function syncPanelControls(next) {
   const players = $("[data-panel-toggle=players]");
   const chat = $("[data-panel-toggle=chat]");
   const rightRail = $("[data-panel-toggle=rightRail]");
@@ -47,6 +63,17 @@ export function applyPanelVisibility() {
   if (rightRail) rightRail.checked = next.rightRail;
   const density = $("#panel-hud-density");
   if (density) density.value = next.hud;
+}
+
+export function applyPanelVisibility() {
+  const next = visibility();
+  applyRailClasses(next);
+  applyHudDensity(next);
+  syncPanelControls(next);
+}
+
+function persistVisibility() {
+  try { localStorage.setItem(PANEL_PREF_KEY, JSON.stringify(visibility())); } catch { /* storage unavailable */ }
 }
 
 export function renderPanelMenu() {
