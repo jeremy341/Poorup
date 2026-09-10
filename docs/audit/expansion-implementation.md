@@ -42,7 +42,7 @@ the compatibility path; new surfaces are additive.
 
 The find-skills pass confirmed the local catalog already covered the needed
 frontend, motion, accessibility, testing, and architecture work, so no extra
-skill package was installed. 
+skill package was installed.
 Architecture and code-review guidance kept the implementation as a modular
 monolith with pure registries and server-authoritative writes. Systematic
 debugging and TDD were applied through focused registry, market, season,
