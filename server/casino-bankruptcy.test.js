@@ -193,6 +193,10 @@ check('casino — red win pays 1:1 with exact ledger, stats, and feed', () => {
   assert.equal(result.result.stake, 100);
   assert.equal(result.result.net, 100);
   assert.equal(result.result.balanceAfter, 1600);
+  assert.equal(typeof result.result.spinId, 'string');
+  assert.equal(result.result.presentation.targetIndex, 32);
+  assert.equal(result.result.presentation.durationMs, 4200);
+  assert.equal(result.result.presentation.revealDeadline > Date.now(), true);
   assert.equal(player.cash, 1600);
   assert.equal(player.casinoNet, 100);
   assert.equal(player.casinoMaxStake, 100);
@@ -466,6 +470,22 @@ check('a solvent player repays an unsecured default in full without a claim', ()
   assert.equal(b.cash, 200);
   assert.equal(game.pendingPayment, null);
   assert.ok(feedTexts(room).includes('B paid the bank $300 on default.'));
+});
+
+check('collateralized bank default clears the settled balance', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  b.properties.push(deed.index);
+  b.cash = 0;
+  b.bankLoan = { status: 'due', remaining: 300, collateralTileIndex: deed.index, dueRound: 1, cureRound: 1 };
+  game.roundNumber = 3;
+  game.processBankLoans();
+  assert.equal(b.bankLoan.status, 'defaulted');
+  assert.equal(b.bankLoan.remaining, 0);
+  assert.equal(deed.ownerId, null);
 });
 
 check('bank loan final-cure achievement fact requires a successful full repayment', () => {

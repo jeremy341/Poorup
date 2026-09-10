@@ -152,22 +152,22 @@ async function testListPublicRooms() {
   botOnly.game.removePlayerByClient('client-b');
   botOnly.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT 1', isBot: true });
   const privateRoom = manager.createRoom({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C', visibility: 'private' });
-  let codes = manager.listPublicRooms().map(entry => entry.code);
-  assert.equal(codes.includes(human.roomCode), true);
-  assert.equal(codes.includes(botOnly.roomCode), false);
-  assert.equal(codes.includes(privateRoom.roomCode), false);
+  let listings = manager.listPublicRooms();
+  assert.equal(listings.some(entry => entry.roomId === human.publicId && entry.code === null), true);
+  assert.equal(listings.some(entry => entry.roomId === botOnly.publicId), false);
+  assert.equal(listings.some(entry => entry.roomId === privateRoom.publicId), false);
   // Ghost rooms (human disconnected) vanish from the directory and return on reconnect.
   playerOf(human, 'client-a').disconnected = true;
-  codes = manager.listPublicRooms().map(entry => entry.code);
-  assert.equal(codes.includes(human.roomCode), false);
+  listings = manager.listPublicRooms();
+  assert.equal(listings.some(entry => entry.roomId === human.publicId), false);
   playerOf(human, 'client-a').disconnected = false;
-  codes = manager.listPublicRooms().map(entry => entry.code);
-  assert.equal(codes.includes(human.roomCode), true);
+  listings = manager.listPublicRooms();
+  assert.equal(listings.some(entry => entry.roomId === human.publicId && entry.code === null), true);
   // Bots still count toward directory seats.
   const mixed = new RoomManager();
   const seatRoom = mixed.createRoom({ socketId: 'socket-d', clientId: 'client-d', nickname: 'D' });
   seatRoom.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT 1', isBot: true });
-  const listing = mixed.listPublicRooms().find(entry => entry.code === seatRoom.roomCode);
+  const listing = mixed.listPublicRooms().find(entry => entry.roomId === seatRoom.publicId);
   assert.ok(listing);
   assert.equal(listing.seats, 2);
 }

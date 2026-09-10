@@ -29,7 +29,11 @@ function rotate(directory, prefix, retention = DEFAULT_RETENTION) {
     .filter(file => file.startsWith(prefix) && file.endsWith('.json'))
     .map(file => ({ file, mtime: fs.statSync(path.join(directory, file)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
-  files.slice(Math.max(1, retention)).forEach(entry => fs.unlinkSync(path.join(directory, entry.file)));
+  files.slice(Math.max(1, retention)).forEach(entry => {
+    fs.unlinkSync(path.join(directory, entry.file));
+    const sidecar = path.join(directory, entry.file + '.sha256');
+    if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+  });
 }
 
 export function backupJsonFile(sourcePath, backupDirectory, { retention = DEFAULT_RETENTION, now = Date.now() } = {}) {
