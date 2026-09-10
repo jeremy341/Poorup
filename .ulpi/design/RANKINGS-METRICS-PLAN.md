@@ -63,4 +63,3 @@ The implementation follows the already-used `find-skills`, `software-architectur
 4. Run the full test and coverage suites.
 5. Run Playwright at 1920×1080, 1366×768, 1024×768, and 390×844; capture the 1920 Rankings and home states.
 6. Record a rollback note: reverting this slice restores the old metric deck while leaving leaderboard APIs untouched.
-

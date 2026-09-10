@@ -43,6 +43,66 @@ function normalizeAccount(source = {}) {
   };
 }
 
+function claimResponse(store, accountId, item, created) {
+  return { success: true, created, item: { ...item }, snapshot: store.snapshot(accountId) };
+}
+
+function claimContext(store, accountId, cosmeticId, options) {
+  const account = store.account(accountId);
+  const item = COSMETIC_CATALOG.find(candidate => candidate.id === cosmeticId);
+  const key = safeId(options.claimKey, 160);
+  return { store, accountId, account, item, key, allowPaid: options.allowPaid, allowSeason: options.allowSeason };
+}
+
+function claimUnavailable(context) {
+  return !context.account || !context.item ? 'Cosmetic is unavailable.' : null;
+}
+
+function replayClaim(context) {
+  if (context.key && context.account.claims.includes(context.key)) return claimResponse(context.store, context.accountId, context.item, false);
+  return null;
+}
+
+function ownedClaim(context) {
+  if (!context.account.owned.includes(context.item.id)) return null;
+  if (context.key) context.account.claims.push(context.key);
+  context.store.persist();
+  return claimResponse(context.store, context.accountId, context.item, false);
+}
+
+function seasonClaimError(context) {
+  if (context.key.startsWith('season:') && !context.allowSeason) return 'Season cosmetics must be claimed from the active season ledger.';
+  return null;
+}
+
+function freeCosmeticClaimError(context, cost) {
+  if (cost === 0 && !context.key.startsWith('season:')) return 'This cosmetic must be earned through a verified season reward.';
+  return null;
+}
+
+function paidCosmeticClaimError(context, cost) {
+  if (cost <= 0) return null;
+  if (!context.allowPaid) return 'Not enough Parlor Tokens for this cosmetic.';
+  if (context.account.tokens < cost) return 'Not enough Parlor Tokens for this cosmetic.';
+  return null;
+}
+
+function claimEligibilityError(context) {
+  const cost = Math.max(0, Math.floor(Number(context.item.cost) || 0));
+  return seasonClaimError(context)
+    || freeCosmeticClaimError(context, cost)
+    || paidCosmeticClaimError(context, cost);
+}
+
+function applyClaim(context) {
+  const cost = Math.max(0, Math.floor(Number(context.item.cost) || 0));
+  context.account.tokens -= cost;
+  context.account.owned.push(context.item.id);
+  if (context.key) context.account.claims = [...context.account.claims, context.key].slice(-300);
+  context.store.persist();
+  return claimResponse(context.store, context.accountId, context.item, true);
+}
+
 export class CosmeticStore {
   constructor(filePath = DEFAULT_FILE) {
     this.filePath = filePath;
@@ -99,36 +159,33 @@ export class CosmeticStore {
   }
 
   claim(accountId, cosmeticId, { claimKey, allowPaid = true, allowSeason = false } = {}) {
-    const account = this.account(accountId);
-    const item = COSMETIC_CATALOG.find(candidate => candidate.id === cosmeticId);
-    const key = safeId(claimKey, 160);
-    if (!account || !item) return { success: false, error: 'Cosmetic is unavailable.' };
-    if (key && account.claims.includes(key)) return { success: true, created: false, item: { ...item }, snapshot: this.snapshot(accountId) };
-    if (account.owned.includes(item.id)) {
-      if (key) account.claims.push(key);
-      this.persist();
-      return { success: true, created: false, item: { ...item }, snapshot: this.snapshot(accountId) };
-    }
-    const cost = Math.max(0, Math.floor(Number(item.cost) || 0));
-    if (key.startsWith('season:') && !allowSeason) return { success: false, error: 'Season cosmetics must be claimed from the active season ledger.' };
-    if (cost === 0 && !key.startsWith('season:')) return { success: false, error: 'This cosmetic must be earned through a verified season reward.' };
-    if (cost > 0 && (!allowPaid || account.tokens < cost)) return { success: false, error: 'Not enough Parlor Tokens for this cosmetic.' };
-    account.tokens -= cost;
-    account.owned.push(item.id);
-    if (key) account.claims = [...account.claims, key].slice(-300);
-    this.persist();
-    return { success: true, created: true, item: { ...item }, snapshot: this.snapshot(accountId) };
+    const context = claimContext(this, accountId, cosmeticId, { claimKey, allowPaid, allowSeason });
+    const unavailable = claimUnavailable(context);
+    if (unavailable) return { success: false, error: unavailable };
+    const replay = replayClaim(context);
+    if (replay) return replay;
+    const owned = ownedClaim(context);
+    if (owned) return owned;
+    const eligibilityError = claimEligibilityError(context);
+    if (eligibilityError) return { success: false, error: eligibilityError };
+    return applyClaim(context);
   }
 
   equip(accountId, cosmeticId, slot = null) {
     const account = this.account(accountId);
     const item = COSMETIC_CATALOG.find(candidate => candidate.id === cosmeticId);
-    if (!account || !item || !account.owned.includes(item.id)) return { success: false, error: 'Earn the cosmetic before equipping it.' };
+    if (!canEquip(account, item)) return { success: false, error: 'Earn the cosmetic before equipping it.' };
     const targetSlot = safeId(slot || item.type, 40);
     account.equipped[targetSlot] = item.id;
     this.persist();
     return { success: true, item: { ...item }, snapshot: this.snapshot(accountId) };
   }
+}
+
+function canEquip(account, item) {
+  if (!account) return false;
+  if (!item) return false;
+  return account.owned.includes(item.id);
 }
 
 export { COSMETIC_CATALOG, DEFAULT_FILE as COSMETIC_STORE_FILE };
