@@ -2,14 +2,17 @@
 
 ## `/goal`
 
-Plan and stage six new game systems without creating a second rules engine:
+Plan and stage five new game systems without creating a second rules engine:
 
-1. a match-cash Luxury Shop and a separate account-cosmetic catalog;
-2. items earned from Surprise Fields, with use, trade, exchange, and bank sale;
-3. a fictional, virtual-money prediction market (“Polymarket”);
-4. useful, paid airport travel;
-5. three in-round bank-account tiers;
-6. a scarce, expensive Lawyer Card for prison.
+1. items earned from Surprise Fields, with use, trade, exchange, and bank sale;
+2. a fictional, virtual-money prediction market (“Polymarket”);
+3. useful, paid airport travel;
+4. three in-round bank-account tiers;
+5. a scarce Lawyer Card for prison, awarded through the item/reward system.
+
+The persistent Profile Collection and its earned-cosmetic catalog remain an
+account feature, not an in-round Table Shop. There is deliberately no match
+cash shop in this plan.
 
 Also plan the supplied bot API test, rule-based bot performance test, slower
 movement, tab-out animation recovery, and a deterministic roulette carousel.
@@ -21,8 +24,9 @@ table, with a late-night terminal/parlor language and a strong need for fast,
 legible decisions.
 
 **Direction:** *Ledger Night Market* — new systems read like stamped records,
-not a separate shop or casino game. The memorable anchor is one server ledger
-line connecting cash, items, travel, predictions, and account benefits.
+not a collection of disconnected shop, casino, and settings screens. The
+memorable anchor is one server ledger line connecting cash, items, travel,
+predictions, and account benefits.
 
 Keep `.ulpi/design/DESIGN.md` as the visual authority: dark teal surfaces,
 gold structural borders, red actions, Pixelify/Silkscreen/IBM Plex Mono,
@@ -33,19 +37,20 @@ compatible when these add-ons are off.
 
 ## Currency and ownership boundaries
 
-There are three deliberately separate economies:
+There are two deliberately separate economies:
 
 | Economy | Lifetime | Currency | Purpose |
 | --- | --- | --- | --- |
-| Table Shop | one match | server-authoritative game cash | items, Lawyer Card, match-only status cosmetics |
-| Prediction Market | one match | server-authoritative game cash | low-yield forecasts against the bank |
+| Match ledger | one match | server-authoritative game cash | board play, earned items, predictions, travel, bank tiers, and roulette |
 | Profile Collection | account lifetime | Parlor Tokens | persistent visual cosmetics only |
 
-Table cash never buys persistent cosmetics. Parlor Tokens never enter a
-match, prediction, airport, loan, or roulette ledger. No item or expensive
-cosmetic grants a gameplay advantage; “premium” means presentation, access to
-an inspectable animation, or a capped convenience effect only. This prevents
-pay-to-win progression and keeps Classic fair.
+There is no in-round item or luxury shop. Items are earned from server-resolved
+Surprise/Treasure rewards or bounded recipes and may be used, traded, exchanged,
+or sold to the bank. Table cash never buys persistent cosmetics. Parlor Tokens
+never enter a match, prediction, airport, loan, or roulette ledger. No item or
+expensive cosmetic grants an unbounded gameplay advantage; “premium” means
+presentation, access to an inspectable animation, or a capped convenience
+effect only. This prevents pay-to-win progression and keeps Classic fair.
 
 ## Ruleset and access model
 
@@ -53,7 +58,6 @@ Use the existing `rulesetPreset`/`rulesetOverrides` contract and one
 `GameState` engine. Add optional flags to the existing Poorup economy group:
 
 ```js
-tableShop: false,
 items: false,
 predictionMarket: false,
 airportTravel: false,
@@ -63,33 +67,32 @@ bankAccountUpgrades: false
 Classic keeps them off by default but can enable each in Custom. After Hours
 enables them by default once the slice is released. A started round freezes
 the effective settings and digest. The Lawyer Card is available only when the
-Table Shop and Items systems are on; there is no separate prison-rule toggle.
+Items system is on; there is no separate prison-rule toggle.
 
 The existing persistent Profile Collection remains available in every preset.
 Do not add a top-level navigation tab for each system. In-round actions stay
-inside the existing Finance rail, landing-choice modal, prison HUD, and Market
-surface; account cosmetics stay in Profile → Collection.
+inside the existing Holdings/Deals/Activity rail model, wallet modal,
+landing-choice modal, prison HUD, and Market surface; account cosmetics stay in
+Profile → Collection.
 
-## 1. Table Shop and items
+The detailed right-rail information architecture, Wallet & Items modal, and
+in-game modal rules live in
+[`FINANCE-RAIL-UX-PLAN.md`](./FINANCE-RAIL-UX-PLAN.md).
 
-### Shop model
+## 1. Items and Surprise/Treasure rewards
 
-Add a server-owned `tableShop` catalog with stable item IDs, category, price,
-rarity, stock/cap, sell rate, tradeability, and a bounded effect descriptor.
-The initial stock is deterministic per round and visible to every player.
-Purchases are idempotent and require the normal current-turn/table-obligation
-guards. No cash moves while an item detail view is open.
+### Item catalog
 
-Categories:
+Add a server-owned item catalog with stable item IDs, category, rarity,
+tradeability, bank-sell value, source tags, and a bounded effect descriptor.
+There is no purchase price, stock rotation, or client-facing shop. Every item
+enters the match through a server-resolved reward, exchange recipe, or a future
+explicit event grant. The catalog is deterministic and versioned by
+`rulesetRevision` and `balanceRevision`.
 
-- **LUXURY:** cars, watches, clothing, special token/portrait treatments;
-  visual/status-only and match-scoped.
-- **ITEMS:** usable or tradeable utility objects from the item catalog.
-- **SERVICES:** Lawyer Card and future clearly priced services.
-
-The existing account-cosmetic shop remains token-based and persistent. Its
-catalog can include cars, watches, and clothing as purely visual account
-cosmetics, while the Table Shop can sell temporary versions for match cash.
+The persistent account-cosmetic catalog may include cars, watches, clothing,
+special token treatments, and character designs. It is reached from Profile →
+Collection and uses Parlor Tokens; it is not part of the in-round economy.
 
 ### Item inventory
 
@@ -130,11 +133,12 @@ opponent inventory.
 
 ### UI placement
 
-Add an `ITEMS` subsection to the existing Finance rail rather than another
-top-level page. Use compact rows with item glyph, quantity, use/trade/sell
-actions, and an in-place detail panel. Surprise drops use the existing card
-reveal/notification surface. All controls remain native buttons with live
-result text and focus restoration.
+Add an `ITEMS` subsection to `HOLDINGS`, rather than another top-level page.
+The same inventory is also reachable from the interactive Cash button in the
+bottom HUD, which opens the `WALLET & ITEMS` modal. Use compact rows with item
+glyph, quantity, use/trade/sell actions, and an in-place detail panel. Surprise
+drops use the existing card reveal/notification surface. All controls remain
+native buttons with live result text and focus restoration.
 
 ## 2. Fictional prediction market (“Polymarket”)
 
@@ -211,7 +215,7 @@ Suggested initial policy:
 
 The origin rent, flight fee, discount, and owner share are separate ledger
 entries. A cancelled or stale travel choice leaves the player at the origin.
-The landing modal owns the choice; the Finance rail mirrors a pending flight
+The landing modal owns the choice; the Deals rail mirrors a pending flight
 without duplicating the action.
 
 Add `airportTravelThisRound`, `airportTravelLedger`, and a server candidate
@@ -227,7 +231,7 @@ entitlement.
 | Tier | Name | Upgrade cost | Bounded benefits |
 | --- | --- | ---: | --- |
 | 1 | Standard | — | none |
-| 2 | Sparkasse Premium | $300 | 1% cashback on eligible Shop/flight fees, capped $40/round |
+| 2 | Sparkasse Premium | $300 | 1% cashback on eligible optional service/flight fees, capped $40/round |
 | 3 | American Express Black | $700 after Tier 2 | 3% eligible cashback capped $80/round, 25% flight discount, 0.25 percentage-point market-fee reduction |
 
 Cashback applies only to tagged optional service debits. It never applies to
@@ -237,10 +241,19 @@ the debit, floored to whole dollars, and cannot push cash below zero or create
 an obligation. Global events may pause cashback prospectively but cannot claw
 back credited cash.
 
-The Finance rail shows the current tier, next cost, eligible transactions,
-round cap used, and a confirmation preview. `UPGRADE ACCOUNT` is disabled when
-the player is not the current seat or a table obligation is open. The server
+The interactive Cash On Hand cell in the bottom HUD is the canonical entry
+point. Pressing it opens a `WALLET & ITEMS` modal without leaving the round.
+The modal has two internal views, `ACCOUNT` and `ITEMS`; it opens on Account
+when the player is checking money and on Items when the Holdings shortcut is
+used. Account shows the current tier, next cost, eligible transactions, round
+cap used, and a confirmation preview. `UPGRADE ACCOUNT` is disabled when the
+player is not the current seat or a table obligation is open. The server
 rechecks tier, cash, round cap, and idempotency.
+
+The Holdings rail mirrors the current tier as a compact status line and shows
+an `OPEN WALLET`/`OPEN ITEMS` shortcut. The modal owns the upgrade transaction;
+the rail never duplicates it. Closing the modal changes no state and restores
+focus to the Cash cell or the shortcut that opened it.
 
 Bots receive `upgrade-bank-account` candidates only when the future cashback
 and liquidity value beat their reserve; both AI and NO-AI use the same
@@ -248,10 +261,10 @@ candidate and legal guard.
 
 ## 5. Lawyer Card
 
-Add `lawyer-card` to the Table Shop and Item catalog at a starting price of
-$250 (balance-revision data). A player can hold at most one. It is tradeable
-and bank-sellable at the normal 20% item rate, but it cannot be duplicated by
-the client.
+Add `lawyer-card` to the Item catalog as a scarce server-resolved
+Treasure/Surprise reward (balance-revision data). There is no direct purchase
+path. A player can hold at most one. It is tradeable and bank-sellable at the
+normal 20% item rate, but it cannot be duplicated by the client.
 
 While in prison, the HUD presents `USE LAWYER CARD` beside the existing fine
 and Get Out of Prison actions. The action consumes exactly one card, clears
@@ -259,9 +272,10 @@ the jail state, and returns the normal roll decision. It does not move the
 player, refund the fine, or bypass a pending debt. If both a Lawyer Card and a
 Get Out of Prison card exist, the player chooses explicitly.
 
-Use the existing prison action/modal focus path and add bot candidates
-`use-lawyer-card` and `buy-lawyer-card`; the deterministic and AI brains must
-evaluate fine, Get Out of Prison, and Lawyer Card together.
+Use the existing prison action/modal focus path and add the bot candidate
+`use-lawyer-card`; the deterministic and AI brains must evaluate the fine, Get
+Out of Prison card, and Lawyer Card together. Reward acquisition is automatic
+and server-resolved, so it is not a bot purchase decision.
 
 ## 6. Bot API and performance plan
 
@@ -315,7 +329,12 @@ correct elapsed path index and animate only the remainder. Apply this to bot
 turns and other time-based client animations. Reduced motion cancels travel
 immediately. No game rule may depend on a frame callback.
 
-### Roulette carousel
+### CS2-style roulette reveal reel
+
+The established name for this presentation is **CS2-style case-opening
+roulette reveal reel** (also called a scrolling reveal reel or roulette
+carousel). It is a presentation pattern only; Poorup uses its own pocket
+cards, pointer, sounds, and pixel-art language.
 
 The server settles the roulette result and payout first, returning an opaque
 animation seed, result, and reveal deadline. The client-only `casino-carousel`
@@ -325,15 +344,19 @@ existing sound toggle for stepped ticks, and finalizes immediately when the
 tab returns after the deadline. The animation never samples randomness or
 changes cash. Reduced motion shows the settled result without travel.
 
+The complete server response shape, state machine, fairness rules, focus and
+live-region behavior, sound scheduling, and browser test matrix are maintained
+in docs/plans/END-TO-END-AUDIT-CS2-ROULETTE-PLAN.md.
+
 ## 8. Global-event interaction matrix
 
-| Event family | Shop/items | Predictions | Airports | Bank tiers/Lawyer |
+| Event family | Items | Predictions | Airports | Bank tiers/Lawyer |
 | --- | --- | --- | --- | --- |
-| Housing Bubble / Foreclosure | luxury prices and item sale values are disclosed prospectively | market exposure may tighten; locked tickets unchanged | no new route creation | upgrade availability may pause; Lawyer remains usable |
-| Credit Freeze / Bank Run | no credit-funded purchases | high-stakes markets may close; existing tickets settle | flight must use available cash | no upgrades/cashback advances; Lawyer unaffected |
-| Airport Strike | travel vouchers cannot be used | airport-landing markets disclose strike effect | new flights disabled | flight cashback not earned while disabled |
-| Inflation Spiral | shop prices rise for new purchases | odds/fees are revised only for new markets | future fees rise | cashback percentage is unchanged but caps remain |
-| Tourism Boom | travel/status stock can rotate | airport outcomes remain server-recorded | future fees/airport demand change | eligible flight cashback follows the tier |
+| Housing Bubble / Foreclosure | item sale values are disclosed prospectively | market exposure may tighten; locked tickets unchanged | no new route creation | upgrade availability may pause; Lawyer remains usable |
+| Credit Freeze / Bank Run | item exchanges/sales may be paused; no credit-funded action | high-stakes markets may close; existing tickets settle | flight must use available cash | no upgrades/cashback advances; Lawyer unaffected |
+| Airport Strike | travel-related item effects are suspended | airport-landing markets disclose strike effect | new flights disabled | flight cashback not earned while disabled |
+| Inflation Spiral | future item bank-sale values may rise or fall by disclosed revision | odds/fees are revised only for new markets | future fees rise | cashback percentage is unchanged but caps remain |
+| Tourism Boom | travel/status rewards may be more likely in future drops | airport outcomes remain server-recorded | future fees/airport demand change | eligible flight cashback follows the tier |
 
 Every modifier is versioned by `eventId`, `rulesetRevision`, and
 `balanceRevision`; no settled cash, item, ticket, or flight is rewritten.
@@ -344,8 +367,7 @@ New server-authoritative verbs should be small, idempotent, and projection-
 aware:
 
 ```text
-get-table-shop
-buy-shop-item
+get-items
 use-item
 exchange-items
 sell-item
@@ -385,23 +407,23 @@ Required tests:
 - provider tests with fake OpenAI-compatible servers, timeout/quota/SSRF cases,
   and no-secret logging assertions;
 - benchmark tests with p50/p95/p99 budgets and bounded full-game simulations;
-- Playwright at 1920×1080, 1366×768, 1024×768, and 390×844 covering Shop,
-  item drop/use/trade/sale, predictions, airport choice, account upgrade,
-  Lawyer Card, roulette skip, tab return, keyboard focus, live regions, and
-  reduced motion;
-- 1920px visual captures for Home, Finance/Shop, Predictions, airport choice,
-  Profile Collection, prison HUD, and roulette.
+- Playwright at 1920×1080, 1366×768, 1024×768, and 390×844 covering the
+  Holdings/Deals/Activity rail, Wallet & Items modal, item drop/use/trade/sale,
+  predictions, airport choice, account upgrade, Lawyer Card, roulette skip,
+  tab return, keyboard focus, live regions, and reduced motion;
+- 1920px visual captures for Home, the three-mode game rail, Wallet & Items,
+  Predictions, airport choice, Profile Collection, prison HUD, and roulette.
 
 Delivery order:
 
 1. freeze schemas, ruleset flags, telemetry, and viewer projections;
 2. bot provider test/config seam and NO-AI performance benchmark;
 3. visibility-aware movement and speed tuning;
-4. item catalog, Surprise drops, inventory, trade legs, and bank sale;
-5. airport travel and bot route candidates;
-6. in-round bank tiers and capped cashback;
-7. Lawyer Card and prison UI/candidate parity;
-8. Table Shop and match-only luxury status items;
+4. Holdings/Deals/Activity rail and Wallet & Items modal shell;
+5. item catalog, Surprise drops, inventory, trade legs, and bank sale;
+6. airport travel and bot route candidates;
+7. in-round bank tiers and capped cashback;
+8. Lawyer Card and prison UI/candidate parity;
 9. fictional prediction markets and global-event modifiers;
 10. deterministic roulette carousel;
 11. research an expanded board variant (the live Metro-52 contract remains
@@ -415,9 +437,10 @@ roulette settlement, and social/account systems intact.
 
 ## Explicit exclusions
 
-No real-money wagering, deposits, withdrawals, cash-out, real securities,
-external Polymarket data, political prediction markets, loot boxes, hidden
-odds, client-selected outcomes, persistent gameplay boosts, or paid board
-capacity. A future board expansion is free ruleset content and must pass the
-same balance, performance, and accessibility gates as every other mode.
-
+No in-round Table Shop, match-cash luxury shop, real-money wagering, deposits,
+withdrawals, cash-out, real securities, external Polymarket data, political
+prediction markets, loot boxes, hidden odds, client-selected outcomes,
+persistent gameplay boosts, or paid board capacity. Items are earned or
+exchanged only; persistent cosmetics remain in Profile → Collection. A future
+board expansion is free ruleset content and must pass the same balance,
+performance, and accessibility gates as every other mode.

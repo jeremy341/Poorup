@@ -4,6 +4,11 @@ Status: implemented in the modular monolith; this document remains the
 product/design contract. See `docs/audit/expansion-implementation.md` for the
 delivery record and current verification evidence.
 
+The current end-to-end audit, open correctness findings, and the roulette-reel
+implementation slice live in
+docs/plans/END-TO-END-AUDIT-CS2-ROULETTE-PLAN.md. This contract remains the
+visual and rules authority for that work.
+
 ## Design Read
 
 Poorup should feel like a late-night tabletop that has grown a second layer of
@@ -357,6 +362,9 @@ Market is ON.
 ### Phase 3: options
 
 - Start with fully collateralized calls and puts only.
+- The current beta uses a bounded, server-owned option reserve for buyer
+  payouts; writer positions require an assigned counterparty and are not
+  accepted as naked offers.
 - Store underlying, strike, premium, quantity, expiry round, writer
   collateral, and exercise status.
 - No naked writing, multi-leg spreads, real securities, or cash withdrawal.
@@ -367,6 +375,34 @@ Market is ON.
 Events may change disclosed quote multipliers, volatility, fees, borrow limits,
 and maintenance requirements. They cannot change roulette odds or retroactively
 rewrite a settled trade.
+
+### CS2-style roulette reveal reel
+
+The casino presentation uses the name **CS2-style case-opening roulette reveal
+reel** (also called a scrolling reveal reel or roulette carousel). The name
+describes the interaction pattern, not a dependency on Counter-Strike assets.
+Poorup keeps its own pixel-art pocket cards, dark-teal surfaces, gold pointer,
+and red action language.
+
+The server settles the pocket, color, payout, cash delta, and ledger entry
+before returning presentation data. The client then places that known result
+on a fixed-pointer horizontal strip, fills surrounding cards from an opaque
+seed, schedules stepped tick sounds at card-boundary crossings, decelerates
+with the existing Poorup ease-out token, and stops on the committed result.
+The strip is presentation-only: clicking, timing, or stopping it cannot change
+the result.
+
+Required states are idle, submitting, settled-presenting, settled, skipped,
+stale/reconnected, error, and reduced-motion. SKIP, Escape, scrim dismissal, a
+hidden-tab deadline, and reconnect all reveal the same settled result. The live
+region announces the outcome once, while the visible desk keeps odds, stake,
+pocket, net, and balance readable.
+
+Use the existing global sound toggle for boundary ticks and the existing modal
+focus controller for the desk. No new top-level navigation tab is introduced.
+The full contract, response shape, animation budgets, accessibility rules,
+telemetry, and test matrix are maintained in
+docs/plans/END-TO-END-AUDIT-CS2-ROULETTE-PLAN.md.
 
 ### Bot/AI candidate additions
 
