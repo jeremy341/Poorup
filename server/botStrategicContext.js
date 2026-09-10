@@ -280,6 +280,32 @@ function obligationView(game, bot) {
   };
 }
 
+function rulesetMetadata(game) {
+  const settings = game.settings || {};
+  const rules = game.ruleset || {};
+  return {
+    boardVariant: game.boardVariant || settings.boardVariant || 'standard-40',
+    rulesetPreset: rules.rulesetPreset || settings.rulesetPreset || 'classic',
+    rulesetRevision: rules.rulesetRevision || settings.rulesetRevision || 1,
+    rulesetDigest: typeof game.rulesetDigest === 'string' ? game.rulesetDigest.slice(0, 200) : null
+  };
+}
+
+function marketRulesView(settings) {
+  const complexity = settings.marketComplexity || 'basic';
+  const rank = { basic: 0, margin: 1, shorting: 2, derivatives: 3 }[complexity] || 0;
+  return {
+    enabled: settings.market === true,
+    feeRate: MARKET_FEE_RATE,
+    complexity,
+    margin: rank >= 1,
+    shorting: rank >= 2,
+    derivatives: rank >= 3,
+    borrowableUnits: 50,
+    maintenanceRate: 0.25
+  };
+}
+
 function rulesDigest(game) {
   const settings = game.settings || {};
   const effects = typeof game.activeEventEffects === 'function' ? game.activeEventEffects() : {};
@@ -287,10 +313,7 @@ function rulesDigest(game) {
   return {
     version: BOT_RULE_VERSION,
     boardSize: Array.isArray(game.tiles) ? game.tiles.length : 40,
-    boardVariant: game.boardVariant || game.settings?.boardVariant || 'standard-40',
-    rulesetPreset: game.ruleset?.rulesetPreset || game.settings?.rulesetPreset || 'classic',
-    rulesetRevision: game.ruleset?.rulesetRevision || game.settings?.rulesetRevision || 1,
-    rulesetDigest: typeof game.rulesetDigest === 'string' ? game.rulesetDigest.slice(0, 200) : null,
+    ...rulesetMetadata(game),
     startTileIndex: START_TILE_INDEX,
     passStartCash: 200,
     doubleGo: settings.doubleGo === true,
@@ -307,7 +330,7 @@ function rulesDigest(game) {
     bankLoanSeverity: settings.bankLoanSeverity || 'predatory',
     sponsorship: { enabled: true, giftsOnly: true, forcedPurchase: true, loanOrEquity: false },
     casino: { enabled: settings.casino === true, ...casinoLimits, loanBackedCashAllowed: false },
-    market: { enabled: settings.market === true, feeRate: MARKET_FEE_RATE, complexity: settings.marketComplexity || 'basic', margin: settings.marketComplexity === 'margin' || settings.marketComplexity === 'shorting' || settings.marketComplexity === 'derivatives', shorting: settings.marketComplexity === 'shorting' || settings.marketComplexity === 'derivatives', derivatives: settings.marketComplexity === 'derivatives', borrowableUnits: 50, maintenanceRate: 0.25 },
+    market: marketRulesView(settings),
     cards: {
       surpriseCount: SURPRISE_DECK.length,
       treasureCount: TREASURE_DECK.length,
