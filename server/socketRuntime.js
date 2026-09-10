@@ -51,6 +51,75 @@ export function annotateMatchAchievements(matchRecord, candidates = []) {
   return matchRecord;
 }
 
+function recordMatchTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  telemetryStore?.record('match-complete', {
+    playerCount: matchRecord.playerCount,
+    roundCount: matchRecord.roundCount,
+    botOnly: matchRecord.participants.every(participant => !participant.accountId)
+  }, telemetryVersions);
+}
+
+function recordLoggedTelemetry(context) {
+  const { telemetryStore, room, telemetryVersions } = context;
+  (room.game.telemetryLog || []).forEach(entry => {
+    telemetryStore?.record(entry.kind, { ...(entry.data || {}), roundNumber: entry.roundNumber }, { ...telemetryVersions, eventId: entry.data?.eventId });
+  });
+}
+
+function recordMarketTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  telemetryStore?.record('market-volatility', {
+    marketRows: matchRecord.market.length,
+    marketTrades: matchRecord.participants.reduce((sum, participant) => sum + (Number(participant.marketTrades) || 0), 0)
+  }, telemetryVersions);
+}
+
+function recordBankruptcyTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  const bankruptcies = matchRecord.participants.filter(participant => participant.bankrupt).length;
+  if (bankruptcies) telemetryStore?.record('bankruptcy', { count: bankruptcies }, telemetryVersions);
+}
+
+function recordAchievementTelemetry(context) {
+  const { telemetryStore, candidates, telemetryVersions } = context;
+  candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId }, telemetryVersions));
+}
+
+function recordBotTelemetry(context) {
+  const { telemetryStore, matchRecord, telemetryVersions } = context;
+  (matchRecord.botDecisions || []).slice(-200).forEach(decision => telemetryStore?.record('bot-outcome', {
+    provider: decision.provider,
+    fallback: decision.fallback,
+    success: decision.success,
+    phase: decision.phase,
+    actionId: decision.actionId
+  }, telemetryVersions));
+}
+
+function recordSeasonTelemetry(context) {
+  const { telemetryStore, room, matchRecord, candidates, seasonResult } = context;
+  if (!seasonResult?.recorded) return;
+  const telemetryContext = {
+    telemetryStore,
+    room,
+    matchRecord,
+    candidates,
+    telemetryVersions: {
+      seasonId: seasonResult.season.id,
+      rulesetRevision: matchRecord.rulesetRevision,
+      balanceRevision: matchRecord.balanceRevision,
+      boardVariant: matchRecord.boardVariant
+    }
+  };
+  recordMatchTelemetry(telemetryContext);
+  recordLoggedTelemetry(telemetryContext);
+  recordMarketTelemetry(telemetryContext);
+  recordBankruptcyTelemetry(telemetryContext);
+  recordAchievementTelemetry(telemetryContext);
+  recordBotTelemetry(telemetryContext);
+}
+
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social } = deps;
   const auctionTimers = new Map();
@@ -110,38 +179,7 @@ function createRuntime(deps) {
     if (seasonResult?.recorded) matchRecord.seasonId = seasonResult.season.id;
     matchStore.record(matchRecord);
     candidates.forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
-    if (seasonResult?.recorded) {
-      telemetryStore?.record('match-complete', {
-        playerCount: matchRecord.playerCount,
-        roundCount: matchRecord.roundCount,
-        botOnly: matchRecord.participants.every(participant => !participant.accountId)
-      }, {
-        seasonId: seasonResult.season.id,
-        rulesetRevision: matchRecord.rulesetRevision,
-        balanceRevision: matchRecord.balanceRevision,
-        boardVariant: matchRecord.boardVariant
-      });
-      const telemetryVersions = {
-        seasonId: seasonResult.season.id,
-        rulesetRevision: matchRecord.rulesetRevision,
-        balanceRevision: matchRecord.balanceRevision,
-        boardVariant: matchRecord.boardVariant
-      };
-      (room.game.telemetryLog || []).forEach(entry => {
-        telemetryStore?.record(entry.kind, { ...(entry.data || {}), roundNumber: entry.roundNumber }, { ...telemetryVersions, eventId: entry.data?.eventId });
-      });
-      telemetryStore?.record('market-volatility', { marketRows: matchRecord.market.length, marketTrades: matchRecord.participants.reduce((sum, participant) => sum + (Number(participant.marketTrades) || 0), 0) }, telemetryVersions);
-      const bankruptcies = matchRecord.participants.filter(participant => participant.bankrupt).length;
-      if (bankruptcies) telemetryStore?.record('bankruptcy', { count: bankruptcies }, telemetryVersions);
-      candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId }, telemetryVersions));
-      (matchRecord.botDecisions || []).slice(-200).forEach(decision => telemetryStore?.record('bot-outcome', {
-        provider: decision.provider,
-        fallback: decision.fallback,
-        success: decision.success,
-        phase: decision.phase,
-        actionId: decision.actionId
-      }, telemetryVersions));
-    }
+    recordSeasonTelemetry({ telemetryStore, room, matchRecord, candidates, seasonResult });
     // Refresh the owner’s private profile immediately after settlement so
     // completed-game stats, history, and achievement counts are current while
     // the player is still in the game shell.
