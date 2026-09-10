@@ -131,6 +131,13 @@ const PLAYER_STATE_DEFAULTS = [
   ['disconnectDeadline', 0],
 ];
 
+function isHumanActionSeat(player) {
+  if (!player) return false;
+  if (player.isBot) return false;
+  if (player.bankrupt) return false;
+  return !player.disconnected;
+}
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -221,7 +228,7 @@ class GameState {
   }
 
   recordHumanAction(player) {
-    if (!player || player.isBot || player.bankrupt || player.disconnected) return;
+    if (!isHumanActionSeat(player)) return;
     this.humanActionCount = Math.max(0, Math.floor(Number(this.humanActionCount) || 0)) + 1;
   }
 
@@ -758,30 +765,41 @@ class GameState {
     }
   }
 
-  nextTurn() {
+  resetTurnState() {
     if (this.pendingSponsoredPurchase) this.cancelSponsoredPurchase();
     this.pendingPurchaseOffer = null;
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    const connected = this.connectedNonBankruptPlayers();
-    if (connected.length <= 1) {
-      const waiting = this.players.find(player => player.disconnected
-        && Number(player.disconnectDeadline) > Date.now()
-        && !player.bankrupt);
-      if (waiting) {
-        this.announceWaitingForSeat(waiting);
-        return;
-      }
-      this.endGame();
-      return;
+  }
+
+  finishIfNoConnectedPlayers(connected) {
+    if (connected.length > 1) return false;
+    const waiting = this.players.find(player => player.disconnected
+      && Number(player.disconnectDeadline) > Date.now()
+      && !player.bankrupt);
+    if (waiting) {
+      this.announceWaitingForSeat(waiting);
+      return true;
     }
+    this.endGame();
+    return true;
+  }
+
+  advanceWrappedTurn(next) {
+    if (this.turnOrderWrapped(next)) this.advanceRound();
+  }
+
+  nextTurn() {
+    this.resetTurnState();
+    const connected = this.connectedNonBankruptPlayers();
+    if (this.finishIfNoConnectedPlayers(connected)) return;
     const next = this.findNextTurnSeat();
     if (!this.nextSeatIsPlayable(next)) {
       this.announceWaitingForSeat(next.player);
       return;
     }
-    if (this.turnOrderWrapped(next)) this.advanceRound();
+    this.advanceWrappedTurn(next);
     if (!this.started) return;
     this.beginSeatTurn(next.player);
   }
