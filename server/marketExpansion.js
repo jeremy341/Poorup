@@ -18,6 +18,10 @@ function integerAmount(value, max = 1000) {
   return Number.isInteger(amount) && amount >= 1 && amount <= max ? amount : 0;
 }
 
+function nonNegativeNumber(value) {
+  return Math.max(0, Number(value) || 0);
+}
+
 function quoteFor(game, instrument) {
   return Math.max(10, Number(game.marketQuotes?.[instrument.id]) || Number(instrument.price) || 100);
 }
@@ -50,10 +54,14 @@ function tableObligationPending(game) {
   );
 }
 
+function unavailableMarketSeat(game, player) {
+  return !game.started || !player || player.bankrupt || player.disconnected;
+}
+
 function expansionSessionRejection(game, player, required) {
   if (!game?.settings?.market) return 'Market access is off for this room.';
   if (!complexityAllows(game, required)) return `Market complexity ${required.toUpperCase()} is not enabled.`;
-  if (!game.started || !player || player.bankrupt || player.disconnected) return 'Market access is unavailable right now.';
+  if (unavailableMarketSeat(game, player)) return 'Market access is unavailable right now.';
   return null;
 }
 
@@ -64,12 +72,35 @@ function expansionTurnRejection(game, player) {
   return null;
 }
 
-function expansionPositionRejection(game, player, operation) {
+function positionOrderRejection(player, operation) {
   if (operation === 'open' && Number(player.marketActionsThisTurn) >= 1) return 'You have already placed a market order this turn.';
+  return null;
+}
+
+function positionDebtRejection(player) {
   if (Number(player.shortDefaultDebt) > 0) return 'Settle your short buy-in debt before opening another market position.';
-  if (operation === 'open' && Number(player.marginBalance) > 0 && !Object.keys(player.marginPositions || {}).length) return 'Reduce your remaining margin balance before opening another position.';
+  return null;
+}
+
+function positionMarginRejection(player, operation) {
+  if (operation === 'open' && marginNeedsReduction(player)) return 'Reduce your remaining margin balance before opening another position.';
+  return null;
+}
+
+function marginNeedsReduction(player) {
+  return Number(player.marginBalance) > 0 && !Object.keys(player.marginPositions || {}).length;
+}
+
+function positionMaintenanceRejection(game, player, operation) {
   if (operation === 'open' && maintenanceDue(game, player)) return 'Settle your margin maintenance before opening a new market position.';
   return null;
+}
+
+function expansionPositionRejection(game, player, operation) {
+  return positionOrderRejection(player, operation)
+    || positionDebtRejection(player)
+    || positionMarginRejection(player, operation)
+    || positionMaintenanceRejection(game, player, operation);
 }
 
 function expansionGuard(game, player, required, operation = 'open') {
@@ -117,7 +148,7 @@ function reduceMargin(player, amount) {
   return { success: true, action: 'reduce-margin', amount: repayment, marginBalance: player.marginBalance, maintenance: player.marginMaintenance };
 }
 
-function openShort(game, player, instrument, amount, inventory) {
+function openShort(game, player, { instrument, amount, inventory }) {
   ensurePlayerMarketState(player);
   inventory[instrument.id] = Math.max(0, Math.floor(Number(inventory[instrument.id]) || 0));
   if (inventory[instrument.id] < amount) return { success: false, error: 'There is not enough borrowable inventory for that short.' };
@@ -139,7 +170,7 @@ function openShort(game, player, instrument, amount, inventory) {
   return { success: true, action: 'open-short', instrumentId: instrument.id, quantity: amount, quote, fee, collateral, position: { ...position } };
 }
 
-function coverShort(game, player, instrument, amount, inventory) {
+function coverShort(game, player, { instrument, amount, inventory }) {
   ensurePlayerMarketState(player);
   const position = player.shortPositions[instrument.id];
   if (!position || position.quantity < amount) return { success: false, error: 'You do not hold enough short inventory to cover.' };
@@ -166,30 +197,49 @@ function optionExpiry(round, requested) {
   return round + duration;
 }
 
-function openOption(game, player, instrument, payload) {
-  ensurePlayerMarketState(player);
+function optionTerms(game, player, instrument, payload) {
   const quantity = integerAmount(payload.quantity, 100);
-  if (!quantity) return { success: false, error: 'Option quantity must be between 1 and 100.' };
+  if (!quantity) return { error: 'Option quantity must be between 1 and 100.' };
   const side = payload.side === 'put' ? 'put' : 'call';
   const role = payload.role === 'writer' ? 'writer' : 'buyer';
-  if (role === 'writer') return { success: false, error: 'Option writing requires an assigned counterparty.' };
+  if (role === 'writer') return { error: 'Option writing requires an assigned counterparty.' };
   const strike = Math.max(10, Math.floor(Number(payload.strike) || quoteFor(game, instrument)));
   const premium = Math.max(1, Math.floor(Number(payload.premium) || Math.ceil(strike * 0.05)));
-  const totalPremium = premium * quantity;
-  const id = `opt_${game.roundNumber}_${player.id.slice(0, 8)}_${player.optionPositions.length + 1}`;
-  const expiryRound = optionExpiry(game.roundNumber, payload.expiryRounds);
+  return {
+    quantity,
+    side,
+    role,
+    strike,
+    premium,
+    totalPremium: premium * quantity,
+    id: `opt_${game.roundNumber}_${player.id.slice(0, 8)}_${player.optionPositions.length + 1}`,
+    expiryRound: optionExpiry(game.roundNumber, payload.expiryRounds)
+  };
+}
+
+function optionReserveRejection(game, player, terms) {
+  const maxPayout = terms.strike * terms.quantity;
+  const reserve = ensureOptionReserve(game);
+  if (reserve < maxPayout) return 'The option reserve cannot collateralize that position.';
+  if (player.cash < terms.totalPremium) return 'You need premium cash for that option.';
+  return null;
+}
+
+function openOption(game, player, instrument, payload) {
+  ensurePlayerMarketState(player);
+  const terms = optionTerms(game, player, instrument, payload);
+  if (terms.error) return { success: false, error: terms.error };
   // The first release is house-underwritten but bounded. The reserve is
   // explicitly debited at open and can only return through exercise, close,
   // or expiry, so a winning option cannot mint player cash.
-  const maxPayout = strike * quantity;
-  const reserve = ensureOptionReserve(game);
-  if (reserve < maxPayout) return { success: false, error: 'The option reserve cannot collateralize that position.' };
-  if (player.cash < totalPremium) return { success: false, error: 'You need premium cash for that option.' };
-  player.cash -= totalPremium;
+  const reserveError = optionReserveRejection(game, player, terms);
+  if (reserveError) return { success: false, error: reserveError };
+  const maxPayout = terms.strike * terms.quantity;
+  player.cash -= terms.totalPremium;
   game.marketOptionReserve -= maxPayout;
-  const option = { id, instrumentId: instrument.id, side, role, quantity, strike, premium, expiryRound, collateral: 0, reserveHeld: maxPayout, maxPayout, status: 'open', exercised: false };
+  const option = { id: terms.id, instrumentId: instrument.id, side: terms.side, role: terms.role, quantity: terms.quantity, strike: terms.strike, premium: terms.premium, expiryRound: terms.expiryRound, collateral: 0, reserveHeld: maxPayout, maxPayout, status: 'open', exercised: false };
   player.optionPositions.push(option);
-  return { success: true, action: role === 'writer' ? 'write-option' : 'buy-option', option: { ...option } };
+  return { success: true, action: terms.role === 'writer' ? 'write-option' : 'buy-option', option: { ...option } };
 }
 
 function openOptionForPlayer(player, optionId) {
@@ -293,14 +343,7 @@ function canOpenOption(game, player, canOpen) {
   return canOpen && complexityAllows(game, 'derivatives') && player.cash > 100;
 }
 
-function settleShortPosition(game, player, id, position, inventory) {
-  const quantity = Math.max(0, Number(position?.quantity) || 0);
-  if (!quantity) return { success: true, action: 'short-empty' };
-  const instrument = game.marketInstruments?.find(entry => entry.id === id);
-  if (instrument) {
-    const covered = coverShort(game, player, instrument, quantity, inventory);
-    if (covered.success) return covered;
-  }
+function forceShortBuyIn(game, player, { id, position, quantity, inventory }) {
   // Forced buy-in remains authoritative even when the player cannot fund the
   // quote. Consume available cash/collateral, record the shortfall, return
   // the borrowed units, and remove the position so it cannot be reused.
@@ -309,29 +352,48 @@ function settleShortPosition(game, player, id, position, inventory) {
   const fee = Math.max(1, Math.ceil(gross * 0.02));
   const total = gross + fee;
   const collateral = Math.min(
-    Math.max(0, Number(position.collateral) || 0),
-    Math.max(0, Number(player.reservedCash) || 0)
+    nonNegativeNumber(position.collateral),
+    nonNegativeNumber(player.reservedCash)
   );
   const cashRequired = Math.max(0, total - collateral);
-  const cashBefore = Math.max(0, Number(player.cash) || 0);
+  const cashBefore = nonNegativeNumber(player.cash);
   const cashUsed = Math.min(cashBefore, cashRequired);
   player.cash = cashBefore - cashUsed + Math.max(0, collateral - total);
-  player.reservedCash = Math.max(0, Number(player.reservedCash) - collateral);
-  player.shortDefaultDebt = Math.max(0, Number(player.shortDefaultDebt) || 0) + Math.max(0, cashRequired - cashUsed);
-  inventory[id] = (Number(inventory[id]) || 0) + quantity;
+  player.reservedCash = nonNegativeNumber(player.reservedCash) - collateral;
+  player.shortDefaultDebt = nonNegativeNumber(player.shortDefaultDebt) + Math.max(0, cashRequired - cashUsed);
+  inventory[id] = nonNegativeNumber(inventory[id]) + quantity;
   delete player.shortPositions[id];
   return { success: true, action: 'short-buy-in-default', shortfall: Math.max(0, cashRequired - cashUsed) };
 }
 
+function settleShortPosition(game, player, { id, position, inventory }) {
+  const quantity = Math.max(0, Number(position?.quantity) || 0);
+  if (!quantity) return { success: true, action: 'short-empty' };
+  const instrument = game.marketInstruments?.find(entry => entry.id === id);
+  const settlement = { id, position, quantity, inventory };
+  if (!instrument) return forceShortBuyIn(game, player, settlement);
+  const covered = coverShort(game, player, { instrument, amount: quantity, inventory });
+  return covered.success ? covered : forceShortBuyIn(game, player, settlement);
+}
+
+function marginPositionValue(game, player) {
+  return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0), 0);
+}
+
+function marginLiquidationProceeds(game, player) {
+  return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => {
+    const value = (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0);
+    return sum + Math.max(0, Math.floor(value * 0.98));
+  }, 0);
+}
+
+function hasMarginExposure(player) {
+  return Object.keys(player.marginPositions || {}).length > 0 || Number(player.marginBalance) > 0;
+}
+
 function settleMarginPositions(game, player) {
-  const entries = Object.entries(player.marginPositions || {});
-  if (!entries.length && !(Number(player.marginBalance) > 0)) return null;
-  let proceeds = 0;
-  entries.forEach(([id, position]) => {
-    const quantity = Math.max(0, Number(position?.quantity) || 0);
-    const quote = Math.max(0, Number(game.marketQuotes?.[id]) || 0);
-    proceeds += Math.max(0, Math.floor(quote * quantity * 0.98));
-  });
+  if (!hasMarginExposure(player)) return null;
+  const proceeds = marginLiquidationProceeds(game, player);
   const debt = Math.max(0, Number(player.marginBalance) || 0);
   const repayment = Math.min(debt, proceeds);
   player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, proceeds - repayment);
@@ -366,53 +428,61 @@ function liquidateAllMarketPositions(game, player, inventory = {}) {
   const margin = settleMarginPositions(game, player);
   if (margin) actions.push(margin.action);
   Object.entries({ ...(player.shortPositions || {}) }).forEach(([id, position]) => {
-    const result = settleShortPosition(game, player, id, position, inventory);
+    const result = settleShortPosition(game, player, { id, position, inventory });
     if (result.success && result.action !== 'short-empty') actions.push(result.action);
   });
   return { success: true, actions };
 }
 
-function forceLiquidate(game, player, inventory) {
-  ensurePlayerMarketState(player);
-  const actions = [];
-  player.optionPositions.forEach(option => {
-    if (option.status !== 'open' || game.roundNumber <= option.expiryRound) return;
-    if (option.role === 'writer') {
-      player.cash += Math.max(0, Number(option.collateral) || 0);
-      player.reservedCash = Math.max(0, player.reservedCash - (Number(option.collateral) || 0));
-    } else {
-      ensureOptionReserve(game);
-      game.marketOptionReserve += Math.max(0, Number(option.reserveHeld) || 0);
-    }
-    option.reserveHeld = 0;
-    option.collateral = 0;
-    option.status = 'expired';
-    actions.push('option-expiry');
-  });
-  if (player.marginBalance > 0 && player.marginMaintenance > 0) {
-    const marketValue = Object.entries(player.marginPositions).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0), 0);
-    if (marketValue < player.marginMaintenance) {
-      const marginDebt = Math.max(0, Number(player.marginBalance) || 0);
-      let proceeds = 0;
-      Object.entries(player.marginPositions).forEach(([id, position]) => {
-        const value = (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0);
-        proceeds += Math.max(0, Math.floor(value * 0.98));
-      });
-      const repayment = Math.min(marginDebt, proceeds);
-      player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, proceeds - repayment);
-      player.marginPositions = {};
-      player.marginBalance = Math.max(0, marginDebt - repayment);
-      player.marginMaintenance = 0;
-      actions.push('margin-liquidation');
-    }
+function expireOption(game, player, option) {
+  if (option.role === 'writer') {
+    player.cash += Math.max(0, Number(option.collateral) || 0);
+    player.reservedCash = Math.max(0, player.reservedCash - (Number(option.collateral) || 0));
+  } else {
+    ensureOptionReserve(game);
+    game.marketOptionReserve += Math.max(0, Number(option.reserveHeld) || 0);
   }
+  option.reserveHeld = 0;
+  option.collateral = 0;
+  option.status = 'expired';
+  return 'option-expiry';
+}
+
+function expiredOptionActions(game, player) {
+  return player.optionPositions
+    .filter(option => option.status === 'open' && game.roundNumber > option.expiryRound)
+    .map(option => expireOption(game, player, option));
+}
+
+function marginForceLiquidation(game, player) {
+  if (!(player.marginBalance > 0 && player.marginMaintenance > 0)) return [];
+  if (marginPositionValue(game, player) >= player.marginMaintenance) return [];
+  const marginDebt = Math.max(0, Number(player.marginBalance) || 0);
+  const proceeds = marginLiquidationProceeds(game, player);
+  const repayment = Math.min(marginDebt, proceeds);
+  player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, proceeds - repayment);
+  player.marginPositions = {};
+  player.marginBalance = Math.max(0, marginDebt - repayment);
+  player.marginMaintenance = 0;
+  return ['margin-liquidation'];
+}
+
+function forcedShortActions(game, player, inventory) {
+  const actions = [];
   Object.entries(player.shortPositions).forEach(([id, position]) => {
     const quote = Number(game.marketQuotes?.[id]) || position.entryQuote;
-    if (quote > position.entryQuote * 1.5) {
-      const result = settleShortPosition(game, player, id, position, inventory);
-      if (result.success && result.action !== 'short-empty') actions.push(result.action);
-    }
+    if (quote <= position.entryQuote * 1.5) return;
+    const result = settleShortPosition(game, player, { id, position, inventory });
+    if (result.success && result.action !== 'short-empty') actions.push(result.action);
   });
+  return actions;
+}
+
+function forceLiquidate(game, player, inventory) {
+  ensurePlayerMarketState(player);
+  const actions = expiredOptionActions(game, player);
+  actions.push(...marginForceLiquidation(game, player));
+  actions.push(...forcedShortActions(game, player, inventory));
   return actions;
 }
 

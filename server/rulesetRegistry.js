@@ -91,6 +91,20 @@ const KNOWN_OVERRIDE_KEYS = new Set([
   'botDifficulty'
 ]);
 
+const BOOLEAN_OVERRIDE_KEYS = new Set([
+  ...OPTIONAL_SYSTEM_KEYS,
+  'doubleRent',
+  'vacationCash',
+  'auction',
+  'trading',
+  'doubleGo',
+  'noRentWhileInPrison',
+  'mortgage',
+  'evenBuild',
+  'randomizePlayerOrder'
+]);
+const NUMERIC_OVERRIDE_KEYS = new Set(['maxPlayers', 'houseLimit', 'hotelLimit', 'turnTimer', 'startingCash', 'bots']);
+
 function safePreset(value, fallback = 'classic') {
   const normalized = String(value || '').trim().toLowerCase();
   return RULESET_PRESETS.includes(normalized) ? normalized : fallback;
@@ -112,16 +126,19 @@ function safeMarketComplexity(value, fallback = 'basic') {
 }
 
 function primitive(value) {
-  if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string' || value === null) return value;
+  if (value === null) return value;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return value;
   return String(value);
 }
 
 function normalizedOverrideValue(key, value) {
-  if (OPTIONAL_SYSTEM_KEYS.includes(key) || ['doubleRent', 'vacationCash', 'auction', 'trading', 'doubleGo', 'noRentWhileInPrison', 'mortgage', 'evenBuild', 'randomizePlayerOrder'].includes(key)) {
+  if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
     return value === true || value === 1 || ['true', '1', 'on'].includes(String(value).trim().toLowerCase());
   }
   if (key === 'marketComplexity') return safeMarketComplexity(value);
-  if (['maxPlayers', 'houseLimit', 'hotelLimit', 'turnTimer', 'startingCash', 'bots'].includes(key)) {
+  if (NUMERIC_OVERRIDE_KEYS.has(key)) {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : null;
   }
@@ -129,10 +146,14 @@ function normalizedOverrideValue(key, value) {
   return primitive(value);
 }
 
+function overrideSource(overrides) {
+  if (Array.isArray(overrides)) return Object.fromEntries(overrides.map(entry => [entry?.key, entry?.value]));
+  if (overrides && typeof overrides === 'object') return overrides;
+  return {};
+}
+
 function normalizeOverrides(overrides) {
-  const source = Array.isArray(overrides)
-    ? Object.fromEntries(overrides.map(entry => [entry?.key, entry?.value]))
-    : (overrides && typeof overrides === 'object' ? overrides : {});
+  const source = overrideSource(overrides);
   const normalized = {};
   Object.keys(source).sort().forEach(key => {
     if (!KNOWN_OVERRIDE_KEYS.has(key)) return;
