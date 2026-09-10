@@ -49,6 +49,12 @@ function projectedAction(context) {
   return { enabled: !reason, cost, reason };
 }
 
+function ownsProperty(player, tile) {
+  if (!player) return false;
+  if (!tile) return false;
+  return tile.ownerId === player.id;
+}
+
 const propertyApi = {
   purchaseProperty(socketId, tileIndex) {
     const player = this.getPlayerBySocket(socketId);
@@ -308,7 +314,7 @@ const propertyApi = {
   },
 
   propertyActionProjection(player, tile) {
-    if (!player || !tile || tile.ownerId !== player.id) return null;
+    if (!ownsProperty(player, tile)) return null;
     const houseCost = this.getPropertyHouseCost(tile);
     const saleValue = Math.floor(houseCost * this.buildingSaleMultiplier());
     const mortgageValue = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());

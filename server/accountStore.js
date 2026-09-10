@@ -164,8 +164,36 @@ function computePlacementById(players) {
     .map((player, index) => [player.id, index + 1]));
 }
 
+function matchDetailFields(matchMeta, participants) {
+  if (!matchMeta.includeMatchDetails) return {};
+  const fields = {
+    playerCount: Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length)),
+    botDecisions: clippedList(matchMeta.botDecisions, 200),
+    botOnly: matchMeta.botOnly === true
+  };
+  if (matchMeta.afkOnly === true) fields.afkOnly = true;
+  return fields;
+}
+
+function rulesetFieldValue(value) {
+  return typeof value === 'string' ? value.slice(0, 200) : Math.max(0, Number(value) || 0);
+}
+
+function rulesetFields(matchMeta) {
+  const fields = {};
+  ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(matchMeta, key)) fields[key] = rulesetFieldValue(matchMeta[key]);
+  });
+  if (Object.prototype.hasOwnProperty.call(matchMeta, 'rulesetOverrides')) {
+    fields.rulesetOverrides = clippedList(matchMeta.rulesetOverrides, 32)
+      .filter(entry => entry && typeof entry.key === 'string')
+      .map(entry => ({ key: entry.key.slice(0, 60), value: entry.value }));
+  }
+  return fields;
+}
+
 function buildMatchRecord(matchId, matchMeta, participants) {
-  const record = {
+  return {
     matchId,
     completedAt: matchMeta.completedAt || new Date().toISOString(),
     durationSeconds: nonNegative(matchMeta.durationSeconds),
@@ -178,25 +206,10 @@ function buildMatchRecord(matchId, matchMeta, participants) {
     auctionsCompleted: nonNegative(matchMeta.auctionsCompleted),
     casino: clippedList(matchMeta.casino, 8),
     market: clippedList(matchMeta.market, 8),
-    playerContracts: clippedList(matchMeta.playerContracts, 20)
+    playerContracts: clippedList(matchMeta.playerContracts, 20),
+    ...matchDetailFields(matchMeta, participants),
+    ...rulesetFields(matchMeta)
   };
-  if (matchMeta.includeMatchDetails) {
-    record.playerCount = Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length));
-    record.botDecisions = clippedList(matchMeta.botDecisions, 200);
-    record.botOnly = matchMeta.botOnly === true;
-    if (matchMeta.afkOnly === true) record.afkOnly = true;
-  }
-  ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
-    if (Object.prototype.hasOwnProperty.call(matchMeta, key)) {
-      record[key] = typeof matchMeta[key] === 'string' ? matchMeta[key].slice(0, 200) : Math.max(0, Number(matchMeta[key]) || 0);
-    }
-  });
-  if (Object.prototype.hasOwnProperty.call(matchMeta, 'rulesetOverrides')) {
-    record.rulesetOverrides = clippedList(matchMeta.rulesetOverrides, 32)
-      .filter(entry => entry && typeof entry.key === 'string')
-      .map(entry => ({ key: entry.key.slice(0, 60), value: entry.value }));
-  }
-  return record;
 }
 
 // One delta function per stat key, applied to the live player object of a
