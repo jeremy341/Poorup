@@ -19,6 +19,7 @@ import {
 } from "./clientSanitize.js";
 import { ACHIEVEMENT_STORAGE_KEY, loadAchievementRecords } from "./clientAchievements.js";
 import { START_TILE_INDEX } from "./clientBoardData.js";
+import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 // Bots avoid the human's exact icon (color plus face): a custom face in a
 // preset color leaves that preset available to the table.
 function presetIdentityTakenBy(preset, selected) {
@@ -145,6 +146,8 @@ const state = {
   appearance: 0,
   tableAppearanceOverride: null, // optional one-table override; null inherits active design
   homeTab: "play",          // play | rooms | profile
+  themeId: DEFAULT_THEME_ID, // client-only environmental preference
+  themePopoverOpen: false,
   profileTab: "designs",    // overview | stats | designs | history | account
   setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
   profiles: loadProfiles(),   // persisted array of saved player designs
