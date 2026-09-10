@@ -195,14 +195,19 @@ function settleFlightTarget(timers, target, id) {
 
 function scheduleNightShiftTarget(target, duration) {
   if (!target) return;
-  if (REDUCED_MOTION) {
-    target.style.pointerEvents = "auto";
-    return;
-  }
   const id = target.dataset.targetId;
   const timers = { reveal: null, disable: null, miss: null, settle: null, backstop: duration + 80, missElapsed: 0, missStartedAt: 0, endedWhileHidden: false };
   const settle = () => settleFlightTarget(timers, target, id);
   timers.settle = settle;
+  if (REDUCED_MOTION) {
+    target.style.pointerEvents = "auto";
+    // Reduced motion removes travel, not the rules. Keep the same miss
+    // deadline so the mode cannot become an easier variant of Patrol.
+    timers.missStartedAt = Date.now();
+    timers.miss = setTimeout(settle, timers.backstop);
+    nightShiftTargetTimers.set(id, timers);
+    return;
+  }
   target.style.pointerEvents = "none";
   timers.reveal = setTimeout(() => {
     if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = "auto";

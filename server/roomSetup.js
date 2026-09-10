@@ -23,6 +23,11 @@ export function normalizeRoomCode(value) {
   return value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
 }
 
+export function normalizeRoomId(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 120);
+}
+
 export function normalizeRoomName(value) {
   if (typeof value !== 'string') return 'AFTER HOURS';
   return value.trim().replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 24) || 'AFTER HOURS';
@@ -113,8 +118,8 @@ export function validateCreateRoomRequest(request) {
 
 // Returns the exact rejection message for the first failing check, or null.
 // Check order must stay: room code, then nickname.
-export function validateJoinRoomRequest({ roomCode, nickname }) {
-  if (!roomCode) {
+export function validateJoinRoomRequest({ roomCode, roomId, nickname }) {
+  if (!roomCode && !roomId) {
     return 'Room code is required.';
   }
   if (!nickname) {

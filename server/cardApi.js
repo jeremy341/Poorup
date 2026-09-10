@@ -6,7 +6,8 @@
 // this object onto GameState.prototype; server/applyCard.test.js pins every
 // card's effect and feed text.
 import { randomInt } from './random.js';
-import { START_TILE_INDEX, SURPRISE_DECK, TREASURE_DECK } from './gameData.js';
+import { START_TILE_INDEX } from './gameData.js';
+import { decksForVariant } from './boardRegistry.js';
 
 const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
 
@@ -52,7 +53,8 @@ const cardApi = {
 
   drawCard(deckName = 'surprise') {
     const key = deckName === 'treasure' ? 'treasureDeck' : 'surpriseDeck';
-    const source = deckName === 'treasure' ? TREASURE_DECK : SURPRISE_DECK;
+    const variantDecks = decksForVariant(this.boardVariant || 'standard-40');
+    const source = deckName === 'treasure' ? variantDecks.treasure : variantDecks.surprise;
     if (this[key].length === 0) this[key] = [...source];
     const index = randomInt(0, this[key].length - 1);
     return this[key].splice(index, 1)[0];

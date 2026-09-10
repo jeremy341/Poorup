@@ -137,6 +137,16 @@ check('FIX1 mortgage still succeeds with a live seat and a free table', () => {
   assert.equal(tile.mortgaged, true);
 });
 
+check('FIX1 summary projects event-aware property action costs and reasons', () => {
+  const ctx = ownedRoom();
+  const tile = ctx.give(1);
+  ctx.game.globalEvent = { id: 'housing', phase: 'active', effects: { buildingCostMultiplier: 1.35, propertyValueMultiplier: 0.65 } };
+  const projected = ctx.game.getGameSummary(ctx.owner.id).tiles.find(entry => entry.index === tile.index).propertyActions;
+  assert.equal(projected.buildHouse.cost, 68);
+  assert.equal(projected.mortgage.cost, 19);
+  assert.equal(projected.unmortgage.cost, 22);
+});
+
 check('FIX2 purchase accept blocked for bankrupt seat', () => {
   const ctx = offerRoom();
   const tile = ctx.game.getTile(1);
@@ -221,6 +231,18 @@ check('FIX3 bank loan still succeeds for a live solvent seat', () => {
   const result = ctx.game.takeBankLoan('socket-a', 'audit-clean');
   assert.equal(result.success, true);
   assert.equal(result.loan.status, 'active');
+});
+
+check('FIX3 bank loan is blocked while any table obligation is open', () => {
+  ['pendingPayment', 'pendingPurchaseOffer', 'auction', 'pendingTrade', 'pendingPlayerContract'].forEach((key) => {
+    const ctx = loanRoom();
+    ctx.borrower.cash = 100;
+    ctx.game[key] = key === 'pendingPayment' ? { playerId: ctx.borrower.id, amountRemaining: 10 } : {};
+    assert.deepEqual(
+      ctx.game.takeBankLoan('socket-a', 'audit-obligation-' + key),
+      { success: false, error: 'Resolve the table obligation before borrowing.' }
+    );
+  });
 });
 
 check('FIX4 issued loan stores collateralName', () => {

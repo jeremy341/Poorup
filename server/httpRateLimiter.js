@@ -7,8 +7,10 @@ export function createHttpRateLimiter({ max = 0, windowMs = 60_000, trustProxy =
   const buckets = new Map();
   return function httpRateLimit(req, res, next) {
     if (!limit) return next();
-    const forwarded = trustProxy ? req.headers['x-forwarded-for'] : null;
-    const ip = String(Array.isArray(forwarded) ? forwarded[0] : forwarded || req.socket?.remoteAddress || 'unknown').split(',')[0].trim().slice(0, 80);
+    // Express has already applied the configured trusted-proxy hop count to
+    // req.ip. Never trust a raw client-supplied X-Forwarded-For value: it
+    // lets an attacker mint a fresh bucket for every request.
+    const ip = String((trustProxy ? req.ip : null) || req.socket?.remoteAddress || 'unknown').trim().slice(0, 80);
     const now = Date.now();
     const current = buckets.get(ip);
     const bucket = !current || now - current.startedAt >= window ? { startedAt: now, count: 0 } : current;

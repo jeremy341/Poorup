@@ -57,6 +57,12 @@ function createSocialApi(deps) {
     return true;
   }
 
+  function allowAnonymousAction(identity, action) {
+    const key = String(identity || '').trim().slice(0, 120);
+    if (!key) return false;
+    return allowSocialAction('anon:' + key, action);
+  }
+
   function accountForSocket(socket, payload = {}) {
     return resolveAccount(accountStore, socket, payload);
   }
@@ -125,8 +131,12 @@ function createSocialApi(deps) {
 
   function fallbackMatchRecords(accountId) {
     const recentMatches = matchStore.listForAccount(accountId, 50);
-    if (recentMatches.length) return recentMatches;
-    return accountStore.getMatchHistory(accountId);
+    const legacyMatches = accountStore.getMatchHistory(accountId);
+    const merged = new Map();
+    [...legacyMatches, ...recentMatches].forEach(record => {
+      if (record?.matchId) merged.set(record.matchId, record);
+    });
+    return [...merged.values()].sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')));
   }
 
   function recentCutoff(accountId) {
@@ -166,11 +176,20 @@ function createSocialApi(deps) {
       evidenceHash: crypto.createHash('sha256').update(unlockKey).digest('hex')
     });
     if (!unlock.created) return false;
-    const stored = accountStore.recordAchievement(candidate.accountId, {
-      id: unlock.record.achievementId,
-      unlockedAt: unlock.record.unlockedAt
-    });
-    if (!stored.created) return false;
+    let stored;
+    try {
+      stored = accountStore.recordAchievement(candidate.accountId, {
+        id: unlock.record.achievementId,
+        unlockedAt: unlock.record.unlockedAt
+      });
+    } catch {
+      achievementStore.remove?.(candidate.accountId, unlock.record.achievementId);
+      return false;
+    }
+    if (!stored.created) {
+      if (!stored.success) achievementStore.remove?.(candidate.accountId, unlock.record.achievementId);
+      return false;
+    }
     announceAchievement(candidate, unlock.record, unlockKey);
     return true;
   }
@@ -281,6 +300,7 @@ function createSocialApi(deps) {
 
   return {
     accountForSocket,
+    allowAnonymousAction,
     allowSocialAction,
     chatBlockedInRoom,
     chatLastSent,
