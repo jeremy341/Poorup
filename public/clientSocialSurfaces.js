@@ -252,12 +252,20 @@ export function requestLeaderboardSnapshot(target) {
 }
 
 function publicPlayerAck(response) {
-  if (response?.success && response.player) {
-    const seat = state.selectedPlayer;
-    state.selectedPlayer = { ...seat, ...response.player, id: seat?.id || response.player.id, serverId: seat?.serverId || seat?.id, accountId: response.player.id };
-    state.selectedPlayerRelationship = response.relationship;
-    renderPlayerSurface();
-  }
+  if (!publicPlayerResponseValid(response)) return;
+  applyPublicPlayerCard(response);
+}
+
+function publicPlayerResponseValid(response) {
+  if (!response?.success) return false;
+  return Boolean(response.player);
+}
+
+function applyPublicPlayerCard(response) {
+  const seat = state.selectedPlayer;
+  state.selectedPlayer = { ...seat, ...response.player, id: seat?.id || response.player.id, serverId: seat?.serverId || seat?.id, accountId: response.player.id };
+  state.selectedPlayerRelationship = response.relationship;
+  renderPlayerSurface();
 }
 
 function signinBodyHTML() {
