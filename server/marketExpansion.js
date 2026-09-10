@@ -38,9 +38,17 @@ function ensureOptionReserve(game) {
 
 function maintenanceDue(game, player) {
   ensurePlayerMarketState(player || {});
-  if (!player || Number(player.marginMaintenance) <= 0) return false;
-  const value = Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position?.quantity) || 0), 0);
-  return value < Number(player.marginMaintenance);
+  if (!maintenanceRequired(player)) return false;
+  return marginMarketValue(game, player) < Number(player.marginMaintenance);
+}
+
+function maintenanceRequired(player) {
+  if (!player) return false;
+  return Number(player.marginMaintenance) > 0;
+}
+
+function marginMarketValue(game, player) {
+  return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position?.quantity) || 0), 0);
 }
 
 function tableObligationPending(game) {
