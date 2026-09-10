@@ -41,10 +41,18 @@ function pocketCardHTML(pocket, target) {
   return '<span class="casino-reel-card casino-reel-card-' + color + (target ? " is-target" : "") + '" data-pocket="' + label + '"><strong>' + label + '</strong><small>' + color.toUpperCase() + '</small></span>';
 }
 
+function reelTargetIndex(result) {
+  return Math.max(18, Math.min(REEL_LENGTH - 8, Math.floor(safeNumber(result?.presentation?.targetIndex, 32))));
+}
+
+function reelWinningPocket(result) {
+  return Math.max(0, Math.min(36, Math.floor(safeNumber(result?.pocket))));
+}
+
 function reelPockets(result) {
-  const targetIndex = Math.max(18, Math.min(REEL_LENGTH - 8, Math.floor(safeNumber(result?.presentation?.targetIndex, 32))));
+  const targetIndex = reelTargetIndex(result);
   const random = seeded(result?.presentation?.reelSeed || result?.transactionId || result?.spinId);
-  const winningPocket = Math.max(0, Math.min(36, Math.floor(safeNumber(result?.pocket))));
+  const winningPocket = reelWinningPocket(result);
   const pockets = Array.from({ length: REEL_LENGTH }, () => Math.floor(random() * 37));
   pockets[targetIndex] = winningPocket;
   return { pockets, targetIndex };
@@ -68,82 +76,154 @@ export function stopCasinoReel(root) {
   active?.finish(true);
 }
 
-export function startCasinoReel(root, result, { playTick, onDone } = {}) {
-  if (!root) return;
-  stopCasinoReel(root);
+function reelParts(root) {
   const track = root.querySelector(".casino-reel-track");
   const viewport = root.querySelector(".casino-reel-viewport");
   const cards = [...root.querySelectorAll(".casino-reel-card")];
   const status = root.querySelector("[data-casino-reel-result]");
-  if (!track || !viewport || !cards.length) {
-    onDone?.();
-    return;
-  }
-  let complete = false;
-  let tickTimer = null;
-  let animation = null;
-  let finalOffset = 0;
-  const form = root.closest(".casino-modal-body")?.querySelector("[data-casino-desk-form]");
-  const skipButton = root.querySelector("[data-casino-skip]");
-  const duration = Math.max(1200, Math.min(4200, Math.floor(safeNumber(result?.presentation?.durationMs, 4200))));
-  const deadline = Math.max(Date.now(), Math.floor(safeNumber(result?.presentation?.revealDeadline, Date.now() + duration)));
-  const finish = (skipped = false) => {
-    if (complete) return;
-    complete = true;
-    if (tickTimer) clearTimeout(tickTimer);
-    document.removeEventListener("visibilitychange", onVisibility);
-    animation?.cancel?.();
-    if (skipped && finalOffset) track.style.transform = "translate3d(" + finalOffset + "px, 0, 0)";
-    form?.querySelectorAll("input, button").forEach(control => { control.disabled = false; });
-    if (skipButton) {
-      skipButton.disabled = true;
-      skipButton.querySelector(".t-label")?.replaceChildren(document.createTextNode("REVEAL COMPLETE"));
-    }
-    root.dataset.reelState = skipped ? "skipped" : "settled";
-    root.setAttribute("aria-busy", "false");
-    root.classList.toggle("is-skipped", skipped);
-    status.textContent = resultText(result);
-    onDone?.();
-  };
-  const onVisibility = () => {
-    if (!document.hidden && Date.now() >= deadline) finish(true);
-  };
-  activeReels.set(root, { finish });
-  form?.querySelectorAll("input, button").forEach(control => { control.disabled = true; });
-  root.dataset.reelState = "presenting";
-  root.setAttribute("aria-busy", "true");
-  skipButton?.addEventListener("click", () => finish(true), { once: true });
-  const cardWidth = cards[0].getBoundingClientRect().width;
-  const gap = safeNumber(parseFloat(getComputedStyle(track).gap), 6);
+  if (!reelPartsComplete(track, viewport, cards, status)) return null;
+  return { track, viewport, cards, status };
+}
+
+function reelPartsComplete(track, viewport, cards, status) {
+  if (!track) return false;
+  if (!viewport) return false;
+  if (!cards.length) return false;
+  return Boolean(status);
+}
+
+function clearReelTimer(context) {
+  if (context.tickTimer) clearTimeout(context.tickTimer);
+}
+
+function applyReelFinalOffset(context, skipped) {
+  if (skipped && context.finalOffset) context.track.style.transform = "translate3d(" + context.finalOffset + "px, 0, 0)";
+}
+
+function completeReelSkipButton(context) {
+  if (!context.skipButton) return;
+  context.skipButton.disabled = true;
+  context.skipButton.querySelector(".t-label")?.replaceChildren(document.createTextNode("REVEAL COMPLETE"));
+}
+
+function finishCasinoReel(context, skipped = false) {
+  if (context.complete) return;
+  context.complete = true;
+  clearReelTimer(context);
+  document.removeEventListener("visibilitychange", context.onVisibility);
+  context.animation?.cancel?.();
+  applyReelFinalOffset(context, skipped);
+  context.form?.querySelectorAll("input, button").forEach(control => { control.disabled = false; });
+  completeReelSkipButton(context);
+  context.root.dataset.reelState = skipped ? "skipped" : "settled";
+  context.root.setAttribute("aria-busy", "false");
+  context.root.classList.toggle("is-skipped", skipped);
+  context.status.textContent = resultText(context.result);
+  context.onDone?.();
+}
+
+function reelOffset(parts, root) {
+  const cardWidth = parts.cards[0].getBoundingClientRect().width;
+  const gap = safeNumber(parseFloat(getComputedStyle(parts.track).gap), 6);
   const step = cardWidth + gap;
-  const targetIndex = Math.max(0, Math.min(cards.length - 1, Math.floor(safeNumber(root.dataset.reelTarget, 32))));
-  const paddingLeft = safeNumber(parseFloat(getComputedStyle(track).paddingLeft), 0);
-  const offset = (viewport.clientWidth / 2) - (paddingLeft + targetIndex * step + cardWidth / 2);
-  finalOffset = offset;
-  if (Date.now() >= deadline || prefersReducedMotion() || typeof track.animate !== "function") {
-    if (prefersReducedMotion()) root.classList.add("is-reduced-motion");
-    track.style.transform = "translate3d(" + offset + "px, 0, 0)";
-    finish(true);
-    return;
-  }
-  track.style.transform = "translate3d(0, 0, 0)";
-  animation = track.animate(
-    [{ transform: "translate3d(0, 0, 0)" }, { transform: "translate3d(" + offset + "px, 0, 0)" }],
-    { duration, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" }
-  );
-  animation.onfinish = () => finish(false);
-  document.addEventListener("visibilitychange", onVisibility);
+  const targetIndex = Math.max(0, Math.min(parts.cards.length - 1, Math.floor(safeNumber(root.dataset.reelTarget, 32))));
+  const paddingLeft = safeNumber(parseFloat(getComputedStyle(parts.track).paddingLeft), 0);
+  const offset = (parts.viewport.clientWidth / 2) - (paddingLeft + targetIndex * step + cardWidth / 2);
+  return { offset, targetIndex };
+}
+
+function shouldSkipReel(context) {
+  return Date.now() >= context.deadline || prefersReducedMotion() || typeof context.track.animate !== "function";
+}
+
+function presentReelImmediately(context, offset) {
+  if (prefersReducedMotion()) context.root.classList.add("is-reduced-motion");
+  context.track.style.transform = "translate3d(" + offset + "px, 0, 0)";
+  context.finish(true);
+}
+
+function scheduleReelTicks(context) {
   let lastBoundary = -1;
   const tickLoop = () => {
-    if (complete) return;
-    const progress = Math.min(1, Math.max(0, 1 - ((deadline - Date.now()) / duration)));
+    if (context.complete) return;
+    const progress = Math.min(1, Math.max(0, 1 - ((context.deadline - Date.now()) / context.duration)));
     const eased = 1 - Math.pow(1 - progress, 3);
-    const boundary = Math.min(targetIndex, Math.floor(eased * targetIndex));
+    const boundary = Math.min(context.targetIndex, Math.floor(eased * context.targetIndex));
     if (boundary > lastBoundary) {
       lastBoundary = boundary;
-      playTick?.();
+      context.playTick?.();
     }
-    tickTimer = setTimeout(tickLoop, 45 + Math.round(progress * 150));
+    context.tickTimer = setTimeout(tickLoop, 45 + Math.round(progress * 150));
   };
   tickLoop();
+}
+
+function animateReel(context, offset) {
+  context.track.style.transform = "translate3d(0, 0, 0)";
+  context.animation = context.track.animate(
+    [{ transform: "translate3d(0, 0, 0)" }, { transform: "translate3d(" + offset + "px, 0, 0)" }],
+    { duration: context.duration, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" }
+  );
+  context.animation.onfinish = () => context.finish(false);
+  document.addEventListener("visibilitychange", context.onVisibility);
+  scheduleReelTicks(context);
+}
+
+function createReelContext({ root, result, parts, playTick, onDone }) {
+  const duration = Math.max(1200, Math.min(4200, Math.floor(safeNumber(result?.presentation?.durationMs, 4200))));
+  const deadline = Math.max(Date.now(), Math.floor(safeNumber(result?.presentation?.revealDeadline, Date.now() + duration)));
+  const context = {
+    ...parts,
+    parts,
+    root,
+    result,
+    duration,
+    deadline,
+    form: root.closest(".casino-modal-body")?.querySelector("[data-casino-desk-form]"),
+    skipButton: root.querySelector("[data-casino-skip]"),
+    playTick,
+    onDone,
+    complete: false,
+    tickTimer: null,
+    animation: null,
+    finalOffset: 0,
+    targetIndex: 0,
+    onVisibility: null,
+    finish: null,
+  };
+  context.onVisibility = () => {
+    if (!document.hidden && Date.now() >= context.deadline) context.finish(true);
+  };
+  context.finish = skipped => finishCasinoReel(context, skipped);
+  return context;
+}
+
+function prepareReel(context) {
+  const { root, parts } = context;
+  context.form?.querySelectorAll("input, button").forEach(control => { control.disabled = true; });
+  root.dataset.reelState = "presenting";
+  root.setAttribute("aria-busy", "true");
+  context.skipButton?.addEventListener("click", () => context.finish(true), { once: true });
+  const measurements = reelOffset(parts, root);
+  context.finalOffset = measurements.offset;
+  context.targetIndex = measurements.targetIndex;
+  return measurements.offset;
+}
+
+export function startCasinoReel(root, result, { playTick, onDone } = {}) {
+  if (!root) return;
+  stopCasinoReel(root);
+  const parts = reelParts(root);
+  if (!parts) {
+    onDone?.();
+    return;
+  }
+  const context = createReelContext({ root, result, parts, playTick, onDone });
+  activeReels.set(root, context);
+  const offset = prepareReel(context);
+  if (shouldSkipReel(context)) {
+    presentReelImmediately(context, offset);
+    return;
+  }
+  animateReel(context, offset);
 }

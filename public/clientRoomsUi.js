@@ -491,44 +491,71 @@ const HOME_CONNECTION_SIGNAL = {
   offline: "OFFLINE",
 };
 
-/** Paint the compact home status strip without rebuilding the home page. */
-export function renderHomeSignals() {
-  const entry = $("[data-home-signal=entry]");
-  const sync = $("[data-home-signal=sync]");
-  const lobbies = $("[data-home-signal=lobbies]");
-  const account = state.account?.account || null;
+function renderEntrySignal(entry, account) {
+  if (!entry) return;
+  const details = entrySignalDetails(account);
+  setSignalText(entry.querySelector("#home-signal-entry-value"), details.value);
+  entry.dataset.signedIn = String(details.signedIn);
+  entry.title = details.title;
+  entry.setAttribute("aria-label", details.ariaLabel);
+}
+
+function setSignalText(node, value) {
+  if (node) node.textContent = value;
+}
+
+function entrySignalDetails(account) {
+  const identity = entryIdentity(account);
+  return {
+    signedIn: identity.signedIn,
+    ...entrySignalLabels(identity)
+  };
+}
+
+function entryIdentity(account) {
   const displayName = String(account?.displayName || "").trim();
   const username = String(account?.username || "").trim();
-  if (entry) {
-    const value = entry.querySelector("#home-signal-entry-value");
-    const signedIn = Boolean(account);
-    if (value) value.textContent = signedIn ? (displayName || (username ? `@${username}` : "ACCOUNT")) : "NO ACCOUNT";
-    entry.dataset.signedIn = String(signedIn);
-    entry.title = signedIn ? `Open account @${username || displayName}` : "Open guest profile or create an account";
-    entry.setAttribute("aria-label", signedIn
-      ? `Open account ${displayName || username}${username ? `, @${username}` : ""}`
-      : "Open guest profile or create an account");
-  }
+  const signedIn = Boolean(account);
+  const fallbackValue = username ? `@${username}` : "ACCOUNT";
+  return { displayName, username, signedIn, identity: displayName || fallbackValue };
+}
+
+function entrySignalLabels({ displayName, username, signedIn, identity }) {
+  return {
+    value: signedIn ? identity : "NO ACCOUNT",
+    title: signedIn ? `Open account @${username || displayName}` : "Open guest profile or create an account",
+    ariaLabel: signedIn
+      ? `Open account ${identity}${username ? `, @${username}` : ""}`
+      : "Open guest profile or create an account"
+  };
+}
+
+function renderSyncSignal(sync) {
+  if (!sync) return;
   const status = state.connectionStatus || "offline";
-  if (sync) {
-    const value = sync.querySelector("#home-signal-sync-value");
-    if (value) value.textContent = HOME_CONNECTION_SIGNAL[status] || "OFFLINE";
-    sync.dataset.connection = status;
-    sync.setAttribute("aria-label", `Refresh live room directory · ${HOME_CONNECTION_SIGNAL[status] || "OFFLINE"}`);
-  }
-  if (lobbies) {
-    const value = lobbies.querySelector("#home-signal-lobbies-value");
-    const copy = lobbyState.roomsLoading && !lobbyState.roomsDirectoryLoaded
-      ? "SYNCING…"
-      : lobbyState.roomsDirectoryLoaded
-        ? `${lobbyState.roomsDirectory.length} LOBBIES`
-        : "— LOBBIES";
-    if (value) value.textContent = copy;
-    lobbies.dataset.loaded = String(lobbyState.roomsDirectoryLoaded);
-    lobbies.setAttribute("aria-label", lobbyState.roomsDirectoryLoaded
-      ? `Browse ${lobbyState.roomsDirectory.length} public lobbies`
-      : "Browse public lobbies");
-  }
+  const copy = HOME_CONNECTION_SIGNAL[status] || "OFFLINE";
+  const value = sync.querySelector("#home-signal-sync-value");
+  setSignalText(value, copy);
+  sync.dataset.connection = status;
+  sync.setAttribute("aria-label", `Refresh live room directory · ${copy}`);
+}
+
+function renderLobbiesSignal(lobbies) {
+  if (!lobbies) return;
+  const loaded = lobbyState.roomsDirectoryLoaded;
+  const copy = lobbyState.roomsLoading && !loaded ? "SYNCING…" : loaded ? `${lobbyState.roomsDirectory.length} LOBBIES` : "— LOBBIES";
+  const value = lobbies.querySelector("#home-signal-lobbies-value");
+  if (value) value.textContent = copy;
+  lobbies.dataset.loaded = String(loaded);
+  lobbies.setAttribute("aria-label", loaded ? `Browse ${lobbyState.roomsDirectory.length} public lobbies` : "Browse public lobbies");
+}
+
+/** Paint the compact home status strip without rebuilding the home page. */
+export function renderHomeSignals() {
+  const account = state.account?.account || null;
+  renderEntrySignal($("[data-home-signal=entry]"), account);
+  renderSyncSignal($("[data-home-signal=sync]"));
+  renderLobbiesSignal($("[data-home-signal=lobbies]"));
 }
 
 function onRulesetInput(e) {

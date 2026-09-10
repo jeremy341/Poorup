@@ -528,21 +528,50 @@ function seasonDateLabel(value) {
   return String(value).slice(0, 10);
 }
 
-function seasonPanelHTML(surfaceKey = "page") {
-  const season = state.season.current;
+function seasonStatusPanelHTML() {
   if (state.season.loading) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">LOADING VERIFIED SEASON…</p></section>`;
   if (state.season.error) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(state.season.error)}</p></section>`;
-  if (!season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
-  const rows = (state.season.rows || []).slice(0, 3).map((row, index) => `<div class="season-row"><span class="t-label f12 g300">${String(index + 1).padStart(2, "0")}</span><span class="season-row-name"><strong class="t-label f11 g100">${esc(row.displayName || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(row.username || "player")} · ${row.games || 0} GAMES</span></span><strong class="t-label f12 green">${row.points || 0}</strong></div>`).join("");
-  const claimed = new Set(state.season.claimedRewardIds || []);
-  const rewards = (state.season.rewards || []).map(reward => {
+  if (!state.season.current) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
+  return "";
+}
+
+function seasonPlacementRows(rows) {
+  return rows.map((row, index) => `<div class="season-row"><span class="t-label f12 g300">${String(index + 1).padStart(2, "0")}</span><span class="season-row-name"><strong class="t-label f11 g100">${esc(row.displayName || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(row.username || "player")} · ${row.games || 0} GAMES</span></span><strong class="t-label f12 green">${row.points || 0}</strong></div>`).join("");
+}
+
+function seasonRewardThreshold(reward, track) {
+  return reward.track === "placement" ? `${Math.round(Number(reward.threshold || 0) * 100)}% PLACEMENT` : `${reward.threshold} ${track}`;
+}
+
+function seasonRewardAction(reward, claimed, signedIn) {
+  const rewardId = String(reward.id || "REWARD");
+  const isClaimed = claimed.has(rewardId);
+  return {
+    rewardId,
+    isClaimed,
+    label: isClaimed ? "CLAIMED" : signedIn ? "CLAIM" : "SIGN IN",
+    disabled: !signedIn || isClaimed
+  };
+}
+
+function seasonRewardRows(rewards, claimed, signedIn) {
+  return rewards.map(reward => {
     const rewardId = String(reward.id || "REWARD");
-    const isClaimed = claimed.has(rewardId);
     const track = String(reward.track || "mastery").toUpperCase();
-    const threshold = reward.track === "placement" ? `${Math.round(Number(reward.threshold || 0) * 100)}% PLACEMENT` : `${reward.threshold} ${track}`;
-    const label = isClaimed ? "CLAIMED" : state.account?.account ? "CLAIM" : "SIGN IN";
-    return `<div class="season-reward${isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${reward.tokens ? ` · ${reward.tokens} TOKENS` : ""}</span></div><button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${state.account?.account && !isClaimed ? "" : "disabled"}><span class="t-label f11">${label}</span></button></div>`;
+    const action = seasonRewardAction(reward, claimed, signedIn);
+    const threshold = seasonRewardThreshold(reward, track);
+    const tokenCopy = reward.tokens ? ` · ${reward.tokens} TOKENS` : "";
+    return `<div class="season-reward${action.isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${tokenCopy}</span></div><button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${action.disabled ? "disabled" : ""}><span class="t-label f11">${action.label}</span></button></div>`;
   }).join("");
+}
+
+function seasonPanelHTML(surfaceKey = "page") {
+  const status = seasonStatusPanelHTML();
+  if (status) return status;
+  const season = state.season.current;
+  const rows = seasonPlacementRows((state.season.rows || []).slice(0, 3));
+  const claimed = new Set(state.season.claimedRewardIds || []);
+  const rewards = seasonRewardRows(state.season.rewards || [], claimed, Boolean(state.account?.account));
   return `<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div></div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
 }
 

@@ -66,14 +66,15 @@ function clearPending(node) {
 }
 
 function contractEmit(event, payload, message, pendingNode = null) {
-  emitWithTimeout(host.emitServer, event, payload, (response) => {
-    if (response?.success === false) {
-      clearPending(pendingNode);
-      ackFailure(response, message);
-      return;
-    }
-    host.renderRightRail();
-  }, {
+  emitWithTimeout(host.emitServer, event, payload, {
+    onResponse: response => {
+      if (response?.success === false) {
+        clearPending(pendingNode);
+        ackFailure(response, message);
+        return;
+      }
+      host.renderRightRail();
+    },
     onTimeout: () => {
       clearPending(pendingNode);
       host.say("The deal response timed out. Your Finance rail will refresh when the connection returns.");
@@ -122,15 +123,16 @@ function onMarketOrder(node) {
   if (!node || !markPending(node)) return false;
   const quantity = marketQuantity();
   const requestId = host.createRequestId("market");
-  emitWithTimeout(host.emitServer, "market-order", { instrumentId: node.dataset.marketId, side: node.dataset.marketSide, quantity, requestId }, (response) => {
-    if (response?.success === false) {
-      clearPending(node);
-      ackFailure(response, "Market order could not be completed.");
-      return;
-    }
-    mergeEconomySnapshot(response);
-    host.renderRightRail();
-  }, {
+  emitWithTimeout(host.emitServer, "market-order", { instrumentId: node.dataset.marketId, side: node.dataset.marketSide, quantity, requestId }, {
+    onResponse: response => {
+      if (response?.success === false) {
+        clearPending(node);
+        ackFailure(response, "Market order could not be completed.");
+        return;
+      }
+      mergeEconomySnapshot(response);
+      host.renderRightRail();
+    },
     onTimeout: () => {
       clearPending(node);
       host.say("Market response timed out. Your positions will refresh when the connection returns.");
@@ -150,14 +152,15 @@ function onBankAction(node) {
     const amount = Math.floor(Number(input?.value) || 0);
     if (amount > 0) payload.amount = amount;
   }
-  emitWithTimeout(host.emitServer, eventName, payload, (response) => {
-    if (response?.success === false) {
-      clearPending(node);
-      ackFailure(response, "The bank transaction could not be completed.");
-      return;
-    }
-    host.refreshEconomySnapshot();
-  }, {
+  emitWithTimeout(host.emitServer, eventName, payload, {
+    onResponse: response => {
+      if (response?.success === false) {
+        clearPending(node);
+        ackFailure(response, "The bank transaction could not be completed.");
+        return;
+      }
+      host.refreshEconomySnapshot();
+    },
     onTimeout: () => {
       clearPending(node);
       host.say("Bank response timed out. Your wallet will refresh when the connection returns.");
