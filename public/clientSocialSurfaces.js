@@ -252,12 +252,20 @@ export function requestLeaderboardSnapshot(target) {
 }
 
 function publicPlayerAck(response) {
-  if (response?.success && response.player) {
-    const seat = state.selectedPlayer;
-    state.selectedPlayer = { ...seat, ...response.player, id: seat?.id || response.player.id, serverId: seat?.serverId || seat?.id, accountId: response.player.id };
-    state.selectedPlayerRelationship = response.relationship;
-    renderPlayerSurface();
-  }
+  if (!publicPlayerResponseValid(response)) return;
+  applyPublicPlayerCard(response);
+}
+
+function publicPlayerResponseValid(response) {
+  if (!response?.success) return false;
+  return Boolean(response.player);
+}
+
+function applyPublicPlayerCard(response) {
+  const seat = state.selectedPlayer;
+  state.selectedPlayer = { ...seat, ...response.player, id: seat?.id || response.player.id, serverId: seat?.serverId || seat?.id, accountId: response.player.id };
+  state.selectedPlayerRelationship = response.relationship;
+  renderPlayerSurface();
 }
 
 function signinBodyHTML() {
@@ -373,17 +381,35 @@ function clearLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
 }
 
+function seasonRowsFromResponse(response) {
+  return Array.isArray(response.rows) ? response.rows : [];
+}
+
+function seasonRewardsFromResponse(response) {
+  return Array.isArray(response.rewards) ? response.rewards : (response.season?.rewardTrack || []);
+}
+
+function seasonClaimsFromResponse(response) {
+  return Array.isArray(response.claimedRewardIds) ? response.claimedRewardIds : [];
+}
+
+function seasonStateFromResponse(response) {
+  return {
+    current: response.season || null,
+    metric: response.metric || state.season.metric,
+    rows: seasonRowsFromResponse(response),
+    rewards: seasonRewardsFromResponse(response),
+    claimedRewardIds: seasonClaimsFromResponse(response)
+  };
+}
+
 function applySeasonResponse(response) {
   if (!response?.success) {
     state.season.error = response?.error || "Season data is temporarily unavailable.";
     return;
   }
   state.season.error = "";
-  state.season.current = response.season || null;
-  state.season.metric = response.metric || state.season.metric;
-  state.season.rows = Array.isArray(response.rows) ? response.rows : [];
-  state.season.rewards = Array.isArray(response.rewards) ? response.rewards : (response.season?.rewardTrack || []);
-  state.season.claimedRewardIds = Array.isArray(response.claimedRewardIds) ? response.claimedRewardIds : [];
+  Object.assign(state.season, seasonStateFromResponse(response));
 }
 
 function seasonAck(response, target) {
