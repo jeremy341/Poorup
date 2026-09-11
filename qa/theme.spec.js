@@ -23,6 +23,8 @@ test.describe("Poorup parlor look themes", () => {
     const choices = page.locator("#theme-popover [data-theme-choice]");
     await expect(choices).toHaveCount(6);
     await expect(choices.first()).toHaveAttribute("role", "radio");
+    await expect(choices.first()).toHaveAttribute("tabindex", "0");
+    await expect(choices.nth(1)).toHaveAttribute("tabindex", "-1");
     await expect(choices.first()).toHaveAttribute("aria-checked", "true");
     await expect(choices.first()).toContainText("NIGHT");
     await expect(choices.nth(1)).toContainText("DAY");
@@ -30,11 +32,19 @@ test.describe("Poorup parlor look themes", () => {
     await choices.first().focus();
     await page.keyboard.press("ArrowRight");
     await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "clearline-day");
+    await expect(choices.nth(1)).toHaveAttribute("aria-checked", "true");
+    await expect(choices.first()).toHaveAttribute("aria-checked", "false");
     const columns = await page.locator("#theme-popover .theme-choice-grid").evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length);
     await page.keyboard.press("ArrowDown");
     await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", themeIds[(1 + columns) % themeIds.length]);
+    await expect(page.locator(":focus")).toHaveAttribute("aria-checked", "true");
     await page.keyboard.press("ArrowUp");
     await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "clearline-day");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "midnight-ledger");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "warm-window-snow-city");
+    await expect(choices.last()).toHaveAttribute("aria-checked", "true");
     await page.keyboard.press("End");
     await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "warm-window-snow-city");
     await page.keyboard.press("Home");
@@ -46,6 +56,23 @@ test.describe("Poorup parlor look themes", () => {
     await page.locator("#theme-popover-close").focus();
     await page.keyboard.press("Escape");
     await expect(page.locator("#theme-popover")).toHaveClass(/is-hidden/);
+
+    await page.locator("#theme-open-btn").click();
+    await choices.first().focus();
+    await page.evaluate(() => document.querySelector("#view-profile").dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await expect(page.locator("#theme-popover")).toHaveClass(/is-hidden/);
+    await expect(page.locator("#theme-open-btn")).toBeFocused();
+  });
+
+  test("selector remains usable in forced colors", async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await openThemeChooser(page);
+    const choices = page.locator("#theme-popover [data-theme-choice]");
+    await expect(choices.first()).toBeFocused();
+    await expect(choices.first()).toHaveAttribute("aria-checked", "true");
+    await expect(page.locator("#theme-popover")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(choices.nth(1)).toHaveAttribute("aria-checked", "true");
   });
 
   test("applying a theme updates local state and decorative layers only", async ({ page }) => {
@@ -88,31 +115,63 @@ test.describe("Poorup parlor look themes", () => {
     await peer.close();
   });
 
-  test("theme layers do not alter the desktop shell geometry", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1920", "Geometry baseline is captured on desktop-1920.");
-    await page.goto("/");
-    const before = await page.evaluate(() => {
-      const box = (selector) => {
-        const rect = document.querySelector(selector)?.getBoundingClientRect();
-        return rect ? [rect.x, rect.y, rect.width, rect.height] : null;
-      };
-      return { board: box("#board-frame"), home: box("#view-home"), nav: box("#home-nav") };
-    });
-    await page.locator("#home-profile-tab").click();
-    await page.locator("#profile-tab-account").click();
-    await page.locator("#theme-open-btn").click();
-    await page.locator('[data-theme-choice="warm-window-snow-city"]').click();
-    await page.locator('#view-profile [data-home-tab="play"]').click();
-    const after = await page.evaluate(() => {
-      const box = (selector) => {
-        const rect = document.querySelector(selector)?.getBoundingClientRect();
-        return rect ? [rect.x, rect.y, rect.width, rect.height] : null;
-      };
-      return { board: box("#board-frame"), home: box("#view-home"), nav: box("#home-nav") };
-    });
-    expect(after.home).toEqual(before.home);
-    expect(after.nav).toEqual(before.nav);
-    expect(after.board).toEqual(before.board);
+  test("theme layers preserve visible Standard-40 and Metro-52 board geometry", async ({ page, context }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-1920", "Board geometry contract runs on desktop-1920.");
+    const variants = [
+      { variant: "standard-40", code: "THM40A", tileCount: 40, gridSize: 11 },
+      { variant: "metro-52", code: "THM52A", tileCount: 52, gridSize: 14 },
+    ];
+    for (const { variant, code, tileCount, gridSize } of variants) {
+      const host = await context.newPage();
+      const guest = await context.newPage();
+      await host.goto("/");
+      await host.locator("#home-alias").fill("ALPHA");
+      await host.locator("#open-create-btn").click();
+      await host.locator("#rc-vis-selector [data-vis=\"private\"]").click();
+      await host.locator("#rc-room-code").fill(code);
+      await host.locator("#rc-board-variant").selectOption(variant);
+      await host.locator("#rc-create-btn").click();
+      await host.locator("#su-start").click();
+
+      await guest.goto("/");
+      await guest.locator("#home-alias").fill("BETA");
+      await guest.locator("#open-join-btn").click();
+      await guest.locator("#room-join").fill(code);
+      await guest.locator("#join-nickname").fill("BETA");
+      await guest.locator("#join-room-submit").click();
+      await guest.locator("#su-start").click();
+      await host.locator("#lobby-start-btn").click();
+      await expect(host.locator("#view-game")).toBeVisible();
+
+      const measure = () => host.evaluate(() => {
+        const frame = document.querySelector("#board-frame");
+        const grid = document.querySelector("#board-grid");
+        const rect = frame?.getBoundingClientRect();
+        const columns = getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
+        return {
+          frame: rect ? [rect.x, rect.y, rect.width, rect.height] : null,
+          tileCount: grid?.querySelectorAll(":scope > .tile").length || 0,
+          gridSize: columns,
+          variant: grid?.dataset.boardVariant || null,
+        };
+      });
+      const before = await measure();
+      expect(before.frame).not.toBeNull();
+      expect(before.frame[2]).toBeGreaterThan(0);
+      expect(before.frame[2]).toBe(before.frame[3]);
+      expect(before.tileCount).toBe(tileCount);
+      expect(before.gridSize).toBe(gridSize);
+      expect(before.variant).toBe(variant);
+
+      await host.evaluate(async () => {
+        const { renderTheme } = await import("/clientThemeRender.js");
+        renderTheme("warm-window-snow-city", { animate: false });
+      });
+      const after = await measure();
+      expect(after).toEqual(before);
+      await guest.close();
+      await host.close();
+    }
   });
 
   test("reduced motion settles the scene without travel", async ({ page }) => {
