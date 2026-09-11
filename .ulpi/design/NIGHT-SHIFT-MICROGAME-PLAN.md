@@ -1,7 +1,7 @@
 # Night Shift — corrected arcade-mode plan
 
-Status: design plan only. No gameplay source changes are authorized by this
-document.
+Status: implemented local arcade surface. This document remains the design
+contract; gameplay state and room rules stay isolated from the microgame.
 
 ## Product intent
 
