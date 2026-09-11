@@ -955,7 +955,7 @@ configureSponsorshipUi({ emitServer, say, renderChat });
 configureDeedDetail({ emitServer });
 configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });
-configureRoomsUi({ emitServer, say, renderChat, enterParlor });
+configureRoomsUi({ emitServer, say, renderChat, enterParlor, createRequestId });
 configureLobbyUi({
   emitServer,
   updateServerSetting,

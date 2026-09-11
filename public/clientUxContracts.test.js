@@ -14,6 +14,7 @@ const main = fs.readFileSync(new URL("./main.js", import.meta.url), "utf8");
 const panelMenu = fs.readFileSync(new URL("./clientPanelMenu.js", import.meta.url), "utf8");
 const lobby = fs.readFileSync(new URL("./clientLobbyUi.js", import.meta.url), "utf8");
 const roomsUi = fs.readFileSync(new URL("./clientRoomsUi.js", import.meta.url), "utf8");
+const state = fs.readFileSync(new URL("./clientState.js", import.meta.url), "utf8");
 const stateSync = fs.readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
@@ -62,6 +63,12 @@ check("board variant is selected only after entering the lobby", () => {
   assert.equal(roomsUi.includes('id === "rc-board-variant"'), false);
   assert.equal(roomsUi.includes("#rc-board-variant"), false);
   assert.match(lobby, /settingRow\("Board Variant"/);
+});
+
+check("room creation carries a bounded idempotency key", () => {
+  assert.match(lobby, /createRequestId/);
+  assert.match(lobby, /requestId/);
+  assert.match(state, /roomEntryPending/);
 });
 
 console.log(`client UX contract tests: ${passed} passed, ${failed} failed`);
