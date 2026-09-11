@@ -167,17 +167,19 @@ function bindPopoverEvents(popover) {
   popover.addEventListener("keydown", onThemeChoiceKeyDown);
 }
 
+function dismissThemePopoverFromDocument(event) {
+  if (!state.themePopoverOpen) return;
+  const popover = popoverElement();
+  const trigger = triggerElement();
+  if (popover?.contains(event.target) || trigger?.contains(event.target)) return;
+  const restoreFocus = !!(popover && document.activeElement && popover.contains(document.activeElement));
+  closeThemePopover({ restoreFocus });
+}
+
 function bindDocumentDismissal() {
   if (documentListenerBound) return;
   documentListenerBound = true;
-  document.addEventListener("click", (event) => {
-    if (!state.themePopoverOpen) return;
-    const popover = popoverElement();
-    const trigger = triggerElement();
-    if (popover?.contains(event.target) || trigger?.contains(event.target)) return;
-    const restoreFocus = !!(popover && document.activeElement && popover.contains(document.activeElement));
-    closeThemePopover({ restoreFocus });
-  });
+  document.addEventListener("click", dismissThemePopoverFromDocument);
 }
 
 function bindStorageSync() {
