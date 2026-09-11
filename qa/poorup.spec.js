@@ -173,9 +173,9 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.locator('#rc-vis-selector [data-vis="private"]').click();
     await page.locator('#rc-room-code').fill('METRO1');
     await page.locator('#rc-ruleset-preset').selectOption('after-hours');
-    await page.locator('#rc-board-variant').selectOption('metro-52');
     await page.locator('#rc-create-btn').click();
     await page.locator('#su-start').click();
+    await page.locator('#lobby-settings-body [data-setting="boardVariant"]').selectOption('metro-52');
     await expect(page.locator('#lobby-settings-body')).toContainText('METRO 52');
 
     await guest.goto('/');
