@@ -2,6 +2,10 @@
 
 Status: concept exploration only. No production code, CSS, asset, layout, navigation, or theme engine changes are included in this phase.
 
+## Revision 2 — approved surface theming (2026-09-11)
+
+The original environment-only direction has been superseded for implementation: the same six worlds now receive complete client-side UI token skins for the canvas, chrome, panels, inputs, buttons, board surfaces, logo, and non-semantic icons. Midnight Ledger City remains the exact default. Fonts, layout, spacing, navigation, board geometry, gameplay, server contracts, and semantic property/status colors remain locked. The implementation plan for this revision is `docs/superpowers/plans/2026-09-11-poorup-seasonal-theme-ui.md`.
+
 ## Applied design lenses
 
 This pass used the local guidance for `frontend-design-ui-ux`, `design-taste-frontend`, `frontend-design`, `frontend-design-review`, `critique`, `impeccable`, `game-ui-ux`, `mobile-responsiveness`, `accessibility`, `web-design-guidelines`, `svg-design`, `pixel-art-sprites`, `animate`, `emilkowal-animations`, `improve-animations`, `review-animations`, and `find-skills`. The local catalog already covers the needed work, so no skill or package was installed. Architecture, backend, security, and test implementation skills are intentionally deferred because this is a visual direction document, not a runtime change.
