@@ -99,6 +99,99 @@ test.describe("Poorup parlor look themes", () => {
     expect(state.actionCount).toBeGreaterThan(0);
   });
 
+  test("themes update Poorup UI tokens without moving the shell", async ({ page }) => {
+    await openThemeChooser(page);
+    const snapshot = () => page.evaluate(() => {
+      const styles = getComputedStyle(document.body);
+      const box = (selector) => {
+        const rect = document.querySelector(selector)?.getBoundingClientRect();
+        return rect ? [rect.x, rect.y, rect.width, rect.height] : null;
+      };
+      return {
+        theme: document.body.dataset.themeId,
+        tokens: {
+          canvas: styles.getPropertyValue("--bg-canvas").trim(),
+          panel: styles.getPropertyValue("--surface-panel").trim(),
+          action: styles.getPropertyValue("--red-action").trim(),
+          text: styles.getPropertyValue("--text-primary").trim(),
+        },
+        surfaces: {
+          panel: getComputedStyle(document.querySelector(".panel")).backgroundColor,
+          primaryAction: getComputedStyle(document.querySelector("#open-create-btn")).backgroundColor,
+          input: getComputedStyle(document.querySelector("#home-alias")).backgroundColor,
+        },
+        geometry: [box("#view-home"), box("#home-nav"), box("#open-create-btn"), box("#theme-open-btn")],
+      };
+    });
+    const baseline = await snapshot();
+    for (const themeId of themeIds.slice(1)) {
+      await page.locator(`[data-theme-choice="${themeId}"]`).click();
+      const current = await snapshot();
+      expect(current.theme).toBe(themeId);
+      expect(current.tokens).not.toEqual(baseline.tokens);
+      expect(current.surfaces).not.toEqual(baseline.surfaces);
+      expect(current.geometry).toEqual(baseline.geometry);
+    }
+  });
+
+  test("theme text and controls keep measured contrast", async ({ page }) => {
+    await openThemeChooser(page);
+    const contrastForTheme = async (themeId) => {
+      await page.locator(`[data-theme-choice="${themeId}"]`).click();
+      return page.evaluate(() => {
+        const parse = (value) => {
+          const match = value.match(/rgba?\((\d+)\D+(\d+)\D+(\d+)/);
+          if (match) return match.slice(1, 4).map(Number);
+          const hex = value.trim().replace(/^#/, "");
+          if (![6, 8].includes(hex.length)) return null;
+          return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
+        };
+        const luminance = (value) => {
+          const rgb = parse(value);
+          if (!rgb) return 0;
+          return rgb.reduce((sum, channel, index) => {
+            const linear = channel / 255 <= 0.03928 ? channel / 255 / 12.92 : ((channel / 255 + 0.055) / 1.055) ** 2.4;
+            return sum + linear * [0.2126, 0.7152, 0.0722][index];
+          }, 0);
+        };
+        const ratio = (foreground, background) => {
+          const light = Math.max(luminance(foreground), luminance(background));
+          const dark = Math.min(luminance(foreground), luminance(background));
+          return (light + 0.05) / (dark + 0.05);
+        };
+        const styles = getComputedStyle(document.body);
+        const panel = getComputedStyle(document.querySelector(".panel"));
+        const button = getComputedStyle(document.querySelector("#open-create-btn"));
+        const input = getComputedStyle(document.querySelector("#home-alias"));
+        return {
+          panelText: ratio(styles.getPropertyValue("--text-primary"), panel.backgroundColor),
+          buttonText: ratio(button.color, button.backgroundColor),
+          inputText: ratio(input.color, input.backgroundColor),
+        };
+      });
+    };
+    for (const themeId of themeIds) {
+      const contrast = await contrastForTheme(themeId);
+      expect(contrast.panelText, `${themeId} panel text`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast.buttonText, `${themeId} primary action`).toBeGreaterThanOrEqual(3);
+      expect(contrast.inputText, `${themeId} input text`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  test("seasonal signatures mount the intended light and weather props", async ({ page }) => {
+    await openThemeChooser(page);
+    const prop = async (themeId, slot) => {
+      await page.locator(`[data-theme-choice="${themeId}"]`).click();
+      return page.locator(`#theme-home-world .theme-prop-${slot}`).getAttribute("src");
+    };
+    expect(await prop("clearline-day", "light")).toContain("clearline-day/sun.svg");
+    expect(await prop("warm-window-snow-city", "light")).toContain("warm-window-snow-city/moon.svg");
+    expect(await prop("rainy-copper-town", "incident")).toContain("rainy-copper-town/leaf.svg");
+    expect(await prop("bloom-district", "incident")).toContain("bloom-district/blossom.svg");
+    expect(await prop("golden-hour-exchange", "signature")).toContain("golden-hour-exchange/crane.svg");
+    expect(await prop("midnight-ledger", "detail")).toContain("midnight-ledger/beacon.svg");
+  });
+
   test("invalid storage falls back to the original world", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("poorup.theme.id.v1", "not-a-theme"));
     await page.goto("/");

@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const themes = {
-  "midnight-ledger": ["scene", "moon", "helicopter", "rooftop", "windows"],
-  "clearline-day": ["scene", "sun", "rescue", "cloud", "bird"],
-  "bloom-district": ["scene", "house", "blossom", "fence", "bird"],
-  "golden-hour-exchange": ["scene", "crane", "ferry", "aircraft", "gull"],
-  "rainy-copper-town": ["scene", "town", "leaf", "rain", "station"],
-  "warm-window-snow-city": ["scene", "roof", "pine", "snow", "smoke"],
+  "midnight-ledger": ["scene", "moon", "helicopter", "rooftop", "windows", "beacon"],
+  "clearline-day": ["scene", "sun", "cloud-bank", "cloud-small", "civic-tower", "bird"],
+  "bloom-district": ["scene", "sun", "house", "blossom", "fence", "bird"],
+  "golden-hour-exchange": ["scene", "sun", "crane", "ferry", "palm", "gull"],
+  "rainy-copper-town": ["scene", "cloud", "leaf", "rain", "station", "street-lamp"],
+  "warm-window-snow-city": ["scene", "moon", "ice-roof", "pine", "snow", "smoke"],
 };
 
 const files = Object.entries(themes).flatMap(([theme, names]) => names.map((name) => ({

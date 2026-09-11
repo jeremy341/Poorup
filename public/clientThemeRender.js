@@ -6,6 +6,17 @@ import { getTheme as defaultGetTheme } from "./clientThemeData.js";
 
 const VIEW_SELECTORS = ["#view-home", "#view-game", "#view-profile", "#view-rankings", "#view-social", "#view-rules"];
 const SKYLINE_DEFAULTS = { far: "#123634", near: "#123634", light: "#78894f" };
+const UI_VARIABLES = Object.freeze({
+  canvas: "--bg-canvas", chrome: "--bg-chrome", panel: "--surface-panel", panelRaised: "--surface-panel-raised", panelDeep: "--surface-panel-deep",
+  boardTile: "--surface-board-tile", boardCenter: "--surface-board-center", input: "--surface-input", buttonDark: "--surface-button-dark",
+  textPrimary: "--text-primary", textSecondary: "--text-secondary", textMuted: "--text-muted", accent: "--gold-300", accentBright: "--gold-050",
+  lineDefault: "--line-default", lineStrong: "--line-strong", lineActive: "--line-active", lineBoard: "--line-board", focus: "--theme-focus",
+  action: "--red-action", actionHover: "--red-action-hover", actionPressed: "--red-action-pressed", danger: "--red-bright", success: "--green-status",
+  warning: "--theme-warning", player: "--blue-player", logoPrimary: "--theme-logo-primary", logoSecondary: "--theme-logo-secondary",
+  iconPrimary: "--theme-icon-primary", iconSecondary: "--theme-icon-secondary", scrim: "--theme-scrim", scanline: "--theme-scanline",
+  lineDark: "--line-dark", lineSubtle: "--line-subtle", goldMuted: "--gold-muted", redDark: "--red-dark", surfaceError: "--surface-error", lineError: "--line-error", textError: "--text-error",
+  surfaceInset: "--surface-inset", surfaceSelected: "--surface-selected", surfaceHover: "--surface-hover", surfaceBoardHover: "--surface-board-hover", surfaceAvatar: "--surface-avatar", surfaceCard: "--surface-card", surfaceActive: "--surface-active", surfaceSpecial: "--surface-special", boardFrame: "--surface-board-frame", lineShadow: "--line-shadow",
+});
 let themeConfig = {
   getTheme: defaultGetTheme,
   isReducedMotion: () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches || false,
@@ -65,8 +76,47 @@ function paintThemeSkyline(selector, data, palette) {
   element.innerHTML = skylineMarkup(data, palette);
 }
 
+function setCssVariables(element, mapping, values, fallback = {}) {
+  Object.entries(mapping).forEach(([role, variable]) => {
+    const value = values?.[role] || fallback?.[role];
+    if (value) element.style.setProperty(variable, value);
+  });
+}
+
+function setSemanticVariables(element, semantic = {}, fallback = {}) {
+  const groups = { ...(fallback.groups || {}), ...(semantic.groups || {}) };
+  Object.entries(groups).forEach(([group, value]) => {
+    if (value) element.style.setProperty(`--theme-group-${group.replaceAll(" ", "-")}`, value);
+  });
+}
+
+function setThemeCompatibilityVariables(element, ui) {
+  const aliases = {
+    "--gold-050": ui.accentBright,
+    "--gold-100": ui.textPrimary,
+    "--gold-300": ui.accent,
+    "--gold-400": ui.lineActive,
+    "--gold-500": ui.lineStrong,
+    "--gold-700": ui.lineDefault,
+    "--gold-800": ui.lineDark,
+    "--gold-muted": ui.goldMuted,
+    "--red-dark": ui.redDark,
+    "--surface-error": ui.surfaceError,
+    "--line-error": ui.lineError,
+    "--text-error": ui.textError,
+  };
+  Object.entries(aliases).forEach(([variable, value]) => {
+    if (value) element.style.setProperty(variable, value);
+  });
+}
+
 function setThemeVariables(theme) {
   if (typeof document === "undefined" || !document.body) return;
+  const fallback = defaultGetTheme();
+  const ui = { ...(fallback.ui || {}), ...(theme.ui || {}) };
+  setCssVariables(document.body, UI_VARIABLES, ui, fallback.ui);
+  setThemeCompatibilityVariables(document.body, ui);
+  setSemanticVariables(document.body, theme.semantic, fallback.semantic);
   document.body.dataset.themeId = theme.id;
   Object.entries(theme.palette || {}).forEach(([role, value]) => {
     document.body.style.setProperty(`--theme-${role}`, value);
