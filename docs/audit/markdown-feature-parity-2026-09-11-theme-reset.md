@@ -10,9 +10,10 @@ selector or theme asset directory.
 
 The previous seasonal branch is preserved at
 `codex/seasonal-theme-ui-before-reset` and is not used as current product
-evidence. No document was deleted during this audit.
+evidence. No document was deleted during the initial audit; four candidates
+were later removed after the explicit cleanup request.
 
-The inventory contains 53 Markdown/README files when hidden `.ulpi/` and
+The initial inventory contained 53 Markdown/README files when hidden `.ulpi/`
 `.github/` paths are included.
 
 ## Classification rules
@@ -47,7 +48,6 @@ The inventory contains 53 Markdown/README files when hidden `.ulpi/` and
 | `docs/audit/room-patrol-bug-audit.md` | Stale | Contains pre-fix line numbers and a “DO NOT IMPLEMENT” section from an older monolith. | Rewrite as a resolution ledger or archive. |
 | `docs/audit/expansion-completion-2026-09-09.md` | Completed | Records rulesets, Metro, seasons, cosmetics, telemetry, market, bots, and QA evidence. | Keep as completion record; verify future revisions. |
 | `docs/audit/expansion-implementation.md` | Completed | Records the modular expansion contracts and skill application. | Keep as implementation record. |
-| `docs/audit/markdown-feature-parity-2026-09-09.md` | Stale | Refers to 29 pre-existing files and retired documents that are not in this branch. | Supersede with this audit. |
 | `docs/audit/markdown-feature-parity-2026-09-11-theme-reset.md` | Active | This is the current inventory and deletion gate for the reset branch. | Keep and refresh after future doc changes. |
 | `docs/audit/ux-1920-reset-slice-2026-09-11.md` | Active | Records the current 1920px UX findings, root causes, and verification checklist. | Keep with release evidence. |
 | `docs/plans/achievement-announcements-ui-plan.md` | Completed | Server mythical channel, collection modal, rarity filters, and announcement flow exist in `public/` and `server/`. | Keep as feature record. |
@@ -62,10 +62,7 @@ The inventory contains 53 Markdown/README files when hidden `.ulpi/` and
 | `.ulpi/design/FINAL-REVIEW.md` | Completed | Records the supplied ZIP refactor review and installed skill lenses. | Keep as historical review evidence. |
 | `.ulpi/design/FINANCE-RAIL-UX-PLAN.md` | Active | Rail/modal slices are implemented and the document now points to current browser follow-up. | Keep as the finance surface contract. |
 | `.ulpi/design/gameplay.md` | Active | Gameplay surface brief matches the board-first shell and server-authoritative flow. | Keep as the gameplay surface contract. |
-| `.ulpi/design/HOME-BACKGROUND-MOTION-VARIATIONS.md` | Reference | Exploration notes for the current calm home motion. | Keep as rationale; do not treat proposals as work items. |
-| `.ulpi/design/HOME-NO-BOARD-VARIATIONS.md` | Reference | Rejected homepage composition proposals. | Keep only if the design history is useful. |
 | `.ulpi/design/HOME-PROFILE-REDESIGN.md` | Completed | Home/profile redesign is represented in the current HTML/CSS shell and marked implemented. | Keep as a completed design record. |
-| `.ulpi/design/HOME-VARIATIONS.md` | Reference | Exploration-only homepage alternatives. | Keep as reference; no implementation instruction. |
 | `.ulpi/design/NEW-GAME-SYSTEMS-PLAN.md` | Active | Items, predictions, airport travel, bank tiers, and Lawyer Card remain future product work. | Keep as the next-system contract. |
 | `.ulpi/design/NIGHT-SHIFT-MICROGAME-PLAN.md` | Active | Night Shift is live and the document now records its implementation status and safety boundaries. | Keep as the microgame contract. |
 | `.ulpi/design/PLAYER-FINANCING-PLAN.md` | Active | Loans/equity/hybrids are implemented and the document now records the server contract. | Keep as the finance contract. |
@@ -86,7 +83,23 @@ The inventory contains 53 Markdown/README files when hidden `.ulpi/` and
 | `public/assets/audio/README.md` | Reference | Contains the source, license, download date, and checksum for the audio asset. | Keep for attribution and reproducibility. |
 | `public/assets/parlor-patrol/README.md` | Reference | Documents original patrol SVGs, controls, timing, and asset behavior. | Keep for asset maintenance. |
 
-## Preliminary deletion list
+## Deletion ledger
+
+The following four files were deleted after exact-path and no-reference checks:
+
+1. `.ulpi/design/HOME-VARIATIONS.md` — exploration-only alternatives with no
+   runtime or active-plan references.
+2. `.ulpi/design/HOME-NO-BOARD-VARIATIONS.md` — rejected composition proposals
+   with no runtime references.
+3. `.ulpi/design/HOME-BACKGROUND-MOTION-VARIATIONS.md` — superseded motion
+   exploration with no runtime references.
+4. `docs/audit/markdown-feature-parity-2026-09-09.md` — explicitly superseded
+   by this current 2026-09-11 inventory.
+
+All four remain recoverable from Git history and the pre-reset backup branch.
+The current inventory therefore contains 49 Markdown/README files.
+
+## Remaining preliminary deletion list
 
 There are no safe current-tree deletions. The three old theme documents are
 absent from this reset branch but remain recoverable in the backup branch:
