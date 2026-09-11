@@ -12,6 +12,9 @@ The previous seasonal branch is preserved at
 `codex/seasonal-theme-ui-before-reset` and is not used as current product
 evidence. No document was deleted during this audit.
 
+The inventory contains 53 Markdown/README files when hidden `.ulpi/` and
+`.github/` paths are included.
+
 ## Classification rules
 
 - **Active** — describes a current user flow, contract, workflow, or release
