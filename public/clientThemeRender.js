@@ -85,6 +85,22 @@ function renderLayer(selector, theme, surface, animate = true) {
   }
 }
 
+function canStartThemeTransition(shouldAnimate) {
+  if (!shouldAnimate) return false;
+  if (typeof document === "undefined") return false;
+  return Boolean(document.body);
+}
+
+function startThemeTransition(shouldAnimate) {
+  if (!canStartThemeTransition(shouldAnimate)) {
+    clearThemeTransition();
+    return;
+  }
+  document.body.dataset.themeTransition = "in";
+  if (transitionTimer) globalThis.clearTimeout(transitionTimer);
+  transitionTimer = globalThis.setTimeout(clearThemeTransition, 360);
+}
+
 export function renderThemeScene(themeId, surface = "page", { animate = true } = {}) {
   const theme = themeConfig.getTheme(themeId);
   if (surface === "home") {
@@ -112,13 +128,7 @@ export function renderTheme(themeId, { animate = true } = {}) {
   const theme = themeConfig.getTheme(themeId);
   setThemeVariables(theme);
   const shouldAnimate = animate && !themeConfig.isReducedMotion();
-  if (shouldAnimate && typeof document !== "undefined" && document.body) {
-    document.body.dataset.themeTransition = "in";
-    if (transitionTimer) globalThis.clearTimeout(transitionTimer);
-    transitionTimer = globalThis.setTimeout(clearThemeTransition, 360);
-  } else {
-    clearThemeTransition();
-  }
+  startThemeTransition(shouldAnimate);
   renderThemeScene(theme.id, "page", { animate: shouldAnimate });
   renderThemeScene(theme.id, "home", { animate: shouldAnimate });
   renderThemeScene(theme.id, "board", { animate: shouldAnimate });

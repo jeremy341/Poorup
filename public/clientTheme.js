@@ -75,6 +75,22 @@ function gridColumns() {
   return Math.max(1, columns.length);
 }
 
+const THEME_KEY_OFFSETS = Object.freeze({
+  ArrowRight: 1,
+  ArrowLeft: -1,
+  ArrowDown: 1,
+  ArrowUp: -1,
+});
+
+function choiceIndexForKey(key, index, columns, count) {
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  const step = THEME_KEY_OFFSETS[key];
+  if (step === undefined) return null;
+  const delta = key === "ArrowDown" || key === "ArrowUp" ? step * columns : step;
+  return (index + delta + count) % count;
+}
+
 function focusChoice(index) {
   const list = choices();
   if (!list.length) return;
@@ -125,16 +141,9 @@ function onThemeChoiceKeyDown(event) {
   if (!target) return;
   const list = choices();
   const index = list.indexOf(target);
-  let next;
   const columns = gridColumns();
-  if (event.key === "ArrowRight") next = index + 1;
-  else if (event.key === "ArrowLeft") next = index - 1;
-  else if (event.key === "ArrowDown") next = index + columns;
-  else if (event.key === "ArrowUp") next = index - columns;
-  else if (event.key === "Home") next = 0;
-  else if (event.key === "End") next = list.length - 1;
-  else return;
-  const nextIndex = (next + list.length) % list.length;
+  const nextIndex = choiceIndexForKey(event.key, index, columns, list.length);
+  if (nextIndex === null) return;
   event.preventDefault();
   event.stopPropagation();
   applyThemePreference(list[nextIndex].dataset.themeChoice);

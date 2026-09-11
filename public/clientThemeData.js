@@ -189,8 +189,13 @@ const definitions = [
   },
 ];
 
+function isFreezable(value) {
+  return value !== null && typeof value === "object";
+}
+
 function deepFreeze(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  if (!isFreezable(value)) return value;
+  if (Object.isFrozen(value)) return value;
   Object.values(value).forEach(deepFreeze);
   return Object.freeze(value);
 }
