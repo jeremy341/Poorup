@@ -139,6 +139,8 @@ import {
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 import { bindAudioControls } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
+import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./clientTheme.js";
+import { renderTheme } from "./clientThemeRender.js";
 import {
   bindRoomsUi,
   closeRoomsModal,
@@ -997,8 +999,12 @@ configureNightShift({
   stopHomeHelicopter,
   scheduleHomeHelicopter,
 });
+configureThemeUi({ applyTheme: renderTheme });
+bindThemeVisibility();
+initThemePreference();
 renderHome();
 buildBoard(onTileClick);
+renderTheme(state.themeId, { animate: false });
 hydrateSprites();
 bindEvents();
 renderAll();
