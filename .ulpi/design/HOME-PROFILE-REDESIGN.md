@@ -1,6 +1,6 @@
 # Poorup Home + Profile Desktop Redesign
 
-Status: implemented design contract (2026-09-11)  
+Status: implemented design contract (2026-09-11)
 Scope: home surface, profile surface, and account/profile presentation only  
 Out of scope: lobby, board, gameplay HUD, Socket.IO game events, and room rules
 
