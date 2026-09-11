@@ -16,8 +16,10 @@ second game shell:
   responsive behavior, and the locked Poorup UI system;
 - update browser QA and verify at the supported viewports.
 
-No production code is changed until this plan is recorded. After the plan gate,
-implementation proceeds in the vertical slices below.
+> **Status (2026-09-11).** The planned rail, wallet, modal, and panel-control
+> slices are implemented. Treat this file as the implementation contract and
+> use the current UX audit for remaining work; the original pre-implementation
+> gate below is historical.
 
 ## Non-negotiable product constraints
 
