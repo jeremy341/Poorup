@@ -70,7 +70,9 @@ check("scene markup is decorative and noninteractive", () => {
   const html = themeSceneMarkup(getTheme("autumn"), "home");
   assert.match(html, /themes\/autumn\/scene\.svg/);
   assert.match(html, /class="theme-scene"[^>]+width="640" height="360"/);
-  assert.match(html, /class="theme-prop theme-prop-clouds"/);
+  assert.equal((html.match(/theme-prop-clouds/g) || []).length, 2);
+  assert.match(html, /theme-cloud-a/);
+  assert.match(html, /theme-cloud-b/);
   assert.match(html, /aria-hidden="true"/);
   assert.doesNotMatch(html, /<button|<input|onclick|data-action/);
 });
