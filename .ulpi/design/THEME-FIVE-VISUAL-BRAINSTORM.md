@@ -1,8 +1,9 @@
 # Poorup Five-Theme Visual Brainstorm
 
-Status: design package only. This document follows the original Poorup visual
-system restored on commit `1398823`. It does not change layout, typography,
-board geometry, navigation, gameplay, server state, or Socket.IO contracts.
+Status: implemented as a client-only visual system on 2026-09-11. This document
+follows the original Poorup visual system restored on commit `1398823`. It does
+not change layout, typography, board geometry, navigation, gameplay, server
+state, or Socket.IO contracts.
 
 ## Design read
 
@@ -16,6 +17,9 @@ unrelated applications.
 - Original Poorup night is the default and is not counted as one of the five.
 - The selector has six choices: Original, Spring, Summer, Autumn, Winter, and
   Light Mode.
+- Implementation IDs are `original`, `spring`, `summer`, `autumn`, `winter`,
+  and `light`; Original clears inline theme tokens and scene layers so the
+  baseline remains unchanged.
 - Fonts, spacing, corner radii, board dimensions, tile order, rails, modals,
   navigation, and control positions remain unchanged.
 - Property-group colors, danger, success, warning, player identity, and focus
@@ -44,7 +48,7 @@ tall night skyline.
 **Motion:** one bounded petal pass after a visible Home entry. No continuous
 particle field and no petals over buttons, cards, or board tiles.
 
-**SVG set:** `scene.svg`, `sun.svg`, `house.svg`, `blossom.svg`, `fence.svg`.
+**SVG set:** `scene.svg`, `light.svg`, `signature.svg`, `weather.svg`, `accent.svg`.
 
 ### 2. Summer — Solar Exchange
 
@@ -64,7 +68,7 @@ from the vertical night city.
 **Motion:** one slow aircraft or gull pass on Home and a static stepped
 waterline shimmer. No parallax and no moving content behind decisions.
 
-**SVG set:** `scene.svg`, `sun.svg`, `crane.svg`, `ferry.svg`, `aircraft.svg`.
+**SVG set:** `scene.svg`, `light.svg`, `signature.svg`, `weather.svg`, `accent.svg`.
 
 ### 3. Autumn — Copper Rain
 
@@ -84,7 +88,7 @@ material-rich scene without Halloween styling.
 **Motion:** a short, cancellable leaf drift and a low-opacity rain strip. Both
 pause on hidden views and become static under Reduced Motion.
 
-**SVG set:** `scene.svg`, `cloud.svg`, `leaf.svg`, `rain.svg`, `station.svg`.
+**SVG set:** `scene.svg`, `light.svg`, `signature.svg`, `weather.svg`, `accent.svg`.
 
 ### 4. Winter — Frostline Ledger
 
@@ -104,7 +108,7 @@ urban identity.
 **Motion:** a small repeated square-flake strip and optional two-frame smoke.
 Both stop when hidden and never cross the board, text, or focus ring.
 
-**SVG set:** `scene.svg`, `moon.svg`, `ice-roof.svg`, `pine.svg`, `snow.svg`.
+**SVG set:** `scene.svg`, `light.svg`, `signature.svg`, `weather.svg`, `accent.svg`.
 
 ### 5. Light Mode — Clear Day
 
@@ -124,7 +128,7 @@ open while dark instrument panels retain the product identity.
 **Motion:** one slow cloud shelf on Home. No white flash during transitions and
 no automatic system light/dark switching.
 
-**SVG set:** `scene.svg`, `sun.svg`, `cloud.svg`, `civic-tower.svg`, `bird.svg`.
+**SVG set:** `scene.svg`, `light.svg`, `signature.svg`, `weather.svg`, `accent.svg`.
 
 ## Selector and state contract
 
@@ -140,8 +144,10 @@ telemetry, or Socket.IO payloads.
 
 ## SVG and pixel-art contract
 
-Each asset uses integer-aligned geometry, `shape-rendering="crispEdges"`, a
-limited palette, selective one-pixel outlines, and top-left lighting. Assets
+Each asset uses a native `320×180` master canvas, integer-aligned geometry,
+`shape-rendering="crispEdges"`, a limited palette, selective one-pixel outlines,
+and top-left lighting. The five layers are the static environment, light source,
+signature foreground structure, weather field, and small moving accent. Assets
 contain no filters, gradients, text nodes, external URLs, editor metadata, or
 decorative UI. Every silhouette must remain identifiable at 1x.
 

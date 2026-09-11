@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" shape-rendering="crispEdges" aria-hidden="true">
+  <defs>
+    <g id="civic">
+      <path fill="#a5b8ba" d="M0 9h64v90H0z"/>
+      <path fill="#e4dcc0" d="M0 9h47v90H0z"/>
+      <path fill="#f7f3dd" d="M0 3h64v6H0zm4-3h56v3H4zM0 32h47v3H0zm0 30h47v3H0z"/>
+      <path fill="#6b8d9a" d="M7 15h8v12H7zm15 0h8v12h-8zm15 0h8v12h-8zm16 0h5v12h-5zM7 41h8v13H7zm15 0h8v13h-8zm15 0h8v13h-8zm16 0h5v13h-5zM7 71h8v13H7zm15 0h8v13h-8zm15 0h8v13h-8zm16 0h5v13h-5z"/>
+      <path fill="#c2dce0" d="M8 16h5v2H8zm15 0h5v2h-5zm15 0h5v2h-5zm-30 26h5v2H8zm15 0h5v2h-5zm15 0h5v2h-5z"/>
+    </g>
+    <g id="tree">
+      <path fill="#426f59" d="M21 35h5v34h-6V53h-5v-5h6zm5 11h6v-7h4v11H26z"/>
+      <path fill="#426f59" d="M12 4h8V0h12v5h10v8h5v21h-6v9H29v5H15v-5H5v-9H0V15h5V8h7z"/>
+      <path fill="#71a76b" d="M12 7h9V3h9v5h9v8h4v13h-9v9H19v-4H8V25H4V16h8z"/>
+      <path fill="#a9c785" d="M13 9h9V5h6v7H18v8H8v-5h5zm12 15h9v6h-9z"/>
+    </g>
+  </defs>
+  <path fill="#b9e4e8" d="M0 0h640v360H0z"/>
+  <path fill="#d5ece7" d="M0 181h640v109H0z"/>
+  <path fill="#c2dce0" d="M0 55h27V44h22V32h34v10h25v13h39v12H0zm187-27h23V17h22V8h29v10h22v10h34v11H187zm223 52h22V68h25V55h32v11h28v14h37v11H410z"/>
+  <path fill="#f7f3dd" d="M0 47h30V36h22V26h29v10h22v11h35v10H0zm194-25h22V12h19V4h24v10h20v8h30v9H194zm222 51h23V61h21V49h27v11h25v13h34v10H416z"/>
+  <!-- Airy civic blocks: warm facades, cool right-facing walls. -->
+  <path fill="#a5b8ba" d="M0 274V206h20v-17h22v69h12v-37h20v-49h27v86h14v-42h29v-25h24v67h16v-70h33v70h16v-34h30v-44h25v78h17v-61h32v61h17v-40h31v-32h29v72h15v-65h34v65h17v-39h29v-41h29v80h16v-67h34v67h15v-40h28v56z"/>
+  <path fill="#c2dce0" d="M6 212h5v8H6zm0 17h5v8H6zm22-32h5v8h-5zm52-15h5v8h-5zm11 0h5v8h-5zm-11 17h5v8h-5zm11 0h5v8h-5zm102-2h5v8h-5zm12 0h5v8h-5zm66-8h5v8h-5zm49 17h5v8h-5zm77-10h5v8h-5zm43 7h5v8h-5zm77-15h5v8h-5zm50 15h5v8h-5z"/>
+  <use href="#civic" x="12" y="222"/><use href="#civic" x="86" y="207"/>
+  <use href="#civic" x="160" y="231"/><use href="#civic" x="231" y="213"/>
+  <use href="#civic" x="372" y="220"/><use href="#civic" x="445" y="204"/>
+  <use href="#civic" x="520" y="221"/><use href="#civic" x="590" y="214"/>
+  <!-- Civic square, clipped lawn, paving joints, and tree shadows. -->
+  <path fill="#a9c785" d="M0 307h640v53H0z"/>
+  <path fill="#71a76b" d="M0 322h640v38H0z"/>
+  <path fill="#e4dcc0" d="M0 331h640v19H0z"/>
+  <path fill="#a5b8ba" d="M0 347h640v3H0zM32 332h2v15h-2zm71 0h2v15h-2zm74 0h2v15h-2zm77 0h2v15h-2zm88 0h2v15h-2zm73 0h2v15h-2zm76 0h2v15h-2zm83 0h2v15h-2z"/>
+  <path fill="#426f59" d="M9 326h61v3H9zm77 0h58v3H86zm78 0h59v3h-59zm77 0h59v3h-59zm131 0h59v3h-59zm78 0h59v3h-59zm77 0h59v3h-59zm77 0h36v3h-36z"/>
+  <use href="#tree" x="6" y="260"/><use href="#tree" x="83" y="257"/>
+  <use href="#tree" x="160" y="261"/><use href="#tree" x="237" y="258"/>
+  <use href="#tree" x="369" y="258"/><use href="#tree" x="447" y="257"/>
+  <use href="#tree" x="524" y="260"/><use href="#tree" x="601" y="255"/>
+  <path fill="#6b8d9a" d="M71 311h3v21h-3zm-4 20h11v3H67zm-1-24h13v4H66zm80 4h3v21h-3zm-4 20h11v3h-11zm-1-24h13v4h-13zm365 4h3v21h-3zm-4 20h11v3h-11zm-1-24h13v4h-13z"/>
+  <path fill="#f7f3dd" d="M67 304h11v3H67zm75 0h11v3h-11zm360 0h11v3h-11z"/>
+  <path fill="#a9c785" d="M0 355h640v2H0z"/>
+</svg>

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" shape-rendering="crispEdges" aria-hidden="true">
+  <defs>
+    <g id="house">
+      <path fill="#66514a" d="M3 26h53v69H3z"/>
+      <path fill="#a17a60" d="M3 26h38v69H3z"/>
+      <path fill="#493e40" d="M0 26v-4h6v-5h7v-5h7V7h8V2h7v5h7v5h7v5h7v5h5v6H0z"/>
+      <path fill="#986248" d="M7 22h47v3H7zm7-6h32v3H14zm8-6h17v3H22z"/>
+      <path fill="#3c4149" d="M10 37h10v15H10zm20 0h10v15H30zm-20 26h10v15H10zm20 0h10v15H30z"/>
+      <path fill="#f2bd72" d="M12 39h6v11h-6zm20 0h6v11h-6zm-20 26h6v11h-6zm20 0h6v11h-6z"/>
+      <path fill="#66514a" d="M3 57h53v3H3zm20-28h3v64h-3zM11 44h8v2h-8zm20 0h8v2h-8zm-20 26h8v2h-8zm20 0h8v2h-8z"/>
+      <path fill="#493e40" d="M23 81h11v14H23zM44 5h6v14h-6z"/>
+    </g>
+    <g id="tree">
+      <path fill="#493e40" d="M36 57h7v63h-9V95H23v-6h11V74H24v-6h12zm7 24h8V69h6v17H43z"/>
+      <path fill="#8f4437" d="M18 8h14V0h20v9h14v12h10v17h7v20h-9v13H60v10H37v-5H18V66H6V53H0V31h8V17h10z"/>
+      <path fill="#c16a3e" d="M19 12h15V4h15v10h13v11h10v17H61v16H46v11H25V59H12V44H6V30h13z"/>
+      <path fill="#e3a35d" d="M21 15h15V8h10v13H31v10H16v9H9V29h12zm20 21h13v8H41zM21 49h10v7H21z"/>
+      <path fill="#8f4437" d="M34 24h6v5h-6zm21 28h9v6h-9zm-23 9h7v5h-7z"/>
+    </g>
+    <pattern id="river" width="16" height="8" patternUnits="userSpaceOnUse"><path fill="#5f777d" d="M0 0h6v1H0zm9 4h4v1H9z"/></pattern>
+  </defs>
+  <path fill="#747f8c" d="M0 0h640v360H0z"/>
+  <path fill="#929995" d="M0 185h640v93H0z"/>
+  <path fill="#626e7b" d="M0 51h30V39h24V28h40v11h29v12h43v12H0zm209-24h29V16h27V8h37v9h29v10h43v12H209zm195 57h29V71h28V60h40v12h32v12h53v12H404z"/>
+  <path fill="#929995" d="M0 45h36V33h24v-8h29v10h27v10h37v5H0zm218-23h25V12h25V5h30v10h26v7h38v5H218z"/>
+  <path fill="#626e7b" d="M0 266v-42h25v-15h30v32h14v-43h29v-14h24v57h18v-26h31v-22h27v49h18v-34h35v-23h20v57h19v-30h36v-18h28v49h15v-41h31v-14h26v55h20v-27h31v-19h25v46h18v-37h36v-15h24v52h17v-36h30v53z"/>
+  <use href="#house" x="114" y="188"/><use href="#house" x="176" y="175"/>
+  <use href="#house" x="239" y="191"/><use href="#house" x="303" y="180"/>
+  <use href="#house" x="367" y="195"/>
+  <!-- Stepped church spire and belfry on the right bank. -->
+  <path fill="#493e40" d="M477 224v-59h6v-17h5v-16h5v-18h4v18h5v16h5v17h6v59z"/>
+  <path fill="#a17a60" d="M477 180h36v103h-36zM431 235h46v48h-46z"/>
+  <path fill="#66514a" d="M501 180h12v103h-12zM430 232v-5h8v-6h9v-6h10v6h9v6h11v8h-47z"/>
+  <path fill="#493e40" d="M485 188h7v21h-7zm11 0h7v21h-7zm-8 66h10v29h-10zM494 104h2v16h-2zm-5 5h12v2h-12z"/>
+  <path fill="#f2bd72" d="M486 225h14v15h-14zm-45 20h7v12h-7zm16 0h7v12h-7z"/>
+  <path fill="#66514a" d="M492 225h2v15h-2zm-6 6h14v2h-14z"/>
+  <path fill="#3c4149" d="M0 282h640v78H0z"/>
+  <path fill="url(#river)" d="M0 287h640v73H0z"/>
+  <path fill="#a17a60" d="M19 343h41v2H19zm96 10h60v2h-60zm120-13h35v2h-35zm101 12h54v2h-54zm112-10h35v2h-35zm90 11h68v2h-68z"/>
+  <!-- Masonry bridge: negative-space arches retain the river underneath. -->
+  <path fill="#929995" fill-rule="evenodd" d="M0 286h640v47H0zM25 333v-17h5v-8h8v-5h26v5h8v8h5v17zM126 333v-17h5v-8h8v-5h26v5h8v8h5v17zM227 333v-17h5v-8h8v-5h26v5h8v8h5v17zM328 333v-17h5v-8h8v-5h26v5h8v8h5v17zM429 333v-17h5v-8h8v-5h26v5h8v8h5v17zM530 333v-17h5v-8h8v-5h26v5h8v8h5v17z"/>
+  <path fill="#66514a" d="M0 289h640v4H0zm0 15h25v2H0zm77 0h49v2H77zm101 0h49v2h-49zm101 0h49v2h-49zm101 0h49v2h-49zm101 0h49v2h-49zm101 0h58v2h-58zM0 320h25v2H0zm77 0h49v2H77zm101 0h49v2h-49zm101 0h49v2h-49zm101 0h49v2h-49zm101 0h49v2h-49zm101 0h58v2h-58z"/>
+  <path fill="#a17a60" d="M0 279h640v7H0z"/>
+  <path fill="#493e40" d="M0 273h640v3H0zm13-9h3v15h-3zm25 0h3v15h-3zm25 0h3v15h-3zm25 0h3v15h-3zm441 0h3v15h-3zm25 0h3v15h-3zm25 0h3v15h-3zm25 0h3v15h-3zm25 0h3v15h-3z"/>
+  <use href="#tree" x="-18" y="184"/><use href="#tree" x="53" y="174"/>
+  <use href="#tree" x="543" y="173"/><use href="#tree" x="604" y="192"/>
+  <path fill="#e3a35d" d="M8 302h5v3H8zm26-6h4v3h-4zm53 8h6v3h-6zm29-10h4v3h-4zm430 8h5v3h-5zm26-6h5v3h-5zm42 8h6v3h-6z"/>
+</svg>
