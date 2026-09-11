@@ -117,15 +117,26 @@ function openThemePopover() {
   requestAnimationFrame(() => focusChoice(selected >= 0 ? selected : 0));
 }
 
+function hideThemePopover(popover) {
+  if (!popover) return;
+  popover.classList.add("is-hidden");
+  popover.setAttribute("aria-hidden", "true");
+}
+
+function restoreThemeOpenerFocus(restoreFocus, focusTarget) {
+  if (!restoreFocus) return;
+  if (!focusTarget) return;
+  if (!document.contains(focusTarget)) return;
+  focusTarget.focus({ preventScroll: true });
+}
+
 export function closeThemePopover({ restoreFocus = true } = {}) {
   const popover = popoverElement();
+  const focusTarget = opener;
   state.themePopoverOpen = false;
   triggerElement()?.setAttribute("aria-expanded", "false");
-  if (popover) {
-    popover.classList.add("is-hidden");
-    popover.setAttribute("aria-hidden", "true");
-  }
-  if (restoreFocus && opener && document.contains(opener)) opener.focus({ preventScroll: true });
+  hideThemePopover(popover);
+  restoreThemeOpenerFocus(restoreFocus, focusTarget);
   opener = null;
 }
 
