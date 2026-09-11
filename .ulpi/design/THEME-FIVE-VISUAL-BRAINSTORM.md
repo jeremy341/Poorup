@@ -26,6 +26,10 @@ unrelated applications.
   semantics remain stable and are never replaced by decorative theme colors.
 - Every new surface token passes WCAG 2.2 AA contrast checks.
 - The environment stays behind readable UI and never becomes an interaction.
+- Cloud silhouettes live in a dedicated `clouds.svg` layer for every world;
+  they sit 14–18 master pixels lower than the original sky shelf and travel
+  left-to-right in four held pixel poses, independently of petals, leaves,
+  snow, rain, or water motion.
 - No gradients, glassmorphism, neon glow, emoji controls, or stock artwork.
 
 ## Theme directions

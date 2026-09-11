@@ -41,7 +41,7 @@ check("original has no visual override while new worlds have complete tokens", (
     const theme = getTheme(id);
     assert.ok(Object.keys(theme.tokens).length >= 16, `${id} needs UI tokens`);
     assert.ok(theme.scene, `${id} needs scene`);
-    assert.deepEqual(Object.keys(theme.props), ["light", "signature", "weather", "accent"]);
+    assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "accent"]);
     assert.match(theme.scene, /^\/assets\/themes\/[a-z-]+\/scene\.svg$/);
   }
 });
@@ -70,6 +70,7 @@ check("scene markup is decorative and noninteractive", () => {
   const html = themeSceneMarkup(getTheme("autumn"), "home");
   assert.match(html, /themes\/autumn\/scene\.svg/);
   assert.match(html, /class="theme-scene"[^>]+width="640" height="360"/);
+  assert.match(html, /class="theme-prop theme-prop-clouds"/);
   assert.match(html, /aria-hidden="true"/);
   assert.doesNotMatch(html, /<button|<input|onclick|data-action/);
 });

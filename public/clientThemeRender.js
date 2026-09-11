@@ -31,7 +31,8 @@ export function themeSceneMarkup(themeOrId, surface = "page") {
   const safeSurface = surface === "home" || surface === "board" ? surface : "page";
   const propMarkup = safeSurface === "page" ? "" : Object.entries(theme.props).map(([slot, path]) => {
     const weatherClass = slot === "weather" ? ` theme-prop-weather-${theme.motion.weather}` : "";
-    return `<img class="theme-prop theme-prop-${slot}${weatherClass}" src="${escAttr(path)}" alt="" aria-hidden="true" width="320" height="180">`;
+    const cloudClass = "";
+    return `<img class="theme-prop theme-prop-${slot}${weatherClass}${cloudClass}" src="${escAttr(path)}" alt="" aria-hidden="true" width="640" height="360">`;
   }).join("");
   return `<img class="theme-scene" src="${escAttr(theme.scene)}" alt="" aria-hidden="true" width="640" height="360">${propMarkup}`;
 }

@@ -39,6 +39,7 @@ const THEMES = [
     preview: { heading: "SPRING", copy: "Blooming neighborhood" },
     scene: scenePath("spring"),
     props: {
+      clouds: propPath("spring", "clouds"),
       light: propPath("spring", "light"),
       signature: propPath("spring", "signature"),
       weather: propPath("spring", "weather"),
@@ -68,6 +69,7 @@ const THEMES = [
     preview: { heading: "SUMMER", copy: "Waterfront exchange" },
     scene: scenePath("summer"),
     props: {
+      clouds: propPath("summer", "clouds"),
       light: propPath("summer", "light"),
       signature: propPath("summer", "signature"),
       weather: propPath("summer", "weather"),
@@ -97,6 +99,7 @@ const THEMES = [
     preview: { heading: "AUTUMN", copy: "Copper rain town" },
     scene: scenePath("autumn"),
     props: {
+      clouds: propPath("autumn", "clouds"),
       light: propPath("autumn", "light"),
       signature: propPath("autumn", "signature"),
       weather: propPath("autumn", "weather"),
@@ -126,6 +129,7 @@ const THEMES = [
     preview: { heading: "WINTER", copy: "Snow city glow" },
     scene: scenePath("winter"),
     props: {
+      clouds: propPath("winter", "clouds"),
       light: propPath("winter", "light"),
       signature: propPath("winter", "signature"),
       weather: propPath("winter", "weather"),
@@ -155,6 +159,7 @@ const THEMES = [
     preview: { heading: "LIGHT", copy: "Clear day" },
     scene: scenePath("light"),
     props: {
+      clouds: propPath("light", "clouds"),
       light: propPath("light", "light"),
       signature: propPath("light", "signature"),
       weather: propPath("light", "weather"),

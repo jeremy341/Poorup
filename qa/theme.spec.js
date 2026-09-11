@@ -52,6 +52,7 @@ test.describe("Poorup seasonal worlds", () => {
       await expect(page.locator("body")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
+      await expect(page.locator("#theme-home-world .theme-prop-clouds")).toHaveCount(1);
       expect(await preferencesGeometry()).toEqual(baseline);
     }
     await page.locator('[data-theme-choice="original"]').click();

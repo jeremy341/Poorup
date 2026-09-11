@@ -21,8 +21,6 @@
   </defs>
   <path fill="#747f8c" d="M0 0h640v360H0z"/>
   <path fill="#929995" d="M0 185h640v93H0z"/>
-  <path fill="#626e7b" d="M0 51h30V39h24V28h40v11h29v12h43v12H0zm209-24h29V16h27V8h37v9h29v10h43v12H209zm195 57h29V71h28V60h40v12h32v12h53v12H404z"/>
-  <path fill="#929995" d="M0 45h36V33h24v-8h29v10h27v10h37v5H0zm218-23h25V12h25V5h30v10h26v7h38v5H218z"/>
   <path fill="#626e7b" d="M0 266v-42h25v-15h30v32h14v-43h29v-14h24v57h18v-26h31v-22h27v49h18v-34h35v-23h20v57h19v-30h36v-18h28v49h15v-41h31v-14h26v55h20v-27h31v-19h25v46h18v-37h36v-15h24v52h17v-36h30v53z"/>
   <use href="#house" x="114" y="188"/><use href="#house" x="176" y="175"/>
   <use href="#house" x="239" y="191"/><use href="#house" x="303" y="180"/>
