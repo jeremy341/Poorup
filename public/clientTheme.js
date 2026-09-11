@@ -41,7 +41,7 @@ function choices() {
 
 function themeChoiceMarkup(theme) {
   const selected = theme.id === state.themeId;
-  return `<button class="theme-choice" type="button" role="radio" data-theme-choice="${esc(theme.id)}" aria-checked="${selected}" aria-label="${esc(theme.ariaLabel)}">
+  return `<button class="theme-choice" type="button" role="radio" tabindex="${selected ? "0" : "-1"}" data-theme-choice="${esc(theme.id)}" aria-checked="${selected}" aria-label="${esc(theme.ariaLabel)}">
     <img src="${esc(theme.scene.page)}" alt="" width="88" height="36" aria-hidden="true">
     <span class="theme-choice-copy"><span class="t-label f11 theme-choice-name">${esc(theme.preview.heading)}</span><span class="theme-choice-description">${esc(theme.preview.copy)}</span></span>
   </button>`;
@@ -60,7 +60,9 @@ function popoverMarkup() {
 
 function syncChoiceState() {
   choices().forEach((choice) => {
-    choice.setAttribute("aria-checked", String(choice.dataset.themeChoice === state.themeId));
+    const selected = choice.dataset.themeChoice === state.themeId;
+    choice.setAttribute("aria-checked", String(selected));
+    choice.setAttribute("tabindex", selected ? "0" : "-1");
   });
   const button = triggerElement();
   if (button) button.dataset.themeId = state.themeId;
@@ -123,7 +125,7 @@ function onThemeChoiceKeyDown(event) {
   if (!target) return;
   const list = choices();
   const index = list.indexOf(target);
-  let next = -1;
+  let next;
   const columns = gridColumns();
   if (event.key === "ArrowRight") next = index + 1;
   else if (event.key === "ArrowLeft") next = index - 1;
@@ -131,10 +133,12 @@ function onThemeChoiceKeyDown(event) {
   else if (event.key === "ArrowUp") next = index - columns;
   else if (event.key === "Home") next = 0;
   else if (event.key === "End") next = list.length - 1;
-  if (next < 0) return;
+  else return;
+  const nextIndex = (next + list.length) % list.length;
   event.preventDefault();
   event.stopPropagation();
-  focusChoice(next);
+  applyThemePreference(list[nextIndex].dataset.themeChoice);
+  focusChoice(nextIndex);
 }
 
 function onThemePopoverClick(event) {
@@ -162,7 +166,8 @@ function bindDocumentDismissal() {
     const popover = popoverElement();
     const trigger = triggerElement();
     if (popover?.contains(event.target) || trigger?.contains(event.target)) return;
-    closeThemePopover({ restoreFocus: false });
+    const restoreFocus = !!(popover && document.activeElement && popover.contains(document.activeElement));
+    closeThemePopover({ restoreFocus });
   });
 }
 
