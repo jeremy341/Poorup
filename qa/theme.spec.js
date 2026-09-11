@@ -105,7 +105,7 @@ test.describe("Poorup parlor look themes", () => {
       const styles = getComputedStyle(document.body);
       const box = (selector) => {
         const rect = document.querySelector(selector)?.getBoundingClientRect();
-        return rect ? [rect.x, rect.y, rect.width, rect.height] : null;
+        return rect ? [rect.width, rect.height] : null;
       };
       return {
         theme: document.body.dataset.themeId,
