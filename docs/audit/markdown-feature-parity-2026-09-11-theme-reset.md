@@ -44,10 +44,13 @@ evidence. No document was deleted during this audit.
 | `docs/audit/expansion-completion-2026-09-09.md` | Completed | Records rulesets, Metro, seasons, cosmetics, telemetry, market, bots, and QA evidence. | Keep as completion record; verify future revisions. |
 | `docs/audit/expansion-implementation.md` | Completed | Records the modular expansion contracts and skill application. | Keep as implementation record. |
 | `docs/audit/markdown-feature-parity-2026-09-09.md` | Stale | Refers to 29 pre-existing files and retired documents that are not in this branch. | Supersede with this audit. |
+| `docs/audit/markdown-feature-parity-2026-09-11-theme-reset.md` | Active | This is the current inventory and deletion gate for the reset branch. | Keep and refresh after future doc changes. |
+| `docs/audit/ux-1920-reset-slice-2026-09-11.md` | Active | Records the current 1920px UX findings, root causes, and verification checklist. | Keep with release evidence. |
 | `docs/plans/achievement-announcements-ui-plan.md` | Completed | Server mythical channel, collection modal, rarity filters, and announcement flow exist in `public/` and `server/`. | Keep as feature record. |
 | `docs/plans/achievements-plan.md` | Completed | Achievement catalog, rarity, profile collection, and predicates are implemented. | Keep; move future tuning to backlog. |
 | `docs/plans/ai-bots-plan.md` | Active | AI-first `AUTO` mode and no-AI fallback exist; provider health and browser status coverage remain follow-ups. | Keep; update rollout/evaluation status. |
 | `docs/plans/no-ai-bots-plan.md` | Active | Deterministic bot, legal candidate path, personalities, and fallback exist; balance evaluation remains. | Keep beside AI plan. |
+| `.ulpi/design/THEME-FIVE-VISUAL-BRAINSTORM.md` | Active | Replacement five-theme design package bound to the original Poorup baseline. | Keep as the source for the later theme implementation. |
 | `docs/plans/casino-market-global-events-plan.md` | Active | Optional casino, market, and global-event contracts exist; balance/depth work remains. | Keep as active economy plan. |
 | `docs/plans/global-events-plan.md` | Active | Single ON/OFF control and server-derived rarity, duration, severity, and combinations exist. | Keep; add telemetry results later. |
 | `docs/plans/global-leaderboards-plan.md` | Active | Multi-scope standings exist; seasonal reward work is still a follow-up. | Keep; update reward status. |
