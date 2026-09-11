@@ -258,10 +258,10 @@ warm-window-snow-city: scene.svg, moon.svg, snow.svg, ice-roof.svg, pine.svg, sm
 - Add: `qa/theme-contrast.spec.js` only if contrast checks cannot remain focused in `theme.spec.js`.
 
 - [ ] **Step 1: Add a deterministic contrast helper that reads computed colors and calculates WCAG relative luminance.** Do not report ratios that were not measured.
-- [ ] **Step 2: Check normal text at 4.5:1, large text at 3:1, and focus/UI boundaries at 3:1 for every theme and core surface.
+- [ ] **Step 2: Check normal text at 4.5:1, large text at 3:1, and focus/UI boundaries at 3:1 for every theme and core surface.**
 - [ ] **Step 3: Exercise forced colors, reduced motion, keyboard navigation, screen-reader names, 200% zoom, and no page overflow.**
 - [ ] **Step 4: Run visual captures at 1920×1080 for Home in all six themes plus Profile selector, live Standard-40, live Metro-52, Rankings, Social, Rules, lobby, and a representative modal.
-- [ ] **Step 5: Compare bounding boxes and grid variables to the Midnight baseline; a theme may change color/art only.
+- [ ] **Step 5: Compare bounding boxes and grid variables to the Midnight baseline; a theme may change color/art only.**
 - [ ] **Step 6: Run desktop 1366×768, tablet 1024×768, iPad landscape, and mobile 390×844 checks.
 - [ ] **Step 7: Run `npm run lint`, `npm run lint:client`, `npm test`, `npm run test:audit`, `npm run coverage`, `npm run test:browser`, and `npm audit --omit=dev --audit-level=moderate`.
 - [ ] **Step 8: Run the Impeccable detector once on changed UI files, inspect screenshots at native resolution, and run CodeScene preparation/review before the PR.
