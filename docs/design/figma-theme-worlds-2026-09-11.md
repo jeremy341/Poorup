@@ -24,6 +24,12 @@ SOURCES` (`5:2`). Their names follow `COMPONENT / THEME / SLOT`, so the later
 app integration can map one source file to one client layer without changing
 the existing layout or Socket.IO contracts.
 
+The app's ambient-motion extension adds two client-only source families that
+remain outside the Figma world composition until the next asset-sync pass:
+`spring/petals.svg` is a vertically repeating field, while
+`light/pedestrians-pose-a.svg` and `light/pedestrians-pose-b.svg` are paired
+walking poses aligned to the civic path.
+
 ## Layer contract
 
 - `SCENE`: static sky, cloud shelf, depth skyline, buildings, houses, trees,
@@ -33,12 +39,20 @@ the existing layout or Socket.IO contracts.
   bridge accents or civic tower.
 - `WEATHER`: sparse petals, leaves, snow, rain or water glints.
 - `ACCENT`: tiny birds, aircraft traces, smoke or secondary motion marks.
+- `PETALS` (Spring only): a sparse 640×360 vertical repeat band.
+- `PEDESTRIANS` (Light Home only): two neutral pose vectors on a horizontal
+  repeat band; never rendered on board/page surfaces.
 
 All imports are local SVG vectors with integer geometry and
 `shape-rendering="crispEdges"`; no filters, gradients, text nodes, external
 URLs or UI controls are inside the artwork. Motion remains a client concern:
 only `transform`/`opacity` may animate, and the existing Reduced Motion and
 hidden-view pauses remain authoritative.
+
+Motion timings are intentionally slow and constant: Spring petals complete a
+vertical pass in 14 seconds; Light pedestrians complete a horizontal pass in
+36 seconds, with a 360ms two-pose leg cycle. Duplicate bands share their seam
+at the cycle boundary, so neither animation teleports.
 
 ## App integration handoff
 

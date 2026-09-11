@@ -259,6 +259,20 @@ a:focus-visible {
 .theme-prop-accent { opacity: 0.9; }
 .theme-prop-weather { opacity: 0.82; }
 .theme-prop-clouds { opacity: 0.92; }
+.theme-prop-petals { inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.86; }
+.theme-petal-a,
+.theme-petal-b { will-change: transform; animation-duration: 14s; animation-timing-function: linear; animation-iteration-count: infinite; }
+.theme-petal-a { animation-name: theme-petal-a-fall; }
+.theme-petal-b { animation-name: theme-petal-b-fall; transform: translate3d(0, -100%, 0); }
+.theme-pedestrian-band { inset: 0; width: 100%; height: 100%; opacity: 1; will-change: transform; }
+.theme-pedestrian-a,
+.theme-pedestrian-b { animation-duration: 36s; animation-timing-function: linear; animation-iteration-count: infinite; }
+.theme-pedestrian-a { animation-name: theme-pedestrian-a-walk; }
+.theme-pedestrian-b { animation-name: theme-pedestrian-b-walk; transform: translate3d(-100%, 0, 0); }
+.theme-pedestrian-band .theme-prop-pedestrians { inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.theme-pedestrian-pose { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.theme-pedestrian-pose-a { animation: theme-pedestrian-pose-a 360ms steps(2, end) infinite alternate; }
+.theme-pedestrian-pose-b { opacity: 0; animation: theme-pedestrian-pose-b 360ms steps(2, end) infinite alternate; }
 .theme-cloud-a,
 .theme-cloud-b { will-change: transform; animation-duration: 42s; animation-timing-function: linear; animation-iteration-count: infinite; }
 .theme-cloud-a { animation-name: theme-cloud-a-drift; }
@@ -277,6 +291,12 @@ a:focus-visible {
 @keyframes theme-cloud-drift { 0% { transform: translate3d(-6px, 0, 0); } 35% { transform: translate3d(-3px, 0, 0); } 60% { transform: translate3d(0, 0, 0); } 85%, 100% { transform: translate3d(3px, 0, 0); } }
 @keyframes theme-cloud-a-drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-100%, 0, 0); } }
 @keyframes theme-cloud-b-drift { from { transform: translate3d(100%, 0, 0); } to { transform: translate3d(0, 0, 0); } }
+@keyframes theme-petal-a-fall { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(2%, 100%, 0); } }
+@keyframes theme-petal-b-fall { from { transform: translate3d(-2%, -100%, 0); } to { transform: translate3d(0, 0, 0); } }
+@keyframes theme-pedestrian-a-walk { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(100%, 0, 0); } }
+@keyframes theme-pedestrian-b-walk { from { transform: translate3d(-100%, 0, 0); } to { transform: translate3d(0, 0, 0); } }
+@keyframes theme-pedestrian-pose-a { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes theme-pedestrian-pose-b { 0%, 49% { opacity: 0; } 50%, 100% { opacity: 1; } }
 @keyframes theme-accent-drift { 0% { transform: translate3d(0, 0, 0); } 40% { transform: translate3d(3px, -3px, 0); } 75%, 100% { transform: translate3d(6px, -3px, 0); } }
 body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-house-drift { opacity: 0; }
 body[data-theme-id="spring"] #view-home .parlor-statement .ts-kicker,

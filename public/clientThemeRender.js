@@ -35,6 +35,13 @@ export function themeSceneMarkup(themeOrId, surface = "page") {
   };
   const propMarkup = safeSurface === "page" ? "" : Object.entries(theme.props).map(([slot, path]) => {
     if (slot === "clouds") return imageMarkup(slot, path, " theme-cloud-a") + imageMarkup(slot, path, " theme-cloud-b");
+    if (slot === "petals") return imageMarkup(slot, path, " theme-petal-a") + imageMarkup(slot, path, " theme-petal-b");
+    if (slot === "pedestrians" && safeSurface === "home") {
+      const poseA = imageMarkup(slot, path.poseA, " theme-pedestrian-pose theme-pedestrian-pose-a");
+      const poseB = imageMarkup(slot, path.poseB, " theme-pedestrian-pose theme-pedestrian-pose-b");
+      return `<span class="theme-prop theme-pedestrian-band theme-pedestrian-a" aria-hidden="true">${poseA}${poseB}</span><span class="theme-prop theme-pedestrian-band theme-pedestrian-b" aria-hidden="true">${poseA}${poseB}</span>`;
+    }
+    if (slot === "pedestrians") return "";
     return imageMarkup(slot, path);
   }).join("");
   return `<img class="theme-scene" src="${escAttr(theme.scene)}" alt="" aria-hidden="true" width="640" height="360">${propMarkup}`;

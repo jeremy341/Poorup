@@ -41,7 +41,9 @@ check("original has no visual override while new worlds have complete tokens", (
     const theme = getTheme(id);
     assert.ok(Object.keys(theme.tokens).length >= 16, `${id} needs UI tokens`);
     assert.ok(theme.scene, `${id} needs scene`);
-    assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "accent"]);
+    if (id === "spring") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "petals", "accent"]);
+    else if (id === "light") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "pedestrians"]);
+    else assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "accent"]);
     assert.match(theme.scene, /^\/assets\/themes\/[a-z-]+\/scene\.svg$/);
   }
 });
@@ -73,6 +75,16 @@ check("scene markup is decorative and noninteractive", () => {
   assert.equal((html.match(/theme-prop-clouds/g) || []).length, 2);
   assert.match(html, /theme-cloud-a/);
   assert.match(html, /theme-cloud-b/);
+  const springHome = themeSceneMarkup(getTheme("spring"), "home");
+  assert.equal((springHome.match(/theme-petal-[ab]/g) || []).length, 2);
+  assert.match(springHome, /theme-petal-a/);
+  assert.match(springHome, /theme-petal-b/);
+  const lightHome = themeSceneMarkup(getTheme("light"), "home");
+  assert.equal((lightHome.match(/theme-pedestrian-band/g) || []).length, 2);
+  assert.equal((lightHome.match(/theme-pedestrian-pose-a/g) || []).length, 2);
+  assert.equal((lightHome.match(/theme-pedestrian-pose-b/g) || []).length, 2);
+  assert.doesNotMatch(themeSceneMarkup(getTheme("light"), "board"), /theme-pedestrian/);
+  assert.doesNotMatch(themeSceneMarkup(getTheme("light"), "page"), /theme-pedestrian/);
   assert.match(html, /aria-hidden="true"/);
   assert.doesNotMatch(html, /<button|<input|onclick|data-action/);
 });
@@ -80,7 +92,8 @@ check("scene markup is decorative and noninteractive", () => {
 check("all new SVGs are local crisp pixel assets", () => {
   for (const id of expectedIds.slice(1)) {
     const theme = getTheme(id);
-    const assetNames = ["scene", ...Object.values(theme.props).map((path) => path.split("/").pop().replace(/\.svg$/, ""))];
+    const assetPaths = Object.values(theme.props).flatMap((value) => typeof value === "string" ? [value] : Object.values(value));
+    const assetNames = ["scene", ...assetPaths.map((path) => path.split("/").pop().replace(/\.svg$/, ""))];
     for (const name of assetNames) {
       const file = join(root, "assets", "themes", id, `${name}.svg`);
       const source = readFileSync(file, "utf8");
