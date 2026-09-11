@@ -2,10 +2,11 @@
 
 ## Scope and baseline
 
-This audit inventories every repository `README*` and `*.md` file visible on
-the reset branch. The branch is based on `1398823`, the last commit before the
-theme system. The current implementation therefore has the original Poorup
-visual baseline and no theme selector or theme asset directory.
+This audit inventories every repository `README*` and `*.md` file, including
+hidden `.ulpi/` and `.github/` files, visible on the reset branch. The branch
+is based on `1398823`, the last commit before the theme system. The current
+implementation therefore has the original Poorup visual baseline and no theme
+selector or theme asset directory.
 
 The previous seasonal branch is preserved at
 `codex/seasonal-theme-ui-before-reset` and is not used as current product
@@ -51,6 +52,24 @@ evidence. No document was deleted during this audit.
 | `docs/plans/ai-bots-plan.md` | Active | AI-first `AUTO` mode and no-AI fallback exist; provider health and browser status coverage remain follow-ups. | Keep; update rollout/evaluation status. |
 | `docs/plans/no-ai-bots-plan.md` | Active | Deterministic bot, legal candidate path, personalities, and fallback exist; balance evaluation remains. | Keep beside AI plan. |
 | `.ulpi/design/THEME-FIVE-VISUAL-BRAINSTORM.md` | Active | Replacement five-theme design package bound to the original Poorup baseline. | Keep as the source for the later theme implementation. |
+| `.github/copilot-instructions.md` | Stale | Still describes the old monolithic client and says public tests do not exist. | Refresh to the modular client and current test commands. |
+| `.ulpi/design/ACCOUNT-PROFILE.md` | Active | Profile/account identity, privacy, and guest entry remain current. | Keep as the profile surface brief. |
+| `.ulpi/design/BOARD-SOURCES.md` | Reference | Protected legacy board hashes and removed source-art notes. | Keep for asset provenance and rollback. |
+| `.ulpi/design/DESIGN.md` | Active | Locked Poorup tokens, typography, geometry, and accessibility authority. | Keep as the visual source of truth. |
+| `.ulpi/design/FINAL-REVIEW.md` | Completed | Records the supplied ZIP refactor review and installed skill lenses. | Keep as historical review evidence. |
+| `.ulpi/design/FINANCE-RAIL-UX-PLAN.md` | Stale | Marked plan-only even though the rail/modal slices are implemented. | Stamp as implemented and link the current UX audit. |
+| `.ulpi/design/gameplay.md` | Active | Gameplay surface brief matches the board-first shell and server-authoritative flow. | Keep as the gameplay surface contract. |
+| `.ulpi/design/HOME-BACKGROUND-MOTION-VARIATIONS.md` | Reference | Exploration notes for the current calm home motion. | Keep as rationale; do not treat proposals as work items. |
+| `.ulpi/design/HOME-NO-BOARD-VARIATIONS.md` | Reference | Rejected homepage composition proposals. | Keep only if the design history is useful. |
+| `.ulpi/design/HOME-PROFILE-REDESIGN.md` | Completed | Home/profile redesign is represented in the current HTML/CSS shell. | Keep as a completed design record. |
+| `.ulpi/design/HOME-VARIATIONS.md` | Reference | Exploration-only homepage alternatives. | Keep as reference; no implementation instruction. |
+| `.ulpi/design/NEW-GAME-SYSTEMS-PLAN.md` | Active | Items, predictions, airport travel, bank tiers, and Lawyer Card remain future product work. | Keep as the next-system contract. |
+| `.ulpi/design/NIGHT-SHIFT-MICROGAME-PLAN.md` | Stale | Says the Night Shift plan is design-only although the microgame is live. | Stamp as implemented and retain the safety boundaries. |
+| `.ulpi/design/PLAYER-FINANCING-PLAN.md` | Stale | Says financing is planning-only although loans/equity/hybrids are implemented. | Stamp as implemented and link the deal contract. |
+| `.ulpi/design/QUICKPLAY-BOTS-TRADING-SOCIAL-PLAN.md` | Stale | Describes first-release planning while quick play, bots, trade, and social code exist. | Stamp as implemented; retain open evaluation work. |
+| `.ulpi/design/RANKINGS-METRICS-PLAN.md` | Completed | Home signals and server-backed rankings are implemented. | Keep as a completed interaction contract. |
+| `.ulpi/design/RULESETS-SEASONS-MARKET-PLAN.md` | Active | Current ruleset, board, season, cosmetic, telemetry, and market contract. | Keep as a primary product/design authority. |
+| `.ulpi/design/supplied/poorup_design_system.md` | Reference | Supplied screenshot-derived palette and typography source. | Keep as visual provenance; `DESIGN.md` remains authoritative. |
 | `docs/plans/casino-market-global-events-plan.md` | Active | Optional casino, market, and global-event contracts exist; balance/depth work remains. | Keep as active economy plan. |
 | `docs/plans/global-events-plan.md` | Active | Single ON/OFF control and server-derived rarity, duration, severity, and combinations exist. | Keep; add telemetry results later. |
 | `docs/plans/global-leaderboards-plan.md` | Active | Multi-scope standings exist; seasonal reward work is still a follow-up. | Keep; update reward status. |
