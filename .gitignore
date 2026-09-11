@@ -15,6 +15,7 @@ dist-ssr
 coverage/
 qa-artifacts/
 test-results/
+.worktrees/
 
 # Editor directories and files
 .vscode/*
