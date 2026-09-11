@@ -86,8 +86,9 @@ const DEFAULT_GROUP_COLORS = {
   red: "#87231e", yellow: "#b18a2e", green: "#4b853d", blue: "#286ea1",
 };
 
-function uiTheme(overrides = {}) {
+function uiTheme(overrides = {}, deriveCompatibility = true) {
   const ui = { ...DEFAULT_UI, ...overrides };
+  if (!deriveCompatibility) return ui;
   const derived = {
     lineDark: ui.lineDefault,
     lineSubtle: ui.lineDefault,
@@ -142,8 +143,8 @@ const definitions = [
     ariaLabel: "Midnight Ledger City. After-hours skyline with warm windows.",
     scene: { page: scenePath("midnight-ledger"), home: scenePath("midnight-ledger"), board: scenePath("midnight-ledger") },
     palette: { sky: "#071b22", haze: "#123634", far: "#0d2725", near: "#19413d", light: "#78894f", highlight: "#6f9ca2" },
-    ui: uiTheme(),
-    semantic: semanticTheme(uiTheme()),
+    ui: uiTheme({}, false),
+    semantic: semanticTheme(uiTheme({}, false)),
     assetSlots: ["signature", "incident", "light", "weather", "detail"],
     skyline: { home: NIGHT_HOME_SKYLINE, board: NIGHT_BOARD_SKYLINE },
     props: {

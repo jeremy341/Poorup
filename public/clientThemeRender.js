@@ -108,6 +108,8 @@ function setThemeCompatibilityVariables(element, ui) {
   Object.entries(aliases).forEach(([variable, value]) => {
     if (value) element.style.setProperty(variable, value);
   });
+  element.style.setProperty("--shadow-active", `0 0 8px color-mix(in srgb, ${ui.lineActive} 12%, transparent)`);
+  element.style.setProperty("--shadow-inset", `inset 0 1px 0 color-mix(in srgb, ${ui.accentBright} 5%, transparent)`);
 }
 
 function setThemeVariables(theme) {

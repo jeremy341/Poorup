@@ -32,8 +32,8 @@ const MIDNIGHT_UI = {
   lineDefault: "#5c5033", lineStrong: "#6b5a36", lineActive: "#c88f2e", lineBoard: "#9b783d", focus: "#f0d9ac",
   action: "#af2a21", actionHover: "#be3126", actionPressed: "#98231c", danger: "#d74438", success: "#35a653", warning: "#c88f2e", player: "#286ea1",
   logoPrimary: "#9b783d", logoSecondary: "#cfa75f", iconPrimary: "#cfa75f", iconSecondary: "#f0d9ac", scrim: "#01070acc", scanline: "#f0d9ac08",
-  lineDark: "#5c5033", lineSubtle: "#5c5033", goldMuted: "#a79d7d", redDark: "#98231c", surfaceError: "#030c10", lineError: "#d74438", textError: "#e8d3ab",
-  surfaceInset: "#030c10", surfaceSelected: "#031d1e", surfaceHover: "#09191a", surfaceBoardHover: "#031d1e", surfaceAvatar: "#030c10", surfaceCard: "#071314", surfaceActive: "#031d1e", surfaceSpecial: "#09191a", boardFrame: "#020a0d", lineShadow: "#030c10",
+  lineDark: "#1d2927", lineSubtle: "#3a382a", goldMuted: "#a79d7d", redDark: "#87231e", surfaceError: "#170807", lineError: "#af2a21", textError: "#f0b1a6",
+  surfaceInset: "#04100f", surfaceSelected: "#0c1f1c", surfaceHover: "#0b1c1d", surfaceBoardHover: "#0a1a1a", surfaceAvatar: "#0a1416", surfaceCard: "#071516", surfaceActive: "#0d211f", surfaceSpecial: "#0c2524", boardFrame: "#020c0d", lineShadow: "#101916",
 };
 
 function check(name, fn) {
