@@ -74,6 +74,8 @@ Each definition exposes:
 }
 ```
 
+The renderer also derives compatibility roles for the existing CSS surface vocabulary (`lineDark`, `lineSubtle`, `goldMuted`, `redDark`, `surfaceError`, `lineError`, `textError`, `surfaceInset`, `surfaceSelected`, `surfaceHover`, `surfaceBoardHover`, `surfaceAvatar`, `surfaceCard`, `surfaceActive`, `surfaceSpecial`, `boardFrame`, and `lineShadow`). These aliases keep legacy selectors themeable without changing their layout rules.
+
 The `ui` values are mapped to the existing Poorup CSS variables. `midnight-ledger` must preserve the current token values exactly. The alternate candidate values are:
 
 | Theme | Canvas | Chrome | Panel | Raised | Deep | Board tile | Board center | Input | Primary text | Secondary text | Accent | Active line | Action |
