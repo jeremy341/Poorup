@@ -13,6 +13,8 @@ dist
 dist-ssr
 *.local
 coverage/
+qa-artifacts/
+test-results/
 
 # Editor directories and files
 .vscode/*
