@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" shape-rendering="crispEdges" aria-hidden="true">
+  <defs>
+    <g id="pine">
+      <path fill="#203e55" d="M37 0h4v10h5v9h6v10h6v8h-7v6h10v9h7v9H58v6h14v9h8v10H48v20H33V86H0V76h8v-9h14v-6H12v-9h7v-9h10v-6h-7v-8h6V19h5v-9h4z"/>
+      <path fill="#dcebef" d="M37 4h4v10h5v9h6v7H26v-5h7V15h4zM28 39h7v5h15v7h10v5H18v-5h10zM18 65h13v5h23v5h16v6H8v-6h10z"/>
+      <path fill="#94b4cc" d="M33 27h19v3H26v-5h7zm2 25h25v4H18v-5h17zm-4 24h39v5H8v-6h23z"/>
+    </g>
+    <g id="chalet">
+      <path fill="#416080" d="M5 31h61v60H5z"/>
+      <path fill="#203e55" d="M48 32h18v59H48zM0 30v-5h7v-6h8v-6h8V7h8V1h8v6h8v6h8v6h8v6h8v8H0z"/>
+      <path fill="#edf4ef" d="M0 27h7v-6h8v-6h8V9h8V3h8v6h8v6h8v6h8v6h8v6H46v-4H27v4H0z"/>
+      <path fill="#94b4cc" d="M0 33h27v-4h19v4h25v4H0z"/>
+      <path fill="#f0c878" d="M12 44h12v15H12zm21 0h12v15H33zm-3 29h13v18H30z"/>
+      <path fill="#203e55" d="M17 44h2v15h-2zm-5 6h12v2H12zm26-6h2v15h-2zm-5 6h12v2H33zM5 65h61v3H5z"/>
+      <path fill="#edf4ef" d="M9 60h18v3H9zm21 0h18v3H30zM51 10h9v14h-9z"/>
+    </g>
+  </defs>
+  <path fill="#182e50" d="M0 0h640v360H0z"/>
+  <path fill="#29476c" d="M0 144h640v138H0z"/>
+  <path fill="#94b4cc" d="M22 25h2v2h-2zm51 39h2v2h-2zm48-49h2v2h-2zm59 34h2v2h-2zm65-26h2v2h-2zm62 45h2v2h-2zm63-50h2v2h-2zm56 37h2v2h-2zm56-29h2v2h-2zm-453 77h2v2h-2zm90-18h2v2h-2zm95 34h2v2h-2zm81-20h2v2h-2zm92 23h2v2h-2zm66-16h2v2h-2zm154-12h2v2h-2z"/>
+  <path fill="#edf4ef" d="M94 38h2v6h-2zm-2 2h6v2h-6zm256 46h2v6h-2zm-2 2h6v2h-6zm173-39h2v6h-2zm-2 2h6v2h-6z"/>
+  <!-- Mountains are pixel stairs rather than antialiased diagonal polygons. -->
+  <path fill="#416080" d="M0 254v-33h13v-13h14v-14h15v-16h14v-16h15v-15h12v-14h12v14h13v16h14v15h14v17h16v14h16v-12h15v-16h15v-17h14v-18h14v-16h14v-16h13v-13h11v13h12v17h13v17h14v19h15v17h17v16h15v-18h15v-19h15v-19h15v-18h14v-20h14v-15h13v15h13v19h14v20h15v18h16v19h17v17h18v-16h15v-18h16v-17h15v-16h15v-18h15v18h15v17h16v17h16v75z"/>
+  <path fill="#94b4cc" d="M57 171h14v-15h12v-14h12v14h13v16h14v14h-17v-7H91v-11H78v10H57zM215 159h14v-16h14v-16h13v-13h11v13h12v17h13v16h-17v-8h-12v-11h-11v12h-15v12h-22zM397 177h15v-18h14v-20h14v-15h13v15h13v19h14v18h-17v-9h-15v-15h-12v16h-16v9z"/>
+  <path fill="#577a97" d="M0 245h43v-13h26v-10h34v13h30v14h27v-12h32v-13h32v14h31v12h31v-12h34v-14h34v15h30v10h33v-14h29v-12h34v15h35v10h31v-13h32v-11h34v15h33v14h28v39H0z"/>
+  <path fill="#dcebef" d="M0 280h640v80H0z"/>
+  <use href="#chalet" x="99" y="205"/><use href="#chalet" x="174" y="187"/>
+  <use href="#chalet" x="251" y="209"/><use href="#chalet" x="329" y="183"/>
+  <use href="#chalet" x="407" y="203"/><use href="#chalet" x="485" y="194"/>
+  <path fill="#94b4cc" d="M0 307h640v53H0z"/>
+  <path fill="#29476c" d="M76 331h478v29H76z"/>
+  <path fill="#577a97" d="M92 344h71v2H92zm125 8h55v2h-55zm125-10h62v2h-62zm103 11h76v2h-76z"/>
+  <path fill="#416080" fill-rule="evenodd" d="M71 309h493v37H71zM117 346v-12h6v-6h10v-5h32v5h10v6h6v12zM227 346v-12h6v-6h10v-5h32v5h10v6h6v12zM337 346v-12h6v-6h10v-5h32v5h10v6h6v12zM447 346v-12h6v-6h10v-5h32v5h10v6h6v12z"/>
+  <path fill="#edf4ef" d="M67 305h501v6H67z"/>
+  <path fill="#203e55" d="M73 297h488v3H73zm9-6h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3zm29 0h3v14h-3z"/>
+  <path fill="#edf4ef" d="M0 330h30v-5h44v8h24v27H0zm547 5h28v-7h41v5h24v27h-93z"/>
+  <use href="#pine" x="-22" y="220"/><use href="#pine" x="39" y="208"/>
+  <use href="#pine" x="541" y="211"/><use href="#pine" x="600" y="225"/>
+  <path fill="#94b4cc" d="M3 347h34v3H3zm46-12h37v3H49zm512 15h29v3h-29zm40-10h35v3h-35z"/>
+</svg>

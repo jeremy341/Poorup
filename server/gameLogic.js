@@ -68,6 +68,7 @@ const PLAYER_STATE_DEFAULTS = [
   ['marketPositions', () => ({})],
   ['marginBalance', 0],
   ['marginMaintenance', 0],
+  ['marginCollateral', 0],
   ['marginPositions', () => ({})],
   ['shortPositions', () => ({})],
   ['shortDefaultDebt', 0],
@@ -558,19 +559,17 @@ class GameState {
   }
 
   rollTurnRejection(player) {
-    if (!player) {
-      return { success: false, error: 'Player not found.' };
-    }
-    if (!this.started) {
-      return { success: false, error: 'Game has not started.' };
-    }
-    if (player.id !== this.currentPlayerId) {
-      return { success: false, error: 'It is not your turn.' };
-    }
-    if (this.pendingPayment?.playerId === player.id) {
-      return { success: false, error: 'Settle your debt before rolling.' };
-    }
-    return null;
+    const playerId = player?.id;
+    const blocker = [
+      [!playerId, 'Player not found.'],
+      [!this.started, 'Game has not started.'],
+      [playerId !== this.currentPlayerId, 'It is not your turn.'],
+      [this.pendingPayment?.playerId === playerId, 'Settle your debt before rolling.'],
+      [this.pendingPurchaseOffer?.playerId === playerId, 'Resolve the property offer before rolling.'],
+      [this.pendingSponsoredPurchase?.buyerId === playerId, 'Resolve the sponsorship before rolling.'],
+      [Boolean(this.auction?.active), 'Finish the active auction before rolling.'],
+    ].find(([blocked]) => blocked);
+    return blocker ? { success: false, error: blocker[1] } : null;
   }
 
   setTurnDice(dice) {

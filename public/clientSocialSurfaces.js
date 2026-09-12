@@ -10,6 +10,12 @@ import { openSurface } from "./clientSurfaces.js";
 
 function noop() {}
 let host = { emitServer: noop, showView: noop };
+export const SOCIAL_REQUEST_TIMEOUT_MS = 8000;
+let socialRequestId = 0;
+let socialRequestTimer = null;
+let leaderboardRequestTimer = null;
+let seasonRequestId = 0;
+let seasonRequestTimer = null;
 
 export function configureSocialSurfaces(hooks) {
   host = { ...host, ...hooks };
@@ -156,7 +162,11 @@ function pageFocusCanMove() {
 
 function focusSocialPage() {
   if (!pageFocusCanMove()) return;
-  requestAnimationFrame(() => $("#social-page-content .social-feed")?.focus({ preventScroll: true }));
+  requestAnimationFrame(() => {
+    const gate = $("#social-page-content [data-social-guest-gate]");
+    const target = gate || $("#social-page-content .social-feed");
+    target?.focus({ preventScroll: true });
+  });
 }
 
 function focusRankingsPage() {
@@ -218,26 +228,75 @@ function activeTabLabel(tabs) {
 
 function socialSearchResultsHTML() {
   const results = state.socialSearchResults || [];
+  if (state.socialSearchLoading) return `<p class="t-micro ink-3" data-social-search-status aria-live="polite">SEARCHING…</p>`;
+  if (state.socialSearchError) return `<p class="t-micro red" data-social-search-status role="alert">${esc(state.socialSearchError)}</p>`;
   if (!results.length) return "";
   return results.map((player) => socialPlayerRowHTML(player, "VIEW")).join("");
 }
 
-function socialDataAck(response, target) {
+function socialSnapshotHasRows() {
+  return Object.values(state.social || {}).some((value) => Array.isArray(value) && value.length > 0);
+}
+
+function socialSyncStatusHTML() {
+  if (!state.account?.account) return "";
+  if (state.socialLoading) {
+    return `<p class="t-micro ink-3 social-sync-status" data-social-sync-status aria-live="polite">SYNCING SOCIAL…${socialSnapshotHasRows() ? " LAST SYNC SHOWN BELOW." : ""}</p>`;
+  }
+  if (!state.socialError) return "";
+  return `<div class="social-sync-status social-sync-error" data-social-sync-status role="alert"><p class="t-body ink-2">${esc(state.socialError)}${socialSnapshotHasRows() ? " LAST SYNC SHOWN BELOW." : ""}</p><button class="btn-dark" type="button" data-social-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
+}
+
+function socialDataAck(response, target, requestId) {
+  if (requestId !== socialRequestId) return;
+  clearTimeout(socialRequestTimer);
+  socialRequestTimer = null;
+  state.socialLoading = false;
   if (response?.success && response.social) {
     state.social = response.social;
+    state.socialError = "";
+    state.socialStale = false;
     renderSocialSurface(target);
     if (target === "#social-page-content") focusSocialPage();
+    return;
   }
+  state.socialError = response?.error || "Social data is temporarily unavailable. Try again.";
+  state.socialStale = socialSnapshotHasRows();
+  renderSocialSurface(target);
+}
+
+export function requestSocialData(target) {
+  if (!state.account?.account) {
+    // Guests get the public shell and account gate only. Do not request or
+    // retain relationship data that cannot be displayed without an account.
+    state.socialLoading = false;
+    state.socialError = "";
+    renderSocialSurface(target);
+    return;
+  }
+  const requestId = socialRequestId + 1;
+  socialRequestId = requestId;
+  state.socialRequestId = requestId;
+  state.socialLoading = true;
+  state.socialError = "";
+  state.socialStale = socialSnapshotHasRows();
+  clearTimeout(socialRequestTimer);
+  renderSocialSurface(target);
+  socialRequestTimer = setTimeout(() => socialDataAck({ success: false, error: "Social sync timed out. Try again." }, target, requestId), SOCIAL_REQUEST_TIMEOUT_MS);
+  host.emitServer("get-social-data", {}, (response) => socialDataAck(response, target, requestId));
 }
 
 function socialFetchAndRender(target) {
-  host.emitServer("get-social-data", {}, (response) => socialDataAck(response, target));
+  requestSocialData(target);
 }
 
 function leaderboardSnapshotAck(snapshot, target, requestId) {
   if (requestId !== state.leaderboard.requestId) return;
+  clearTimeout(leaderboardRequestTimer);
+  leaderboardRequestTimer = null;
   state.leaderboard.loading = false;
   applyLeaderboardSnapshot(snapshot);
+  state.leaderboard.stale = !snapshot?.success;
   renderRankingsSurface(target);
   if (target === "#rankings-page-content") focusRankingsPage();
 }
@@ -247,7 +306,10 @@ export function requestLeaderboardSnapshot(target) {
   state.leaderboard.requestId = requestId;
   state.leaderboard.loading = true;
   state.leaderboard.error = "";
+  state.leaderboard.stale = Boolean(leaderboardCurrentRows(state.leaderboard.snapshots || {}).length);
+  clearTimeout(leaderboardRequestTimer);
   renderRankingsSurface(target);
+  leaderboardRequestTimer = setTimeout(() => leaderboardSnapshotAck({ success: false, error: "Rankings sync timed out. Try again." }, target, requestId), SOCIAL_REQUEST_TIMEOUT_MS);
   host.emitServer("get-leaderboard-snapshot", { scope: state.leaderboard.scope, metric: state.leaderboard.metric }, (snapshot) => leaderboardSnapshotAck(snapshot, target, requestId));
 }
 
@@ -270,6 +332,18 @@ function applyPublicPlayerCard(response) {
 
 function signinBodyHTML() {
   return `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p><button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button></div>`;
+}
+
+export function socialGuestGateHTML(surfaceKey = "social") {
+  const titleId = `social-${surfaceKey}-guest-title`;
+  return `<section class="social-guest-gate" data-social-guest-gate role="status" tabindex="-1" aria-labelledby="${titleId}">
+    <div class="social-guest-gate-card">
+      <span class="t-micro g400">ACCOUNT GATE</span>
+      <h3 class="t-section g100" id="${titleId}">YOU DO NOT HAVE AN ACCOUNT</h3>
+      <p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p>
+      <button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button>
+    </div>
+  </section>`;
 }
 
 function friendsBodyHTML(social) {
@@ -312,7 +386,7 @@ function socialHeroContext(social, pageSurface) {
 
 function socialRailContext(signedIn) {
   const networkLabel = signedIn ? "ACCOUNT SYNC" : "GUEST VIEW";
-  const feedSource = signedIn ? "SERVER-SYNCED" : "READ-ONLY SEARCH";
+  const feedSource = signedIn ? "SERVER-SYNCED" : "ACCOUNT REQUIRED";
   const phaseLabel = state.phase === "home" ? "NO ROOM" : "IN ROOM";
   return { networkLabel, feedSource, phaseLabel };
 }
@@ -324,24 +398,49 @@ function socialTableContext() {
   return { roomValue, seatedValue };
 }
 
-export function renderSocialSurface(target = "#social-card") {
-  const card = surfaceCard(target, "#social-card");
-  if (!card) return;
+const SOCIAL_TABS = [["friends", "FRIENDS"], ["requests", "REQUESTS"], ["invites", "INVITES"], ["recent", "RECENT"], ["notifications", "INBOX"]];
+
+function socialSurfaceView(card) {
   const social = state.social || {};
   const signedIn = Boolean(state.account?.account);
   const pageSurface = card.id === "social-page-content";
   const surfaceKey = pageSurface ? "page" : "modal";
-  const tabs = [["friends", "FRIENDS"], ["requests", "REQUESTS"], ["invites", "INVITES"], ["recent", "RECENT"], ["notifications", "INBOX"]];
-  const count = requestsTotal(social);
-  const pending = pendingTotal(social);
-  const body = socialTabBody(social, signedIn);
-  const activeLabel = activeTabLabel(tabs);
-  const searchResults = socialSearchResultsHTML();
-  const searchValue = esc(state.socialSearchQuery || "");
-  const hero = socialHeroContext(social, pageSurface);
-  const rail = socialRailContext(signedIn);
-  const info = socialTableContext();
-  card.innerHTML = `<div class="${hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${hero.inboxCount}</strong></div></div>${hero.closeBtn}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${searchValue}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, social, count)}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
+  return {
+    social, signedIn, pageSurface, surfaceKey, tabs: SOCIAL_TABS,
+    count: requestsTotal(social), pending: pendingTotal(social),
+    body: socialTabBody(social, signedIn), activeLabel: activeTabLabel(SOCIAL_TABS),
+    searchResults: signedIn ? socialSearchResultsHTML() : "",
+    searchValue: esc(state.socialSearchQuery || ""), hero: socialHeroContext(social, pageSurface),
+    rail: socialRailContext(signedIn), info: socialTableContext(), syncStatus: socialSyncStatusHTML(),
+  };
+}
+
+function socialSearchMarkup(view) {
+  return `<div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${view.surfaceKey}-search-form"><div class="social-search-row"><label class="social-search-label" for="social-${view.surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${view.surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${view.searchValue}" aria-describedby="social-${view.surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${view.surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button></div><div class="social-search-results" data-social-search-results id="social-${view.surfaceKey}-search-results">${view.searchResults}</div></form></div>`;
+}
+
+function socialTabsMarkup(view) {
+  return view.tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, view.social, view.count)}</span></button>`).join("");
+}
+
+function socialNetworkMarkup(view) {
+  return `<div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${view.rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${socialTabsMarkup(view)}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${view.surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${view.surfaceKey}-feed-title">${view.activeLabel}</h3></div><span class="t-micro ink-3">${view.rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${view.body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${view.surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${view.surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${view.rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${view.info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${view.info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div>`;
+}
+
+function socialHeroMarkup(view) {
+  const guestClass = view.signedIn ? "" : " is-guest";
+  const guestContentState = view.signedIn ? "" : ' aria-hidden="true"';
+  const gate = view.signedIn ? "" : socialGuestGateHTML(view.surfaceKey);
+  return `<div class="${view.hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${view.surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${view.surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${view.hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${view.pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${view.hero.inboxCount}</strong></div></div>${view.hero.closeBtn}</section>${view.syncStatus}<div class="social-guest-shell${guestClass}"><div class="social-guest-content" data-social-guest-content${guestContentState}>${socialSearchMarkup(view)}${socialNetworkMarkup(view)}</div>${gate}</div></div>`;
+}
+
+export function renderSocialSurface(target = "#social-card") {
+  const card = surfaceCard(target, "#social-card");
+  if (!card) return;
+  const view = socialSurfaceView(card);
+  card.innerHTML = socialHeroMarkup(view);
+  const guestContent = card.querySelector("[data-social-guest-content]");
+  if (guestContent) guestContent.inert = !view.signedIn;
 }
 
 
@@ -375,10 +474,8 @@ function normalizeRankingScope(scope) {
 }
 
 function clearLeaderboardSnapshot(snapshot) {
-  state.leaderboard.snapshots = {};
-  state.leaderboard.rows = [];
-  state.leaderboard.generatedAt = null;
   state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
+  state.leaderboard.stale = Boolean(state.leaderboard.rows?.length || Object.keys(state.leaderboard.snapshots || {}).length);
 }
 
 function seasonRowsFromResponse(response) {
@@ -412,18 +509,28 @@ function applySeasonResponse(response) {
   Object.assign(state.season, seasonStateFromResponse(response));
 }
 
-function seasonAck(response, target) {
+function seasonAck(response, target, requestId) {
+  if (requestId !== seasonRequestId) return;
+  clearTimeout(seasonRequestTimer);
+  seasonRequestTimer = null;
   state.season.loading = false;
   applySeasonResponse(response);
+  state.season.stale = !response?.success;
   renderRankingsSurface(target);
   if (target === "#rankings-page-content") focusRankingsPage();
 }
 
 export function requestSeason(target = "#rankings-page-content") {
+  seasonRequestId += 1;
+  state.season.requestId = seasonRequestId;
   state.season.loading = true;
   state.season.error = "";
+  state.season.stale = Boolean(state.season.current || state.season.rows?.length);
+  clearTimeout(seasonRequestTimer);
   renderRankingsSurface(target);
-  host.emitServer("get-season", { metric: state.season.metric }, (response) => seasonAck(response, target));
+  const requestId = seasonRequestId;
+  seasonRequestTimer = setTimeout(() => seasonAck({ success: false, error: "Season sync timed out. Try again." }, target, requestId), SOCIAL_REQUEST_TIMEOUT_MS);
+  host.emitServer("get-season", { metric: state.season.metric }, (response) => seasonAck(response, target, requestId));
 }
 
 function storeLeaderboardSnapshot(snapshot) {
@@ -520,7 +627,17 @@ function scopeLabel() {
 }
 
 function generatedLabel() {
+  if (leaderboardRefreshing()) return "REFRESHING…";
+  if (leaderboardStale()) return "STALE · LAST SYNC";
   return state.leaderboard.generatedAt ? `SYNCED ${new Date(state.leaderboard.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "WAITING FOR SERVER";
+}
+
+function leaderboardRefreshing() {
+  return state.leaderboard.loading && (state.leaderboard.stale || state.leaderboard.rows?.length);
+}
+
+function leaderboardStale() {
+  return state.leaderboard.error && state.leaderboard.stale;
 }
 
 function rankingsShellClass(pageSurface) {
@@ -537,13 +654,43 @@ function scopesTabs() {
   return [["all", "ALL TIME"], ["season", "THIS SEASON"], ["month", "30 DAYS"], ["friends", "FRIENDS"]].map(([id, label]) => `<button class="ranking-scope${state.leaderboard.scope === id ? " is-active" : ""}" type="button" data-ranking-scope="${id}" aria-pressed="${state.leaderboard.scope === id}"><span class="t-label f11">${label}</span></button>`).join("");
 }
 
+function ledgerEmptyHTML() {
+  if (state.leaderboard.loading) return `<p class="t-body ink-3 social-empty" aria-live="polite">LOADING VERIFIED RANKINGS…</p>`;
+  if (state.leaderboard.error) return rankingErrorHTML(state.leaderboard.error);
+  return `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
+}
+
+function rankingErrorHTML(message) {
+  return `<div class="social-empty ranking-error" role="alert"><p class="t-body ink-2">${esc(message)}</p><button class="btn-dark" type="button" data-ranking-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
+}
+
+function ledgerStatusHTML() {
+  if (state.leaderboard.loading) return `<p class="t-micro ink-3" data-ranking-status aria-live="polite">REFRESHING… LAST VERIFIED SNAPSHOT SHOWN.</p>`;
+  if (state.leaderboard.error) return `${rankingErrorHTML(`${state.leaderboard.error} LAST VERIFIED SNAPSHOT SHOWN.`)}`;
+  return "";
+}
+
+function rankingTrend(row) {
+  const trend = row.trend || { direction: "flat", delta: 0 };
+  const label = trend.direction === "up" ? "TREND UP" : trend.direction === "down" ? "TREND DOWN" : "TREND FLAT";
+  const delta = trend.delta ? ` · ${trend.delta > 0 ? "+" : ""}${trend.delta}` : "";
+  return { ...trend, label, delta };
+}
+
+function ledgerRowHTML(row, index) {
+  const trend = rankingTrend(row);
+  const valueClass = state.leaderboard.metric === "rate" ? "g300" : "green";
+  return `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)} · ${row.games} GAMES · ${row.wins} WINS</span><span class="t-micro ranking-trend ranking-trend-${trend.direction}" aria-label="${trend.label}">${trend.label}${trend.delta}</span></span><strong class="ranking-value t-label f16 ${valueClass}">${rankingValueLabel(state.leaderboard.metric, row.value)}</strong></button>`;
+}
+
 function ledgerRowsHTML(currentRows) {
-  if (state.leaderboard.loading) return `<p class="t-body ink-3 social-empty">LOADING VERIFIED RANKINGS…</p>`;
-  if (state.leaderboard.error) return `<div class="social-empty ranking-error" role="alert"><p class="t-body ink-2">${esc(state.leaderboard.error)}</p><button class="btn-dark" type="button" data-ranking-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
-  return currentRows.length ? currentRows.map((row, index) => { const trend = row.trend || { direction: "flat", delta: 0 }; const trendLabel = trend.direction === "up" ? "TREND UP" : trend.direction === "down" ? "TREND DOWN" : "TREND FLAT"; return `<button class="ranking-row" type="button" data-ranking-player="${esc(row.accountId)}"><span class="ranking-place t-label f13">${String(index + 1).padStart(2, "0")}</span><span class="ranking-avatar">${avatarHTML(row, 3, index)}</span><span class="ranking-player"><strong class="t-label f12 g100">${esc(row.displayName)}</strong><span class="t-micro ink-3">@${esc(row.username)} · ${row.games} GAMES · ${row.wins} WINS</span><span class="t-micro ranking-trend ranking-trend-${trend.direction}" aria-label="${trendLabel}">${trendLabel}${trend.delta ? ` · ${trend.delta > 0 ? "+" : ""}${trend.delta}` : ""}</span></span><strong class="ranking-value t-label f16 ${state.leaderboard.metric === "rate" ? "g300" : "green"}">${rankingValueLabel(state.leaderboard.metric, row.value)}</strong></button>`; }).join("") : `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
+  if (!currentRows.length) return ledgerEmptyHTML();
+  return `${ledgerStatusHTML()}${currentRows.map(ledgerRowHTML).join("")}`;
 }
 
 function rankingSearchResultsHTML() {
+if (state.rankingSearchLoading) return `<span class="t-micro ink-3" data-ranking-search-status aria-live="polite">SEARCHING…</span>`;
+if (state.rankingSearchError) return `<span class="t-micro red" data-ranking-search-status role="alert">${esc(state.rankingSearchError)}</span>`;
 return Array.isArray(state.rankingSearchResults) && state.rankingSearchResults.length
     ? state.rankingSearchResults.map((player) => `<button class="ranking-search-result" type="button" data-ranking-player="${esc(player.id)}"><span class="t-label f12 g100">${esc(player.displayName)}</span><span class="t-micro ink-3">@${esc(player.username)}</span><span class="t-label f11 g300">VIEW</span></button>`).join("")
     : state.rankingSearchQuery ? `<span class="t-micro ink-3">NO EXACT USERNAME MATCH.</span>` : "";
@@ -555,9 +702,14 @@ function seasonDateLabel(value) {
 }
 
 function seasonStatusPanelHTML() {
-  if (state.season.loading) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">LOADING VERIFIED SEASON…</p></section>`;
-  if (state.season.error) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(state.season.error)}</p></section>`;
-  if (!state.season.current) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
+  if (state.season.loading && !state.season.current) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3" aria-live="polite">LOADING VERIFIED SEASON…</p></section>`;
+  if (state.season.error && !state.season.current) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(state.season.error)}</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></section>`;
+  return "";
+}
+
+function seasonSyncStatusHTML() {
+  if (state.season.loading && state.season.current) return `<p class="t-micro ink-3" data-season-status aria-live="polite">REFRESHING… LAST VERIFIED SEASON SHOWN.</p>`;
+  if (state.season.error && state.season.current) return `<div class="social-empty ranking-error" role="alert" data-season-status><p class="t-body ink-2">${esc(state.season.error)} LAST VERIFIED SEASON SHOWN.</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
   return "";
 }
 
@@ -595,10 +747,12 @@ function seasonPanelHTML(surfaceKey = "page") {
   const status = seasonStatusPanelHTML();
   if (status) return status;
   const season = state.season.current;
+  if (!season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
+  const syncStatus = seasonSyncStatusHTML();
   const rows = seasonPlacementRows((state.season.rows || []).slice(0, 3));
   const claimed = new Set(state.season.claimedRewardIds || []);
   const rewards = seasonRewardRows(state.season.rewards || [], claimed, Boolean(state.account?.account));
-  return `<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div></div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
+  return `${syncStatus}<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div></div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
 }
 
 export function renderRankingsSurface(target = "#rankings-card") {

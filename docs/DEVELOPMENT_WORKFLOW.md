@@ -1,6 +1,6 @@
 # Poorup Development Workflow
 
-_Last updated: 2026-09-07. This is the contract between contributors (human or
+_Last updated: 2026-09-11. This is the contract between contributors (human or
 AI) and `main`._
 
 ## The rule
@@ -35,8 +35,9 @@ branch → PR → GitHub Actions (lint + tests + coverage + boot)
 
 Responsibilities, one line each:
 
-- **GitHub Actions** — does the code actually run? `npm run lint`, the full
-  `npm test` contract/integration suite, and `npm run coverage` (the covered
+- **GitHub Actions** — does the code actually run? `npm run lint`,
+  `npm run lint:client`, the full `npm run test:full` contract/integration
+  suite, and `npm run coverage` (the covered
   contract suites + persistence characterization, merged under one c8 pass by
   `server/coverage-runner.js`),
   a wire-test step (`server/server.test.js`) that boots the real server and
@@ -61,7 +62,7 @@ Responsibilities, one line each:
 2. Focused change — no drive-by refactors of unrelated legacy code.
 3. Add or update a contract suite in `server/gameLogic.test.js` when touching
    `gameLogic.js`/stores; new observable behavior gets a new `contract N`.
-4. `npm run lint` and `npm test` green locally.
+4. `npm run lint`, `npm run lint:client`, and `npm run test:full` green locally.
 5. Push, open PR against `main` (never merge from the branch).
 6. Read the Copilot review and CodeScene findings; fix legitimate issues,
    reply-and-resolve the disagreements.
@@ -99,10 +100,13 @@ Hard rules:
 ## Commands
 
 ```bash
-npm run dev        # start server on :8080 (or PORT=…)
-npm test           # gameLogic contracts + persistence + server wire suites (no coverage)
-npm run lint       # eslint, server/ only by design
-npm run coverage   # c8 → coverage/lcov.info + text table (~66% baseline, merged via coverage-runner.js)
+npm run dev          # start server on :8080 (or PORT=…)
+npm test             # full gameLogic, persistence, wire, and client contract suites
+npm run test:audit   # focused settlement, lifecycle, privacy, and casino audits
+npm run test:full    # npm test + npm run test:audit
+npm run lint         # eslint server/
+npm run lint:client  # eslint public/
+npm run coverage     # c8 → coverage/lcov.info + text table
 ```
 
 ## What is NOT here

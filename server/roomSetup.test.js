@@ -5,6 +5,7 @@
 import assert from 'assert';
 import {
   normalizeClientId,
+  normalizeRequestId,
   normalizeNickname,
   normalizeRoomCode,
   normalizeRoomName,
@@ -38,6 +39,13 @@ check('normalizeClientId accepts bounded strings and rejects structured payloads
   assert.strictEqual(normalizeClientId('x'.repeat(140)).length, 120);
   assert.strictEqual(normalizeClientId({ id: 'attacker' }), '');
   assert.strictEqual(normalizeClientId(null), '');
+});
+
+check('normalizeRequestId accepts bounded opaque create keys only', () => {
+  assert.strictEqual(normalizeRequestId('  create-room:one  '), 'create-room:one');
+  assert.strictEqual(normalizeRequestId('x'.repeat(140)).length, 120);
+  assert.strictEqual(normalizeRequestId({ id: 'attacker' }), '');
+  assert.strictEqual(normalizeRequestId(null), '');
 });
 
 check('normalizeNickname trims, caps at 24, and rejects non-strings', () => {

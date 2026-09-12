@@ -28,6 +28,18 @@ function pickAckFields(fields) {
   };
 }
 
+// Contract negotiations keep the lender/borrower IDs stable while the
+// responder alternates after every counter. The resulting counter depth is
+// the authoritative relay direction: odd depths were proposed by the
+// borrower, even depths by the lender.
+function contractCounterRelayRecipient(contract) {
+  return Number(contract?.counterDepth) % 2 === 0 ? 'toPlayerId' : 'fromPlayerId';
+}
+
+function contractResponseRelayRecipient(contract) {
+  return Number(contract?.counterDepth) % 2 === 0 ? 'fromPlayerId' : 'toPlayerId';
+}
+
 const NO_ARGS = () => [];
 const WHOLE_PAYLOAD = payload => [payload];
 
@@ -48,9 +60,9 @@ const GAME_VERB_HANDLERS = [
   { event: 'cancel-trade', verb: 'cancelTrade', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['canceled']) },
   { event: 'respond-trade', verb: 'respondToTrade', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['accepted']) },
   { event: 'propose-player-contract', verb: 'proposePlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['contract']) },
-  { event: 'counter-player-contract', verb: 'counterPlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: 'fromPlayerId' }, ackExtras: pickAckFields(['contract', 'countered']) },
+  { event: 'counter-player-contract', verb: 'counterPlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: contractCounterRelayRecipient }, ackExtras: pickAckFields(['contract', 'countered']) },
   { event: 'adjust-player-contract', verb: 'adjustPlayerContract', args: WHOLE_PAYLOAD, relay: { event: 'player-contract-offer', field: 'contract', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['contract', 'adjusted']) },
-  { event: 'respond-player-contract', verb: 'respondPlayerContract', args: p => [p.accept === true, p.requestId, p.contractId], relay: { event: 'player-contract-update', field: 'contract', recipient: 'fromPlayerId' }, ackExtras: pickAckFields(['contract', 'accepted']) },
+  { event: 'respond-player-contract', verb: 'respondPlayerContract', args: p => [p.accept === true, p.requestId, p.contractId], relay: { event: 'player-contract-update', field: 'contract', recipient: contractResponseRelayRecipient }, ackExtras: pickAckFields(['contract', 'accepted']) },
   { event: 'repay-player-contract', verb: 'repayPlayerContract', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['contract']) },
   { event: 'pay-jail-fine', verb: 'payJailFine', args: NO_ARGS, message: true },
   { event: 'use-jail-free', verb: 'useJailFree', args: NO_ARGS, message: true },

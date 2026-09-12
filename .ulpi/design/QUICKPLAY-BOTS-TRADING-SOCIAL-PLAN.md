@@ -1,13 +1,19 @@
 # Quick Play, Solo Bots, Trade Value, and Friends Plan
 
-Status: planning only. No gameplay source changes are authorized by this
-document.
+Status: bots, trade-value projections, account-backed social flows, and the
+Quick Table join-or-host flow are in the first release.
+
+> **Current-status banner (2026-09-12).** Server-side bots, trade value, the
+> top-level Social hub, and Quick Table's directory → join/retry → create
+> fallback are live. The client prefers the most occupied compatible public
+> table, retries a room that fills during the join race, and hosts a new public
+> Standard-40 table only when no candidate succeeds.
 
 ## Scope decisions
 
-- **Quick Table is Auto-Join.** It is not a separate game mode. It searches for
-  a public, non-full lobby and joins it; if none is available, it creates a new
-  public lobby.
+- **Quick Table is Auto-Join.** It is not a separate game mode. The flow
+  searches for a public, non-full lobby and joins it; if none is available, it
+  creates a new public lobby.
 - **Solo Dev Mode uses the same server rules.** Bots are real server-side
   participants driven through the existing game engine, not client-only fake
   players.
@@ -22,6 +28,12 @@ document.
   and visual slot now, but implement it after Quick Play and bots stabilize.
 
 ## 1. Quick Table auto-join
+
+The product flow is a public-table auto-join. The client requests the public
+directory, prefers a compatible open table, and emits the existing `join-room`
+event. If the directory is empty or a candidate fills during the race, the
+client retries twice before preparing a new public Standard-40 room with the
+existing `create-room` event.
 
 ### User flow
 
@@ -38,7 +50,7 @@ document.
 ### Server requirements
 
 - `list-rooms` returns only public, active, non-full rooms with authoritative
-  seat counts and a stable `updatedAt`/sequence value.
+  seat counts.
 - `join-room` must remain race-safe: seat validation and insertion happen in one
   server operation; a full-room response is retryable, not fatal.
 - Never expose private-room codes through Quick Table.
@@ -99,10 +111,20 @@ Rules:
 
 ## 4. Friends and social surface
 
-### Profile tab
+### Social hub views (current IA)
 
-Add a `FRIENDS` tab alongside Overview, Statistics, Designs, History, and
-Account:
+The live information architecture follows
+`docs/plans/friends-and-player-social-plan.md`: relationships belong in the
+top-level `SOCIAL` hub, not in the Profile editor. The Profile tab proposal
+below is retained as history and is superseded; do not add a `FRIENDS` tab to
+Profile unless the Social IA contract is explicitly revisited.
+
+### Superseded Profile-tab proposal
+
+If the Social IA is ever revisited, the former proposal was a `FRIENDS` tab
+alongside Overview, Statistics, Designs, History, and Account. It is not the
+current implementation target. The requirements remain useful for the Social
+hub's Friends view:
 
 - Friend count and online count.
 - Search by stable username, never by guest alias.
@@ -166,13 +188,15 @@ Use the applicable skills in this order:
 ## Acceptance criteria
 
 - Quick Table joins an available public room or hosts one without exposing
-  private rooms and without race-condition errors.
+  private rooms and without surfacing a recoverable join-race error. The
+  client uses a bounded retry and a deterministic fallback to a new public
+  Standard-40 room.
 - Solo Dev starts a real server-authoritative game with three bots.
 - Bot actions are synchronized across tabs and stop cleanly on disconnect,
   bankruptcy, game over, and room cleanup.
 - Trade totals update correctly for cash, deeds, houses, hotels, and mortgages.
-- Friends can request, accept, remove, block, and invite from the profile tab;
-  guests receive clear account-required messaging.
+- Friends can request, accept, remove, block, and invite from the top-level
+  Social hub; guests receive clear account-required messaging.
 - Homepage color remains unchanged.
 - Dice-result event contract is ready but its visual implementation remains a
   separately testable phase.

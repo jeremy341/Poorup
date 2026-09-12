@@ -593,6 +593,45 @@ try {
 
 try {
   const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 's-pay-each-a', clientId: 'c-pay-each-a', nickname: 'Ada' });
+  room.addOrReconnectPlayer({ socketId: 's-pay-each-b', clientId: 'c-pay-each-b', nickname: 'Bob' });
+  room.addOrReconnectPlayer({ socketId: 's-pay-each-c', clientId: 'c-pay-each-c', nickname: 'Cara' });
+  room.addOrReconnectPlayer({ socketId: 's-pay-each-d', clientId: 'c-pay-each-d', nickname: 'Dee' });
+  const game = room.game;
+  const payer = game.players[0];
+  payer.cash = 10;
+  game.players.slice(1).forEach(player => { player.cash = 1000; });
+  game.started = true;
+  game.currentPlayerId = payer.id;
+  game.hasRolled = true;
+  game.applyCard(payer, { action: 'payEach', amount: 50 }, {});
+  assert.equal(payer.cash, 0);
+  assert.equal(game.players[1].cash, 1010);
+  assert.equal(game.players[2].cash, 1000);
+  assert.equal(game.players[3].cash, 1000);
+  assert.deepEqual(game.pendingPayment, {
+    playerId: payer.id,
+    creditorId: game.players[1].id,
+    amountRemaining: 40,
+    reason: `${payer.nickname} paid $50 to other players from the card.`,
+    equityTileIndex: null,
+    equityOwnerId: null
+  });
+  assert.deepEqual(game.pendingPaymentQueue.map(entry => ({
+    creditorId: entry.payment.creditorId,
+    amountRemaining: entry.payment.amountRemaining
+  })), [
+    { creditorId: game.players[2].id, amountRemaining: 50 },
+    { creditorId: game.players[3].id, amountRemaining: 50 }
+  ]);
+  console.log('PASS — applyCard payEach parks every unpaid recipient leg');
+} catch (error) {
+  console.log(`FAIL — applyCard payEach shortfall: ${error.message}`);
+  process.exitCode = 1;
+}
+
+try {
+  const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 's-collect-a', clientId: 'c-collect-a', nickname: 'Ada' });
   room.addOrReconnectPlayer({ socketId: 's-collect-b', clientId: 'c-collect-b', nickname: 'Bob' });
   const player = room.game.players[0];

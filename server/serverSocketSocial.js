@@ -5,6 +5,7 @@
 // player-card visibility, search, history, invites) became guard chains in
 // the propertyApi.js style.
 import crypto from 'crypto';
+import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
 import { reply } from './socketHandlerSupport.js';
 import { normalizeChatText, matchHistoryPrivacyError, summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
 import { SEASON_METRICS, publicSeasonSummary, seasonMetricValue } from './seasonModule.js';
@@ -436,16 +437,8 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   }
 
   function effectiveMatchRecords(targetId, canSeePrivateHistory) {
-    const stored = matchStore.listForAccount(targetId);
-    const fallback = accountStore.getMatchHistory(targetId);
-    const merged = new Map();
-    [...fallback, ...stored].forEach(record => {
-      if (!record?.matchId) return;
-      merged.set(record.matchId, record);
-    });
-    return [...merged.values()]
-      .filter(record => visibleHistoryRecord(record, canSeePrivateHistory))
-      .sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')));
+    return listMatchRecordsForAccount({ accountId: targetId, accountStore, matchStore })
+      .filter(record => visibleHistoryRecord(record, canSeePrivateHistory));
   }
 
   function visibleHistoryRecord(record, canSeePrivateHistory) {

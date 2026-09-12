@@ -75,14 +75,14 @@ function openChoiceModal(tile) {
             </button>${tile.canSeekSponsorship ? `<button class="btn-dark choice-btn" id="choice-sponsor"><span class="t-label">SEEK SPONSORS</span><span class="t-micro">FORCED BUY</span></button>` : ""}`
         }
       </div>
-      <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY — MUST AUCTION") : "Click outside or press ESC to revisit this choice."}</p>
+      <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY — MUST AUCTION") : "Close this card to revisit the choice; PASS is the explicit decline."}</p>
     </div>`;
 
   openSurface("#choice-modal", "#choice-buy");
   const scrim = $("#choice-scrim");
   if (scrim) {
     scrim.classList.toggle("popup-scrim-locked", auctionMode);
-    scrim.onclick = auctionMode ? null : closeChoiceModalAsPass;
+    scrim.onclick = auctionMode ? null : closeChoiceModalWithoutAction;
   }
   const buyBtn = $("#choice-buy");
   if (buyBtn) buyBtn.addEventListener("click", () => {
@@ -132,6 +132,30 @@ function closeChoiceModalAsPass() {
   afterLandingResolved();
 }
 
+function closeChoiceModalWithoutAction() {
+  // Dismissal is intentionally neutral: leave the pending purchase in place
+  // so only the explicit PASS control can decline the deed.
+  closeSurface("#choice-modal");
+}
+
+function acceptTradeOffer(offer) {
+  const button = $("#offer-accept");
+  button.disabled = true;
+  button.querySelector(".cta-text")?.replaceChildren(document.createTextNode("PROCESSING…"));
+  $("#offer-counter").disabled = true;
+  state.offers = (state.offers || []).filter((x) => x?.id !== offer.id);
+  host.emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
+    if (response?.success === false) {
+      state.offers = [offer, ...(state.offers || []).filter((x) => x?.id !== offer.id)];
+      host.say(response.error || "Trade could not be accepted.");
+      host.renderChat();
+      openOfferModal(offer);
+      return;
+    }
+    closeSurface("#offer-modal");
+  });
+}
+
 function openOfferModal(offer) {
   const from = state.players.find((p) => p.id === offer.from || p.serverId === offer.from);
   if (!from) return;
@@ -157,19 +181,7 @@ function openOfferModal(offer) {
       <p class="t-micro ink-3 offer-note">Trades only transfer cash or deeds offered here.</p>
     </div>`;
   openSurface("#offer-modal", "#offer-accept");
-  $("#offer-accept").addEventListener("click", () => {
-    const o = state.offers.find((x) => x === offer);
-    if (o) state.offers.splice(state.offers.indexOf(o), 1);
-    host.emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
-        if (response?.success === false) {
-          host.say(response.error || "Trade could not be accepted.");
-          host.renderChat();
-          return;
-        }
-      });
-      closeSurface("#offer-modal");
-      return;
-  });
+  $("#offer-accept").addEventListener("click", () => acceptTradeOffer(offer));
   $("#offer-counter").addEventListener("click", () => {
     closeSurface("#offer-modal");
     host.openTradeNegotiation(offer);
@@ -287,7 +299,7 @@ function openVoluntaryExitModal() {
       </div>
       <p class="t-body ink-2 bank-copy">You hold ${deedLabel} and $${me.cash.toLocaleString()}. Retiring hands everything back to the market unencumbered and ends your round — it cannot be undone. You can still raise funds instead by selling, mortgaging, trading, or taking a loan.</p>
       <div class="bank-actions">
-        <button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Declare Bankruptcy</span></button>
+        <button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Retire / Hand Over Assets</span></button>
         <button class="btn-dark bank-btn" id="bank-retire-cancel"><span class="t-label f12">Keep Playing</span></button>
       </div>
     </div>`;
@@ -384,4 +396,4 @@ export function bindGameModalSurfaces() {
   $("#card-gallery .card-gallery-scrim")?.addEventListener("click", closeCardGallery);
 }
 
-export { openChoiceModal, openCardReveal, openOfferModal, openBankruptcyModal, showGameOver, closeChoiceModalAsPass, closeOfferWithoutResponse, openCardGallery, closeCardGallery, openCardPreviewFromUrl };
+export { openChoiceModal, openCardReveal, openOfferModal, openBankruptcyModal, showGameOver, closeChoiceModalAsPass, closeChoiceModalWithoutAction, closeOfferWithoutResponse, openCardGallery, closeCardGallery, openCardPreviewFromUrl };

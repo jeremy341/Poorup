@@ -119,13 +119,22 @@ function saveAccountSession(session) {
   state.account = session;
   persistAccountSession(session);
 }
+
+function loadClientId() {
+  try {
+    return sessionStorage.getItem("poorup-client-id") || "";
+  } catch {
+    return "";
+  }
+}
+
 const initialAchievementRecords = loadAchievementRecords();
 
 const state = {
   
   // Per-tab session id (audit #10): sessionStorage survives reloads but is
   // fresh for every tab, so two tabs can no longer share — and hijack — one seat.
-  clientId: sessionStorage.getItem("poorup-client-id") || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  clientId: loadClientId() || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   account: loadAccountSession(),
   hostId: null,
   serverTiles: [],
@@ -138,6 +147,9 @@ const state = {
   lastConnectionAnnouncement: "",
   previousTurnKey: "",
   phase: "home", // home | setup | lobby | playing
+  roomEntryPending: false,
+  roomEntryRequestId: "",
+  roomPlayerId: null,
   roomCode: "",
   roomVisibility: "private",
   boardVariant: "standard-40",
@@ -146,7 +158,7 @@ const state = {
   appearance: 0,
   tableAppearanceOverride: null, // optional one-table override; null inherits active design
   homeTab: "play",          // play | rooms | profile
-  themeId: DEFAULT_THEME_ID, // client-only environmental preference
+  themeId: DEFAULT_THEME_ID, // client-only visual preference
   themePopoverOpen: false,
   profileTab: "designs",    // overview | stats | designs | history | account
   setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid

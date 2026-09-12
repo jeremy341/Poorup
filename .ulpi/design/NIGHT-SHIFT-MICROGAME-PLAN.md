@@ -1,12 +1,19 @@
 # Night Shift — corrected arcade-mode plan
 
-Status: design plan only. No gameplay source changes are authorized by this
-document.
+Status: implemented local arcade surface. This document remains the design
+contract; gameplay state and room rules stay isolated from the microgame.
+
+> **Current status (2026-09-12).** `SHIFT+P` is the primary, documented-safe
+> Night Shift chord. `CTRL+P` remains a compatibility/bonus path only where the
+> browser allows interception; it is not the user-facing entry chord because
+> browsers reserve it for print. The home hint and keyboard controller reflect
+> this split (`public/index.html:100-105`, `public/clientKeyboard.js:62-80`).
 
 ## Product intent
 
 Night Shift is a secret, local-only arcade game layered into the existing Home
-screen. `Ctrl+P` starts it. The animated Poorup skyline and moving house track
+screen. `Shift+P` starts it (`Ctrl+P` is retained only as a compatibility
+path). The animated Poorup skyline and moving house track
 remain visible underneath; the ordinary Home header, title copy, room-entry
 panel, quick-table controls, and ticker are hidden while the mode is active.
 The only persistent mode readouts are the countdown/clock at top-left, score at
@@ -21,7 +28,7 @@ crisp pixel edges, and transform-only motion.
 
 1. **Idle:** Home behaves normally; Parlor Patrol may still fly by after its
    existing delay.
-2. **Briefing:** `Ctrl+P` opens a transparent modal interaction layer, pauses
+2. **Briefing:** `Shift+P` opens a transparent modal interaction layer, pauses
    the normal patrol and local clock, announces `WAVE 01`, and gives the player
    three hearts.
 3. **Active wave:** each wave lasts 60 seconds. Targets spawn in a staggered
@@ -197,7 +204,9 @@ design/QA notes:
 
 1. At 1920×1080 and 2560×1440, Home remains visible beneath Night Shift with no
    opaque mask, horizontal overflow, or layout jump.
-2. `Ctrl+P` works only on Home and does not fire from text inputs or in a room.
+2. `Shift+P` is the documented entry chord and works only on Home without
+   firing from editable controls; `Ctrl+P` is compatibility-only and may be
+   intercepted only where the browser permits it.
 3. Normal Home UI is hidden/inert; only mode HUD, targets, and effects are
    interactive.
 4. Helicopter hit visibly uses the Home impact and smoke frames at the click

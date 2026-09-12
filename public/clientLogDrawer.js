@@ -8,6 +8,7 @@ import { state } from "./clientState.js";
 import { focusSurface, syncSurfaceA11y } from "./clientSurfaces.js";
 
 let drawerFilter = "all";
+let renderedLogSignature = "";
 
 function matchesLogFilter(line, filter) {
   if (filter === "all") return true;
@@ -39,8 +40,33 @@ export function renderLogDrawer() {
   const body = filtered.length
     ? filtered.map((l, i) => drawerLineHTML(l, i, filtered.length)).join("")
     : empty;
-  $("#drawer-body").innerHTML = body;
-  $("#drawer-count").textContent = `${filtered.length} ENTRIES`;
+  const bodyEl = $("#drawer-body");
+  const previousScrollTop = bodyEl?.scrollTop || 0;
+  const wasAtBottom = !bodyEl
+    || bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight <= 4;
+  const nextSignature = state.log.join("\u0000");
+  const logChanged = renderedLogSignature !== "" && nextSignature !== renderedLogSignature;
+  if (bodyEl) {
+    bodyEl.innerHTML = body;
+    bodyEl.scrollTop = wasAtBottom ? bodyEl.scrollHeight : Math.min(previousScrollTop, bodyEl.scrollHeight);
+  }
+  const countEl = $("#drawer-count");
+  if (countEl) {
+    countEl.textContent = `${filtered.length} ENTRIES`;
+    countEl.setAttribute("aria-live", "polite");
+  }
+  const foot = $("#log-drawer")?.querySelector(".log-drawer-foot");
+  let statusEl = foot?.querySelector("[data-log-new-status]");
+  if (!statusEl && foot) {
+    statusEl = document.createElement("span");
+    statusEl.className = "t-micro ink-3";
+    statusEl.dataset.logNewStatus = "true";
+    statusEl.setAttribute("aria-live", "polite");
+    statusEl.setAttribute("aria-atomic", "true");
+    foot.appendChild(statusEl);
+  }
+  if (statusEl) statusEl.textContent = logChanged && !wasAtBottom ? "NEW ENTRIES AVAILABLE" : "";
+  renderedLogSignature = nextSignature;
   markActiveFilterButtons();
 }
 
