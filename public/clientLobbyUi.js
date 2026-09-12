@@ -55,10 +55,91 @@ function noop() {}
 
 const QUICK_TABLE_MAX_RETRIES = 2;
 const QUICK_TABLE_DIRECTORY_TIMEOUT_MS = 5000;
+const ROOM_ENTRY_ACK_TIMEOUT_MS = 4000;
+const ROOM_ENTRY_ACK_RETRIES = 2;
 let quickTableFlow = false;
 let quickTableRetryCount = 0;
 let quickTableRequestId = 0;
 let quickTableDirectoryTimer = null;
+let activeRoomEntryAttempt = null;
+
+export function sendRoomEntryWithRetries({
+  emit,
+  event,
+  payload,
+  onResponse,
+  onTimeout,
+  timeoutMs = ROOM_ENTRY_ACK_TIMEOUT_MS,
+  maxRetries = ROOM_ENTRY_ACK_RETRIES,
+  schedule = setTimeout,
+  cancel = clearTimeout,
+}) {
+  let active = true;
+  let retries = 0;
+  let timer = null;
+
+  const stopTimer = () => {
+    if (timer !== null) cancel(timer);
+    timer = null;
+  };
+  const finish = (response) => {
+    if (!active) return;
+    active = false;
+    stopTimer();
+    onResponse(response);
+  };
+  const send = () => {
+    timer = schedule(() => {
+      if (!active) return;
+      timer = null;
+      if (retries < maxRetries) {
+        retries += 1;
+        send();
+        return;
+      }
+      active = false;
+      onTimeout();
+    }, timeoutMs);
+    emit(event, payload, finish);
+  };
+
+  send();
+  return {
+    cancel() {
+      if (!active) return;
+      active = false;
+      stopTimer();
+    },
+  };
+}
+
+export function roomEntryAckFromSnapshot(snapshot, clientId) {
+  const room = snapshot?.room;
+  const players = Array.isArray(snapshot?.game?.players)
+    ? snapshot.game.players
+    : Array.isArray(room?.players) ? room.players : [];
+  const player = players.find(candidate => candidate?.clientId === clientId);
+  if (!room || !player) return null;
+  return {
+    success: true,
+    created: true,
+    roomCode: Object.prototype.hasOwnProperty.call(room, "roomCode") ? room.roomCode : null,
+    visibility: room.visibility === "public" ? "public" : "private",
+    hostId: room.hostId || null,
+    playerId: player.id || player.roomPlayerId || null,
+    bots: players.filter(candidate => candidate?.isBot).length,
+  };
+}
+
+export function reconcileParlorEntrySnapshot(snapshot) {
+  if (!state.roomEntryPending) return false;
+  const ack = roomEntryAckFromSnapshot(snapshot, state.clientId);
+  if (!ack) return false;
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = null;
+  applyParlorEntryAck(ack);
+  return true;
+}
 
 /**
  * Pick open public tables deterministically so Quick Table can fill an
@@ -676,6 +757,8 @@ function rejectParlorEntry(response) {
   quickTableFlow = false;
   quickTableRetryCount = 0;
   clearQuickTableDirectoryTimer();
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = null;
   host.showView("home");
   host.renderAll();
 }
@@ -726,7 +809,21 @@ export function enterParlor(code) {
   const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
   const requestId = event === "create-room" ? String(host.createRequestId?.("create-room") || "") : "";
   resetTableForEntry(requestedCode, requestId);
-  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta, requestedRoomId, requestId), (response) => onParlorEntryResponse(response, event));
+  const payload = parlorEntryPayload(event, requestedCode, meta, requestedRoomId, requestId);
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = sendRoomEntryWithRetries({
+    emit: host.emitServer,
+    event,
+    payload,
+    onResponse(response) {
+      activeRoomEntryAttempt = null;
+      onParlorEntryResponse(response, event);
+    },
+    onTimeout() {
+      activeRoomEntryAttempt = null;
+      rejectParlorEntry({ success: false, error: "Room entry timed out. Try again." });
+    },
+  });
 }
 
 function enterLobby() {
@@ -769,6 +866,8 @@ export function goHome() {
   state.phase = "home";
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = null;
   state.roomPlayerId = null;
   state.hostId = null;
   state.roomVisibility = "private";

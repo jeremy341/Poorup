@@ -42,4 +42,86 @@ assert.deepEqual(invoke({ key: 'startingCash', value: 'not-number' }), { success
 assert.deepEqual(invoke({ key: 'maxPlayers', value: 2 }), { success: false, error: 'Room capacity cannot be lower than the number of active players.' });
 assert.deepEqual(invoke({ key: 'startingCash', value: 1800 }), { success: true });
 assert.equal(room.settings.startingCash, 1800);
-console.log('server socket account settings: 4 scenarios passed, 0 failed');
+
+function makeSocket(id) {
+  return {
+    id,
+    data: {},
+    rooms: new Set([id]),
+    join(roomCode) { this.rooms.add(roomCode); },
+    leave(roomCode) { this.rooms.delete(roomCode); },
+    emit() {}
+  };
+}
+
+function registerRoomHarness(roomManager, testSocket, snapshots) {
+  const handlers = new Map();
+  const testRuntime = {
+    accountStore: {},
+    roomManager,
+    social: { accountForSocket() { return null; } },
+    emitRoomState(roomState) { snapshots.push(roomState); },
+    scheduleRoomsUpdated() {},
+    leaveAllGameRooms() {},
+    detachSocketFromOtherRoom() {},
+    clearDisconnectTimer() {},
+    reassignHostIfNeeded() {},
+    emitPendingInteractions() {},
+    destroyRoom(roomState) { roomManager.rooms.delete(roomState.roomCode); },
+    io: { in() { return { emit() {} }; } }
+  };
+  registerAccountSocketHandlers((event, handler) => handlers.set(event, handler), testSocket, testRuntime);
+  return handlers;
+}
+
+const replayManager = new RoomManager();
+const snapshots = [];
+const originSocket = makeSocket('lost-ack-origin');
+const originHandlers = registerRoomHarness(replayManager, originSocket, snapshots);
+const createPayload = {
+  clientId: 'stable-create-client',
+  requestId: 'create-request-lost-ack',
+  nickname: 'Reliable Host',
+  visibility: 'public',
+  roomName: 'RELIABLE TABLE',
+  boardVariant: 'metro-52',
+};
+
+// Fault injection: creation commits, but the caller discards the ack and the
+// transport disconnects before it can know whether the side effect happened.
+originHandlers.get('create-room')(createPayload, () => {});
+const committedRoom = replayManager.getRoomByClient(createPayload.clientId);
+assert.ok(committedRoom);
+committedRoom.game.getPlayerByClient(createPayload.clientId).disconnected = true;
+replayManager.disconnectPlayer(originSocket.id);
+
+const replacementSocket = makeSocket('lost-ack-replacement');
+const replacementHandlers = registerRoomHarness(replayManager, replacementSocket, snapshots);
+let replayAck;
+replacementHandlers.get('create-room')(createPayload, response => { replayAck = response; });
+
+assert.equal(replayManager.rooms.size, 1, 'lost create ack must not create a duplicate room');
+assert.equal(replayManager.getRoomBySocket(replacementSocket.id), committedRoom, 'retry must restore the replacement socket to the committed room');
+assert.equal(snapshots.at(-1), committedRoom, 'retry must emit the authoritative room snapshot');
+assert.deepEqual(replayAck, {
+  success: true,
+  roomCode: null,
+  visibility: 'public',
+  created: true,
+  hostId: committedRoom.hostId,
+  playerId: committedRoom.game.getPlayerByClient(createPayload.clientId).id,
+  bots: 0,
+  requestId: createPayload.requestId,
+});
+assert.equal(committedRoom.roomName, 'RELIABLE TABLE');
+assert.equal(committedRoom.ruleset.boardVariant, 'metro-52');
+
+let conflictAck;
+replacementHandlers.get('create-room')({ ...createPayload, roomName: 'DIFFERENT TABLE' }, response => { conflictAck = response; });
+assert.deepEqual(conflictAck, {
+  success: false,
+  error: 'That create-room request ID was already used with different details.'
+});
+assert.equal(replayManager.rooms.size, 1, 'request-id payload conflicts must not mutate rooms');
+
+console.log('server socket account settings/replay: 13 scenarios passed, 0 failed');

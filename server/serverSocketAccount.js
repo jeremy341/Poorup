@@ -22,6 +22,58 @@ import { reply } from './socketHandlerSupport.js';
 const AUTH_ATTEMPT_WINDOW_MS = 60_000;
 const AUTH_ATTEMPT_LIMIT = 8;
 const authAttempts = new Map();
+const CREATE_ROOM_REPLAY_TTL_MS = 2 * 60_000;
+const CREATE_ROOM_REPLAY_LIMIT = 1_000;
+const createRoomReplays = new Map();
+
+function canonicalValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalValue(value[key])]));
+}
+
+function createRoomFingerprint(request, clientId) {
+  // Deliberately fingerprints only normalized room fields. Session tokens and
+  // other credentials never enter the replay cache.
+  return JSON.stringify(canonicalValue({ clientId, request }));
+}
+
+function createRoomReplayKey(account, clientId, socketId, requestId) {
+  const actor = account?.id
+    ? `account:${String(account.id)}`
+    : clientId
+      ? `client:${clientId}`
+      : `socket:${socketId}`;
+  return JSON.stringify([actor, requestId]);
+}
+
+function pruneCreateRoomReplays(now = Date.now()) {
+  for (const [key, entry] of createRoomReplays) {
+    if (entry.expiresAt <= now) createRoomReplays.delete(key);
+  }
+  while (createRoomReplays.size > CREATE_ROOM_REPLAY_LIMIT) {
+    createRoomReplays.delete(createRoomReplays.keys().next().value);
+  }
+}
+
+function readCreateRoomReplay(key) {
+  const now = Date.now();
+  const entry = createRoomReplays.get(key);
+  if (!entry || entry.expiresAt <= now) {
+    if (entry) createRoomReplays.delete(key);
+    return null;
+  }
+  // Touch on read so the bounded map is LRU, not insertion-only FIFO.
+  createRoomReplays.delete(key);
+  createRoomReplays.set(key, entry);
+  return entry;
+}
+
+function rememberCreateRoomReplay(key, entry) {
+  createRoomReplays.delete(key);
+  createRoomReplays.set(key, { ...entry, expiresAt: Date.now() + CREATE_ROOM_REPLAY_TTL_MS });
+  pruneCreateRoomReplays();
+}
 
 function authAttemptKey(socket) {
   return String(socket.handshake?.address || socket.request?.socket?.remoteAddress || socket.id || 'unknown').slice(0, 120);
@@ -184,12 +236,20 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   function handleCreateRoom(payload, callback) {
     const requestId = normalizeRequestId(payload?.requestId);
-    if (requestId && socket.data.createRoomRequestId === requestId && socket.data.createRoomAck) {
-      return reply(callback, socket.data.createRoomAck);
-    }
     const clientId = normalizeClientId(payload?.clientId);
     const account = runtime.social.accountForSocket(socket, payload);
     const request = buildCreateRoomRequest(payload, account);
+    const replayKey = requestId ? createRoomReplayKey(account, clientId, socket.id, requestId) : '';
+    const fingerprint = requestId ? createRoomFingerprint(request, clientId) : '';
+    const replay = replayKey ? readCreateRoomReplay(replayKey) : null;
+    if (replay) {
+      if (replay.fingerprint !== fingerprint) {
+        return reply(callback, { success: false, error: 'That create-room request ID was already used with different details.' });
+      }
+      const replayRoom = roomManager.getRoom(replay.roomCode);
+      if (replayRoom) return restoreCreateRoomReplay(replayRoom, clientId, account, replay.ack, callback);
+      createRoomReplays.delete(replayKey);
+    }
     if (request.accountId) socket.data.accountId = request.accountId;
     const validationError = validateCreateRoomRequest(request);
     if (validationError) return reply(callback, { success: false, error: validationError });
@@ -204,11 +264,33 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const playerId = room.game.getPlayerBySocket(socket.id)?.id || null;
     const ack = roomAccessAck(room, { created: Boolean(requestId), playerId, requestId });
     if (requestId) {
-      socket.data.createRoomRequestId = requestId;
-      socket.data.createRoomAck = ack;
+      rememberCreateRoomReplay(replayKey, { fingerprint, roomCode: room.roomCode, ack });
     }
     reply(callback, ack);
     runtime.scheduleRoomsUpdated();
+  }
+
+  function restoreCreateRoomReplay(room, clientId, account, ack, callback) {
+    const replayPlayer = room.game.getPlayerByClient(clientId);
+    const mappedRoom = roomManager.getRoomBySocket(socket.id);
+    if (mappedRoom !== room) {
+      if (replayPlayer?.socketId && replayPlayer.socketId !== socket.id && !replayPlayer.disconnected) {
+        return reply(callback, { success: false, error: 'That seat is already in use.' });
+      }
+      const restored = roomManager.restoreConnection(
+        clientId,
+        socket.id,
+        account?.id,
+        previousClientId => runtime.clearDisconnectTimer(previousClientId),
+      );
+      if (restored !== room) return reply(callback, { success: false, error: 'No active session found.' });
+    }
+    runtime.clearDisconnectTimer(clientId);
+    leaveForeignRooms(room.roomCode);
+    socket.join(room.roomCode);
+    runtime.emitRoomState(room);
+    runtime.emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
+    reply(callback, ack);
   }
 
   function privateCodeConflict(request) {
