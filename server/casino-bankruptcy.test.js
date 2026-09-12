@@ -801,7 +801,16 @@ check('setRoomSetting — locked after start and for unknown/inherited keys', ()
   assert.equal('totallyUnknown' in fresh.settings, false);
   fresh.setRoomSetting('hasOwnProperty', 'x');
   assert.equal(typeof fresh.settings.hasOwnProperty, 'function');
-  assert.equal(fresh.setRoomSetting('maxPlayers', 3), undefined);
+  assert.deepEqual(fresh.setRoomSetting('maxPlayers', 3), {
+    changed: true,
+    rejected: false,
+    reason: null,
+    key: 'maxPlayers',
+    value: 3,
+    preset: 'classic',
+    base: 'classic',
+    effectiveSettings: { ...fresh.settings }
+  });
 });
 
 check('setRoomSetting — legacy scaled keys are ignored', () => {

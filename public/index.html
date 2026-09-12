@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#01070a" data-theme-color />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="32x32" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/socket.io/socket.io.js"></script>
@@ -17,6 +18,7 @@
 
     <!-- ============================ HOME VIEW ============================ -->
     <div class="view" id="view-home">
+      <a class="skip-link" id="skip-link" href="#home-main">Skip to main content</a>
       <header class="hdr">
         <div class="hdr-brand">
           <span data-sprite="logo" data-size="4"></span>
@@ -52,10 +54,6 @@
         </nav>
 
         <div class="hdr-right">
-            <div class="online" data-global-online>
-              <span class="dot dot-green blink"></span>
-              <span class="t-label f12 ink" id="home-connection-label" data-global-connection-label>CONNECTING…</span>
-            </div>
           <button class="you-chip you-chip-btn" type="button" id="open-profile-btn" data-global-profile-trigger title="Edit profile [P]">
             <span class="you-chip-av" id="home-you-avatar" data-global-you-avatar></span>
             <span class="you-chip-text">
@@ -72,7 +70,7 @@
         </div>
       </header>
 
-      <main class="home-main">
+      <main class="home-main" id="home-main" tabindex="-1">
         <!-- title screen -->
         <section class="title-screen noise vignette">
           <div class="theme-home-world" id="theme-home-world" data-theme-layer="home" aria-hidden="true"></div>
@@ -176,10 +174,6 @@
                   <div class="t-micro g400">open chair · west seat</div>
                   <div class="t-label f13 g100 chair-name" id="chair-name">that's you, guest_4412</div>
                 </div>
-                <span class="chair-flag">
-                  <span class="dot dot-red blink"></span>
-                  <span class="t-micro g300">free</span>
-                </span>
                 <button class="btn-dark chair-edit" type="button" id="chair-edit-btn">
                   <span class="t-label f11">EDIT IDENTITY</span>
                 </button>
@@ -310,6 +304,7 @@
 
     <!-- ============================ PROFILE VIEW ============================ -->
     <div class="view is-hidden" id="view-profile">
+      <a class="skip-link" href="#profile-main">Skip to main content</a>
       <header class="hdr">
         <button class="hdr-brand profile-back" id="profile-back-btn" type="button" aria-label="Back to home">
           <span class="profile-back-arrow">‹</span>
@@ -351,7 +346,7 @@
         </div>
       </header>
 
-      <main class="profile-main">
+      <main class="profile-main" id="profile-main" tabindex="-1">
         <section class="profile-hero panel noise" aria-labelledby="profile-hero-name">
           <div class="profile-hero-main">
             <div class="profile-hero-avatar" id="profile-hero-avatar" aria-hidden="true"></div>
@@ -481,7 +476,9 @@
         <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rankings" aria-current="page"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
         <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="rankings-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rankings-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
       </header>
-      <main class="social-page-main" id="rankings-page-content"></main>
+      <a class="skip-link" href="#rankings-page-content">Skip to main content</a>
+      <h1 class="sr-only" id="rankings-page-heading">Global Rankings</h1>
+      <main class="social-page-main" id="rankings-page-content" aria-labelledby="rankings-page-heading" tabindex="-1"></main>
     </div>
 
     <div class="view is-hidden" id="view-social">
@@ -491,7 +488,9 @@
         <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="social" aria-current="page"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
         <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="social-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="social-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
       </header>
-      <main class="social-page-main" id="social-page-content"></main>
+      <a class="skip-link" href="#social-page-content">Skip to main content</a>
+      <h1 class="sr-only" id="social-page-heading">Parlor Social</h1>
+      <main class="social-page-main" id="social-page-content" aria-labelledby="social-page-heading" tabindex="-1"></main>
     </div>
 
     <div class="view is-hidden" id="view-rules">
@@ -501,7 +500,8 @@
         <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rules" aria-current="page"><span class="t-label f11">RULES</span></button></nav>
         <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="rules-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rules-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
       </header>
-      <main class="rules-page-main" id="rules-page-content"></main>
+      <a class="skip-link" href="#rules-page-content">Skip to main content</a>
+      <main class="rules-page-main" id="rules-page-content" tabindex="-1"></main>
     </div>
 
     <div class="popup is-hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" aria-describedby="account-modal-description" aria-hidden="true">
@@ -550,14 +550,10 @@
 
         <div class="tn-group">
           <button class="room-badge" id="tn-room-copy" type="button" aria-label="Copy room code">
-            <span class="t-label f12 g400">ROOM</span>
-            <span class="t-label f13 ink" id="tn-room">----</span>
+          <span class="t-label f12 g400">ROOM</span>
+          <span class="t-label f13 ink" id="tn-room">----</span>
           </button>
-          <span class="local-note tn-local" id="tn-connection-note"><span class="dot dot-green blink"></span><span class="t-micro ink-3">CONNECTING…</span></span>
-          <div class="online">
-            <span class="dot dot-green blink"></span>
-            <span class="t-label f12 ink" id="tn-online">CONNECTING…</span>
-          </div>
+          <span class="sr-live" id="tn-online" role="status" aria-live="polite">CONNECTING…</span>
           <div class="tn-lobby">
             <span class="t-label f12 ink-3">LOBBY</span>
             <span class="t-label f12 g-muted" id="tn-lobby">AFTER HOURS ----</span>
@@ -592,7 +588,8 @@
         </div>
       </header>
 
-      <main class="game-main">
+      <a class="skip-link" href="#game-main">Skip to main content</a>
+      <main class="game-main" id="game-main" tabindex="-1">
         <!-- LEFT RAIL -->
         <div class="rail-left">
           <section class="panel noise pad12">

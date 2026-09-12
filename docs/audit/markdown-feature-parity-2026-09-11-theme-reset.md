@@ -16,6 +16,13 @@ were later removed after the explicit cleanup request.
 The initial inventory contained 53 Markdown/README files when hidden `.ulpi/`
 `.github/` paths are included.
 
+> **Superseded/current status (2026-09-12).** This inventory is a dated reset
+> baseline. Use `docs/audit/agent-md-parity-brainstorm-2026-09-11.md` for the
+> follow-up parity audit and `docs/audit/fix-docs-parity-batch-2026-09-12.md`
+> for the current documentation status. The 2026-09-12 server and transaction
+> batches have resolved several findings referenced by this inventory; no
+> document is deleted by that follow-up.
+
 ## Classification rules
 
 - **Active** — describes a current user flow, contract, workflow, or release
@@ -48,7 +55,7 @@ The initial inventory contained 53 Markdown/README files when hidden `.ulpi/`
 | `docs/audit/room-patrol-bug-audit.md` | Stale | Contains pre-fix line numbers and a “DO NOT IMPLEMENT” section from an older monolith. | Rewrite as a resolution ledger or archive. |
 | `docs/audit/expansion-completion-2026-09-09.md` | Completed | Records rulesets, Metro, seasons, cosmetics, telemetry, market, bots, and QA evidence. | Keep as completion record; verify future revisions. |
 | `docs/audit/expansion-implementation.md` | Completed | Records the modular expansion contracts and skill application. | Keep as implementation record. |
-| `docs/audit/markdown-feature-parity-2026-09-11-theme-reset.md` | Active | This is the current inventory and deletion gate for the reset branch. | Keep and refresh after future doc changes. |
+| `docs/audit/markdown-feature-parity-2026-09-11-theme-reset.md` | Historical baseline | Dated reset inventory and deletion gate; superseded by the 2026-09-11 parity brainstorm and 2026-09-12 fix report. | Keep as provenance; do not treat its status rows as current without cross-checking. |
 | `docs/audit/ux-1920-reset-slice-2026-09-11.md` | Active | Records the current 1920px UX findings, root causes, and verification checklist. | Keep with release evidence. |
 | `docs/plans/achievement-announcements-ui-plan.md` | Completed | Server mythical channel, collection modal, rarity filters, and announcement flow exist in `public/` and `server/`. | Keep as feature record. |
 | `docs/plans/achievements-plan.md` | Completed | Achievement catalog, rarity, profile collection, and predicates are implemented. | Keep; move future tuning to backlog. |
@@ -122,7 +129,8 @@ deletion candidates.
 1. Rewrite `docs/REFACTOR-ROADMAP.md` measurements after the next CodeScene run.
 2. Stamp older audits as historical so fixed findings are not reopened by
    stale line numbers.
-3. Update `docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md` to completed status.
+3. Update `docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md` with the delivered
+   shell/current Wallet and mobile follow-up status.
 4. Keep the five-theme brainstorm as a new design artifact rather than
    reusing the removed six-theme contract.
 5. Run this parity check whenever a feature PR changes a documented socket,
@@ -131,4 +139,7 @@ deletion candidates.
 ## Audit status
 
 The reset and client UX regression slices are implemented on this branch. The
-document deletion decision remains intentionally gated on explicit approval.
+document is retained as historical provenance; current parity status is tracked
+by `agent-md-parity-brainstorm-2026-09-11.md` and
+`fix-docs-parity-batch-2026-09-12.md`. The document deletion decision remains
+intentionally gated on explicit approval.

@@ -21,6 +21,15 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function waitForMatch(list, predicate, timeoutMs = 1_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (list.some(predicate)) return true;
+    await wait(10);
+  }
+  return list.some(predicate);
+}
+
 async function waitForServer(child, deadlineMs) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < deadlineMs) {
@@ -158,6 +167,15 @@ async function capacityAndRejoin(ctx) {
       { success: true, roomCode: null, visibility: 'public' }));
   ctx.check('host can change settings before the game starts',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'maxPlayers', value: 2 }), { success: true }));
+  ctx.check('unknown host setting is rejected with a failure ack',
+    ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'not-a-setting', value: true }),
+      { success: false, error: 'Unknown room setting.' }));
+  ctx.check('invalid numeric host setting is rejected with a failure ack',
+    ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'startingCash', value: 'not-number' }),
+      { success: false, error: 'Invalid value for startingCash.' }));
+  ctx.check('server-owned scaled setting is rejected with a failure ack',
+    ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'globalEventDuration', value: 10 }),
+      { success: false, error: 'This setting is controlled by the server.' }));
   // The public room has no visible code; create a fresh private fixture.
   ctx.check('create-room private FULL01 succeeds for the capacity fixture',
     ackEquals(await ctx.ask(ctx.host, 'create-room', { clientId: 'c1', nickname: 'Host One', visibility: 'private', roomCode: 'FULL01' }),
@@ -178,6 +196,9 @@ async function capacityAndRejoin(ctx) {
   ctx.check('host can queue one bot via settings',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'bots', value: 1 }), { success: true }));
   ctx.check('host can start the game', ackEquals(await ctx.ask(ctx.host, 'start-game', {}), { success: true }));
+  ctx.check('started-room setting change is rejected with the pinned lock error',
+    ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'maxPlayers', value: 3 }),
+      { success: false, error: 'Game settings can only be changed before the game starts.' }));
   ctx.check('joining a started room acks the exact in-progress error',
     ackEquals(await ctx.ask(ctx.late, 'join-room', { clientId: 'c5', roomCode: 'FULL01', nickname: 'Too Late' }),
       { success: false, error: 'Game is already in progress.' }));
@@ -401,6 +422,95 @@ async function seatOwnershipGuards(ctx) {
     ackEquals(await ctx.ask(owner, 'leave-room', { clientId: 'owned-seat' }), { success: true }));
 }
 
+async function contractRelayRecipients(ctx) {
+  const proposer = await ctx.open();
+  const firstResponder = await ctx.open();
+  const proposerOffers = [];
+  const responderOffers = [];
+  const proposerUpdates = [];
+  const responderUpdates = [];
+  const latestResponder = watchStates(firstResponder);
+  proposer.on('player-contract-offer', payload => proposerOffers.push(payload?.contract));
+  firstResponder.on('player-contract-offer', payload => responderOffers.push(payload?.contract));
+  proposer.on('player-contract-update', payload => proposerUpdates.push(payload?.contract));
+  firstResponder.on('player-contract-update', payload => responderUpdates.push(payload?.contract));
+  ctx.check('A creates the two-counter relay fixture RLY001',
+    ackEquals(await ctx.ask(proposer, 'create-room', { clientId: 'rly-a', nickname: 'Relay A', visibility: 'private', roomCode: 'RLY001' }),
+      { success: true, roomCode: 'RLY001', visibility: 'private' }));
+  ctx.check('B joins RLY001',
+    (await ctx.ask(firstResponder, 'join-room', { clientId: 'rly-b', roomCode: 'RLY001', nickname: 'Relay B' }))?.success === true);
+  ctx.check('A starts RLY001', ackEquals(await ctx.ask(proposer, 'start-game', {}), { success: true }));
+  const responderId = (latestResponder()?.game?.players || []).find(player => player.nickname === 'Relay B')?.id || '';
+  const initial = await ctx.ask(proposer, 'propose-player-contract', { toPlayerId: responderId, kind: 'loan', amount: 50, requestId: 'rly-initial' });
+  // The first offer is delivered to B; use its authoritative ID for the
+  // following calls so the test never depends on a generated seat ID.
+  const initialContract = initial?.contract;
+  if (!initialContract) {
+    ctx.check('A proposal returns a contract for relay verification', false);
+    return;
+  }
+  // The proposal payload must target B. If the fixture has no event yet, the
+  // contract itself still supplies the stable recipient ID.
+  if (!initialContract.toPlayerId) {
+    ctx.check('the initial contract names the receiving seat', false);
+    return;
+  }
+  ctx.check('B receives the initial contract offer', await waitForMatch(responderOffers,
+    contract => contract?.id === initialContract.id && contract.amount === 50));
+  const firstCounter = await ctx.ask(firstResponder, 'counter-player-contract', { contractId: initialContract.id, amount: 60, requestId: 'rly-counter-1' });
+  ctx.check('B counter succeeds', firstCounter?.success === true && firstCounter?.countered === true);
+  const firstCounterContract = firstCounter?.contract;
+  ctx.check('A receives the first counter offer', await waitForMatch(proposerOffers,
+    contract => contract?.id === firstCounterContract?.id && contract.amount === 60));
+  const secondCounter = await ctx.ask(proposer, 'counter-player-contract', { contractId: firstCounterContract?.id, amount: 70, requestId: 'rly-counter-2' });
+  ctx.check('A counter succeeds', secondCounter?.success === true && secondCounter?.countered === true);
+  const secondCounterContract = secondCounter?.contract;
+  ctx.check('B receives the second counter offer', await waitForMatch(responderOffers,
+    contract => contract?.id === secondCounterContract?.id && contract.amount === 70));
+
+  const lenderResponder = await ctx.open();
+  const borrower = await ctx.open();
+  const lenderUpdates = [];
+  const borrowerUpdates = [];
+  const latestBorrower = watchStates(borrower);
+  lenderResponder.on('player-contract-update', payload => lenderUpdates.push(payload?.contract));
+  borrower.on('player-contract-update', payload => borrowerUpdates.push(payload?.contract));
+  ctx.check('A creates the lender-response relay fixture RLY002',
+    ackEquals(await ctx.ask(lenderResponder, 'create-room', { clientId: 'rly-c', nickname: 'Relay C', visibility: 'private', roomCode: 'RLY002' }),
+      { success: true, roomCode: 'RLY002', visibility: 'private' }));
+  ctx.check('D joins RLY002',
+    (await ctx.ask(borrower, 'join-room', { clientId: 'rly-d', roomCode: 'RLY002', nickname: 'Relay D' }))?.success === true);
+  ctx.check('C starts RLY002', ackEquals(await ctx.ask(lenderResponder, 'start-game', {}), { success: true }));
+  const borrowerId = (latestBorrower()?.game?.players || []).find(player => player.nickname === 'Relay D')?.id || '';
+  const secondProposal = await ctx.ask(lenderResponder, 'propose-player-contract', { toPlayerId: borrowerId, kind: 'loan', amount: 50, requestId: 'rly-response-initial' });
+  const secondContract = secondProposal?.contract;
+  if (!secondContract) {
+    ctx.check('C proposal returns a contract for response verification', false);
+    return;
+  }
+  const secondCounterResult = await ctx.ask(borrower, 'counter-player-contract', { contractId: secondContract.id, amount: 55, requestId: 'rly-response-counter' });
+  ctx.check('D counter succeeds before C responds', secondCounterResult?.success === true);
+  const lenderResponse = await ctx.ask(lenderResponder, 'respond-player-contract', { accept: true, contractId: secondCounterResult?.contract?.id, requestId: 'rly-response-accept' });
+  ctx.check('C lender response succeeds', lenderResponse?.success === true && lenderResponse?.accepted === true);
+  ctx.check('D receives the lender response update', await waitForMatch(borrowerUpdates,
+    contract => contract?.id === secondCounterResult?.contract?.id && contract.status === 'active'));
+}
+
+async function capacitySettingRejection(ctx) {
+  const host = await ctx.open();
+  const guestOne = await ctx.open();
+  const guestTwo = await ctx.open();
+  ctx.check('capacity fixture CAP001 is created',
+    ackEquals(await ctx.ask(host, 'create-room', { clientId: 'cap-a', nickname: 'Capacity A', visibility: 'private', roomCode: 'CAP001' }),
+      { success: true, roomCode: 'CAP001', visibility: 'private' }));
+  ctx.check('capacity fixture seats three humans',
+    (await ctx.ask(guestOne, 'join-room', { clientId: 'cap-b', roomCode: 'CAP001', nickname: 'Capacity B' }))?.success === true
+      && (await ctx.ask(guestTwo, 'join-room', { clientId: 'cap-c', roomCode: 'CAP001', nickname: 'Capacity C' }))?.success === true);
+  ctx.check('capacity-rejected setting returns a failure ack',
+    ackEquals(await ctx.ask(host, 'set-setting', { key: 'maxPlayers', value: 2 }),
+      { success: false, error: 'Room capacity cannot be lower than the number of active players.' }));
+}
+
 async function serverSurvival(ctx) {
   ctx.check('no uncaught exception was logged', !ctx.serverLog().includes('UNCAUGHT EXCEPTION'));
   ctx.check('server survived the whole rooms suite', ctx.child.exitCode === null);
@@ -423,6 +533,8 @@ const SCENARIOS = [
   contractReleasesOnDisconnect,
   voluntaryRetireWire,
   seatOwnershipGuards,
+  contractRelayRecipients,
+  capacitySettingRejection,
   serverSurvival
 ];
 

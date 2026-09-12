@@ -65,4 +65,47 @@ assert.equal(room.getRoomSummary().ruleset.boardVariant, 'metro-52');
 const reconnect = room.reconnectPlayer(room.game.players[0], { socketId: 's3', clientId: 'c1', nickname: 'A' });
 assert.equal(reconnect.success, true);
 assert.equal(room.getRoomSummary().ruleset.digest, frozenDigest);
+
+// Preset changes are a public room-setting seam: a stale explicit Custom base
+// must not survive a switch to a named preset, and callers need the resolved
+// ruleset in the structured mutation result.
+const afterHoursCustom = new RoomManager().createRoom({
+  socketId: 's-custom-after',
+  clientId: 'c-custom-after',
+  nickname: 'Custom After',
+  rulesetPreset: 'custom',
+  rulesetBase: 'after-hours'
+});
+const toClassic = afterHoursCustom.setRoomSetting('rulesetPreset', 'classic');
+assert.equal(toClassic.changed, true);
+assert.equal(toClassic.rejected, false);
+assert.equal(toClassic.reason, null);
+assert.equal(toClassic.preset, 'classic');
+assert.equal(toClassic.base, 'classic');
+assert.equal(toClassic.effectiveSettings.bankLoans, false);
+assert.equal(toClassic.effectiveSettings.casino, false);
+assert.equal(toClassic.effectiveSettings.market, false);
+assert.equal(toClassic.effectiveSettings.globalEvents, false);
+
+const classicCustom = new RoomManager().createRoom({
+  socketId: 's-custom-classic',
+  clientId: 'c-custom-classic',
+  nickname: 'Custom Classic',
+  rulesetPreset: 'custom',
+  rulesetBase: 'classic'
+});
+const toAfterHours = classicCustom.setRoomSetting('rulesetPreset', 'after-hours');
+assert.equal(toAfterHours.changed, true);
+assert.equal(toAfterHours.rejected, false);
+assert.equal(toAfterHours.preset, 'after-hours');
+assert.equal(toAfterHours.base, 'after-hours');
+assert.equal(toAfterHours.effectiveSettings.bankLoans, true);
+assert.equal(toAfterHours.effectiveSettings.casino, true);
+assert.equal(toAfterHours.effectiveSettings.market, true);
+assert.equal(toAfterHours.effectiveSettings.globalEvents, true);
+
+const rejectedUnknown = classicCustom.setRoomSetting('not-a-setting', true);
+assert.equal(rejectedUnknown.changed, false);
+assert.equal(rejectedUnknown.rejected, true);
+assert.equal(rejectedUnknown.reason, 'Unknown room setting.');
 console.log('ruleset registry: 18 passed, 0 failed');

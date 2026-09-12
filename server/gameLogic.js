@@ -68,6 +68,7 @@ const PLAYER_STATE_DEFAULTS = [
   ['marketPositions', () => ({})],
   ['marginBalance', 0],
   ['marginMaintenance', 0],
+  ['marginCollateral', 0],
   ['marginPositions', () => ({})],
   ['shortPositions', () => ({})],
   ['shortDefaultDebt', 0],

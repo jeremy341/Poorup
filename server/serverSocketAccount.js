@@ -359,7 +359,10 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     if (room.game.started) {
       return reply(callback, { success: false, error: 'Game settings can only be changed before the game starts.' });
     }
-    room.setRoomSetting(key, value);
+    const settingResult = room.setRoomSetting(key, value);
+    if (settingResult?.rejected) {
+      return reply(callback, { success: false, error: settingResult.reason });
+    }
     runtime.emitRoomState(room);
     reply(callback, { success: true });
     if (room.visibility === 'public') {

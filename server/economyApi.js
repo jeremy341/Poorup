@@ -59,7 +59,7 @@ function marketSnapshot(game, player) {
     quotes: { ...game.marketQuotes },
     positions: { ...(player?.marketPositions || {}) },
     complexity: game.settings.marketComplexity || 'basic',
-    margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, positions: { ...(player.marginPositions || {}) } } : null,
+    margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, collateral: Number(player.marginCollateral) || 0, positions: { ...(player.marginPositions || {}) } } : null,
     shorts: player ? { positions: { ...(player.shortPositions || {}) }, borrowable: { ...(game.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0, defaultDebt: Number(player.shortDefaultDebt) || 0 } : null,
     optionReserve: Number(game.marketOptionReserve) || 0,
     options: player ? (player.optionPositions || []).map(option => ({ ...option })) : []
@@ -369,13 +369,18 @@ const economyApi = {
 
   reduceMargin(socketId, amount, requestId = null) {
     const player = this.getPlayerBySocket(socketId);
-    const rejection = expansionGuard(this, player, 'margin', 'reduce');
-    if (rejection) return { success: false, error: rejection };
-    const key = this.transactionKey(player.id, 'margin-reduce', requestId);
+    const key = this.transactionKey(player?.id, 'margin-reduce', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
+    const rejection = expansionGuard(this, player, 'margin', 'manage');
+    if (rejection) return { success: false, error: rejection };
     const result = reduceMargin(player, integerAmount(amount, 1_000_000));
-    if (result.success) { result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'reduce-margin', amount: result.amount }); return this.cacheTransaction(key, result); }
+    if (result.success) {
+      player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
+      result.economy = this.economySnapshot(player.id);
+      this.recordTelemetryEvent?.('market-volatility', { action: 'reduce-margin', amount: result.amount });
+      return this.cacheTransaction(key, result);
+    }
     return result;
   },
 
@@ -400,15 +405,21 @@ const economyApi = {
     const player = this.getPlayerBySocket(socketId);
     const instrument = marketInstrument(MARKET_INSTRUMENTS, instrumentId);
     const amount = integerAmount(quantity, 1000);
+    const key = this.transactionKey(player?.id, 'short-cover', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
     const rejection = expansionGuard(this, player, 'shorting', 'manage');
     if (rejection) return { success: false, error: rejection };
     if (!instrument || !amount) return { success: false, error: 'Choose a valid cover order.' };
     this.marketShortInventory ||= Object.fromEntries(MARKET_INSTRUMENTS.map(entry => [entry.id, 50]));
-    const key = this.transactionKey(player.id, 'short-cover', requestId);
-    const cached = this.cachedTransaction(key);
-    if (cached) return cached;
     const result = coverShort(this, player, { instrument, amount, inventory: this.marketShortInventory });
-    if (result.success) { player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
+    if (result.success) {
+      player.marketTrades = (player.marketTrades || 0) + 1;
+      player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
+      result.economy = this.economySnapshot(player.id);
+      this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId, quantity: amount });
+      return this.cacheTransaction(key, result);
+    }
     return result;
   },
 
@@ -433,25 +444,35 @@ const economyApi = {
 
   exerciseOption(socketId, optionId, requestId = null) {
     const player = this.getPlayerBySocket(socketId);
-    const rejection = expansionGuard(this, player, 'derivatives', 'manage');
-    if (rejection) return { success: false, error: rejection };
-    const key = this.transactionKey(player.id, 'option-exercise', requestId);
+    const key = this.transactionKey(player?.id, 'option-exercise', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
+    const rejection = expansionGuard(this, player, 'derivatives', 'manage');
+    if (rejection) return { success: false, error: rejection };
     const result = exerciseOption(this, player, String(optionId || '').slice(0, 120));
-    if (result.success) { result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'exercise-option' }); return this.cacheTransaction(key, result); }
+    if (result.success) {
+      player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
+      result.economy = this.economySnapshot(player.id);
+      this.recordTelemetryEvent?.('market-volatility', { action: 'exercise-option' });
+      return this.cacheTransaction(key, result);
+    }
     return result;
   },
 
   closePosition(socketId, optionId, requestId = null) {
     const player = this.getPlayerBySocket(socketId);
-    const rejection = expansionGuard(this, player, 'derivatives', 'manage');
-    if (rejection) return { success: false, error: rejection };
-    const key = this.transactionKey(player.id, 'option-close', requestId);
+    const key = this.transactionKey(player?.id, 'option-close', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
+    const rejection = expansionGuard(this, player, 'derivatives', 'manage');
+    if (rejection) return { success: false, error: rejection };
     const result = closeOption(this, player, String(optionId || '').slice(0, 120));
-    if (result.success) { result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'close-position' }); return this.cacheTransaction(key, result); }
+    if (result.success) {
+      player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
+      result.economy = this.economySnapshot(player.id);
+      this.recordTelemetryEvent?.('market-volatility', { action: 'close-position' });
+      return this.cacheTransaction(key, result);
+    }
     return result;
   }
 };

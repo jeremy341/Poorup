@@ -4,6 +4,16 @@ Status: implemented in the modular monolith; this document remains the
 product/design contract. See `docs/audit/expansion-implementation.md` for the
 delivery record and current verification evidence.
 
+> **Current status (2026-09-12).** Ruleset preset transitions now derive the
+> matching named base and clear stale Custom overrides when switching to
+> `CLASSIC` or `AFTER HOURS`. Rejected host setting changes return a failure
+> acknowledgement. The server-side market slice also enforces one explicit
+> market action per turn and reserves 25% initial margin collateral. See
+> `docs/audit/fix-server-batch-2026-09-12.md` and
+> `server/rulesetRegistry.test.js` / `server/marketExpansion.test.js` for the
+> current evidence; the contract below is no longer a proposal for those
+> seams.
+
 The current end-to-end audit, open correctness findings, and the roulette-reel
 implementation slice live in
 docs/plans/END-TO-END-AUDIT-CS2-ROULETTE-PLAN.md. This contract remains the
@@ -106,7 +116,10 @@ Persist both the user's choice and the resolved values:
 {
   rulesetPreset: 'classic' | 'after-hours' | 'custom',
   rulesetBase: 'classic' | 'after-hours',
-  rulesetOverrides: ['market', 'globalEvents'],
+  rulesetOverrides: [
+    { key: 'market', value: true },
+    { key: 'globalEvents', value: false }
+  ],
   boardVariant: 'standard-40',
   rulesetRevision: 1,
   effectiveSettings: { ... }
@@ -142,7 +155,8 @@ Persist both the user's choice and the resolved values:
 - `bankLoanSeverity`
 - `casino`
 - `market`
-- future `marketComplexity`: `basic | margin | shorting | derivatives`
+- `marketComplexity`: `basic | margin | shorting | derivatives` (live staged
+  server contract; the selected level gates the advanced Market actions)
 
 **Global events**
 
@@ -343,7 +357,12 @@ Market is ON.
 ### Phase 1: margin
 
 - Player has a separate margin balance and maintenance requirement.
-- Opening a position reserves a disclosed percentage of cash.
+- Opening a position reserves **25% of gross quote value** as disclosed cash
+  collateral, in addition to the settlement fee; the held amount is included
+  in reserved cash and released proportionally when the position is reduced.
+- A player may make one explicit Market action per board turn. Opening,
+  reducing, covering, exercising, and closing all consume that same quota;
+  automatic forced liquidation is engine settlement and does not consume it.
 - Events can change maintenance requirements prospectively.
 - A maintenance breach opens a forced-liquidation obligation before any new
   board action.
@@ -514,10 +533,11 @@ and observability to justify them.
 
 ## Recommended next implementation slice
 
-Implement only the ruleset registry and immutable rules digest first. It is the
+Maintain the registry-backed rules digest and its transition matrix as the
 shared dependency for seasons, Metro-52, market complexity, bot context, Rules
-copy, and telemetry. Do not begin the shop or derivatives until that contract
-and its migration tests are green.
+copy, and telemetry. The registry and advanced Market contracts are already
+implemented and covered by focused tests; future work should extend those
+tests before adding new economy levels, shop behavior, or derivatives.
 
 ## Design pre-flight
 

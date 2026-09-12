@@ -18,12 +18,24 @@ const margin = roomAt('margin');
 const open = margin.openMargin('a', 'brazil', 2, 'm1');
 assert.equal(open.success, true);
 assert.equal(margin.game.players[0].marginPositions.brazil.quantity, 2);
+assert.equal(open.collateral, 50);
+assert.equal(margin.game.players[0].marginCollateral, 50);
+assert.equal(margin.game.players[0].reservedCash, 50);
+assert.equal(margin.game.players[0].cash, 1446);
 assert.deepEqual(margin.openMargin('a', 'ghana', 1, 'm1b'), { success: false, error: 'You have already placed a market order this turn.' });
-assert.equal(margin.reduceMargin('a', 50, 'm2').success, true);
+assert.deepEqual(margin.reduceMargin('a', 50, 'm2'), { success: false, error: 'You have already placed a market order this turn.' });
+margin.game.players[0].marketActionsThisTurn = 0;
+const reducedMargin = margin.reduceMargin('a', 50, 'm2');
+assert.equal(reducedMargin.success, true);
+assert.equal(reducedMargin.collateralReleased, 13);
+assert.equal(margin.game.players[0].marginCollateral, 37);
+assert.equal(margin.game.players[0].reservedCash, 37);
 const short = roomAt('shorting');
 const openShort = short.openShort('a', 'brazil', 1, 's1');
 assert.equal(openShort.success, true);
 assert.equal(short.game.players[0].shortPositions.brazil.quantity, 1);
+assert.deepEqual(short.coverShort('a', 'brazil', 1, 's2'), { success: false, error: 'You have already placed a market order this turn.' });
+short.game.players[0].marketActionsThisTurn = 0;
 assert.equal(short.coverShort('a', 'brazil', 1, 's2').success, true);
 short.game.globalEvent = { id: 'credit-freeze', phase: 'active', effects: {} };
 assert.equal(short.openShort('a', 'brazil', 1, 's3').success, false);
@@ -32,9 +44,13 @@ const option = derivatives.openOption('a', { instrumentId: 'brazil', side: 'call
 assert.equal(option.success, true);
 assert.equal(derivatives.openOption('a', { instrumentId: 'brazil', side: 'call', quantity: 1, strike: 80, premium: 10, expiryRounds: 3, requestId: 'opt-1' }).option.id, option.option.id);
 assert.equal(derivatives.game.players[0].optionPositions.length, 1);
+const blockedOptionCandidates = derivatives.game.marketExpansionCandidates(derivatives.game.players[0]);
+assert.equal(blockedOptionCandidates.some(candidate => candidate.kind === 'close-position' && candidate.optionId === option.option.id), false);
+derivatives.game.players[0].marketActionsThisTurn = 0;
 const openOptionCandidates = derivatives.game.marketExpansionCandidates(derivatives.game.players[0]);
 assert.equal(openOptionCandidates.some(candidate => candidate.kind === 'close-position' && candidate.optionId === option.option.id), true);
 derivatives.game.marketQuotes.brazil = 140;
+derivatives.game.players[0].marketActionsThisTurn = 0;
 assert.equal(derivatives.exerciseOption('a', option.option.id, 'exercise-1').success, true);
 assert.ok(derivatives.game.players[0].cash >= 0);
 const writer = roomAt('derivatives');
@@ -67,7 +83,9 @@ liquidationRoom.game.marketQuotes.brazil = 10;
 const liquidationActions = forceLiquidate(liquidationRoom.game, liquidationPlayer, {});
 assert.equal(liquidationActions.includes('margin-liquidation'), true);
 assert.equal(liquidationPlayer.cash, cashBeforeLiquidation);
-assert.equal(liquidationPlayer.marginBalance, marginDebtBeforeLiquidation - 9);
+assert.equal(liquidationPlayer.marginBalance, marginDebtBeforeLiquidation - 34);
+assert.equal(liquidationPlayer.marginCollateral, 0);
+assert.equal(liquidationPlayer.reservedCash, 0);
 assert.deepEqual(liquidationPlayer.marginPositions, {});
 
 // A forced short buy-in must close deterministically even when the player
@@ -102,7 +120,22 @@ const buyerOption = optionReserveRoom.openOption('a', {
 assert.equal(buyerOption.success, true);
 const reserveAfterOpen = optionReserveRoom.game.marketOptionReserve;
 optionReserveRoom.game.marketQuotes.brazil = 140;
+optionBuyer.marketActionsThisTurn = 0;
 assert.equal(optionReserveRoom.exerciseOption('a', buyerOption.option.id, 'house-exercise').success, true);
 assert.equal(optionBuyer.cash, optionCashBefore + 50);
 assert.equal(optionReserveRoom.game.marketOptionReserve, reserveAfterOpen + 20);
+
+// Management operations consume the same per-turn quota and still replay a
+// successful idempotency key after the quota has been consumed.
+assert.deepEqual(margin.reduceMargin('a', 50, 'm2'), reducedMargin);
+assert.deepEqual(short.coverShort('a', 'brazil', 1, 's2'), short.coverShort('a', 'brazil', 1, 's2'));
+const closeRoom = roomAt('derivatives');
+const closeOpen = closeRoom.openOption('a', { instrumentId: 'brazil', quantity: 1, premium: 10, requestId: 'close-open' });
+assert.equal(closeOpen.success, true);
+const closePlayer = closeRoom.game.players[0];
+closePlayer.marketActionsThisTurn = 0;
+const closeResult = closeRoom.closePosition('a', closeOpen.option.id, 'close-1');
+assert.equal(closeResult.success, true);
+assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-1'), closeResult);
+assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-2'), { success: false, error: 'You have already placed a market order this turn.' });
 console.log('market expansion: 12 passed, 0 failed');

@@ -67,6 +67,8 @@ import {
   toggleLogDrawerFromButton,
   closeLogDrawer,
   applyLogDrawerFilter,
+  isLogDrawerOpen,
+  renderLogDrawer,
 } from "./clientLogDrawer.js";
 import { bindKeyboard } from "./clientKeyboard.js";
 import {
@@ -289,9 +291,35 @@ function emitServer(event, payload = {}, callback) {
 }
 
 function updateServerSetting(key, value) {
+  const previousSettings = {
+    ...state.settings,
+    rulesetOverrides: Array.isArray(state.settings.rulesetOverrides)
+      ? state.settings.rulesetOverrides.map(entry => ({ ...entry }))
+      : [],
+  };
+  const previousRuleset = state.ruleset;
+  const previousBoardVariant = state.boardVariant;
   state.settings[key] = value;
   const serverKey = SERVER_SETTING_KEYS[key];
-  if (serverKey) emitServer("set-setting", { key: serverKey, value }, () => {});
+  if (!serverKey) return;
+  emitServer("set-setting", { key: serverKey, value }, (settingResult) => {
+    if (settingResult?.success !== false) return;
+    // The lobby renders optimistically for a snappy control. A rejected
+    // server mutation must not leave a value that never became authoritative
+    // on screen. If the same key was changed again while this request was in
+    // flight, the newer value wins and this stale rejection is ignored.
+    if (!Object.is(state.settings[key], value)) return;
+    state.settings[key] = previousSettings[key];
+    if (["rulesetPreset", "rulesetBase", "rulesetOverrides"].includes(key)) {
+      state.settings.rulesetPreset = previousSettings.rulesetPreset;
+      state.settings.rulesetBase = previousSettings.rulesetBase;
+      state.settings.rulesetOverrides = previousSettings.rulesetOverrides;
+      state.ruleset = previousRuleset;
+    }
+    if (key === "boardVariant") state.boardVariant = previousBoardVariant;
+    parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.");
+    renderLobbyRail();
+  });
 }
 
 /* Host callbacks that keep DOM, timers, and rendering owned by main.js while
@@ -513,6 +541,7 @@ function renderAll() {
   renderTopNav();
   renderPlayers();
   renderChat();
+  if (isLogDrawerOpen()) renderLogDrawer();
   renderBoardState();
   placePieces();
   renderGlobalEvent();

@@ -5,6 +5,7 @@
 // (recordRoomStats settles matches through recordVerifiedAchievement), and
 // serverSocketSocial.js registers the wire handlers on top of it.
 import crypto from 'crypto';
+import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
 import { resolveAccount } from './socketHandlerSupport.js';
 
 const SOCIAL_RATE_WINDOW_MS = 60 * 1000;
@@ -130,13 +131,7 @@ function createSocialApi(deps) {
   }
 
   function fallbackMatchRecords(accountId) {
-    const recentMatches = matchStore.listForAccount(accountId, 50);
-    const legacyMatches = accountStore.getMatchHistory(accountId);
-    const merged = new Map();
-    [...legacyMatches, ...recentMatches].forEach(record => {
-      if (record?.matchId) merged.set(record.matchId, record);
-    });
-    return [...merged.values()].sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')));
+    return listMatchRecordsForAccount({ accountId, accountStore, matchStore });
   }
 
   function recentCutoff(accountId) {

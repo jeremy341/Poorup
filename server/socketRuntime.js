@@ -177,6 +177,10 @@ function createRuntime(deps) {
     annotateMatchAchievements(matchRecord, candidates);
     const seasonResult = seasonStore?.recordMatch(matchRecord);
     if (seasonResult?.recorded) matchRecord.seasonId = seasonResult.season.id;
+    // The account snapshot was written before achievement/season enrichment;
+    // update that same match ID once so a restart sees the authoritative
+    // annotated record without replaying match statistics.
+    accountStore.updateMatchRecord?.(matchRecord);
     matchStore.record(matchRecord);
     candidates.forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
     recordSeasonTelemetry({ telemetryStore, room, matchRecord, candidates, seasonResult });
