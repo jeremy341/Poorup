@@ -571,6 +571,15 @@ class GameState {
     if (this.pendingPayment?.playerId === player.id) {
       return { success: false, error: 'Settle your debt before rolling.' };
     }
+    if (this.pendingPurchaseOffer?.playerId === player.id) {
+      return { success: false, error: 'Resolve the property offer before rolling.' };
+    }
+    if (this.pendingSponsoredPurchase?.buyerId === player.id) {
+      return { success: false, error: 'Resolve the sponsorship before rolling.' };
+    }
+    if (this.auction?.active) {
+      return { success: false, error: 'Finish the active auction before rolling.' };
+    }
     return null;
   }
 

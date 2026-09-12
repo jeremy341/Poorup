@@ -119,13 +119,22 @@ function saveAccountSession(session) {
   state.account = session;
   persistAccountSession(session);
 }
+
+function loadClientId() {
+  try {
+    return sessionStorage.getItem("poorup-client-id") || "";
+  } catch {
+    return "";
+  }
+}
+
 const initialAchievementRecords = loadAchievementRecords();
 
 const state = {
   
   // Per-tab session id (audit #10): sessionStorage survives reloads but is
   // fresh for every tab, so two tabs can no longer share — and hijack — one seat.
-  clientId: sessionStorage.getItem("poorup-client-id") || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  clientId: loadClientId() || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   account: loadAccountSession(),
   hostId: null,
   serverTiles: [],

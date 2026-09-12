@@ -164,17 +164,21 @@ function openOfferModal(offer) {
     </div>`;
   openSurface("#offer-modal", "#offer-accept");
   $("#offer-accept").addEventListener("click", () => {
-    const o = state.offers.find((x) => x === offer);
-    if (o) state.offers.splice(state.offers.indexOf(o), 1);
+    const button = $("#offer-accept");
+    button.disabled = true;
+    button.querySelector(".cta-text")?.replaceChildren(document.createTextNode("PROCESSING…"));
+    $("#offer-counter").disabled = true;
+    state.offers = (state.offers || []).filter((x) => x?.id !== offer.id);
     host.emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
         if (response?.success === false) {
+          state.offers = [offer, ...(state.offers || []).filter((x) => x?.id !== offer.id)];
           host.say(response.error || "Trade could not be accepted.");
           host.renderChat();
+          openOfferModal(offer);
           return;
         }
+        closeSurface("#offer-modal");
       });
-      closeSurface("#offer-modal");
-      return;
   });
   $("#offer-counter").addEventListener("click", () => {
     closeSurface("#offer-modal");
@@ -293,7 +297,7 @@ function openVoluntaryExitModal() {
       </div>
       <p class="t-body ink-2 bank-copy">You hold ${deedLabel} and $${me.cash.toLocaleString()}. Retiring hands everything back to the market unencumbered and ends your round — it cannot be undone. You can still raise funds instead by selling, mortgaging, trading, or taking a loan.</p>
       <div class="bank-actions">
-        <button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Declare Bankruptcy</span></button>
+        <button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Retire / Hand Over Assets</span></button>
         <button class="btn-dark bank-btn" id="bank-retire-cancel"><span class="t-label f12">Keep Playing</span></button>
       </div>
     </div>`;

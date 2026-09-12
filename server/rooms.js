@@ -519,7 +519,9 @@ class Room {
   }
 
   ensureBots() {
-    const required = Math.max(0, Math.min(this.settings.maxPlayers - 1, Number(this.settings.bots) || 0));
+    const activeHumans = this.game.players.filter(player => !player.isBot && !player.disconnected && !player.bankrupt).length;
+    const availableSeats = Math.max(0, Number(this.settings.maxPlayers) - activeHumans);
+    const required = Math.max(0, Math.min(availableSeats, Number(this.settings.bots) || 0));
     const existingBots = this.game.players.filter(player => player.isBot);
     if (existingBots.length > required) {
       existingBots.slice(required).forEach(bot => {
