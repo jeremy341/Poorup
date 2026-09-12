@@ -62,10 +62,15 @@ function columns() {
 function nextIndex(key, index, count) {
   if (key === "Home") return 0;
   if (key === "End") return count - 1;
-  const horizontal = key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0;
-  const vertical = key === "ArrowDown" ? columns() : key === "ArrowUp" ? -columns() : 0;
-  if (!horizontal && !vertical) return null;
-  return (index + horizontal + vertical + count) % count;
+  const deltas = {
+    ArrowRight: 1,
+    ArrowLeft: -1,
+    ArrowDown: columns(),
+    ArrowUp: -columns(),
+  };
+  const delta = deltas[key];
+  if (delta == null) return null;
+  return (index + delta + count) % count;
 }
 
 function focusChoice(index) {
@@ -101,8 +106,15 @@ export function closeThemePopover({ restoreFocus = true } = {}) {
   trigger()?.setAttribute("aria-expanded", "false");
   panel?.classList.add("is-hidden");
   panel?.setAttribute("aria-hidden", "true");
-  if (restoreFocus && target && document.contains(target)) target.focus({ preventScroll: true });
+  restoreThemeOpenerFocus(restoreFocus, target);
   opener = null;
+}
+
+function restoreThemeOpenerFocus(restoreFocus, target) {
+  if (!restoreFocus) return;
+  if (!target) return;
+  if (!document.contains(target)) return;
+  target.focus({ preventScroll: true });
 }
 
 function applyThemePreference(value, { announceChange = true, animate = true, persist = true } = {}) {

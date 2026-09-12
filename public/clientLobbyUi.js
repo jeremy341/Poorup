@@ -809,8 +809,8 @@ export function enterParlor(code) {
   if (state.roomEntryPending) return;
   const { requestedCode, requestedRoomId } = normalizeEntryDescriptor(code);
   const meta = getAppearanceMeta(activeAppearance());
-  const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
-  const requestId = event === "create-room" ? String(host.createRequestId?.("create-room") || "") : "";
+  const event = entryEvent(requestedCode, requestedRoomId);
+  const requestId = entryRequestId(event);
   resetTableForEntry(requestedCode, requestId);
   const payload = parlorEntryPayload({ event, requestedCode, meta, requestedRoomId, requestId });
   activeRoomEntryAttempt?.cancel();
@@ -901,6 +901,14 @@ export function leaveRoomForHome() {
   else host.showView("home");
 }
 
+function entryEvent(requestedCode, requestedRoomId) {
+  return requestedCode || requestedRoomId ? "join-room" : "create-room";
+}
+
+function entryRequestId(event) {
+  return event === "create-room" ? String(host.createRequestId?.("create-room") || "") : "";
+}
+
 function normalizeEntryDescriptor(code) {
   const descriptor = code && typeof code === "object" ? code : { roomCode: code };
   return {
@@ -923,12 +931,9 @@ function applyEntryVisibility(response) {
 function isOpenQuickTableRoom(room) {
   const seats = Number(room?.seats);
   const cap = Number(room?.cap);
-  if (room?.visibility !== "public") return false;
-  if (room?.state !== "open") return false;
-  if (!room?.roomId) return false;
-  if (!Number.isFinite(seats)) return false;
-  if (!Number.isFinite(cap)) return false;
-  return seats < cap;
+  const surface = `${room?.visibility || ""}:${room?.state || ""}`;
+  const capacity = `${Number.isFinite(seats)}:${Number.isFinite(cap)}:${seats < cap}`;
+  return surface === "public:open" && Boolean(room?.roomId) && capacity === "true:true:true";
 }
 
 function snapshotPlayers(snapshot) {
