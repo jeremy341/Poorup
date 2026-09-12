@@ -60,8 +60,7 @@ function columns() {
 }
 
 function nextIndex(key, index, count) {
-  if (key === "Home") return 0;
-  if (key === "End") return count - 1;
+  const direct = { Home: 0, End: count - 1 }[key];
   const deltas = {
     ArrowRight: 1,
     ArrowLeft: -1,
@@ -69,8 +68,7 @@ function nextIndex(key, index, count) {
     ArrowUp: -columns(),
   };
   const delta = deltas[key];
-  if (delta == null) return null;
-  return (index + delta + count) % count;
+  return direct ?? (delta == null ? null : (index + delta + count) % count);
 }
 
 function focusChoice(index) {
