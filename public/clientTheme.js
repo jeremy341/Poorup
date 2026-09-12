@@ -5,7 +5,7 @@
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { DEFAULT_THEME_ID, THEME_STORAGE_KEY, getTheme, sanitizeThemeId, themeOptions } from "./clientThemeData.js";
-import { pauseThemeMotion, renderTheme } from "./clientThemeRender.js";
+import { pauseThemeMotion, renderTheme, themePreviewScene } from "./clientThemeRender.js";
 
 let themeUi = { applyTheme: renderTheme, announce: null };
 let opener = null;
@@ -26,7 +26,7 @@ function choiceMarkup(theme) {
   const selected = theme.id === (state.themeId || DEFAULT_THEME_ID);
   return `<label class="theme-choice" data-theme-choice-label="${esc(theme.id)}">
     <input type="radio" name="poorup-theme" value="${esc(theme.id)}" data-theme-choice="${esc(theme.id)}" aria-checked="${selected}" tabindex="${selected ? "0" : "-1"}${selected ? "" : ""}" ${selected ? "checked" : ""} aria-label="${esc(theme.ariaLabel)}">
-    <span class="theme-choice-art"><img src="${esc(theme.scene || "/favicon.svg")}" alt="" width="88" height="36" aria-hidden="true"></span>
+    <span class="theme-choice-art"><img src="${esc(themePreviewScene(theme))}" alt="" width="88" height="36" aria-hidden="true"></span>
     <span class="theme-choice-copy"><span class="t-label f11 theme-choice-name">${esc(theme.preview.heading)}</span><span class="theme-choice-description">${esc(theme.preview.copy)}</span></span>
   </label>`;
 }
