@@ -30,7 +30,7 @@ I inspected the 1920px home captures for the original and seasonal themes; the o
 
 # Music Candidates
 
-I downloaded three CC0 tracks for each new theme into a separate listening pack. Pondering the Cosmos stays untouched for the original theme.
+I downloaded three CC0 tracks for each new theme into a separate listening pack. After listening, I kept the tracks that fit best, moved Apple Cider into the Spring and Summer pools, and replaced the weaker choices with new Spring, Summer, Autumn, Winter, and Light candidates. Pondering the Cosmos stays untouched for the original theme.
 
 # Next Steps
 

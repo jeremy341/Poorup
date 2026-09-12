@@ -103,3 +103,12 @@ No Important findings remain: P0, P1, and P2 are clear. The remaining P3 note
 is satisfied by the tracked DEVLOG and ignored generated artifacts. A two-client
 Quick Table fill race would improve future coverage, but is staged test work
 rather than a release blocker. No production code was changed by this review.
+
+## Hosted CodeScene gate
+
+The local CodeScene CLI is installed (`cs version` reports 1.0.40), but both
+`cs delta origin/main` and `cs review <file>` exit before analysis when
+`CS_ACCESS_TOKEN` is absent. The exact environment check reported
+`CS_ACCESS_TOKEN missing`; no health score or hosted delta result is claimed.
+The branch is therefore locally verified and pre-merge reviewed, with the
+hosted CodeScene check intentionally left for the authenticated PR pipeline.
