@@ -43,12 +43,12 @@ real DOM/socket runtime and browser verification remains follow-up. This is an
 evidence/provenance gap rather than a demonstrated defect: retain the claim
 only with its artifact/command, or label it as prior-run evidence.
 
-### P3 — Worktree hygiene: untracked DEVLOG and ignored trial artifacts
+### P3 — Worktree hygiene: intentional DEVLOG and ignored trial artifacts
 
-`docs/DEVLOG-7.md` is untracked. `qa-artifacts/`, `test-results/`, `coverage/`,
-`server/data/`, `.idea/`, and `.impeccable/` are ignored. None should enter the
-merge accidentally; decide explicitly whether DEVLOG-7 is release documentation
-or a local trial note. Ignoring the generated QA directories is appropriate.
+`docs/DEVLOG-7.md` is tracked in commit `33151af` as release documentation.
+`qa-artifacts/`, `test-results/`, `coverage/`, `server/data/`, `.idea/`, and
+`.impeccable/` are ignored; generated captures and the local music trial pack
+will not enter the merge accidentally.
 
 ## Reviewed staged/future work (not blockers)
 
@@ -81,9 +81,10 @@ on source-pattern assertions.
   `npm run test:browser`; native 1920px captures are under the ignored
   `qa-artifacts/theme-homes-1920/` directory and were inspected at native
   resolution.
-- **Hygiene resolved.** `docs/DEVLOG-7.md` is an intentional release-document
-  addition; downloaded soundtrack candidates and generated captures remain
-  under ignored `qa-artifacts/` and are not part of the source commit.
+- **Hygiene resolved.** `docs/DEVLOG-7.md` is tracked as an intentional
+  release-document addition; downloaded soundtrack candidates and generated
+  captures remain under ignored `qa-artifacts/` and are not part of the source
+  commit.
 
 ## Final re-review — 2026-09-12
 
@@ -94,12 +95,11 @@ assertion. Setting rollback still snapshots prior state, ignores stale
 responses after a newer mutation, and restores ruleset/board state on rejected
 acks. Quick Table still performs directory selection, timeout, bounded
 full/not-found/in-progress retry, and public-room creation fallback; the
-browser matrix evidence is recorded above. `docs/DEVLOG-7.md` is intentionally
-untracked release documentation, while generated QA/capture directories remain
-ignored.
+browser matrix evidence is recorded above. `docs/DEVLOG-7.md` is tracked as
+intentional release documentation, while generated QA/capture directories
+remain ignored.
 
-No Important findings remain: P0, P1, and P2 are clear. The only residual is
-P3-level process hygiene (ensure the intentional DEVLOG is included in the
-release commit and generated artifacts stay ignored). A two-client Quick Table
-fill race would improve future coverage, but is staged test work rather than a
-release blocker. No production code was changed by this review.
+No Important findings remain: P0, P1, and P2 are clear. The remaining P3 note
+is satisfied by the tracked DEVLOG and ignored generated artifacts. A two-client
+Quick Table fill race would improve future coverage, but is staged test work
+rather than a release blocker. No production code was changed by this review.
