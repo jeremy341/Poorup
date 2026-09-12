@@ -44,7 +44,7 @@ function ensureOptionReserve(game) {
 function maintenanceDue(game, player) {
   ensurePlayerMarketState(player || {});
   if (!maintenanceRequired(player)) return false;
-  return marginMarketValue(game, player) < Number(player.marginMaintenance);
+  return marginEquity(game, player) < Number(player.marginMaintenance);
 }
 
 function maintenanceRequired(player) {
@@ -54,6 +54,12 @@ function maintenanceRequired(player) {
 
 function marginMarketValue(game, player) {
   return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position?.quantity) || 0), 0);
+}
+
+function marginEquity(game, player) {
+  return marginMarketValue(game, player)
+    + nonNegativeNumber(player.marginCollateral)
+    - nonNegativeNumber(player.marginBalance);
 }
 
 function tableObligationPending(game) {
@@ -405,10 +411,6 @@ function settleShortPosition(game, player, { id, position, inventory }) {
   return covered.success ? covered : forceShortBuyIn(game, player, settlement);
 }
 
-function marginPositionValue(game, player) {
-  return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0), 0);
-}
-
 function marginLiquidationProceeds(game, player) {
   return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => {
     const value = (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0);
@@ -489,7 +491,7 @@ function expiredOptionActions(game, player) {
 
 function marginForceLiquidation(game, player) {
   if (!(player.marginBalance > 0 && player.marginMaintenance > 0)) return [];
-  if (marginPositionValue(game, player) >= player.marginMaintenance) return [];
+  if (marginEquity(game, player) >= player.marginMaintenance) return [];
   settleMarginPositions(game, player);
   return ['margin-liquidation'];
 }

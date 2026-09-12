@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
-import { forceLiquidate } from './marketExpansion.js';
+import { forceLiquidate, maintenanceDue } from './marketExpansion.js';
 
 function roomAt(complexity) {
   const room = new RoomManager().createRoom({ socketId: 'a', clientId: 'a', nickname: 'A', rulesetPreset: 'after-hours', marketComplexity: complexity });
@@ -71,6 +71,42 @@ margin.game.marketQuotes.brazil = 10;
 assert.equal(margin.openMargin('a', 'brazil', 1, 'blocked').success, false);
 derivatives.game.players[0].marketActionsThisTurn = 0;
 assert.ok(derivatives.marketExpansionCandidates(derivatives.game.players[0]).length >= 1);
+
+// Margin maintenance is based on account equity, not the gross marked value:
+// $130 marked value + $35 held collateral - $100 remaining debt = $65 equity.
+// Multiple positions and partial debt make each term observable at the strict
+// maintenance boundary.
+const marginEquityGame = { marketQuotes: { brazil: 40, ghana: 25 } };
+function marginEquityPlayer(maintenance) {
+  return {
+    cash: 10,
+    marginBalance: 100,
+    marginMaintenance: maintenance,
+    marginCollateral: 35,
+    marginPositions: {
+      brazil: { quantity: 2, averageCost: 50 },
+      ghana: { quantity: 2, averageCost: 30 }
+    },
+    reservedCash: 35
+  };
+}
+
+assert.equal(maintenanceDue(marginEquityGame, marginEquityPlayer(64)), false);
+assert.equal(maintenanceDue(marginEquityGame, marginEquityPlayer(65)), false);
+assert.equal(maintenanceDue(marginEquityGame, marginEquityPlayer(66)), true);
+
+const equalEquityPlayer = marginEquityPlayer(65);
+assert.deepEqual(forceLiquidate(marginEquityGame, equalEquityPlayer, {}), []);
+assert.equal(equalEquityPlayer.marginBalance, 100);
+
+const belowEquityPlayer = marginEquityPlayer(66);
+assert.deepEqual(forceLiquidate(marginEquityGame, belowEquityPlayer, {}), ['margin-liquidation']);
+assert.equal(belowEquityPlayer.cash, 72);
+assert.equal(belowEquityPlayer.marginBalance, 0);
+assert.equal(belowEquityPlayer.marginCollateral, 0);
+assert.equal(belowEquityPlayer.reservedCash, 0);
+assert.deepEqual(belowEquityPlayer.marginPositions, {});
+assert.ok(belowEquityPlayer.cash >= 0);
 
 // Margin liquidation must conserve cash: the sale proceeds repay the margin
 // balance before any surplus reaches the wallet. This is the public
