@@ -120,8 +120,7 @@ above cover the new relay and setting-ack behavior without child processes.
 - Initial margin collateral is 25%, intentionally tied to the existing
   disclosed maintenance rate because the plan specifies a disclosed reserve
   but no separate numeric initial-margin rate. If product wants a distinct
-  rate, change the registry constant and corresponding golden tests together.
+rate, change the registry constant and corresponding golden tests together.
 - The one-action quota treats voluntary management operations as market
   actions; automatic forced liquidation remains an engine settlement and does
   not consume a player's voluntary quota.
-

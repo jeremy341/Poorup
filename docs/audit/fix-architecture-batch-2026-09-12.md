@@ -116,4 +116,3 @@ payload is changed. Board-manifest consolidation, GameState/Room cycle
 removal, scheduler consolidation, and client module splits remain separate
 follow-up batches because they require their own characterization seams and
 would expand this change's risk.
-
