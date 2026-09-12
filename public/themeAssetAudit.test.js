@@ -6,15 +6,23 @@ import { themeOptions } from "./clientThemeData.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 let passed = 0;
-for (const definition of themeOptions().slice(1)) {
+for (const definition of themeOptions()) {
   const theme = definition.id;
-  const assetPaths = Object.values(definition.props).flatMap((value) => typeof value === "string" ? [value] : Object.values(value));
-  const assetNames = ["scene", ...assetPaths.map((path) => path.split("/").pop().replace(/\.svg$/, ""))];
-  const expectedNames = theme === "spring"
+  const scenePaths = [definition.scene, definition.homeScene].filter(Boolean);
+  const propValues = [...Object.values(definition.props || {}), ...Object.values(definition.homeProps || {})];
+  const assetPaths = propValues.flatMap((value) => typeof value === "string" ? [value] : Object.values(value));
+  const assetNames = [...new Set([...scenePaths, ...assetPaths].map((path) => path.split("/").pop().replace(/\.svg$/, "")))];
+  const expectedNames = theme === "original"
+    ? ["fog", "scene"]
+    : theme === "spring"
     ? ["accent", "clouds", "light", "petals", "scene", "signature"]
     : theme === "light"
       ? ["clouds", "light", "pedestrians-pose-a", "pedestrians-pose-b", "scene", "signature", "weather"]
-      : ["accent", "clouds", "light", "scene", "signature", "weather"];
+    : theme === "autumn"
+      ? ["accent", "clouds", "leaves", "light", "scene", "signature", "weather"]
+      : theme === "winter"
+        ? ["accent", "clouds", "light", "scene", "signature", "snow"]
+        : ["accent", "clouds", "light", "scene", "signature", "weather"];
   assert.deepEqual(assetNames.sort(), expectedNames);
   assert.deepEqual(
     readdirSync(join(root, "assets", "themes", theme)).sort(),
@@ -24,7 +32,7 @@ for (const definition of themeOptions().slice(1)) {
   for (const name of assetNames) {
     const source = readFileSync(join(root, "assets", "themes", theme, `${name}.svg`), "utf8");
     assert.match(source, /^<svg\b[^>]*xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
-    if (name === "scene" || name === "clouds" || name === "petals") {
+    if (theme === "original" || name === "scene" || name === "clouds" || name === "petals" || name === "snow" || name === "leaves") {
       assert.match(source, /viewBox="0 0 640 360"/);
       if (name === "scene") assert.ok(source.length > 3_000, `${theme} scene should preserve the detailed 1920px art pass`);
     } else if (theme === "light" && name.startsWith("pedestrians")) {

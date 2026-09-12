@@ -35,14 +35,27 @@ check("registry is immutable and exposes six choices", () => {
   assert.equal(getTheme("winter").name, "Winter / Frostline Ledger");
 });
 
-check("original has no visual override while new worlds have complete tokens", () => {
-  assert.deepEqual(getTheme("original").tokens, {});
+check("original keeps its UI tokens while exposing a home-only city world", () => {
+  const original = getTheme("original");
+  assert.deepEqual(original.tokens, {});
+  assert.equal(original.scene, null);
+  assert.match(original.homeScene, /themes\/original\/scene\.svg$/);
+  assert.deepEqual(Object.keys(original.homeProps), ["fog"]);
+  const home = themeSceneMarkup(original, "home");
+  assert.match(home, /themes\/original\/scene\.svg/);
+  assert.equal((home.match(/theme-prop-fog/g) || []).length, 2);
+  assert.match(home, /theme-fog-a/);
+  assert.match(home, /theme-fog-b/);
+  assert.equal(themeSceneMarkup(original, "page"), "");
+  assert.equal(themeSceneMarkup(original, "board"), "");
   for (const id of expectedIds.slice(1)) {
     const theme = getTheme(id);
     assert.ok(Object.keys(theme.tokens).length >= 16, `${id} needs UI tokens`);
     assert.ok(theme.scene, `${id} needs scene`);
     if (id === "spring") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "petals", "accent"]);
     else if (id === "light") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "pedestrians"]);
+    else if (id === "autumn") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "leaves", "accent"]);
+    else if (id === "winter") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "snow", "accent"]);
     else assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "accent"]);
     assert.match(theme.scene, /^\/assets\/themes\/[a-z-]+\/scene\.svg$/);
   }
@@ -79,6 +92,14 @@ check("scene markup is decorative and noninteractive", () => {
   assert.equal((springHome.match(/theme-petal-[ab]/g) || []).length, 2);
   assert.match(springHome, /theme-petal-a/);
   assert.match(springHome, /theme-petal-b/);
+  const autumnHome = themeSceneMarkup(getTheme("autumn"), "home");
+  assert.equal((autumnHome.match(/theme-leaves-[ab]/g) || []).length, 2);
+  assert.match(autumnHome, /theme-leaves-a/);
+  assert.match(autumnHome, /theme-leaves-b/);
+  const winterHome = themeSceneMarkup(getTheme("winter"), "home");
+  assert.equal((winterHome.match(/theme-snow-[ab]/g) || []).length, 2);
+  assert.match(winterHome, /theme-snow-a/);
+  assert.match(winterHome, /theme-snow-b/);
   const lightHome = themeSceneMarkup(getTheme("light"), "home");
   assert.equal((lightHome.match(/theme-pedestrian-band/g) || []).length, 2);
   assert.equal((lightHome.match(/theme-pedestrian-pose-a/g) || []).length, 2);
@@ -90,10 +111,12 @@ check("scene markup is decorative and noninteractive", () => {
 });
 
 check("all new SVGs are local crisp pixel assets", () => {
-  for (const id of expectedIds.slice(1)) {
+  for (const id of expectedIds) {
     const theme = getTheme(id);
-    const assetPaths = Object.values(theme.props).flatMap((value) => typeof value === "string" ? [value] : Object.values(value));
-    const assetNames = ["scene", ...assetPaths.map((path) => path.split("/").pop().replace(/\.svg$/, ""))];
+    const scenePaths = [theme.scene, theme.homeScene].filter(Boolean);
+    const propValues = [...Object.values(theme.props || {}), ...Object.values(theme.homeProps || {})];
+    const assetPaths = propValues.flatMap((value) => typeof value === "string" ? [value] : Object.values(value));
+    const assetNames = [...new Set([...scenePaths, ...assetPaths].map((path) => path.split("/").pop().replace(/\.svg$/, "")))];
     for (const name of assetNames) {
       const file = join(root, "assets", "themes", id, `${name}.svg`);
       const source = readFileSync(file, "utf8");
