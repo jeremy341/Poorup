@@ -116,9 +116,7 @@ export function sendRoomEntryWithRetries({
 
 export function roomEntryAckFromSnapshot(snapshot, clientId) {
   const room = snapshot?.room;
-  const players = Array.isArray(snapshot?.game?.players)
-    ? snapshot.game.players
-    : Array.isArray(room?.players) ? room.players : [];
+  const players = snapshotPlayers(snapshot);
   const player = players.find(candidate => candidate?.clientId === clientId);
   if (!room || !player) return null;
   return {
@@ -150,12 +148,7 @@ export function reconcileParlorEntrySnapshot(snapshot) {
  */
 export function chooseQuickTableRoom(rooms = []) {
   return (Array.isArray(rooms) ? rooms : [])
-    .filter(room => room?.visibility === "public"
-      && room?.state === "open"
-      && room?.roomId
-      && Number.isFinite(Number(room.seats))
-      && Number.isFinite(Number(room.cap))
-      && Number(room.seats) < Number(room.cap))
+    .filter(isOpenQuickTableRoom)
     .sort((a, b) => {
       const openA = Number(a.cap) - Number(a.seats);
       const openB = Number(b.cap) - Number(b.seats);
@@ -770,10 +763,8 @@ function applyParlorEntryAck(response) {
   clearQuickTableDirectoryTimer();
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
-  if (response?.created && response.hostId) state.hostId = response.hostId;
-  if (response?.created && response.playerId) state.roomPlayerId = response.playerId;
-  if (Object.prototype.hasOwnProperty.call(response || {}, "roomCode")) state.roomCode = response.roomCode || "";
-  if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
+  applyCreatedEntryIdentity(response);
+  applyEntryVisibility(response);
   state.phase = "setup";
   host.renderAll();
   renderTopNav();
@@ -803,9 +794,7 @@ function onParlorEntryResponse(response, event) {
 export function enterParlor(code) {
   if (!requireGuestAlias()) return;
   if (state.roomEntryPending) return;
-  const descriptor = code && typeof code === "object" ? code : { roomCode: code };
-  const requestedCode = String(descriptor.roomCode || "").trim().toUpperCase();
-  const requestedRoomId = String(descriptor.roomId || "").trim().slice(0, 120);
+  const { requestedCode, requestedRoomId } = normalizeEntryDescriptor(code);
   const meta = getAppearanceMeta(activeAppearance());
   const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
   const requestId = event === "create-room" ? String(host.createRequestId?.("create-room") || "") : "";
@@ -897,6 +886,42 @@ export function leaveRoomForHome() {
   }
   if (inRoomSession()) goHome();
   else host.showView("home");
+}
+
+function normalizeEntryDescriptor(code) {
+  const descriptor = code && typeof code === "object" ? code : { roomCode: code };
+  return {
+    requestedCode: String(descriptor.roomCode || "").trim().toUpperCase(),
+    requestedRoomId: String(descriptor.roomId || "").trim().slice(0, 120),
+  };
+}
+
+function applyCreatedEntryIdentity(response) {
+  if (!response?.created) return;
+  if (response.hostId) state.hostId = response.hostId;
+  if (response.playerId) state.roomPlayerId = response.playerId;
+}
+
+function applyEntryVisibility(response) {
+  if (Object.prototype.hasOwnProperty.call(response || {}, "roomCode")) state.roomCode = response.roomCode || "";
+  if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
+}
+
+function isOpenQuickTableRoom(room) {
+  const seats = Number(room?.seats);
+  const cap = Number(room?.cap);
+  return room?.visibility === "public"
+    && room?.state === "open"
+    && Boolean(room?.roomId)
+    && Number.isFinite(seats)
+    && Number.isFinite(cap)
+    && seats < cap;
+}
+
+function snapshotPlayers(snapshot) {
+  const gamePlayers = snapshot?.game?.players;
+  if (Array.isArray(gamePlayers)) return gamePlayers;
+  return Array.isArray(snapshot?.room?.players) ? snapshot.room.players : [];
 }
 
 function inRoomSession() {
