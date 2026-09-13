@@ -8,8 +8,7 @@
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { hydrateSprites, spriteHTML } from "./clientSprites.js";
-import { paintSkyline } from "./clientBoardRender.js";
-import { getTheme } from "./clientThemeData.js";
+import { SKYLINE, paintSkyline } from "./clientBoardRender.js";
 import { renderConnectionStatus } from "./clientTopNavRender.js";
 import { applyProfileToHomeUI, renderAccountPanel, requireGuestAlias } from "./clientProfileRender.js";
 import { closeSurface, openSurface } from "./clientSurfaces.js";
@@ -275,9 +274,8 @@ export function renderHome() {
   setHomeTab("play");
   renderHomeLocalTime();
   renderPatrolHud();
-  const theme = getTheme(state.themeId);
-  paintSkyline($("#home-skyline"), theme.skyline.home, theme.palette);
-  paintSkyline($("#home-skyline-copy"), theme.skyline.home, theme.palette);
+  paintSkyline($("#home-skyline"), SKYLINE);
+  paintSkyline($("#home-skyline-copy"), SKYLINE);
   buildMiniBoard();
   renderRoomsList();
   renderHomeSignals();
