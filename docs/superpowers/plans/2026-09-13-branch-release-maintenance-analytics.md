@@ -650,9 +650,10 @@ Evidence on this execution branch:
   functions.
 - Native 1920px theme captures inspected under `qa-artifacts/theme-homes-1920`.
 
-External setup still requires an approved Nest maintenance window and GitHub
-environment secrets (`NEST_HOST`, `NEST_USER`, `NEST_DEPLOY_KEY`,
-`NEST_KNOWN_HOSTS`, `POORUP_MAINTENANCE_TOKEN`). The read-only inspection found
+External setup still requires an approved Nest maintenance window, the
+repository variable `NEST_DEPLOY_ENABLED=true`, and GitHub environment secrets
+(`NEST_HOST`, `NEST_USER`, `NEST_DEPLOY_KEY`, `NEST_KNOWN_HOSTS`,
+`POORUP_MAINTENANCE_TOKEN`). The read-only inspection found
 the live Nest checkout at `/root/Poorup` on old commit `b1f3cd7`, running as a
 root-owned PM2 process; no automatic pull/deploy hook exists. The workflow is
 ready, but it must not interrupt that live legacy process until the first
