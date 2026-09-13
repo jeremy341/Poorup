@@ -3,6 +3,12 @@
 Status: implemented first release. Relationship, privacy, invite, history, and
 in-session overlay seams are live; scale/abuse telemetry remains follow-up.
 
+> **Current status (2026-09-12).** The canonical IA is the top-level `SOCIAL`
+> hub. `PROFILE` intentionally contains identity, designs, history,
+> achievements, collection, and account/preferences tabs, but no `FRIENDS`
+> tab. Keep relationship actions in Social and use this document as the source
+> of truth when older design briefs mention a Profile Friends tab.
+
 ## Product decision
 
 Friends and player interactions belong in a top-level `SOCIAL` hub, not inside the profile editor. The profile remains the identity page; the social hub owns relationships, invitations, and public player cards.

@@ -17,6 +17,13 @@ cash shop in this plan.
 Also plan the supplied bot API test, rule-based bot performance test, slower
 movement, tab-out animation recovery, and a deterministic roulette carousel.
 
+> **Current status (2026-09-12).** Items, prediction markets, airport travel,
+> in-round bank-account tiers, and the Lawyer Card remain unreleased future
+> systems. The live Wallet & Items surface is only a read-only shell: the game
+> summary does not yet project viewer-scoped items/account upgrade state, and
+> no item or bank-account mutation handlers are wired. The target schemas and
+> verbs below must not be presented as available gameplay.
+
 ## Design read and non-negotiables
 
 **Design read:** this is a systems-heavy game surface for friends at a shared
@@ -133,12 +140,13 @@ opponent inventory.
 
 ### UI placement
 
-Add an `ITEMS` subsection to `HOLDINGS`, rather than another top-level page.
-The same inventory is also reachable from the interactive Cash button in the
-bottom HUD, which opens the `WALLET & ITEMS` modal. Use compact rows with item
-glyph, quantity, use/trade/sell actions, and an in-place detail panel. Surprise
-drops use the existing card reveal/notification surface. All controls remain
-native buttons with live result text and focus restoration.
+The target UI adds an `ITEMS` subsection to `HOLDINGS`, rather than another
+top-level page. The same inventory is also reachable from the interactive Cash
+button in the bottom HUD, which opens the `WALLET & ITEMS` modal. Use compact
+rows with item glyph, quantity, use/trade/sell actions, and an in-place detail
+panel once the viewer-scoped projection ships. Surprise drops use the existing
+card reveal/notification surface. All controls remain native buttons with live
+result text and focus restoration.
 
 ## 2. Fictional prediction market (“Polymarket”)
 
@@ -363,8 +371,8 @@ Every modifier is versioned by `eventId`, `rulesetRevision`, and
 
 ## 9. Data and API contracts
 
-New server-authoritative verbs should be small, idempotent, and projection-
-aware:
+Future server-authoritative verbs should be small, idempotent, and projection-
+aware; none of the item/account verbs below are wired in the current release:
 
 ```text
 get-items

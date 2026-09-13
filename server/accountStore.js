@@ -615,6 +615,30 @@ export class AccountStore {
     return matchRecord;
   }
 
+  // Achievement evaluation and seasonal assignment enrich a completed match
+  // after the base stats/history write. Replace that one immutable record in
+  // each participating account without replaying any stat deltas.
+  updateMatchRecord(matchRecord = {}) {
+    const sanitized = sanitizeMatch(matchRecord);
+    if (!sanitized.matchId) return { updated: false, match: null };
+    const participantAccountIds = new Set(
+      sanitized.participants.map(participant => participant.accountId).filter(Boolean)
+    );
+    let updated = false;
+    this.accounts.forEach(account => {
+      if (!participantAccountIds.has(account.id)) return;
+      const entries = Array.isArray(account.matchHistory) ? account.matchHistory : [];
+      const index = entries.findIndex(entry => entry?.matchId === sanitized.matchId);
+      if (index < 0) return;
+      if (JSON.stringify(entries[index]) === JSON.stringify(sanitized)) return;
+      account.matchHistory = [...entries];
+      account.matchHistory[index] = sanitized;
+      updated = true;
+    });
+    if (updated) this.persist();
+    return { updated, match: sanitized };
+  }
+
   recordAchievement(accountId, achievement = {}) {
     const account = [...this.accounts.values()].find((candidate) => candidate.id === accountId);
     const achievementId = typeof achievement.id === 'string' ? achievement.id.trim().slice(0, 80) : '';

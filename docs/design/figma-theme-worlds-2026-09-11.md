@@ -2,6 +2,13 @@
 
 Figma source: [Poorup — Five Theme Pixel Worlds](https://www.figma.com/design/Aw42lmg2SWYSM900KPkYcB)
 
+> **Current status (2026-09-12).** This handoff is the dimension authority for
+> the detailed `640×360` world masters. Runtime theme props intentionally use a
+> mixed contract: `SCENE`, `CLOUDS`, Spring `PETALS`, and Light pedestrian poses
+> are `640×360`; compact props remain `320×180`. See
+> `.ulpi/design/THEME-FIVE-VISUAL-BRAINSTORM.md` for the complete asset rule and
+> `public/themeAssetAudit.test.js` for the enforced split.
+
 The five non-baseline home worlds were rebuilt as editable SVG vectors in a
 640×360 master coordinate space. At the 1920px target this produces a clean
 3× pixel grid. The original dark Poorup baseline is intentionally not part of

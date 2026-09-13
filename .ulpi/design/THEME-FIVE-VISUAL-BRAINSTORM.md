@@ -5,6 +5,14 @@ follows the original Poorup visual system restored on commit `1398823`. It does
 not change layout, typography, board geometry, navigation, gameplay, server
 state, or Socket.IO contracts.
 
+> **Current status (2026-09-12).** Theme assets use a mixed master-size
+> contract. `SCENE`, `CLOUDS`, and Spring `PETALS` are authored at `640×360`
+> (and the Light pedestrian poses also use `640×360`); compact layer props such
+> as `LIGHT`, `SIGNATURE`, `WEATHER`, and `ACCENT` remain `320×180`. The Figma
+> handoff in `docs/design/figma-theme-worlds-2026-09-11.md` is authoritative for
+> the 640×360 world masters, and `public/themeAssetAudit.test.js` enforces the
+> split. The former “every asset is 320×180” wording below is superseded.
+
 ## Design read
 
 Poorup should feel like the same maintained arcade table in five different
@@ -148,12 +156,14 @@ telemetry, or Socket.IO payloads.
 
 ## SVG and pixel-art contract
 
-Each asset uses a native `320×180` master canvas, integer-aligned geometry,
+World-scene layers use a native `640×360` master canvas for the detailed
+environment, cloud shelf, and Spring petal repeat (Light pedestrian poses use
+the same canvas). Compact `LIGHT`, `SIGNATURE`, `WEATHER`, and `ACCENT` props
+use native `320×180` masters. All assets use integer-aligned geometry,
 `shape-rendering="crispEdges"`, a limited palette, selective one-pixel outlines,
-and top-left lighting. The five layers are the static environment, light source,
-signature foreground structure, weather field, and small moving accent. Assets
-contain no filters, gradients, text nodes, external URLs, editor metadata, or
-decorative UI. Every silhouette must remain identifiable at 1x.
+and top-left lighting. Assets contain no filters, gradients, text nodes,
+external URLs, editor metadata, or decorative UI. Every silhouette must remain
+identifiable at 1x.
 
 ## Motion contract
 

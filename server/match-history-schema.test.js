@@ -43,6 +43,25 @@ assert.equal(loaded.botDecisions[0].actionId, 'roll');
 assert.deepEqual(loaded.participants[0].avatarAtMatch, grid);
 assert.deepEqual(loaded.participants[0].achievementsUnlocked, ['41st-tile']);
 assert.equal(loaded.participants[0].mythicalUnlocked, true);
+
+const persistedRecord = accounts.recordGameResults(players, 'p1', {
+  gameId: 'history-reload',
+  roomVisibility: 'public',
+  includeMatchDetails: true,
+  playerCount: 2
+});
+annotateMatchAchievements(persistedRecord, [{ accountId: alice.id, achievementId: '41st-tile', rarity: 'MYTHICAL' }]);
+persistedRecord.seasonId = 'S20260912';
+accounts.updateMatchRecord(persistedRecord);
+const reloadedAccounts = new AccountStore(path.join(dir, 'accounts.json'));
+const reloadedAlice = reloadedAccounts.findAccountByUsername('historyalice');
+const reloadedMatch = reloadedAlice.matchHistory.find(entry => entry.matchId === 'history-reload');
+assert.deepEqual(reloadedMatch.participants[0].achievementsUnlocked, ['41st-tile']);
+assert.equal(reloadedMatch.participants[0].mythicalUnlocked, true);
+assert.equal(reloadedMatch.seasonId, 'S20260912');
+const gamesBeforeReplay = reloadedAlice.stats.gamesPlayed;
+assert.equal(reloadedAccounts.updateMatchRecord(persistedRecord).updated, false);
+assert.equal(reloadedAlice.stats.gamesPlayed, gamesBeforeReplay);
 for (let index = 0; index < 510; index += 1) {
   matches.matches.set(`retention-${index}`, { matchId: `retention-${index}`, completedAt: new Date(index).toISOString(), participants: [] });
 }

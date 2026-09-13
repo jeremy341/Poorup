@@ -259,6 +259,21 @@ const cardApi = {
   },
 
   payEachShare(player, other, amount) {
+    if (amount <= 0) return 0;
+    if (player.cash < amount) {
+      const cashBefore = player.cash;
+      // Route short legs through the shared debt ladder. The ladder tenders
+      // available cash now and parks the unpaid remainder (including later
+      // recipients in its queue) instead of forgiving those legs.
+      this.chargePlayer({
+        player,
+        creditor: other,
+        amount,
+        message: `${player.nickname} paid $${amount} to other players from the card.`,
+        turnOptions: {}
+      });
+      return Math.max(0, cashBefore - player.cash);
+    }
     const paid = Math.min(player.cash, amount);
     player.cash -= paid;
     other.cash += paid;

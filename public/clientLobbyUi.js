@@ -53,6 +53,36 @@ let host = {
 
 function noop() {}
 
+const QUICK_TABLE_MAX_RETRIES = 2;
+const QUICK_TABLE_DIRECTORY_TIMEOUT_MS = 5000;
+let quickTableFlow = false;
+let quickTableRetryCount = 0;
+let quickTableRequestId = 0;
+let quickTableDirectoryTimer = null;
+
+/**
+ * Pick open public tables deterministically so Quick Table can fill an
+ * existing lobby before creating another one. The server remains
+ * authoritative: this is only a preference list and every join is still
+ * checked atomically by join-room.
+ */
+export function chooseQuickTableRoom(rooms = []) {
+  return (Array.isArray(rooms) ? rooms : [])
+    .filter(room => room?.visibility === "public"
+      && room?.state === "open"
+      && room?.roomId
+      && Number.isFinite(Number(room.seats))
+      && Number.isFinite(Number(room.cap))
+      && Number(room.seats) < Number(room.cap))
+    .sort((a, b) => {
+      const openA = Number(a.cap) - Number(a.seats);
+      const openB = Number(b.cap) - Number(b.seats);
+      // Fill the table with the fewest free seats first, then use the stable
+      // public id as a tie-breaker so two clients make the same choice.
+      return openA - openB || String(a.roomId).localeCompare(String(b.roomId));
+    });
+}
+
 export function configureLobbyUi(hooks) {
   host = { ...host, ...hooks };
 }
@@ -544,6 +574,75 @@ function resetTableForEntry(requestedCode, requestId = "") {
   requestAnimationFrame(() => placePieces());
 }
 
+function clearQuickTableDirectoryTimer() {
+  clearTimeout(quickTableDirectoryTimer);
+  quickTableDirectoryTimer = null;
+}
+
+function quickTableFallbackCreate() {
+  clearQuickTableDirectoryTimer();
+  const preset = loadRulesetPreset();
+  state.quickJoin = true;
+  state.pendingRoomMeta = {
+    roomName: "QUICK TABLE",
+    visibility: "public",
+    rulesetPreset: preset,
+    boardVariant: "standard-40"
+  };
+  state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
+  parlorNotice("QUICK TABLE", "NO OPEN TABLES — HOSTING A NEW PUBLIC TABLE.");
+  enterParlor();
+}
+
+function quickTableDirectoryAck(response, requestId) {
+  if (!quickTableFlow || requestId !== quickTableRequestId) return;
+  clearQuickTableDirectoryTimer();
+  if (response?.success === false) {
+    quickTableFallbackCreate();
+    return;
+  }
+  const candidate = chooseQuickTableRoom(response?.rooms)[0];
+  if (candidate) {
+    parlorNotice("QUICK TABLE", "OPEN TABLE FOUND — JOINING NOW.");
+    enterParlor({ roomId: candidate.roomId });
+    return;
+  }
+  quickTableFallbackCreate();
+}
+
+function requestQuickTableDirectory() {
+  const requestId = ++quickTableRequestId;
+  clearQuickTableDirectoryTimer();
+  parlorNotice("QUICK TABLE", "LOOKING FOR AN OPEN PUBLIC TABLE…");
+  quickTableDirectoryTimer = setTimeout(() => {
+    quickTableDirectoryAck({ success: false, error: "Directory request timed out." }, requestId);
+  }, QUICK_TABLE_DIRECTORY_TIMEOUT_MS);
+  host.emitServer("list-rooms", {}, response => quickTableDirectoryAck(response, requestId));
+}
+
+function quickTableJoinCanRetry(response) {
+  if (!quickTableFlow || quickTableRetryCount >= QUICK_TABLE_MAX_RETRIES) return false;
+  return ["Room is full.", "Room not found.", "Game is already in progress."]
+    .includes(String(response?.error || ""));
+}
+
+function retryQuickTableJoin(response) {
+  quickTableRetryCount += 1;
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  state.roomPlayerId = null;
+  state.hostId = null;
+  state.phase = "home";
+  state.pendingRoomMeta = null;
+  state.pendingRoomSettings = null;
+  state.quickJoin = true;
+  clearQuickTableDirectoryTimer();
+  host.showView("home");
+  host.renderAll();
+  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`);
+  requestQuickTableDirectory();
+}
+
 function parlorEntryPayload(event, requestedCode, meta, requestedRoomId = "", requestId = "") {
   return {
     roomCode: requestedCode || undefined,
@@ -571,11 +670,20 @@ function rejectParlorEntry(response) {
   state.roomPlayerId = null;
   state.hostId = null;
   state.phase = "home";
+  state.pendingRoomMeta = null;
+  state.pendingRoomSettings = null;
+  state.quickJoin = false;
+  quickTableFlow = false;
+  quickTableRetryCount = 0;
+  clearQuickTableDirectoryTimer();
   host.showView("home");
   host.renderAll();
 }
 
 function applyParlorEntryAck(response) {
+  quickTableFlow = false;
+  quickTableRetryCount = 0;
+  clearQuickTableDirectoryTimer();
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
   if (response?.created && response.hostId) state.hostId = response.hostId;
@@ -598,6 +706,10 @@ function applyPendingRoomSettings() {
 
 function onParlorEntryResponse(response, event) {
   if (response?.success === false) {
+    if (event === "join-room" && quickTableJoinCanRetry(response)) {
+      retryQuickTableJoin(response);
+      return;
+    }
     rejectParlorEntry(response);
     return;
   }
@@ -802,19 +914,20 @@ export function bindLobbyUi() {
   $("#setup-close")?.addEventListener("click", () => host.goHome());
   $("#setup-wrap .setup-scrim")?.addEventListener("click", () => host.goHome());
 
-  // Quick Table reuses the last deliberate preset choice; first use falls
-  // back to the safe Classic baseline. It remains a public Standard-40 room.
+  // Quick Table prefers an existing open public room and hosts a new public
+  // Standard-40 room only when no compatible seat is available. The join is
+  // deliberately raced against the authoritative server, with two bounded
+  // retries for rooms that fill between list-rooms and join-room.
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
-    const preset = loadRulesetPreset();
+    if (quickTableFlow || state.roomEntryPending) return;
+    quickTableFlow = true;
+    quickTableRetryCount = 0;
     state.quickJoin = true;
     state.settings.vacationPool = true;
     state.settings.trading = true;
     state.settings.auction = false;
-    state.pendingRoomMeta = { roomName: "QUICK TABLE", visibility: "public", rulesetPreset: preset, boardVariant: "standard-40" };
-    state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
-      enterParlor();
-      return;
+    requestQuickTableDirectory();
   });
 
   // lobby settings interactions

@@ -318,7 +318,8 @@ function onFacePointerDown(e) {
 
 function onFacePointerMove(e) {
   if (!isPainting) return;
-  const cell = e.target.closest(".face-cell");
+  const pointerTarget = typeof document.elementFromPoint === "function" ? document.elementFromPoint(e.clientX, e.clientY) : null;
+  const cell = pointerTarget?.closest(".face-cell") || e.target.closest(".face-cell");
   if (!cell) return;
   paintFaceCell(Number(cell.dataset.x), Number(cell.dataset.y));
 }
