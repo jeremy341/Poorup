@@ -86,7 +86,6 @@ export function renderPanelMenu() {
   menu.classList.toggle("is-hidden", !open);
   menu.setAttribute("aria-hidden", String(!open));
   trigger.setAttribute("aria-expanded", String(open));
-  $("#focus-btn")?.setAttribute("aria-pressed", String($("#view-game")?.classList.contains("is-focus")));
 }
 
 export function isPanelMenuOpen() {
@@ -108,10 +107,8 @@ export function openPanelMenu(trigger = null) {
   const menu = $("#panel-menu");
   if (!menu) return;
   if (trigger instanceof HTMLElement) returnFocus = trigger;
-  // A panel menu is the recovery path from board focus, so opening it always
-  // restores the shell before showing the controls.
-  $("#view-game")?.classList.remove("is-focus");
-  $("#focus-btn")?.setAttribute("aria-pressed", "false");
+  // Opening the panel menu only reveals visibility controls; it never changes
+  // game state or moves the board.
   menu.classList.remove("is-hidden");
   menu.classList.add("is-open");
   menu.setAttribute("aria-hidden", "false");
