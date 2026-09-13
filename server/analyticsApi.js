@@ -15,13 +15,26 @@ export function isAdminAccount(accountId, adminIds) {
   return Boolean(id && normalizeAdminIds(adminIds).includes(id));
 }
 
+function safeRange(range) {
+  const value = String(range);
+  return ['hour', 'day', 'week'].includes(value) ? value : 'hour';
+}
+
+function metricSnapshot(registry, range) {
+  return registry?.snapshotMetrics?.(range) || {
+    range,
+    generatedAt: new Date(0).toISOString(),
+    metrics: {}
+  };
+}
+
 export function buildAnalyticsSummary(registry, accountId, adminIds, range = 'hour') {
   if (!isAdminAccount(accountId, adminIds)) return { success: false, status: 403, error: 'Forbidden.' };
-  const safeRange = ['hour', 'day', 'week'].includes(String(range)) ? String(range) : 'hour';
-  const snapshot = registry?.snapshotMetrics?.(safeRange) || { range: safeRange, generatedAt: new Date(0).toISOString(), metrics: {} };
+  const normalizedRange = safeRange(range);
+  const snapshot = metricSnapshot(registry, normalizedRange);
   return {
     success: true,
-    range: snapshot.range || safeRange,
+    range: snapshot.range || normalizedRange,
     generatedAt: snapshot.generatedAt,
     metrics: snapshot.metrics && typeof snapshot.metrics === 'object' ? snapshot.metrics : {},
   };

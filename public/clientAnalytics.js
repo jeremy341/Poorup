@@ -24,16 +24,24 @@ function query(selector) {
   return typeof document === 'undefined' ? null : document.querySelector(selector);
 }
 
-function cleanMetricEntry(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const output = {};
+function copyStringMetricFields(value, output) {
   ['type', 'updatedAt'].forEach(key => {
     if (typeof value[key] === 'string') output[key] = value[key].slice(0, 80);
   });
+}
+
+function copyNumberMetricFields(value, output) {
   ['count', 'total', 'last', 'min', 'max', 'value'].forEach(key => {
     const number = Number(value[key]);
     if (Number.isFinite(number)) output[key] = number;
   });
+}
+
+function cleanMetricEntry(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const output = {};
+  copyStringMetricFields(value, output);
+  copyNumberMetricFields(value, output);
   return output;
 }
 

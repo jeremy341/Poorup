@@ -26,7 +26,9 @@ export function createPubSubAdapter() {
 
   function subscribe(topic, handler) {
     const key = safeTopic(topic);
-    if (closed || !key || typeof handler !== 'function') return () => {};
+    if (closed) return () => {};
+    if (!key) return () => {};
+    if (typeof handler !== 'function') return () => {};
     const listeners = topics.get(key) || new Set();
     listeners.add(handler);
     topics.set(key, listeners);

@@ -34,6 +34,17 @@ function invalidResult(error) {
   return { success: false, error };
 }
 
+function rowsFromObject(value) {
+  const rows = new Map();
+  Object.entries(value && typeof value === 'object' ? value : {}).forEach(([roomId, row]) => {
+    const id = safeRoomId(roomId);
+    const version = safeVersion(row?.version);
+    const snapshot = cloneSnapshot(row?.snapshot);
+    if (id && version !== null && snapshot !== null) rows.set(id, { version, snapshot });
+  });
+  return rows;
+}
+
 function createAdapter(readRows, persistRows = null) {
   const rows = readRows();
 
@@ -89,13 +100,7 @@ function createAdapter(readRows, persistRows = null) {
 }
 
 export function createMemoryAuthoritativeStore(initial = {}) {
-  const rows = new Map();
-  Object.entries(initial && typeof initial === 'object' ? initial : {}).forEach(([roomId, row]) => {
-    const id = safeRoomId(roomId);
-    const version = safeVersion(row?.version);
-    const snapshot = cloneSnapshot(row?.snapshot);
-    if (id && version !== null && snapshot !== null) rows.set(id, { version, snapshot });
-  });
+  const rows = rowsFromObject(initial);
   return createAdapter(() => rows);
 }
 
@@ -105,16 +110,7 @@ export function createJsonAuthoritativeStore(filePath) {
   const loaded = loadJson(resolved, value => value && typeof value === 'object' && !Array.isArray(value));
   const initial = loaded.value || {};
   return createAdapter(
-    () => {
-      const rows = new Map();
-      Object.entries(initial).forEach(([roomId, row]) => {
-        const id = safeRoomId(roomId);
-        const version = safeVersion(row?.version);
-        const snapshot = cloneSnapshot(row?.snapshot);
-        if (id && version !== null && snapshot !== null) rows.set(id, { version, snapshot });
-      });
-      return rows;
-    },
+    () => rowsFromObject(initial),
     rows => writeJson(resolved, Object.fromEntries(rows.entries()))
   );
 }
