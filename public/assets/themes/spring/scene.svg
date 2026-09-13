@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" shape-rendering="crispEdges" aria-hidden="true">
+  <defs>
+    <g id="blossom">
+      <path fill="#614b53" d="M39 74h6v58h-8v-25h-6v-8h-7v-5h-5v-6h7v5h8v8h4V84h-7v-7h-5v-6h6v5h7zm5 14h7v-9h6v-7h5v10h-6v11h-9z"/>
+      <path fill="#b65f82" d="M17 12h13V6h23v6h12v8h10v11h7v23h-7v12H64v8H47v6H27v-7H12V63H4V45H0V31h8V20h9z"/>
+      <path fill="#e48eaf" d="M17 16h14V9h19v7h13v9h10v15h5v12H66v12H48v6H28v-7H14V53H6V34h11z"/>
+      <path fill="#ffd0db" d="M22 17h12v-5h13v8h-8v7H23v8H12v-9h10zm26 10h15v8h8v9H58v-6H48zM16 44h10v7h13v8H23v-5h-7z"/>
+      <path fill="#b65f82" d="M36 33h8v5h-8zm16 19h9v5h-9zM8 42h6v6H8zm35 12h5v6h-5z"/>
+      <path fill="#fff4e4" d="M27 19h3v3h-3zm26 10h3v3h-3zM19 47h3v3h-3zm15 8h3v3h-3z"/>
+    </g>
+    <g id="lamp" fill="#294f50">
+      <path d="M8 11h3v41h4v3H4v-3h4zM3 4h14v3H3zm3-3h8v3H6zM4 7h3v10H4zm10 0h3v10h-3zM5 17h11v3H5z"/>
+      <path fill="#fff4e4" d="M7 7h7v10H7z"/>
+    </g>
+  </defs>
+  <!-- Open sky leaves room for the wordmark; detail gathers along the park edge. -->
+  <path fill="#7ec8e3" d="M0 0h640v360H0z"/>
+  <path fill="#aedce5" d="M0 184h640v87H0z"/>
+  <!-- Cool, low-contrast city on the left horizon. -->
+  <path fill="#7b9fac" d="M0 257V174h17v-12h21v78h8v-42h26v-22h17v67h9v-29h22v-48h27v87h12v-54h20v63z"/>
+  <path fill="#aedce5" d="M5 181h5v7H5zm0 15h5v7H5zm21-23h5v8h-5zm0 17h5v8h-5zm29 17h5v7h-5zm24-23h4v7h-4zm47-10h5v8h-5zm12 0h4v8h-4zm-12 16h5v8h-5zm12 0h4v8h-4zm27 19h5v7h-5z"/>
+  <path fill="#4e7863" d="M0 267v-20h18v-12h18v-10h25v9h18v15h16v-9h21v-13h27v9h20v14h16v-15h23v-10h27v13h20v12h18v-13h25v-12h30v12h21v11h21v-14h25v-8h29v14h22v11h18v-13h27v-11h25v12h23v13h19v-12h25v-12h30v10h22v12h20v-12h26v-9h24v41z"/>
+  <path fill="#6d965e" d="M0 254h34v-16h23v8h29v15h36v-22h17v9h31v15h31v-25h24v12h40v15h37v-26h18v10h36v17h37v-26h22v11h38v13h38v-25h19v11h41v15h37v-26h24v9h35v13h24v-18h25v33H0z"/>
+  <path fill="#8fb96c" d="M0 272h640v88H0z"/>
+  <path fill="#6d965e" d="M0 287h640v8H0zm0 37h640v36H0z"/>
+  <path fill="#d6c59c" d="M0 307h640v22H0z"/>
+  <path fill="#acaa83" d="M0 326h640v3H0zM18 308h2v18h-2zm64 0h2v18h-2zm96 0h2v18h-2zm94 0h2v18h-2zm109 0h2v18h-2zm84 0h2v18h-2zm101 0h2v18h-2z"/>
+  <path fill="#4e7863" d="M0 339h640v21H0z"/>
+  <path fill="#294f50" d="M9 302h77v4H9zm531 2h85v4h-85z"/>
+  <use href="#blossom" x="-12" y="174"/>
+  <use href="#blossom" x="71" y="183"/>
+  <use href="#blossom" x="538" y="176"/>
+  <use href="#blossom" x="600" y="163"/>
+  <use href="#lamp" x="169" y="253"/>
+  <use href="#lamp" x="507" y="253"/>
+  <!-- Slatted bench, cast shadow, and small flower beds. -->
+  <path fill="#294f50" d="M439 314h66v3h-66zm6-26h4v25h-4zm50 0h4v25h-4z"/>
+  <path fill="#614b53" d="M439 282h64v5h-64zm0 8h64v5h-64zm-3 9h70v5h-70z"/>
+  <path fill="#d6c59c" d="M440 282h62v1h-62zm0 8h62v1h-62zm-3 9h68v1h-68z"/>
+  <path fill="#8fb96c" d="M3 340v-5h2v5h5v-8h2v8h14v-4h2v4h30v-7h2v7h37v-5h2v5h29v-8h2v8h384v-6h2v6h34v-8h2v8h26v-4h2v4h37v-7h2v7h28v-5h2v5z"/>
+  <path fill="#ffd0db" d="M21 334h4v3h-4zm32 12h3v3h-3zm66-13h4v3h-4zm405 9h3v3h-3zm31-8h4v3h-4zm49 11h4v3h-4z"/>
+  <path fill="#fff4e4" d="M10 344h3v3h-3zm75-9h3v3h-3zm475 10h3v3h-3zm67-10h3v3h-3z"/>
+</svg>

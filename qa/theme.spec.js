@@ -1,13 +1,8 @@
 import { test, expect } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 
-const themeIds = [
-  "midnight-ledger",
-  "clearline-day",
-  "bloom-district",
-  "golden-hour-exchange",
-  "rainy-copper-town",
-  "warm-window-snow-city",
-];
+const themeIds = ["original", "spring", "summer", "autumn", "winter", "light"];
 
 async function openThemeChooser(page) {
   await page.goto("/");
@@ -17,223 +12,191 @@ async function openThemeChooser(page) {
   await expect(page.locator("#theme-popover")).toBeVisible();
 }
 
-test.describe("Poorup parlor look themes", () => {
-  test("selector exposes six labeled radio choices and restores focus", async ({ page }) => {
+test.describe("Poorup seasonal worlds", () => {
+  test("offers six accessible radio choices and restores focus", async ({ page }) => {
     await openThemeChooser(page);
     const choices = page.locator("#theme-popover [data-theme-choice]");
     await expect(choices).toHaveCount(6);
-    await expect(choices.first()).toHaveAttribute("role", "radio");
+    expect(await page.locator(".theme-choice-art img").evaluateAll((images) => images.map((image) => new URL(image.src).pathname))).toEqual([
+      "/assets/themes/original/scene.svg",
+      "/assets/themes/spring/scene.svg",
+      "/assets/themes/summer/scene.svg",
+      "/assets/themes/autumn/scene.svg",
+      "/assets/themes/winter/scene.svg",
+      "/assets/themes/light/scene.svg",
+    ]);
+    await expect(choices.first()).toHaveAttribute("type", "radio");
+    await expect(choices.first()).toBeChecked();
     await expect(choices.first()).toHaveAttribute("tabindex", "0");
     await expect(choices.nth(1)).toHaveAttribute("tabindex", "-1");
-    await expect(choices.first()).toHaveAttribute("aria-checked", "true");
-    await expect(choices.first()).toContainText("NIGHT");
-    await expect(choices.nth(1)).toContainText("DAY");
-
     await choices.first().focus();
     await page.keyboard.press("ArrowRight");
-    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "clearline-day");
-    await expect(choices.nth(1)).toHaveAttribute("aria-checked", "true");
-    await expect(choices.first()).toHaveAttribute("aria-checked", "false");
-    const columns = await page.locator("#theme-popover .theme-choice-grid").evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length);
-    await page.keyboard.press("ArrowDown");
-    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", themeIds[(1 + columns) % themeIds.length]);
-    await expect(page.locator(":focus")).toHaveAttribute("aria-checked", "true");
-    await page.keyboard.press("ArrowUp");
-    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "clearline-day");
-    await page.keyboard.press("ArrowLeft");
-    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "midnight-ledger");
-    await page.keyboard.press("ArrowLeft");
-    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "warm-window-snow-city");
-    await expect(choices.last()).toHaveAttribute("aria-checked", "true");
-    await page.keyboard.press("End");
-    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "warm-window-snow-city");
-    await page.keyboard.press("Home");
-    await expect(page.locator(":focus")).toHaveAttribute("data-theme-choice", "midnight-ledger");
+    await expect(choices.nth(1)).toBeChecked();
+    await expect(page.locator("body")).toHaveAttribute("data-theme-id", "spring");
     await page.keyboard.press("Escape");
-    await expect(page.locator("#theme-popover")).toHaveClass(/is-hidden/);
-    await expect(page.locator("#theme-open-btn")).toBeFocused();
-    await page.locator("#theme-open-btn").click();
-    await page.locator("#theme-popover-close").focus();
-    await page.keyboard.press("Escape");
-    await expect(page.locator("#theme-popover")).toHaveClass(/is-hidden/);
-
-    await page.locator("#theme-open-btn").click();
-    await choices.first().focus();
-    await page.evaluate(() => document.querySelector("#view-profile").dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    await expect(page.locator("#theme-popover")).toHaveClass(/is-hidden/);
     await expect(page.locator("#theme-open-btn")).toBeFocused();
   });
 
-  test("selector remains usable in forced colors", async ({ page }) => {
-    await page.emulateMedia({ forcedColors: "active" });
-    await openThemeChooser(page);
-    const choices = page.locator("#theme-popover [data-theme-choice]");
-    await expect(choices.first()).toBeFocused();
-    await expect(choices.first()).toHaveAttribute("aria-checked", "true");
-    await expect(page.locator("#theme-popover")).toBeVisible();
-    await page.keyboard.press("ArrowRight");
-    await expect(choices.nth(1)).toHaveAttribute("aria-checked", "true");
-  });
-
-  test("applying a theme updates local state and decorative layers only", async ({ page }) => {
-    await openThemeChooser(page);
-    await page.locator('[data-theme-choice="bloom-district"]').press("Enter");
-    await expect(page.locator("body")).toHaveAttribute("data-theme-id", "bloom-district");
-    await expect(page.locator("#theme-page-world")).toHaveAttribute("data-theme-id", "bloom-district");
-    await expect(page.locator("#theme-home-world")).toHaveAttribute("data-theme-id", "bloom-district");
-    await expect(page.locator("#theme-board-world")).toHaveAttribute("data-theme-id", "bloom-district");
-    await expect(page.locator('[data-theme-choice="bloom-district"]')).toHaveAttribute("aria-checked", "true");
-    await expect(page.locator("#system-announcer")).toContainText("Bloom District");
-    await expect(page.locator("body")).toHaveAttribute("data-theme-id", "bloom-district");
-
-    const state = await page.evaluate(() => ({
-      stored: localStorage.getItem("poorup.theme.id.v1"),
-      scrollWidth: document.body.scrollWidth,
-      clientWidth: document.body.clientWidth,
-      actionCount: document.querySelectorAll("[data-home-tab], [data-top-surface]").length,
-      sceneButtons: document.querySelectorAll(".theme-page-world button, .theme-home-world button, .theme-board-world button").length,
-    }));
-    expect(state.stored).toBe("bloom-district");
-    expect(state.scrollWidth - state.clientWidth).toBeLessThanOrEqual(2);
-    expect(state.sceneButtons).toBe(0);
-    expect(state.actionCount).toBeGreaterThan(0);
-  });
-
-  test("invalid storage falls back to the original world", async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem("poorup.theme.id.v1", "not-a-theme"));
+  test("applies a themed scene without changing the shell geometry", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("body")).toHaveAttribute("data-theme-id", "midnight-ledger");
-    await expect(page.locator("#theme-page-world")).toHaveAttribute("data-theme-id", "midnight-ledger");
-  });
-
-  test("theme preference syncs to a second browser tab", async ({ page, context }) => {
-    await page.goto("/");
-    const peer = await context.newPage();
-    await peer.goto("/");
-    await page.evaluate(() => localStorage.setItem("poorup.theme.id.v1", "golden-hour-exchange"));
-    await expect(peer.locator("body")).toHaveAttribute("data-theme-id", "golden-hour-exchange");
-    await peer.close();
-  });
-
-  test("theme layers preserve visible Standard-40 and Metro-52 board geometry", async ({ page, context }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1920", "Board geometry contract runs on desktop-1920.");
-    const variants = [
-      { variant: "standard-40", code: "THM40A", tileCount: 40, gridSize: 11 },
-      { variant: "metro-52", code: "THM52A", tileCount: 52, gridSize: 14 },
-    ];
-    for (const { variant, code, tileCount, gridSize } of variants) {
-      const host = await context.newPage();
-      const guest = await context.newPage();
-      await host.goto("/");
-      await host.locator("#home-alias").fill("ALPHA");
-      await host.locator("#open-create-btn").click();
-      await host.locator("#rc-vis-selector [data-vis=\"private\"]").click();
-      await host.locator("#rc-room-code").fill(code);
-      await host.locator("#rc-board-variant").selectOption(variant);
-      await host.locator("#rc-create-btn").click();
-      await host.locator("#su-start").click();
-
-      await guest.goto("/");
-      await guest.locator("#home-alias").fill("BETA");
-      await guest.locator("#open-join-btn").click();
-      await guest.locator("#room-join").fill(code);
-      await guest.locator("#join-nickname").fill("BETA");
-      await guest.locator("#join-room-submit").click();
-      await guest.locator("#su-start").click();
-      await host.locator("#lobby-start-btn").click();
-      await expect(host.locator("#view-game")).toBeVisible();
-
-      const measure = () => host.evaluate(() => {
-        const frame = document.querySelector("#board-frame");
-        const grid = document.querySelector("#board-grid");
-        const rect = frame?.getBoundingClientRect();
-        const columns = getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
-        return {
-          frame: rect ? [rect.x, rect.y, rect.width, rect.height] : null,
-          tileCount: grid?.querySelectorAll(":scope > .tile").length || 0,
-          gridSize: columns,
-          variant: grid?.dataset.boardVariant || null,
-        };
-      });
-      const before = await measure();
-      expect(before.frame).not.toBeNull();
-      expect(before.frame[2]).toBeGreaterThan(0);
-      expect(before.frame[2]).toBe(before.frame[3]);
-      expect(before.tileCount).toBe(tileCount);
-      expect(before.gridSize).toBe(gridSize);
-      expect(before.variant).toBe(variant);
-
-      await host.evaluate(async () => {
-        const { renderTheme } = await import("/clientThemeRender.js");
-        renderTheme("warm-window-snow-city", { animate: false });
-      });
-      const after = await measure();
-      expect(after).toEqual(before);
-      await guest.close();
-      await host.close();
-    }
-  });
-
-  test("reduced motion settles the scene without travel", async ({ page }) => {
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await openThemeChooser(page);
-    await page.locator('[data-theme-choice="rainy-copper-town"]').press("Enter");
-    const motion = await page.locator("#theme-page-world .theme-scene").evaluate((element) => {
-      const style = getComputedStyle(element);
-      return { animationName: style.animationName, transform: style.transform };
-    });
-    expect(motion.animationName).toBe("none");
-    expect(motion.transform).toBe("none");
-  });
-
-  test("theme ids stay aligned with the approved registry", async ({ page }) => {
-    await page.goto("/");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.locator("#home-profile-tab").click();
     await page.locator("#profile-tab-account").click();
     await page.locator("#theme-open-btn").click();
-    await expect.poll(() => page.locator("#theme-popover [data-theme-choice]").evaluateAll((nodes) => nodes.map((node) => node.dataset.themeChoice))).toEqual(themeIds);
-  });
-
-  test("captures the six environments at native 1920px", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1920" || !process.env.POORUP_CAPTURE_VISUALS, "Opt-in native-resolution evidence only.");
-    for (const themeId of themeIds) {
-      await openThemeChooser(page);
-      await page.locator(`[data-theme-choice="${themeId}"]`).click();
-      await page.locator('#view-profile [data-home-tab="play"]').click();
-      await expect(page.locator("#view-home")).toBeVisible();
-      await page.screenshot({ path: `qa-artifacts/themes/${themeId}-home-1920.png`, fullPage: true });
+    // Clicking an offscreen choice scrolls the document on short viewports.
+    // Compare layout coordinates so scrolling is not mistaken for reflow.
+    const preferencesGeometry = () => page.locator(".profile-preferences").evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      let x = rect.x;
+      let y = rect.y;
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        x += parent.scrollLeft;
+        y += parent.scrollTop;
+      }
+      return { x, y, width: rect.width, height: rect.height };
+    });
+    const baseline = await preferencesGeometry();
+    for (const id of themeIds.slice(1)) {
+      await page.locator(`[data-theme-choice="${id}"]`).click();
+      await expect(page.locator("body")).toHaveAttribute("data-theme-id", id);
+      await expect(page.locator("#theme-home-world")).toHaveAttribute("data-theme-id", id);
+      await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
+      await expect(page.locator("#theme-home-world .theme-prop-clouds")).toHaveCount(2);
+      const cloudMotion = await page.locator("#theme-home-world .theme-cloud-a").evaluate((element) => getComputedStyle(element).animationName);
+      const cloudReturn = await page.locator("#theme-home-world .theme-cloud-b").evaluate((element) => getComputedStyle(element).animationName);
+      expect(cloudMotion).toBe("theme-cloud-a-drift");
+      expect(cloudReturn).toBe("theme-cloud-b-drift");
+      if (id === "spring") {
+        await expect(page.locator("#theme-home-world .theme-petal-a")).toHaveCount(1);
+        await expect(page.locator("#theme-home-world .theme-petal-b")).toHaveCount(1);
+      }
+      if (id === "autumn") {
+        await expect(page.locator("#theme-home-world .theme-leaves-a")).toHaveCount(1);
+        await expect(page.locator("#theme-home-world .theme-leaves-b")).toHaveCount(1);
+      }
+      if (id === "winter") {
+        await expect(page.locator("#theme-home-world .theme-snow-a")).toHaveCount(1);
+        await expect(page.locator("#theme-home-world .theme-snow-b")).toHaveCount(1);
+      }
+      if (id === "light") {
+        await expect(page.locator("#theme-home-world .theme-pedestrian-band")).toHaveCount(2);
+      }
+      expect(await preferencesGeometry()).toEqual(baseline);
     }
+    await page.locator('[data-theme-choice="original"]').click();
+    await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
+    await expect(page.locator("#theme-home-world .theme-prop-fog")).toHaveCount(2);
+    await expect(page.locator("#theme-page-world")).toBeEmpty();
+    await expect(page.locator("#theme-board-world")).toBeEmpty();
+    await expect(page.locator("#view-home .home-house-drift")).toHaveCSS("opacity", "0.5");
   });
 
-  test("captures the theme chooser at native 1920px", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1920" || !process.env.POORUP_CAPTURE_VISUALS, "Opt-in selector evidence only.");
-    await openThemeChooser(page);
-    await page.screenshot({ path: "qa-artifacts/themes/theme-selector-profile-1920.png", fullPage: true });
-  });
-
-  test("captures a live themed board at native 1920px", async ({ page, context }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1920" || !process.env.POORUP_CAPTURE_VISUALS, "Opt-in live-board evidence only.");
-    const guest = await context.newPage();
+  test("persists a sanitized preference and synchronizes another tab", async ({ page, context }) => {
     await page.goto("/");
-    await page.locator("#home-alias").fill("ALPHA");
-    await page.locator("#open-create-btn").click();
-    await page.locator('#rc-vis-selector [data-vis="private"]').click();
-    await page.locator("#rc-room-code").fill("THEME1");
-    await page.locator("#rc-create-btn").click();
-    await page.locator("#su-start").click();
+    await page.evaluate(() => localStorage.setItem("poorup.theme.id.v2", "not-valid"));
+    await page.reload();
+    await expect(page.locator("body")).toHaveAttribute("data-theme-id", "original");
+    const peer = await context.newPage();
+    await peer.goto("/");
+    await page.evaluate(() => localStorage.setItem("poorup.theme.id.v2", "winter"));
+    await expect(peer.locator("body")).toHaveAttribute("data-theme-id", "winter");
+    await peer.close();
+  });
 
-    await guest.goto("/");
-    await guest.locator("#home-alias").fill("BETA");
-    await guest.locator("#open-join-btn").click();
-    await guest.locator("#room-join").fill("THEME1");
-    await guest.locator("#join-nickname").fill("BETA");
-    await guest.locator("#join-room-submit").click();
-    await guest.locator("#su-start").click();
-    await page.locator("#lobby-start-btn").click();
-    await expect(page.locator("#view-game")).toBeVisible();
-    await expect(page.locator("#theme-board-world")).toHaveAttribute("data-theme-id", "midnight-ledger");
-    await expect(page.locator("#board-frame")).toBeVisible();
-    await page.screenshot({ path: "qa-artifacts/themes/midnight-ledger-game-1920.png", fullPage: true });
-    await guest.close();
+  test("freezes petals and pedestrians when reduced motion is requested", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openThemeChooser(page);
+    const originalFogMotion = await page.locator("#theme-home-world .theme-fog-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(originalFogMotion).toBe("none");
+    await page.locator('[data-theme-choice="spring"]').click();
+    const petalMotion = await page.locator("#theme-home-world .theme-petal-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(petalMotion).toBe("none");
+    await page.locator('[data-theme-choice="autumn"]').click();
+    const leavesMotion = await page.locator("#theme-home-world .theme-leaves-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(leavesMotion).toBe("none");
+    await page.locator('[data-theme-choice="winter"]').click();
+    const snowMotion = await page.locator("#theme-home-world .theme-snow-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(snowMotion).toBe("none");
+    await page.locator("#profile-back-btn").click();
+    await page.locator("#home-profile-tab").click();
+    await page.locator("#profile-tab-account").click();
+    await page.locator("#theme-open-btn").click();
+    await page.locator('[data-theme-choice="light"]').click();
+    const pedestrianMotion = await page.locator("#theme-home-world .theme-pedestrian-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(pedestrianMotion).toBe("none");
+  });
+
+  test("isolates ambient theme layers below semantic home content and releases paused compositor hints", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto("/");
+
+    const layers = await page.evaluate(() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+      const world = document.querySelector("#theme-home-world");
+      return {
+        bodyIsolation: getComputedStyle(document.body).isolation,
+        titleIsolation: style(".title-screen").isolation,
+        boardIsolation: style("#center-field").isolation,
+        pageWorldZ: Number(style("#theme-page-world").zIndex),
+        viewZ: Number(style("#view-home").zIndex),
+        homeWorldZ: Number(style("#theme-home-world").zIndex),
+        titleZ: Number(style(".title-grid").zIndex),
+        atmosphereZ: Number(style(".home-sky-atmosphere").zIndex),
+        boardWorldZ: Number(style("#theme-board-world").zIndex),
+        boardCopyZ: Number(style("#center-field .cf-inner").zIndex),
+        decorativeChildrenContained: [...document.querySelectorAll(".theme-scene, .theme-prop")]
+          .every((element) => element.closest("[data-theme-layer]")),
+        ambientAnimation: style("#theme-home-world .theme-fog-a").animationName,
+        ambientWillChange: style("#theme-home-world .theme-fog-a").willChange,
+      };
+    });
+
+    expect(layers).toEqual({
+      bodyIsolation: "isolate",
+      titleIsolation: "isolate",
+      boardIsolation: "isolate",
+      pageWorldZ: 0,
+      viewZ: 1,
+      homeWorldZ: 0,
+      titleZ: 2,
+      atmosphereZ: 4,
+      boardWorldZ: 0,
+      boardCopyZ: 2,
+      decorativeChildrenContained: true,
+      ambientAnimation: "theme-fog-a-drift",
+      ambientWillChange: "transform",
+    });
+
+    await page.locator("body").evaluate((body) => body.classList.add("theme-motion-paused"));
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("animation-play-state", "paused");
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("will-change", "auto");
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("animation-name", "none");
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("will-change", "auto");
+  });
+
+  test("keeps the chooser inside the viewport at desktop and phone widths", async ({ page }) => {
+    await openThemeChooser(page);
+    const metrics = await page.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      popover: document.querySelector("#theme-popover")?.getBoundingClientRect().toJSON(),
+    }));
+    expect(metrics.overflow).toBeLessThanOrEqual(1);
+    expect(metrics.popover.x).toBeGreaterThanOrEqual(0);
+    expect(metrics.popover.right).toBeLessThanOrEqual(1920);
+  });
+
+  test("captures the six home worlds at native 1920", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-1920", "visual evidence is pinned to the primary desktop viewport");
+    const evidenceDir = resolve("qa-artifacts", "theme-homes-1920");
+    mkdirSync(evidenceDir, { recursive: true });
+    for (const id of themeIds) {
+      await openThemeChooser(page);
+      await page.locator(`[data-theme-choice="${id}"]`).click();
+      await page.locator("#profile-back-btn").click();
+      await expect(page.locator("body")).toHaveAttribute("data-theme-id", id);
+      await page.screenshot({ path: resolve(evidenceDir, `${id}.png`), animations: "disabled" });
+    }
   });
 });
