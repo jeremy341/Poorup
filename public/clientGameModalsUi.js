@@ -138,6 +138,24 @@ function closeChoiceModalWithoutAction() {
   closeSurface("#choice-modal");
 }
 
+function acceptTradeOffer(offer) {
+  const button = $("#offer-accept");
+  button.disabled = true;
+  button.querySelector(".cta-text")?.replaceChildren(document.createTextNode("PROCESSING…"));
+  $("#offer-counter").disabled = true;
+  state.offers = (state.offers || []).filter((x) => x?.id !== offer.id);
+  host.emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
+    if (response?.success === false) {
+      state.offers = [offer, ...(state.offers || []).filter((x) => x?.id !== offer.id)];
+      host.say(response.error || "Trade could not be accepted.");
+      host.renderChat();
+      openOfferModal(offer);
+      return;
+    }
+    closeSurface("#offer-modal");
+  });
+}
+
 function openOfferModal(offer) {
   const from = state.players.find((p) => p.id === offer.from || p.serverId === offer.from);
   if (!from) return;
@@ -163,23 +181,7 @@ function openOfferModal(offer) {
       <p class="t-micro ink-3 offer-note">Trades only transfer cash or deeds offered here.</p>
     </div>`;
   openSurface("#offer-modal", "#offer-accept");
-  $("#offer-accept").addEventListener("click", () => {
-    const button = $("#offer-accept");
-    button.disabled = true;
-    button.querySelector(".cta-text")?.replaceChildren(document.createTextNode("PROCESSING…"));
-    $("#offer-counter").disabled = true;
-    state.offers = (state.offers || []).filter((x) => x?.id !== offer.id);
-    host.emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
-        if (response?.success === false) {
-          state.offers = [offer, ...(state.offers || []).filter((x) => x?.id !== offer.id)];
-          host.say(response.error || "Trade could not be accepted.");
-          host.renderChat();
-          openOfferModal(offer);
-          return;
-        }
-        closeSurface("#offer-modal");
-      });
-  });
+  $("#offer-accept").addEventListener("click", () => acceptTradeOffer(offer));
   $("#offer-counter").addEventListener("click", () => {
     closeSurface("#offer-modal");
     host.openTradeNegotiation(offer);
