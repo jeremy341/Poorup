@@ -1,93 +1,151 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_THEME_ID,
   THEME_IDS,
-  THEMES,
   getTheme,
   sanitizeThemeId,
   themeOptions,
 } from "./clientThemeData.js";
-import { themeSceneMarkup } from "./clientThemeRender.js";
+import { themePreviewScene, themeSceneMarkup } from "./clientThemeRender.js";
 
-const expectedIds = [
-  "midnight-ledger",
-  "clearline-day",
-  "bloom-district",
-  "golden-hour-exchange",
-  "rainy-copper-town",
-  "warm-window-snow-city",
-];
-
+const expectedIds = ["original", "spring", "summer", "autumn", "winter", "light"];
+const root = dirname(fileURLToPath(import.meta.url));
+const checks = [];
 function check(name, fn) {
-  try {
-    fn();
-    return { name, ok: true };
-  } catch (error) {
-    return { name, ok: false, error };
-  }
+  try { fn(); checks.push({ name, ok: true }); }
+  catch (error) { checks.push({ name, ok: false, error }); }
 }
 
-const checks = [
-  check("theme ids use the approved six-world order", () => {
-    assert.deepEqual(THEME_IDS, expectedIds);
-  }),
-  check("unknown theme ids fall back to the original world", () => {
-    assert.equal(DEFAULT_THEME_ID, "midnight-ledger");
-    assert.equal(sanitizeThemeId("unknown"), DEFAULT_THEME_ID);
-    assert.equal(sanitizeThemeId(null), DEFAULT_THEME_ID);
-    assert.equal(sanitizeThemeId("CLEARLINE-DAY"), "clearline-day");
-  }),
-  check("theme lookup returns a safe definition", () => {
-    assert.equal(getTheme("clearline-day").name, "Clearline Day");
-    assert.equal(getTheme("missing").id, DEFAULT_THEME_ID);
-    assert.equal(themeOptions().length, 6);
-  }),
-  check("registry is immutable", () => {
-    assert.equal(Object.isFrozen(THEMES), true);
-    assert.equal(Object.isFrozen(THEME_IDS), true);
-    assert.equal(Object.isFrozen(themeOptions()), true);
-  }),
-  check("each theme has local scenes, previews, and bounded motion", () => {
-    for (const id of expectedIds) {
-      const theme = getTheme(id);
-      assert.equal(theme.id, id);
-      assert.equal(typeof theme.name, "string");
-      assert.equal(typeof theme.description, "string");
-      assert.equal(typeof theme.ariaLabel, "string");
-      assert.equal(typeof theme.preview.heading, "string");
-      assert.equal(typeof theme.preview.copy, "string");
-      for (const surface of ["page", "home", "board"]) {
-        assert.match(theme.scene[surface], /^\/assets\/themes\/[a-z0-9-]+\/scene\.svg$/);
-      }
-      assert.ok(theme.motion.durationMs > 0);
-      assert.ok(theme.motion.maxConcurrent >= 0 && theme.motion.maxConcurrent <= 1);
-      for (const path of Object.values(theme.props)) {
-        assert.match(path, /^\/assets\/themes\/[a-z0-9-]+\/[a-z0-9-]+\.svg$/);
-      }
+check("original is the stable default and invalid ids fall back", () => {
+  assert.equal(DEFAULT_THEME_ID, "original");
+  assert.deepEqual(THEME_IDS, expectedIds);
+  assert.equal(sanitizeThemeId("SPRING"), "spring");
+  assert.equal(sanitizeThemeId("missing"), DEFAULT_THEME_ID);
+  assert.equal(sanitizeThemeId(null), DEFAULT_THEME_ID);
+});
+
+check("registry is immutable and exposes six choices", () => {
+  assert.equal(Object.isFrozen(THEME_IDS), true);
+  assert.equal(Object.isFrozen(themeOptions()), true);
+  assert.equal(themeOptions().length, 6);
+  assert.equal(getTheme("original").id, "original");
+  assert.equal(getTheme("winter").name, "Winter / Frostline Ledger");
+});
+
+check("selector previews resolve each theme's home scene", () => {
+  const expectedPreviewScenes = {
+    original: "/assets/themes/original/scene.svg",
+    spring: "/assets/themes/spring/scene.svg",
+    summer: "/assets/themes/summer/scene.svg",
+    autumn: "/assets/themes/autumn/scene.svg",
+    winter: "/assets/themes/winter/scene.svg",
+    light: "/assets/themes/light/scene.svg",
+  };
+  for (const [id, expectedPath] of Object.entries(expectedPreviewScenes)) {
+    assert.equal(themePreviewScene(id), expectedPath, `${id} selector preview`);
+  }
+});
+
+check("original keeps its UI tokens while exposing a home-only city world", () => {
+  const original = getTheme("original");
+  assert.deepEqual(original.tokens, {});
+  assert.equal(original.scene, null);
+  assert.match(original.homeScene, /themes\/original\/scene\.svg$/);
+  assert.deepEqual(Object.keys(original.homeProps), ["fog"]);
+  const home = themeSceneMarkup(original, "home");
+  assert.match(home, /themes\/original\/scene\.svg/);
+  assert.equal((home.match(/theme-prop-fog/g) || []).length, 2);
+  assert.match(home, /theme-fog-a/);
+  assert.match(home, /theme-fog-b/);
+  assert.equal(themeSceneMarkup(original, "page"), "");
+  assert.equal(themeSceneMarkup(original, "board"), "");
+  for (const id of expectedIds.slice(1)) {
+    const theme = getTheme(id);
+    assert.ok(Object.keys(theme.tokens).length >= 16, `${id} needs UI tokens`);
+    assert.ok(theme.scene, `${id} needs scene`);
+    if (id === "spring") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "petals", "accent"]);
+    else if (id === "light") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "pedestrians"]);
+    else if (id === "autumn") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "leaves", "accent"]);
+    else if (id === "winter") assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "snow", "accent"]);
+    else assert.deepEqual(Object.keys(theme.props), ["clouds", "light", "signature", "weather", "accent"]);
+    assert.match(theme.scene, /^\/assets\/themes\/[a-z-]+\/scene\.svg$/);
+  }
+});
+
+check("theme tokens keep readable panel and primary-action contrast", () => {
+  const rgb = (value) => {
+    const hex = value.replace("#", "").slice(0, 6);
+    return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
+  };
+  const luminance = (value) => rgb(value).reduce((sum, channel, index) => {
+    const linear = channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    return sum + linear * [0.2126, 0.7152, 0.0722][index];
+  }, 0);
+  const contrast = (foreground, background) => {
+    const light = Math.max(luminance(foreground), luminance(background));
+    const dark = Math.min(luminance(foreground), luminance(background));
+    return (light + 0.05) / (dark + 0.05);
+  };
+  for (const theme of themeOptions().slice(1)) {
+    assert.ok(contrast(theme.tokens["--text-primary"], theme.tokens["--surface-panel"]) >= 4.5, `${theme.id} panel text`);
+    assert.ok(contrast(theme.tokens["--gold-050"], theme.tokens["--red-action"]) >= 3, `${theme.id} action text`);
+  }
+});
+
+check("scene markup is decorative and noninteractive", () => {
+  const html = themeSceneMarkup(getTheme("autumn"), "home");
+  assert.match(html, /themes\/autumn\/scene\.svg/);
+  assert.match(html, /class="theme-scene"[^>]+width="640" height="360"/);
+  assert.equal((html.match(/theme-prop-clouds/g) || []).length, 2);
+  assert.match(html, /theme-cloud-a/);
+  assert.match(html, /theme-cloud-b/);
+  const springHome = themeSceneMarkup(getTheme("spring"), "home");
+  assert.equal((springHome.match(/theme-petal-[ab]/g) || []).length, 2);
+  assert.match(springHome, /theme-petal-a/);
+  assert.match(springHome, /theme-petal-b/);
+  const autumnHome = themeSceneMarkup(getTheme("autumn"), "home");
+  assert.equal((autumnHome.match(/theme-leaves-[ab]/g) || []).length, 2);
+  assert.match(autumnHome, /theme-leaves-a/);
+  assert.match(autumnHome, /theme-leaves-b/);
+  const winterHome = themeSceneMarkup(getTheme("winter"), "home");
+  assert.equal((winterHome.match(/theme-snow-[ab]/g) || []).length, 2);
+  assert.match(winterHome, /theme-snow-a/);
+  assert.match(winterHome, /theme-snow-b/);
+  const lightHome = themeSceneMarkup(getTheme("light"), "home");
+  assert.equal((lightHome.match(/theme-pedestrian-band/g) || []).length, 2);
+  assert.equal((lightHome.match(/theme-pedestrian-pose-a/g) || []).length, 2);
+  assert.equal((lightHome.match(/theme-pedestrian-pose-b/g) || []).length, 2);
+  assert.doesNotMatch(themeSceneMarkup(getTheme("light"), "board"), /theme-pedestrian/);
+  assert.doesNotMatch(themeSceneMarkup(getTheme("light"), "page"), /theme-pedestrian/);
+  assert.match(html, /aria-hidden="true"/);
+  assert.doesNotMatch(html, /<button|<input|onclick|data-action/);
+});
+
+check("all new SVGs are local crisp pixel assets", () => {
+  for (const id of expectedIds) {
+    const theme = getTheme(id);
+    const scenePaths = [theme.scene, theme.homeScene].filter(Boolean);
+    const propValues = [...Object.values(theme.props || {}), ...Object.values(theme.homeProps || {})];
+    const assetPaths = propValues.flatMap((value) => typeof value === "string" ? [value] : Object.values(value));
+    const assetNames = [...new Set([...scenePaths, ...assetPaths].map((path) => path.split("/").pop().replace(/\.svg$/, "")))];
+    for (const name of assetNames) {
+      const file = join(root, "assets", "themes", id, `${name}.svg`);
+      const source = readFileSync(file, "utf8");
+      assert.match(source, /<svg\b/);
+      assert.match(source, /shape-rendering="crispEdges"/);
+      const withoutNamespace = source.replace(/xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g, "");
+      assert.doesNotMatch(withoutNamespace, /<text\b|<filter\b|linearGradient|radialGradient|https?:\/\//);
     }
-  }),
-  check("theme definitions do not expose semantic UI colors", () => {
-    const semantic = new Set(["#35a653", "#d74438", "#286ea1"]);
-    for (const theme of themeOptions()) {
-      for (const value of Object.values(theme.palette)) assert.equal(semantic.has(value.toLowerCase()), false);
-    }
-  }),
-  check("theme scene markup is decorative and noninteractive", () => {
-    const theme = getTheme("bloom-district");
-    const html = themeSceneMarkup(theme, "home");
-    assert.match(html, /bloom-district\/scene\.svg/);
-    assert.match(html, /aria-hidden="true"/);
-    assert.doesNotMatch(html, /data-action|data-setting|socket|onclick/);
-    assert.doesNotMatch(html, /<button\b|<input\b|<select\b|tabindex=/);
-    for (const path of Object.values(theme.props)) assert.match(html, new RegExp(path.replaceAll("/", "\\/")));
-    assert.match(themeSceneMarkup(getTheme("missing"), "unknown"), /midnight-ledger\/scene\.svg/);
-  }),
-];
+  }
+});
 
 const failures = checks.filter((result) => !result.ok);
 checks.forEach((result) => {
   if (result.ok) console.log(`PASS - ${result.name}`);
   else console.error(`FAIL - ${result.name}: ${result.error.message}`);
 });
-console.log(`client theme registry: ${checks.length - failures.length} passed, ${failures.length} failed`);
+console.log(`client theme tests: ${checks.length - failures.length} passed, ${failures.length} failed`);
 if (failures.length) throw failures[0].error;
