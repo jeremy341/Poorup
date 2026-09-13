@@ -18,6 +18,14 @@ export function normalizeClientId(value) {
   return value.trim().slice(0, 120);
 }
 
+// Create requests carry an opaque, bounded id so a double click or a retry
+// can be answered with the original room acknowledgement instead of creating
+// a second public table. It is never used as an identity or room lookup key.
+export function normalizeRequestId(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 120);
+}
+
 export function normalizeRoomCode(value) {
   if (typeof value !== 'string') return '';
   return value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);

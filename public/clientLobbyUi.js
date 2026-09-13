@@ -48,6 +48,7 @@ let host = {
   closeRoomsModal: noop,
   rebuildBoard: noop,
   goHome: noop,
+  createRequestId: () => "",
 };
 
 function noop() {}
@@ -88,6 +89,13 @@ function renderSetup() {
   const wrap = $("#setup-wrap");
   wrap.classList.toggle("is-hidden", state.phase !== "setup");
   if (state.phase !== "setup") return;
+
+  const entryButton = $("#su-start");
+  if (entryButton) {
+    entryButton.disabled = Boolean(state.roomEntryPending);
+    const label = entryButton.querySelector(".cta-text");
+    if (label) label.textContent = state.roomEntryPending ? "Connecting…" : "Enter Parlor";
+  }
 
   // Server is authoritative for identity: if the table auto-assigned a
   // different colour than the local design, the picker must show the seat
@@ -485,8 +493,12 @@ function entryRoomVisibility(requestedCode) {
   return requestedCode ? "private" : "public";
 }
 
-function resetTableForEntry(requestedCode) {
+function resetTableForEntry(requestedCode, requestId = "") {
   state.suppressRoomUpdates = false;
+  state.roomEntryPending = true;
+  state.roomEntryRequestId = requestId;
+  state.roomPlayerId = null;
+  state.hostId = null;
   state.roomCode = requestedCode;
   state.roomVisibility = entryRoomVisibility(requestedCode);
   state.boardVariant = "standard-40";
@@ -532,13 +544,14 @@ function resetTableForEntry(requestedCode) {
   requestAnimationFrame(() => placePieces());
 }
 
-function parlorEntryPayload(event, requestedCode, meta, requestedRoomId = "") {
+function parlorEntryPayload(event, requestedCode, meta, requestedRoomId = "", requestId = "") {
   return {
     roomCode: requestedCode || undefined,
     roomId: requestedRoomId || undefined,
     nickname: state.alias.trim() || meta.baseName,
     color: meta.color,
     avatarGrid: meta.avatarGrid || null,
+    ...(event === "create-room" && requestId ? { requestId } : {}),
     ...parlorPendingRoomMeta(event),
   };
 }
@@ -553,12 +566,20 @@ function rejectParlorEntry(response) {
   // home — say() alone lands in the hidden chat panel (A1/A3).
   parlorNotice("TABLE NOTICE", response.error || "Room could not be entered.");
   host.say(response.error || "Room could not be entered.");
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  state.roomPlayerId = null;
+  state.hostId = null;
   state.phase = "home";
   host.showView("home");
   host.renderAll();
 }
 
 function applyParlorEntryAck(response) {
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  if (response?.created && response.hostId) state.hostId = response.hostId;
+  if (response?.created && response.playerId) state.roomPlayerId = response.playerId;
   if (Object.prototype.hasOwnProperty.call(response || {}, "roomCode")) state.roomCode = response.roomCode || "";
   if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
   state.phase = "setup";
@@ -585,18 +606,21 @@ function onParlorEntryResponse(response, event) {
 
 export function enterParlor(code) {
   if (!requireGuestAlias()) return;
+  if (state.roomEntryPending) return;
   const descriptor = code && typeof code === "object" ? code : { roomCode: code };
   const requestedCode = String(descriptor.roomCode || "").trim().toUpperCase();
   const requestedRoomId = String(descriptor.roomId || "").trim().slice(0, 120);
-  resetTableForEntry(requestedCode);
   const meta = getAppearanceMeta(activeAppearance());
   const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
-  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta, requestedRoomId), (response) => onParlorEntryResponse(response, event));
+  const requestId = event === "create-room" ? String(host.createRequestId?.("create-room") || "") : "";
+  resetTableForEntry(requestedCode, requestId);
+  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta, requestedRoomId, requestId), (response) => onParlorEntryResponse(response, event));
 }
 
 function enterLobby() {
   // called from the setup overlay "Enter Parlor" button
   if (!requireGuestAlias()) return;
+  if (state.roomEntryPending) return;
   syncServerAppearance();
     state.phase = "lobby";
     host.renderAll();
@@ -631,6 +655,10 @@ export function goHome() {
   state.log = [];
   stopTurnCountdown();
   state.phase = "home";
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  state.roomPlayerId = null;
+  state.hostId = null;
   state.roomVisibility = "private";
   state.suppressRoomUpdates = true;
   closeAllSurfaces();

@@ -6,6 +6,7 @@
 // wire-identical (server/rooms.test.js pins the error strings and order).
 import {
   normalizeClientId,
+  normalizeRequestId,
   normalizeRoomCode,
   normalizeRoomId,
   normalizeAvatarGrid,
@@ -166,11 +167,26 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   // Private/public ack shape: only private tables ever reveal their code.
-  function roomAccessAck(room) {
-    return { success: true, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility };
+  // Create callers also receive authoritative identity metadata so the client
+  // can render the host immediately without guessing from local placeholders.
+  function roomAccessAck(room, details = {}) {
+    const ack = { success: true, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility };
+    if (!details.created) return ack;
+    return {
+      ...ack,
+      created: true,
+      hostId: room.hostId,
+      playerId: details.playerId || null,
+      bots: room.game.players.filter(player => player.isBot).length,
+      ...(details.requestId ? { requestId: details.requestId } : {})
+    };
   }
 
   function handleCreateRoom(payload, callback) {
+    const requestId = normalizeRequestId(payload?.requestId);
+    if (requestId && socket.data.createRoomRequestId === requestId && socket.data.createRoomAck) {
+      return reply(callback, socket.data.createRoomAck);
+    }
     const clientId = normalizeClientId(payload?.clientId);
     const account = runtime.social.accountForSocket(socket, payload);
     const request = buildCreateRoomRequest(payload, account);
@@ -185,7 +201,13 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     socket.join(room.roomCode);
     runtime.emitRoomState(room);
     socket.emit('system-message', { text: 'Room created. Waiting for players...' });
-    reply(callback, roomAccessAck(room));
+    const playerId = room.game.getPlayerBySocket(socket.id)?.id || null;
+    const ack = roomAccessAck(room, { created: Boolean(requestId), playerId, requestId });
+    if (requestId) {
+      socket.data.createRoomRequestId = requestId;
+      socket.data.createRoomAck = ack;
+    }
+    reply(callback, ack);
     runtime.scheduleRoomsUpdated();
   }
 
