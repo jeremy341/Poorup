@@ -137,6 +137,9 @@ const state = {
   lastConnectionAnnouncement: "",
   previousTurnKey: "",
   phase: "home", // home | setup | lobby | playing
+  roomEntryPending: false,
+  roomEntryRequestId: "",
+  roomPlayerId: null,
   roomCode: "",
   roomVisibility: "private",
   boardVariant: "standard-40",
