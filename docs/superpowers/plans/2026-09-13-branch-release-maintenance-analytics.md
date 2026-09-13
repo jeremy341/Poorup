@@ -626,6 +626,38 @@
 - Multi-region active-active rooms
 - Real-money analytics or monetization
 
+## Execution record · 2026-09-13
+
+Implemented on `feature/release-operations` from the verified `main` SHA
+`f8ca8b7`:
+
+- Maintenance state, drain controller, health/readiness endpoints, graceful
+  shutdown, reconnect-safe Home/game notices, and admin-only analytics.
+- CI/full-test coverage, browser matrix, 1920px theme evidence, Docker/PM2
+  release assets, immutable Nest deployment/rollback scripts, and the
+  testing-only socket capacity harness.
+- Provider-neutral `authoritativeStore` compare-and-swap and `pubsubAdapter`
+  seams, with a strict horizontal-scale guard requiring both a Postgres URL and
+  `POORUP_PERSISTENCE_ADAPTER=postgres`.
+
+Evidence on this execution branch:
+
+- `npm run test:full` — pass.
+- `npm run lint` and `npm run lint:client` — pass.
+- `npx playwright test -c qa/playwright.config.js` — 166 passed, 32 skipped by
+  intentional viewport guards.
+- `npm run coverage` — pass; 90.08% statements, 77.72% branches, 87.3%
+  functions.
+- Native 1920px theme captures inspected under `qa-artifacts/theme-homes-1920`.
+
+External setup still requires an approved Nest maintenance window and GitHub
+environment secrets (`NEST_HOST`, `NEST_USER`, `NEST_DEPLOY_KEY`,
+`NEST_KNOWN_HOSTS`, `POORUP_MAINTENANCE_TOKEN`). The read-only inspection found
+the live Nest checkout at `/root/Poorup` on old commit `b1f3cd7`, running as a
+root-owned PM2 process; no automatic pull/deploy hook exists. The workflow is
+ready, but it must not interrupt that live legacy process until the first
+maintenance-capable bootstrap is explicitly scheduled.
+
 ## Skill Discovery and Selection
 
 The local skill catalog is sufficient for this implementation. The plan uses:

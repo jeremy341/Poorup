@@ -28,6 +28,12 @@ import { createSocketRateLimiter } from './socketRateLimiter.js';
 import { createHttpRateLimiter } from './httpRateLimiter.js';
 import { backupJsonStores } from './backupStore.js';
 import { assertPersistenceMode } from './persistenceMode.js';
+import { createDrainController } from './drainController.js';
+import { createMetricsRegistry } from './metricsRegistry.js';
+import { buildAnalyticsSummary, normalizeAdminIds } from './analyticsApi.js';
+import { loadJson, writeJson } from './storeIO.js';
+import { createAuthoritativeStore } from './authoritativeStore.js';
+import { createPubSubAdapter } from './pubsubAdapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,20 +72,104 @@ const io = new Server(server, {
 // The supplied plain-client project is the production static UI. Keep the
 // protected SVG references in public/assets and serve the HTML/CSS/JS directly.
 const publicPath = path.join(__dirname, '../public');
+const roomManager = new RoomManager();
+const metrics = createMetricsRegistry();
+const adminAccountIds = normalizeAdminIds(process.env.POORUP_ADMIN_ACCOUNT_IDS);
+const dataDirectory = typeof process.env.POORUP_DATA_DIR === 'string' ? process.env.POORUP_DATA_DIR.trim() : '';
+const maintenanceFile = dataDirectory ? path.join(dataDirectory, 'maintenance.json') : null;
+const persistedMaintenance = maintenanceFile
+  ? loadJson(maintenanceFile, value => value && typeof value === 'object' && typeof value.mode === 'string').value
+  : null;
+const maintenance = createDrainController({
+  initialMode: persistedMaintenance?.mode || process.env.POORUP_MAINTENANCE_MODE,
+  getActiveRounds: () => [...roomManager.rooms.values()].filter(room => room.game.started && !room.destroyed).length,
+  onChange: snapshot => {
+    metrics.incrementMetric('maintenance-transitions', { state: snapshot.mode });
+    if (maintenanceFile) {
+      try { writeJson(maintenanceFile, snapshot); } catch (error) { console.error('Maintenance state persist failed:', error?.message || 'unknown error'); }
+    }
+    io.emit('maintenance-state', snapshot);
+  }
+});
+// Provider-neutral seams are intentionally inert for the current single
+// process runtime. They make the PostgreSQL/Redis migration explicit without
+// changing any socket payload or introducing a second room authority.
+const authoritativeStore = createAuthoritativeStore({
+  filePath: dataDirectory ? path.join(dataDirectory, 'rooms.json') : ''
+});
+const pubsubAdapter = createPubSubAdapter();
+const maintenanceToken = String(process.env.POORUP_MAINTENANCE_TOKEN || '').trim();
+app.post('/internal/maintenance', express.json({ limit: '4kb' }), (req, res) => {
+  if (!maintenanceToken) return res.status(404).json({ success: false, error: 'Not found.' });
+  if (req.get('x-poorup-maintenance-token') !== maintenanceToken) {
+    return res.status(403).json({ success: false, error: 'Forbidden.' });
+  }
+  const mode = String(req.body?.mode || '').trim().toLowerCase();
+  if (mode === 'draining') {
+    const snapshot = maintenance.beginDrain({
+      releaseId: req.body?.releaseId,
+      deadline: req.body?.deadline,
+      message: req.body?.message
+    });
+    return res.status(200).json({ success: true, maintenance: snapshot });
+  }
+  if (mode === 'maintenance') {
+    const snapshot = maintenance.enterMaintenance({
+      releaseId: req.body?.releaseId,
+      message: req.body?.message
+    });
+    return res.status(200).json({ success: true, maintenance: snapshot });
+  }
+  if (mode === 'normal') {
+    return res.status(200).json({ success: true, maintenance: maintenance.finishMaintenance() });
+  }
+  return res.status(400).json({ success: false, error: 'Choose normal, draining, or maintenance.' });
+});
+app.get('/admin/analytics/summary', (req, res) => {
+  const sessionToken = req.get('x-poorup-session-token') || '';
+  const account = accountStore.sessionAccount(sessionToken);
+  const result = buildAnalyticsSummary(metrics, account?.id, adminAccountIds, req.query?.range);
+  return res.status(result.success ? 200 : result.status).json(result);
+});
 app.use(express.static(publicPath));
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ status: 'ok', service: 'poorup', releaseId: process.env.POORUP_RELEASE_ID || 'local' });
+});
+app.get('/readyz', (_req, res) => {
+  const snapshot = maintenance.snapshot();
+  const ready = snapshot.mode !== 'maintenance';
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ready' : 'draining',
+    acceptingNewRounds: snapshot.mode === 'normal',
+    activeRounds: snapshot.activeRounds,
+    releaseId: snapshot.releaseId || process.env.POORUP_RELEASE_ID || 'local'
+  });
+});
+app.get('/robots.txt', (_req, res) => res.type('text').send('User-agent: *\nAllow: /\nDisallow: /admin/\n'));
+const SPA_PATHS = new Set(['/', '/play', '/rooms', '/profile', '/rankings', '/social', '/rules', '/admin/analytics']);
+function isStaticRequest(requestPath) {
+  return requestPath.startsWith('/assets/')
+    || requestPath.startsWith('/themes/')
+    || requestPath.startsWith('/client')
+    || requestPath === '/styles.css'
+    || requestPath === '/favicon.svg';
+}
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/socket.io')) return next();
+  if (!SPA_PATHS.has(req.path) || isStaticRequest(req.path)) return next();
   res.sendFile(path.join(publicPath, 'index.html'), err => {
     if (err) next(err);
   });
 });
-app.use((_req, res) => res.status(404).type('text').send('Not found.'));
+function errorPage(title, message) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Poorup</title><style>body{margin:0;background:#01070a;color:#f0d9ac;font:16px monospace;display:grid;place-items:center;min-height:100vh}main{border:1px solid #c88f2e;padding:32px;max-width:560px}a{color:#f0d9ac}</style></head><body><main><p>POORUP · AFTER-HOURS PARLOR</p><h1>${title}</h1><p>${message}</p><a href="/">Return to the parlor</a></main></body></html>`;
+}
+app.use((_req, res) => res.status(404).type('html').send(errorPage('404 · Table not found', 'That route is not part of this parlor.')));
 app.use((error, _req, res, _next) => {
   console.error('HTTP request failed:', error?.message || 'unknown error');
-  res.status(500).type('text').send('The parlor is temporarily unavailable.');
+  res.status(500).type('html').send(errorPage('500 · Parlor unavailable', 'The table is temporarily offline. Try again shortly.'));
 });
 
-const roomManager = new RoomManager();
 const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
 const allStorePaths = { ...storePaths, ...auxiliaryStorePaths };
@@ -103,7 +193,7 @@ if (backupDirectory) {
 const botAdvisor = createBotAdvisor();
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore });
-const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social });
+const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter });
 
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
@@ -113,10 +203,15 @@ io.on('connection', (socket) => {
   registerAccountSocketHandlers(on, socket, runtime);
   registerGameSocketHandlers(on, socket, runtime);
   registerSocialSocketHandlers(on, socket, runtime);
+  socket.emit('maintenance-state', maintenance.snapshot());
+  metrics.setMetric('active-sockets', io.sockets.sockets.size, { scope: 'all' });
+  metrics.setMetric('active-rooms', roomManager.rooms.size, { scope: 'all' });
+  metrics.setMetric('active-rounds', maintenance.activeRoundCount(), { scope: 'all' });
 
   socket.on('disconnect', () => {
     socketRateLimiter.forget(socket.id);
     runtime.handleSocketDisconnect(socket);
+    metrics.setMetric('active-sockets', io.sockets.sockets.size, { scope: 'all' });
   });
 });
 
@@ -125,6 +220,44 @@ server.listen(PORT, () => {
   console.log('✅ Server is running!');
   console.log('👉 Visit http://localhost:' + PORT);
 });
+
+let shutdownStarted = false;
+function shutdownDeadline() {
+  const drainMs = Math.max(1_000, Math.min(15 * 60_000, Number(process.env.POORUP_SHUTDOWN_DRAIN_MS) || 30_000));
+  return Date.now() + drainMs;
+}
+
+function closeServerResources() {
+  maintenance.dispose();
+  pubsubAdapter.close?.();
+  io.close(() => server.close(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 2_000).unref?.();
+}
+
+function waitForDrain(deadline) {
+  const check = setInterval(() => {
+    const drained = maintenance.activeRoundCount() === 0;
+    if (!drained && Date.now() < deadline) return;
+    clearInterval(check);
+    closeServerResources();
+  }, 250);
+  check.unref?.();
+}
+
+function gracefulShutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  const deadline = shutdownDeadline();
+  maintenance.beginDrain({
+    releaseId: process.env.POORUP_RELEASE_ID || 'shutdown',
+    deadline,
+    message: `${signal} · SERVER RESTARTING`
+  });
+  waitForDrain(deadline);
+}
+
+process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.once('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Last-resort crash guards. Every known throw site is caught at its seam
 // (handler scaffold, bot timer try/catch). If an unknown exception still
