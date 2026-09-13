@@ -34,15 +34,13 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('[data-home-signal=sync]')).toHaveAttribute('aria-label', /live room directory/i);
   });
 
-  test('create table exposes preset and board choices', async ({ page }) => {
+  test('create table keeps board selection in the host lobby', async ({ page }) => {
     await page.goto('/');
     await page.locator('#open-create-btn').click();
     await expect(page.locator('#rc-ruleset-preset')).toHaveValue('classic');
-    await expect(page.locator('#rc-board-variant')).toHaveValue('standard-40');
+    await expect(page.locator('#rc-board-variant')).toHaveCount(0);
     await page.locator('#rc-ruleset-preset').selectOption('after-hours');
-    await page.locator('#rc-board-variant').selectOption('metro-52');
     await expect(page.locator('#rc-ruleset-preset')).toHaveValue('after-hours');
-    await expect(page.locator('#rc-board-variant')).toHaveValue('metro-52');
     await page.keyboard.press('Escape');
     await expect(page.locator('#rooms-modal')).toHaveClass(/is-hidden/);
   });
@@ -143,6 +141,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.locator('#su-start').click();
     await expect(page.locator('#lobby-settings-body .lobby-player-row')).toHaveCount(1);
     await expect(page.locator('#lobby-settings-body .lobby-host-badge')).toHaveCount(1);
+    await expect(page.locator('#lobby-settings-body [data-setting="boardVariant"]')).toHaveValue('standard-40');
     await expect(page.locator('#lobby-settings-body .lobby-player-row')).not.toContainText('BOT');
     await expect(page.locator('#focus-btn')).toHaveCount(0);
     const shell = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight, width: window.innerWidth, height: window.innerHeight }));
