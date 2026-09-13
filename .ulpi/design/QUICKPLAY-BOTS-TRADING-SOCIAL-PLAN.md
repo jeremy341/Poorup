@@ -1,7 +1,8 @@
 # Quick Play, Solo Bots, Trade Value, and Friends Plan
 
-Status: planning only. No gameplay source changes are authorized by this
-document.
+Status: implemented first release. Quick Table, server-side bots, trade value
+projections, and account-backed social flows are live; rollout evaluation and
+balance work remain follow-ups.
 
 ## Scope decisions
 
