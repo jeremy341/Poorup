@@ -4,6 +4,7 @@
       <path fill="#a5b8ba" d="M0 9h64v90H0z"/>
       <path fill="#e4dcc0" d="M0 9h47v90H0z"/>
       <path fill="#f7f3dd" d="M0 3h64v6H0zm4-3h56v3H4zM0 32h47v3H0zm0 30h47v3H0z"/>
+      <path fill="#f7f3dd" d="M63 3h1v96H63z"/>
       <path fill="#6b8d9a" d="M7 15h8v12H7zm15 0h8v12h-8zm15 0h8v12h-8zm16 0h5v12h-5zM7 41h8v13H7zm15 0h8v13h-8zm15 0h8v13h-8zm16 0h5v13h-5zM7 71h8v13H7zm15 0h8v13h-8zm15 0h8v13h-8zm16 0h5v13h-5z"/>
       <path fill="#c2dce0" d="M8 16h5v2H8zm15 0h5v2h-5zm15 0h5v2h-5zm-30 26h5v2H8zm15 0h5v2h-5zm15 0h5v2h-5z"/>
     </g>
@@ -17,7 +18,7 @@
   <path fill="#b9e4e8" d="M0 0h640v360H0z"/>
   <path fill="#d5ece7" d="M0 181h640v109H0z"/>
   <!-- Airy civic blocks: warm facades, cool right-facing walls. -->
-  <path fill="#a5b8ba" d="M0 274V206h20v-17h22v69h12v-37h20v-49h27v86h14v-42h29v-25h24v67h16v-70h33v70h16v-34h30v-44h25v78h17v-61h32v61h17v-40h31v-32h29v72h15v-65h34v65h17v-39h29v-41h29v80h16v-67h34v67h15v-40h28v56z"/>
+  <path fill="#a5b8ba" d="M0 307V206h20v-17h22v69h12v-37h20v-49h27v86h14v-42h29v-25h24v67h16v-70h33v70h16v-34h30v-44h25v78h17v-61h32v61h17v-40h31v-32h29v72h15v-65h34v65h17v-39h29v-41h29v80h16v-67h34v67h15v-40h28v89z"/>
   <path fill="#c2dce0" d="M6 212h5v8H6zm0 17h5v8H6zm22-32h5v8h-5zm52-15h5v8h-5zm11 0h5v8h-5zm-11 17h5v8h-5zm11 0h5v8h-5zm102-2h5v8h-5zm12 0h5v8h-5zm66-8h5v8h-5zm49 17h5v8h-5zm77-10h5v8h-5zm43 7h5v8h-5zm77-15h5v8h-5zm50 15h5v8h-5z"/>
   <use href="#civic" x="12" y="222"/><use href="#civic" x="86" y="207"/>
   <use href="#civic" x="160" y="231"/><use href="#civic" x="231" y="213"/>

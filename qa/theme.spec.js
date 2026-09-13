@@ -62,13 +62,25 @@ test.describe("Poorup seasonal worlds", () => {
         await expect(page.locator("#theme-home-world .theme-petal-a")).toHaveCount(1);
         await expect(page.locator("#theme-home-world .theme-petal-b")).toHaveCount(1);
       }
+      if (id === "autumn") {
+        await expect(page.locator("#theme-home-world .theme-leaves-a")).toHaveCount(1);
+        await expect(page.locator("#theme-home-world .theme-leaves-b")).toHaveCount(1);
+      }
+      if (id === "winter") {
+        await expect(page.locator("#theme-home-world .theme-snow-a")).toHaveCount(1);
+        await expect(page.locator("#theme-home-world .theme-snow-b")).toHaveCount(1);
+      }
       if (id === "light") {
         await expect(page.locator("#theme-home-world .theme-pedestrian-band")).toHaveCount(2);
       }
       expect(await preferencesGeometry()).toEqual(baseline);
     }
     await page.locator('[data-theme-choice="original"]').click();
-    await expect(page.locator("#theme-home-world")).toBeEmpty();
+    await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
+    await expect(page.locator("#theme-home-world .theme-prop-fog")).toHaveCount(2);
+    await expect(page.locator("#theme-page-world")).toBeEmpty();
+    await expect(page.locator("#theme-board-world")).toBeEmpty();
+    await expect(page.locator("#view-home .home-house-drift")).toHaveCSS("opacity", "0.5");
   });
 
   test("persists a sanitized preference and synchronizes another tab", async ({ page, context }) => {
@@ -86,9 +98,17 @@ test.describe("Poorup seasonal worlds", () => {
   test("freezes petals and pedestrians when reduced motion is requested", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openThemeChooser(page);
+    const originalFogMotion = await page.locator("#theme-home-world .theme-fog-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(originalFogMotion).toBe("none");
     await page.locator('[data-theme-choice="spring"]').click();
     const petalMotion = await page.locator("#theme-home-world .theme-petal-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(petalMotion).toBe("none");
+    await page.locator('[data-theme-choice="autumn"]').click();
+    const leavesMotion = await page.locator("#theme-home-world .theme-leaves-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(leavesMotion).toBe("none");
+    await page.locator('[data-theme-choice="winter"]').click();
+    const snowMotion = await page.locator("#theme-home-world .theme-snow-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(snowMotion).toBe("none");
     await page.locator("#profile-back-btn").click();
     await page.locator("#home-profile-tab").click();
     await page.locator("#profile-tab-account").click();
