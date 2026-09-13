@@ -176,7 +176,13 @@ async function run() {
     check('no uncaught exception was logged', !serverLog.includes('UNCAUGHT EXCEPTION'));
   } finally {
     if (socket) socket.close();
-    child.kill();
+    if (child.exitCode === null) {
+      child.kill();
+      await Promise.race([
+        new Promise(resolve => child.once('exit', resolve)),
+        new Promise(resolve => setTimeout(resolve, 3000))
+      ]);
+    }
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }

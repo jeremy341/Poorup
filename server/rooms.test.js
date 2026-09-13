@@ -97,7 +97,13 @@ async function withServer(runScenarios) {
     await runScenarios(ctx);
   } finally {
     for (const socket of ctx.clientSockets) socket.close();
-    child.kill();
+    if (child.exitCode === null) {
+      child.kill();
+      await Promise.race([
+        new Promise(resolve => child.once('exit', resolve)),
+        new Promise(resolve => setTimeout(resolve, 3000))
+      ]);
+    }
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }
