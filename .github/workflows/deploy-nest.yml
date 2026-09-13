@@ -1,0 +1,58 @@
+name: Deploy Nest
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-nest
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    environment: nest-production
+    steps:
+      - name: Check out the verified main SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Create immutable release archive
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: tar --exclude=.git --exclude=node_modules --exclude=server/data --exclude=coverage --exclude=qa-artifacts -czf "poorup-$RELEASE_SHA.tgz" .
+
+      - name: Configure SSH
+        env:
+          NEST_DEPLOY_KEY: ${{ secrets.NEST_DEPLOY_KEY }}
+          NEST_KNOWN_HOSTS: ${{ secrets.NEST_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$NEST_DEPLOY_KEY" > "$HOME/.ssh/poorup_deploy"
+          chmod 600 "$HOME/.ssh/poorup_deploy"
+          printf '%s\n' "$NEST_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+
+      - name: Upload release archive
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          NEST_HOST: ${{ secrets.NEST_HOST }}
+          NEST_USER: ${{ secrets.NEST_USER }}
+        run: scp -i "$HOME/.ssh/poorup_deploy" "poorup-$RELEASE_SHA.tgz" "$NEST_USER@$NEST_HOST:/tmp/poorup-$RELEASE_SHA.tgz"
+
+      - name: Drain and deploy
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          NEST_HOST: ${{ secrets.NEST_HOST }}
+          NEST_USER: ${{ secrets.NEST_USER }}
+          MAINTENANCE_TOKEN: ${{ secrets.POORUP_MAINTENANCE_TOKEN }}
+        run: ssh -i "$HOME/.ssh/poorup_deploy" "$NEST_USER@$NEST_HOST" "RELEASE_SHA=$RELEASE_SHA RELEASE_ARCHIVE=/tmp/poorup-$RELEASE_SHA.tgz APP_ROOT=/srv/poorup MAINTENANCE_URL=http://127.0.0.1:8080/internal/maintenance HEALTH_URL=http://127.0.0.1:8080/healthz READY_URL=http://127.0.0.1:8080/readyz MAINTENANCE_TOKEN=$MAINTENANCE_TOKEN bash -s" < scripts/deploy-nest.sh

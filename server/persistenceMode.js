@@ -6,11 +6,12 @@ function horizontalScaleRequested(env) {
 }
 
 function postgresConfigured(env) {
-  return Boolean(String(env?.POORUP_POSTGRES_URL || '').trim());
+  return Boolean(String(env?.POORUP_POSTGRES_URL || '').trim())
+    && String(env?.POORUP_PERSISTENCE_ADAPTER || '').trim().toLowerCase() === 'postgres';
 }
 
 function persistenceError(requested, configured) {
-  if (requested && !configured) return 'Horizontal scaling requires POORUP_POSTGRES_URL and the transactional store migration.';
+  if (requested && !configured) return 'Horizontal scaling requires POORUP_POSTGRES_URL plus POORUP_PERSISTENCE_ADAPTER=postgres and the transactional store migration.';
   return null;
 }
 
