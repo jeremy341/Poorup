@@ -30,6 +30,11 @@ function themeSceneForSurface(theme, surface) {
   return theme.scene;
 }
 
+export function themePreviewScene(themeOrId) {
+  const theme = typeof themeOrId === "string" ? getTheme(themeOrId) : themeOrId || getTheme();
+  return themeSceneForSurface(theme, "home") || "/favicon.svg";
+}
+
 function themePropsForSurface(theme, surface) {
   if (surface === "page") return {};
   if (surface === "home" && theme.homeProps) return { ...(theme.props || {}), ...theme.homeProps };

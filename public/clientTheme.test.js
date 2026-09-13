@@ -9,7 +9,7 @@ import {
   sanitizeThemeId,
   themeOptions,
 } from "./clientThemeData.js";
-import { themeSceneMarkup } from "./clientThemeRender.js";
+import { themePreviewScene, themeSceneMarkup } from "./clientThemeRender.js";
 
 const expectedIds = ["original", "spring", "summer", "autumn", "winter", "light"];
 const root = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +33,20 @@ check("registry is immutable and exposes six choices", () => {
   assert.equal(themeOptions().length, 6);
   assert.equal(getTheme("original").id, "original");
   assert.equal(getTheme("winter").name, "Winter / Frostline Ledger");
+});
+
+check("selector previews resolve each theme's home scene", () => {
+  const expectedPreviewScenes = {
+    original: "/assets/themes/original/scene.svg",
+    spring: "/assets/themes/spring/scene.svg",
+    summer: "/assets/themes/summer/scene.svg",
+    autumn: "/assets/themes/autumn/scene.svg",
+    winter: "/assets/themes/winter/scene.svg",
+    light: "/assets/themes/light/scene.svg",
+  };
+  for (const [id, expectedPath] of Object.entries(expectedPreviewScenes)) {
+    assert.equal(themePreviewScene(id), expectedPath, `${id} selector preview`);
+  }
 });
 
 check("original keeps its UI tokens while exposing a home-only city world", () => {
