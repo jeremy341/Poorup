@@ -132,9 +132,22 @@ async function privateCodeReservation(ctx) {
 }
 
 async function capacityAndRejoin(ctx) {
-  ctx.check('create-room public acks a null room code and public visibility',
-    ackEquals(await ctx.ask(ctx.host, 'create-room', { clientId: 'c1', nickname: 'Host One', visibility: 'garbage' }),
-      { success: true, roomCode: null, visibility: 'public' }));
+  const publicAck = await ctx.ask(ctx.host, 'create-room', {
+    clientId: 'c1', nickname: 'Host One', visibility: 'garbage', requestId: 'public-create-1'
+  });
+  ctx.check('create-room public returns authoritative creation metadata',
+    publicAck?.success === true
+      && publicAck.roomCode === null
+      && publicAck.visibility === 'public'
+      && publicAck.created === true
+      && typeof publicAck.hostId === 'string'
+      && typeof publicAck.playerId === 'string'
+      && publicAck.bots === 0
+      && publicAck.requestId === 'public-create-1');
+  ctx.check('duplicate create request replays the original room acknowledgement',
+    ackEquals(await ctx.ask(ctx.host, 'create-room', {
+      clientId: 'c1', nickname: 'Host One', visibility: 'garbage', requestId: 'public-create-1'
+    }), publicAck));
   ctx.publicJoiner = await ctx.open();
   const directory = await ctx.ask(ctx.publicJoiner, 'list-rooms', {});
   const publicListing = directory.rooms.find(room => room.visibility === 'public');
