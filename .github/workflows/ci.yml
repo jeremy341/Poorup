@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development, testing]
   push:
-    branches: [main]
+    branches: [main, development, testing]
 
 jobs:
   test:
@@ -21,8 +21,8 @@ jobs:
         run: npm audit --omit=dev --audit-level=moderate
       - run: npm run lint
       - run: npm run lint:client
-      - name: Full contract and integration suite
-        run: npm test
+      - name: Full contract, integration, and operations suite
+        run: npm run test:full
       - run: npm run coverage
       - name: Server wire tests (handler scaffold)
         run: node server/server.test.js
@@ -57,6 +57,8 @@ jobs:
             sleep 0.5
           done
           curl -fsS localhost:8099/ | grep -qi poorup
+          curl -fsS localhost:8099/healthz | grep -q '"status":"ok"'
+          curl -fsS localhost:8099/readyz | grep -q '"status":"ready"'
           kill $SERVER_PID
 
   browser:
