@@ -6,15 +6,17 @@
 - Server: Node >= 22, Express + Socket.IO (`server/server.js` handlers,
   `server/gameLogic.js` rules engine, `accountStore/achievementStore/matchStore/
   socialStore/botAdvisor`). State is in-memory Maps — there is NO database.
-- Client `public/main.js` (~8.4k lines) is a single-file SPA. `:root` in
-  `styles.css` holds all design tokens; raw hex outside `:root` is a violation.
+- Client is a vanilla ESM shell: `public/main.js` coordinates focused
+  `client*.js` modules, while `:root` in `styles.css` holds the design tokens.
+  Keep UI changes in the smallest relevant module and treat raw hex outside
+  the token layer as a review finding.
 - Conventions: double quotes in JS, minimal diffs, no new dependencies without
   an explicit decision.
-- Tests: `npm test` (custom node:assert contract harness in
-  `server/gameLogic.test.js`, ~64% coverage under `npm run coverage`).
-  Server-side only; no client tests exist.
-- Lint: ESLint flat config scoped to `server/` only (`npm run lint`).
-  `public/` is deliberately unlinted legacy for now.
+- Tests: `npm test` (custom node:assert contract harness plus client UX
+  contracts, with `npm run test:audit` for focused audit suites); browser
+  coverage is `npm run test:browser` and coverage is `npm run coverage`.
+- Lint: ESLint flat config covers both server and client (`npm run lint` and
+  `npm run lint:client`).
 
 ## Review priorities (bugs first, taste last)
 1. Game-state correctness: `gameLogic.js` is the single source of truth; the

@@ -11,7 +11,10 @@ player away from the current round.
 This plan is a companion to
 `NEW-GAME-SYSTEMS-PLAN.md`. It covers the Finance/holdings rail, the Cash HUD
 entry point, item access, market/casino workspaces, and the modal state model.
-It is a plan only. No production UI code is changed by this document.
+
+> **Status (2026-09-11).** The rail, wallet, modal, and panel-control slices
+> are implemented. Use the current UX audit for remaining browser follow-up;
+> the design decisions below remain the product contract.
 
 ## Product read and design direction
 
