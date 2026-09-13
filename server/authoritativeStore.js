@@ -57,14 +57,20 @@ function staleDeleteResult(id, current, version) {
   return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
 }
 
+function normalizedRowEntry(entry) {
+  const [roomId, row] = entry;
+  const id = safeRoomId(roomId);
+  const version = safeVersion(row?.version);
+  const snapshot = cloneSnapshot(row?.snapshot);
+  return id && version !== null && snapshot !== null ? [id, { version, snapshot }] : null;
+}
+
 function rowsFromObject(value) {
   const rows = new Map();
-  Object.entries(value && typeof value === 'object' ? value : {}).forEach(([roomId, row]) => {
-    const id = safeRoomId(roomId);
-    const version = safeVersion(row?.version);
-    const snapshot = cloneSnapshot(row?.snapshot);
-    if (id && version !== null && snapshot !== null) rows.set(id, { version, snapshot });
-  });
+  Object.entries(value && typeof value === 'object' ? value : {})
+    .map(normalizedRowEntry)
+    .filter(Boolean)
+    .forEach(([id, row]) => rows.set(id, row));
   return rows;
 }
 

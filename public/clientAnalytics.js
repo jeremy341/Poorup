@@ -41,9 +41,13 @@ function isMetricRecord(value) {
   return Object.prototype.toString.call(value) === '[object Object]';
 }
 
+function allowedMetricEntry([name]) {
+  return ALLOWED_METRICS.has(name);
+}
+
 function metricEntries(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
-  return Object.entries(value).filter(([name]) => ALLOWED_METRICS.has(name));
+  if (!isMetricRecord(value)) return [];
+  return Object.entries(value).filter(allowedMetricEntry);
 }
 
 function cleanMetricEntry(value) {
