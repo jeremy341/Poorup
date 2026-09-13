@@ -304,24 +304,28 @@ function updateServerSetting(key, value) {
   state.settings[key] = value;
   const serverKey = SERVER_SETTING_KEYS[key];
   if (!serverKey) return;
-  emitServer("set-setting", { key: serverKey, value }, (settingResult) => {
-    if (settingResult?.success !== false) return;
-    // The lobby renders optimistically for a snappy control. A rejected
-    // server mutation must not leave a value that never became authoritative
-    // on screen. If the same key was changed again while this request was in
-    // flight, the newer value wins and this stale rejection is ignored.
-    if (!Object.is(state.settings[key], value)) return;
-    state.settings[key] = previousSettings[key];
-    if (["rulesetPreset", "rulesetBase", "rulesetOverrides"].includes(key)) {
-      state.settings.rulesetPreset = previousSettings.rulesetPreset;
-      state.settings.rulesetBase = previousSettings.rulesetBase;
-      state.settings.rulesetOverrides = previousSettings.rulesetOverrides;
-      state.ruleset = previousRuleset;
-    }
-    if (key === "boardVariant") state.boardVariant = previousBoardVariant;
-    parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.");
-    renderLobbyRail();
-  });
+  const context = { key, value, previousSettings, previousRuleset, previousBoardVariant };
+  emitServer("set-setting", { key: serverKey, value }, (settingResult) => handleSettingResult(settingResult, context));
+}
+
+function handleSettingResult(settingResult, context) {
+  if (settingResult?.success !== false) return;
+  if (!Object.is(state.settings[context.key], context.value)) return;
+  restoreRejectedServerSetting(context.key, context.previousSettings, context.previousRuleset, context.previousBoardVariant);
+  parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.");
+  renderLobbyRail();
+}
+
+function restoreRejectedServerSetting(key, previousSettings, previousRuleset, previousBoardVariant) {
+  state.settings[key] = previousSettings[key];
+  const rulesetKey = ["rulesetPreset", "rulesetBase", "rulesetOverrides"].includes(key);
+  if (rulesetKey) {
+    state.settings.rulesetPreset = previousSettings.rulesetPreset;
+    state.settings.rulesetBase = previousSettings.rulesetBase;
+    state.settings.rulesetOverrides = previousSettings.rulesetOverrides;
+    state.ruleset = previousRuleset;
+  }
+  if (key === "boardVariant") state.boardVariant = previousBoardVariant;
 }
 
 /* Host callbacks that keep DOM, timers, and rendering owned by main.js while

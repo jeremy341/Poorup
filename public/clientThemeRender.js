@@ -23,8 +23,6 @@ function reducedMotion() {
   return motionQuery.matches;
 }
 
-export function configureThemeRender() { /* reserved seam for visual tests */ }
-
 function themeSceneForSurface(theme, surface) {
   if (surface === "home" && theme.homeScene) return theme.homeScene;
   return theme.scene;
@@ -41,30 +39,46 @@ function themePropsForSurface(theme, surface) {
   return theme.props || {};
 }
 
+const REPEATING_PROP_CLASSES = Object.freeze({
+  clouds: ["theme-cloud-a", "theme-cloud-b"],
+  petals: ["theme-petal-a", "theme-petal-b"],
+  snow: ["theme-snow-a", "theme-snow-b"],
+  leaves: ["theme-leaves-a", "theme-leaves-b"],
+  fog: ["theme-fog-a", "theme-fog-b"],
+});
+
+function imageMarkup(theme, slot, path, extraClass = "") {
+  const weatherClass = slot === "weather" ? ` theme-prop-weather-${theme.motion.weather}` : "";
+  return `<img class="theme-prop theme-prop-${slot}${weatherClass}${extraClass}" src="${escAttr(path)}" alt="" aria-hidden="true" width="640" height="360">`;
+}
+
+function repeatedPropMarkup(theme, slot, path) {
+  return REPEATING_PROP_CLASSES[slot]
+    .map(className => imageMarkup(theme, slot, path, ` ${className}`))
+    .join("");
+}
+
+function pedestrianMarkup(theme, path) {
+  const poseA = imageMarkup(theme, "pedestrians", path.poseA, " theme-pedestrian-pose theme-pedestrian-pose-a");
+  const poseB = imageMarkup(theme, "pedestrians", path.poseB, " theme-pedestrian-pose theme-pedestrian-pose-b");
+  return `<span class="theme-prop theme-pedestrian-band theme-pedestrian-a" aria-hidden="true">${poseA}${poseB}</span><span class="theme-prop theme-pedestrian-band theme-pedestrian-b" aria-hidden="true">${poseA}${poseB}</span>`;
+}
+
+function propMarkup(theme, surface, [slot, path]) {
+  if (REPEATING_PROP_CLASSES[slot]) return repeatedPropMarkup(theme, slot, path);
+  if (slot === "pedestrians") return surface === "home" ? pedestrianMarkup(theme, path) : "";
+  return imageMarkup(theme, slot, path);
+}
+
 export function themeSceneMarkup(themeOrId, surface = "page") {
   const theme = typeof themeOrId === "string" ? getTheme(themeOrId) : themeOrId || getTheme();
   const safeSurface = surface === "home" || surface === "board" ? surface : "page";
   const scene = themeSceneForSurface(theme, safeSurface);
   if (!scene) return "";
-  const imageMarkup = (slot, path, extraClass = "") => {
-    const weatherClass = slot === "weather" ? ` theme-prop-weather-${theme.motion.weather}` : "";
-    return `<img class="theme-prop theme-prop-${slot}${weatherClass}${extraClass}" src="${escAttr(path)}" alt="" aria-hidden="true" width="640" height="360">`;
-  };
-  const propMarkup = Object.entries(themePropsForSurface(theme, safeSurface)).map(([slot, path]) => {
-    if (slot === "clouds") return imageMarkup(slot, path, " theme-cloud-a") + imageMarkup(slot, path, " theme-cloud-b");
-    if (slot === "petals") return imageMarkup(slot, path, " theme-petal-a") + imageMarkup(slot, path, " theme-petal-b");
-    if (slot === "snow") return imageMarkup(slot, path, " theme-snow-a") + imageMarkup(slot, path, " theme-snow-b");
-    if (slot === "leaves") return imageMarkup(slot, path, " theme-leaves-a") + imageMarkup(slot, path, " theme-leaves-b");
-    if (slot === "fog") return imageMarkup(slot, path, " theme-fog-a") + imageMarkup(slot, path, " theme-fog-b");
-    if (slot === "pedestrians" && safeSurface === "home") {
-      const poseA = imageMarkup(slot, path.poseA, " theme-pedestrian-pose theme-pedestrian-pose-a");
-      const poseB = imageMarkup(slot, path.poseB, " theme-pedestrian-pose theme-pedestrian-pose-b");
-      return `<span class="theme-prop theme-pedestrian-band theme-pedestrian-a" aria-hidden="true">${poseA}${poseB}</span><span class="theme-prop theme-pedestrian-band theme-pedestrian-b" aria-hidden="true">${poseA}${poseB}</span>`;
-    }
-    if (slot === "pedestrians") return "";
-    return imageMarkup(slot, path);
-  }).join("");
-  return `<img class="theme-scene" src="${escAttr(scene)}" alt="" aria-hidden="true" width="640" height="360">${propMarkup}`;
+  const propMarkupHTML = Object.entries(themePropsForSurface(theme, safeSurface))
+    .map(entry => propMarkup(theme, safeSurface, entry))
+    .join("");
+  return `<img class="theme-scene" src="${escAttr(scene)}" alt="" aria-hidden="true" width="640" height="360">${propMarkupHTML}`;
 }
 
 function skylineMarkup(data, palette = DEFAULT_SKYLINE) {
@@ -126,13 +140,19 @@ function renderLayer(selector, theme, surface, animate) {
 }
 
 function beginTransition(animate) {
-  if (!animate || reducedMotion() || !document.body) return;
+  if (!transitionAllowed(animate)) return;
   document.body.dataset.themeTransition = "in";
   if (transitionTimer) clearTimeout(transitionTimer);
   transitionTimer = setTimeout(() => {
     delete document.body.dataset.themeTransition;
     transitionTimer = null;
   }, 320);
+}
+
+function transitionAllowed(animate) {
+  if (!animate) return false;
+  if (reducedMotion()) return false;
+  return Boolean(document.body);
 }
 
 export function renderThemeScene(themeId, surface = "page", options = {}) {

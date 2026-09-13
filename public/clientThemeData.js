@@ -191,7 +191,8 @@ const THEMES = [
 ];
 
 function deepFreeze(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  if (Object(value) !== value) return value;
+  if (Object.isFrozen(value)) return value;
   Object.values(value).forEach(deepFreeze);
   return Object.freeze(value);
 }
