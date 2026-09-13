@@ -2,69 +2,66 @@
 
 ## Gate result
 
-**NO-GO / BLOCKED.** The CodeScene gate could not produce an analysis because `CS_ACCESS_TOKEN` is unavailable and OAuth is not signed in. The static fallback found no P0/P1 correctness defect, but it does not substitute for the required CodeScene results. Rerun both CodeScene commands with valid authentication before merging.
+**GO for code health, with documented P2 maintainability follow-ups.** The
+authenticated CodeScene delta and scoped file reviews completed successfully
+after the audit-fix commits. No P0 or P1 CodeScene issue was reported. The
+remaining warnings are complexity/size signals in existing modular-monolith
+surfaces and test harnesses; they are not correctness blockers and should be
+handled in feature-owned extraction PRs.
 
-Scope: `codex/theme-reset` at `1bf4e1a`, compared with `origin/main`. Review was read-only except for this report. The working tree was not clean when reviewed (including modifications to the new theme files and deletion of two light-theme pose assets), so line references below describe the reviewed working tree while branch-change inventory came from `origin/main...HEAD`.
+Scope: `codex/theme-reset` after the audit-fix commits, compared with
+`origin/main`. The token was used only in the process environment and is not
+stored in this report.
 
-## Command evidence
+## Authenticated command evidence
 
 | Check | Result | Evidence |
 |---|---:|---|
-| `CS_ACCESS_TOKEN` presence | blocked | Environment variable was missing; its value was never printed. |
-| `cs version` | exit 0 | `cs version 1.0.40 (8a7257420cc2dec1cf6ff7866db4da8c58f67602)`, built 2026-09-03. CLI reported 1.0.41 available. |
-| `cs auth status` | exit 1 | Target `https://api.codescene.io`; OAuth not signed in. |
-| `cs delta origin/main --include-metadata --output-format json --pretty` | exit 1 | Refused analysis because a Personal Access Token is required. No CodeScene delta JSON was produced. |
-| `cs review public/clientTheme.js` | exit 1 | Refused analysis because a Personal Access Token is required. No CodeScene file review was produced. |
+| `cs version` | exit 0 | CodeScene CLI 1.0.40. |
+| `cs delta origin/main --include-metadata --output-format json --pretty` | exit 0 | `issues-found`; 139 modified files, 61 CodeScene-eligible files checked. |
+| `cs review server/serverSocketAccount.js` | exit 0 | Score 8.60; remaining complex methods are existing room/account orchestration. |
+| `cs review public/clientLobbyUi.js` | exit 0 | Score 9.44 after the replay/selection refactors. |
+| `cs review public/clientGameModalsUi.js` | exit 0 | Score 9.68; `acceptTradeOffer` is at the threshold (CC 9). |
 | `git diff --check origin/main...HEAD` | exit 0 | No whitespace errors. |
-| `node public/clientTheme.test.js` | exit 0 | 6 passed, 0 failed. |
-| `node public/themeAssetAudit.test.js` | exit 0 | 32 passed, 0 failed. |
-| `npm run lint:client -- --no-error-on-unmatched-pattern` | exit 0 | Client ESLint completed without findings. |
+| `npm run lint` / `npm run lint:client` | exit 0 | Server and client lint clean. |
 
 ## Findings
 
-### P0 — none found
+### P0/P1 — none
 
-No critical architecture or data-integrity defect was identified in the bounded static review.
+The delta contained no critical or high-severity correctness, security, or
+data-integrity CodeScene finding. The separately verified server audit fixes
+cover the bot-capacity, purchase/auction roll guards, margin equity, room
+replay, and Double-GO paths.
 
-### P1 — none found
+### P2 — maintainability signals (non-blocking)
 
-No high-severity correctness or layering defect was identified in the bounded static review.
+- `public/clientSocialSurfaces.js`: `ledgerRowsHTML` CC12,
+  `renderSocialSurface` CC10, and `generatedLabel` conditional complexity.
+- `public/clientTradeUi.js`: 1,217 LOC / 169 functions and the existing
+  repayment path at CC11.
+- `public/clientLobbyUi.js`: `isOpenQuickTableRoom` CC11 and `enterParlor`
+  CC9; the snapshot and replay helpers were reduced and browser-tested.
+- `server/serverSocketAccount.js`: `handleCreateRoom` CC12 and existing
+  account/seat orchestration complexity; replay behavior is covered by 13
+  scenarios.
+- `server/economyApi.js`: existing market-operation duplication and CC17
+  snapshot path.
+- `public/clientThemeRender.js`, `public/clientTheme.js`, and
+  `public/clientLogDrawer.js`: existing presentation helpers above the
+  configured complexity threshold.
+- `server/rooms.test.js`: high-complexity integration helpers; test-only and
+  not shipped to clients.
 
-### P2 — theme token lifecycle has two manually synchronized sources of truth
+These should be extracted by responsibility (social presenters, trade
+repayment presenters, room-entry controller, market operation adapters) in
+follow-up PRs with characterization tests. A wholesale split would increase
+merge risk and is outside this audit-fix slice.
 
-Each non-default theme repeats a large CSS custom-property map in `public/clientThemeData.js:56`, `:86`, `:117`, `:147`, and `:180`. Separately, `clearThemeVariables()` hard-codes the removable token names in `public/clientThemeRender.js:102-116`, while `setThemeVariables()` applies the registry entries at `:122`.
+## Follow-up inventory
 
-There is no invariant test proving that every token emitted by every theme is cleared when switching back to `original`. A future token added only to the data registry can leak across theme changes. This is both duplication and a cross-module contract risk.
-
-Recommended action: derive the clear-set from the theme registry (or a single exported token schema), and test `custom theme -> original` plus `custom theme A -> custom theme B` for stale properties.
-
-### P2 — changed code continues growth in existing god modules
-
-The architecture validation threshold is 500 lines. Changed production files above that threshold include:
-
-- `public/clientLobbyUi.js` — 853 lines, with 161 additions / 33 deletions in the branch diff.
-- `public/clientSocialSurfaces.js` — 1,079 lines, with 124 additions / 18 deletions.
-- `public/clientTradeUi.js` — 1,299 lines, with 58 additions / 13 deletions.
-- `public/main.js` — 924 lines.
-- `server/accountStore.js` — 733 lines.
-- `server/gameLogic.js` — 1,025 lines.
-- `server/rooms.js` — 879 lines.
-- `server/socketRuntime.js` — 803 lines.
-
-This is not a newly introduced runtime failure, but additions to these broad modules increase change coupling and regression surface. Follow-up extraction should be by feature/responsibility, not by arbitrary line count.
-
-### P3 — dead exported seam
-
-`public/clientThemeRender.js:26` exports `configureThemeRender()` as an empty “reserved seam,” and no repository usage was found. It adds API surface without behavior or a present test need.
-
-Recommended action: remove it until a real second use exists, or implement and test the intended injection contract.
-
-## Static fallback coverage and limitations
-
-The fallback inspected the JavaScript change inventory, line-size hotspots, the three new theme modules, their focused tests, and theme integration points in `public/main.js`. It explicitly checked complexity, duplication, dead code, and contract risk. It was bounded and did not attempt a full browser suite, full server suite, dependency graph, or CodeScene behavioral-code-health analysis. Passing lint and focused tests therefore lowers syntax/regression risk but does not clear the merge gate.
-
-## Merge-gate exit criteria
-
-1. Provide valid `CS_ACCESS_TOKEN` or sign in with OAuth.
-2. Rerun the exact `cs delta` and `cs review` commands successfully and assess their findings.
-3. Reconcile the dirty working-tree theme changes/assets so the reviewed state is the state intended for merge.
+The remaining CodeScene warnings are recorded rather than hidden or disabled.
+They do not change runtime behavior, server authority, Socket.IO contracts,
+or the Poorup UI system. The branch is clean after the verified commits, and
+the full test, coverage, lint, and browser evidence is recorded in the
+pre-merge and QA reports.

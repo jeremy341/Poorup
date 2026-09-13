@@ -106,9 +106,13 @@ rather than a release blocker. No production code was changed by this review.
 
 ## Hosted CodeScene gate
 
-The local CodeScene CLI is installed (`cs version` reports 1.0.40), but both
-`cs delta origin/main` and `cs review <file>` exit before analysis when
-`CS_ACCESS_TOKEN` is absent. The exact environment check reported
-`CS_ACCESS_TOKEN missing`; no health score or hosted delta result is claimed.
-The branch is therefore locally verified and pre-merge reviewed, with the
-hosted CodeScene check intentionally left for the authenticated PR pipeline.
+The authenticated CodeScene CLI completed successfully after the fixes:
+
+- `cs delta origin/main --include-metadata --output-format json --pretty` — exit 0; 139 modified files and 61 eligible files checked.
+- `cs review server/serverSocketAccount.js` — exit 0, score 8.60.
+- `cs review public/clientLobbyUi.js` — exit 0, score 9.44 after the replay/selection refactors.
+- `cs review public/clientGameModalsUi.js` — exit 0, score 9.68.
+
+The delta reported no P0/P1 CodeScene issues. Remaining P2 complexity and
+size signals are documented in `docs/audit/codescene-premerge-2026-09-12.md`
+as follow-up extraction work, not hidden or disabled.
