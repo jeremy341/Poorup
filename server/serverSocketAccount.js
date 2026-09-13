@@ -241,15 +241,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const request = buildCreateRoomRequest(payload, account);
     const replayKey = requestId ? createRoomReplayKey(account, clientId, socket.id, requestId) : '';
     const fingerprint = requestId ? createRoomFingerprint(request, clientId) : '';
-    const replay = replayKey ? readCreateRoomReplay(replayKey) : null;
-    if (replay) {
-      if (replay.fingerprint !== fingerprint) {
-        return reply(callback, { success: false, error: 'That create-room request ID was already used with different details.' });
-      }
-      const replayRoom = roomManager.getRoom(replay.roomCode);
-      if (replayRoom) return restoreCreateRoomReplay(replayRoom, clientId, account, replay.ack, callback);
-      createRoomReplays.delete(replayKey);
-    }
+    if (tryReplayCreateRoom({ replayKey, fingerprint, clientId, account, callback })) return;
     if (request.accountId) socket.data.accountId = request.accountId;
     const validationError = validateCreateRoomRequest(request);
     if (validationError) return reply(callback, { success: false, error: validationError });
@@ -270,11 +262,27 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     runtime.scheduleRoomsUpdated();
   }
 
-  function restoreCreateRoomReplay(room, clientId, account, ack, callback) {
+  function tryReplayCreateRoom({ replayKey, fingerprint, clientId, account, callback }) {
+    const replay = replayKey ? readCreateRoomReplay(replayKey) : null;
+    if (!replay) return false;
+    if (replay.fingerprint !== fingerprint) {
+      reply(callback, { success: false, error: 'That create-room request ID was already used with different details.' });
+      return true;
+    }
+    const replayRoom = roomManager.getRoom(replay.roomCode);
+    if (!replayRoom) {
+      createRoomReplays.delete(replayKey);
+      return false;
+    }
+    restoreCreateRoomReplay({ room: replayRoom, clientId, account, ack: replay.ack, callback });
+    return true;
+  }
+
+  function restoreCreateRoomReplay({ room, clientId, account, ack, callback }) {
     const replayPlayer = room.game.getPlayerByClient(clientId);
     const mappedRoom = roomManager.getRoomBySocket(socket.id);
     if (mappedRoom !== room) {
-      if (replayPlayer?.socketId && replayPlayer.socketId !== socket.id && !replayPlayer.disconnected) {
+      if (seatIsLiveOnAnotherSocket(replayPlayer)) {
         return reply(callback, { success: false, error: 'That seat is already in use.' });
       }
       const restored = roomManager.restoreConnection(
@@ -291,6 +299,10 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     runtime.emitRoomState(room);
     runtime.emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
     reply(callback, ack);
+  }
+
+  function seatIsLiveOnAnotherSocket(player) {
+    return Boolean(player?.socketId && player.socketId !== socket.id && !player.disconnected);
   }
 
   function privateCodeConflict(request) {
