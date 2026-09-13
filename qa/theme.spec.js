@@ -31,6 +31,7 @@ test.describe("Poorup seasonal worlds", () => {
 
   test("applies a themed scene without changing the shell geometry", async ({ page }) => {
     await page.goto("/");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.locator("#home-profile-tab").click();
     await page.locator("#profile-tab-account").click();
     await page.locator("#theme-open-btn").click();
@@ -52,7 +53,18 @@ test.describe("Poorup seasonal worlds", () => {
       await expect(page.locator("body")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
-      await expect(page.locator("#theme-home-world .theme-prop-clouds")).toHaveCount(1);
+      await expect(page.locator("#theme-home-world .theme-prop-clouds")).toHaveCount(2);
+      const cloudMotion = await page.locator("#theme-home-world .theme-cloud-a").evaluate((element) => getComputedStyle(element).animationName);
+      const cloudReturn = await page.locator("#theme-home-world .theme-cloud-b").evaluate((element) => getComputedStyle(element).animationName);
+      expect(cloudMotion).toBe("theme-cloud-a-drift");
+      expect(cloudReturn).toBe("theme-cloud-b-drift");
+      if (id === "spring") {
+        await expect(page.locator("#theme-home-world .theme-petal-a")).toHaveCount(1);
+        await expect(page.locator("#theme-home-world .theme-petal-b")).toHaveCount(1);
+      }
+      if (id === "light") {
+        await expect(page.locator("#theme-home-world .theme-pedestrian-band")).toHaveCount(2);
+      }
       expect(await preferencesGeometry()).toEqual(baseline);
     }
     await page.locator('[data-theme-choice="original"]').click();
@@ -69,6 +81,21 @@ test.describe("Poorup seasonal worlds", () => {
     await page.evaluate(() => localStorage.setItem("poorup.theme.id.v2", "winter"));
     await expect(peer.locator("body")).toHaveAttribute("data-theme-id", "winter");
     await peer.close();
+  });
+
+  test("freezes petals and pedestrians when reduced motion is requested", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openThemeChooser(page);
+    await page.locator('[data-theme-choice="spring"]').click();
+    const petalMotion = await page.locator("#theme-home-world .theme-petal-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(petalMotion).toBe("none");
+    await page.locator("#profile-back-btn").click();
+    await page.locator("#home-profile-tab").click();
+    await page.locator("#profile-tab-account").click();
+    await page.locator("#theme-open-btn").click();
+    await page.locator('[data-theme-choice="light"]').click();
+    const pedestrianMotion = await page.locator("#theme-home-world .theme-pedestrian-a").evaluate((element) => getComputedStyle(element).animationName);
+    expect(pedestrianMotion).toBe("none");
   });
 
   test("keeps the chooser inside the viewport at desktop and phone widths", async ({ page }) => {
