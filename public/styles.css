@@ -138,6 +138,7 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
+  isolation: isolate;
   background: var(--bg-canvas);
   color: var(--text-primary);
   font-family: var(--font-ui);
@@ -263,20 +264,20 @@ a:focus-visible {
 .theme-prop-fog { opacity: 0.16; }
 .theme-prop-petals { inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.86; }
 .theme-petal-a,
-.theme-petal-b { will-change: transform; animation-duration: 14s; animation-timing-function: linear; animation-iteration-count: infinite; }
+.theme-petal-b { animation-duration: 14s; animation-timing-function: linear; animation-iteration-count: infinite; }
 .theme-petal-a { animation-name: theme-petal-a-fall; }
 .theme-petal-b { animation-name: theme-petal-b-fall; transform: translate3d(0, -100%, 0); }
 .theme-prop-snow { inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.9; }
 .theme-snow-a,
-.theme-snow-b { will-change: transform; animation-duration: 18s; animation-timing-function: linear; animation-iteration-count: infinite; }
+.theme-snow-b { animation-duration: 18s; animation-timing-function: linear; animation-iteration-count: infinite; }
 .theme-snow-a { animation-name: theme-snow-a-fall; }
 .theme-snow-b { animation-name: theme-snow-b-fall; transform: translate3d(0, -100%, 0); }
 .theme-prop-leaves { inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.9; }
 .theme-leaves-a,
-.theme-leaves-b { will-change: transform; animation-duration: 14s; animation-timing-function: linear; animation-iteration-count: infinite; }
+.theme-leaves-b { animation-duration: 14s; animation-timing-function: linear; animation-iteration-count: infinite; }
 .theme-leaves-a { animation-name: theme-leaves-a-fall; }
 .theme-leaves-b { animation-name: theme-leaves-b-fall; transform: translate3d(0, -100%, 0); }
-.theme-pedestrian-band { inset: 0; width: 100%; height: 100%; opacity: 1; will-change: transform; }
+.theme-pedestrian-band { inset: 0; width: 100%; height: 100%; opacity: 1; }
 .theme-pedestrian-a,
 .theme-pedestrian-b { animation-duration: 36s; animation-timing-function: linear; animation-iteration-count: infinite; }
 .theme-pedestrian-a { animation-name: theme-pedestrian-a-walk; }
@@ -286,11 +287,11 @@ a:focus-visible {
 .theme-pedestrian-pose-a { animation: theme-pedestrian-pose-a 360ms steps(2, end) infinite alternate; }
 .theme-pedestrian-pose-b { opacity: 0; animation: theme-pedestrian-pose-b 360ms steps(2, end) infinite alternate; }
 .theme-cloud-a,
-.theme-cloud-b { will-change: transform; animation-duration: 42s; animation-timing-function: linear; animation-iteration-count: infinite; }
+.theme-cloud-b { animation-duration: 42s; animation-timing-function: linear; animation-iteration-count: infinite; }
 .theme-cloud-a { animation-name: theme-cloud-a-drift; }
 .theme-cloud-b { animation-name: theme-cloud-b-drift; transform: translate3d(100%, 0, 0); }
 .theme-fog-a,
-.theme-fog-b { will-change: transform; animation-duration: 48s; animation-timing-function: linear; animation-iteration-count: infinite; }
+.theme-fog-b { animation-duration: 48s; animation-timing-function: linear; animation-iteration-count: infinite; }
 .theme-fog-a { animation-name: theme-fog-a-drift; }
 .theme-fog-b { animation-name: theme-fog-b-drift; transform: translate3d(-100%, 0, 0); }
 .theme-prop-weather-petal { animation: theme-petal-fall 11s steps(1, end) infinite; }
@@ -298,6 +299,22 @@ a:focus-visible {
 .theme-prop-weather-water { animation: theme-water-drift 14s steps(1, end) infinite alternate; opacity: 0.82; }
 .theme-prop-weather-cloud { animation: theme-cloud-drift 15s steps(1, end) infinite alternate; opacity: 0.68; }
 .theme-prop-accent { animation: theme-accent-drift 18s steps(1, end) infinite alternate; }
+@media (prefers-reduced-motion: no-preference) {
+  body:not(.theme-motion-paused) .view:not(.is-hidden) :is(
+    .theme-petal-a,
+    .theme-petal-b,
+    .theme-snow-a,
+    .theme-snow-b,
+    .theme-leaves-a,
+    .theme-leaves-b,
+    .theme-pedestrian-band,
+    .theme-cloud-a,
+    .theme-cloud-b,
+    .theme-fog-a,
+    .theme-fog-b,
+    .home-house-drift-track
+  ) { will-change: transform; }
+}
 /* Four held poses, with a longer first beat; ambient layers ping-pong. */
 @keyframes theme-petal-fall { 0%, 100% { transform: translate3d(0, -6px, 0); } 35% { transform: translate3d(3px, 0, 0); } 55% { transform: translate3d(0, 6px, 0); } 80% { transform: translate3d(-3px, 12px, 0); } }
 @keyframes theme-leaf-fall { 0%, 100% { transform: translate3d(3px, -6px, 0); } 30% { transform: translate3d(0, 0, 0); } 55% { transform: translate3d(-6px, 6px, 0); } 80% { transform: translate3d(-3px, 12px, 0); } }
@@ -686,6 +703,7 @@ button[id$="-close"],
 
 .title-screen {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
   background: var(--surface-board-center);
   border: 2px solid var(--line-board);
@@ -694,7 +712,7 @@ button[id$="-close"],
 }
 .skyline { position: absolute; inset-inline: 0; bottom: 0; height: 44%; width: 100%; opacity: 0.5; pointer-events: none; }
 .home-house-drift { position: absolute; inset-inline: 0; bottom: 0; z-index: 1; height: 44%; overflow: hidden; pointer-events: none; opacity: 0.5; }
-.home-house-drift-track { display: flex; width: 200%; height: 100%; animation: home-house-drift 38s linear infinite; will-change: transform; }
+.home-house-drift-track { display: flex; width: 200%; height: 100%; animation: home-house-drift 38s linear infinite; }
 .home-house-drift .skyline { position: static; flex: 0 0 50%; width: 50%; height: 100%; opacity: 1; pointer-events: none; }
 @keyframes home-house-drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
 .view.is-hidden .home-house-drift-track { animation-play-state: paused; }
@@ -1488,6 +1506,7 @@ button[id$="-close"],
 
 .center-field {
   position: relative;
+  isolation: isolate;
   grid-column: 2 / span var(--board-inner-span);
   grid-row: 2 / span var(--board-inner-span);
   display: flex; flex-direction: column; align-items: center; justify-content: center;

@@ -17,6 +17,14 @@ test.describe("Poorup seasonal worlds", () => {
     await openThemeChooser(page);
     const choices = page.locator("#theme-popover [data-theme-choice]");
     await expect(choices).toHaveCount(6);
+    expect(await page.locator(".theme-choice-art img").evaluateAll((images) => images.map((image) => new URL(image.src).pathname))).toEqual([
+      "/assets/themes/original/scene.svg",
+      "/assets/themes/spring/scene.svg",
+      "/assets/themes/summer/scene.svg",
+      "/assets/themes/autumn/scene.svg",
+      "/assets/themes/winter/scene.svg",
+      "/assets/themes/light/scene.svg",
+    ]);
     await expect(choices.first()).toHaveAttribute("type", "radio");
     await expect(choices.first()).toBeChecked();
     await expect(choices.first()).toHaveAttribute("tabindex", "0");
@@ -116,6 +124,56 @@ test.describe("Poorup seasonal worlds", () => {
     await page.locator('[data-theme-choice="light"]').click();
     const pedestrianMotion = await page.locator("#theme-home-world .theme-pedestrian-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(pedestrianMotion).toBe("none");
+  });
+
+  test("isolates ambient theme layers below semantic home content and releases paused compositor hints", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto("/");
+
+    const layers = await page.evaluate(() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+      const world = document.querySelector("#theme-home-world");
+      return {
+        bodyIsolation: getComputedStyle(document.body).isolation,
+        titleIsolation: style(".title-screen").isolation,
+        boardIsolation: style("#center-field").isolation,
+        pageWorldZ: Number(style("#theme-page-world").zIndex),
+        viewZ: Number(style("#view-home").zIndex),
+        homeWorldZ: Number(style("#theme-home-world").zIndex),
+        titleZ: Number(style(".title-grid").zIndex),
+        atmosphereZ: Number(style(".home-sky-atmosphere").zIndex),
+        boardWorldZ: Number(style("#theme-board-world").zIndex),
+        boardCopyZ: Number(style("#center-field .cf-inner").zIndex),
+        decorativeChildrenContained: [...document.querySelectorAll(".theme-scene, .theme-prop")]
+          .every((element) => element.closest("[data-theme-layer]")),
+        ambientAnimation: style("#theme-home-world .theme-fog-a").animationName,
+        ambientWillChange: style("#theme-home-world .theme-fog-a").willChange,
+      };
+    });
+
+    expect(layers).toEqual({
+      bodyIsolation: "isolate",
+      titleIsolation: "isolate",
+      boardIsolation: "isolate",
+      pageWorldZ: 0,
+      viewZ: 1,
+      homeWorldZ: 0,
+      titleZ: 2,
+      atmosphereZ: 4,
+      boardWorldZ: 0,
+      boardCopyZ: 2,
+      decorativeChildrenContained: true,
+      ambientAnimation: "theme-fog-a-drift",
+      ambientWillChange: "transform",
+    });
+
+    await page.locator("body").evaluate((body) => body.classList.add("theme-motion-paused"));
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("animation-play-state", "paused");
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("will-change", "auto");
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("animation-name", "none");
+    await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("will-change", "auto");
   });
 
   test("keeps the chooser inside the viewport at desktop and phone widths", async ({ page }) => {
