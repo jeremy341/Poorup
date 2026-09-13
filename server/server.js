@@ -222,26 +222,38 @@ server.listen(PORT, () => {
 });
 
 let shutdownStarted = false;
+function shutdownDeadline() {
+  const drainMs = Math.max(1_000, Math.min(15 * 60_000, Number(process.env.POORUP_SHUTDOWN_DRAIN_MS) || 30_000));
+  return Date.now() + drainMs;
+}
+
+function closeServerResources() {
+  maintenance.dispose();
+  pubsubAdapter.close?.();
+  io.close(() => server.close(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 2_000).unref?.();
+}
+
+function waitForDrain(deadline) {
+  const check = setInterval(() => {
+    const drained = maintenance.activeRoundCount() === 0;
+    if (!drained && Date.now() < deadline) return;
+    clearInterval(check);
+    closeServerResources();
+  }, 250);
+  check.unref?.();
+}
+
 function gracefulShutdown(signal) {
   if (shutdownStarted) return;
   shutdownStarted = true;
-  const drainMs = Math.max(1_000, Math.min(15 * 60_000, Number(process.env.POORUP_SHUTDOWN_DRAIN_MS) || 30_000));
-  const deadline = Date.now() + drainMs;
+  const deadline = shutdownDeadline();
   maintenance.beginDrain({
     releaseId: process.env.POORUP_RELEASE_ID || 'shutdown',
     deadline,
     message: `${signal} · SERVER RESTARTING`
   });
-  const check = setInterval(() => {
-    const drained = maintenance.activeRoundCount() === 0;
-    if (!drained && Date.now() < deadline) return;
-    clearInterval(check);
-    maintenance.dispose();
-    pubsubAdapter.close?.();
-    io.close(() => server.close(() => process.exit(0)));
-    setTimeout(() => process.exit(0), 2_000).unref?.();
-  }, 250);
-  check.unref?.();
+  waitForDrain(deadline);
 }
 
 process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));

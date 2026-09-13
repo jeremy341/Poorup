@@ -22,12 +22,17 @@ function boundedValue(value) {
   return Math.max(-MAX_VALUE, Math.min(MAX_VALUE, number));
 }
 
+function sanitizeLabelEntry(entry) {
+  const [key, value] = entry;
+  if (!ALLOWED_LABELS.has(key) || typeof value !== 'string') return null;
+  const clean = value.replace(/[<>]/g, '').trim().slice(0, MAX_LABEL_LENGTH);
+  return clean ? [key, clean] : null;
+}
+
 function sanitizeLabels(labels = {}) {
   if (!labels || typeof labels !== 'object' || Array.isArray(labels)) return {};
-  return Object.fromEntries(Object.entries(labels)
-    .filter(([key, value]) => ALLOWED_LABELS.has(key) && typeof value === 'string')
-    .map(([key, value]) => [key, value.replace(/[<>]/g, '').trim().slice(0, MAX_LABEL_LENGTH)])
-    .filter(([, value]) => value));
+  const entries = Object.entries(labels).map(sanitizeLabelEntry).filter(Boolean);
+  return Object.fromEntries(entries);
 }
 
 function timestamp(now) {
