@@ -185,6 +185,7 @@ import {
   bindLobbyUi,
   configureLobbyUi,
   enterParlor,
+  reconcileParlorEntrySnapshot,
   goHome,
   leaveRoomForHome,
   renderLobbyRail,
@@ -999,7 +1000,9 @@ configureLobbyUi({
   rebuildBoard: () => buildBoard(onTileClick),
   closeRoomsModal,
   goHome,
+  createRequestId,
 });
+socket?.on("update-state", reconcileParlorEntrySnapshot);
 configureNightShift({
   emitServer,
   parlorNotice,

@@ -151,11 +151,6 @@ function restoreDeskDraft(card) {
     const field = card.querySelector(selector);
     if (value != null && field) field.value = value;
   });
-  const roleField = card.querySelector("#market-desk-role");
-  if (roleField) {
-    roleField.innerHTML = '<option value="buyer">BUY · HOUSE UNDERWRITTEN</option>';
-    if (!roleField.value) roleField.value = "buyer";
-  }
 }
 
 function bindMarketDesk(card) {
