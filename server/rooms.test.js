@@ -84,7 +84,7 @@ async function openSocket(clientSockets) {
 async function withServer(runScenarios) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-rooms-wire-'));
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), POORUP_DATA_DIR: dataDir },
+    env: { ...process.env, PORT: String(PORT), POORUP_DATA_DIR: dataDir, POORUP_SHUTDOWN_DRAIN_MS: '1000' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let serverLog = '';
