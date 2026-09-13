@@ -62,6 +62,7 @@ import {
   syncSurfaceA11y,
   openSurface,
   closeSurface,
+  openConfirmModal,
 } from "./clientSurfaces.js";
 import {
   toggleLogDrawerFromButton,
@@ -577,7 +578,19 @@ async function runTurn(idx) {
   state.busy = true;
   state.rolling = true;
   renderHud();
+  let settled = false;
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    state.busy = false;
+    state.rolling = false;
+    say("Roll could not be confirmed — try again.");
+    renderAll();
+  }, 8000);
   emitServer("roll-dice", {}, (response) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
     state.busy = false;
     state.rolling = false;
     reportChatError(response, "The roll could not be completed.");
@@ -592,12 +605,28 @@ function endTurn(idx) {
   if (state.turnIndex !== idx) return;
   if (state.busy) return;
   if (state.turnStage !== "end") return;
-  emitWithChatError("end-turn", {}, "The turn could not be ended.");
+  state.busy = true;
+  renderHud();
+  let settled = false;
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    state.busy = false;
+    say("The turn could not be confirmed — try again.");
+    renderAll();
+  }, 8000);
+  emitServer("end-turn", {}, (response) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    state.busy = false;
+    reportChatError(response, "The turn could not be ended.");
+    renderAll();
+  });
 }
 
 function mustResolveAcquisition() {
-  if (state.auction) return true;
-  return state.pendingBuyTile != null && state.settings.auction;
+  return Boolean(state.auction || state.pendingBuyTile != null || state.sponsorship);
 }
 
 function primaryTurnAction() {
@@ -791,7 +820,7 @@ function onGlobalEventVoteClick(event) {
 
 function bindGameActions() {
   // game → home
-  $("#brand-home").addEventListener("click", goHome);
+  $("#brand-home").addEventListener("click", leaveRoomForHome);
   $("#tn-room-copy").addEventListener("click", copyRoomCode);
   $("#hud-cash-action")?.addEventListener("click", (event) => {
     if (event.currentTarget.disabled) return;
@@ -971,7 +1000,7 @@ function bindEvents() {
    ============================================================ */
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
-configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation });
+configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
 configureAccountIdentity({ emitServer, say });
 configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot });
 configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
@@ -984,7 +1013,7 @@ configureCosmetics({ emitServer, announce: message => parlorNotice("COLLECTION",
 configureProfileRender({ renderAchievements, renderCollection, loadSavedGame, renderHomeSignals });
 configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openHoldings: () => { state.tab = "holdings"; renderRightRail(); }, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, renderChat });
-configureDeedDetail({ emitServer });
+configureDeedDetail({ emitServer, say, renderAll });
 configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });
 configureRoomsUi({ emitServer, say, renderChat, enterParlor, createRequestId });
@@ -1000,6 +1029,7 @@ configureLobbyUi({
   rebuildBoard: () => buildBoard(onTileClick),
   closeRoomsModal,
   goHome,
+  openConfirmModal,
   createRequestId,
 });
 socket?.on("update-state", reconcileParlorEntrySnapshot);

@@ -154,6 +154,10 @@ function syncRoundFlags(game) {
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
   state.pendingTrade = orNull(game.pendingTrade);
+  const pendingTradeId = state.pendingTrade?.id || null;
+  state.offers = pendingTradeId
+    ? (state.offers || []).filter(offer => offer?.id === pendingTradeId)
+    : [];
 }
 
 function diceOf(game) {
@@ -335,6 +339,10 @@ function retireAllowed() {
 function syncRetireButton(host) {
   const retireBtn = host.retireButton();
   if (!retireBtn) return;
+  const label = retireBtn.querySelector(".t-label");
+  const me = state.players[0];
+  if (label) label.textContent = me?.inDebt ? "BANKRUPT" : "RETIRE";
+  retireBtn.title = me?.inDebt ? "Resolve bankruptcy" : "Retire from the table";
   retireBtn.disabled = !retireAllowed();
 }
 

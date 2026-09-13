@@ -8,7 +8,7 @@ import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 
-let host = { emitServer: noop, say: noop, renderChat: noop, renderRightRail: noop, openTradeNegotiation: noop, openFinancingNegotiation: noop };
+let host = { emitServer: noop, say: noop, renderChat: noop, renderRightRail: noop, openTradeNegotiation: noop, openFinancingNegotiation: noop, openConfirmModal: noop };
 let activeDealKey = null;
 function noop() {}
 
@@ -100,7 +100,7 @@ function handleDealAction(action, kind, deal) {
   const payload = kind === "trade"
     ? action === "cancel" ? { tradeId: deal.id } : { tradeId: deal.id, accept: action === "accept" }
     : action === "cancel" ? { contractId: deal.id } : { contractId: deal.id, accept: action === "accept", requestId: `${action}-${deal.id}` };
-  host.emitServer(event, payload, response => {
+  const send = () => host.emitServer(event, payload, response => {
     if (response?.success === false) {
       host.say(response.error || "The deal could not be updated.");
       host.renderChat();
@@ -109,6 +109,18 @@ function handleDealAction(action, kind, deal) {
     closeDealDetails();
     host.renderRightRail();
   });
+  if (["decline", "cancel"].includes(action)) {
+    host.openConfirmModal({
+      title: action === "cancel" ? "Cancel this deal?" : "Decline this deal?",
+      message: action === "cancel"
+        ? "The other player will see that this offer was canceled."
+        : "Declining closes the current offer and cannot be undone.",
+      confirmLabel: action === "cancel" ? "CANCEL DEAL" : "DECLINE DEAL",
+      onConfirm: send,
+    });
+    return;
+  }
+  send();
 }
 
 export function openDealDetails(kind, id, trigger = null) {

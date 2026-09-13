@@ -13,17 +13,25 @@ import { deedLadderHTML } from "./clientDeedsRender.js";
 import { closeSurface, openSurface } from "./clientSurfaces.js";
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 
-let host = { emitServer: noop };
+let host = { emitServer: noop, say: noop, renderAll: noop };
 
 function noop() {}
+
+function manageProperty(tileIndex, action) {
+  host.emitServer("manage-property", { tileIndex, action }, (response) => {
+    if (response?.success === false) {
+      host.say(response.error || "Property action could not be completed.");
+    }
+    host.renderAll();
+  });
+}
 
 export function configureDeedDetail(hooks) {
   host = { ...host, ...hooks };
 }
 
 function buildNextHouse(tile) {
-  host.emitServer("manage-property", { tileIndex: tile.i, action: "build-house" }, () => {});
-    return;
+  manageProperty(tile.i, "build-house");
 }
 
 function houseCount() {
@@ -38,8 +46,7 @@ function hotelCount() {
 }
 
 function sellHouse(tile) {
-  host.emitServer("manage-property", { tileIndex: tile.i, action: "sell-house" }, () => {});
-    return;
+  manageProperty(tile.i, "sell-house");
 }
 
 /** Mirror of canBuildEvenly for selling: no deed may fall 2+ below another. */
@@ -188,13 +195,11 @@ function canBuildEvenly(tile, targetLevel) {
 }
 
 function mortgageTile(tileIdx) {
-  host.emitServer("manage-property", { tileIndex: tileIdx, action: "mortgage" }, () => {});
-    return;
+  manageProperty(tileIdx, "mortgage");
 }
 
 function unmortgageTile(tileIdx) {
-  host.emitServer("manage-property", { tileIndex: tileIdx, action: "unmortgage" }, () => {});
-    return;
+  manageProperty(tileIdx, "unmortgage");
 }
 
 function onRailDeedClick(e) {
