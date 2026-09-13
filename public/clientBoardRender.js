@@ -12,6 +12,7 @@ import {
   MAX_HOUSES,
   HOTEL_LEVEL,
 } from "./clientBoardData.js";
+import { getTheme } from "./clientThemeData.js";
 import { state } from "./clientState.js";
 
 export const SKYLINE = [
@@ -25,14 +26,19 @@ export const BOARD_SKYLINE = [
   [71, 21, 5, 13], [77, 15, 6, 19],
 ];
 
-export function paintSkyline(el, data) {
+const DEFAULT_SKYLINE_PALETTE = { far: "#123634", near: "#0d2725", light: "#78894f" };
+
+export function paintSkyline(el, data, palette = DEFAULT_SKYLINE_PALETTE) {
+  const far = palette.far || DEFAULT_SKYLINE_PALETTE.far;
+  const near = palette.near || DEFAULT_SKYLINE_PALETTE.near;
+  const light = palette.light || DEFAULT_SKYLINE_PALETTE.light;
   let out = "";
   data.forEach(([x, y, w, h], i) => {
-    out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#123634"/>`;
+    out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${far}"/>`;
     for (let r = 0; r < Math.floor((h - 2) / 3); r++) {
       for (let c = 0; c < Math.floor((w - 1) / 2); c++) {
         const lit = (r + c + i) % 3 === 0;
-        out += `<rect x="${x + 1 + c * 2}" y="${y + 2 + r * 3}" width="1" height="1" fill="${lit ? "#78894f" : "#0d2725"}"/>`;
+        out += `<rect x="${x + 1 + c * 2}" y="${y + 2 + r * 3}" width="1" height="1" fill="${lit ? light : near}"/>`;
       }
     }
   });
@@ -187,7 +193,8 @@ function buildTile(tile, onTileClick) {
 export function buildBoard(onTileClick) {
   const grid = $("#board-grid");
   grid.querySelectorAll(".tile").forEach((n) => n.remove());
-  paintSkyline($("#board-skyline"), BOARD_SKYLINE);
+  const theme = getTheme(state.themeId);
+  paintSkyline($("#board-skyline"), theme.skyline.board || BOARD_SKYLINE, theme.palette);
   TILES.forEach((tile) => buildTile(tile, onTileClick));
 }
 

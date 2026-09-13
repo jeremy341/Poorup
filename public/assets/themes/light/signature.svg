@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" shape-rendering="crispEdges" aria-hidden="true">
+  <!-- Civic clock tower, aligned with the square in scene.svg. -->
+  <path fill="#a5b8ba" d="M145 103h37v59h-37z"/>
+  <path fill="#e4dcc0" d="M145 103h26v59h-26z"/>
+  <path fill="#6b8d9a" d="M150 94h27v9h-27zm5-7h17v7h-17zm5-6h7v6h-7zm3-7h1v7h-1z"/>
+  <path fill="#f7f3dd" d="M143 102h41v3h-41zm5-9h31v2h-31zm6-7h19v2h-19zm-11 35h41v2h-41zm0 18h41v2h-41z"/>
+  <path fill="#6b8d9a" d="M152 108h12v10h-12zm-3 18h4v9h-4zm8 0h4v9h-4zm8 0h4v9h-4zm10 0h3v9h-3zm-26 18h4v8h-4zm16 0h4v8h-4zm10 0h3v8h-3z"/>
+  <path fill="#f7f3dd" d="M154 109h8v8h-8z"/>
+  <path fill="#6b8d9a" d="M158 110h1v4h-4v-1h3z"/>
+  <path fill="#426f59" d="M156 148h6v14h-6z"/>
+  <path fill="#f7f3dd" d="M141 160h45v2h-45zm-3 2h51v2h-51z"/>
+</svg>
