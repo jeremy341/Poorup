@@ -13,5 +13,9 @@
 11. Monitor Analytics and logs.
 12. Keep the previous release for rollback.
 
+Keep `development`, `testing`, and `main` as permanent branches. When merging
+promotion PRs, do not enable source-branch deletion; only short-lived feature
+branches may be deleted after their PR is merged.
+
 If active rounds do not reach zero before the approved deadline, stop the deployment rather than forcefully restarting the server.
 

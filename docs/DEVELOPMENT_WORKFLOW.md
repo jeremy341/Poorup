@@ -66,6 +66,11 @@ regression test, and never merges or deploys by itself.
 after the `main` CI workflow succeeds and deploys the exact verified commit
 SHA; it does not poll GitHub from the server.
 
+The three lane branches are permanent. Promotion merges must never use a
+provider option that deletes the source branch (for example
+`gh pr merge --delete-branch`); delete only short-lived feature branches after
+their merge.
+
 ## Contributor checklist (per PR)
 
 1. Branch off `main` with the right prefix.
