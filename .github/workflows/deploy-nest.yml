@@ -30,7 +30,7 @@ jobs:
       - name: Create immutable release archive
         env:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: tar --exclude=.git --exclude=node_modules --exclude=server/data --exclude=coverage --exclude=qa-artifacts -czf "poorup-$RELEASE_SHA.tgz" .
+        run: tar --exclude=.git --exclude=node_modules --exclude=server/data --exclude=coverage --exclude=qa-artifacts -czf "$RUNNER_TEMP/poorup-$RELEASE_SHA.tgz" .
 
       - name: Configure SSH
         env:
@@ -47,7 +47,7 @@ jobs:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
           NEST_HOST: ${{ secrets.NEST_HOST }}
           NEST_USER: ${{ secrets.NEST_USER }}
-        run: scp -i "$HOME/.ssh/poorup_deploy" "poorup-$RELEASE_SHA.tgz" "$NEST_USER@$NEST_HOST:/tmp/poorup-$RELEASE_SHA.tgz"
+        run: scp -i "$HOME/.ssh/poorup_deploy" "$RUNNER_TEMP/poorup-$RELEASE_SHA.tgz" "$NEST_USER@$NEST_HOST:/tmp/poorup-$RELEASE_SHA.tgz"
 
       - name: Drain and deploy
         env:
