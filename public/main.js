@@ -144,6 +144,8 @@ import { bindAudioControls } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
 import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./clientTheme.js";
 import { renderTheme } from "./clientThemeRender.js";
+import { applyMaintenanceState, configureMaintenanceUi } from "./clientMaintenance.js";
+import { initAnalytics } from "./clientAnalytics.js";
 import {
   bindRoomsUi,
   closeRoomsModal,
@@ -369,6 +371,7 @@ configureSocketListeners(socket, {
   openOfferModal,
   renderDealDetailsIfOpen,
   openDealDetails,
+  applyMaintenanceState,
   serverSyncHost,
 });
 
@@ -1049,6 +1052,7 @@ configureNightShift({
   scheduleHomeHelicopter,
 });
 configureThemeUi({ applyTheme: renderTheme });
+configureMaintenanceUi({ emitServer });
 bindThemeVisibility();
 initThemePreference();
 renderHome();
@@ -1057,6 +1061,9 @@ renderTheme(state.themeId, { animate: false });
 hydrateSprites();
 bindEvents();
 renderAll();
-showView("home");
-openCardPreviewFromUrl();
-openSurfaceFromUrl();
+const analyticsPathActive = initAnalytics();
+if (!analyticsPathActive) {
+  showView("home");
+  openCardPreviewFromUrl();
+  openSurfaceFromUrl();
+}
