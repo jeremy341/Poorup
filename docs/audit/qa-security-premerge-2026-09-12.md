@@ -1,7 +1,7 @@
 # Poorup QA / Security Pre-Merge Audit — 2026-09-12
 
-Branch: `codex/theme-reset` at `1bf4e1a`
-Review mode: read-only audit of `main...HEAD`; only this report was created.
+Branch: `codex/theme-reset` at `1bf4e1a`  
+Review mode: read-only audit of `main...HEAD`; only this report was created.  
 Gate recommendation: **HOLD for P1-01**. No P0 was found.
 
 ## Executive summary
