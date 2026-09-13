@@ -1,5 +1,9 @@
 # Poorup Markdown Feature and Bug Parity Audit — 2026-09-09
 
+> **Superseded (2026-09-11).** This report describes the pre-reset corpus and
+> is retained for history. Use `docs/audit/markdown-feature-parity-2026-09-11-theme-reset.md`
+> as the current document inventory and deletion gate.
+
 ## Scope and method
 
 I read the repository's 29 pre-existing Markdown documents before this

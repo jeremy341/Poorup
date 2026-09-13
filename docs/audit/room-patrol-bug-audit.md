@@ -5,6 +5,11 @@
 
 ---
 
+> **Historical record.** This audit predates the modular client/server
+> extraction work. Its line references and “open” sections are not current
+> findings; reproduce them against the current tree and prefer the dated
+> parity audits for release decisions.
+
 ## Summary
 
 | # | Bug | Severity | Confirmed | Root cause (file:line) | Status (2026-09-03) |
