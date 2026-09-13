@@ -20,6 +20,12 @@ function safePayload(payload) {
   }
 }
 
+function invalidPublish(closed, topic, payload) {
+  if (closed) return true;
+  if (!safeTopic(topic)) return true;
+  return safePayload(payload) === null;
+}
+
 export function createPubSubAdapter() {
   const topics = new Map();
   let closed = false;
@@ -40,8 +46,8 @@ export function createPubSubAdapter() {
 
   function publish(topic, payload) {
     const key = safeTopic(topic);
+    if (invalidPublish(closed, topic, payload)) return { success: false, delivered: 0, error: 'Topic or payload is invalid.' };
     const copy = safePayload(payload);
-    if (closed || !key || copy === null) return { success: false, delivered: 0, error: 'Topic or payload is invalid.' };
     const listeners = topics.get(key);
     if (!listeners?.size) return { success: true, delivered: 0 };
     let delivered = 0;

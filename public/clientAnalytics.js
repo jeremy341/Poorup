@@ -37,8 +37,12 @@ function copyNumberMetricFields(value, output) {
   });
 }
 
+function isMetricRecord(value) {
+  return Object.prototype.toString.call(value) === '[object Object]';
+}
+
 function cleanMetricEntry(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!isMetricRecord(value)) return null;
   const output = {};
   copyStringMetricFields(value, output);
   copyNumberMetricFields(value, output);
