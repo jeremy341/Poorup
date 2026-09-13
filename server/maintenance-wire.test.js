@@ -105,7 +105,13 @@ async function run() {
     console.log('maintenance wire checks: 11 passed, 0 failed');
   } finally {
     socket?.close();
-    child.kill();
+    if (child.exitCode === null) {
+      child.kill();
+      await Promise.race([
+        new Promise(resolve => child.once('exit', resolve)),
+        new Promise(resolve => setTimeout(resolve, 3000))
+      ]);
+    }
     if (serverOutput && serverOutput.includes('UNCAUGHT')) console.error(serverOutput);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
