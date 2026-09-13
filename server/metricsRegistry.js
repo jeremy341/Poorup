@@ -29,8 +29,12 @@ function sanitizeLabelEntry(entry) {
   return clean ? [key, clean] : null;
 }
 
+function isLabelRecord(labels) {
+  return Boolean(labels) && typeof labels === 'object' && !Array.isArray(labels);
+}
+
 function sanitizeLabels(labels = {}) {
-  if (!labels || typeof labels !== 'object' || Array.isArray(labels)) return {};
+  if (!isLabelRecord(labels)) return {};
   const entries = Object.entries(labels).map(sanitizeLabelEntry).filter(Boolean);
   return Object.fromEntries(entries);
 }

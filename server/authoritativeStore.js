@@ -34,6 +34,18 @@ function invalidResult(error) {
   return { success: false, error };
 }
 
+function writeInputError(id, version, snapshot) {
+  if (!id) return invalidResult('Room id is invalid.');
+  if (version === null) return invalidResult('Room version must be a non-negative integer.');
+  if (snapshot === null) return invalidResult('Room snapshot must be JSON-serializable and bounded.');
+  return null;
+}
+
+function staleWriteResult(id, current, version) {
+  if (!current || version > current.version) return null;
+  return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
+}
+
 function rowsFromObject(value) {
   const rows = new Map();
   Object.entries(value && typeof value === 'object' ? value : {}).forEach(([roomId, row]) => {
@@ -60,13 +72,11 @@ function createAdapter(readRows, persistRows = null) {
     const id = safeRoomId(roomId);
     const nextVersion = safeVersion(version);
     const nextSnapshot = cloneSnapshot(snapshot);
-    if (!id) return invalidResult('Room id is invalid.');
-    if (nextVersion === null) return invalidResult('Room version must be a non-negative integer.');
-    if (nextSnapshot === null) return invalidResult('Room snapshot must be JSON-serializable and bounded.');
+    const inputError = writeInputError(id, nextVersion, nextSnapshot);
+    if (inputError) return inputError;
     const current = rows.get(id);
-    if (current && nextVersion <= current.version) {
-      return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
-    }
+    const stale = staleWriteResult(id, current, nextVersion);
+    if (stale) return stale;
     rows.set(id, { version: nextVersion, snapshot: nextSnapshot });
     try {
       persistRows?.(rows);
