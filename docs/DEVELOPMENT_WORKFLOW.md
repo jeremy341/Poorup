@@ -56,6 +56,16 @@ Responsibilities, one line each:
 - **Human review** — final decision. Nothing merges without it.
 - **Sentry** — post-deployment runtime errors, not a review gate.
 
+The repository does not install an automatic CodeScene refactoring agent.
+When a PR remains unmerged because of a CodeScene finding, Jeremy explicitly
+requests a Luna Codex fix. The agent works only on that PR branch, adds a
+regression test, and never merges or deploys by itself.
+
+`main` is the Production branch. `testing` is the Nest staging lane and
+`development` is the integration lane. The Nest deployment workflow runs only
+after the `main` CI workflow succeeds and deploys the exact verified commit
+SHA; it does not poll GitHub from the server.
+
 ## Contributor checklist (per PR)
 
 1. Branch off `main` with the right prefix.

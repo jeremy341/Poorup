@@ -70,6 +70,14 @@
         </div>
       </header>
 
+      <section class="maintenance-banner maintenance-home panel noise is-hidden" id="maintenance-home" role="status" aria-live="polite" aria-hidden="true">
+        <div class="maintenance-kicker t-micro g400">PARLOR STATUS</div>
+        <h2 class="t-section g100">Maintenance window</h2>
+        <p class="t-body ink-2" data-maintenance-copy></p>
+        <p class="t-micro ink-3" data-maintenance-rounds></p>
+        <button class="btn-dark" type="button" data-maintenance-retry><span class="t-label f11">Retry status</span></button>
+      </section>
+
       <main class="home-main" id="home-main" tabindex="-1">
         <!-- title screen -->
         <section class="title-screen noise vignette">
@@ -504,6 +512,22 @@
       <main class="rules-page-main" id="rules-page-content" tabindex="-1"></main>
     </div>
 
+    <div class="view is-hidden" id="view-admin-analytics">
+      <header class="hdr">
+        <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">operator console</div></div></button>
+        <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>internal analytics</span></div>
+        <div class="hdr-right"><span class="t-label f11 g400">ADMIN ONLY</span></div>
+      </header>
+      <main class="admin-analytics-main" id="admin-analytics-main" tabindex="-1" aria-labelledby="admin-analytics-title">
+        <section class="panel noise admin-analytics-hero">
+          <div><span class="t-micro g400">PARLOR OPERATIONS</span><h1 class="t-section g100" id="admin-analytics-title">Analytics</h1><p class="t-body ink-2">Capacity, release health, and table activity. No private game content is recorded here.</p></div>
+          <button class="btn-dark" type="button" id="admin-analytics-retry"><span class="t-label f11">Retry</span></button>
+        </section>
+        <p class="t-body analytics-status muted" id="admin-analytics-status" role="status" aria-live="polite">Loading analytics…</p>
+        <section class="admin-analytics-grid" id="admin-analytics-grid" aria-live="polite"></section>
+      </main>
+    </div>
+
     <div class="popup is-hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" aria-describedby="account-modal-description" aria-hidden="true">
       <button class="popup-scrim" id="account-scrim" aria-label="Close account dialog"></button>
       <div class="popup-card account-card panel noise" id="account-card"></div>
@@ -587,6 +611,12 @@
           <p class="t-micro ink-3 panel-menu-note">Required payments, auctions, bankruptcy, global headlines, and the roll action cannot be hidden.</p>
         </div>
       </header>
+
+      <div class="maintenance-banner maintenance-game panel noise is-hidden" id="maintenance-game" role="status" aria-live="polite" aria-hidden="true">
+        <span class="t-micro g400">TABLE STATUS</span>
+        <span class="t-label g100" data-maintenance-copy></span>
+        <span class="t-micro ink-3" data-maintenance-rounds></span>
+      </div>
 
       <a class="skip-link" href="#game-main">Skip to main content</a>
       <main class="game-main" id="game-main" tabindex="-1">
