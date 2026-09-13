@@ -24,6 +24,15 @@ Remaining non-blocking follow-ups are the remote AI endpoint probe, edge/WAF
 deployment configuration, and further bot/economy tuning; they are not hidden
 behind the completed local test gates.
 
+> **Superseded/current status (2026-09-12).** This 2026-09-10 implementation
+> pass remains a dated evidence record. The current status for the market rows
+> is the server Batch 1 report: margin now holds disclosed initial collateral,
+> advanced explicit actions share the one-action quota, and option payouts use
+> the bounded server reserve. The current status for purchase/timer/focus rows
+> is the transaction-UI report. Use
+> `docs/audit/fix-docs-parity-batch-2026-09-12.md` for documentation status;
+> do not reopen the historical reproduction table as an untriaged queue.
+
 ## /goal
 
 Audit Poorup from the browser surface through Socket.IO, GameState, economy,

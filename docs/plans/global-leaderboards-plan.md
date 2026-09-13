@@ -1,8 +1,18 @@
 # Poorup Global Leaderboards
 
-Status: implemented all-time, seasonal, monthly, and friends-only projection
-plus a rebuildable recent trend indicator. Seasonal rewards remain follow-up
-work.
+Status: implemented all-time, seasonal, 30-day/monthly, and friends-only
+projections plus rebuildable recent trends. Seasonal standings and reward claims
+are live; balance/integrity tuning remains follow-up work.
+
+> **Current status (2026-09-12).** The live Rankings surface supports four
+> scopes — `ALL TIME`, `THIS SEASON`, `30 DAYS`, and `FRIENDS` — and the Season
+> panel exposes claimable rewards for signed-in players. The current metric
+> registry has 15 server-backed IDs, including wins, rate, games, achievement
+> score, mythical, events, auctions, rent, casino, market, player loans,
+> equity, loan discipline, and Patrol. Evidence:
+> `public/clientSocialSurfaces.js:541-560,603-627,698-707`,
+> `server/serverSocketSocial.js:171-209`, and
+> `docs/audit/expansion-implementation.md:17-20`.
 
 ## Product decision
 
@@ -18,7 +28,9 @@ Parlor
   └─ Profile
 ```
 
-On smaller screens, Rankings and Friends can share a `SOCIAL` hub with tabs. They should not be hidden inside the profile editor.
+The current shell exposes `RANKINGS` and `SOCIAL` as top-level destinations;
+Friends lives inside the Social hub rather than in the Profile editor. On
+smaller screens they may continue to share the same Social shell with tabs.
 
 ## Ranking boards
 
@@ -55,7 +67,9 @@ Every board supports:
 - This month
 - Friends only
 
-Season resets should archive previous results rather than deleting them. The first release can ship all-time and monthly views; seasonal rewards come later.
+Season resets archive previous results rather than deleting them. The current
+release ships all-time, 30-day/monthly, season, and friends-only views;
+seasonal standings and reward claims are already live.
 
 ## Ranking rules
 
@@ -113,7 +127,7 @@ Leaderboard rows are projections, not a second source of truth. Rebuildable stat
 ### Rankings landing page
 
 - Heading: `GLOBAL RANKINGS`
-- Compact scope switcher: `ALL TIME`, `MONTH`, `FRIENDS`
+- Compact scope switcher: `ALL TIME`, `THIS SEASON`, `30 DAYS`, `FRIENDS`
 - Board selector chips: `WINS`, `RATE`, `ACHIEVEMENTS`, `EVENTS`, `PATROL`
 - Search by exact username or player id, never by private email
 - Player rows with rank, avatar, display name, value, and trend indicator
@@ -172,7 +186,8 @@ Cache public board pages briefly, but never cache a private friend list or pendi
 2. Add a standalone Rankings view and board selectors.
 3. Add achievement score and Mythical count.
 4. Add monthly scope and friend-only scope.
-5. Add trends, seasons, and rewards after integrity data is proven.
+5. **Shipped:** add trends, seasons, and reward claims after integrity data was
+   proven; continue tuning from verified match records.
 
 ## Success metrics
 

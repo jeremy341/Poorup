@@ -26,6 +26,26 @@ const BID_STEPS = [1, 20, 100];
 // once a snapshot has arrived (offset 0 before the first one).
 function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
 let auctionTimer = null;
+let lastAuctionAnnouncementKey = null;
+
+function auctionFocusKey(active) {
+  const card = $("#auction-card");
+  if (!active || !card?.contains(active)) return "";
+  const bid = active.closest?.("[data-bid]");
+  if (bid) return `bid:${bid.dataset.bid}`;
+  if (active.closest?.("#auction-pass")) return "auction-pass";
+  return active.id ? `id:${active.id}` : "";
+}
+
+function restoreAuctionFocus(key) {
+  if (!key) return;
+  const card = $("#auction-card");
+  if (!card) return;
+  const target = key.startsWith("bid:")
+    ? card.querySelector(`[data-bid="${key.slice(4)}"]`)
+    : key === "auction-pass" ? card.querySelector("#auction-pass") : card.querySelector(`#${key.slice(3)}`);
+  target?.focus({ preventScroll: true });
+}
 
 export function startAuctionTimer() {
   clearInterval(auctionTimer);
@@ -86,7 +106,17 @@ export function renderAuction() {
   const a = state.auction;
   if (!a) return;
   const tile = TILES[a.tileIndex];
-  $("#auction-card").innerHTML = `
+  const card = $("#auction-card");
+  if (!card) return;
+  const focusKey = auctionFocusKey(document.activeElement);
+  const sameAuction = card.dataset.auctionTile === String(a.tileIndex) && card.querySelector("#auction-pass");
+  if (sameAuction) {
+    updateAuctionLive();
+    restoreAuctionFocus(focusKey);
+    return;
+  }
+  lastAuctionAnnouncementKey = null;
+  card.innerHTML = `
     <div class="auction-rail" style="background:${accentOf(tile)}"></div>
     <div class="auction-body">
       <div class="auction-head">
@@ -130,14 +160,17 @@ export function renderAuction() {
 
       <div class="auction-players" id="auction-players"></div>
 
+      <p class="sr-only" id="auction-status" aria-live="polite" aria-atomic="true"></p>
       <p class="t-micro ink-3 auction-foot">EACH BID RESETS THE 5s CLOCK · LAST BIDDER WINS</p>
     </div>`;
+  card.dataset.auctionTile = String(a.tileIndex);
 
-  $("#auction-card").querySelectorAll("[data-bid]").forEach((btn) => {
+  card.querySelectorAll("[data-bid]").forEach((btn) => {
     btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid)));
   });
   $("#auction-pass").addEventListener("click", humanPassAuction);
   updateAuctionLive();
+  restoreAuctionFocus(focusKey);
 }
 
 function renderAuctionBar(remaining, pct) {
@@ -168,6 +201,22 @@ function renderAuctionLeader(a) {
   const leader = findAuctionLeader(a);
   leaderEl.textContent = leader ? leader.name : "NO BIDS YET";
   leaderEl.style.color = leader ? leader.textColor : "var(--text-muted)";
+}
+
+function renderAuctionStatus(a) {
+  const statusEl = $("#auction-status");
+  if (!statusEl) return;
+  const leader = findAuctionLeader(a);
+  const key = `${a.bid}:${a.leaderId || ""}`;
+  if (lastAuctionAnnouncementKey === null) {
+    lastAuctionAnnouncementKey = key;
+    return;
+  }
+  if (lastAuctionAnnouncementKey === key) return;
+  lastAuctionAnnouncementKey = key;
+  statusEl.textContent = leader
+    ? `Auction update: ${leader.name} leads with $${a.bid}.`
+    : `Auction update: no bids remain.`;
 }
 
 function disableAuctionBids(me, a) {
@@ -221,6 +270,7 @@ function updateAuctionLive() {
   renderAuctionTimer(remaining);
   renderAuctionBid(a);
   renderAuctionLeader(a);
+  renderAuctionStatus(a);
   disableAuctionBids(me, a);
   renderAuctionPass(a);
   renderAuctionPlayers(a);

@@ -55,10 +55,11 @@ function seatPersonality(personality) {
   return 'survivor';
 }
 
-function roomSettingChangeRejected(room, key) {
-  return room.game.started
-    || !Object.prototype.hasOwnProperty.call(room.settings, key)
-    || LEGACY_SCALED_SETTINGS.includes(key);
+function roomSettingChangeRejectionReason(room, key) {
+  if (room.game.started) return 'Game settings can only be changed before the game starts.';
+  if (!Object.prototype.hasOwnProperty.call(room.settings, key)) return 'Unknown room setting.';
+  if (LEGACY_SCALED_SETTINGS.includes(key)) return 'This setting is controlled by the server.';
+  return null;
 }
 
 function normalizedRoomSetting(room, key, value) {
@@ -84,6 +85,7 @@ function resetPlayerMarketState(player) {
   player.marketPositions = {};
   player.marginBalance = 0;
   player.marginMaintenance = 0;
+  player.marginCollateral = 0;
   player.marginPositions = {};
   player.shortPositions = {};
   player.shortDefaultDebt = 0;
@@ -117,7 +119,13 @@ function applyRulesetSetting(room, key, value) {
   if (RULESET_META_KEYS.includes(key)) {
     room.rulesetExplicit = true;
     if (key === 'rulesetBase') room.rulesetBaseExplicit = true;
-    if (key === 'rulesetPreset' && value !== 'custom') room.settings.rulesetOverrides = [];
+    if (key === 'rulesetPreset' && value !== 'custom') {
+      // A named preset owns its base. Clear any Custom-era explicit base so
+      // switching presets cannot retain the old optional-system defaults.
+      room.rulesetBaseExplicit = false;
+      room.settings.rulesetBase = value === 'after-hours' ? 'after-hours' : 'classic';
+      room.settings.rulesetOverrides = [];
+    }
     syncRulesetState(room);
     return;
   }
@@ -432,9 +440,16 @@ class Room {
   }
 
   setRoomSetting(key, value) {
-    if (roomSettingChangeRejected(this, key)) return;
+    const rejectionReason = roomSettingChangeRejectionReason(this, key);
+    if (rejectionReason) return this.roomSettingResult(key, false, rejectionReason);
     const nextValue = normalizedRoomSetting(this, key, value);
-    if (nextValue === SETTING_REJECTED || !capacityAllowsSetting(this, key, nextValue)) return;
+    if (nextValue === SETTING_REJECTED) return this.roomSettingResult(key, false, `Invalid value for ${String(key)}.`);
+    if (!capacityAllowsSetting(this, key, nextValue)) {
+      return this.roomSettingResult(key, false, 'Room capacity cannot be lower than the number of active players.');
+    }
+    const previousValue = this.settings[key];
+    const previousBase = this.settings.rulesetBase;
+    const previousOverrides = this.settings.rulesetOverrides;
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
     captureSettingOverride(this, key, nextValue);
@@ -442,6 +457,27 @@ class Room {
     if (key === 'boardVariant') applyBoardVariantSetting(this);
     syncBotCapacity(this, key, nextValue);
     this.applyRoomSettingSideEffect(key, nextValue);
+    const changed = !Object.is(previousValue, this.settings[key])
+      || previousBase !== this.settings.rulesetBase
+      || previousOverrides !== this.settings.rulesetOverrides;
+    return this.roomSettingResult(key, changed, null);
+  }
+
+  roomSettingResult(key, changed, reason) {
+    const ruleset = this.ruleset || this.refreshRuleset();
+    const effectiveSettings = this.rulesetExplicit
+      ? { ...ruleset.effectiveSettings }
+      : { ...this.settings };
+    return {
+      changed: Boolean(changed),
+      rejected: Boolean(reason),
+      reason: reason || null,
+      key,
+      value: Object.prototype.hasOwnProperty.call(this.settings, key) ? this.settings[key] : undefined,
+      preset: ruleset.rulesetPreset,
+      base: ruleset.rulesetBase,
+      effectiveSettings
+    };
   }
 
   // Generic fallback for keys the table does not specialise: boolean flags

@@ -25,6 +25,7 @@ let financingSurfaceContractId = null;
 let financingSurfaceTileIndex = null;
 let financingNegotiationContractId = null;
 let financingNegotiationAction = "counter";
+let financingRepayStatus = null;
 const financingNegotiationDraft = {
   kind: "loan",
   amount: 100,
@@ -348,6 +349,10 @@ function baseRentOf(tile) {
 }
 
 function financingPreviewTile() {
+  if (financingPreviewMode === "loan") {
+    const collateralIndex = financingEligibleCollateralIndex();
+    return collateralIndex == null ? null : financingPropertyTile(collateralIndex);
+  }
   const tile = TILES[Number(financingPreviewDraft.propertyIndex)];
   if (tile && tile.kind === "property") return tile;
   return financingRecipientDeeds()[0] || TILES[21];
@@ -376,6 +381,7 @@ function financingSendDisabled() {
 function financingPreviewBase() {
   const tile = financingPreviewTile();
   const requested = Number(financingPreviewDraft.amount) || 0;
+  if (!tile) return { tile: null, amount: Math.max(1, requested), rent: 0 };
   const cap = Number(tile.price) || 1;
   const amount = Math.max(1, Math.min(requested, cap));
   const rent = baseRentOf(tile);
@@ -429,16 +435,21 @@ function loanPreviewCopy(tile, amount) {
   const premium = Math.round((amount * rate) / 100);
   const total = amount + premium;
   const schedule = financingPreviewDraft.loanSchedule === "upfront" ? "UPFRONT" : financingPreviewDraft.loanSchedule === "maturity" ? "MATURITY" : "CHECKPOINTS";
+  const secured = Boolean(tile);
   return {
-    title: `SECURED LOAN · ${tile.name}`,
+    title: secured ? `SECURED LOAN · ${tile.name}` : "UNSECURED LOAN",
     metrics: [
       ["ADVANCE", `$${amount}`],
       ["PREMIUM", `${rate}%`],
       ["TOTAL DUE", `$${total}`],
       ["TERM", `${duration} TURNS`],
     ],
-    copy: `$${amount} advanced at a ${rate}% total premium for ${duration} turns. Repayment: ${schedule.toLowerCase()}. The named deed is collateral after the cure turn.`,
-    note: "The lender receives a fixed return. No rent or ownership share is attached to this mode.",
+    copy: secured
+      ? `$${amount} advanced at a ${rate}% total premium for ${duration} turns. Repayment: ${schedule.toLowerCase()}. ${tile.name} is collateral after the cure turn.`
+      : `$${amount} advanced at a ${rate}% total premium for ${duration} turns. Repayment: ${schedule.toLowerCase()}. No deed is pledged as collateral.`,
+    note: secured
+      ? "The lender receives a fixed return secured by the selected deed. No rent or ownership share is attached to this mode."
+      : "The lender receives a fixed return without a deed claim. No rent or ownership share is attached to this mode.",
   };
 }
 
@@ -522,9 +533,16 @@ function financingContractPickerHTML() {
 }
 
 function financingContractTitle(contract) {
-  const labels = { loan: "Secured loan", equity: "Property equity", hybrid: "Convertible note" };
+  const lender = contract.fromPlayerName || "PLAYER";
+  const borrower = contract.toPlayerName || "PLAYER";
+  if (contract.kind === "loan") {
+    const collateral = financingPropertyTile(contract.collateralTileIndex);
+    const label = collateral ? `Secured loan · ${collateral.name}` : "Unsecured loan";
+    return `${label} · ${lender} funds ${borrower}`;
+  }
+  const labels = { equity: "Property equity", hybrid: "Convertible note" };
   const kind = labels[contract.kind] || "Contract";
-  return `${kind} · ${contract.fromPlayerName || "PLAYER"} funds ${contract.toPlayerName || "PLAYER"}`;
+  return `${kind} · ${lender} funds ${borrower}`;
 }
 
 function financingRepayProgress(contract) {
@@ -542,16 +560,19 @@ function financingCureLine(contract) {
   return `CURE IN ${left} TURNS`;
 }
 
-function financingContractCopy(kind) {
+function financingContractCopy(contract) {
+  const kind = contract?.kind || contract;
   if (kind === "equity") return "The investor receives the agreed share of collected rent and sale proceeds.";
   if (kind === "hybrid") return "Repay before the cure turn ends. Past cure, the lender converts the agreed share instead of seizing collateral.";
+  if (contract?.collateralTileIndex == null) return "The borrower repays the agreed premium without pledging a deed as collateral.";
   return "The borrower keeps the deed while payments are current. The lender receives the agreed premium.";
 }
 
 function financingContractRepayHTML(contract) {
   if (!financingRepayableContract(contract)) return "";
   const remaining = Math.max(1, Math.floor(Number(contract.remaining) || 1));
-  return `<div class="contract-repay-controls"><label class="t-micro ink-3" for="financing-repay-${esc(contract.id)}">AMOUNT</label><input class="field contract-repay-input" id="financing-repay-${esc(contract.id)}" data-contract-repay-amount type="number" min="1" max="${remaining}" step="1" value="${remaining}" inputmode="numeric" aria-label="Amount to repay on player contract"><button class="btn-dark" type="button" data-financing-repay="${esc(contract.id)}"><span class="t-label f11">REPAY</span></button></div>`;
+  const status = financingRepayStatus?.contractId === contract.id ? `<p class="t-micro green" role="status" aria-live="polite">${esc(financingRepayStatus.text)}</p>` : "";
+  return `<div class="contract-repay-controls"><label class="t-micro ink-3" for="financing-repay-${esc(contract.id)}">AMOUNT</label><input class="field contract-repay-input" id="financing-repay-${esc(contract.id)}" data-contract-repay-amount type="number" min="1" max="${remaining}" step="1" value="${remaining}" inputmode="numeric" aria-label="Amount to repay on player contract"><button class="btn-dark" type="button" data-financing-repay="${esc(contract.id)}"><span class="t-label f11">REPAY</span></button>${status}</div>`;
 }
 
 function financingTileShares(index) {
@@ -723,7 +744,7 @@ function financingDealCapTableHTML() {
 }
 
 function financingDealCopyHTML(contract) {
-  return `<p class="t-body ink-2 financing-surface-copy">${esc(financingContractCopy(contract.kind))}</p>`;
+  return `<p class="t-body ink-2 financing-surface-copy">${esc(financingContractCopy(contract))}</p>`;
 }
 
 function financingDealReasonHTML() {
@@ -786,8 +807,12 @@ function negotiationPreviewHTML(contract) {
   const amount = Math.max(1, Math.floor(Number(financingNegotiationDraft.amount) || 0));
   const premium = Math.max(0, Math.min(100, Number(financingNegotiationDraft.premiumRate) || 0));
   const total = amount + Math.ceil(amount * premium / 100);
-  const headline = contract.kind === "equity" ? `${financingNegotiationDraft.equityShare}% EQUITY · ${financingNegotiationDraft.permanent ? "FOREVER" : `${financingNegotiationDraft.durationRounds} ROUNDS`}` : contract.kind === "hybrid" ? `${total} MATURITY · ${financingNegotiationDraft.conversionShare}% CONVERSION` : `${total} TOTAL DUE · ${financingNegotiationDraft.durationRounds} ROUNDS`;
-  return `<div class="financing-preview-head"><span class="t-micro g400">COUNTER PREVIEW</span><span class="t-label f12 g100">${esc(headline)}</span></div><p class="t-body ink-2 financing-preview-copy">No cash moves until the original proposer accepts these revised terms. Negotiation depth is capped at two counters.</p>`;
+  const collateral = contract.kind === "loan" ? financingPropertyTile(financingNegotiationDraft.collateralTileIndex) : null;
+  const headline = contract.kind === "equity" ? `${financingNegotiationDraft.equityShare}% EQUITY · ${financingNegotiationDraft.permanent ? "FOREVER" : `${financingNegotiationDraft.durationRounds} ROUNDS`}` : contract.kind === "hybrid" ? `${total} MATURITY · ${financingNegotiationDraft.conversionShare}% CONVERSION` : `${collateral ? "SECURED" : "UNSECURED"} LOAN · ${total} TOTAL DUE · ${financingNegotiationDraft.durationRounds} ROUNDS`;
+  const collateralCopy = contract.kind === "loan"
+    ? collateral ? ` ${collateral.name} remains pledged as collateral.` : " No deed is pledged as collateral."
+    : "";
+  return `<div class="financing-preview-head"><span class="t-micro g400">COUNTER PREVIEW</span><span class="t-label f12 g100">${esc(headline)}</span></div><p class="t-body ink-2 financing-preview-copy">No cash moves until the original proposer accepts these revised terms.${collateralCopy} Negotiation depth is capped at two counters.</p>`;
 }
 
 function financingNegotiationHTML(contract) {
@@ -919,19 +944,39 @@ function sendFinancingNegotiation() {
   });
 }
 
+export function repaymentAmountForContract(contract, rawAmount) {
+  const remaining = Math.max(0, Math.floor(Number(contract?.remaining) || 0));
+  const requested = Math.floor(Number(rawAmount));
+  if (remaining <= 0 || !Number.isFinite(requested) || requested <= 0) return 0;
+  return Math.min(requested, remaining);
+}
+
 function sendFinancingRepay(contractId) {
   const contract = financingActiveContracts().find((c) => c.id === contractId);
   if (!contract) return;
   const input = $("#financing-repay-" + contractId);
-  const amount = Math.floor(Number(input?.value) || 0);
-  const payload = { contractId, requestId: host.createRequestId("contract-repay") };
-  if (amount > 0) payload.amount = amount;
+  const amount = repaymentAmountForContract(contract, input?.value);
+  if (!amount) {
+    host.say("Enter a positive repayment amount.");
+    host.renderChat();
+    return;
+  }
+  const remainingBefore = Math.max(0, Math.floor(Number(contract.remaining) || 0));
+  const payload = { contractId, amount, requestId: host.createRequestId("contract-repay") };
   host.emitServer("repay-player-contract", payload, (response) => {
     if (response?.success === false) {
       host.say(response.error || "The player loan could not be repaid.");
       host.renderChat();
       return;
     }
+    const remainingAfter = Number(response?.contract?.remaining);
+    const settled = Number.isFinite(remainingAfter)
+      ? Math.max(0, Math.min(amount, remainingBefore - remainingAfter))
+      : amount;
+    const status = `Repaid $${settled.toLocaleString()} on the player loan.`;
+    financingRepayStatus = { contractId, text: status };
+    host.say(status);
+    host.renderChat();
     host.renderRightRail();
     renderFinancingModal();
   });

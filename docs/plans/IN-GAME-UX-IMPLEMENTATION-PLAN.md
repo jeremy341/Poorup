@@ -16,10 +16,19 @@ second game shell:
   responsive behavior, and the locked Poorup UI system;
 - update browser QA and verify at the supported viewports.
 
-> **Status (2026-09-11).** The planned rail, wallet, modal, and panel-control
-> slices are implemented. Treat this file as the implementation contract and
-> use the current UX audit for remaining work; the original pre-implementation
-> gate below is historical.
+> **Status (2026-09-11).** The three-tab rail, Cash HUD/Wallet & Items shell,
+> modal, and panel-control slices are implemented. Wallet item/account
+> mutations remain future server work. Treat this file as the implementation
+> contract and use the current UX audit and 2026-09-12 fix reports for remaining
+> work; the original pre-implementation gate below is historical.
+
+> **Current status (2026-09-12).** Purchase scrim/Escape dismissal is neutral,
+> the turn countdown remains visible through turn-owned resolution while the
+> server deadline is live, and the shared focus trap excludes native `[hidden]`
+> descendants. The old `FOCUS` control is retired; `PANELS` is the single
+> explicit visibility menu. Evidence: `docs/audit/fix-transaction-ui-batch-2026-09-12.md`,
+> `public/index.html:572-591`, `public/clientTransactionUi.test.js`, and
+> `public/clientUxContracts.test.js`.
 
 ## Non-negotiable product constraints
 
@@ -41,9 +50,13 @@ Do not introduce:
 The board, tile dimensions, room flow, topbar, left rail, center field, and
 bottom HUD footprint remain recognizable and stable.
 
-## Current evidence and root causes
+## Historical pre-implementation evidence (superseded)
 
-The current game rail renders six equal tabs in
+The following evidence explains why the refactor was commissioned. It describes
+the pre-implementation baseline, not the current client; use the current-status
+banner and the live notes below for current behavior.
+
+The pre-reset game rail rendered six equal tabs in
 `public/index.html:770` through `public/index.html:775`: My Deeds, Trade, Log,
 Finance, Casino, and Market. This combines assets, obligations, history, and
 optional activities in one narrow navigation model.
@@ -57,16 +70,28 @@ advanced actions directly in the rail in `public/clientRailRender.js:206`.
 The Event Log already has a topbar trigger at `public/index.html:579` and a
 dedicated drawer at `public/index.html:889`, so the rail Log tab is duplicate.
 
-The Cash On Hand HUD cell at `public/index.html:729` is currently display-only.
+The pre-reset Cash On Hand HUD cell at `public/index.html:729` was display-only.
 
-`FOCUS` hides both rails while `PANELS` only toggles the left rail
-(`public/main.js:723`, `public/main.js:724`, `public/styles.css:3186`), which
-creates an asymmetric recovery path on narrow screens.
+The pre-reset `FOCUS` control hid both rails while `PANELS` only toggled the
+left rail, which created an asymmetric recovery path on narrow screens.
 
-The shared surface controller does not include `#log-drawer` in
-`SURFACE_SELECTORS` (`public/clientSurfaces.js:11`), so the drawer does not
-inherit the same inert-background and keyboard-trap contract as other blocking
-surfaces.
+The pre-reset shared surface controller did not include `#log-drawer` in
+`SURFACE_SELECTORS`, so the drawer did not inherit the same inert-background and
+keyboard-trap contract as other blocking surfaces.
+
+## Current implementation evidence (2026-09-12)
+
+- The live rail has three tabs — `HOLDINGS`, `DEALS`, and `ACTIVITY` — at
+  `public/index.html:770-775`; the topbar `LOG` button opens the canonical
+  drawer.
+- The Cash On Hand HUD cell is an interactive button at
+  `public/index.html:729-734` and opens the Wallet & Items shell.
+- `PANELS` owns reversible Players/Chat/Right Rail visibility and HUD density;
+  there is no separate `FOCUS` action (`public/index.html:575-591`,
+  `public/clientPanelMenu.js:1-151`).
+- Wallet currently renders cash/account/item shell data only. Item actions and
+  bank-account upgrades remain unavailable until viewer-scoped projections and
+  server verbs are added; see `.ulpi/design/FINANCE-RAIL-UX-PLAN.md`.
 
 ## Design read and quality bar
 
@@ -90,7 +115,7 @@ information-architecture change, not a visual replacement.
 ## Target information architecture
 
 ```text
-TOPBAR: room · turn · log · focus/panels · social · sound · music
+TOPBAR: room · turn · log · panels · social · sound · music
 LEFT:   players · parlor chat
 CENTER: global event banner · board · turn HUD
 RIGHT:  HOLDINGS | DEALS | ACTIVITY
@@ -253,7 +278,9 @@ Rules:
   `2 DEALS NEED YOU`;
 - the preference is user-controlled and stored per device/session;
 - no panel auto-hides because of inactivity;
-- `FOCUS BOARD` is a separate, explicit board-focus action;
+- There is no separate `FOCUS BOARD` action in the current shell; `PANELS` is
+  the single explicit visibility control. Preserve this decision unless the
+  panel IA is intentionally revisited.
 - desktop exposes the same control path as tablet/mobile;
 - on mobile the right rail becomes a bounded bottom sheet with the same three
   tabs and internal scrolling.
@@ -314,7 +341,7 @@ semantic mark, using a crisp 16×16 or 24×24 grid and the locked palette.
 
 ## Implementation slices
 
-### Slice 1: Log ownership and surface semantics
+### Slice 1: Log ownership and surface semantics — shipped
 
 Files: `public/index.html`, `public/clientLogDrawer.js`,
 `public/clientSurfaces.js`, `public/clientKeyboard.js`, `public/main.js`.
@@ -328,7 +355,7 @@ Files: `public/index.html`, `public/clientLogDrawer.js`,
 Tests: drawer open/close, Escape, focus restoration, Tab containment, filter
 state, and no rail Log tab.
 
-### Slice 2: Three-tab rail skeleton
+### Slice 2: Three-tab rail skeleton — shipped
 
 Files: `public/index.html`, `public/clientRailRender.js`, `public/main.js`,
 `public/styles.css`, `public/clientState.js`.
@@ -342,7 +369,7 @@ Files: `public/index.html`, `public/clientRailRender.js`, `public/main.js`,
 Tests: tab selection, keyboard order, empty states, pending deal persistence,
 and old server snapshots.
 
-### Slice 3: Wallet and Items
+### Slice 3: Wallet and Items — shell shipped; mutations pending
 
 Files: `public/index.html`, `public/clientHudRender.js`,
 `public/clientRailRender.js`, `public/clientRailEvents.js`, new or existing
@@ -350,14 +377,18 @@ modal module, `public/styles.css`.
 
 - turn Cash On Hand into a semantic button with the same visual footprint;
 - implement `WALLET & ITEMS` Account/Items views;
-- wire bank upgrade to the existing server action and confirmation path;
+- wire bank upgrade to a server action and confirmation path;
 - render item summaries and legal actions from viewer-scoped data;
 - preserve item trade handoff to Deal Builder.
+
+The current build stops at the shell: no item projection/action handler or
+bank-account upgrade server seam is wired yet. Keep these as the next
+implementation slice rather than describing them as live behavior.
 
 Tests: keyboard entry, modal neutrality, upgrade pending/error/success, item
 use/trade/exchange/sale guard behavior, stale snapshots, and focus restoration.
 
-### Slice 4: Activity workspaces
+### Slice 4: Activity workspaces — staged Market/Casino shipped; future work remains
 
 Files: `public/clientRailRender.js`, `public/clientRailEvents.js`, existing
 market/casino/deal modules, `public/styles.css`, `public/index.html` only when
@@ -372,15 +403,15 @@ new modal shells are required.
 Tests: no client-selected outcomes, pending state, duplicate-submit prevention,
 stale/timeout recovery, and event modifier disclosure.
 
-### Slice 5: Panel visibility and responsive behavior
+### Slice 5: Panel visibility and responsive behavior — desktop controls shipped; mobile follow-up
 
 Files: `public/main.js`, `public/clientState.js`, `public/index.html`,
 `public/styles.css`, `public/clientKeyboard.js`.
 
-- replace the one-sided Panels toggle with explicit visibility controls;
-- expose desktop and mobile recovery paths;
-- add compact hidden-rail handles with urgent counts;
-- convert narrow layouts to a bounded bottom sheet without page scrolling.
+- **Shipped:** replace the one-sided Panels toggle with explicit Players, Chat,
+  Right Rail, and HUD-density controls.
+- **Follow-up:** expose the mobile recovery path, compact hidden-rail handles,
+  and a bounded bottom sheet without page scrolling.
 
 Tests: focus board, open panels, keyboard navigation, safe-area behavior,
 mobile sheet scroll, and state restoration after reload/reconnect.
@@ -425,9 +456,12 @@ suite against private helper functions.
 - The right rail presents three intent-based tabs, never six compressed tabs.
 - The Log tab is gone; the topbar drawer is canonical and keyboard-safe.
 - Cash On Hand opens Wallet and Items without leaving the round.
-- Bank upgrades and item actions have one clear modal path and neutral dismiss.
+- **Future contract:** bank upgrades and item actions must have one clear modal
+  path and neutral dismiss; the current Wallet shell has no mutation seam.
 - Deals stay visible after modal close and refresh in place after remote changes.
-- Activity summaries remain readable; advanced actions use focused modals.
+- Activity summaries remain readable; the staged Market/Casino actions use
+  focused modals. Prediction and any new activity mutation remains subject to
+  its server contract.
 - Panel hiding is explicit, reversible, and never hides a required decision.
 - Classic game rules, board geometry, tile order, server settlement, and social
   surfaces remain unchanged.
@@ -463,3 +497,8 @@ The implementation plan is complete. The proposed architecture is a small
 client information-architecture change layered onto the existing server and
 surface controllers. It keeps Poorup's UI system, uses modals selectively, and
 has explicit state, accessibility, QA, and rollback boundaries.
+
+The delivered 2026-09-12 shell covers the three-tab rail, canonical Log drawer,
+Cash HUD/Wallet entry, neutral purchase dismissal, and explicit `PANELS`
+controls. Item mutations, bank-account upgrades, and portrait-mobile layout
+remain separate follow-up slices; they are not implied by the shell status.
