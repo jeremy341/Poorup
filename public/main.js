@@ -139,8 +139,6 @@ import {
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 import { bindAudioControls } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
-import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./clientTheme.js";
-import { renderTheme } from "./clientThemeRender.js";
 import {
   bindRoomsUi,
   closeRoomsModal,
@@ -181,7 +179,6 @@ import {
 } from "./clientDeedDetailUi.js";
 import {
   bindLobbyUi,
-  buildBotPreviewPlayers,
   configureLobbyUi,
   enterParlor,
   goHome,
@@ -448,16 +445,7 @@ function syncHomeMusic() {
 
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
-  const players = seated.concat(botPreviewFill(seated)).slice(0, state.settings.maxPlayers);
-  $("#player-list").innerHTML = players.map(playerRowHTML).join("");
-}
-
-function botPreviewFill(seated) {
-  if (state.phase !== "setup") {
-    if (state.phase !== "lobby") return [];
-  }
-  const existingBots = seated.filter((p) => p.bot).length;
-  return buildBotPreviewPlayers(Math.max(0, state.settings.bots - existingBots));
+  $("#player-list").innerHTML = seated.map(playerRowHTML).join("");
 }
 
 function playerRowHTML(p, i) {
@@ -753,14 +741,7 @@ function bindDrawerAndBoardModes() {
     btn.addEventListener("click", () => applyLogDrawerFilter(btn));
   });
 
-  // focus / panel visibility controls
-  $("#focus-btn")?.addEventListener("click", (event) => {
-    const view = $("#view-game");
-    if (!view) return;
-    const focused = view.classList.toggle("is-focus");
-    event.currentTarget.setAttribute("aria-pressed", String(focused));
-    if (focused) closePanelMenu({ restore: false });
-  });
+  // panel visibility controls
   bindPanelMenu();
 }
 
@@ -999,12 +980,8 @@ configureNightShift({
   stopHomeHelicopter,
   scheduleHomeHelicopter,
 });
-configureThemeUi({ applyTheme: renderTheme });
-bindThemeVisibility();
-initThemePreference();
 renderHome();
 buildBoard(onTileClick);
-renderTheme(state.themeId, { animate: false });
 hydrateSprites();
 bindEvents();
 renderAll();

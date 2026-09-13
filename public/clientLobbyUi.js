@@ -305,13 +305,14 @@ function lobbySection(title, rows) {
 
 function lobbyPlayerRowHTML(p, seed) {
   const isYou = p.id === "p1" || p.id === "preview";
+  const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
   // deterministic per-player "ready" flag instead of Math.random(), so the
   // dot doesn't flicker on every unrelated re-render (typing, toggling, etc.)
   const ready = isYou || !!p.online;
   return `<div class="lobby-player-row${isYou ? " lobby-player-you" : ""}">
     <div class="lobby-av">${avatarHTML(p, 3, seed)}</div>
       <div class="lobby-player-info">
-        <div class="t-label lobby-player-name" style="color:${p.textColor}">${p.bot ? '<img class="lobby-brain-icon" src="/assets/bot-brain.svg" alt="">' : ''}${esc(p.name)}</div>
+        <div class="t-label lobby-player-name" style="color:${p.textColor}">${p.bot ? '<img class="lobby-brain-icon" src="/assets/bot-brain.svg" alt="">' : ''}${esc(p.name)}${isHost ? '<span class="lobby-host-badge t-micro g400">HOST</span>' : ''}</div>
         <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.personality || "survivor").toUpperCase()} · ${(p.botBrain || "auto").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
     </div>
     <span class="lobby-ready-dot" style="background:${ready ? "#35a653" : "#3a382a"};box-shadow:${ready ? "0 0 5px rgb(53 166 83/60%)" : "none"}"></span>
@@ -445,10 +446,7 @@ function applyLobbyLockState(locked, hostLocked) {
 
 function renderLobbyRailContent(s, locked, hostLocked) {
   const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
-  const existingBots = seated.filter((p) => p.bot).length;
-  const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
-  const previewPlayers = [...seated, ...botPreviews].slice(0, s.maxPlayers);
-  $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked, previewPlayers);
+  $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked, seated);
   applyLobbyLockState(locked, hostLocked);
 }
 
@@ -463,20 +461,6 @@ function buildPreviewSelf() {
     bot: false,
     avatarGrid: a.avatarGrid || undefined,
   };
-}
-
-function buildBotPreviewPlayers(count) {
-  const localBots = buildPlayers(activeAppearance(), state.alias).slice(1, 4);
-  return localBots.slice(0, Math.max(0, count)).map((bot, index) => ({
-    ...bot,
-    id: `bot-preview-${index + 1}`,
-    name: `BOT ${index + 1}`,
-   online: true,
-   bot: true,
-    personality: state.settings.botPersonality || "survivor",
-    botBrain: state.settings.botBrain || "auto",
-    botDifficulty: state.settings.botDifficulty || "table",
- }));
 }
 
 function syncServerAppearance() {
@@ -515,7 +499,11 @@ function resetTableForEntry(requestedCode) {
   // always start the setup/lobby screens from a clean board — otherwise a
   // finished game's deed ownership, houses and token positions would still
   // be visible behind the setup overlay after going home and rejoining.
-  state.players = buildPlayers(activeAppearance(), state.alias);
+  // The setup/lobby view must represent only seats acknowledged by the
+  // server. The local buildPlayers helper includes demo CPU seats for the
+  // home preview, so keep just the human placeholder until startGame creates
+  // any configured bots authoritatively.
+  state.players = buildPlayers(activeAppearance(), state.alias).slice(0, 1);
   state.owners = {};
   state.houses = {};
   state.pool = 0;
@@ -647,7 +635,6 @@ export function goHome() {
   state.suppressRoomUpdates = true;
   closeAllSurfaces();
   $("#log-drawer").classList.remove("is-open");
-  $("#view-game").classList.remove("is-focus");
   host.closeRoomsModal();
   // reset right rail visibility to game mode
   $("#right-rail-game").classList.remove("is-hidden");
@@ -807,4 +794,4 @@ export function bindLobbyUi() {
   $("#lobby-settings-body").addEventListener("change", applySettingField);
 }
 
-export { renderSetup, renderLobbyRail, buildBotPreviewPlayers, setActiveAppearance };
+export { renderSetup, renderLobbyRail, setActiveAppearance };
