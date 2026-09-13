@@ -156,7 +156,11 @@ function pageFocusCanMove() {
 
 function focusSocialPage() {
   if (!pageFocusCanMove()) return;
-  requestAnimationFrame(() => $("#social-page-content .social-feed")?.focus({ preventScroll: true }));
+  requestAnimationFrame(() => {
+    const gate = $("#social-page-content [data-social-guest-gate]");
+    const target = gate || $("#social-page-content .social-feed");
+    target?.focus({ preventScroll: true });
+  });
 }
 
 function focusRankingsPage() {
@@ -231,6 +235,12 @@ function socialDataAck(response, target) {
 }
 
 function socialFetchAndRender(target) {
+  if (!state.account?.account) {
+    // Guests get the public shell and account gate only. Do not request or
+    // retain relationship data that cannot be displayed without an account.
+    renderSocialSurface(target);
+    return;
+  }
   host.emitServer("get-social-data", {}, (response) => socialDataAck(response, target));
 }
 
@@ -270,6 +280,18 @@ function applyPublicPlayerCard(response) {
 
 function signinBodyHTML() {
   return `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p><button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button></div>`;
+}
+
+export function socialGuestGateHTML(surfaceKey = "social") {
+  const titleId = `social-${surfaceKey}-guest-title`;
+  return `<section class="social-guest-gate" data-social-guest-gate role="status" tabindex="-1" aria-labelledby="${titleId}">
+    <div class="social-guest-gate-card">
+      <span class="t-micro g400">ACCOUNT GATE</span>
+      <h3 class="t-section g100" id="${titleId}">YOU DO NOT HAVE AN ACCOUNT</h3>
+      <p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p>
+      <button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button>
+    </div>
+  </section>`;
 }
 
 function friendsBodyHTML(social) {
@@ -312,7 +334,7 @@ function socialHeroContext(social, pageSurface) {
 
 function socialRailContext(signedIn) {
   const networkLabel = signedIn ? "ACCOUNT SYNC" : "GUEST VIEW";
-  const feedSource = signedIn ? "SERVER-SYNCED" : "READ-ONLY SEARCH";
+  const feedSource = signedIn ? "SERVER-SYNCED" : "ACCOUNT REQUIRED";
   const phaseLabel = state.phase === "home" ? "NO ROOM" : "IN ROOM";
   return { networkLabel, feedSource, phaseLabel };
 }
@@ -336,12 +358,17 @@ export function renderSocialSurface(target = "#social-card") {
   const pending = pendingTotal(social);
   const body = socialTabBody(social, signedIn);
   const activeLabel = activeTabLabel(tabs);
-  const searchResults = socialSearchResultsHTML();
+  const searchResults = signedIn ? socialSearchResultsHTML() : "";
   const searchValue = esc(state.socialSearchQuery || "");
   const hero = socialHeroContext(social, pageSurface);
   const rail = socialRailContext(signedIn);
   const info = socialTableContext();
-  card.innerHTML = `<div class="${hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${hero.inboxCount}</strong></div></div>${hero.closeBtn}</section><div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${searchValue}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div><div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, social, count)}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div></div>`;
+  const guestClass = signedIn ? "" : " is-guest";
+  const searchMarkup = `<div class="social-search-band panel noise"><form class="social-search" data-social-search-form id="social-${surfaceKey}-search-form"><div class="social-search-row"><label class="social-search-label" for="social-${surfaceKey}-search-input"><span class="t-micro g400">FIND A PLAYER</span><input class="field" id="social-${surfaceKey}-search-input" data-social-search-input name="username" autocomplete="off" placeholder="SEARCH USERNAME…" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" value="${searchValue}" aria-describedby="social-${surfaceKey}-search-help"><span class="t-micro ink-3" id="social-${surfaceKey}-search-help">Unique usernames only · 3–16 characters</span></label><button class="btn-dark social-search-submit" type="submit"><span class="t-label f11">FIND</span></button></div><div class="social-search-results" data-social-search-results id="social-${surfaceKey}-search-results">${searchResults}</div></form></div>`;
+  const networkMarkup = `<div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, social, count)}</span></button>`).join("")}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${surfaceKey}-feed-title">${activeLabel}</h3></div><span class="t-micro ink-3">${rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div>`;
+  card.innerHTML = `<div class="${hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${hero.inboxCount}</strong></div></div>${hero.closeBtn}</section><div class="social-guest-shell${guestClass}"><div class="social-guest-content" data-social-guest-content${signedIn ? "" : ' aria-hidden="true"'}>${searchMarkup}${networkMarkup}</div>${signedIn ? "" : socialGuestGateHTML(surfaceKey)}</div></div>`;
+  const guestContent = card.querySelector("[data-social-guest-content]");
+  if (guestContent) guestContent.inert = !signedIn;
 }
 
 
