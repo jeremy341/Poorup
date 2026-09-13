@@ -1,9 +1,5 @@
 import { test, expect } from "@playwright/test";
 
-function intersects(a, b) {
-  return a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-}
-
 test.describe("Batch 3 responsive and accessibility contracts", () => {
   test("modal close controls keep a 40px hit height", async ({ page }) => {
     await page.goto("/");
@@ -25,7 +21,6 @@ test.describe("Batch 3 responsive and accessibility contracts", () => {
       const intro = document.querySelector(".rules-intro");
       const copy = document.querySelector(".rules-intro-copy");
       const meta = document.querySelector(".rules-intro-meta");
-      if (!intro || !copy || !meta) return null;
       const introBox = intro.getBoundingClientRect();
       const copyBox = copy.getBoundingClientRect();
       const metaBox = meta.getBoundingClientRect();
