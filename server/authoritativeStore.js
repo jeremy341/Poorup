@@ -46,6 +46,17 @@ function staleWriteResult(id, current, version) {
   return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
 }
 
+function deleteInputError(id, version) {
+  if (!id) return invalidResult('Room id is invalid.');
+  if (version === null) return invalidResult('Room version must be a non-negative integer.');
+  return null;
+}
+
+function staleDeleteResult(id, current, version) {
+  if (!current || version === current.version) return null;
+  return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
+}
+
 function rowsFromObject(value) {
   const rows = new Map();
   Object.entries(value && typeof value === 'object' ? value : {}).forEach(([roomId, row]) => {
@@ -91,11 +102,12 @@ function createAdapter(readRows, persistRows = null) {
   function deleteRoom(roomId, version) {
     const id = safeRoomId(roomId);
     const expected = safeVersion(version);
-    if (!id) return invalidResult('Room id is invalid.');
-    if (expected === null) return invalidResult('Room version must be a non-negative integer.');
+    const inputError = deleteInputError(id, expected);
+    if (inputError) return inputError;
     const current = rows.get(id);
     if (!current) return { success: true, deleted: false, roomId: id, version: expected };
-    if (expected !== current.version) return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
+    const stale = staleDeleteResult(id, current, expected);
+    if (stale) return stale;
     rows.delete(id);
     try {
       persistRows?.(rows);

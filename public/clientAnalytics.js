@@ -41,6 +41,11 @@ function isMetricRecord(value) {
   return Object.prototype.toString.call(value) === '[object Object]';
 }
 
+function metricEntries(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value).filter(([name]) => ALLOWED_METRICS.has(name));
+}
+
 function cleanMetricEntry(value) {
   if (!isMetricRecord(value)) return null;
   const output = {};
@@ -51,13 +56,10 @@ function cleanMetricEntry(value) {
 
 export function normalizeAnalyticsSnapshot(value = {}) {
   const metrics = {};
-  if (value.metrics && typeof value.metrics === 'object' && !Array.isArray(value.metrics)) {
-    Object.entries(value.metrics).forEach(([name, entry]) => {
-      if (!ALLOWED_METRICS.has(name)) return;
-      const clean = cleanMetricEntry(entry);
-      if (clean) metrics[name] = clean;
-    });
-  }
+  metricEntries(value.metrics).forEach(([name, entry]) => {
+    const clean = cleanMetricEntry(entry);
+    if (clean) metrics[name] = clean;
+  });
   return {
     range: ['hour', 'day', 'week'].includes(String(value.range)) ? String(value.range) : 'hour',
     generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt.slice(0, 80) : '',
