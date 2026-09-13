@@ -62,3 +62,8 @@ passes. Persistent data and backups live outside the release directory. The
 runtime account is a dedicated unprivileged `poorup` user; secrets are host
 environment values only. Rollback switches the active release pointer back to
 the previous verified SHA.
+
+The deploy workflow is fail-closed until the repository variable
+`NEST_DEPLOY_ENABLED=true` and all `nest-production` environment secrets are
+configured. This keeps normal main CI green while the one-time Nest bootstrap
+is still pending.
