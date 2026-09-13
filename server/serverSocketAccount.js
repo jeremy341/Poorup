@@ -132,6 +132,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('list-rooms', (_, callback) => {
     reply(callback, { success: true, rooms: roomManager.listPublicRooms() });
   });
+  on('get-maintenance-state', (_, callback) => {
+    reply(callback, { success: true, maintenance: runtime.maintenanceSnapshot() });
+  });
   on('create-room', handleCreateRoom);
   on('leave-room', handleLeaveRoom);
   on('join-room', handleJoinRoom);
@@ -235,6 +238,14 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   function handleCreateRoom(payload, callback) {
+    if (typeof runtime.canCreateRoom === 'function' && !runtime.canCreateRoom()) {
+      return reply(callback, {
+        success: false,
+        error: 'New rooms are paused for maintenance.',
+        code: 'MAINTENANCE_DRAINING',
+        maintenance: runtime.maintenanceSnapshot?.() || null
+      });
+    }
     const requestId = normalizeRequestId(payload?.requestId);
     const clientId = normalizeClientId(payload?.clientId);
     const account = runtime.social.accountForSocket(socket, payload);
@@ -471,6 +482,14 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const player = room.getPlayerBySocket(socket.id);
     if (!player || room.hostId !== player.id) {
       return reply(callback, { success: false, error: 'Only the host can start the game.' });
+    }
+    if (typeof runtime.canStartRound === 'function' && !runtime.canStartRound()) {
+      return reply(callback, {
+        success: false,
+        error: 'New rounds are paused for maintenance.',
+        code: 'MAINTENANCE_DRAINING',
+        maintenance: runtime.maintenanceSnapshot?.() || null
+      });
     }
     const result = room.startGame();
     if (!result.success) {
