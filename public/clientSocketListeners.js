@@ -234,7 +234,10 @@ function normalizeTradeOffer(trade) {
 function onTradeOffer({ trade }) {
   if (!trade) return;
   const normalized = normalizeTradeOffer(trade);
-  state.offers.push(normalized);
+  state.offers = [
+    normalized,
+    ...(state.offers || []).filter(offer => offer?.id !== normalized.id),
+  ];
   host.renderAll();
   host.openOfferModal(normalized);
 }

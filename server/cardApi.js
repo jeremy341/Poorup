@@ -99,8 +99,10 @@ const cardApi = {
   // grounding test, the payable-rent-owner guard and the card rent formula.
   awardStartSalaryIfPassed(player, destination) {
     if (destination.index < player.position) {
-      player.cash += 200;
-      this.feedMessage(`${player.nickname} passed Start and collected $200.`);
+      const landedOnStart = destination.index === START_TILE_INDEX;
+      const reward = landedOnStart && this.settings.doubleGo ? 400 : 200;
+      player.cash += reward;
+      this.feedMessage(`${player.nickname} ${landedOnStart ? 'landed on' : 'passed'} Start and collected $${reward}.`);
     }
   },
 
