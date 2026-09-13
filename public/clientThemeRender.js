@@ -25,17 +25,32 @@ function reducedMotion() {
 
 export function configureThemeRender() { /* reserved seam for visual tests */ }
 
+function themeSceneForSurface(theme, surface) {
+  if (surface === "home" && theme.homeScene) return theme.homeScene;
+  return theme.scene;
+}
+
+function themePropsForSurface(theme, surface) {
+  if (surface === "page") return {};
+  if (surface === "home" && theme.homeProps) return { ...(theme.props || {}), ...theme.homeProps };
+  return theme.props || {};
+}
+
 export function themeSceneMarkup(themeOrId, surface = "page") {
   const theme = typeof themeOrId === "string" ? getTheme(themeOrId) : themeOrId || getTheme();
-  if (!theme.scene) return "";
   const safeSurface = surface === "home" || surface === "board" ? surface : "page";
+  const scene = themeSceneForSurface(theme, safeSurface);
+  if (!scene) return "";
   const imageMarkup = (slot, path, extraClass = "") => {
     const weatherClass = slot === "weather" ? ` theme-prop-weather-${theme.motion.weather}` : "";
     return `<img class="theme-prop theme-prop-${slot}${weatherClass}${extraClass}" src="${escAttr(path)}" alt="" aria-hidden="true" width="640" height="360">`;
   };
-  const propMarkup = safeSurface === "page" ? "" : Object.entries(theme.props).map(([slot, path]) => {
+  const propMarkup = Object.entries(themePropsForSurface(theme, safeSurface)).map(([slot, path]) => {
     if (slot === "clouds") return imageMarkup(slot, path, " theme-cloud-a") + imageMarkup(slot, path, " theme-cloud-b");
     if (slot === "petals") return imageMarkup(slot, path, " theme-petal-a") + imageMarkup(slot, path, " theme-petal-b");
+    if (slot === "snow") return imageMarkup(slot, path, " theme-snow-a") + imageMarkup(slot, path, " theme-snow-b");
+    if (slot === "leaves") return imageMarkup(slot, path, " theme-leaves-a") + imageMarkup(slot, path, " theme-leaves-b");
+    if (slot === "fog") return imageMarkup(slot, path, " theme-fog-a") + imageMarkup(slot, path, " theme-fog-b");
     if (slot === "pedestrians" && safeSurface === "home") {
       const poseA = imageMarkup(slot, path.poseA, " theme-pedestrian-pose theme-pedestrian-pose-a");
       const poseB = imageMarkup(slot, path.poseB, " theme-pedestrian-pose theme-pedestrian-pose-b");
@@ -44,7 +59,7 @@ export function themeSceneMarkup(themeOrId, surface = "page") {
     if (slot === "pedestrians") return "";
     return imageMarkup(slot, path);
   }).join("");
-  return `<img class="theme-scene" src="${escAttr(theme.scene)}" alt="" aria-hidden="true" width="640" height="360">${propMarkup}`;
+  return `<img class="theme-scene" src="${escAttr(scene)}" alt="" aria-hidden="true" width="640" height="360">${propMarkup}`;
 }
 
 function skylineMarkup(data, palette = DEFAULT_SKYLINE) {
