@@ -69,6 +69,23 @@ function trapOwnerTransfer(tile, winner) {
   return state;
 }
 
+check('roll is blocked while a purchase, sponsorship, or auction decision is open', () => {
+  const ctx = startedRoom();
+  const blocked = [
+    [{ playerId: ctx.a.id }, null, null],
+    [null, { buyerId: ctx.a.id }, null],
+    [null, null, { active: true }],
+  ];
+  for (const [purchase, sponsorship, auction] of blocked) {
+    ctx.game.pendingPurchaseOffer = purchase;
+    ctx.game.pendingSponsoredPurchase = sponsorship;
+    ctx.game.auction = auction;
+    const result = ctx.game.rollDice(ctx.a.socketId);
+    assert.equal(result.success, false);
+    assert.match(result.error, /Resolve|Finish/);
+  }
+});
+
 function feedHas(game, text) {
   return game.feed.map((entry) => entry.text).includes(text);
 }

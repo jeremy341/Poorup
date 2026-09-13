@@ -48,6 +48,7 @@ let host = {
   closeRoomsModal: noop,
   rebuildBoard: noop,
   goHome: noop,
+  openConfirmModal: noop,
   createRequestId: () => "",
 };
 
@@ -885,6 +886,15 @@ export function goHome() {
 // seat; a raw showView("home") from a page/rail handler used to leave the
 // seat (and the room's stale transcript) behind when the user was mid-room.
 export function leaveRoomForHome() {
+  if (state.phase === "playing") {
+    host.openConfirmModal({
+      title: "Leave active round?",
+      message: "Leaving now releases your seat and forfeits this round. Your current assets will stay on the table.",
+      confirmLabel: "LEAVE ROUND",
+      onConfirm: () => goHome(),
+    });
+    return;
+  }
   if (inRoomSession()) goHome();
   else host.showView("home");
 }

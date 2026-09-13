@@ -85,7 +85,8 @@ function renderHudDice(waiting) {
 }
 
 function hudControlsLocked() {
-  if (state.pendingBuyTile != null && state.settings.auction) return true;
+  if (state.pendingBuyTile != null) return true;
+  if (state.sponsorship) return true;
   return Boolean(state.auction);
 }
 
@@ -111,6 +112,9 @@ function canEndNow(locked, humanTurn) {
 function hudRollLabel(waiting, canRoll, canEnd) {
   if (waiting) return "Join First";
   if (state.rolling) return "Rolling…";
+  if (state.pendingBuyTile != null) return "Resolve Purchase";
+  if (state.sponsorship) return "Resolve Sponsorship";
+  if (state.auction) return "Resolve Auction";
   if (canEnd) return "End Turn";
   if (canRoll) return "Roll Dice";
   return "Waiting…";
