@@ -38,6 +38,7 @@ let host = {
   openOfferModal: noop,
   openDealDetails: noop,
   renderDealDetailsIfOpen: noop,
+  applyMaintenanceState: noop,
   serverSyncHost: {},
 };
 
@@ -250,6 +251,7 @@ function attachConnectionListeners(socket) {
     host.renderDealDetailsIfOpen();
   });
   socket.on("rooms-updated", applyRoomsUpdated);
+  socket.on("maintenance-state", (snapshot) => host.applyMaintenanceState(snapshot));
 }
 
 function attachSocialListeners(socket) {

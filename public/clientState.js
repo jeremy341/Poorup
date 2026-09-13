@@ -160,6 +160,13 @@ const state = {
   homeTab: "play",          // play | rooms | profile
   themeId: DEFAULT_THEME_ID, // client-only visual preference
   themePopoverOpen: false,
+  maintenance: {
+    mode: "normal",
+    message: "",
+    releaseId: "",
+    drainDeadline: null,
+    activeRounds: 0,
+  },
   profileTab: "designs",    // overview | stats | designs | history | account
   setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
   profiles: loadProfiles(),   // persisted array of saved player designs

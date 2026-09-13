@@ -121,7 +121,7 @@ function recordSeasonTelemetry(context) {
 }
 
 function createRuntime(deps) {
-  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social } = deps;
+  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
@@ -150,6 +150,8 @@ function createRuntime(deps) {
 
   function emitRoomState(room) {
     if (!room || room.destroyed) return;
+    metrics?.setMetric('active-rooms', roomManager.rooms.size, { scope: 'all' });
+    metrics?.setMetric('active-rounds', [...roomManager.rooms.values()].filter(candidate => candidate.game.started && !candidate.destroyed).length, { scope: 'all' });
     try {
       if (room.game.lastWinner && !room.statsRecorded) {
         recordRoomStats(room);
@@ -825,6 +827,16 @@ function createRuntime(deps) {
     if (key) room.game.contractTransactions.set(key, result);
   }
 
+  function maintenanceSnapshot() {
+    return maintenance?.snapshot?.() || {
+      mode: 'normal',
+      message: '',
+      releaseId: '',
+      drainDeadline: null,
+      activeRounds: 0,
+    };
+  }
+
   // --- socket disconnect (registered per socket by the connection wiring) ----
 
   function handleSocketDisconnect(socket) {
@@ -847,6 +859,7 @@ function createRuntime(deps) {
     acceptRoomInvite,
     accountFromPayload,
     accountStore,
+    authoritativeStore,
     achievementStore,
     cachedContractCancel,
     cacheContractCancel,
@@ -858,6 +871,12 @@ function createRuntime(deps) {
     io,
     leaveAllGameRooms,
     matchStore,
+    metrics,
+    maintenance,
+    pubsubAdapter,
+    maintenanceSnapshot,
+    canCreateRoom: () => maintenance?.canCreateRoom?.() ?? true,
+    canStartRound: () => maintenance?.canStartRound?.() ?? true,
     seasonStore,
     cosmeticStore,
     telemetryStore,
