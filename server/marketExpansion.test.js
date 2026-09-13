@@ -59,7 +59,10 @@ assert.equal(writer.openOption('a', { instrumentId: 'brazil', role: 'writer', si
 assert.ok(writer.game.players[0].cash >= 0);
 const marginLow = roomAt('margin');
 marginLow.game.players[0].cash = 1;
-assert.equal(marginLow.openMargin('a', 'brazil', 10, 'low').success, false);
+assert.deepEqual(marginLow.openMargin('a', 'brazil', 10, 'low'), {
+  success: false,
+  error: 'You need $270 cash for this margin position ($20 fee + $250 collateral).'
+});
 assert.ok(marginLow.game.players[0].cash >= 0);
 const marginPlayer = margin.game.players[0];
 marginPlayer.marginMaintenance = 500;
