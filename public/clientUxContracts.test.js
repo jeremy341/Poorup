@@ -13,6 +13,7 @@ const index = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("./main.js", import.meta.url), "utf8");
 const panelMenu = fs.readFileSync(new URL("./clientPanelMenu.js", import.meta.url), "utf8");
 const lobby = fs.readFileSync(new URL("./clientLobbyUi.js", import.meta.url), "utf8");
+const roomsUi = fs.readFileSync(new URL("./clientRoomsUi.js", import.meta.url), "utf8");
 const stateSync = fs.readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
@@ -54,6 +55,13 @@ check("guest social gate gives a clear account message and inert content contrac
 check("social search control aligns to the input row", () => {
   assert.match(styles, /\.social-search-row/);
   assert.match(styles, /\.social-search-submit\s*\{[^}]*align-self:\s*start/);
+});
+
+check("board variant is selected only after entering the lobby", () => {
+  assert.equal(index.includes('id="rc-board-variant"'), false);
+  assert.equal(roomsUi.includes('id === "rc-board-variant"'), false);
+  assert.equal(roomsUi.includes("#rc-board-variant"), false);
+  assert.match(lobby, /settingRow\("Board Variant"/);
 });
 
 console.log(`client UX contract tests: ${passed} passed, ${failed} failed`);
