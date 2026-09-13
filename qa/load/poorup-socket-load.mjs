@@ -52,17 +52,21 @@ function ack(socket, event, payload = {}) {
   });
 }
 
-async function run() {
-  const started = Date.now();
+async function connectClients() {
   for (let index = 0; index < clientCount; index += 1) {
     try { sockets.push(await connectSocket(index)); } catch { /* counted in stats */ }
     if (index % 50 === 49) await wait(10);
   }
+}
+
+async function listRooms() {
   await Promise.all(sockets.map(async socket => {
     const response = await ack(socket, 'list-rooms');
     if (response.success) stats.listed += 1;
   }));
+}
 
+async function createRooms() {
   const roomCount = Math.ceil(sockets.length / roomSize);
   const rooms = [];
   for (let index = 0; index < roomCount; index += 1) {
@@ -76,6 +80,10 @@ async function run() {
     });
     if (response.success && response.roomCode) { rooms.push(response.roomCode); stats.created += 1; }
   }
+  return rooms;
+}
+
+async function joinRooms(rooms) {
   for (let index = 0; index < rooms.length; index += 1) {
     const roomCode = rooms[index];
     const first = index * roomSize;
@@ -86,7 +94,9 @@ async function run() {
       if (response.success) stats.joined += 1;
     }
   }
+}
 
+async function reconnectSample() {
   // Reconnect a bounded sample to measure recovery without turning the test
   // into a reconnect storm.
   const sample = sockets.filter((_socket, index) => index % 20 === 0).slice(0, 50);
@@ -99,6 +109,9 @@ async function run() {
       restored.close();
     } catch { stats.reconnectFailures += 1; }
   }
+}
+
+function loadResult(started) {
   sockets.forEach(socket => socket.close());
   const sorted = stats.latencies.slice().sort((a, b) => a - b);
   const p95 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : null;
@@ -117,6 +130,17 @@ async function run() {
     connectP95Ms: p95,
     pass: stats.failed === 0 && stats.reconnectFailures === 0 && stats.reconnects >= Math.min(50, Math.ceil(clientCount / 20)) * 0.99
   };
+  return result;
+}
+
+async function run() {
+  const started = Date.now();
+  await connectClients();
+  await listRooms();
+  const rooms = await createRooms();
+  await joinRooms(rooms);
+  await reconnectSample();
+  const result = loadResult(started);
   console.log(JSON.stringify(result, null, 2));
   if (!result.pass) process.exitCode = 1;
 }

@@ -24,28 +24,46 @@ function query(selector) {
   return typeof document === 'undefined' ? null : document.querySelector(selector);
 }
 
-function cleanMetricEntry(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const output = {};
+function copyStringMetricFields(value, output) {
   ['type', 'updatedAt'].forEach(key => {
     if (typeof value[key] === 'string') output[key] = value[key].slice(0, 80);
   });
+}
+
+function copyNumberMetricFields(value, output) {
   ['count', 'total', 'last', 'min', 'max', 'value'].forEach(key => {
     const number = Number(value[key]);
     if (Number.isFinite(number)) output[key] = number;
   });
+}
+
+function isMetricRecord(value) {
+  return Object.prototype.toString.call(value) === '[object Object]';
+}
+
+function allowedMetricEntry([name]) {
+  return ALLOWED_METRICS.has(name);
+}
+
+function metricEntries(value) {
+  if (!isMetricRecord(value)) return [];
+  return Object.entries(value).filter(allowedMetricEntry);
+}
+
+function cleanMetricEntry(value) {
+  if (!isMetricRecord(value)) return null;
+  const output = {};
+  copyStringMetricFields(value, output);
+  copyNumberMetricFields(value, output);
   return output;
 }
 
 export function normalizeAnalyticsSnapshot(value = {}) {
   const metrics = {};
-  if (value.metrics && typeof value.metrics === 'object' && !Array.isArray(value.metrics)) {
-    Object.entries(value.metrics).forEach(([name, entry]) => {
-      if (!ALLOWED_METRICS.has(name)) return;
-      const clean = cleanMetricEntry(entry);
-      if (clean) metrics[name] = clean;
-    });
-  }
+  metricEntries(value.metrics).forEach(([name, entry]) => {
+    const clean = cleanMetricEntry(entry);
+    if (clean) metrics[name] = clean;
+  });
   return {
     range: ['hour', 'day', 'week'].includes(String(value.range)) ? String(value.range) : 'hour',
     generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt.slice(0, 80) : '',
