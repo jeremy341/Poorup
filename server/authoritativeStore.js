@@ -34,6 +34,46 @@ function invalidResult(error) {
   return { success: false, error };
 }
 
+function writeInputError(id, version, snapshot) {
+  if (!id) return invalidResult('Room id is invalid.');
+  if (version === null) return invalidResult('Room version must be a non-negative integer.');
+  if (snapshot === null) return invalidResult('Room snapshot must be JSON-serializable and bounded.');
+  return null;
+}
+
+function staleWriteResult(id, current, version) {
+  if (!current || version > current.version) return null;
+  return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
+}
+
+function deleteInputError(id, version) {
+  if (!id) return invalidResult('Room id is invalid.');
+  if (version === null) return invalidResult('Room version must be a non-negative integer.');
+  return null;
+}
+
+function staleDeleteResult(id, current, version) {
+  if (!current || version === current.version) return null;
+  return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
+}
+
+function normalizedRowEntry(entry) {
+  const [roomId, row] = entry;
+  const id = safeRoomId(roomId);
+  const version = safeVersion(row?.version);
+  const snapshot = cloneSnapshot(row?.snapshot);
+  return id && version !== null && snapshot !== null ? [id, { version, snapshot }] : null;
+}
+
+function rowsFromObject(value) {
+  const rows = new Map();
+  Object.entries(value && typeof value === 'object' ? value : {})
+    .map(normalizedRowEntry)
+    .filter(Boolean)
+    .forEach(([id, row]) => rows.set(id, row));
+  return rows;
+}
+
 function createAdapter(readRows, persistRows = null) {
   const rows = readRows();
 
@@ -49,13 +89,11 @@ function createAdapter(readRows, persistRows = null) {
     const id = safeRoomId(roomId);
     const nextVersion = safeVersion(version);
     const nextSnapshot = cloneSnapshot(snapshot);
-    if (!id) return invalidResult('Room id is invalid.');
-    if (nextVersion === null) return invalidResult('Room version must be a non-negative integer.');
-    if (nextSnapshot === null) return invalidResult('Room snapshot must be JSON-serializable and bounded.');
+    const inputError = writeInputError(id, nextVersion, nextSnapshot);
+    if (inputError) return inputError;
     const current = rows.get(id);
-    if (current && nextVersion <= current.version) {
-      return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
-    }
+    const stale = staleWriteResult(id, current, nextVersion);
+    if (stale) return stale;
     rows.set(id, { version: nextVersion, snapshot: nextSnapshot });
     try {
       persistRows?.(rows);
@@ -70,11 +108,12 @@ function createAdapter(readRows, persistRows = null) {
   function deleteRoom(roomId, version) {
     const id = safeRoomId(roomId);
     const expected = safeVersion(version);
-    if (!id) return invalidResult('Room id is invalid.');
-    if (expected === null) return invalidResult('Room version must be a non-negative integer.');
+    const inputError = deleteInputError(id, expected);
+    if (inputError) return inputError;
     const current = rows.get(id);
     if (!current) return { success: true, deleted: false, roomId: id, version: expected };
-    if (expected !== current.version) return { success: false, code: 'STALE_VERSION', roomId: id, version: current.version };
+    const stale = staleDeleteResult(id, current, expected);
+    if (stale) return stale;
     rows.delete(id);
     try {
       persistRows?.(rows);
@@ -89,13 +128,7 @@ function createAdapter(readRows, persistRows = null) {
 }
 
 export function createMemoryAuthoritativeStore(initial = {}) {
-  const rows = new Map();
-  Object.entries(initial && typeof initial === 'object' ? initial : {}).forEach(([roomId, row]) => {
-    const id = safeRoomId(roomId);
-    const version = safeVersion(row?.version);
-    const snapshot = cloneSnapshot(row?.snapshot);
-    if (id && version !== null && snapshot !== null) rows.set(id, { version, snapshot });
-  });
+  const rows = rowsFromObject(initial);
   return createAdapter(() => rows);
 }
 
@@ -105,16 +138,7 @@ export function createJsonAuthoritativeStore(filePath) {
   const loaded = loadJson(resolved, value => value && typeof value === 'object' && !Array.isArray(value));
   const initial = loaded.value || {};
   return createAdapter(
-    () => {
-      const rows = new Map();
-      Object.entries(initial).forEach(([roomId, row]) => {
-        const id = safeRoomId(roomId);
-        const version = safeVersion(row?.version);
-        const snapshot = cloneSnapshot(row?.snapshot);
-        if (id && version !== null && snapshot !== null) rows.set(id, { version, snapshot });
-      });
-      return rows;
-    },
+    () => rowsFromObject(initial),
     rows => writeJson(resolved, Object.fromEntries(rows.entries()))
   );
 }
