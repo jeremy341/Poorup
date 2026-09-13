@@ -1,8 +1,8 @@
 # UI / Visual Pre-merge Audit — 2026-09-12
 
-**Branch / revision:** `codex/theme-reset` at `1bf4e1a9d0b5fcd7f5014158a48ae6f3a6931949`  
-**Scope:** the theme/UI changes in `HEAD~1..HEAD`, with emphasis on the 1920×1080 home surface, theme layering, SVG/pixel rendering, motion and reduced motion, landscape iPad/touch behavior, focus, overflow, and duplicate/dead UI.  
-**Review mode:** read-only. No production files were edited.  
+**Branch / revision:** `codex/theme-reset` at `1bf4e1a9d0b5fcd7f5014158a48ae6f3a6931949`
+**Scope:** the theme/UI changes in `HEAD~1..HEAD`, with emphasis on the 1920×1080 home surface, theme layering, SVG/pixel rendering, motion and reduced motion, landscape iPad/touch behavior, focus, overflow, and duplicate/dead UI.
+**Review mode:** read-only. No production files were edited.
 **Overall recommendation:** **Hold for the P1 weather-layer readability fix.** The underlying theme registry/rendering contract is coherent and the requested automated checks pass.
 
 ## Executive summary
