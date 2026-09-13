@@ -140,7 +140,12 @@ function openMargin(game, player, instrument, amount) {
   const gross = quote * amount;
   const fee = Math.max(1, Math.ceil(gross * 0.02));
   const collateral = Math.ceil(gross * MARGIN_COLLATERAL_RATE);
-  if (player.cash < fee + collateral) return { success: false, error: 'You need cash for the margin settlement fee.' };
+  if (player.cash < fee + collateral) {
+    return {
+      success: false,
+      error: `You need $${fee + collateral} cash for this margin position ($${fee} fee + $${collateral} collateral).`
+    };
+  }
   player.cash -= fee + collateral;
   player.marginCollateral += collateral;
   player.reservedCash += collateral;
