@@ -1,7 +1,14 @@
 # Poorup Casino, Market, and Global-Event Economy
 
-Status: implemented optional economy contracts. Further balance tuning and
-market-depth work remain follow-up items.
+Status: implemented optional Casino, basic Market, and staged advanced-Market
+contracts. Balance tuning and deeper market telemetry remain follow-up work.
+
+> **Current status (2026-09-12).** The original basic buy/sell rollout has been
+> extended: `MARKET COMPLEXITY` now gates live `MARGIN`, `SHORTING`, and
+> `DERIVATIVES` actions. Every explicit Market action consumes the one-action
+> per-board-turn quota, and margin opening reserves disclosed cash collateral.
+> See `.ulpi/design/RULESETS-SEASONS-MARKET-PLAN.md` and
+> `docs/audit/fix-server-batch-2026-09-12.md` for the current contract.
 
 ## 1. Product decision
 
@@ -128,13 +135,27 @@ Country indexes map to their property groups. Airports and Utilities are support
 VIEW QUOTE → CHOOSE BUY/SELL → VALIDATE FUNDS → LOCK PRICE → SETTLE → UPDATE POSITION
 ```
 
-- Market orders only in the first release.
+- Basic buy/sell orders are the baseline release; the live server also exposes
+  staged `MARGIN`, `SHORTING`, and `DERIVATIVES` actions when the room's
+  `marketComplexity` allows them.
 - A small, visible spread and transaction fee prevent infinite churn.
-- No margin, short selling, options, leverage, or player-to-player stock transfers initially.
-- A player may make one market action per board turn, unless a special event grants another window.
+- Margin, short selling, options, leverage, or player-to-player stock transfers
+  are never implicit: they require the matching staged complexity and the
+  server's disclosed collateral/obligation guards.
+- A player may make one explicit market action per board turn, unless a special
+  event grants another window. Opening, reducing, covering, exercising, and
+  closing all use this same quota; automatic forced liquidation is settlement
+  and does not consume it.
 - Prices update at round boundaries and after global-event settlement, not every frame.
 
 Each position stores quantity, average cost, last price, realized profit/loss, and event exposure. Selling cannot reduce a position below zero.
+
+For `MARGIN`, opening reserves 25% of gross quote value as disclosed cash
+collateral in addition to the settlement fee. The held amount appears in
+reserved cash and is released proportionally on reduction or liquidation.
+`SHORTING` stores finite borrowable inventory, a 50% disclosed collateral hold,
+and a deterministic buy-in path. `DERIVATIVES` uses a bounded server-owned
+option reserve; naked writing is rejected.
 
 ### 5.3 Market interactions
 
@@ -232,7 +253,11 @@ On reconnect, the client receives the current snapshot, open obligations, active
 
 ## 8. Rules-page contract
 
-The Rules tab must describe the live game separately from planned add-ons. Planned Casino and Market copy must carry a `PLANNED` badge until the server contracts ship. The docs page links to the relevant settings and explains exactly what is unavailable.
+The Rules tab must describe the live game separately from planned add-ons.
+Server-shipped Casino, basic Market, and enabled staged Market complexity use
+`LIVE` copy; a `PLANNED` badge is reserved for future instruments or actions
+whose server contract has not shipped. The Rules page links to the relevant
+settings and explains exactly what is unavailable at the selected complexity.
 
 ## 9. Rollout plan
 

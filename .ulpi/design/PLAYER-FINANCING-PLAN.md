@@ -1,7 +1,8 @@
 # Poorup Player Financing Plan
 
-Status: planning only. No server, game rules, Socket.IO events, or UI code are
-changed by this document.
+Status: implemented through the server-authoritative loans, equity, hybrid,
+and negotiation contracts. This document remains the finance design contract;
+future balance and UI follow-up must preserve the existing legality guards.
 
 ## Executive feedback
 

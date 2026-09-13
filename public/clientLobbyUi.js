@@ -48,9 +48,128 @@ let host = {
   closeRoomsModal: noop,
   rebuildBoard: noop,
   goHome: noop,
+  openConfirmModal: noop,
+  createRequestId: () => "",
 };
 
 function noop() {}
+
+const QUICK_TABLE_MAX_RETRIES = 2;
+const QUICK_TABLE_DIRECTORY_TIMEOUT_MS = 5000;
+const ROOM_ENTRY_ACK_TIMEOUT_MS = 4000;
+const ROOM_ENTRY_ACK_RETRIES = 2;
+let quickTableFlow = false;
+let quickTableRetryCount = 0;
+let quickTableRequestId = 0;
+let quickTableDirectoryTimer = null;
+let activeRoomEntryAttempt = null;
+
+export function sendRoomEntryWithRetries({
+  emit,
+  event,
+  payload,
+  onResponse,
+  onTimeout,
+  timeoutMs = ROOM_ENTRY_ACK_TIMEOUT_MS,
+  maxRetries = ROOM_ENTRY_ACK_RETRIES,
+  schedule = setTimeout,
+  cancel = clearTimeout,
+}) {
+  let active = true;
+  let retries = 0;
+  let timer = null;
+
+  const stopTimer = () => {
+    if (timer !== null) cancel(timer);
+    timer = null;
+  };
+  const finish = (response) => {
+    if (!active) return;
+    active = false;
+    stopTimer();
+    onResponse(response);
+  };
+  const send = () => {
+    timer = schedule(() => {
+      if (!active) return;
+      timer = null;
+      if (retries < maxRetries) {
+        retries += 1;
+        send();
+        return;
+      }
+      active = false;
+      onTimeout();
+    }, timeoutMs);
+    emit(event, payload, finish);
+  };
+
+  send();
+  return {
+    cancel() {
+      if (!active) return;
+      active = false;
+      stopTimer();
+    },
+  };
+}
+
+export function roomEntryAckFromSnapshot(snapshot, clientId) {
+  const room = snapshot?.room;
+  const players = snapshotPlayers(snapshot);
+  const player = players.find(candidate => candidate?.clientId === clientId);
+  if (!room) return null;
+  if (!player) return null;
+  return {
+    success: true,
+    created: true,
+    roomCode: roomCodeFromSnapshot(room),
+    visibility: visibilityFromSnapshot(room),
+    hostId: firstValue(room.hostId),
+    playerId: firstValue(player.id, player.roomPlayerId),
+    bots: players.filter(candidate => candidate?.isBot).length,
+  };
+}
+
+function firstValue(...values) {
+  return values.find(Boolean) || null;
+}
+
+function roomCodeFromSnapshot(room) {
+  return Object.prototype.hasOwnProperty.call(room, "roomCode") ? room.roomCode : null;
+}
+
+function visibilityFromSnapshot(room) {
+  return room.visibility === "public" ? "public" : "private";
+}
+
+export function reconcileParlorEntrySnapshot(snapshot) {
+  if (!state.roomEntryPending) return false;
+  const ack = roomEntryAckFromSnapshot(snapshot, state.clientId);
+  if (!ack) return false;
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = null;
+  applyParlorEntryAck(ack);
+  return true;
+}
+
+/**
+ * Pick open public tables deterministically so Quick Table can fill an
+ * existing lobby before creating another one. The server remains
+ * authoritative: this is only a preference list and every join is still
+ * checked atomically by join-room.
+ */
+export function chooseQuickTableRoom(rooms = []) {
+  return (Array.isArray(rooms) ? rooms : [])
+    .filter(isOpenQuickTableRoom)
+    .sort((a, b) => {
+      const openA = Number(a.cap) - Number(a.seats);
+      const openB = Number(b.cap) - Number(b.seats);
+      // Fill the table with the fewest free seats first, then use the stable
+      // public id as a tie-breaker so two clients make the same choice.
+      return openA - openB || String(a.roomId).localeCompare(String(b.roomId));
+    });
+}
 
 export function configureLobbyUi(hooks) {
   host = { ...host, ...hooks };
@@ -88,6 +207,13 @@ function renderSetup() {
   const wrap = $("#setup-wrap");
   wrap.classList.toggle("is-hidden", state.phase !== "setup");
   if (state.phase !== "setup") return;
+
+  const entryButton = $("#su-start");
+  if (entryButton) {
+    entryButton.disabled = Boolean(state.roomEntryPending);
+    const label = entryButton.querySelector(".cta-text");
+    if (label) label.textContent = state.roomEntryPending ? "Connecting…" : "Enter Parlor";
+  }
 
   // Server is authoritative for identity: if the table auto-assigned a
   // different colour than the local design, the picker must show the seat
@@ -305,13 +431,14 @@ function lobbySection(title, rows) {
 
 function lobbyPlayerRowHTML(p, seed) {
   const isYou = p.id === "p1" || p.id === "preview";
+  const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
   // deterministic per-player "ready" flag instead of Math.random(), so the
   // dot doesn't flicker on every unrelated re-render (typing, toggling, etc.)
   const ready = isYou || !!p.online;
   return `<div class="lobby-player-row${isYou ? " lobby-player-you" : ""}">
     <div class="lobby-av">${avatarHTML(p, 3, seed)}</div>
       <div class="lobby-player-info">
-        <div class="t-label lobby-player-name" style="color:${p.textColor}">${p.bot ? '<img class="lobby-brain-icon" src="/assets/bot-brain.svg" alt="">' : ''}${esc(p.name)}</div>
+        <div class="t-label lobby-player-name" style="color:${p.textColor}">${p.bot ? '<img class="lobby-brain-icon" src="/assets/bot-brain.svg" alt="">' : ''}${esc(p.name)}${isHost ? '<span class="lobby-host-badge t-micro g400">HOST</span>' : ''}</div>
         <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.personality || "survivor").toUpperCase()} · ${(p.botBrain || "auto").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
     </div>
     <span class="lobby-ready-dot" style="background:${ready ? "#35a653" : "#3a382a"};box-shadow:${ready ? "0 0 5px rgb(53 166 83/60%)" : "none"}"></span>
@@ -445,10 +572,7 @@ function applyLobbyLockState(locked, hostLocked) {
 
 function renderLobbyRailContent(s, locked, hostLocked) {
   const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
-  const existingBots = seated.filter((p) => p.bot).length;
-  const botPreviews = buildBotPreviewPlayers(Math.max(0, s.bots - existingBots));
-  const previewPlayers = [...seated, ...botPreviews].slice(0, s.maxPlayers);
-  $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked, previewPlayers);
+  $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked, seated);
   applyLobbyLockState(locked, hostLocked);
 }
 
@@ -463,20 +587,6 @@ function buildPreviewSelf() {
     bot: false,
     avatarGrid: a.avatarGrid || undefined,
   };
-}
-
-function buildBotPreviewPlayers(count) {
-  const localBots = buildPlayers(activeAppearance(), state.alias).slice(1, 4);
-  return localBots.slice(0, Math.max(0, count)).map((bot, index) => ({
-    ...bot,
-    id: `bot-preview-${index + 1}`,
-    name: `BOT ${index + 1}`,
-   online: true,
-   bot: true,
-    personality: state.settings.botPersonality || "survivor",
-    botBrain: state.settings.botBrain || "auto",
-    botDifficulty: state.settings.botDifficulty || "table",
- }));
 }
 
 function syncServerAppearance() {
@@ -501,8 +611,12 @@ function entryRoomVisibility(requestedCode) {
   return requestedCode ? "private" : "public";
 }
 
-function resetTableForEntry(requestedCode) {
+function resetTableForEntry(requestedCode, requestId = "") {
   state.suppressRoomUpdates = false;
+  state.roomEntryPending = true;
+  state.roomEntryRequestId = requestId;
+  state.roomPlayerId = null;
+  state.hostId = null;
   state.roomCode = requestedCode;
   state.roomVisibility = entryRoomVisibility(requestedCode);
   state.boardVariant = "standard-40";
@@ -515,7 +629,11 @@ function resetTableForEntry(requestedCode) {
   // always start the setup/lobby screens from a clean board — otherwise a
   // finished game's deed ownership, houses and token positions would still
   // be visible behind the setup overlay after going home and rejoining.
-  state.players = buildPlayers(activeAppearance(), state.alias);
+  // The setup/lobby view must represent only seats acknowledged by the
+  // server. The local buildPlayers helper includes demo CPU seats for the
+  // home preview, so keep just the human placeholder until startGame creates
+  // any configured bots authoritatively.
+  state.players = buildPlayers(activeAppearance(), state.alias).slice(0, 1);
   state.owners = {};
   state.houses = {};
   state.pool = 0;
@@ -544,13 +662,83 @@ function resetTableForEntry(requestedCode) {
   requestAnimationFrame(() => placePieces());
 }
 
-function parlorEntryPayload(event, requestedCode, meta, requestedRoomId = "") {
+function clearQuickTableDirectoryTimer() {
+  clearTimeout(quickTableDirectoryTimer);
+  quickTableDirectoryTimer = null;
+}
+
+function quickTableFallbackCreate() {
+  clearQuickTableDirectoryTimer();
+  const preset = loadRulesetPreset();
+  state.quickJoin = true;
+  state.pendingRoomMeta = {
+    roomName: "QUICK TABLE",
+    visibility: "public",
+    rulesetPreset: preset,
+    boardVariant: "standard-40"
+  };
+  state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
+  parlorNotice("QUICK TABLE", "NO OPEN TABLES — HOSTING A NEW PUBLIC TABLE.");
+  enterParlor();
+}
+
+function quickTableDirectoryAck(response, requestId) {
+  if (!quickTableFlow || requestId !== quickTableRequestId) return;
+  clearQuickTableDirectoryTimer();
+  if (response?.success === false) {
+    quickTableFallbackCreate();
+    return;
+  }
+  const candidate = chooseQuickTableRoom(response?.rooms)[0];
+  if (candidate) {
+    parlorNotice("QUICK TABLE", "OPEN TABLE FOUND — JOINING NOW.");
+    enterParlor({ roomId: candidate.roomId });
+    return;
+  }
+  quickTableFallbackCreate();
+}
+
+function requestQuickTableDirectory() {
+  const requestId = ++quickTableRequestId;
+  clearQuickTableDirectoryTimer();
+  parlorNotice("QUICK TABLE", "LOOKING FOR AN OPEN PUBLIC TABLE…");
+  quickTableDirectoryTimer = setTimeout(() => {
+    quickTableDirectoryAck({ success: false, error: "Directory request timed out." }, requestId);
+  }, QUICK_TABLE_DIRECTORY_TIMEOUT_MS);
+  host.emitServer("list-rooms", {}, response => quickTableDirectoryAck(response, requestId));
+}
+
+function quickTableJoinCanRetry(response) {
+  if (!quickTableFlow || quickTableRetryCount >= QUICK_TABLE_MAX_RETRIES) return false;
+  return ["Room is full.", "Room not found.", "Game is already in progress."]
+    .includes(String(response?.error || ""));
+}
+
+function retryQuickTableJoin(response) {
+  quickTableRetryCount += 1;
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  state.roomPlayerId = null;
+  state.hostId = null;
+  state.phase = "home";
+  state.pendingRoomMeta = null;
+  state.pendingRoomSettings = null;
+  state.quickJoin = true;
+  clearQuickTableDirectoryTimer();
+  host.showView("home");
+  host.renderAll();
+  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`);
+  requestQuickTableDirectory();
+}
+
+function parlorEntryPayload({ event, requestedCode, meta, requestedRoomId = "", requestId = "" }) {
   return {
     roomCode: requestedCode || undefined,
     roomId: requestedRoomId || undefined,
     nickname: state.alias.trim() || meta.baseName,
     color: meta.color,
     avatarGrid: meta.avatarGrid || null,
+    ...(event === "create-room" && requestId ? { requestId } : {}),
     ...parlorPendingRoomMeta(event),
   };
 }
@@ -565,14 +753,31 @@ function rejectParlorEntry(response) {
   // home — say() alone lands in the hidden chat panel (A1/A3).
   parlorNotice("TABLE NOTICE", response.error || "Room could not be entered.");
   host.say(response.error || "Room could not be entered.");
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  state.roomPlayerId = null;
+  state.hostId = null;
   state.phase = "home";
+  state.pendingRoomMeta = null;
+  state.pendingRoomSettings = null;
+  state.quickJoin = false;
+  quickTableFlow = false;
+  quickTableRetryCount = 0;
+  clearQuickTableDirectoryTimer();
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = null;
   host.showView("home");
   host.renderAll();
 }
 
 function applyParlorEntryAck(response) {
-  if (Object.prototype.hasOwnProperty.call(response || {}, "roomCode")) state.roomCode = response.roomCode || "";
-  if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
+  quickTableFlow = false;
+  quickTableRetryCount = 0;
+  clearQuickTableDirectoryTimer();
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  applyCreatedEntryIdentity(response);
+  applyEntryVisibility(response);
   state.phase = "setup";
   host.renderAll();
   renderTopNav();
@@ -589,6 +794,10 @@ function applyPendingRoomSettings() {
 
 function onParlorEntryResponse(response, event) {
   if (response?.success === false) {
+    if (event === "join-room" && quickTableJoinCanRetry(response)) {
+      retryQuickTableJoin(response);
+      return;
+    }
     rejectParlorEntry(response);
     return;
   }
@@ -597,18 +806,33 @@ function onParlorEntryResponse(response, event) {
 
 export function enterParlor(code) {
   if (!requireGuestAlias()) return;
-  const descriptor = code && typeof code === "object" ? code : { roomCode: code };
-  const requestedCode = String(descriptor.roomCode || "").trim().toUpperCase();
-  const requestedRoomId = String(descriptor.roomId || "").trim().slice(0, 120);
-  resetTableForEntry(requestedCode);
+  if (state.roomEntryPending) return;
+  const { requestedCode, requestedRoomId } = normalizeEntryDescriptor(code);
   const meta = getAppearanceMeta(activeAppearance());
-  const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
-  host.emitServer(event, parlorEntryPayload(event, requestedCode, meta, requestedRoomId), (response) => onParlorEntryResponse(response, event));
+  const event = entryEvent(requestedCode, requestedRoomId);
+  const requestId = entryRequestId(event);
+  resetTableForEntry(requestedCode, requestId);
+  const payload = parlorEntryPayload({ event, requestedCode, meta, requestedRoomId, requestId });
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = sendRoomEntryWithRetries({
+    emit: host.emitServer,
+    event,
+    payload,
+    onResponse(response) {
+      activeRoomEntryAttempt = null;
+      onParlorEntryResponse(response, event);
+    },
+    onTimeout() {
+      activeRoomEntryAttempt = null;
+      rejectParlorEntry({ success: false, error: "Room entry timed out. Try again." });
+    },
+  });
 }
 
 function enterLobby() {
   // called from the setup overlay "Enter Parlor" button
   if (!requireGuestAlias()) return;
+  if (state.roomEntryPending) return;
   syncServerAppearance();
     state.phase = "lobby";
     host.renderAll();
@@ -643,11 +867,16 @@ export function goHome() {
   state.log = [];
   stopTurnCountdown();
   state.phase = "home";
+  state.roomEntryPending = false;
+  state.roomEntryRequestId = "";
+  activeRoomEntryAttempt?.cancel();
+  activeRoomEntryAttempt = null;
+  state.roomPlayerId = null;
+  state.hostId = null;
   state.roomVisibility = "private";
   state.suppressRoomUpdates = true;
   closeAllSurfaces();
   $("#log-drawer").classList.remove("is-open");
-  $("#view-game").classList.remove("is-focus");
   host.closeRoomsModal();
   // reset right rail visibility to game mode
   $("#right-rail-game").classList.remove("is-hidden");
@@ -659,8 +888,58 @@ export function goHome() {
 // seat; a raw showView("home") from a page/rail handler used to leave the
 // seat (and the room's stale transcript) behind when the user was mid-room.
 export function leaveRoomForHome() {
+  if (state.phase === "playing") {
+    host.openConfirmModal({
+      title: "Leave active round?",
+      message: "Leaving now releases your seat and forfeits this round. Your current assets will stay on the table.",
+      confirmLabel: "LEAVE ROUND",
+      onConfirm: () => goHome(),
+    });
+    return;
+  }
   if (inRoomSession()) goHome();
   else host.showView("home");
+}
+
+function entryEvent(requestedCode, requestedRoomId) {
+  return requestedCode || requestedRoomId ? "join-room" : "create-room";
+}
+
+function entryRequestId(event) {
+  return event === "create-room" ? String(host.createRequestId?.("create-room") || "") : "";
+}
+
+function normalizeEntryDescriptor(code) {
+  const descriptor = code && typeof code === "object" ? code : { roomCode: code };
+  return {
+    requestedCode: String(descriptor.roomCode || "").trim().toUpperCase(),
+    requestedRoomId: String(descriptor.roomId || "").trim().slice(0, 120),
+  };
+}
+
+function applyCreatedEntryIdentity(response) {
+  if (!response?.created) return;
+  if (response.hostId) state.hostId = response.hostId;
+  if (response.playerId) state.roomPlayerId = response.playerId;
+}
+
+function applyEntryVisibility(response) {
+  if (Object.prototype.hasOwnProperty.call(response || {}, "roomCode")) state.roomCode = response.roomCode || "";
+  if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
+}
+
+function isOpenQuickTableRoom(room) {
+  const seats = Number(room?.seats);
+  const cap = Number(room?.cap);
+  const surface = `${room?.visibility || ""}:${room?.state || ""}`;
+  const capacity = `${Number.isFinite(seats)}:${Number.isFinite(cap)}:${seats < cap}`;
+  return surface === "public:open" && Boolean(room?.roomId) && capacity === "true:true:true";
+}
+
+function snapshotPlayers(snapshot) {
+  const gamePlayers = snapshot?.game?.players;
+  if (Array.isArray(gamePlayers)) return gamePlayers;
+  return Array.isArray(snapshot?.room?.players) ? snapshot.room.players : [];
 }
 
 function inRoomSession() {
@@ -787,19 +1066,20 @@ export function bindLobbyUi() {
   $("#setup-close")?.addEventListener("click", () => host.goHome());
   $("#setup-wrap .setup-scrim")?.addEventListener("click", () => host.goHome());
 
-  // Quick Table reuses the last deliberate preset choice; first use falls
-  // back to the safe Classic baseline. It remains a public Standard-40 room.
+  // Quick Table prefers an existing open public room and hosts a new public
+  // Standard-40 room only when no compatible seat is available. The join is
+  // deliberately raced against the authoritative server, with two bounded
+  // retries for rooms that fill between list-rooms and join-room.
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
-    const preset = loadRulesetPreset();
+    if (quickTableFlow || state.roomEntryPending) return;
+    quickTableFlow = true;
+    quickTableRetryCount = 0;
     state.quickJoin = true;
     state.settings.vacationPool = true;
     state.settings.trading = true;
     state.settings.auction = false;
-    state.pendingRoomMeta = { roomName: "QUICK TABLE", visibility: "public", rulesetPreset: preset, boardVariant: "standard-40" };
-    state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
-      enterParlor();
-      return;
+    requestQuickTableDirectory();
   });
 
   // lobby settings interactions
@@ -807,4 +1087,4 @@ export function bindLobbyUi() {
   $("#lobby-settings-body").addEventListener("change", applySettingField);
 }
 
-export { renderSetup, renderLobbyRail, buildBotPreviewPlayers, setActiveAppearance };
+export { renderSetup, renderLobbyRail, setActiveAppearance };

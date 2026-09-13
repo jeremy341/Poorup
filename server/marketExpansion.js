@@ -3,6 +3,11 @@
 // introduces real securities, cash withdrawal, or naked exposure.
 const COMPLEXITY_RANK = Object.freeze({ basic: 0, margin: 1, shorting: 2, derivatives: 3 });
 const MARGIN_MAINTENANCE_RATE = 0.25;
+// Initial margin is the same disclosed cash percentage as the maintenance
+// requirement. It is held separately from free cash until the position is
+// reduced or liquidated, so opening margin cannot create uncollateralized
+// exposure.
+const MARGIN_COLLATERAL_RATE = MARGIN_MAINTENANCE_RATE;
 const SHORT_COLLATERAL_RATE = 0.5;
 const SHORT_BORROW_FEE_RATE = 0.01;
 const OPTION_EXPIRY_MAX = 20;
@@ -39,7 +44,7 @@ function ensureOptionReserve(game) {
 function maintenanceDue(game, player) {
   ensurePlayerMarketState(player || {});
   if (!maintenanceRequired(player)) return false;
-  return marginMarketValue(game, player) < Number(player.marginMaintenance);
+  return marginEquity(game, player) < Number(player.marginMaintenance);
 }
 
 function maintenanceRequired(player) {
@@ -49,6 +54,12 @@ function maintenanceRequired(player) {
 
 function marginMarketValue(game, player) {
   return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position?.quantity) || 0), 0);
+}
+
+function marginEquity(game, player) {
+  return marginMarketValue(game, player)
+    + nonNegativeNumber(player.marginCollateral)
+    - nonNegativeNumber(player.marginBalance);
 }
 
 function tableObligationPending(game) {
@@ -81,7 +92,7 @@ function expansionTurnRejection(game, player) {
 }
 
 function positionOrderRejection(player, operation) {
-  if (operation === 'open' && Number(player.marketActionsThisTurn) >= 1) return 'You have already placed a market order this turn.';
+  if (['open', 'manage'].includes(operation) && Number(player.marketActionsThisTurn) >= 1) return 'You have already placed a market order this turn.';
   return null;
 }
 
@@ -120,6 +131,7 @@ function expansionGuard(game, player, required, operation = 'open') {
 function ensurePlayerMarketState(player) {
   player.marginBalance ||= 0;
   player.marginMaintenance ||= 0;
+  player.marginCollateral ||= 0;
   player.marginPositions ||= {};
   player.shortPositions ||= {};
   player.shortDefaultDebt ||= 0;
@@ -133,15 +145,23 @@ function openMargin(game, player, instrument, amount) {
   const quote = quoteFor(game, instrument);
   const gross = quote * amount;
   const fee = Math.max(1, Math.ceil(gross * 0.02));
-  if (player.cash < fee) return { success: false, error: 'You need cash for the margin settlement fee.' };
-  player.cash -= fee;
+  const collateral = Math.ceil(gross * MARGIN_COLLATERAL_RATE);
+  if (player.cash < fee + collateral) {
+    return {
+      success: false,
+      error: `You need $${fee + collateral} cash for this margin position ($${fee} fee + $${collateral} collateral).`
+    };
+  }
+  player.cash -= fee + collateral;
+  player.marginCollateral += collateral;
+  player.reservedCash += collateral;
   const position = player.marginPositions[instrument.id] || { quantity: 0, averageCost: 0 };
   position.averageCost = ((position.averageCost * position.quantity) + gross) / (position.quantity + amount);
   position.quantity += amount;
   player.marginPositions[instrument.id] = position;
   player.marginBalance += gross;
   player.marginMaintenance += gross * MARGIN_MAINTENANCE_RATE;
-  return { success: true, action: 'open-margin', instrumentId: instrument.id, quantity: amount, quote, fee, marginBalance: player.marginBalance, maintenance: player.marginMaintenance };
+  return { success: true, action: 'open-margin', instrumentId: instrument.id, quantity: amount, quote, fee, collateral, marginBalance: player.marginBalance, maintenance: player.marginMaintenance, marginCollateral: player.marginCollateral };
 }
 
 function reduceMargin(player, amount) {
@@ -149,11 +169,18 @@ function reduceMargin(player, amount) {
   const repayment = Math.min(player.marginBalance, amount);
   if (repayment <= 0) return { success: false, error: 'There is no margin balance to reduce.' };
   if (player.cash < repayment) return { success: false, error: 'You do not have enough cash to reduce margin.' };
+  const balanceBefore = player.marginBalance;
+  const collateralReleased = repayment >= balanceBefore
+    ? player.marginCollateral
+    : Math.min(player.marginCollateral, Math.ceil(player.marginCollateral * (repayment / balanceBefore)));
   player.cash -= repayment;
-  const ratio = player.marginBalance ? repayment / player.marginBalance : 1;
+  player.cash += collateralReleased;
+  player.marginCollateral = Math.max(0, player.marginCollateral - collateralReleased);
+  player.reservedCash = Math.max(0, player.reservedCash - collateralReleased);
+  const ratio = balanceBefore ? repayment / balanceBefore : 1;
   player.marginBalance -= repayment;
   player.marginMaintenance = Math.max(0, player.marginMaintenance * (1 - ratio));
-  return { success: true, action: 'reduce-margin', amount: repayment, marginBalance: player.marginBalance, maintenance: player.marginMaintenance };
+  return { success: true, action: 'reduce-margin', amount: repayment, collateralReleased, marginBalance: player.marginBalance, maintenance: player.marginMaintenance, marginCollateral: player.marginCollateral };
 }
 
 function openShort(game, player, { instrument, amount, inventory }) {
@@ -339,8 +366,8 @@ function canOpenMargin(game, player, canOpen) {
   return canOpen && complexityAllows(game, 'margin') && player.cash > 100;
 }
 
-function canReduceMargin(game, player) {
-  return complexityAllows(game, 'margin') && player.marginBalance > 0 && player.cash > 0;
+function canReduceMargin(game, player, canManage = true) {
+  return canManage && complexityAllows(game, 'margin') && player.marginBalance > 0 && player.cash > 0;
 }
 
 function canOpenShort(game, player, canOpen) {
@@ -384,10 +411,6 @@ function settleShortPosition(game, player, { id, position, inventory }) {
   return covered.success ? covered : forceShortBuyIn(game, player, settlement);
 }
 
-function marginPositionValue(game, player) {
-  return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => sum + (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0), 0);
-}
-
 function marginLiquidationProceeds(game, player) {
   return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => {
     const value = (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0);
@@ -403,12 +426,16 @@ function settleMarginPositions(game, player) {
   if (!hasMarginExposure(player)) return null;
   const proceeds = marginLiquidationProceeds(game, player);
   const debt = Math.max(0, Number(player.marginBalance) || 0);
-  const repayment = Math.min(debt, proceeds);
-  player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, proceeds - repayment);
+  const collateral = Math.max(0, Number(player.marginCollateral) || 0);
+  const available = proceeds + collateral;
+  const repayment = Math.min(debt, available);
+  player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, available - repayment);
   player.marginBalance = Math.max(0, debt - repayment);
   player.marginMaintenance = 0;
+  player.marginCollateral = 0;
+  player.reservedCash = Math.max(0, Number(player.reservedCash) - collateral);
   player.marginPositions = {};
-  return { success: true, action: 'margin-liquidation', proceeds, repayment, remaining: player.marginBalance };
+  return { success: true, action: 'margin-liquidation', proceeds, collateral, repayment, remaining: player.marginBalance };
 }
 
 function settleOptionOnExit(game, player, option) {
@@ -464,14 +491,8 @@ function expiredOptionActions(game, player) {
 
 function marginForceLiquidation(game, player) {
   if (!(player.marginBalance > 0 && player.marginMaintenance > 0)) return [];
-  if (marginPositionValue(game, player) >= player.marginMaintenance) return [];
-  const marginDebt = Math.max(0, Number(player.marginBalance) || 0);
-  const proceeds = marginLiquidationProceeds(game, player);
-  const repayment = Math.min(marginDebt, proceeds);
-  player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, proceeds - repayment);
-  player.marginPositions = {};
-  player.marginBalance = Math.max(0, marginDebt - repayment);
-  player.marginMaintenance = 0;
+  if (marginEquity(game, player) >= player.marginMaintenance) return [];
+  settleMarginPositions(game, player);
   return ['margin-liquidation'];
 }
 
@@ -499,19 +520,20 @@ function expansionCandidates(game, player) {
   const candidates = [];
   const canOpen = Number(player.marketActionsThisTurn) < 1;
   addCandidate(candidates, canOpenMargin(game, player, canOpen), { id: 'market:open-margin', kind: 'open-margin', score: 4 });
-  addCandidate(candidates, canReduceMargin(game, player), { id: 'market:reduce-margin', kind: 'reduce-margin', score: 9 });
+  addCandidate(candidates, canReduceMargin(game, player, canOpen), { id: 'market:reduce-margin', kind: 'reduce-margin', score: 9 });
   addCandidate(candidates, canOpenShort(game, player, canOpen), { id: 'market:open-short', kind: 'open-short', score: 3 });
-  addCandidate(candidates, hasShortInventory(player), { id: 'market:cover-short', kind: 'cover-short', score: 10 });
+  addCandidate(candidates, canOpen && hasShortInventory(player), { id: 'market:cover-short', kind: 'cover-short', score: 10 });
   addCandidate(candidates, canOpenOption(game, player, canOpen), { id: 'market:open-option', kind: 'open-option', score: 2 });
   const openOptions = openOptionPositions(player);
-  addCandidate(candidates, hasExercisableOption(openOptions), { id: 'market:exercise-option', kind: 'exercise-option', score: 8 });
+  addCandidate(candidates, canOpen && hasExercisableOption(openOptions), { id: 'market:exercise-option', kind: 'exercise-option', score: 8 });
   const option = openOptions[0];
-  addCandidate(candidates, Boolean(option), { id: 'market:close-position:' + option?.id, kind: 'close-position', optionId: option?.id, score: 7 });
+  addCandidate(candidates, canOpen && Boolean(option), { id: 'market:close-position:' + option?.id, kind: 'close-position', optionId: option?.id, score: 7 });
   return candidates;
 }
 
 export {
   COMPLEXITY_RANK,
+  MARGIN_COLLATERAL_RATE,
   MARGIN_MAINTENANCE_RATE,
   OPTION_RESERVE_INITIAL,
   OPTION_EXPIRY_MAX,

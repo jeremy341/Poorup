@@ -8,7 +8,7 @@ import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 
-let host = { emitServer: noop, say: noop, renderChat: noop, renderRightRail: noop, openTradeNegotiation: noop, openFinancingNegotiation: noop };
+let host = { emitServer: noop, say: noop, renderChat: noop, renderRightRail: noop, openTradeNegotiation: noop, openFinancingNegotiation: noop, openConfirmModal: noop };
 let activeDealKey = null;
 function noop() {}
 
@@ -90,16 +90,26 @@ function openDealEditor(kind, deal) {
     else host.openFinancingNegotiation(deal.id, null);
 }
 
-function handleDealAction(action, kind, deal) {
-  if (["negotiate", "adjust"].includes(action)) return openDealEditor(kind, deal);
+function dealEvent(kind, action) {
   const events = kind === "trade"
     ? { accept: "respond-trade", decline: "respond-trade", cancel: "cancel-trade" }
     : { accept: "respond-player-contract", decline: "respond-player-contract", cancel: "cancel-player-contract" };
-  const event = events[action];
+  return events[action] || null;
+}
+
+function dealPayload(kind, action, deal) {
+  if (kind === "trade") return action === "cancel"
+    ? { tradeId: deal.id }
+    : { tradeId: deal.id, accept: action === "accept" };
+  return action === "cancel"
+    ? { contractId: deal.id }
+    : { contractId: deal.id, accept: action === "accept", requestId: `${action}-${deal.id}` };
+}
+
+function sendDealAction(kind, action, deal) {
+  const event = dealEvent(kind, action);
   if (!event) return;
-  const payload = kind === "trade"
-    ? action === "cancel" ? { tradeId: deal.id } : { tradeId: deal.id, accept: action === "accept" }
-    : action === "cancel" ? { contractId: deal.id } : { contractId: deal.id, accept: action === "accept", requestId: `${action}-${deal.id}` };
+  const payload = dealPayload(kind, action, deal);
   host.emitServer(event, payload, response => {
     if (response?.success === false) {
       host.say(response.error || "The deal could not be updated.");
@@ -109,6 +119,23 @@ function handleDealAction(action, kind, deal) {
     closeDealDetails();
     host.renderRightRail();
   });
+}
+
+function handleDealAction(action, kind, deal) {
+  if (["negotiate", "adjust"].includes(action)) return openDealEditor(kind, deal);
+  if (!dealEvent(kind, action)) return;
+  if (["decline", "cancel"].includes(action)) {
+    host.openConfirmModal({
+      title: action === "cancel" ? "Cancel this deal?" : "Decline this deal?",
+      message: action === "cancel"
+        ? "The other player will see that this offer was canceled."
+        : "Declining closes the current offer and cannot be undone.",
+      confirmLabel: action === "cancel" ? "CANCEL DEAL" : "DECLINE DEAL",
+      onConfirm: () => sendDealAction(kind, action, deal),
+    });
+    return;
+  }
+  sendDealAction(kind, action, deal);
 }
 
 export function openDealDetails(kind, id, trigger = null) {

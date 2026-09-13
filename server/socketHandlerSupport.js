@@ -62,7 +62,8 @@ function relayResultOffer(io, room, result, relay) {
 }
 
 function relayOfferToSeat(io, room, offer, relay) {
-  const target = room.game.getPlayerById(offer[relay.recipient]);
+  const recipientField = typeof relay.recipient === 'function' ? relay.recipient(offer) : relay.recipient;
+  const target = room.game.getPlayerById(offer[recipientField]);
   if (!target?.socketId) return;
   io.to(target.socketId).emit(relay.event, { [relay.field]: offer });
 }

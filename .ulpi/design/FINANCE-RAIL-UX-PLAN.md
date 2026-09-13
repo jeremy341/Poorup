@@ -11,7 +11,25 @@ player away from the current round.
 This plan is a companion to
 `NEW-GAME-SYSTEMS-PLAN.md`. It covers the Finance/holdings rail, the Cash HUD
 entry point, item access, market/casino workspaces, and the modal state model.
-It is a plan only. No production UI code is changed by this document.
+
+> **Status (2026-09-11).** The rail, Wallet & Items shell, modal, and
+> panel-control slices are implemented. Use the current UX audit and the
+> 2026-09-12 fix reports for remaining browser/server follow-up; the design
+> decisions below remain the product contract.
+
+> **Current status (2026-09-12).** The three-tab rail, Cash HUD entry point,
+> Wallet & Items shell, modal neutrality, and panel controls are live. Wallet
+> Account/Items is currently a read-only rendering shell: `summaryApi` does not
+> project item, airport, prediction, or bank-tier mutation state, and
+> `main.js` does not inject `handleItemAction` or `upgradeBankAccount`. Keep
+> `USE`, `TRADE`, `EXCHANGE`, `SELL`, and `UPGRADE ACCOUNT` as future server
+> contracts until those verbs and viewer-scoped projections ship. The current
+> implementation evidence is `public/clientWalletUi.js:1-5,81-106`,
+> `server/summaryApi.js:40-84`, and `public/main.js:945-951`.
+> The purchase dismissal and turn-timer contracts are separate shipped fixes:
+> scrim/Escape closes the normal purchase neutrally, and the visible countdown
+> continues through turn-owned resolution while the server deadline is live
+> (`docs/audit/fix-transaction-ui-batch-2026-09-12.md`).
 
 ## Product read and design direction
 
@@ -32,9 +50,13 @@ topbar utilities, internal scrolling, live regions, focus restoration, and
 reduced-motion behavior. The change is information architecture, not a new
 visual world.
 
-## Why the current rail feels overloaded
+## Historical pre-implementation baseline (superseded)
 
-The current right rail exposes six equal tabs:
+The following description records why the rail refactor was commissioned. It
+is not a description of the current UI; future readers should use the three-tab
+IA below and the current-status banner above.
+
+Before the reset, the right rail exposed six equal tabs:
 
 ```text
 MY DEEDS | TRADE | LOG | FINANCE | CASINO | MARKET
@@ -185,7 +207,7 @@ page never becomes scrollable.
 
 #### ACCOUNT view
 
-Show, in this order:
+The target contract shows, in this order:
 
 1. current cash and reserved cash;
 2. current bank tier and a short benefit summary;
@@ -193,9 +215,14 @@ Show, in this order:
 4. `UPGRADE ACCOUNT` as the one primary action when legal;
 5. the latest five wallet ledger entries as read-only context.
 
+Current release behavior is the shell subset: cash, reserved cash, the
+standard/account-tier copy, and any projected ledger entries render when the
+snapshot supplies them. No upgrade control is rendered because the client has
+no injected `upgradeBankAccount` server seam yet.
+
 #### ITEMS view
 
-Show compact inventory rows with:
+The target contract shows compact inventory rows with:
 
 - pixel-art item glyph;
 - item name and rarity;
@@ -207,7 +234,14 @@ Selecting an item reveals its bounded effect and sell value in the same modal.
 `TRADE` hands the item leg to the existing Deal Builder through a reversible
 modal step. It does not silently send a deal.
 
+Current release behavior is an empty/read-only shell: the game summary does not
+yet include viewer-scoped `items`, and `main.js` does not inject an item-action
+handler. Therefore no item mutation is advertised as live by this surface.
+
 ### Bank upgrade interaction
+
+The flow below is the target contract and remains pending the server verb and
+projection work described in `NEW-GAME-SYSTEMS-PLAN.md`.
 
 ```text
 Press Cash On Hand
@@ -401,10 +435,12 @@ bankruptcy decision, or current-turn guard.
 
 The sidebar is presentation, not a second rules engine:
 
-- `summaryApi` returns viewer-scoped holdings, items, account tier, deals,
-  market positions, predictions, and casino status.
-- Existing server actions remain authoritative for use, trade, exchange, sale,
-  repayment, upgrade, market orders, predictions, and wagers.
+- The target `summaryApi` contract returns viewer-scoped holdings, items,
+  account tier, deals, market positions, predictions, and casino status.
+- Existing server actions remain authoritative for the shipped trade, loan,
+  repayment, market, prediction, and wager paths. Item use/trade/exchange/sale
+  and bank-account upgrade verbs remain planned until their handlers and
+  projections exist.
 - Each mutation has an idempotency key and rechecks current seat, obligations,
   cash, ownership, event modifiers, and ruleset digest.
 - Opponent views never expose hidden inventory, private prediction strategy, or
@@ -412,22 +448,29 @@ The sidebar is presentation, not a second rules engine:
 - Telemetry records surface opens, action attempts, success/failure, and timing
   without storing private content.
 
+Current evidence: `server/summaryApi.js:40-84` exposes owner-scoped market
+positions but no item, airport, prediction, or bank-account projection;
+`public/main.js:945-951` configures Wallet with rendering/request helpers only.
+Treat the target item/account rows above as a future contract, not as proof
+that those mutations are available in the current round.
+
 ## Implementation slices
 
-1. Replace the six-tab IA with `HOLDINGS`, `DEALS`, and `ACTIVITY`; remove the
-   duplicate Log tab and make the real Event Log drawer canonical.
-2. Add the Cash HUD semantic button and `WALLET & ITEMS` modal shell with focus
-   restoration and Account/Items views.
-3. Move item summary/actions into HOLDINGS and wire item trade to the existing
-   Deal Builder.
+1. **Shipped:** replace the six-tab IA with `HOLDINGS`, `DEALS`, and
+   `ACTIVITY`; remove the duplicate Log tab and make the real Event Log drawer
+   canonical.
+2. **Shipped shell:** add the Cash HUD semantic button and `WALLET & ITEMS`
+   modal shell with focus restoration and Account/Items views.
+3. **Pending:** add viewer-scoped item projections, item mutation verbs, and
+   item trade handoff to the existing Deal Builder.
 4. Merge Trade and Finance rendering into Deals with the three subfilters,
    preserving the existing unified deal state and viewer-specific redaction.
 5. Add Activity mode switching and move advanced Market/Prediction/Casino work
    into focused modals without changing server settlement.
 6. Remove or repurpose `MANAGE PORTFOLIO` based on whether it performs a real
    manager action.
-7. Add state, stale/error/offline/session-expiry coverage, then run visual and
-   browser accessibility QA.
+7. **Pending:** add bank-account upgrade projection/verb, then run the full
+   stale/error/offline/session-expiry and browser accessibility QA matrix.
 
 Every slice stays a reversible PR. Disabling the new client IA returns to the
 existing rail projection without changing game rules or persisted data.
@@ -439,9 +482,10 @@ existing rail projection without changing game rules or persisted data.
 - Six old tabs are not rendered; the three new tabs render at every game state.
 - Log opens only through the topbar drawer.
 - Cash HUD opens Wallet and Items opens the same modal on the Items view.
-- Account upgrades settle once, update every surface, and cannot run during an
-  obligation.
-- Items use, trade, exchange, and bank sale preserve server guards.
+- **Future contract:** account upgrades must settle once, update every surface,
+  and cannot run during an obligation.
+- **Future contract:** item use, trade, exchange, and bank sale must preserve
+  server guards; the current shell exposes no item mutation handler.
 - Deals remain pending after close and refresh in place after a remote change.
 - Activity modals never choose or settle outcomes on the client.
 

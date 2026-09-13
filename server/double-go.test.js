@@ -28,4 +28,10 @@ pass.player.position = 38;
 pass.game.movePlayer(pass.player, 3);
 assert.equal(pass.player.cash, 1200);
 
-console.log('double GO: 3 passed, 0 failed');
+const cardMove = fixture(true);
+cardMove.player.position = 35;
+cardMove.player.cash = 1000;
+cardMove.game.applyCard(cardMove.player, { action: 'moveTo', tileIndex: 0 }, {});
+assert.equal(cardMove.player.cash, 1400, 'landing on Start via a card uses the Double GO reward');
+
+console.log('double GO: 4 passed, 0 failed');

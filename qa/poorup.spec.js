@@ -16,6 +16,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#tab-log')).toHaveCount(0);
     await expect(page.locator('#hud-cash-action')).toHaveAttribute('aria-controls', 'wallet-modal');
     await expect(page.locator('#panels-btn')).toHaveAttribute('aria-controls', 'panel-menu');
+    await expect(page.locator('#focus-btn')).toHaveCount(0);
     await expect(page.locator('#panel-menu')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#market-modal')).toHaveClass(/is-hidden/);
     await expect(page.locator('#casino-modal')).toHaveClass(/is-hidden/);
@@ -33,15 +34,13 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('[data-home-signal=sync]')).toHaveAttribute('aria-label', /live room directory/i);
   });
 
-  test('create table exposes preset and board choices', async ({ page }) => {
+  test('create table keeps board selection in the host lobby', async ({ page }) => {
     await page.goto('/');
     await page.locator('#open-create-btn').click();
     await expect(page.locator('#rc-ruleset-preset')).toHaveValue('classic');
-    await expect(page.locator('#rc-board-variant')).toHaveValue('standard-40');
+    await expect(page.locator('#rc-board-variant')).toHaveCount(0);
     await page.locator('#rc-ruleset-preset').selectOption('after-hours');
-    await page.locator('#rc-board-variant').selectOption('metro-52');
     await expect(page.locator('#rc-ruleset-preset')).toHaveValue('after-hours');
-    await expect(page.locator('#rc-board-variant')).toHaveValue('metro-52');
     await page.keyboard.press('Escape');
     await expect(page.locator('#rooms-modal')).toHaveClass(/is-hidden/);
   });
@@ -107,6 +106,48 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#social-modal')).toHaveClass(/is-hidden/);
   });
 
+  test('guest social surface is clearly gated and underlying content is inert', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#home-social-tab').click();
+    await expect(page.locator('[data-social-guest-gate]')).toBeVisible();
+    await expect(page.locator('[data-social-guest-gate]')).toContainText('YOU DO NOT HAVE AN ACCOUNT');
+    await expect(page.locator('[data-social-guest-gate] [data-social-action="account"]')).toBeVisible();
+    await expect(page.locator('[data-social-guest-content]')).toHaveAttribute('aria-hidden', 'true');
+    await expect.poll(() => page.locator('[data-social-guest-content]').evaluate(el => el.inert)).toBe(true);
+  });
+
+  test('1920 geometry keeps social search aligned and public lobby authoritative', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1920', 'desktop geometry contract');
+    await page.goto('/');
+    await page.locator('#home-alias').fill('DESKTOPHOST');
+    await page.locator('#home-social-tab').click();
+    const searchGeometry = await page.evaluate(() => {
+      const input = document.querySelector('#social-page-search-input');
+      const button = document.querySelector('#social-page-search-form .social-search-submit');
+      if (!input || !button) return null;
+      const a = input.getBoundingClientRect();
+      const b = button.getBoundingClientRect();
+      return { inputHeight: a.height, buttonHeight: b.height, topDelta: Math.abs(a.top - b.top), scrollWidth: document.documentElement.scrollWidth, viewport: window.innerWidth };
+    });
+    expect(searchGeometry).not.toBeNull();
+    expect(searchGeometry.inputHeight).toBe(44);
+    expect(searchGeometry.buttonHeight).toBe(44);
+    expect(searchGeometry.topDelta).toBeLessThanOrEqual(1);
+    expect(searchGeometry.scrollWidth).toBe(searchGeometry.viewport);
+
+    await page.locator('#view-social [data-home-tab="play"]').click();
+    await page.locator('#open-create-btn').click();
+    await page.locator('#rc-create-btn').click();
+    await page.locator('#su-start').click();
+    await expect(page.locator('#lobby-settings-body .lobby-player-row')).toHaveCount(1);
+    await expect(page.locator('#lobby-settings-body .lobby-host-badge')).toHaveCount(1);
+    await expect(page.locator('#lobby-settings-body [data-setting="boardVariant"]')).toHaveValue('standard-40');
+    await expect(page.locator('#lobby-settings-body .lobby-player-row')).not.toContainText('BOT');
+    await expect(page.locator('#focus-btn')).toHaveCount(0);
+    const shell = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight, width: window.innerWidth, height: window.innerHeight }));
+    expect(shell).toEqual({ scrollWidth: shell.width, scrollHeight: shell.height, width: 1920, height: 1080 });
+  });
+
   test('mobile keeps the primary social, rules, and achievement content reachable', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-390', 'This geometry contract targets the mobile layout.');
     await page.goto('/');
@@ -132,9 +173,9 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.locator('#rc-vis-selector [data-vis="private"]').click();
     await page.locator('#rc-room-code').fill('METRO1');
     await page.locator('#rc-ruleset-preset').selectOption('after-hours');
-    await page.locator('#rc-board-variant').selectOption('metro-52');
     await page.locator('#rc-create-btn').click();
     await page.locator('#su-start').click();
+    await page.locator('#lobby-settings-body [data-setting="boardVariant"]').selectOption('metro-52');
     await expect(page.locator('#lobby-settings-body')).toContainText('METRO 52');
 
     await guest.goto('/');
@@ -221,7 +262,7 @@ test.describe('Landscape iPad desk contract', () => {
     await page.locator('#view-profile [data-top-surface="rankings"]').click();
     await expect.poll(() => page.evaluate(() => document.activeElement?.matches('[data-ranking-stage]'))).toBe(true);
     await page.locator('#view-rankings [data-top-surface="social"]').click();
-    await expect.poll(() => page.evaluate(() => document.activeElement?.matches('.social-feed'))).toBe(true);
+    await expect.poll(() => page.evaluate(() => document.activeElement?.matches('.social-feed, [data-social-guest-gate]'))).toBe(true);
 
     await page.locator('#view-social [data-home-tab="play"]').click();
     await page.locator('#open-create-btn').click();
