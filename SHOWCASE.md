@@ -2,7 +2,7 @@
 
 Poorup is a real-time multiplayer board game inspired by Monopoly, playable entirely in the browser — no downloads, no accounts. Players join a shared room with a code, buy properties, build houses and hotels, trade with each other, and try to bankrupt everyone else. Everything runs live over WebSockets.
 
-🌐 **Live demo:** [poorup.onrender.com](https://poorup.onrender.com)
+🌐 **Live demo:** [poorup.jeremy-d.hackclub.app](https://poorup.jeremy-d.hackclub.app/)
 🖥️ **Also runs locally** — see instructions below.
 
 ---
@@ -50,11 +50,9 @@ Also proud of the reconnect system. Most quick multiplayer prototypes just boot 
 
 ## How to test it
 
-### Option 1 — Play online (Render)
+### Option 1 — Play online
 
-Go to **[poorup.onrender.com](https://poorup.onrender.com)**.
-
-> ⚠️ Render's free tier spins down after inactivity. The first load may take ~30 seconds to wake up.
+Go to **[poorup.jeremy-d.hackclub.app](https://poorup.jeremy-d.hackclub.app/)**.
 
 To test multiplayer: open two browser tabs (or share the link with a friend), enter different nicknames, and have one player create a room while the other joins with the room code.
 

@@ -180,7 +180,7 @@ const TOP_SURFACE_ESCAPE = {
   "deed-modal": () => host.closeDeedDetail(),
   "trade-modal": () => host.closeTradeModal(),
   "popup": () => host.closePopup(),
-  "choice-modal": () => host.closeChoiceModalAsPass(),
+  "choice-modal": () => closeSurface("#choice-modal"),
   "auction-modal": preventEscape,
   "gameover-modal": preventEscape,
   "bankruptcy-modal": preventEscape,
@@ -214,7 +214,7 @@ function handlePendingBuy(event) {
     return true;
   }
   if (event.key === "Escape") {
-    host.closeChoiceModalAsPass();
+    closeSurface("#choice-modal");
     return true;
   }
   return modalOpen("#choice-modal");

@@ -65,7 +65,10 @@ export function visibleSurfaces() {
 export function surfaceFocusable(surface) {
   return [...surface.querySelectorAll(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter((el) => !el.closest(".is-hidden") && el.getAttribute("aria-hidden") !== "true");
+  )].filter((el) => !el.hidden
+    && !el.closest("[hidden]")
+    && !el.closest(".is-hidden")
+    && !el.closest('[aria-hidden="true"]'));
 }
 
 function resetInertNodes() {

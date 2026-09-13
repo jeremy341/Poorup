@@ -71,5 +71,12 @@ check("room creation carries a bounded idempotency key", () => {
   assert.match(state, /roomEntryPending/);
 });
 
+check("rejected host settings visibly roll back the optimistic client state", () => {
+  assert.match(main, /const previousSettings =/);
+  assert.match(main, /settingResult\?\.success !== false/);
+  assert.match(main, /state\.settings\[key\] = previousSettings\[key\]/);
+  assert.match(main, /parlorNotice\("TABLE SETTINGS"/);
+});
+
 console.log(`client UX contract tests: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
