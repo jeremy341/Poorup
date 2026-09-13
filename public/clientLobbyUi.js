@@ -118,16 +118,29 @@ export function roomEntryAckFromSnapshot(snapshot, clientId) {
   const room = snapshot?.room;
   const players = snapshotPlayers(snapshot);
   const player = players.find(candidate => candidate?.clientId === clientId);
-  if (!room || !player) return null;
+  if (!room) return null;
+  if (!player) return null;
   return {
     success: true,
     created: true,
-    roomCode: Object.prototype.hasOwnProperty.call(room, "roomCode") ? room.roomCode : null,
-    visibility: room.visibility === "public" ? "public" : "private",
-    hostId: room.hostId || null,
-    playerId: player.id || player.roomPlayerId || null,
+    roomCode: roomCodeFromSnapshot(room),
+    visibility: visibilityFromSnapshot(room),
+    hostId: firstValue(room.hostId),
+    playerId: firstValue(player.id, player.roomPlayerId),
     bots: players.filter(candidate => candidate?.isBot).length,
   };
+}
+
+function firstValue(...values) {
+  return values.find(Boolean) || null;
+}
+
+function roomCodeFromSnapshot(room) {
+  return Object.prototype.hasOwnProperty.call(room, "roomCode") ? room.roomCode : null;
+}
+
+function visibilityFromSnapshot(room) {
+  return room.visibility === "public" ? "public" : "private";
 }
 
 export function reconcileParlorEntrySnapshot(snapshot) {
@@ -718,7 +731,7 @@ function retryQuickTableJoin(response) {
   requestQuickTableDirectory();
 }
 
-function parlorEntryPayload(event, requestedCode, meta, requestedRoomId = "", requestId = "") {
+function parlorEntryPayload({ event, requestedCode, meta, requestedRoomId = "", requestId = "" }) {
   return {
     roomCode: requestedCode || undefined,
     roomId: requestedRoomId || undefined,
@@ -799,7 +812,7 @@ export function enterParlor(code) {
   const event = requestedCode || requestedRoomId ? "join-room" : "create-room";
   const requestId = event === "create-room" ? String(host.createRequestId?.("create-room") || "") : "";
   resetTableForEntry(requestedCode, requestId);
-  const payload = parlorEntryPayload(event, requestedCode, meta, requestedRoomId, requestId);
+  const payload = parlorEntryPayload({ event, requestedCode, meta, requestedRoomId, requestId });
   activeRoomEntryAttempt?.cancel();
   activeRoomEntryAttempt = sendRoomEntryWithRetries({
     emit: host.emitServer,
@@ -910,12 +923,12 @@ function applyEntryVisibility(response) {
 function isOpenQuickTableRoom(room) {
   const seats = Number(room?.seats);
   const cap = Number(room?.cap);
-  return room?.visibility === "public"
-    && room?.state === "open"
-    && Boolean(room?.roomId)
-    && Number.isFinite(seats)
-    && Number.isFinite(cap)
-    && seats < cap;
+  if (room?.visibility !== "public") return false;
+  if (room?.state !== "open") return false;
+  if (!room?.roomId) return false;
+  if (!Number.isFinite(seats)) return false;
+  if (!Number.isFinite(cap)) return false;
+  return seats < cap;
 }
 
 function snapshotPlayers(snapshot) {
