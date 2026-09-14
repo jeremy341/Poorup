@@ -11,7 +11,7 @@ import { state } from "./clientState.js";
 import { saveSoundPreference, saveMusicPreference } from "./clientSanitize.js";
 import { renderProfileSummary } from "./clientProfileRender.js";
 
-let host = { playSound: noop, syncHomeMusic: noop };
+let host = { playSound: noop, syncHomeMusic: noop, musicController: null };
 
 function noop() {}
 
@@ -56,6 +56,7 @@ function onMusicToggle() {
   state.music = !state.music;
   saveMusicPreference(state.music);
   syncAudioButtons();
+  host.setMusicEnabled?.(state.music, { userGesture: true });
   host.syncHomeMusic({ force: true });
   renderProfileSummary();
 }

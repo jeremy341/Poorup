@@ -144,6 +144,7 @@ import { bindAudioControls, syncAudioButtons } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
 import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./clientTheme.js";
 import { renderTheme } from "./clientThemeRender.js";
+import { createMusicPlayer } from "./clientMusicPlayer.js";
 import { applyMaintenanceState, configureMaintenanceUi } from "./clientMaintenance.js";
 import { initAnalytics } from "./clientAnalytics.js";
 import { setDocumentMeta } from "./clientDocumentMeta.js";
@@ -211,6 +212,7 @@ import {
 } from "./clientGameSave.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
+let musicController = null;
 const audioRuntime = {
   state: "off",
   message: "",
@@ -514,7 +516,46 @@ function mediaFailureState(error, music) {
   return "error";
 }
 
+function ensureMusicController() {
+  if (musicController) return musicController;
+  if (globalThis.__poorupMusicBoxController) {
+    musicController = globalThis.__poorupMusicBoxController;
+    return musicController;
+  }
+  const root = document.querySelector("[data-music-box]");
+  if (!root) return null;
+  musicController = createMusicPlayer({
+    audioA: root.querySelector('audio[data-music-audio="a"]'),
+    audioB: root.querySelector('audio[data-music-audio="b"]'),
+    getThemeId: () => state.themeId,
+    announce: message => {
+      const status = root.querySelector("[data-music-status]");
+      const globalStatus = $("#music-status");
+      if (status && status.textContent !== message) status.textContent = message;
+      if (globalStatus && globalStatus.textContent !== message) globalStatus.textContent = message;
+    },
+  });
+  globalThis.__poorupMusicBoxController = musicController;
+  return musicController;
+}
+
+function setMusicEnabled(enabled, { userGesture = false } = {}) {
+  const controller = ensureMusicController();
+  if (!controller) return;
+  if (!enabled) {
+    document.querySelectorAll('audio[data-music-audio]').forEach(audio => audio.pause?.());
+    return;
+  }
+  if (userGesture || state.music) controller.resetToThemeTrack?.();
+}
+
 function syncHomeMusic({ force = false, userGesture = false } = {}) {
+  const controller = ensureMusicController();
+  if (controller) {
+    if (!state.music) setMusicEnabled(false);
+    else if (force || userGesture) setMusicEnabled(true, { userGesture });
+    return;
+  }
   const music = $("#home-music");
   if (!music) return;
   music.volume = 0.16;
@@ -1080,7 +1121,7 @@ function bindEvents() {
 
   // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
   bindHomeMusicEvents();
-  bindAudioControls({ playSound, syncHomeMusic });
+  bindAudioControls({ playSound, syncHomeMusic, musicController, setMusicEnabled });
   window.addEventListener("pointerdown", retryAudioAfterGesture, { passive: true });
   window.addEventListener("keydown", retryAudioAfterGesture);
   bindAmbientExits();
@@ -1177,10 +1218,11 @@ configureNightShift({
   stopHomeHelicopter,
   scheduleHomeHelicopter,
 });
-configureThemeUi({ applyTheme: renderTheme });
+configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId) });
 configureMaintenanceUi({ emitServer });
 bindThemeVisibility();
 initThemePreference();
+ensureMusicController();
 renderHome();
 buildBoard(onTileClick);
 renderTheme(state.themeId, { animate: false });

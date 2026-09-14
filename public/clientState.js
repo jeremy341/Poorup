@@ -249,7 +249,9 @@ const state = {
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
   sound: loadSoundPreference(), // global effects toggle
-  music: loadMusicPreference(), // global soundtrack toggle
+  // Canonical global soundtrack preference. The music-box controller mirrors
+  // this value but never owns or replaces it (including across tabs).
+  music: loadMusicPreference(),
   quickJoin: false,     // "quick table" uses all-default rules
   settings: {
     maxPlayers:      4,       // 2 – 4
