@@ -27,7 +27,7 @@ test("uses the compact reference dimensions and balanced edge padding", () => {
   assert.match(styles, /\.music-box\s*\{[\s\S]*?width:\s*min\(324px/);
   assert.match(styles, /\.music-box\s*\{[\s\S]*?padding:\s*8px/);
   assert.match(styles, /\.music-box-controls[^}]*gap:\s*8px/);
-  assert.match(styles, /\.music-box\s*\{[\s\S]*?bottom:\s*20px/);
+  assert.match(styles, /\.music-box\s*\{[\s\S]*?bottom:\s*max\(56px/);
 });
 
 test("exposes one semantic control for each music action", () => {
@@ -53,6 +53,18 @@ test("declares the vertical volume popover and hidden move menu relationship", (
   assert.match(index, /id=["']music-volume-popover["'][^>]*hidden/);
   assert.match(index, /id=["']music-position-menu["'][^>]*hidden/);
   assert.match(styles, /\.music-volume-popover[^}]*bottom:\s*calc\(100%\s*\+\s*8px\)/);
+});
+
+test("keeps the fixed dock clear of the home footer ticker", () => {
+  assert.match(styles, /\.music-box\s*\{[^}]*bottom:\s*(?:max\([^)]*\)|(?:5[2-9]|[6-9]\d)px)/);
+  assert.match(styles, /\.music-box\s*\{[^}]*z-index:\s*55/);
+});
+
+test("renders controller play state and a proportional progress meter", () => {
+  assert.match(fs.readFileSync(path.join(root, "public/clientMusicBoxUi.js"), "utf8"), /state\.playing/);
+  assert.match(fs.readFileSync(path.join(root, "public/clientMusicBoxUi.js"), "utf8"), /data-music-meter/);
+  assert.match(fs.readFileSync(path.join(root, "public/clientMusicBoxUi.js"), "utf8"), /Pause music/);
+  assert.match(styles, /music-progress/);
 });
 
 test("declares safe corner snapping and keyboard-native move controls", () => {
