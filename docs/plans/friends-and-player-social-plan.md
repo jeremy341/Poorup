@@ -219,6 +219,8 @@ Safety controls:
 - Reports create a moderation record without revealing the reporter.
 - Rate-limit search, requests, invites, and notifications.
 - Never expose email addresses or stable account ids to clients.
+- Public search, ranking, and player-card references use the unique username;
+  internal account IDs remain server-side identifiers.
 
 ## Architecture
 

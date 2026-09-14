@@ -209,6 +209,9 @@ check('short-default repayment is exposed through the authoritative room action 
   const replay = room.settleShortDefault('socket-a', 100, 'short-repay-1');
   assert.deepEqual(replay, first);
   assert.equal(player.shortDefaultDebt, 60);
+  const fractional = room.settleShortDefault('socket-a', 0.5, 'short-repay-fraction');
+  assert.deepEqual(fractional, { success: false, error: 'Short-default repayment must be a positive whole amount.' });
+  assert.equal(player.shortDefaultDebt, 60);
 });
 
 check('auction bids at or after the deadline reject without changing the auction', () => {

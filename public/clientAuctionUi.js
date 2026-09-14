@@ -155,7 +155,7 @@ export function renderAuction() {
       </div>
 
       <div class="auction-pass">
-        <button class="btn-dark auction-pass-btn" id="auction-pass"><span class="t-label f12">PASS — STAND DOWN</span></button>
+        <button class="btn-dark auction-pass-btn" id="auction-pass"><span class="t-label f12">PASS · STAND DOWN</span></button>
       </div>
 
       <div class="auction-players" id="auction-players"></div>

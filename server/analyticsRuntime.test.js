@@ -5,7 +5,8 @@ import {
   recordLoggedTelemetry,
   recordBotTelemetry,
   recordMatchStartTelemetry,
-  recordMatchStalledTelemetry
+  recordMatchStalledTelemetry,
+  recordSeasonTelemetry
 } from './socketRuntime.js';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -59,6 +60,44 @@ check('flushes an attached rollup and closes both stores', () => {
   assert.equal(rollup.health().pendingWrites, 0);
   telemetry.close();
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+check('rejects or removes nested camelCase and snake_case identity fields', () => {
+  let persisted = null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-analytics-privacy-'));
+  const telemetry = new TelemetryStore(path.join(dir, 'telemetry.json'), { persist: snapshot => { persisted = snapshot; }, flushIntervalMs: 0 });
+  const result = telemetry.record('match-complete', { players: [{ account_id: 'acct-raw', display_name: 'Ada', room_code: 'ROOM' }] });
+  assert.equal(result.recorded, false);
+  assert.equal(JSON.stringify(result).includes('acct-raw'), false);
+  telemetry.flush();
+  assert.equal(JSON.stringify(persisted || []).includes('display_name'), false);
+  telemetry.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+check('rejects every players payload shape at telemetry ingestion', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-analytics-players-'));
+  const telemetry = new TelemetryStore(path.join(dir, 'telemetry.json'), { flushIntervalMs: 0 });
+  for (const players of ['Ada Lovelace', [{ displayName: 'Ada' }], { displayName: 'Ada' }]) {
+    assert.equal(telemetry.record('match-complete', { players }).recorded, false);
+  }
+  assert.equal(telemetry.summary().total, 0);
+  telemetry.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+check('settlement telemetry is idempotent for one immutable match', () => {
+  const records = [];
+  const context = {
+    telemetryStore: { record: (...args) => { records.push(args); return { recorded: true }; } },
+    room: { game: { started: true, startedAt: 10, roundNumber: 1, telemetryLog: [] } },
+    matchRecord: { matchId: 'match-once', playerCount: 1, roundCount: 1, participants: [{ accountId: null, marketTrades: 0, bankrupt: false }], market: [], botDecisions: [] },
+    candidates: [],
+    seasonResult: null
+  };
+  recordSeasonTelemetry(context);
+  recordSeasonTelemetry(context);
+  assert.equal(records.length, 3);
 });
 
 await (async () => {
