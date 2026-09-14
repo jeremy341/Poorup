@@ -146,6 +146,7 @@ import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./cl
 import { renderTheme } from "./clientThemeRender.js";
 import { applyMaintenanceState, configureMaintenanceUi } from "./clientMaintenance.js";
 import { initAnalytics } from "./clientAnalytics.js";
+import { setDocumentMeta } from "./clientDocumentMeta.js";
 import {
   bindRoomsUi,
   closeRoomsModal,
@@ -210,10 +211,21 @@ import {
 } from "./clientGameSave.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
+function setAudioState(stateName, message) {
+  const status = $("#music-status");
+  if (status) status.textContent = message || "";
+  const toggle = $("#music-toggle-btn");
+  if (toggle) {
+    toggle.dataset.audioState = stateName;
+    if (stateName === "blocked") toggle.setAttribute("aria-label", "Parlor music is blocked. Activate to retry");
+  }
+}
+
 function tone(freq, dur, vol = 0.035, when = 0) {
   if (!state.sound) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume()?.catch(() => setAudioState("blocked", "Sound is blocked. Activate a control to retry."));
     const t0 = audioCtx.currentTime + when;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -470,11 +482,23 @@ function syncHomeMusic() {
   // The sound preference is global. Keep the same soundtrack running while
   // the player moves from Home into setup, lobby, or the live table.
   if (state.music) {
+    setAudioState("loading", "Parlor music loading.");
     const playAttempt = music.play();
-    playAttempt?.catch(() => { /* autoplay policy; the next user gesture retries */ });
+    if (playAttempt?.then) {
+      playAttempt.then(() => setAudioState("ready", "Parlor music ready."))
+        .catch(() => setAudioState("blocked", "Parlor music is blocked. Activate the music control to retry."));
+    } else {
+      setAudioState("ready", "Parlor music ready.");
+    }
   } else {
     music.pause();
+    setAudioState("off", "Parlor music off.");
   }
+}
+
+function retryAudioAfterGesture() {
+  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => setAudioState("blocked", "Sound is blocked. Activate a control to retry."));
+  if (state.music) syncHomeMusic();
 }
 
 
@@ -675,6 +699,7 @@ function showView(name) {
   $("#view-social")?.classList.toggle("is-hidden", name !== "social");
   $("#view-rules")?.classList.toggle("is-hidden", name !== "rules");
   syncGlobalNavigation(name);
+  setDocumentMeta({ view: name, roomCode: state.roomCode });
   window.scrollTo(0, 0);
   syncSurfaceA11y();
   if (name === "home") {
@@ -957,6 +982,8 @@ function bindEvents() {
 
   // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
   bindAudioControls({ playSound, syncHomeMusic });
+  window.addEventListener("pointerdown", retryAudioAfterGesture, { passive: true });
+  window.addEventListener("keydown", retryAudioAfterGesture);
   bindAmbientExits();
 
   // setup overlay + quick table + lobby settings rail (clientLobbyUi.js)
@@ -1060,6 +1087,7 @@ buildBoard(onTileClick);
 renderTheme(state.themeId, { animate: false });
 hydrateSprites();
 bindEvents();
+setDocumentMeta({ view: "home" });
 renderAll();
 const analyticsPathActive = initAnalytics();
 if (!analyticsPathActive) {
