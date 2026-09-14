@@ -160,3 +160,13 @@ test("stale play promise cannot change status after navigation", async () => {
   const { player } = setup({ audioB }); player.selectTrack("pondering-the-cosmos"); player.setTheme("spring"); resolves[0](); await Promise.resolve(); await Promise.resolve();
   assert.notEqual(player.snapshot().status, "playing");
 });
+test("blocked pending target is retried before pausing prior playback", async () => {
+  let attempts = 0; const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {}, play: () => { attempts += 1; return attempts === 1 ? Promise.reject(new Error("blocked")) : undefined; } };
+  const { player, audioA } = setup({ audioB }); audioA.play = () => {}; player.togglePlay(); player.setTheme("spring"); listeners.canplay(); await Promise.resolve(); await Promise.resolve(); player.togglePlay();
+  assert.equal(attempts, 2); assert.equal(player.snapshot().playing, true);
+});
+test("pausing an in-flight transition immediately restores its full snapshot", async () => {
+  const listeners = {}; let queued; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player, audioA } = setup({ audioB, requestFrame: fn => { queued = fn; return 9; }, cancelFrame: () => {} }); player.togglePlay(); const before = player.snapshot(); player.setTheme("spring"); listeners.canplay(); player.togglePlay(); queued?.();
+  const after = player.snapshot(); assert.equal(after.playing, false);
+});
