@@ -1,6 +1,8 @@
 # Poorup Theme Music Player — Design Specification
 
-**Status:** Design approved for implementation planning; no production code changed in this pass
+**Status:** Superseded by the implemented reference player (2026-09-14). The original planning history below is preserved; see the implementation record at the end for the shipped manifest and legal sources.
+
+> **Implemented record (2026-09-14).** The approved local soundtrack inventory is now shipped through `public/clientMusicData.js`: Original `pondering-the-cosmos.mp3` (Ruskerdax, CC0), Spring `themes/spring/hot-springs-town.mp3` (Kistol, CC0), Summer `themes/summer/summers.mp3` (symphony, CC0 with requested credit), Autumn `themes/autumn/autumn.mp3` (Duasun, CC0), Winter `themes/winter/snowy-village.ogg` (Louswan, CC-BY 3.0), and Light `themes/light/town.mp3` (Pro Sensory, public domain). The complete source links and attribution records live in `public/assets/audio/README.md` and `public/legal/licenses.html`; local preference keys and autoplay behavior are documented in `public/legal/storage.html` and `public/legal/privacy.html`. The candidate/secondary queue names in the historical inventory below are planning notes and are not shipped runtime tracks.
 
 **Goal:** Give every visual theme an automatic soundtrack while providing one persistent, accessible, theme-colored player that supports crossfades, manual track choice, shuffle, loop, seek, volume, and four-corner placement.
 
