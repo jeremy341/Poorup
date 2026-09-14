@@ -380,6 +380,7 @@ a:focus-visible {
 .music-box audio { display: none; }
 @media (max-width: 600px) { .music-box { left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); bottom: max(52px, env(safe-area-inset-bottom)); width: auto; min-height: 104px; } .music-box[data-position="top-left"] { right: auto; } .music-box[data-position="top-right"] { left: auto; right: max(10px, env(safe-area-inset-right)); } .music-box[data-position="bottom-right"] { left: auto; right: max(10px, env(safe-area-inset-right)); } .music-box[data-position="bottom-left"] { right: auto; } .music-box-controls > button, .music-box-volume-wrap > button, .music-box-grip { width: 44px; height: 44px; flex-basis: 44px; padding: 13px; } .music-box-controls { gap: 2px; justify-content: space-between; } }
 @media (orientation: landscape) and (min-width: 768px) and (max-width: 1279px), (hover: none) and (pointer: coarse) { .music-box-controls > button, .music-box-volume-wrap > button, .music-box-grip { width: 44px; height: 44px; flex-basis: 44px; padding: 13px; } }
+@media (hover: none) and (pointer: coarse) { .music-box { max-height: 116px; min-height: 0; padding: 6px; } .music-box-panel { gap: 2px; } .music-box-progress { min-height: 4px; } }
 
 /* ============================================================
    LEGAL DOCUMENTS - static, policy-gated reading surface
