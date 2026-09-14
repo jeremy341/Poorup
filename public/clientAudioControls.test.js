@@ -33,14 +33,26 @@ check("dock auto-mount reuses the registered controller", () => {
   assert.match(musicBoxUi, /controller \|\| globalThis\.__poorupMusicBoxController \|\| createMusicPlayer/);
 });
 
+check("global toggle starts once and stops through the controller", () => {
+  assert.doesNotMatch(audio, /setMusicEnabled\?\.\(state\.music/);
+  assert.match(audio, /host\.syncHomeMusic\(\{ force: true \}\)/);
+  assert.match(main, /controller\.(stop|pause)\?\./);
+  assert.doesNotMatch(main, /music\.addEventListener/);
+  assert.doesNotMatch(main, /function bindHomeMusicEvents/);
+  assert.doesNotMatch(main, /#home-music|function bindHomeMusicEvents/);
+  assert.doesNotMatch(main, /data-music-audio.*pause/);
+  assert.doesNotMatch(main, /AUDIO_LABELS|audioRuntime|mediaFailureState|setAudioState/);
+  assert.match(main, /const snapshot = ensureMusicController\(\)\?\.snapshot/);
+});
+
 check("theme changes apply visuals before resetting music", () => {
   assert.match(theme, /onThemeChange/);
   assert.match(theme, /themeUi\.applyTheme\(theme\.id, \{ animate \}\);[\s\S]*themeUi\.onThemeChange\(theme\.id\)/);
 });
 
 check("blocked playback announces once", () => {
-  assert.match(main, /autoplay-blocked|music is blocked/i);
-  assert.match(main, /music-status|announceAudioMessage/);
+  assert.match(musicBoxUi, /autoplay-blocked/);
+  assert.match(main, /music-status|announceSoundMessage/);
 });
 
 const failures = checks.filter((result) => !result.ok);
