@@ -216,3 +216,7 @@ test("invalid persisted custom track resets mode to AUTO THEME", () => {
   const values = new Map([["poorup.music.preferences", JSON.stringify({ theme: "spring", mode: "CUSTOM", track: "pondering-the-cosmos" })]]);
   const { player } = setup({ getThemeId: () => "spring", storage: { getItem: k => values.get(k), setItem: () => {} } }); assert.equal(player.snapshot().mode, "AUTO THEME"); assert.equal(player.snapshot().currentTrackId, "hot-springs-town");
 });
+test("storage shuffle sync rebuilds queue and restores order", () => {
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" }, c: { id: "c", title: "C", src: "/c", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a", "b", "c"] } };
+  const { player } = setup({ manifest, getThemeId: () => "one", random: () => 0 }); player.syncPreferences({ shuffle: true }); assert.deepEqual(player.snapshot().queue, ["b", "c", "a"]); player.syncPreferences({ shuffle: false }); assert.deepEqual(player.snapshot().queue, ["a", "b", "c"]);
+});
