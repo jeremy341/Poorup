@@ -93,6 +93,10 @@ test("keeps touch hit areas large without making the visual dock tall", () => {
   assert.match(styles, /@media[^}]*\(hover:\s*none\)[\s\S]*?width:\s*44px/);
 });
 
+test("does not retain the retired legacy home music selector", () => {
+  assert.doesNotMatch(styles, /\.home-music\b/);
+});
+
 test("declares safe corner snapping and keyboard-native move controls", () => {
   assert.match(styles, /env\(safe-area-inset-top\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);

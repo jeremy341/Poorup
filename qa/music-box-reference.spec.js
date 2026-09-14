@@ -38,7 +38,6 @@ async function captureNative(page, name) {
 
 test.describe("reference-locked music box", () => {
   test("home acceptance viewport records the compact reference geometry", async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto("/");
 
     const box = page.locator("[data-music-box]");
@@ -47,14 +46,31 @@ test.describe("reference-locked music box", () => {
     expect(bounds).not.toBeNull();
     expect(bounds.width).toBeGreaterThanOrEqual(304);
     expect(bounds.width).toBeLessThanOrEqual(324);
-    expect(bounds.height).toBeGreaterThanOrEqual(92);
-    expect(bounds.height).toBeLessThanOrEqual(104);
+    const isDesktopReference = page.viewportSize().width >= 1800;
+    expect(bounds.height).toBeGreaterThanOrEqual(isDesktopReference ? 92 : 104);
+    expect(bounds.height).toBeLessThanOrEqual(isDesktopReference ? 104 : 116);
     expect(bounds.x).toBeGreaterThanOrEqual(14);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(1062);
 
     const viewport = page.viewportSize();
-    expect(viewport).toEqual({ width: 1920, height: 1080 });
+    expect(viewport).toEqual(isDesktopReference ? { width: 1920, height: 1080 } : { width: 1024, height: 768 });
     await expect(page.locator("[data-music-audio]")).toHaveCount(2);
+  });
+
+  test("iPad landscape keeps touch targets large while staying footer-safe", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/");
+    const box = page.locator("[data-music-box]");
+    const bounds = await box.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds.height).toBeGreaterThanOrEqual(104);
+    expect(bounds.height).toBeLessThanOrEqual(116);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(768 - 52);
+    for (const control of await box.locator("button:visible").all()) {
+      const controlBounds = await control.boundingBox();
+      expect(controlBounds?.width).toBeGreaterThanOrEqual(44);
+      expect(controlBounds?.height).toBeGreaterThanOrEqual(44);
+    }
   });
 
   test("audio inventory has a credit and license for every shipped theme track", async () => {
