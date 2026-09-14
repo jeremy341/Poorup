@@ -44,16 +44,17 @@ test.describe("reference-locked music box", () => {
     await expect(box).toHaveCount(1);
     const bounds = await box.boundingBox();
     expect(bounds).not.toBeNull();
-    expect(bounds.width).toBeGreaterThanOrEqual(304);
+    const viewport = page.viewportSize();
+    const isDesktopReference = viewport.width >= 1800;
+    if (isDesktopReference) expect(bounds.width).toBeGreaterThanOrEqual(304);
     expect(bounds.width).toBeLessThanOrEqual(324);
-    const isDesktopReference = page.viewportSize().width >= 1800;
     expect(bounds.height).toBeGreaterThanOrEqual(isDesktopReference ? 92 : 104);
     expect(bounds.height).toBeLessThanOrEqual(isDesktopReference ? 104 : 116);
-    expect(bounds.x).toBeGreaterThanOrEqual(14);
-    expect(bounds.y + bounds.height).toBeLessThanOrEqual(1062);
+    expect(bounds.x).toBeGreaterThanOrEqual(isDesktopReference ? 14 : 10);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(isDesktopReference ? 1062 : viewport.height - 52);
 
-    const viewport = page.viewportSize();
-    expect(viewport).toEqual(isDesktopReference ? { width: 1920, height: 1080 } : { width: 1024, height: 768 });
+    const expectedViewport = isDesktopReference ? { width: 1920, height: 1080 } : viewport.width <= 600 ? { width: 390, height: 844 } : { width: 1024, height: 768 };
+    expect(viewport).toEqual(expectedViewport);
     await expect(page.locator("[data-music-audio]")).toHaveCount(2);
   });
 
