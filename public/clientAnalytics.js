@@ -15,8 +15,8 @@ const METRIC_LABELS = Object.freeze({
   'error-count': 'Server errors', 'bot-fallbacks': 'Bot fallbacks', 'maintenance-transitions': 'Maintenance transitions',
   'backup-failures': 'Backup failures', 'manual-codescene-runs': 'Manual CodeScene runs',
 });
-const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets']);
-const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'completed', 'stalled', 'matches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementMedian', 'fallback', 'fallbackRate', 'decisions', 'actions', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises', 'collateralizedOptions', 'negativeCashPreventions', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlocks', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab', 'association', 'dimension', 'metric', 'scope']);
+const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload', 'rawevent', 'rawdata', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data']);
+const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'completed', 'stalled', 'matches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementMedian', 'fallback', 'fallbackRate', 'decisions', 'actions', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises', 'collateralizedOptions', 'negativeCashPreventions', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlocks', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'rows', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab', 'association', 'dimension', 'metric', 'scope']);
 const DYNAMIC_CLIENT_FIELDS = new Set(['features', 'events', 'market', 'bots', 'achievements', 'unlockRarity', 'outcomeDistribution', 'adoption', 'actions', 'combinations']);
 
 function query(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
@@ -126,9 +126,12 @@ function renderAnalyticsCharts(snapshot) {
 function aggregateValue(value) {
   if (value === null || value === undefined) return 'N/A';
   if (typeof value !== 'object') return String(value);
-  const current = value.value === null || value.value === undefined ? 'N/A' : value.value;
-  const denominator = value.denominator === null || value.denominator === undefined ? '' : ` / DENOMINATOR ${value.denominator}`;
-  return `${current}${denominator}`;
+  if (Object.hasOwn(value, 'value') || Object.hasOwn(value, 'denominator')) {
+    const current = value.value === null || value.value === undefined ? 'N/A' : value.value;
+    const denominator = value.denominator === null || value.denominator === undefined ? '' : ` / DENOMINATOR ${value.denominator}`;
+    return `${current}${denominator}`;
+  }
+  return Object.entries(value).slice(0, 8).map(([key, child]) => `${key}: ${aggregateValue(child)}`).join('; ') || 'N/A';
 }
 
 function renderAnalyticsReadModel(snapshot) {
@@ -137,7 +140,8 @@ function renderAnalyticsReadModel(snapshot) {
   const panel = [...(document.querySelectorAll?.('[data-analytics-panel]') || [])].find(candidate => candidate.getAttribute('data-analytics-panel') === tab);
   if (!panel) return;
   panel.querySelector?.('.analytics-read-model')?.remove?.();
-  const rows = Array.isArray(snapshot.breakdowns) ? snapshot.breakdowns : [];
+  const breakdowns = Array.isArray(snapshot.breakdowns) ? snapshot.breakdowns : [];
+  const rows = breakdowns.flatMap(row => Array.isArray(row?.rows) ? row.rows : [row]);
   const association = snapshot.association;
   const hasEvidence = rows.length > 0 || association;
   let content = '';
@@ -332,7 +336,6 @@ export function initAnalytics() {
   const view = query('#view-admin-analytics'); if (!view) return false;
   document.querySelectorAll?.('.view').forEach(candidate => candidate.classList.toggle('is-hidden', candidate !== view)); view.classList.remove('is-hidden');
   analyticsController?.destroy(); analyticsController = createAnalyticsController();
-  query('#admin-analytics-retry')?.addEventListener('click', () => { void analyticsController.refresh(); });
   void analyticsController.load(); return true;
 }
 
