@@ -6,7 +6,7 @@ import { TelemetryStore, sanitize } from './telemetryModule.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-telemetry-'));
 const store = new TelemetryStore(path.join(dir, 'telemetry.json'));
-assert.equal(store.record('match-complete', { players: 2, chat: 'do not keep', hiddenCards: ['x'] }, { seasonId: 'S1', boardVariant: 'metro-52', rulesetRevision: 1, balanceRevision: 2 }).success, true);
+assert.equal(store.record('match-complete', { playerCount: 2, chat: 'do not keep', hiddenCards: ['x'] }, { seasonId: 'S1', boardVariant: 'metro-52', rulesetRevision: 1, balanceRevision: 2 }).success, true);
 assert.equal(store.events[0].data.chat, undefined);
 assert.equal(store.events[0].data.hiddenCards, undefined);
 assert.equal(store.record('unknown', {}).recorded, false);

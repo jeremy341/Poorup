@@ -60,9 +60,25 @@ await check('normalizes versioned aggregate snapshots without raw identity field
 });
 
 await check('normalizes filters to fixed allow-lists and minimum cohort', () => {
-  const query = normalizeAnalyticsQuery({ range: 'season', boardVariant: 'METRO-52', botMode: 'AI', minimumCohort: 1, accountId: 'raw' });
-  assert.deepEqual(query, { range: 'season', seasonId: '', rulesetRevision: '', balanceRevision: '', boardVariant: 'metro-52', rulesetPreset: 'all', marketComplexity: 'all', botMode: 'ai', eventId: '', minimumCohort: 5, tab: 'overview' });
+  const query = normalizeAnalyticsQuery({ range: 'season', boardVariant: 'METRO-52', botMode: 'AI', provider: 'OpenAI', view: 'economy', dimension: 'feature', metric: 'loan-adoption', minimumCohort: 1, accountId: 'raw' });
+  assert.deepEqual(query, { range: 'season', seasonId: '', rulesetRevision: '', balanceRevision: '', boardVariant: 'metro-52', rulesetPreset: 'all', marketComplexity: 'all', botMode: 'ai', provider: 'openai', eventId: '', minimumCohort: 5, tab: 'economy', dimension: 'feature', metric: 'loan-adoption' });
   assert.equal(normalizeAnalyticsQuery({ rulesetRevision: 'abc', balanceRevision: 'NaN' }).rulesetRevision, '');
+});
+
+await check('restores analytics tab and filters from the URL and updates deep links', () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const replacements = [];
+  globalThis.window = { location: { pathname: '/admin/analytics', search: '?view=economy&provider=ai' }, history: { replaceState: (_state, _title, url) => replacements.push(url) }, matchMedia: () => ({ matches: false }) };
+  globalThis.document = fakeAnalyticsDocument({ grid: fakeElement({ id: 'admin-analytics-grid' }), status: fakeElement({ id: 'admin-analytics-status' }) });
+  const controller = createAnalyticsController({ fetcher: async () => ({ success: true, overview: { kpis: [] } }) });
+  assert.equal(controller.filters.tab, 'economy');
+  assert.equal(controller.filters.provider, 'ai');
+  controller.setTab('bots');
+  assert.match(replacements.at(-1), /tab=bots/);
+  controller.destroy();
+  globalThis.window = previousWindow;
+  globalThis.document = previousDocument;
 });
 
 await check('retains version dimensions and strips unknown aggregate fields', () => {
@@ -80,6 +96,20 @@ await check('preserves narrowly allow-listed nested rows for every analytics tab
     assert.equal(snapshot.breakdowns[0].rows[0].denominator, 5);
     assert.equal(snapshot.breakdowns[0].rows[0].unknownField, undefined);
   }
+});
+
+await check('preserves every server read-model measure through client normalization', () => {
+  const measure = {
+    starts: 10, completions: 8, stalls: 2, startedMatches: 10, completedMatches: 8,
+    stalledMatches: 2, reconnectRate: { value: 0.1, denominator: 10 }, afkRate: { value: 0.2, denominator: 10 },
+    bankruptcies: { value: 1, denominator: 10 }, comebacks: { value: 2, denominator: 10 }, denominators: { startedMatches: 10 },
+    outcomeDistribution: { wins: 8 }, liquidationRate: { value: 0.1, denominator: 10 }, liquidation: { value: 0.1 },
+    shortDefaultRate: { value: 0.02 }, optionExerciseRate: { value: 0.03 }, negativeCashPrevention: { value: 1 },
+    unlockRarity: { rare: { value: 0.2 } }, medianPlacement: { value: 2 }, actionAdoption: { roll: 3 },
+    auctionDecisions: 4, legalActionTaxonomy: ['roll']
+  };
+  const normalized = normalizeAnalyticsSnapshot({ filters: { tab: 'bots' }, breakdowns: [measure] }).breakdowns[0];
+  Object.keys(measure).forEach(key => assert.notEqual(normalized[key], undefined, `${key} must survive normalization`));
 });
 
 await check('chart hook keeps an accessible table fallback and bounded points', () => {
@@ -242,13 +272,38 @@ await check('empty snapshots expose a safe reset-filter action', () => {
 await check('unauthorized snapshots clear rendered data and use distinct status', async () => {
   const grid = fakeElement({ id: 'admin-analytics-grid' });
   grid.innerHTML = '<p>private</p>';
-  const status = fakeElement({ id: 'admin-analytics-status' });
+  const readModel = fakeElement();
+  readModel.className = 'analytics-read-model';
+  readModel.textContent = 'private read model';
+  const chart = fakeElement();
   const previousDocument = globalThis.document;
-  globalThis.document = fakeAnalyticsDocument({ grid, status });
+  globalThis.document = fakeAnalyticsDocument({ grid, status: fakeElement({ id: 'admin-analytics-status' }) });
+  const originalQuerySelectorAll = globalThis.document.querySelectorAll;
+  globalThis.document.querySelectorAll = selector => selector.includes('analytics-read-model') || selector.includes('data-analytics-chart') ? [readModel, chart] : originalQuerySelectorAll(selector);
+  const status = globalThis.document.querySelector('#admin-analytics-status');
   const controller = createAnalyticsController({ fetcher: async () => ({ success: false, status: 403 }) });
   await controller.load();
   assert.equal(grid.textContent, '');
+  assert.equal(readModel.textContent, '');
+  assert.equal(chart.textContent, '');
   assert.equal(status.textContent, 'ADMIN ACCESS REQUIRED');
+  controller.destroy();
+  globalThis.document = previousDocument;
+});
+
+await check('reset filters synchronizes native controls before the next apply', async () => {
+  const reset = fakeElement({ attrs: { 'data-analytics-reset': '' } });
+  const season = fakeElement({ attrs: { 'data-analytics-filter': 'seasonId' }, value: 'S7' });
+  const ruleset = fakeElement({ attrs: { 'data-analytics-filter': 'rulesetRevision' }, value: '4' });
+  const grid = fakeElement({ id: 'admin-analytics-grid' });
+  const status = fakeElement({ id: 'admin-analytics-status' });
+  const previousDocument = globalThis.document;
+  globalThis.document = fakeAnalyticsDocument({ filters: [season, ruleset], controls: [reset], grid, status });
+  const controller = createAnalyticsController({ fetcher: async () => ({ success: true, overview: { kpis: [] } }) });
+  reset.dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(season.value, '');
+  assert.equal(ruleset.value, '');
   controller.destroy();
   globalThis.document = previousDocument;
 });

@@ -138,13 +138,13 @@
 
           <div class="title-grid title-grid-clean parlor-desk-grid">
             <div class="ts-left parlor-statement">
-              <div class="ts-kicker t-micro ink-3"><span class="g5">//</span> POORUP v2.4.1 — insert coin</div>
+              <div class="ts-kicker t-micro ink-3"><span class="g5">//</span> POORUP — insert coin</div>
 
               <div class="ts-word"><h1 class="wordmark wm-hero">Poorup</h1></div>
 
               <div class="ts-rule">
                 <span class="rule-line"></span>
-                <p class="t-label f11 g-muted trk16">FOUR SEATS · ONE BANK · NO REFUNDS</p>
+                <p class="t-label f11 g-muted trk16">ONE BANK · NO REFUNDS</p>
               </div>
 
               <p class="t-body ts-copy">
@@ -523,7 +523,40 @@
       <main class="admin-analytics-main" id="admin-analytics-main" tabindex="-1" aria-labelledby="admin-analytics-title">
         <section class="panel noise admin-analytics-hero">
           <div><span class="t-micro g400">PARLOR OPERATIONS</span><h1 class="t-section g100" id="admin-analytics-title">Analytics</h1><p class="t-body ink-2">Capacity, release health, and table activity. No private game content is recorded here.</p></div>
-          <button class="btn-dark" type="button" id="admin-analytics-retry"><span class="t-label f11">Retry</span></button>
+          <button class="btn-dark" type="button" id="admin-analytics-retry" data-analytics-refresh><span class="t-label f11">Retry</span></button>
+        </section>
+        <section class="panel noise admin-analytics-workspace" aria-label="Analytics reports">
+          <div class="analytics-tabs" role="tablist" aria-label="Analytics views">
+            <button class="analytics-tab is-active" id="analytics-tab-overview" type="button" role="tab" data-analytics-tab="overview" aria-selected="true" aria-controls="analytics-panel-overview" tabindex="0">Overview</button>
+            <button class="analytics-tab" id="analytics-tab-match-health" type="button" role="tab" data-analytics-tab="match-health" aria-selected="false" aria-controls="analytics-panel-match-health" tabindex="-1">Match health</button>
+            <button class="analytics-tab" id="analytics-tab-rulesets" type="button" role="tab" data-analytics-tab="rulesets" aria-selected="false" aria-controls="analytics-panel-rulesets" tabindex="-1">Rulesets + boards</button>
+            <button class="analytics-tab" id="analytics-tab-economy" type="button" role="tab" data-analytics-tab="economy" aria-selected="false" aria-controls="analytics-panel-economy" tabindex="-1">Economy</button>
+            <button class="analytics-tab" id="analytics-tab-events" type="button" role="tab" data-analytics-tab="events" aria-selected="false" aria-controls="analytics-panel-events" tabindex="-1">Events + rarity</button>
+            <button class="analytics-tab" id="analytics-tab-bots" type="button" role="tab" data-analytics-tab="bots" aria-selected="false" aria-controls="analytics-panel-bots" tabindex="-1">Bots</button>
+            <button class="analytics-tab" id="analytics-tab-quality" type="button" role="tab" data-analytics-tab="quality" aria-selected="false" aria-controls="analytics-panel-quality" tabindex="-1">Data quality</button>
+          </div>
+          <form class="analytics-filters" aria-label="Analytics filters">
+            <label class="analytics-filter"><span class="t-micro g400">RANGE</span><select class="input-dark" data-analytics-filter="range" name="range"><option value="hour">Last hour</option><option value="day">Last day</option><option value="week">Last week</option><option value="season">Season</option></select></label>
+            <label class="analytics-filter"><span class="t-micro g400">BOARD</span><select class="input-dark" data-analytics-filter="boardVariant" name="boardVariant"><option value="all">All boards</option><option value="standard-40">Standard-40</option><option value="metro-52">Metro-52</option></select></label>
+            <label class="analytics-filter"><span class="t-micro g400">RULESET</span><select class="input-dark" data-analytics-filter="rulesetPreset" name="rulesetPreset"><option value="all">All rulesets</option><option value="classic">Classic</option><option value="after-hours">After Hours</option><option value="custom">Custom</option></select></label>
+            <label class="analytics-filter"><span class="t-micro g400">MARKET</span><select class="input-dark" data-analytics-filter="marketComplexity" name="marketComplexity"><option value="all">All market modes</option><option value="basic">Basic</option><option value="margin">Margin</option><option value="shorting">Shorting</option><option value="derivatives">Derivatives</option></select></label>
+            <label class="analytics-filter"><span class="t-micro g400">BOT MODE</span><select class="input-dark" data-analytics-filter="botMode" name="botMode"><option value="all">All participants</option><option value="ai">AI</option><option value="no-ai">No-AI</option><option value="human">Human</option></select></label>
+            <label class="analytics-filter"><span class="t-micro g400">PROVIDER</span><select class="input-dark" data-analytics-filter="provider" name="provider"><option value="all">All providers</option><option value="ai">AI</option><option value="deepseek">DeepSeek</option><option value="deterministic">Deterministic</option><option value="fallback">Fallback</option><option value="openai">OpenAI</option><option value="unknown">Unknown</option></select></label>
+            <label class="analytics-filter analytics-filter-event"><span class="t-micro g400">EVENT ID</span><input class="input-dark" data-analytics-filter="eventId" name="eventId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL EVENTS"></label>
+            <label class="analytics-filter"><span class="t-micro g400">SEASON</span><input class="input-dark" data-analytics-filter="seasonId" name="seasonId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL SEASONS"></label>
+            <label class="analytics-filter"><span class="t-micro g400">RULE REV</span><input class="input-dark" data-analytics-filter="rulesetRevision" name="rulesetRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" placeholder="ALL"></label>
+            <label class="analytics-filter"><span class="t-micro g400">BALANCE REV</span><input class="input-dark" data-analytics-filter="balanceRevision" name="balanceRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" placeholder="ALL"></label>
+            <div class="analytics-filter-actions"><button class="btn-dark" type="button" data-analytics-apply><span class="t-label f11">APPLY</span></button><button class="btn-dark" type="button" data-analytics-reset><span class="t-label f11">RESET</span></button></div>
+          </form>
+          <div class="analytics-panel-descriptions">
+            <section id="analytics-panel-overview" data-analytics-panel="overview" role="tabpanel" aria-labelledby="analytics-tab-overview"><h2 class="t-label f12 g100">Overview</h2><p class="t-micro ink-3">Verified capacity, completion, adoption, and bot fallback signals.</p><figure class="analytics-chart" data-analytics-chart data-chart-title="Verified activity" data-chart-unit="observations" data-chart-mode="line" aria-labelledby="analytics-chart-title"><figcaption class="t-micro g400" id="analytics-chart-title">VERIFIED ACTIVITY</figcaption></figure></section>
+            <section class="is-hidden" id="analytics-panel-match-health" data-analytics-panel="match-health" role="tabpanel" aria-labelledby="analytics-tab-match-health" aria-hidden="true"><h2 class="t-label f12 g100">Match health</h2><p class="t-micro ink-3">Starts, settlements, stalls, reconnects, and duration denominators.</p></section>
+            <section class="is-hidden" id="analytics-panel-rulesets" data-analytics-panel="rulesets" role="tabpanel" aria-labelledby="analytics-tab-rulesets" aria-hidden="true"><h2 class="t-label f12 g100">Rulesets + boards</h2><p class="t-micro ink-3">Compare configured board and ruleset revisions without player-level detail.</p></section>
+            <section class="is-hidden" id="analytics-panel-economy" data-analytics-panel="economy" role="tabpanel" aria-labelledby="analytics-tab-economy" aria-hidden="true"><h2 class="t-label f12 g100">Economy</h2><p class="t-micro ink-3">Feature adoption, volatility, liquidations, and negative-cash prevention.</p></section>
+            <section class="is-hidden" id="analytics-panel-events" data-analytics-panel="events" role="tabpanel" aria-labelledby="analytics-tab-events" aria-hidden="true"><h2 class="t-label f12 g100">Events + rarity</h2><p class="t-micro ink-3">Eligibility, turnout, recovery, and competitive reward rarity.</p></section>
+            <section class="is-hidden" id="analytics-panel-bots" data-analytics-panel="bots" role="tabpanel" aria-labelledby="analytics-tab-bots" aria-hidden="true"><h2 class="t-label f12 g100">Bots</h2><p class="t-micro ink-3">AI, no-AI, provider fallback, decisions, wins, and placements.</p></section>
+            <section class="is-hidden" id="analytics-panel-quality" data-analytics-panel="quality" role="tabpanel" aria-labelledby="analytics-tab-quality" aria-hidden="true"><h2 class="t-label f12 g100">Data quality</h2><p class="t-micro ink-3">Freshness, queue depth, schema versions, suppression, and rejected events.</p></section>
+          </div>
         </section>
         <p class="t-body analytics-status muted" id="admin-analytics-status" role="status" aria-live="polite">Loading analytics…</p>
         <section class="admin-analytics-grid" id="admin-analytics-grid" aria-live="polite"></section>

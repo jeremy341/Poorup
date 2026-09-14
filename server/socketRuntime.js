@@ -163,8 +163,11 @@ function roomTelemetryVersions(room) {
   };
 }
 
-function recordSeasonTelemetry(context) {
+export function recordSeasonTelemetry(context) {
   const { telemetryStore, room, matchRecord, candidates, seasonResult } = context;
+  const matchId = String(matchRecord?.matchId || '').trim();
+  if (matchId && room?.analyticsTelemetryMatchId === matchId) return false;
+  if (matchId && room) room.analyticsTelemetryMatchId = matchId;
   const telemetryContext = {
     telemetryStore,
     room,
@@ -184,6 +187,7 @@ function recordSeasonTelemetry(context) {
   recordBankruptcyTelemetry(telemetryContext);
   recordAchievementTelemetry(telemetryContext);
   recordBotTelemetry(telemetryContext);
+  return true;
 }
 
 function createRuntime(deps) {

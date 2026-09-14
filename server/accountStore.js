@@ -262,7 +262,8 @@ function applyMatchResult(account, player, result) {
 }
 
 function ownerMatchRecord(matchRecord) {
-  const ownerProjection = JSON.parse(JSON.stringify(matchRecord || {}));
+  if (!matchRecord || !Object.prototype.hasOwnProperty.call(matchRecord, 'botDecisions')) return matchRecord;
+  const ownerProjection = { ...matchRecord };
   delete ownerProjection.botDecisions;
   return ownerProjection;
 }
@@ -636,9 +637,10 @@ export class AccountStore {
       const entries = Array.isArray(account.matchHistory) ? account.matchHistory : [];
       const index = entries.findIndex(entry => entry?.matchId === sanitized.matchId);
       if (index < 0) return;
-      if (JSON.stringify(entries[index]) === JSON.stringify(sanitized)) return;
+      const projected = ownerMatchRecord(sanitized);
+      if (JSON.stringify(entries[index]) === JSON.stringify(projected)) return;
       account.matchHistory = [...entries];
-      account.matchHistory[index] = ownerMatchRecord(sanitized);
+      account.matchHistory[index] = projected;
       updated = true;
     });
     if (updated) this.persist();

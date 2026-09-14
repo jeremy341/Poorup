@@ -23,14 +23,18 @@ import { resolveAuxiliaryStorePaths, resolveStorePaths } from './serverStorePath
 import { SeasonStore } from './seasonModule.js';
 import { CosmeticStore } from './cosmeticCatalog.js';
 import { TelemetryStore } from './telemetryModule.js';
-import { assertProductionCors, createCorsOrigin } from './serverConfig.js';
-import { createSocketRateLimiter } from './socketRateLimiter.js';
-import { createHttpRateLimiter } from './httpRateLimiter.js';
+import { assertProductionCors, createCorsOrigin, isAllowedSocketOrigin, parseAllowedOrigins, resolveClientAddress } from './serverConfig.js';
+import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
+import { assertRateLimitConfig, createHttpRateLimiter } from './httpRateLimiter.js';
 import { backupJsonStores } from './backupStore.js';
 import { assertPersistenceMode } from './persistenceMode.js';
 import { createDrainController } from './drainController.js';
 import { createMetricsRegistry } from './metricsRegistry.js';
-import { buildAnalyticsSummary, normalizeAdminIds } from './analyticsApi.js';
+import { buildAnalyticsBalance, buildAnalyticsDrilldown, buildAnalyticsSummary, normalizeAdminIds, setAnalyticsNoStoreHeaders } from './analyticsApi.js';
+import { createPseudonymizer } from './analyticsPrivacy.js';
+import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
+import { createLegalRouter } from './legalRoutes.js';
+import { createMetadataRouter, metadataConfig } from './metadata.js';
 import { loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
 import { createPubSubAdapter } from './pubsubAdapter.js';
@@ -45,12 +49,19 @@ const server = http.createServer(app);
 const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
 if (trustedProxyHops > 0) app.set('trust proxy', trustedProxyHops);
 app.disable('x-powered-by');
+const configuredSocketOrigins = parseAllowedOrigins(process.env);
+const productionRuntime = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+const configuredPublicOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
+const connectSources = configuredPublicOrigin
+  ? ["'self'", configuredPublicOrigin]
+  : (productionRuntime ? ["'self'"] : ["'self'", 'ws:', 'wss:']);
+assertRateLimitConfig(process.env);
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src ${connectSources.join(' ')}; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
   next();
 });
 app.use(createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxyHops > 0 }));
@@ -58,11 +69,26 @@ const socketRateLimiter = createSocketRateLimiter({
   max: process.env.POORUP_SOCKET_RATE_LIMIT,
   windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
 });
+const socketAdmission = createSocketAdmission({
+  maxConnections: process.env.POORUP_SOCKET_MAX_CONNECTIONS,
+  maxHandshakes: process.env.POORUP_SOCKET_HANDSHAKE_RATE,
+  windowMs: process.env.POORUP_SOCKET_HANDSHAKE_WINDOW_MS
+});
 if (process.env.NODE_ENV === 'production' && !String(process.env.POORUP_ALLOWED_ORIGINS || '').trim()) {
   console.warn('POORUP_ALLOWED_ORIGINS is unset; browser-origin Socket.IO requests are blocked until an allow-list is configured.');
 }
 const io = new Server(server, {
   cors: { origin: createCorsOrigin(process.env) },
+  allowRequest: (request, callback) => {
+    const origin = request?.headers?.origin;
+    const allowedOrigin = configuredSocketOrigins.length
+      ? isAllowedSocketOrigin(origin, configuredSocketOrigins)
+      : (!productionRuntime || !origin);
+    const peerKey = resolveClientAddress({ request }, trustedProxyHops);
+    const allowed = allowedOrigin && socketAdmission.allow(peerKey, io.engine?.clientsCount || 0);
+    if (!allowed) metrics?.incrementMetric('socket-admission-rejections', { scope: 'handshake' });
+    callback(null, allowed);
+  },
   // All game payloads are compact (an avatar is at most 8×8 cells). Keep
   // oversized Socket.IO packets from consuming memory before the per-event
   // rate limiter gets a chance to reject them.
@@ -98,6 +124,13 @@ const authoritativeStore = createAuthoritativeStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'rooms.json') : ''
 });
 const pubsubAdapter = createPubSubAdapter();
+const analyticsPseudonymKey = String(process.env.POORUP_ANALYTICS_PSEUDONYM_KEY || '').trim();
+const analyticsRollupStore = createAnalyticsRollupStore({
+  filePath: dataDirectory ? path.join(dataDirectory, 'analytics-rollup.json') : null,
+  pseudonymizer: createPseudonymizer({ key: analyticsPseudonymKey })
+});
+let storesLoaded = false;
+let backupHealth = { configured: false, fresh: true, lastRunAt: null, failures: 0 };
 const maintenanceToken = String(process.env.POORUP_MAINTENANCE_TOKEN || '').trim();
 app.post('/internal/maintenance', express.json({ limit: '4kb' }), (req, res) => {
   if (!maintenanceToken) return res.status(404).json({ success: false, error: 'Not found.' });
@@ -129,23 +162,76 @@ app.get('/admin/analytics/summary', (req, res) => {
   const sessionToken = req.get('x-poorup-session-token') || '';
   const account = accountStore.sessionAccount(sessionToken);
   const result = buildAnalyticsSummary(metrics, account?.id, adminAccountIds, req.query?.range);
+  setAnalyticsNoStoreHeaders(res);
   return res.status(result.success ? 200 : result.status).json(result);
 });
-app.use(express.static(publicPath));
+app.get('/admin/analytics/balance', (req, res) => {
+  const sessionToken = req.get('x-poorup-session-token') || '';
+  const account = accountStore.sessionAccount(sessionToken);
+  const result = buildAnalyticsBalance({
+    rollup: analyticsRollupStore,
+    registry: metrics,
+    accountId: account?.id,
+    adminIds: adminAccountIds,
+    query: req.query
+  });
+  setAnalyticsNoStoreHeaders(res);
+  return res.status(result.success ? 200 : result.status).json(result);
+});
+app.get('/admin/analytics/drilldown', (req, res) => {
+  const sessionToken = req.get('x-poorup-session-token') || '';
+  const account = accountStore.sessionAccount(sessionToken);
+  const result = buildAnalyticsDrilldown({
+    rollup: analyticsRollupStore,
+    accountId: account?.id,
+    adminIds: adminAccountIds,
+    query: req.query
+  });
+  setAnalyticsNoStoreHeaders(res);
+  return res.status(result.success ? 200 : result.status).json(result);
+});
+
+// These routers are mounted before static serving so legal documents and
+// per-route metadata cannot be swallowed by express.static's index fallback.
+app.use(createLegalRouter({ publicDirectory: publicPath }));
+app.use(createMetadataRouter({ env: process.env, indexFile: path.join(publicPath, 'index.html') }));
+
+const metadataOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
+const indexingApproved = Boolean(metadataOrigin && String(process.env.POORUP_INDEX_POLICY || '').trim().toLowerCase() === 'index,follow');
+app.get('/sitemap.xml', (_req, res, next) => {
+  if (!indexingApproved) return next();
+  const publicRoutes = ['/', '/rules'];
+  const escapeXml = value => String(value).replace(/[<>&"']/g, character => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[character]));
+  const body = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${publicRoutes.map(route => `<url><loc>${escapeXml(`${metadataOrigin}${route}`)}</loc></url>`).join('')}</urlset>`;
+  return res.type('application/xml').send(body);
+});
+app.use(express.static(publicPath, {
+  etag: true,
+  maxAge: '1h'
+}));
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'poorup', releaseId: process.env.POORUP_RELEASE_ID || 'local' });
 });
 app.get('/readyz', (_req, res) => {
   const snapshot = maintenance.snapshot();
-  const ready = snapshot.mode !== 'maintenance';
+  const rollupHealth = analyticsRollupStore.health();
+  const backupReady = !backupHealth.configured || backupHealth.fresh;
+  const ready = snapshot.mode === 'normal' && storesLoaded && backupReady;
   res.status(ready ? 200 : 503).json({
-    status: ready ? 'ready' : 'draining',
+    status: ready ? 'ready' : snapshot.mode === 'draining' ? 'draining' : 'unavailable',
     acceptingNewRounds: snapshot.mode === 'normal',
     activeRounds: snapshot.activeRounds,
+    storeLoaded: storesLoaded,
+    backupConfigured: backupHealth.configured,
+    backupFresh: backupHealth.configured ? backupHealth.fresh : null,
+    analyticsRollup: { loaded: rollupHealth.loaded, fresh: rollupHealth.fresh, lagSeconds: rollupHealth.lagSeconds, pendingWrites: rollupHealth.pendingWrites },
     releaseId: snapshot.releaseId || process.env.POORUP_RELEASE_ID || 'local'
   });
 });
-app.get('/robots.txt', (_req, res) => res.type('text').send('User-agent: *\nAllow: /\nDisallow: /admin/\n'));
+app.get('/robots.txt', (_req, res) => {
+  if (!indexingApproved) return res.type('text').send('User-agent: *\nDisallow: /\n');
+  return res.type('text').send('User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /game/\n');
+});
 const SPA_PATHS = new Set(['/', '/play', '/rooms', '/profile', '/rankings', '/social', '/rules', '/admin/analytics']);
 function isStaticRequest(requestPath) {
   return requestPath.startsWith('/assets/')
@@ -179,12 +265,21 @@ const matchStore = new MatchStore(storePaths.matches);
 const achievementStore = new AchievementStore(storePaths.achievements);
 const seasonStore = new SeasonStore(auxiliaryStorePaths.seasons);
 const cosmeticStore = new CosmeticStore(auxiliaryStorePaths.cosmetics);
-const telemetryStore = new TelemetryStore(auxiliaryStorePaths.telemetry);
+const telemetryStore = new TelemetryStore(auxiliaryStorePaths.telemetry, { rollupStore: analyticsRollupStore });
+storesLoaded = true;
 const backupDirectory = String(process.env.POORUP_BACKUP_DIR || '').trim();
 if (backupDirectory) {
+  backupHealth = { configured: true, fresh: false, lastRunAt: null, failures: 0 };
   const intervalMs = Math.max(60_000, Number(process.env.POORUP_BACKUP_INTERVAL_MS) || 15 * 60 * 1000);
   const runBackup = () => {
-    try { backupJsonStores(allStorePaths, backupDirectory); } catch (error) { console.error('Backup rotation failed:', error); }
+    try {
+      const result = backupJsonStores(allStorePaths, backupDirectory);
+      backupHealth = { ...backupHealth, fresh: result.success, lastRunAt: new Date().toISOString(), failures: result.success ? backupHealth.failures : backupHealth.failures + 1 };
+      if (!result.success) console.error('Backup rotation failed: one or more stores could not be copied.');
+    } catch (error) {
+      backupHealth = { ...backupHealth, fresh: false, lastRunAt: new Date().toISOString(), failures: backupHealth.failures + 1 };
+      console.error('Backup rotation failed:', error);
+    }
   };
   runBackup();
   const backupTimer = setInterval(runBackup, intervalMs);
@@ -227,9 +322,11 @@ function shutdownDeadline() {
   return Date.now() + drainMs;
 }
 
-function closeServerResources() {
+async function closeServerResources() {
   maintenance.dispose();
   pubsubAdapter.close?.();
+  try { await telemetryStore.close?.(); } catch (error) { console.error('Telemetry flush failed:', error?.message || 'unknown error'); }
+  try { await analyticsRollupStore.close?.(); } catch (error) { console.error('Analytics rollup flush failed:', error?.message || 'unknown error'); }
   io.close(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 2_000).unref?.();
 }

@@ -76,6 +76,8 @@ The host can configure the following before starting:
 - Auction for declined properties
 - Even build rule (houses must be built evenly across a color set)
 - Mortgage toggle
+- Bank loans, fictional-currency casino, market complexity, and global events
+- Bot brain mode, difficulty, and personality controls where enabled by the ruleset
 
 ## What I learned
 

@@ -68,8 +68,9 @@ async function run() {
 
     const ready = await fetch(`${base}/readyz`);
     const readyText = await ready.text();
-    assert.equal(ready.status, 200, `readyz returned ${ready.status}: ${readyText}`);
+    assert.equal(ready.status, 503, `readyz returned ${ready.status}: ${readyText}`);
     const readyBody = JSON.parse(readyText);
+    assert.equal(readyBody.status, 'draining');
     assert.equal(readyBody.acceptingNewRounds, false);
 
     const analytics = await fetch(`${base}/admin/analytics/summary`);

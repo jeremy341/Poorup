@@ -1186,7 +1186,8 @@ buildBoard(onTileClick);
 renderTheme(state.themeId, { animate: false });
 hydrateSprites();
 bindEvents();
-setDocumentMeta({ view: "home" });
+const analyticsRouteActive = globalThis.window?.location?.pathname === "/admin/analytics";
+setDocumentMeta({ view: analyticsRouteActive ? "analytics" : "home" });
 renderAll();
 const analyticsPathActive = initAnalytics();
 if (!analyticsPathActive) {

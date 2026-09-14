@@ -7,7 +7,7 @@ const FORBIDDEN_KEYS = new Set([
   'displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text',
   'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload',
   'rawevent', 'rawdata', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token',
-  'hidden_cards', 'private_loan_terms', 'opponent_secrets'
+  'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data'
 ]);
 
 // Rows are deliberately narrow. The projection owns formulas; this boundary

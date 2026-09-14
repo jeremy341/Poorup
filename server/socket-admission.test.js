@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { assertProductionCors, isOriginAllowed, parseAllowedOrigins, resolveClientAddress } from './serverConfig.js';
 import * as serverConfig from './serverConfig.js';
 import * as httpRateLimiter from './httpRateLimiter.js';
-import { createSocketRateLimiter } from './socketRateLimiter.js';
+import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
 
 assert.equal(typeof serverConfig.isAllowedSocketOrigin, 'function');
 assert.equal(serverConfig.isAllowedSocketOrigin('https://play.example', ['https://play.example']), true);
@@ -20,4 +20,13 @@ assert.equal(httpRateLimiter.assertRateLimitConfig({ NODE_ENV: 'development', PO
 const limiter = createSocketRateLimiter({ max: 0, windowMs: 1000 });
 assert.equal(limiter.allow('socket-a'), false);
 
-console.log('socket admission: 9 passed, 0 failed');
+let now = 0;
+const admission = createSocketAdmission({ maxConnections: 2, maxHandshakes: 2, windowMs: 1000, now: () => now });
+assert.equal(admission.allow('peer-a', 0), true);
+assert.equal(admission.allow('peer-a', 0), true);
+assert.equal(admission.allow('peer-a', 0), false);
+assert.equal(admission.allow('peer-b', 2), false);
+now = 1001;
+assert.equal(admission.allow('peer-a', 0), true);
+
+console.log('socket admission: 14 passed, 0 failed');
