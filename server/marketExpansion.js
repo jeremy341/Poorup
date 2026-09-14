@@ -414,7 +414,7 @@ function settleShortDefault(game, player, requestedAmount = null) {
   const outstanding = Math.max(0, Math.floor(Number(player.shortDefaultDebt) || 0));
   const hasRequestedAmount = requestedAmount !== null && requestedAmount !== undefined;
   const parsedRequested = hasRequestedAmount ? Number(requestedAmount) : outstanding;
-  if (!Number.isFinite(parsedRequested) || parsedRequested <= 0) return { success: false, error: 'Short-default repayment must be a positive whole amount.' };
+  if (!Number.isInteger(parsedRequested) || parsedRequested <= 0) return { success: false, error: 'Short-default repayment must be a positive whole amount.' };
   const due = Math.min(outstanding, Math.floor(parsedRequested));
   const available = Math.max(0, Math.floor(Number(player.cash) || 0));
   const paid = Math.min(available, due);

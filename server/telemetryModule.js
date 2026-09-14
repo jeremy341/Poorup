@@ -10,13 +10,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'telemetry.json');
 const MAX_EVENTS = 5000;
-const PRIVATE_KEYS = new Set(['chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'displayname', 'username', 'accountid', 'clientid', 'roomcode']);
+const PRIVATE_KEYS = new Set(['chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'displayname', 'username', 'accountid', 'clientid', 'roomcode', 'rawpayload', 'rawevent', 'rawdata', 'account_id', 'display_name', 'room_code', 'client_id', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data']);
 const ALLOWED_KINDS = new Set([...ALLOWED_ROLLUP_KINDS]);
 const COMMON_PAYLOAD_KEYS = new Set(['count', 'botOnly', 'botMode', 'feature', 'featureId', 'eligible', 'eligibleCount', 'used', 'usedCount', 'adopted', 'legalAction', 'observations', 'reconnects', 'reconnectCount', 'afk', 'afkCount', 'durationSeconds', 'duration', 'started', 'startedMatches', 'stalledMatches', 'outcome', 'outcomeBucket', 'eventId', 'actionId', 'provider', 'seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'rulesetPreset', 'marketComplexity', 'roundNumber']);
 const PAYLOAD_ALLOWLISTS = Object.freeze({
   'match-start': new Set([...COMMON_PAYLOAD_KEYS]),
   'match-stalled': new Set([...COMMON_PAYLOAD_KEYS, 'reasonCode']),
-  'match-complete': new Set([...COMMON_PAYLOAD_KEYS, 'playerCount', 'players', 'roundCount']),
+  // Player collections are intentionally not an analytics payload. Even a
+  // primitive fallback can carry a name, so reject the key rather than trying
+  // to sanitize an open-ended identity-bearing shape.
+  'match-complete': new Set([...COMMON_PAYLOAD_KEYS, 'playerCount', 'roundCount']),
   'event-eligible': new Set([...COMMON_PAYLOAD_KEYS, 'source', 'chance', 'candidates', 'combination']),
   'event-triggered': new Set([...COMMON_PAYLOAD_KEYS, 'source', 'combination', 'durationRounds']),
   'event-choice': new Set([...COMMON_PAYLOAD_KEYS, 'turnout', 'voters', 'resolvedChoice']),
@@ -86,6 +89,7 @@ function sanitizePayloadForKind(eventKind, payload = {}) {
     const lower = String(key).toLowerCase();
     if (PRIVATE_KEYS.has(lower)) continue;
     if (!allowed.has(key)) return { valid: false, data: {} };
+    if (key === 'players') return { valid: false, data: {} };
     if (['candidates', 'actions'].includes(key) && Array.isArray(value) && value.some(item => item && typeof item === 'object')) return { valid: false, data: {} };
     const safe = sanitize(value);
     if (safe !== undefined) clean[key] = key === 'roundNumber' ? Math.max(0, Math.min(1_000_000, Math.floor(Number(safe) || 0))) : safe;

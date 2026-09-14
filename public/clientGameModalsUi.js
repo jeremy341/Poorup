@@ -75,7 +75,7 @@ function openChoiceModal(tile) {
             </button>${tile.canSeekSponsorship ? `<button class="btn-dark choice-btn" id="choice-sponsor"><span class="t-label">SEEK SPONSORS</span><span class="t-micro">FORCED BUY</span></button>` : ""}`
         }
       </div>
-      <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY — MUST AUCTION") : "Close this card to revisit the choice; PASS is the explicit decline."}</p>
+      <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY · MUST AUCTION") : "Close this card to revisit the choice; PASS is the explicit decline."}</p>
     </div>`;
 
   openSurface("#choice-modal", "#choice-buy");
@@ -266,7 +266,7 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
           <h3 class="t-section bank-title" id="bankruptcy-card-title">$${amount} due</h3>
         </div>
       </div>
-      <p class="t-body ink-2 bank-copy">${esc(label)}. You're $${amount - p.cash} short. Sell houses and mortgage deeds — or hand everything to ${creditor ? esc(creditor.name) : "the bank"} and bow out.</p>
+      <p class="t-body ink-2 bank-copy">${esc(label)}. You're $${amount - p.cash} short. Sell houses and mortgage deeds, or hand everything to ${creditor ? esc(creditor.name) : "the bank"} and bow out.</p>
       <div class="bank-actions">
         <button class="btn-dark bank-btn" id="bank-liquidate"><span class="t-label f12">Open Holdings</span></button>
         <button class="btn-dark bank-btn" id="bank-declare"><span class="t-label f12">Declare Bankruptcy</span></button>
@@ -297,7 +297,7 @@ function openVoluntaryExitModal() {
           <h3 class="t-section bank-title" id="bankruptcy-card-title">Leave the table?</h3>
         </div>
       </div>
-      <p class="t-body ink-2 bank-copy">You hold ${deedLabel} and $${me.cash.toLocaleString()}. Retiring hands everything back to the market unencumbered and ends your round — it cannot be undone. You can still raise funds instead by selling, mortgaging, trading, or taking a loan.</p>
+      <p class="t-body ink-2 bank-copy">You hold ${deedLabel} and $${me.cash.toLocaleString()}. Retiring hands everything back to the market unencumbered and ends your round. It cannot be undone. You can still raise funds instead by selling, mortgaging, trading, or taking a loan.</p>
       <div class="bank-actions">
         <button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Retire / Hand Over Assets</span></button>
         <button class="btn-dark bank-btn" id="bank-retire-cancel"><span class="t-label f12">Keep Playing</span></button>

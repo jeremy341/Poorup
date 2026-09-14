@@ -72,6 +72,7 @@ export function backupJsonStores(storePaths = {}, backupDirectory, options = {})
   const results = Object.entries(storePaths)
     .filter(([, filePath]) => typeof filePath === 'string')
     .map(([key, filePath]) => ({ key, ...backupJsonFile(filePath, backupDirectory, options) }));
+  if (!results.length) return { success: false, error: 'No source stores are configured for backup.', results };
   return { success: results.every(result => result.success), results };
 }
 
