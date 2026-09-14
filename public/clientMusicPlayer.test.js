@@ -170,3 +170,9 @@ test("pausing an in-flight transition immediately restores its full snapshot", a
   const { player, audioA } = setup({ audioB, requestFrame: fn => { queued = fn; return 9; }, cancelFrame: () => {} }); player.togglePlay(); const before = player.snapshot(); player.setTheme("spring"); listeners.canplay(); player.togglePlay(); queued?.();
   const after = player.snapshot(); assert.equal(after.playing, false);
 });
+test("retrying blocked incoming audio pauses the old active channel", async () => {
+  let attempts = 0; let paused = 0; const audioA = { ...media(), play: () => {}, pause: () => { paused += 1; } };
+  const audioB = { ...media(), play: () => { attempts += 1; return attempts === 1 ? Promise.reject(new Error("blocked")) : undefined; } };
+  const { player } = setup({ audioA, audioB }); player.togglePlay(); player.setTheme("spring"); await Promise.resolve(); await Promise.resolve(); player.togglePlay();
+  assert.equal(attempts, 2); assert.equal(paused > 0, true);
+});
