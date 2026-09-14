@@ -104,9 +104,9 @@ await check('preserves every server read-model measure through client normalizat
     stalledMatches: 2, reconnectRate: { value: 0.1, denominator: 10 }, afkRate: { value: 0.2, denominator: 10 },
     bankruptcies: { value: 1, denominator: 10 }, comebacks: { value: 2, denominator: 10 }, denominators: { startedMatches: 10 },
     outcomeDistribution: { wins: 8 }, liquidationRate: { value: 0.1, denominator: 10 }, liquidation: { value: 0.1 },
-    shortDefaultRate: { value: 0.02 }, optionExerciseRate: { value: 0.03 }, negativeCashPrevention: { value: 1 },
+    shortDefaultRate: { value: 0.02 }, shortDefault: { value: 0.02 }, optionExerciseRate: { value: 0.03 }, optionExercise: { value: 0.03 }, negativeCashPrevention: { value: 1 },
     unlockRarity: { rare: { value: 0.2 } }, medianPlacement: { value: 2 }, actionAdoption: { roll: 3 },
-    auctionDecisions: 4, legalActionTaxonomy: ['roll']
+    auctionDecisions: 4, legalActionTaxonomy: ['roll'], competitiveMetricsExcludeBotOnly: true
   };
   const normalized = normalizeAnalyticsSnapshot({ filters: { tab: 'bots' }, breakdowns: [measure] }).breakdowns[0];
   Object.keys(measure).forEach(key => assert.notEqual(normalized[key], undefined, `${key} must survive normalization`));

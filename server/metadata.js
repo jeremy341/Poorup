@@ -130,6 +130,7 @@ export function createMetadataRouter({ env = process.env, indexFile = "", getOpt
     }
     const supplied = typeof getOptions === "function" ? getOptions(req) : { env };
     const options = { ...(supplied || {}), path: supplied?.path || req.path };
+    res.setHeader("Cache-Control", "no-cache");
     return res.type("html").send(injectMetadata(html, options));
   });
   return router;

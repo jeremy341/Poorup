@@ -207,7 +207,10 @@ app.get('/sitemap.xml', (_req, res, next) => {
 });
 app.use(express.static(publicPath, {
   etag: true,
-  maxAge: '1h'
+  maxAge: '1h',
+  setHeaders: (response, filePath) => {
+    if (filePath.endsWith(`${path.sep}index.html`)) response.setHeader('Cache-Control', 'no-cache');
+  }
 }));
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'poorup', releaseId: process.env.POORUP_RELEASE_ID || 'local' });

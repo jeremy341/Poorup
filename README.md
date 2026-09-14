@@ -68,16 +68,19 @@ public/
 The host can configure the following before starting:
 
 - Board variant: Standard-40 (up to four seats) or Metro-52 (up to six seats)
-- Ruleset preset and supported house-rule overrides
+- Ruleset preset, Custom base, and resettable house-rule overrides
 - Starting cash amount
 - CPU seats and selectable bot personality
+- Bot brain and difficulty mode
+- Trading, No Rent In Jail, bankruptcy mode, and loan severity
 - Double rent when owning a full color set
+- Double GO payout and per-turn timer
 - Vacation cash (fines and bank payments accumulate on Vacation)
 - Auction for declined properties
 - Even build rule (houses must be built evenly across a color set)
 - Mortgage toggle
+- House and hotel supply limits
 - Bank loans, fictional-currency casino, market complexity, and global events
-- Bot brain mode, difficulty, and personality controls where enabled by the ruleset
 
 ## What I learned
 
