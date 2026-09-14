@@ -71,7 +71,7 @@ function onRoomJoinInput(event) {
   const error = $("#join-form-error");
   if (!error) return;
   if (cleaned.length > 6) {
-    error.textContent = "ROOM CODES ARE 6 CHARACTERS — EXTRA CHARACTERS REMOVED.";
+    error.textContent = "PASTED ROOM CODE MUST BE 6 CHARACTERS. EXTRA CHARACTERS REMOVED.";
     return;
   }
   if (error.textContent.startsWith("ROOM CODES ARE 6")) error.textContent = "";

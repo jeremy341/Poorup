@@ -170,6 +170,10 @@ export function openSurface(selector, focusSelector, options = {}) {
   if (!surface) return;
   const wasVisible = surfaceVisible(surface);
   rememberReturnFocus();
+  const trigger = options.trigger;
+  if (trigger && typeof HTMLElement !== "undefined" && trigger instanceof HTMLElement && !surface.contains(trigger)) {
+    setSurfaceReturnFocus(trigger);
+  }
   if (!wasVisible) {
     surfaceStack = surfaceStack.filter(entry => entry !== selector);
     surfaceStack.push(selector);

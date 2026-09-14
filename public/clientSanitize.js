@@ -12,6 +12,7 @@ const ACTIVE_DESIGN_KEY = "poorup.active-design.v1";
 const SOUND_KEY = "poorup.sound.enabled.v1";
 const MUSIC_KEY = "poorup.music.enabled.v1";
 const RULESET_PRESET_KEY = "poorup.ruleset.preset.v1";
+const POORUP_STORAGE_PREFIX = "poorup.";
 
 const APPEARANCES = [
   { label: "CRIMSON", baseName: "MARLOWE", color: "#d74438", textColor: "#d74438" },
@@ -293,6 +294,12 @@ function accountDisplayName(account) {
   return String(raw).slice(0, 18);
 }
 
+function cleanCreatedAt(value) {
+  if (typeof value !== "string") return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function accountAvatarGrid(grid) {
   if (Array.isArray(grid)) return grid;
   return null;
@@ -303,6 +310,7 @@ function sanitizedAccount(account) {
     id: account.id,
     username: account.username,
     displayName: accountDisplayName(account),
+    createdAt: cleanCreatedAt(account.createdAt),
     color: isHexColor(account.color) ? account.color : ACCOUNT_FALLBACK_COLOR,
     avatarGrid: accountAvatarGrid(account.avatarGrid),
     stats: cleanAccountStats(account.stats),
@@ -345,6 +353,24 @@ function saveProfilesToStorage(library) {
   } catch { /* ignore */ }
 }
 
+/** Remove only keys owned by Poorup. Unrelated applications sharing the same
+ * origin retain their storage entries. */
+export function clearLocalPlayerData(storage = globalThis.localStorage) {
+  if (!storage || typeof storage.length !== "number") return [];
+  const removed = [];
+  for (let index = storage.length - 1; index >= 0; index -= 1) {
+    const key = storage.key(index);
+    if (typeof key !== "string" || !key.startsWith(POORUP_STORAGE_PREFIX)) continue;
+    try {
+      storage.removeItem(key);
+      removed.push(key);
+    } catch {
+      // Storage can be disabled or quota-bound. Keep clearing other keys.
+    }
+  }
+  return removed;
+}
+
 const MAX_PROFILES = 4;
 
 export {
@@ -374,5 +400,6 @@ export {
   sanitizeAccountSession,
   loadAccountSession,
   persistAccountSession,
+  POORUP_STORAGE_PREFIX,
   MAX_PROFILES,
 };

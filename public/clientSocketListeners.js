@@ -25,6 +25,7 @@ import {
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
 import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
+import { clearLocalPlayerData } from "./clientSanitize.js";
 
 let host = {
   setConnectionStatus: noop,
@@ -41,8 +42,37 @@ let host = {
   applyMaintenanceState: noop,
   serverSyncHost: {},
 };
+let storageListenerInstalled = false;
 
 function noop() {}
+
+export function reconcileSignedOutState(message = "This account session ended in another tab.") {
+  clearLocalPlayerData();
+  saveAccountSession(null);
+  state.account = null;
+  state.profiles = [];
+  state.appearance = 0;
+  state.tableAppearanceOverride = null;
+  state.alias = "";
+  state.sound = false;
+  state.music = false;
+  renderAccountPanel();
+  applyProfileToHomeUI();
+  host.renderAll();
+  host.say(message);
+}
+
+export function onStorage(event) {
+  if (event?.key !== "poorup.account.session.v1" || event.newValue !== null) return;
+  if (!state.account?.sessionToken) return;
+  reconcileSignedOutState();
+}
+
+export function isExplicitSessionInvalidation(response) {
+  const code = String(response?.code || response?.errorCode || response?.reason || "").toLowerCase();
+  const message = String(response?.error || "").toLowerCase();
+  return /expired|invalid|revoked|sign in again|not found/.test(`${code} ${message}`);
+}
 
 function onSocketConnect(socket) {
   host.setConnectionStatus("online", true);
@@ -53,12 +83,8 @@ function onSocketConnect(socket) {
 function restoreAccountSession(socket) {
   socket.emit("account-restore", { sessionToken: state.account.sessionToken }, (response) => {
     if (response?.success) updateAccountFromResponse({ account: response.account, sessionToken: state.account.sessionToken });
-    else {
-      saveAccountSession(null);
-      state.alias = state.profiles[0]?.name || "MARLOWE";
-      renderAccountPanel();
-      applyProfileToHomeUI();
-    }
+    else if (isExplicitSessionInvalidation(response)) reconcileSignedOutState(response.error || "Account session expired. Sign in again.");
+    else host.say("Account restore is temporarily unavailable. We will retry when the connection returns.");
   });
 }
 
@@ -297,6 +323,10 @@ function attachTableListeners(socket) {
 
 export function configureSocketListeners(socket, hooks) {
   host = { ...host, ...hooks };
+  if (!storageListenerInstalled && typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("storage", onStorage);
+    storageListenerInstalled = true;
+  }
   if (!socket) return;
   attachConnectionListeners(socket);
   attachSocialListeners(socket);
