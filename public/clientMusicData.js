@@ -1,5 +1,5 @@
 const rawTracks = {
-  "pondering-the-cosmos": { id: "pondering-the-cosmos", title: "Pondering the Cosmos", artist: "Poorup", src: "/assets/audio/pondering-the-cosmos.mp3", status: "approved", license: "Original" },
+  "pondering-the-cosmos": { id: "pondering-the-cosmos", title: "Pondering the Cosmos", artist: "Ruskerdax", src: "/assets/audio/pondering-the-cosmos.mp3", status: "approved", license: "CC0/public domain", source: "https://opengameart.org/content/pondering-the-cosmos" },
   "hot-springs-town": { id: "hot-springs-town", title: "Hot Springs Town", artist: "Kistol", src: "/assets/audio/themes/spring/hot-springs-town.mp3", status: "approved", license: "CC0", source: "https://opengameart.org/content/hot-springs-town" },
   summers: { id: "summers", title: "Summers", artist: "symphony", src: "/assets/audio/themes/summer/summers.mp3", status: "approved", license: "CC0 with requested credit", source: "https://opengameart.org/content/summers" },
   autumn: { id: "autumn", title: "Autumn", artist: "Duasun", src: "/assets/audio/themes/autumn/autumn.mp3", status: "approved", license: "CC0", source: "https://opengameart.org/content/autumn-mp3-free-music" },

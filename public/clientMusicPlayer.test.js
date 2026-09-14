@@ -20,6 +20,8 @@ test("manifest is frozen and rejects arbitrary tracks", () => {
   assert.equal(Object.isFrozen(MUSIC_MANIFEST), true);
   assert.equal(MUSIC_MANIFEST.defaults.original, "pondering-the-cosmos");
   assert.equal(MUSIC_MANIFEST.tracks["evil"], undefined);
+  assert.equal(MUSIC_MANIFEST.tracks["pondering-the-cosmos"].artist, "Ruskerdax");
+  assert.equal(MUSIC_MANIFEST.tracks["pondering-the-cosmos"].license, "CC0/public domain");
 });
 test("theme reset clears custom state and enables loop", () => {
   const { player } = setup(); player.selectTrack("pondering-the-cosmos"); player.toggleLoop();
