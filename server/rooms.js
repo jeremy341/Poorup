@@ -510,6 +510,10 @@ class Room {
   startGame() {
     this.pruneExpiredSeats();
     this.ensureBots();
+    // Runtime analytics guards are keyed by the current round marker; a
+    // rematch must be eligible for a fresh match-start event.
+    this.analyticsMatchStartRecorded = null;
+    this.analyticsMatchStalledRecorded = null;
     this.refreshRuleset();
     this.game.ruleset = Object.freeze({ ...this.ruleset, effectiveSettings: Object.freeze({ ...this.ruleset.effectiveSettings }) });
     this.game.rulesetDigest = this.ruleset.digest;
@@ -521,13 +525,12 @@ class Room {
 
   pruneExpiredSeats(now = Date.now()) {
     const expired = this.game.players.filter(player => player.disconnected
-      && Number(player.disconnectDeadline) > 0
-      && Number(player.disconnectDeadline) <= now);
+      && (Number(player.disconnectDeadline) === 0 || Number(player.disconnectDeadline) <= now));
     expired.forEach(player => {
       this.game.removePlayerByClient(player.clientId);
     });
     if (expired.some(player => player.id === this.hostId)) {
-      const replacement = this.game.players.find(player => !player.isBot && !player.disconnected && !player.bankrupt);
+      const replacement = this.game.players.find(player => !player.isBot && !player.disconnected && !player.bankrupt && !player.inDebt);
       this.hostId = replacement?.id || null;
       this.game.players.forEach(player => { player.isHost = player.id === this.hostId; });
     }
@@ -685,6 +688,7 @@ const GAME_PASSTHROUGHS = [
   'reduceMargin',
   'openShort',
   'coverShort',
+  'settleShortDefault',
   'openOption',
   'exerciseOption',
   'closePosition',
@@ -791,6 +795,8 @@ class RoomManager {
     if (!accountId) return null;
     if (!clientId) return null;
     if (this.socketRoom.has(socketId)) return null;
+    const accountSeats = [...this.rooms.values()].flatMap(roomItem => roomItem.game.players.filter(player => player.accountId === accountId && !player.bankrupt));
+    if (accountSeats.some(player => !player.disconnected)) return null;
     const room = [...this.rooms.values()].find(roomItem => {
       const player = roomItem.game.players.find(p => p.accountId === accountId);
       if (!player) return false;

@@ -46,4 +46,32 @@ try {
   await new Promise((resolve) => server.close(resolve));
 }
 
+const dispatchApp = express();
+const fallthroughs = [];
+const postSendErrors = [];
+dispatchApp.use(router);
+dispatchApp.use((_req, _res, next) => {
+  fallthroughs.push(true);
+  next(new Error("legal document fell through after sendFile"));
+});
+dispatchApp.use((error, _req, res, next) => {
+  postSendErrors.push(error.message);
+  if (res.headersSent) return;
+  return next(error);
+});
+const dispatchServer = http.createServer(dispatchApp);
+await new Promise((resolve) => dispatchServer.listen(0, resolve));
+const dispatchPort = dispatchServer.address().port;
+try {
+  for (const slug of Object.keys(LEGAL_DOCUMENTS)) {
+    const response = await fetch(`http://127.0.0.1:${dispatchPort}/${slug}`);
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+  assert.deepEqual(fallthroughs, []);
+  assert.deepEqual(postSendErrors, []);
+} finally {
+  await new Promise((resolve) => dispatchServer.close(resolve));
+}
+
 console.log("legal route tests: passed");

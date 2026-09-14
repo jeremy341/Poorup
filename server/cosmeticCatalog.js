@@ -44,7 +44,8 @@ function normalizeAccount(source = {}) {
     tokens: Math.max(0, Math.floor(Number(source.tokens) || 0)),
     owned: [...new Set(owned)],
     equipped,
-    claims: Array.isArray(source.claims) ? source.claims.filter(id => typeof id === 'string').slice(0, 300) : []
+    claims: Array.isArray(source.claims) ? source.claims.filter(id => typeof id === 'string').slice(0, 300) : [],
+    tokenClaims: Array.isArray(source.tokenClaims) ? source.tokenClaims.filter(id => typeof id === 'string').slice(-300) : []
   };
 }
 
@@ -128,6 +129,7 @@ export class CosmeticStore {
     this.accounts.forEach(account => {
       account.owned = [...new Set(account.owned.filter(id => typeof id === 'string'))].slice(0, 200);
       account.claims = [...new Set(account.claims.filter(id => typeof id === 'string'))].slice(-300);
+      account.tokenClaims = [...new Set(account.tokenClaims.filter(id => typeof id === 'string'))].slice(-300);
       account.equipped = Object.fromEntries(Object.entries(account.equipped).filter(([slot, id]) => COSMETIC_SLOTS.has(slot) && account.owned.includes(id)));
     });
     writeJson(this.filePath, Object.fromEntries(this.accounts.entries()));
@@ -147,14 +149,19 @@ export class CosmeticStore {
   snapshot(accountId) {
     const account = this.account(accountId);
     if (!account) return { tokens: 0, owned: [], equipped: {}, claims: [], catalog: this.catalog() };
-    return { ...clone(account), catalog: this.catalog() };
+    const snapshot = { ...clone(account), catalog: this.catalog() };
+    delete snapshot.tokenClaims;
+    return snapshot;
   }
 
-  grantTokens(accountId, amount) {
+  grantTokens(accountId, amount, claimKey = null) {
     const account = this.account(accountId);
     const value = Math.max(0, Math.min(100000, Math.floor(Number(amount) || 0)));
     if (!account || !value) return { success: false, granted: 0 };
+    const key = safeId(claimKey, 160);
+    if (key && account.tokenClaims.includes(key)) return { success: true, granted: 0, replayed: true, tokens: account.tokens };
     account.tokens += value;
+    if (key) account.tokenClaims = [...account.tokenClaims, key].slice(-300);
     this.persist();
     return { success: true, granted: value, tokens: account.tokens };
   }
