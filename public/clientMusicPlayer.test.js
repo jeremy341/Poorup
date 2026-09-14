@@ -123,3 +123,15 @@ test("theme change and reset clear shuffle and restore ordered queue", () => {
   assert.equal(player.snapshot().shuffle, false); assert.deepEqual(player.snapshot().queue, ["hot-springs-town"]); player.toggleShuffle(); player.resetToThemeTrack();
   assert.equal(player.snapshot().shuffle, false);
 });
+test("failed next restores current index and history", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a", "b"] } };
+  const { player } = setup({ manifest, audioB, getThemeId: () => "one" }); const before = player.snapshot(); player.next(); listeners.error();
+  assert.equal(player.snapshot().currentTrackId, before.currentTrackId); assert.deepEqual(player.snapshot().history, before.history);
+});
+test("failed previous restores the popped history entry", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a", "b"] } };
+  const { player } = setup({ manifest, audioB, getThemeId: () => "one" }); player.next(); player.previous(); listeners.error();
+  assert.equal(player.snapshot().currentTrackId, "b"); assert.deepEqual(player.snapshot().history, ["a"]);
+});
