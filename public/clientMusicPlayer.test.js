@@ -184,3 +184,7 @@ test("natural ended repeats with loop or advances when disabled", () => {
   const listeners = {}; const audioA = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, play() {}, pause() {} };
   const { player } = setup({ audioA }); player.toggleLoop(); listeners.ended(); assert.equal(player.snapshot().status, "ended");
 });
+test("inactive ended event cannot restart outgoing audio", () => {
+  let plays = 0; const audioB = { ...media(), addEventListener(type, fn) { if (type === "ended") this.ended = fn; }, play() { plays += 1; } };
+  const { player } = setup({ audioB }); audioB.ended(); assert.equal(plays, 0); assert.equal(player.snapshot().status, "idle");
+});
