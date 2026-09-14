@@ -135,3 +135,13 @@ test("failed previous restores the popped history entry", () => {
   const { player } = setup({ manifest, audioB, getThemeId: () => "one" }); player.next(); player.previous(); listeners.error();
   assert.equal(player.snapshot().currentTrackId, "b"); assert.deepEqual(player.snapshot().history, ["a"]);
 });
+test("togglePlay starts and pauses only the active audio", () => {
+  const { player, audioA, audioB } = setup(); let plays = 0;
+  audioA.play = () => { plays += 1; }; audioA.pause = () => { audioA.paused = true; }; audioA.paused = true; audioB.pause = () => { audioB.paused = true; }; audioB.paused = false;
+  player.togglePlay(); assert.equal(plays, 1); assert.equal(player.snapshot().playing, true); assert.equal(player.snapshot().status, "playing"); assert.equal(audioB.paused, true);
+  player.togglePlay(); assert.equal(audioA.paused, true); assert.equal(player.snapshot().playing, false); assert.equal(player.snapshot().status, "paused");
+});
+test("togglePlay retries after autoplay blocked", async () => {
+  let blocked = true; const { player, audioA } = setup(); audioA.play = () => blocked ? Promise.reject(new Error("blocked")) : undefined;
+  player.togglePlay(); await Promise.resolve(); await Promise.resolve(); assert.equal(player.snapshot().status, "autoplay-blocked"); blocked = false; player.togglePlay(); assert.equal(player.snapshot().playing, true);
+});
