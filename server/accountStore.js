@@ -258,7 +258,13 @@ function applyMatchResult(account, player, result) {
     account.stats[key] += delta(player, ctx);
   });
   account.history = [matchHistoryEntry(player, result.matchRecord.matchId, result.winnerId), ...sanitizeHistory(account.history)].slice(0, 50);
-  account.matchHistory = [result.matchRecord, ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
+  account.matchHistory = [ownerMatchRecord(result.matchRecord), ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
+}
+
+function ownerMatchRecord(matchRecord) {
+  const ownerProjection = JSON.parse(JSON.stringify(matchRecord || {}));
+  delete ownerProjection.botDecisions;
+  return ownerProjection;
 }
 
 function accountAlreadyRecordedMatch(account, matchId) {
@@ -632,7 +638,7 @@ export class AccountStore {
       if (index < 0) return;
       if (JSON.stringify(entries[index]) === JSON.stringify(sanitized)) return;
       account.matchHistory = [...entries];
-      account.matchHistory[index] = sanitized;
+      account.matchHistory[index] = ownerMatchRecord(sanitized);
       updated = true;
     });
     if (updated) this.persist();
