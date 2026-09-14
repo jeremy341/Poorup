@@ -67,6 +67,25 @@ test("renders controller play state and a proportional progress meter", () => {
   assert.match(styles, /music-progress/);
 });
 
+test("uses the controller's active snapshot time and audio duration", () => {
+  const source = fs.readFileSync(path.join(root, "public/clientMusicBoxUi.js"), "utf8");
+  assert.doesNotMatch(source, /Math\.max\(\.\.\.\[\.\.\.root\.querySelectorAll\("audio\[data-music-audio\]"\)/);
+  assert.match(source, /state\.currentTime/);
+  assert.match(source, /activeAudio/);
+});
+
+test("keeps volume popover safe for top-corner placements and touch tablets", () => {
+  assert.match(styles, /music-box\[data-position="top-left"\][\s\S]*?music-volume-popover[^}]*top:/);
+  assert.match(styles, /music-box\[data-position="top-right"\][\s\S]*?music-volume-popover[^}]*top:/);
+  assert.match(styles, /orientation:\s*landscape[\s\S]*?music-box-controls[\s\S]*?44px/);
+});
+
+test("releases move gesture at document level", () => {
+  const source = fs.readFileSync(path.join(root, "public/clientMusicBoxUi.js"), "utf8");
+  assert.match(source, /setPointerCapture/);
+  assert.match(source, /document\.addEventListener\("pointerup"/);
+});
+
 test("declares safe corner snapping and keyboard-native move controls", () => {
   assert.match(styles, /env\(safe-area-inset-top\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);

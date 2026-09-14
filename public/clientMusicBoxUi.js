@@ -63,7 +63,9 @@ export function mountMusicBoxUi(root = document.querySelector("[data-music-box]"
     playIcon.src = `/assets/music/music-${playing ? "pause" : "play"}.svg`;
     root.querySelector('[data-music-action="shuffle"]').setAttribute("aria-pressed", String(Boolean(state.shuffle)));
     root.querySelector('[data-music-action="repeat"]').setAttribute("aria-pressed", String(Boolean(state.loop)));
-    const duration = Math.max(...[...root.querySelectorAll("audio[data-music-audio]")].map((audio) => Number(audio.duration) || 0));
+    const audios = [...root.querySelectorAll("audio[data-music-audio]")];
+    const activeAudio = audios.find((audio) => !audio.paused && Number.isFinite(audio.duration)) || audios.find((audio) => Math.abs((Number(audio.currentTime) || 0) - (Number(state.currentTime) || 0)) < 0.05) || audios[0];
+    const duration = Number(activeAudio?.duration) || 0;
     const progress = duration ? Math.min(1, Math.max(0, Number(state.currentTime || 0) / duration)) : 0;
     root.querySelector("[data-music-meter]").style.setProperty("--music-progress", `${progress * 100}%`);
     root.querySelector("[data-music-remaining]").textContent = formatTime(Math.max(0, duration - (state.currentTime || 0)));
@@ -106,14 +108,16 @@ export function mountMusicBoxUi(root = document.querySelector("[data-music-box]"
     }
   });
   root.addEventListener("pointerdown", (event) => {
-    if (event.target.closest?.("[data-music-action=position]")) dragStart = { x: event.clientX, y: event.clientY };
+    if (event.target.closest?.("[data-music-action=position]")) { dragStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId }; event.currentTarget.setPointerCapture?.(event.pointerId); }
   });
-  root.addEventListener("pointerup", (event) => {
+  const releaseDrag = (event) => {
     if (!dragStart) return;
     const moved = Math.abs(event.clientX - dragStart.x) + Math.abs(event.clientY - dragStart.y);
     if (moved > 8) setPosition(snapMusicPosition(event.clientX, event.clientY, window.innerWidth, window.innerHeight));
     dragStart = null;
-  });
+  };
+  root.addEventListener("pointerup", releaseDrag);
+  document.addEventListener("pointerup", releaseDrag);
   document.addEventListener("pointerdown", (event) => {
     if (!root.contains(event.target) && (!volumePopover.hidden || !positionMenu.hidden)) { closePopovers(); }
   });
