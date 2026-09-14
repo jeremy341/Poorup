@@ -50,7 +50,7 @@ try {
   assert.equal(legal.status, 200);
   assert.match(await legal.text(), /Legal information/);
 
-  for (const slug of ['privacy', 'terms', 'support', 'licenses']) {
+  for (const slug of ['privacy', 'terms', 'support', 'licenses', 'acceptable-use', 'accessibility', 'storage', 'ai']) {
     const response = await fetch(`${base}/legal/${slug}`);
     assert.equal(response.status, 200, `${slug} should be served by the production router`);
     assert.match(await response.text(), /<h1\b/i);
@@ -60,9 +60,9 @@ try {
   assert.equal(alias.status, 200);
   assert.match(await alias.text(), /<h1\b/i);
 
-  const acceptableUse = await fetch(`${base}/acceptable-use`, { redirect: 'manual' });
-  assert.equal(acceptableUse.status, 302);
-  assert.equal(acceptableUse.headers.get('location'), '/terms#acceptable-use');
+  const acceptableUse = await fetch(`${base}/acceptable-use`);
+  assert.equal(acceptableUse.status, 200);
+  assert.match(await acceptableUse.text(), /Acceptable use/i);
 
   const robots = await fetch(`${base}/robots.txt`);
   assert.equal(robots.status, 200);
