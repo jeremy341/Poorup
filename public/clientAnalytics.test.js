@@ -73,6 +73,15 @@ await check('retains version dimensions and strips unknown aggregate fields', ()
   assert.equal(snapshot.overview.unknownField, undefined);
 });
 
+await check('preserves narrowly allow-listed nested rows for every analytics tab', () => {
+  for (const tab of ['rulesets', 'economy', 'events', 'bots', 'quality']) {
+    const snapshot = normalizeAnalyticsSnapshot({ filters: { tab }, breakdowns: [{ rows: [{ id: tab, value: 2, denominator: 5, unknownField: 'drop' }] }] });
+    assert.equal(snapshot.breakdowns[0].rows[0].id, tab);
+    assert.equal(snapshot.breakdowns[0].rows[0].denominator, 5);
+    assert.equal(snapshot.breakdowns[0].rows[0].unknownField, undefined);
+  }
+});
+
 await check('chart hook keeps an accessible table fallback and bounded points', () => {
   const fallback = renderAnalyticsChart(null, Array.from({ length: 200 }, (_, index) => ({ label: `<${index}>`, value: index })), { title: 'Completion', unit: 'rounds', mode: 'bar' });
   assert.equal(fallback.values.length, 168);
@@ -127,8 +136,8 @@ function fakeElement({ id = '', attrs = {}, value = '' } = {}) {
   };
 }
 
-function fakeAnalyticsDocument({ filters = [], tabs = [], panels = [], form = null, grid = null, status = null } = {}) {
-  const all = [...filters, ...tabs, ...panels, form, grid, status].filter(Boolean);
+function fakeAnalyticsDocument({ filters = [], tabs = [], panels = [], controls = [], form = null, grid = null, status = null } = {}) {
+  const all = [...filters, ...tabs, ...panels, ...controls, form, grid, status].filter(Boolean);
   return {
     querySelector(selector) {
       if (selector === '#admin-analytics-grid') return grid;
@@ -152,6 +161,22 @@ function fakeAnalyticsDocument({ filters = [], tabs = [], panels = [], form = nu
     visibilityState: 'visible'
   };
 }
+
+await check('renders the nested ledger model for every non-overview tab', () => {
+  const previousDocument = globalThis.document;
+  const grid = fakeElement({ id: 'admin-analytics-grid' });
+  const status = fakeElement({ id: 'admin-analytics-status' });
+  const panels = [];
+  for (const tab of ['match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']) panels.push(fakeElement({ attrs: { 'data-analytics-panel': tab } }));
+  globalThis.document = fakeAnalyticsDocument({ panels, grid, status });
+  for (const tab of ['match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']) {
+    const panel = panels.find(candidate => candidate.getAttribute('data-analytics-panel') === tab);
+    renderAnalyticsSnapshot({ filters: { tab }, overview: { kpis: [{ id: 'kpi', value: 1, denominator: 2 }] }, breakdowns: [{ rows: [{ id: tab, value: 3, denominator: 5 }] }] });
+    assert.match(panel.innerHTML, new RegExp(`${tab}`));
+    assert.match(panel.innerHTML, /denominator<\/b> 5/);
+  }
+  globalThis.document = previousDocument;
+});
 
 await check('tab activation requests the selected tab while retaining the last snapshot', async () => {
   const overviewTab = fakeElement({ attrs: { 'data-analytics-tab': 'overview' } });
@@ -224,6 +249,21 @@ await check('unauthorized snapshots clear rendered data and use distinct status'
   await controller.load();
   assert.equal(grid.textContent, '');
   assert.equal(status.textContent, 'ADMIN ACCESS REQUIRED');
+  controller.destroy();
+  globalThis.document = previousDocument;
+});
+
+await check('a single retry control click performs one fetch', async () => {
+  const retry = fakeElement({ attrs: { 'data-analytics-refresh': '' } });
+  const grid = fakeElement({ id: 'admin-analytics-grid' });
+  const status = fakeElement({ id: 'admin-analytics-status' });
+  const previousDocument = globalThis.document;
+  globalThis.document = fakeAnalyticsDocument({ controls: [retry], grid, status });
+  let calls = 0;
+  const controller = createAnalyticsController({ fetcher: async () => { calls += 1; return { success: true, overview: { kpis: [] } }; } });
+  retry.dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls, 1);
   controller.destroy();
   globalThis.document = previousDocument;
 });
