@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildAnalyticsSummary, isAdminAccount, normalizeAdminIds } from './analyticsApi.js';
+import { buildAnalyticsSummary, buildAnalyticsBalance, buildAnalyticsDrilldown, isAdminAccount, normalizeAdminIds } from './analyticsApi.js';
 
 function check(name, run) {
   try {
@@ -36,4 +36,18 @@ check('builds a safe read-only summary', () => {
 check('rejects unauthorized summaries', () => {
   const result = buildAnalyticsSummary({ snapshotMetrics: () => ({ metrics: {} }) }, 'acct-other', ['acct-owner']);
   assert.deepEqual(result, { success: false, status: 403, error: 'Forbidden.' });
+});
+
+check('builds versioned aggregate models without identity fields', () => {
+  const rollup = {
+    health: () => ({ loaded: true, fresh: true }),
+    query: () => ({ schemaVersion: 1, generatedAt: '2026-09-13T12:00:00.000Z', dimensions: {}, actorRollups: {}, quality: {} })
+  };
+  const balance = buildAnalyticsBalance({ rollup, accountId: 'acct-owner', adminIds: ['acct-owner'], query: { range: 'day' } });
+  assert.equal(balance.success, true);
+  assert.equal(balance.schemaVersion, 1);
+  assert.equal(balance.filters.range, 'day');
+  assert.equal(JSON.stringify(balance).includes('accountId'), false);
+  const drilldown = buildAnalyticsDrilldown({ rollup, accountId: 'acct-owner', adminIds: ['acct-owner'], query: {} });
+  assert.equal(drilldown.breakdowns[0].suppressionReason, 'PSEUDONYM_UNAVAILABLE');
 });

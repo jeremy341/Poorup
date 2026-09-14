@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#01070a" data-theme-color />
+    <meta name="robots" content="noindex,nofollow" data-metadata-robots />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="32x32" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/socket.io/socket.io.js"></script>
@@ -11,7 +12,7 @@
   </head>
   <body>
     <div class="scanlines"></div>
-    <div class="sr-live" id="system-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div class="sr-live" id="system-announcer" data-document-announcer role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
     <div class="toast-stack" id="toast-stack" aria-hidden="true"></div>
     <div class="theme-page-world" id="theme-page-world" aria-hidden="true"></div>
@@ -67,6 +68,7 @@
           <button class="btn-dark audio-toggle" type="button" id="music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false">
             <img id="music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24">
           </button>
+          <span class="sr-live" id="music-status" role="status" aria-live="polite"></span>
         </div>
       </header>
 
@@ -189,7 +191,7 @@
 
               <form class="home-alias-form" id="home-alias-form">
                 <label class="t-micro g400" for="home-alias">guest alias</label>
-                <input id="home-alias" class="field" maxlength="12" autocomplete="nickname" placeholder="CREATE AN ALIAS" />
+                <input id="home-alias" name="alias" class="field" maxlength="12" inputmode="text" autocomplete="nickname" placeholder="CREATE AN ALIAS" />
                 <p class="home-alias-error" id="home-alias-error" role="alert" aria-live="polite"></p>
               </form>
 
@@ -201,7 +203,7 @@
       <div class="ticker">
         <span class="t-micro tk"><span class="g400">AFTER-HOURS PARLOR</span></span>
         <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">live table service</span></span>
-        <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">no account required</span></span>
+        <span class="t-micro tk legal-links" aria-label="Legal information"><a href="/legal#privacy">PRIVACY</a><span aria-hidden="true">·</span><a href="/legal#terms">TERMS</a><span aria-hidden="true">·</span><a href="/legal#support">SUPPORT</a></span>
         <span class="t-micro tk tk-right"><span data-sprite="crown" data-size="2"></span>press [B] to browse rooms</span>
       </div>
     </div>
@@ -243,7 +245,7 @@
             <div class="rc-form">
               <label class="rc-field">
                 <span class="t-label f12 g-muted">Table Name</span>
-                <input class="field rc-input" id="rc-name" maxlength="18" placeholder="AFTER HOURS #12" />
+                <input class="field rc-input" id="rc-name" name="roomName" maxlength="18" inputmode="text" autocomplete="off" placeholder="AFTER HOURS #12" />
               </label>
 
               <div class="rc-field">
@@ -262,7 +264,7 @@
 
               <div class="rc-field rc-ruleset-fields">
                 <label class="t-label f12 g-muted" for="rc-ruleset-preset">Ruleset Preset</label>
-                <select class="field rc-input" id="rc-ruleset-preset">
+                <select class="field rc-input" id="rc-ruleset-preset" name="rulesetPreset" autocomplete="off">
                   <option value="classic" selected>CLASSIC · STANDARD RULES</option>
                   <option value="after-hours">AFTER HOURS · POORUP SYSTEMS</option>
                   <option value="custom">CUSTOM · SET IN LOBBY</option>
@@ -273,7 +275,7 @@
               <div class="rc-field is-hidden" id="rc-private-code-field">
                 <label class="t-label f12 g-muted" for="rc-room-code">Private Room Code</label>
                 <div class="rc-code-entry">
-                  <input class="field rc-input rc-room-code" id="rc-room-code" maxlength="6" minlength="6" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" />
+                  <input class="field rc-input rc-room-code" id="rc-room-code" name="privateRoomCode" maxlength="6" minlength="6" inputmode="text" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" />
                   <span class="t-micro rc-code-status" id="rc-code-status" aria-live="polite">6 CHARACTERS</span>
                 </div>
                 <span class="t-micro ink-3 rc-code-help" id="rc-code-help">Choose the invite code guests will use.</span>
@@ -293,11 +295,11 @@
             <form class="rc-form" id="join-form">
               <label class="rc-field" for="room-join">
                 <span class="t-label f12 g-muted">Room Code</span>
-                <input class="field rc-input rc-room-code" id="room-join" maxlength="6" minlength="6" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" required />
+                <input class="field rc-input rc-room-code" id="room-join" name="roomCode" maxlength="6" minlength="6" inputmode="text" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" required />
               </label>
               <label class="rc-field" id="join-nickname-field" for="join-nickname">
                 <span class="t-label f12 g-muted">Player Name</span>
-                <input class="field rc-input" id="join-nickname" maxlength="12" autocomplete="nickname" placeholder="MARLOWE" required />
+                <input class="field rc-input" id="join-nickname" name="nickname" maxlength="12" inputmode="text" autocomplete="nickname" placeholder="MARLOWE" required />
               </label>
               <p class="account-form-error" id="join-form-error" role="alert" aria-live="assertive"></p>
               <button class="cta-red rc-create-btn" type="submit" id="join-room-submit">
@@ -424,13 +426,13 @@
           <div class="profile-grid">
             <section class="panel noise pad16">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Identity</h2></div>
-              <label class="profile-field"><span class="t-label f12 g-muted profile-label">Design Name</span><input id="profile-name" class="field" maxlength="12" placeholder="MIDNIGHT SET" /></label>
-              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Token Color</span><div class="profile-swatches" id="profile-swatches"></div><label class="profile-custom-color"><span class="t-micro ink-3">custom</span><input type="color" id="profile-color-picker" class="color-input" aria-label="Custom token color" value="#d74438" /></label></div>
+              <label class="profile-field"><span class="t-label f12 g-muted profile-label">Design Name</span><input id="profile-name" name="designName" class="field" maxlength="12" inputmode="text" autocomplete="off" placeholder="MIDNIGHT SET" /></label>
+              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Token Color</span><div class="profile-swatches" id="profile-swatches"></div><label class="profile-custom-color"><span class="t-micro ink-3">custom</span><input type="color" id="profile-color-picker" name="tokenColor" class="color-input" aria-label="Custom token color" value="#d74438" /></label></div>
               <div class="profile-field"><span class="t-label f12 g-muted profile-label">Live Preview</span><div class="profile-preview-row"><div class="profile-preview-av" id="profile-preview-av"></div><div class="profile-preview-info"><div class="t-label f13" id="profile-preview-name" style="color:#d74438">MARLOWE</div><div class="t-micro ink-3">$1,500 · seat preview</div></div></div></div>
             </section>
             <section class="panel noise pad16">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Draw Your Face</h2><span class="t-micro ink-3 face-hint">CLICK OR DRAG TO PAINT</span></div>
-              <div class="face-editor-row"><div class="face-canvas-wrap"><div class="face-canvas" id="face-canvas"></div></div><div class="face-tools"><div class="face-palette" id="face-palette"></div><label class="face-custom-color"><span class="t-micro ink-3">custom ink</span><input type="color" id="face-color-picker" class="color-input" aria-label="Custom face color" value="#f0d9ac" /></label><button class="btn-dark face-tool-btn is-active" id="face-tool-paint" type="button"><span class="t-label f11">PAINT</span></button><button class="btn-dark face-tool-btn" id="face-tool-erase" type="button"><span class="t-label f11">ERASER</span></button><button class="btn-dark face-tool-btn" id="face-clear-btn" type="button"><span class="t-label f11">CLEAR</span></button><button class="btn-dark face-tool-btn" id="face-default-btn" type="button"><span class="t-label f11">DEFAULT FACE</span></button></div></div>
+              <div class="face-editor-row"><div class="face-canvas-wrap"><div class="face-canvas" id="face-canvas"></div></div><div class="face-tools"><div class="face-palette" id="face-palette"></div><label class="face-custom-color"><span class="t-micro ink-3">custom ink</span><input type="color" id="face-color-picker" name="faceColor" class="color-input" aria-label="Custom face color" value="#f0d9ac" /></label><button class="btn-dark face-tool-btn is-active" id="face-tool-paint" type="button"><span class="t-label f11">PAINT</span></button><button class="btn-dark face-tool-btn" id="face-tool-erase" type="button"><span class="t-label f11">ERASER</span></button><button class="btn-dark face-tool-btn" id="face-clear-btn" type="button"><span class="t-label f11">CLEAR</span></button><button class="btn-dark face-tool-btn" id="face-default-btn" type="button"><span class="t-label f11">DEFAULT FACE</span></button></div></div>
               <p class="t-micro ink-3 face-footnote">8×8 PIXEL GRID · SAVED TO THIS BROWSER</p>
             </section>
           </div>
@@ -470,7 +472,7 @@
           <section class="panel noise pad16 account-panel" id="account-panel">
             <div class="account-panel-head"><div><div class="t-micro g400">PLAYER ACCOUNT</div><div class="t-label f12 g100" id="account-panel-title">Guest mode</div></div><span class="t-micro account-badge" id="account-panel-badge">LOCAL ONLY</span></div>
             <div id="account-guest-state"><p class="t-body ink-2 account-copy">Save your identity and stats across rooms while keeping guest play account-free.</p><div class="account-actions"><button class="cta-red account-action-btn" type="button" id="account-register-btn"><span class="cta-text cta-text-sm">Create Account</span></button><button class="btn-dark account-action-btn" type="button" id="account-login-btn"><span class="t-label f12">Sign In</span></button></div></div>
-            <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p></div>
+            <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p><div class="account-data-rights is-hidden" id="account-data-rights" hidden aria-hidden="true" data-policy-gated="account-rights"><span class="t-micro ink-3">DATA RIGHTS: POLICY PENDING</span><button class="btn-dark account-action-btn" type="button" id="account-export-btn" disabled aria-disabled="true">EXPORT MY DATA</button><button class="btn-dark account-action-btn" type="button" id="account-revoke-btn" disabled aria-disabled="true">REVOKE OTHER SESSIONS</button><button class="btn-dark account-action-btn" type="button" id="account-delete-btn" disabled aria-disabled="true">DELETE ACCOUNT</button></div></div>
           </section>
           <section class="panel noise pad16 profile-preferences"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Preferences</h2><span class="hair"></span><button class="btn-dark theme-open-btn" id="theme-open-btn" type="button" data-theme-trigger aria-haspopup="dialog" aria-expanded="false" aria-controls="theme-popover"><span class="t-label f11">LOOK</span></button></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Table sound</span><span class="t-micro ink-3">UI cues, trades, hits, and actions.</span></div><span class="t-label f11 g-muted" id="profile-sound-state">SOUND OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Parlor music</span><span class="t-micro ink-3">The soundtrack continues while you play.</span></div><span class="t-label f11 g-muted" id="profile-music-state">MUSIC OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Guest play</span><span class="t-micro ink-3">No account is required to create or join a room.</span></div><span class="t-label f11 green">AVAILABLE</span></div></section>
         </section>
@@ -641,7 +643,7 @@
             </div>
             <div class="chat-body thin-scroll" id="chat-body"></div>
             <form class="chat-form" id="chat-form">
-              <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" placeholder="Join the room to chat…" maxlength="120" disabled />
+              <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" name="message" inputmode="text" autocomplete="off" placeholder="Join the room to chat…" maxlength="120" disabled />
               <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
                 <span data-sprite="send" data-size="3"></span>
               </button>
