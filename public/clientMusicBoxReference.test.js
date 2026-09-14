@@ -49,8 +49,20 @@ test("compact music box exposes one stable root contract", () => {
 test("reference dock is outside per-view containers and keeps a single audio pair", () => {
   const rootStart = index.indexOf("data-music-box");
   assert.notEqual(rootStart, -1, "the global dock root is not mounted yet");
-  const viewBeforeRoot = index.slice(0, rootStart).match(/<section[^>]+class=["'][^"']*view\b/g);
-  assert.equal(viewBeforeRoot, null, "dock must be mounted outside SPA views");
+  const tagStack = [];
+  const prefix = index.slice(0, rootStart);
+  const tokenPattern = /<!--[\s\S]*?-->|<\/?([a-z][\w-]*)(?:\s[^>]*)?>/gi;
+  for (const token of prefix.matchAll(tokenPattern)) {
+    if (!token[1]) continue;
+    const tag = token[1].toLowerCase();
+    if (token[0].startsWith("</")) {
+      const indexToClose = tagStack.map((entry) => entry.tag).lastIndexOf(tag);
+      if (indexToClose >= 0) tagStack.splice(indexToClose, 1);
+      continue;
+    }
+    if (/\/\s*>$/.test(token[0]) || ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"].includes(tag)) continue;
+    tagStack.push({ tag, isView: /\bclass\s*=\s*["'][^"']*\bview\b[^"']*["']/i.test(token[0]) });
+  }
+  assert.equal(tagStack.some((entry) => entry.isView), false, "dock must be mounted outside SPA views");
   assert.equal((index.match(/data-music-audio=["'](?:a|b)["']/g) || []).length, 2);
 });
-
