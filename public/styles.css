@@ -614,6 +614,8 @@ a:focus-visible {
   .legal-article { padding: 16px; }
   .legal-article h2 { font-size: 19px; }
   .legal-article p, .legal-article li { font-size: 14px; }
+  .legal-article table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
+  .legal-article th, .legal-article td { overflow-wrap: anywhere; word-break: break-word; padding: 5px 4px; vertical-align: top; }
   .legal-index-main .legal-sections { grid-template-columns: 1fr; }
   .legal-section-heading { align-items: flex-start; flex-wrap: wrap; }
   .legal-section-heading .hair { display: none; }
