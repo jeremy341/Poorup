@@ -20,6 +20,18 @@ function checksumFile(filePath) {
   return checksumBytes(fs.readFileSync(absolute));
 }
 
+function atomicWrite(filePath, bytes) {
+  const temp = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  const fd = fs.openSync(temp, 'w');
+  try {
+    fs.writeFileSync(fd, bytes);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(temp, filePath);
+}
+
 function backupName(filePath, stamp) {
   return `${path.basename(filePath)}.${stamp}.json`;
 }
@@ -28,6 +40,9 @@ function rotate(directory, prefix, retention = DEFAULT_RETENTION) {
   const files = fs.readdirSync(directory)
     .filter(file => file.startsWith(prefix) && file.endsWith('.json'))
     .map(file => ({ file, mtime: fs.statSync(path.join(directory, file)).mtimeMs }))
+    // Rotation must never treat a tampered or partial candidate as the newest
+    // valid backup. Leave invalid artifacts for operator inspection.
+    .filter(entry => verifyBackup(path.join(directory, entry.file)).success)
     .sort((a, b) => b.mtime - a.mtime);
   files.slice(Math.max(1, retention)).forEach(entry => {
     fs.unlinkSync(path.join(directory, entry.file));
@@ -47,8 +62,8 @@ export function backupJsonFile(sourcePath, backupDirectory, { retention = DEFAUL
   const destination = path.join(directory, name);
   const bytes = fs.readFileSync(source);
   const checksum = checksumBytes(bytes);
-  fs.writeFileSync(destination, bytes);
-  fs.writeFileSync(`${destination}.sha256`, `${checksum}  ${name}\n`, 'utf8');
+  atomicWrite(destination, bytes);
+  atomicWrite(`${destination}.sha256`, `${checksum}  ${name}\n`, 'utf8');
   rotate(directory, path.basename(source) + '.', retention);
   return { success: true, path: destination, checksum, createdAt: new Date(now).toISOString() };
 }
@@ -62,11 +77,19 @@ export function backupJsonStores(storePaths = {}, backupDirectory, options = {})
 
 export function verifyBackup(backupPath) {
   const file = safePath(backupPath);
-  if (!file || !fs.existsSync(file)) return { success: false, error: 'Backup does not exist.' };
+  if (!file || !fs.existsSync(file)) return { success: false, valid: false, reason: 'Backup does not exist.', error: 'Backup does not exist.' };
   const bytes = fs.readFileSync(file);
   let parsed;
-  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { return { success: false, error: 'Backup is not valid JSON.' }; }
-  return { success: true, checksum: checksumBytes(bytes), recordType: Array.isArray(parsed) ? 'array' : typeof parsed };
+  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { return { success: false, valid: false, reason: 'Backup is not valid JSON.', error: 'Backup is not valid JSON.' }; }
+  const digest = checksumBytes(bytes);
+  const sidecarPath = `${file}.sha256`;
+  if (!fs.existsSync(sidecarPath)) return { success: false, valid: false, reason: 'Backup checksum sidecar is missing.', digest, checksum: digest, error: 'Backup checksum sidecar is missing.' };
+  const sidecar = fs.readFileSync(sidecarPath, 'utf8').trim();
+  const match = sidecar.match(/^([a-f0-9]{64})\s+(.+)$/i);
+  if (!match || match[1].toLowerCase() !== digest || path.basename(match[2].trim()) !== path.basename(file)) {
+    return { success: false, valid: false, reason: 'Backup checksum does not match its sidecar.', digest, checksum: digest, error: 'Backup checksum does not match its sidecar.' };
+  }
+  return { success: true, valid: true, reason: null, digest, checksum: digest, recordType: Array.isArray(parsed) ? 'array' : typeof parsed };
 }
 
 export function restoreJsonBackup(backupPath, destinationPath) {

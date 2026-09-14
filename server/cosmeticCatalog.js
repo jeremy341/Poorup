@@ -23,9 +23,12 @@ const COSMETIC_CATALOG = Object.freeze([
   { id: 'dice-brass', type: 'dice-face', name: 'BRASS PIPS', rarity: 'RARE', cost: 240, description: 'Brass pips with the Poorup mark.' },
   { id: 'trail-reduced', type: 'token-trail', name: 'LOW CURRENT', rarity: 'EPIC', cost: 420, description: 'A restrained trail that respects reduced-motion settings.' }
 ]);
+const COSMETIC_SLOTS = new Set(COSMETIC_CATALOG.map(item => item.type));
 
 function safeId(value, max = 120) {
-  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  return normalized && normalized.length <= max ? normalized : '';
 }
 
 function clone(value) {
@@ -33,8 +36,10 @@ function clone(value) {
 }
 
 function normalizeAccount(source = {}) {
-  const owned = Array.isArray(source.owned) ? source.owned.filter(id => typeof id === 'string').slice(0, 200) : [];
-  const equipped = source.equipped && typeof source.equipped === 'object' ? { ...source.equipped } : {};
+  const owned = Array.isArray(source.owned) ? [...new Set(source.owned.filter(id => typeof id === 'string').slice(0, 200))] : [];
+  const equipped = source.equipped && typeof source.equipped === 'object'
+    ? Object.fromEntries(Object.entries(source.equipped).filter(([slot, id]) => COSMETIC_SLOTS.has(slot) && typeof id === 'string' && owned.includes(id)))
+    : {};
   return {
     tokens: Math.max(0, Math.floor(Number(source.tokens) || 0)),
     owned: [...new Set(owned)],
@@ -120,6 +125,11 @@ export class CosmeticStore {
   }
 
   persist() {
+    this.accounts.forEach(account => {
+      account.owned = [...new Set(account.owned.filter(id => typeof id === 'string'))].slice(0, 200);
+      account.claims = [...new Set(account.claims.filter(id => typeof id === 'string'))].slice(-300);
+      account.equipped = Object.fromEntries(Object.entries(account.equipped).filter(([slot, id]) => COSMETIC_SLOTS.has(slot) && account.owned.includes(id)));
+    });
     writeJson(this.filePath, Object.fromEntries(this.accounts.entries()));
   }
 
@@ -153,7 +163,10 @@ export class CosmeticStore {
     const account = this.account(accountId);
     const item = COSMETIC_CATALOG.find(candidate => candidate.id === cosmeticId);
     if (!account || !item) return { success: false, error: 'Cosmetic is unavailable.' };
-    if (!account.owned.includes(item.id)) account.owned.push(item.id);
+    if (!account.owned.includes(item.id)) {
+      if (account.owned.length >= 200) return { success: false, error: 'Cosmetic collection is full.' };
+      account.owned.push(item.id);
+    }
     this.persist();
     return { success: true, created: true, item: { ...item }, snapshot: this.snapshot(accountId) };
   }
@@ -176,6 +189,7 @@ export class CosmeticStore {
     const item = COSMETIC_CATALOG.find(candidate => candidate.id === cosmeticId);
     if (!canEquip(account, item)) return { success: false, error: 'Earn the cosmetic before equipping it.' };
     const targetSlot = safeId(slot || item.type, 40);
+    if (!COSMETIC_SLOTS.has(targetSlot) || targetSlot !== item.type) return { success: false, error: 'Cosmetic slot is invalid.' };
     account.equipped[targetSlot] = item.id;
     this.persist();
     return { success: true, item: { ...item }, snapshot: this.snapshot(accountId) };

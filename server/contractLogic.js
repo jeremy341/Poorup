@@ -22,6 +22,7 @@ const TABLE_OBLIGATION_FIELDS = [
   'pendingTrade',
   'pendingPlayerContract'
 ];
+const MAX_CONTRACT_REPLAYS = 1_000;
 
 function activeSeat(player) {
   if (player.bankrupt) return false;
@@ -82,6 +83,9 @@ function memoizeSuccess(game, key, result) {
   if (!key) return result;
   if (!result.success) return result;
   game.contractTransactions.set(key, result);
+  while (game.contractTransactions.size > MAX_CONTRACT_REPLAYS) {
+    game.contractTransactions.delete(game.contractTransactions.keys().next().value);
+  }
   return result;
 }
 
@@ -134,13 +138,27 @@ function isEquityEligibleProperty(property, ownerId) {
   return !(property.houseCount > 0);
 }
 
-function equityCapReached(property, share) {
+function equityCapReached(property, share, game = null, ignoredContractId = null) {
   const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+  const materializedIds = new Set(shares.map(entry => entry?.contractId).filter(Boolean));
   const existingShare = shares.reduce((sum, entry) => {
     const value = Number(entry?.share);
     return sum + (Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
   }, 0);
-  return existingShare + share > 100;
+  const pendingShare = game?.pendingPlayerContract
+    && game.pendingPlayerContract.id !== ignoredContractId
+    && Number(game.pendingPlayerContract.propertyIndex) === Number(property.index)
+    && ['equity', 'hybrid'].includes(game.pendingPlayerContract.kind)
+    ? Number(game.pendingPlayerContract.equityShare || game.pendingPlayerContract.conversionShare) || 0
+    : 0;
+  const contractShare = (game?.playerContracts || []).reduce((sum, contract) => {
+    if (contract.id === ignoredContractId || materializedIds.has(contract.id)) return sum;
+    if (Number(contract.propertyIndex) !== Number(property.index)) return sum;
+    if (!['active', 'due', 'converted'].includes(contract.status)) return sum;
+    if (!['equity', 'hybrid'].includes(contract.kind)) return sum;
+    return sum + (Number(contract.equityShare || contract.conversionShare) || 0);
+  }, 0);
+  return existingShare + pendingShare + contractShare + share > 100;
 }
 
 function equityDraftTerms(game, contract, offer, recipient) {
@@ -149,7 +167,7 @@ function equityDraftTerms(game, contract, offer, recipient) {
   if (!isEquityEligibleProperty(property, recipient.id)) {
     return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
   }
-  if (equityCapReached(property, share)) {
+  if (equityCapReached(property, share, game)) {
     return { success: false, error: 'That property has no remaining equity to sell.' };
   }
   contract.propertyIndex = property.index;
@@ -174,7 +192,7 @@ function hybridDraftTerms(game, contract, offer, recipient) {
   if (!isEquityEligibleProperty(property, recipient.id)) {
     return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
   }
-  if (equityCapReached(property, conversion)) {
+  if (equityCapReached(property, conversion, game)) {
     return { success: false, error: 'That property has no remaining equity to sell.' };
   }
   contract.totalDue = contract.amount + Math.ceil(contract.amount * (contract.premiumRate / 100));
@@ -183,6 +201,12 @@ function hybridDraftTerms(game, contract, offer, recipient) {
   contract.cureRound = contract.dueRound + 1;
   contract.propertyIndex = property.index;
   contract.conversionShare = conversion;
+  const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
+  const collateral = collateralIndex == null ? null : game.getTile(collateralIndex);
+  if (collateralIndex != null && !collateralIsBorrowerDeed(collateral, recipient)) {
+    return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
+  }
+  contract.collateralTileIndex = collateral?.index ?? null;
   return null;
 }
 
@@ -485,7 +509,7 @@ function hybridConversionEligible(game, contract) {
   if (!borrower) return false;
   const property = game.getTile(contract.propertyIndex);
   if (!isEquityEligibleProperty(property, borrower.id)) return false;
-  return !equityCapReached(property, contract.conversionShare);
+  return !equityCapReached(property, contract.conversionShare, game, contract.id);
 }
 
 function recordHybridConversion(game, contract, lender) {
@@ -505,12 +529,12 @@ function recordHybridConversion(game, contract, lender) {
 // to the plain loan-default path.
 function convertHybridContract(game, contract) {
   if (!hybridConversionEligible(game, contract)) {
-    handlePlayerLoanDefault(game, contract);
+    handlePlayerLoanDefault(game, contract, { reason: 'conversion-unavailable' });
     return;
   }
   const lender = game.getPlayerById(contract.fromPlayerId);
   if (!lender) {
-    handlePlayerLoanDefault(game, contract);
+    handlePlayerLoanDefault(game, contract, { reason: 'conversion-lender-unavailable' });
     return;
   }
   const borrower = game.getPlayerById(contract.toPlayerId);

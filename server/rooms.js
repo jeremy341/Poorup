@@ -69,8 +69,8 @@ function normalizedRoomSetting(room, key, value) {
 
 function capacityAllowsSetting(room, key, value) {
   if (key !== 'maxPlayers') return true;
-  const humanSeats = room.game.players.filter(player => !player.isBot && !player.disconnected && !player.bankrupt).length;
-  return value >= humanSeats;
+  const retainedSeats = room.game.players.filter(player => !player.bankrupt).length;
+  return value >= retainedSeats;
 }
 
 function syncBotCapacity(room, key, value) {
@@ -508,6 +508,7 @@ class Room {
   }
 
   startGame() {
+    this.pruneExpiredSeats();
     this.ensureBots();
     this.refreshRuleset();
     this.game.ruleset = Object.freeze({ ...this.ruleset, effectiveSettings: Object.freeze({ ...this.ruleset.effectiveSettings }) });
@@ -518,9 +519,24 @@ class Room {
     return result;
   }
 
+  pruneExpiredSeats(now = Date.now()) {
+    const expired = this.game.players.filter(player => player.disconnected
+      && Number(player.disconnectDeadline) > 0
+      && Number(player.disconnectDeadline) <= now);
+    expired.forEach(player => {
+      this.game.removePlayerByClient(player.clientId);
+    });
+    if (expired.some(player => player.id === this.hostId)) {
+      const replacement = this.game.players.find(player => !player.isBot && !player.disconnected && !player.bankrupt);
+      this.hostId = replacement?.id || null;
+      this.game.players.forEach(player => { player.isHost = player.id === this.hostId; });
+    }
+    return expired.length;
+  }
+
   ensureBots() {
-    const activeHumans = this.game.players.filter(player => !player.isBot && !player.disconnected && !player.bankrupt).length;
-    const availableSeats = Math.max(0, Number(this.settings.maxPlayers) - activeHumans);
+    const retainedSeats = this.game.players.filter(player => !player.bankrupt).length;
+    const availableSeats = Math.max(0, Number(this.settings.maxPlayers) - retainedSeats);
     const required = Math.max(0, Math.min(availableSeats, Number(this.settings.bots) || 0));
     const existingBots = this.game.players.filter(player => player.isBot);
     if (existingBots.length > required) {
@@ -688,6 +704,11 @@ class RoomManager {
   constructor() {
     this.rooms = new Map();
     this.socketRoom = new Map();
+    this.roomDestroyer = null;
+  }
+
+  setRoomDestroyer(destroyer) {
+    this.roomDestroyer = typeof destroyer === 'function' ? destroyer : null;
   }
 
   createRoom(hostInfo) {
@@ -735,11 +756,22 @@ class RoomManager {
   restoreConnection(clientId, socketId, accountId = null, onAccountSeatReclaimed = null) {
     const safeId = safeClientId(clientId);
     if (!safeId) return null;
+    const mappedRoom = this.socketRoom.get(socketId);
     const room = this.findLiveRoomFor(safeId) || this.findRoomFor(safeId);
     if (room) {
+      if (mappedRoom && mappedRoom !== room) return null;
       const player = room.game.getPlayerByClient(safeId);
       if (!player) return null;
       if (accountId && player.accountId !== accountId) return null;
+      if (!player.disconnected) {
+        // Same-socket restores are idempotent; another live socket must never
+        // overwrite the seat's bearer socket or its socket-room index.
+        if (player.socketId !== socketId) return null;
+        this.socketRoom.set(socketId, room);
+        return room;
+      }
+      if (player.accountId && player.accountId !== accountId) return null;
+      if (player.accountId && !accountId) return null;
       player.socketId = socketId;
       player.disconnected = false;
       player.disconnectDeadline = 0;
@@ -758,6 +790,7 @@ class RoomManager {
   restoreAccountSeat(accountId, clientId, socketId, onAccountSeatReclaimed = null) {
     if (!accountId) return null;
     if (!clientId) return null;
+    if (this.socketRoom.has(socketId)) return null;
     const room = [...this.rooms.values()].find(roomItem => {
       const player = roomItem.game.players.find(p => p.accountId === accountId);
       if (!player) return false;
@@ -816,7 +849,8 @@ class RoomManager {
     }
     this.releaseSeat(room.game, player);
     if (room.game.players.length === 0) {
-      this.rooms.delete(room.roomCode);
+      if (this.roomDestroyer) this.roomDestroyer(room);
+      else this.rooms.delete(room.roomCode);
     }
     return room;
   }

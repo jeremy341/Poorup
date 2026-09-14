@@ -79,6 +79,16 @@ function floorSettingAtZero(value) {
   return Math.max(0, Math.floor(parsed));
 }
 
+// Shared numeric boundary: finite whole values only, with an explicit
+// fallback so callers can reject without mutating the previous setting.
+function boundedInteger(value, { min = 0, max = Number.MAX_SAFE_INTEGER, fallback = null } = {}) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const floored = Math.floor(parsed);
+  if (floored < min || floored > max) return fallback;
+  return floored;
+}
+
 // The legacy duration/max knobs snap to the two-step ladder the old client
 // UI expected. Unreachable while the legacy guard above stands, kept so the
 // clamps live with the rest of the table.
@@ -136,10 +146,10 @@ const ROOM_SETTING_NORMALIZERS = {
   maxPlayers: (value, room) => clampSetting(value, 2, room?.settings?.boardVariant === 'metro-52' ? 6 : 4),
   // Bots are clamped against the live maxPlayers so seat math stays coherent.
   bots: (value, room) => clampSetting(value, 0, room.settings.maxPlayers - 1),
-  startingCash: floorSettingAtZero,
-  houseLimit: floorSettingAtZero,
-  hotelLimit: floorSettingAtZero,
-  turnTimer: floorSettingAtZero,
+  startingCash: value => boundedInteger(value, { min: 0, max: 1_000_000, fallback: SETTING_REJECTED }),
+  houseLimit: value => boundedInteger(value, { min: 0, max: 100, fallback: SETTING_REJECTED }),
+  hotelLimit: value => boundedInteger(value, { min: 0, max: 50, fallback: SETTING_REJECTED }),
+  turnTimer: value => boundedInteger(value, { min: 0, max: 3_600, fallback: SETTING_REJECTED }),
   globalEventDuration: value => snapFlooredSetting(value, 10, 10, 5),
   globalEventMax: value => snapFlooredSetting(value, 2, 2, 1),
   globalEvents: value => GLOBAL_EVENT_ON_VALUES.includes(value),
@@ -166,5 +176,6 @@ export {
   ROOM_MARKET_COMPLEXITIES,
   ROOM_FLAG_TRUE_VALUES,
   ROOM_SETTING_NORMALIZERS,
-  SETTING_REJECTED
+  SETTING_REJECTED,
+  boundedInteger
 };

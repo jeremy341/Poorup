@@ -7,11 +7,14 @@ function horizontalScaleRequested(env) {
 
 function postgresConfigured(env) {
   return Boolean(String(env?.POORUP_POSTGRES_URL || '').trim())
-    && String(env?.POORUP_PERSISTENCE_ADAPTER || '').trim().toLowerCase() === 'postgres';
+    && String(env?.POORUP_PERSISTENCE_ADAPTER || '').trim().toLowerCase() === 'postgres'
+    // A URL and adapter name are configuration claims, not proof that a
+    // transactional adapter was instantiated and health-checked.
+    && String(env?.POORUP_TRANSACTIONAL_ADAPTER_READY || '').trim().toLowerCase() === 'true';
 }
 
 function persistenceError(requested, configured) {
-  if (requested && !configured) return 'Horizontal scaling requires POORUP_POSTGRES_URL plus POORUP_PERSISTENCE_ADAPTER=postgres and the transactional store migration.';
+  if (requested && !configured) return 'Horizontal scaling requires POORUP_POSTGRES_URL plus POORUP_PERSISTENCE_ADAPTER=postgres and a real, health-checked transactional adapter; URL-only settings are fail-closed.';
   return null;
 }
 
