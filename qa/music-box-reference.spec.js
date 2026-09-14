@@ -14,6 +14,13 @@ const tracks = [
   ["themes/light/town.mp3", "Pro Sensory", "Public domain"],
 ];
 
+async function dismissTransientLayers(page) {
+  // Surface navigation must not inherit a room/theme/profile dialog from the
+  // previous surface. Escape is the public close contract for these layers.
+  for (let attempt = 0; attempt < 3; attempt += 1) await page.keyboard.press("Escape");
+  await expect(page.locator('[role="dialog"]:visible')).toHaveCount(0);
+}
+
 test.describe("reference-locked music box", () => {
   test("home acceptance viewport records the compact reference geometry", async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
@@ -27,6 +34,8 @@ test.describe("reference-locked music box", () => {
     expect(bounds.width).toBeLessThanOrEqual(324);
     expect(bounds.height).toBeGreaterThanOrEqual(92);
     expect(bounds.height).toBeLessThanOrEqual(104);
+    expect(bounds.x).toBeGreaterThanOrEqual(14);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(1062);
 
     const viewport = page.viewportSize();
     expect(viewport).toEqual({ width: 1920, height: 1080 });
@@ -59,10 +68,12 @@ test.describe("reference-locked music box", () => {
   test("dock stays global across SPA surfaces and static legal pages are player-free", async ({ page }) => {
     await page.goto("/");
     for (const tab of ["rooms", "profile", "rankings", "social", "rules"]) {
+      await dismissTransientLayers(page);
       const button = page.locator(`[data-home-tab="${tab}"], [data-top-surface="${tab}"]`).first();
       await button.click();
       await expect(page.locator("[data-music-box]")).toHaveCount(1);
     }
+    await dismissTransientLayers(page);
     for (const legal of ["licenses", "storage", "privacy"]) {
       await page.goto(`/legal/${legal}`);
       await expect(page.locator("[data-music-box]")).toHaveCount(0);
