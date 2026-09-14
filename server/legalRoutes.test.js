@@ -5,20 +5,26 @@ import path from "node:path";
 import fs from "node:fs";
 import { LEGAL_DOCUMENTS, createLegalRouter, renderLegalIndex } from "./legalRoutes.js";
 
-assert.deepEqual(Object.keys(LEGAL_DOCUMENTS).sort(), ["licenses", "privacy", "support", "terms"]);
+assert.deepEqual(Object.keys(LEGAL_DOCUMENTS).sort(), ["acceptable-use", "accessibility", "ai", "licenses", "privacy", "storage", "support", "terms"]);
 const index = renderLegalIndex();
 assert.match(index, /<h1[^>]*>Legal information<\/h1>/i);
+assert.match(index, /class="legal-shell"/i);
+assert.match(index, /DRAFT[^<]*NOT EFFECTIVE/i);
+assert.match(index, /name="theme-color"[^>]+#01070a/i);
+assert.doesNotMatch(index, /COPY INJECTION/i);
 for (const slug of Object.keys(LEGAL_DOCUMENTS)) assert.match(index, new RegExp(`/legal/${slug}`));
 for (const slug of Object.keys(LEGAL_DOCUMENTS)) assert.match(index, new RegExp(`id="${slug}"`));
-assert.match(index, /href="\/"[^>]*>Return to the parlor/i);
+assert.match(index, /href="\/"[^>]*>BACK TO PARLOR/i);
 assert.equal(typeof createLegalRouter, "function");
 for (const fileName of Object.values(LEGAL_DOCUMENTS)) {
   const html = fs.readFileSync(path.join("public", "legal", fileName), "utf8");
   assert.equal((html.match(/<h1\b/gi) || []).length, 1);
   assert.match(html, /class="skip-link"/);
+  assert.match(html, /class="legal-shell"/);
+  assert.match(html, /DRAFT[^<]*NOT EFFECTIVE/i);
   assert.match(html, /<nav[^>]+aria-label=/i);
-  assert.match(html, /data-copy-slot="last-updated"/);
-  assert.match(html, /class="legal-return"[^>]+href="\/"/);
+  assert.match(html, /class="[^"]*\blegal-back\b[^"]*"[^>]+href="\/"/);
+  assert.doesNotMatch(html, /COPY INJECTION/i);
   assert.doesNotMatch(html, /<script\b/i);
 }
 
