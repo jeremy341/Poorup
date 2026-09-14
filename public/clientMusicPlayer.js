@@ -12,10 +12,10 @@ export function createMusicPlayer(options = {}) {
   try { const saved = JSON.parse(storage.getItem(PREFS) || "{}"); volume = Number.isFinite(Number(saved.volume)) ? clamp(saved.volume, 0, 1) : 0.16; shuffle = saved.shuffle === true; loop = saved.loop !== false; if (saved.theme) theme = sanitizeThemeId(saved.theme, manifest); const savedTrack = sanitizeTrackId(saved.track, manifest); if (savedTrack && (manifest.themes[theme] || []).includes(savedTrack)) current = savedTrack; } catch {}
   const track = () => manifest.tracks[current];
   const persist = () => { try { storage.setItem(PREFS, JSON.stringify({ volume, shuffle, loop, theme: sanitizeThemeId(theme, manifest), track: sanitizeTrackId(current, manifest) || resolveThemeTrack(theme, manifest) })); } catch {} };
-  const setVolumes = () => audios.forEach((audio, index) => { if (audio) audio.volume = index === active ? volume : 0; });
+  const setVolumes = () => audios.forEach((audio, index) => { if (audio) { if (index === active && !audio.src && manifest.tracks[current]) audio.src = manifest.tracks[current].src; audio.volume = index === active ? volume : 0; audio.loop = loop; } });
   const announceStatus = (message) => { status = message; announce(message); };
   const rebuildQueue = () => { const fallback = resolveThemeTrack(theme, manifest); const ids = [...new Set((manifest.themes[theme] || (fallback ? [fallback] : [])).filter(id => sanitizeTrackId(id, manifest)))]; if (shuffle) { for (let i = ids.length - 1; i > 0; i -= 1) { const j = Math.floor(clamp(random(), 0, 0.999999) * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; } } queue = ids; queueIndex = Math.max(0, queue.indexOf(current)); history = []; };
-  rebuildQueue(); setVolumes();
+  rebuildQueue(); setVolumes(); audios.forEach(audio => audio?.addEventListener?.("ended", () => { if (loop) { audio.currentTime = 0; audio.play?.(); } else if (audio === audios[active]) next(); }));
   function load(id, duration = 350, restore = { current, queueIndex }) {
     const safe = sanitizeTrackId(id, manifest); if (!safe) { announceStatus("track-unavailable"); return false; }
     const token = ++transition; const incoming = 1 - active; const element = audios[incoming]; if (!element) return false; const prior = restore.current; const priorIndex = restore.queueIndex; pending = element; pendingIndex = incoming; blockedPending = null; pendingRestore = { ...restore, queue: restore.queue ? [...restore.queue] : undefined, history: restore.history ? [...restore.history] : undefined }; frame = 0;

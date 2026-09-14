@@ -176,3 +176,11 @@ test("retrying blocked incoming audio pauses the old active channel", async () =
   const { player } = setup({ audioA, audioB }); player.togglePlay(); player.setTheme("spring"); await Promise.resolve(); await Promise.resolve(); player.togglePlay();
   assert.equal(attempts, 2); assert.equal(paused > 0, true);
 });
+test("first play loads the current track before play and applies loop", () => {
+  const { player, audioA, audioB } = setup(); audioA.play = () => {}; player.togglePlay();
+  assert.equal(audioA.src, "/assets/audio/pondering-the-cosmos.mp3"); assert.equal(audioA.loop, true); assert.equal(audioB.loop, true);
+});
+test("natural ended repeats with loop or advances when disabled", () => {
+  const listeners = {}; const audioA = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, play() {}, pause() {} };
+  const { player } = setup({ audioA }); player.toggleLoop(); listeners.ended(); assert.equal(player.snapshot().status, "ended");
+});
