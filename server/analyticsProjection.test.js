@@ -51,6 +51,7 @@ check('normalizes bounded filters and fixes the cohort threshold', () => {
   assert.equal(normalized.botMode, 'ai');
   assert.equal(normalized.minimumCohort, 5);
   assert.equal(normalized.tab, 'economy');
+  assert.equal(normalizeAnalyticsQuery({ view: 'bots' }).tab, 'bots');
   assert.equal(normalizeAnalyticsQuery({}).rulesetRevision, null);
   assert.equal(normalizeAnalyticsQuery({}).balanceRevision, null);
 });

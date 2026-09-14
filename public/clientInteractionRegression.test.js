@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 
 const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const analytics = readFileSync(new URL("./clientAnalytics.js", import.meta.url), "utf8");
+const auction = readFileSync(new URL("./clientAuctionUi.js", import.meta.url), "utf8");
+const gameModals = readFileSync(new URL("./clientGameModalsUi.js", import.meta.url), "utf8");
 const surfaces = readFileSync(new URL("./clientSurfaces.js", import.meta.url), "utf8");
 const socket = readFileSync(new URL("./clientSocketListeners.js", import.meta.url), "utf8");
 const sanitize = readFileSync(new URL("./clientSanitize.js", import.meta.url), "utf8");
@@ -31,6 +34,11 @@ assert.match(sanitize, /export function clearLocalPlayerData/);
 assert.match(main, /setDocumentMeta/);
 assert.match(main, /music\.play\(\)[\s\S]*catch[\s\S]*(blocked|retry)/i);
 assert.match(stateSync, /state\.gameOver\s*=\s*null/);
+
+assert.doesNotMatch(index, /<title>[^<]*[—–]|POORUP\s+[—–]|[—–]\s+LOBBIES/i);
+assert.doesNotMatch(analytics, /[—–]/, "analytics UI still contains em/en-dash separators");
+assert.doesNotMatch(auction, /[—–]/, "auction UI still contains em/en-dash separators");
+assert.doesNotMatch(gameModals, /[—–]/, "game modal UI still contains em/en-dash separators");
 
 const { clearLocalPlayerData, sanitizeAccountSession } = await import("./clientSanitize.js");
 const cleanedAccount = sanitizeAccountSession({ sessionToken: "session", account: { id: "acct", username: "player", displayName: "Player", createdAt: "2026-01-02T03:04:05.000Z" } });

@@ -26,6 +26,8 @@ assert.match(configuredHtml, /property="og:image:type" content="image\/png"/);
 
 const privateHtml = renderDocumentMeta(metadataConfig({ origin: "https://play.example", path: "/admin/analytics" }));
 assert.match(privateHtml, /name="robots" content="noindex,nofollow"/);
+const permissivePrivateHtml = renderDocumentMeta(metadataConfig({ origin: "https://play.example", indexPolicy: "index,follow", path: "/profile" }));
+assert.match(permissivePrivateHtml, /name="robots" content="noindex,nofollow"/);
 
 const invalidPrecomputed = renderDocumentMeta({
   origin: "not-a-url",

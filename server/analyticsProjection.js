@@ -44,7 +44,7 @@ export function normalizeAnalyticsQuery(input = {}) {
   const range = enumValue(source.range, RANGES, 'hour');
   const window = dateWindow(range, source.from, source.to);
   const eventId = stringValue(source.eventId, '').replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80);
-  const tab = enumValue(source.tab, TABS, 'overview');
+  const tab = enumValue(source.tab || source.view, TABS, 'overview');
   return {
     range,
     from: window.from,

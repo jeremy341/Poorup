@@ -25,7 +25,9 @@ const BOT_MODES = new Set(['ai', 'no-ai', 'human']);
 const PROVIDERS = new Set(['ai', 'deepseek', 'deterministic', 'fallback', 'house', 'openai', 'unknown']);
 const PRIVATE_KEYS = new Set([
   'displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text',
-  'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload'
+  'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload',
+  'account_id', 'display_name', 'room_code', 'client_id', 'session_token', 'hidden_cards',
+  'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data', 'rawevent', 'rawdata'
 ]);
 
 function finite(value, fallback = 0) {

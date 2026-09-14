@@ -68,6 +68,19 @@ check("static CSS aliases resolve to the Poorup token roles", () => {
   expectMatch(styles, /\.casino-reel-card[^}]*font-family:\s*var\(--font-numeric\)/, "casino numeric token is missing");
 });
 
+check("decorative compositor hints are scoped to active animation states", () => {
+  for (const selector of [".home-helicopter", ".home-patrol-effect", ".night-target", ".night-shift-effect", ".casino-reel-track"]) {
+    assert.doesNotMatch(styles, new RegExp(`(?:^|\\r?\\n)${selector.replace(/[.-]/g, "\\$&")}\\s*\\{[^}]*will-change\\s*:`, "i"), `${selector} keeps an idle will-change hint`);
+  }
+  expectMatch(styles, /\.home-helicopter\.is-flying[^{]*\{[^}]*will-change:\s*transform,\s*opacity/i, "helicopter active compositor hint is missing");
+  expectMatch(styles, /\.home-patrol-effect\.is-burst[^{]*\{[^}]*will-change:\s*transform,\s*opacity/i, "patrol burst compositor hint is missing");
+  expectMatch(styles, /\.night-target\.is-flight[^{]*\{[^}]*will-change:\s*transform,\s*opacity/i, "night target active compositor hint is missing");
+  expectMatch(styles, /\.night-shift-effect\.(?:is-burst|night-shift-aircraft-burst)[^{]*\{[^}]*will-change:\s*transform,\s*opacity/i, "night effect active compositor hint is missing");
+  expectMatch(styles, /\.casino-reel\[data-reel-state="presenting"\]\s+\.casino-reel-track\s*\{[^}]*will-change:\s*transform/i, "casino reel active compositor hint is missing");
+  assert.doesNotMatch(styles, /\.theme-pedestrian-band\s*,[\s\S]{0,200}will-change:\s*transform/i, "pedestrian container receives a compositor hint instead of animated children");
+  expectMatch(styles, /\.theme-pedestrian-a\s*,\s*\.theme-pedestrian-b[\s\S]{0,200}will-change:\s*transform/i, "pedestrian animated children lack compositor hints");
+});
+
 check("mobile navigation retains a visible overflow cue", () => {
   expectMatch(styles, /\.hdr \.home-nav[^}]*mask-image:\s*linear-gradient/i, "mobile nav mask cue is missing");
   expectMatch(styles, /\.hdr \.home-nav[^}]*-webkit-mask-image:\s*linear-gradient/i, "mobile nav webkit mask cue is missing");

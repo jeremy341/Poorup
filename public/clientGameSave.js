@@ -85,6 +85,26 @@ function clearSave() {
 function reportRestoreFailure(response, explicit) {
   if (!explicit && state.phase === "home") return;
   parlorNotice("CONNECTION", response.error || "No active room session was found.");
+  if (!explicit) {
+    // A connected socket with no authoritative room is a terminal restart
+    // outcome, not an offline transport. Clear the stale board projection and
+    // return to Home so the user cannot keep acting on a lost game.
+    clearSave();
+    state.phase = "home";
+    state.roomCode = "";
+    state.roomPlayerId = null;
+    state.hostId = null;
+    state.roomVisibility = "private";
+    state.serverTiles = [];
+    state.suppressRoomUpdates = false;
+    state.gameOver = null;
+    state.previousTurnKey = "";
+    host.showView("home");
+    host.setConnectionStatus("online", true);
+    host.renderAll();
+    applyProfileToHomeUI();
+    return;
+  }
   host.setConnectionStatus("offline", true);
 }
 function applyRestoredVisibility(visibility) {
