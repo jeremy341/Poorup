@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -18,7 +19,9 @@ async function dismissTransientLayers(page) {
   // Surface navigation must not inherit a room/theme/profile dialog from the
   // previous surface. Escape is the public close contract for these layers.
   for (let attempt = 0; attempt < 3; attempt += 1) await page.keyboard.press("Escape");
-  await expect(page.locator('[role="dialog"]:visible')).toHaveCount(0);
+  // `#log-drawer` is an off-canvas dialog that remains display:flex while
+  // aria-hidden=true; only semantically open layers are actionable here.
+  await expect(page.locator('[role="dialog"][aria-hidden="false"], .panel-menu:not(.is-hidden):visible, .popup:not(.is-hidden):visible')).toHaveCount(0);
 }
 
 test.describe("reference-locked music box", () => {
@@ -69,7 +72,7 @@ test.describe("reference-locked music box", () => {
     await page.goto("/");
     for (const tab of ["rooms", "profile", "rankings", "social", "rules"]) {
       await dismissTransientLayers(page);
-      const button = page.locator(`[data-home-tab="${tab}"], [data-top-surface="${tab}"]`).first();
+      const button = page.locator(`[data-home-tab="${tab}"]:visible, [data-top-surface="${tab}"]:visible`).first();
       await button.click();
       await expect(page.locator("[data-music-box]")).toHaveCount(1);
     }
