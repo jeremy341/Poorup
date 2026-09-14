@@ -181,8 +181,8 @@ function actorMatchesQuery(row, query) {
   if (!query.dimension) return true;
   if (query.dimension === 'board') return !query.boardVariant || query.boardVariant === 'all' || query.boardVariant === scope.boardVariant;
   if (query.dimension === 'ruleset') return !query.rulesetPreset || query.rulesetPreset === 'all' || query.rulesetPreset === scope.rulesetPreset;
-  if (query.dimension === 'event') return !query.eventId || query.eventId === scope.eventId;
-  if (query.dimension === 'bot') return !query.botMode || query.botMode === 'all' || query.botMode === scope.botMode;
+  if (query.dimension === 'event') return Boolean(scope.eventId) && (!query.eventId || query.eventId === scope.eventId);
+  if (query.dimension === 'bot') return Boolean(scope.botMode) && (!query.botMode || query.botMode === 'all' || query.botMode === scope.botMode);
   return true;
 }
 

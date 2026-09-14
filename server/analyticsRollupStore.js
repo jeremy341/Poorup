@@ -227,6 +227,7 @@ function applyEvent(target, event, dimensions, limits) {
   if (event.kind === 'match-start') target.started += count;
   if (event.kind === 'match-complete') {
     target.completed += count;
+    if (data.startedMatches !== undefined) target.started = Math.max(target.started, integerDimension(data.startedMatches));
     target.competitiveCompleted += data.botOnly === true ? 0 : count;
     if (data.botOnly === true) target.botOnlyMatches += count;
     addDuration(target.durationSeconds, data.durationSeconds ?? data.duration);

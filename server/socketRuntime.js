@@ -117,8 +117,9 @@ function recordBankruptcyTelemetry(context) {
 }
 
 function recordAchievementTelemetry(context) {
-  const { telemetryStore, candidates, telemetryVersions } = context;
-  candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId }, telemetryVersions));
+  const { telemetryStore, candidates, telemetryVersions, matchRecord } = context;
+  const botOnly = matchRecord?.botOnly === true;
+  candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId, botOnly }, telemetryVersions));
 }
 
 export function recordBotTelemetry(context) {
