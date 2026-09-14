@@ -113,3 +113,13 @@ test("failed custom selection restores queue and history state", () => {
   const { player } = setup({ audioB }); const before = player.snapshot(); player.selectTrack("hot-springs-town"); listeners.error(); const after = player.snapshot();
   assert.equal(after.currentTrackId, before.currentTrackId); assert.equal(after.mode, before.mode); assert.deepEqual(after.queue, before.queue); assert.equal(player.previous(), true);
 });
+test("failed theme and reset preserve prior history", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player } = setup({ audioB }); player.selectTrack("hot-springs-town"); const before = player.snapshot(); player.setTheme("spring"); listeners.error();
+  assert.equal(player.previous(), true); assert.equal(player.snapshot().currentTrackId, "pondering-the-cosmos");
+});
+test("theme change and reset clear shuffle and restore ordered queue", () => {
+  const { player } = setup(); player.toggleShuffle(); assert.equal(player.snapshot().shuffle, true); player.setTheme("spring");
+  assert.equal(player.snapshot().shuffle, false); assert.deepEqual(player.snapshot().queue, ["hot-springs-town"]); player.toggleShuffle(); player.resetToThemeTrack();
+  assert.equal(player.snapshot().shuffle, false);
+});
