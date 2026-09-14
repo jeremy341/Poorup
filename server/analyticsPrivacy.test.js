@@ -39,7 +39,7 @@ check('sanitizes rows to aggregate fields and pseudonyms only', () => {
     accountId: 'acct-secret', displayName: 'Ada', username: 'ada', roomCode: 'SECRET',
     pseudonymId: 'P-ABC123', observations: 6, completionRate: 0.5,
     nested: { sessionToken: 'token', value: 2 }
-  });
+  }, { trusted: true });
   const serialized = JSON.stringify(row);
   assert.equal(row.pseudonymId, 'P-ABC123');
   assert.equal(row.observations, 6);
@@ -67,4 +67,16 @@ check('redacts forbidden fields recursively from response payloads', () => {
   assert.equal(serialized.includes('Ada'), false);
   assert.equal(serialized.includes('ada'), false);
   assert.equal(serialized.includes('secret'), false);
+});
+
+check('does not trust caller-supplied pseudonym strings', () => {
+  const row = sanitizeAnalyticsRow({ pseudonymId: 'P-FAKE-IDENTITY', observations: 6 });
+  assert.equal(row.pseudonymId, undefined);
+  const trusted = sanitizeAnalyticsRow({ pseudonymId: 'P-SERVER', observations: 6 }, { trusted: true });
+  assert.equal(trusted.pseudonymId, 'P-SERVER');
+});
+
+check('preserves nulls and deeply nested aggregate measures', () => {
+  const safe = sanitizeAnalyticsResponse({ overview: { kpis: [{ comparison: { period: { sample: { value: null } } } }] } });
+  assert.equal(safe.overview.kpis[0].comparison.period.sample.value, null);
 });

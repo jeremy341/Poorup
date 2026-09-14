@@ -86,7 +86,7 @@ export function annotateMatchAchievements(matchRecord, candidates = []) {
   return matchRecord;
 }
 
-function recordMatchTelemetry(context) {
+export function recordMatchTelemetry(context) {
   const { telemetryStore, matchRecord, telemetryVersions } = context;
   telemetryStore?.record('match-complete', {
     playerCount: matchRecord.playerCount,
@@ -95,7 +95,7 @@ function recordMatchTelemetry(context) {
   }, telemetryVersions);
 }
 
-function recordLoggedTelemetry(context) {
+export function recordLoggedTelemetry(context) {
   const { telemetryStore, room, telemetryVersions } = context;
   (room.game.telemetryLog || []).forEach(entry => {
     telemetryStore?.record(entry.kind, { ...(entry.data || {}), roundNumber: entry.roundNumber }, { ...telemetryVersions, eventId: entry.data?.eventId });
@@ -121,10 +121,13 @@ function recordAchievementTelemetry(context) {
   candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId }, telemetryVersions));
 }
 
-function recordBotTelemetry(context) {
+export function recordBotTelemetry(context) {
   const { telemetryStore, matchRecord, telemetryVersions } = context;
+  const botOnly = matchRecord.botOnly === true || (Array.isArray(matchRecord.participants) && matchRecord.participants.length > 0 && matchRecord.participants.every(participant => !participant.accountId));
   (matchRecord.botDecisions || []).slice(-200).forEach(decision => telemetryStore?.record('bot-outcome', {
     provider: decision.provider,
+    botMode: decision.botMode || (decision.provider === 'ai' ? 'ai' : 'no-ai'),
+    botOnly,
     fallback: decision.fallback,
     success: decision.success,
     phase: decision.phase,
@@ -132,21 +135,48 @@ function recordBotTelemetry(context) {
   }, telemetryVersions));
 }
 
+export function recordMatchStartTelemetry({ telemetryStore, room, telemetryVersions = {} } = {}) {
+  const marker = room?.game?.startedAt || true;
+  if (!telemetryStore || !room?.game?.started || room.analyticsMatchStartRecorded === marker) return false;
+  const result = telemetryStore.record('match-start', { roundNumber: Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)) }, telemetryVersions);
+  if (result?.recorded) { room.analyticsMatchStartRecorded = marker; return true; }
+  return false;
+}
+
+export function recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions = {}, reasonCode = 'room-ended-without-settlement' } = {}) {
+  const marker = room?.game?.startedAt || true;
+  if (!telemetryStore || !room?.game?.started || room.analyticsMatchStalledRecorded === marker) return false;
+  const result = telemetryStore.record('match-stalled', { roundNumber: Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)), reasonCode: String(reasonCode || 'unknown').slice(0, 80) }, telemetryVersions);
+  if (result?.recorded) { room.analyticsMatchStalledRecorded = marker; return true; }
+  return false;
+}
+
+function roomTelemetryVersions(room) {
+  return {
+    seasonId: room?.game?.seasonId || room?.seasonId,
+    rulesetRevision: room?.ruleset?.rulesetRevision || room?.settings?.rulesetRevision,
+    balanceRevision: room?.ruleset?.balanceRevision || room?.settings?.balanceRevision,
+    boardVariant: room?.ruleset?.boardVariant || room?.settings?.boardVariant,
+    rulesetPreset: room?.ruleset?.rulesetPreset || room?.settings?.rulesetPreset,
+    marketComplexity: room?.ruleset?.effectiveSettings?.marketComplexity || room?.settings?.marketComplexity
+  };
+}
+
 function recordSeasonTelemetry(context) {
   const { telemetryStore, room, matchRecord, candidates, seasonResult } = context;
-  if (!seasonResult?.recorded) return;
   const telemetryContext = {
     telemetryStore,
     room,
     matchRecord,
     candidates,
     telemetryVersions: {
-      seasonId: seasonResult.season.id,
+      seasonId: seasonResult?.season?.id || matchRecord.seasonId || 'unseasoned',
       rulesetRevision: matchRecord.rulesetRevision,
       balanceRevision: matchRecord.balanceRevision,
       boardVariant: matchRecord.boardVariant
     }
   };
+  recordMatchStartTelemetry(telemetryContext);
   recordMatchTelemetry(telemetryContext);
   recordLoggedTelemetry(telemetryContext);
   recordMarketTelemetry(telemetryContext);
@@ -185,6 +215,7 @@ function createRuntime(deps) {
 
   function emitRoomState(room) {
     if (!room || room.destroyed) return;
+    if (room.game?.started) recordMatchStartTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
     metrics?.setMetric('active-rooms', roomManager.rooms.size, { scope: 'all' });
     metrics?.setMetric('active-rounds', [...roomManager.rooms.values()].filter(candidate => candidate.game.started && !candidate.destroyed).length, { scope: 'all' });
     try {
@@ -409,6 +440,7 @@ function createRuntime(deps) {
   function destroyRoom(room) {
     if (!room) return;
     const roomCode = room.roomCode;
+    if (room.game?.started && !room.game?.lastWinner) recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
     room.destroyed = true;
     clearAuctionTimer(room);
     clearTurnTimer(room);

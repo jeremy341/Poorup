@@ -12,6 +12,16 @@ assert.equal(metadataConfig({ origin: "https://play.example", path: "/" }).previ
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/" })), /rel="canonical"/);
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/game" })), /noindex,nofollow/);
 assert.doesNotMatch(injectMetadata("<html><head></head></html>", { origin: "", path: "/" }), /canonical|og:url|https?:\/\//i);
+assert.doesNotMatch(renderMetadata({
+  origin: "not-a-url",
+  path: "/",
+  canonicalUrl: "https://evil.example/private",
+  previewUrl: "https://evil.example/card.png",
+  previewWidth: 1200,
+  previewHeight: 630,
+  indexPolicy: "index,follow",
+}), /evil\.example|rel="canonical"|og:url|og:image/i);
+assert.match(renderMetadata({ origin: "not-a-url", path: "/", indexPolicy: "index,follow" }), /name="robots" content="noindex,nofollow"/);
 assert.match(injectMetadata("<html><head><meta name=\"robots\" content=\"noindex,nofollow\" data-metadata-robots></head></html>", { origin: "https://play.example", path: "/" }), /rel="canonical"/);
 assert.match(injectMetadata("<html><head><meta name=\"robots\" content=\"noindex,nofollow\" data-metadata-robots></head></html>", { origin: "https://play.example", path: "/" }), /name="robots" content="index,follow"/);
 assert.equal(typeof createMetadataRouter, "function");

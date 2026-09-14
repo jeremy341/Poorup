@@ -6,10 +6,11 @@
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
-import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
+import { closeSurface, openSurface } from "./clientSurfaces.js";
 
 let host = { emitServer: noop, say: noop, renderChat: noop, renderRightRail: noop, openTradeNegotiation: noop, openFinancingNegotiation: noop, openConfirmModal: noop };
 let activeDealKey = null;
+let activeDealTrigger = null;
 function noop() {}
 
 export function configureDealUi(hooks) {
@@ -85,9 +86,10 @@ function renderDealDetails() {
 }
 
 function openDealEditor(kind, deal) {
+    const trigger = activeDealTrigger;
     closeDealDetails();
-    if (kind === "trade") host.openTradeNegotiation(deal, null);
-    else host.openFinancingNegotiation(deal.id, null);
+    if (kind === "trade") host.openTradeNegotiation(deal, trigger);
+    else host.openFinancingNegotiation(deal.id, trigger);
 }
 
 function dealEvent(kind, action) {
@@ -140,13 +142,17 @@ function handleDealAction(action, kind, deal) {
 
 export function openDealDetails(kind, id, trigger = null) {
   activeDealKey = `${kind}:${id}`;
-  if (!renderDealDetails()) return;
-  openSurface("#deal-detail-modal", "#deal-detail-close");
-  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
+  activeDealTrigger = trigger;
+  if (!renderDealDetails()) {
+    activeDealTrigger = null;
+    return;
+  }
+  openSurface("#deal-detail-modal", "#deal-detail-close", { trigger });
 }
 
 export function closeDealDetails() {
   activeDealKey = null;
+  activeDealTrigger = null;
   closeSurface("#deal-detail-modal");
 }
 
