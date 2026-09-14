@@ -76,8 +76,8 @@ function rememberCreateRoomReplay(key, entry) {
   pruneCreateRoomReplays();
 }
 
-function authAttemptKey(socket) {
-  const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUSTED_PROXY_HOPS) || 0));
+export function authAttemptKey(socket) {
+  const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
   return resolveClientAddress({
     address: socket.handshake?.address || socket.request?.socket?.remoteAddress,
     headers: socket.handshake?.headers || socket.request?.headers,
@@ -183,7 +183,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     if (!room || !player || room.game.started) return;
     if (player.accountId && player.accountId !== account.id) return;
     const occupiedElsewhere = [...roomManager.rooms.values()].some(candidateRoom => candidateRoom !== room
-      && candidateRoom.game.players.some(candidate => candidate.accountId === account.id && !candidate.disconnected && !candidate.bankrupt));
+      && candidateRoom.game.players.some(candidate => candidate.accountId === account.id && !candidate.bankrupt));
     if (occupiedElsewhere) return;
     const duplicate = room.game.players.some(candidate => candidate.id !== player.id && candidate.accountId === account.id);
     if (duplicate) return;

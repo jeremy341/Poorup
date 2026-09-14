@@ -15,6 +15,31 @@ const LEADERBOARD_METRICS = [...SEASON_METRICS];
 
 const PLAYER_NOT_FOUND = { success: false, error: 'Player not found.' };
 
+// Reward grants are deliberately replay-safe. The season write can commit
+// before a cosmetic/token store write fails, so callers must retry this seam
+// even when the next claim response reports created=false.
+export function applySeasonRewardGrant(cosmeticStore, accountId, claimed) {
+  const reward = claimed?.reward;
+  if (!cosmeticStore || !reward) return { success: true };
+  try {
+    if (reward.cosmeticId) {
+      const result = cosmeticStore.claim(accountId, reward.cosmeticId, {
+        claimKey: `season:${claimed.season?.id || 'unknown'}:${reward.id}`,
+        allowPaid: false,
+        allowSeason: true
+      });
+      if (result?.success === false) return { success: false, error: result.error || 'Cosmetic grant failed.' };
+    }
+    if (reward.tokens) {
+      const result = cosmeticStore.grantTokens(accountId, reward.tokens, `season:${claimed.season?.id || 'unknown'}:${reward.id}:tokens`);
+      if (result?.success === false) return { success: false, error: 'Token grant failed.' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Season reward grant is pending; retry the claim.' };
+  }
+}
+
 function registerSocialSocketHandlers(on, socket, runtime) {
   const { accountStore, socialStore, matchStore } = runtime;
   const { accountForSocket, allowAnonymousAction, allowSocialAction, chatBlockedInRoom, chatRateLimited, emitSocialUpdate, maxPlausiblePatrolScore, notifyAccount, patrolAchievementCandidates, patrolRunError, patrolRunPlausible, prunePatrolRuns, patrolRuns, publicPlayerCard, recentPlayers, recordVerifiedAchievement, socialSummary } = runtime.social;
@@ -201,10 +226,9 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const cosmeticStore = runtime.cosmeticStore;
     const claimed = seasonStore?.claimReward(account.id, payload.rewardId);
     if (!claimed?.success) return reply(callback, claimed || { success: false, error: 'Season reward is unavailable.' });
-    if (claimed.created && cosmeticStore) {
-      const reward = claimed.reward;
-      if (reward.cosmeticId) cosmeticStore.claim(account.id, reward.cosmeticId, { claimKey: `season:${claimed.season.id}:${reward.id}`, allowPaid: false, allowSeason: true });
-      if (reward.tokens) cosmeticStore.grantTokens(account.id, reward.tokens);
+    if (cosmeticStore) {
+      const grant = applySeasonRewardGrant(cosmeticStore, account.id, claimed);
+      if (!grant.success) return reply(callback, grant);
     }
     runtime.telemetryStore?.record('reward-claimed', { rewardId: claimed.reward.id, created: claimed.created }, { seasonId: claimed.season.id });
     reply(callback, { ...claimed, season: publicSeasonSummary(claimed.season), cosmetics: cosmeticStore?.snapshot(account.id) || null });
@@ -522,7 +546,7 @@ function leaderboardScope(rawScope) {
   }
 
   function sendRoomInvite(account, target, room, callback) {
-    const result = socialStore.createInvite({ roomCode: room.roomCode, roomName: room.roomName, visibility: room.visibility, senderId: account.id, recipientId: target.id });
+    const result = socialStore.createInvite({ roomId: room.publicId, roomCode: room.roomCode, roomName: room.roomName, visibility: room.visibility, senderId: account.id, recipientId: target.id });
     if (!result.success) return reply(callback, result);
     notifyAccount(target.id, { kind: 'room-invite', title: 'ROOM INVITE', body: `${account.displayName} invited you to ${room.roomName}.`, metadata: { inviteId: result.invite.id, roomName: room.roomName, visibility: room.visibility } });
     emitSocialUpdate(account.id);

@@ -71,6 +71,9 @@ const auctionApi = {
 
   auctionTimingRejection(player, now) {
     const auction = this.auction;
+    if (Number.isFinite(Number(auction.endsAt)) && now >= Number(auction.endsAt)) {
+      return { success: false, error: 'The auction has ended.' };
+    }
     if (auction.passedPlayerIds.includes(player.id)) return { success: false, error: 'You have passed on this auction.' };
     if (auction.cooldownUntil && now < auction.cooldownUntil) return { success: false, error: 'Please wait a moment before bidding again.' };
     return null;

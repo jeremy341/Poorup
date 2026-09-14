@@ -378,10 +378,8 @@ export class SeasonStore {
     if (reward.track === 'mastery') return row.mastery >= reward.threshold;
     const size = Math.max(1, Number(population) || 1);
     const rank = Number(row.placementRank || row.rank);
-    const topFraction = Number.isFinite(Number(row.topFraction))
-      ? Number(row.topFraction)
-      : Number.isFinite(rank) ? (Math.max(1, rank) - 1) / size : 1;
-    return topFraction <= reward.threshold;
+    const eligibleRank = Math.max(1, Math.ceil(size * Number(reward.threshold) || 0));
+    return Number.isFinite(rank) && rank >= 1 && rank <= eligibleRank;
   }
 }
 

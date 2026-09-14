@@ -194,6 +194,7 @@ function createRuntime(deps) {
   const turnTimers = new Map();
   const botDecisionLocks = new Set();
   const auctionBotTimers = new Map();
+  const auctionDecisionLocks = new Set();
   let roomsUpdatedTimer = null;
 
   function accountFromPayload(payload = {}) {
@@ -330,7 +331,7 @@ function createRuntime(deps) {
   function reassignHostIfNeeded(room, departedPlayerId) {
     if (!room) return;
     if (room.hostId !== departedPlayerId) return;
-    const available = room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && p.id !== departedPlayerId);
+    const available = room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && !p.inDebt && p.id !== departedPlayerId);
     if (available) {
       room.hostId = available.id;
     } else {
@@ -451,6 +452,7 @@ function createRuntime(deps) {
     clearTimeout(botTimers.get(roomCode));
     botTimers.delete(roomCode);
     botDecisionLocks.delete(roomCode);
+    auctionDecisionLocks.delete(roomCode);
     // Drop the socket->room index for everyone still mapped to this room;
     // otherwise connected players keep acting on a zombie room that is gone
     // from the registry (getRoomBySocket would still resolve it).
@@ -565,7 +567,7 @@ function createRuntime(deps) {
     const auction = room?.game.auction;
     if (!auction?.active) return;
     const key = room.roomCode;
-    if (auctionBotTimers.has(key)) return;
+    if (auctionBotTimers.has(key) || auctionDecisionLocks.has(key)) return;
     const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
     if (!bot) return;
     const timer = setTimeout(() => runRoomTimer('bot-auction', room.roomCode, () => {
@@ -577,6 +579,17 @@ function createRuntime(deps) {
   }
 
   async function beginBotAuctionBid(room, bot, key) {
+    if (auctionDecisionLocks.has(key)) return;
+    auctionDecisionLocks.add(key);
+    try {
+      await beginBotAuctionBidUnlocked(room, bot, key);
+    } finally {
+      auctionDecisionLocks.delete(key);
+      if (!room.destroyed) scheduleBotAuction(room);
+    }
+  }
+
+  async function beginBotAuctionBidUnlocked(room, bot, key) {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
     const auctionVersion = auctionIdentity(room.game.auction);
@@ -669,11 +682,13 @@ function createRuntime(deps) {
     clearAuctionTimer(currentRoom);
   }
 
-  function scheduleDisconnect(room, socketId) {
+  function scheduleDisconnect(room, socketId, disconnectedPlayer = null) {
     if (!room) return;
-    const player = room.getPlayerBySocket(socketId);
+    const player = disconnectedPlayer || room.getPlayerBySocket(socketId);
     if (!player) return;
     clearDisconnectTimer(player.clientId);
+    player.disconnected = true;
+    player.socketId = null;
     player.disconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
     const timer = setTimeout(() => runRoomTimer('disconnect-expiry', room.roomCode, () => expireDisconnectedSeat(room, player, socketId)), DISCONNECT_GRACE_MS);
     disconnectTimers.set(player.clientId, timer);
@@ -681,30 +696,29 @@ function createRuntime(deps) {
 
   function expireDisconnectedSeat(room, player, socketId) {
     disconnectTimers.delete(player.clientId);
-    if (player.socketId !== socketId) return;
+    if (player.socketId && player.socketId !== socketId) return;
     const currentRoom = roomManager.getRoom(room.roomCode);
     if (!currentRoom) return;
     const currentPlayer = currentRoom.game.getPlayerByClient(player.clientId);
     if (!currentPlayer) return;
-    if (currentPlayer.socketId !== socketId) return;
+    if (currentPlayer.socketId && currentPlayer.socketId !== socketId) return;
+    const wasCurrentTurn = currentRoom.game.currentPlayerId === currentPlayer.id;
     currentPlayer.disconnected = true;
     currentPlayer.socketId = null;
     currentPlayer.disconnectDeadline = 0;
     roomManager.socketRoom.delete(socketId);
     reassignHostIfNeeded(currentRoom, currentPlayer.id);
     clearPendingObligations(currentRoom, currentRoom.game, currentPlayer, 'disconnect');
-    skipDisconnectedCurrentTurn(currentRoom, currentPlayer);
     revokeAuctionLeadIfLeader(currentRoom, currentPlayer);
+    currentRoom.game.removePlayerByClient(currentPlayer.clientId);
+    if (wasCurrentTurn) {
+      currentRoom.game.currentPlayerId = null;
+      currentRoom.game.nextTurn();
+    }
     emitRoomState(currentRoom);
     io.in(currentRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname} disconnected.` });
     // A room that just lost its last human may leave the directory.
     scheduleRoomsUpdated();
-  }
-
-  function skipDisconnectedCurrentTurn(room, player) {
-    if (room.game.currentPlayerId !== player.id) return;
-    room.game.pendingPurchaseOffer = null;
-    room.game.skipDisconnectedCurrentPlayer();
   }
 
   function revokeAuctionLeadIfLeader(room, player) {
@@ -861,6 +875,16 @@ function createRuntime(deps) {
       return { success: false, error: 'That seat is already in use.' };
     }
     const addedNewSeat = !existing;
+    const previousSeat = existing ? {
+      clientId: existing.clientId,
+      socketId: existing.socketId,
+      disconnected: existing.disconnected,
+      disconnectDeadline: existing.disconnectDeadline,
+      nickname: existing.nickname,
+      color: existing.color,
+      avatarGrid: existing.avatarGrid,
+      accountId: existing.accountId
+    } : null;
     const joined = room.addOrReconnectPlayer({
       clientId,
       socketId: socket.id,
@@ -876,6 +900,7 @@ function createRuntime(deps) {
     const result = socialStore.respondInvite(account.id, payload.inviteId, true);
     if (!result.success) {
       if (addedNewSeat) room.game.removePlayerByClient(clientId);
+      else Object.assign(existing, previousSeat);
       return result;
     }
     detachSocketFromOtherRoom(socket, room);
@@ -923,9 +948,13 @@ function createRuntime(deps) {
   function handleSocketDisconnect(socket) {
     social.chatLastSent.delete(socket.id);
     forgetPatrolRuns(socket.id);
-    const room = roomManager.disconnectPlayer(socket.id);
-    if (room) {
-      scheduleDisconnect(room, socket.id);
+    const room = roomManager.getRoomBySocket(socket.id);
+    const player = room?.getPlayerBySocket(socket.id) || null;
+    roomManager.disconnectPlayer(socket.id);
+    if (room && player) {
+      scheduleDisconnect(room, socket.id, player);
+      reassignHostIfNeeded(room, player.id);
+      emitRoomState(room);
     }
     console.log('Socket disconnected:', socket.id);
   }
