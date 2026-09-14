@@ -140,7 +140,7 @@ import {
   stopAuctionTimer,
 } from "./clientAuctionUi.js";
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
-import { bindAudioControls } from "./clientAudioControls.js";
+import { bindAudioControls, syncAudioButtons } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
 import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./clientTheme.js";
 import { renderTheme } from "./clientThemeRender.js";
@@ -211,21 +211,52 @@ import {
 } from "./clientGameSave.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
+const audioRuntime = {
+  state: "off",
+  message: "",
+  playPromise: null,
+  retryUsed: false,
+};
+
+const AUDIO_LABELS = Object.freeze({
+  off: "Turn parlor music on",
+  ready: "Turn parlor music off",
+  loading: "Parlor music loading",
+  blocked: "Parlor music is blocked. Activate to retry",
+  error: "Parlor music unavailable. Check the audio file or try again",
+  stalled: "Parlor music is waiting for audio data",
+  ended: "Parlor music ended. Activate to replay",
+});
+
+function applyAudioState(stateName) {
+  const toggle = $("#music-toggle-btn");
+  if (!toggle) return;
+  toggle.dataset.audioState = stateName;
+  toggle.setAttribute("aria-label", AUDIO_LABELS[stateName] || AUDIO_LABELS.off);
+}
+
 function setAudioState(stateName, message) {
   const status = $("#music-status");
-  if (status) status.textContent = message || "";
-  const toggle = $("#music-toggle-btn");
-  if (toggle) {
-    toggle.dataset.audioState = stateName;
-    if (stateName === "blocked") toggle.setAttribute("aria-label", "Parlor music is blocked. Activate to retry");
-  }
+  const nextMessage = message || "";
+  const changed = audioRuntime.state !== stateName || audioRuntime.message !== nextMessage;
+  audioRuntime.state = stateName;
+  audioRuntime.message = nextMessage;
+  applyAudioState(stateName);
+  // Keep the live region quiet when a render or ordinary gesture reasserts
+  // the same media state.
+  if (changed && status) status.textContent = nextMessage;
+}
+
+function announceAudioMessage(message) {
+  const status = $("#music-status");
+  if (status && status.textContent !== message) status.textContent = message;
 }
 
 function tone(freq, dur, vol = 0.035, when = 0) {
   if (!state.sound) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === "suspended") audioCtx.resume()?.catch(() => setAudioState("blocked", "Sound is blocked. Activate a control to retry."));
+    if (audioCtx.state === "suspended") audioCtx.resume()?.catch(() => announceAudioMessage("Sound is blocked. Activate a control to retry."));
     const t0 = audioCtx.currentTime + when;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -384,6 +415,8 @@ configureSocketListeners(socket, {
   renderDealDetailsIfOpen,
   openDealDetails,
   applyMaintenanceState,
+  syncAudioButtons,
+  syncHomeMusic,
   serverSyncHost,
 });
 
@@ -475,30 +508,95 @@ function refreshEconomySnapshot() {
 
 
 
-function syncHomeMusic() {
+function mediaFailureState(error, music) {
+  const errorName = String(error?.name || "");
+  if (!music?.error && /NotAllowedError|SecurityError/i.test(errorName)) return "blocked";
+  return "error";
+}
+
+function syncHomeMusic({ force = false, userGesture = false } = {}) {
   const music = $("#home-music");
   if (!music) return;
   music.volume = 0.16;
   // The sound preference is global. Keep the same soundtrack running while
   // the player moves from Home into setup, lobby, or the live table.
-  if (state.music) {
-    setAudioState("loading", "Parlor music loading.");
-    const playAttempt = music.play();
-    if (playAttempt?.then) {
-      playAttempt.then(() => setAudioState("ready", "Parlor music ready."))
-        .catch(() => setAudioState("blocked", "Parlor music is blocked. Activate the music control to retry."));
-    } else {
-      setAudioState("ready", "Parlor music ready.");
-    }
-  } else {
+  if (!state.music) {
+    audioRuntime.playPromise = null;
+    audioRuntime.retryUsed = false;
     music.pause();
     setAudioState("off", "Parlor music off.");
+    return;
+  }
+
+  if (force) audioRuntime.retryUsed = false;
+  if (audioRuntime.playPromise) {
+    applyAudioState(audioRuntime.state);
+    return;
+  }
+  if (!force && !userGesture && ["blocked", "error"].includes(audioRuntime.state)) {
+    applyAudioState(audioRuntime.state);
+    return;
+  }
+  if (userGesture && audioRuntime.retryUsed) {
+    applyAudioState(audioRuntime.state);
+    return;
+  }
+  if (!force && audioRuntime.state === "ready") {
+    applyAudioState(audioRuntime.state);
+    return;
+  }
+
+  if (userGesture) audioRuntime.retryUsed = true;
+  setAudioState("loading", "Parlor music loading.");
+  let playAttempt;
+  try {
+    playAttempt = music.play();
+  } catch (error) {
+    const nextState = mediaFailureState(error, music);
+    setAudioState(nextState, nextState === "blocked"
+      ? "Parlor music is blocked. Activate the music control to retry."
+      : "Parlor music could not be loaded. Check the audio asset and try again.");
+    return;
+  }
+  if (playAttempt?.then) {
+    audioRuntime.playPromise = Promise.resolve(playAttempt)
+      .then(() => {
+        audioRuntime.playPromise = null;
+        if (state.music) setAudioState("ready", "Parlor music ready.");
+      })
+      .catch((error) => {
+        audioRuntime.playPromise = null;
+        const nextState = mediaFailureState(error, music);
+        setAudioState(nextState, nextState === "blocked"
+          ? "Parlor music is blocked. Activate the music control to retry."
+          : "Parlor music could not be loaded. Check the audio asset and try again.");
+      });
+  } else {
+    setAudioState("ready", "Parlor music ready.");
   }
 }
 
 function retryAudioAfterGesture() {
-  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => setAudioState("blocked", "Sound is blocked. Activate a control to retry."));
-  if (state.music) syncHomeMusic();
+  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => announceAudioMessage("Sound is blocked. Activate a control to retry."));
+  if (!state.music || audioRuntime.playPromise || audioRuntime.retryUsed) return;
+  if (["off", "blocked", "error", "stalled", "ended"].includes(audioRuntime.state)) {
+    syncHomeMusic({ userGesture: true });
+  }
+}
+
+function bindHomeMusicEvents() {
+  const music = $("#home-music");
+  if (!music || music.dataset.audioEventsBound) return;
+  music.dataset.audioEventsBound = "true";
+  music.addEventListener("error", () => {
+    if (state.music) setAudioState("error", "Parlor music could not be loaded. Check the audio asset and try again.");
+  });
+  music.addEventListener("stalled", () => {
+    if (state.music) setAudioState("stalled", "Parlor music is waiting for audio data.");
+  });
+  music.addEventListener("ended", () => {
+    if (state.music) setAudioState("ended", "Parlor music ended. Activate to replay.");
+  });
 }
 
 
@@ -981,6 +1079,7 @@ function bindEvents() {
   bindProfileUi();
 
   // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
+  bindHomeMusicEvents();
   bindAudioControls({ playSound, syncHomeMusic });
   window.addEventListener("pointerdown", retryAudioAfterGesture, { passive: true });
   window.addEventListener("keydown", retryAudioAfterGesture);
@@ -1035,7 +1134,7 @@ function bindEvents() {
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
-configureAccountIdentity({ emitServer, say });
+configureAccountIdentity({ emitServer, say, syncAudioButtons, syncHomeMusic });
 configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot });
 configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
 configureMarketUi({ emitServer, renderRightRail, createRequestId, say, renderChat });

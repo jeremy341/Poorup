@@ -423,6 +423,14 @@ a:focus-visible {
 }
 .legal-ticker { margin-top: 0; }
 .legal-index-link { display: inline-flex; min-height: 32px; align-items: center; }
+.legal-links { white-space: nowrap; }
+.legal-links a {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  margin-block: -5.71px;
+  padding-inline: 3px;
+}
 @media (max-width: 640px) {
   .legal-main { padding: 24px 14px 36px; }
   .legal-nav ul,
