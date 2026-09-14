@@ -27,7 +27,7 @@ export function createMusicPlayer(options = {}) {
     const play = () => { if (token !== transition) return; try { const result = element.play?.(); if (result?.then) result.then(ramp).catch(() => { if (token === transition) announceStatus("autoplay-blocked"); }); else ramp(); } catch { if (token === transition) announceStatus("autoplay-blocked"); } };
     if (typeof element.addEventListener === "function") {
       const onReady = () => { element.removeEventListener?.("canplay", onReady); play(); };
-      const onError = () => { if (token === transition) { current = prior; queueIndex = priorIndex; if (restore.theme !== undefined) theme = restore.theme; if (restore.mode !== undefined) mode = restore.mode; if (restore.loop !== undefined) loop = restore.loop; if (restore.queue) queue = [...restore.queue]; element.pause?.(); setVolumes(); persist(); announceStatus("track-error"); } };
+      const onError = () => { if (token === transition) { if (frame !== null) { cancelFrame(frame); frame = null; } transition += 1; current = prior; queueIndex = priorIndex; if (restore.theme !== undefined) theme = restore.theme; if (restore.mode !== undefined) mode = restore.mode; if (restore.loop !== undefined) loop = restore.loop; if (restore.queue) queue = [...restore.queue]; element.pause?.(); setVolumes(); persist(); announceStatus("track-error"); } };
       element.addEventListener("canplay", onReady, { once: true }); element.addEventListener("error", onError, { once: true }); element.addEventListener("stalled", onError, { once: true });
     }
     else play();

@@ -96,3 +96,10 @@ test("failed reset rolls back custom state and queue", () => {
   const { player } = setup({ audioB }); player.selectTrack("pondering-the-cosmos"); const before = player.snapshot(); player.resetToThemeTrack(); listeners.error(); const after = player.snapshot();
   assert.equal(after.mode, before.mode); assert.equal(after.currentTrackId, before.currentTrackId); assert.deepEqual(after.queue, before.queue);
 });
+test("rollback cancels queued fade so failed incoming audio cannot reactivate", () => {
+  const listeners = {}; let queued; let cancelled = false;
+  const audioB = { ...media(), play() {}, addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player, audioA } = setup({ audioB, reducedMotion: false, requestFrame: fn => { queued = fn; return 42; }, cancelFrame: id => { if (id === 42) cancelled = true; } });
+  player.selectTrack("pondering-the-cosmos"); listeners.canplay(); listeners.error(); queued?.();
+  assert.equal(cancelled, true); assert.equal(player.snapshot().currentTrackId, "pondering-the-cosmos"); assert.equal(player.snapshot().status, "track-error"); assert.equal(audioA.volume, 0.16); assert.equal(audioB.volume, 0);
+});
