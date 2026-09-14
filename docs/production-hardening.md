@@ -4,6 +4,11 @@ Poorup remains one modular monolith. The authoritative room state stays in
 memory for a single process, while account, social, match, achievement,
 season, cosmetic, and telemetry projections use atomic JSON stores.
 
+Current feature status, evidence paths, and policy-gated surfaces are tracked
+in [`docs/feature-status.json`](feature-status.json). This runbook does not
+invent an operator identity, retention period, legal copy, canonical hostname,
+preview artwork approval, or production adapter credentials.
+
 ## Required production variables
 
 ```text
@@ -67,3 +72,11 @@ The deploy workflow is fail-closed until the repository variable
 `NEST_DEPLOY_ENABLED=true` and all `nest-production` environment secrets are
 configured. This keeps normal main CI green while the one-time Nest bootstrap
 is still pending.
+
+## Policy-gated release surfaces
+
+Account deletion/export scope, session lifetime, legal/support identity and
+copy, analytics retention/disclosure, canonical preview origin/artwork, and
+horizontal persistence are owner decisions. Until each decision has an
+approved contract and source evidence, the corresponding manifest records stay
+`planned` or `deferred`; this document makes no public policy promise for them.
