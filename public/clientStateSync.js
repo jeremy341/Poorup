@@ -148,8 +148,13 @@ function syncTurnPointer(game) {
 }
 
 function syncRoundFlags(game) {
+  const nextRoundNumber = num(game.roundNumber);
+  if (nextRoundNumber !== state.roundNumber) {
+    state.gameOver = null;
+    state.previousTurnKey = "";
+  }
   state.dice = diceOf(game);
-  state.roundNumber = num(game.roundNumber);
+  state.roundNumber = nextRoundNumber;
   state.turnDeadline = num(game.turnDeadline);
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
