@@ -120,7 +120,7 @@ function renderStatus(message, tone = 'muted') { const status = query('#admin-an
 function renderKpis(snapshot) {
   const kpis = Array.isArray(snapshot.overview?.kpis) ? snapshot.overview.kpis.slice(0, 6) : [];
   if (!kpis.length) return '';
-  return kpis.map(item => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${item.value === null || item.value === undefined ? '—' : escapeHtml(Number(item.value).toLocaleString())}</strong><span class="t-micro ink-3">DENOMINATOR ${item.denominator === null || item.denominator === undefined ? '—' : escapeHtml(item.denominator)}</span><span class="t-micro ink-3">${escapeHtml(item.comparison?.period || item.comparison?.label || 'SELECTED PERIOD')}</span><span class="t-micro ink-3">${escapeHtml(item.definition || 'Aggregate measure')}</span></article>`).join('');
+  return kpis.map(item => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${item.value === null || item.value === undefined ? '·' : escapeHtml(Number(item.value).toLocaleString())}</strong><span class="t-micro ink-3">DENOMINATOR ${item.denominator === null || item.denominator === undefined ? '·' : escapeHtml(item.denominator)}</span><span class="t-micro ink-3">${escapeHtml(item.comparison?.period || item.comparison?.label || 'SELECTED PERIOD')}</span><span class="t-micro ink-3">${escapeHtml(item.definition || 'Aggregate measure')}</span></article>`).join('');
 }
 
 function renderAnalyticsCharts(snapshot) {

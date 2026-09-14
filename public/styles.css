@@ -543,7 +543,8 @@ a:focus-visible {
     .theme-snow-b,
     .theme-leaves-a,
     .theme-leaves-b,
-    .theme-pedestrian-band,
+    .theme-pedestrian-a,
+    .theme-pedestrian-b,
     .theme-cloud-a,
     .theme-cloud-b,
     .theme-fog-a,
@@ -1116,7 +1117,6 @@ button[id$="-close"],
   display: block; width: 128px; height: 64px; padding: 0;
   border: 0; background: transparent; opacity: 0;
   pointer-events: auto; cursor: var(--cursor-reticle), crosshair;
-  will-change: transform, opacity;
 }
 .home-helicopter-art { display: block; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
 .home-helicopter.is-flying { animation: home-helicopter-pass 18s linear 1 both; }
@@ -1136,7 +1136,13 @@ button[id$="-close"],
 .home-patrol-effect {
   position: absolute; z-index: 5; display: block;
   opacity: 0; pointer-events: none; transform: translate3d(0, 0, 0) scale(0.96);
-  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .home-helicopter.is-flying,
+  .home-patrol-effect.is-burst,
+  .night-target.is-flight,
+  .night-shift-effect.is-burst,
+  .night-shift-effect.night-shift-aircraft-burst { will-change: transform, opacity; }
 }
 .home-patrol-effect img { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 .home-patrol-impact { width: 64px; height: 64px; }
@@ -1203,7 +1209,6 @@ button[id$="-close"],
 .night-target {
   position: absolute; z-index: 1; display: block; width: 128px; height: 64px; padding: 0;
   border: 0; background: transparent; pointer-events: auto; cursor: var(--cursor-reticle), crosshair;
-  will-change: transform, opacity;
 }
 .night-target img { display: block; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
 .night-target-right { left: -160px; }
@@ -1231,7 +1236,7 @@ button[id$="-close"],
   100% { opacity: 0.82; transform: translate3d(0, calc(100vh + 140px), 0) rotate(-10deg); }
 }
 .night-target.is-popping { animation: none; pointer-events: none; }
-.night-shift-effect { position: absolute; z-index: 3; width: 64px; height: 64px; opacity: 0; pointer-events: none; will-change: transform, opacity; }
+.night-shift-effect { position: absolute; z-index: 3; width: 64px; height: 64px; opacity: 0; pointer-events: none; }
 .night-shift-effect img { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 .night-shift-effect.is-burst { animation: night-shift-burst 620ms steps(4, end) both; }
 .night-shift-aircraft-burst { animation: night-shift-burst 820ms steps(8, end) both; }
@@ -3572,7 +3577,10 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 @media (max-width: 640px) { .casino-modal-body { padding: 16px; } }
 .casino-reel { display: grid; gap: 10px; margin-top: 16px; padding: 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); }
 .casino-reel-viewport { position: relative; min-height: 96px; overflow: hidden; border: 1px solid var(--line-dark); background: var(--bg-chrome); }
-.casino-reel-track { display: flex; align-items: center; gap: 6px; height: 96px; width: max-content; padding: 0 8px; will-change: transform; }
+.casino-reel-track { display: flex; align-items: center; gap: 6px; height: 96px; width: max-content; padding: 0 8px; }
+@media (prefers-reduced-motion: no-preference) {
+  .casino-reel[data-reel-state="presenting"] .casino-reel-track { will-change: transform; }
+}
 .casino-reel-card { display: grid; place-items: center; align-content: center; gap: 5px; width: 76px; height: 72px; flex: 0 0 76px; color: var(--text-primary); border: 1px solid var(--line-subtle); background: var(--surface-card); font-family: var(--font-numeric); image-rendering: pixelated; }
 .casino-reel-card strong { font: 700 22px var(--font-display); line-height: 1; }
 .casino-reel-card small { font: 700 8px var(--font-pixel); letter-spacing: .08em; }
