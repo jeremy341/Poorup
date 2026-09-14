@@ -51,3 +51,13 @@ check('builds versioned aggregate models without identity fields', () => {
   const drilldown = buildAnalyticsDrilldown({ rollup, accountId: 'acct-owner', adminIds: ['acct-owner'], query: {} });
   assert.equal(drilldown.breakdowns[0].suppressionReason, 'PSEUDONYM_UNAVAILABLE');
 });
+
+check('keeps explicit nulls in versioned tab data', () => {
+  const rollup = {
+    health: () => ({ loaded: true, fresh: true }),
+    query: () => ({ schemaVersion: 1, generatedAt: '2026-09-13T12:00:00.000Z', dimensions: { 's|1|1|standard-40|classic|basic': { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', started: 1, completed: 1, outcomes: { x: 1 } } }, actorRollups: {}, quality: {} })
+  };
+  const result = buildAnalyticsBalance({ rollup, accountId: 'acct-owner', adminIds: ['acct-owner'], query: { tab: 'rulesets', rulesetRevision: 1, balanceRevision: 1 } });
+  assert.equal(result.breakdowns[0].rows[0].medianDuration.value, null);
+  assert.equal(result.breakdowns[0].rows[0].completionRate.value, 1);
+});

@@ -10,7 +10,17 @@ assert.equal(store.record('match-complete', { players: 2, chat: 'do not keep', h
 assert.equal(store.events[0].data.chat, undefined);
 assert.equal(store.events[0].data.hiddenCards, undefined);
 assert.equal(store.record('unknown', {}).recorded, false);
+assert.equal(store.record('match-complete', { durationSeconds: 4, unknownRawField: 'SECRET' }).recorded, false);
 assert.equal(store.summary().total, 1);
 assert.deepEqual(sanitize({ text: 'secret', nested: { value: 2 } }), { nested: { value: 2 } });
+let writes = 0;
+const batched = new TelemetryStore(path.join(dir, 'batched.json'), { persist: () => { writes += 1; }, maxPending: 50, flushIntervalMs: 0 });
+assert.equal(batched.record('bankruptcy', { count: 1 }).recorded, true);
+assert.equal(batched.record('bankruptcy', { count: 1, title: 'unknown' }).recorded, false);
+assert.equal(writes, 0);
+batched.flush();
+assert.equal(writes, 1);
+batched.close();
+store.close();
 fs.rmSync(dir, { recursive: true, force: true });
-console.log('telemetry module: 6 passed, 0 failed');
+console.log('telemetry module: 10 passed, 0 failed');

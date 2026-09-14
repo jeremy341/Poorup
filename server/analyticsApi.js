@@ -66,7 +66,9 @@ function failure(status, error) {
 
 function rollupHealth(rollup) {
   try {
-    return typeof rollup?.health === 'function' ? rollup.health() : { loaded: Boolean(rollup), fresh: Boolean(rollup) };
+    if (typeof rollup?.health === 'function') return rollup.health();
+    const dimensions = rollup?.dimensions || {};
+    return { loaded: Boolean(rollup), fresh: Object.keys(dimensions).length > 0 };
   } catch {
     return { loaded: false, fresh: false };
   }
@@ -156,8 +158,8 @@ export function buildAnalyticsDrilldown({ rollup, accountId, adminIds, query: qu
     const actors = Array.isArray(snapshot.actorRollups)
       ? snapshot.actorRollups
       : Object.values(snapshot.actorRollups || {});
-    const eligible = actors.filter(row => Number(row?.observations) >= MIN_COHORT);
-    breakdowns = eligible.length ? sanitizeAnalyticsRows(eligible, { pseudonymizer, scope: query }) : [suppressedRow('MIN_COHORT')];
+    const eligible = actors.filter(row => row?.pseudonymVersion === pseudonymizer.version && Number(row?.observations) >= MIN_COHORT);
+    breakdowns = eligible.length ? sanitizeAnalyticsRows(eligible, { pseudonymizer, scope: query, trusted: true }) : [suppressedRow('MIN_COHORT')];
   }
   return responseEnvelope({ snapshot, query, overview: {}, series: [], breakdowns, dataQuality: buildDataQuality(snapshot, query), pseudonymVersion: pseudonymizer.version });
 }

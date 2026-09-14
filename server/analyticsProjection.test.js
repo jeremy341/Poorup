@@ -51,6 +51,8 @@ check('normalizes bounded filters and fixes the cohort threshold', () => {
   assert.equal(normalized.botMode, 'ai');
   assert.equal(normalized.minimumCohort, 5);
   assert.equal(normalized.tab, 'economy');
+  assert.equal(normalizeAnalyticsQuery({}).rulesetRevision, null);
+  assert.equal(normalizeAnalyticsQuery({}).balanceRevision, null);
 });
 
 check('builds overview and match health with explicit denominators', () => {
@@ -74,10 +76,17 @@ check('builds ruleset, economy, event, and bot read models', () => {
   assert.equal(economy.liquidationRate.value, 0.2);
   const events = buildEventsRarity(rollup, query);
   assert.equal(events.rows[0].warningToActive.value, 0.8);
-  assert.equal(events.rows[0].turnout.denominator, 8);
+  assert.equal(events.rows[0].turnout.value, 0.75);
   const bots = buildBots(rollup, query);
   assert.equal(bots.rows.length, 2);
   assert.equal(bots.rows[0].associationLabel, undefined);
+});
+
+check('uses competitive denominators for rarity and reward measures', () => {
+  const botOnly = { generatedAt: '2026-09-13T12:00:00.000Z', dimensions: { x: { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', started: 10, completed: 10, competitiveCompleted: 0, botOnlyMatches: 10, achievements: { COMMON: 10 }, rewardClaims: 10 } } };
+  const result = buildEventsRarity(botOnly, { range: 'season', rulesetRevision: 1, balanceRevision: 1 });
+  assert.equal(result.unlockRarity.COMMON.value, null);
+  assert.equal(result.rewardClaims.value, null);
 });
 
 check('suppresses association groups below k and never claims causation', () => {

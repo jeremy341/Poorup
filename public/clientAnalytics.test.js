@@ -7,6 +7,7 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
 const { normalizeAnalyticsSnapshot, normalizeAnalyticsQuery, metricValue, isAnalyticsPath, createAnalyticsController } = await import('./clientAnalytics.js');
+const { renderAnalyticsChart } = await import('./clientAnalyticsCharts.js');
 
 async function check(name, run) {
   try {
@@ -61,6 +62,21 @@ await check('normalizes versioned aggregate snapshots without raw identity field
 await check('normalizes filters to fixed allow-lists and minimum cohort', () => {
   const query = normalizeAnalyticsQuery({ range: 'season', boardVariant: 'METRO-52', botMode: 'AI', minimumCohort: 1, accountId: 'raw' });
   assert.deepEqual(query, { range: 'season', seasonId: '', rulesetRevision: '', balanceRevision: '', boardVariant: 'metro-52', rulesetPreset: 'all', marketComplexity: 'all', botMode: 'ai', eventId: '', minimumCohort: 5, tab: 'overview' });
+  assert.equal(normalizeAnalyticsQuery({ rulesetRevision: 'abc', balanceRevision: 'NaN' }).rulesetRevision, '');
+});
+
+await check('retains version dimensions and strips unknown aggregate fields', () => {
+  const snapshot = normalizeAnalyticsSnapshot({ schemaVersion: 1, pseudonymVersion: 'hmac-v1', seasonId: 's', rulesetRevision: 2, balanceRevision: 3, boardVariant: 'metro-52', overview: { unknownField: 'drop', kpis: [] } });
+  assert.equal(snapshot.pseudonymVersion, 'hmac-v1');
+  assert.equal(snapshot.seasonId, 's');
+  assert.equal(snapshot.rulesetRevision, 2);
+  assert.equal(snapshot.overview.unknownField, undefined);
+});
+
+await check('chart hook keeps an accessible table fallback and bounded points', () => {
+  const fallback = renderAnalyticsChart(null, Array.from({ length: 200 }, (_, index) => ({ label: `<${index}>`, value: index })), { title: 'Completion', unit: 'rounds', mode: 'bar' });
+  assert.equal(fallback.values.length, 168);
+  assert.equal(fallback.table, true);
 });
 
 await check('controller suppresses duplicate loads and exposes tab/filter hooks', async () => {

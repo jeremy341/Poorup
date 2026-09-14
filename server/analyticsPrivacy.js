@@ -78,6 +78,7 @@ export function suppressedRow(reason = 'MIN_COHORT') {
 }
 
 function safePrimitive(value) {
+  if (value === null) return null;
   if (typeof value === 'boolean' || typeof value === 'string') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   return undefined;
@@ -85,9 +86,10 @@ function safePrimitive(value) {
 
 function sanitizeValue(value, key, depth = 0) {
   if (FORBIDDEN_KEYS.has(String(key || '').toLowerCase())) return undefined;
-  if (depth > 2) return undefined;
+  if (depth > 12) return undefined;
+  if (value === null) return null;
   const primitive = safePrimitive(value);
-  if (primitive !== undefined) return primitive;
+  if (primitive !== undefined || value === null) return primitive;
   if (Array.isArray(value)) return value.slice(0, 100).map(item => sanitizeValue(item, '', depth + 1)).filter(item => item !== undefined);
   if (!value || typeof value !== 'object') return undefined;
   const result = {};
@@ -98,10 +100,10 @@ function sanitizeValue(value, key, depth = 0) {
   return result;
 }
 
-export function sanitizeAnalyticsRow(row = {}, { pseudonymizer, scope } = {}) {
+export function sanitizeAnalyticsRow(row = {}, { pseudonymizer, scope, trusted = false } = {}) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return suppressedRow('INVALID_ROW');
   const output = {};
-  let pseudonymId = typeof row.pseudonymId === 'string' ? row.pseudonymId.slice(0, 40) : null;
+  let pseudonymId = trusted && typeof row.pseudonymId === 'string' ? row.pseudonymId.slice(0, 40) : null;
   if (!pseudonymId && pseudonymizer && scope && row.accountId) pseudonymId = pseudonymizer.pseudonymize(row.accountId, scope);
   if (pseudonymId) output.pseudonymId = pseudonymId;
   Object.entries(row).forEach(([key, value]) => {
@@ -132,9 +134,10 @@ export function sanitizeAnalyticsRows(rows, options = {}) {
 
 function sanitizeResponseValue(value, key = '', depth = 0) {
   if (FORBIDDEN_KEYS.has(key.toLowerCase())) return undefined;
-  if (depth > 5) return undefined;
+  if (depth > 20) return undefined;
+  if (value === null) return null;
   const primitive = safePrimitive(value);
-  if (primitive !== undefined) return primitive;
+  if (primitive !== undefined || value === null) return primitive;
   if (Array.isArray(value)) return value.slice(0, 200).map(item => sanitizeResponseValue(item, '', depth + 1)).filter(item => item !== undefined);
   if (!value || typeof value !== 'object') return undefined;
   const result = {};

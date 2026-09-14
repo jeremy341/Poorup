@@ -17,11 +17,13 @@ function enumValue(value, allowed, fallback) {
 }
 
 function revision(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.min(1_000_000, Math.floor(number)) : null;
 }
 
 function dateValue(value) {
+  if (value === null || value === undefined || value === '') return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
@@ -30,10 +32,10 @@ function dateWindow(range, from, to) {
   const explicitFrom = dateValue(from);
   const explicitTo = dateValue(to);
   if (explicitFrom || explicitTo) return { from: explicitFrom, to: explicitTo };
-  if (range === 'season') return { from: null, to: null };
-  const end = new Date();
-  const duration = range === 'hour' ? 3600000 : range === 'day' ? 86400000 : 7 * 86400000;
-  return { from: new Date(end.getTime() - duration).toISOString(), to: end.toISOString() };
+  // The storage seam owns the clock. Leaving omitted bounds open here keeps
+  // deterministic projections/test fixtures from being filtered against the
+  // wall clock of a different process.
+  return { from: null, to: null };
 }
 
 export function normalizeAnalyticsQuery(input = {}) {
@@ -60,6 +62,7 @@ export function normalizeAnalyticsQuery(input = {}) {
 }
 
 function number(value, fallback = 0) {
+  if (value === null || value === undefined) return fallback;
   const result = Number(value);
   return Number.isFinite(result) ? result : fallback;
 }
@@ -110,7 +113,7 @@ function valueMeasure(value, denominator = null, extra = {}) {
 
 function dimensionFromKey(key) {
   const parts = String(key || '').split('|');
-  return { seasonId: parts[0] || 'unseasoned', rulesetRevision: number(parts[1]), balanceRevision: number(parts[2]), boardVariant: parts[3] || 'standard-40', rulesetPreset: parts[4] || 'classic', marketComplexity: parts[5] || 'basic' };
+  return { seasonId: parts[0] || 'unseasoned', rulesetRevision: number(parts[1]), balanceRevision: number(parts[2]), boardVariant: parts[3] || 'standard-40', rulesetPreset: parts[4] || 'classic', marketComplexity: parts[5] || 'basic', eventId: parts[6] || '', actionId: parts[7] || '', botMode: parts[8] || '', provider: parts[9] || '' };
 }
 
 function rollupSnapshot(rollup, query) {
@@ -145,20 +148,27 @@ function selectedDimensions(rollup, query) {
 }
 
 function aggregate(entries) {
-  const result = { started: 0, completed: 0, stalled: 0, botOnlyMatches: 0, competitiveCompleted: 0, reconnects: 0, afk: 0, bankruptcies: 0, comebacks: 0, rewardClaims: 0, durationSeconds: { count: 0, sum: 0, values: [] }, features: {}, events: {}, market: { volatility: { count: 0, sum: 0, values: [] }, liquidations: 0, marginPositions: 0, shortDefaults: 0, shortPositions: 0, optionExercises: 0, collateralizedOptions: 0, negativeCashPreventions: 0 }, achievements: {}, bots: {} };
+  const result = { started: 0, completed: 0, stalled: 0, botOnlyMatches: 0, competitiveCompleted: 0, competitiveSeen: false, competitiveRewardClaims: 0, competitiveRewardSeen: false, reconnects: 0, afk: 0, bankruptcies: 0, comebacks: 0, rewardClaims: 0, durationSeconds: { count: 0, sum: 0, values: [] }, features: {}, events: {}, market: { volatility: { count: 0, sum: 0, values: [] }, liquidations: 0, marginPositions: 0, shortDefaults: 0, shortPositions: 0, optionExercises: 0, collateralizedOptions: 0, negativeCashPreventions: 0 }, achievements: {}, competitiveAchievements: {}, bots: {} };
   const addDuration = (target, value) => { if (!value || typeof value !== 'object') return; target.count += Math.max(0, number(value.count)); target.sum += number(value.sum); if (Array.isArray(value.values)) target.values.push(...value.values.slice(0, 4096 - target.values.length).map(number)); };
   entries.forEach(({ value }) => {
-    ['started', 'completed', 'stalled', 'botOnlyMatches', 'competitiveCompleted', 'reconnects', 'afk', 'bankruptcies', 'comebacks', 'rewardClaims'].forEach(key => { result[key] += Math.max(0, number(value[key])); });
+    ['started', 'completed', 'stalled', 'botOnlyMatches', 'reconnects', 'afk', 'bankruptcies', 'comebacks', 'rewardClaims'].forEach(key => { result[key] += Math.max(0, number(value[key])); });
+    if (Object.hasOwn(value, 'competitiveCompleted')) { result.competitiveSeen = true; result.competitiveCompleted += Math.max(0, number(value.competitiveCompleted)); }
+    if (Object.hasOwn(value, 'competitiveRewardClaims')) { result.competitiveRewardSeen = true; result.competitiveRewardClaims += Math.max(0, number(value.competitiveRewardClaims)); }
     addDuration(result.durationSeconds, value.durationSeconds);
     addDuration(result.market.volatility, value.market?.volatility);
     ['liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises', 'collateralizedOptions', 'negativeCashPreventions'].forEach(key => { result.market[key] += Math.max(0, number(value.market?.[key])); });
     Object.entries(value.features || {}).forEach(([key, feature]) => { const item = result.features[key] || { eligible: 0, used: 0, observations: 0 }; ['eligible', 'used', 'observations'].forEach(counter => { item[counter] += Math.max(0, number(feature?.[counter])); }); result.features[key] = item; });
     Object.entries(value.events || {}).forEach(([key, event]) => { const item = result.events[key] || { eligible: 0, warnings: 0, active: 0, choices: 0, voters: 0, recovered: 0, durationSeconds: { count: 0, sum: 0, values: [] }, combinations: {} }; ['eligible', 'warnings', 'active', 'choices', 'voters', 'recovered'].forEach(counter => { item[counter] += Math.max(0, number(event?.[counter])); }); addDuration(item.durationSeconds, event.durationSeconds); Object.entries(event.combinations || {}).forEach(([combo, count]) => { item.combinations[combo] = (item.combinations[combo] || 0) + Math.max(0, number(count)); }); result.events[key] = item; });
     Object.entries(value.achievements || {}).forEach(([rarity, count]) => { result.achievements[rarity] = (result.achievements[rarity] || 0) + Math.max(0, number(count)); });
+    Object.entries(value.competitiveAchievements || {}).forEach(([rarity, count]) => { result.competitiveAchievements[rarity] = (result.competitiveAchievements[rarity] || 0) + Math.max(0, number(count)); });
     Object.entries(value.bots || {}).forEach(([key, bot]) => { const item = result.bots[key] || { botMode: bot.botMode, provider: bot.provider, matches: 0, completed: 0, wins: 0, decisions: 0, fallback: 0, placements: [], actions: {} }; ['matches', 'completed', 'wins', 'decisions', 'fallback'].forEach(counter => { item[counter] += Math.max(0, number(bot?.[counter])); }); if (Array.isArray(bot.placements)) item.placements.push(...bot.placements.slice(0, 4096 - item.placements.length).map(number)); Object.entries(bot.actions || {}).forEach(([action, count]) => { item.actions[action] = (item.actions[action] || 0) + Math.max(0, number(count)); }); result.bots[key] = item; });
   });
+  if (!result.competitiveSeen) result.competitiveCompleted = Math.max(0, result.completed - result.botOnlyMatches);
+  if (!result.competitiveRewardSeen) result.competitiveRewardClaims = result.competitiveCompleted > 0 ? result.rewardClaims : 0;
   return result;
 }
+
+function startedCount(data) { return Math.max(0, number(data?.started), number(data?.completed) + number(data?.stalled)); }
 
 function generated(snapshot) { return typeof snapshot?.generatedAt === 'string' ? snapshot.generatedAt : new Date().toISOString(); }
 
@@ -176,8 +186,8 @@ export function buildOverview(rollup, queryInput = {}) {
   const fallbackCount = sumValues(Object.values(data.bots), 'fallback');
   const activeRooms = number(snapshot?.quality?.activeRooms ?? snapshot?.activeRooms, NaN);
   const kpis = [
-    kpi('completed-rounds', 'Completed rounds', data.completed, data.started, 'Verified server settlements; denominator is started matches.', { started: data.started, stalled: data.stalled }),
-    kpi('completion-rate', 'Completion rate', measure(data.completed, data.started).value, data.started, 'Completed matches divided by started matches.', { stalled: data.stalled }),
+    kpi('completed-rounds', 'Completed rounds', data.completed, startedCount(data), 'Verified server settlements; denominator is started matches.', { started: startedCount(data), stalled: data.stalled }),
+    kpi('completion-rate', 'Completion rate', measure(data.completed, startedCount(data)).value, startedCount(data), 'Completed matches divided by started matches.', { stalled: data.stalled }),
     kpi('median-round-duration', 'Median round duration', median(data.durationSeconds), data.durationSeconds.count, 'Median seconds from verified server timestamps for completed rounds.', { p95: percentile(data.durationSeconds, 0.95) }),
     kpi('active-rooms', 'Active rooms', Number.isFinite(activeRooms) ? activeRooms : null, null, 'Current live room gauge from the metrics registry.', { source: Number.isFinite(activeRooms) ? 'live-metrics' : 'rollup' }),
     kpi('feature-adoption', 'Feature adoption', feature ? measure(feature.used, feature.eligible).value : null, feature?.eligible || 0, 'Legal feature actions divided by eligible completed rounds.', { feature: features[0]?.[0] || null }),
@@ -188,12 +198,13 @@ export function buildOverview(rollup, queryInput = {}) {
 
 export function buildMatchHealth(rollup, queryInput = {}) {
   const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query); const data = aggregate(entries);
-  return { starts: data.started, completions: data.completed, stalls: data.stalled, startedMatches: data.started, completedMatches: data.completed, stalledMatches: data.stalled, completionRate: measure(data.completed, data.started), durationMedian: valueMeasure(median(data.durationSeconds), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), durationP95: valueMeasure(percentile(data.durationSeconds, 0.95), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), reconnectRate: measure(data.reconnects, data.started), afkRate: measure(data.afk, data.started), bankruptcies: valueMeasure(data.bankruptcies, data.started), comebacks: valueMeasure(data.comebacks, data.started), denominators: { startedMatches: data.started, completedRounds: data.completed }, generatedAt: generated(snapshot) };
+  const started = startedCount(data);
+  return { starts: started, completions: data.completed, stalls: data.stalled, startedMatches: started, completedMatches: data.completed, stalledMatches: data.stalled, completionRate: measure(data.completed, started), durationMedian: valueMeasure(median(data.durationSeconds), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), durationP95: valueMeasure(percentile(data.durationSeconds, 0.95), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), reconnectRate: measure(data.reconnects, started), afkRate: measure(data.afk, started), bankruptcies: valueMeasure(data.bankruptcies, started), comebacks: valueMeasure(data.comebacks, started), denominators: { startedMatches: started, completedRounds: data.completed }, generatedAt: generated(snapshot) };
 }
 
 export function buildRulesetBoard(rollup, queryInput = {}) {
   const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query);
-  const rows = entries.slice(0, 100).map(({ value, dimensions }) => ({ rulesetPreset: dimensions.rulesetPreset, boardVariant: dimensions.boardVariant, matches: number(value.started), started: number(value.started), completed: number(value.completed), completionRate: measure(value.completed, value.started), medianDuration: valueMeasure(median(value.durationSeconds), value.durationSeconds?.count || 0), outcomeDistribution: value.outcomes && typeof value.outcomes === 'object' ? value.outcomes : {}, associationLabel: 'ASSOCIATION, NOT CAUSATION' }));
+  const rows = entries.slice(0, 100).map(({ value, dimensions }) => ({ rulesetPreset: dimensions.rulesetPreset, boardVariant: dimensions.boardVariant, matches: startedCount(value), started: startedCount(value), completed: number(value.completed), completionRate: measure(value.completed, startedCount(value)), medianDuration: valueMeasure(median(value.durationSeconds), value.durationSeconds?.count || 0), outcomeDistribution: value.outcomes && typeof value.outcomes === 'object' ? value.outcomes : {}, associationLabel: 'ASSOCIATION, NOT CAUSATION' }));
   return { rows, generatedAt: generated(snapshot), filters: query, associationLabel: 'ASSOCIATION, NOT CAUSATION' };
 }
 
@@ -203,15 +214,17 @@ export function buildEconomy(rollup, queryInput = {}) {
   const liquidationRate = measure(data.market.liquidations, data.market.marginPositions);
   const shortDefaultRate = measure(data.market.shortDefaults, data.market.shortPositions);
   const optionExerciseRate = measure(data.market.optionExercises, data.market.collateralizedOptions);
-  const negativeCashPrevention = valueMeasure(data.market.negativeCashPreventions, data.started);
+  const negativeCashPrevention = valueMeasure(data.market.negativeCashPreventions, startedCount(data));
   return { adoption, volatility: valueMeasure(median(data.market.volatility), data.market.volatility.count, { observations: data.market.volatility.count }), liquidationRate, liquidation: liquidationRate, shortDefaultRate, shortDefault: shortDefaultRate, optionExerciseRate, optionExercise: optionExerciseRate, negativeCashPrevention, generatedAt: generated(snapshot), filters: query };
 }
 
 export function buildEventsRarity(rollup, queryInput = {}) {
   const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query); const data = aggregate(entries);
-  const rows = Object.entries(data.events).slice(0, 100).filter(([eventId]) => !query.eventId || eventId === query.eventId).map(([eventId, event]) => ({ eventId, eligibility: valueMeasure(event.eligible), warningToActive: measure(event.active, event.warnings || event.eligible), turnout: measure(event.choices, event.eligible), medianDuration: valueMeasure(median(event.durationSeconds), event.durationSeconds.count), recoveryRate: measure(event.recovered, event.active), combinations: event.combinations }));
-  const unlockRarity = Object.fromEntries(Object.entries(data.achievements).map(([rarity, count]) => [rarity, valueMeasure(count, data.completed)]));
-  return { rows, unlockRarity, rewardClaims: valueMeasure(data.rewardClaims, data.completed), generatedAt: generated(snapshot), filters: query };
+  const rows = Object.entries(data.events).slice(0, 100).filter(([eventId]) => !query.eventId || eventId === query.eventId).map(([eventId, event]) => ({ eventId, eligibility: valueMeasure(event.eligible), warningToActive: measure(event.active, event.warnings || event.eligible), turnout: measure(event.voters, event.eligible), medianDuration: valueMeasure(median(event.durationSeconds), event.durationSeconds.count), recoveryRate: measure(event.recovered, event.active), combinations: event.combinations }));
+  const competitiveCompleted = data.competitiveCompleted;
+  const rarity = Object.keys(data.competitiveAchievements).length ? data.competitiveAchievements : data.achievements;
+  const unlockRarity = Object.fromEntries(Object.entries(rarity).map(([rarityKey, count]) => [rarityKey, measure(count, competitiveCompleted)]));
+  return { rows, unlockRarity, rewardClaims: measure(data.competitiveRewardClaims, competitiveCompleted), generatedAt: generated(snapshot), filters: query };
 }
 
 export function buildBots(rollup, queryInput = {}) {

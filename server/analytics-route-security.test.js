@@ -37,3 +37,8 @@ check('returns versioned safe balance and unavailable pseudonym drilldown', () =
   assert.equal(drilldown.success, true);
   assert.equal(drilldown.breakdowns[0].suppressionReason, 'PSEUDONYM_UNAVAILABLE');
 });
+
+check('marks an empty rollup unavailable instead of fresh zeroes', () => {
+  const result = buildAnalyticsBalance({ rollup: { health: () => ({ loaded: true, fresh: false }), query: () => ({ dimensions: {}, quality: {} }) }, accountId: 'acct-admin', adminIds: ['acct-admin'], query: { range: 'day' } });
+  assert.equal(result.status, 503);
+});

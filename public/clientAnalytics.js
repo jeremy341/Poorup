@@ -1,4 +1,5 @@
 import { state } from './clientState.js';
+import { renderAnalyticsChart } from './clientAnalyticsCharts.js';
 
 export const MIN_COHORT = 5;
 export const ANALYTICS_TABS = Object.freeze(['overview', 'match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']);
@@ -15,19 +16,23 @@ const METRIC_LABELS = Object.freeze({
   'backup-failures': 'Backup failures', 'manual-codescene-runs': 'Manual CodeScene runs',
 });
 const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets']);
+const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'completed', 'stalled', 'matches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementMedian', 'fallback', 'fallbackRate', 'decisions', 'actions', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises', 'collateralizedOptions', 'negativeCashPreventions', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlocks', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab']);
+const DYNAMIC_CLIENT_FIELDS = new Set(['features', 'events', 'market', 'bots', 'achievements', 'unlockRarity', 'outcomeDistribution', 'adoption', 'actions', 'combinations']);
 
 function query(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
 function finite(value, fallback = null) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
 function enumValue(value, allowed, fallback) { const normalized = String(value || fallback).trim().toLowerCase(); return allowed.includes(normalized) ? normalized : fallback; }
 function safeScopeString(value) { return [...value].filter(character => character !== '|' && character.charCodeAt(0) >= 32).join('').slice(0, 80); }
+function normalizeRevision(value) { if (value === '' || value === undefined || value === null) return ''; const number = finite(value, null); return number === null ? '' : String(Math.max(0, Math.floor(number))); }
+function normalizedRevisionNumber(value, fallback = '') { const normalized = normalizeRevision(value); return normalized === '' ? fallback : Number(normalized); }
 
 export function normalizeAnalyticsQuery(input = {}) {
   const source = input && typeof input === 'object' ? input : {};
   return {
     range: enumValue(source.range, ['hour', 'day', 'week', 'season'], 'hour'),
     seasonId: typeof source.seasonId === 'string' ? safeScopeString(source.seasonId) : '',
-    rulesetRevision: source.rulesetRevision === '' || source.rulesetRevision === undefined || source.rulesetRevision === null ? '' : String(Math.max(0, Math.floor(finite(source.rulesetRevision, 0)))),
-    balanceRevision: source.balanceRevision === '' || source.balanceRevision === undefined || source.balanceRevision === null ? '' : String(Math.max(0, Math.floor(finite(source.balanceRevision, 0)))),
+    rulesetRevision: normalizeRevision(source.rulesetRevision),
+    balanceRevision: normalizeRevision(source.balanceRevision),
     boardVariant: enumValue(source.boardVariant, ['all', 'standard-40', 'metro-52'], 'all'),
     rulesetPreset: enumValue(source.rulesetPreset, ['all', 'classic', 'after-hours', 'custom'], 'all'),
     marketComplexity: enumValue(source.marketComplexity, ['all', 'basic', 'margin', 'shorting', 'derivatives'], 'all'),
@@ -38,15 +43,17 @@ export function normalizeAnalyticsQuery(input = {}) {
   };
 }
 
-function cleanSafeValue(value, key = '', depth = 0) {
-  if (FORBIDDEN_KEYS.has(String(key).toLowerCase()) || depth > 5) return undefined;
+function cleanSafeValue(value, key = '', depth = 0, parentKey = '') {
+  if (FORBIDDEN_KEYS.has(String(key).toLowerCase()) || depth > 20) return undefined;
+  if (value === null) return null;
   if (typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.slice(0, 200).map(item => cleanSafeValue(item, '', depth + 1)).filter(item => item !== undefined);
+  if (Array.isArray(value)) return value.slice(0, 200).map(item => cleanSafeValue(item, '', depth + 1, key)).filter(item => item !== undefined);
   if (!value || typeof value !== 'object') return undefined;
   const output = {};
   Object.entries(value).slice(0, 200).forEach(([childKey, childValue]) => {
-    const clean = cleanSafeValue(childValue, childKey, depth + 1);
+    if (!ALLOWED_CLIENT_FIELDS.has(childKey) && !DYNAMIC_CLIENT_FIELDS.has(key) && !DYNAMIC_CLIENT_FIELDS.has(parentKey)) return;
+    const clean = cleanSafeValue(childValue, childKey, depth + 1, key);
     if (clean !== undefined) output[childKey] = clean;
   });
   return output;
@@ -74,6 +81,11 @@ export function normalizeAnalyticsSnapshot(value = {}) {
     schemaVersion: Number.isFinite(Number(source.schemaVersion)) && Number(source.schemaVersion) > 0 ? Number(source.schemaVersion) : 1,
     range: ['hour', 'day', 'week', 'season'].includes(String(source.range || filters.range)) ? String(source.range || filters.range) : filters.range,
     generatedAt: typeof source.generatedAt === 'string' ? source.generatedAt.slice(0, 80) : '',
+    pseudonymVersion: typeof source.pseudonymVersion === 'string' ? source.pseudonymVersion.slice(0, 40) : '',
+    seasonId: typeof source.seasonId === 'string' ? safeScopeString(source.seasonId) : filters.seasonId,
+    rulesetRevision: source.rulesetRevision === null || source.rulesetRevision === undefined ? filters.rulesetRevision : normalizedRevisionNumber(source.rulesetRevision),
+    balanceRevision: source.balanceRevision === null || source.balanceRevision === undefined ? filters.balanceRevision : normalizedRevisionNumber(source.balanceRevision),
+    boardVariant: enumValue(source.boardVariant, ['all', 'standard-40', 'metro-52'], filters.boardVariant),
     filters,
     suppression: { minimumCohort: MIN_COHORT, suppressedPanels: Math.max(0, Math.floor(finite(source.suppression?.suppressedPanels, 0))) },
     overview,
@@ -97,7 +109,17 @@ function renderStatus(message, tone = 'muted') { const status = query('#admin-an
 function renderKpis(snapshot) {
   const kpis = Array.isArray(snapshot.overview?.kpis) ? snapshot.overview.kpis.slice(0, 6) : [];
   if (!kpis.length) return '';
-  return kpis.map(item => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${item.value === null || item.value === undefined ? '—' : escapeHtml(Number(item.value).toLocaleString())}</strong><span class="t-micro ink-3">DENOMINATOR ${item.denominator === null || item.denominator === undefined ? '—' : escapeHtml(item.denominator)}</span></article>`).join('');
+  return kpis.map(item => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${item.value === null || item.value === undefined ? '—' : escapeHtml(Number(item.value).toLocaleString())}</strong><span class="t-micro ink-3">DENOMINATOR ${item.denominator === null || item.denominator === undefined ? '—' : escapeHtml(item.denominator)}</span><span class="t-micro ink-3">${escapeHtml(item.comparison?.period || item.comparison?.label || 'SELECTED PERIOD')}</span><span class="t-micro ink-3">${escapeHtml(item.definition || 'Aggregate measure')}</span></article>`).join('');
+}
+
+function renderAnalyticsCharts(snapshot) {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll?.('[data-analytics-chart]').forEach(container => {
+    const title = container.getAttribute('data-chart-title') || 'Analytics series';
+    const unit = container.getAttribute('data-chart-unit') || 'value';
+    const mode = container.getAttribute('data-chart-mode') || 'line';
+    renderAnalyticsChart(container, snapshot.series, { title, unit, mode });
+  });
 }
 
 export function renderAnalyticsSnapshot(value) {
@@ -109,6 +131,7 @@ export function renderAnalyticsSnapshot(value) {
   grid.innerHTML = kpis || (entries.length
     ? entries.map(([name, entry]) => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(METRIC_LABELS[name])}</span><strong class="t-money g100">${escapeHtml(metricValue(entry).toLocaleString())}</strong><span class="t-micro ink-3">${entry.type === 'gauge' ? 'CURRENT' : 'RECORDED'}</span></article>`).join('')
     : '<p class="t-body ink-2 analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p>');
+  renderAnalyticsCharts(snapshot);
   if (snapshot.suppression.suppressedPanels > 0) renderStatus('INSUFFICIENT COHORT · MIN COHORT 5', 'warning');
   else if (snapshot.dataQuality.stale === true || snapshot.dataQuality.fresh === false) renderStatus(`STALE · LAST VERIFIED ${snapshot.generatedAt || 'UNKNOWN'}`, 'warning');
   else renderStatus(`SYNCED ${snapshot.range.toUpperCase()} · ${snapshot.generatedAt || 'NOW'}`, 'green');
@@ -125,16 +148,79 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
   let request = null;
   let abortController = null;
   let destroyed = false;
+  let requestGeneration = 0;
+  const listeners = [];
 
-  function setTab(tab) {
+  function listen(target, event, handler) {
+    target?.addEventListener?.(event, handler);
+    if (target?.removeEventListener) listeners.push(() => target.removeEventListener(event, handler));
+  }
+
+  function tabElements() { return typeof document === 'undefined' ? [] : [...(document.querySelectorAll?.('[data-analytics-tab]') || [])]; }
+
+  function applyTabState({ focus = false } = {}) {
+    const tabs = tabElements();
+    tabs.forEach((element, index) => {
+      const active = element.getAttribute('data-analytics-tab') === filters.tab;
+      element.setAttribute('aria-selected', String(active));
+      element.setAttribute('tabindex', active ? '0' : '-1');
+      element.classList.toggle('is-active', active);
+      if (focus && active) element.focus?.();
+      listenOnce(element, 'click', () => setTab(element.getAttribute('data-analytics-tab')));
+      listenOnce(element, 'keydown', event => {
+        if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(event.key)) return;
+        const current = tabs.indexOf(element);
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setTab(element.getAttribute('data-analytics-tab'), { focus: true }); return; }
+        event.preventDefault();
+        const offset = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : event.key === 'Home' ? -tabs.length : event.key === 'End' ? tabs.length : 1;
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + offset + tabs.length) % tabs.length;
+        setTab(tabs[next]?.getAttribute('data-analytics-tab'), { focus: true });
+      });
+    });
+    if (typeof document !== 'undefined') document.querySelectorAll?.('[data-analytics-panel]')?.forEach(element => element.classList.toggle('is-hidden', element.getAttribute('data-analytics-panel') !== filters.tab));
+  }
+
+  const wired = new WeakMap();
+  function listenOnce(target, event, handler) {
+    if (!target) return;
+    const events = wired.get(target) || new Set();
+    if (events.has(event)) return;
+    listen(target, event, handler);
+    events.add(event);
+    wired.set(target, events);
+  }
+
+  function setTab(tab, { focus = false } = {}) {
     filters = normalizeAnalyticsQuery({ ...filters, tab });
-    if (typeof document !== 'undefined') {
-      document.querySelectorAll?.('[data-analytics-tab]').forEach(element => { const active = element.getAttribute('data-analytics-tab') === filters.tab; element.setAttribute('aria-selected', String(active)); element.classList.toggle('is-active', active); });
-      document.querySelectorAll?.('[data-analytics-panel]').forEach(element => element.classList.toggle('is-hidden', element.getAttribute('data-analytics-panel') !== filters.tab));
-    }
+    applyTabState({ focus });
     return { ...filters };
   }
-  function setFilters(next = {}) { filters = normalizeAnalyticsQuery({ ...filters, ...next }); return { ...filters }; }
+
+  function readFilterControls() {
+    if (typeof document === 'undefined') return {};
+    const values = {};
+    document.querySelectorAll?.('[data-analytics-filter]')?.forEach(control => { const name = control.getAttribute('data-analytics-filter'); if (name) values[name] = control.value; });
+    return values;
+  }
+
+  function setFilters(next = {}) {
+    if (request) { requestGeneration += 1; abortController?.abort(); request = null; }
+    filters = normalizeAnalyticsQuery({ ...filters, ...next });
+    return { ...filters };
+  }
+
+  function wireControls() {
+    if (typeof document === 'undefined') return;
+    applyTabState();
+    document.querySelectorAll?.('[data-analytics-filter]')?.forEach(control => listenOnce(control, 'change', () => { filters = normalizeAnalyticsQuery({ ...filters, ...readFilterControls() }); }));
+    const apply = document.querySelector?.('[data-analytics-apply]');
+    const reset = document.querySelector?.('[data-analytics-reset]');
+    const refreshButton = document.querySelector?.('[data-analytics-refresh]');
+    listenOnce(apply, 'click', () => { setFilters(readFilterControls()); void load(filters); });
+    listenOnce(reset, 'click', () => { filters = normalizeAnalyticsQuery({}); setTab('overview'); void load(filters); });
+    listenOnce(refreshButton, 'click', () => { void refresh(); });
+    listen(document, 'visibilitychange', () => { if (document.visibilityState === 'hidden') { requestGeneration += 1; abortController?.abort(); request = null; } });
+  }
 
   async function load(next = {}) {
     if (destroyed) return { success: false, status: 499 };
@@ -145,11 +231,13 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     const url = `${endpoint}?${queryString(filters)}`;
     const headers = !customFetcher && state.account?.sessionToken ? { 'x-poorup-session-token': state.account.sessionToken } : {};
     abortController = typeof AbortController === 'function' ? new AbortController() : null;
-    renderStatus('LOADING ANALYTICS…');
-    announce('Loading analytics');
+    renderStatus(snapshot ? 'REFRESHING ANALYTICS…' : 'LOADING ANALYTICS…');
+    announce(snapshot ? 'Refreshing analytics' : 'Loading analytics');
+    const generation = ++requestGeneration;
     request = Promise.resolve().then(() => requestFetcher(url, { headers, signal: abortController?.signal }))
       .then(async response => {
         const payload = typeof response?.json === 'function' ? await response.json() : response;
+        if (generation !== requestGeneration || destroyed) return { success: false, status: 499 };
         if (response?.ok === false || payload?.success === false) {
           if (payload?.status === 403 || response?.status === 403) { snapshot = null; const grid = query('#admin-analytics-grid'); if (grid) grid.textContent = ''; renderStatus('ADMIN ACCESS REQUIRED', 'warning'); }
           else if (payload?.status === 503 || response?.status === 503) renderStatus('ROLLUP UNAVAILABLE · RETRY', 'warning');
@@ -161,12 +249,20 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
         return snapshot;
       })
       .catch(error => { if (error?.name === 'AbortError') return { success: false, status: 499 }; renderStatus(snapshot ? 'ANALYTICS REFRESH TIMED OUT · RETRY' : 'ANALYTICS UNAVAILABLE · RETRY', 'warning'); return { success: false, status: 503 }; })
-      .finally(() => { request = null; abortController = null; });
+      .finally(() => { if (generation === requestGeneration) { request = null; abortController = null; } });
     return request;
   }
   function refresh() { return load(filters); }
-  function openDrilldown(trigger, next = {}) { if (!modal) return null; const options = { trigger, query: normalizeAnalyticsQuery({ ...filters, ...next }) }; if (typeof modal.open === 'function') return modal.open(options); if (typeof modal.show === 'function') return modal.show(options); return null; }
-  function destroy() { destroyed = true; abortController?.abort(); request = null; }
+  function openDrilldown(trigger, next = {}) {
+    if (!modal) return null;
+    const options = { trigger, query: normalizeAnalyticsQuery({ ...filters, ...next }), onClose: () => trigger?.focus?.() };
+    if (typeof modal.open === 'function') return modal.open(options);
+    if (typeof modal.show === 'function') return modal.show(options);
+    return null;
+  }
+  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; listeners.splice(0).forEach(remove => remove()); }
+
+  wireControls();
   return Object.freeze({ destroy, load, openDrilldown, refresh, setFilters, setTab, get filters() { return { ...filters }; }, get snapshot() { return snapshot; } });
 }
 
