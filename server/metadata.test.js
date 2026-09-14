@@ -11,6 +11,13 @@ assert.equal(metadataConfig({ origin: "https://play.example", path: "/" }).previ
 assert.equal(metadataConfig({ origin: "https://play.example", path: "/" }).previewHeight, 630);
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/" })), /rel="canonical"/);
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/game" })), /noindex,nofollow/);
+for (const privatePath of ["/play", "/rooms", "/profile", "/rankings", "/social", "/rules", "/admin/analytics"]) {
+  assert.equal(
+    metadataConfig({ origin: "https://play.example", indexPolicy: "index,follow", path: privatePath }).indexPolicy,
+    "noindex,nofollow",
+    `${privatePath} must remain noindex even when the public policy is permissive`,
+  );
+}
 assert.doesNotMatch(injectMetadata("<html><head></head></html>", { origin: "", path: "/" }), /canonical|og:url|https?:\/\//i);
 assert.doesNotMatch(renderMetadata({
   origin: "not-a-url",

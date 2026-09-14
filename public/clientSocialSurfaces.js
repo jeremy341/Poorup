@@ -602,7 +602,10 @@ function leaderboardCurrentRows(snapshots) {
 
 function rankingSelfBits(currentRows) {
   const selfId = state.account?.account?.id;
-  const selfIndex = selfId ? currentRows.findIndex((row) => row.accountId === selfId) : -1;
+  const selfUsername = state.account?.account?.username;
+  const selfIndex = selfId || selfUsername
+    ? currentRows.findIndex((row) => row.accountId === selfId || row.accountId === selfUsername || row.username === selfUsername)
+    : -1;
   const selfRow = selfIndex >= 0 ? currentRows[selfIndex] : null;
   const selfRank = selfRow ? `#${selfIndex + 1}` : "—";
   return { selfRow, selfRank };
@@ -1156,7 +1159,7 @@ function playerHistoryHTML(history, player) {
 function currentFriendStatus(accountId) {
   if (state.selectedPlayerRelationship !== "none") return state.selectedPlayerRelationship;
   const friends = state.social.friends || [];
-  if (friends.some((friend) => friend.id === accountId)) return "accepted";
+  if (friends.some((friend) => friend.id === accountId || friend.publicId === accountId || friend.username === accountId)) return "accepted";
   return "none";
 }
 

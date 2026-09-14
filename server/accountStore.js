@@ -121,6 +121,47 @@ function revokePersistedSessionHashes(store, username) {
   }
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function snapshotStore(store) {
+  return {
+    accounts: new Map([...store.accounts].map(([key, account]) => [key, { account, state: cloneJson(account) }])),
+    sessions: new Map(store.sessions),
+    sessionHashes: new Map(store.sessionHashes),
+  };
+}
+
+function restoreObject(target, state) {
+  Object.keys(target).forEach(key => delete target[key]);
+  Object.assign(target, cloneJson(state));
+}
+
+function restoreStore(store, snapshot) {
+  store.accounts.clear();
+  snapshot.accounts.forEach(({ account, state }, key) => {
+    restoreObject(account, state);
+    store.accounts.set(key, account);
+  });
+  store.sessions.clear();
+  snapshot.sessions.forEach((owner, token) => store.sessions.set(token, owner));
+  store.sessionHashes.clear();
+  snapshot.sessionHashes.forEach((owner, tokenHash) => store.sessionHashes.set(tokenHash, owner));
+}
+
+function commitMutation(store, mutate) {
+  const snapshot = snapshotStore(store);
+  try {
+    const result = mutate();
+    store.persist();
+    return result;
+  } catch (error) {
+    restoreStore(store, snapshot);
+    throw error;
+  }
+}
+
 function sanitizeAvatarGrid(value) {
   if (!Array.isArray(value)) return null;
   return Array.from({ length: FACE_SIZE }, (_, y) =>
@@ -511,27 +552,28 @@ export class AccountStore {
     if (!validPasswordShape(password)) {
       return { success: false, error: 'Password must be 8–72 characters.' };
     }
-    const salt = crypto.randomBytes(16).toString('hex');
-    const account = {
-      id: `acct_${crypto.randomUUID()}`,
-      username: handle,
-      displayName: normalizeDisplayName(displayName, handle),
-      color: normalizeColor(color),
-      avatarGrid: sanitizeAvatarGrid(avatarGrid),
-      passwordSalt: salt,
-      passwordHash: hashPassword(password, salt),
-      stats: sanitizeStats({}),
-      history: [],
-      achievements: [],
-      matchHistory: [],
-      privacy: sanitizePrivacy(null),
-      recentClearedAt: null,
-      createdAt: new Date().toISOString(),
-    };
-    this.accounts.set(handle, account);
-    const sessionToken = this.issueSession(account);
-    this.persist();
-    return { success: true, account: publicAccount(account), sessionToken };
+    return commitMutation(this, () => {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const account = {
+        id: `acct_${crypto.randomUUID()}`,
+        username: handle,
+        displayName: normalizeDisplayName(displayName, handle),
+        color: normalizeColor(color),
+        avatarGrid: sanitizeAvatarGrid(avatarGrid),
+        passwordSalt: salt,
+        passwordHash: hashPassword(password, salt),
+        stats: sanitizeStats({}),
+        history: [],
+        achievements: [],
+        matchHistory: [],
+        privacy: sanitizePrivacy(null),
+        recentClearedAt: null,
+        createdAt: new Date().toISOString(),
+      };
+      this.accounts.set(handle, account);
+      const sessionToken = this.issueSession(account);
+      return { success: true, account: publicAccount(account), sessionToken };
+    });
   }
 
   checkUsername(username, currentAccountId = null) {
@@ -567,9 +609,10 @@ export class AccountStore {
     if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
       return { success: false, error: 'Username or password is incorrect.' };
     }
-    const sessionToken = this.issueSession(account);
-    this.persist();
-    return { success: true, account: publicAccount(account), sessionToken };
+    return commitMutation(this, () => {
+      const sessionToken = this.issueSession(account);
+      return { success: true, account: publicAccount(account), sessionToken };
+    });
   }
 
   restore(sessionToken) {
@@ -579,24 +622,28 @@ export class AccountStore {
 
   logout(sessionToken) {
     const account = this.sessionAccount(sessionToken);
-    if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
-    if (account) {
+    if (!account) {
+      if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
+      return { success: true };
+    }
+    return commitMutation(this, () => {
+      if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
       revokePersistedSessionHashes(this, account.username);
       account.sessionTokenHash = null;
-      this.persist();
-    }
-    return { success: true };
+      return { success: true };
+    });
   }
 
   updateProfile(sessionToken, patch = {}) {
     const account = this.sessionAccount(sessionToken);
     if (!account) return { success: false, error: 'Account session expired. Sign in again.' };
-    if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);
-    if (patch.color != null) account.color = normalizeColor(patch.color, account.color);
-    if (patch.avatarGrid != null) account.avatarGrid = sanitizeAvatarGrid(patch.avatarGrid);
-    if (patch.privacy && typeof patch.privacy === 'object') account.privacy = sanitizePrivacy(patch.privacy);
-    this.persist();
-    return { success: true, account: publicAccount(account) };
+    return commitMutation(this, () => {
+      if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);
+      if (patch.color != null) account.color = normalizeColor(patch.color, account.color);
+      if (patch.avatarGrid != null) account.avatarGrid = sanitizeAvatarGrid(patch.avatarGrid);
+      if (patch.privacy && typeof patch.privacy === 'object') account.privacy = sanitizePrivacy(patch.privacy);
+      return { success: true, account: publicAccount(account) };
+    });
   }
 
   recordGameResults(players = [], winnerId = null, matchMeta = {}) {

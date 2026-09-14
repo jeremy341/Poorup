@@ -57,7 +57,9 @@ export function metadataConfig(options = {}) {
   const origin = normalizeOrigin(source.origin);
   const path = cleanPath(source.path);
   const defaultPolicy = origin && !PRIVATE_PATH.test(path) ? "index,follow" : "noindex,nofollow";
-  const indexPolicy = origin ? normalizePolicy(source.indexPolicy, defaultPolicy) : "noindex,nofollow";
+  const indexPolicy = !origin || PRIVATE_PATH.test(path)
+    ? "noindex,nofollow"
+    : normalizePolicy(source.indexPolicy, defaultPolicy);
   const previewPath = cleanPath(source.previewPath, PREVIEW_PATH);
   const description = cleanText(source.description);
   const title = cleanText(source.title, "Poorup");
