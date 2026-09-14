@@ -38,6 +38,7 @@ async function captureNative(page, name) {
 
 test.describe("reference-locked music box", () => {
   test("home acceptance viewport records the compact reference geometry", async ({ page }) => {
+    test.skip(page.viewportSize()?.width !== 1920, "native acceptance geometry is defined at 1920px");
     await page.goto("/");
 
     const box = page.locator("[data-music-box]");
@@ -67,6 +68,21 @@ test.describe("reference-locked music box", () => {
     expect(bounds.height).toBeGreaterThanOrEqual(104);
     expect(bounds.height).toBeLessThanOrEqual(116);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(768 - 52);
+    for (const control of await box.locator("button:visible").all()) {
+      const controlBounds = await control.boundingBox();
+      expect(controlBounds?.width).toBeGreaterThanOrEqual(44);
+      expect(controlBounds?.height).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  test("mobile geometry keeps the dock inside the viewport with touch targets", async ({ page }) => {
+    test.skip(page.viewportSize()?.width !== 390, "mobile geometry contract is scoped to the 390px project");
+    await page.goto("/");
+    const box = page.locator("[data-music-box]");
+    const bounds = await box.boundingBox();
+    const viewport = page.viewportSize();
+    expect(bounds).not.toBeNull();
+    expect(bounds.width).toBeLessThanOrEqual(viewport.width);
     for (const control of await box.locator("button:visible").all()) {
       const controlBounds = await control.boundingBox();
       expect(controlBounds?.width).toBeGreaterThanOrEqual(44);
@@ -114,6 +130,7 @@ test.describe("reference-locked music box", () => {
   });
 
   test("captures the native 1920 reference state matrix locally", async ({ page }) => {
+    test.skip(page.viewportSize()?.width !== 1920, "native evidence captures are defined at 1920px");
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto("/");
     await fs.promises.mkdir(evidenceDir, { recursive: true });
