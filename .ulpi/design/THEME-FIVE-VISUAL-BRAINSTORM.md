@@ -159,7 +159,7 @@ telemetry, or Socket.IO payloads.
 World-scene layers use a native `640×360` master canvas for the detailed
 environment, cloud shelf, and Spring petal repeat (Light pedestrian poses use
 the same canvas). Compact `LIGHT`, `SIGNATURE`, `WEATHER`, and `ACCENT` props
-use native `320×180` masters. All assets use integer-aligned geometry,
+use native `320×180` masters. Each asset uses integer-aligned geometry,
 `shape-rendering="crispEdges"`, a limited palette, selective one-pixel outlines,
 and top-left lighting. Assets contain no filters, gradients, text nodes,
 external URLs, editor metadata, or decorative UI. Every silhouette must remain

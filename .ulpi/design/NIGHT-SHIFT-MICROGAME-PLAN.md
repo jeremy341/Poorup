@@ -131,7 +131,8 @@ Show `TAGGED +N` in the live status region without duplicating it into chat.
    a short contrail fragment.
 4. `spiral-trail-8-frames.svg` — retained original art for future experiments;
    not used by the current active hit path.
-5. `debris-6-frames.svg` — tiny impact shards used only at the border.
+5. `debris-6-frames.svg` — retained reference art for a future border-only
+   treatment; it is not mounted by the current hit path.
 
 Every file should use transparent backgrounds, `shape-rendering="crispEdges"`,
 stable frame IDs, the locked Poorup palette, and a static first-frame fallback.

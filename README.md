@@ -1,6 +1,6 @@
 # Poorup
 
-Poorup is a multiplayer board game inspired by Monopoly, playable entirely in the browser with no downloads or accounts required. Players join a shared room using a room code, buy and trade properties, build houses and hotels, and try to bankrupt each other. The game runs in real time using WebSockets.
+Poorup is a multiplayer board game inspired by Monopoly, playable entirely in the browser with no downloads; accounts remain optional, so no account is required to join a room. Players join a shared room using a room code, buy and trade properties, build houses and hotels, and try to bankrupt each other. The game runs in real time using WebSockets.
 
 I built this project to get hands-on experience with real-time web development, server-side game logic and managing shared state across multiple clients.
 
@@ -9,8 +9,9 @@ From an engineering perspective, Poorup is a real-time multiplayer systems proje
 ## Overview
 
 - Real-time multiplayer using Socket.IO
-- 40-space custom game board with properties, airports, tax squares, and surprise cards
+- Standard-40 and Metro-52 board variants with properties, airports, tax squares, and surprise cards
 - Full Monopoly-style rules: buying, renting, building, mortgaging, trading, and going to prison
+- Host-selectable Classic, After Hours, and Custom rulesets
 - Optional server-settled Casino and fictional Market add-ons
 - Server-backed friends, recent players, match history, achievements, and multi-scope rankings
 - Rare round-scaled Global Events with curated combinations
@@ -36,6 +37,9 @@ For Instructions see [Instructions.md](Instructions.md).
 
 For how contributions flow (branches, PRs, CI, reviews), see [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md).
 
+For the current source-backed status of live, completed, planned, deferred, and
+reference surfaces, see [docs/feature-status.json](docs/feature-status.json).
+
 | Layer | Technology |
 |---|---|
 | Server | Node.js, Express |
@@ -47,13 +51,15 @@ For how contributions flow (branches, PRs, CI, reviews), see [docs/DEVELOPMENT_W
 
 ```
 server/
-  server.js       — Socket.IO event handlers, room lifecycle, disconnect logic
-  gameLogic.js    — Game state, rules engine, player actions
+  server.js       — HTTP/Socket.IO wiring and route policy
+  rooms.js        — Room lifecycle, seats, settings, and projections
+  gameLogic.js    — Authoritative game state and player actions
+  *Api.js/modules — Focused market, contract, season, social, and maintenance seams
 
 public/
   index.html      — Single-page app shell
   styles.css      — Supplied pixel-parlor design system and responsive layout
-  main.js         — Client-side interactions, rendering, and Socket.IO bridge (40-space board)
+  main.js         — Client-side interactions, rendering, and Socket.IO bridge
   assets/         — Protected SVG references and local fonts
 ```
 
@@ -61,7 +67,10 @@ public/
 
 The host can configure the following before starting:
 
+- Board variant: Standard-40 (up to four seats) or Metro-52 (up to six seats)
+- Ruleset preset and supported house-rule overrides
 - Starting cash amount
+- CPU seats and selectable bot personality
 - Double rent when owning a full color set
 - Vacation cash (fines and bank payments accumulate on Vacation)
 - Auction for declined properties

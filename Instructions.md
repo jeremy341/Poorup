@@ -1,5 +1,9 @@
 # Poorup Quick Guide
 
+Guest play is the default entry path: no account is required to create or join
+a room. Optional accounts add a durable identity and server-backed history;
+account deletion, export, and retention behavior remain policy-gated.
+
 ## Goal
 Try to bankrupt the other players by buying properties, charging rent, trading smartly, and managing your cash.
 
@@ -45,7 +49,31 @@ Try to bankrupt the other players by buying properties, charging rent, trading s
 
 ## Game Setup
 - The host can adjust settings before the game starts.
-- Settings may include starting cash, auctions, mortgage rules, and other house rules.
+- Settings may include the board variant (Standard-40 or Metro-52), ruleset
+  preset, starting cash, turn timer, CPU seats, auctions, mortgage rules, and
+  other supported house rules. Standard-40 supports up to four seats; Metro-52
+  supports up to six.
+- Rulesets are named `CLASSIC`, `AFTER HOURS`, or `CUSTOM`; the host controls
+  which supported overrides are applied before the round starts.
+
+## Optional Systems
+- **Auctions:** A declined property may enter a timed auction when the host
+  enables the auction rule.
+- **Contracts:** Player loans and property-equity contracts use server-settled
+  collateral, repayment, and default rules.
+- **Casino and Market:** These are optional, fictional-currency systems. Market
+  complexity can include basic orders, margin, shorting, and derivatives under
+  the configured server rules.
+- **Events:** Global Events are round-scaled shared effects with warnings,
+  choices, recovery, and curated combinations.
+- **Bots:** CPU seats are server-controlled and use selectable deterministic
+  personalities.
+- **Social and seasons:** Optional accounts can expose friends, recent players,
+  match history, achievements, cosmetics, rankings, and seasonal rewards where
+  the corresponding surface is available.
+
+For source-backed status and policy-gated work, see
+[docs/feature-status.json](docs/feature-status.json).
 
 ## Winning
 - Keep your assets alive, manage cash carefully, and be the last player remaining.

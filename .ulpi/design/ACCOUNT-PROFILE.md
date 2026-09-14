@@ -17,7 +17,8 @@ DFII: **14/15**.
 - RichUp profiles expose reputation/statistics, inventory, and game history;
   Poorup starts with truthful games/wins/win-rate values and leaves inventory,
   friends, and blocks for a later bounded feature.
-- Account creation remains optional so Poorup's no-account promise survives.
+- Account creation remains optional so Poorup's no-account-required play promise
+  survives.
 
 ## States and flows
 
@@ -31,8 +32,9 @@ DFII: **14/15**.
    joins, and shows server-backed statistics.
 6. Profile saves update the local face library and the account profile when
    signed in. Logout returns to guest mode without deleting local designs.
-7. Expired sessions fail closed and return to guest mode with an actionable
-   message.
+7. Explicitly invalidated or missing sessions fail closed and return to guest
+   mode with an actionable message. Session TTL and expiry behavior remain an
+   owner-approved policy gate until implemented and evidenced.
 
 ## Component rules
 
@@ -65,5 +67,6 @@ player. Guests continue through the existing client-ID path.
 ## Deferred scope
 
 OAuth providers, email verification, password reset, friends, blocks,
-inventory/cosmetics, and public profile URLs require separate product and
-privacy decisions. They are not implied by this local account MVP.
+inventory/cosmetics, public profile URLs, deletion/export scope, retention,
+backup erasure, and guest-history treatment require separate product and privacy
+decisions. They are not implied by this local account MVP.
