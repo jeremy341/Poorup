@@ -54,10 +54,18 @@ export function mountMusicBoxUi(root = document.querySelector("[data-music-box]"
     root.querySelector("[data-music-mode]").textContent = `${state.mode || "AUTO THEME"} · ${String(state.theme || "original").toUpperCase()}`;
     root.querySelector("[data-music-elapsed]").textContent = formatTime(state.currentTime);
     root.querySelector("[data-music-status]").textContent = state.status === "autoplay-blocked" ? "CLICK TO START MUSIC" : String(state.status || "");
+    const playButton = root.querySelector('[data-music-action="play"]');
+    const playIcon = root.querySelector("[data-music-play-icon]");
+    const playing = Boolean(state.playing);
+    playButton.setAttribute("aria-label", playing ? "Pause music" : "Play music");
+    playButton.setAttribute("title", playing ? "Pause music" : "Play music");
+    playButton.setAttribute("aria-pressed", String(playing));
+    playIcon.src = `/assets/music/music-${playing ? "pause" : "play"}.svg`;
     root.querySelector('[data-music-action="shuffle"]').setAttribute("aria-pressed", String(Boolean(state.shuffle)));
     root.querySelector('[data-music-action="repeat"]').setAttribute("aria-pressed", String(Boolean(state.loop)));
-    const audio = root.querySelector('audio[data-music-audio="a"]');
-    const duration = Number(audio?.duration) || 0;
+    const duration = Math.max(...[...root.querySelectorAll("audio[data-music-audio]")].map((audio) => Number(audio.duration) || 0));
+    const progress = duration ? Math.min(1, Math.max(0, Number(state.currentTime || 0) / duration)) : 0;
+    root.querySelector("[data-music-meter]").style.setProperty("--music-progress", `${progress * 100}%`);
     root.querySelector("[data-music-remaining]").textContent = formatTime(Math.max(0, duration - (state.currentTime || 0)));
   };
   root.addEventListener("click", (event) => {
