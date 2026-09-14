@@ -16,7 +16,7 @@ const ALLOWED_ROW_KEYS = new Set([
   'pseudonymId', 'suppressed', 'suppressionReason', 'dimension', 'dimensionKey', 'label', 'name',
   'id', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode',
   'provider', 'seasonId', 'rulesetRevision', 'balanceRevision', 'observations', 'sampleSize',
-  'count', 'value', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'percentagePointDelta',
+  'count', 'value', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta',
   'matches', 'started', 'completed', 'stalled', 'completionRate', 'medianDuration', 'p95Duration',
   'durationMedian', 'durationP95', 'wins', 'winShare', 'placementMedian', 'fallback', 'fallbackRate',
   'decisions', 'actions', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations',

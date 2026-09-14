@@ -7,7 +7,8 @@ import {
   buildEconomy,
   buildEventsRarity,
   buildBots,
-  buildDataQuality
+  buildDataQuality,
+  buildAssociation
 } from './analyticsProjection.js';
 
 const MAX_ADMIN_IDS = 32;
@@ -86,7 +87,7 @@ function snapshotWithLiveMetrics(rollup, registry, query) {
   return { ...snapshot, quality: { ...(snapshot.quality || {}), activeRooms: Number(activeRooms.value ?? activeRooms.last) || 0, liveGeneratedAt: live.generatedAt } };
 }
 
-function responseEnvelope({ snapshot, query, overview, series = [], breakdowns = [], dataQuality, pseudonymVersion = PSEUDONYM_VERSION }) {
+function responseEnvelope({ snapshot, query, overview, series = [], breakdowns = [], association = null, dataQuality, pseudonymVersion = PSEUDONYM_VERSION }) {
   const response = {
     success: true,
     schemaVersion: ANALYTICS_SCHEMA_VERSION,
@@ -104,12 +105,16 @@ function responseEnvelope({ snapshot, query, overview, series = [], breakdowns =
       rulesetPreset: query.rulesetPreset,
       marketComplexity: query.marketComplexity,
       botMode: query.botMode,
+      provider: query.provider,
       eventId: query.eventId,
-      tab: query.tab
+      tab: query.tab,
+      dimension: query.dimension,
+      metric: query.metric
     },
     pseudonymVersion,
     suppression: { minimumCohort: MIN_COHORT, suppressedPanels: breakdowns.filter(item => item?.suppressed).length },
     overview,
+    association,
     series: Array.isArray(series) ? series.slice(0, query.range === 'hour' ? 168 : 90) : [],
     breakdowns: Array.isArray(breakdowns) ? breakdowns.slice(0, 100) : [],
     dataQuality
@@ -140,7 +145,8 @@ export function buildAnalyticsBalance({ rollup, registry, accountId, adminIds, q
   const view = viewFor(snapshot, query);
   const breakdowns = query.tab === 'overview' ? [] : [view];
   const series = Array.isArray(snapshot.series) ? snapshot.series : [];
-  return responseEnvelope({ snapshot, query, overview, series, breakdowns, dataQuality: buildDataQuality(snapshot, query) });
+  const association = query.dimension === 'feature' ? buildAssociation(snapshot, query, query.metric) : null;
+  return responseEnvelope({ snapshot, query, overview, series, breakdowns, association, dataQuality: buildDataQuality(snapshot, query) });
 }
 
 export function buildAnalyticsDrilldown({ rollup, accountId, adminIds, query: queryInput = {} } = {}) {
@@ -158,10 +164,26 @@ export function buildAnalyticsDrilldown({ rollup, accountId, adminIds, query: qu
     const actors = Array.isArray(snapshot.actorRollups)
       ? snapshot.actorRollups
       : Object.values(snapshot.actorRollups || {});
-    const eligible = actors.filter(row => row?.pseudonymVersion === pseudonymizer.version && Number(row?.observations) >= MIN_COHORT);
+    const eligible = actors.filter(row => row?.pseudonymVersion === pseudonymizer.version && Number(row?.observations) >= MIN_COHORT && actorMatchesQuery(row, query));
     breakdowns = eligible.length ? sanitizeAnalyticsRows(eligible, { pseudonymizer, scope: query, trusted: true }) : [suppressedRow('MIN_COHORT')];
   }
-  return responseEnvelope({ snapshot, query, overview: {}, series: [], breakdowns, dataQuality: buildDataQuality(snapshot, query), pseudonymVersion: pseudonymizer.version });
+  const association = query.dimension === 'feature' ? buildAssociation(snapshot, query, query.metric) : null;
+  return responseEnvelope({ snapshot, query, overview: {}, series: [], breakdowns, association, dataQuality: buildDataQuality(snapshot, query), pseudonymVersion: pseudonymizer.version });
+}
+
+function actorMatchesQuery(row, query) {
+  const scope = row?.scope || {};
+  for (const name of ['seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'rulesetPreset', 'marketComplexity', 'eventId', 'actionId', 'botMode', 'provider']) {
+    const expected = query[name];
+    if (expected === undefined || expected === null || expected === '' || expected === 'all') continue;
+    if (String(expected).toLowerCase() !== String(scope[name] ?? '').toLowerCase()) return false;
+  }
+  if (!query.dimension) return true;
+  if (query.dimension === 'board') return !query.boardVariant || query.boardVariant === 'all' || query.boardVariant === scope.boardVariant;
+  if (query.dimension === 'ruleset') return !query.rulesetPreset || query.rulesetPreset === 'all' || query.rulesetPreset === scope.rulesetPreset;
+  if (query.dimension === 'event') return !query.eventId || query.eventId === scope.eventId;
+  if (query.dimension === 'bot') return !query.botMode || query.botMode === 'all' || query.botMode === scope.botMode;
+  return true;
 }
 
 export { MAX_ADMIN_IDS };

@@ -61,3 +61,13 @@ check('keeps explicit nulls in versioned tab data', () => {
   assert.equal(result.breakdowns[0].rows[0].medianDuration.value, null);
   assert.equal(result.breakdowns[0].rows[0].completionRate.value, 1);
 });
+
+check('filters drilldown actors by requested dimension and preserves association deltas', () => {
+  const rollup = { health: () => ({ loaded: true, fresh: true }), query: () => ({ schemaVersion: 1, generatedAt: '2026-09-13T12:00:00.000Z', dimensions: {}, actorRollups: { one: { pseudonymId: 'P-SERVER', pseudonymVersion: 'hmac-v1', observations: 5, scope: { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', botMode: 'ai' } } }, quality: {} }) };
+  const previous = process.env.POORUP_ANALYTICS_PSEUDONYM_KEY;
+  process.env.POORUP_ANALYTICS_PSEUDONYM_KEY = 'test-key';
+  const result = buildAnalyticsDrilldown({ rollup, accountId: 'acct-owner', adminIds: ['acct-owner'], query: { dimension: 'bot', metric: 'fallback', botMode: 'ai', seasonId: 's', rulesetRevision: 1, balanceRevision: 1 } });
+  assert.equal(result.breakdowns.length, 1);
+  assert.equal(result.breakdowns[0].pseudonymId, 'P-SERVER');
+  if (previous === undefined) delete process.env.POORUP_ANALYTICS_PSEUDONYM_KEY; else process.env.POORUP_ANALYTICS_PSEUDONYM_KEY = previous;
+});

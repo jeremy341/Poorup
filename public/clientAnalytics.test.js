@@ -79,6 +79,31 @@ await check('chart hook keeps an accessible table fallback and bounded points', 
   assert.equal(fallback.table, true);
 });
 
+await check('preserves relative association deltas and version metadata', () => {
+  const snapshot = normalizeAnalyticsSnapshot({ pseudonymVersion: 'hmac-v1', breakdowns: [{ relativeRateDelta: 0.25, relativeDelta: 0.1 }] });
+  assert.equal(snapshot.pseudonymVersion, 'hmac-v1');
+  assert.equal(snapshot.breakdowns[0].relativeRateDelta, 0.25);
+});
+
+await check('chart markup exposes table state and non-negative bars', () => {
+  const previousDocument = globalThis.document;
+  let markup = '';
+  globalThis.document = {};
+  const container = {
+    set innerHTML(value) { markup = value; },
+    get firstElementChild() { return {}; },
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    }
+  };
+  renderAnalyticsChart(container, [{ label: 'loss', value: -4 }], { mode: 'bar' });
+  assert.match(markup, /aria-expanded="false"/);
+  assert.match(markup, /aria-controls="analytics-chart-table-/);
+  assert.equal(markup.includes('height="-'), false);
+  globalThis.document = previousDocument;
+});
+
 await check('controller suppresses duplicate loads and exposes tab/filter hooks', async () => {
   let calls = 0;
   const controller = createAnalyticsController({ fetcher: async () => { calls += 1; return { success: true, schemaVersion: 1, overview: { kpis: [] } }; } });

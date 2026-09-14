@@ -6,6 +6,7 @@ const BOARDS = new Set(['all', 'standard-40', 'metro-52']);
 const RULESETS = new Set(['all', 'classic', 'after-hours', 'custom']);
 const MARKETS = new Set(['all', 'basic', 'margin', 'shorting', 'derivatives']);
 const BOT_MODES = new Set(['all', 'ai', 'no-ai', 'human']);
+const PROVIDERS = new Set(['all', 'ai', 'deepseek', 'deterministic', 'fallback', 'house', 'openai', 'unknown']);
 
 function stringValue(value, fallback = '') {
   return value === null || value === undefined ? fallback : String(value).trim().slice(0, 120);
@@ -55,7 +56,10 @@ export function normalizeAnalyticsQuery(input = {}) {
     rulesetPreset: enumValue(source.rulesetPreset, RULESETS, 'all'),
     marketComplexity: enumValue(source.marketComplexity, MARKETS, 'all'),
     botMode: enumValue(source.botMode, BOT_MODES, 'all'),
+    provider: enumValue(source.provider, PROVIDERS, 'all'),
     eventId,
+    dimension: enumValue(source.dimension, new Set(['feature', 'ruleset', 'board', 'event', 'bot']), ''),
+    metric: stringValue(source.metric, '').replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80),
     tab,
     minimumCohort: MIN_COHORT
   };
@@ -139,7 +143,10 @@ function matchesQuery(dimensions, query) {
     && (query.balanceRevision === null || number(query.balanceRevision) === number(dimensions.balanceRevision))
     && equal(query.boardVariant, dimensions.boardVariant)
     && equal(query.rulesetPreset, dimensions.rulesetPreset)
-    && equal(query.marketComplexity, dimensions.marketComplexity);
+    && equal(query.marketComplexity, dimensions.marketComplexity)
+    && equal(query.eventId, dimensions.eventId)
+    && equal(query.botMode, dimensions.botMode)
+    && equal(query.provider, dimensions.provider);
 }
 
 function selectedDimensions(rollup, query) {

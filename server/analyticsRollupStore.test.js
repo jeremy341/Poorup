@@ -121,3 +121,12 @@ await check('keeps writes recorded during an async flush pending for retry', asy
   assert.equal(store.health().pendingWrites, 1);
   store.close();
 });
+
+await check('validates versions and bounds nested rollup maps', () => {
+  const store = createAnalyticsRollupStore({ now: () => clock, maxFeaturesPerDimension: 2, maxCombinationsPerEvent: 2 });
+  assert.equal(store.record({ kind: 'match-complete', createdAt: new Date(clock).toISOString(), boardVariant: 'invalid-board', data: {} }).accepted, false);
+  for (let index = 0; index < 10; index += 1) store.record({ kind: 'event-recovered', createdAt: new Date(clock).toISOString(), eventId: 'event-a', data: { combination: `combo-${index}` } });
+  const event = Object.values(store.query({}).dimensions)[0]?.events?.['event-a'];
+  assert.equal(Object.keys(event.combinations).length <= 2, true);
+  store.close();
+});

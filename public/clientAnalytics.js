@@ -16,7 +16,7 @@ const METRIC_LABELS = Object.freeze({
   'backup-failures': 'Backup failures', 'manual-codescene-runs': 'Manual CodeScene runs',
 });
 const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets']);
-const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'completed', 'stalled', 'matches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementMedian', 'fallback', 'fallbackRate', 'decisions', 'actions', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises', 'collateralizedOptions', 'negativeCashPreventions', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlocks', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab']);
+const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'completed', 'stalled', 'matches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementMedian', 'fallback', 'fallbackRate', 'decisions', 'actions', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises', 'collateralizedOptions', 'negativeCashPreventions', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlocks', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab', 'association', 'dimension', 'metric', 'scope']);
 const DYNAMIC_CLIENT_FIELDS = new Set(['features', 'events', 'market', 'bots', 'achievements', 'unlockRarity', 'outcomeDistribution', 'adoption', 'actions', 'combinations']);
 
 function query(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
@@ -89,6 +89,7 @@ export function normalizeAnalyticsSnapshot(value = {}) {
     filters,
     suppression: { minimumCohort: MIN_COHORT, suppressedPanels: Math.max(0, Math.floor(finite(source.suppression?.suppressedPanels, 0))) },
     overview,
+    association: cleanSafeValue(source.association, 'association') || null,
     series,
     breakdowns,
     dataQuality: cleanSafeValue(source.dataQuality, 'dataQuality') || {},
@@ -162,6 +163,9 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     const tabs = tabElements();
     tabs.forEach((element, index) => {
       const active = element.getAttribute('data-analytics-tab') === filters.tab;
+      const tabId = element.id || `analytics-tab-${index + 1}`;
+      element.id = tabId;
+      element.setAttribute('role', 'tab');
       element.setAttribute('aria-selected', String(active));
       element.setAttribute('tabindex', active ? '0' : '-1');
       element.classList.toggle('is-active', active);
@@ -177,7 +181,13 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
         setTab(tabs[next]?.getAttribute('data-analytics-tab'), { focus: true });
       });
     });
-    if (typeof document !== 'undefined') document.querySelectorAll?.('[data-analytics-panel]')?.forEach(element => element.classList.toggle('is-hidden', element.getAttribute('data-analytics-panel') !== filters.tab));
+    if (typeof document !== 'undefined') document.querySelectorAll?.('[data-analytics-panel]')?.forEach(element => {
+      const active = element.getAttribute('data-analytics-panel') === filters.tab;
+      element.classList.toggle('is-hidden', !active);
+      element.setAttribute('aria-hidden', String(!active));
+      const tab = tabs.find(candidate => candidate.getAttribute('data-analytics-tab') === filters.tab);
+      if (tab) element.setAttribute('aria-labelledby', tab.id);
+    });
   }
 
   const wired = new WeakMap();

@@ -106,3 +106,11 @@ check('returns bounded quality data and revision coverage', () => {
   assert.equal(quality.rejectedEvents, 1);
   assert.deepEqual(quality.revisionCoverage, ['3:7']);
 });
+
+check('filters direct snapshots by event and bot dimensions', () => {
+  const dimensions = {
+    a: { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', eventId: 'e1', botMode: 'ai', features: { loan: { eligible: 5, used: 5 } } },
+    b: { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', eventId: 'e2', botMode: 'no-ai', features: { loan: { eligible: 5, used: 0 } } }
+  };
+  assert.equal(buildEconomy({ dimensions, generatedAt: '2026-09-13T12:00:00Z' }, { eventId: 'e1', botMode: 'ai', rulesetRevision: 1, balanceRevision: 1 }).adoption.loan.value, 1);
+});
