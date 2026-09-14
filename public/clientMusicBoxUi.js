@@ -23,12 +23,13 @@ export function mountMusicBoxUi(root = document.querySelector("[data-music-box]"
   if (!root) return null;
   const audioA = root.querySelector('audio[data-music-audio="a"]');
   const audioB = root.querySelector('audio[data-music-audio="b"]');
-  let player = controller || createMusicPlayer({
+  let player = controller || globalThis.__poorupMusicBoxController || createMusicPlayer({
     audioA,
     audioB,
     storage: typeof localStorage === "undefined" ? {} : localStorage,
     announce: (message) => { const status = root.querySelector("[data-music-status]"); if (status) status.textContent = message; },
   });
+  globalThis.__poorupMusicBoxController = player;
   const volumeButton = root.querySelector('[data-music-action="volume"]');
   const volumePopover = root.querySelector("#music-volume-popover");
   const positionButton = root.querySelector('[data-music-action="position"]');

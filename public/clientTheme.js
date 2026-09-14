@@ -7,7 +7,7 @@ import { state } from "./clientState.js";
 import { DEFAULT_THEME_ID, THEME_STORAGE_KEY, getTheme, sanitizeThemeId, themeOptions } from "./clientThemeData.js";
 import { pauseThemeMotion, renderTheme, themePreviewScene } from "./clientThemeRender.js";
 
-let themeUi = { applyTheme: renderTheme, announce: null };
+let themeUi = { applyTheme: renderTheme, announce: null, onThemeChange: () => {} };
 let opener = null;
 let bound = false;
 let storageBound = false;
@@ -122,6 +122,9 @@ function applyThemePreference(value, { announceChange = true, animate = true, pe
     try { localStorage.setItem(THEME_STORAGE_KEY, theme.id); } catch { /* storage unavailable */ }
   }
   themeUi.applyTheme(theme.id, { animate });
+  // Audio follows the sanitized visual theme only after the visual tokens
+  // have been applied, preventing invalid ids from selecting a track.
+  themeUi.onThemeChange(theme.id);
   syncChoiceState();
   if (announceChange) themeUi.announce(`Parlor look changed to ${theme.name}.`);
   return theme;
@@ -196,8 +199,8 @@ export function bindThemeVisibility() {
   document.addEventListener("visibilitychange", () => pauseThemeMotion(document.hidden));
 }
 
-export function configureThemeUi({ applyTheme = renderTheme, announce: announceHook = announce } = {}) {
-  themeUi = { applyTheme: typeof applyTheme === "function" ? applyTheme : renderTheme, announce: typeof announceHook === "function" ? announceHook : announce };
+export function configureThemeUi({ applyTheme = renderTheme, announce: announceHook = announce, onThemeChange = () => {} } = {}) {
+  themeUi = { applyTheme: typeof applyTheme === "function" ? applyTheme : renderTheme, announce: typeof announceHook === "function" ? announceHook : announce, onThemeChange: typeof onThemeChange === "function" ? onThemeChange : () => {} };
   bindThemePopover();
 }
 
