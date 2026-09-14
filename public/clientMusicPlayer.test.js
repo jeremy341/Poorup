@@ -135,3 +135,38 @@ test("failed previous restores the popped history entry", () => {
   const { player } = setup({ manifest, audioB, getThemeId: () => "one" }); player.next(); player.previous(); listeners.error();
   assert.equal(player.snapshot().currentTrackId, "b"); assert.deepEqual(player.snapshot().history, ["a"]);
 });
+test("togglePlay starts and pauses only the active audio", () => {
+  const { player, audioA, audioB } = setup(); let plays = 0;
+  audioA.play = () => { plays += 1; }; audioA.pause = () => { audioA.paused = true; }; audioA.paused = true; audioB.pause = () => { audioB.paused = true; }; audioB.paused = false;
+  player.togglePlay(); assert.equal(plays, 1); assert.equal(player.snapshot().playing, true); assert.equal(player.snapshot().status, "playing"); assert.equal(audioB.paused, true);
+  player.togglePlay(); assert.equal(audioA.paused, true); assert.equal(player.snapshot().playing, false); assert.equal(player.snapshot().status, "paused");
+});
+test("togglePlay retries after autoplay blocked", async () => {
+  let blocked = true; const { player, audioA } = setup(); audioA.play = () => blocked ? Promise.reject(new Error("blocked")) : undefined;
+  player.togglePlay(); await Promise.resolve(); await Promise.resolve(); assert.equal(player.snapshot().status, "autoplay-blocked"); blocked = false; player.togglePlay(); assert.equal(player.snapshot().playing, true);
+});
+test("autoplay retry targets the pending incoming element", async () => {
+  let attempts = 0; const audioB = { ...media(), play: () => { attempts += 1; return attempts === 1 ? Promise.reject(new Error("blocked")) : undefined; } };
+  const { player } = setup({ audioB }); player.selectTrack("pondering-the-cosmos"); await Promise.resolve(); await Promise.resolve(); player.togglePlay();
+  assert.equal(attempts, 2); assert.equal(player.snapshot().playing, true);
+});
+test("pause cancels an in-flight crossfade and queued finish", async () => {
+  let queued; const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} }; const { player, audioA } = setup({ audioB, reducedMotion: false, requestFrame: fn => { queued = fn; return 7; }, cancelFrame: () => {} });
+  player.setTheme("spring"); listeners.canplay(); await Promise.resolve(); await Promise.resolve(); player.togglePlay(); queued?.();
+  assert.equal(player.snapshot().status, "paused"); assert.equal(audioA.volume, 0.16); assert.equal(audioB.volume, 0);
+});
+test("stale play promise cannot change status after navigation", async () => {
+  const resolves = []; const audioB = { ...media(), play: () => new Promise(resolve => resolves.push(resolve)) };
+  const { player } = setup({ audioB }); player.selectTrack("pondering-the-cosmos"); player.setTheme("spring"); resolves[0](); await Promise.resolve(); await Promise.resolve();
+  assert.notEqual(player.snapshot().status, "playing");
+});
+test("blocked pending target is retried before pausing prior playback", async () => {
+  let attempts = 0; const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {}, play: () => { attempts += 1; return attempts === 1 ? Promise.reject(new Error("blocked")) : undefined; } };
+  const { player, audioA } = setup({ audioB }); audioA.play = () => {}; player.togglePlay(); player.setTheme("spring"); listeners.canplay(); await Promise.resolve(); await Promise.resolve(); player.togglePlay();
+  assert.equal(attempts, 2); assert.equal(player.snapshot().playing, true);
+});
+test("pausing an in-flight transition immediately restores its full snapshot", async () => {
+  const listeners = {}; let queued; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player, audioA } = setup({ audioB, requestFrame: fn => { queued = fn; return 9; }, cancelFrame: () => {} }); player.togglePlay(); const before = player.snapshot(); player.setTheme("spring"); listeners.canplay(); player.togglePlay(); queued?.();
+  const after = player.snapshot(); assert.equal(after.playing, false);
+});
