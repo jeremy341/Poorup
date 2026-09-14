@@ -341,6 +341,37 @@ a:focus-visible {
   .theme-choice[aria-checked="true"] { outline: 2px solid Highlight; }
 }
 
+/* Compact global reference music dock. Keep the final control close to the edge. */
+.music-box { position: fixed; left: 16px; bottom: 20px; z-index: 55; width: min(324px, calc(100vw - 32px)); min-height: 96px; padding: 8px; color: var(--music-text, var(--text-primary)); background: var(--music-surface, var(--surface-panel)); border-color: var(--music-border, var(--line-default)); }
+.music-box-panel { display: grid; gap: 8px; position: relative; }
+.music-box-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.music-box-track > img { flex: 0 0 16px; }
+.music-box-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.music-box-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.2 var(--font-pixel); letter-spacing: .04em; }
+.music-box-mode { color: var(--music-muted, var(--text-muted)); white-space: nowrap; }
+.music-box-grip { width: 28px; height: 28px; flex: 0 0 28px; padding: 5px; }
+.music-box-grip img, .music-box-controls img { display: block; width: 16px; height: 16px; }
+.music-box-progress { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 6px; color: var(--music-muted, var(--text-muted)); font: 8px/1 var(--font-pixel); }
+.music-box-progress time:last-child { text-align: right; }
+.music-box-meter { display: block; height: 6px; background: repeating-linear-gradient(90deg, var(--music-meter, var(--gold-400)) 0 5px, transparent 5px 7px); opacity: .72; }
+.music-box-controls { display: flex; align-items: center; gap: 8px; }
+.music-box-controls > button, .music-box-volume-wrap > button { display: grid; place-items: center; width: 28px; height: 28px; padding: 5px; border: 1px solid transparent; }
+.music-box-controls button:hover, .music-box-controls button:focus-visible, .music-box-grip:hover, .music-box-grip:focus-visible { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-button-hover); }
+.music-box-controls [aria-pressed="true"] { color: var(--gold-050); border-color: var(--line-active); }
+.music-box-volume-wrap { position: relative; }
+.music-volume-popover { position: absolute; left: 50%; bottom: calc(100% + 8px); z-index: 2; display: grid; justify-items: center; width: 38px; height: 110px; padding: 8px 6px; background: var(--music-surface, var(--surface-panel)); border: 1px solid var(--music-border, var(--line-default)); box-shadow: var(--shadow-panel); transform: translateX(-50%); }
+.music-volume-popover[hidden], .music-position-menu[hidden] { display: none; }
+.music-volume-popover label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.music-volume-popover input { width: 94px; height: 18px; margin-top: 37px; transform: rotate(-90deg); accent-color: var(--music-accent, var(--gold-400)); }
+.music-position-menu { position: absolute; right: 0; top: 32px; z-index: 3; display: grid; gap: 2px; min-width: 130px; padding: 4px; background: var(--music-surface, var(--surface-panel)); border: 1px solid var(--music-border, var(--line-default)); box-shadow: var(--shadow-panel); }
+.music-position-menu button { min-height: 28px; padding: 4px 8px; color: var(--music-text, var(--text-primary)); text-align: left; font: 9px/1 var(--font-pixel); }
+.music-position-menu button:hover, .music-position-menu button:focus-visible { background: var(--surface-button-hover); color: var(--gold-050); }
+.music-box[data-position="top-left"] { top: 20px; bottom: auto; }
+.music-box[data-position="top-right"] { top: 20px; right: 16px; bottom: auto; left: auto; }
+.music-box[data-position="bottom-right"] { right: 16px; left: auto; }
+.music-box audio { display: none; }
+@media (max-width: 600px) { .music-box { left: 10px; right: 10px; bottom: 12px; width: auto; min-height: 104px; } .music-box[data-position="top-right"], .music-box[data-position="bottom-right"] { right: 10px; } .music-box-controls > button, .music-box-volume-wrap > button, .music-box-grip { width: 44px; height: 44px; flex-basis: 44px; padding: 13px; } .music-box-controls { gap: 2px; justify-content: space-between; } }
+
 /* ============================================================
    LEGAL DOCUMENTS - static, policy-gated reading surface
    ============================================================ */
