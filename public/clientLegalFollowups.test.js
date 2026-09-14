@@ -8,6 +8,8 @@ const rail = source("clientRailEvents.js");
 const deed = source("clientDeedDetailUi.js");
 const deals = source("clientDealUi.js");
 const main = source("main.js");
+const audioControls = source("clientAudioControls.js");
+const musicBoxUi = source("clientMusicBoxUi.js");
 const stateSync = source("clientStateSync.js");
 const socketListeners = source("clientSocketListeners.js");
 const styles = source("styles.css");
@@ -24,11 +26,12 @@ assert.match(socketListeners, /state\.players\s*=\s*buildPlayers\(/);
 assert.match(socketListeners, /host\.syncAudioButtons\(\)/);
 assert.match(socketListeners, /host\.syncHomeMusic\(\)/);
 
-assert.match(main, /ready:\s*"Turn parlor music off"/);
-assert.match(main, /addEventListener\("error"/);
-assert.match(main, /addEventListener\("stalled"/);
-assert.match(main, /addEventListener\("ended"/);
-assert.match(main, /audioPlayPromise|audioRuntime/);
+assert.match(main, /const snapshot = ensureMusicController\(\)\?\.snapshot/);
+assert.match(main, /controller\.stop\?\./);
+assert.match(audioControls, /Turn parlor music off/);
+assert.match(audioControls, /Turn parlor music on/);
+assert.match(musicBoxUi, /data-music-status/);
+assert.doesNotMatch(main, /#home-music|audioRuntime|AUDIO_LABELS/);
 
 assert.match(stateSync, /game\.started[\s\S]{0,180}state\.gameOver = null/);
 assert.match(stateSync, /gameStarted|newGame|startedTransition/);
