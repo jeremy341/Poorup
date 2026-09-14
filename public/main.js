@@ -12,6 +12,7 @@ import {
   state,
   syncLocalAppearance,
 } from "./clientState.js";
+import { saveMusicPreference } from "./clientSanitize.js";
 import {
   buildBoard,
   renderBoardState,
@@ -520,6 +521,26 @@ function retryAudioAfterGesture() {
   if (!state.music) return;
   const snapshot = ensureMusicController()?.snapshot?.();
   if (snapshot && snapshot.status !== "playing") syncHomeMusic({ userGesture: true });
+}
+
+function handleMusicBoxPlayIntent(event) {
+  event.preventDefault();
+  const controller = ensureMusicController();
+  if (!controller) return;
+  if (!state.music) {
+    state.music = true;
+    saveMusicPreference(true);
+    syncAudioButtons();
+    controller.resetToThemeTrack?.();
+    return;
+  }
+  const snapshot = controller.snapshot?.();
+  if (snapshot?.status === "playing") controller.stop?.();
+  else controller.resetToThemeTrack?.();
+}
+
+function bindMusicBoxIntent() {
+  document.querySelector("[data-music-box]")?.addEventListener("music-box-play", handleMusicBoxPlayIntent);
 }
 
 // Legacy single-track media events were removed; the music-box controller
@@ -1107,6 +1128,7 @@ configureMaintenanceUi({ emitServer });
 bindThemeVisibility();
 initThemePreference();
 ensureMusicController();
+bindMusicBoxIntent();
 renderHome();
 buildBoard(onTileClick);
 renderTheme(state.themeId, { animate: false });

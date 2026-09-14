@@ -77,7 +77,9 @@ export function mountMusicBoxUi(root = document.querySelector("[data-music-box]"
       if (action === "volume") { setOpen(volumePopover, volumeButton, volumePopover.hidden); setOpen(positionMenu, positionButton, false); return; }
       if (action === "position") { setOpen(positionMenu, positionButton, positionMenu.hidden); setOpen(volumePopover, volumeButton, false); return; }
       if (action === "play") {
-        if (player?.togglePlay) player.togglePlay(); else root.dispatchEvent(new CustomEvent("music-box-play", { bubbles: true }));
+        const handled = new CustomEvent("music-box-play", { bubbles: true, cancelable: true });
+        root.dispatchEvent(handled);
+        if (!handled.defaultPrevented) player?.togglePlay?.();
       } else if (player?.[ACTIONS[action]]) player[ACTIONS[action]]();
       render(); return;
     }

@@ -55,6 +55,18 @@ check("blocked playback announces once", () => {
   assert.match(main, /music-status|announceSoundMessage/);
 });
 
+check("dock play intent is handled by the canonical global state", () => {
+  assert.match(main, /music-box-play/);
+  assert.match(main, /state\.music = true/);
+  assert.match(main, /saveMusicPreference\(true\)/);
+  assert.match(main, /resetToThemeTrack/);
+  assert.match(main, /controller\.stop\?\./);
+  assert.doesNotMatch(musicBoxUi, /player\.togglePlay\(\).*state\.music/);
+  assert.match(musicBoxUi, /CustomEvent\("music-box-play", \{ bubbles: true, cancelable: true \}\)/);
+  assert.match(musicBoxUi, /if \(!handled\.defaultPrevented\) player\?\.togglePlay/);
+  assert.match(main, /event\.preventDefault\(\)/);
+});
+
 const failures = checks.filter((result) => !result.ok);
 checks.forEach((result) => {
   if (result.ok) console.log(`PASS - ${result.name}`);
