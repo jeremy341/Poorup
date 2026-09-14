@@ -103,3 +103,13 @@ test("rollback cancels queued fade so failed incoming audio cannot reactivate", 
   player.selectTrack("pondering-the-cosmos"); listeners.canplay(); listeners.error(); queued?.();
   assert.equal(cancelled, true); assert.equal(player.snapshot().currentTrackId, "pondering-the-cosmos"); assert.equal(player.snapshot().status, "track-error"); assert.equal(audioA.volume, 0.16); assert.equal(audioB.volume, 0);
 });
+test("shuffle uses injected randomness for a bounded non-repeating permutation", () => {
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" }, c: { id: "c", title: "C", src: "/c", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a", "b", "c"] } };
+  const { player } = setup({ manifest, random: () => 0, getThemeId: () => "one" }); player.toggleShuffle();
+  const queue = player.snapshot().queue; assert.equal(new Set(queue).size, 3); assert.deepEqual(queue, ["b", "c", "a"]); player.next(); assert.equal(player.snapshot().currentTrackId, "b");
+});
+test("failed custom selection restores queue and history state", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player } = setup({ audioB }); const before = player.snapshot(); player.selectTrack("hot-springs-town"); listeners.error(); const after = player.snapshot();
+  assert.equal(after.currentTrackId, before.currentTrackId); assert.equal(after.mode, before.mode); assert.deepEqual(after.queue, before.queue); assert.equal(player.previous(), true);
+});
