@@ -33,3 +33,14 @@ Scoped ESLint passed with 0 errors and 0 warnings for the analytics, telemetry, 
 ## Parent integration note
 
 The parent-owned `server.js` routes/rollup wiring remains required for end-to-end activation. The analytics client still requires the parent-owned tab/filter/panel/chart markup and styles.
+
+## Recheck fixes
+
+`9c8dad55ea4dda13147d9d820a2139f3dd7ef0f0` — `fix: close analytics runtime durability gaps`
+
+- Runtime logged events now accept bounded round numbers; bot outcomes carry AI/NO-AI and bot-only markers; lifecycle start/stall telemetry is idempotent and versioned.
+- Telemetry flushes attached rollups and closes both stores durably, including async-writer updates recorded during shutdown; failed queues remain bounded.
+- Rollup flushes are synchronous for synchronous writers while preserving async retry semantics; nested and version-validation regressions remain green.
+- Direct snapshot filters, full actor scopes, drilldown dimension/metric routing, relative association deltas, and chart ARIA/reduced-motion/forced-color/non-negative-bar contracts are covered.
+
+Final recheck command set: all listed analytics/runtime/privacy/rollup/projection/API/security/telemetry/client suites passed with 0 failures; scoped ESLint passed with 0 errors and 0 warnings.
