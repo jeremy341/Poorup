@@ -202,3 +202,13 @@ test("ended after stop does not restart the active audio", () => {
   let plays = 0; let ended; const audioA = { ...media(), play() { plays += 1; }, addEventListener(type, fn) { if (type === "ended") ended = fn; } };
   const { player } = setup({ audioA }); player.togglePlay(); player.stop(); ended(); assert.equal(plays, 1);
 });
+test("mode persists and restores only sanitized values", () => {
+  const values = new Map(); const first = setup({ storage: { getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,v) } }); first.player.selectTrack("hot-springs-town");
+  const second = setup({ storage: { getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,v) } }); assert.equal(second.player.snapshot().mode, "CUSTOM");
+});
+test("storage sync applies approved preference fields", () => {
+  const { player } = setup(); player.syncPreferences(JSON.stringify({ volume: 0.4, shuffle: true, loop: false, mode: "CUSTOM", track: "pondering-the-cosmos" })); const snap = player.snapshot(); assert.equal(snap.volume, 0.4); assert.equal(snap.shuffle, true); assert.equal(snap.loop, false); assert.equal(snap.mode, "CUSTOM");
+});
+test("non-loop ended clears playing intent and reports ended", () => {
+  let ended; const audioA = { ...media(), play() {}, addEventListener(type, fn) { if (type === "ended") ended = fn; } }; const { player } = setup({ audioA }); player.togglePlay(); player.toggleLoop(); ended(); assert.equal(player.snapshot().playing, false); assert.equal(player.snapshot().status, "ended");
+});
