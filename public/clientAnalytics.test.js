@@ -6,11 +6,11 @@ globalThis.document = { querySelector: () => null };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
-const { normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } = await import('./clientAnalytics.js');
+const { normalizeAnalyticsSnapshot, normalizeAnalyticsQuery, metricValue, isAnalyticsPath, createAnalyticsController } = await import('./clientAnalytics.js');
 
-function check(name, run) {
+async function check(name, run) {
   try {
-    run();
+    await run();
     console.log(`PASS - ${name}`);
   } catch (error) {
     console.error(`FAIL - ${name}:`, error.message);
@@ -18,13 +18,13 @@ function check(name, run) {
   }
 }
 
-check('accepts only the internal analytics path', () => {
+await check('accepts only the internal analytics path', () => {
   assert.equal(isAnalyticsPath('/admin/analytics'), true);
   assert.equal(isAnalyticsPath('/analytics'), false);
   assert.equal(isAnalyticsPath('/admin/analytics?range=day'), true);
 });
 
-check('normalizes malformed metrics without leaking fields', () => {
+await check('normalizes malformed metrics without leaking fields', () => {
   const snapshot = normalizeAnalyticsSnapshot({
     metrics: {
       'active-rounds': { value: '2', privateChat: 'secret' },
@@ -36,8 +36,41 @@ check('normalizes malformed metrics without leaking fields', () => {
   assert.equal(snapshot.metrics.unknown, undefined);
 });
 
-check('reads gauge and counter values consistently', () => {
+await check('reads gauge and counter values consistently', () => {
   assert.equal(metricValue({ value: 4, last: 2 }), 4);
   assert.equal(metricValue({ last: 3, total: 7 }), 3);
   assert.equal(metricValue(null), 0);
+});
+
+await check('normalizes versioned aggregate snapshots without raw identity fields', () => {
+  const snapshot = normalizeAnalyticsSnapshot({
+    schemaVersion: 1,
+    filters: { range: 'day', seasonId: 'season-01', accountId: 'do-not-keep' },
+    overview: { kpis: [{ id: 'completed-rounds', value: 8, denominator: 10, accountId: 'raw' }] },
+    breakdowns: [{ pseudonymId: 'P-ABC', observations: 5, displayName: 'Ada', username: 'ada', accountId: 'raw' }],
+    dataQuality: { stale: false }
+  });
+  const serialized = JSON.stringify(snapshot);
+  assert.equal(snapshot.schemaVersion, 1);
+  assert.equal(snapshot.overview.kpis[0].value, 8);
+  assert.equal(snapshot.breakdowns[0].pseudonymId, 'P-ABC');
+  assert.equal(serialized.includes('Ada'), false);
+  assert.equal(serialized.includes('accountId'), false);
+});
+
+await check('normalizes filters to fixed allow-lists and minimum cohort', () => {
+  const query = normalizeAnalyticsQuery({ range: 'season', boardVariant: 'METRO-52', botMode: 'AI', minimumCohort: 1, accountId: 'raw' });
+  assert.deepEqual(query, { range: 'season', seasonId: '', rulesetRevision: '', balanceRevision: '', boardVariant: 'metro-52', rulesetPreset: 'all', marketComplexity: 'all', botMode: 'ai', eventId: '', minimumCohort: 5, tab: 'overview' });
+});
+
+await check('controller suppresses duplicate loads and exposes tab/filter hooks', async () => {
+  let calls = 0;
+  const controller = createAnalyticsController({ fetcher: async () => { calls += 1; return { success: true, schemaVersion: 1, overview: { kpis: [] } }; } });
+  const first = controller.load({ range: 'day' });
+  const second = controller.load({ range: 'day' });
+  await Promise.all([first, second]);
+  assert.equal(calls, 1);
+  assert.equal(controller.setTab('economy').tab, 'economy');
+  assert.equal(controller.setFilters({ botMode: 'AI' }).botMode, 'ai');
+  controller.destroy();
 });

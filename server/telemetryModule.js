@@ -4,13 +4,14 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadJson, writeJson } from './storeIO.js';
+import { ALLOWED_ANALYTICS_DIMENSIONS, ALLOWED_ROLLUP_KINDS } from './analyticsRollupStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'telemetry.json');
 const MAX_EVENTS = 5000;
-const PRIVATE_KEYS = new Set(['chat', 'message', 'text', 'hiddenCards', 'privateLoanTerms', 'opponentSecrets', 'password', 'sessionToken']);
-const ALLOWED_KINDS = new Set(['match-complete', 'event-eligible', 'event-triggered', 'event-choice', 'event-recovered', 'market-volatility', 'market-liquidation', 'achievement-unlocked', 'reward-claimed', 'bot-outcome', 'bankruptcy', 'comeback']);
+const PRIVATE_KEYS = new Set(['chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'displayname', 'username', 'accountid', 'clientid', 'roomcode']);
+const ALLOWED_KINDS = new Set([...ALLOWED_ROLLUP_KINDS]);
 
 function safePrimitive(value) {
   if (value === null) return value;
@@ -33,7 +34,7 @@ function sanitize(value, depth = 0) {
   if (!value || typeof value !== 'object') return undefined;
   const result = {};
   Object.entries(value).slice(0, 40).forEach(([key, item]) => {
-    if (PRIVATE_KEYS.has(key)) return;
+    if (PRIVATE_KEYS.has(key) || PRIVATE_KEYS.has(String(key).toLowerCase())) return;
     const clean = sanitize(item, depth + 1);
     if (clean !== undefined) result[String(key).slice(0, 60)] = clean;
   });
@@ -41,7 +42,7 @@ function sanitize(value, depth = 0) {
 }
 
 function telemetryEntry(eventKind, payload, versions) {
-  return {
+  const entry = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     kind: eventKind,
     createdAt: new Date().toISOString(),
@@ -52,6 +53,12 @@ function telemetryEntry(eventKind, payload, versions) {
     eventId: versions.eventId ? String(versions.eventId).slice(0, 80) : null,
     data: sanitize(payload) || {}
   };
+  ALLOWED_ANALYTICS_DIMENSIONS.filter(name => !['seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'eventId'].includes(name)).forEach(name => {
+    const value = versions[name] ?? payload?.[name];
+    if (value === undefined || value === null || value === '') return;
+    entry[name] = typeof value === 'number' ? Math.max(0, Math.floor(Number(value) || 0)) : String(value).trim().slice(0, 80);
+  });
+  return entry;
 }
 
 function trimTelemetry(events) {
@@ -59,8 +66,10 @@ function trimTelemetry(events) {
 }
 
 export class TelemetryStore {
-  constructor(filePath = DEFAULT_FILE) {
+  constructor(filePath = DEFAULT_FILE, { rollupStore = null, onRollup = null } = {}) {
     this.filePath = filePath;
+    this.rollupStore = rollupStore;
+    this.onRollup = onRollup;
     this.events = [];
     this.load();
   }
@@ -80,6 +89,13 @@ export class TelemetryStore {
     const entry = telemetryEntry(eventKind, payload, versions);
     this.events.push(entry);
     trimTelemetry(this.events);
+    try {
+      const rollup = this.rollupStore?.record(entry) || null;
+      this.onRollup?.(entry, rollup);
+    } catch {
+      // Analytics persistence is a shadow path. A rollup outage must not
+      // reject an otherwise valid telemetry event or affect game state.
+    }
     // Flush each write: low-volume balancing data should survive a process
     // restart, and the bounded array keeps the operation predictable.
     this.persist();
@@ -96,7 +112,7 @@ export class TelemetryStore {
   }
 }
 
-export { ALLOWED_KINDS, DEFAULT_FILE as TELEMETRY_STORE_FILE, MAX_EVENTS, PRIVATE_KEYS, sanitizeTelemetryValue as sanitize };
+export { ALLOWED_KINDS, ALLOWED_ANALYTICS_DIMENSIONS, DEFAULT_FILE as TELEMETRY_STORE_FILE, MAX_EVENTS, PRIVATE_KEYS, sanitizeTelemetryValue as sanitize };
 
 function sanitizeTelemetryValue(value) {
   return sanitize(value);
