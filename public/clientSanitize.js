@@ -359,7 +359,8 @@ export function clearLocalPlayerData(storage = globalThis.localStorage) {
   if (!storage || typeof storage.length !== "number") return [];
   const removed = [];
   for (let index = storage.length - 1; index >= 0; index -= 1) {
-    const key = storage.key(index);
+    let key;
+    try { key = storage.key(index); } catch { continue; }
     if (typeof key !== "string" || !key.startsWith(POORUP_STORAGE_PREFIX)) continue;
     try {
       storage.removeItem(key);

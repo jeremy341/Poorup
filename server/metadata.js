@@ -54,7 +54,7 @@ export function metadataConfig(options = {}) {
   const origin = normalizeOrigin(source.origin);
   const path = cleanPath(source.path);
   const defaultPolicy = origin && !PRIVATE_PATH.test(path) ? "index,follow" : "noindex,nofollow";
-  const indexPolicy = normalizePolicy(source.indexPolicy, defaultPolicy);
+  const indexPolicy = origin ? normalizePolicy(source.indexPolicy, defaultPolicy) : "noindex,nofollow";
   const previewPath = cleanPath(source.previewPath, PREVIEW_PATH);
   const description = cleanText(source.description);
   const title = cleanText(source.title, "Poorup");
@@ -82,9 +82,9 @@ function escapeAttribute(value) {
 }
 
 export function renderMetadata(options = {}) {
-  const meta = options.previewWidth === PREVIEW_WIDTH && options.previewHeight === PREVIEW_HEIGHT
-    ? options
-    : metadataConfig(options);
+  // Re-normalize at the renderer boundary. Callers may pass a precomputed
+  // object, but its origin and absolute URLs are still untrusted input.
+  const meta = metadataConfig(options);
   const tags = [
     `<meta name="robots" content="${escapeAttribute(meta.indexPolicy)}">`,
     `<meta name="description" content="${escapeAttribute(meta.description || "")}">`,

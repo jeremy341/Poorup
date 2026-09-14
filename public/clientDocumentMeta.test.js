@@ -27,6 +27,18 @@ assert.match(configuredHtml, /property="og:image:type" content="image\/png"/);
 const privateHtml = renderDocumentMeta(metadataConfig({ origin: "https://play.example", path: "/admin/analytics" }));
 assert.match(privateHtml, /name="robots" content="noindex,nofollow"/);
 
+const invalidPrecomputed = renderDocumentMeta({
+  origin: "not-a-url",
+  path: "/",
+  canonicalUrl: "https://evil.example/private",
+  previewUrl: "https://evil.example/card.png",
+  previewWidth: 1200,
+  previewHeight: 630,
+  indexPolicy: "index,follow",
+});
+assert.doesNotMatch(invalidPrecomputed, /evil\.example|rel="canonical"|og:url|og:image/i);
+assert.match(invalidPrecomputed, /name="robots" content="noindex,nofollow"/);
+
 const announcer = { textContent: "" };
 globalThis.document = {
   title: "",

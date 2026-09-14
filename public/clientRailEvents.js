@@ -227,7 +227,7 @@ function onBuyTile(node) {
 
 function onTradeOpen(node) {
   if (!node || node.disabled) return false;
-  host.openTradeModal(node.dataset.trade);
+  host.openTradeModal(node.dataset.trade, node);
   return true;
 }
 
