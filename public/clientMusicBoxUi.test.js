@@ -86,6 +86,13 @@ test("releases move gesture at document level", () => {
   assert.match(source, /document\.addEventListener\("pointerup"/);
 });
 
+test("keeps touch hit areas large without making the visual dock tall", () => {
+  assert.match(styles, /\.music-box\s*\{[^}]*min-height:\s*96px/);
+  assert.match(styles, /@media[^}]*\(hover:\s*none\)[\s\S]*?\.music-box\s*\{[^}]*max-height:\s*116px/);
+  assert.match(styles, /@media[^}]*\(hover:\s*none\)[\s\S]*?\.music-box-panel\s*\{[^}]*gap:\s*2px/);
+  assert.match(styles, /@media[^}]*\(hover:\s*none\)[\s\S]*?width:\s*44px/);
+});
+
 test("declares safe corner snapping and keyboard-native move controls", () => {
   assert.match(styles, /env\(safe-area-inset-top\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
