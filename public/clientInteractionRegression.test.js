@@ -32,7 +32,11 @@ assert.match(socket, /storage/);
 assert.match(socket, /isExplicitSessionInvalidation/);
 assert.match(sanitize, /export function clearLocalPlayerData/);
 assert.match(main, /setDocumentMeta/);
-assert.match(main, /music\.play\(\)[\s\S]*catch[\s\S]*(blocked|retry)/i);
+assert.match(main, /createMusicPlayer/);
+assert.match(main, /resetToThemeTrack/);
+assert.match(main, /controller\.stop\?\./);
+assert.match(main, /const snapshot = ensureMusicController\(\)\?\.snapshot/);
+assert.doesNotMatch(main, /#home-music|audioRuntime|AUDIO_LABELS|mediaFailureState/);
 assert.match(stateSync, /state\.gameOver\s*=\s*null/);
 
 assert.doesNotMatch(index, /<title>[^<]*[—–]|POORUP\s+[—–]|[—–]\s+LOBBIES/i);
