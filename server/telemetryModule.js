@@ -222,9 +222,12 @@ export class TelemetryStore {
   close() {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    const result = this.flush();
-    if (result && typeof result.then === 'function') return result.then(() => this.rollupStore?.close?.());
-    return this.rollupStore?.close?.();
+    const finish = () => {
+      const result = this.flush();
+      if (result && typeof result.then === 'function') return result.then(() => this.pendingEvents.length ? finish() : this.rollupStore?.close?.());
+      return this.pendingEvents.length ? finish() : this.rollupStore?.close?.();
+    };
+    return finish();
   }
 
   summary({ kind, eventId } = {}) {
