@@ -85,3 +85,14 @@ test("empty safe manifest reports unavailable without throwing", () => {
   const manifest = { tracks: {}, defaults: { empty: "missing" }, themes: { empty: ["missing"] } };
   const { player } = setup({ manifest, getThemeId: () => "empty" }); assert.equal(player.next(), false); assert.equal(player.previous(), false); assert.equal(player.snapshot().status, "track-unavailable");
 });
+test("failed theme switch rolls back the complete prior state", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player } = setup({ audioB }); player.toggleLoop(); player.selectTrack("pondering-the-cosmos");
+  const before = player.snapshot(); player.setTheme("spring"); listeners.error(); const after = player.snapshot();
+  assert.deepEqual({ theme: after.theme, mode: after.mode, loop: after.loop, queue: after.queue, currentTrackId: after.currentTrackId }, { theme: before.theme, mode: before.mode, loop: before.loop, queue: before.queue, currentTrackId: before.currentTrackId });
+});
+test("failed reset rolls back custom state and queue", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player } = setup({ audioB }); player.selectTrack("pondering-the-cosmos"); const before = player.snapshot(); player.resetToThemeTrack(); listeners.error(); const after = player.snapshot();
+  assert.equal(after.mode, before.mode); assert.equal(after.currentTrackId, before.currentTrackId); assert.deepEqual(after.queue, before.queue);
+});
