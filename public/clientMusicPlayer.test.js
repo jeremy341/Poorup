@@ -49,3 +49,20 @@ test("seek and next honor bounds and loop-off stop", () => {
   const { player, audioA } = setup(); audioA.duration = 100; assert.equal(player.seek(2), 1); assert.equal(audioA.currentTime, 100);
   player.toggleLoop(); assert.equal(player.next(), false); assert.equal(player.snapshot().status, "ended");
 });
+test("crossfade ramps both elements and cancels stale transitions", async () => {
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" } }, defaults: { one: "a", two: "b" }, themes: { one: ["a"], two: ["b"] } };
+  const frames = []; let clock = 0; const a = media(); const b = media();
+  const player = createMusicPlayer({ audioA: a, audioB: b, manifest, getThemeId: () => "one", now: () => clock, requestFrame: fn => { frames.push(fn); return frames.length; }, cancelFrame: id => { frames[id - 1] = null; } });
+  player.setTheme("two"); await Promise.resolve(); await Promise.resolve();
+  assert.equal(frames.length > 0, true); clock = 325; frames.at(-1)?.(); assert.equal(b.volume > 0 && b.volume < 0.16, true); assert.equal(a.volume < 0.16, true);
+  player.setTheme("one"); const stale = frames.at(-1); player.setTheme("two"); stale?.(); assert.equal(player.snapshot().currentTrackId, "b");
+});
+test("persisted track is restored only for its approved theme", () => {
+  const storage = new Map([["poorup.music.preferences", JSON.stringify({ theme: "spring", track: "pondering-the-cosmos", volume: 0.4 })]]);
+  const { player } = setup({ storage: { getItem: k => storage.get(k), setItem: (k, v) => storage.set(k, v) }, getThemeId: () => "spring" });
+  assert.equal(player.snapshot().currentTrackId, "hot-springs-town"); assert.equal(player.snapshot().volume, 0.4);
+});
+test("safe injected manifest never hardcodes unavailable fallback", () => {
+  const manifest = { tracks: { x: { id: "x", title: "X", src: "/x", status: "approved" } }, defaults: { custom: "x" }, themes: { custom: ["x"] } };
+  const { player } = setup({ manifest, getThemeId: () => "custom" }); player.setTheme("custom"); assert.equal(player.snapshot().currentTrackId, "x");
+});
