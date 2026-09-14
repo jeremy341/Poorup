@@ -7,7 +7,7 @@
    Event names and payload shapes are byte-identical to the old
    inline block in main.js.
    ============================================================ */
-import { state, saveAccountSession } from "./clientState.js";
+import { state, saveAccountSession, activeAppearance, buildPlayers } from "./clientState.js";
 import { $ } from "./clientDom.js";
 import { applyServerState } from "./clientStateSync.js";
 import { TILES, TILE_COUNT } from "./clientBoardData.js";
@@ -17,7 +17,7 @@ import {
   renderAchievements,
   updateAccountFromResponse,
 } from "./clientAccountIdentity.js";
-import { applyProfileToHomeUI, renderAccountPanel } from "./clientProfileRender.js";
+import { applyProfileToHomeUI, renderAccountPanel, renderProfileLibrary } from "./clientProfileRender.js";
 import {
   announceSocialNotification,
   renderPlayerSurface,
@@ -25,7 +25,8 @@ import {
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
 import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
-import { clearLocalPlayerData } from "./clientSanitize.js";
+import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
+import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 
 let host = {
   setConnectionStatus: noop,
@@ -40,6 +41,8 @@ let host = {
   openDealDetails: noop,
   renderDealDetailsIfOpen: noop,
   applyMaintenanceState: noop,
+  syncAudioButtons: noop,
+  syncHomeMusic: noop,
   serverSyncHost: {},
 };
 let storageListenerInstalled = false;
@@ -52,13 +55,29 @@ export function reconcileSignedOutState(message = "This account session ended in
   state.account = null;
   state.profiles = [];
   state.appearance = 0;
+  state.themeId = DEFAULT_THEME_ID;
   state.tableAppearanceOverride = null;
-  state.alias = "";
+  state.profileDraft = null;
+  state.editingProfileId = null;
+  state.alias = loadGuestAlias();
+  state.players = buildPlayers(activeAppearance(), state.alias);
   state.sound = false;
   state.music = false;
+  state.unlockedAchievements = new Set();
+  state.achievementRecords = new Map();
+  state.selectedPlayer = null;
+  state.selectedPlayerRelationship = "none";
+  state.selectedPlayerHistory = null;
+  state.social = { friends: [], requests: [], outgoing: [], invites: [], notifications: [], recentPlayers: [] };
   renderAccountPanel();
   applyProfileToHomeUI();
+  renderProfileLibrary();
+  host.syncAudioButtons();
+  host.syncHomeMusic();
   host.renderAll();
+  // A live-room render can persist a guest save; ensure account-owned local
+  // data stays cleared after the render hook has completed.
+  clearLocalPlayerData();
   host.say(message);
 }
 

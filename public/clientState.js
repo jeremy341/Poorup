@@ -219,6 +219,9 @@ const state = {
   deedDetail: null,     // tile index currently open in the deed/house manager
   jail: {},             // { playerId: turnsRemaining }
   roundNumber: 0,
+  // `roundNumber` restarts at one for every rematch; retain the started
+  // transition so stale game-over state cannot survive a new game.
+  gameStarted: false,
   turnDeadline: 0,
   globalEvent: null,
   playerContractOffer: null,

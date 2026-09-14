@@ -9,7 +9,7 @@ import { $, esc, clamp } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES, GROUP_COLOR, RENT_TABLE } from "./clientBoardData.js";
 import { spriteHTML, avatarHTML } from "./clientSprites.js";
-import { openSurface, closeSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
+import { openSurface, closeSurface } from "./clientSurfaces.js";
 
 let host = { emitServer: noop, say: noop, renderChat: noop, record: noop, createRequestId: noop, renderRightRail: noop };
 
@@ -1116,8 +1116,7 @@ export function openFinancingContract(contractId, trigger = null) {
   financingSurfaceTileIndex = null;
   financingView = "deal";
   renderFinancingModal();
-  openSurface("#financing-modal", "#financing-close");
-  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
+  openSurface("#financing-modal", "#financing-close", { trigger });
 }
 
 function financingPreviewModeFor(mode) {
@@ -1136,9 +1135,8 @@ export function openFinancingModal(mode = "loan", propertyIndex = null, trigger 
   financingView = "builder";
   ensureFinancingDraft(propertyIndex);
   renderFinancingModal();
-  openSurface("#financing-modal", "#financing-close");
+  openSurface("#financing-modal", "#financing-close", { trigger });
   if (financingIsBuilderView()) $("#finance-recipient-trigger")?.focus({ preventScroll: true });
-  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
 }
 
 function loadNegotiationDraft(contract) {
@@ -1172,8 +1170,7 @@ export function openFinancingNegotiation(contractId, trigger = null) {
   financingPreviewMode = contract.kind || "loan";
   financingView = "negotiate";
   renderFinancingModal();
-  openSurface("#financing-modal", "#financing-close");
-  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
+  openSurface("#financing-modal", "#financing-close", { trigger });
 }
 
 export function closeFinancingModal() {
@@ -1331,7 +1328,7 @@ export function renderTradeModal() {
   wireTradeModal(me, other);
 }
 
-export function openTradeModal(playerId) {
+export function openTradeModal(playerId, trigger = null) {
   if (state.phase !== "playing") return;
   if (!state.settings.trading) {
     host.say("Trading is disabled for this round.");
@@ -1342,7 +1339,7 @@ export function openTradeModal(playerId) {
   if (!other) return;
   resetTradeSelection(playerId);
   renderTradeModal();
-  openSurface("#trade-modal", "#trade-close");
+  openSurface("#trade-modal", "#trade-close", { trigger });
 }
 
 export function closeTradeModal() {
@@ -1448,8 +1445,7 @@ export function openTradeNegotiation(trade, trigger = null) {
   state.tradeMyCash = sender ? Number(trade.giveCash || 0) : Number(trade.requestCash || 0);
   state.tradeTheirCash = sender ? Number(trade.requestCash || 0) : Number(trade.giveCash || 0);
   renderTradeModal();
-  openSurface("#trade-modal", "#trade-close");
-  if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
+  openSurface("#trade-modal", "#trade-close", { trigger });
 }
 
 function sendTrade() {

@@ -9,10 +9,10 @@ import { state, saveAccountSession, saveUnlockedAchievements, activeAppearance, 
 import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
 import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 import { openSurface, closeSurface, focusSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
-import { renderAccountPanel, applyProfileToHomeUI, renderProfileEditor, formatStatDate } from "./clientProfileRender.js";
+import { renderAccountPanel, applyProfileToHomeUI, renderProfileEditor, renderProfileLibrary, formatStatDate } from "./clientProfileRender.js";
 
 function noop() {}
-let host = { emitServer: noop, say: noop };
+let host = { emitServer: noop, say: noop, syncAudioButtons: noop, syncHomeMusic: noop };
 
 export function configureAccountIdentity(hooks) {
   host = { ...host, ...hooks };
@@ -520,6 +520,9 @@ export function logoutAccount() {
   state.players = buildPlayers(activeAppearance(), state.alias);
   renderAccountPanel();
   applyProfileToHomeUI();
+  renderProfileLibrary();
   renderProfileEditor();
+  host.syncAudioButtons();
+  host.syncHomeMusic();
   host.say("Signed out. Guest mode is active.");
 }

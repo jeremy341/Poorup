@@ -69,10 +69,10 @@ function groupEvenOk(tile, targetLevel, selling) {
   return true;
 }
 
-function openDeedDetail(tileIdx) {
+function openDeedDetail(tileIdx, trigger = null) {
   state.deedDetail = tileIdx;
   renderDeedDetail();
-  openSurface("#deed-modal", "#dd-close");
+  openSurface("#deed-modal", "#dd-close", { trigger });
 }
 
 function closeDeedDetail() {
@@ -206,7 +206,7 @@ function onRailDeedClick(e) {
   if (e.target.closest("[data-buy]")) return;
   if (e.target.closest("[data-trade]")) return;
   const card = e.target.closest("[data-deed-open]");
-  if (card) openDeedDetail(Number(card.dataset.deedOpen));
+  if (card) openDeedDetail(Number(card.dataset.deedOpen), card);
 }
 
 export function bindDeedDetail() {

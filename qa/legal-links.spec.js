@@ -11,6 +11,16 @@ test.describe("legal links", () => {
     await expect(ticker.locator("a button")).toHaveCount(0);
   });
 
+  test("Home legal links keep a usable hit target without changing ticker rhythm", async ({ page }) => {
+    await page.goto("/");
+    const ticker = await page.locator(".ticker").boundingBox();
+    const links = await page.locator(".legal-links a").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
+    expect(ticker).not.toBeNull();
+    expect(links).toHaveLength(3);
+    links.forEach((height) => expect(height).toBeGreaterThanOrEqual(24));
+    expect(ticker.height).toBeLessThan(52);
+  });
+
   test("legal documents remain readable when JavaScript is disabled", async ({ browser }) => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
