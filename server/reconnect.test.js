@@ -45,11 +45,13 @@ check('tab restart reclaims a disconnected account seat under the new clientId',
   assert.equal(player.nickname, 'A');
 });
 
-check('same-clientId fast reload still restores without account', () => {
+check('same-clientId live-seat replay is rejected without replacing the original socket', () => {
   const { manager, room } = roomWithAccountSeat();
   const restored = manager.restoreConnection('client-a', 'socket-a-new');
-  assert.equal(restored, room);
-  assert.equal(room.game.getPlayerByClient('client-a').socketId, 'socket-a-new');
+  assert.equal(restored, null);
+  assert.equal(manager.getRoomBySocket('socket-a'), room);
+  assert.equal(manager.getRoomBySocket('socket-a-new'), null);
+  assert.equal(room.game.getPlayerByClient('client-a').socketId, 'socket-a');
 });
 
 check('reconnecting during a started game cannot rename a seat', () => {
