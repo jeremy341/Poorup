@@ -66,7 +66,9 @@ export function createLegalRouter({ publicDirectory = DEFAULT_PUBLIC_DIRECTORY }
   const serve = (slug) => (_req, res, next) => {
     const filePath = resolveDocument(slug, publicDirectory);
     if (!filePath) return next();
-    return res.sendFile(filePath, { headers: { "Cache-Control": "public, max-age=300" } }, next);
+    return res.sendFile(filePath, { headers: { "Cache-Control": "public, max-age=300" } }, (error) => {
+      if (error) next(error);
+    });
   };
   Object.keys(LEGAL_DOCUMENTS).forEach((slug) => {
     router.get(`/${slug}`, serve(slug));
