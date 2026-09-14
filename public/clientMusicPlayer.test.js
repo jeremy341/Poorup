@@ -66,3 +66,22 @@ test("safe injected manifest never hardcodes unavailable fallback", () => {
   const manifest = { tracks: { x: { id: "x", title: "X", src: "/x", status: "approved" } }, defaults: { custom: "x" }, themes: { custom: ["x"] } };
   const { player } = setup({ manifest, getThemeId: () => "custom" }); player.setTheme("custom"); assert.equal(player.snapshot().currentTrackId, "x");
 });
+test("theme error restores prior track and queue index", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player } = setup({ audioB }); player.selectTrack("pondering-the-cosmos"); player.setTheme("spring"); listeners.error();
+  assert.equal(player.snapshot().currentTrackId, "pondering-the-cosmos"); assert.equal(player.snapshot().status, "track-error");
+});
+test("manual failure restores prior active volume and queue state", () => {
+  const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player, audioA } = setup({ audioB }); player.setVolume(0.7); player.selectTrack("pondering-the-cosmos"); player.selectTrack("hot-springs-town"); listeners.error();
+  assert.equal(player.snapshot().currentTrackId, "pondering-the-cosmos"); assert.equal(audioA.volume, 0.7);
+});
+test("stale autoplay rejection cannot overwrite a newer transition", async () => {
+  const rejects = []; const audioB = { ...media(), play: () => new Promise((resolve, reject) => rejects.push(reject)) };
+  const { player } = setup({ audioB }); player.selectTrack("pondering-the-cosmos"); player.selectTrack("hot-springs-town"); rejects[0](new Error("blocked")); await Promise.resolve(); await Promise.resolve();
+  assert.notEqual(player.snapshot().status, "autoplay-blocked");
+});
+test("empty safe manifest reports unavailable without throwing", () => {
+  const manifest = { tracks: {}, defaults: { empty: "missing" }, themes: { empty: ["missing"] } };
+  const { player } = setup({ manifest, getThemeId: () => "empty" }); assert.equal(player.next(), false); assert.equal(player.previous(), false); assert.equal(player.snapshot().status, "track-unavailable");
+});
