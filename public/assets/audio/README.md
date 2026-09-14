@@ -1,12 +1,14 @@
-# Poorup home audio
+# Poorup music assets
 
-## Pondering the Cosmos
+The music-box manifest ships these local files. Credits and source links are retained for every track.
 
-- Author: Ruskerdax
-- Source: https://opengameart.org/content/pondering-the-cosmos
-- Direct file: https://opengameart.org/sites/default/files/Ruskerdax%20-%20Pondering%20the%20Cosmos_0.mp3
-- License: CC0 / public domain dedication
-- Downloaded: 2026-08-31
-- SHA-256: `A4AEC454A7AD452E4E1E7945ACDDA771506EEBDFB10477894D1ED9C54CCA8E6A`
+| File | Creator | License | Source |
+| --- | --- | --- | --- |
+| `pondering-the-cosmos.mp3` | Ruskerdax | CC0 / public domain dedication | [OpenGameArt](https://opengameart.org/content/pondering-the-cosmos) |
+| `themes/spring/hot-springs-town.mp3` | Kistol | CC0 | [OpenGameArt](https://opengameart.org/content/hot-springs-town) |
+| `themes/summer/summers.mp3` | symphony | CC0 with requested credit | [OpenGameArt](https://opengameart.org/content/summers) |
+| `themes/autumn/autumn.mp3` | Duasun | CC0 | [OpenGameArt](https://opengameart.org/content/autumn-mp3-free-music) |
+| `themes/winter/snowy-village.ogg` | Louswan | CC-BY 3.0 | [OpenGameArt](https://opengameart.org/content/snowy-village) |
+| `themes/light/town.mp3` | Pro Sensory | Public domain | [OpenGameArt](https://opengameart.org/content/town) |
 
-The source page describes the track as a dark, slow, looping synth piece and releases it under CC0/public domain. Credit is retained here as a courtesy.
+The original track's SHA-256 is `A4AEC454A7AD452E4E1E7945ACDDA771506EEBDFB10477894D1ED9C54CCA8E6A` (downloaded 2026-08-31). The separate `parlor-patrol/pixel-hit-pack-cc0.wav` is the CC0 gameplay effects pack documented with that feature.
