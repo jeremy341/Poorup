@@ -54,3 +54,23 @@ test("declares the vertical volume popover and hidden move menu relationship", (
   assert.match(index, /id=["']music-position-menu["'][^>]*hidden/);
   assert.match(styles, /\.music-volume-popover[^}]*bottom:\s*calc\(100%\s*\+\s*8px\)/);
 });
+
+test("declares safe corner snapping and keyboard-native move controls", () => {
+  assert.match(styles, /env\(safe-area-inset-top\)/);
+  assert.match(styles, /env\(safe-area-inset-bottom\)/);
+  assert.match(styles, /z-index:\s*5[0-9]/);
+  assert.match(index, /data-music-position=["']top-left["']/);
+  assert.match(index, /data-music-position=["']top-right["']/);
+  assert.match(index, /data-music-position=["']bottom-left["']/);
+  assert.match(index, /data-music-position=["']bottom-right["']/);
+  assert.match(index, /role=["']menu["']/);
+});
+
+test("defines volume keyboard, outside dismissal, and enum-only placement behavior", () => {
+  const source = fs.readFileSync(path.join(root, "public/clientMusicBoxUi.js"), "utf8");
+  assert.match(source, /ArrowUp|ArrowDown/);
+  assert.match(source, /pointerdown|mousedown/);
+  assert.match(source, /localStorage|music\.position/);
+  assert.match(source, /contains\(/);
+  assert.match(source, /top-left.*top-right.*bottom-left.*bottom-right/s);
+});
