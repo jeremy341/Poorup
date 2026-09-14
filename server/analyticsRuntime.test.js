@@ -60,3 +60,20 @@ check('flushes an attached rollup and closes both stores', () => {
   telemetry.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+await (async () => {
+  let release;
+  let writes = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-analytics-async-'));
+  const telemetry = new TelemetryStore(path.join(dir, 'telemetry.json'), { persist: () => { writes += 1; return writes === 1 ? gate : undefined; }, flushIntervalMs: 0 });
+  telemetry.record('bankruptcy', { count: 1 });
+  const closing = telemetry.close();
+  telemetry.record('bankruptcy', { count: 2 });
+  release();
+  await closing;
+  assert.equal(writes, 2);
+  assert.equal(telemetry.pendingEvents.length, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('PASS - closes with async telemetry writes recorded during shutdown');
+})();
