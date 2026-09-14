@@ -17,6 +17,7 @@ const refactorRoadmap = read("docs/REFACTOR-ROADMAP.md");
 const inGamePlan = read("docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md");
 const branchPlan = read("docs/superpowers/plans/2026-09-13-branch-release-maintenance-analytics.md");
 const productionHardening = read("docs/production-hardening.md");
+const musicSpec = read("docs/superpowers/specs/2026-09-14-theme-music-player-design.md");
 
 assert.doesNotMatch(readme, /no downloads?\s+(?:or\s+)?accounts?\s+required/i);
 assert.doesNotMatch(showcase, /no downloads,\s*no accounts?\b/i);
@@ -29,6 +30,10 @@ assert.doesNotMatch(accountDesign, /expired sessions fail closed/i);
 assert.doesNotMatch(themeDesign, /use native `?320[×x]180` masters\. all assets/i);
 assert.doesNotMatch(nightShiftDesign, /debris-6-frames\.svg.*used only at the border/i);
 assert.doesNotMatch(branchPlan, /Expected: current branch is codex\/codescene-cleanup, latest commit is 94eb1b0/i);
+assert.match(musicSpec, /Status:\*\* Superseded by the implemented reference player/i);
+for (const shippedTrack of ["pondering-the-cosmos.mp3", "hot-springs-town.mp3", "summers.mp3", "autumn.mp3", "snowy-village.ogg", "town.mp3"]) {
+  assert.match(musicSpec, new RegExp(shippedTrack.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `music spec should name shipped track ${shippedTrack}`);
+}
 
 assert.match(readme, /Metro-52/i);
 for (const feature of ["rulesets", "bots", "events", "contracts", "seasons", "market"]) {
