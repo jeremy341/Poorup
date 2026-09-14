@@ -17,6 +17,36 @@
     <div class="toast-stack" id="toast-stack" aria-hidden="true"></div>
     <div class="theme-page-world" id="theme-page-world" aria-hidden="true"></div>
 
+    <!-- One global music dock. It intentionally lives outside every SPA view. -->
+    <aside class="music-box panel noise" data-music-box aria-label="Parlor music player">
+      <div class="music-box-panel" id="music-box-panel" data-music-box-panel="">
+        <div class="music-box-track">
+          <img src="/assets/music/music-note.svg" alt="" width="16" height="16">
+          <div class="music-box-copy">
+            <strong class="music-box-title" data-music-title>PONDERING THE COSMOS</strong>
+            <span class="music-box-mode t-micro" data-music-mode>AUTO THEME · ORIGINAL</span>
+          </div>
+          <button class="music-box-grip" type="button" data-music-action="position" aria-label="Move player" aria-controls="music-position-menu" aria-expanded="false" title="Move player"><img src="/assets/music/music-grip.svg" alt="" width="16" height="16"></button>
+        </div>
+        <div class="music-box-progress" aria-label="Track progress">
+          <time data-music-elapsed>00:00</time><span class="music-box-meter" data-music-meter aria-hidden="true"></span><time data-music-remaining>00:00</time>
+        </div>
+        <div class="music-box-controls">
+          <button type="button" data-music-action="previous" aria-label="Previous track" title="Previous track"><img src="/assets/music/music-prev.svg" alt="" width="16" height="16"></button>
+          <button type="button" data-music-action="play" aria-label="Play music" title="Play music" aria-pressed="false" aria-controls="music-box-panel"><img data-music-play-icon src="/assets/music/music-play.svg" alt="" width="16" height="16"></button>
+          <button type="button" data-music-action="next" aria-label="Next track" title="Next track"><img src="/assets/music/music-next.svg" alt="" width="16" height="16"></button>
+          <button type="button" data-music-action="shuffle" aria-label="Toggle shuffle" title="Toggle shuffle" aria-pressed="false"><img src="/assets/music/music-shuffle.svg" alt="" width="16" height="16"></button>
+          <button type="button" data-music-action="repeat" aria-label="Toggle repeat" title="Toggle repeat" aria-pressed="true"><img src="/assets/music/music-repeat.svg" alt="" width="16" height="16"></button>
+          <div class="music-box-volume-wrap"><button type="button" data-music-action="volume" aria-label="Volume" title="Volume" aria-controls="music-volume-popover" aria-expanded="false"><img src="/assets/music/music-speaker.svg" alt="" width="16" height="16"></button>
+            <div class="music-volume-popover" id="music-volume-popover" hidden><label for="music-volume">Volume</label><input id="music-volume" type="range" min="0" max="1" step="0.01" value="0.16" aria-label="Music volume" orient="vertical"></div>
+          </div>
+        </div>
+        <div class="music-position-menu" id="music-position-menu" hidden role="menu" aria-label="Move player"><button type="button" role="menuitem" data-music-position="top-left">TOP LEFT</button><button type="button" role="menuitem" data-music-position="top-right">TOP RIGHT</button><button type="button" role="menuitem" data-music-position="bottom-left">BOTTOM LEFT</button><button type="button" role="menuitem" data-music-position="bottom-right">BOTTOM RIGHT</button></div>
+        <span class="sr-live" data-music-status role="status" aria-live="polite" aria-atomic="true"></span>
+      </div>
+      <audio data-music-audio="a" preload="metadata" hidden></audio><audio data-music-audio="b" preload="metadata" hidden></audio>
+    </aside>
+
     <!-- ============================ HOME VIEW ============================ -->
     <div class="view" id="view-home">
       <a class="skip-link" id="skip-link" href="#home-main">Skip to main content</a>
@@ -982,5 +1012,6 @@
     </aside>
 
     <script type="module" src="/main.js" defer></script>
+    <script type="module" src="/clientMusicBoxUi.js" defer></script>
   </body>
 </html>
