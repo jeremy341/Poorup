@@ -1,6 +1,7 @@
 // Ruleset and board contracts live in one small registry so rooms, summaries,
 // bots, history, and the client all resolve the same immutable configuration.
 // This is deliberately pure: it has no socket, store, or GameState imports.
+import { boundedInteger } from './roomSettings.js';
 
 const RULESET_REVISION = 1;
 const BALANCE_REVISION = 1;
@@ -104,6 +105,14 @@ const BOOLEAN_OVERRIDE_KEYS = new Set([
   'randomizePlayerOrder'
 ]);
 const NUMERIC_OVERRIDE_KEYS = new Set(['maxPlayers', 'houseLimit', 'hotelLimit', 'turnTimer', 'startingCash', 'bots']);
+const NUMERIC_OVERRIDE_LIMITS = Object.freeze({
+  maxPlayers: [2, 8],
+  houseLimit: [0, 100],
+  hotelLimit: [0, 50],
+  turnTimer: [0, 3_600],
+  startingCash: [0, 1_000_000],
+  bots: [0, 7]
+});
 
 function safePreset(value, fallback = 'classic') {
   const normalized = String(value || '').trim().toLowerCase();
@@ -139,8 +148,8 @@ function normalizedOverrideValue(key, value) {
   }
   if (key === 'marketComplexity') return safeMarketComplexity(value);
   if (NUMERIC_OVERRIDE_KEYS.has(key)) {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : null;
+    const [min, max] = NUMERIC_OVERRIDE_LIMITS[key];
+    return boundedInteger(value, { min, max, fallback: null });
   }
   if (typeof value === 'string') return value.trim().slice(0, 80);
   return primitive(value);
