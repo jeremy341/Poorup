@@ -56,7 +56,6 @@ function onMusicToggle() {
   state.music = !state.music;
   saveMusicPreference(state.music);
   syncAudioButtons();
-  host.setMusicEnabled?.(state.music, { userGesture: true });
   host.syncHomeMusic({ force: true });
   renderProfileSummary();
 }

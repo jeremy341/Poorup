@@ -213,43 +213,8 @@ import {
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 let musicController = null;
-const audioRuntime = {
-  state: "off",
-  message: "",
-  playPromise: null,
-  retryUsed: false,
-};
 
-const AUDIO_LABELS = Object.freeze({
-  off: "Turn parlor music on",
-  ready: "Turn parlor music off",
-  loading: "Parlor music loading",
-  blocked: "Parlor music is blocked. Activate to retry",
-  error: "Parlor music unavailable. Check the audio file or try again",
-  stalled: "Parlor music is waiting for audio data",
-  ended: "Parlor music ended. Activate to replay",
-});
-
-function applyAudioState(stateName) {
-  const toggle = $("#music-toggle-btn");
-  if (!toggle) return;
-  toggle.dataset.audioState = stateName;
-  toggle.setAttribute("aria-label", AUDIO_LABELS[stateName] || AUDIO_LABELS.off);
-}
-
-function setAudioState(stateName, message) {
-  const status = $("#music-status");
-  const nextMessage = message || "";
-  const changed = audioRuntime.state !== stateName || audioRuntime.message !== nextMessage;
-  audioRuntime.state = stateName;
-  audioRuntime.message = nextMessage;
-  applyAudioState(stateName);
-  // Keep the live region quiet when a render or ordinary gesture reasserts
-  // the same media state.
-  if (changed && status) status.textContent = nextMessage;
-}
-
-function announceAudioMessage(message) {
+function announceSoundMessage(message) {
   const status = $("#music-status");
   if (status && status.textContent !== message) status.textContent = message;
 }
@@ -258,7 +223,7 @@ function tone(freq, dur, vol = 0.035, when = 0) {
   if (!state.sound) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === "suspended") audioCtx.resume()?.catch(() => announceAudioMessage("Sound is blocked. Activate a control to retry."));
+    if (audioCtx.state === "suspended") audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
     const t0 = audioCtx.currentTime + when;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -507,15 +472,6 @@ function refreshEconomySnapshot() {
     renderRightRail();
   });
 }
-
-
-
-function mediaFailureState(error, music) {
-  const errorName = String(error?.name || "");
-  if (!music?.error && /NotAllowedError|SecurityError/i.test(errorName)) return "blocked";
-  return "error";
-}
-
 function ensureMusicController() {
   if (musicController) return musicController;
   if (globalThis.__poorupMusicBoxController) {
@@ -543,7 +499,7 @@ function setMusicEnabled(enabled, { userGesture = false } = {}) {
   const controller = ensureMusicController();
   if (!controller) return;
   if (!enabled) {
-    document.querySelectorAll('audio[data-music-audio]').forEach(audio => audio.pause?.());
+    controller.stop?.();
     return;
   }
   if (userGesture || state.music) controller.resetToThemeTrack?.();
@@ -556,89 +512,18 @@ function syncHomeMusic({ force = false, userGesture = false } = {}) {
     else if (force || userGesture) setMusicEnabled(true, { userGesture });
     return;
   }
-  const music = $("#home-music");
-  if (!music) return;
-  music.volume = 0.16;
-  // The sound preference is global. Keep the same soundtrack running while
-  // the player moves from Home into setup, lobby, or the live table.
-  if (!state.music) {
-    audioRuntime.playPromise = null;
-    audioRuntime.retryUsed = false;
-    music.pause();
-    setAudioState("off", "Parlor music off.");
-    return;
-  }
-
-  if (force) audioRuntime.retryUsed = false;
-  if (audioRuntime.playPromise) {
-    applyAudioState(audioRuntime.state);
-    return;
-  }
-  if (!force && !userGesture && ["blocked", "error"].includes(audioRuntime.state)) {
-    applyAudioState(audioRuntime.state);
-    return;
-  }
-  if (userGesture && audioRuntime.retryUsed) {
-    applyAudioState(audioRuntime.state);
-    return;
-  }
-  if (!force && audioRuntime.state === "ready") {
-    applyAudioState(audioRuntime.state);
-    return;
-  }
-
-  if (userGesture) audioRuntime.retryUsed = true;
-  setAudioState("loading", "Parlor music loading.");
-  let playAttempt;
-  try {
-    playAttempt = music.play();
-  } catch (error) {
-    const nextState = mediaFailureState(error, music);
-    setAudioState(nextState, nextState === "blocked"
-      ? "Parlor music is blocked. Activate the music control to retry."
-      : "Parlor music could not be loaded. Check the audio asset and try again.");
-    return;
-  }
-  if (playAttempt?.then) {
-    audioRuntime.playPromise = Promise.resolve(playAttempt)
-      .then(() => {
-        audioRuntime.playPromise = null;
-        if (state.music) setAudioState("ready", "Parlor music ready.");
-      })
-      .catch((error) => {
-        audioRuntime.playPromise = null;
-        const nextState = mediaFailureState(error, music);
-        setAudioState(nextState, nextState === "blocked"
-          ? "Parlor music is blocked. Activate the music control to retry."
-          : "Parlor music could not be loaded. Check the audio asset and try again.");
-      });
-  } else {
-    setAudioState("ready", "Parlor music ready.");
-  }
+  // The dock controller is canonical; no single-track fallback.
 }
 
 function retryAudioAfterGesture() {
-  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => announceAudioMessage("Sound is blocked. Activate a control to retry."));
-  if (!state.music || audioRuntime.playPromise || audioRuntime.retryUsed) return;
-  if (["off", "blocked", "error", "stalled", "ended"].includes(audioRuntime.state)) {
-    syncHomeMusic({ userGesture: true });
-  }
+  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
+  if (!state.music) return;
+  const snapshot = ensureMusicController()?.snapshot?.();
+  if (snapshot && snapshot.status !== "playing") syncHomeMusic({ userGesture: true });
 }
 
-function bindHomeMusicEvents() {
-  const music = $("#home-music");
-  if (!music || music.dataset.audioEventsBound) return;
-  music.dataset.audioEventsBound = "true";
-  music.addEventListener("error", () => {
-    if (state.music) setAudioState("error", "Parlor music could not be loaded. Check the audio asset and try again.");
-  });
-  music.addEventListener("stalled", () => {
-    if (state.music) setAudioState("stalled", "Parlor music is waiting for audio data.");
-  });
-  music.addEventListener("ended", () => {
-    if (state.music) setAudioState("ended", "Parlor music ended. Activate to replay.");
-  });
-}
+// Legacy single-track media events were removed; the music-box controller
+// owns playback and status announcements.
 
 
 /* ============================================================
@@ -1120,7 +1005,6 @@ function bindEvents() {
   bindProfileUi();
 
   // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
-  bindHomeMusicEvents();
   bindAudioControls({ playSound, syncHomeMusic, musicController, setMusicEnabled });
   window.addEventListener("pointerdown", retryAudioAfterGesture, { passive: true });
   window.addEventListener("keydown", retryAudioAfterGesture);
