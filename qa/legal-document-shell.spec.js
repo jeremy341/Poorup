@@ -1,3 +1,4 @@
+/* global document, process */
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -41,6 +42,14 @@ test.describe("Poorup legal document shell", () => {
         await expect(page.locator(".legal-outline-mobile")).toBeVisible();
       } else if (testInfo.project.name === "desktop-1920") {
         await expect(page.locator(".legal-outline")).toBeVisible();
+      }
+      if (route === "/legal/licenses" && testInfo.project.name === "mobile-390") {
+        const table = page.locator(".legal-article table");
+        const article = page.locator(".legal-article");
+        const [tableBox, articleBox] = await Promise.all([table.boundingBox(), article.boundingBox()]);
+        expect(tableBox).not.toBeNull();
+        expect(articleBox).not.toBeNull();
+        expect((tableBox?.x || 0) + (tableBox?.width || 0)).toBeLessThanOrEqual((articleBox?.x || 0) + (articleBox?.width || 0) + 1);
       }
       if (process.env.POORUP_CAPTURE_LEGAL && testInfo.project.name === "desktop-1920") {
         const dir = resolve("qa-artifacts", "legal-pages-1920");
