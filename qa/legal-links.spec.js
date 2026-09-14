@@ -27,7 +27,7 @@ test.describe("legal links", () => {
     await page.goto("/privacy");
     await expect(page.locator("h1")).toHaveCount(1);
     await expect(page.locator(".skip-link")).toHaveCount(1);
-    await expect(page.locator("a[href='/']")).toHaveCount(1);
+    await expect(page.locator(".legal-back[href='/']")).toHaveCount(1);
     await context.close();
   });
 });
