@@ -538,8 +538,12 @@ class Room {
   }
 
   ensureBots() {
-    const retainedSeats = this.game.players.filter(player => !player.bankrupt).length;
-    const availableSeats = Math.max(0, Number(this.settings.maxPlayers) - retainedSeats);
+    // Desired bot count is derived from retained non-bot seats. Counting
+    // existing bots in the available-seat subtraction makes a stable
+    // three-human/one-bot table oscillate by deleting its configured bot on
+    // every reconciliation pass.
+    const retainedNonBotSeats = this.game.players.filter(player => !player.isBot && !player.bankrupt).length;
+    const availableSeats = Math.max(0, Number(this.settings.maxPlayers) - retainedNonBotSeats);
     const required = Math.max(0, Math.min(availableSeats, Number(this.settings.bots) || 0));
     const existingBots = this.game.players.filter(player => player.isBot);
     if (existingBots.length > required) {

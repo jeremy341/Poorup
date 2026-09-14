@@ -123,16 +123,60 @@ function renderAnalyticsCharts(snapshot) {
   });
 }
 
+function aggregateValue(value) {
+  if (value === null || value === undefined) return 'N/A';
+  if (typeof value !== 'object') return String(value);
+  const current = value.value === null || value.value === undefined ? 'N/A' : value.value;
+  const denominator = value.denominator === null || value.denominator === undefined ? '' : ` / DENOMINATOR ${value.denominator}`;
+  return `${current}${denominator}`;
+}
+
+function renderAnalyticsReadModel(snapshot) {
+  if (typeof document === 'undefined') return;
+  const tab = snapshot.filters.tab;
+  const panel = [...(document.querySelectorAll?.('[data-analytics-panel]') || [])].find(candidate => candidate.getAttribute('data-analytics-panel') === tab);
+  if (!panel) return;
+  panel.querySelector?.('.analytics-read-model')?.remove?.();
+  const rows = Array.isArray(snapshot.breakdowns) ? snapshot.breakdowns : [];
+  const association = snapshot.association;
+  const hasEvidence = rows.length > 0 || association;
+  let content = '';
+  if (hasEvidence) {
+    const tableRows = rows.map(row => {
+      if (row?.suppressed) return `<tr><td colspan="2">INSUFFICIENT COHORT · MIN COHORT 5</td></tr>`;
+      const values = Object.entries(row || {}).filter(([key]) => key !== 'scope').slice(0, 12).map(([key, value]) => `<span class="analytics-read-field"><b>${escapeHtml(key)}</b> ${escapeHtml(aggregateValue(value))}</span>`).join('');
+      return `<tr><th scope="row">${escapeHtml(row?.pseudonymId || row?.eventId || row?.botMode || row?.rulesetPreset || 'AGGREGATE')}</th><td>${values}</td></tr>`;
+    }).join('');
+    const associationMarkup = association ? `<p class="analytics-association">${escapeHtml(association.label || 'ASSOCIATION, NOT CAUSATION')} · EXPOSED ${escapeHtml(aggregateValue(association.exposed))} · CONTROL ${escapeHtml(aggregateValue(association.control))} · RELATIVE DELTA ${escapeHtml(association.relativeRateDelta)}</p>` : '';
+    content = `${associationMarkup}<table class="analytics-read-table"><caption>${escapeHtml(tab)} verified read model</caption><thead><tr><th scope="col">GROUP</th><th scope="col">MEASURES</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+  } else if (!snapshot.metrics || Object.keys(snapshot.metrics).length === 0 && !(snapshot.overview?.kpis?.length)) {
+    content = '<p class="analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p><button class="btn-dark analytics-reset-filter" type="button" data-analytics-reset>RESET FILTERS</button>';
+  }
+  if (!content) return;
+  panel.insertAdjacentHTML?.('beforeend', `<div class="analytics-read-model">${content}</div>`);
+  if (!panel.insertAdjacentHTML) panel.innerHTML += `<div class="analytics-read-model">${content}</div>`;
+  panel.querySelectorAll?.('[data-analytics-reset]')?.forEach(button => listenReset(button));
+}
+
+function listenReset(button) {
+  if (!button || button.dataset?.analyticsResetBound) return;
+  if (!button.dataset) button.dataset = {};
+  button.dataset.analyticsResetBound = 'true';
+  button.addEventListener?.('click', event => { event.preventDefault(); globalThis.__poorupAnalyticsReset?.(); });
+}
+
 export function renderAnalyticsSnapshot(value) {
   const snapshot = normalizeAnalyticsSnapshot(value);
   const grid = query('#admin-analytics-grid');
-  if (!grid) return snapshot;
-  const kpis = renderKpis(snapshot);
-  const entries = Object.entries(snapshot.metrics);
-  grid.innerHTML = kpis || (entries.length
-    ? entries.map(([name, entry]) => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(METRIC_LABELS[name])}</span><strong class="t-money g100">${escapeHtml(metricValue(entry).toLocaleString())}</strong><span class="t-micro ink-3">${entry.type === 'gauge' ? 'CURRENT' : 'RECORDED'}</span></article>`).join('')
-    : '<p class="t-body ink-2 analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p>');
+  if (grid) {
+    const kpis = renderKpis(snapshot);
+    const entries = Object.entries(snapshot.metrics);
+    grid.innerHTML = kpis || (entries.length
+      ? entries.map(([name, entry]) => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(METRIC_LABELS[name])}</span><strong class="t-money g100">${escapeHtml(metricValue(entry).toLocaleString())}</strong><span class="t-micro ink-3">${entry.type === 'gauge' ? 'CURRENT' : 'RECORDED'}</span></article>`).join('')
+      : '<p class="t-body ink-2 analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p>');
+  }
   renderAnalyticsCharts(snapshot);
+  renderAnalyticsReadModel(snapshot);
   if (snapshot.suppression.suppressedPanels > 0) renderStatus('INSUFFICIENT COHORT · MIN COHORT 5', 'warning');
   else if (snapshot.dataQuality.stale === true || snapshot.dataQuality.fresh === false) renderStatus(`STALE · LAST VERIFIED ${snapshot.generatedAt || 'UNKNOWN'}`, 'warning');
   else renderStatus(`SYNCED ${snapshot.range.toUpperCase()} · ${snapshot.generatedAt || 'NOW'}`, 'green');
@@ -201,8 +245,11 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
   }
 
   function setTab(tab, { focus = false } = {}) {
+    const previousTab = filters.tab;
+    if (tab !== previousTab && request) { requestGeneration += 1; abortController?.abort(); request = null; }
     filters = normalizeAnalyticsQuery({ ...filters, tab });
     applyTabState({ focus });
+    if (filters.tab !== previousTab) void load(filters);
     return { ...filters };
   }
 
@@ -226,9 +273,12 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     const apply = document.querySelector?.('[data-analytics-apply]');
     const reset = document.querySelector?.('[data-analytics-reset]');
     const refreshButton = document.querySelector?.('[data-analytics-refresh]');
+    const form = document.querySelector?.('form.analytics-filters');
     listenOnce(apply, 'click', () => { setFilters(readFilterControls()); void load(filters); });
     listenOnce(reset, 'click', () => { filters = normalizeAnalyticsQuery({}); setTab('overview'); void load(filters); });
     listenOnce(refreshButton, 'click', () => { void refresh(); });
+    listenOnce(form, 'submit', event => { event.preventDefault(); setFilters(readFilterControls()); void load(filters); });
+    globalThis.__poorupAnalyticsReset = () => { filters = normalizeAnalyticsQuery({}); setTab('overview'); void load(filters); };
     listen(document, 'visibilitychange', () => { if (document.visibilityState === 'hidden') { requestGeneration += 1; abortController?.abort(); request = null; } });
   }
 
@@ -270,7 +320,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (typeof modal.show === 'function') return modal.show(options);
     return null;
   }
-  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; listeners.splice(0).forEach(remove => remove()); }
+  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; if (globalThis.__poorupAnalyticsReset) delete globalThis.__poorupAnalyticsReset; listeners.splice(0).forEach(remove => remove()); }
 
   wireControls();
   return Object.freeze({ destroy, load, openDrilldown, refresh, setFilters, setTab, get filters() { return { ...filters }; }, get snapshot() { return snapshot; } });
