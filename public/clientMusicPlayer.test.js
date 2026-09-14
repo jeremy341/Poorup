@@ -183,7 +183,7 @@ test("first play loads the current track before play and applies loop", () => {
 });
 test("natural ended repeats with loop or advances when disabled", () => {
   const listeners = {}; const audioA = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, play() {}, pause() {} };
-  const { player } = setup({ audioA }); player.toggleLoop(); listeners.ended(); assert.equal(player.snapshot().status, "ended");
+  const { player } = setup({ audioA }); player.togglePlay(); player.toggleLoop(); listeners.ended(); assert.equal(player.snapshot().status, "ended");
 });
 test("inactive ended event cannot restart outgoing audio", () => {
   let plays = 0; const audioB = { ...media(), addEventListener(type, fn) { if (type === "ended") this.ended = fn; }, play() { plays += 1; } };
@@ -195,4 +195,8 @@ test("loop toggle immediately synchronizes both native audio elements", () => {
 test("stop and pause are idempotent and cancel playback intent", () => {
   const { player, audioA, audioB } = setup(); let a = 0; let b = 0; audioA.pause = () => { a += 1; }; audioB.pause = () => { b += 1; }; player.togglePlay(); player.stop(); player.pause();
   assert.equal(player.snapshot().playing, false); assert.equal(player.snapshot().status, "paused"); assert.equal(a > 0, true); assert.equal(b > 0, true);
+});
+test("ended after stop does not restart the active audio", () => {
+  let plays = 0; let ended; const audioA = { ...media(), play() { plays += 1; }, addEventListener(type, fn) { if (type === "ended") ended = fn; } };
+  const { player } = setup({ audioA }); player.togglePlay(); player.stop(); ended(); assert.equal(plays, 1);
 });
