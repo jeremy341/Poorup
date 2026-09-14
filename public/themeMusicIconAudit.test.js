@@ -40,4 +40,12 @@ const pathSignature = (name) => {
 assert.notEqual(pathSignature("music-shuffle"), pathSignature("music-repeat"),
   "shuffle and repeat need distinct path signatures");
 
+const shuffleSource = sources.find(([name]) => name === "music-shuffle")[1];
+assert.match(shuffleSource, /data-route="upper-cross"[^>]*data-arrow="end"/,
+  "shuffle needs a continuous upper-to-lower crossed route with a connected end arrow");
+assert.match(shuffleSource, /data-route="lower-cross"[^>]*data-arrow="end"/,
+  "shuffle needs a continuous lower-to-upper crossed route with a connected end arrow");
+assert.equal((shuffleSource.match(/data-route="/g) || []).length, 2,
+  "shuffle should contain exactly two complete crossed routes");
+
 console.log(`music icon audit: ${sources.length} passed, 0 failed`);
