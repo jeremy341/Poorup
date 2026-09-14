@@ -2,11 +2,25 @@
 // Configure POORUP_HTTP_RATE_LIMIT and POORUP_HTTP_RATE_WINDOW_MS in hosted
 // environments; local development remains unlimited by default.
 function normalizedLimit(value) {
-  return Math.max(0, Math.floor(Number(value) || 0));
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(100_000, Math.max(0, Math.floor(parsed)));
 }
 
 function normalizedWindow(value) {
-  return Math.max(1_000, Math.floor(Number(value) || 60_000));
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 60_000;
+  return Math.min(86_400_000, Math.max(1_000, Math.floor(parsed)));
+}
+
+export function assertRateLimitConfig(env = process.env) {
+  const development = String(env?.NODE_ENV || '').trim().toLowerCase() !== 'production';
+  const httpLimit = normalizedLimit(env?.POORUP_HTTP_RATE_LIMIT);
+  const socketLimit = normalizedLimit(env?.POORUP_SOCKET_RATE_LIMIT);
+  if (!development && (!httpLimit || !socketLimit)) {
+    throw new Error('Production HTTP and socket rate limits must be positive.');
+  }
+  return { development, httpLimit, socketLimit };
 }
 
 function requestIp(req, trustProxy) {
