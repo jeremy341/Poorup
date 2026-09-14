@@ -15,6 +15,11 @@ not execute this list as a bulk refactor._
 > approximately 892 lines (measured 2026-09-07); refresh the CodeScene table before opening another
 > refactor plan.
 
+> **Current-status pointer (2026-09-14).** This roadmap remains historical
+> planning evidence. Use [docs/feature-status.json](feature-status.json) for
+> source-backed feature status before treating any line count or hotspot as a
+> current defect.
+
 ## Ground rules
 
 - Each row = one `refactor/*` branch → one PR → green CI → merge. No mixing.

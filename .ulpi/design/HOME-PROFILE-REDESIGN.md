@@ -1,8 +1,14 @@
 # Poorup Home + Profile Desktop Redesign
 
-Status: implemented design contract (2026-09-11)
+Status: design reference; current implementation status is tracked in
+[docs/feature-status.json](../../docs/feature-status.json) (2026-09-14)
 Scope: home surface, profile surface, and account/profile presentation only  
 Out of scope: lobby, board, gameplay HUD, Socket.IO game events, and room rules
+
+> **Current-status note (2026-09-14).** This document preserves the selected
+> design direction and its historical baseline. It is not a claim that every
+> proposed profile tab or account control is shipped. Session expiry,
+> deletion/export, retention, and public-profile policy remain owner-gated.
 
 ## Job and audience
 
@@ -168,7 +174,8 @@ Use native buttons with `role="tablist"`, `role="tab"`, `aria-selected`, and
      product’s privacy rule.
 4. **Account & preferences**
    - username, display-name sync state, sign-in/out, guest explanation, sound
-     preference, and a clear session-expired recovery path;
+     preference, and a recovery path for explicitly invalidated or unknown
+     sessions; expiry behavior remains policy-gated;
    - password fields remain inside the existing auth dialog and never appear in
      the profile body or chat.
 
@@ -186,10 +193,11 @@ backend decisions.
   bounded, sanitized history array. Do not expose private-room history to users
   who were not participants. This is an account-data addition, not a game-rule
   change.
-- `public/main.js` gets a small `profileViewState` (active tab, return route,
-  edit mode) and pure render functions for header, tabs, overview, designs,
-  history, and account. Existing profile IDs remain available as compatibility
-  hooks until each panel is migrated.
+- The eventual profile shell may keep a small local view state for active tab,
+  return route, and edit mode, with pure render functions for header, tabs,
+  overview, designs, history, and account. The implementation name is not part
+  of the public contract; existing profile IDs remain compatibility hooks until
+  each panel is migrated.
 - The room directory stays server-backed. Home tab state is client-only and
   must not be mistaken for game state.
 
@@ -219,8 +227,8 @@ backend decisions.
   2560x1440. Desktop layout is the target; the existing compact mobile fallback
   remains functional and is not redesigned here.
 - Profile body copy stays within roughly 65–75ch. Stat numerals use tabular
-  figures. Empty, loading, error, signed-out, signed-in, and session-expired
-  states are all labelled.
+  figures. Empty, loading, error, signed-out, signed-in, and explicitly
+  invalid-session states are all labelled; expiry semantics remain policy-gated.
 
 ## Implementation sequence
 

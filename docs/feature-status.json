@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "151b480",
+  "generatedAt": "2026-09-14T00:00:00.000Z",
+  "statusValues": ["active", "complete", "planned", "reference", "deferred"],
+  "purpose": "Canonical release-status evidence for current product surfaces. Policy-gated records are not claims that the gated policy or copy is approved.",
+  "features": [
+    {
+      "id": "rooms-and-lobbies",
+      "status": "active",
+      "ownerSurface": "server rooms and public lobby",
+      "evidence": ["server/rooms.js", "server/rooms.test.js", "public/clientLobbyUi.js"]
+    },
+    {
+      "id": "boards",
+      "status": "active",
+      "ownerSurface": "board registry and board renderer",
+      "evidence": ["server/boardRegistry.js", "server/boardRegistry.test.js", "public/clientBoardData.js"]
+    },
+    {
+      "id": "themes",
+      "status": "active",
+      "ownerSurface": "theme registry and asset renderer",
+      "evidence": ["public/clientThemeData.js", "public/clientThemeRender.js", "public/themeAssetAudit.test.js"]
+    },
+    {
+      "id": "bots",
+      "status": "active",
+      "ownerSurface": "server bot decision modules",
+      "evidence": ["server/botLogic.js", "server/bot-brain.test.js", "server/bot-simulation.test.js"]
+    },
+    {
+      "id": "contracts",
+      "status": "active",
+      "ownerSurface": "server contract and loan rules",
+      "evidence": ["server/contractLogic.js", "server/contracts-market.test.js", "server/hybrid-contract-achievements.test.js"]
+    },
+    {
+      "id": "sponsorships",
+      "status": "active",
+      "ownerSurface": "sponsorship API and client surface",
+      "evidence": ["server/sponsorshipApi.js", "server/sponsorship.test.js", "public/clientSponsorshipUi.js"]
+    },
+    {
+      "id": "market",
+      "status": "active",
+      "ownerSurface": "server market expansion and market rail",
+      "evidence": ["server/marketExpansion.js", "server/marketExpansion.test.js", "public/clientMarketUi.js"]
+    },
+    {
+      "id": "seasons",
+      "status": "active",
+      "ownerSurface": "season and reward services",
+      "evidence": ["server/seasonModule.js", "server/seasonModule.test.js", "server/season-reward-audit.test.js"]
+    },
+    {
+      "id": "cosmetics",
+      "status": "active",
+      "ownerSurface": "cosmetic catalog and appearance surface",
+      "evidence": ["server/cosmeticCatalog.js", "server/cosmeticCatalog.test.js", "public/clientCosmetics.js"]
+    },
+    {
+      "id": "global-events",
+      "status": "active",
+      "ownerSurface": "server global-event rules and client renderer",
+      "evidence": ["server/globalEventData.js", "server/global-events.test.js", "public/clientGlobalEventRender.js"]
+    },
+    {
+      "id": "maintenance",
+      "status": "complete",
+      "ownerSurface": "maintenance state and operator wire",
+      "evidence": ["server/maintenanceState.js", "server/maintenance-wire.test.js", "docs/production-hardening.md"]
+    },
+    {
+      "id": "backups",
+      "status": "complete",
+      "ownerSurface": "checksummed JSON backup and restore",
+      "evidence": ["server/backupStore.js", "server/backupStore.test.js", "server/backup-restore-integrity.test.js"]
+    },
+    {
+      "id": "analytics-console",
+      "status": "deferred",
+      "ownerSurface": "protected aggregate analytics and policy owner",
+      "evidence": ["server/analyticsApi.js", "server/analytics-route-security.test.js", "public/clientAnalytics.js"]
+    },
+    {
+      "id": "legal-surfaces",
+      "status": "deferred",
+      "ownerSurface": "legal copy, support identity, and policy owner",
+      "evidence": ["server/legalRoutes.js", "server/legalRoutes.test.js", "public/legal/privacy.html"]
+    },
+    {
+      "id": "account-controls",
+      "status": "planned",
+      "ownerSurface": "account privacy, deletion, export, and session policy",
+      "evidence": ["server/accountStore.js", "server/account-session-audit.test.js", "docs/audit/release-readiness-2026-09-12/RR-02-account-deletion.md"]
+    },
+    {
+      "id": "link-previews",
+      "status": "planned",
+      "ownerSurface": "metadata, canonical origin, and approved preview artwork",
+      "evidence": ["server/metadata.js", "server/metadata.test.js", "public/clientDocumentMeta.js"]
+    },
+    {
+      "id": "wallet-items",
+      "status": "planned",
+      "ownerSurface": "Wallet and Items projections and mutation policy",
+      "evidence": ["public/clientWalletUi.js", ".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
+    },
+    {
+      "id": "airport-travel",
+      "status": "planned",
+      "ownerSurface": "future airport travel system",
+      "evidence": [".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
+    },
+    {
+      "id": "predictions",
+      "status": "planned",
+      "ownerSurface": "future prediction system and pricing policy",
+      "evidence": [".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
+    },
+    {
+      "id": "bank-account-upgrades",
+      "status": "planned",
+      "ownerSurface": "future bank-account mutation and persistence policy",
+      "evidence": [".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
+    },
+    {
+      "id": "historical-audits",
+      "status": "reference",
+      "ownerSurface": "dated audit and release evidence",
+      "evidence": ["docs/audit/markdown-bug-feature-audit-2026-09-13.md", "docs/audit/docs-parity-manifest-2026-09-12.json"]
+    }
+  ]
+}

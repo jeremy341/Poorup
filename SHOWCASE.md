@@ -1,6 +1,6 @@
 # Poorup
 
-Poorup is a real-time multiplayer board game inspired by Monopoly, playable entirely in the browser — no downloads, no accounts. Players join a shared room with a code, buy properties, build houses and hotels, trade with each other, and try to bankrupt everyone else. Everything runs live over WebSockets.
+Poorup is a real-time multiplayer board game inspired by Monopoly, playable entirely in the browser — no downloads; accounts remain optional. No account is required to create or join a room. Players join a shared room with a code, buy properties, build houses and hotels, trade with each other, and try to bankrupt everyone else. Everything runs live over WebSockets.
 
 🌐 **Live demo:** [poorup.jeremy-d.hackclub.app](https://poorup.jeremy-d.hackclub.app/)
 🖥️ **Also runs locally** — see instructions below.
@@ -14,12 +14,15 @@ A full multiplayer board game running on a Node.js server with Socket.IO for rea
 Features include:
 
 - Room-based lobbies with a shareable room code
+- Standard-40 and Metro-52 boards, with up to six seats on Metro-52
+- Classic, After Hours, and Custom ruleset presets
 - Full Monopoly-style rules: buying, renting, building houses and hotels, mortgaging, and trading
 - Live auctions with a countdown timer when a property is declined
 - Configurable game rules per room (double rent, vacation cash, even build, auction, mortgage, randomized turn order, no rent in jail)
 - Reconnect support — if you disconnect mid-turn, you can rejoin and resume
 - In-game chat
 - Optional server-settled Casino and fictional Market tabs
+- Player-to-player contracts, sponsorships, seasons, achievements, and cosmetics
 - Round-scaled Global Events with warning, recovery, and curated combinations
 - Server-backed social graph, public player cards, recent players, and match history
 - Achievements with verified unlock records and rarity-aware rankings
@@ -42,7 +45,12 @@ Features include:
 
 ## What am I proud of?
 
-The architecture. The game logic lives entirely in `gameLogic.js` and has no knowledge of sockets or HTTP. The server in `server.js` wires events to logic calls and broadcasts the results. That separation made the codebase much easier to reason about and debug than it would have been otherwise.
+The architecture. Authoritative behavior is split across focused server modules:
+`gameLogic.js` owns round rules while rooms, market, contracts, seasons, social,
+and maintenance modules own their respective boundaries. `server.js` wires HTTP
+and Socket.IO events to those modules and broadcasts sanitized projections. That
+separation made the codebase much easier to reason about and debug than it would
+have been otherwise.
 
 Also proud of the reconnect system. Most quick multiplayer prototypes just boot you if you disconnect. Poorup tracks your player ID server-side and lets you pick back up where you left off, which makes the game actually playable over real network conditions.
 
