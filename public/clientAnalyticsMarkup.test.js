@@ -48,6 +48,9 @@ for (const filter of ['range', 'boardVariant', 'rulesetPreset', 'marketComplexit
   assert.match(adminView, new RegExp(`for="analytics-filter-${filter}"`));
   assert.match(adminView, new RegExp(`id="analytics-filter-${filter}"[^>]+data-analytics-filter="${filter}"`));
 }
+for (const filter of ['range', 'boardVariant', 'rulesetPreset', 'marketComplexity', 'botMode', 'provider']) {
+  assert.match(adminView, new RegExp(`<span class="analytics-select-shell"[^>]*>\\s*<select[^>]+id="analytics-filter-${filter}"`, 'i'));
+}
 assert.doesNotMatch(adminView, /data-analytics-filter="(?:accountId|username|displayName)"|name="(?:accountId|username|displayName)"/i);
 assert.doesNotMatch(adminView, /(?:displayName|username|accountId|roomCode|chat|hiddenCards|privateLoanTerms|sessionToken|rawPayload|rawEvent|ipAddress|rawIp|userAgent|rawUserAgent)\s*=/i);
 for (const tab of tabIds) {
