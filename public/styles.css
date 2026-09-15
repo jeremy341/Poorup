@@ -38,6 +38,15 @@
   font-weight: 600;
 }
 :root {
+  --analytics-primary: var(--gold-300);
+  --analytics-comparison: var(--blue-player, #6c9fd8);
+  --analytics-human: var(--blue-player, #6c9fd8);
+  --analytics-ai: var(--green-player, #6da36c);
+  --analytics-bot: var(--gold-400);
+  --analytics-positive: var(--green-status, #79c579);
+  --analytics-negative: var(--red-action, #e06b5f);
+  --analytics-warning: var(--gold-100);
+  --analytics-neutral: var(--line-default);
   --bg-canvas: #01070a;
   --bg-chrome: #020a0d;
 
@@ -903,6 +912,12 @@ body[data-theme-id="light"] #view-home .home-patrol-hint { color: #173f4d; text-
 .analytics-chart-table td { padding: 6px 8px; border: 1px solid var(--line-subtle); text-align: left; }
 .analytics-chart-table caption { margin-bottom: 6px; color: var(--text-muted); text-align: left; }
 .analytics-chart-table th { color: var(--gold-100); font-weight: 600; }
+.analytics-chart svg { display: block; min-height: 160px; }
+.analytics-chart svg text { fill: var(--text-muted); font: 7px var(--font-mono); }
+.analytics-chart-summary { margin: 0; }
+.analytics-board-map svg { aspect-ratio: 1; max-width: 420px; background: var(--surface-board-frame); }
+.analytics-board-tile { shape-rendering: crispEdges; opacity: .82; }
+.analytics-board-tile:hover { opacity: 1; }
 .analytics-read-model { display: grid; gap: 10px; margin-top: 10px; overflow-x: auto; }
 .analytics-read-table { width: 100%; min-width: 560px; border-collapse: collapse; color: var(--text-secondary); font: 12px var(--font-body); }
 .analytics-read-table th,
