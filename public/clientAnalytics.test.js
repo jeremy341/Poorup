@@ -65,6 +65,17 @@ await check('view model drops unknown wrappers while retaining approved dynamic 
   assert.equal(clean.breakdowns[0].outcomeDistribution.wins, 2);
 });
 
+await check('view model removes IP and User-Agent identity fields in dynamic contexts', () => {
+  const clean = viewModelSnapshot({ breakdowns: [{ actions: {
+    ipAddress: '1.2.3.4', rawIp: '1.2.3.5', userAgent: 'browser', rawUserAgent: 'raw-browser',
+    ip_address: '1.2.3.6', raw_ip: '1.2.3.7', user_agent: 'ua', raw_user_agent: 'raw-ua',
+    label: 'roll', value: 3,
+  } }] });
+  const serialized = JSON.stringify(clean).toLowerCase();
+  for (const field of ['ipaddress', 'rawip', 'useragent', 'rawuseragent', 'ip_address', 'raw_ip', 'user_agent', 'raw_user_agent']) assert.equal(serialized.includes(field), false);
+  assert.equal(clean.breakdowns[0].actions.label, 'roll');
+});
+
 await check('controller reports rollup unavailable when fetch is missing', async () => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
