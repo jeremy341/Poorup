@@ -297,6 +297,19 @@ await check('board metric map resolves shuffled explicit indexes before position
   globalThis.document = previousDocument;
 });
 
+await check('stacked-bar omits non-finite segments instead of fabricating zero geometry', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, getAttribute() { return null; }, setAttribute() {}, querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return true; } } }; } };
+  renderAnalyticsChart(container, [{ label: 'A', values: { human: Infinity, ai: NaN } }], { mode: 'stacked-bar', title: 'Missing modes' });
+  assert.equal(markup.match(/class="analytics-chart-table[^"]*"/)?.length, 1);
+  assert.equal(markup.includes('fill="var(--analytics-human)"'), false);
+  assert.equal(markup.includes('fill="var(--analytics-ai)"'), false);
+  assert.match(markup, /<td>N\/A<\/td>/);
+  globalThis.document = previousDocument;
+});
+
 function fakeElement({ id = '', attrs = {}, value = '' } = {}) {
   const listeners = new Map();
   const attributes = { ...attrs };
