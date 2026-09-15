@@ -2,7 +2,7 @@
 
 Viewport: 1920 x 1080 CSS pixels, Chromium, dark Poorup theme. The captures are viewport screenshots, not full-page exports, so the first-view composition is directly inspectable.
 
-Commit: pending implementation commit
+Commit: `e970b56` (`feat: structure admin analytics control room`)
 
 ## Verified tab captures
 
