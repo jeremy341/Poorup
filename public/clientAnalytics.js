@@ -1,30 +1,11 @@
 import { state } from './clientState.js';
 import { renderAnalyticsChart } from './clientAnalyticsCharts.js';
-
-export const MIN_COHORT = 5;
-export const ANALYTICS_TABS = Object.freeze(['overview', 'match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']);
-
-const ALLOWED_METRICS = new Set([
-  'active-sockets', 'active-rooms', 'active-rounds', 'room-reconnects', 'restore-failures',
-  'action-latency-ms', 'error-count', 'bot-fallbacks', 'maintenance-transitions',
-  'backup-failures', 'manual-codescene-runs',
-]);
-const METRIC_LABELS = Object.freeze({
-  'active-sockets': 'Active sockets', 'active-rooms': 'Active rooms', 'active-rounds': 'Active rounds',
-  'room-reconnects': 'Room reconnects', 'restore-failures': 'Restore failures', 'action-latency-ms': 'Action latency',
-  'error-count': 'Server errors', 'bot-fallbacks': 'Bot fallbacks', 'maintenance-transitions': 'Maintenance transitions',
-  'backup-failures': 'Backup failures', 'manual-codescene-runs': 'Manual CodeScene runs',
-});
-const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload', 'rawevent', 'rawdata', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data']);
-const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'starts', 'completed', 'completions', 'stalled', 'stalls', 'matches', 'startedMatches', 'completedMatches', 'stalledMatches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementBaseline', 'placementMedian', 'medianPlacement', 'fallback', 'fallbackRate', 'decisions', 'actions', 'actionAdoption', 'auctionDecisions', 'legalActionTaxonomy', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'liquidation', 'liquidationRate', 'shortDefaults', 'shortDefaultRate', 'shortDefault', 'shortPositions', 'optionExercises', 'optionExerciseRate', 'optionExercise', 'collateralizedOptions', 'negativeCashPreventions', 'negativeCashPrevention', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlockRarity', 'outcomeDistribution', 'bankruptcies', 'comebacks', 'reconnectRate', 'afkRate', 'denominators', 'competitiveMetricsExcludeBotOnly', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'rows', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab', 'association', 'dimension', 'metric', 'scope']);
-const DYNAMIC_CLIENT_FIELDS = new Set(['features', 'events', 'market', 'bots', 'achievements', 'unlockRarity', 'outcomeDistribution', 'adoption', 'actions', 'combinations']);
+import { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
+import { ALLOWED_METRICS, METRIC_LABELS, MIN_COHORT, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
+export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
+export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 
 function query(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
-function finite(value, fallback = null) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
-function enumValue(value, allowed, fallback) { const normalized = String(value || fallback).trim().toLowerCase(); return allowed.includes(normalized) ? normalized : fallback; }
-function safeScopeString(value) { return [...value].filter(character => character !== '|' && character.charCodeAt(0) >= 32).join('').slice(0, 80); }
-function normalizeRevision(value) { if (value === '' || value === undefined || value === null) return ''; const number = finite(value, null); return number === null ? '' : String(Math.max(0, Math.floor(number))); }
-function normalizedRevisionNumber(value, fallback = '') { const normalized = normalizeRevision(value); return normalized === '' ? fallback : Number(normalized); }
 function clearAnalyticsOutput() {
   const grid = query('#admin-analytics-grid');
   if (grid) grid.textContent = '';
@@ -32,88 +13,6 @@ function clearAnalyticsOutput() {
   document.querySelectorAll?.('.analytics-read-model, [data-analytics-chart]')?.forEach(element => { element.textContent = ''; });
 }
 
-export function normalizeAnalyticsQuery(input = {}) {
-  const source = input && typeof input === 'object' ? input : {};
-  const requestedTab = source.tab || source.view;
-  return {
-    range: enumValue(source.range, ['hour', 'day', 'week', 'season'], 'hour'),
-    seasonId: typeof source.seasonId === 'string' ? safeScopeString(source.seasonId) : '',
-    rulesetRevision: normalizeRevision(source.rulesetRevision),
-    balanceRevision: normalizeRevision(source.balanceRevision),
-    boardVariant: enumValue(source.boardVariant, ['all', 'standard-40', 'metro-52'], 'all'),
-    rulesetPreset: enumValue(source.rulesetPreset, ['all', 'classic', 'after-hours', 'custom'], 'all'),
-    marketComplexity: enumValue(source.marketComplexity, ['all', 'basic', 'margin', 'shorting', 'derivatives'], 'all'),
-    botMode: enumValue(source.botMode, ['all', 'ai', 'no-ai', 'human'], 'all'),
-    provider: enumValue(source.provider, ['all', 'ai', 'deepseek', 'deterministic', 'fallback', 'house', 'openai', 'unknown'], 'all'),
-    eventId: typeof source.eventId === 'string' ? source.eventId.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80) : '',
-    minimumCohort: MIN_COHORT,
-    tab: enumValue(requestedTab, ANALYTICS_TABS, 'overview'),
-    dimension: enumValue(source.dimension, ['feature', 'ruleset', 'board', 'event', 'bot'], ''),
-    metric: typeof source.metric === 'string' ? source.metric.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80) : ''
-  };
-}
-
-function cleanSafeValue(value, key = '', depth = 0, parentKey = '') {
-  if (FORBIDDEN_KEYS.has(String(key).toLowerCase()) || depth > 20) return undefined;
-  if (value === null) return null;
-  if (typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.slice(0, 200).map(item => cleanSafeValue(item, '', depth + 1, key)).filter(item => item !== undefined);
-  if (!value || typeof value !== 'object') return undefined;
-  const output = {};
-  Object.entries(value).slice(0, 200).forEach(([childKey, childValue]) => {
-    if (!ALLOWED_CLIENT_FIELDS.has(childKey) && !DYNAMIC_CLIENT_FIELDS.has(key) && !DYNAMIC_CLIENT_FIELDS.has(parentKey)) return;
-    const clean = cleanSafeValue(childValue, childKey, depth + 1, key);
-    if (clean !== undefined) output[childKey] = clean;
-  });
-  return output;
-}
-
-function cleanMetricEntry(value) {
-  if (!value || Object.prototype.toString.call(value) !== '[object Object]') return null;
-  const output = {};
-  ['type', 'updatedAt'].forEach(key => { if (typeof value[key] === 'string') output[key] = value[key].slice(0, 80); });
-  ['count', 'total', 'last', 'min', 'max', 'value'].forEach(key => { const number = finite(value[key]); if (number !== null) output[key] = number; });
-  return output;
-}
-
-function metricEntries(value) { return value && typeof value === 'object' && !Array.isArray(value) ? Object.entries(value).filter(([name]) => ALLOWED_METRICS.has(name)) : []; }
-
-export function normalizeAnalyticsSnapshot(value = {}) {
-  const source = value && typeof value === 'object' ? value : {};
-  const metrics = {};
-  metricEntries(source.metrics).forEach(([name, entry]) => { const clean = cleanMetricEntry(entry); if (clean) metrics[name] = clean; });
-  const filters = normalizeAnalyticsQuery(source.filters || source);
-  const overview = cleanSafeValue(source.overview, 'overview') || {};
-  const breakdowns = Array.isArray(source.breakdowns) ? source.breakdowns.slice(0, 100).map(row => cleanSafeValue(row)).filter(Boolean) : [];
-  const series = Array.isArray(source.series) ? source.series.slice(0, 168).map(item => cleanSafeValue(item)).filter(Boolean) : [];
-  return {
-    schemaVersion: Number.isFinite(Number(source.schemaVersion)) && Number(source.schemaVersion) > 0 ? Number(source.schemaVersion) : 1,
-    range: ['hour', 'day', 'week', 'season'].includes(String(source.range || filters.range)) ? String(source.range || filters.range) : filters.range,
-    generatedAt: typeof source.generatedAt === 'string' ? source.generatedAt.slice(0, 80) : '',
-    pseudonymVersion: typeof source.pseudonymVersion === 'string' ? source.pseudonymVersion.slice(0, 40) : '',
-    seasonId: typeof source.seasonId === 'string' ? safeScopeString(source.seasonId) : filters.seasonId,
-    rulesetRevision: source.rulesetRevision === null || source.rulesetRevision === undefined ? filters.rulesetRevision : normalizedRevisionNumber(source.rulesetRevision),
-    balanceRevision: source.balanceRevision === null || source.balanceRevision === undefined ? filters.balanceRevision : normalizedRevisionNumber(source.balanceRevision),
-    boardVariant: enumValue(source.boardVariant, ['all', 'standard-40', 'metro-52'], filters.boardVariant),
-    filters,
-    suppression: { minimumCohort: MIN_COHORT, suppressedPanels: Math.max(0, Math.floor(finite(source.suppression?.suppressedPanels, 0))) },
-    overview,
-    association: cleanSafeValue(source.association, 'association') || null,
-    series,
-    breakdowns,
-    dataQuality: cleanSafeValue(source.dataQuality, 'dataQuality') || {},
-    metrics,
-  };
-}
-
-export function metricValue(entry) {
-  if (!entry || typeof entry !== 'object') return 0;
-  const value = finite(entry.value ?? entry.last ?? entry.total, 0);
-  return value === null ? 0 : value;
-}
-
-export function isAnalyticsPath(pathname) { return String(pathname || '').split('?')[0] === '/admin/analytics'; }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
 function renderStatus(message, tone = 'muted') { const status = query('#admin-analytics-status'); if (!status) return; status.className = `t-body analytics-status ${tone}`; status.textContent = message; }
 
@@ -326,7 +225,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (request) return request;
     filters = normalizeAnalyticsQuery({ ...filters, ...next });
     if (!customFetcher && !state.account?.sessionToken) { renderStatus('ADMIN ACCOUNT REQUIRED', 'warning'); return { success: false, status: 403 }; }
-    if (!requestFetcher) return { success: false, status: 503 };
+    if (!requestFetcher) { renderStatus('ROLLUP UNAVAILABLE · RETRY', 'warning'); return { success: false, status: 503 }; }
     const url = `${endpoint}?${queryString(filters)}`;
     const headers = !customFetcher && state.account?.sessionToken ? { 'x-poorup-session-token': state.account.sessionToken } : {};
     abortController = typeof AbortController === 'function' ? new AbortController() : null;
