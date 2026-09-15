@@ -1,30 +1,11 @@
 import { state } from './clientState.js';
 import { renderAnalyticsChart } from './clientAnalyticsCharts.js';
-
-export const MIN_COHORT = 5;
-export const ANALYTICS_TABS = Object.freeze(['overview', 'match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']);
-
-const ALLOWED_METRICS = new Set([
-  'active-sockets', 'active-rooms', 'active-rounds', 'room-reconnects', 'restore-failures',
-  'action-latency-ms', 'error-count', 'bot-fallbacks', 'maintenance-transitions',
-  'backup-failures', 'manual-codescene-runs',
-]);
-const METRIC_LABELS = Object.freeze({
-  'active-sockets': 'Active sockets', 'active-rooms': 'Active rooms', 'active-rounds': 'Active rounds',
-  'room-reconnects': 'Room reconnects', 'restore-failures': 'Restore failures', 'action-latency-ms': 'Action latency',
-  'error-count': 'Server errors', 'bot-fallbacks': 'Bot fallbacks', 'maintenance-transitions': 'Maintenance transitions',
-  'backup-failures': 'Backup failures', 'manual-codescene-runs': 'Manual CodeScene runs',
-});
-const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload', 'rawevent', 'rawdata', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data']);
-const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'starts', 'completed', 'completions', 'stalled', 'stalls', 'matches', 'startedMatches', 'completedMatches', 'stalledMatches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementBaseline', 'placementMedian', 'medianPlacement', 'fallback', 'fallbackRate', 'decisions', 'actions', 'actionAdoption', 'auctionDecisions', 'legalActionTaxonomy', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'liquidation', 'liquidationRate', 'shortDefaults', 'shortDefaultRate', 'shortDefault', 'shortPositions', 'optionExercises', 'optionExerciseRate', 'optionExercise', 'collateralizedOptions', 'negativeCashPreventions', 'negativeCashPrevention', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlockRarity', 'outcomeDistribution', 'bankruptcies', 'comebacks', 'reconnectRate', 'afkRate', 'denominators', 'competitiveMetricsExcludeBotOnly', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'rows', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab', 'association', 'dimension', 'metric', 'scope']);
-const DYNAMIC_CLIENT_FIELDS = new Set(['features', 'events', 'market', 'bots', 'achievements', 'unlockRarity', 'outcomeDistribution', 'adoption', 'actions', 'combinations']);
+import { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
+import { ALLOWED_METRICS, METRIC_LABELS, MIN_COHORT, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
+export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
+export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 
 function query(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
-function finite(value, fallback = null) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
-function enumValue(value, allowed, fallback) { const normalized = String(value || fallback).trim().toLowerCase(); return allowed.includes(normalized) ? normalized : fallback; }
-function safeScopeString(value) { return [...value].filter(character => character !== '|' && character.charCodeAt(0) >= 32).join('').slice(0, 80); }
-function normalizeRevision(value) { if (value === '' || value === undefined || value === null) return ''; const number = finite(value, null); return number === null ? '' : String(Math.max(0, Math.floor(number))); }
-function normalizedRevisionNumber(value, fallback = '') { const normalized = normalizeRevision(value); return normalized === '' ? fallback : Number(normalized); }
 function clearAnalyticsOutput() {
   const grid = query('#admin-analytics-grid');
   if (grid) grid.textContent = '';
@@ -32,7 +13,9 @@ function clearAnalyticsOutput() {
   document.querySelectorAll?.('.analytics-read-model, [data-analytics-chart]')?.forEach(element => { element.textContent = ''; });
 }
 
-export function normalizeAnalyticsQuery(input = {}) {
+/* normalization lives in clientAnalyticsViewModel.js */
+/* legacy implementation removed */
+/*
   const source = input && typeof input === 'object' ? input : {};
   const requestedTab = source.tab || source.view;
   return {
@@ -114,6 +97,7 @@ export function metricValue(entry) {
 }
 
 export function isAnalyticsPath(pathname) { return String(pathname || '').split('?')[0] === '/admin/analytics'; }
+*/
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
 function renderStatus(message, tone = 'muted') { const status = query('#admin-analytics-status'); if (!status) return; status.className = `t-body analytics-status ${tone}`; status.textContent = message; }
 
