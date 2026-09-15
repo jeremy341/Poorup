@@ -268,6 +268,35 @@ await check('board metric map preserves topology order and remains read-only', (
   globalThis.document = previousDocument;
 });
 
+await check('stacked-bar extracts finite segments and mirrors them in table columns', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, getAttribute() { return null; }, setAttribute() {}, querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return true; } } }; } };
+  renderAnalyticsChart(container, [{ label: 'A', values: { human: 2, ai: 3, bot: Infinity, private: 'bad' } }], { mode: 'stacked-bar', title: 'Modes', unit: 'matches' });
+  assert.match(markup, /<rect[^>]+fill="var\(--analytics-human\)"/);
+  assert.match(markup, /<rect[^>]+fill="var\(--analytics-ai\)"/);
+  assert.match(markup, /<th scope="col">human<\/th>/);
+  assert.match(markup, /<th scope="col">ai<\/th>/);
+  assert.equal(markup.includes('Infinity'), false);
+  assert.equal(markup.includes('private'), false);
+  globalThis.document = previousDocument;
+});
+
+await check('board metric map resolves shuffled explicit indexes before positional fallback', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const board = { variant: 'standard-40', tiles: [{ index: 7, label: 'SEVEN', value: 70 }, { index: 0, label: 'ZERO', value: 0 }] };
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, setAttribute() {}, querySelector() { return null; } };
+  const result = renderBoardMetricMap(container, board);
+  assert.equal(result.tiles[0].value, 0);
+  assert.equal(result.tiles[7].value, 70);
+  assert.match(markup, /0 · ZERO/);
+  assert.match(markup, /7 · SEVEN/);
+  globalThis.document = previousDocument;
+});
+
 function fakeElement({ id = '', attrs = {}, value = '' } = {}) {
   const listeners = new Map();
   const attributes = { ...attrs };
