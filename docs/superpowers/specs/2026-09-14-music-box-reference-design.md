@@ -1,6 +1,6 @@
 # Poorup Music Box — Reference-Locked Design Specification
 
-**Status:** Planning only; no production code changed
+**Status:** Implemented on `development` (2026-09-14); the reference contract below is retained as the visual acceptance record.
 
 **Reference:** `C:/Users/jerem/.codex/generated_images/01a04ce5-c441-7f00-ae91-e42f0be01102/exec-dc4c67c8-6a4b-4b29-8205-0e8bb128dee0.png`
 
