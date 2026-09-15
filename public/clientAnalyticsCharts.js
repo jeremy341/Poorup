@@ -136,10 +136,11 @@ export function renderBoardMetricMap(container, board, options = {}) {
   const title = options.title || `${variant.toUpperCase()} board metric`;
   const points = tiles.map(tile => ({ label: `${tile.index} · ${tile.label}`, value: tile.value, unit: 'metric' }));
   const tableId = `analytics-chart-table-${++chartSequence}`;
+  const summaryId = `${tableId}-summary`;
   const forcedColors = mediaMatches('(forced-colors: active)');
   const table = tableMarkup(title, 'Metric', points, tableId, forcedColors);
   container.setAttribute?.('aria-label', title);
-  container.innerHTML = `<figure class="analytics-chart analytics-board-map" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption>${escapeHtml(title)}</figcaption><div class="analytics-chart-engine" data-chart-engine="echarts-svg" data-chart-variant="${escapeHtml(variant)}" data-chart-token-primary="var(--analytics-primary)" role="img" aria-label="${escapeHtml(title)}"></div><p class="t-micro ink-3 analytics-chart-engine-status is-hidden" aria-live="polite">CHART ENGINE LOADING</p><p class="t-micro ink-3 analytics-chart-summary">ASSOCIATION, NOT CAUSATION · SAMPLE ${tiles.filter(tile => tile.value !== null).length}</p><button class="btn-dark analytics-chart-table-toggle" type="button" aria-expanded="${forcedColors}" aria-controls="${escapeHtml(tableId)}">${forcedColors ? 'HIDE DATA TABLE' : 'SHOW DATA TABLE'}</button>${table}</figure>`;
+  container.innerHTML = `<figure class="analytics-chart analytics-board-map" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption>${escapeHtml(title)}</figcaption><div class="analytics-chart-engine" data-chart-engine="echarts-svg" data-chart-variant="${escapeHtml(variant)}" data-chart-token-primary="var(--analytics-primary)" role="img" aria-label="${escapeHtml(title)}" aria-describedby="${escapeHtml(summaryId)}"></div><p class="t-micro ink-3 analytics-chart-engine-status is-hidden" aria-live="polite">CHART ENGINE LOADING</p><p id="${escapeHtml(summaryId)}" class="t-micro ink-3 analytics-chart-summary">ASSOCIATION, NOT CAUSATION · SAMPLE ${tiles.filter(tile => tile.value !== null).length}</p><button class="btn-dark analytics-chart-table-toggle" type="button" aria-expanded="${forcedColors}" aria-controls="${escapeHtml(tableId)}">${forcedColors ? 'HIDE DATA TABLE' : 'SHOW DATA TABLE'}</button>${table}</figure>`;
   bindTableToggle(container);
   if (!forcedColors) hydrate(container, points, { ...options, mode: 'board', title, unit: 'metric', variant });
   return { tiles, element: container.firstElementChild };

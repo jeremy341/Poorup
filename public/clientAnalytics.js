@@ -16,6 +16,13 @@ function clearAnalyticsOutput() {
 }
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
+const ANALYTICS_FILTER_LABELS = Object.freeze({ boardVariant: 'BOARD', rulesetPreset: 'RULESET', marketComplexity: 'MARKET', botMode: 'BOT MODE', provider: 'PROVIDER', eventId: 'EVENT', seasonId: 'SEASON', rulesetRevision: 'RULE REV', balanceRevision: 'BALANCE REV' });
+function renderActiveAnalyticsFilters(filters) {
+  const target = query('[data-analytics-active-filters]');
+  if (!target) return;
+  const chips = Object.entries(ANALYTICS_FILTER_LABELS).filter(([key]) => filters[key] && filters[key] !== 'all').map(([key, label]) => `<span class="analytics-filter-chip">${escapeHtml(label)} · ${escapeHtml(filters[key])}</span>`);
+  target.innerHTML = chips.length ? chips.join('') : '<span class="t-micro ink-3">ALL DIMENSIONS</span>';
+}
 function renderStatus(message, tone = 'muted') {
   const status = query('#admin-analytics-status');
   if (!status) return;
@@ -233,6 +240,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
   const listeners = [];
   let filterOpener = null;
   let pageController = null;
+  const FILTER_BACKGROUND_SELECTORS = ['.analytics-tabs', '#admin-analytics-grid', '[data-analytics-report-book]', '.analytics-contextual-slots'];
 
   function listen(target, event, handler) {
     target?.addEventListener?.(event, handler);
@@ -273,6 +281,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     const position = query('[data-analytics-page-position]');
     if (position) position.textContent = `${ANALYTICS_TABS.indexOf(filters.tab) + 1} / ${ANALYTICS_TABS.length}`;
     if (pageController?.page !== filters.tab) pageController?.setPage(filters.tab, { syncUrl: false, announceChange: false });
+    renderActiveAnalyticsFilters(filters);
   }
 
   const wired = new WeakMap();
@@ -299,6 +308,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     const dialog = query('[data-analytics-filter-dialog]');
     dialog?.classList?.add('is-hidden');
     dialog?.setAttribute?.('aria-hidden', 'true');
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.removeAttribute?.('inert'));
     query('[data-analytics-more-filters]')?.setAttribute?.('aria-expanded', 'false');
     if (restoreFocus) filterOpener?.focus?.();
     filterOpener = null;
@@ -310,7 +320,8 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (!dialog || !opener) return;
     filterOpener = opener;
     dialog.classList?.remove('is-hidden');
-    dialog.removeAttribute?.('aria-hidden');
+    dialog.setAttribute?.('aria-hidden', 'false');
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.setAttribute?.('inert', ''));
     opener.setAttribute?.('aria-expanded', 'true');
     dialog.querySelector?.('[data-analytics-filter]')?.focus?.();
   }
@@ -335,12 +346,14 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (request) { requestGeneration += 1; abortController?.abort(); request = null; }
     filters = normalizeAnalyticsQuery({ ...filters, ...next });
     syncUrlFilters(filters);
+    renderActiveAnalyticsFilters(filters);
     return { ...filters };
   }
 
   function wireControls() {
     if (typeof document === 'undefined') return;
     applyTabState();
+    renderActiveAnalyticsFilters(filters);
     if (Object.keys(readUrlFilters()).length) syncFilterControls();
     document.querySelectorAll?.('[data-analytics-filter]')?.forEach(control => listenOnce(control, 'change', () => { filters = normalizeAnalyticsQuery({ ...filters, ...readFilterControls() }); }));
     const apply = document.querySelector?.('[data-analytics-apply]');

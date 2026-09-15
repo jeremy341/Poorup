@@ -50,6 +50,14 @@ function finite(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function formatChartValue(value, unit) {
+  const number = finite(value);
+  if (number === null) return 'N/A';
+  const normalized = String(unit || '').toLowerCase();
+  if (normalized === 'percent' || normalized === 'adoption' || normalized.endsWith('rate')) return `${(Math.abs(number) <= 1 ? number * 100 : number).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+  return number.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 function cleanPoints(points) {
   if (!Array.isArray(points)) return [];
   return points.slice(0, 168).map((point, index) => ({
@@ -110,7 +118,7 @@ function axis(tokens, unit, horizontal = false) {
   const base = {
     axisLine: { lineStyle: { color: tokens.grid, width: 1 } },
     axisTick: { show: false },
-    axisLabel: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11, hideOverlap: true },
+    axisLabel: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11, hideOverlap: true, ...(horizontal ? { formatter: value => formatChartValue(value, unit) } : {}) },
     splitLine: { lineStyle: { color: tokens.grid, width: 1, opacity: 0.7 } },
     name: String(unit || 'VALUE').toUpperCase(),
     nameTextStyle: { color: tokens.primary, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11 },
@@ -128,9 +136,9 @@ function lineOptions(points, unit, tokens, title, reducedMotion) {
   const groups = groupedPoints(points);
   return {
     ...commonOptions(tokens, title, reducedMotion),
-    grid: { left: 70, right: 20, top: 40, bottom: 42, containLabel: true },
+    grid: { left: 70, right: 20, top: 52, bottom: 42, containLabel: true },
     xAxis: { ...axis(tokens, '', false), data: labels, boundaryGap: false },
-    yAxis: numericAxis(tokens, unit),
+    yAxis: { ...numericAxis(tokens, unit), nameGap: 42 },
     series: groups.map((group, index) => ({
       name: labelForSeries(group.name),
       type: 'line',
@@ -148,24 +156,44 @@ function lineOptions(points, unit, tokens, title, reducedMotion) {
 }
 
 function barOptions(points, unit, tokens, title, reducedMotion) {
-  const groups = groupedPoints(points);
-  const labels = points.map(point => point.label);
+  const unitGroups = new Map();
+  points.forEach(point => {
+    const groupUnit = point.unit || unit || 'value';
+    if (!unitGroups.has(groupUnit)) unitGroups.set(groupUnit, []);
+    unitGroups.get(groupUnit).push(point);
+  });
+  const groups = [...unitGroups.entries()];
   const paletteValues = palette(tokens);
-  const series = groups.map((group, index) => ({
-    name: labelForSeries(group.name),
-    type: 'bar',
-    barMaxWidth: 16,
-    barGap: '12%',
-    data: labels.map(label => group.values.find(point => point.label === label)?.value ?? null),
-    itemStyle: { color: paletteValues[index % paletteValues.length], borderColor: tokens.surfaceDeep, borderWidth: 1, borderRadius: 0 },
-    label: { show: true, position: 'right', color: tokens.primary, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11, formatter: params => params.value === null || params.value === undefined ? 'N/A' : params.value }
-  }));
+  const axes = groups.map(([groupUnit, groupPoints], index) => {
+    const labels = groupPoints.map(point => point.label);
+    return {
+      groupUnit,
+      labels,
+      xAxis: { ...numericAxis(tokens, groupUnit), gridIndex: index },
+      yAxis: { ...axis(tokens, groupUnit, false), data: labels, inverse: true, gridIndex: index },
+      series: {
+        name: groups.length > 1 ? String(groupUnit).toUpperCase() : 'Verified',
+        type: 'bar',
+        xAxisIndex: index,
+        yAxisIndex: index,
+        barMaxWidth: 16,
+        barGap: '12%',
+        data: groupPoints.map(point => point.value),
+        itemStyle: { color: paletteValues[index % paletteValues.length], borderColor: tokens.surfaceDeep, borderWidth: 1, borderRadius: 0 },
+        label: { show: true, position: 'right', color: tokens.primary, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11, formatter: params => formatChartValue(params.value, groupUnit) }
+      }
+    };
+  });
+  const grids = groups.map((_, index) => groups.length === 1
+    ? { left: 150, right: 48, top: 36, bottom: 40, containLabel: true }
+    : { left: 150, right: 48, top: `${34 + index * (62 / groups.length)}%`, height: `${Math.max(20, Math.floor(52 / groups.length))}%`, containLabel: true });
   return {
     ...commonOptions(tokens, title, reducedMotion),
-    grid: { left: 150, right: 48, top: groups.length > 1 ? 54 : 36, bottom: 40, containLabel: true },
-    xAxis: numericAxis(tokens, unit),
-    yAxis: { ...axis(tokens, unit, false), data: labels, inverse: true },
-    series
+    grid: grids,
+    xAxis: axes.map(axisValue => axisValue.xAxis),
+    yAxis: axes.map(axisValue => axisValue.yAxis),
+    series: axes.map(axisValue => axisValue.series),
+    legend: groups.length > 1 ? { ...commonOptions(tokens, title, reducedMotion).legend, data: axes.map(axisValue => axisValue.series.name) } : commonOptions(tokens, title, reducedMotion).legend
   };
 }
 
