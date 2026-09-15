@@ -5,7 +5,7 @@ import { ALLOWED_METRICS, METRIC_LABELS, MIN_COHORT, normalizeAnalyticsQuery, no
 export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
 export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 
-function query(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
+function query(selector) { return typeof document === 'undefined' || typeof document.querySelector !== 'function' ? null : document.querySelector(selector); }
 function clearAnalyticsOutput() {
   const grid = query('#admin-analytics-grid');
   if (grid) grid.textContent = '';
@@ -54,15 +54,15 @@ function finiteAnalyticsNumber(value) {
   return null;
 }
 
-function panelPoint(label, value) {
+function panelPoint(label, value, unit = '') {
   const numeric = finiteAnalyticsNumber(value);
-  return numeric === null ? null : { label: String(label || 'Observation').slice(0, 80), value: numeric };
+  return numeric === null ? null : { label: String(label || 'Observation').slice(0, 80), value: numeric, ...(unit ? { unit } : {}) };
 }
 
 function panelRows(model) { return Array.isArray(model?.rows) ? model.rows : []; }
-function objectSeries(value) {
+function objectSeries(value, unit = '') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
-  return Object.entries(value).slice(0, 24).map(([label, item]) => panelPoint(label, item)).filter(Boolean);
+  return Object.entries(value).slice(0, 24).map(([label, item]) => panelPoint(label, item, unit)).filter(Boolean);
 }
 
 const ANALYTICS_PANEL_DESCRIPTORS = Object.freeze({
@@ -71,16 +71,16 @@ const ANALYTICS_PANEL_DESCRIPTORS = Object.freeze({
     title: 'Match reliability', unit: 'matches', mode: 'bar',
     series: snapshot => {
       const model = snapshot.breakdowns?.[0] || {};
-      return [['Starts', model.starts], ['Completions', model.completions], ['Stalls', model.stalls], ['Reconnect rate', model.reconnectRate], ['AFK rate', model.afkRate], ['Bankruptcies', model.bankruptcies], ['Comebacks', model.comebacks]].map(([label, value]) => panelPoint(label, value)).filter(Boolean);
+      return [['Starts', model.starts, 'matches'], ['Completions', model.completions, 'matches'], ['Stalls', model.stalls, 'matches'], ['Reconnect rate', model.reconnectRate, 'percent'], ['AFK rate', model.afkRate, 'percent'], ['Bankruptcies', model.bankruptcies, 'matches'], ['Comebacks', model.comebacks, 'matches']].map(([label, value, unit]) => panelPoint(label, value, unit)).filter(Boolean);
     }
   },
   rulesets: { title: 'Ruleset and board adoption', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.rulesetPreset || 'ruleset'} / ${row.boardVariant || 'board'}`, row.matches)).filter(Boolean) },
-  economy: { title: 'Economic feature adoption', unit: 'adoption', mode: 'bar', series: snapshot => objectSeries(snapshot.breakdowns?.[0]?.adoption) },
-  events: { title: 'Event eligibility', unit: 'observations', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(row.eventId || 'event', row.eligibility)).filter(Boolean) },
-  bots: { title: 'Bot matches by provider', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.botMode || 'bot'} / ${row.provider || 'provider'}`, row.matches)).filter(Boolean) },
+  economy: { title: 'Economic feature adoption', unit: 'adoption', mode: 'bar', series: snapshot => objectSeries(snapshot.breakdowns?.[0]?.adoption, 'adoption') },
+  events: { title: 'Event eligibility', unit: 'observations', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(row.eventId || 'event', row.eligibility, 'observations')).filter(Boolean) },
+  bots: { title: 'Bot matches by provider', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.botMode || 'bot'} / ${row.provider || 'provider'}`, row.matches, 'matches')).filter(Boolean) },
   quality: { title: 'Snapshot quality signals', unit: 'observations', mode: 'bar', series: snapshot => {
     const model = snapshot.breakdowns?.[0] || snapshot.dataQuality || {};
-    return [['Lag seconds', model.lagSeconds], ['Queue depth', model.queueDepth], ['Pending writes', model.pendingWrites], ['Rejected events', model.rejectedEvents], ['Suppressed panels', model.suppressionCount]].map(([label, value]) => panelPoint(label, value)).filter(Boolean);
+    return [['Lag seconds', model.lagSeconds, 'seconds'], ['Queue depth', model.queueDepth, 'observations'], ['Pending writes', model.pendingWrites, 'observations'], ['Rejected events', model.rejectedEvents, 'observations'], ['Suppressed panels', model.suppressionCount, 'observations']].map(([label, value, unit]) => panelPoint(label, value, unit)).filter(Boolean);
   } }
 });
 
