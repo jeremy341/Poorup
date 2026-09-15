@@ -9,7 +9,7 @@ globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 const { normalizeAnalyticsSnapshot, normalizeAnalyticsQuery, metricValue, isAnalyticsPath, createAnalyticsController, renderAnalyticsSnapshot } = await import('./clientAnalytics.js');
 const { ANALYTICS_TABS, ANALYTICS_FILTERS, PANEL_DEFINITIONS, OVERVIEW_KPIS, CONTEXTUAL_PANELS } = await import('./clientAnalyticsCatalog.js');
 const { MIN_COHORT, normalizeAnalyticsQuery: viewModelQuery, normalizeAnalyticsSnapshot: viewModelSnapshot } = await import('./clientAnalyticsViewModel.js');
-const { renderAnalyticsChart } = await import('./clientAnalyticsCharts.js');
+const { renderAnalyticsChart, renderBoardMetricMap, CHART_COLORS } = await import('./clientAnalyticsCharts.js');
 const { state } = await import('./clientState.js');
 
 async function check(name, run) {
@@ -203,8 +203,68 @@ await check('chart markup exposes table state and non-negative bars', () => {
   assert.match(markup, /aria-expanded="false"/);
   assert.match(markup, /aria-controls="analytics-chart-table-/);
   assert.match(markup, /id="analytics-chart-title"/);
-  assert.match(markup, /var\(--(?:gold-300|green-status)\)/);
+  assert.match(markup, /var\(--analytics-/);
   assert.equal(markup.includes('height="-'), false);
+  globalThis.document = previousDocument;
+});
+
+await check('chart adapter supports every declared mode with bounded accessible output', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  const modes = ['line', 'bar', 'stacked-bar', 'heatmap', 'histogram', 'box', 'scatter', 'funnel', 'cohort', 'board'];
+  for (const mode of modes) {
+    let markup = '';
+    const container = {
+      set innerHTML(value) { markup = value; },
+      get firstElementChild() { return {}; },
+      getAttribute() { return null; },
+      setAttribute() {},
+      querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return true; } } }; }
+    };
+    renderAnalyticsChart(container, Array.from({ length: 240 }, (_, index) => ({ label: `<${index}>`, value: index % 7 - 3, series: index % 2 ? 'AI' : 'HUMAN' })), { mode, title: `<${mode}>`, unit: 'rounds', sampleSize: 240 });
+    assert.match(markup, /<figure/);
+    assert.match(markup, /<figcaption/);
+    assert.match(markup, /SAMPLE/);
+    assert.match(markup, /SHOW DATA TABLE/);
+    assert.equal(markup.includes('<240>'), false);
+    assert.equal(markup.includes('height="-'), false);
+    assert.equal(markup.includes('NaN'), false);
+    assert.equal(markup.includes('Infinity'), false);
+    assert.match(markup, /var\(--analytics-/);
+  }
+  assert.equal(CHART_COLORS.primary, 'var(--analytics-primary)');
+  globalThis.document = previousDocument;
+});
+
+await check('unknown and forced-colors modes expose the table fallback immediately', () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  let markup = '';
+  globalThis.document = {};
+  globalThis.window = { matchMedia: query => ({ matches: query.includes('forced-colors') }) };
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, getAttribute() { return null; }, setAttribute() {}, querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return false; } } }; } };
+  renderAnalyticsChart(container, [{ label: 'A', value: 2 }], { mode: 'unknown', title: 'Fallback' });
+  assert.match(markup, /analytics-chart-table"/);
+  assert.match(markup, /aria-expanded="true"/);
+  assert.match(markup, /HIDE DATA TABLE/);
+  globalThis.window = previousWindow;
+  globalThis.document = previousDocument;
+});
+
+await check('board metric map preserves topology order and remains read-only', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const board = { variant: 'standard-40', tiles: Array.from({ length: 40 }, (_, index) => ({ index, label: `<TILE ${index}>`, value: index })) };
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, setAttribute() {}, querySelector() { return null; } };
+  const result = renderBoardMetricMap(container, board, { title: 'Board activity' });
+  assert.equal(result.tiles.length, 40);
+  assert.equal(result.tiles[0].index, 0);
+  assert.equal(result.tiles.at(-1).index, 39);
+  assert.match(markup, /<svg/);
+  assert.match(markup, /<table/);
+  assert.equal(markup.includes('<TILE 0>'), false);
+  assert.equal(markup.includes('data-buy'), false);
   globalThis.document = previousDocument;
 });
 
