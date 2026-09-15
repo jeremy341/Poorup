@@ -12,6 +12,7 @@ import {
   state,
   syncLocalAppearance,
 } from "./clientState.js";
+import { saveMusicPreference } from "./clientSanitize.js";
 import {
   buildBoard,
   renderBoardState,
@@ -140,12 +141,14 @@ import {
   stopAuctionTimer,
 } from "./clientAuctionUi.js";
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
-import { bindAudioControls } from "./clientAudioControls.js";
+import { bindAudioControls, syncAudioButtons } from "./clientAudioControls.js";
 import { copyRoomCode } from "./clientRoomShare.js";
 import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./clientTheme.js";
 import { renderTheme } from "./clientThemeRender.js";
+import { createMusicPlayer } from "./clientMusicPlayer.js";
 import { applyMaintenanceState, configureMaintenanceUi } from "./clientMaintenance.js";
 import { initAnalytics } from "./clientAnalytics.js";
+import { setDocumentMeta } from "./clientDocumentMeta.js";
 import {
   bindRoomsUi,
   closeRoomsModal,
@@ -210,10 +213,18 @@ import {
 } from "./clientGameSave.js";
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
+let musicController = null;
+
+function announceSoundMessage(message) {
+  const status = $("#music-status");
+  if (status && status.textContent !== message) status.textContent = message;
+}
+
 function tone(freq, dur, vol = 0.035, when = 0) {
   if (!state.sound) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
     const t0 = audioCtx.currentTime + when;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -372,6 +383,8 @@ configureSocketListeners(socket, {
   renderDealDetailsIfOpen,
   openDealDetails,
   applyMaintenanceState,
+  syncAudioButtons,
+  syncHomeMusic,
   serverSyncHost,
 });
 
@@ -460,22 +473,78 @@ function refreshEconomySnapshot() {
     renderRightRail();
   });
 }
-
-
-
-function syncHomeMusic() {
-  const music = $("#home-music");
-  if (!music) return;
-  music.volume = 0.16;
-  // The sound preference is global. Keep the same soundtrack running while
-  // the player moves from Home into setup, lobby, or the live table.
-  if (state.music) {
-    const playAttempt = music.play();
-    playAttempt?.catch(() => { /* autoplay policy; the next user gesture retries */ });
-  } else {
-    music.pause();
+function ensureMusicController() {
+  if (musicController) return musicController;
+  if (globalThis.__poorupMusicBoxController) {
+    musicController = globalThis.__poorupMusicBoxController;
+    return musicController;
   }
+  const root = document.querySelector("[data-music-box]");
+  if (!root) return null;
+  musicController = createMusicPlayer({
+    audioA: root.querySelector('audio[data-music-audio="a"]'),
+    audioB: root.querySelector('audio[data-music-audio="b"]'),
+    getThemeId: () => state.themeId,
+    announce: message => {
+      const status = root.querySelector("[data-music-status]");
+      const globalStatus = $("#music-status");
+      if (status && status.textContent !== message) status.textContent = message;
+      if (globalStatus && globalStatus.textContent !== message) globalStatus.textContent = message;
+    },
+  });
+  globalThis.__poorupMusicBoxController = musicController;
+  return musicController;
 }
+
+function setMusicEnabled(enabled, { userGesture = false } = {}) {
+  const controller = ensureMusicController();
+  if (!controller) return;
+  if (!enabled) {
+    controller.stop?.();
+    return;
+  }
+  if (userGesture || state.music) controller.resetToThemeTrack?.();
+}
+
+function syncHomeMusic({ force = false, userGesture = false } = {}) {
+  const controller = ensureMusicController();
+  if (controller) {
+    if (!state.music) setMusicEnabled(false);
+    else if (force || userGesture) setMusicEnabled(true, { userGesture });
+    return;
+  }
+  // The dock controller is canonical; no single-track fallback.
+}
+
+function retryAudioAfterGesture() {
+  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
+  if (!state.music) return;
+  const snapshot = ensureMusicController()?.snapshot?.();
+  if (snapshot && snapshot.status !== "playing") syncHomeMusic({ userGesture: true });
+}
+
+function handleMusicBoxPlayIntent(event) {
+  event.preventDefault();
+  const controller = ensureMusicController();
+  if (!controller) return;
+  if (!state.music) {
+    state.music = true;
+    saveMusicPreference(true);
+    syncAudioButtons();
+    controller.resetToThemeTrack?.();
+    return;
+  }
+  const snapshot = controller.snapshot?.();
+  if (snapshot?.status === "playing") controller.stop?.();
+  else controller.resetToThemeTrack?.();
+}
+
+function bindMusicBoxIntent() {
+  document.querySelector("[data-music-box]")?.addEventListener("music-box-play", handleMusicBoxPlayIntent);
+}
+
+// Legacy single-track media events were removed; the music-box controller
+// owns playback and status announcements.
 
 
 /* ============================================================
@@ -675,6 +744,7 @@ function showView(name) {
   $("#view-social")?.classList.toggle("is-hidden", name !== "social");
   $("#view-rules")?.classList.toggle("is-hidden", name !== "rules");
   syncGlobalNavigation(name);
+  setDocumentMeta({ view: name, roomCode: state.roomCode });
   window.scrollTo(0, 0);
   syncSurfaceA11y();
   if (name === "home") {
@@ -956,7 +1026,9 @@ function bindEvents() {
   bindProfileUi();
 
   // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
-  bindAudioControls({ playSound, syncHomeMusic });
+  bindAudioControls({ playSound, syncHomeMusic, musicController, setMusicEnabled });
+  window.addEventListener("pointerdown", retryAudioAfterGesture, { passive: true });
+  window.addEventListener("keydown", retryAudioAfterGesture);
   bindAmbientExits();
 
   // setup overlay + quick table + lobby settings rail (clientLobbyUi.js)
@@ -1008,7 +1080,7 @@ function bindEvents() {
 configureSurfaces({ notice: parlorNotice });
 configureSocialSurfaces({ emitServer, showView });
 configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
-configureAccountIdentity({ emitServer, say });
+configureAccountIdentity({ emitServer, say, syncAudioButtons, syncHomeMusic });
 configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot });
 configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
 configureMarketUi({ emitServer, renderRightRail, createRequestId, say, renderChat });
@@ -1051,15 +1123,19 @@ configureNightShift({
   stopHomeHelicopter,
   scheduleHomeHelicopter,
 });
-configureThemeUi({ applyTheme: renderTheme });
+configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId) });
 configureMaintenanceUi({ emitServer });
 bindThemeVisibility();
 initThemePreference();
+ensureMusicController();
+bindMusicBoxIntent();
 renderHome();
 buildBoard(onTileClick);
 renderTheme(state.themeId, { animate: false });
 hydrateSprites();
 bindEvents();
+const analyticsRouteActive = globalThis.window?.location?.pathname === "/admin/analytics";
+setDocumentMeta({ view: analyticsRouteActive ? "analytics" : "home" });
 renderAll();
 const analyticsPathActive = initAnalytics();
 if (!analyticsPathActive) {

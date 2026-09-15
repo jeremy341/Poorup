@@ -275,7 +275,15 @@ function sortStandings(season, metric = 'points') {
     const bv = bvRaw == null ? -1 : bvRaw;
     return bv - av || b.points - a.points || a.accountId.localeCompare(b.accountId);
   });
-  return rows.map((row, index) => ({ ...row, value: seasonMetricValue(metric, row), rank: index + 1, percentile: rows.length ? (rows.length - index) / rows.length : 0 }));
+  return rows.map((row, index) => ({
+    ...row,
+    value: seasonMetricValue(metric, row),
+    rank: index + 1,
+    placementRank: index + 1,
+    // Lower is better: 0 is first place, while the last of 100 is .99.
+    topFraction: rows.length ? index / rows.length : 1,
+    percentile: rows.length ? (rows.length - index) / rows.length : 0
+  }));
 }
 
 export class SeasonStore {
@@ -368,7 +376,10 @@ export class SeasonStore {
   rewardEligible(row, reward, population) {
     if (reward.track === 'participation') return row.participation >= reward.threshold;
     if (reward.track === 'mastery') return row.mastery >= reward.threshold;
-    return row.percentile >= reward.threshold;
+    const size = Math.max(1, Number(population) || 1);
+    const rank = Number(row.placementRank || row.rank);
+    const eligibleRank = Math.max(1, Math.ceil(size * Number(reward.threshold) || 0));
+    return Number.isFinite(rank) && rank >= 1 && rank <= eligibleRank;
   }
 }
 

@@ -73,6 +73,7 @@ const GAME_VERB_HANDLERS = [
   { event: 'reduce-margin', verb: 'reduceMargin', args: pickArgs(['amount', 'requestId']), ackExtras: pickAckFields(['economy']) },
   { event: 'open-short', verb: 'openShort', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
   { event: 'cover-short', verb: 'coverShort', args: pickArgs(['instrumentId', 'quantity', 'requestId']), ackExtras: pickAckFields(['economy']) },
+  { event: 'settle-short-default', verb: 'settleShortDefault', args: pickArgs(['amount', 'requestId']), ackExtras: pickAckFields(['paid', 'remaining', 'economy']) },
   { event: 'open-option', verb: 'openOption', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['option', 'economy']) },
   { event: 'exercise-option', verb: 'exerciseOption', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },
   { event: 'close-position', verb: 'closePosition', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },

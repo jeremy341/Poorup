@@ -8,6 +8,9 @@ function roomAt(complexity) {
   room.setRoomSetting('market', true);
   room.setRoomSetting('marketComplexity', complexity);
   assert.equal(room.startGame().success, true);
+  // Existing market vectors model an approved pricing-policy deployment. The
+  // default no-policy path is covered by game-invariant-regressions.test.js.
+  room.game.optionPricingPolicy = { mode: 'approved-test-policy' };
   room.game.currentPlayerId = room.game.players[0].id;
   return room;
 }
@@ -50,6 +53,7 @@ derivatives.game.players[0].marketActionsThisTurn = 0;
 const openOptionCandidates = derivatives.game.marketExpansionCandidates(derivatives.game.players[0]);
 assert.equal(openOptionCandidates.some(candidate => candidate.kind === 'close-position' && candidate.optionId === option.option.id), true);
 derivatives.game.marketQuotes.brazil = 140;
+derivatives.game.roundNumber += 1;
 derivatives.game.players[0].marketActionsThisTurn = 0;
 assert.equal(derivatives.exerciseOption('a', option.option.id, 'exercise-1').success, true);
 assert.ok(derivatives.game.players[0].cash >= 0);
@@ -159,6 +163,7 @@ const buyerOption = optionReserveRoom.openOption('a', {
 assert.equal(buyerOption.success, true);
 const reserveAfterOpen = optionReserveRoom.game.marketOptionReserve;
 optionReserveRoom.game.marketQuotes.brazil = 140;
+optionReserveRoom.game.roundNumber += 1;
 optionBuyer.marketActionsThisTurn = 0;
 assert.equal(optionReserveRoom.exerciseOption('a', buyerOption.option.id, 'house-exercise').success, true);
 assert.equal(optionBuyer.cash, optionCashBefore + 50);

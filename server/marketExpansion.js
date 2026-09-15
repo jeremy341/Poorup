@@ -262,6 +262,10 @@ function optionReserveRejection(game, player, terms) {
 
 function openOption(game, player, instrument, payload) {
   ensurePlayerMarketState(player);
+  // Pricing bands and quote-age policy are owner decisions. Until one is
+  // configured, accepting client strike/premium/expiry terms is unsafe; fail
+  // closed before touching cash, reserve, or option state.
+  if (!game.optionPricingPolicy) return { success: false, error: 'OPTION_TERMS_SERVER_REQUIRED' };
   const terms = optionTerms(game, player, instrument, payload);
   if (terms.error) return { success: false, error: terms.error };
   // The first release is house-underwritten but bounded. The reserve is
@@ -272,7 +276,7 @@ function openOption(game, player, instrument, payload) {
   const maxPayout = terms.strike * terms.quantity;
   player.cash -= terms.totalPremium;
   game.marketOptionReserve -= maxPayout;
-  const option = { id: terms.id, instrumentId: instrument.id, side: terms.side, role: terms.role, quantity: terms.quantity, strike: terms.strike, premium: terms.premium, expiryRound: terms.expiryRound, collateral: 0, reserveHeld: maxPayout, maxPayout, status: 'open', exercised: false };
+  const option = { id: terms.id, instrumentId: instrument.id, side: terms.side, role: terms.role, quantity: terms.quantity, strike: terms.strike, premium: terms.premium, createdRound: game.roundNumber, expiryRound: terms.expiryRound, collateral: 0, reserveHeld: maxPayout, maxPayout, status: 'open', exercised: false };
   player.optionPositions.push(option);
   return { success: true, action: terms.role === 'writer' ? 'write-option' : 'buy-option', option: { ...option } };
 }
@@ -294,6 +298,7 @@ function optionIntrinsic(option, quote) {
 function exerciseStateError(game, option) {
   if (!option) return 'That option is no longer open.';
   if (game.roundNumber > option.expiryRound) return 'That option has expired.';
+  if (option.createdRound == null || game.roundNumber <= Number(option.createdRound)) return 'OPTION_TERMS_SERVER_REQUIRED';
   return null;
 }
 
@@ -399,6 +404,25 @@ function forceShortBuyIn(game, player, { id, position, quantity, inventory }) {
   inventory[id] = nonNegativeNumber(inventory[id]) + quantity;
   delete player.shortPositions[id];
   return { success: true, action: 'short-buy-in-default', shortfall: Math.max(0, cashRequired - cashUsed) };
+}
+
+// A forced buy-in can leave a bounded cash shortfall. Keep it collectible as
+// an explicit obligation; callers may invoke this path on a later turn or
+// before opening another market position.
+function settleShortDefault(game, player, requestedAmount = null) {
+  ensurePlayerMarketState(player);
+  const outstanding = Math.max(0, Math.floor(Number(player.shortDefaultDebt) || 0));
+  const hasRequestedAmount = requestedAmount !== null && requestedAmount !== undefined;
+  const parsedRequested = hasRequestedAmount ? Number(requestedAmount) : outstanding;
+  if (!Number.isInteger(parsedRequested) || parsedRequested <= 0) return { success: false, error: 'Short-default repayment must be a positive whole amount.' };
+  const due = Math.min(outstanding, Math.floor(parsedRequested));
+  const available = Math.max(0, Math.floor(Number(player.cash) || 0));
+  const paid = Math.min(available, due);
+  player.cash = available - paid;
+  player.shortDefaultDebt = outstanding - paid;
+  const remaining = player.shortDefaultDebt;
+  if (paid > 0) game?.feedMessage?.(`${player.nickname || 'Player'} paid $${paid} toward short buy-in debt.`);
+  return { success: true, action: remaining ? 'short-default-payment' : 'short-default-settled', paid, remaining };
 }
 
 function settleShortPosition(game, player, { id, position, inventory }) {
@@ -554,5 +578,6 @@ export {
   openMargin,
   openOption,
   openShort,
-  reduceMargin
+  reduceMargin,
+  settleShortDefault
 };

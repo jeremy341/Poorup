@@ -15,6 +15,12 @@ function clipText(value, maxLength) {
   return String(value || '').slice(0, maxLength);
 }
 
+function boundedIdentifier(value, max = 120) {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  return normalized && normalized.length <= max ? normalized : '';
+}
+
 function metadataOrEmpty(metadata) {
   return metadata && typeof metadata === 'object' ? metadata : {};
 }
@@ -91,8 +97,9 @@ function existingFriendshipError(existing) {
   return null;
 }
 
-function findPendingInvite(invites, roomCode, senderId, recipientId) {
-  return invites.find(invite => invite.roomCode === roomCode && invite.senderId === senderId && invite.recipientId === recipientId && invite.status === 'pending');
+function findPendingInvite(invites, roomId, roomCode, senderId, recipientId) {
+  return invites.find(invite => ((roomId && invite.roomId === roomId) || (!roomId && !invite.roomId && invite.roomCode === roomCode))
+    && invite.senderId === senderId && invite.recipientId === recipientId && invite.status === 'pending');
 }
 
 function isOpenReport(report, accountId, otherId) {
@@ -116,6 +123,17 @@ export class SocialStore {
     this.load();
   }
 
+  pruneExpiredInvites(now = Date.now()) {
+    const before = this.invites.length;
+    this.invites = this.invites.filter(invite => {
+      if (invite.status !== 'pending') return true;
+      const expiresAt = Date.parse(invite.expiresAt || '');
+      return Number.isFinite(expiresAt) && expiresAt > now;
+    });
+    if (this.invites.length !== before) this.persist();
+    return before - this.invites.length;
+  }
+
   load() {
     const { value } = loadJson(this.filePath, loaded => loaded && typeof loaded === 'object' && !Array.isArray(loaded));
     if (!value) return;
@@ -137,6 +155,9 @@ export class SocialStore {
     this.blocks = this.blocks.slice(-MAX_SOCIAL_RECORDS);
     this.invites = this.invites.slice(-MAX_SOCIAL_RECORDS);
     this.reports = this.reports.slice(-MAX_SOCIAL_RECORDS);
+    while (this.notifications.size > MAX_SOCIAL_RECORDS) {
+      this.notifications.delete(this.notifications.keys().next().value);
+    }
     writeJson(this.filePath, {
       friendships: this.friendships,
       blocks: this.blocks,
@@ -155,6 +176,8 @@ export class SocialStore {
   }
 
   requestFriend(fromId, toId) {
+    fromId = boundedIdentifier(fromId);
+    toId = boundedIdentifier(toId);
     const pairError = invalidPairError(fromId, toId, 'Choose another player.');
     if (pairError) return { success: false, error: pairError };
     if (this.areBlocked(fromId, toId)) return { success: false, error: 'This player is unavailable.' };
@@ -169,6 +192,8 @@ export class SocialStore {
   }
 
   respondFriend(accountId, friendshipId, accept) {
+    accountId = boundedIdentifier(accountId);
+    friendshipId = boundedIdentifier(friendshipId);
     const friendship = this.friendships.find(entry => entry.id === friendshipId && entry.addresseeId === accountId && entry.status === 'requested');
     if (!friendship) return { success: false, error: 'That friend request is no longer available.' };
     friendship.status = accept ? 'accepted' : 'declined';
@@ -178,6 +203,8 @@ export class SocialStore {
   }
 
   cancelFriendRequest(accountId, friendshipId) {
+    accountId = boundedIdentifier(accountId);
+    friendshipId = boundedIdentifier(friendshipId);
     const index = this.friendships.findIndex(entry => entry.id === friendshipId && entry.requesterId === accountId && entry.status === 'requested');
     if (index < 0) return { success: false, error: 'That friend request is no longer pending.' };
     this.friendships.splice(index, 1);
@@ -186,6 +213,8 @@ export class SocialStore {
   }
 
   removeFriend(accountId, otherId) {
+    accountId = boundedIdentifier(accountId);
+    otherId = boundedIdentifier(otherId);
     const before = this.friendships.length;
     this.friendships = this.friendships.filter(entry => !matchesPair(entry.requesterId, entry.addresseeId, accountId, otherId));
     if (this.friendships.length === before) return { success: false, error: 'Friendship not found.' };
@@ -194,6 +223,8 @@ export class SocialStore {
   }
 
   blockPlayer(accountId, otherId) {
+    accountId = boundedIdentifier(accountId);
+    otherId = boundedIdentifier(otherId);
     const pairError = invalidPairError(accountId, otherId, 'Choose another player.');
     if (pairError) return { success: false, error: pairError };
     this.friendships = this.friendships.filter(entry => !matchesPair(entry.requesterId, entry.addresseeId, accountId, otherId));
@@ -204,6 +235,8 @@ export class SocialStore {
   }
 
   reportPlayer(accountId, otherId, reason = 'unspecified') {
+    accountId = boundedIdentifier(accountId);
+    otherId = boundedIdentifier(otherId);
     const pairError = invalidPairError(accountId, otherId, 'Choose another player.');
     if (pairError) return { success: false, error: pairError };
     if (hasOpenReport(this.reports, accountId, otherId)) return { success: true };
@@ -213,6 +246,8 @@ export class SocialStore {
   }
 
   listFor(accountId) {
+    accountId = boundedIdentifier(accountId);
+    this.pruneExpiredInvites();
     const friendships = this.friendships.filter(entry => involvesAccount(entry, accountId));
     const friends = friendships.filter(entry => entry.status === 'accepted').map(entry => friendIdOther(entry, accountId));
     const requests = friendships.filter(entry => isIncomingRequest(entry, accountId));
@@ -222,27 +257,29 @@ export class SocialStore {
     return { friends, requests, outgoing, invites, notifications };
   }
 
-  createInvite({ roomCode, roomName, visibility, senderId, recipientId }) {
+  createInvite({ roomId, roomCode, roomName, visibility, senderId, recipientId }) {
+    roomId = boundedIdentifier(roomId);
+    roomCode = boundedIdentifier(roomCode, 32);
+    senderId = boundedIdentifier(senderId);
+    recipientId = boundedIdentifier(recipientId);
     const pairError = invalidPairError(senderId, recipientId, 'This player is unavailable.');
     if (pairError) return { success: false, error: pairError };
+    if (!roomId && !roomCode) return { success: false, error: 'That room is unavailable.' };
     if (this.areBlocked(senderId, recipientId)) return { success: false, error: 'This player is unavailable.' };
-    const existing = findPendingInvite(this.invites, roomCode, senderId, recipientId);
+    const existing = findPendingInvite(this.invites, roomId, roomCode, senderId, recipientId);
     if (existing) return { success: false, error: 'This room invite is already pending.' };
-    const invite = { id: id('invite'), roomCode, roomName, visibility, senderId, recipientId, status: 'pending', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+    const invite = { id: id('invite'), roomId: roomId || null, roomCode: roomCode || null, roomName: clipText(roomName, 120), visibility: visibility === 'private' ? 'private' : 'public', senderId, recipientId, status: 'pending', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
     this.invites.push(invite);
     this.persist();
     return { success: true, invite };
   }
 
   respondInvite(accountId, inviteId, accept) {
+    accountId = boundedIdentifier(accountId);
+    inviteId = boundedIdentifier(inviteId);
+    this.pruneExpiredInvites();
     const invite = this.invites.find(entry => entry.id === inviteId && entry.recipientId === accountId && entry.status === 'pending');
     if (!invite) return { success: false, error: 'That room invite has expired.' };
-    if (Date.parse(invite.expiresAt || '') <= Date.now()) {
-      invite.status = 'expired';
-      invite.updatedAt = new Date().toISOString();
-      this.persist();
-      return { success: false, error: 'That room invite has expired.' };
-    }
     invite.status = accept ? 'accepted' : 'declined';
     invite.updatedAt = new Date().toISOString();
     this.persist();
@@ -250,10 +287,14 @@ export class SocialStore {
   }
 
   getInvite(accountId, inviteId) {
+    accountId = boundedIdentifier(accountId);
+    inviteId = boundedIdentifier(inviteId);
+    this.pruneExpiredInvites();
     return this.invites.find(entry => entry.id === inviteId && entry.recipientId === accountId && entry.status === 'pending') || null;
   }
 
   addNotification(accountId, notification) {
+    accountId = boundedIdentifier(accountId);
     if (!accountId) return;
     const list = notificationsFor(this.notifications, accountId);
     list.unshift(cleanNotification({ id: id('notice'), ...notification, createdAt: notification.createdAt || new Date().toISOString() }));
@@ -262,6 +303,8 @@ export class SocialStore {
   }
 
   markNotificationRead(accountId, notificationId) {
+    accountId = boundedIdentifier(accountId);
+    notificationId = boundedIdentifier(notificationId);
     const notification = notificationsFor(this.notifications, accountId).find(entry => entry.id === notificationId);
     if (!notification) return { success: false, error: 'Notification not found.' };
     notification.readAt = new Date().toISOString();

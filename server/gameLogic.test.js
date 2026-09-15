@@ -67,9 +67,11 @@ async function testJoinColorUniqueness() {
   full.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT 1', color: '#286ea1', isBot: true });
   full.addOrReconnectPlayer({ socketId: null, clientId: 'bot-2', nickname: 'BOT 2', color: '#d9a62f', isBot: true });
   full.addOrReconnectPlayer({ socketId: null, clientId: 'bot-3', nickname: 'BOT 3', color: '#35a653', isBot: true });
-  const desperate = full.addOrReconnectPlayer({ socketId: 'socket-g', clientId: 'client-g', nickname: 'G', color: '#d74438' });
+  // The table is full once bots count against retained capacity. Exercise the
+  // same resolver through an existing seat instead of allowing a fifth seat.
+  const desperate = full.game.setPlayerAppearance('socket-f', { color: '#d74438' });
   assert.equal(desperate.success, true);
-  assert.equal(playerOf(full, 'client-g').color, '#d74438');
+  assert.equal(playerOf(full, 'client-f').color, '#d74438');
 }
 
 // Contract 6: seating keeps a requested color when only the face differs.

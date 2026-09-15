@@ -11,7 +11,7 @@ import { state } from "./clientState.js";
 import { saveSoundPreference, saveMusicPreference } from "./clientSanitize.js";
 import { renderProfileSummary } from "./clientProfileRender.js";
 
-let host = { playSound: noop, syncHomeMusic: noop };
+let host = { playSound: noop, syncHomeMusic: noop, musicController: null };
 
 function noop() {}
 
@@ -34,7 +34,7 @@ function paintAudioButton(button, pressed, meta) {
   if (icon) icon.src = meta.src;
 }
 
-function syncAudioButtons() {
+export function syncAudioButtons() {
   const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
   const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
   const soundMeta = { labelOn: "Turn sound effects off", labelOff: "Turn sound effects on", src: soundSrc };
@@ -56,7 +56,7 @@ function onMusicToggle() {
   state.music = !state.music;
   saveMusicPreference(state.music);
   syncAudioButtons();
-  host.syncHomeMusic();
+  host.syncHomeMusic({ force: true });
   renderProfileSummary();
 }
 

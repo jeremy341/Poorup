@@ -28,7 +28,8 @@ second game shell:
 > descendants. The old `FOCUS` control is retired; `PANELS` is the single
 > explicit visibility menu. Evidence: `docs/audit/fix-transaction-ui-batch-2026-09-12.md`,
 > `public/index.html:572-591`, `public/clientTransactionUi.test.js`, and
-> `public/clientUxContracts.test.js`.
+> `public/clientUxContracts.test.js`. Current feature and policy status is
+> tracked in [`docs/feature-status.json`](../feature-status.json).
 
 ## Non-negotiable product constraints
 

@@ -18,6 +18,7 @@ import {
   toJoinPlayerInfo
 } from './roomSetup.js';
 import { reply } from './socketHandlerSupport.js';
+import { resolveClientAddress } from './serverConfig.js';
 
 const AUTH_ATTEMPT_WINDOW_MS = 60_000;
 const AUTH_ATTEMPT_LIMIT = 8;
@@ -75,8 +76,13 @@ function rememberCreateRoomReplay(key, entry) {
   pruneCreateRoomReplays();
 }
 
-function authAttemptKey(socket) {
-  return String(socket.handshake?.address || socket.request?.socket?.remoteAddress || socket.id || 'unknown').slice(0, 120);
+export function authAttemptKey(socket) {
+  const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
+  return resolveClientAddress({
+    address: socket.handshake?.address || socket.request?.socket?.remoteAddress,
+    headers: socket.handshake?.headers || socket.request?.headers,
+    request: socket.request
+  }, trustedProxyHops) || String(socket.id || 'unknown');
 }
 
 function allowAuthAttempt(socket) {
@@ -140,7 +146,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('join-room', handleJoinRoom);
   on('set-player-appearance', handleSetPlayerAppearance);
 
-  on('account-register', sessionGrantHandler(payload => accountStore.register(payload), false, true));
+  on('account-register', sessionGrantHandler(payload => accountStore.register(payload), false, true, false));
   on('account-login', sessionGrantHandler(payload => accountStore.login(payload), false, true));
   on('account-restore', sessionGrantHandler(payload => accountStore.restore(payload.sessionToken), true, true));
 
@@ -149,7 +155,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   // register/login/restore share the exact same flow: run the store verb,
   // adopt the session account on the socket, forward the store's ack verbatim.
-  function sessionGrantHandler(run, clearOnFailure = false, rateLimit = false) {
+  function sessionGrantHandler(run, clearOnFailure = false, rateLimit = false, clearAttemptsOnSuccess = true) {
     return function sessionGrant(payload = {}, callback) {
       if (rateLimit && !allowAuthAttempt(socket)) {
         reply(callback, { success: false, error: 'Too many account attempts. Try again shortly.' });
@@ -157,16 +163,37 @@ function registerAccountSocketHandlers(on, socket, runtime) {
       }
       const result = run(payload);
       if (result?.account?.id) {
-        clearAuthAttempts(socket);
+        if (clearAttemptsOnSuccess) clearAuthAttempts(socket);
         socket.data.accountId = result.account.id;
         const token = result.sessionToken || payload.sessionToken;
         socket.data.sessionTokenHash = accountStore.sessionTokenHashFor(token);
+        bindAccountToLobbySeat(result.account);
       } else if (clearOnFailure) {
         socket.data.accountId = null;
         socket.data.sessionTokenHash = null;
       }
       reply(callback, result);
     };
+  }
+
+  function bindAccountToLobbySeat(account) {
+    if (!account?.id) return;
+    const room = roomManager.getRoomBySocket(socket.id);
+    const player = room?.getPlayerBySocket(socket.id);
+    if (!room || !player || room.game.started) return;
+    if (player.accountId && player.accountId !== account.id) return;
+    const occupiedElsewhere = [...roomManager.rooms.values()].some(candidateRoom => candidateRoom !== room
+      && candidateRoom.game.players.some(candidate => candidate.accountId === account.id && !candidate.bankrupt));
+    if (occupiedElsewhere) return;
+    const duplicate = room.game.players.some(candidate => candidate.id !== player.id && candidate.accountId === account.id);
+    if (duplicate) return;
+    player.accountId = account.id;
+    room.game.setPlayerAppearance?.(socket.id, {
+      nickname: account.displayName,
+      color: account.color,
+      avatarGrid: normalizeAvatarGrid(account.avatarGrid)
+    });
+    runtime.emitRoomState(room);
   }
 
   function handleAccountUpdate(payload = {}, callback) {

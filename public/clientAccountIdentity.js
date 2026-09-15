@@ -6,12 +6,13 @@
 import { $, esc } from "./clientDom.js";
 import { ACHIEVEMENTS, achievementIconHTML } from "./clientAchievements.js";
 import { state, saveAccountSession, saveUnlockedAchievements, activeAppearance, buildPlayers } from "./clientState.js";
-import { loadActiveDesignId, saveActiveDesignId, loadGuestAlias, saveGuestAlias } from "./clientSanitize.js";
+import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
+import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 import { openSurface, closeSurface, focusSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
-import { renderAccountPanel, applyProfileToHomeUI, renderProfileEditor, formatStatDate } from "./clientProfileRender.js";
+import { renderAccountPanel, applyProfileToHomeUI, renderProfileEditor, renderProfileLibrary, formatStatDate } from "./clientProfileRender.js";
 
 function noop() {}
-let host = { emitServer: noop, say: noop };
+let host = { emitServer: noop, say: noop, syncAudioButtons: noop, syncHomeMusic: noop };
 
 export function configureAccountIdentity(hooks) {
   host = { ...host, ...hooks };
@@ -173,7 +174,7 @@ export function openAchievementModal(id, trigger = null) {
   if (!card) return;
   card.innerHTML = `<div class="achievement-modal-rail" style="--achievement-accent:${bits.accent}"></div><div class="achievement-detail-body"><div class="achievement-detail-head"><div class="achievement-detail-icon rarity-${achievement.rarity.toLowerCase()}${bits.lockCls}">${achievementIconHTML(achievement.id)}</div><div><div class="achievement-detail-kicker"><span class="t-micro g400">${esc(achievement.category.toUpperCase())}</span><span class="t-micro rarity-${achievement.rarity.toLowerCase()}">${esc(achievement.rarity)}</span></div><h2 class="t-section achievement-detail-title" id="achievement-detail-title">${esc(bits.title)}</h2></div><span class="achievement-detail-state t-micro">${bits.status}</span></div><div class="achievement-detail-copy"><p class="t-body ink-2" id="achievement-detail-description">${esc(bits.copy)}</p><p class="t-micro achievement-detail-note">${bits.note}</p></div><button class="cta-red achievement-detail-close" id="achievement-detail-close" type="button"><span class="cta-text cta-text-sm">CLOSE DETAILS</span></button></div>`;
   if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
-  openSurface("#achievement-modal", "#achievement-detail-close");
+  openSurface("#achievement-modal", "#achievement-detail-close", { trigger });
   $("#achievement-detail-close")?.addEventListener("click", closeAchievementModal);
 }
 
@@ -505,18 +506,23 @@ export function closeAccountModal() {
 export function logoutAccount() {
   const token = state.account?.sessionToken;
   if (token) host.emitServer("account-logout", { sessionToken: token }, noop);
+  clearLocalPlayerData();
   saveAccountSession(null);
+  state.profiles = [];
+  state.appearance = 0;
+  state.themeId = DEFAULT_THEME_ID;
+  state.sound = false;
+  state.music = false;
   state.unlockedAchievements = new Set();
   state.achievementRecords = new Map();
-  saveUnlockedAchievements();
   state.tableAppearanceOverride = null;
-  state.appearance = loadActiveDesignId(state.profiles);
-  saveActiveDesignId(state.appearance);
   state.alias = loadGuestAlias();
-  saveGuestAlias(state.alias);
   state.players = buildPlayers(activeAppearance(), state.alias);
   renderAccountPanel();
   applyProfileToHomeUI();
+  renderProfileLibrary();
   renderProfileEditor();
+  host.syncAudioButtons();
+  host.syncHomeMusic();
   host.say("Signed out. Guest mode is active.");
 }

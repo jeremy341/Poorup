@@ -24,9 +24,7 @@ const bankruptcyApi = {
     const { owes, creditor } = outstandingDebtFor(this, player);
     clearQuitObligations(this, player);
     this.handleBankruptcy(player, creditor);
-    if (player.id === this.currentPlayerId) {
-      this.nextTurn();
-    }
+    if (player.id === this.currentPlayerId) this.nextTurn();
     return { success: true, voluntary: !owes };
   },
 
@@ -56,9 +54,7 @@ const bankruptcyApi = {
     this.feedMessage(creditor
       ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
       : `${player.nickname} lost everything. They stay in the game with debt.`);
-    if (player.id === this.currentPlayerId) {
-      this.nextTurn();
-    }
+    this.concludeBankruptRound(player);
   },
 
   markPlayerBankrupt(player) {

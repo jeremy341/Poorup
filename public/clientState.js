@@ -219,6 +219,9 @@ const state = {
   deedDetail: null,     // tile index currently open in the deed/house manager
   jail: {},             // { playerId: turnsRemaining }
   roundNumber: 0,
+  // `roundNumber` restarts at one for every rematch; retain the started
+  // transition so stale game-over state cannot survive a new game.
+  gameStarted: false,
   turnDeadline: 0,
   globalEvent: null,
   playerContractOffer: null,
@@ -246,7 +249,9 @@ const state = {
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
   sound: loadSoundPreference(), // global effects toggle
-  music: loadMusicPreference(), // global soundtrack toggle
+  // Canonical global soundtrack preference. The music-box controller mirrors
+  // this value but never owns or replaces it (including across tabs).
+  music: loadMusicPreference(),
   quickJoin: false,     // "quick table" uses all-default rules
   settings: {
     maxPlayers:      4,       // 2 – 4

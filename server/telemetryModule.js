@@ -4,13 +4,34 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadJson, writeJson } from './storeIO.js';
+import { ALLOWED_ANALYTICS_DIMENSIONS, ALLOWED_ROLLUP_KINDS, validateAnalyticsDimensions } from './analyticsRollupStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'telemetry.json');
 const MAX_EVENTS = 5000;
-const PRIVATE_KEYS = new Set(['chat', 'message', 'text', 'hiddenCards', 'privateLoanTerms', 'opponentSecrets', 'password', 'sessionToken']);
-const ALLOWED_KINDS = new Set(['match-complete', 'event-eligible', 'event-triggered', 'event-choice', 'event-recovered', 'market-volatility', 'market-liquidation', 'achievement-unlocked', 'reward-claimed', 'bot-outcome', 'bankruptcy', 'comeback']);
+const PRIVATE_KEYS = new Set(['chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'displayname', 'username', 'accountid', 'clientid', 'roomcode', 'rawpayload', 'rawevent', 'rawdata', 'account_id', 'display_name', 'room_code', 'client_id', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data']);
+const ALLOWED_KINDS = new Set([...ALLOWED_ROLLUP_KINDS]);
+const COMMON_PAYLOAD_KEYS = new Set(['count', 'botOnly', 'botMode', 'feature', 'featureId', 'eligible', 'eligibleCount', 'used', 'usedCount', 'adopted', 'legalAction', 'observations', 'reconnects', 'reconnectCount', 'afk', 'afkCount', 'durationSeconds', 'duration', 'started', 'startedMatches', 'stalledMatches', 'outcome', 'outcomeBucket', 'eventId', 'actionId', 'provider', 'seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'rulesetPreset', 'marketComplexity', 'roundNumber']);
+const PAYLOAD_ALLOWLISTS = Object.freeze({
+  'match-start': new Set([...COMMON_PAYLOAD_KEYS]),
+  'match-stalled': new Set([...COMMON_PAYLOAD_KEYS, 'reasonCode']),
+  // Player collections are intentionally not an analytics payload. Even a
+  // primitive fallback can carry a name, so reject the key rather than trying
+  // to sanitize an open-ended identity-bearing shape.
+  'match-complete': new Set([...COMMON_PAYLOAD_KEYS, 'playerCount', 'roundCount']),
+  'event-eligible': new Set([...COMMON_PAYLOAD_KEYS, 'source', 'chance', 'candidates', 'combination']),
+  'event-triggered': new Set([...COMMON_PAYLOAD_KEYS, 'source', 'combination', 'durationRounds']),
+  'event-choice': new Set([...COMMON_PAYLOAD_KEYS, 'turnout', 'voters', 'resolvedChoice']),
+  'event-recovered': new Set([...COMMON_PAYLOAD_KEYS, 'title', 'recoveredCount', 'combination']),
+  'market-volatility': new Set([...COMMON_PAYLOAD_KEYS, 'marketRows', 'marketTrades', 'complexity', 'action', 'instrumentId', 'quantity', 'value', 'return', 'volatility', 'negativeCashPreventions', 'roundNumber']),
+  'market-liquidation': new Set([...COMMON_PAYLOAD_KEYS, 'actionCount', 'actions', 'marginPositions', 'marginOpenPositions', 'negativeCashPreventions']),
+  'achievement-unlocked': new Set([...COMMON_PAYLOAD_KEYS, 'rarity', 'achievementId']),
+  'reward-claimed': new Set([...COMMON_PAYLOAD_KEYS, 'rewardId', 'created', 'cosmeticId', 'source']),
+  'bot-outcome': new Set([...COMMON_PAYLOAD_KEYS, 'fallback', 'success', 'phase', 'decisions', 'actionCount', 'placement', 'win', 'match', 'matchCount', 'completed']),
+  bankruptcy: new Set([...COMMON_PAYLOAD_KEYS]),
+  comeback: new Set([...COMMON_PAYLOAD_KEYS])
+});
 
 function safePrimitive(value) {
   if (value === null) return value;
@@ -33,7 +54,7 @@ function sanitize(value, depth = 0) {
   if (!value || typeof value !== 'object') return undefined;
   const result = {};
   Object.entries(value).slice(0, 40).forEach(([key, item]) => {
-    if (PRIVATE_KEYS.has(key)) return;
+    if (PRIVATE_KEYS.has(key) || PRIVATE_KEYS.has(String(key).toLowerCase())) return;
     const clean = sanitize(item, depth + 1);
     if (clean !== undefined) result[String(key).slice(0, 60)] = clean;
   });
@@ -41,7 +62,7 @@ function sanitize(value, depth = 0) {
 }
 
 function telemetryEntry(eventKind, payload, versions) {
-  return {
+  const entry = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     kind: eventKind,
     createdAt: new Date().toISOString(),
@@ -52,6 +73,48 @@ function telemetryEntry(eventKind, payload, versions) {
     eventId: versions.eventId ? String(versions.eventId).slice(0, 80) : null,
     data: sanitize(payload) || {}
   };
+  ALLOWED_ANALYTICS_DIMENSIONS.filter(name => !['seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'eventId'].includes(name)).forEach(name => {
+    const value = versions[name] ?? payload?.[name];
+    if (value === undefined || value === null || value === '') return;
+    entry[name] = typeof value === 'number' ? Math.max(0, Math.floor(Number(value) || 0)) : String(value).trim().slice(0, 80);
+  });
+  return entry;
+}
+
+function sanitizePayloadForKind(eventKind, payload = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { valid: false, data: {} };
+  const allowed = PAYLOAD_ALLOWLISTS[eventKind] || COMMON_PAYLOAD_KEYS;
+  const clean = {};
+  for (const [key, value] of Object.entries(payload)) {
+    const lower = String(key).toLowerCase();
+    if (PRIVATE_KEYS.has(lower)) continue;
+    if (!allowed.has(key)) return { valid: false, data: {} };
+    if (key === 'players') return { valid: false, data: {} };
+    if (['candidates', 'actions'].includes(key) && Array.isArray(value) && value.some(item => item && typeof item === 'object')) return { valid: false, data: {} };
+    const safe = sanitize(value);
+    if (safe !== undefined) clean[key] = key === 'roundNumber' ? Math.max(0, Math.min(1_000_000, Math.floor(Number(safe) || 0))) : safe;
+  }
+  return { valid: true, data: clean };
+}
+
+function sanitizeLoadedEntry(entry) {
+  if (!entry || typeof entry !== 'object' || !ALLOWED_KINDS.has(entry.kind)) return null;
+  const payload = sanitizePayloadForKind(entry.kind, entry.data || {});
+  if (!payload.valid) return null;
+  const clean = {
+    kind: entry.kind,
+    createdAt: typeof entry.createdAt === 'string' ? entry.createdAt.slice(0, 40) : new Date(0).toISOString(),
+    seasonId: String(entry.seasonId || 'unseasoned').slice(0, 80),
+    rulesetRevision: Math.max(0, Math.floor(Number(entry.rulesetRevision) || 0)),
+    balanceRevision: Math.max(0, Math.floor(Number(entry.balanceRevision) || 0)),
+    boardVariant: String(entry.boardVariant || 'standard-40').slice(0, 40),
+    eventId: entry.eventId ? String(entry.eventId).slice(0, 80) : null,
+    data: payload.data
+  };
+  ALLOWED_ANALYTICS_DIMENSIONS.filter(name => !['seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'eventId'].includes(name)).forEach(name => {
+    if (entry[name] !== undefined && entry[name] !== null && entry[name] !== '') clean[name] = String(entry[name]).slice(0, 80);
+  });
+  return clean;
 }
 
 function trimTelemetry(events) {
@@ -59,31 +122,116 @@ function trimTelemetry(events) {
 }
 
 export class TelemetryStore {
-  constructor(filePath = DEFAULT_FILE) {
+  constructor(filePath = DEFAULT_FILE, { rollupStore = null, onRollup = null, persist = null, maxPending = 64, flushIntervalMs = 1000 } = {}) {
     this.filePath = filePath;
+    this.rollupStore = rollupStore;
+    this.onRollup = onRollup;
+    this.persistWriter = typeof persist === 'function' ? persist : null;
+    this.maxPending = Math.max(1, Math.min(MAX_EVENTS, Math.floor(Number(maxPending) || 64)));
+    this.pendingQueueLimit = Math.max(this.maxPending, Math.min(MAX_EVENTS, this.maxPending * 4));
+    this.flushIntervalMs = Math.max(0, Math.min(60000, Math.floor(Number(flushIntervalMs) || 1000)));
+    this.pendingEvents = [];
+    this.flushTimer = null;
+    this.persistInFlight = null;
     this.events = [];
     this.load();
   }
 
   load() {
     const { value } = loadJson(this.filePath, loaded => Array.isArray(loaded));
-    if (Array.isArray(value)) this.events = value.slice(-MAX_EVENTS).map(entry => sanitize(entry)).filter(Boolean);
+    if (Array.isArray(value)) this.events = value.slice(-MAX_EVENTS).map(sanitizeLoadedEntry).filter(Boolean);
   }
 
   persist() {
-    writeJson(this.filePath, this.events.slice(-MAX_EVENTS));
+    if (!this.pendingEvents.length) return this.flushRollup();
+    if (this.persistInFlight) return this.persistInFlight;
+    const pendingBatch = this.pendingEvents.slice();
+    const snapshot = this.events.slice(-MAX_EVENTS);
+    let result;
+    try {
+      result = this.persistWriter ? this.persistWriter(snapshot) : writeJson(this.filePath, snapshot);
+    } catch (error) {
+      this.boundPendingEvents();
+      throw error;
+    }
+    if (result && typeof result.then === 'function') {
+      this.persistInFlight = Promise.resolve(result).then(() => {
+        this.removePendingBatch(pendingBatch);
+        return this.flushRollup();
+      }).finally(() => { this.persistInFlight = null; if (this.pendingEvents.length) this.scheduleFlush(); });
+      return this.persistInFlight;
+    }
+    this.removePendingBatch(pendingBatch);
+    return this.flushRollup();
+  }
+
+  removePendingBatch(batch) {
+    const ids = new Set(batch.map(entry => entry.id));
+    this.pendingEvents = this.pendingEvents.filter(entry => !ids.has(entry.id));
+  }
+
+  boundPendingEvents() {
+    if (this.pendingEvents.length > this.pendingQueueLimit) this.pendingEvents.splice(0, this.pendingEvents.length - this.pendingQueueLimit);
+  }
+
+  flushRollup() {
+    if (!this.rollupStore?.flush) return null;
+    try {
+      const result = this.rollupStore.flush();
+      if (result && typeof result.then === 'function') return result.catch(() => null);
+      return result;
+    } catch { return null; }
   }
 
   record(kind, payload = {}, versions = {}) {
     const eventKind = String(kind || '').trim().slice(0, 40);
     if (!ALLOWED_KINDS.has(eventKind)) return { success: false, recorded: false, error: 'Telemetry kind is not allowed.' };
-    const entry = telemetryEntry(eventKind, payload, versions);
+    const payloadResult = sanitizePayloadForKind(eventKind, payload);
+    if (!payloadResult.valid) return { success: false, recorded: false, error: 'Telemetry payload key is not allowed.' };
+    const dimensions = { ...(versions || {}) };
+    ALLOWED_ANALYTICS_DIMENSIONS.forEach(name => { if (dimensions[name] === undefined && payloadResult.data[name] !== undefined) dimensions[name] = payloadResult.data[name]; });
+    if (!validateAnalyticsDimensions(dimensions)) return { success: false, recorded: false, error: 'Telemetry version is not allowed.' };
+    const entry = telemetryEntry(eventKind, payloadResult.data, dimensions);
     this.events.push(entry);
     trimTelemetry(this.events);
-    // Flush each write: low-volume balancing data should survive a process
-    // restart, and the bounded array keeps the operation predictable.
-    this.persist();
+    try {
+      const rollup = this.rollupStore?.record(entry) || null;
+      this.onRollup?.(entry, rollup);
+    } catch {
+      // Analytics persistence is a shadow path. A rollup outage must not
+      // reject an otherwise valid telemetry event or affect game state.
+    }
+    this.pendingEvents.push(entry);
+    this.boundPendingEvents();
+    if (this.pendingEvents.length >= this.maxPending) {
+      try { const result = this.persist(); result?.catch?.(() => this.scheduleFlush()); } catch { this.scheduleFlush(); }
+    }
+    else this.scheduleFlush();
     return { success: true, recorded: true, event: { ...entry } };
+  }
+
+  scheduleFlush() {
+    if (this.flushTimer || !this.flushIntervalMs) return;
+    this.flushTimer = setTimeout(() => { this.flushTimer = null; try { const result = this.persist(); result?.catch?.(() => this.scheduleFlush()); } catch { this.scheduleFlush(); } }, this.flushIntervalMs);
+    this.flushTimer.unref?.();
+  }
+
+  flush() {
+    if (this.persistInFlight) return this.persistInFlight.then(() => this.pendingEvents.length ? this.flush() : ({ flushed: true, pending: 0 }));
+    const result = this.persist();
+    if (result && typeof result.then === 'function') return result.then(() => ({ flushed: true, pending: this.pendingEvents.length }));
+    return { flushed: true, pending: this.pendingEvents.length };
+  }
+
+  close() {
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    const finish = () => {
+      const result = this.flush();
+      if (result && typeof result.then === 'function') return result.then(() => this.pendingEvents.length ? finish() : this.rollupStore?.close?.());
+      return this.pendingEvents.length ? finish() : this.rollupStore?.close?.();
+    };
+    return finish();
   }
 
   summary({ kind, eventId } = {}) {
@@ -96,7 +244,7 @@ export class TelemetryStore {
   }
 }
 
-export { ALLOWED_KINDS, DEFAULT_FILE as TELEMETRY_STORE_FILE, MAX_EVENTS, PRIVATE_KEYS, sanitizeTelemetryValue as sanitize };
+export { ALLOWED_KINDS, ALLOWED_ANALYTICS_DIMENSIONS, DEFAULT_FILE as TELEMETRY_STORE_FILE, MAX_EVENTS, PRIVATE_KEYS, PAYLOAD_ALLOWLISTS, sanitizeTelemetryValue as sanitize };
 
 function sanitizeTelemetryValue(value) {
   return sanitize(value);

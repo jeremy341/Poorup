@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import express from "express";
+import http from "node:http";
+import path from "node:path";
+import fs from "node:fs";
+import { LEGAL_DOCUMENTS, createLegalRouter, renderLegalIndex } from "./legalRoutes.js";
+
+assert.deepEqual(Object.keys(LEGAL_DOCUMENTS).sort(), ["acceptable-use", "accessibility", "ai", "licenses", "privacy", "storage", "support", "terms"]);
+const index = renderLegalIndex();
+assert.match(index, /<h1[^>]*>Legal information<\/h1>/i);
+assert.match(index, /class="legal-shell"/i);
+assert.match(index, /DRAFT[^<]*NOT EFFECTIVE/i);
+assert.match(index, /name="theme-color"[^>]+#01070a/i);
+assert.doesNotMatch(index, /COPY INJECTION/i);
+for (const slug of Object.keys(LEGAL_DOCUMENTS)) assert.match(index, new RegExp(`/legal/${slug}`));
+for (const slug of Object.keys(LEGAL_DOCUMENTS)) assert.match(index, new RegExp(`id="${slug}"`));
+assert.match(index, /href="\/"[^>]*>BACK TO PARLOR/i);
+assert.equal(typeof createLegalRouter, "function");
+for (const fileName of Object.values(LEGAL_DOCUMENTS)) {
+  const html = fs.readFileSync(path.join("public", "legal", fileName), "utf8");
+  assert.equal((html.match(/<h1\b/gi) || []).length, 1);
+  assert.match(html, /class="skip-link"/);
+  assert.match(html, /class="legal-shell"/);
+  assert.match(html, /DRAFT[^<]*NOT EFFECTIVE/i);
+  assert.match(html, /<nav[^>]+aria-label=/i);
+  assert.match(html, /class="[^"]*\blegal-back\b[^"]*"[^>]+href="\/"/);
+  assert.doesNotMatch(html, /COPY INJECTION/i);
+  assert.doesNotMatch(html, /<script\b/i);
+}
+
+const router = createLegalRouter({ publicDirectory: path.resolve("public") });
+assert.equal(typeof router, "function");
+
+const app = express();
+app.use(router);
+const server = http.createServer(app);
+await new Promise((resolve) => server.listen(0, resolve));
+const { port } = server.address();
+try {
+  const indexResponse = await fetch(`http://127.0.0.1:${port}/legal`);
+  const indexBody = await indexResponse.text();
+  assert.equal(indexResponse.status, 200);
+  assert.match(indexBody, /<h1[^>]*>Legal information<\/h1>/i);
+  for (const slug of Object.keys(LEGAL_DOCUMENTS)) {
+    const response = await fetch(`http://127.0.0.1:${port}/${slug}`);
+    const body = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(body, /<h1[^>]*>/i);
+    assert.match(body, /Skip to main content/);
+  }
+} finally {
+  await new Promise((resolve) => server.close(resolve));
+}
+
+const dispatchApp = express();
+const fallthroughs = [];
+const postSendErrors = [];
+dispatchApp.use(router);
+dispatchApp.use((_req, _res, next) => {
+  fallthroughs.push(true);
+  next(new Error("legal document fell through after sendFile"));
+});
+dispatchApp.use((error, _req, res, next) => {
+  postSendErrors.push(error.message);
+  if (res.headersSent) return;
+  return next(error);
+});
+const dispatchServer = http.createServer(dispatchApp);
+await new Promise((resolve) => dispatchServer.listen(0, resolve));
+const dispatchPort = dispatchServer.address().port;
+try {
+  for (const slug of Object.keys(LEGAL_DOCUMENTS)) {
+    const response = await fetch(`http://127.0.0.1:${dispatchPort}/${slug}`);
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+  assert.deepEqual(fallthroughs, []);
+  assert.deepEqual(postSendErrors, []);
+} finally {
+  await new Promise((resolve) => dispatchServer.close(resolve));
+}
+
+console.log("legal route tests: passed");

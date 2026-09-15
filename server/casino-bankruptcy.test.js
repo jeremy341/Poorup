@@ -862,29 +862,30 @@ check('setRoomSetting — lowering capacity never strands human seats or excess 
   assert.equal(botRoom.settings.bots, 1);
 });
 
-check('setRoomSetting — integer floors clamp at zero', () => {
-  for (const key of ['houseLimit', 'hotelLimit', 'turnTimer']) {
+check('setRoomSetting — integer bounds reject invalid values without mutation', () => {
+  for (const [key, valid] of [['houseLimit', 100], ['hotelLimit', 50], ['turnTimer', 100]]) {
     const room = lobby();
-    room.setRoomSetting(key, '100.9');
-    assert.equal(room.settings[key], 100, key);
-    room.setRoomSetting(key, '-5');
-    assert.equal(room.settings[key], 0, key);
-    room.setRoomSetting(key, 'abc');
-    assert.equal(room.settings[key], 0, key);
+    room.setRoomSetting(key, `${valid}.9`);
+    assert.equal(room.settings[key], valid, key);
+    assert.equal(room.setRoomSetting(key, '-5').rejected, true, key);
+    assert.equal(room.settings[key], valid, key);
+    assert.equal(room.setRoomSetting(key, 'abc').rejected, true, key);
+    assert.equal(room.settings[key], valid, key);
   }
 });
 
-check('setRoomSetting — startingCash floors and re-seats every player', () => {
+check('setRoomSetting — startingCash floors valid values and rejects unsafe values without mutation', () => {
   const room = lobby();
   room.setRoomSetting('startingCash', '2000.5');
   assert.equal(room.settings.startingCash, 2000);
   assert.equal(room.game.settings.startingCash, 2000);
   assert.deepEqual(room.game.players.map(player => player.cash), [2000, 2000]);
-  room.setRoomSetting('startingCash', -20);
-  assert.equal(room.game.players[0].cash, 0);
-  room.setRoomSetting('startingCash', 'abc');
-  assert.equal(room.settings.startingCash, 0);
-  assert.deepEqual(room.game.players.map(player => player.cash), [0, 0]);
+  assert.equal(room.setRoomSetting('startingCash', -20).rejected, true);
+  assert.equal(room.settings.startingCash, 2000);
+  assert.deepEqual(room.game.players.map(player => player.cash), [2000, 2000]);
+  assert.equal(room.setRoomSetting('startingCash', 'abc').rejected, true);
+  assert.equal(room.settings.startingCash, 2000);
+  assert.deepEqual(room.game.players.map(player => player.cash), [2000, 2000]);
 });
 
 check('setRoomSetting — globalEvents accepts the extended truthy spellings', () => {

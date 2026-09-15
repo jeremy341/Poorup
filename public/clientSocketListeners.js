@@ -7,7 +7,7 @@
    Event names and payload shapes are byte-identical to the old
    inline block in main.js.
    ============================================================ */
-import { state, saveAccountSession } from "./clientState.js";
+import { state, saveAccountSession, activeAppearance, buildPlayers } from "./clientState.js";
 import { $ } from "./clientDom.js";
 import { applyServerState } from "./clientStateSync.js";
 import { TILES, TILE_COUNT } from "./clientBoardData.js";
@@ -17,7 +17,7 @@ import {
   renderAchievements,
   updateAccountFromResponse,
 } from "./clientAccountIdentity.js";
-import { applyProfileToHomeUI, renderAccountPanel } from "./clientProfileRender.js";
+import { applyProfileToHomeUI, renderAccountPanel, renderProfileLibrary } from "./clientProfileRender.js";
 import {
   announceSocialNotification,
   renderPlayerSurface,
@@ -25,6 +25,8 @@ import {
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
 import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
+import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
+import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 
 let host = {
   setConnectionStatus: noop,
@@ -39,10 +41,57 @@ let host = {
   openDealDetails: noop,
   renderDealDetailsIfOpen: noop,
   applyMaintenanceState: noop,
+  syncAudioButtons: noop,
+  syncHomeMusic: noop,
   serverSyncHost: {},
 };
+let storageListenerInstalled = false;
 
 function noop() {}
+
+export function reconcileSignedOutState(message = "This account session ended in another tab.") {
+  clearLocalPlayerData();
+  saveAccountSession(null);
+  state.account = null;
+  state.profiles = [];
+  state.appearance = 0;
+  state.themeId = DEFAULT_THEME_ID;
+  state.tableAppearanceOverride = null;
+  state.profileDraft = null;
+  state.editingProfileId = null;
+  state.alias = loadGuestAlias();
+  state.players = buildPlayers(activeAppearance(), state.alias);
+  state.sound = false;
+  state.music = false;
+  state.unlockedAchievements = new Set();
+  state.achievementRecords = new Map();
+  state.selectedPlayer = null;
+  state.selectedPlayerRelationship = "none";
+  state.selectedPlayerHistory = null;
+  state.social = { friends: [], requests: [], outgoing: [], invites: [], notifications: [], recentPlayers: [] };
+  renderAccountPanel();
+  applyProfileToHomeUI();
+  renderProfileLibrary();
+  host.syncAudioButtons();
+  host.syncHomeMusic();
+  host.renderAll();
+  // A live-room render can persist a guest save; ensure account-owned local
+  // data stays cleared after the render hook has completed.
+  clearLocalPlayerData();
+  host.say(message);
+}
+
+export function onStorage(event) {
+  if (event?.key !== "poorup.account.session.v1" || event.newValue !== null) return;
+  if (!state.account?.sessionToken) return;
+  reconcileSignedOutState();
+}
+
+export function isExplicitSessionInvalidation(response) {
+  const code = String(response?.code || response?.errorCode || response?.reason || "").toLowerCase();
+  const message = String(response?.error || "").toLowerCase();
+  return /expired|invalid|revoked|sign in again|not found/.test(`${code} ${message}`);
+}
 
 function onSocketConnect(socket) {
   host.setConnectionStatus("online", true);
@@ -53,12 +102,8 @@ function onSocketConnect(socket) {
 function restoreAccountSession(socket) {
   socket.emit("account-restore", { sessionToken: state.account.sessionToken }, (response) => {
     if (response?.success) updateAccountFromResponse({ account: response.account, sessionToken: state.account.sessionToken });
-    else {
-      saveAccountSession(null);
-      state.alias = state.profiles[0]?.name || "MARLOWE";
-      renderAccountPanel();
-      applyProfileToHomeUI();
-    }
+    else if (isExplicitSessionInvalidation(response)) reconcileSignedOutState(response.error || "Account session expired. Sign in again.");
+    else host.say("Account restore is temporarily unavailable. We will retry when the connection returns.");
   });
 }
 
@@ -297,6 +342,10 @@ function attachTableListeners(socket) {
 
 export function configureSocketListeners(socket, hooks) {
   host = { ...host, ...hooks };
+  if (!storageListenerInstalled && typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("storage", onStorage);
+    storageListenerInstalled = true;
+  }
   if (!socket) return;
   attachConnectionListeners(socket);
   attachSocialListeners(socket);

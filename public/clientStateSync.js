@@ -147,9 +147,21 @@ function syncTurnPointer(game) {
   state.turnIndex = Math.max(0, state.players.findIndex((player) => player.serverId === game.currentPlayerId));
 }
 
+export function isStartedTransition(game, previousState = state) {
+  return Boolean(game?.started) && (!previousState.gameStarted || previousState.phase !== "playing");
+}
+
 function syncRoundFlags(game) {
+  const nextRoundNumber = num(game.roundNumber);
+  const nextGameStarted = Boolean(game.started);
+  const startedTransition = isStartedTransition(game);
+  if (nextRoundNumber !== state.roundNumber || startedTransition) {
+    state.gameOver = null;
+    state.previousTurnKey = "";
+  }
+  state.gameStarted = nextGameStarted;
   state.dice = diceOf(game);
-  state.roundNumber = num(game.roundNumber);
+  state.roundNumber = nextRoundNumber;
   state.turnDeadline = num(game.turnDeadline);
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });

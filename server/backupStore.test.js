@@ -15,6 +15,8 @@ const destination = path.join(dir, 'restored.json');
 assert.equal(restoreJsonBackup(result.path, destination).success, true);
 assert.equal(fs.readFileSync(destination, 'utf8'), '[{"id":"a"}]');
 assert.equal(backupJsonStores({ accounts: source, missing: path.join(dir, 'missing.json') }, backupDir).results.length, 2);
+assert.equal(backupJsonStores({}, backupDir).success, false);
+assert.match(backupJsonStores({}, backupDir).error, /source stores/i);
 backupJsonFile(source, backupDir, { retention: 1, now: Date.UTC(2026, 0, 2) });
 backupJsonFile(source, backupDir, { retention: 1, now: Date.UTC(2026, 0, 3) });
 const retained = fs.readdirSync(backupDir);

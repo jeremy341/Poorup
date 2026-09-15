@@ -10,6 +10,13 @@
 
 **Spec:** docs/DEVELOPMENT_WORKFLOW.md, docs/production-hardening.md, docs/audit/release-readiness-40-agent-2026-09-12.md, and the current Poorup UI/design tokens.
 
+> **Current-status pointer (2026-09-14).** This is a dated branch and
+> operations plan. Its host, branch, SHA, and checkbox expectations are
+> historical provenance, not a claim about the current checkout. Use
+> [`docs/feature-status.json`](../../feature-status.json) for the current
+> source-backed status; policy, credential, and deployment gates remain
+> explicitly planned or deferred.
+
 ## Global Constraints
 
 - main remains the permanent Production branch and is never directly edited.
@@ -41,14 +48,14 @@
 
 ---
 
-### Task 1: Freeze and verify the current integration branch
+### Task 1: Freeze and verify the historical integration-branch baseline
 
 **Files:**
 - Read: git status, git log, docs/audit/release-readiness-40-agent-2026-09-12.md
 - Preserve: all current Markdown/README files and public/assets/themes/**
 
 **Interfaces:**
-- Consumes: current branch codex/codescene-cleanup at 94eb1b0.
+- Historical input: branch `codex/codescene-cleanup` at `94eb1b0`.
 - Produces: a clean, documented checkpoint ready for promotion to main.
 
 - [ ] Step 1: Confirm branch and worktree state
@@ -59,7 +66,9 @@
         git status --short --branch
         git log -1 --oneline
 
-    Expected: current branch is codex/codescene-cleanup, latest commit is 94eb1b0, and no uncommitted files exist.
+    Historical expectation: the authoring checkout was
+    `codex/codescene-cleanup` at `94eb1b0` with no uncommitted files. Record
+    the actual branch and worktree state when reusing this procedure.
 
 - [ ] Step 2: Verify documentation preservation
 

@@ -139,6 +139,71 @@ function isHumanActionSeat(player) {
   return !player.disconnected;
 }
 
+class BoundedReplayMap extends Map {
+  constructor(limit = 1_000, ttlMs = 15 * 60_000) {
+    super();
+    this.limit = limit;
+    this.ttlMs = ttlMs;
+    this.timestamps = new Map();
+    this.terminal = new Map();
+  }
+
+  set(key, value) {
+    this.purge();
+    if (this.terminal.has(key)) return this;
+    super.set(key, value);
+    this.timestamps.set(key, Date.now());
+    while (this.size > this.limit) super.delete(this.keys().next().value);
+    while (this.timestamps.size > this.limit) {
+      const oldest = this.timestamps.keys().next().value;
+      this.timestamps.delete(oldest);
+      this.rememberTerminal(oldest, Date.now() + this.ttlMs);
+    }
+    return this;
+  }
+
+  get(key) {
+    this.purge();
+    if (this.terminal.has(key)) return { success: false, error: 'REQUEST_ID_EXPIRED' };
+    return super.get(key);
+  }
+
+  has(key) {
+    this.purge();
+    return super.has(key) || this.terminal.has(key);
+  }
+
+  delete(key) {
+    this.timestamps.delete(key);
+    this.terminal.delete(key);
+    return super.delete(key);
+  }
+
+  clear() {
+    this.timestamps.clear();
+    this.terminal.clear();
+    return super.clear();
+  }
+
+  purge(now = Date.now()) {
+    for (const [key, timestamp] of this.timestamps) {
+      if (now - timestamp >= this.ttlMs) {
+        super.delete(key);
+        this.timestamps.delete(key);
+        this.rememberTerminal(key, now + this.ttlMs);
+      }
+    }
+    for (const [key, expiresAt] of this.terminal) {
+      if (expiresAt <= now) this.terminal.delete(key);
+    }
+  }
+
+  rememberTerminal(key, expiresAt) {
+    this.terminal.set(key, expiresAt);
+    while (this.terminal.size > this.limit) this.terminal.delete(this.terminal.keys().next().value);
+  }
+}
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -168,13 +233,14 @@ class GameState {
     this.pendingTrade = null;
     this.pendingPlayerContract = null;
     this.playerContracts = [];
-    this.contractTransactions = new Map();
+    this.contractTransactions = new BoundedReplayMap();
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
     this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
+    this.defaultClaims = [];
     this.lastWinner = null;
     this.vacationPool = 0;
     this.roundNumber = 0;
@@ -187,7 +253,7 @@ class GameState {
     this.casinoLastResult = null;
     this.casinoLedger = [];
     this.marketLedger = [];
-    this.economyTransactions = new Map();
+    this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
     this.marketOptionReserve = 100_000;
     this.marketShortInventory = {};
@@ -254,13 +320,14 @@ class GameState {
     this.pendingTrade = null;
     this.pendingPlayerContract = null;
     this.playerContracts = [];
-    this.contractTransactions = new Map();
+    this.contractTransactions = new BoundedReplayMap();
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
     this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
+    this.defaultClaims = [];
     this.lastWinner = null;
     this.vacationPool = 0;
     this.roundNumber = 1;
@@ -273,7 +340,7 @@ class GameState {
     this.casinoLastResult = null;
     this.casinoLedger = [];
     this.marketLedger = [];
-    this.economyTransactions = new Map();
+    this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
     this.marketOptionReserve = 100_000;
     this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, 50]));
@@ -493,7 +560,10 @@ class GameState {
     if (this.started) {
       return false;
     }
-    return this.players.filter(player => !player.isBot && !player.bankrupt && !player.disconnected).length < this.settings.maxPlayers;
+    // Every retained seat consumes capacity, including bots. A room that
+    // counts only active humans can exceed its advertised seat limit after a
+    // round ends or when bots are retained for a rematch.
+    return this.players.filter(player => !player.bankrupt).length < this.settings.maxPlayers;
   }
 
   activePlayers() {

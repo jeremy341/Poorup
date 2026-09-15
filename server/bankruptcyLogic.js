@@ -32,11 +32,19 @@ function propertyShareRejection(game, player, contract, share) {
   const property = game.getTile(contract.propertyIndex);
   if (!deedStillHeldBy(property, player.id)) return rejectContract(game, 'The equity property is no longer available.');
   const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
+  const materializedIds = new Set(shares.map(entry => entry?.contractId).filter(Boolean));
   const existingShare = shares.reduce((sum, entry) => {
     const value = Number(entry?.share);
     return sum + (Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
   }, 0);
-  if (existingShare + share > 100) return rejectContract(game, 'The property has no remaining equity.');
+  const pendingContracts = (game.playerContracts || []).reduce((sum, candidate) => {
+    if (candidate.id === contract.id || materializedIds.has(candidate.id)) return sum;
+    if (Number(candidate.propertyIndex) !== Number(property.index)) return sum;
+    if (!['active', 'due', 'converted'].includes(candidate.status)) return sum;
+    if (!['equity', 'hybrid'].includes(candidate.kind)) return sum;
+    return sum + (Number(candidate.equityShare || candidate.conversionShare) || 0);
+  }, 0);
+  if (existingShare + pendingContracts + share > 100) return rejectContract(game, 'The property has no remaining equity.');
   return null;
 }
 
@@ -114,7 +122,7 @@ function canSeizeLoanCollateral(borrower, lender, collateral) {
 // A past-due player loan seizes whatever collateral still belongs to the
 // borrower (never from a bankrupt seat), marks the pledge as lost, and
 // closes the contract in the feed.
-export function handlePlayerLoanDefault(game, contract) {
+export function handlePlayerLoanDefault(game, contract, { reason = 'loan-default' } = {}) {
   const borrower = game.getPlayerById(contract.toPlayerId);
   const lender = game.getPlayerById(contract.fromPlayerId);
   const collateral = contract.collateralTileIndex == null ? null : game.getTile(contract.collateralTileIndex);
@@ -122,9 +130,66 @@ export function handlePlayerLoanDefault(game, contract) {
   if (borrower) {
     if (contract.collateralTileIndex != null) borrower.collateralLost = true;
   }
+  const principal = Math.max(0, Math.floor(Number(contract.remaining ?? contract.totalDue ?? contract.amount) || 0));
+  // Keep the unpaid principal as a server-side claim even when no collateral
+  // remains. Marking only a terminal status previously destroyed the lender's
+  // recovery path on failed hybrid conversion.
+  contract.defaultedPrincipal = principal;
+  contract.defaultReason = reason;
+  contract.unsecuredDefault = contract.collateralTileIndex == null;
+  recordDefaultClaim(game, contract, principal);
   contract.status = 'defaulted';
   contract.defaultedRound = game.roundNumber;
   game.feedMessage((borrower?.nickname || 'PLAYER') + ' defaulted on a player loan.');
+}
+
+// Defaults are retained as a server-owned claim ledger rather than only
+// descriptive fields on a terminal contract. This gives unsecured hybrids a
+// deterministic recovery path without minting cash or exposing claims in
+// public room projections.
+export function recordDefaultClaim(game, contract, principal = 0) {
+  game.defaultClaims ||= [];
+  const existing = game.defaultClaims.find(claim => claim.contractId === contract.id);
+  if (existing) return existing;
+  const claim = {
+    id: `claim_${String(contract.id || '').slice(0, 80)}`,
+    contractId: contract.id,
+    lenderId: contract.fromPlayerId || null,
+    borrowerId: contract.toPlayerId || null,
+    principal: Math.max(0, Math.floor(Number(principal) || 0)),
+    remaining: Math.max(0, Math.floor(Number(principal) || 0)),
+    collateralTileIndex: contract.collateralTileIndex ?? null,
+    reason: String(contract.defaultReason || 'loan-default').slice(0, 80),
+    status: 'open',
+    createdRound: Math.max(0, Math.floor(Number(game.roundNumber) || 0))
+  };
+  game.defaultClaims.push(claim);
+  if (game.defaultClaims.length > 200) game.defaultClaims.splice(0, game.defaultClaims.length - 200);
+  contract.defaultClaimId = claim.id;
+  return claim;
+}
+
+export function settleDefaultClaim(game, contractId, amount = null) {
+  const claim = (game.defaultClaims || []).find(candidate => candidate.contractId === contractId && candidate.status === 'open');
+  if (!claim) return { success: false, error: 'That default claim is no longer open.' };
+  const borrower = game.getPlayerById?.(claim.borrowerId);
+  const lender = game.getPlayerById?.(claim.lenderId);
+  if (!borrower || !lender || borrower.bankrupt || lender.bankrupt) return { success: false, error: 'That default claim cannot be settled.' };
+  const hasRequestedAmount = amount !== null && amount !== undefined;
+  const requested = hasRequestedAmount ? Number(amount) : claim.remaining;
+  if (!Number.isFinite(requested) || requested <= 0) return { success: false, error: 'Default-claim repayment must be a positive whole amount.' };
+  const payment = Math.min(claim.remaining, Math.floor(requested));
+  if (!payment || Number(borrower.cash) < payment) return { success: false, error: 'You do not have enough cash to settle the default claim.' };
+  borrower.cash -= payment;
+  lender.cash += payment;
+  claim.remaining -= payment;
+  if (claim.remaining <= 0) {
+    claim.remaining = 0;
+    claim.status = 'settled';
+    claim.settledRound = Math.max(0, Math.floor(Number(game.roundNumber) || 0));
+  }
+  game.feedMessage?.(`${borrower.nickname || 'Player'} paid $${payment} toward a default claim.`);
+  return { success: true, contractId, paid: payment, remaining: claim.remaining, status: claim.status };
 }
 
 // Both sides of a maturing player loan hear about it in the feed.

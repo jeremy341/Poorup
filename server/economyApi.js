@@ -28,7 +28,8 @@ import {
   openMargin,
   openOption,
   openShort,
-  reduceMargin
+  reduceMargin,
+  settleShortDefault
 } from './marketExpansion.js';
 
 const CASINO_MAX_BET = 500;
@@ -421,6 +422,18 @@ const economyApi = {
       return this.cacheTransaction(key, result);
     }
     return result;
+  },
+
+  settleShortDefault(socketId, amount = null, requestId = null) {
+    const player = this.getPlayerBySocket(socketId);
+    const key = this.transactionKey(player?.id, 'short-default-settle', requestId);
+    const cached = this.cachedTransaction(key);
+    if (cached) return cached;
+    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Market access is unavailable right now.' };
+    if (Number(player.shortDefaultDebt) <= 0) return { success: false, error: 'There is no short buy-in debt to settle.' };
+    const result = settleShortDefault(this, player, amount);
+    if (result.success) result.economy = this.economySnapshot(player.id);
+    return this.cacheTransaction(key, result);
   },
 
   openOption(socketId, payload = {}) {

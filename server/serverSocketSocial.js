@@ -15,6 +15,54 @@ const LEADERBOARD_METRICS = [...SEASON_METRICS];
 
 const PLAYER_NOT_FOUND = { success: false, error: 'Player not found.' };
 
+// Public social references use the already-public username rather than the
+// internal account UUID. Keep the existing wire field names while ensuring
+// accountStore IDs stay server-side.
+export function publicSearchProfile(account) {
+  return { id: account.username, username: account.username, displayName: account.displayName, color: account.color, avatarGrid: account.avatarGrid };
+}
+
+export function publicLeaderboardRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  return { ...row, accountId: row.username };
+}
+
+export function projectPlayerCardAccess({ card, canSeePrivateMatches, canSeeRecent, getRecentMatches = () => [] } = {}) {
+  if (!card) return card;
+  return {
+    ...card,
+    id: card.username || card.id,
+    historyPrivate: !canSeeRecent || card.historyPrivate,
+    historyFriendsOnly: !canSeeRecent && card.historyFriendsOnly,
+    recentMatches: canSeeRecent ? getRecentMatches() : []
+  };
+}
+
+// Reward grants are deliberately replay-safe. The season write can commit
+// before a cosmetic/token store write fails, so callers must retry this seam
+// even when the next claim response reports created=false.
+export function applySeasonRewardGrant(cosmeticStore, accountId, claimed) {
+  const reward = claimed?.reward;
+  if (!cosmeticStore || !reward) return { success: true };
+  try {
+    if (reward.cosmeticId) {
+      const result = cosmeticStore.claim(accountId, reward.cosmeticId, {
+        claimKey: `season:${claimed.season?.id || 'unknown'}:${reward.id}`,
+        allowPaid: false,
+        allowSeason: true
+      });
+      if (result?.success === false) return { success: false, error: result.error || 'Cosmetic grant failed.' };
+    }
+    if (reward.tokens) {
+      const result = cosmeticStore.grantTokens(accountId, reward.tokens, `season:${claimed.season?.id || 'unknown'}:${reward.id}:tokens`);
+      if (result?.success === false) return { success: false, error: 'Token grant failed.' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Season reward grant is pending; retry the claim.' };
+  }
+}
+
 function registerSocialSocketHandlers(on, socket, runtime) {
   const { accountStore, socialStore, matchStore } = runtime;
   const { accountForSocket, allowAnonymousAction, allowSocialAction, chatBlockedInRoom, chatRateLimited, emitSocialUpdate, maxPlausiblePatrolScore, notifyAccount, patrolAchievementCandidates, patrolRunError, patrolRunPlausible, prunePatrolRuns, patrolRuns, publicPlayerCard, recentPlayers, recordVerifiedAchievement, socialSummary } = runtime.social;
@@ -108,10 +156,13 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     return function socialMutation(payload = {}, callback) {
       const account = accountForSocket(socket, payload);
       if (!account) return reply(callback, { success: false, error: signInError });
-      const result = verb(account.id, payload);
+      const otherId = payload.otherAccountId ? resolveAccountId(payload.otherAccountId) : null;
+      if (payload.otherAccountId && !otherId) return reply(callback, PLAYER_NOT_FOUND);
+      const normalizedPayload = otherId ? { ...payload, otherAccountId: otherId } : payload;
+      const result = verb(account.id, normalizedPayload);
       if (!result.success) return reply(callback, result);
       emitSocialUpdate(account.id);
-      if (alsoOther) emitSocialUpdate(payload.otherAccountId);
+      if (alsoOther && otherId) emitSocialUpdate(otherId);
       reply(callback, result);
     };
   }
@@ -119,7 +170,9 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('report-player', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to report a player.' });
-    const result = socialStore.reportPlayer(account.id, payload.otherAccountId, payload.reason);
+    const otherId = resolveAccountId(payload.otherAccountId);
+    if (!otherId) return reply(callback, PLAYER_NOT_FOUND);
+    const result = socialStore.reportPlayer(account.id, otherId, payload.reason);
     reply(callback, result);
   });
 
@@ -201,10 +254,9 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const cosmeticStore = runtime.cosmeticStore;
     const claimed = seasonStore?.claimReward(account.id, payload.rewardId);
     if (!claimed?.success) return reply(callback, claimed || { success: false, error: 'Season reward is unavailable.' });
-    if (claimed.created && cosmeticStore) {
-      const reward = claimed.reward;
-      if (reward.cosmeticId) cosmeticStore.claim(account.id, reward.cosmeticId, { claimKey: `season:${claimed.season.id}:${reward.id}`, allowPaid: false, allowSeason: true });
-      if (reward.tokens) cosmeticStore.grantTokens(account.id, reward.tokens);
+    if (cosmeticStore) {
+      const grant = applySeasonRewardGrant(cosmeticStore, account.id, claimed);
+      if (!grant.success) return reply(callback, grant);
     }
     runtime.telemetryStore?.record('reward-claimed', { rewardId: claimed.reward.id, created: claimed.created }, { seasonId: claimed.season.id });
     reply(callback, { ...claimed, season: publicSeasonSummary(claimed.season), cosmetics: cosmeticStore?.snapshot(account.id) || null });
@@ -240,7 +292,8 @@ function registerSocialSocketHandlers(on, socket, runtime) {
       return reply(callback, { success: false, error: 'Only the signed-in seat can send room invites.' });
     }
     if (!allowSocialAction(account.id, 'room-invite')) return reply(callback, { success: false, error: 'Too many invites. Try again in a minute.' });
-    const target = accountStore.getPublicAccountById(payload.targetAccountId);
+    const targetId = resolveAccountId(payload.targetAccountId);
+    const target = targetId ? accountStore.getPublicAccountById(targetId) : null;
     if (!target) return reply(callback, PLAYER_NOT_FOUND);
     const rejected = roomInviteRejection(account, target);
     if (rejected) return reply(callback, rejected);
@@ -300,13 +353,21 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   }
 
   function lookupTarget(accountId, username) {
-    if (accountId) return accountStore.getPublicAccountById(accountId);
+    if (accountId) {
+      const account = accountStore.getAccountById(accountId) || accountStore.findAccountByUsername(accountId);
+      return account ? accountStore.getPublicAccountById(account.id) : null;
+    }
     return accountStore.findAccountByUsername(username);
   }
 
   function lookupAccountTarget(accountId, viewer) {
-    if (accountId) return accountStore.getAccountById(accountId);
+    if (accountId) return accountStore.getAccountById(accountId) || accountStore.findAccountByUsername(accountId);
     return viewer;
+  }
+
+  function resolveAccountId(reference) {
+    const account = accountStore.getAccountById(reference) || accountStore.findAccountByUsername(reference);
+    return account?.id || null;
   }
 
   function friendRequestRejection(account, target) {
@@ -399,14 +460,12 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   }
 
   function projectCardAccess(context) {
-    const card = context.card;
-    if (!card) return card;
-    return {
-      ...card,
-      historyPrivate: !context.canSeeRecent || card.historyPrivate,
-      historyFriendsOnly: !context.canSeeRecent && card.historyFriendsOnly,
-      recentMatches: accountStore.getPublicMatchSummaries(context.target.id, context.canSeePrivateMatches, 5)
-    };
+    return projectPlayerCardAccess({
+      card: context.card,
+      canSeePrivateMatches: context.canSeePrivateMatches,
+      canSeeRecent: context.canSeeRecent,
+      getRecentMatches: () => accountStore.getPublicMatchSummaries(context.target.id, context.canSeePrivateMatches, 5)
+    });
   }
 
   function normalizeSearchQuery(value) {
@@ -430,10 +489,6 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!viewer) return true;
     if (candidate.id === viewer.id) return true;
     return !socialStore.areBlocked(viewer.id, candidate.id);
-  }
-
-  function publicSearchProfile(account) {
-    return { id: account.id, username: account.username, displayName: account.displayName, color: account.color, avatarGrid: account.avatarGrid };
   }
 
   function effectiveMatchRecords(targetId, canSeePrivateHistory) {
@@ -488,11 +543,11 @@ function leaderboardScope(rawScope) {
       const season = runtime.seasonStore.standings({ metric });
       const rows = season.rows.map(row => {
         const profile = accountStore.getPublicAccountById(row.accountId);
-        return { ...row, value: seasonMetricValue(metric, row), username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null, games: row.games, wins: row.wins };
+        return publicLeaderboardRow({ ...row, value: seasonMetricValue(metric, row), username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null, games: row.games, wins: row.wins });
       });
       return reply(callback, { success: true, metric, scope, season: publicSeasonSummary(season.season), rows });
     }
-    reply(callback, { success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options) });
+    reply(callback, { success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options).map(publicLeaderboardRow) });
   }
 
   function snapshotAck(callback, scope, options) {
@@ -503,14 +558,19 @@ function leaderboardScope(rawScope) {
         metrics[metric] = season.rows.map(row => {
           const profile = accountStore.getPublicAccountById(row.accountId);
           const value = seasonMetricValue(metric, row);
-          return { ...row, value, username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null };
+          return publicLeaderboardRow({ ...row, value, username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null });
         });
       });
       return reply(callback, { success: true, scope, season: publicSeasonSummary(season.season), metrics, generatedAt: new Date().toISOString() });
     }
     const primaryMetric = LEADERBOARD_METRICS.includes(options.primaryMetric) ? options.primaryMetric : null;
     const snapshot = accountStore.getLeaderboardSnapshot(undefined, { ...options, primaryMetric });
-    reply(callback, { success: true, scope, ...snapshot });
+    reply(callback, {
+      success: true,
+      scope,
+      ...snapshot,
+      metrics: Object.fromEntries(Object.entries(snapshot.metrics || {}).map(([name, rows]) => [name, rows.map(publicLeaderboardRow)]))
+    });
   }
 
   function roomInviteRejection(account, target) {
@@ -522,7 +582,7 @@ function leaderboardScope(rawScope) {
   }
 
   function sendRoomInvite(account, target, room, callback) {
-    const result = socialStore.createInvite({ roomCode: room.roomCode, roomName: room.roomName, visibility: room.visibility, senderId: account.id, recipientId: target.id });
+    const result = socialStore.createInvite({ roomId: room.publicId, roomCode: room.roomCode, roomName: room.roomName, visibility: room.visibility, senderId: account.id, recipientId: target.id });
     if (!result.success) return reply(callback, result);
     notifyAccount(target.id, { kind: 'room-invite', title: 'ROOM INVITE', body: `${account.displayName} invited you to ${room.roomName}.`, metadata: { inviteId: result.invite.id, roomName: room.roomName, visibility: room.visibility } });
     emitSocialUpdate(account.id);
