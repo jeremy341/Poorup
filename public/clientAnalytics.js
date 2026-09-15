@@ -14,7 +14,30 @@ function clearAnalyticsOutput() {
 }
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
-function renderStatus(message, tone = 'muted') { const status = query('#admin-analytics-status'); if (!status) return; status.className = `t-body analytics-status ${tone}`; status.textContent = message; }
+function renderStatus(message, tone = 'muted') {
+  const status = query('#admin-analytics-status');
+  if (!status) return;
+  const text = String(message || '');
+  const normalized = text.toUpperCase();
+  const state = normalized.includes('LOADING') ? 'loading'
+    : normalized.includes('REFRESHING') ? 'refreshing'
+      : normalized.includes('STALE') ? 'stale'
+        : normalized.includes('SUPPRESSED') || normalized.includes('MIN COHORT') ? 'suppressed'
+          : normalized.includes('ACCESS REQUIRED') ? 'unauthorized'
+            : normalized.includes('RATE LIMITED') ? 'rate-limited'
+              : normalized.includes('UNAVAILABLE') || normalized.includes('TIMED OUT') ? 'unavailable'
+                : normalized.includes('NO VERIFIED') ? 'empty' : 'verified';
+  status.className = `t-body analytics-status ${tone}`;
+  status.textContent = text;
+  status.setAttribute?.('data-analytics-state', state);
+  status.setAttribute?.('aria-busy', String(state === 'loading' || state === 'refreshing'));
+  const alerts = query('#admin-analytics-alerts');
+  if (alerts) {
+    alerts.setAttribute?.('data-analytics-state', state);
+    if (tone === 'warning' || ['stale', 'suppressed', 'unauthorized', 'rate-limited', 'unavailable'].includes(state)) alerts.textContent = text;
+    else if (state === 'verified') alerts.textContent = 'NO ACTIONABLE ALERTS';
+  }
+}
 
 function renderKpis(snapshot) {
   const kpis = Array.isArray(snapshot.overview?.kpis) ? snapshot.overview.kpis.slice(0, 6) : [];
@@ -80,6 +103,8 @@ function listenReset(button) {
 
 export function renderAnalyticsSnapshot(value) {
   const snapshot = normalizeAnalyticsSnapshot(value);
+  const lastVerified = query('[data-analytics-last-verified]');
+  if (lastVerified) lastVerified.textContent = `LAST VERIFIED · ${snapshot.generatedAt || 'UNKNOWN'}`;
   const grid = query('#admin-analytics-grid');
   if (grid) {
     const kpis = renderKpis(snapshot);
