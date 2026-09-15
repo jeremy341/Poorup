@@ -14,9 +14,11 @@
     "bot:balance": "node server/bot-balance-runner.js",
     "coverage": "c8 --reporter=text --reporter=lcov node server/coverage-runner.js",
     "test:browser": "playwright test -c qa/playwright.config.js",
-    "load:testing": "node qa/load/poorup-socket-load.mjs"
+    "load:testing": "node qa/load/poorup-socket-load.mjs",
+    "sync:analytics-vendor": "node scripts/sync-admin-analytics-vendor.mjs"
   },
   "dependencies": {
+    "echarts": "6.1.0",
     "express": "^4.21.0",
     "socket.io": "^4.8.3"
   },
