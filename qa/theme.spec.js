@@ -57,7 +57,7 @@ test.describe("Poorup seasonal worlds", () => {
     });
     const baseline = await preferencesGeometry();
     for (const id of themeIds.slice(1)) {
-      await page.locator(`[data-theme-choice="${id}"]`).click();
+      await page.locator(`[data-theme-choice-label="${id}"]`).click();
       await expect(page.locator("body")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
@@ -108,20 +108,20 @@ test.describe("Poorup seasonal worlds", () => {
     await openThemeChooser(page);
     const originalFogMotion = await page.locator("#theme-home-world .theme-fog-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(originalFogMotion).toBe("none");
-    await page.locator('[data-theme-choice="spring"]').click();
+    await page.locator('[data-theme-choice-label="spring"]').click();
     const petalMotion = await page.locator("#theme-home-world .theme-petal-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(petalMotion).toBe("none");
-    await page.locator('[data-theme-choice="autumn"]').click();
+    await page.locator('[data-theme-choice-label="autumn"]').click();
     const leavesMotion = await page.locator("#theme-home-world .theme-leaves-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(leavesMotion).toBe("none");
-    await page.locator('[data-theme-choice="winter"]').click();
+    await page.locator('[data-theme-choice-label="winter"]').click();
     const snowMotion = await page.locator("#theme-home-world .theme-snow-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(snowMotion).toBe("none");
     await page.locator("#profile-back-btn").click();
     await page.locator("#home-profile-tab").click();
     await page.locator("#profile-tab-account").click();
     await page.locator("#theme-open-btn").click();
-    await page.locator('[data-theme-choice="light"]').click();
+    await page.locator('[data-theme-choice-label="light"]').click();
     const pedestrianMotion = await page.locator("#theme-home-world .theme-pedestrian-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(pedestrianMotion).toBe("none");
   });
