@@ -1,6 +1,8 @@
 import { state } from './clientState.js';
 import { renderAnalyticsChart } from './clientAnalyticsCharts.js';
+import { disposeAnalyticsChart } from './clientAnalyticsChartAdapter.js';
 import { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
+import { createAnalyticsPageController } from './clientAnalyticsPage.js';
 import { ALLOWED_METRICS, METRIC_LABELS, MIN_COHORT, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
 export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
 export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
@@ -14,6 +16,13 @@ function clearAnalyticsOutput() {
 }
 
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
+const ANALYTICS_FILTER_LABELS = Object.freeze({ boardVariant: 'BOARD', rulesetPreset: 'RULESET', marketComplexity: 'MARKET', botMode: 'BOT MODE', provider: 'PROVIDER', eventId: 'EVENT', seasonId: 'SEASON', rulesetRevision: 'RULE REV', balanceRevision: 'BALANCE REV' });
+function renderActiveAnalyticsFilters(filters) {
+  const target = query('[data-analytics-active-filters]');
+  if (!target) return;
+  const chips = Object.entries(ANALYTICS_FILTER_LABELS).filter(([key]) => filters[key] && filters[key] !== 'all').map(([key, label]) => `<span class="analytics-filter-chip">${escapeHtml(label)} · ${escapeHtml(filters[key])}</span>`);
+  target.innerHTML = chips.length ? chips.join('') : '<span class="t-micro ink-3">ALL DIMENSIONS</span>';
+}
 function renderStatus(message, tone = 'muted') {
   const status = query('#admin-analytics-status');
   if (!status) return;
@@ -122,6 +131,12 @@ function renderAnalyticsCharts(snapshot) {
   if (typeof document === 'undefined') return;
   document.querySelectorAll?.('[data-analytics-chart]').forEach(container => {
     const tab = container.getAttribute('data-analytics-panel-chart') || snapshot.filters.tab;
+    const panel = container.closest?.('[data-analytics-panel]');
+    if (panel && panel.getAttribute('data-analytics-panel') !== snapshot.filters.tab) {
+      const mount = container.querySelector?.('.analytics-chart-engine');
+      if (mount) disposeAnalyticsChart(mount);
+      return;
+    }
     const descriptor = ANALYTICS_PANEL_DESCRIPTORS[tab] || ANALYTICS_PANEL_DESCRIPTORS.overview;
     const title = container.getAttribute('data-chart-title') || descriptor.title;
     const unit = container.getAttribute('data-chart-unit') || descriptor.unit;
@@ -223,6 +238,9 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
   let destroyed = false;
   let requestGeneration = 0;
   const listeners = [];
+  let filterOpener = null;
+  let pageController = null;
+  const FILTER_BACKGROUND_SELECTORS = ['.analytics-tabs', '#admin-analytics-grid', '[data-analytics-report-book]', '.analytics-contextual-slots'];
 
   function listen(target, event, handler) {
     target?.addEventListener?.(event, handler);
@@ -260,6 +278,10 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
       const tab = tabs.find(candidate => candidate.getAttribute('data-analytics-tab') === filters.tab);
       if (tab) element.setAttribute('aria-labelledby', tab.id);
     });
+    const position = query('[data-analytics-page-position]');
+    if (position) position.textContent = `${ANALYTICS_TABS.indexOf(filters.tab) + 1} / ${ANALYTICS_TABS.length}`;
+    if (pageController?.page !== filters.tab) pageController?.setPage(filters.tab, { syncUrl: false, announceChange: false });
+    renderActiveAnalyticsFilters(filters);
   }
 
   const wired = new WeakMap();
@@ -282,6 +304,28 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     return { ...filters };
   }
 
+  function closeFilterDialog({ restoreFocus = true } = {}) {
+    const dialog = query('[data-analytics-filter-dialog]');
+    dialog?.classList?.add('is-hidden');
+    dialog?.setAttribute?.('aria-hidden', 'true');
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.removeAttribute?.('inert'));
+    query('[data-analytics-more-filters]')?.setAttribute?.('aria-expanded', 'false');
+    if (restoreFocus) filterOpener?.focus?.();
+    filterOpener = null;
+  }
+
+  function openFilterDialog() {
+    const dialog = query('[data-analytics-filter-dialog]');
+    const opener = query('[data-analytics-more-filters]');
+    if (!dialog || !opener) return;
+    filterOpener = opener;
+    dialog.classList?.remove('is-hidden');
+    dialog.setAttribute?.('aria-hidden', 'false');
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.setAttribute?.('inert', ''));
+    opener.setAttribute?.('aria-expanded', 'true');
+    dialog.querySelector?.('[data-analytics-filter]')?.focus?.();
+  }
+
   function readFilterControls() {
     if (typeof document === 'undefined') return {};
     const values = {};
@@ -302,22 +346,42 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (request) { requestGeneration += 1; abortController?.abort(); request = null; }
     filters = normalizeAnalyticsQuery({ ...filters, ...next });
     syncUrlFilters(filters);
+    renderActiveAnalyticsFilters(filters);
     return { ...filters };
   }
 
   function wireControls() {
     if (typeof document === 'undefined') return;
     applyTabState();
+    renderActiveAnalyticsFilters(filters);
     if (Object.keys(readUrlFilters()).length) syncFilterControls();
     document.querySelectorAll?.('[data-analytics-filter]')?.forEach(control => listenOnce(control, 'change', () => { filters = normalizeAnalyticsQuery({ ...filters, ...readFilterControls() }); }));
     const apply = document.querySelector?.('[data-analytics-apply]');
     const reset = document.querySelector?.('[data-analytics-reset]');
     const refreshButton = document.querySelector?.('[data-analytics-refresh]');
     const form = document.querySelector?.('form.analytics-filters');
-    listenOnce(apply, 'click', () => { setFilters(readFilterControls()); void load(filters); });
+    listenOnce(apply, 'click', () => { setFilters(readFilterControls()); closeFilterDialog({ restoreFocus: false }); void load(filters); });
     listenOnce(reset, 'click', () => { filters = normalizeAnalyticsQuery({}); syncFilterControls(); setTab('overview'); void load(filters); });
     listenOnce(refreshButton, 'click', () => { void refresh(); });
     listenOnce(form, 'submit', event => { event.preventDefault(); setFilters(readFilterControls()); void load(filters); });
+    const moreFilters = document.querySelector?.('[data-analytics-more-filters]');
+    const cancelFilters = document.querySelector?.('[data-analytics-filter-cancel]');
+    const filterDialog = document.querySelector?.('[data-analytics-filter-dialog]');
+    listenOnce(moreFilters, 'click', openFilterDialog);
+    listenOnce(cancelFilters, 'click', () => closeFilterDialog());
+    listenOnce(filterDialog, 'keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeFilterDialog(); } });
+    listenOnce(document, 'pointerdown', event => {
+      if (!filterDialog || filterDialog.classList?.contains('is-hidden') || filterDialog.contains?.(event.target) || moreFilters?.contains?.(event.target)) return;
+      closeFilterDialog();
+    });
+    pageController = createAnalyticsPageController({
+      root: query('#admin-analytics-main'),
+      initialPage: filters.tab,
+      bindTabs: false,
+      bindFilters: false,
+      onPageChange: nextPage => { if (nextPage !== filters.tab) setTab(nextPage, { focus: false }); },
+      announce
+    });
     globalThis.__poorupAnalyticsReset = () => { filters = normalizeAnalyticsQuery({}); syncFilterControls(); setTab('overview'); void load(filters); };
     listen(document, 'visibilitychange', () => { if (document.visibilityState === 'hidden') { requestGeneration += 1; abortController?.abort(); request = null; } });
   }
@@ -360,7 +424,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (typeof modal.show === 'function') return modal.show(options);
     return null;
   }
-  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; if (globalThis.__poorupAnalyticsReset) delete globalThis.__poorupAnalyticsReset; listeners.splice(0).forEach(remove => remove()); }
+  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; pageController?.destroy(); pageController = null; if (globalThis.__poorupAnalyticsReset) delete globalThis.__poorupAnalyticsReset; listeners.splice(0).forEach(remove => remove()); }
 
   wireControls();
   return Object.freeze({ destroy, load, openDrilldown, refresh, setFilters, setTab, get filters() { return { ...filters }; }, get snapshot() { return snapshot; } });

@@ -12,6 +12,16 @@ assert.equal(lineOptions.series[0].areaStyle.opacity, 0.14);
 assert.equal(lineOptions.series[0].itemStyle.color, 'var(--analytics-primary)');
 assert.equal(lineOptions.aria.show, true);
 
+const mixedOptions = createPoorupChartOptions([
+  { label: 'STARTS', value: 12, unit: 'matches' },
+  { label: 'RECONNECT RATE', value: 0.08, unit: 'percent' }
+], { mode: 'bar', title: 'Reliability', unit: 'matches', tokens });
+assert.equal(mixedOptions.xAxis.length, 2);
+assert.equal(mixedOptions.yAxis.length, 2);
+assert.equal(mixedOptions.series.length, 2);
+assert.equal(mixedOptions.xAxis[0].name, 'MATCHES');
+assert.equal(mixedOptions.xAxis[1].name, 'PERCENT');
+
 const modes = {
   line: 'line', bar: 'bar', 'stacked-bar': 'bar', heatmap: 'heatmap', cohort: 'heatmap',
   histogram: 'bar', box: 'boxplot', scatter: 'scatter', funnel: 'funnel'
