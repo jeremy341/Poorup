@@ -2,7 +2,7 @@
 
 Viewport: 1920 x 1080 CSS pixels, Chromium, dark Poorup theme. The captures are viewport screenshots, not full-page exports, so the first-view composition is directly inspectable.
 
-Commit: `e970b56` (`feat: structure admin analytics control room`)
+Implementation commits: `e970b56` (`feat: structure admin analytics control room`), `a05ecb4` (`fix: render admin analytics review findings`)
 
 ## Verified tab captures
 
@@ -19,6 +19,8 @@ Commit: `e970b56` (`feat: structure admin analytics control room`)
 - `state-stale.png` - last verified snapshot retained while stale status is visible.
 - `state-empty.png` - no verified observations state with safe filter reset affordance.
 - `state-suppressed.png` - minimum cohort suppression state without exact cohort counts.
+
+The specialized tab captures use sanitized fixture models for Match Health, Rulesets + Boards, Economy, Events + Rarity, Bots, and Data Quality. Each chart is paired with the adapter's HTML table fallback; empty fixtures show the explicit no-observations state.
 
 ## Inspection notes
 
