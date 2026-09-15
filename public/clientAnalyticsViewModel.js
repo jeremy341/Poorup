@@ -16,6 +16,7 @@ export const METRIC_LABELS = Object.freeze({
 });
 
 const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'raw', 'payload', 'event', 'data', 'rawpayload', 'rawevent', 'rawdata', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data']);
+const DYNAMIC_CLIENT_FIELDS = new Set(['features', 'events', 'market', 'bots', 'achievements', 'unlockRarity', 'outcomeDistribution', 'adoption', 'actions', 'combinations']);
 const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'starts', 'completed', 'completions', 'stalled', 'stalls', 'matches', 'startedMatches', 'completedMatches', 'stalledMatches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementBaseline', 'placementMedian', 'medianPlacement', 'fallback', 'fallbackRate', 'decisions', 'actions', 'actionAdoption', 'auctionDecisions', 'legalActionTaxonomy', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'liquidation', 'liquidationRate', 'shortDefaults', 'shortDefaultRate', 'shortDefault', 'shortPositions', 'optionExercises', 'optionExerciseRate', 'optionExercise', 'collateralizedOptions', 'negativeCashPreventions', 'negativeCashPrevention', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlockRarity', 'outcomeDistribution', 'bankruptcies', 'comebacks', 'reconnectRate', 'afkRate', 'denominators', 'competitiveMetricsExcludeBotOnly', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'rows', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab', 'association', 'dimension', 'metric', 'scope']);
 
 function finite(value, fallback = null) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
@@ -33,17 +34,18 @@ export function normalizeAnalyticsQuery(input = {}) {
   };
 }
 
-function cleanSafeValue(value, key = '', depth = 0) {
+function cleanSafeValue(value, key = '', depth = 0, parentKey = '') {
   if (FORBIDDEN_KEYS.has(String(key).toLowerCase()) || depth > 20) return undefined;
   if (value === null || typeof value === 'boolean') return value;
   if (typeof value === 'string') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.slice(0, 200).map(item => cleanSafeValue(item, '', depth + 1)).filter(item => item !== undefined);
+  if (Array.isArray(value)) return value.slice(0, 200).map(item => cleanSafeValue(item, '', depth + 1, key)).filter(item => item !== undefined);
   if (!value || typeof value !== 'object') return undefined;
   const output = {};
   Object.entries(value).slice(0, 200).forEach(([childKey, childValue]) => {
-    const child = cleanSafeValue(childValue, childKey, depth + 1);
-    if (child !== undefined && (ALLOWED_CLIENT_FIELDS.has(childKey) || (childValue && typeof childValue === 'object' && !Array.isArray(childValue)))) output[childKey] = child;
+    if (!ALLOWED_CLIENT_FIELDS.has(childKey) && !DYNAMIC_CLIENT_FIELDS.has(key) && !DYNAMIC_CLIENT_FIELDS.has(parentKey)) return;
+    const child = cleanSafeValue(childValue, childKey, depth + 1, key);
+    if (child !== undefined) output[childKey] = child;
   });
   return output;
 }

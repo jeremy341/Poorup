@@ -10,6 +10,7 @@ const { normalizeAnalyticsSnapshot, normalizeAnalyticsQuery, metricValue, isAnal
 const { ANALYTICS_TABS, ANALYTICS_FILTERS, PANEL_DEFINITIONS, OVERVIEW_KPIS, CONTEXTUAL_PANELS } = await import('./clientAnalyticsCatalog.js');
 const { MIN_COHORT, normalizeAnalyticsQuery: viewModelQuery, normalizeAnalyticsSnapshot: viewModelSnapshot } = await import('./clientAnalyticsViewModel.js');
 const { renderAnalyticsChart } = await import('./clientAnalyticsCharts.js');
+const { state } = await import('./clientState.js');
 
 async function check(name, run) {
   try {
@@ -54,7 +55,35 @@ await check('view model recursively redacts private and raw payload fields', () 
   assert.equal(serialized.includes('Ada'), false);
   assert.equal(serialized.includes('ROOM'), false);
   assert.equal(serialized.includes('secret'), false);
-  assert.equal(clean.breakdowns[0].nested.safe, undefined);
+  assert.equal(clean.breakdowns[0].nested, undefined);
+});
+
+await check('view model drops unknown wrappers while retaining approved dynamic contexts', () => {
+  const clean = viewModelSnapshot({ breakdowns: [{ metadata: { label: 'leak' }, actions: { roll: 3 }, outcomeDistribution: { wins: 2 } }] });
+  assert.equal(clean.breakdowns[0].metadata, undefined);
+  assert.equal(clean.breakdowns[0].actions.roll, 3);
+  assert.equal(clean.breakdowns[0].outcomeDistribution.wins, 2);
+});
+
+await check('controller reports rollup unavailable when fetch is missing', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const previousAccount = state.account;
+  globalThis.window = { location: { pathname: '/admin/analytics', search: '' }, matchMedia: () => ({ matches: false }) };
+  globalThis.fetch = undefined;
+  state.account = { sessionToken: 'session' };
+  const status = fakeElement({ id: 'admin-analytics-status' });
+  globalThis.document = fakeAnalyticsDocument({ status, grid: fakeElement({ id: 'admin-analytics-grid' }) });
+  const controller = createAnalyticsController();
+  const result = await controller.load();
+  assert.equal(result.status, 503);
+  assert.equal(status.textContent, 'ROLLUP UNAVAILABLE · RETRY');
+  controller.destroy();
+  state.account = previousAccount;
+  globalThis.fetch = previousFetch;
+  globalThis.window = previousWindow;
+  globalThis.document = previousDocument;
 });
 
 await check('normalizes malformed metrics without leaking fields', () => {
