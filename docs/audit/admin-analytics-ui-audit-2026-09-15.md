@@ -35,6 +35,20 @@ The admin surface is coherent and usable at its target sizes. The reported filte
 
 **Regression evidence:** `qa/analytics-console.spec.js` asserts the shell, `appearance: none`, at least 36px end padding, and a chevron inset of at least 12px at 1920px. The focused desktop contract passes.
 
+## Chart presentation redesign
+
+The first chart adapter was technically safe but visually too generic: a small `100×50` plot, unlabeled categories, and no visual continuity between observations made the graphs difficult to read at a glance. The adapter now keeps the same vanilla SVG boundary and data/table contract while using a consistent `640×260` ledger frame:
+
+- line charts have an axis frame, four horizontal grid intervals, readable time labels, square data markers, a flat shaded continuity area, and a legend for each verified series;
+- categorical and funnel charts use horizontal tracks with aligned labels and values, so long operational names do not collide with bars;
+- mixed-unit operational panels (for example count versus percentage or seconds) are rendered as small multiples with an explicit scale heading per unit;
+- stacked bars retain finite segment values and mirror their columns in the table fallback;
+- histogram, heatmap, cohort, box, scatter, and board-map modes share the same tokenized frame language rather than falling back to arbitrary rectangles;
+- SVG point and bar values expose `data-chart-value` and native `<title>` descriptions while the HTML table remains the authoritative accessible fallback;
+- all fills are flat token colors with opacity-based shading; no gradients, filters, canvas dependency, or layout animation was added.
+
+The chart viewport is capped at 240px in the existing panel so the first desktop viewport exposes the plot without changing the admin shell's grid or panel hierarchy. Missing values remain `N/A`; the renderer never fabricates zero geometry for absent evidence.
+
 ## UX findings
 
 ### Passed
@@ -99,11 +113,12 @@ The admin surface is coherent and usable at its target sizes. The reported filte
 
 - `node public/clientAnalyticsMarkup.test.js` — PASS.
 - `node public/clientAnalytics.test.js` — PASS.
+- Rich chart regression contracts — PASS (framed line/area plots, categorical bar labels, finite-value handling, and table parity).
 - `npm run lint:client -- --quiet` — PASS.
 - `npx eslint qa/analytics-console.spec.js qa/admin-analytics-visual.spec.js --quiet` — PASS.
 - Focused admin browser matrix — 121 passed, 5 intentional skips, 0 failures.
-- Full project Playwright matrix before this tiny admin-only fix — 423 passed, 57 documented skips, 0 failures.
-- Full `npm run test:full` before this tiny admin-only fix — PASS.
+- Full project Playwright matrix after the chart redesign — 429 passed, 57 documented skips, 0 failures.
+- Full `npm run test:full` after the chart redesign — PASS (process-capable run; the sandbox-only attempt is expected to fail at child-process spawn).
 - Native 1920×1080 analytics screenshots inspected after the panel/KPI fixes; the latest focused run also verified the inset chevron.
 - `git diff --check` — PASS.
 

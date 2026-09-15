@@ -247,6 +247,87 @@ await check('chart adapter supports every declared mode with bounded accessible 
   globalThis.document = previousDocument;
 });
 
+await check('rich line charts expose plot framing, grid, shaded continuity, legend, and point values', () => {
+  const previousDocument = globalThis.document;
+  let markup = '';
+  globalThis.document = {};
+  const container = {
+    set innerHTML(value) { markup = value; },
+    get firstElementChild() { return {}; },
+    getAttribute(name) { return name === 'aria-labelledby' ? 'rich-chart-title' : null; },
+    setAttribute() {},
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    }
+  };
+  renderAnalyticsChart(container, [
+    { label: '00:00', value: 12, series: 'human' },
+    { label: '06:00', value: 22, series: 'human' },
+    { label: '12:00', value: 18, series: 'human' },
+    { label: '18:00', value: 31, series: 'human' }
+  ], { mode: 'line', title: 'Concurrent players', unit: 'players' });
+  assert.match(markup, /class="analytics-chart-grid/);
+  assert.match(markup, /class="analytics-chart-axis/);
+  assert.match(markup, /class="analytics-chart-area/);
+  assert.match(markup, /class="analytics-chart-legend/);
+  assert.match(markup, /data-chart-point=/);
+  assert.match(markup, /data-chart-value="31"/);
+  assert.match(markup, /viewBox="0 0 640 260"/);
+  globalThis.document = previousDocument;
+});
+
+await check('categorical bars keep labels and values inside the chart frame', () => {
+  const previousDocument = globalThis.document;
+  let markup = '';
+  globalThis.document = {};
+  const container = {
+    set innerHTML(value) { markup = value; },
+    get firstElementChild() { return {}; },
+    getAttribute() { return null; },
+    setAttribute() {},
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    }
+  };
+  renderAnalyticsChart(container, [
+    { label: 'MATCH STARTS', value: 824 },
+    { label: 'COMPLETIONS', value: 720 },
+    { label: 'STALLS', value: 12 }
+  ], { mode: 'bar', title: 'Match reliability', unit: 'matches' });
+  assert.match(markup, /class="analytics-chart-bar-label/);
+  assert.match(markup, /MATCH STARTS/);
+  assert.match(markup, /data-chart-value="824"/);
+  assert.match(markup, /class="analytics-chart-value-label/);
+  globalThis.document = previousDocument;
+});
+
+await check('mixed-unit bars use separate scales instead of misleading one-axis comparisons', () => {
+  const previousDocument = globalThis.document;
+  let markup = '';
+  globalThis.document = {};
+  const container = {
+    set innerHTML(value) { markup = value; },
+    get firstElementChild() { return {}; },
+    getAttribute() { return null; },
+    setAttribute() {},
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    }
+  };
+  renderAnalyticsChart(container, [
+    { label: 'STARTS', value: 12, unit: 'matches' },
+    { label: 'RECONNECT RATE', value: 0.08, unit: 'percent' }
+  ], { mode: 'bar', title: 'Reliability', unit: 'matches' });
+  assert.match(markup, /MATCHES · MAX/);
+  assert.match(markup, /PERCENT · MAX/);
+  assert.match(markup, />8%<\/text>/);
+  assert.equal(markup.includes('>0.08<'), false);
+  globalThis.document = previousDocument;
+});
+
 await check('unknown and forced-colors modes expose the table fallback immediately', () => {
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
