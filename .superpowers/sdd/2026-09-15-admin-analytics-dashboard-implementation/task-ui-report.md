@@ -39,3 +39,28 @@ The committed evidence index is [qa-artifacts/admin-analytics-1920/README.md](..
 - The one-time Impeccable detector exited 0 but ran in degraded regex fallback because `htmlparser2`, `css-select`, `css-tree`, and `domutils` are unavailable. It returned no findings, but custom-property, selector-match, and computed-contrast checks were not evaluated.
 - The existing SVG chart adapter remains intentionally out of scope for this batch. Its current geometry is sparse and the screenshot evidence relies on the semantic table fallback for complete data detail; chart normalization/rendering should continue in the chart-owner batch.
 - Playwright initially hit a transient Windows `spawn EPERM` and one iPad trace-cleanup `ENOENT`; reruns with one worker passed. No app assertion failed from those environment issues.
+
+## Review-fix round
+
+Status: IMPLEMENTED AND VERIFIED
+
+Review-fix commit: `a05ecb4` - `fix: render admin analytics review findings`
+
+The whole-branch review findings were addressed within the UI-owned scope:
+
+- Added local panel descriptors/data mapping in `public/clientAnalytics.js` for all six specialized tabs. Match Health, Rulesets + Boards, Economy, Events + Rarity, Bots, and Data Quality now select sanitized per-panel fields from `breakdowns[0]`, mount the existing chart adapter, and retain an explicit `NO VERIFIED OBSERVATIONS FOR THIS PANEL` state when fields are absent. Optional contextual slots remain hidden because no sanitized contracts are supplied.
+- KPI cards now render unit-aware values (including percent and seconds formatting), numerator/denominator context, comparison baseline/delta/period when provided, definitions, and verified timestamps. Missing comparison fields remain `N/A` or `COMPARISON UNAVAILABLE` rather than fabricated values.
+- Chart axis/unit text is now sized with a valid Poorup numeric token and responsive SVG user-unit values (`2px`, `2.2px` at narrow tablet, `2.4px` on mobile), with browser assertions across every configured viewport and forced-color fallback coverage.
+- Added fixture-backed browser assertions for supplied specialized values, honest missing-field states, KPI metadata, and axis label rendered-size bounds; updated shell expectations for seven chart mounts.
+- Refreshed and inspected all ten native 1920 x 1080 screenshots. Specialized verified captures now show chart data instead of WAITING placeholders.
+
+Review-fix verification:
+
+- `node public/clientAnalyticsMarkup.test.js` - PASS
+- `node public/clientAnalytics.test.js` - PASS (32 checks)
+- `npm run lint:client -- --quiet` - PASS
+- `npx eslint qa/analytics-console.spec.js qa/admin-analytics-visual.spec.js` - PASS
+- `npx playwright test -c qa/playwright.config.js qa/analytics-console.spec.js qa/admin-analytics-visual.spec.js --workers=1` - PASS: 115 passed, 5 intentional non-1920 evidence skips
+- Screenshot dimensions verified as 1920 x 1080 for all ten PNGs in `qa-artifacts/admin-analytics-1920/` and each image was inspected at native resolution.
+
+Remaining concerns are tooling-only: the Impeccable detector previously exited 0 in degraded regex fallback because parser modules are unavailable. The existing chart adapter remains unchanged by design; this round only supplies its per-panel sanitized series and table mounts.
