@@ -21,7 +21,7 @@ The admin surface is coherent and usable at its target sizes. The reported filte
 | Chart readability | 4/4 | Units, summaries, table parity, readable axis labels, bounded geometry |
 | Interaction feedback | 4/4 | Refresh/stale/empty/suppressed/unavailable states and focus-safe tab/filter behavior |
 | Motion quality | 3.5/4 | Reduced Motion and hidden-view rules pass; no layout/path animation; only restrained state transitions |
-| Performance and integrity | 4/4 | No dependency added, bounded series/rows, no layout reads in production rendering, no server/game changes |
+| Performance and integrity | 4/4 | Local ECharts SVG bundle is lazy-loaded only on the admin route; series/rows remain bounded and no server/game changes were made |
 
 **Overall:** 31.5/32 for this scoped surface. This is a design-quality score, not a legal or WCAG certification.
 
@@ -37,17 +37,23 @@ The admin surface is coherent and usable at its target sizes. The reported filte
 
 ## Chart presentation redesign
 
-The first chart adapter was technically safe but visually too generic: a small `100×50` plot, unlabeled categories, and no visual continuity between observations made the graphs difficult to read at a glance. The adapter now keeps the same vanilla SVG boundary and data/table contract while using a consistent `640×260` ledger frame:
+The first chart adapter was technically safe but visually too generic: a small `100×50` plot, unlabeled categories, and no visual continuity between observations made the graphs difficult to read at a glance. The follow-up redesign keeps the vanilla compatibility boundary and data/table contract while hydrating a local ECharts SVG surface:
 
 - line charts have an axis frame, four horizontal grid intervals, readable time labels, square data markers, a flat shaded continuity area, and a legend for each verified series;
 - categorical and funnel charts use horizontal tracks with aligned labels and values, so long operational names do not collide with bars;
 - mixed-unit operational panels (for example count versus percentage or seconds) are rendered as small multiples with an explicit scale heading per unit;
 - stacked bars retain finite segment values and mirror their columns in the table fallback;
 - histogram, heatmap, cohort, box, scatter, and board-map modes share the same tokenized frame language rather than falling back to arbitrary rectangles;
-- SVG point and bar values expose `data-chart-value` and native `<title>` descriptions while the HTML table remains the authoritative accessible fallback;
-- all fills are flat token colors with opacity-based shading; no gradients, filters, canvas dependency, or layout animation was added.
+- ECharts SVG output is token-colored with square markers, aligned labels, and explicit unit scales; the HTML table remains the authoritative accessible fallback;
+- all fills are flat token colors with opacity-based shading; no gradients, filters, canvas renderer, or layout animation was added.
 
-The chart viewport is capped at 240px in the existing panel so the first desktop viewport exposes the plot without changing the admin shell's grid or panel hierarchy. Missing values remain `N/A`; the renderer never fabricates zero geometry for absent evidence.
+The chart mount is capped at 240px in the fixed report frame so the first desktop viewport exposes the plot without changing the global Poorup shell. Missing values remain `N/A`; the renderer never fabricates zero geometry for absent evidence.
+
+## Full-screen report-frame follow-up
+
+The admin route now uses the entire width and remaining height below the global header. The ten advanced filters are inside a contained `MORE FILTERS` dialog, active dimensions appear as compact chips, and the seven report tabs share a bottom page-turner with keyboard Previous/Next/Home/End behavior. The document itself remains non-scrolling at desktop and landscape tablet sizes; the responsive phone fallback uses a contained report surface.
+
+The hand-authored chart geometry was removed from `public/clientAnalyticsCharts.js`. `public/clientAnalyticsChartAdapter.js` lazy-loads the local ECharts bundle, disposes hidden instances, and falls back to the table on load failure or Forced Colors. The chart theme resolves the existing Poorup CSS variables at render time.
 
 ## UX findings
 
@@ -128,4 +134,4 @@ The Impeccable detector was run once. Its degraded regex fallback reports pre-ex
 
 ## Final recommendation
 
-Keep this admin UI as the baseline. The next safe work is data-contract expansion for the optional contextual panels, not another visual rewrite. Any future change should preserve the seven-tab contract, the inset select shell, the chart/table parity, and the 1920px-first verification gate.
+Keep the full-screen report frame and ECharts adapter as the admin baseline. The next safe work is data-contract expansion for optional contextual panels, not another shell rewrite. Any future change should preserve the seven-tab contract, the contained filter dialog, chart/table parity, lazy engine lifecycle, and the 1920px-first verification gate.
