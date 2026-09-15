@@ -932,10 +932,15 @@ body[data-theme-id="light"] #view-home .home-patrol-hint { color: #173f4d; text-
 .analytics-chart-table td { padding: 6px 8px; border: 1px solid var(--line-subtle); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
 .analytics-chart-table caption { margin-block-end: 6px; color: var(--text-muted); text-align: left; }
 .analytics-chart-table th { color: var(--gold-100); font-weight: 600; }
-.analytics-chart svg text { fill: var(--text-muted); font: 0.45px var(--font-numeric, "IBM Plex Mono", monospace); }
+.analytics-chart svg text { fill: var(--text-muted); font: 2px var(--font-numeric, "IBM Plex Mono", monospace); }
 .analytics-chart-summary { margin: 0; }
 .analytics-chart-placeholder { min-height: 178px; align-content: center; justify-items: start; }
 .analytics-chart-placeholder p { color: var(--text-muted); }
+.analytics-kpi-context,
+.analytics-kpi-definition,
+.analytics-kpi-timestamp { min-width: 0; overflow-wrap: anywhere; }
+.analytics-kpi-unit { display: block; margin-block-start: -4px; text-transform: uppercase; }
+.analytics-kpi-timestamp { color: var(--text-muted); }
 .analytics-support-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .analytics-support-panel { min-width: 0; padding: 12px; border-block-start: 1px solid var(--line-active); background: var(--surface-panel); }
 .analytics-alerts { min-height: 44px; padding: 10px 12px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
@@ -955,7 +960,7 @@ body[data-theme-id="light"] #view-home .home-patrol-hint { color: #173f4d; text-
 .analytics-status.warning { color: var(--warning-player, var(--gold-100)); border-color: var(--analytics-warning); }
 .admin-analytics-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; min-width: 0; }
 .analytics-metric { display: grid; gap: 7px; min-width: 0; min-height: 126px; padding: 14px; }
-.analytics-metric .t-money { font-size: clamp(24px, 3vw, 38px); overflow-wrap: anywhere; }
+.analytics-metric .t-money { font-size: clamp(22px, 2vw, 32px); line-height: 1.08; overflow-wrap: anywhere; }
 .analytics-empty { grid-column: 1 / -1; margin: 0; padding: 18px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
 @media (min-width: 768px) and (max-width: 1439px) {
   .admin-analytics-main { width: 100%; }
@@ -965,6 +970,7 @@ body[data-theme-id="light"] #view-home .home-patrol-hint { color: #173f4d; text-
   .analytics-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .analytics-filter-event,
   .analytics-filter-actions { grid-column: span 2; }
+  .analytics-chart svg text { font-size: 2.2px; }
   .admin-analytics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
@@ -991,7 +997,7 @@ body[data-theme-id="light"] #view-home .home-patrol-hint { color: #173f4d; text-
   .analytics-panel-heading { flex-direction: column; gap: 8px; }
   .analytics-panel-state { align-self: start; }
   .analytics-chart svg { height: 180px; }
-  .analytics-chart svg text { font-size: 0.9px; }
+  .analytics-chart svg text { font-size: 2.4px; }
   .analytics-support-grid,
   .analytics-contextual-slots { grid-template-columns: 1fr; }
   .admin-analytics-grid { grid-template-columns: 1fr; }
