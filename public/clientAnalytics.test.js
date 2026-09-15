@@ -247,7 +247,7 @@ await check('chart adapter supports every declared mode with bounded accessible 
   globalThis.document = previousDocument;
 });
 
-await check('rich line charts expose plot framing, grid, shaded continuity, legend, and point values', () => {
+await check('rich line charts expose an ECharts mount with an accessible table contract', () => {
   const previousDocument = globalThis.document;
   let markup = '';
   globalThis.document = {};
@@ -267,17 +267,15 @@ await check('rich line charts expose plot framing, grid, shaded continuity, lege
     { label: '12:00', value: 18, series: 'human' },
     { label: '18:00', value: 31, series: 'human' }
   ], { mode: 'line', title: 'Concurrent players', unit: 'players' });
-  assert.match(markup, /class="analytics-chart-grid/);
-  assert.match(markup, /class="analytics-chart-axis/);
-  assert.match(markup, /class="analytics-chart-area/);
-  assert.match(markup, /class="analytics-chart-legend/);
-  assert.match(markup, /data-chart-point=/);
-  assert.match(markup, /data-chart-value="31"/);
-  assert.match(markup, /viewBox="0 0 640 260"/);
+  assert.match(markup, /class="analytics-chart-engine/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
+  assert.match(markup, /aria-describedby=/);
+  assert.match(markup, /class="analytics-chart-table/);
+  assert.equal(markup.includes('data-chart-value="31"'), false);
   globalThis.document = previousDocument;
 });
 
-await check('categorical bars keep labels and values inside the chart frame', () => {
+await check('categorical bars keep an ECharts mount and table values', () => {
   const previousDocument = globalThis.document;
   let markup = '';
   globalThis.document = {};
@@ -296,10 +294,10 @@ await check('categorical bars keep labels and values inside the chart frame', ()
     { label: 'COMPLETIONS', value: 720 },
     { label: 'STALLS', value: 12 }
   ], { mode: 'bar', title: 'Match reliability', unit: 'matches' });
-  assert.match(markup, /class="analytics-chart-bar-label/);
+  assert.match(markup, /class="analytics-chart-engine/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
   assert.match(markup, /MATCH STARTS/);
-  assert.match(markup, /data-chart-value="824"/);
-  assert.match(markup, /class="analytics-chart-value-label/);
+  assert.match(markup, /class="analytics-chart-table/);
   globalThis.document = previousDocument;
 });
 
@@ -321,9 +319,8 @@ await check('mixed-unit bars use separate scales instead of misleading one-axis 
     { label: 'STARTS', value: 12, unit: 'matches' },
     { label: 'RECONNECT RATE', value: 0.08, unit: 'percent' }
   ], { mode: 'bar', title: 'Reliability', unit: 'matches' });
-  assert.match(markup, /MATCHES · MAX/);
-  assert.match(markup, /PERCENT · MAX/);
-  assert.match(markup, />8%<\/text>/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
+  assert.match(markup, /8%/);
   assert.match(markup, /<th scope="col">Value<\/th>/);
   assert.equal(markup.includes('>0.08<'), false);
   globalThis.document = previousDocument;
@@ -354,7 +351,8 @@ await check('board metric map preserves topology order and remains read-only', (
   assert.equal(result.tiles.length, 40);
   assert.equal(result.tiles[0].index, 0);
   assert.equal(result.tiles.at(-1).index, 39);
-  assert.match(markup, /<svg/);
+  assert.match(markup, /class="analytics-chart-engine"/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
   assert.match(markup, /<table/);
   assert.equal(markup.includes('<TILE 0>'), false);
   assert.equal(markup.includes('data-buy'), false);
@@ -367,8 +365,8 @@ await check('stacked-bar extracts finite segments and mirrors them in table colu
   let markup = '';
   const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, getAttribute() { return null; }, setAttribute() {}, querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return true; } } }; } };
   renderAnalyticsChart(container, [{ label: 'A', values: { human: 2, ai: 3, bot: Infinity, private: 'bad' } }], { mode: 'stacked-bar', title: 'Modes', unit: 'matches' });
-  assert.match(markup, /<rect[^>]+fill="var\(--analytics-human\)"/);
-  assert.match(markup, /<rect[^>]+fill="var\(--analytics-ai\)"/);
+  assert.match(markup, /class="analytics-chart-engine"/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
   assert.match(markup, /<th scope="col">human<\/th>/);
   assert.match(markup, /<th scope="col">ai<\/th>/);
   assert.equal(markup.includes('Infinity'), false);
