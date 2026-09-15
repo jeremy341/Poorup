@@ -7,7 +7,7 @@ test.describe('protected analytics console shell', () => {
     await expect(page).toHaveTitle('Poorup | Analytics');
     await expect(page.locator('[data-analytics-tab]')).toHaveCount(7);
     await expect(page.locator('[data-analytics-filter]')).toHaveCount(10);
-    await expect(page.locator('[data-analytics-chart]')).toHaveCount(1);
+    await expect(page.locator('[data-analytics-chart]')).toHaveCount(7);
     await expect(page.locator('[data-analytics-chart-slot]')).toHaveCount(7);
     await expect(page.locator('[data-analytics-question]')).toHaveCount(14);
     await expect(page.locator('[data-analytics-context]')).toHaveCount(4);

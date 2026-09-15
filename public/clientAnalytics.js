@@ -39,19 +39,96 @@ function renderStatus(message, tone = 'muted') {
   }
 }
 
+function finiteAnalyticsNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (value && typeof value === 'object') {
+    for (const key of ['value', 'rate', 'count', 'sampleSize', 'numerator', 'denominator']) {
+      const parsed = finiteAnalyticsNumber(value[key]);
+      if (parsed !== null) return parsed;
+    }
+  }
+  return null;
+}
+
+function panelPoint(label, value) {
+  const numeric = finiteAnalyticsNumber(value);
+  return numeric === null ? null : { label: String(label || 'Observation').slice(0, 80), value: numeric };
+}
+
+function panelRows(model) { return Array.isArray(model?.rows) ? model.rows : []; }
+function objectSeries(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value).slice(0, 24).map(([label, item]) => panelPoint(label, item)).filter(Boolean);
+}
+
+const ANALYTICS_PANEL_DESCRIPTORS = Object.freeze({
+  overview: { title: 'Verified activity', unit: 'observations', mode: 'line', series: snapshot => snapshot.series },
+  'match-health': {
+    title: 'Match reliability', unit: 'matches', mode: 'bar',
+    series: snapshot => {
+      const model = snapshot.breakdowns?.[0] || {};
+      return [['Starts', model.starts], ['Completions', model.completions], ['Stalls', model.stalls], ['Reconnect rate', model.reconnectRate], ['AFK rate', model.afkRate], ['Bankruptcies', model.bankruptcies], ['Comebacks', model.comebacks]].map(([label, value]) => panelPoint(label, value)).filter(Boolean);
+    }
+  },
+  rulesets: { title: 'Ruleset and board adoption', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.rulesetPreset || 'ruleset'} / ${row.boardVariant || 'board'}`, row.matches)).filter(Boolean) },
+  economy: { title: 'Economic feature adoption', unit: 'adoption', mode: 'bar', series: snapshot => objectSeries(snapshot.breakdowns?.[0]?.adoption) },
+  events: { title: 'Event eligibility', unit: 'observations', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(row.eventId || 'event', row.eligibility)).filter(Boolean) },
+  bots: { title: 'Bot matches by provider', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.botMode || 'bot'} / ${row.provider || 'provider'}`, row.matches)).filter(Boolean) },
+  quality: { title: 'Snapshot quality signals', unit: 'observations', mode: 'bar', series: snapshot => {
+    const model = snapshot.breakdowns?.[0] || snapshot.dataQuality || {};
+    return [['Lag seconds', model.lagSeconds], ['Queue depth', model.queueDepth], ['Pending writes', model.pendingWrites], ['Rejected events', model.rejectedEvents], ['Suppressed panels', model.suppressionCount]].map(([label, value]) => panelPoint(label, value)).filter(Boolean);
+  } }
+});
+
+export { ANALYTICS_PANEL_DESCRIPTORS };
+
+function renderAnalyticsChartEmpty(container, title) {
+  container.innerHTML = `<figure class="analytics-chart analytics-chart-placeholder" data-chart-state="empty"><figcaption>${escapeHtml(title)}</figcaption><p class="t-micro ink-3">NO VERIFIED OBSERVATIONS FOR THIS PANEL</p></figure>`;
+}
+
 function renderKpis(snapshot) {
   const kpis = Array.isArray(snapshot.overview?.kpis) ? snapshot.overview.kpis.slice(0, 6) : [];
   if (!kpis.length) return '';
-  return kpis.map(item => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${item.value === null || item.value === undefined ? '·' : escapeHtml(Number(item.value).toLocaleString())}</strong><span class="t-micro ink-3">DENOMINATOR ${item.denominator === null || item.denominator === undefined ? '·' : escapeHtml(item.denominator)}</span><span class="t-micro ink-3">${escapeHtml(item.comparison?.period || item.comparison?.label || 'SELECTED PERIOD')}</span><span class="t-micro ink-3">${escapeHtml(item.definition || 'Aggregate measure')}</span></article>`).join('');
+  return kpis.map(item => {
+    const id = String(item.id || '').toLowerCase();
+    const rawUnit = String(item.unit || '').toLowerCase();
+    const unit = rawUnit || (id.includes('rate') || id.includes('adoption') ? 'percent' : id.includes('latency') || id.includes('duration') ? 'seconds' : id.includes('player') || id.includes('room') ? 'players' : id.includes('match') || id.includes('round') || id.includes('started') ? 'matches' : 'value');
+    const value = finiteAnalyticsNumber(item.value);
+    const numberFormat = (number, maximumFractionDigits = 2) => number === null ? 'N/A' : number.toLocaleString(undefined, { maximumFractionDigits });
+    const displayValue = value === null ? '·' : unit === 'percent' ? `${numberFormat(Math.abs(value) <= 1 ? value * 100 : value, 1)}%` : unit === 'seconds' ? numberFormat(value) : unit === 'milliseconds' ? numberFormat(value, 0) : numberFormat(value, unit === 'value' ? 2 : 1);
+    const displayUnit = unit === 'value' ? '' : unit;
+    const numerator = finiteAnalyticsNumber(item.numerator);
+    const denominator = finiteAnalyticsNumber(item.denominator);
+    const denominatorMarkup = numerator === null
+      ? `DENOMINATOR ${denominator === null ? 'N/A' : numberFormat(denominator, 0)}`
+      : `NUMERATOR ${numberFormat(numerator, 0)} / DENOMINATOR ${denominator === null ? 'N/A' : numberFormat(denominator, 0)}`;
+    const comparison = item.comparison && typeof item.comparison === 'object' ? item.comparison : null;
+    const comparisonValue = finiteAnalyticsNumber(comparison?.value ?? comparison?.baseline);
+    const comparisonDelta = finiteAnalyticsNumber(comparison?.delta ?? comparison?.change);
+    const comparisonParts = comparison ? [`BASELINE ${comparisonValue === null ? 'N/A' : (unit === 'percent' ? `${numberFormat(Math.abs(comparisonValue) <= 1 ? comparisonValue * 100 : comparisonValue, 1)}%` : numberFormat(comparisonValue))}`] : [];
+    if (comparisonDelta !== null) comparisonParts.push(`DELTA ${comparisonDelta >= 0 ? '+' : ''}${unit === 'percent' ? `${numberFormat(comparisonDelta * 100, 1)}pp` : numberFormat(comparisonDelta)}`);
+    if (comparison?.period || comparison?.label) comparisonParts.push(String(comparison.period || comparison.label).toUpperCase());
+    if (!comparisonParts.length) comparisonParts.push('COMPARISON UNAVAILABLE');
+    const generatedAt = typeof item.generatedAt === 'string' && item.generatedAt ? item.generatedAt : snapshot.generatedAt || 'UNKNOWN';
+    return `<article class="analytics-metric panel noise" data-kpi-id="${escapeHtml(item.id || 'metric')}"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${escapeHtml(displayValue)}</strong>${displayUnit ? `<span class="t-micro ink-3 analytics-kpi-unit">${escapeHtml(displayUnit)}</span>` : ''}<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(denominatorMarkup)}</span><span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(comparisonParts.join(' · '))}</span><span class="t-micro ink-3 analytics-kpi-definition">${escapeHtml(item.definition || 'DEFINITION NOT PROVIDED')}</span><time class="t-micro ink-3 analytics-kpi-timestamp" datetime="${escapeHtml(generatedAt)}">VERIFIED ${escapeHtml(generatedAt)}</time></article>`;
+  }).join('');
 }
 
 function renderAnalyticsCharts(snapshot) {
   if (typeof document === 'undefined') return;
   document.querySelectorAll?.('[data-analytics-chart]').forEach(container => {
-    const title = container.getAttribute('data-chart-title') || 'Analytics series';
-    const unit = container.getAttribute('data-chart-unit') || 'value';
-    const mode = container.getAttribute('data-chart-mode') || 'line';
-    renderAnalyticsChart(container, snapshot.series, { title, unit, mode });
+    const tab = container.getAttribute('data-analytics-panel-chart') || snapshot.filters.tab;
+    const descriptor = ANALYTICS_PANEL_DESCRIPTORS[tab] || ANALYTICS_PANEL_DESCRIPTORS.overview;
+    const title = container.getAttribute('data-chart-title') || descriptor.title;
+    const unit = container.getAttribute('data-chart-unit') || descriptor.unit;
+    const mode = container.getAttribute('data-chart-mode') || descriptor.mode;
+    const values = descriptor.series(snapshot) || [];
+    if (!values.length) renderAnalyticsChartEmpty(container, title);
+    else renderAnalyticsChart(container, values, { title, unit, mode, summary: `${values.length} verified ${unit}` });
   });
 }
 

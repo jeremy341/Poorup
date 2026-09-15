@@ -40,6 +40,10 @@ assert.match(html, /data-analytics-apply/);
 assert.match(html, /data-analytics-reset/);
 assert.match(html, /data-analytics-refresh/);
 assert.match(html, /data-analytics-chart/);
+for (const tab of tabIds) {
+  assert.match(adminView, new RegExp(`data-analytics-panel-chart="${tab}"`));
+  assert.match(adminView, new RegExp(`data-analytics-panel-chart="${tab}"[^>]+data-chart-mode="(?:line|bar|stacked-bar|heatmap|histogram|box|scatter|funnel|cohort)"`));
+}
 for (const filter of ['range', 'boardVariant', 'rulesetPreset', 'marketComplexity', 'botMode', 'provider', 'eventId', 'seasonId', 'rulesetRevision', 'balanceRevision']) {
   assert.match(adminView, new RegExp(`for="analytics-filter-${filter}"`));
   assert.match(adminView, new RegExp(`id="analytics-filter-${filter}"[^>]+data-analytics-filter="${filter}"`));
