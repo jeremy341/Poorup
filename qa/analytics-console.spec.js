@@ -20,6 +20,27 @@ test.describe('protected analytics console shell', () => {
     expect(overflow.body).toBe(false);
   });
 
+  test('insets native filter chevrons inside a dedicated select shell', async ({ page }) => {
+    await page.goto('/admin/analytics');
+    const market = page.locator('#analytics-filter-marketComplexity');
+    const shell = market.locator('..');
+    await expect(shell).toHaveClass(/analytics-select-shell/);
+    const metrics = await shell.evaluate(element => {
+      const select = element.querySelector('select');
+      const chevron = getComputedStyle(element, '::after');
+      return {
+        appearance: getComputedStyle(select).appearance,
+        paddingInlineEnd: parseFloat(getComputedStyle(select).paddingInlineEnd),
+        chevronRight: parseFloat(chevron.right),
+        chevronWidth: parseFloat(chevron.width),
+      };
+    });
+    expect(metrics.appearance).toBe('none');
+    expect(metrics.paddingInlineEnd).toBeGreaterThanOrEqual(36);
+    expect(metrics.chevronRight).toBeGreaterThanOrEqual(12);
+    expect(metrics.chevronWidth).toBeGreaterThanOrEqual(6);
+  });
+
   test('keeps filter labels explicit and optional context hidden without data', async ({ page }) => {
     await page.goto('/admin/analytics');
     for (const filter of ['range', 'boardVariant', 'rulesetPreset', 'marketComplexity', 'botMode', 'provider', 'eventId', 'seasonId', 'rulesetRevision', 'balanceRevision']) {
