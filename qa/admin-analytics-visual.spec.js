@@ -67,6 +67,11 @@ test.describe('admin analytics visual contract', () => {
     await expect(page.locator('#admin-analytics-grid .analytics-metric')).toHaveCount(6);
     await expect(page.locator('[data-analytics-context]')).toHaveCount(4);
     expect(await page.locator('[data-analytics-context]').evaluateAll(elements => elements.every(element => element.hidden))).toBe(true);
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollHeight > document.documentElement.clientHeight,
+      body: document.body.scrollHeight > document.body.clientHeight
+    }));
+    expect(overflow.document || overflow.body).toBe(false);
   });
 
   test('renders supplied sanitized fields through each specialized chart and table mount', async ({ page }) => {
@@ -133,6 +138,7 @@ test.describe('admin analytics visual contract', () => {
       await expect(filters.nth(index)).toHaveAttribute('id', /analytics-filter-/);
       await expect(filters.nth(index)).toHaveAttribute('name');
     }
+    await page.locator('[data-analytics-more-filters]').click();
     await filters.nth(7).fill('season 7');
     await page.locator('[data-analytics-apply]').click();
     await expect.poll(() => new URL(page.url()).searchParams.get('seasonId')).toBe('season 7');

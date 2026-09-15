@@ -12,6 +12,14 @@ assert.equal((adminView.match(/<main\b/gi) || []).length, 1);
 assert.match(adminView, /<h1\b[^>]+id="admin-analytics-title"/i);
 assert.match(adminView, /id="admin-analytics-status"[^>]+role="status"[^>]+aria-live="polite"/i);
 assert.match(adminView, /data-analytics-alerts/);
+assert.match(adminView, /data-analytics-command-strip/);
+assert.match(adminView, /data-analytics-filter-strip/);
+assert.match(adminView, /data-analytics-more-filters[^>]+aria-haspopup="dialog"/);
+assert.match(adminView, /data-analytics-filter-dialog[^>]+role="dialog"/);
+assert.match(adminView, /data-analytics-page-prev/);
+assert.match(adminView, /data-analytics-page-next/);
+assert.match(adminView, /data-analytics-page-position[^>]+aria-live="polite"/);
+assert.match(adminView, /class="analytics-filter-dialog is-hidden"[^>]*data-analytics-filter-dialog/);
 for (const tab of tabIds) {
   assert.match(html, new RegExp(`data-analytics-tab="${tab}"`));
   assert.match(html, new RegExp(`aria-controls="analytics-panel-${tab}"`));
