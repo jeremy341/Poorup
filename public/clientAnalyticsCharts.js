@@ -422,9 +422,12 @@ function renderFigure(container, values, options, mode) {
   const labelledBy = container.getAttribute?.('aria-labelledby');
   const captionId = labelledBy && /^[A-Za-z][A-Za-z0-9_-]*$/.test(labelledBy) ? ` id="${escapeHtml(labelledBy)}"` : '';
   const svg = unsupported ? '' : `<svg viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" role="img" aria-label="${escapeHtml(`${title}; ${values.length} observations`)}" aria-describedby="${escapeHtml(summaryId)}" focusable="false" preserveAspectRatio="none"><title>${escapeHtml(title)}</title>${chartGeometry(values, options, mode)}</svg>`;
-  const renderedTable = mode === 'stacked-bar' ? stackedTableMarkup(title, stackedSegments(values), tableId, visible) : tableMarkup(title, unit, values, tableId, visible);
+  const units = [...new Set(values.map(point => point.unit || unit))];
+  const tableColumns = units.length > 1 ? ['Label', 'Value'] : ['Label', unit];
+  const summaryUnit = units.length > 1 ? 'SEPARATE SCALES' : unit;
+  const renderedTable = mode === 'stacked-bar' ? stackedTableMarkup(title, stackedSegments(values), tableId, visible) : tableMarkup(title, unit, values, tableId, visible, tableColumns);
   container.setAttribute?.('aria-label', title);
-  container.innerHTML = `<figure class="analytics-chart" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption${captionId}>${escapeHtml(title)}</figcaption>${svg}<p id="${escapeHtml(summaryId)}" class="t-micro ink-3 analytics-chart-summary">${escapeHtml(summary)} · UNIT ${escapeHtml(unit)} · SAMPLE ${values.length}</p><button class="btn-dark analytics-chart-table-toggle" type="button" aria-expanded="${visible}" aria-controls="${escapeHtml(tableId)}">${visible ? 'HIDE DATA TABLE' : 'SHOW DATA TABLE'}</button>${renderedTable}</figure>`;
+  container.innerHTML = `<figure class="analytics-chart" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption${captionId}>${escapeHtml(title)}</figcaption>${svg}<p id="${escapeHtml(summaryId)}" class="t-micro ink-3 analytics-chart-summary">${escapeHtml(summary)} · UNIT ${escapeHtml(summaryUnit)} · SAMPLE ${values.length}</p><button class="btn-dark analytics-chart-table-toggle" type="button" aria-expanded="${visible}" aria-controls="${escapeHtml(tableId)}">${visible ? 'HIDE DATA TABLE' : 'SHOW DATA TABLE'}</button>${renderedTable}</figure>`;
   renderTableToggle(container, tableId, visible);
   return container.firstElementChild;
 }

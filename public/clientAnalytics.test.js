@@ -324,6 +324,7 @@ await check('mixed-unit bars use separate scales instead of misleading one-axis 
   assert.match(markup, /MATCHES · MAX/);
   assert.match(markup, /PERCENT · MAX/);
   assert.match(markup, />8%<\/text>/);
+  assert.match(markup, /<th scope="col">Value<\/th>/);
   assert.equal(markup.includes('>0.08<'), false);
   globalThis.document = previousDocument;
 });
