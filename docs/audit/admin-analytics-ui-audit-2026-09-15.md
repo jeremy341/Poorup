@@ -122,9 +122,9 @@ The hand-authored chart geometry was removed from `public/clientAnalyticsCharts.
 - Rich chart regression contracts — PASS (framed line/area plots, categorical bar labels, finite-value handling, and table parity).
 - `npm run lint:client -- --quiet` — PASS.
 - `npx eslint qa/analytics-console.spec.js qa/admin-analytics-visual.spec.js --quiet` — PASS.
-- Focused admin browser matrix — 121 passed, 5 intentional skips, 0 failures.
-- Full project Playwright matrix after the chart redesign — 429 passed, 57 documented skips, 0 failures.
-- Full `npm run test:full` after the chart redesign — PASS (process-capable run; the sandbox-only attempt is expected to fail at child-process spawn).
+- Focused admin browser matrix after the full-screen/ECharts work — 151 passed, 5 intentional skips, 0 failures.
+- Full project Playwright matrix after the full-screen/ECharts work — 459 passed, 57 documented skips, 0 failures.
+- Full `npm run test:full` after the full-screen/ECharts work — PASS (process-capable run; the sandbox-only attempt is expected to fail at child-process spawn).
 - Native 1920×1080 analytics screenshots inspected after the panel/KPI fixes; the latest focused run also verified the inset chevron.
 - `git diff --check` — PASS.
 
