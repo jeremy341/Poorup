@@ -946,7 +946,7 @@ body[data-theme-id="light"] #view-home .home-patrol-hint { color: #173f4d; text-
 .analytics-panel-context { display: grid; align-content: start; gap: 10px; min-width: 0; padding-inline-start: 14px; border-inline-start: 1px solid var(--analytics-grid); }
 .analytics-report-book { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
 .analytics-report-page { min-height: 0; overflow: hidden; }
-.analytics-page-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 8px 0 0; border-block-start: 1px solid var(--line-subtle); }
+.analytics-page-footer { position: absolute; right: 12px; bottom: 12px; left: 12px; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 8px 0 0; border-block-start: 1px solid var(--line-subtle); background: var(--surface-panel); }
 .analytics-page-turn { min-width: 104px; min-height: 44px; }
 body:has(.music-box[data-position="bottom-left"]) #view-admin-analytics .analytics-page-footer { padding-inline-start: 340px; }
 body:has(.music-box[data-position="bottom-right"]) #view-admin-analytics .analytics-page-footer { padding-inline-end: 340px; }
