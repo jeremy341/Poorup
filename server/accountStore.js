@@ -8,6 +8,9 @@ import { loadJson, writeJson } from './storeIO.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'accounts.json');
+// Absolute lifetime for legacy (non-cookie) session tokens, mirroring the
+// cookie store's absolute window. Cutover: no sliding refresh, no rehydrate.
+const LEGACY_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const USERNAME_RE = /^[a-z0-9_]{3,16}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const FACE_SIZE = 8;
@@ -130,6 +133,7 @@ function snapshotStore(store) {
     accounts: new Map([...store.accounts].map(([key, account]) => [key, { account, state: cloneJson(account) }])),
     sessions: new Map(store.sessions),
     sessionHashes: new Map(store.sessionHashes),
+    sessionIssuedAt: new Map(store.sessionIssuedAt),
   };
 }
 
@@ -148,6 +152,8 @@ function restoreStore(store, snapshot) {
   snapshot.sessions.forEach((owner, token) => store.sessions.set(token, owner));
   store.sessionHashes.clear();
   snapshot.sessionHashes.forEach((owner, tokenHash) => store.sessionHashes.set(tokenHash, owner));
+  store.sessionIssuedAt.clear();
+  (snapshot.sessionIssuedAt || new Map()).forEach((ts, key) => store.sessionIssuedAt.set(key, ts));
 }
 
 function commitMutation(store, mutate) {
@@ -192,6 +198,17 @@ function sanitizeHistory(value) {
     .filter((entry) => entry && typeof entry === 'object')
     .slice(0, 50)
     .map(historyEntryView);
+}
+
+// Match history is intentionally capped for profile payloads, but settlement
+// idempotency cannot share that display window: an old match may be replayed
+// long after it falls out of the visible list. Keep a durable, private ledger
+// of every match id that has already contributed account stats.
+function sanitizeRecordedMatchIds(value, legacyHistory = []) {
+  const source = Array.isArray(value) ? value : legacyHistory.map(entry => entry?.matchId);
+  return [...new Set(source
+    .filter(entry => typeof entry === 'string' && entry.trim())
+    .map(entry => entry.trim().slice(0, 80)))];
 }
 
 const nonNegative = (value) => Math.max(0, Number(value) || 0);
@@ -300,6 +317,8 @@ function applyMatchResult(account, player, result) {
   });
   account.history = [matchHistoryEntry(player, result.matchRecord.matchId, result.winnerId), ...sanitizeHistory(account.history)].slice(0, 50);
   account.matchHistory = [ownerMatchRecord(result.matchRecord), ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
+  account.recordedMatchIds = sanitizeRecordedMatchIds(account.recordedMatchIds);
+  if (!account.recordedMatchIds.includes(result.matchRecord.matchId)) account.recordedMatchIds.push(result.matchRecord.matchId);
 }
 
 function ownerMatchRecord(matchRecord) {
@@ -310,6 +329,7 @@ function ownerMatchRecord(matchRecord) {
 }
 
 function accountAlreadyRecordedMatch(account, matchId) {
+  if (sanitizeRecordedMatchIds(account.recordedMatchIds).includes(matchId)) return true;
   return (account.matchHistory || []).some(entry => entry?.matchId === matchId);
 }
 
@@ -425,6 +445,12 @@ function publicAccount(account, includePrivateHistory = true) {
     achievementsPrivate: account.privacy?.achievements === 'private',
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: account.recentClearedAt || null,
+    accountDeactivated: account.accountDeactivated === true,
+    deletionRequestedAt: includePrivateHistory ? (account.deletionRequestedAt || null) : null,
+    deletionDueAt: includePrivateHistory ? (account.deletionDueAt || null) : null,
+    deletionRequestId: includePrivateHistory ? (account.deletionRequestId || null) : null,
+    recoveryEmail: includePrivateHistory ? (account.recoveryEmail || null) : null,
+    recoveryEmailVerified: includePrivateHistory && account.recoveryEmailVerified === true,
     createdAt: account.createdAt,
   };
 }
@@ -460,7 +486,7 @@ function sanitizeStats(stats) {
 }
 
 function normalizeLoadedAccount(handle, account) {
-  return {
+  const normalized = {
     ...account,
     username: handle,
     displayName: normalizeDisplayName(account.displayName, account.username),
@@ -470,9 +496,20 @@ function normalizeLoadedAccount(handle, account) {
     history: sanitizeHistory(account.history),
     achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
     matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50).map(sanitizeMatch) : [],
+    recordedMatchIds: sanitizeRecordedMatchIds(account.recordedMatchIds, account.matchHistory),
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null
   };
+  if (Object.prototype.hasOwnProperty.call(account, 'accountDeactivated')) normalized.accountDeactivated = account.accountDeactivated === true;
+  if (typeof account.deletionRequestedAt === 'string') normalized.deletionRequestedAt = account.deletionRequestedAt;
+  if (typeof account.deletionDueAt === 'string') normalized.deletionDueAt = account.deletionDueAt;
+  if (typeof account.deletionRequestId === 'string') normalized.deletionRequestId = account.deletionRequestId.slice(0, 100);
+  if (typeof account.recoveryEmail === 'string') normalized.recoveryEmail = account.recoveryEmail.trim().toLowerCase().slice(0, 254);
+  if (Object.prototype.hasOwnProperty.call(account, 'recoveryEmailVerified')) normalized.recoveryEmailVerified = account.recoveryEmailVerified === true;
+  if (typeof account.pendingRecoveryEmail === 'string') normalized.pendingRecoveryEmail = account.pendingRecoveryEmail.trim().toLowerCase().slice(0, 254);
+  if (typeof account.pendingRecoveryEmailTokenHash === 'string') normalized.pendingRecoveryEmailTokenHash = account.pendingRecoveryEmailTokenHash.slice(0, 128);
+  if (typeof account.pendingRecoveryEmailExpiresAt === 'string') normalized.pendingRecoveryEmailExpiresAt = account.pendingRecoveryEmailExpiresAt;
+  return normalized;
 }
 
 export class AccountStore {
@@ -481,6 +518,9 @@ export class AccountStore {
     this.accounts = new Map();
     this.sessions = new Map();
     this.sessionHashes = new Map();
+    // Legacy token issuance timestamps (token and hash -> ms). Memory-only
+    // like sessions itself; absolute TTL enforced in sessionAccount.
+    this.sessionIssuedAt = new Map();
     this.load();
   }
 
@@ -496,7 +536,9 @@ export class AccountStore {
       // the first valid record remains the owner of that username.
       if (!loadableAccount(handle, account, this.accounts)) return;
       this.accounts.set(handle, normalizeLoadedAccount(handle, account));
-      if (account.sessionTokenHash) this.sessionHashes.set(account.sessionTokenHash, handle);
+      // Cutover: persisted session hashes are no longer rehydrated. Cookie
+      // sessions (sessionStore records) survive restarts with their own
+      // expiry; legacy tokens require a fresh login after a restart.
     });
   }
 
@@ -507,12 +549,31 @@ export class AccountStore {
   sessionAccount(sessionToken) {
     if (typeof sessionToken !== 'string' || !sessionToken) return null;
     let username = this.sessions.get(sessionToken);
+    let key = sessionToken;
     if (!username) {
       const tokenHash = hashSessionToken(sessionToken);
       username = this.sessionHashes.get(tokenHash);
-      if (username) this.sessions.set(sessionToken, username);
+      if (username) {
+        this.sessions.set(sessionToken, username);
+        key = tokenHash;
+      }
     }
-    return username ? this.accounts.get(username) || null : null;
+    if (!username) return null;
+    // Absolute legacy TTL (mirrors the cookie store's absolute window).
+    // Missing stamps are grandfathered from first use after cutover.
+    const now = Date.now();
+    let issuedAt = this.sessionIssuedAt.get(key);
+    if (!Number.isFinite(issuedAt)) {
+      issuedAt = now;
+      this.sessionIssuedAt.set(key, issuedAt);
+    }
+    if (now - issuedAt >= LEGACY_SESSION_TTL_MS) {
+      this.sessions.delete(sessionToken);
+      try { this.sessionHashes.delete(hashSessionToken(sessionToken)); } catch { /* unhashable */ }
+      this.sessionIssuedAt.delete(key);
+      return null;
+    }
+    return this.accounts.get(username) || null;
   }
 
   sessionTokenHashFor(sessionToken) {
@@ -541,6 +602,9 @@ export class AccountStore {
     const tokenHash = hashSessionToken(token);
     this.sessions.set(token, account.username);
     this.sessionHashes.set(tokenHash, account.username);
+    const issuedAt = Date.now();
+    this.sessionIssuedAt.set(token, issuedAt);
+    this.sessionIssuedAt.set(tokenHash, issuedAt);
     account.sessionTokenHash = tokenHash;
     return token;
   }
@@ -566,6 +630,7 @@ export class AccountStore {
         history: [],
         achievements: [],
         matchHistory: [],
+        recordedMatchIds: [],
         privacy: sanitizePrivacy(null),
         recentClearedAt: null,
         createdAt: new Date().toISOString(),
@@ -620,6 +685,22 @@ export class AccountStore {
     return account ? { success: true, account: publicAccount(account) } : { success: false, error: 'Account session expired. Sign in again.' };
   }
 
+  // Revoke exactly one legacy token (both indexes + stamps). Used for
+  // single-use upgrades like cookie exchange; unlike logout it leaves
+  // sibling sessions and the account record untouched.
+  revokeSessionToken(sessionToken) {
+    if (typeof sessionToken !== 'string' || !sessionToken) return false;
+    let revoked = false;
+    if (this.sessions.delete(sessionToken)) revoked = true;
+    try {
+      const tokenHash = hashSessionToken(sessionToken);
+      if (this.sessionHashes.delete(tokenHash)) revoked = true;
+      this.sessionIssuedAt.delete(sessionToken);
+      this.sessionIssuedAt.delete(tokenHash);
+    } catch { /* unhashable token: map deletion above suffices */ }
+    return revoked;
+  }
+
   logout(sessionToken) {
     const account = this.sessionAccount(sessionToken);
     if (!account) {
@@ -632,6 +713,74 @@ export class AccountStore {
       account.sessionTokenHash = null;
       return { success: true };
     });
+  }
+
+  verifyPassword(account, password) {
+    if (!hasCredentialShape(account, password) || !validPasswordShape(password)) return false;
+    const expected = Buffer.from(account.passwordHash, 'hex');
+    const actual = Buffer.from(hashPassword(password, account.passwordSalt), 'hex');
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  }
+
+  listAccounts() {
+    return [...this.accounts.values()];
+  }
+
+  setAccountDeactivated(account, value) {
+    if (!account || typeof account !== 'object') return false;
+    account.accountDeactivated = value === true;
+    return account.accountDeactivated;
+  }
+
+  updatePassword(accountId, password) {
+    const account = this.getAccountById(accountId);
+    if (!account || !validPasswordShape(password)) return false;
+    return commitMutation(this, () => {
+      const salt = crypto.randomBytes(16).toString('hex');
+      account.passwordSalt = salt;
+      account.passwordHash = hashPassword(password, salt);
+      this.revokeSessionsForAccount(account.id, false);
+      return true;
+    });
+  }
+
+  revokeSessionsForAccount(accountId, persist = true, keepToken = null) {
+    const account = this.getAccountById(accountId);
+    if (!account) return 0;
+    let revoked = 0;
+    for (const [token, owner] of [...this.sessions]) {
+      if (owner !== account.username || (keepToken && token === keepToken)) continue;
+      this.sessions.delete(token);
+      revoked += 1;
+    }
+    for (const [hash, owner] of [...this.sessionHashes]) {
+      if (owner !== account.username) continue;
+      if (keepToken && hash === hashSessionToken(keepToken)) continue;
+      this.sessionHashes.delete(hash);
+    }
+    if (!keepToken) account.sessionTokenHash = null;
+    if (persist) this.persist();
+    return revoked;
+  }
+
+  purgeAccount(accountId) {
+    const account = this.getAccountById(accountId);
+    if (!account) return false;
+    return commitMutation(this, () => {
+      this.revokeSessionsForAccount(account.id, false);
+      this.accounts.delete(account.username);
+      return true;
+    });
+  }
+
+  snapshot() {
+    return snapshotStore(this);
+  }
+
+  restoreSnapshot(snapshot) {
+    if (!snapshot) return false;
+    restoreStore(this, snapshot);
+    return true;
   }
 
   updateProfile(sessionToken, patch = {}) {
@@ -838,7 +987,8 @@ export class AccountStore {
   }
 
   getLeaderboard(metric = 'wins', options = {}) {
-    const accounts = [...this.accounts.values()].filter(account => !Array.isArray(options.accountIds) || options.accountIds.includes(account.id));
+    const accounts = [...this.accounts.values()].filter(account => account.accountDeactivated !== true)
+      .filter(account => !Array.isArray(options.accountIds) || options.accountIds.includes(account.id));
     const rows = accounts.map(account => leaderboardRow(this, account, metric, options)).filter(Boolean);
     rows.sort((a, b) => b.value - a.value || b.wins - a.wins || a.displayName.localeCompare(b.displayName));
     const limit = Math.max(1, Math.min(100, Math.floor(Number(options.limit) || 100)));

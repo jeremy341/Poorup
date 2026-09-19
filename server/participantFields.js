@@ -69,7 +69,7 @@ export const PARTICIPANT_FIELDS = [
     fromRecord: (v) => (v?.cardDraws && typeof v.cardDraws === 'object'
       ? { surprise: nonNegative(v.cardDraws.surprise), treasure: nonNegative(v.cardDraws.treasure) }
       : { surprise: 0, treasure: 0 }),
-    fromPlayer: (p) => ({ ...(p.cardDraws || {}) }),
+    fromPlayer: (p) => ({ surprise: nonNegative(p.cardDraws?.surprise), treasure: nonNegative(p.cardDraws?.treasure) }),
   },
   { key: 'zeroCashReached', fromRecord: (v) => flag(v?.zeroCashReached), fromPlayer: (p) => flag(p.zeroCashReached) },
   { key: 'collateralLost', fromRecord: (v) => flag(v?.collateralLost), fromPlayer: (p) => flag(p.collateralLost) },
@@ -102,6 +102,13 @@ export const PARTICIPANT_FIELDS = [
   { key: 'hiddenMovementSequence', fromRecord: (v) => flag(v?.hiddenMovementSequence), fromPlayer: (p) => flag(p.hiddenMovementSequence) },
 ];
 
+// Optional per-participant counters are only serialized when the live player
+// actually owns the field. This preserves the legacy participant shape while
+// allowing completed trades to contribute truthful season metrics.
+const OPTIONAL_PARTICIPANT_FIELDS = [
+  { key: 'tradesCompleted', fromRecord: (v) => nonNegative(v?.tradesCompleted), fromPlayer: (p) => nonNegative(p.tradesCompleted) }
+];
+
 const MATCH_DETAIL_FIELDS = [
   { key: 'avatarAtMatch', fromRecord: (v) => avatarFromRecord(v?.avatarAtMatch), fromPlayer: (p) => avatarFromRecord(p.avatarGrid) },
   { key: 'completedGroups', fromRecord: (v) => nonNegative(v?.completedGroups ?? v?.fullGroups), fromPlayer: (p) => setSize(p.fullGroups) },
@@ -115,6 +122,9 @@ export function sanitizeParticipant(participant) {
   PARTICIPANT_FIELDS.forEach((field) => {
     result[field.key] = field.fromRecord(participant);
   });
+  OPTIONAL_PARTICIPANT_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(participant || {}, field.key)) result[field.key] = field.fromRecord(participant);
+  });
   if (MATCH_DETAIL_FIELDS.some(field => Object.prototype.hasOwnProperty.call(participant || {}, field.key))) {
     MATCH_DETAIL_FIELDS.forEach((field) => { result[field.key] = field.fromRecord(participant); });
   }
@@ -126,6 +136,9 @@ export function participantFromPlayer(player, context) {
   const result = {};
   PARTICIPANT_FIELDS.forEach((field) => {
     result[field.key] = field.fromPlayer(player, context);
+  });
+  OPTIONAL_PARTICIPANT_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(player || {}, field.key)) result[field.key] = field.fromPlayer(player, context);
   });
   if (context?.includeMatchDetails) {
     MATCH_DETAIL_FIELDS.forEach((field) => { result[field.key] = field.fromPlayer(player, context); });

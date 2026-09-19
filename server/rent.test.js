@@ -8,7 +8,7 @@
 // method; the modifier-table extraction must keep it green.
 import { RoomManager } from './gameLogic.js';
 
-const GOLDEN = {"mortgaged":0,"property-plain":10,"property-h1":50,"property-h2":150,"property-h3":450,"property-h4":800,"property-h5-hotel":1250,"property-clamped-level":1250,"double-rent-full-group":20,"double-rent-off":10,"double-rent-partial-group":10,"utility-one-owned":28,"utility-both-owned":70,"utility-mortgaged-sibling":28,"utility-no-dice":8,"utility-unowned":12,"utility-unowned-zero-rent":20,"railroad-1":25,"railroad-2":50,"railroad-mortgaged-sibling":25,"railroad-3":100,"railroad-4":200,"railroad-unowned":25,"bubble-property":32,"bubble-excludes-global-multiplier":32,"strike-railroad-zero":0,"strike-skips-airport-multiplier":0,"airport-multiplier":75,"tourism-railroad":43,"tourism-dark-blue":45,"tourism-skips-premium-multiplier":45,"premium-multiplier":70,"anti-monopoly-target":6,"anti-monopoly-dismissed":10,"anti-monopoly-non-target":10,"energy-crisis-utility":42,"energy-crisis-skips-utility-multiplier":42,"utility-multiplier":56,"election-public-works-property":7,"global-rent-multiplier":20,"global-rent-multiplier-zero-skips":10,"global-rent-multiplier-nan-skips":10,"cap-applies":30,"cap-zero-skips":25,"start-tile":0};
+const GOLDEN = {"mortgaged":0,"property-plain":10,"property-h1":50,"property-h2":150,"property-h3":450,"property-h4":800,"property-h5-hotel":1250,"property-clamped-level":1250,"double-rent-full-group":20,"double-rent-off":10,"double-rent-partial-group":10,"utility-one-owned":28,"utility-both-owned":70,"utility-mortgaged-sibling":28,"utility-no-dice":8,"utility-unowned":12,"utility-unowned-zero-rent":20,"railroad-1":25,"railroad-2":50,"railroad-mortgaged-sibling":25,"railroad-3":100,"railroad-4":200,"railroad-unowned":25,"bubble-property":32,"bubble-excludes-global-multiplier":32,"strike-railroad-zero":0,"strike-skips-airport-multiplier":0,"airport-multiplier":75,"tourism-railroad":37,"tourism-dark-blue":45,"tourism-skips-premium-multiplier":45,"premium-multiplier":70,"anti-monopoly-target":6,"anti-monopoly-dismissed":10,"anti-monopoly-non-target":10,"energy-crisis-utility":42,"energy-crisis-skips-utility-multiplier":42,"utility-multiplier":56,"election-public-works-property":7,"global-rent-multiplier":20,"global-rent-multiplier-zero-skips":10,"global-rent-multiplier-nan-skips":10,"cap-applies":30,"cap-zero-skips":25,"start-tile":0};
 
 const own = (game, index, owner = 0) => { game.tiles[index].ownerId = game.players[owner].id; };
 const event = (game, id, extra = {}) => { game.globalEvent = { id, phase: 'active', ...extra }; };
@@ -42,7 +42,7 @@ const CASES = {
   'strike-railroad-zero': [(g) => { own(g, 5); event(g, 'airport-strike'); }, 5],
   'strike-skips-airport-multiplier': [(g) => { own(g, 5); event(g, 'airport-strike', { effects: { airportRentMultiplier: 3 } }); }, 5],
   'airport-multiplier': [(g) => { own(g, 5); event(g, 'custom', { effects: { airportRentMultiplier: 3 } }); }, 5],
-  'tourism-railroad': [(g) => { own(g, 5); event(g, 'tourism-boom'); }, 5],
+  'tourism-railroad': [(g) => { own(g, 5); event(g, 'tourism-boom', { effects: { airportRentMultiplier: 1.5 } }); }, 5],
   'tourism-dark-blue': [(g) => { own(g, 37); event(g, 'tourism-boom'); }, 37],
   'tourism-skips-premium-multiplier': [(g) => { own(g, 37); event(g, 'tourism-boom', { effects: { premiumRentMultiplier: 2 } }); }, 37],
   'premium-multiplier': [(g) => { own(g, 37); event(g, 'custom', { effects: { premiumRentMultiplier: 2 } }); }, 37],
