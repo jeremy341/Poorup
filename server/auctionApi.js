@@ -25,6 +25,9 @@ class AuctionState {
 
 const auctionApi = {
   startAuction(tile, initiatingPlayerId) {
+    if (this.auction?.active) {
+      return { success: false, error: 'An auction is already active.' };
+    }
     if (this.globalEventActive('bank-run') || this.activeEventEffects().auctionBlocked) {
       this.feedMessage('The active global event pauses auctions until liquidity returns.');
       this.resolveTurnAfterAction({ allowExtraRoll: false });
@@ -110,6 +113,8 @@ const auctionApi = {
     if (!player) return { success: false, error: 'No auction is active.' };
     if (!this.auction) return { success: false, error: 'No auction is active.' };
     if (!this.auction.active) return { success: false, error: 'No auction is active.' };
+    if (player.bankrupt) return { success: false, error: 'You cannot bid right now.' };
+    if (player.disconnected) return { success: false, error: 'You cannot bid right now.' };
     const auction = this.auction;
     if (auction.participants.length && !auction.participants.includes(player.id)) return { success: false, error: 'You are not part of this auction.' };
     if (auction.highestBidderId === player.id) return { success: false, error: 'The current high bidder cannot pass.' };

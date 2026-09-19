@@ -92,7 +92,6 @@ export function bankLoanOffer(game, player) {
 function borrowerSeatRejection(player) {
   if (player.bankrupt) return 'Bank credit is unavailable right now.';
   if (player.disconnected) return 'Bank credit is unavailable right now.';
-  if (player.inDebt) return 'Bank credit is unavailable right now.';
   return null;
 }
 
@@ -103,7 +102,7 @@ function creditFacilityRejection(game, player) {
   if (seat) return seat;
   if (!game.started) return 'The game has not started.';
   if (creditFrozen(game)) return 'Credit is frozen by the active global event.';
-  if (game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract) return 'Resolve the table obligation before borrowing.';
+  if (game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract) return 'Resolve the table obligation before borrowing.';
   if (player.id !== game.currentPlayerId) return 'Bank credit is available during your turn.';
   return null;
 }
@@ -245,6 +244,15 @@ function seizeLoanCollateral(game, player, collateral) {
   // them before the bank takes the deed so no holder can keep collecting from
   // a property that no longer has an owner.
   game.terminateTileEquityShares?.(collateral);
+  // Houses are the borrower's paid value: liquidate them at the standard
+  // half-rate into cash before the deed moves, instead of wiping them.
+  const houses = Math.max(0, Math.min(5, Number(collateral.houseCount) || 0));
+  if (houses > 0 && typeof game.getPropertyHouseCost === 'function') {
+    try {
+      player.cash = Math.max(0, Number(player.cash) || 0)
+        + Math.floor(houses * Number(game.getPropertyHouseCost(collateral)) * 0.5);
+    } catch { /* cost lookup failure must not block seizure */ }
+  }
   collateral.ownerId = null;
   collateral.mortgaged = false;
   collateral.houseCount = 0;

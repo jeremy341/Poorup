@@ -79,6 +79,8 @@ assert.equal(quotaDecision.fallbackReason, 'quota');
 const quotaSecond = await quota.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-quota', decisionSequence: 2 });
 assert.equal(quotaSecond.fallbackReason, 'quota-exhausted');
 assert.equal(quotaCalls, 1);
+assert.equal(quotaSecond.effectiveBrain, 'no-ai');
+assert.equal(quota.getPublicStatus().state, 'quota-exhausted');
 
 let recoveringCalls = 0;
 const recovering = new DeepSeekAdvisor({
@@ -90,11 +92,25 @@ const recovering = new DeepSeekAdvisor({
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"actionId":"roll","confidence":0.7}' } }] }) };
   }
 });
-await recovering.chooseAction({ candidates, botBrain: 'auto', gameId: 'g-recover', decisionSequence: 1 });
+await recovering.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-recover', decisionSequence: 1 });
 recovering.circuitOpenUntil = Date.now() - 1;
-const recovered = await recovering.chooseAction({ candidates, botBrain: 'auto', gameId: 'g-recover', decisionSequence: 2 });
+const stillFallback = await recovering.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-recover', decisionSequence: 2 });
+assert.equal(stillFallback.provider, 'deterministic');
+assert.equal(stillFallback.fallbackReason, 'quota-exhausted');
+assert.equal(recoveringCalls, 1);
+recovering.resetProviderHealth();
+const recovered = await recovering.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-recover', decisionSequence: 3 });
 assert.equal(recovered.provider, 'ai');
 assert.equal(recoveringCalls, 2);
+
+const statusEvents = [];
+const statusAdvisor = new DeepSeekAdvisor({ apiKey: 'test-key', fetchImpl: async () => ({ ok: false, status: 429, json: async () => ({}) }) });
+const unsubscribe = statusAdvisor.subscribeProviderStatus(status => statusEvents.push(status));
+await statusAdvisor.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-status', decisionSequence: 1 });
+assert.equal(statusEvents.at(-1).state, 'quota-exhausted');
+assert.equal(statusEvents.at(-1).reason, 'credits-exhausted');
+assert.equal(Object.prototype.hasOwnProperty.call(statusEvents.at(-1), 'apiKey'), false);
+unsubscribe();
 
 let noAiCalls = 0;
 const noAi = new DeepSeekAdvisor({ apiKey: 'test-key', fetchImpl: async () => { noAiCalls += 1; return null; } });
@@ -140,6 +156,12 @@ const budget = new DeepSeekAdvisor({ apiKey: 'test-key', maxDecisionsPerGame: 1,
 await budget.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-budget', decisionSequence: 1 });
 assert.equal((await budget.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-budget', decisionSequence: 2 })).fallbackReason, 'game-budget');
 
+const flaky = new DeepSeekAdvisor({ apiKey: 'test-key', maxDecisionsPerGame: 1, fetchImpl: async () => { throw new Error('down'); } });
+assert.equal((await flaky.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-refund', decisionSequence: 1 })).fallbackReason, 'network');
+// Infra failure refunds the budget: the retry reaches the provider again
+// instead of hitting game-budget.
+assert.equal((await flaky.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-refund', decisionSequence: 2 })).fallbackReason, 'network');
+
 const metroPrompt = JSON.parse(ai.advisorUserPrompt({
   contextVersion: 'bot-context-v2',
   board: Array.from({ length: 52 }, (_, index) => ({ index, type: 'property' })),
@@ -151,4 +173,28 @@ assert.equal(metroPrompt.board.length, 52);
 
 assert.equal(createBotAdvisor({ DEEPSEEK_API_KEY: 'test-key' }) instanceof DeepSeekAdvisor, true);
 assert.equal(createBotAdvisor({ POORUP_BOT_ADVISOR: 'no-ai', DEEPSEEK_API_KEY: 'test-key' }) instanceof DeterministicAdvisor, true);
-console.log('bot advisor modes and fallback: 19 passed, 0 failed');
+const genericProvider = createBotAdvisor({
+  POORUP_AI_API_KEY: 'generic-key',
+  POORUP_AI_BASE_URL: 'https://api.openai.com/v1',
+  POORUP_AI_MODEL: 'gpt-test',
+  POORUP_AI_PROTOCOL: 'responses'
+});
+assert.equal(genericProvider.getHealth().model, 'gpt-test');
+assert.equal(genericProvider.getHealth().protocol, 'responses');
+let responsesBody = null;
+const responsesProvider = new DeepSeekAdvisor({
+  apiKey: 'response-key',
+  endpoint: 'https://provider.test/v1/responses',
+  protocol: 'responses',
+  model: 'response-model',
+  fetchImpl: async (_url, options) => {
+    responsesBody = JSON.parse(options.body);
+    return { ok: true, status: 200, json: async () => ({ output_text: '{"actionId":"roll","confidence":0.8}' }) };
+  }
+});
+const responsesDecision = await responsesProvider.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-responses' });
+assert.equal(responsesDecision.provider, 'ai');
+assert.equal(responsesDecision.actionId, 'roll');
+assert.ok(Array.isArray(responsesBody.input));
+assert.equal(responsesBody.text.format.type, 'json_object');
+console.log('bot advisor modes and fallback: 22 passed, 0 failed');

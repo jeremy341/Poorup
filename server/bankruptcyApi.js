@@ -29,9 +29,6 @@ const bankruptcyApi = {
   },
 
   handleBankruptcy(player, creditor = null) {
-    if (this.settings.bankruptMode === 'debt') {
-      return this.handleDebtBankruptcy(player, creditor);
-    }
     this.markPlayerBankrupt(player);
     this.liquidateMarketPositions(player);
     this.sweepCashToCreditor(player, creditor);
@@ -42,23 +39,16 @@ const bankruptcyApi = {
   },
 
   handleDebtBankruptcy(player, creditor) {
-    // Debt mode keeps the seat alive, but it still liquidates every market
-    // position before cash/assets are transferred. Otherwise a player could
-    // declare bankruptcy, remain in debt, and keep an unbounded portfolio.
-    this.liquidateMarketPositions(player);
-    this.sweepCashToCreditor(player, creditor);
-    if (!creditor) player.cash = 0;
-    this.settleContractsOnBankruptcy(player);
-    this.forfeitOrReleaseProperties(player, creditor);
-    player.inDebt = true;
-    this.feedMessage(creditor
-      ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
-      : `${player.nickname} lost everything. They stay in the game with debt.`);
-    this.concludeBankruptRound(player);
+    // Kept as a compatibility seam for older callers. A declared bankruptcy
+    // always eliminates the seat; debt is a temporary payment state, not a
+    // second in-game lifecycle.
+    return this.handleBankruptcy(player, creditor);
   },
 
   markPlayerBankrupt(player) {
     player.bankrupt = true;
+    player.spectating = !player.isBot;
+    player.inDebt = false;
     this.clearSponsoredPurchaseForPlayer?.(player.id);
     player.bubbleSurvivor = false;
     this.extraRollPending = false;
@@ -66,6 +56,12 @@ const bankruptcyApi = {
     this.consecutiveDoubles = 0;
     if (this.pendingPayment?.playerId === player.id) {
       this.clearPendingPayment();
+    }
+    // Stale auction seats count toward pass quorums and can never pass once
+    // bankrupt: prune the seat so closes resolve on the timer, not never.
+    if (this.auction) {
+      this.auction.participants = (this.auction.participants || []).filter(id => id !== player.id);
+      this.auction.passedPlayerIds = (this.auction.passedPlayerIds || []).filter(id => id !== player.id);
     }
   },
 
@@ -109,7 +105,12 @@ const bankruptcyApi = {
   // deed is handed over.
   sweepCashToCreditor(player, creditor) {
     if (!creditor) return;
-    if (creditor.bankrupt) return;
+    if (creditor.bankrupt) {
+      // No solvent creditor: cash returns to the bank instead of stranding
+      // on an eliminated spectating seat invisible to table totals.
+      player.cash = 0;
+      return;
+    }
     if (player.cash <= 0) return;
     creditor.cash += player.cash;
     player.cash = 0;

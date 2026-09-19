@@ -5,6 +5,57 @@
 // botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import { JAIL_FINE } from './gameData.js';
+import { monopolyGiveaway } from './botTradeValuation.js';
+import { developmentStage } from './botDevelopmentForecast.js';
+import { coalitionAgainst } from './botTableMind.js';
+import { tableBrain } from './botTableBrain.js';
+
+// Situation-aware table talk shared by both brains: trailing seats apply
+// pressure, spoilers announce kingmaker intent, leaders stay quiet-ish.
+// Falls back to the personality line when the table cannot be read.
+function tableTalkFor(game, player) {
+  const base = BOT_TABLE_TALK[player.personality] || BOT_TABLE_TALK.survivor;
+  try {
+    const brain = tableBrain(game, player.id);
+    if (brain.kingmaker?.spoiler) return BOT_TABLE_TALK_SPOILER;
+    if (brain.rank > 1) return BOT_TABLE_TALK_BEHIND[player.personality] || base;
+  } catch {
+    // Thin stubs: keep the pinned personality line.
+  }
+  return base;
+}
+
+// Jail stay beats exit when the table is developed (mid/late): the bot
+// avoids hot rents while still collecting its own. Early boards pay to
+// leave and keep buying.
+export function jailStayBeatsExit(game, player) {
+  if (!game || !player) return false;
+  const board = (game.tiles || []).map(tile => ({
+    group: tile?.group || null,
+    ownerSeat: !tile?.ownerId ? 'bank' : tile.ownerId === player.id ? 'self' : 'opponent-1',
+    houseCount: tile?.houseCount || 0,
+  }));
+  const stage = developmentStage(board);
+  return stage === 'late' || (stage === 'mid' && Number(player.cash || 0) < 500);
+}
+
+// Grudge-gated dealing: ledgers start empty, so normalize missing entries
+// to 0 — a direct Number(undefined) comparison would lock out every seat.
+function grudgedOut(grudges, id) {
+  return Number((grudges || {})[id] || 0) >= 3;
+}
+
+// Opening-book helper: a complete set means ahead enough to speculate.
+function holdsCompleteSet(game, player) {
+  const groups = [...new Set((player?.properties || []).map(index => game.getTile(index)?.group).filter(Boolean))];
+  return groups.some(group => {
+    try {
+      return game.hasFullSet(player.id, group) === true;
+    } catch {
+      return false;
+    }
+  });
+}
 
 const BOT_CANDIDATE_SOURCES = [
   { collect: (game, player) => game.botJailCandidates(player) },
@@ -35,6 +86,18 @@ const BOT_TABLE_TALK = {
   diplomat: 'There is probably a deal that leaves both wallets standing.',
   chaos: 'I have a plan. It is not the safe one.'
 };
+
+// Trailing lines: intent-tagged pressure keyed to table position. The
+// diplomat line keeps a "deal" mention (pinned by candidate tests).
+const BOT_TABLE_TALK_BEHIND = {
+  builder: 'I am behind; selling me your spare deed gets my houses up.',
+  shark: 'Someone is running away with this. Deal with me instead.',
+  survivor: 'I need one safe deal to survive the next circuit.',
+  speculator: 'The leader is overextended. Price your deeds accordingly.',
+  diplomat: 'I need a deal to get back in this. Who is selling?',
+  chaos: 'Crowning a leader is boring. Let us shake the board.'
+};
+const BOT_TABLE_TALK_SPOILER = 'I cannot win this one, but I choose who does. Make your case.';
 
 const BOT_TRADE_ASKS = {
   shark: { requestCash: 40, score: 8 },
@@ -113,7 +176,7 @@ const botApi = {
       fallback: entry.fallback === true,
       success: entry.success !== false,
       fallbackReason: entry.fallbackReason ? String(entry.fallbackReason).slice(0, 40) : null,
-      brain: String(entry.brain || this.settings.botBrain || 'auto').slice(0, 12),
+      brain: String(entry.brain || this.settings.botBrain || 'ai').slice(0, 12),
       difficulty: String(entry.difficulty || this.settings.botDifficulty || 'table').slice(0, 12),
       planningHorizon: Math.max(0, Math.min(3, Math.floor(finiteOrZero(entry.planningHorizon)))),
       strategicScore: Number.isFinite(Number(entry.strategicScore)) ? Number(entry.strategicScore) : null,
@@ -200,12 +263,17 @@ const botApi = {
     const offer = this.pendingPurchaseOffer;
     const purchase = pendingPurchaseCandidate(this, player, offer);
     if (purchase) return [purchase];
-    if (offer) return [];
+    // Another seat's offer: nothing for me to buy, but the turn still needs
+    // an explicit end action instead of a no-op stall.
+    if (offer) return [{ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 }];
     return postRollCandidates(this, player, options);
   },
 
   botJailCandidates(player) {
     if (!player?.inJail) return [];
+    // Late-stage sit-out: a developed board makes jail a rent-free shelter
+    // that still collects. Roll for doubles instead of paying to leave.
+    if (Number(player.jailTurns || 0) < 2 && jailStayBeatsExit(this, player)) return [];
     const choices = [];
     if (player.cash >= JAIL_FINE) choices.push({ id: 'jail:fine', kind: 'jail-fine', risk: JAIL_FINE / Math.max(1, player.cash), score: player.jailTurns >= 2 ? 14 : 8 });
     if (player.jailFreeCards > 0) choices.push({ id: 'jail:free', kind: 'jail-free', risk: 0.05, score: player.jailTurns >= 2 ? 16 : 7 });
@@ -215,7 +283,7 @@ const botApi = {
   botSocialCandidates(player) {
     const sequence = Math.max(0, Math.floor(Number(this.botDecisionSequence) || 0));
     if (!player || sequence === 0 || sequence % 6 !== 0) return [];
-    return [{ id: 'chat:table-talk', kind: 'chat', text: BOT_TABLE_TALK[player.personality] || BOT_TABLE_TALK.survivor, risk: 0, score: 1 }];
+    return [{ id: 'chat:table-talk', kind: 'chat', text: tableTalkFor(this, player), risk: 0, score: 1 }];
   },
 
   botBankLoanRepaymentCandidates(player) {
@@ -239,13 +307,17 @@ const botApi = {
 
   botBuildCandidateFor(tile, player) {
     const cost = this.getPropertyHouseCost(tile);
+    // Hotel reluctance: the 5th level returns 4 houses to the bank for
+    // opponents to buy. Stay at 4 unless finishing (handled by threat
+    // pressure in the planner, not here).
+    const hotelMalus = Math.max(0, Math.min(5, Number(tile?.houseCount) || 0)) >= 4 ? 6 : 0;
     return {
       id: 'build:' + tile.index,
       kind: 'build',
       tileIndex: tile.index,
       cost,
       risk: riskAgainstCash(cost, player.cash),
-      score: BOT_BUILD_SCORES[player.personality] || BOT_BUILD_SCORE_DEFAULT
+      score: (BOT_BUILD_SCORES[player.personality] || BOT_BUILD_SCORE_DEFAULT) - hotelMalus
     };
   },
 
@@ -349,18 +421,35 @@ const botApi = {
 
   botGroupTradeCandidates(player) {
     if (this.settings.trading === false) return [];
+    if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
     const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
     const owned = player.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
-    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.isBot);
+    // Bots may now deal with bots too (same veto applies); humans exploited
+    // isolated bot seats that never cooperated.
+    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.bankrupt && !candidate.disconnected);
+    const table = coalitionAgainst(this, player.id);
+    const grudges = player.grudge || {};
     const candidates = [];
     partners.forEach(partner => {
+      // No feeding a teaming pair, no deals with a grudge >= 3.
+      if (table.teaming && table.pair.includes(partner.id)) return;
+      if (grudgedOut(grudges, partner.id)) return;
       const requested = partner.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
       owned.forEach(giveTile => requested.filter(askTile => askTile.group === giveTile.group).forEach(askTile => {
+        // Never hand the partner a build-ready monopoly completer. Phase 1:
+        // skip the candidate (premium-priced counters arrive in phase 2).
+        const giveaway = monopolyGiveaway(this, [giveTile.index], partner.id);
+        if (giveaway.givesMonopoly && giveaway.buildReady) return;
         const botOwnedBefore = this.getGroupTiles(giveTile.group).filter(tile => tile.ownerId === player.id).length;
         const botOwnedAfter = botOwnedBefore - 1 + (askTile.ownerId === partner.id ? 1 : 0);
         const targetCount = this.getGroupTiles(giveTile.group).length;
         const completesGroup = botOwnedAfter >= targetCount;
         const breaksGroup = botOwnedBefore >= targetCount && botOwnedAfter < targetCount;
+        // Cash-balanced ask: cover the face gap plus a full-face premium
+        // when handing over a (non-build-ready) completer. Replaces the
+        // flat 40/0 personality asks with priced asks.
+        const faceGap = Math.max(0, Math.floor(Number(askTile.price) || 0) - Math.floor(Number(giveTile.price) || 0));
+        const completerPremium = giveaway.givesMonopoly ? Math.floor(Number(giveTile.price) || 0) : 0;
         candidates.push({
           id: 'trade:' + partner.id + ':' + askTile.index,
           kind: 'trade',
@@ -368,7 +457,7 @@ const botApi = {
           givePropertyIndexes: [giveTile.index],
           requestPropertyIndexes: [askTile.index],
           giveCash: 0,
-          requestCash: ask.requestCash,
+          requestCash: faceGap + completerPremium,
           risk: 0.2,
           score: ask.score + (completesGroup ? 28 : 0) - (breaksGroup ? 30 : 0)
         });
@@ -379,7 +468,12 @@ const botApi = {
 
   botRichTradeCandidates(player) {
     if (this.settings.trading === false) return [];
-    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.bankrupt && !candidate.disconnected);
+    if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
+    const table = coalitionAgainst(this, player.id);
+    const grudges = player.grudge || {};
+    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.bankrupt && !candidate.disconnected
+      && !(table.teaming && table.pair.includes(candidate.id))
+      && !grudgedOut(grudges, candidate.id));
     const owned = (player.properties || []).map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group).slice(0, 3);
     if (owned.length < 2) return [];
     return partners.flatMap(partner => {
@@ -402,11 +496,15 @@ const botApi = {
 
   botContractCandidates(player) {
     if (!player || player.id !== this.currentPlayerId) return [];
+    if (player.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
     const reserve = Math.max(180, Number(this.settings.startingCash || 1500) * 0.2);
     const lenderCash = Number(player.cash || 0);
     if (lenderCash <= reserve + 100) return [];
+    const table = coalitionAgainst(this, player.id);
+    const grudges = player.grudge || {};
     const targets = this.activePlayers()
       .filter(target => target.id !== player.id && !target.bankrupt && !target.disconnected)
+      .filter(target => !(table.teaming && table.pair.includes(target.id)) && !grudgedOut(grudges, target.id))
       .sort((a, b) => Number(a.cash || 0) - Number(b.cash || 0))
       .slice(0, 2);
     const result = [];
@@ -462,6 +560,11 @@ const botApi = {
     if (!this.settings.market) return [];
     if (this.activeEventEffects?.().tradingEnabled === false) return [];
     if ((player.marketActionsThisTurn || 0) >= 1) return [];
+    // Two doubles already: keep cash liquid instead of locking it in quotes.
+    if (Number(this.consecutiveDoubles || 0) >= 2) return [];
+    // Opening book laps 1-3: deeds only, unless already holding a complete
+    // set (ahead: speculation allowed).
+    if (Number(this.roundNumber || 99) <= 3 && !holdsCompleteSet(this, player)) return [];
     const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
     if (!marketId) return [];
     const quote = Number(this.marketQuotes[marketId]) || 100;
@@ -484,9 +587,13 @@ const botApi = {
   botCasinoCandidate(player) {
     if (!this.settings.casino) return [];
     if ((player.casinoBetsThisRound || 0) >= 1) return [];
-    if (!['shark', 'chaos'].includes(player.personality)) return [];
-    if (player.cash <= 20) return [];
-    const spec = BOT_CASINO_SPECS[player.personality];
+    // EV-negative tables are chaos-only flavor, and only when cash-strong:
+    // broke bots must preserve every dollar for rent survival.
+    if (player.personality !== 'chaos') return [];
+    if (Number(player.cash || 0) < Number(this.settings.startingCash || 1500) * 0.35) return [];
+    // Two doubles already: jail looms, keep cash liquid for the missed turn.
+    if (Number(this.consecutiveDoubles || 0) >= 2) return [];
+    const spec = BOT_CASINO_SPECS[player.personality] || BOT_CASINO_SPECS.chaos;
     if (this.hasLoanBackedCash?.(player)) return [];
     const entryFee = Number(this.casinoLimits?.().entryFee) || 0;
     const stake = Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate)));

@@ -69,6 +69,12 @@ assert.equal(context.recentDecisions[0].success, false);
 assert.equal(context.decisionMemory.decisions, 2);
 assert.equal(context.decisionMemory.failures, 1);
 assert.equal(context.decisionMemory.actionRates[0].actionId, 'mortgage:1');
+assert.ok(Array.isArray(context.opponents[0].nearGroups));
+assert.equal(typeof context.opponents[0].cashExactBucket, 'number');
+assert.equal(typeof context.opponents[0].desire, 'string');
+assert.ok(context.table && typeof context.table.rank === 'number');
+assert.ok(Array.isArray(context.table.threats));
+assert.ok(Array.isArray(context.table.alliances));
 
 const serialized = JSON.stringify(context);
 assert.equal(serialized.includes('context-host'), false);

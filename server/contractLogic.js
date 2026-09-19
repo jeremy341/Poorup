@@ -15,7 +15,6 @@ export const CONTRACT_KINDS = new Set(['loan', 'equity', 'hybrid']);
 export const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
 const ACTIVE_CONTRACT_STATUSES = ['active', 'due'];
 const TABLE_OBLIGATION_FIELDS = [
-  'pendingPayment',
   'auction',
   'pendingPurchaseOffer',
   'pendingSponsoredPurchase',
@@ -119,6 +118,9 @@ function collateralIsBorrowerDeed(game, collateral, borrower) {
 function loanDraftTerms(game, contract, offer, borrower) {
   const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
   const collateral = collateralIndex == null ? null : game.getTile(collateralIndex);
+  if (collateralIndex != null && !collateral) {
+    return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
+  }
   if (!collateralIsBorrowerDeed(game, collateral, borrower)) {
     return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
   }
@@ -203,7 +205,7 @@ function hybridDraftTerms(game, contract, offer, recipient) {
   contract.conversionShare = conversion;
   const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
   const collateral = collateralIndex == null ? null : game.getTile(collateralIndex);
-  if (collateralIndex != null && !collateralIsBorrowerDeed(collateral, recipient)) {
+  if (collateralIndex != null && !collateralIsBorrowerDeed(game, collateral, recipient)) {
     return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
   }
   contract.collateralTileIndex = collateral?.index ?? null;
@@ -237,6 +239,7 @@ export function proposeContract(game, socketId, offer = {}) {
   const terms = buildTerms(game, contract, offer, toPlayer);
   if (terms) return terms;
   game.pendingPlayerContract = contract;
+  if (fromPlayer.isBot) fromPlayer.botDealActionsThisTurn = (fromPlayer.botDealActionsThisTurn || 0) + 1;
   game.feedMessage(fromPlayer.nickname + ' sent a ' + normalized.kind + ' contract to ' + toPlayer.nickname + '.');
   return memoizeSuccess(game, key, { success: true, contract });
 }
@@ -271,8 +274,16 @@ export function counterContract(game, socketId, offer = {}) {
     durationRounds: normalized.durationRounds
   });
   const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
+  // The cap check reads game.pendingPlayerContract as "other" encumbrance:
+  // clear the offer under negotiation (restored on failure) so a counter
+  // is not double-counted against itself.
+  const previousPending = game.pendingPlayerContract;
+  game.pendingPlayerContract = null;
   const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
-  if (terms) return terms;
+  if (terms) {
+    game.pendingPlayerContract = previousPending;
+    return terms;
+  }
   contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
   game.pendingPlayerContract = contract;
   game.feedMessage(responder.nickname + ' negotiated the ' + normalized.kind + ' contract terms.');
@@ -305,8 +316,13 @@ export function adjustContract(game, socketId, offer = {}) {
     durationRounds: normalized.durationRounds
   });
   const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
+  const previousPending = game.pendingPlayerContract;
+  game.pendingPlayerContract = null;
   const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
-  if (terms) return terms;
+  if (terms) {
+    game.pendingPlayerContract = previousPending;
+    return terms;
+  }
   contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
   game.pendingPlayerContract = contract;
   game.feedMessage(editor.nickname + ' adjusted the ' + normalized.kind + ' contract terms.');
