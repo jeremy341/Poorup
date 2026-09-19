@@ -30,6 +30,12 @@ export function isAdminAccount(accountId, adminIds) {
   return Boolean(id && normalizeAdminIds(adminIds).includes(id));
 }
 
+/** Stamp owner-session account payloads with a boolean operator flag. Never add this to public social projections. */
+export function withAdminFlag(account, adminIds) {
+  if (!account || typeof account !== 'object') return account;
+  return { ...account, isAdmin: isAdminAccount(account.id, adminIds) };
+}
+
 function safeRange(range) {
   const value = String(range);
   return ['hour', 'day', 'week'].includes(value) ? value : 'hour';

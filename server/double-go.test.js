@@ -10,6 +10,8 @@ function fixture(doubleGo) {
   const game = room.game;
   const player = game.players[0];
   player.cash = 1000;
+  // Tie the table: the catch-up bonus only fires for strictly-last cash.
+  game.players[1].cash = 1000;
   game.currentPlayerId = player.id;
   game.hasRolled = true;
   return { game, player };
@@ -34,4 +36,11 @@ cardMove.player.cash = 1000;
 cardMove.game.applyCard(cardMove.player, { action: 'moveTo', tileIndex: 0 }, {});
 assert.equal(cardMove.player.cash, 1400, 'landing on Start via a card uses the Double GO reward');
 
-console.log('double GO: 4 passed, 0 failed');
+const catchup = fixture(false);
+catchup.game.players[1].cash = 2000;
+catchup.player.cash = 100;
+catchup.player.position = 38;
+catchup.game.movePlayer(catchup.player, 3);
+assert.equal(catchup.player.cash, 400, 'strictly-last seat collects salary plus the $100 catch-up bonus');
+
+console.log('double GO: 5 passed, 0 failed');

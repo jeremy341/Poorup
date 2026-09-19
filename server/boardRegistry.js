@@ -40,8 +40,8 @@ function createMetroTiles() {
     namedTile(7, 'surprise-1'),
     namedTile(8, 'tema'),
     namedTile(9, 'kumasi'),
-    namedTile(9, 'lagos', { name: 'Lagos', type: 'property', group: GROUPS.metroGold.group, price: 340, rent: 34, color: GROUPS.metroGold.color }),
-    namedTile(9, 'abuja', { name: 'Abuja', type: 'property', group: GROUPS.metroGold.group, price: 360, rent: 36, color: GROUPS.metroGold.color }),
+    namedTile(9, 'lagos', { name: 'Lagos', type: 'property', group: GROUPS.metroGold.group, price: 320, rent: 34, color: GROUPS.metroGold.color }),
+    namedTile(9, 'abuja', { name: 'Abuja', type: 'property', group: GROUPS.metroGold.group, price: 340, rent: 36, color: GROUPS.metroGold.color }),
     namedTile(7, 'surprise-4'),
     namedTile(10, 'passing-by'),
     namedTile(11, 'pattaya'),
@@ -81,7 +81,7 @@ function createMetroTiles() {
     namedTile(39, 'marina-bay'),
     namedTile(28, 'waterworks', { name: 'Waterworks', type: 'utility', price: 150, rent: 12 }),
     namedTile(33, 'treasure-4'),
-    namedTile(38, 'transit-tax', { name: 'Transit Tax', type: 'tax', amount: 100 })
+    namedTile(38, 'transit-tax', { name: 'Transit Tax', type: 'tax', amount: 75 })
   ];
   return applyMetroCoordinates(metro);
 }

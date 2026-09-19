@@ -80,3 +80,10 @@ check('preserves nulls and deeply nested aggregate measures', () => {
   const safe = sanitizeAnalyticsResponse({ overview: { kpis: [{ comparison: { period: { sample: { value: null } } } }] } });
   assert.equal(safe.overview.kpis[0].comparison.period.sample.value, null);
 });
+
+check('redacts identity-shaped values in free-text dimension keys', () => {
+  const row = sanitizeAnalyticsRow({ dimension: 'group', label: 'bob@gmail.com', name: 'Orange', count: 3 });
+  assert.equal(row.label, '[redacted]');
+  assert.equal(row.name, 'Orange');
+  assert.equal(row.count, 3);
+});
