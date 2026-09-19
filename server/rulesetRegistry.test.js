@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   boardVariantMeta,
   createRulesetDigest,
+  effectiveSettingsFor,
   normalizeOverrides,
   resolveRuleset,
   safeBoardVariant
@@ -43,6 +44,8 @@ assert.notEqual(classic.digest, afterHours.digest);
 assert.equal(safeBoardVariant('grand-64'), 'standard-40');
 assert.equal(boardVariantMeta('metro-52').maxPlayers, 6);
 assert.deepEqual(normalizeOverrides({ marketComplexity: 'margin', nope: 1 }), { marketComplexity: 'margin' });
+assert.deepEqual(normalizeOverrides({ bankruptMode: 'debt', bankLoanSeverity: 'unsafe' }), { bankruptMode: 'elim', bankLoanSeverity: 'predatory' });
+assert.equal(effectiveSettingsFor({ settings: { bankruptMode: 'debt' } }).bankruptMode, 'elim');
 const manager = new RoomManager();
 const room = manager.createRoom({ socketId: 's1', clientId: 'c1', nickname: 'A', rulesetPreset: 'classic', boardVariant: 'metro-52' });
 room.addOrReconnectPlayer({ socketId: 's2', clientId: 'c2', nickname: 'B' });

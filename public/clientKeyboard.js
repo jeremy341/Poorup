@@ -181,9 +181,9 @@ const TOP_SURFACE_ESCAPE = {
   "trade-modal": () => host.closeTradeModal(),
   "popup": () => host.closePopup(),
   "choice-modal": () => closeSurface("#choice-modal"),
-  "auction-modal": preventEscape,
+  "auction-modal": () => closeSurface("#auction-modal"),
   "gameover-modal": preventEscape,
-  "bankruptcy-modal": preventEscape,
+  "bankruptcy-modal": () => closeSurface("#bankruptcy-modal"),
   "log-drawer": () => closeLogDrawer(),
 };
 

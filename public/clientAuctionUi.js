@@ -10,8 +10,9 @@ import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { avatarHTML } from "./clientSprites.js";
-import { AUCTION_MS } from "./clientStateSync.js";
+import { AUCTION_MS, snoozeAuctionSurface } from "./clientStateSync.js";
 import { accentOf, popIconHTML, kindLabel } from "./clientPopupUi.js";
+import { closeSurface } from "./clientSurfaces.js";
 
 let host = { emitServer: noop, say: noop, renderChat: noop };
 
@@ -27,6 +28,27 @@ const BID_STEPS = [1, 20, 100];
 function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
 let auctionTimer = null;
 let lastAuctionAnnouncementKey = null;
+let auctionActionPending = false;
+let auctionActionTimer = null;
+
+function clearAuctionActionTimer() {
+  clearTimeout(auctionActionTimer);
+  auctionActionTimer = null;
+}
+
+function beginAuctionAction() {
+  if (auctionActionPending) return false;
+  auctionActionPending = true;
+  clearAuctionActionTimer();
+  auctionActionTimer = setTimeout(() => {
+    auctionActionPending = false;
+    auctionActionTimer = null;
+    host.say("Auction response timed out. The table state will refresh when the connection returns.");
+    host.renderChat();
+    updateAuctionLive();
+  }, 8000);
+  return true;
+}
 
 function auctionFocusKey(active) {
   const card = $("#auction-card");
@@ -69,25 +91,44 @@ export function startAuction(tile) {
 function humanBid(inc) {
   const a = state.auction;
   if (!a) return;
+  if (auctionActionPending) return;
   const me = state.players[0];
-  if (a.passed.p1) return;
-  if (me.cash < a.bid + inc) return; // can't cover the raise
+  if (a.passed.p1) {
+    host.say("You already passed on this auction.");
+    host.renderChat();
+    return;
+  }
+  if (me.cash < a.bid + inc) {
+    host.say(`That raise costs $${(a.bid + inc).toLocaleString()} and you hold $${Number(me.cash || 0).toLocaleString()}.`);
+    host.renderChat();
+    return;
+  }
+  if (!beginAuctionAction()) return;
+  updateAuctionLive();
   host.emitServer("auction-bid", { amount: a.bid + inc }, (response) => {
+    clearAuctionActionTimer();
+    auctionActionPending = false;
     if (response?.success === false) {
       host.say(response.error || "Bid rejected.");
       host.renderChat();
     }
+    updateAuctionLive();
   });
 }
 
 function humanPassAuction() {
   const a = state.auction;
   if (!a) return;
+  if (!beginAuctionAction()) return;
+  updateAuctionLive();
   host.emitServer("auction-pass", {}, (response) => {
+    clearAuctionActionTimer();
+    auctionActionPending = false;
     if (response?.success === false) {
       host.say(response.error || "You cannot pass this auction.");
       host.renderChat();
     }
+    updateAuctionLive();
   });
 }
 
@@ -104,10 +145,19 @@ function tickAuction() {
 
 export function renderAuction() {
   const a = state.auction;
-  if (!a) return;
+  if (!a) {
+    clearAuctionActionTimer();
+    auctionActionPending = false;
+    return;
+  }
   const tile = TILES[a.tileIndex];
   const card = $("#auction-card");
   if (!card) return;
+  // Stale/variant-mismatched tile reference: never render a phantom auction.
+  if (!tile) {
+    card.innerHTML = "";
+    return;
+  }
   const focusKey = auctionFocusKey(document.activeElement);
   const sameAuction = card.dataset.auctionTile === String(a.tileIndex) && card.querySelector("#auction-pass");
   if (sameAuction) {
@@ -125,6 +175,7 @@ export function renderAuction() {
           <div class="t-micro g400">AUCTION · ${kindLabel(tile)}</div>
           <h3 class="t-section auction-title" id="auction-card-title">${tile.name}</h3>
         </div>
+        <button class="btn-dark auction-close" type="button" id="auction-close"><span class="t-label f11">CLOSE</span></button>
       </div>
 
       <div class="auction-bid-box">
@@ -169,6 +220,11 @@ export function renderAuction() {
     btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid)));
   });
   $("#auction-pass").addEventListener("click", humanPassAuction);
+  $("#auction-close")?.addEventListener("click", () => {
+    // Dismissing a live auction snoozes re-rendering instead of fighting it.
+    snoozeAuctionSurface();
+    closeSurface("#auction-modal");
+  });
   updateAuctionLive();
   restoreAuctionFocus(focusKey);
 }
@@ -209,7 +265,12 @@ function renderAuctionStatus(a) {
   const leader = findAuctionLeader(a);
   const key = `${a.bid}:${a.leaderId || ""}`;
   if (lastAuctionAnnouncementKey === null) {
+    // First render still announces so screen-reader users get the table,
+    // not silence, when the modal opens mid-auction.
     lastAuctionAnnouncementKey = key;
+    statusEl.textContent = leader
+      ? `Auction update: ${leader.name} leads with $${a.bid}.`
+      : `Auction update: no bids yet.`;
     return;
   }
   if (lastAuctionAnnouncementKey === key) return;
@@ -222,13 +283,14 @@ function renderAuctionStatus(a) {
 function disableAuctionBids(me, a) {
   $("#auction-card")?.querySelectorAll("[data-bid]").forEach((btn) => {
     const inc = Number(btn.dataset.bid);
-    btn.disabled = me.cash < a.bid + inc;
+    btn.disabled = auctionActionPending || me.cash < a.bid + inc;
+    btn.title = `Raise to $${(a.bid + inc).toLocaleString()} · you hold $${Number(me.cash || 0).toLocaleString()}`;
   });
 }
 
 function renderAuctionPass(a) {
   const passBtn = $("#auction-pass");
-  if (passBtn) passBtn.disabled = !!a.passed?.p1;
+  if (passBtn) passBtn.disabled = auctionActionPending || !!a.passed?.p1;
 }
 
 function auctionPlayerBroke(p, a) {
@@ -263,6 +325,14 @@ function renderAuctionPlayers(a) {
 function updateAuctionLive() {
   const a = state.auction;
   if (!a) return;
+  if (a.deadline == null) {
+    const timerEl = $("#auction-timer");
+    if (timerEl) timerEl.textContent = "SYNCING";
+    renderAuctionBid(a);
+    renderAuctionLeader(a);
+    renderAuctionStatus(a);
+    return;
+  }
   const me = state.players[0];
   const remaining = Math.max(0, a.deadline - serverNow());
   const pct = Math.max(0, Math.min(100, (remaining / AUCTION_MS) * 100));

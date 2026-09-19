@@ -1,69 +1,39 @@
 /* global process */
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MUSIC_MANIFEST } from "./clientMusicData.js";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const index = fs.readFileSync(path.join(root, "public/index.html"), "utf8");
+const root = dirname(fileURLToPath(import.meta.url));
+const index = readFileSync(join(root, "index.html"), "utf8");
+const styles = readFileSync(join(root, "styles.css"), "utf8");
+const main = readFileSync(join(root, "main.js"), "utf8");
+const player = readFileSync(join(root, "clientMusicPlayer.js"), "utf8");
 
-// The supplied reference is 1672×941; acceptance is performed at native 1920×1080.
-export const MUSIC_BOX_REFERENCE = Object.freeze({
-  referenceWidth: 1672,
-  referenceHeight: 941,
-  acceptanceWidth: 1920,
-  acceptanceHeight: 1080,
-  collapsedWidth: [304, 324],
-  collapsedHeight: [92, 104],
-  leftInset: [14, 18],
-  bottomInset: [18, 22],
-  volumeWidth: [34, 40],
-  volumeHeight: [104, 116],
-});
+assert.equal((index.match(/data-music-runtime\b/g) || []).length, 1);
+assert.equal((index.match(/data-music-audio=["'](?:a|b)["']/g) || []).length, 2);
+assert.doesNotMatch(index, /data-music-box|music-box-panel|clientMusicBoxUi\.js/);
+assert.doesNotMatch(styles, /\.music-box\b|music-position-menu|music-volume-popover/);
+assert.match(styles, /\.music-runtime[\s\S]*?clip-path:\s*inset\(50%\)/);
+assert.match(main, /querySelector\("\[data-music-runtime\]"\)/);
+assert.match(main, /__poorupThemeMusicController/);
+assert.doesNotMatch(main, /bindMusicBoxIntent|music-box-play|data-music-box/);
+assert.match(player, /loop\s*=\s*true/);
+assert.match(player, /resolveThemeTrack\(theme, manifest\)/);
 
-function test(name, fn) {
-  try {
-    fn();
-    process.stdout.write(`ok - ${name}\n`);
-  } catch (error) {
-    process.stderr.write(`not ok - ${name}\n${error.stack}\n`);
-    process.exitCode = 1;
-  }
+const expected = {
+  original: "pondering-the-cosmos",
+  spring: "hot-springs-town",
+  summer: "summers",
+  autumn: "autumn",
+  winter: "snowy-village",
+  light: "town",
+};
+assert.deepEqual(MUSIC_MANIFEST.defaults, expected);
+for (const [theme, track] of Object.entries(expected)) {
+  assert.deepEqual(MUSIC_MANIFEST.themes[theme], [track]);
+  assert.equal(MUSIC_MANIFEST.tracks[track].status, "approved");
 }
 
-test("reference dimensions and acceptance viewport are locked", () => {
-  assert.equal(MUSIC_BOX_REFERENCE.referenceWidth, 1672);
-  assert.equal(MUSIC_BOX_REFERENCE.referenceHeight, 941);
-  assert.deepEqual(
-    [MUSIC_BOX_REFERENCE.acceptanceWidth, MUSIC_BOX_REFERENCE.acceptanceHeight],
-    [1920, 1080],
-  );
-});
-
-test("compact music box exposes one stable root contract", () => {
-  assert.match(index, /data-music-box[ =]/, "the global dock root is not mounted yet");
-  assert.equal((index.match(/data-music-box[ =]/g) || []).length, 1);
-  assert.match(index, /data-music-box-panel[ =]/, "the controlled panel is not mounted yet");
-  assert.match(index, /aria-controls=["'](?:music-box-panel|music-box)["']/);
-});
-
-test("reference dock is outside per-view containers and keeps a single audio pair", () => {
-  const rootStart = index.indexOf("data-music-box");
-  assert.notEqual(rootStart, -1, "the global dock root is not mounted yet");
-  const tagStack = [];
-  const prefix = index.slice(0, rootStart);
-  const tokenPattern = /<!--[\s\S]*?-->|<\/?([a-z][\w-]*)(?:\s[^>]*)?>/gi;
-  for (const token of prefix.matchAll(tokenPattern)) {
-    if (!token[1]) continue;
-    const tag = token[1].toLowerCase();
-    if (token[0].startsWith("</")) {
-      const indexToClose = tagStack.map((entry) => entry.tag).lastIndexOf(tag);
-      if (indexToClose >= 0) tagStack.splice(indexToClose, 1);
-      continue;
-    }
-    if (/\/\s*>$/.test(token[0]) || ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"].includes(tag)) continue;
-    tagStack.push({ tag, isView: /\bclass\s*=\s*["'][^"']*\bview\b[^"']*["']/i.test(token[0]) });
-  }
-  assert.equal(tagStack.some((entry) => entry.isView), false, "dock must be mounted outside SPA views");
-  assert.equal((index.match(/data-music-audio=["'](?:a|b)["']/g) || []).length, 2);
-});
+process.stdout.write("theme music runtime contract: passed\n");

@@ -36,6 +36,16 @@ check('sets gauges without retaining unbounded history', () => {
   assert.equal(snapshot.metrics.extra, undefined);
 });
 
+check('keeps per-label breakdowns instead of merging', () => {
+  const metrics = createMetricsRegistry({ now: () => 4000 });
+  metrics.recordMetric('error-count', 1, { phase: 'roll' });
+  metrics.recordMetric('error-count', 1, { phase: 'build' });
+  const entry = metrics.snapshotMetrics().metrics['error-count'];
+  assert.equal(entry.count, 2);
+  assert.equal(entry.byLabels['{"phase":"roll"}'].count, 1);
+  assert.equal(entry.byLabels['{"phase":"build"}'].count, 1);
+});
+
 check('redacts private-looking labels and clamps values', () => {
   const metrics = createMetricsRegistry({ now: () => 3000 });
   metrics.recordMetric('error-count', Number.POSITIVE_INFINITY, {

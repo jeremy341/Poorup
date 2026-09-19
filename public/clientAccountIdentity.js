@@ -226,9 +226,11 @@ function applyAccountAchievements(account) {
 
 export function updateAccountFromResponse(response) {
   if (!response?.account) return;
-  const token = response.sessionToken || state.account?.sessionToken;
-  if (!token) return;
+  const token = response.sessionToken || state.account?.sessionToken || "";
   saveAccountSession({ sessionToken: token, account: response.account });
+  if (token && typeof fetch === "function") {
+    fetch("/account/session", { credentials: "include", headers: { "x-poorup-session-token": token } }).catch(() => {});
+  }
   state.alias = response.account.displayName;
   state.unlockedAchievements = new Set();
   state.achievementRecords = new Map();
@@ -506,6 +508,7 @@ export function closeAccountModal() {
 export function logoutAccount() {
   const token = state.account?.sessionToken;
   if (token) host.emitServer("account-logout", { sessionToken: token }, noop);
+  if (typeof fetch === "function") fetch("/account/logout", { method: "POST", credentials: "include" }).catch(() => {});
   clearLocalPlayerData();
   saveAccountSession(null);
   state.profiles = [];

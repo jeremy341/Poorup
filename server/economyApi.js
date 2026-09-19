@@ -151,7 +151,6 @@ const economyApi = {
   // keeps players away from the casino wheel.
   tableObligationPending() {
     return [
-      this.pendingPayment,
       this.auction,
       this.pendingPurchaseOffer,
       this.pendingSponsoredPurchase,

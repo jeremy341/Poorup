@@ -76,8 +76,8 @@ check('accept rejects a disconnected borrower and clears pending', () => {
   assert.equal(game.pendingPlayerContract, null);
 });
 
-check('contract counters respect other table obligations', () => {
-  const fields = ['pendingPayment', 'auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingTrade'];
+check('contract counters respect other table obligations (debt no longer blocks)', () => {
+  const fields = ['auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingTrade'];
   fields.forEach(field => {
     const { game, b } = startedRoom();
     const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
@@ -87,6 +87,15 @@ check('contract counters respect other table obligations', () => {
     assert.deepEqual(counter, { success: false, error: 'Resolve the current table obligation first.' }, field);
     assert.equal(game.pendingPlayerContract.id, first.contract.id);
   });
+  // Debt (pendingPayment) does NOT block contract counters — only endTurn.
+  {
+    const { game, b } = startedRoom();
+    const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
+    assert.equal(first.success, true);
+    game.pendingPayment = { playerId: 'x', creditorId: null, amountRemaining: 10, reason: 'r' };
+    const counter = game.counterPlayerContract('socket-b', { contractId: first.contract.id, amount: 60 });
+    assert.equal(counter.success, true);
+  }
 });
 
 check('remainder settlement replays non-equity hooks once', () => {
@@ -136,6 +145,18 @@ check('end turn cannot silently cancel an open sponsorship', () => {
   assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the open sponsorship before ending the turn.' });
 });
 
+check('a fully paid debt permits ending the turn at exactly zero cash', () => {
+  const { game, a } = startedRoom();
+  game.currentPlayerId = a.id;
+  game.awaitingEndTurn = false;
+  a.cash = 0;
+  game.pendingPayment = { playerId: a.id, creditorId: null, amountRemaining: 100, reason: 'tax' };
+  a.cash = 100;
+  assert.equal(game.trySettlePendingPayment(), true);
+  assert.equal(a.cash, 0);
+  assert.equal(game.endTurnRejection(a), null);
+});
+
 check('endGame clears contract and payment obligations', () => {
   const { game, a } = startedRoom();
   game.pendingPlayerContract = { id: 'x' };
@@ -156,21 +177,22 @@ check('bankrupt creditors are not enriched', () => {
   assert.equal(b.cash, cashB);
 });
 
-check('bankruptcy cash sweep never pays a bankrupt creditor', () => {
+check('bankruptcy cash sweep returns cash to the bank when the creditor is gone', () => {
   const { game, a, b } = startedRoom();
   a.bankrupt = true;
   b.cash = 100;
   game.sweepCashToCreditor(b, a);
   assert.equal(a.cash, 1500);
-  assert.equal(b.cash, 100);
+  assert.equal(b.cash, 0);
 });
 
-check('disconnected payer cannot settle and clears the debt', () => {
+check('disconnected payer cannot settle and goes bankrupt instead of evaporating', () => {
   const { game, b } = startedRoom();
   game.pendingPayment = { playerId: b.id, creditorId: null, amountRemaining: 10, reason: 'r' };
   b.disconnected = true;
   assert.equal(game.pendingPayerCanSettle(b), false);
   assert.equal(game.trySettlePendingPayment(), false);
+  assert.equal(b.bankrupt, true);
   assert.equal(game.pendingPayment, null);
 });
 
@@ -179,6 +201,25 @@ check('disconnected seats cannot declare bankruptcy through a retained socket ke
   b.disconnected = true;
   assert.deepEqual(game.declareBankruptcy('socket-b'), { success: false, error: 'That player is unavailable right now.' });
   assert.equal(b.bankrupt, false);
+});
+
+check('bankrupt humans become spectators while bots remain eliminated', () => {
+  const { game, a } = startedRoom();
+  game.markPlayerBankrupt(a);
+  assert.equal(a.bankrupt, true);
+  assert.equal(a.spectating, true);
+  const bot = { id: 'bot-seat', isBot: true, bankrupt: false, inDebt: true };
+  game.markPlayerBankrupt(bot);
+  assert.equal(bot.bankrupt, true);
+  assert.equal(bot.spectating, false);
+  assert.equal(bot.inDebt, false);
+});
+
+check('game summaries expose the authoritative spectator state', () => {
+  const { game, a } = startedRoom();
+  game.markPlayerBankrupt(a);
+  const summary = game.getGameSummary().players.find(player => player.id === a.id);
+  assert.equal(summary.spectating, true);
 });
 
 check('endGame never crowns a disconnected ghost seat', () => {

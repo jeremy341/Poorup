@@ -44,7 +44,7 @@ function normalizeAccount(source = {}) {
     tokens: Math.max(0, Math.floor(Number(source.tokens) || 0)),
     owned: [...new Set(owned)],
     equipped,
-    claims: Array.isArray(source.claims) ? source.claims.filter(id => typeof id === 'string').slice(0, 300) : [],
+    claims: Array.isArray(source.claims) ? source.claims.filter(id => typeof id === 'string').slice(-300) : [],
     tokenClaims: Array.isArray(source.tokenClaims) ? source.tokenClaims.filter(id => typeof id === 'string').slice(-300) : []
   };
 }
@@ -103,7 +103,11 @@ function claimEligibilityError(context) {
 function applyClaim(context) {
   const cost = Math.max(0, Math.floor(Number(context.item.cost) || 0));
   context.account.tokens -= cost;
-  context.account.owned.push(context.item.id);
+  if (!context.account.owned.includes(context.item.id)) {
+    // Mirror grant()'s collection cap: claims must not grow unbounded.
+    if (context.account.owned.length >= 200) return { success: false, error: 'Cosmetic collection is full.' };
+    context.account.owned.push(context.item.id);
+  }
   if (context.key) context.account.claims = [...context.account.claims, context.key].slice(-300);
   context.store.persist();
   return claimResponse(context.store, context.accountId, context.item, true);
@@ -200,6 +204,14 @@ export class CosmeticStore {
     account.equipped[targetSlot] = item.id;
     this.persist();
     return { success: true, item: { ...item }, snapshot: this.snapshot(accountId) };
+  }
+
+  purgeAccount(accountId) {
+    const id = safeId(accountId);
+    if (!id || !this.accounts.has(id)) return false;
+    this.accounts.delete(id);
+    this.persist();
+    return true;
   }
 }
 

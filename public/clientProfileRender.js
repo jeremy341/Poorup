@@ -10,6 +10,7 @@ import { state, getProfileById, getAppearanceMeta } from "./clientState.js";
 import { spriteFromGrid, avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { CONNECTION_COPY } from "./clientTopNavRender.js";
 import { MAX_PROFILES, profileDesignName } from "./clientSanitize.js";
+import { renderAccountRights } from "./clientAccountRights.js";
 
 const PROFILE_SWATCHES = ["#d74438", "#286ea1", "#d9a62f", "#35a653", "#a04e6f", "#3e7d7b", "#7b5029", "#cfa75f"];
 const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5c5033", "#01070a", "#ffffff", "#d74438", "#35a653", "#286ea1", "#d9a62f"];
@@ -478,6 +479,15 @@ function renderSignedAccountPanel(account) {
   replaceText("#account-games", String(account.stats?.gamesPlayed || 0));
   replaceText("#account-wins", String(account.stats?.wins || 0));
   replaceText("#account-rate", accountRate(account.stats));
+  const pending = account.accountDeactivated === true;
+  const editButton = $("#account-edit-btn");
+  if (editButton) {
+    editButton.disabled = pending;
+    editButton.setAttribute("aria-disabled", String(pending));
+  }
+  const badge = $("#account-panel-badge");
+  if (badge) badge.textContent = pending ? "DELETION PENDING" : "ACCOUNT ACTIVE";
+  renderAccountRights(account);
 }
 
 export function renderAccountPanel() {
@@ -487,7 +497,25 @@ export function renderAccountPanel() {
   guest?.classList.toggle("is-hidden", signedIn);
   signed?.classList.toggle("is-hidden", !signedIn);
   setText("#account-panel-title", signedIn ? `@${state.account.account.username}` : "Guest mode");
-  setText("#account-panel-badge", signedIn ? "ACCOUNT ACTIVE" : "LOCAL ONLY");
+  const pending = signedIn && state.account.account.accountDeactivated === true;
+  setText("#account-panel-badge", signedIn ? (pending ? "DELETION PENDING" : "ACCOUNT ACTIVE") : "LOCAL ONLY");
+  if (pending) {
+    const profileRoot = $("#view-profile");
+    state.profileTab = "account";
+    if (profileRoot) profileRoot.dataset.profileTab = "account";
+    document.querySelectorAll("#profile-tabs [data-profile-tab]").forEach((button) => {
+      const active = button.dataset.profileTab === "account";
+      button.disabled = !active;
+      button.setAttribute("aria-disabled", String(!active));
+      button.setAttribute("aria-selected", String(active));
+    });
+    document.querySelectorAll("#view-profile .profile-tab-panel").forEach((panel) => panel.classList.toggle("is-hidden", panel.id !== "profile-panel-account"));
+  } else {
+    document.querySelectorAll("#profile-tabs [data-profile-tab]").forEach((button) => {
+      button.disabled = false;
+      button.removeAttribute("aria-disabled");
+    });
+  }
   renderProfileSummary();
   if (!signedIn) return;
   renderSignedAccountPanel(state.account.account);

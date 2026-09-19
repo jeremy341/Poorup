@@ -132,6 +132,17 @@ executing the deterministic choice; the private trace records agreement and
 the shadow model. The key is never sent to clients or persisted in match
 history.
 
+### Admin provider profiles
+
+The internal operator console exposes `/admin/analytics?admin=provider` for
+swapping provider profiles without a server restart. Profiles contain a base
+URL, model, write-only API key, timeout, decision budget, and `AUTO`, `CHAT`,
+or `RESPONSES` protocol preference. The server runs a small authenticated
+capability probe when an operator tests a profile, caches the detected
+protocol, and activates it only after a successful test. Keys are encrypted in
+`POORUP_DATA_DIR/ai-providers.json` with `POORUP_AI_CONFIG_KEY`; no key is
+returned in responses, Socket.IO payloads, analytics, or logs.
+
 ## Prompt contract
 
 System instructions should be short and immutable:

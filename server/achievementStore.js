@@ -23,9 +23,21 @@ const NEGATIVE_GLOBAL_EVENTS = new Set([
   'construction-shutdown', 'CONSTRUCTION SHUTDOWN', 'moral-hazard', 'TOO BIG TO FAIL'
 ]);
 
+function normalizeEventName(event) {
+  return String(event || '').trim().toUpperCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ');
+}
+
 function isNegativeGlobalEvent(event) {
   if (NEGATIVE_GLOBAL_EVENTS.has(event)) return true;
-  return NEGATIVE_GLOBAL_EVENTS.has(String(event || '').trim().toUpperCase());
+  const normalized = normalizeEventName(event);
+  if (NEGATIVE_GLOBAL_EVENTS.has(normalized)) return true;
+  // Titles carry id prefixes with suffixes ("HOUSING BUBBLE" vs
+  // "HOUSING BUBBLE POP"): match either direction on word boundary.
+  for (const entry of NEGATIVE_GLOBAL_EVENTS) {
+    const normEntry = normalizeEventName(entry);
+    if (normEntry.startsWith(normalized) || normalized.startsWith(normEntry)) return true;
+  }
+  return false;
 }
 
 function sanitize(record = {}) {
@@ -193,6 +205,17 @@ export class AchievementStore {
 
   listForAccount(accountId) {
     return [...this.records.values()].filter((record) => record.accountId === accountId);
+  }
+
+  purgeAccount(accountId) {
+    let removed = 0;
+    for (const [key, record] of this.records) {
+      if (record.accountId !== accountId) continue;
+      this.records.delete(key);
+      removed += 1;
+    }
+    if (removed) this.persist();
+    return removed;
   }
 
   evaluateMatch(matchRecord, historyForAccount = null) {

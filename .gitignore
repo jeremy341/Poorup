@@ -9,12 +9,20 @@ lerna-debug.log*
 
 node_modules
 server/data/
+.env
+.env.*
+!.env.example
 dist
 dist-ssr
 *.local
 coverage/
 qa-artifacts/
 test-results/
+.local-ui-baseline/
+
+# Generated tooling state and local agent logs
+skills-lock.json
+.impeccable/
 
 # Editor directories and files
 .vscode/*
@@ -26,3 +34,4 @@ test-results/
 *.njsproj
 *.sln
 *.sw?
+server/backups/

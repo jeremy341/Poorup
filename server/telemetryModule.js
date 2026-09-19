@@ -91,7 +91,15 @@ function sanitizePayloadForKind(eventKind, payload = {}) {
     if (!allowed.has(key)) return { valid: false, data: {} };
     if (key === 'players') return { valid: false, data: {} };
     if (['candidates', 'actions'].includes(key) && Array.isArray(value) && value.some(item => item && typeof item === 'object')) return { valid: false, data: {} };
-    const safe = sanitize(value);
+    // Display-name arrays ("Alice","Bob") are identity: keep only numeric
+    // entries, drop the key entirely when nothing numeric remains.
+    let effective = value;
+    if (['candidates', 'actions'].includes(key) && Array.isArray(value)) {
+      const numeric = value.filter(item => typeof item === 'number' && Number.isFinite(item)).slice(0, 100);
+      if (!numeric.length) return { valid: false, data: {} };
+      effective = numeric;
+    }
+    const safe = sanitize(effective);
     if (safe !== undefined) clean[key] = key === 'roundNumber' ? Math.max(0, Math.min(1_000_000, Math.floor(Number(safe) || 0))) : safe;
   }
   return { valid: true, data: clean };
@@ -170,6 +178,25 @@ export class TelemetryStore {
     this.pendingEvents = this.pendingEvents.filter(entry => !ids.has(entry.id));
   }
 
+  // Age-based retention for the raw event log (the 5000-event cap bounds
+  // size; this bounds age). Returns the removed count.
+  prune(olderThan = 0) {
+    const cutoff = Number(olderThan) || 0;
+    const before = this.events.length;
+    this.events = this.events.filter(entry => {
+      const at = Date.parse(entry?.createdAt);
+      return !Number.isFinite(at) || at >= cutoff;
+    });
+    const removed = before - this.events.length;
+    if (removed > 0) {
+      try {
+        if (this.persistWriter) this.persistWriter(this.events.slice(-MAX_EVENTS));
+        else writeJson(this.filePath, this.events.slice(-MAX_EVENTS));
+      } catch { /* retention persist is best effort; memory is already trimmed */ }
+    }
+    return removed;
+  }
+
   boundPendingEvents() {
     if (this.pendingEvents.length > this.pendingQueueLimit) this.pendingEvents.splice(0, this.pendingEvents.length - this.pendingQueueLimit);
   }
@@ -226,10 +253,26 @@ export class TelemetryStore {
   close() {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    const finish = () => {
-      const result = this.flush();
-      if (result && typeof result.then === 'function') return result.then(() => this.pendingEvents.length ? finish() : this.rollupStore?.close?.());
-      return this.pendingEvents.length ? finish() : this.rollupStore?.close?.();
+    // Bounded drain: a persist path that never settles must not spin the
+    // shutdown path forever. After the cap, close the rollup and walk away;
+    // the events already landed in the capped in-memory log.
+    const finish = (attempts = 0) => {
+      if (attempts > 3) {
+        try { return this.rollupStore?.close?.(); } catch { return null; }
+      }
+      let result;
+      try {
+        result = this.flush();
+      } catch {
+        try { return this.rollupStore?.close?.(); } catch { return null; }
+      }
+      if (result && typeof result.then === 'function') {
+        return result.then(
+          () => (this.pendingEvents.length ? finish(attempts + 1) : this.rollupStore?.close?.()),
+          () => { try { return this.rollupStore?.close?.(); } catch { return null; } }
+        );
+      }
+      return this.pendingEvents.length ? finish(attempts + 1) : this.rollupStore?.close?.();
     };
     return finish();
   }

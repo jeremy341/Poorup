@@ -23,7 +23,8 @@ function listMatchRecordsForAccount({ accountId, accountStore, matchStore, limit
   if (!accountId) return [];
   const storedRecords = matchStore?.listForAccount?.(accountId, limit) || [];
   const legacyRecords = accountStore?.getMatchHistory?.(accountId) || [];
-  return mergeMatchRecords(legacyRecords, storedRecords);
+  const boundedLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  return mergeMatchRecords(legacyRecords, storedRecords).slice(0, boundedLimit);
 }
 
 export { listMatchRecordsForAccount, mergeMatchRecords };

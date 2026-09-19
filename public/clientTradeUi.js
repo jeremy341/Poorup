@@ -1219,8 +1219,8 @@ function tradeSideHTML({ player, seed, side, deeds, selectedSet, cashValue, cash
             ${rows}
           </div>
           <label class="trade-cash-field">
-            <span class="t-label f11 g-muted">${cashLabel}</span>
-            <input type="number" min="0" max="${cashMax}" step="10" class="field" id="${inputId}" value="${cashValue}" />
+            <span class="t-label f11 g-muted" id="${inputId}-label">${cashLabel} (max $${Number(cashMax) || 0})</span>
+            <input type="number" min="0" max="${cashMax}" step="10" class="field" id="${inputId}" value="${cashValue}" aria-labelledby="${inputId}-label" />
           </label>
         </div>`;
 }
@@ -1410,6 +1410,7 @@ function emitTradeOffer(me, other, myCash, theirCash) {
   const eventName = state.tradeCounterId ? "counter-trade" : state.tradeAdjustId ? "adjust-trade" : "propose-trade";
   host.emitServer(eventName, {
     ...((state.tradeCounterId || state.tradeAdjustId) ? { tradeId: state.tradeCounterId || state.tradeAdjustId } : {}),
+    requestId: host.createRequestId("trade"),
     toPlayerId: other.serverId || other.id,
     givePropertyIndexes: giveDeeds,
     requestPropertyIndexes: wantDeeds,
