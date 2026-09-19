@@ -233,6 +233,45 @@ export class MatchStore {
       .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))
       .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   }
+
+  anonymizeAccount(accountId) {
+    if (typeof accountId !== 'string' || !accountId) return 0;
+    let changed = 0;
+    this.matches.forEach((match) => {
+      if (!Array.isArray(match.participants)) return;
+      let touched = false;
+      const participants = match.participants.map((participant) => {
+        if (participant.accountId !== accountId) return participant;
+        touched = true;
+        return { ...participant, accountId: null, displayNameAtMatch: 'ACCOUNT DEACTIVATED' };
+      });
+      if (!touched) return;
+      // The economy graph re-identifies just as fast: scrub every
+      // accountId outside participants in the same pass.
+      const scrubbed = { ...match, participants };
+      for (const entry of ['casino', 'market']) {
+        if (Array.isArray(scrubbed[entry])) {
+          scrubbed[entry] = scrubbed[entry].map(row => (row?.accountId === accountId ? { ...row, accountId: null } : row));
+        }
+      }
+      if (Array.isArray(scrubbed.playerContracts)) {
+        scrubbed.playerContracts = scrubbed.playerContracts.map(contract => {
+          const next = { ...contract };
+          if (next.fromAccountId === accountId) next.fromAccountId = null;
+          if (next.toAccountId === accountId) next.toAccountId = null;
+          return next;
+        });
+      }
+      this.matches.set(match.matchId, scrubbed);
+      changed += 1;
+    });
+    if (changed) this.persist();
+    return changed;
+  }
+
+  purgeAccount(accountId) {
+    return this.anonymizeAccount(accountId);
+  }
 }
 
 export { sanitizeMatch };

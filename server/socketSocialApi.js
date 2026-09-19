@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
 import { resolveAccount } from './socketHandlerSupport.js';
+import { parseCookieHeader, SESSION_COOKIE_NAME } from './sessionStore.js';
 
 const SOCIAL_RATE_WINDOW_MS = 60 * 1000;
 const SOCIAL_RATE_LIMIT = 30;
@@ -36,7 +37,7 @@ function maxPlausiblePatrolScore(elapsed) {
 }
 
 function createSocialApi(deps) {
-  const { io, accountStore, socialStore, matchStore, achievementStore } = deps;
+  const { io, accountStore, socialStore, matchStore, achievementStore, sessionStore } = deps;
   const chatLastSent = new Map();
   const patrolRuns = new Map();
   const socialRateBuckets = new Map();
@@ -65,7 +66,15 @@ function createSocialApi(deps) {
   }
 
   function accountForSocket(socket, payload = {}) {
-    return resolveAccount(accountStore, socket, payload);
+    const resolved = resolveAccount(accountStore, socket, payload);
+    if (resolved || Object.prototype.hasOwnProperty.call(payload, 'sessionToken')) return resolved;
+    const sessionId = socket.data?.sessionId;
+    const cookieValue = parseCookieHeader(socket.handshake?.headers?.cookie || socket.request?.headers?.cookie || '')[SESSION_COOKIE_NAME];
+    const session = sessionStore?.resolve?.(cookieValue) || (sessionId ? sessionStore?.snapshot?.().find(entry => entry.sessionId === sessionId) : null);
+    if (!session?.accountId) return null;
+    const account = accountStore.getAccountById(session.accountId);
+    if (account) socket.data.accountId = account.id;
+    return account;
   }
 
   function socketsForAccount(accountId) {
@@ -141,6 +150,19 @@ function createSocialApi(deps) {
 
   function publicPlayerCard(accountId, viewerId = null) {
     const target = accountStore.getAccountById(accountId);
+    if (target?.accountDeactivated === true && viewerId !== accountId) {
+      return {
+        id: target.username,
+        username: target.username,
+        displayName: 'ACCOUNT DEACTIVATED',
+        color: '#5c5033',
+        avatarGrid: null,
+        accountDeactivated: true,
+        stats: { gamesPlayed: 0, wins: 0 },
+        achievements: [],
+        history: []
+      };
+    }
     const canSeeFriendAchievements = Boolean(viewerId && viewerId !== accountId
       && target?.privacy?.achievements !== 'private'
       && socialStore.friendshipBetween(viewerId, accountId)?.status === 'accepted');

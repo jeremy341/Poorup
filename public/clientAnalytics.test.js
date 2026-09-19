@@ -7,7 +7,10 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
 const { normalizeAnalyticsSnapshot, normalizeAnalyticsQuery, metricValue, isAnalyticsPath, createAnalyticsController, renderAnalyticsSnapshot } = await import('./clientAnalytics.js');
-const { renderAnalyticsChart } = await import('./clientAnalyticsCharts.js');
+const { ANALYTICS_TABS, ANALYTICS_FILTERS, PANEL_DEFINITIONS, OVERVIEW_KPIS, CONTEXTUAL_PANELS } = await import('./clientAnalyticsCatalog.js');
+const { MIN_COHORT, normalizeAnalyticsQuery: viewModelQuery, normalizeAnalyticsSnapshot: viewModelSnapshot } = await import('./clientAnalyticsViewModel.js');
+const { renderAnalyticsChart, renderBoardMetricMap, CHART_COLORS } = await import('./clientAnalyticsCharts.js');
+const { state } = await import('./clientState.js');
 
 async function check(name, run) {
   try {
@@ -23,6 +26,75 @@ await check('accepts only the internal analytics path', () => {
   assert.equal(isAnalyticsPath('/admin/analytics'), true);
   assert.equal(isAnalyticsPath('/analytics'), false);
   assert.equal(isAnalyticsPath('/admin/analytics?range=day'), true);
+});
+
+await check('catalog preserves all tabs, filters, questions, and overview metadata', () => {
+  assert.deepEqual(ANALYTICS_TABS, ['overview', 'match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']);
+  assert.deepEqual(ANALYTICS_FILTERS, ['range', 'boardVariant', 'rulesetPreset', 'marketComplexity', 'botMode', 'provider', 'eventId', 'seasonId', 'rulesetRevision', 'balanceRevision']);
+  assert.equal(Object.keys(PANEL_DEFINITIONS).length, 7);
+  for (const tab of ANALYTICS_TABS) assert.equal(typeof PANEL_DEFINITIONS[tab].question, 'string');
+  assert.ok(Array.isArray(OVERVIEW_KPIS) && OVERVIEW_KPIS.length >= 6);
+  assert.ok(Array.isArray(CONTEXTUAL_PANELS));
+});
+
+await check('view model keeps the minimum cohort fixed and rejects unknown query fields', () => {
+  const query = viewModelQuery({ minimumCohort: 1, accountId: 'raw', unknown: 'drop', boardVariant: 'METRO-52' });
+  assert.equal(query.minimumCohort, 5);
+  assert.equal(query.boardVariant, 'metro-52');
+  assert.equal(query.accountId, undefined);
+  assert.equal(query.unknown, undefined);
+  assert.equal(viewModelSnapshot({ suppression: { minimumCohort: 1 } }).suppression.minimumCohort, 5);
+});
+
+await check('view model recursively redacts private and raw payload fields', () => {
+  const clean = viewModelSnapshot({
+    breakdowns: [{ displayName: 'Ada', nested: { username: 'ada', roomCode: 'ROOM', raw: { payload: 'secret' }, safe: 3 } }],
+    overview: { kpis: [{ id: 'x', value: 2, event: { data: 'secret' } }] },
+  });
+  const serialized = JSON.stringify(clean);
+  assert.equal(serialized.includes('Ada'), false);
+  assert.equal(serialized.includes('ROOM'), false);
+  assert.equal(serialized.includes('secret'), false);
+  assert.equal(clean.breakdowns[0].nested, undefined);
+});
+
+await check('view model drops unknown wrappers while retaining approved dynamic contexts', () => {
+  const clean = viewModelSnapshot({ breakdowns: [{ metadata: { label: 'leak' }, actions: { roll: 3 }, outcomeDistribution: { wins: 2 } }] });
+  assert.equal(clean.breakdowns[0].metadata, undefined);
+  assert.equal(clean.breakdowns[0].actions.roll, 3);
+  assert.equal(clean.breakdowns[0].outcomeDistribution.wins, 2);
+});
+
+await check('view model removes IP and User-Agent identity fields in dynamic contexts', () => {
+  const clean = viewModelSnapshot({ breakdowns: [{ actions: {
+    ipAddress: '1.2.3.4', rawIp: '1.2.3.5', userAgent: 'browser', rawUserAgent: 'raw-browser',
+    ip_address: '1.2.3.6', raw_ip: '1.2.3.7', user_agent: 'ua', raw_user_agent: 'raw-ua',
+    label: 'roll', value: 3,
+  } }] });
+  const serialized = JSON.stringify(clean).toLowerCase();
+  for (const field of ['ipaddress', 'rawip', 'useragent', 'rawuseragent', 'ip_address', 'raw_ip', 'user_agent', 'raw_user_agent']) assert.equal(serialized.includes(field), false);
+  assert.equal(clean.breakdowns[0].actions.label, 'roll');
+});
+
+await check('controller reports rollup unavailable when fetch is missing', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const previousAccount = state.account;
+  globalThis.window = { location: { pathname: '/admin/analytics', search: '' }, matchMedia: () => ({ matches: false }) };
+  globalThis.fetch = undefined;
+  state.account = { sessionToken: 'session' };
+  const status = fakeElement({ id: 'admin-analytics-status' });
+  globalThis.document = fakeAnalyticsDocument({ status, grid: fakeElement({ id: 'admin-analytics-grid' }) });
+  const controller = createAnalyticsController();
+  const result = await controller.load();
+  assert.equal(result.status, 503);
+  assert.equal(status.textContent, 'ROLLUP UNAVAILABLE · RETRY');
+  controller.destroy();
+  state.account = previousAccount;
+  globalThis.fetch = previousFetch;
+  globalThis.window = previousWindow;
+  globalThis.document = previousDocument;
 });
 
 await check('normalizes malformed metrics without leaking fields', () => {
@@ -142,8 +214,190 @@ await check('chart markup exposes table state and non-negative bars', () => {
   assert.match(markup, /aria-expanded="false"/);
   assert.match(markup, /aria-controls="analytics-chart-table-/);
   assert.match(markup, /id="analytics-chart-title"/);
-  assert.match(markup, /var\(--(?:gold-300|green-status)\)/);
+  assert.match(markup, /var\(--analytics-/);
   assert.equal(markup.includes('height="-'), false);
+  globalThis.document = previousDocument;
+});
+
+await check('chart adapter supports every declared mode with bounded accessible output', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  const modes = ['line', 'bar', 'stacked-bar', 'heatmap', 'histogram', 'box', 'scatter', 'funnel', 'cohort', 'board'];
+  for (const mode of modes) {
+    let markup = '';
+    const container = {
+      set innerHTML(value) { markup = value; },
+      get firstElementChild() { return {}; },
+      getAttribute() { return null; },
+      setAttribute() {},
+      querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return true; } } }; }
+    };
+    renderAnalyticsChart(container, Array.from({ length: 240 }, (_, index) => ({ label: `<${index}>`, value: index % 7 - 3, series: index % 2 ? 'AI' : 'HUMAN' })), { mode, title: `<${mode}>`, unit: 'rounds', sampleSize: 240 });
+    assert.match(markup, /<figure/);
+    assert.match(markup, /<figcaption/);
+    assert.match(markup, /SAMPLE/);
+    assert.match(markup, /SHOW DATA TABLE/);
+    assert.equal(markup.includes('<240>'), false);
+    assert.equal(markup.includes('height="-'), false);
+    assert.equal(markup.includes('NaN'), false);
+    assert.equal(markup.includes('Infinity'), false);
+    assert.match(markup, /var\(--analytics-/);
+  }
+  assert.equal(CHART_COLORS.primary, 'var(--analytics-primary)');
+  globalThis.document = previousDocument;
+});
+
+await check('rich line charts expose an ECharts mount with an accessible table contract', () => {
+  const previousDocument = globalThis.document;
+  let markup = '';
+  globalThis.document = {};
+  const container = {
+    set innerHTML(value) { markup = value; },
+    get firstElementChild() { return {}; },
+    getAttribute(name) { return name === 'aria-labelledby' ? 'rich-chart-title' : null; },
+    setAttribute() {},
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    }
+  };
+  renderAnalyticsChart(container, [
+    { label: '00:00', value: 12, series: 'human' },
+    { label: '06:00', value: 22, series: 'human' },
+    { label: '12:00', value: 18, series: 'human' },
+    { label: '18:00', value: 31, series: 'human' }
+  ], { mode: 'line', title: 'Concurrent players', unit: 'players' });
+  assert.match(markup, /class="analytics-chart-engine/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
+  assert.match(markup, /aria-describedby=/);
+  assert.match(markup, /class="analytics-chart-table/);
+  assert.equal(markup.includes('data-chart-value="31"'), false);
+  globalThis.document = previousDocument;
+});
+
+await check('categorical bars keep an ECharts mount and table values', () => {
+  const previousDocument = globalThis.document;
+  let markup = '';
+  globalThis.document = {};
+  const container = {
+    set innerHTML(value) { markup = value; },
+    get firstElementChild() { return {}; },
+    getAttribute() { return null; },
+    setAttribute() {},
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    }
+  };
+  renderAnalyticsChart(container, [
+    { label: 'MATCH STARTS', value: 824 },
+    { label: 'COMPLETIONS', value: 720 },
+    { label: 'STALLS', value: 12 }
+  ], { mode: 'bar', title: 'Match reliability', unit: 'matches' });
+  assert.match(markup, /class="analytics-chart-engine/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
+  assert.match(markup, /MATCH STARTS/);
+  assert.match(markup, /class="analytics-chart-table/);
+  globalThis.document = previousDocument;
+});
+
+await check('mixed-unit bars use separate scales instead of misleading one-axis comparisons', () => {
+  const previousDocument = globalThis.document;
+  let markup = '';
+  globalThis.document = {};
+  const container = {
+    set innerHTML(value) { markup = value; },
+    get firstElementChild() { return {}; },
+    getAttribute() { return null; },
+    setAttribute() {},
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    }
+  };
+  renderAnalyticsChart(container, [
+    { label: 'STARTS', value: 12, unit: 'matches' },
+    { label: 'RECONNECT RATE', value: 0.08, unit: 'percent' }
+  ], { mode: 'bar', title: 'Reliability', unit: 'matches' });
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
+  assert.match(markup, /8%/);
+  assert.match(markup, /<th scope="col">Value<\/th>/);
+  assert.equal(markup.includes('>0.08<'), false);
+  globalThis.document = previousDocument;
+});
+
+await check('unknown and forced-colors modes expose the table fallback immediately', () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  let markup = '';
+  globalThis.document = {};
+  globalThis.window = { matchMedia: query => ({ matches: query.includes('forced-colors') }) };
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, getAttribute() { return null; }, setAttribute() {}, querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return false; } } }; } };
+  renderAnalyticsChart(container, [{ label: 'A', value: 2 }], { mode: 'unknown', title: 'Fallback' });
+  assert.match(markup, /analytics-chart-table"/);
+  assert.match(markup, /aria-expanded="true"/);
+  assert.match(markup, /HIDE DATA TABLE/);
+  globalThis.window = previousWindow;
+  globalThis.document = previousDocument;
+});
+
+await check('board metric map preserves topology order and remains read-only', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const board = { variant: 'standard-40', tiles: Array.from({ length: 40 }, (_, index) => ({ index, label: `<TILE ${index}>`, value: index })) };
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, setAttribute() {}, querySelector() { return null; } };
+  const result = renderBoardMetricMap(container, board, { title: 'Board activity' });
+  assert.equal(result.tiles.length, 40);
+  assert.equal(result.tiles[0].index, 0);
+  assert.equal(result.tiles.at(-1).index, 39);
+  assert.match(markup, /class="analytics-chart-engine"/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
+  assert.match(markup, /<table/);
+  assert.equal(markup.includes('<TILE 0>'), false);
+  assert.equal(markup.includes('data-buy'), false);
+  globalThis.document = previousDocument;
+});
+
+await check('stacked-bar extracts finite segments and mirrors them in table columns', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, getAttribute() { return null; }, setAttribute() {}, querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return true; } } }; } };
+  renderAnalyticsChart(container, [{ label: 'A', values: { human: 2, ai: 3, bot: Infinity, private: 'bad' } }], { mode: 'stacked-bar', title: 'Modes', unit: 'matches' });
+  assert.match(markup, /class="analytics-chart-engine"/);
+  assert.match(markup, /data-chart-engine="echarts-svg"/);
+  assert.match(markup, /<th scope="col">human<\/th>/);
+  assert.match(markup, /<th scope="col">ai<\/th>/);
+  assert.equal(markup.includes('Infinity'), false);
+  assert.equal(markup.includes('private'), false);
+  globalThis.document = previousDocument;
+});
+
+await check('board metric map resolves shuffled explicit indexes before positional fallback', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const board = { variant: 'standard-40', tiles: [{ index: 7, label: 'SEVEN', value: 70 }, { index: 0, label: 'ZERO', value: 0 }] };
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, setAttribute() {}, querySelector() { return null; } };
+  const result = renderBoardMetricMap(container, board);
+  assert.equal(result.tiles[0].value, 0);
+  assert.equal(result.tiles[7].value, 70);
+  assert.match(markup, /0 · ZERO/);
+  assert.match(markup, /7 · SEVEN/);
+  globalThis.document = previousDocument;
+});
+
+await check('stacked-bar omits non-finite segments instead of fabricating zero geometry', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {};
+  let markup = '';
+  const container = { set innerHTML(value) { markup = value; }, get firstElementChild() { return {}; }, getAttribute() { return null; }, setAttribute() {}, querySelector(selector) { return selector.includes('toggle') ? { addEventListener() {}, setAttribute() {}, textContent: '' } : { classList: { toggle() {}, contains() { return true; } } }; } };
+  renderAnalyticsChart(container, [{ label: 'A', values: { human: Infinity, ai: NaN } }], { mode: 'stacked-bar', title: 'Missing modes' });
+  assert.equal(markup.match(/class="analytics-chart-table[^"]*"/)?.length, 1);
+  assert.equal(markup.includes('fill="var(--analytics-human)"'), false);
+  assert.equal(markup.includes('fill="var(--analytics-ai)"'), false);
+  assert.match(markup, /<td>N\/A<\/td>/);
   globalThis.document = previousDocument;
 });
 

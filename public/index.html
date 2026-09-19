@@ -14,38 +14,15 @@
     <div class="scanlines"></div>
     <div class="sr-live" id="system-announcer" data-document-announcer role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
-    <div class="toast-stack" id="toast-stack" aria-hidden="true"></div>
+    <div class="toast-stack" id="toast-stack" role="region" aria-label="Notifications" aria-live="polite"></div>
+    <div class="bot-provider-banner" id="bot-provider-banner" role="alert" aria-live="assertive" aria-atomic="true" aria-hidden="true" hidden></div>
     <div class="theme-page-world" id="theme-page-world" aria-hidden="true"></div>
 
-    <!-- One global music dock. It intentionally lives outside every SPA view. -->
-    <aside class="music-box panel noise" data-music-box aria-label="Parlor music player">
-      <div class="music-box-panel" id="music-box-panel" data-music-box-panel="">
-        <div class="music-box-track">
-          <img src="/assets/music/music-note.svg" alt="" width="16" height="16">
-          <div class="music-box-copy">
-            <strong class="music-box-title" data-music-title>PONDERING THE COSMOS</strong>
-            <span class="music-box-mode t-micro" data-music-mode>AUTO THEME · ORIGINAL</span>
-          </div>
-          <button class="music-box-grip" type="button" data-music-action="position" aria-label="Move player" aria-controls="music-position-menu" aria-expanded="false" title="Move player"><img src="/assets/music/music-grip.svg" alt="" width="16" height="16"></button>
-        </div>
-        <div class="music-box-progress" aria-label="Track progress">
-          <time data-music-elapsed>00:00</time><span class="music-box-meter" data-music-meter aria-hidden="true"></span><time data-music-remaining>00:00</time>
-        </div>
-        <div class="music-box-controls">
-          <button type="button" data-music-action="previous" aria-label="Previous track" title="Previous track"><img src="/assets/music/music-prev.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="play" aria-label="Play music" title="Play music" aria-pressed="false" aria-controls="music-box-panel"><img data-music-play-icon src="/assets/music/music-play.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="next" aria-label="Next track" title="Next track"><img src="/assets/music/music-next.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="shuffle" aria-label="Toggle shuffle" title="Toggle shuffle" aria-pressed="false"><img src="/assets/music/music-shuffle.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="repeat" aria-label="Toggle repeat" title="Toggle repeat" aria-pressed="true"><img src="/assets/music/music-repeat.svg" alt="" width="16" height="16"></button>
-          <div class="music-box-volume-wrap"><button type="button" data-music-action="volume" aria-label="Volume" title="Volume" aria-controls="music-volume-popover" aria-expanded="false"><img src="/assets/music/music-speaker.svg" alt="" width="16" height="16"></button>
-            <div class="music-volume-popover" id="music-volume-popover" hidden><label for="music-volume">Volume</label><input id="music-volume" type="range" min="0" max="1" step="0.01" value="0.16" aria-label="Music volume" orient="vertical"></div>
-          </div>
-        </div>
-        <div class="music-position-menu" id="music-position-menu" hidden role="menu" aria-label="Move player"><button type="button" role="menuitem" data-music-position="top-left">TOP LEFT</button><button type="button" role="menuitem" data-music-position="top-right">TOP RIGHT</button><button type="button" role="menuitem" data-music-position="bottom-left">BOTTOM LEFT</button><button type="button" role="menuitem" data-music-position="bottom-right">BOTTOM RIGHT</button></div>
-        <span class="sr-live" data-music-status role="status" aria-live="polite" aria-atomic="true"></span>
-      </div>
-      <audio data-music-audio="a" preload="metadata" hidden></audio><audio data-music-audio="b" preload="metadata" hidden></audio>
-    </aside>
+    <!-- Theme music is a silent runtime service, not a visible player. -->
+    <div class="music-runtime" data-music-runtime aria-hidden="true">
+      <audio data-music-audio="a" preload="metadata"></audio>
+      <audio data-music-audio="b" preload="metadata"></audio>
+    </div>
 
     <!-- ============================ HOME VIEW ============================ -->
     <div class="view" id="view-home">
@@ -232,7 +209,7 @@
       <div class="ticker">
         <span class="t-micro tk"><span class="g400">AFTER-HOURS PARLOR</span></span>
         <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">live table service</span></span>
-        <span class="t-micro tk legal-links" aria-label="Legal information"><a href="/legal#privacy">PRIVACY</a><span aria-hidden="true">·</span><a href="/legal#terms">TERMS</a><span aria-hidden="true">·</span><a href="/legal#support">SUPPORT</a></span>
+        <span class="t-micro tk"><span class="g800 tk-sep">·</span><a class="g400 ticker-link" href="/privacy">privacy &amp; account data</a></span>
         <span class="t-micro tk tk-right"><span data-sprite="crown" data-size="2"></span>press [B] to browse rooms</span>
       </div>
     </div>
@@ -501,7 +478,7 @@
           <section class="panel noise pad16 account-panel" id="account-panel">
             <div class="account-panel-head"><div><div class="t-micro g400">PLAYER ACCOUNT</div><div class="t-label f12 g100" id="account-panel-title">Guest mode</div></div><span class="t-micro account-badge" id="account-panel-badge">LOCAL ONLY</span></div>
             <div id="account-guest-state"><p class="t-body ink-2 account-copy">Save your identity and stats across rooms while keeping guest play account-free.</p><div class="account-actions"><button class="cta-red account-action-btn" type="button" id="account-register-btn"><span class="cta-text cta-text-sm">Create Account</span></button><button class="btn-dark account-action-btn" type="button" id="account-login-btn"><span class="t-label f12">Sign In</span></button></div></div>
-            <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p><div class="account-data-rights is-hidden" id="account-data-rights" hidden aria-hidden="true" data-policy-gated="account-rights"><span class="t-micro ink-3">DATA RIGHTS: POLICY PENDING</span><button class="btn-dark account-action-btn" type="button" id="account-export-btn" disabled aria-disabled="true">EXPORT MY DATA</button><button class="btn-dark account-action-btn" type="button" id="account-revoke-btn" disabled aria-disabled="true">REVOKE OTHER SESSIONS</button><button class="btn-dark account-action-btn" type="button" id="account-delete-btn" disabled aria-disabled="true">DELETE ACCOUNT</button></div></div>
+            <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p><div id="account-rights-content"></div></div>
           </section>
           <section class="panel noise pad16 profile-preferences"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Preferences</h2><span class="hair"></span><button class="btn-dark theme-open-btn" id="theme-open-btn" type="button" data-theme-trigger aria-haspopup="dialog" aria-expanded="false" aria-controls="theme-popover"><span class="t-label f11">LOOK</span></button></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Table sound</span><span class="t-micro ink-3">UI cues, trades, hits, and actions.</span></div><span class="t-label f11 g-muted" id="profile-sound-state">SOUND OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Parlor music</span><span class="t-micro ink-3">The soundtrack continues while you play.</span></div><span class="t-label f11 g-muted" id="profile-music-state">MUSIC OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Guest play</span><span class="t-micro ink-3">No account is required to create or join a room.</span></div><span class="t-label f11 green">AVAILABLE</span></div></section>
         </section>
@@ -547,48 +524,119 @@
       <header class="hdr">
         <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">operator console</div></div></button>
         <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>internal analytics</span></div>
-        <div class="hdr-right"><span class="t-label f11 g400">ADMIN ONLY</span></div>
+        <div class="hdr-right"><span class="t-label f11 g400 analytics-admin-badge">ADMIN ONLY</span></div>
       </header>
+      <a class="skip-link" href="#admin-analytics-main">Skip to analytics content</a>
       <main class="admin-analytics-main" id="admin-analytics-main" tabindex="-1" aria-labelledby="admin-analytics-title">
-        <section class="panel noise admin-analytics-hero">
-          <div><span class="t-micro g400">PARLOR OPERATIONS</span><h1 class="t-section g100" id="admin-analytics-title">Analytics</h1><p class="t-body ink-2">Capacity, release health, and table activity. No private game content is recorded here.</p></div>
-          <button class="btn-dark" type="button" id="admin-analytics-retry" data-analytics-refresh><span class="t-label f11">Retry</span></button>
+        <section class="panel noise admin-analytics-hero" data-analytics-command-strip>
+          <div class="admin-analytics-heading"><span class="t-micro g400">PARLOR OPERATIONS</span><h1 class="t-section g100" id="admin-analytics-title">Analytics control room</h1><p class="t-body ink-2">Capacity, release health, and table activity. Aggregate evidence only; no private game content is recorded here.</p></div>
+          <div class="admin-analytics-hero-actions"><span class="t-micro ink-3" data-analytics-last-verified>LAST VERIFIED · WAITING</span><button class="btn-dark" type="button" id="admin-analytics-retry" data-analytics-refresh><span class="t-label f11">Refresh</span></button></div>
         </section>
-        <section class="panel noise admin-analytics-workspace" aria-label="Analytics reports">
+        <div class="admin-console-tabs" data-admin-console-tabs role="tablist" aria-label="Operator surfaces">
+          <button class="admin-console-tab is-active" id="admin-console-tab-analytics" type="button" role="tab" data-admin-console-tab="analytics" aria-selected="true" aria-controls="admin-analytics-workspace" tabindex="0">Analytics</button>
+          <button class="admin-console-tab" id="admin-console-tab-provider" type="button" role="tab" data-admin-console-tab="provider" aria-selected="false" aria-controls="admin-provider-workspace" tabindex="-1">Bot provider</button>
+        </div>
+        <section class="panel noise admin-analytics-workspace" id="admin-analytics-workspace" aria-label="Analytics reports">
           <div class="analytics-tabs" role="tablist" aria-label="Analytics views">
-            <button class="analytics-tab is-active" id="analytics-tab-overview" type="button" role="tab" data-analytics-tab="overview" aria-selected="true" aria-controls="analytics-panel-overview" tabindex="0">Overview</button>
-            <button class="analytics-tab" id="analytics-tab-match-health" type="button" role="tab" data-analytics-tab="match-health" aria-selected="false" aria-controls="analytics-panel-match-health" tabindex="-1">Match health</button>
-            <button class="analytics-tab" id="analytics-tab-rulesets" type="button" role="tab" data-analytics-tab="rulesets" aria-selected="false" aria-controls="analytics-panel-rulesets" tabindex="-1">Rulesets + boards</button>
-            <button class="analytics-tab" id="analytics-tab-economy" type="button" role="tab" data-analytics-tab="economy" aria-selected="false" aria-controls="analytics-panel-economy" tabindex="-1">Economy</button>
-            <button class="analytics-tab" id="analytics-tab-events" type="button" role="tab" data-analytics-tab="events" aria-selected="false" aria-controls="analytics-panel-events" tabindex="-1">Events + rarity</button>
-            <button class="analytics-tab" id="analytics-tab-bots" type="button" role="tab" data-analytics-tab="bots" aria-selected="false" aria-controls="analytics-panel-bots" tabindex="-1">Bots</button>
-            <button class="analytics-tab" id="analytics-tab-quality" type="button" role="tab" data-analytics-tab="quality" aria-selected="false" aria-controls="analytics-panel-quality" tabindex="-1">Data quality</button>
+            <button class="analytics-tab is-active" id="analytics-tab-overview" type="button" role="tab" data-analytics-question="Is the parlor healthy right now?" data-analytics-tab="overview" aria-selected="true" aria-controls="analytics-panel-overview" tabindex="0">Overview</button>
+            <button class="analytics-tab" id="analytics-tab-match-health" type="button" role="tab" data-analytics-question="Are matches starting, progressing, reconnecting, and settling reliably?" data-analytics-tab="match-health" aria-selected="false" aria-controls="analytics-panel-match-health" tabindex="-1">Match health</button>
+            <button class="analytics-tab" id="analytics-tab-rulesets" type="button" role="tab" data-analytics-question="Which board and ruleset combinations behave differently?" data-analytics-tab="rulesets" aria-selected="false" aria-controls="analytics-panel-rulesets" tabindex="-1">Rulesets + boards</button>
+            <button class="analytics-tab" id="analytics-tab-economy" type="button" role="tab" data-analytics-question="Which economic systems are used, and where do liquidity risks appear?" data-analytics-tab="economy" aria-selected="false" aria-controls="analytics-panel-economy" tabindex="-1">Economy</button>
+            <button class="analytics-tab" id="analytics-tab-events" type="button" role="tab" data-analytics-question="Are global events discoverable, rare enough, and resolving cleanly?" data-analytics-tab="events" aria-selected="false" aria-controls="analytics-panel-events" tabindex="-1">Events + rarity</button>
+            <button class="analytics-tab" id="analytics-tab-bots" type="button" role="tab" data-analytics-question="Are bot decisions stable, explainable, and acceptably fast?" data-analytics-tab="bots" aria-selected="false" aria-controls="analytics-panel-bots" tabindex="-1">Bots</button>
+            <button class="analytics-tab" id="analytics-tab-quality" type="button" role="tab" data-analytics-question="Can this snapshot be trusted and understood?" data-analytics-tab="quality" aria-selected="false" aria-controls="analytics-panel-quality" tabindex="-1">Data quality</button>
           </div>
           <form class="analytics-filters" aria-label="Analytics filters">
-            <label class="analytics-filter"><span class="t-micro g400">RANGE</span><select class="input-dark" data-analytics-filter="range" name="range"><option value="hour">Last hour</option><option value="day">Last day</option><option value="week">Last week</option><option value="season">Season</option></select></label>
-            <label class="analytics-filter"><span class="t-micro g400">BOARD</span><select class="input-dark" data-analytics-filter="boardVariant" name="boardVariant"><option value="all">All boards</option><option value="standard-40">Standard-40</option><option value="metro-52">Metro-52</option></select></label>
-            <label class="analytics-filter"><span class="t-micro g400">RULESET</span><select class="input-dark" data-analytics-filter="rulesetPreset" name="rulesetPreset"><option value="all">All rulesets</option><option value="classic">Classic</option><option value="after-hours">After Hours</option><option value="custom">Custom</option></select></label>
-            <label class="analytics-filter"><span class="t-micro g400">MARKET</span><select class="input-dark" data-analytics-filter="marketComplexity" name="marketComplexity"><option value="all">All market modes</option><option value="basic">Basic</option><option value="margin">Margin</option><option value="shorting">Shorting</option><option value="derivatives">Derivatives</option></select></label>
-            <label class="analytics-filter"><span class="t-micro g400">BOT MODE</span><select class="input-dark" data-analytics-filter="botMode" name="botMode"><option value="all">All participants</option><option value="ai">AI</option><option value="no-ai">No-AI</option><option value="human">Human</option></select></label>
-            <label class="analytics-filter"><span class="t-micro g400">PROVIDER</span><select class="input-dark" data-analytics-filter="provider" name="provider"><option value="all">All providers</option><option value="ai">AI</option><option value="deepseek">DeepSeek</option><option value="deterministic">Deterministic</option><option value="fallback">Fallback</option><option value="openai">OpenAI</option><option value="unknown">Unknown</option></select></label>
-            <label class="analytics-filter analytics-filter-event"><span class="t-micro g400">EVENT ID</span><input class="input-dark" data-analytics-filter="eventId" name="eventId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL EVENTS"></label>
-            <label class="analytics-filter"><span class="t-micro g400">SEASON</span><input class="input-dark" data-analytics-filter="seasonId" name="seasonId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL SEASONS"></label>
-            <label class="analytics-filter"><span class="t-micro g400">RULE REV</span><input class="input-dark" data-analytics-filter="rulesetRevision" name="rulesetRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" placeholder="ALL"></label>
-            <label class="analytics-filter"><span class="t-micro g400">BALANCE REV</span><input class="input-dark" data-analytics-filter="balanceRevision" name="balanceRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" placeholder="ALL"></label>
-            <div class="analytics-filter-actions"><button class="btn-dark" type="button" data-analytics-apply><span class="t-label f11">APPLY</span></button><button class="btn-dark" type="button" data-analytics-reset><span class="t-label f11">RESET</span></button></div>
+            <div class="analytics-filter-strip" data-analytics-filter-strip>
+              <label class="analytics-filter analytics-filter-window" for="analytics-filter-range"><span class="t-micro g400">WINDOW</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-range" data-analytics-filter="range" name="range" autocomplete="off"><option value="hour">Last hour</option><option value="day">Last day</option><option value="week">Last week</option><option value="season">Season</option></select></span></label>
+              <span class="analytics-filter-baseline"><span class="t-micro g400">BASELINE</span><span class="t-label f11">AUTO · VERIFIED</span></span>
+              <div class="analytics-active-filters" data-analytics-active-filters aria-live="polite"><span class="t-micro ink-3">ALL DIMENSIONS</span></div>
+              <button class="btn-dark analytics-more-filters" type="button" data-analytics-more-filters aria-haspopup="dialog" aria-expanded="false" aria-controls="analytics-filter-dialog"><span class="t-label f11">MORE FILTERS</span></button>
+              <button class="btn-dark analytics-filter-reset" type="button" data-analytics-reset><span class="t-label f11">RESET</span></button>
+            </div>
+            <div class="analytics-filter-dialog is-hidden" id="analytics-filter-dialog" data-analytics-filter-dialog role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="analytics-filter-dialog-title">
+              <div class="analytics-filter-dialog-head"><div><span class="t-micro g400">REPORT SCOPE</span><h2 class="t-section g100" id="analytics-filter-dialog-title">More filters</h2></div><button class="btn-dark" type="button" data-analytics-filter-cancel><span class="t-label f11">CANCEL</span></button></div>
+              <div class="analytics-filter-dialog-grid">
+                <label class="analytics-filter" for="analytics-filter-boardVariant"><span class="t-micro g400">BOARD</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-boardVariant" data-analytics-filter="boardVariant" name="boardVariant" autocomplete="off"><option value="all">All boards</option><option value="standard-40">Standard-40</option><option value="metro-52">Metro-52</option></select></span></label>
+                <label class="analytics-filter" for="analytics-filter-rulesetPreset"><span class="t-micro g400">RULESET</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-rulesetPreset" data-analytics-filter="rulesetPreset" name="rulesetPreset" autocomplete="off"><option value="all">All rulesets</option><option value="classic">Classic</option><option value="after-hours">After Hours</option><option value="custom">Custom</option></select></span></label>
+                <label class="analytics-filter" for="analytics-filter-marketComplexity"><span class="t-micro g400">MARKET</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-marketComplexity" data-analytics-filter="marketComplexity" name="marketComplexity" autocomplete="off"><option value="all">All market modes</option><option value="basic">Basic</option><option value="margin">Margin</option><option value="shorting">Shorting</option><option value="derivatives">Derivatives</option></select></span></label>
+                <label class="analytics-filter" for="analytics-filter-botMode"><span class="t-micro g400">BOT MODE</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-botMode" data-analytics-filter="botMode" name="botMode" autocomplete="off"><option value="all">All participants</option><option value="ai">AI</option><option value="no-ai">No-AI</option><option value="human">Human</option></select></span></label>
+                <label class="analytics-filter" for="analytics-filter-provider"><span class="t-micro g400">PROVIDER</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-provider" data-analytics-filter="provider" name="provider" autocomplete="off"><option value="all">All providers</option><option value="ai">AI</option><option value="deepseek">DeepSeek</option><option value="deterministic">Deterministic</option><option value="fallback">Fallback</option><option value="openai">OpenAI</option><option value="unknown">Unknown</option></select></span></label>
+                <label class="analytics-filter" for="analytics-filter-eventId"><span class="t-micro g400">EVENT ID</span><input class="input-dark" id="analytics-filter-eventId" data-analytics-filter="eventId" name="eventId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL EVENTS"></label>
+                <label class="analytics-filter" for="analytics-filter-seasonId"><span class="t-micro g400">SEASON</span><input class="input-dark" id="analytics-filter-seasonId" data-analytics-filter="seasonId" name="seasonId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL SEASONS"></label>
+                <label class="analytics-filter" for="analytics-filter-rulesetRevision"><span class="t-micro g400">RULE REV</span><input class="input-dark" id="analytics-filter-rulesetRevision" data-analytics-filter="rulesetRevision" name="rulesetRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" autocomplete="off" placeholder="ALL"></label>
+                <label class="analytics-filter" for="analytics-filter-balanceRevision"><span class="t-micro g400">BALANCE REV</span><input class="input-dark" id="analytics-filter-balanceRevision" data-analytics-filter="balanceRevision" name="balanceRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" autocomplete="off" placeholder="ALL"></label>
+              </div>
+              <div class="analytics-filter-actions"><button class="btn-dark" type="button" data-analytics-apply data-analytics-filter-apply><span class="t-label f11">APPLY FILTERS</span></button></div>
+            </div>
           </form>
+          <section class="admin-analytics-grid" id="admin-analytics-grid" aria-label="Key performance indicators" aria-live="polite"></section>
+          <div class="analytics-report-book" data-analytics-report-book>
+            <div class="analytics-report-page" data-analytics-report-page>
           <div class="analytics-panel-descriptions">
-            <section id="analytics-panel-overview" data-analytics-panel="overview" role="tabpanel" aria-labelledby="analytics-tab-overview"><h2 class="t-label f12 g100">Overview</h2><p class="t-micro ink-3">Verified capacity, completion, adoption, and bot fallback signals.</p><figure class="analytics-chart" data-analytics-chart data-chart-title="Verified activity" data-chart-unit="observations" data-chart-mode="line" aria-labelledby="analytics-chart-title"><figcaption class="t-micro g400" id="analytics-chart-title">VERIFIED ACTIVITY</figcaption></figure></section>
-            <section class="is-hidden" id="analytics-panel-match-health" data-analytics-panel="match-health" role="tabpanel" aria-labelledby="analytics-tab-match-health" aria-hidden="true"><h2 class="t-label f12 g100">Match health</h2><p class="t-micro ink-3">Starts, settlements, stalls, reconnects, and duration denominators.</p></section>
-            <section class="is-hidden" id="analytics-panel-rulesets" data-analytics-panel="rulesets" role="tabpanel" aria-labelledby="analytics-tab-rulesets" aria-hidden="true"><h2 class="t-label f12 g100">Rulesets + boards</h2><p class="t-micro ink-3">Compare configured board and ruleset revisions without player-level detail.</p></section>
-            <section class="is-hidden" id="analytics-panel-economy" data-analytics-panel="economy" role="tabpanel" aria-labelledby="analytics-tab-economy" aria-hidden="true"><h2 class="t-label f12 g100">Economy</h2><p class="t-micro ink-3">Feature adoption, volatility, liquidations, and negative-cash prevention.</p></section>
-            <section class="is-hidden" id="analytics-panel-events" data-analytics-panel="events" role="tabpanel" aria-labelledby="analytics-tab-events" aria-hidden="true"><h2 class="t-label f12 g100">Events + rarity</h2><p class="t-micro ink-3">Eligibility, turnout, recovery, and competitive reward rarity.</p></section>
-            <section class="is-hidden" id="analytics-panel-bots" data-analytics-panel="bots" role="tabpanel" aria-labelledby="analytics-tab-bots" aria-hidden="true"><h2 class="t-label f12 g100">Bots</h2><p class="t-micro ink-3">AI, no-AI, provider fallback, decisions, wins, and placements.</p></section>
-            <section class="is-hidden" id="analytics-panel-quality" data-analytics-panel="quality" role="tabpanel" aria-labelledby="analytics-tab-quality" aria-hidden="true"><h2 class="t-label f12 g100">Data quality</h2><p class="t-micro ink-3">Freshness, queue depth, schema versions, suppression, and rejected events.</p></section>
+            <section id="analytics-panel-overview" data-analytics-panel="overview" data-analytics-question="Is the parlor healthy right now, and what changed compared with the selected baseline?" role="tabpanel" aria-labelledby="analytics-tab-overview"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-overview">Overview</h2><p class="analytics-panel-question">Is the parlor healthy right now, and what changed compared with the selected baseline?</p><p class="t-micro ink-3">Read active human seats, starts, completion, latency, and errors against the selected window.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="overview-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="overview" data-chart-title="Verified activity" data-chart-unit="observations" data-chart-mode="line" aria-labelledby="analytics-chart-title"><figcaption class="t-micro g400" id="analytics-chart-title">VERIFIED ACTIVITY</figcaption></div></div><div class="analytics-support-grid"><section class="analytics-support-panel" data-analytics-support="overview-rulesets"><h3 class="t-micro g400">RULESET + BOARD MIX</h3><p class="t-micro ink-3">A comparison appears when the snapshot includes breakdown rows.</p></section><section class="analytics-support-panel" data-analytics-support="overview-demand"><h3 class="t-micro g400">DEMAND BY HOUR</h3><p class="t-micro ink-3">A heatmap appears when verified hourly observations exist.</p></section></div></div><aside class="analytics-panel-context" aria-label="Overview context"><div class="analytics-alerts" id="admin-analytics-alerts" data-analytics-alerts role="status" aria-live="polite" aria-atomic="true"><span class="t-micro ink-3">NO ACTIONABLE ALERTS</span></div></aside></div></section>
+            <section class="is-hidden" id="analytics-panel-match-health" data-analytics-panel="match-health" data-analytics-question="Are matches starting, progressing, reconnecting, and settling reliably?" role="tabpanel" aria-labelledby="analytics-tab-match-health" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-match-health">Match health</h2><p class="analytics-panel-question">Are matches starting, progressing, reconnecting, and settling reliably?</p><p class="t-micro ink-3">Check starts, completions, stalls, reconnects, AFK, and duration denominators.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="match-health-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="match-health" data-chart-title="Match reliability" data-chart-unit="matches" data-chart-mode="bar" aria-labelledby="analytics-chart-title-match-health"><figcaption class="t-micro g400" id="analytics-chart-title-match-health">MATCH RELIABILITY</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Bot-only matches remain visible for operations and are excluded from competitive human measures.</p></aside></div></section>
+            <section class="is-hidden" id="analytics-panel-rulesets" data-analytics-panel="rulesets" data-analytics-question="Which board and ruleset combinations behave differently?" role="tabpanel" aria-labelledby="analytics-tab-rulesets" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-rulesets">Rulesets + boards</h2><p class="analytics-panel-question">Which board and ruleset combinations behave differently?</p><p class="t-micro ink-3">Compare adoption, completion, duration, outcomes, and revision markers descriptively.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="rulesets-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="rulesets" data-chart-title="Ruleset and board adoption" data-chart-unit="matches" data-chart-mode="bar" aria-labelledby="analytics-chart-title-rulesets"><figcaption class="t-micro g400" id="analytics-chart-title-rulesets">RULESET AND BOARD ADOPTION</figcaption></div></div></div><aside class="analytics-panel-context"><p class="analytics-association">ASSOCIATION, NOT CAUSATION. Sample sizes appear beside each comparison.</p></aside></div></section>
+            <section class="is-hidden" id="analytics-panel-economy" data-analytics-panel="economy" data-analytics-question="Which economic systems are used, and where do liquidity risks appear?" role="tabpanel" aria-labelledby="analytics-tab-economy" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-economy">Economy</h2><p class="analytics-panel-question">Which economic systems are used, and where do liquidity risks appear?</p><p class="t-micro ink-3">Aggregate feature adoption, money supply, volatility, liquidation, and prevention signals.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="economy-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="economy" data-chart-title="Economic feature adoption" data-chart-unit="adoption" data-chart-mode="bar" aria-labelledby="analytics-chart-title-economy"><figcaption class="t-micro g400" id="analytics-chart-title-economy">ECONOMIC FEATURE ADOPTION</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Private deal terms and player-level balances are never rendered here.</p></aside></div></section>
+            <section class="is-hidden" id="analytics-panel-events" data-analytics-panel="events" data-analytics-question="Are global events discoverable, rare enough, and resolving cleanly?" role="tabpanel" aria-labelledby="analytics-tab-events" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-events">Events + rarity</h2><p class="analytics-panel-question">Are global events discoverable, rare enough, and resolving cleanly?</p><p class="t-micro ink-3">Follow eligibility, turnout, recovery, combinations, rarity, and reward claims.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="events-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="events" data-chart-title="Event eligibility" data-chart-unit="observations" data-chart-mode="bar" aria-labelledby="analytics-chart-title-events"><figcaption class="t-micro g400" id="analytics-chart-title-events">EVENT ELIGIBILITY</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Small cohorts show INSUFFICIENT COHORT · MIN COHORT 5.</p></aside></div></section>
+            <section class="is-hidden" id="analytics-panel-bots" data-analytics-panel="bots" data-analytics-question="Are bot decisions stable, explainable, and acceptably fast?" role="tabpanel" aria-labelledby="analytics-tab-bots" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-bots">Bots</h2><p class="analytics-panel-question">Are bot decisions stable, explainable, and acceptably fast?</p><p class="t-micro ink-3">Compare provider latency, action distributions, placements, and fallback reasons.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="bots-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="bots" data-chart-title="Bot matches by provider" data-chart-unit="matches" data-chart-mode="bar" aria-labelledby="analytics-chart-title-bots"><figcaption class="t-micro g400" id="analytics-chart-title-bots">BOT MATCHES BY PROVIDER</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Win and placement comparisons are descriptive; bot-only matches are labeled separately.</p></aside></div></section>
+            <section class="is-hidden" id="analytics-panel-quality" data-analytics-panel="quality" data-analytics-question="Can this snapshot be trusted and understood?" role="tabpanel" aria-labelledby="analytics-tab-quality" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-quality">Data quality</h2><p class="analytics-panel-question">Can this snapshot be trusted and understood?</p><p class="t-micro ink-3">Verify freshness, lag, queue depth, coverage, suppression, persistence, and retention labels.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="quality-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="quality" data-chart-title="Snapshot quality signals" data-chart-unit="observations" data-chart-mode="bar" aria-labelledby="analytics-chart-title-quality"><figcaption class="t-micro g400" id="analytics-chart-title-quality">SNAPSHOT QUALITY SIGNALS</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">A missing API field is reported as missing evidence, never as a fabricated zero.</p></aside></div></section>
           </div>
+            </div>
+            <footer class="analytics-page-footer">
+              <button class="btn-dark analytics-page-turn" type="button" data-analytics-page-prev><span class="t-label f11">PREVIOUS</span></button>
+              <span class="t-micro ink-3" data-analytics-page-position aria-live="polite">1 / 7</span>
+              <button class="btn-dark analytics-page-turn" type="button" data-analytics-page-next><span class="t-label f11">NEXT</span></button>
+            </footer>
+          </div>
+          <aside class="analytics-contextual-slots" aria-label="Optional analytics context">
+            <section class="analytics-context-slot" data-analytics-context="live-ops" hidden><h2 class="t-label f12 g100">Live ops</h2><p class="t-micro ink-3">Latency, traffic, errors, saturation, queues, and persistence failures.</p></section>
+            <section class="analytics-context-slot" data-analytics-context="funnel" hidden><h2 class="t-label f12 g100">Funnel</h2><p class="t-micro ink-3">Aggregate progression from page view to completed match.</p></section>
+            <section class="analytics-context-slot" data-analytics-context="retention" hidden><h2 class="t-label f12 g100">Retention</h2><p class="t-micro ink-3">Cohort return rates appear only when the contract supplies them.</p></section>
+            <section class="analytics-context-slot" data-analytics-context="releases" hidden><h2 class="t-label f12 g100">Releases</h2><p class="t-micro ink-3">Revision markers and before/after context appear only when supplied.</p></section>
+          </aside>
         </section>
-        <p class="t-body analytics-status muted" id="admin-analytics-status" role="status" aria-live="polite">Loading analytics…</p>
-        <section class="admin-analytics-grid" id="admin-analytics-grid" aria-live="polite"></section>
+        <section class="panel noise admin-provider-workspace is-hidden" id="admin-provider-workspace" data-admin-provider-workspace role="tabpanel" aria-hidden="true" aria-labelledby="admin-console-tab-provider" tabindex="-1">
+          <header class="admin-provider-heading">
+            <div><span class="t-micro g400">MODEL EXCHANGE</span><h2 class="t-section g100">Bot provider</h2><p class="t-body ink-2">Configure one server-side provider at a time. Credentials are write-only and never enter the game client.</p></div>
+            <span class="admin-provider-state t-label f11" data-admin-provider-state>UNCONFIGURED</span>
+          </header>
+          <div class="admin-provider-layout">
+            <aside class="admin-provider-active panel" aria-label="Active provider">
+              <div class="admin-provider-section-label t-micro g400">ACTIVE PROVIDER</div>
+              <h3 class="t-label f12 g100" data-admin-provider-active-label>NO PROFILE ACTIVE</h3>
+              <dl class="admin-provider-facts">
+                <div><dt class="t-micro ink-3">MODEL</dt><dd class="t-label f11" data-admin-provider-active-model>—</dd></div>
+                <div><dt class="t-micro ink-3">FORMAT</dt><dd class="t-label f11" data-admin-provider-active-format>AUTO · UNTESTED</dd></div>
+                <div><dt class="t-micro ink-3">ENDPOINT</dt><dd class="t-label f11" data-admin-provider-active-url>—</dd></div>
+                <div><dt class="t-micro ink-3">KEY</dt><dd class="t-label f11" data-admin-provider-active-key>NOT CONFIGURED</dd></div>
+              </dl>
+              <p class="t-micro ink-3 admin-provider-active-note" data-admin-provider-active-note>AI failures always return to the deterministic house brain.</p>
+            </aside>
+            <section class="admin-provider-editor" aria-labelledby="admin-provider-editor-title">
+              <div class="admin-provider-section-label t-micro g400" id="admin-provider-editor-title">PROVIDER PROFILE</div>
+              <form data-admin-provider-form novalidate>
+                <div class="admin-provider-form-grid">
+                  <label class="admin-provider-field"><span class="t-micro g400">PROFILE NAME</span><input class="input-dark" name="label" data-admin-provider-field="label" maxlength="80" required autocomplete="off" placeholder="OpenAI main"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">MODEL</span><input class="input-dark" name="model" data-admin-provider-field="model" maxlength="120" required autocomplete="off" placeholder="gpt-4o-mini"></label>
+                  <label class="admin-provider-field admin-provider-field-wide"><span class="t-micro g400">BASE URL</span><input class="input-dark" name="baseUrl" data-admin-provider-field="baseUrl" type="url" maxlength="400" required autocomplete="url" placeholder="https://api.openai.com/v1"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">REQUEST FORMAT</span><select class="input-dark" name="protocol" data-admin-provider-field="protocol"><option value="auto">AUTO · DETECT</option><option value="chat">CHAT COMPLETIONS</option><option value="responses">RESPONSES</option></select></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">API KEY</span><input class="input-dark" name="apiKey" data-admin-provider-field="apiKey" type="password" maxlength="2000" autocomplete="new-password" placeholder="Paste a new key to replace it"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">TIMEOUT · MS</span><input class="input-dark" name="timeoutMs" data-admin-provider-field="timeoutMs" type="number" min="1000" max="60000" step="100" value="4000" inputmode="numeric"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">AI DECISIONS · GAME</span><input class="input-dark" name="maxDecisionsPerGame" data-admin-provider-field="maxDecisionsPerGame" type="number" min="1" max="10000" step="1" value="120" inputmode="numeric"></label>
+                </div>
+                <p class="t-micro ink-3 admin-provider-key-note">The key is stored server-side only. Leave it blank when editing to keep the existing key. Test before activation.</p>
+                <div class="admin-provider-form-actions"><button class="btn-dark" type="submit" data-admin-provider-save><span class="t-label f11">SAVE PROFILE</span></button><button class="btn-dark" type="button" data-admin-provider-new><span class="t-label f11">NEW PROFILE</span></button></div>
+              </form>
+              <p class="t-body analytics-status muted" data-admin-provider-test-status role="status" aria-live="polite">Select a profile or create one to test the connection.</p>
+            </section>
+          </div>
+          <section class="admin-provider-profiles" aria-labelledby="admin-provider-profiles-title">
+            <div class="admin-provider-section-head"><div><span class="t-micro g400">SAVED PROFILES</span><h3 class="t-label f12 g100" id="admin-provider-profiles-title">Provider roster</h3></div><span class="t-micro ink-3">REDACTED VIEW</span></div>
+            <div class="admin-provider-list" data-admin-provider-list aria-live="polite"></div>
+          </section>
+        </section>
+        <p class="t-body analytics-status muted" id="admin-analytics-status" data-analytics-state="loading" role="status" aria-live="polite">Loading analytics…</p>
       </main>
     </div>
 
@@ -703,7 +751,7 @@
               <span class="hair"></span>
               <span data-sprite="diamond" data-size="3"></span>
             </div>
-            <div class="chat-body thin-scroll" id="chat-body"></div>
+            <div class="chat-body thin-scroll" id="chat-body" role="log" aria-live="polite" aria-relevant="additions text"></div>
             <form class="chat-form" id="chat-form">
               <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" name="message" inputmode="text" autocomplete="off" placeholder="Join the room to chat…" maxlength="120" disabled />
               <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
@@ -716,21 +764,6 @@
         <!-- CENTER -->
         <div class="rail-center">
           <div class="board-area">
-            <section class="global-event-banner is-hidden" id="global-event-banner" aria-live="polite" aria-labelledby="global-event-title">
-              <div class="global-event-main">
-                <span class="global-event-mark" aria-hidden="true">!</span>
-                <div>
-                  <span class="t-micro g400" id="global-event-kicker">GLOBAL HEADLINE</span>
-                  <h2 class="t-section" id="global-event-title">No active event</h2>
-                  <p class="t-micro ink-2" id="global-event-copy"></p>
-                  <div class="global-event-effects" id="global-event-effects"></div>
-                </div>
-              </div>
-              <div class="global-event-meta">
-                <span class="t-micro ink-3" id="global-event-rounds"></span>
-                <div class="global-event-choices" id="global-event-choices"></div>
-              </div>
-            </section>
             <div class="board-holder">
               <div class="board-frame noise vignette" id="board-frame">
                 <div class="board-grid" id="board-grid">
@@ -745,6 +778,39 @@
                       </div>
                       <p class="t-label cf-sub"><span class="g300">✦</span> After-Hours Game Parlor <span class="g300">✦</span></p>
                     </div>
+                    <section class="global-event-banner is-hidden" id="global-event-banner" role="region" aria-live="polite" aria-labelledby="global-event-title">
+                      <div class="global-event-header">
+                        <div class="global-event-badge-group">
+                          <span class="global-event-emblem" id="global-event-emblem" aria-hidden="true"></span>
+                          <span class="t-micro g400 global-event-kicker" id="global-event-kicker">GLOBAL HEADLINE</span>
+                        </div>
+                        <div class="global-event-status-group">
+                          <span class="global-event-rounds-badge" id="global-event-rounds-badge">
+                            <span class="global-event-timer-icon" id="global-event-timer-icon" aria-hidden="true"></span>
+                            <span class="t-micro ink-3" id="global-event-rounds"></span>
+                          </span>
+                          <button class="global-event-toggle" id="global-event-toggle" type="button" aria-expanded="true" aria-controls="global-event-body-wrap" title="Toggle event details [H]">
+                            <span class="global-event-toggle-label" id="global-event-toggle-label">HIDE</span>
+                            <span class="global-event-toggle-icon" id="global-event-toggle-icon" aria-hidden="true"></span>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="global-event-body-wrap" id="global-event-body-wrap">
+                        <div class="global-event-main">
+                          <h2 class="t-section" id="global-event-title">No active event</h2>
+                          <p class="t-micro ink-2" id="global-event-copy"></p>
+                        </div>
+                        <div class="global-event-effects" id="global-event-effects"></div>
+                        <div class="global-event-meta">
+                          <div class="global-event-choices" id="global-event-choices"></div>
+                        </div>
+                      </div>
+                      <div class="global-event-compact-row is-hidden" id="global-event-compact-row">
+                        <span class="global-event-compact-title" id="global-event-compact-title"></span>
+                        <div class="global-event-compact-effects" id="global-event-compact-effects"></div>
+                        <span class="global-event-compact-vote is-hidden" id="global-event-compact-vote"></span>
+                      </div>
+                    </section>
                     <div class="deck deck-chest"><span data-sprite="chest" data-size="5"></span></div>
                     <div class="deck deck-chance"><span class="q-mark q-lg">?</span></div>
                   </div>
@@ -1011,6 +1077,5 @@
     </aside>
 
     <script type="module" src="/main.js" defer></script>
-    <script type="module" src="/clientMusicBoxUi.js" defer></script>
   </body>
 </html>

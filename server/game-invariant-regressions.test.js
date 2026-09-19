@@ -76,7 +76,8 @@ check('debt-mode bankruptcy concludes a two-player round and crowns the solvent 
   assert.equal(result.success, true);
   assert.equal(room.game.started, false);
   assert.equal(room.game.lastWinner?.id, creditor.id);
-  assert.equal(debtor.inDebt, true);
+  assert.equal(debtor.inDebt, false);
+  assert.equal(debtor.bankrupt, true);
 });
 
 check('AFK expiry settles or concludes an active payment instead of forgiving it', () => {

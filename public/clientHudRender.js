@@ -92,6 +92,7 @@ function hudControlsLocked() {
 
 function humanTurnNow() {
   if (state.turnIndex !== 0) return false;
+  if (state.players[0]?.bankrupt || state.players[0]?.spectating) return false;
   return state.phase === "playing";
 }
 
@@ -126,7 +127,9 @@ function renderHudRollButton(waiting) {
   const canRoll = canRollNow(locked, humanTurn);
   const canEnd = canEndNow(locked, humanTurn);
   const btn = $("#roll-btn");
-  btn.disabled = !(canRoll || canEnd);
+  // A dismissed purchase card reopens from this button: keep it enabled
+  // while "Resolve Purchase" is showing, otherwise the turn strands.
+  btn.disabled = state.pendingBuyTile != null ? false : !(canRoll || canEnd);
   $("#roll-label").textContent = hudRollLabel(waiting, canRoll, canEnd);
 }
 
@@ -176,7 +179,11 @@ export function stopTurnCountdown() {
 export function startTurnCountdown() {
   stopTurnCountdown();
   if (state.settings.turnTimer <= 0 || state.turnIndex !== 0) return;
-  turnDeadline = Number(state.turnDeadline) || (Date.now() + (state.serverTimeOffset || 0) + state.settings.turnTimer * 1000);
+  // Never fabricate a deadline: without a server timestamp the timer stays
+  // hidden instead of counting down a phantom window.
+  const serverDeadline = Number(state.turnDeadline);
+  if (!Number.isFinite(serverDeadline) || serverDeadline <= 0) return;
+  turnDeadline = serverDeadline;
   lastAnnouncedTurnSecond = null;
   turnTimerInterval = setInterval(countdownTick, 120);
 }
@@ -290,7 +297,7 @@ function renderHudJailButtons(cur, waiting, isLobby) {
 export function renderHud() {
   const waiting = state.phase !== "playing";
   const isLobby = state.phase === "lobby";
-  const cur = state.players[state.turnIndex];
+  const cur = state.players[state.turnIndex] || null;
 
   if (isLobby) {
     renderHudLobby();
@@ -300,19 +307,23 @@ export function renderHud() {
   const awaitingEnd = state.turnStage === "end";
   $("#hud-turn-label").textContent = hudStatusLabel(waiting, awaitingEnd);
   const nameEl = $("#hud-name");
-  nameEl.textContent = waiting ? "Stand By" : cur.name;
-  nameEl.style.color = waiting ? "#cfa75f" : cur.textColor;
+  nameEl.textContent = waiting ? "Stand By" : cur?.name || "Syncing…";
+  nameEl.style.color = waiting ? "#cfa75f" : cur?.textColor || "#cfa75f";
   const noteVisibleNow = noteVisible(waiting, awaitingEnd);
   $("#hud-note").style.display = noteVisibleNow ? "block" : "none";
   $("#hud-note").textContent = awaitingEnd
     ? "Buy, build or trade now, then end your turn."
-    : "Join a room to get started.";
+    : humanTurnNow() && inJailThisTurn(cur) && (cur.cash || 0) < 50 && !(cur.jailFree > 0)
+      ? "In jail: roll doubles to walk free, or end the turn to wait it out."
+      : !waiting && state.turnIndex !== 0 && cur?.name
+        ? `${cur.name} is deciding…`
+        : "Join a room to get started.";
   renderHudLoan(cur, waiting);
-  $("#hud-cash").textContent = `$${waiting ? "0" : cur.cash.toLocaleString()}`;
+  $("#hud-cash").textContent = `$${waiting ? "0" : Number(cur?.cash || 0).toLocaleString()}`;
   if ($("#hud-cash-action")) $("#hud-cash-action").disabled = waiting;
   $("#hud-pool").textContent = `$${waiting ? 0 : state.pool}`;
   renderHudDice(waiting);
   renderHudRollButton(waiting);
   renderHudStage(cur, waiting, isLobby);
-  renderHudJailButtons(cur, waiting, isLobby);
+  renderHudJailButtons(cur, waiting || !cur, isLobby);
 }

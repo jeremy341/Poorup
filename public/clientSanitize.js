@@ -301,8 +301,11 @@ function cleanCreatedAt(value) {
 }
 
 function accountAvatarGrid(grid) {
-  if (Array.isArray(grid)) return grid;
-  return null;
+  if (!Array.isArray(grid)) return null;
+  const clean = grid.map(row => Array.isArray(row)
+    ? row.map(cell => (typeof cell === "string" && /^#[0-9a-f]{6}$/i.test(cell) ? cell.toLowerCase() : null))
+    : null);
+  return clean.some(row => row === null) ? null : clean;
 }
 
 function sanitizedAccount(account) {
@@ -318,23 +321,38 @@ function sanitizedAccount(account) {
     matchHistory: cleanMatchHistory(account.matchHistory),
     achievements: cleanAccountAchievements(account.achievements),
     privacy: cleanAccountPrivacy(account.privacy),
+    isAdmin: account.isAdmin === true,
+    accountDeactivated: account.accountDeactivated === true,
+    deletionRequestedAt: cleanCreatedAt(account.deletionRequestedAt),
+    deletionDueAt: cleanCreatedAt(account.deletionDueAt),
+    deletionRequestId: typeof account.deletionRequestId === "string" ? account.deletionRequestId.slice(0, 100) : null,
+    recoveryEmail: typeof account.recoveryEmail === "string" ? account.recoveryEmail.slice(0, 254) : null,
+    recoveryEmailVerified: account.recoveryEmailVerified === true,
   };
 }
 
 function sanitizeAccountSession(value) {
   if (!value) return null;
   if (typeof value !== "object") return null;
-  if (typeof value.sessionToken !== "string") return null;
+  if (value.sessionToken !== undefined && typeof value.sessionToken !== "string") return null;
   const account = value.account;
   if (!account) return null;
   if (typeof account.id !== "string") return null;
   if (typeof account.username !== "string") return null;
-  return { sessionToken: value.sessionToken, account: sanitizedAccount(account) };
+  return { sessionToken: typeof value.sessionToken === "string" ? value.sessionToken : "", account: sanitizedAccount(account) };
 }
 
 function persistAccountSession(session) {
   try {
-    if (session) localStorage.setItem(ACCOUNT_SESSION_KEY, JSON.stringify(session));
+    if (session) {
+      // New sessions are cookie-backed. Keep a non-sensitive account snapshot
+      // for optimistic rendering after reload, but never persist the bearer
+      // token. Older records with a token remain readable for one-time
+      // migration by the server's /account/session endpoint.
+      const account = session.account ? sanitizedAccount(session.account) : null;
+      if (account) localStorage.setItem(ACCOUNT_SESSION_KEY, JSON.stringify({ account }));
+      else localStorage.removeItem(ACCOUNT_SESSION_KEY);
+    }
     else localStorage.removeItem(ACCOUNT_SESSION_KEY);
   } catch { /* storage unavailable */ }
 }

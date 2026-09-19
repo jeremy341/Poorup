@@ -29,6 +29,14 @@ test("theme reset clears custom state and enables loop", () => {
   player.setTheme("spring");
   assert.equal(player.snapshot().mode, "AUTO THEME"); assert.equal(player.snapshot().loop, true);
 });
+test("theme switch explicitly loads the incoming audio source", () => {
+  let loads = 0;
+  const audioB = { ...media(), load() { loads += 1; } };
+  const { player } = setup({ audioB });
+  player.setTheme("spring");
+  assert.equal(audioB.src, "/assets/audio/themes/spring/hot-springs-town.mp3");
+  assert.equal(loads, 1);
+});
 test("volume is clamped and preferences are sanitized", () => {
   const { player, values } = setup(); player.setVolume(4); assert.equal(player.snapshot().volume, 1);
   player.setVolume(-1); assert.equal(player.snapshot().volume, 0); assert.match(values.get("poorup.music.preferences"), /volume/);
@@ -60,10 +68,28 @@ test("crossfade ramps both elements and cancels stale transitions", async () => 
   assert.equal(frames.length > 0, true); clock = 325; frames.at(-1)?.(); assert.equal(b.volume > 0 && b.volume < 0.16, true); assert.equal(a.volume < 0.16, true);
   player.setTheme("one"); const stale = frames.at(-1); player.setTheme("two"); stale?.(); assert.equal(player.snapshot().currentTrackId, "b");
 });
-test("persisted track is restored only for its approved theme", () => {
+
+test("reconciles a delayed crossfade from the media clock after a hidden tab", async () => {
+  let clock = 0;
+  const listeners = {};
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" } }, defaults: { one: "a", two: "b" }, themes: { one: ["a"], two: ["b"] } };
+  const a = media();
+  const b = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const player = createMusicPlayer({ audioA: a, audioB: b, manifest, getThemeId: () => "one", now: () => clock, reducedMotion: false, requestFrame: () => 1, cancelFrame: () => {} });
+  player.setTheme("two");
+  listeners.canplay();
+  await Promise.resolve();
+  await Promise.resolve();
+  clock = 1000;
+  player.reconcile();
+  assert.equal(player.snapshot().playing, true);
+  assert.equal(player.snapshot().currentTrackId, "b");
+  assert.equal(b.volume, 0.16);
+});
+test("legacy persisted player settings normalize to the approved theme track", () => {
   const storage = new Map([["poorup.music.preferences", JSON.stringify({ theme: "spring", track: "pondering-the-cosmos", volume: 0.4 })]]);
   const { player } = setup({ storage: { getItem: k => storage.get(k), setItem: (k, v) => storage.set(k, v) }, getThemeId: () => "spring" });
-  assert.equal(player.snapshot().currentTrackId, "hot-springs-town"); assert.equal(player.snapshot().volume, 0.4);
+  assert.equal(player.snapshot().currentTrackId, "hot-springs-town"); assert.equal(player.snapshot().volume, 0.4); assert.equal(player.snapshot().mode, "AUTO THEME"); assert.equal(player.snapshot().loop, true); assert.equal(player.snapshot().shuffle, false);
 });
 test("safe injected manifest never hardcodes unavailable fallback", () => {
   const manifest = { tracks: { x: { id: "x", title: "X", src: "/x", status: "approved" } }, defaults: { custom: "x" }, themes: { custom: ["x"] } };
@@ -202,12 +228,12 @@ test("ended after stop does not restart the active audio", () => {
   let plays = 0; let ended; const audioA = { ...media(), play() { plays += 1; }, addEventListener(type, fn) { if (type === "ended") ended = fn; } };
   const { player } = setup({ audioA }); player.togglePlay(); player.stop(); ended(); assert.equal(plays, 1);
 });
-test("mode persists and restores only sanitized values", () => {
+test("retired custom mode is never restored", () => {
   const values = new Map(); const first = setup({ getThemeId: () => "spring", storage: { getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,v) } }); first.player.selectTrack("hot-springs-town");
-  const second = setup({ getThemeId: () => "spring", storage: { getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,v) } }); assert.equal(second.player.snapshot().mode, "CUSTOM");
+  const second = setup({ getThemeId: () => "spring", storage: { getItem: k => values.get(k) ?? null, setItem: (k,v) => values.set(k,v) } }); assert.equal(second.player.snapshot().mode, "AUTO THEME"); assert.equal(second.player.snapshot().currentTrackId, "hot-springs-town");
 });
-test("storage sync applies approved preference fields", () => {
-  const { player } = setup(); player.syncPreferences(JSON.stringify({ volume: 0.4, shuffle: true, loop: false, mode: "CUSTOM", track: "pondering-the-cosmos" })); const snap = player.snapshot(); assert.equal(snap.volume, 0.4); assert.equal(snap.shuffle, true); assert.equal(snap.loop, false); assert.equal(snap.mode, "CUSTOM");
+test("storage sync keeps only volume and the theme soundtrack contract", () => {
+  const { player } = setup(); player.syncPreferences(JSON.stringify({ volume: 0.4, shuffle: true, loop: false, mode: "CUSTOM", track: "pondering-the-cosmos" })); const snap = player.snapshot(); assert.equal(snap.volume, 0.4); assert.equal(snap.shuffle, false); assert.equal(snap.loop, true); assert.equal(snap.mode, "AUTO THEME"); assert.deepEqual(snap.queue, ["pondering-the-cosmos"]);
 });
 test("non-loop ended clears playing intent and reports ended", () => {
   let ended; const audioA = { ...media(), play() {}, addEventListener(type, fn) { if (type === "ended") ended = fn; } }; const { player } = setup({ audioA }); player.togglePlay(); player.toggleLoop(); ended(); assert.equal(player.snapshot().playing, false); assert.equal(player.snapshot().status, "ended");
@@ -216,7 +242,7 @@ test("invalid persisted custom track resets mode to AUTO THEME", () => {
   const values = new Map([["poorup.music.preferences", JSON.stringify({ theme: "spring", mode: "CUSTOM", track: "pondering-the-cosmos" })]]);
   const { player } = setup({ getThemeId: () => "spring", storage: { getItem: k => values.get(k), setItem: () => {} } }); assert.equal(player.snapshot().mode, "AUTO THEME"); assert.equal(player.snapshot().currentTrackId, "hot-springs-town");
 });
-test("storage shuffle sync rebuilds queue and restores order", () => {
-  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" }, c: { id: "c", title: "C", src: "/c", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a", "b", "c"] } };
-  const { player } = setup({ manifest, getThemeId: () => "one", random: () => 0 }); player.syncPreferences({ shuffle: true }); assert.deepEqual(player.snapshot().queue, ["b", "c", "a"]); player.syncPreferences({ shuffle: false }); assert.deepEqual(player.snapshot().queue, ["a", "b", "c"]);
+test("storage shuffle sync cannot create a multi-track queue", () => {
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" }, c: { id: "c", title: "C", src: "/c", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a"] } };
+  const { player } = setup({ manifest, getThemeId: () => "one", random: () => 0 }); player.syncPreferences({ shuffle: true }); assert.equal(player.snapshot().shuffle, false); assert.deepEqual(player.snapshot().queue, ["a"]);
 });

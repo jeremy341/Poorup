@@ -1,30 +1,13 @@
 import { state } from './clientState.js';
 import { renderAnalyticsChart } from './clientAnalyticsCharts.js';
+import { disposeAnalyticsChart } from './clientAnalyticsChartAdapter.js';
+import { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
+import { createAnalyticsPageController } from './clientAnalyticsPage.js';
+import { ALLOWED_METRICS, METRIC_LABELS, MIN_COHORT, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
+export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
+export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 
-export const MIN_COHORT = 5;
-export const ANALYTICS_TABS = Object.freeze(['overview', 'match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']);
-
-const ALLOWED_METRICS = new Set([
-  'active-sockets', 'active-rooms', 'active-rounds', 'room-reconnects', 'restore-failures',
-  'action-latency-ms', 'error-count', 'bot-fallbacks', 'maintenance-transitions',
-  'backup-failures', 'manual-codescene-runs',
-]);
-const METRIC_LABELS = Object.freeze({
-  'active-sockets': 'Active sockets', 'active-rooms': 'Active rooms', 'active-rounds': 'Active rounds',
-  'room-reconnects': 'Room reconnects', 'restore-failures': 'Restore failures', 'action-latency-ms': 'Action latency',
-  'error-count': 'Server errors', 'bot-fallbacks': 'Bot fallbacks', 'maintenance-transitions': 'Maintenance transitions',
-  'backup-failures': 'Backup failures', 'manual-codescene-runs': 'Manual CodeScene runs',
-});
-const FORBIDDEN_KEYS = new Set(['displayname', 'username', 'accountid', 'clientid', 'roomcode', 'chat', 'message', 'text', 'hiddencards', 'privateloanterms', 'opponentsecrets', 'password', 'sessiontoken', 'rawpayload', 'rawevent', 'rawdata', 'display_name', 'account_id', 'client_id', 'room_code', 'session_token', 'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data']);
-const ALLOWED_CLIENT_FIELDS = new Set(['id', 'label', 'value', 'y', 'unit', 'sampleSize', 'observations', 'count', 'numerator', 'denominator', 'rate', 'delta', 'relativeDelta', 'relativeRateDelta', 'percentagePointDelta', 'comparison', 'definition', 'generatedAt', 'period', 'p95', 'source', 'started', 'starts', 'completed', 'completions', 'stalled', 'stalls', 'matches', 'startedMatches', 'completedMatches', 'stalledMatches', 'completionRate', 'medianDuration', 'p95Duration', 'durationMedian', 'durationP95', 'wins', 'winShare', 'placementBaseline', 'placementMedian', 'medianPlacement', 'fallback', 'fallbackRate', 'decisions', 'actions', 'actionAdoption', 'auctionDecisions', 'legalActionTaxonomy', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode', 'provider', 'eligibility', 'eligible', 'used', 'adoption', 'volatility', 'liquidations', 'liquidation', 'liquidationRate', 'shortDefaults', 'shortDefaultRate', 'shortDefault', 'shortPositions', 'optionExercises', 'optionExerciseRate', 'optionExercise', 'collateralizedOptions', 'negativeCashPreventions', 'negativeCashPrevention', 'warnings', 'active', 'warningToActive', 'turnout', 'recovered', 'recoveryRate', 'combinations', 'rarity', 'unlockRarity', 'outcomeDistribution', 'bankruptcies', 'comebacks', 'reconnectRate', 'afkRate', 'denominators', 'competitiveMetricsExcludeBotOnly', 'rewardClaims', 'associationLabel', 'exposed', 'control', 'minimumCohort', 'suppressed', 'suppressionReason', 'schemaVersion', 'fresh', 'stale', 'lagSeconds', 'eventCoverage', 'queueDepth', 'pendingWrites', 'rejectedEvents', 'suppressionCount', 'revisionCoverage', 'filters', 'series', 'breakdowns', 'overview', 'dataQuality', 'metrics', 'kpis', 'cards', 'rows', 'pseudonymId', 'pseudonymVersion', 'seasonId', 'rulesetRevision', 'balanceRevision', 'range', 'tab', 'association', 'dimension', 'metric', 'scope']);
-const DYNAMIC_CLIENT_FIELDS = new Set(['features', 'events', 'market', 'bots', 'achievements', 'unlockRarity', 'outcomeDistribution', 'adoption', 'actions', 'combinations']);
-
-function query(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
-function finite(value, fallback = null) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
-function enumValue(value, allowed, fallback) { const normalized = String(value || fallback).trim().toLowerCase(); return allowed.includes(normalized) ? normalized : fallback; }
-function safeScopeString(value) { return [...value].filter(character => character !== '|' && character.charCodeAt(0) >= 32).join('').slice(0, 80); }
-function normalizeRevision(value) { if (value === '' || value === undefined || value === null) return ''; const number = finite(value, null); return number === null ? '' : String(Math.max(0, Math.floor(number))); }
-function normalizedRevisionNumber(value, fallback = '') { const normalized = normalizeRevision(value); return normalized === '' ? fallback : Number(normalized); }
+function query(selector) { return typeof document === 'undefined' || typeof document.querySelector !== 'function' ? null : document.querySelector(selector); }
 function clearAnalyticsOutput() {
   const grid = query('#admin-analytics-grid');
   if (grid) grid.textContent = '';
@@ -32,104 +15,135 @@ function clearAnalyticsOutput() {
   document.querySelectorAll?.('.analytics-read-model, [data-analytics-chart]')?.forEach(element => { element.textContent = ''; });
 }
 
-export function normalizeAnalyticsQuery(input = {}) {
-  const source = input && typeof input === 'object' ? input : {};
-  const requestedTab = source.tab || source.view;
-  return {
-    range: enumValue(source.range, ['hour', 'day', 'week', 'season'], 'hour'),
-    seasonId: typeof source.seasonId === 'string' ? safeScopeString(source.seasonId) : '',
-    rulesetRevision: normalizeRevision(source.rulesetRevision),
-    balanceRevision: normalizeRevision(source.balanceRevision),
-    boardVariant: enumValue(source.boardVariant, ['all', 'standard-40', 'metro-52'], 'all'),
-    rulesetPreset: enumValue(source.rulesetPreset, ['all', 'classic', 'after-hours', 'custom'], 'all'),
-    marketComplexity: enumValue(source.marketComplexity, ['all', 'basic', 'margin', 'shorting', 'derivatives'], 'all'),
-    botMode: enumValue(source.botMode, ['all', 'ai', 'no-ai', 'human'], 'all'),
-    provider: enumValue(source.provider, ['all', 'ai', 'deepseek', 'deterministic', 'fallback', 'house', 'openai', 'unknown'], 'all'),
-    eventId: typeof source.eventId === 'string' ? source.eventId.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80) : '',
-    minimumCohort: MIN_COHORT,
-    tab: enumValue(requestedTab, ANALYTICS_TABS, 'overview'),
-    dimension: enumValue(source.dimension, ['feature', 'ruleset', 'board', 'event', 'bot'], ''),
-    metric: typeof source.metric === 'string' ? source.metric.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80) : ''
-  };
-}
-
-function cleanSafeValue(value, key = '', depth = 0, parentKey = '') {
-  if (FORBIDDEN_KEYS.has(String(key).toLowerCase()) || depth > 20) return undefined;
-  if (value === null) return null;
-  if (typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.slice(0, 200).map(item => cleanSafeValue(item, '', depth + 1, key)).filter(item => item !== undefined);
-  if (!value || typeof value !== 'object') return undefined;
-  const output = {};
-  Object.entries(value).slice(0, 200).forEach(([childKey, childValue]) => {
-    if (!ALLOWED_CLIENT_FIELDS.has(childKey) && !DYNAMIC_CLIENT_FIELDS.has(key) && !DYNAMIC_CLIENT_FIELDS.has(parentKey)) return;
-    const clean = cleanSafeValue(childValue, childKey, depth + 1, key);
-    if (clean !== undefined) output[childKey] = clean;
-  });
-  return output;
-}
-
-function cleanMetricEntry(value) {
-  if (!value || Object.prototype.toString.call(value) !== '[object Object]') return null;
-  const output = {};
-  ['type', 'updatedAt'].forEach(key => { if (typeof value[key] === 'string') output[key] = value[key].slice(0, 80); });
-  ['count', 'total', 'last', 'min', 'max', 'value'].forEach(key => { const number = finite(value[key]); if (number !== null) output[key] = number; });
-  return output;
-}
-
-function metricEntries(value) { return value && typeof value === 'object' && !Array.isArray(value) ? Object.entries(value).filter(([name]) => ALLOWED_METRICS.has(name)) : []; }
-
-export function normalizeAnalyticsSnapshot(value = {}) {
-  const source = value && typeof value === 'object' ? value : {};
-  const metrics = {};
-  metricEntries(source.metrics).forEach(([name, entry]) => { const clean = cleanMetricEntry(entry); if (clean) metrics[name] = clean; });
-  const filters = normalizeAnalyticsQuery(source.filters || source);
-  const overview = cleanSafeValue(source.overview, 'overview') || {};
-  const breakdowns = Array.isArray(source.breakdowns) ? source.breakdowns.slice(0, 100).map(row => cleanSafeValue(row)).filter(Boolean) : [];
-  const series = Array.isArray(source.series) ? source.series.slice(0, 168).map(item => cleanSafeValue(item)).filter(Boolean) : [];
-  return {
-    schemaVersion: Number.isFinite(Number(source.schemaVersion)) && Number(source.schemaVersion) > 0 ? Number(source.schemaVersion) : 1,
-    range: ['hour', 'day', 'week', 'season'].includes(String(source.range || filters.range)) ? String(source.range || filters.range) : filters.range,
-    generatedAt: typeof source.generatedAt === 'string' ? source.generatedAt.slice(0, 80) : '',
-    pseudonymVersion: typeof source.pseudonymVersion === 'string' ? source.pseudonymVersion.slice(0, 40) : '',
-    seasonId: typeof source.seasonId === 'string' ? safeScopeString(source.seasonId) : filters.seasonId,
-    rulesetRevision: source.rulesetRevision === null || source.rulesetRevision === undefined ? filters.rulesetRevision : normalizedRevisionNumber(source.rulesetRevision),
-    balanceRevision: source.balanceRevision === null || source.balanceRevision === undefined ? filters.balanceRevision : normalizedRevisionNumber(source.balanceRevision),
-    boardVariant: enumValue(source.boardVariant, ['all', 'standard-40', 'metro-52'], filters.boardVariant),
-    filters,
-    suppression: { minimumCohort: MIN_COHORT, suppressedPanels: Math.max(0, Math.floor(finite(source.suppression?.suppressedPanels, 0))) },
-    overview,
-    association: cleanSafeValue(source.association, 'association') || null,
-    series,
-    breakdowns,
-    dataQuality: cleanSafeValue(source.dataQuality, 'dataQuality') || {},
-    metrics,
-  };
-}
-
-export function metricValue(entry) {
-  if (!entry || typeof entry !== 'object') return 0;
-  const value = finite(entry.value ?? entry.last ?? entry.total, 0);
-  return value === null ? 0 : value;
-}
-
-export function isAnalyticsPath(pathname) { return String(pathname || '').split('?')[0] === '/admin/analytics'; }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
-function renderStatus(message, tone = 'muted') { const status = query('#admin-analytics-status'); if (!status) return; status.className = `t-body analytics-status ${tone}`; status.textContent = message; }
+const ANALYTICS_FILTER_LABELS = Object.freeze({ boardVariant: 'BOARD', rulesetPreset: 'RULESET', marketComplexity: 'MARKET', botMode: 'BOT MODE', provider: 'PROVIDER', eventId: 'EVENT', seasonId: 'SEASON', rulesetRevision: 'RULE REV', balanceRevision: 'BALANCE REV' });
+function renderActiveAnalyticsFilters(filters) {
+  const target = query('[data-analytics-active-filters]');
+  if (!target) return;
+  const chips = Object.entries(ANALYTICS_FILTER_LABELS).filter(([key]) => filters[key] && filters[key] !== 'all').map(([key, label]) => `<span class="analytics-filter-chip">${escapeHtml(label)} · ${escapeHtml(filters[key])}</span>`);
+  target.innerHTML = chips.length ? chips.join('') : '<span class="t-micro ink-3">ALL DIMENSIONS</span>';
+}
+function renderStatus(message, tone = 'muted') {
+  const status = query('#admin-analytics-status');
+  if (!status) return;
+  const text = String(message || '');
+  const normalized = text.toUpperCase();
+  const state = normalized.includes('LOADING') ? 'loading'
+    : normalized.includes('REFRESHING') ? 'refreshing'
+      : normalized.includes('STALE') ? 'stale'
+        : normalized.includes('SUPPRESSED') || normalized.includes('MIN COHORT') ? 'suppressed'
+          : normalized.includes('ACCESS REQUIRED') ? 'unauthorized'
+            : normalized.includes('RATE LIMITED') ? 'rate-limited'
+              : normalized.includes('UNAVAILABLE') || normalized.includes('TIMED OUT') ? 'unavailable'
+                : normalized.includes('NO VERIFIED') ? 'empty' : 'verified';
+  status.className = `t-body analytics-status ${tone}`;
+  status.textContent = text;
+  status.setAttribute?.('data-analytics-state', state);
+  status.setAttribute?.('aria-busy', String(state === 'loading' || state === 'refreshing'));
+  const alerts = query('#admin-analytics-alerts');
+  if (alerts) {
+    alerts.setAttribute?.('data-analytics-state', state);
+    if (tone === 'warning' || ['stale', 'suppressed', 'unauthorized', 'rate-limited', 'unavailable'].includes(state)) alerts.textContent = text;
+    else if (state === 'verified') alerts.textContent = 'NO ACTIONABLE ALERTS';
+  }
+}
+
+function finiteAnalyticsNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (value && typeof value === 'object') {
+    for (const key of ['value', 'rate', 'count', 'sampleSize', 'numerator', 'denominator']) {
+      const parsed = finiteAnalyticsNumber(value[key]);
+      if (parsed !== null) return parsed;
+    }
+  }
+  return null;
+}
+
+function panelPoint(label, value, unit = '') {
+  const numeric = finiteAnalyticsNumber(value);
+  return numeric === null ? null : { label: String(label || 'Observation').slice(0, 80), value: numeric, ...(unit ? { unit } : {}) };
+}
+
+function panelRows(model) { return Array.isArray(model?.rows) ? model.rows : []; }
+function objectSeries(value, unit = '') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value).slice(0, 24).map(([label, item]) => panelPoint(label, item, unit)).filter(Boolean);
+}
+
+const ANALYTICS_PANEL_DESCRIPTORS = Object.freeze({
+  overview: { title: 'Verified activity', unit: 'observations', mode: 'line', series: snapshot => snapshot.series },
+  'match-health': {
+    title: 'Match reliability', unit: 'matches', mode: 'bar',
+    series: snapshot => {
+      const model = snapshot.breakdowns?.[0] || {};
+      return [['Starts', model.starts, 'matches'], ['Completions', model.completions, 'matches'], ['Stalls', model.stalls, 'matches'], ['Reconnect rate', model.reconnectRate, 'percent'], ['AFK rate', model.afkRate, 'percent'], ['Bankruptcies', model.bankruptcies, 'matches'], ['Comebacks', model.comebacks, 'matches']].map(([label, value, unit]) => panelPoint(label, value, unit)).filter(Boolean);
+    }
+  },
+  rulesets: { title: 'Ruleset and board adoption', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.rulesetPreset || 'ruleset'} / ${row.boardVariant || 'board'}`, row.matches)).filter(Boolean) },
+  economy: { title: 'Economic feature adoption', unit: 'adoption', mode: 'bar', series: snapshot => objectSeries(snapshot.breakdowns?.[0]?.adoption, 'adoption') },
+  events: { title: 'Event eligibility', unit: 'observations', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(row.eventId || 'event', row.eligibility, 'observations')).filter(Boolean) },
+  bots: { title: 'Bot matches by provider', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.botMode || 'bot'} / ${row.provider || 'provider'}`, row.matches, 'matches')).filter(Boolean) },
+  quality: { title: 'Snapshot quality signals', unit: 'observations', mode: 'bar', series: snapshot => {
+    const model = snapshot.breakdowns?.[0] || snapshot.dataQuality || {};
+    return [['Lag seconds', model.lagSeconds, 'seconds'], ['Queue depth', model.queueDepth, 'observations'], ['Pending writes', model.pendingWrites, 'observations'], ['Rejected events', model.rejectedEvents, 'observations'], ['Suppressed panels', model.suppressionCount, 'observations']].map(([label, value, unit]) => panelPoint(label, value, unit)).filter(Boolean);
+  } }
+});
+
+export { ANALYTICS_PANEL_DESCRIPTORS };
+
+function renderAnalyticsChartEmpty(container, title) {
+  container.innerHTML = `<figure class="analytics-chart analytics-chart-placeholder" data-chart-state="empty"><figcaption>${escapeHtml(title)}</figcaption><p class="t-micro ink-3">NO VERIFIED OBSERVATIONS FOR THIS PANEL</p></figure>`;
+}
 
 function renderKpis(snapshot) {
   const kpis = Array.isArray(snapshot.overview?.kpis) ? snapshot.overview.kpis.slice(0, 6) : [];
   if (!kpis.length) return '';
-  return kpis.map(item => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${item.value === null || item.value === undefined ? '·' : escapeHtml(Number(item.value).toLocaleString())}</strong><span class="t-micro ink-3">DENOMINATOR ${item.denominator === null || item.denominator === undefined ? '·' : escapeHtml(item.denominator)}</span><span class="t-micro ink-3">${escapeHtml(item.comparison?.period || item.comparison?.label || 'SELECTED PERIOD')}</span><span class="t-micro ink-3">${escapeHtml(item.definition || 'Aggregate measure')}</span></article>`).join('');
+  return kpis.map(item => {
+    const id = String(item.id || '').toLowerCase();
+    const rawUnit = String(item.unit || '').toLowerCase();
+    const unit = rawUnit || (id.includes('rate') || id.includes('adoption') ? 'percent' : id.includes('latency') || id.includes('duration') ? 'seconds' : id.includes('player') || id.includes('room') ? 'players' : id.includes('match') || id.includes('round') || id.includes('started') ? 'matches' : 'value');
+    const value = finiteAnalyticsNumber(item.value);
+    const numberFormat = (number, maximumFractionDigits = 2) => number === null ? 'N/A' : number.toLocaleString(undefined, { maximumFractionDigits });
+    const displayValue = value === null ? '·' : unit === 'percent' ? `${numberFormat(Math.abs(value) <= 1 ? value * 100 : value, 1)}%` : unit === 'seconds' ? numberFormat(value) : unit === 'milliseconds' ? numberFormat(value, 0) : numberFormat(value, unit === 'value' ? 2 : 1);
+    const displayUnit = unit === 'value' ? '' : unit;
+    const numerator = finiteAnalyticsNumber(item.numerator);
+    const denominator = finiteAnalyticsNumber(item.denominator);
+    const denominatorMarkup = numerator === null
+      ? `DENOMINATOR ${denominator === null ? 'N/A' : numberFormat(denominator, 0)}`
+      : `NUMERATOR ${numberFormat(numerator, 0)} / DENOMINATOR ${denominator === null ? 'N/A' : numberFormat(denominator, 0)}`;
+    const comparison = item.comparison && typeof item.comparison === 'object' ? item.comparison : null;
+    const comparisonValue = finiteAnalyticsNumber(comparison?.value ?? comparison?.baseline);
+    const comparisonDelta = finiteAnalyticsNumber(comparison?.delta ?? comparison?.change);
+    const comparisonParts = comparison ? [`BASELINE ${comparisonValue === null ? 'N/A' : (unit === 'percent' ? `${numberFormat(Math.abs(comparisonValue) <= 1 ? comparisonValue * 100 : comparisonValue, 1)}%` : numberFormat(comparisonValue))}`] : [];
+    if (comparisonDelta !== null) comparisonParts.push(`DELTA ${comparisonDelta >= 0 ? '+' : ''}${unit === 'percent' ? `${numberFormat(comparisonDelta * 100, 1)}pp` : numberFormat(comparisonDelta)}`);
+    if (comparison?.period || comparison?.label) comparisonParts.push(String(comparison.period || comparison.label).toUpperCase());
+    if (!comparisonParts.length) comparisonParts.push('COMPARISON UNAVAILABLE');
+    const generatedAt = typeof item.generatedAt === 'string' && item.generatedAt ? item.generatedAt : snapshot.generatedAt || 'UNKNOWN';
+    return `<article class="analytics-metric panel noise" data-kpi-id="${escapeHtml(item.id || 'metric')}"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${escapeHtml(displayValue)}</strong>${displayUnit ? `<span class="t-micro ink-3 analytics-kpi-unit">${escapeHtml(displayUnit)}</span>` : ''}<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(denominatorMarkup)}</span><span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(comparisonParts.join(' · '))}</span><span class="t-micro ink-3 analytics-kpi-definition">${escapeHtml(item.definition || 'DEFINITION NOT PROVIDED')}</span><time class="t-micro ink-3 analytics-kpi-timestamp" datetime="${escapeHtml(generatedAt)}">VERIFIED ${escapeHtml(generatedAt)}</time></article>`;
+  }).join('');
 }
 
 function renderAnalyticsCharts(snapshot) {
   if (typeof document === 'undefined') return;
   document.querySelectorAll?.('[data-analytics-chart]').forEach(container => {
-    const title = container.getAttribute('data-chart-title') || 'Analytics series';
-    const unit = container.getAttribute('data-chart-unit') || 'value';
-    const mode = container.getAttribute('data-chart-mode') || 'line';
-    renderAnalyticsChart(container, snapshot.series, { title, unit, mode });
+    const tab = container.getAttribute('data-analytics-panel-chart') || snapshot.filters.tab;
+    const panel = container.closest?.('[data-analytics-panel]');
+    if (panel && panel.getAttribute('data-analytics-panel') !== snapshot.filters.tab) {
+      const mount = container.querySelector?.('.analytics-chart-engine');
+      if (mount) disposeAnalyticsChart(mount);
+      return;
+    }
+    const descriptor = ANALYTICS_PANEL_DESCRIPTORS[tab] || ANALYTICS_PANEL_DESCRIPTORS.overview;
+    const title = container.getAttribute('data-chart-title') || descriptor.title;
+    const unit = container.getAttribute('data-chart-unit') || descriptor.unit;
+    const mode = container.getAttribute('data-chart-mode') || descriptor.mode;
+    const values = descriptor.series(snapshot) || [];
+    if (!values.length) renderAnalyticsChartEmpty(container, title);
+    else renderAnalyticsChart(container, values, { title, unit, mode, summary: `${values.length} verified ${unit}` });
   });
 }
 
@@ -181,6 +195,8 @@ function listenReset(button) {
 
 export function renderAnalyticsSnapshot(value) {
   const snapshot = normalizeAnalyticsSnapshot(value);
+  const lastVerified = query('[data-analytics-last-verified]');
+  if (lastVerified) lastVerified.textContent = `LAST VERIFIED · ${snapshot.generatedAt || 'UNKNOWN'}`;
   const grid = query('#admin-analytics-grid');
   if (grid) {
     const kpis = renderKpis(snapshot);
@@ -222,6 +238,9 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
   let destroyed = false;
   let requestGeneration = 0;
   const listeners = [];
+  let filterOpener = null;
+  let pageController = null;
+  const FILTER_BACKGROUND_SELECTORS = ['.analytics-tabs', '#admin-analytics-grid', '[data-analytics-report-book]', '.analytics-contextual-slots'];
 
   function listen(target, event, handler) {
     target?.addEventListener?.(event, handler);
@@ -259,6 +278,10 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
       const tab = tabs.find(candidate => candidate.getAttribute('data-analytics-tab') === filters.tab);
       if (tab) element.setAttribute('aria-labelledby', tab.id);
     });
+    const position = query('[data-analytics-page-position]');
+    if (position) position.textContent = `${ANALYTICS_TABS.indexOf(filters.tab) + 1} / ${ANALYTICS_TABS.length}`;
+    if (pageController?.page !== filters.tab) pageController?.setPage(filters.tab, { syncUrl: false, announceChange: false });
+    renderActiveAnalyticsFilters(filters);
   }
 
   const wired = new WeakMap();
@@ -281,6 +304,28 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     return { ...filters };
   }
 
+  function closeFilterDialog({ restoreFocus = true } = {}) {
+    const dialog = query('[data-analytics-filter-dialog]');
+    dialog?.classList?.add('is-hidden');
+    dialog?.setAttribute?.('aria-hidden', 'true');
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.removeAttribute?.('inert'));
+    query('[data-analytics-more-filters]')?.setAttribute?.('aria-expanded', 'false');
+    if (restoreFocus) filterOpener?.focus?.();
+    filterOpener = null;
+  }
+
+  function openFilterDialog() {
+    const dialog = query('[data-analytics-filter-dialog]');
+    const opener = query('[data-analytics-more-filters]');
+    if (!dialog || !opener) return;
+    filterOpener = opener;
+    dialog.classList?.remove('is-hidden');
+    dialog.setAttribute?.('aria-hidden', 'false');
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.setAttribute?.('inert', ''));
+    opener.setAttribute?.('aria-expanded', 'true');
+    dialog.querySelector?.('[data-analytics-filter]')?.focus?.();
+  }
+
   function readFilterControls() {
     if (typeof document === 'undefined') return {};
     const values = {};
@@ -301,22 +346,42 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (request) { requestGeneration += 1; abortController?.abort(); request = null; }
     filters = normalizeAnalyticsQuery({ ...filters, ...next });
     syncUrlFilters(filters);
+    renderActiveAnalyticsFilters(filters);
     return { ...filters };
   }
 
   function wireControls() {
     if (typeof document === 'undefined') return;
     applyTabState();
+    renderActiveAnalyticsFilters(filters);
     if (Object.keys(readUrlFilters()).length) syncFilterControls();
     document.querySelectorAll?.('[data-analytics-filter]')?.forEach(control => listenOnce(control, 'change', () => { filters = normalizeAnalyticsQuery({ ...filters, ...readFilterControls() }); }));
     const apply = document.querySelector?.('[data-analytics-apply]');
     const reset = document.querySelector?.('[data-analytics-reset]');
     const refreshButton = document.querySelector?.('[data-analytics-refresh]');
     const form = document.querySelector?.('form.analytics-filters');
-    listenOnce(apply, 'click', () => { setFilters(readFilterControls()); void load(filters); });
+    listenOnce(apply, 'click', () => { setFilters(readFilterControls()); closeFilterDialog({ restoreFocus: false }); void load(filters); });
     listenOnce(reset, 'click', () => { filters = normalizeAnalyticsQuery({}); syncFilterControls(); setTab('overview'); void load(filters); });
     listenOnce(refreshButton, 'click', () => { void refresh(); });
     listenOnce(form, 'submit', event => { event.preventDefault(); setFilters(readFilterControls()); void load(filters); });
+    const moreFilters = document.querySelector?.('[data-analytics-more-filters]');
+    const cancelFilters = document.querySelector?.('[data-analytics-filter-cancel]');
+    const filterDialog = document.querySelector?.('[data-analytics-filter-dialog]');
+    listenOnce(moreFilters, 'click', openFilterDialog);
+    listenOnce(cancelFilters, 'click', () => closeFilterDialog());
+    listenOnce(filterDialog, 'keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeFilterDialog(); } });
+    listenOnce(document, 'pointerdown', event => {
+      if (!filterDialog || filterDialog.classList?.contains('is-hidden') || filterDialog.contains?.(event.target) || moreFilters?.contains?.(event.target)) return;
+      closeFilterDialog();
+    });
+    pageController = createAnalyticsPageController({
+      root: query('#admin-analytics-main'),
+      initialPage: filters.tab,
+      bindTabs: false,
+      bindFilters: false,
+      onPageChange: nextPage => { if (nextPage !== filters.tab) setTab(nextPage, { focus: false }); },
+      announce
+    });
     globalThis.__poorupAnalyticsReset = () => { filters = normalizeAnalyticsQuery({}); syncFilterControls(); setTab('overview'); void load(filters); };
     listen(document, 'visibilitychange', () => { if (document.visibilityState === 'hidden') { requestGeneration += 1; abortController?.abort(); request = null; } });
   }
@@ -326,7 +391,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (request) return request;
     filters = normalizeAnalyticsQuery({ ...filters, ...next });
     if (!customFetcher && !state.account?.sessionToken) { renderStatus('ADMIN ACCOUNT REQUIRED', 'warning'); return { success: false, status: 403 }; }
-    if (!requestFetcher) return { success: false, status: 503 };
+    if (!requestFetcher) { renderStatus('ROLLUP UNAVAILABLE · RETRY', 'warning'); return { success: false, status: 503 }; }
     const url = `${endpoint}?${queryString(filters)}`;
     const headers = !customFetcher && state.account?.sessionToken ? { 'x-poorup-session-token': state.account.sessionToken } : {};
     abortController = typeof AbortController === 'function' ? new AbortController() : null;
@@ -359,7 +424,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (typeof modal.show === 'function') return modal.show(options);
     return null;
   }
-  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; if (globalThis.__poorupAnalyticsReset) delete globalThis.__poorupAnalyticsReset; listeners.splice(0).forEach(remove => remove()); }
+  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; pageController?.destroy(); pageController = null; if (globalThis.__poorupAnalyticsReset) delete globalThis.__poorupAnalyticsReset; listeners.splice(0).forEach(remove => remove()); }
 
   wireControls();
   return Object.freeze({ destroy, load, openDrilldown, refresh, setFilters, setTab, get filters() { return { ...filters }; }, get snapshot() { return snapshot; } });
