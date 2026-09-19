@@ -77,4 +77,11 @@ done
 
 curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "content-type: application/json" -H "x-poorup-maintenance-token: $MAINTENANCE_TOKEN" --data-binary "{\"mode\":\"normal\",\"releaseId\":\"$RELEASE_SHA\"}" >/dev/null
 
+# Keep the pull-timer entrypoint in sync with the deployed release so updater
+# improvements ship automatically with the code.
+if [ -f "$RELEASE_DIR/scripts/nest-auto-update.sh" ]; then
+  cp "$RELEASE_DIR/scripts/nest-auto-update.sh" "$APP_ROOT/shared/nest-auto-update.sh" \
+    || echo "Warning: could not refresh the update entrypoint"
+fi
+
 echo "Deployed $RELEASE_SHA"
