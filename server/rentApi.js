@@ -14,7 +14,9 @@ import { PROPERTY_RENT_MULTIPLIERS, RAILROAD_RENT } from './gameData.js';
 const RENT_EVENT_MODIFIERS = [
   { appliesTo: (game, tile) => game.globalEventActive('housing-bubble') && tile.type === 'property', factor: () => 0.65 },
   { appliesTo: (game, tile) => game.globalEventActive('airport-strike') && tile.type === 'railroad', factor: () => 0 },
-  { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.type === 'railroad', factor: () => 1.75 },
+  // NOTE: no hardcoded tourism-boom railroad entry: the generic
+  // airportRentMultiplier fold below already applies the live 1.5x. A second
+  // entry here would stack to 2.625x.
   { appliesTo: (game, tile) => game.globalEventActive('tourism-boom') && tile.group === 'Dark Blue', factor: () => 1.3 },
   {
     appliesTo: (game, tile) => game.globalEventActive('anti-monopoly')
