@@ -1,0 +1,48 @@
+name: Maintenance Drain
+
+# A push to main means a release may be coming. Open the drain immediately so
+# the maintenance screen shows and new rounds pause while CI verifies the SHA.
+# A successful CI run proceeds to the drain-gated Deploy Nest (which ends in
+# normal mode); a failed/cancelled run is returned to normal by
+# Maintenance Undrain. Both are gated on NEST_DEPLOY_ENABLED so a main push
+# can never wedge the live app while the host is not provisioned.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nest-drain
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    if: ${{ vars.NEST_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: nest-production
+    steps:
+      - name: Check out the pushed SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Configure SSH
+        env:
+          NEST_DEPLOY_KEY: ${{ secrets.NEST_DEPLOY_KEY }}
+          NEST_KNOWN_HOSTS: ${{ secrets.NEST_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$NEST_DEPLOY_KEY" > "$HOME/.ssh/poorup_deploy"
+          chmod 600 "$HOME/.ssh/poorup_deploy"
+          printf '%s\n' "$NEST_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+
+      - name: Begin drain
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          NEST_HOST: ${{ secrets.NEST_HOST }}
+          NEST_USER: ${{ secrets.NEST_USER }}
+          MAINTENANCE_TOKEN: ${{ secrets.POORUP_MAINTENANCE_TOKEN }}
+        run: ssh -i "$HOME/.ssh/poorup_deploy" "$NEST_USER@$NEST_HOST" "RELEASE_SHA=$RELEASE_SHA MAINTENANCE_URL=http://127.0.0.1:8080/internal/maintenance MAINTENANCE_TOKEN=$MAINTENANCE_TOKEN bash -s" < scripts/begin-drain.sh
