@@ -6,6 +6,9 @@
 // a bot should do and runs the answer through room.runBotAction.
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { evaluateCandidate } from './botFuturePlanner.js';
+import { vetoTrade, deedValue, MONOPOLY_PREMIUM_NUM, MONOPOLY_PREMIUM_DEN } from './botTradeValuation.js';
+import { tableBrain } from './botTableBrain.js';
+import { tickLedger, addGratitude, coalitionAgainst } from './botTableMind.js';
 
 // Global-event voting: personality -> preferred policy id.
 export const EVENT_POLICY_BY_PERSONALITY = {
@@ -59,15 +62,48 @@ function clearsTradeBar(giveValue, askValue, factor) {
   return Math.round(giveValue * 100) >= Math.round(askValue * factor * 100);
 }
 
-export function shouldAcceptTrade(trade, getTile, personality) {
+export function shouldAcceptTrade(trade, getTile, personality, game = null) {
+  // Monopoly veto first: never hand over a build-ready monopoly completer,
+  // no matter how flattering the face value looks. Shapes without player
+  // ids or grouped tiles (incl. legacy unit tests) skip the veto and keep
+  // the pinned face-value behavior.
+  if (game && trade?.toPlayerId) {
+    const responderId = trade.toPlayerId;
+    if (vetoTrade(game, trade, responderId).vetoed) return false;
+  }
+  let factor = TRADE_ACCEPT_FACTOR[personality] || DEFAULT_TRADE_ACCEPT_FACTOR;
+  // Teaming premium: a proposer colluding with a third seat pays 1.5x.
+  if (game && trade?.fromPlayerId && trade?.toPlayerId) {
+    try {
+      const table = coalitionAgainst(game, trade.toPlayerId);
+      if (table.teaming && table.pair.includes(trade.fromPlayerId)) factor *= 1.5;
+    } catch {
+      // Thin stubs without player lists simply skip the premium.
+    }
+  }
   const giveValue = tradeLegValue({ cash: trade.giveCash, propertyIndexes: trade.givePropertyIndexes }, getTile);
   const askValue = tradeLegValue({ cash: trade.requestCash, propertyIndexes: trade.requestPropertyIndexes }, getTile);
-  return clearsTradeBar(giveValue, askValue, TRADE_ACCEPT_FACTOR[personality] || DEFAULT_TRADE_ACCEPT_FACTOR);
+  return clearsTradeBar(giveValue, askValue, factor);
 }
 
-export function shouldAcceptPlayerContract(offer, bot, lender, personality) {
+export function shouldAcceptPlayerContract(offer, bot, lender, personality, game = null) {
+  if (offer?.kind === 'equity' && game) {
+    return equityTermsAcceptable(game, offer, bot, personality);
+  }
   const check = CONTRACT_ACCEPTANCE[offer.kind] || CONTRACT_ACCEPTANCE.fallback;
   return check(offer, bot, { lender, personality });
+}
+
+// Equity value gate: never pledge rent equity below 2x traffic-adjusted
+// deed value, pro-rated by share. Without game context (legacy unit tests)
+// the pinned personality behavior is preserved.
+function equityTermsAcceptable(game, offer, bot, personality) {
+  if (personality === 'survivor' && Number(offer.amount) > bot.cash * EQUITY_SURVIVOR_RATIO) return false;
+  const tile = typeof game.getTile === 'function' ? game.getTile(Number(offer.propertyIndex)) : null;
+  if (!tile) return personality !== 'survivor';
+  const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
+  const minPrice = Math.ceil(share / 100 * deedValue(game, tile) * MONOPOLY_PREMIUM_NUM / MONOPOLY_PREMIUM_DEN);
+  return Number(offer.amount) >= minPrice;
 }
 
 const EQUITY_SURVIVOR_RATIO = 0.35;
@@ -113,6 +149,9 @@ function findPendingCounterpart(game) {
     const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(buyer?.cash || 0) - contributed);
     // Let the buyer finish first once at least one sponsor has reserved cash.
     if (buyer?.isBot && sponsorship.contributions?.length && needed <= 0) return buyer;
+    // A short buyer with nothing coming must kill its own dead request
+    // instead of stranding the table (humans get a full round first).
+    if (buyer?.isBot && sponsorshipBuyerShouldCancel(game, buyer, sponsorship, needed)) return buyer;
     const sponsor = game.players.find(player => player.isBot
       && player.id !== sponsorship.buyerId
       && !player.bankrupt
@@ -162,9 +201,13 @@ function isSponsorshipActor(game, bot) {
     const tile = typeof game.getTile === 'function' ? game.getTile(Number(sponsorship.tileIndex)) : null;
     const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
     const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(bot.cash || 0) - contributed);
-    return Boolean(sponsorship.contributions?.length && needed <= 0);
+    if (sponsorship.contributions?.length && needed <= 0) return true;
+    return sponsorshipBuyerShouldCancel(game, bot, sponsorship, needed);
   }
-  return !(sponsorship.contributions || []).some(entry => entry.sponsorId === bot.id);
+  // Gated sponsors (round-capped, unreciprocated) must not claim the seat:
+  // a zero-amount contributor would no-op forever without changing state.
+  return !(sponsorship.contributions || []).some(entry => entry.sponsorId === bot.id)
+    && sponsorshipContributionAmount(game, bot) > 0;
 }
 
 // Ordered phase state machine - the array order IS the historical if/else
@@ -175,7 +218,9 @@ const PHASES = [
   { id: 'contract', guard: (game, bot) => contractResponderId(game.pendingPlayerContract) === bot.id },
   { id: 'sponsorship', guard: (game, bot) => isSponsorshipActor(game, bot) },
   { id: 'payment', guard: (game, bot) => game.pendingPayment?.playerId === bot.id },
-  { id: 'auction', guard: game => Boolean(game.auction?.active) },
+  { id: 'auction', guard: (game, bot) => Boolean(game.auction?.active)
+    && (!Array.isArray(game.auction.participants) || !game.auction.participants.length
+      || isAuctionBotParticipant(game.auction, bot)) },
   // Preserve the original end-turn priority for jail/other resolved flows;
   // the post-roll action guard below runs first only when finance actions are
   // actually available.
@@ -226,7 +271,7 @@ const CANDIDATE_MAPPERS = [
   { kind: 'sell', takes: () => true, type: 'sell' },
   { kind: 'mortgage', takes: () => true, type: 'mortgage' },
   { kind: 'unmortgage', takes: () => true, type: 'unmortgage' },
-  { kind: 'loan', takes: (candidate, bot) => bot.personality === 'speculator', type: 'loan' }
+  { kind: 'loan', takes: (candidate, bot) => bot.personality === 'speculator' || Number(candidate.totalDue) <= Number(bot.cash) * 1.5, type: 'loan' }
 ];
 
 export function candidateAction(candidate, bot) {
@@ -234,11 +279,29 @@ export function candidateAction(candidate, bot) {
   return mapper ? { type: mapper.type, candidate } : { type: 'roll' };
 }
 
-export function auctionBidDecision(auction, bot, startingCash) {
+export function auctionBidDecision(auction, bot, startingCash, game = null) {
   const policy = AUCTION_BID_POLICY[bot.personality] || DEFAULT_AUCTION_BID_POLICY;
   const minimum = Math.max(auction.highestBid + 1, auction.highestBid + policy.step);
   const affordably = bot.cash >= minimum + policy.reserve && isComfortableBidder(policy, bot, startingCash);
-  return { shouldBid: affordably, minimum };
+  if (!affordably) return { shouldBid: false, minimum };
+  // Valuation cap with game context: sticker + completion bonus, shill-stop
+  // past willingness. Legacy shapes without game keep pinned behavior.
+  const ceiling = auctionWillingness(auction, bot, game);
+  if (ceiling != null && minimum > ceiling) return { shouldBid: false, minimum };
+  return { shouldBid: true, minimum };
+}
+
+// Max the bot pays: sticker price, doubled when the deed completes its set
+// (stretch $1 over), halved eagerness past face otherwise. Null without context.
+function auctionWillingness(auction, bot, game) {
+  const tile = auction?.propertyTile;
+  if (!game || !tile?.group || !tile?.price) return null;
+  const tiles = typeof game.getGroupTiles === 'function' ? game.getGroupTiles(tile.group) : [];
+  if (!tiles?.length) return null;
+  const owned = tiles.filter(entry => entry?.ownerId === bot?.id).length;
+  const completes = owned + 1 >= tiles.length && owned < tiles.length;
+  const sticker = Math.max(0, Math.floor(Number(tile.price)));
+  return completes ? sticker * 2 : sticker;
 }
 
 function isComfortableBidder(policy, bot, startingCash) {
@@ -264,6 +327,15 @@ export function sponsorshipContributionAmount(game, bot) {
   if ((sponsorship.contributions || []).some(entry => entry.sponsorId === bot.id)) return 0;
   const tile = typeof game.getTile === 'function' ? game.getTile(Number(sponsorship.tileIndex)) : null;
   const buyer = typeof game.getPlayerById === 'function' ? game.getPlayerById(sponsorship.buyerId) : null;
+  // Anti-farm gates (amount formula unchanged): one gift per round, and a
+  // human buyer gets exactly one unreciprocated gift ever — after that only
+  // reciprocated partners and fellow bots are funded.
+  if (Number.isFinite(Number(game?.roundNumber)) && bot.lastSponsorRound === game.roundNumber) return 0;
+  if (buyer && !buyer.isBot) {
+    const giftedBefore = (bot.sponsorLedger || {})[buyer.id] > 0;
+    const reciprocated = (bot.sponsoredBy || {})[buyer.id] > 0;
+    if (giftedBefore && !reciprocated) return 0;
+  }
   const buyerCash = buyer ? Number(buyer.cash || 0) : Number(sponsorship.buyerCash || 0);
   const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - buyerCash - contributed);
@@ -282,14 +354,54 @@ function shouldSeekSponsorship(game, bot, tile) {
   return potential >= needed;
 }
 
-function shouldBuyWithPlan(game, bot, tile) {
+export function shouldBuyWithPlan(game, bot, tile) {
+  // Early laps: waive the cash reserve, deeds are leverage (aggressive
+  // doctrine). A completer is always bought when affordable at any stage.
+  if (tile && (game?.roundNumber || 99) <= 3 && bot.cash >= Number(tile.price || 0)) return true;
   if (!shouldBuyProperty(bot, tile)) return false;
+  // Strategic decline: affordable but everyone is broke and the deed is not
+  // my completer — let it go to auction and win it cheap.
+  if (declineForCheapAuction(game, bot, tile)) return false;
   if (!Array.isArray(game.tiles)) return true;
   const snapshot = buildBotStrategicContext(game, bot, 'purchase', game.botDecisionSequence || 0);
   const difficulty = game.settings?.botDifficulty || 'table';
   const buy = evaluateCandidate(snapshot, { id: `buy:${tile.index}`, kind: 'buy', tileIndex: tile.index, price: tile.price, risk: 0, score: 0 }, { difficulty, seed: `${game.startedAt || 'pending'}:purchase` });
   const pass = evaluateCandidate(snapshot, { id: `pass:${tile.index}`, kind: 'pass', tileIndex: tile.index, risk: 0, score: 0 }, { difficulty, seed: `${game.startedAt || 'pending'}:purchase` });
   return buy.score >= pass.score;
+}
+
+// Mortgage ladder for debt: bare deeds at 10% interest before houses at
+// 50% loss. Sorted by income preserved (lowest rent first), then proceeds.
+// Exported for unit tests; pure besides the game rules lookups.
+export function debtMortgageCandidates(game, bot) {
+  if (typeof game?.getTile !== 'function' || typeof game?.canMortgageTile !== 'function') return [];
+  const multiplier = Number(game.activeEventEffects?.().propertyValueMultiplier);
+  const valueMultiplier = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+  return (bot?.properties || [])
+    .map(index => game.getTile(index))
+    .filter(tile => tile && game.canMortgageTile(bot, tile))
+    .map(tile => {
+      const proceeds = Math.floor((Number(tile.price) || 0) / 2 * valueMultiplier);
+      const rentLoss = typeof game.calculateRent === 'function'
+        ? Math.max(0, Number(game.calculateRent(tile)) || 0)
+        : Math.max(0, Number(tile.rent) || 0);
+      return { tile, proceeds, rentLoss };
+    })
+    .sort((a, b) => a.rentLoss - b.rentLoss || b.proceeds - a.proceeds || a.tile.index - b.tile.index);
+}
+
+// Decline an affordable deed to force a cheap auction win: only when the
+// deed is not my completer and every live opponent is too broke to contest.
+function declineForCheapAuction(game, bot, tile) {
+  if (!tile?.group || !Array.isArray(game?.players)) return false;
+  const tiles = typeof game.getGroupTiles === 'function' ? game.getGroupTiles(tile.group) : [];
+  if (!tiles?.length) return false;
+  const owned = tiles.filter(entry => entry?.ownerId === bot?.id).length;
+  if (owned + 1 >= tiles.length) return false;
+  const rivals = game.players.filter(player => player.id !== bot?.id && !player.bankrupt && !player.disconnected);
+  if (!rivals.length) return false;
+  const price = Number(tile.price) || 0;
+  return rivals.every(player => Number(player.cash || 0) < price);
 }
 
 function debtSellCandidates(game, bot) {
@@ -304,6 +416,25 @@ function debtSellCandidates(game, bot) {
       return { tile, proceeds, score: proceeds - rentLoss * 0.2 };
     })
     .sort((a, b) => b.score - a.score || b.proceeds - a.proceeds || a.tile.index - b.tile.index);
+}
+
+// Face-value ratio for rejected offers: >= 0.6 of the personality bar is a
+// near-miss worth a premium counter; below that, decline outright.
+export function nearMissTrade(trade, getTile, personality) {
+  if (!trade) return false;
+  const give = tradeLegValue({ cash: trade.giveCash, propertyIndexes: trade.givePropertyIndexes }, getTile);
+  const ask = tradeLegValue({ cash: trade.requestCash, propertyIndexes: trade.requestPropertyIndexes }, getTile);
+  const factor = TRADE_ACCEPT_FACTOR[personality] || DEFAULT_TRADE_ACCEPT_FACTOR;
+  if (ask <= 0) return give > 0;
+  return give * 100 >= Math.round(ask * factor * 60);
+}
+
+// Countering opens a replacement offer, which the table-obligation gate
+// forbids while a payment, auction, purchase, sponsorship, or contract is
+// pending. Countering into a blocked table restores the same offer.
+function tradeCounterBlocked(game) {
+  return Boolean(game?.pendingPayment || game?.auction || game?.pendingPurchaseOffer
+    || game?.pendingSponsoredPurchase || game?.pendingPlayerContract);
 }
 
 function counterTradeOffer(game, bot) {
@@ -353,6 +484,15 @@ function paymentTrace(result, fallbackReason, actionId, candidateIds) {
   return attachBotDecision(result, { phase: 'payment', provider: 'deterministic', fallback: true, fallbackReason, actionId, candidateIds });
 }
 
+function tryDebtMortgage(room, bot, game) {
+  const target = debtMortgageCandidates(game, bot)[0];
+  if (!target) return null;
+  const result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex: target.tile.index, action: 'mortgage' }));
+  if (result?.success === false) return null;
+  if (typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
+  return paymentTrace(result, 'debt-mortgage', `mortgage:${target.tile.index}`, debtMortgageCandidates(game, bot).map(entry => `mortgage:${entry.tile.index}`).slice(0, 24));
+}
+
 function tryDebtSale(room, bot, game) {
   const sell = debtSellCandidates(game, bot)[0];
   if (!sell) return null;
@@ -371,7 +511,8 @@ function tryEmergencyLoan(room, bot, game) {
 }
 
 function botPaymentAction(room, bot, game) {
-  return tryDebtSale(room, bot, game)
+  return tryDebtMortgage(room, bot, game)
+    || tryDebtSale(room, bot, game)
     || tryEmergencyLoan(room, bot, game)
     || paymentTrace(room.runBotAction(bot.id, actor => room.declareBankruptcy(actor)), 'no-legal-rescue', 'bankruptcy', ['bankruptcy']);
 }
@@ -380,7 +521,7 @@ function shouldAcceptContractResponse(game, bot, offer) {
   if (!offer) return false;
   if (offer.toPlayerId === bot.id) {
     const lender = game.getPlayerById(offer.fromPlayerId);
-    return shouldAcceptPlayerContract(offer, bot, lender, bot.personality);
+    return shouldAcceptPlayerContract(offer, bot, lender, bot.personality, game);
   }
   // A lender reviewing a counter keeps the same funding guard, and prefers
   // not to accept a zero-return or excessively long revision.
@@ -403,7 +544,7 @@ function voteChoiceCandidates(game, bot) {
 
 function tradeChoiceCandidates(game, bot) {
   if (!game.pendingTrade) return [];
-  const accept = shouldAcceptTrade(game.pendingTrade, index => game.getTile(index), bot.personality);
+  const accept = shouldAcceptTrade(game.pendingTrade, index => game.getTile(index), bot.personality, game);
   const candidates = [choiceCandidate('trade:accept', 'accept', accept ? 12 : 2, 'ACCEPT'), choiceCandidate('trade:decline', 'decline', accept ? 1 : 8, 'DECLINE')];
   const counter = counterTradeOffer(game, bot);
   if (counter) candidates.splice(1, 0, { ...choiceCandidate('trade:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
@@ -435,10 +576,13 @@ function sponsorshipChoiceCandidates(game, bot) {
 
 function paymentChoiceCandidates(game, bot) {
   if (game.pendingPayment?.playerId !== bot.id) return [];
+  // Mortgage ladder first: 10% interest beats 50% house-sale loss, so
+  // mortgages outscore sales and the loan/bankruptcy fallbacks.
+  const mortgageCandidates = debtMortgageCandidates(game, bot).slice(0, 3).map(entry => choiceCandidate(`debt:mortgage:${entry.tile.index}`, `mortgage:${entry.tile.index}`, 26, `MORTGAGE ${entry.tile.name}`));
   const sellCandidates = debtSellCandidates(game, bot).slice(0, 12).map(entry => choiceCandidate(`debt:sell:${entry.tile.index}`, `sell:${entry.tile.index}`, Math.max(1, Math.min(24, entry.score / 10)), `SELL ${entry.tile.name}`));
   const offer = typeof game.getBankLoanOffer === 'function' ? game.getBankLoanOffer(bot) : null;
   const loanCandidate = offer?.available && bot.id === game.currentPlayerId ? choiceCandidate('debt:loan', 'loan', 10 - Math.min(8, Number(offer.totalDue || 0) / 100), 'TAKE BANK LOAN') : null;
-  return [...sellCandidates, ...(loanCandidate ? [loanCandidate] : []), choiceCandidate('debt:bankruptcy', 'bankruptcy', -20, 'DECLARE BANKRUPTCY')];
+  return [...mortgageCandidates, ...sellCandidates, ...(loanCandidate ? [loanCandidate] : []), choiceCandidate('debt:bankruptcy', 'bankruptcy', -20, 'DECLARE BANKRUPTCY')];
 }
 
 const PHASE_CANDIDATE_BUILDERS = { vote: voteChoiceCandidates, trade: tradeChoiceCandidates, contract: contractChoiceCandidates, sponsorship: sponsorshipChoiceCandidates, payment: paymentChoiceCandidates };
@@ -451,7 +595,12 @@ function runTradeChoice(room, bot, game, candidate) {
   if (!game.pendingTrade) return { success: false, error: 'No matching trade offer was found.' };
   const tradeId = game.pendingTrade.id;
   if (candidate.tradeId && candidate.tradeId !== tradeId) return { success: false, error: 'The offer changed while the bot was thinking.' };
-  if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
+  if (candidate.choiceId === 'counter') {
+    // A failed counter restores the identical offer: decline instead of
+    // looping on it.
+    const countered = room.runBotAction(bot.id, actor => room.counterTrade(actor, candidate.offer));
+    if (countered?.success !== false) return countered;
+  }
   return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId, accept: candidate.choiceId === 'accept' }));
 }
 
@@ -459,20 +608,50 @@ function runContractChoice(room, bot, game, candidate) {
   if (!game.pendingPlayerContract) return { success: false, error: 'No matching player contract was found.' };
   const contractId = game.pendingPlayerContract.id;
   if (candidate.contractId && candidate.contractId !== contractId) return { success: false, error: 'The contract changed while the bot was thinking.' };
-  if (candidate.choiceId === 'counter') return room.runBotAction(bot.id, actor => room.counterPlayerContract(actor, candidate.offer));
+  if (candidate.choiceId === 'counter') {
+    // A failed counter leaves the identical offer pending: decline instead.
+    const countered = room.runBotAction(bot.id, actor => room.counterPlayerContract(actor, candidate.offer));
+    if (countered?.success !== false) return countered;
+  }
   return room.runBotAction(bot.id, actor => room.respondPlayerContract(actor, candidate.choiceId === 'accept', null, contractId));
 }
 
 function runSponsorshipChoice(room, bot, game, candidate) {
-  if (candidate.choiceId === 'accept') return room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
+  const sponsorship = game.pendingSponsoredPurchase;
+  if (sponsorship?.buyerId === bot.id && sponsorshipBuyerShouldCancel(game, bot, sponsorship)) {
+    return room.runBotAction(bot.id, actor => room.game.declineSponsoredPurchase(actor));
+  }  if (candidate.choiceId === 'accept') {
+    const incoming = (game.pendingSponsoredPurchase?.contributions || []).slice();
+    const result = room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
+    if (result?.success !== false) {
+      bot.sponsoredBy = bot.sponsoredBy || {};
+      for (const entry of incoming) {
+        bot.sponsoredBy[entry.sponsorId] = (bot.sponsoredBy[entry.sponsorId] || 0) + Math.max(0, Number(entry.amount) || 0);
+      }
+    }
+    return result;
+  }
   if (candidate.choiceId === 'contribute') {
+    const sponsorship = game.pendingSponsoredPurchase;
     const amount = sponsorshipContributionAmount(game, bot);
-    return room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }));
+    const result = room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }));
+    if (result?.success !== false && sponsorship) {
+      bot.sponsorLedger = bot.sponsorLedger || {};
+      bot.sponsorLedger[sponsorship.buyerId] = (bot.sponsorLedger[sponsorship.buyerId] || 0) + amount;
+      if (Number.isFinite(Number(game?.roundNumber))) bot.lastSponsorRound = game.roundNumber;
+    }
+    return result;
   }
   return { success: true, noEmit: true, botDecision: { reasonCode: 'sponsorship-wait' } };
 }
 
-function runPaymentChoice(room, bot, game, candidate) {
+export function runPaymentChoice(room, bot, game, candidate) {
+  if (candidate.id.startsWith('debt:mortgage:')) {
+    const tileIndex = Number(candidate.id.slice('debt:mortgage:'.length));
+    const result = room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex, action: 'mortgage' }));
+    if (result?.success && typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
+    return result;
+  }
   if (candidate.id.startsWith('debt:sell:')) {
     const tileIndex = Number(candidate.id.slice('debt:sell:'.length));
     return room.runBotAction(bot.id, actor => room.manageProperty(actor, { tileIndex, action: 'sell-house' }));
@@ -548,8 +727,23 @@ const PHASE_EXECUTORS = {
   },
   trade: (room, bot, game) => {
     const trade = game.pendingTrade;
-    const accept = shouldAcceptTrade(trade, index => game.getTile(index), bot.personality);
-    return room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: trade.id, accept }));
+    const accept = shouldAcceptTrade(trade, index => game.getTile(index), bot.personality, game);
+    // Near-miss rejections become premium counters instead of flat
+    // declines: hopeless offers still decline, vetoed ones never counter.
+    // A failed counter (stale legs, new obligation) falls back to decline:
+    // counterTrade restores the offer on failure, so returning the failure
+    // would loop on an identical table forever.
+    if (!accept && trade?.toPlayerId === bot.id && !vetoTrade(game, trade, bot.id).vetoed
+      && !tradeCounterBlocked(game) && nearMissTrade(trade, index => game.getTile(index), bot.personality)) {
+      const counter = counterTradeOffer(game, bot);
+      if (counter) {
+        const countered = room.runBotAction(bot.id, actor => room.counterTrade(actor, counter));
+        if (countered?.success !== false) return countered;
+      }
+    }
+    const result = room.runBotAction(bot.id, actor => room.respondToTrade(actor, { tradeId: trade.id, accept }));
+    if (accept && result?.success !== false) addGratitude(bot, trade.fromPlayerId);
+    return result;
   },
   contract: (room, bot, game) => {
     const offer = game.pendingPlayerContract;
@@ -558,13 +752,37 @@ const PHASE_EXECUTORS = {
   },
   sponsorship: (room, bot, game) => {
     const sponsorship = game.pendingSponsoredPurchase;
-    if (sponsorship?.buyerId === bot.id && sponsorship.contributions?.length) {
-      return room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
+    if (sponsorship?.buyerId === bot.id) {
+      if (sponsorshipBuyerShouldCancel(game, bot, sponsorship)) {
+        return room.runBotAction(bot.id, actor => room.game.declineSponsoredPurchase(actor));
+      }
+      const tile = typeof game.getTile === 'function' ? game.getTile(Number(sponsorship.tileIndex)) : null;
+      const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(bot.cash || 0) - contributed);
+      if (sponsorship.contributions?.length && needed <= 0) {
+        // Record who funded me before the accept clears the request: future
+        // gifts to them are reciprocated, not farmed.
+        const incoming = (sponsorship.contributions || []).slice();
+        const result = room.runBotAction(bot.id, actor => room.game.acceptSponsoredPurchase(actor));
+        if (result?.success !== false) {
+          bot.sponsoredBy = bot.sponsoredBy || {};
+          for (const entry of incoming) {
+            bot.sponsoredBy[entry.sponsorId] = (bot.sponsoredBy[entry.sponsorId] || 0) + Math.max(0, Number(entry.amount) || 0);
+          }
+        }
+        return result;
+      }
+      return { success: true, noEmit: true };
     }
     const amount = sponsorshipContributionAmount(game, bot);
-    return amount > 0
-      ? room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }))
-      : { success: true, noEmit: true };
+    if (!(amount > 0)) return { success: true, noEmit: true };
+    const result = room.runBotAction(bot.id, actor => room.game.contributeToSponsoredPurchase(actor, { amount }));
+    if (result?.success !== false && sponsorship) {
+      bot.sponsorLedger = bot.sponsorLedger || {};
+      bot.sponsorLedger[sponsorship.buyerId] = (bot.sponsorLedger[sponsorship.buyerId] || 0) + amount;
+      if (Number.isFinite(Number(game?.roundNumber))) bot.lastSponsorRound = game.roundNumber;
+    }
+    return result;
   },
   payment: botPaymentAction,
   auction: (room, bot) => room.runBotAction(bot.id, actor => room.passAuction(actor)),
@@ -584,16 +802,25 @@ const PHASE_EXECUTORS = {
 // for the second pass, matching the original inline double-check.
 export async function runBotTurn(room, bot, advisor) {
   const game = room.game;
+  // Per-tick relationship maintenance (decay) plus stale-offer pruning.
+  tickLedger(bot, game?.roundNumber);
+  // Free a stale own offer first (dead recipient or exhausted depth) so the
+  // table obligation never strands the bot's own turn. Classification below
+  // re-reads the mutated game.
+  pruneStaleOwnDeal(room, bot, game);
   const phase = classifyBotTurnPhase(game, bot);
   const decisionSequence = (game.botDecisionSequence || 0) + 1;
   game.botDecisionSequence = decisionSequence;
   const decisionContext = {
     botId: bot.id,
-    botBrain: game.settings?.botBrain || 'auto',
+    botBrain: game.settings?.botBrain || 'ai',
     botDifficulty: game.settings?.botDifficulty || 'table',
     gameId: `${room.roomCode}:${game.startedAt || 'pending'}`,
     decisionSequence,
     ruleVersion: BOT_RULE_VERSION,
+    // Whole-table report (trace + advisor context). Scoring consumption
+    // lands per-phase; the report itself never mutates game state.
+    table: tableBrain(game, bot.id),
     ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
   if (phase === 'pre-roll' || phase === 'post-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
@@ -612,6 +839,53 @@ export async function runBotTurn(room, bot, advisor) {
   });
 }
 
+// Cancel my own pending trade when it can never settle: recipient gone or
+// negotiation depth exhausted. Returns true when it acted.
+export function pruneStaleOwnDeal(room, bot, game) {
+  const trade = game?.pendingTrade;
+  if (!trade || trade.fromPlayerId !== bot?.id) return false;
+  const recipient = typeof game.getPlayerById === 'function' ? game.getPlayerById(trade.toPlayerId) : null;
+  if (recipient && !recipient.bankrupt && !recipient.disconnected && Number(trade.counterDepth) < 2) return false;
+  const result = room.runBotAction(bot.id, actor => room.cancelTrade(actor, { tradeId: trade.id }));
+  return result?.success === true;
+}
+
+// A sponsorship request is dead when the shortfall persists, a full round
+// has passed (humans had their chance), and no live bot can fund it.
+// Canceling refunds contributors and unblocks the purchase resolution.
+export function sponsorshipDead(game, bot, sponsorship) {
+  if (!sponsorship || sponsorship.buyerId !== bot?.id) return false;
+  const tile = typeof game?.getTile === 'function' ? game.getTile(Number(sponsorship.tileIndex)) : null;
+  const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const needed = Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(bot.cash || 0) - contributed);
+  if (needed <= 0) return false;
+  const createdRound = Number(sponsorship.createdRound);
+  if (!Number.isFinite(createdRound) || Number(game?.roundNumber) <= createdRound + 1) return false;
+  const funders = (game.players || []).filter(player => player?.isBot && !player.bankrupt && !player.disconnected
+    && !(sponsorship.contributions || []).some(entry => entry.sponsorId === player.id)
+    && sponsorshipContributionAmount(game, player) > 0);
+  return funders.length === 0;
+}
+
+// Buyer-side cancel policy shared by dispatch, actor gating, and both
+// executors: covered requests accept; dead or funderless ones are declined
+// so the purchase resolves. Humans always get a full round to fund first;
+// bots-only tables cancel immediately since waiting is pointless.
+export function sponsorshipBuyerShouldCancel(game, bot, sponsorship, needed = null) {
+  if (!sponsorship || sponsorship.buyerId !== bot?.id) return false;
+  const tile = typeof game?.getTile === 'function' ? game.getTile(Number(sponsorship.tileIndex)) : null;
+  const contributed = (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const shortfall = needed ?? Math.max(0, Number(tile?.price || sponsorship.price || 0) - Number(bot.cash || 0) - contributed);
+  if (shortfall <= 0) return false;
+  if (sponsorshipDead(game, bot, sponsorship)) return true;
+  const live = Array.isArray(game?.players) ? game.players.filter(player => player && !player.bankrupt && !player.disconnected) : [];
+  const humansWaiting = live.some(player => !player.isBot);
+  if (humansWaiting) return false;
+  return !live.some(player => player?.isBot && player.id !== bot.id
+    && !(sponsorship.contributions || []).some(entry => entry.sponsorId === player.id)
+    && sponsorshipContributionAmount(game, player) > 0);
+}
+
 function botSeatStillLive(game, bot) {
   if (!bot || bot.bankrupt || bot.disconnected) return false;
   if (!Array.isArray(game?.players)) return true;
@@ -623,7 +897,16 @@ function botSeatStillLive(game, bot) {
 const CANDIDATE_RUNNERS = {
   'jail-fine': (room, bot) => room.runBotAction(bot.id, actor => room.payJailFine(actor)),
   'jail-free': (room, bot) => room.runBotAction(bot.id, actor => room.useJailFree(actor)),
-  chat: (_room, _bot, candidate) => ({ success: true, botChat: String(candidate.text || '').slice(0, 180) }),
+  chat: (room, bot, candidate) => {
+    const botChat = String(candidate.text || '').slice(0, 180);
+    // Table-talk is feedback, not a turn-consuming game action. Follow it
+    // immediately with the phase's legal progress action so a bot cannot
+    // repeatedly select chat while leaving the authoritative state unchanged.
+    const actionResult = room.game?.hasRolled
+      ? room.runBotAction(bot.id, actor => room.endTurn(actor))
+      : room.runBotAction(bot.id, actor => room.rollDice(actor));
+    return { ...(actionResult || { success: false, error: 'Bot could not advance after table-talk.' }), botChat };
+  },
   purchase: (room, bot, candidate) => resolvePurchaseOffer(room, bot, {
     success: true,
     purchaseOffer: { playerId: bot.id, tileIndex: candidate.tileIndex }
@@ -666,6 +949,13 @@ const CANDIDATE_RUNNERS = {
 async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 'pre-roll') {
   const game = room.game;
   const candidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: phase === 'post-roll' });
+  // Snapshot table obligations before the async advisor call: a trade,
+  // contract, payment, or auction arriving mid-thought must not be acted
+  // on with a stale pre-roll candidate list (mirrors the choice phases).
+  const pendingTradeId = game.pendingTrade?.id || null;
+  const pendingContractId = game.pendingPlayerContract?.id || null;
+  const pendingPaymentId = game.pendingPayment ? `${game.pendingPayment.playerId}:${game.pendingPayment.amountRemaining}` : null;
+  const auctionActive = Boolean(game.auction?.active);
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
@@ -684,6 +974,11 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
   // The advisor call is async; if the seat moved on while it thought, the
   // original code aborted the tick without emitting.
   if (game.getCurrentPlayer()?.id !== bot.id || !botSeatStillLive(game, bot)) return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' } };
+  const tableChanged = (game.pendingTrade?.id || null) !== pendingTradeId
+    || (game.pendingPlayerContract?.id || null) !== pendingContractId
+    || (game.pendingPayment ? `${game.pendingPayment.playerId}:${game.pendingPayment.amountRemaining}` : null) !== pendingPaymentId
+    || Boolean(game.auction?.active) !== auctionActive;
+  if (tableChanged) return { noEmit: true, botDecision: { ...trace, reasonCode: 'table-changed', actionId: null } };
   const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
   if (!candidate) {
     return attachBotDecision({ success: true, noEmit: true }, { ...trace, reasonCode: 'no-legal-action' });

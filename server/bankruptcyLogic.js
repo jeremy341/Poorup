@@ -242,13 +242,10 @@ export function equitySharePayable(game, share) {
 // player now chooses between raising funds and declaring bankruptcy (the
 // debt settlement path handles both).
 export function handleDebtSettlement(game, player, creditor) {
-  game.sweepCashToCreditor(player, creditor);
-  game.forfeitOrReleaseProperties(player, creditor);
-  game.settleContractsOnBankruptcy(player);
-  player.inDebt = true;
-  game.feedMessage(creditor
-    ? `${player.nickname}'s assets were transferred to ${creditor.nickname}. They stay in the game with debt.`
-    : `${player.nickname} lost everything. They stay in the game with debt.`);
+  // Compatibility entry point for older callers. A debt is a temporary
+  // payment state; choosing bankruptcy always uses the authoritative
+  // elimination/spectator settlement path.
+  return game.handleBankruptcy(player, creditor);
 }
 
 export function resolveUnsecuredBankDefault(game, player, loan) {
