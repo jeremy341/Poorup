@@ -14,38 +14,15 @@
     <div class="scanlines"></div>
     <div class="sr-live" id="system-announcer" data-document-announcer role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
-    <div class="toast-stack" id="toast-stack" aria-hidden="true"></div>
+    <div class="toast-stack" id="toast-stack" role="region" aria-label="Notifications" aria-live="polite"></div>
+    <div class="bot-provider-banner" id="bot-provider-banner" role="alert" aria-live="assertive" aria-atomic="true" aria-hidden="true" hidden></div>
     <div class="theme-page-world" id="theme-page-world" aria-hidden="true"></div>
 
-    <!-- One global music dock. It intentionally lives outside every SPA view. -->
-    <aside class="music-box panel noise" data-music-box aria-label="Parlor music player">
-      <div class="music-box-panel" id="music-box-panel" data-music-box-panel="">
-        <div class="music-box-track">
-          <img src="/assets/music/music-note.svg" alt="" width="16" height="16">
-          <div class="music-box-copy">
-            <strong class="music-box-title" data-music-title>PONDERING THE COSMOS</strong>
-            <span class="music-box-mode t-micro" data-music-mode>AUTO THEME · ORIGINAL</span>
-          </div>
-          <button class="music-box-grip" type="button" data-music-action="position" aria-label="Move player" aria-controls="music-position-menu" aria-expanded="false" title="Move player"><img src="/assets/music/music-grip.svg" alt="" width="16" height="16"></button>
-        </div>
-        <div class="music-box-progress" aria-label="Track progress">
-          <time data-music-elapsed>00:00</time><span class="music-box-meter" data-music-meter aria-hidden="true"></span><time data-music-remaining>00:00</time>
-        </div>
-        <div class="music-box-controls">
-          <button type="button" data-music-action="previous" aria-label="Previous track" title="Previous track"><img src="/assets/music/music-prev.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="play" aria-label="Play music" title="Play music" aria-pressed="false" aria-controls="music-box-panel"><img data-music-play-icon src="/assets/music/music-play.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="next" aria-label="Next track" title="Next track"><img src="/assets/music/music-next.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="shuffle" aria-label="Toggle shuffle" title="Toggle shuffle" aria-pressed="false"><img src="/assets/music/music-shuffle.svg" alt="" width="16" height="16"></button>
-          <button type="button" data-music-action="repeat" aria-label="Toggle repeat" title="Toggle repeat" aria-pressed="true"><img src="/assets/music/music-repeat.svg" alt="" width="16" height="16"></button>
-          <div class="music-box-volume-wrap"><button type="button" data-music-action="volume" aria-label="Volume" title="Volume" aria-controls="music-volume-popover" aria-expanded="false"><img src="/assets/music/music-speaker.svg" alt="" width="16" height="16"></button>
-            <div class="music-volume-popover" id="music-volume-popover" hidden><label for="music-volume">Volume</label><input id="music-volume" type="range" min="0" max="1" step="0.01" value="0.16" aria-label="Music volume" orient="vertical"></div>
-          </div>
-        </div>
-        <div class="music-position-menu" id="music-position-menu" hidden role="menu" aria-label="Move player"><button type="button" role="menuitem" data-music-position="top-left">TOP LEFT</button><button type="button" role="menuitem" data-music-position="top-right">TOP RIGHT</button><button type="button" role="menuitem" data-music-position="bottom-left">BOTTOM LEFT</button><button type="button" role="menuitem" data-music-position="bottom-right">BOTTOM RIGHT</button></div>
-        <span class="sr-live" data-music-status role="status" aria-live="polite" aria-atomic="true"></span>
-      </div>
-      <audio data-music-audio="a" preload="metadata" hidden></audio><audio data-music-audio="b" preload="metadata" hidden></audio>
-    </aside>
+    <!-- Theme music is a silent runtime service, not a visible player. -->
+    <div class="music-runtime" data-music-runtime aria-hidden="true">
+      <audio data-music-audio="a" preload="metadata"></audio>
+      <audio data-music-audio="b" preload="metadata"></audio>
+    </div>
 
     <!-- ============================ HOME VIEW ============================ -->
     <div class="view" id="view-home">
@@ -232,7 +209,7 @@
       <div class="ticker">
         <span class="t-micro tk"><span class="g400">AFTER-HOURS PARLOR</span></span>
         <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">live table service</span></span>
-        <span class="t-micro tk legal-links" aria-label="Legal information"><a href="/legal#privacy">PRIVACY</a><span aria-hidden="true">·</span><a href="/legal#terms">TERMS</a><span aria-hidden="true">·</span><a href="/legal#support">SUPPORT</a></span>
+        <span class="t-micro tk"><span class="g800 tk-sep">·</span><a class="g400 ticker-link" href="/privacy">privacy &amp; account data</a></span>
         <span class="t-micro tk tk-right"><span data-sprite="crown" data-size="2"></span>press [B] to browse rooms</span>
       </div>
     </div>
@@ -501,7 +478,7 @@
           <section class="panel noise pad16 account-panel" id="account-panel">
             <div class="account-panel-head"><div><div class="t-micro g400">PLAYER ACCOUNT</div><div class="t-label f12 g100" id="account-panel-title">Guest mode</div></div><span class="t-micro account-badge" id="account-panel-badge">LOCAL ONLY</span></div>
             <div id="account-guest-state"><p class="t-body ink-2 account-copy">Save your identity and stats across rooms while keeping guest play account-free.</p><div class="account-actions"><button class="cta-red account-action-btn" type="button" id="account-register-btn"><span class="cta-text cta-text-sm">Create Account</span></button><button class="btn-dark account-action-btn" type="button" id="account-login-btn"><span class="t-label f12">Sign In</span></button></div></div>
-            <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p><div class="account-data-rights is-hidden" id="account-data-rights" hidden aria-hidden="true" data-policy-gated="account-rights"><span class="t-micro ink-3">DATA RIGHTS: POLICY PENDING</span><button class="btn-dark account-action-btn" type="button" id="account-export-btn" disabled aria-disabled="true">EXPORT MY DATA</button><button class="btn-dark account-action-btn" type="button" id="account-revoke-btn" disabled aria-disabled="true">REVOKE OTHER SESSIONS</button><button class="btn-dark account-action-btn" type="button" id="account-delete-btn" disabled aria-disabled="true">DELETE ACCOUNT</button></div></div>
+            <div class="is-hidden" id="account-signed-state"><div class="account-identity-row"><div class="account-avatar" id="account-avatar"></div><div class="account-identity-copy"><span class="t-label f14 g100" id="account-display-name">PLAYER</span><span class="t-micro g400" id="account-username">@player</span></div><div class="account-identity-actions"><button class="btn-dark" type="button" id="account-edit-btn"><span class="t-label f11">EDIT ACCOUNT</span></button><button class="btn-dark account-signout" type="button" id="account-logout-btn"><span class="t-label f11">SIGN OUT</span></button></div></div><div class="account-stats" aria-label="Player statistics"><div><span class="t-micro ink-3">GAMES</span><span class="t-label f13 g100" id="account-games">0</span></div><div><span class="t-micro ink-3">WINS</span><span class="t-label f13 green" id="account-wins">0</span></div><div><span class="t-micro ink-3">WIN RATE</span><span class="t-label f13 g300" id="account-rate">0%</span></div></div><p class="t-micro ink-3 account-copy">Username is your stable identity. Edit your account name here. Player Designs only changes a saved design.</p><div id="account-rights-content"></div></div>
           </section>
           <section class="panel noise pad16 profile-preferences"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Preferences</h2><span class="hair"></span><button class="btn-dark theme-open-btn" id="theme-open-btn" type="button" data-theme-trigger aria-haspopup="dialog" aria-expanded="false" aria-controls="theme-popover"><span class="t-label f11">LOOK</span></button></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Table sound</span><span class="t-micro ink-3">UI cues, trades, hits, and actions.</span></div><span class="t-label f11 g-muted" id="profile-sound-state">SOUND OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Parlor music</span><span class="t-micro ink-3">The soundtrack continues while you play.</span></div><span class="t-label f11 g-muted" id="profile-music-state">MUSIC OFF</span></div><div class="profile-preference-row"><div><span class="t-label f12 g100">Guest play</span><span class="t-micro ink-3">No account is required to create or join a room.</span></div><span class="t-label f11 green">AVAILABLE</span></div></section>
         </section>
@@ -555,7 +532,11 @@
           <div class="admin-analytics-heading"><span class="t-micro g400">PARLOR OPERATIONS</span><h1 class="t-section g100" id="admin-analytics-title">Analytics control room</h1><p class="t-body ink-2">Capacity, release health, and table activity. Aggregate evidence only; no private game content is recorded here.</p></div>
           <div class="admin-analytics-hero-actions"><span class="t-micro ink-3" data-analytics-last-verified>LAST VERIFIED · WAITING</span><button class="btn-dark" type="button" id="admin-analytics-retry" data-analytics-refresh><span class="t-label f11">Refresh</span></button></div>
         </section>
-        <section class="panel noise admin-analytics-workspace" aria-label="Analytics reports">
+        <div class="admin-console-tabs" data-admin-console-tabs role="tablist" aria-label="Operator surfaces">
+          <button class="admin-console-tab is-active" id="admin-console-tab-analytics" type="button" role="tab" data-admin-console-tab="analytics" aria-selected="true" aria-controls="admin-analytics-workspace" tabindex="0">Analytics</button>
+          <button class="admin-console-tab" id="admin-console-tab-provider" type="button" role="tab" data-admin-console-tab="provider" aria-selected="false" aria-controls="admin-provider-workspace" tabindex="-1">Bot provider</button>
+        </div>
+        <section class="panel noise admin-analytics-workspace" id="admin-analytics-workspace" aria-label="Analytics reports">
           <div class="analytics-tabs" role="tablist" aria-label="Analytics views">
             <button class="analytics-tab is-active" id="analytics-tab-overview" type="button" role="tab" data-analytics-question="Is the parlor healthy right now?" data-analytics-tab="overview" aria-selected="true" aria-controls="analytics-panel-overview" tabindex="0">Overview</button>
             <button class="analytics-tab" id="analytics-tab-match-health" type="button" role="tab" data-analytics-question="Are matches starting, progressing, reconnecting, and settling reliably?" data-analytics-tab="match-health" aria-selected="false" aria-controls="analytics-panel-match-health" tabindex="-1">Match health</button>
@@ -614,6 +595,46 @@
             <section class="analytics-context-slot" data-analytics-context="retention" hidden><h2 class="t-label f12 g100">Retention</h2><p class="t-micro ink-3">Cohort return rates appear only when the contract supplies them.</p></section>
             <section class="analytics-context-slot" data-analytics-context="releases" hidden><h2 class="t-label f12 g100">Releases</h2><p class="t-micro ink-3">Revision markers and before/after context appear only when supplied.</p></section>
           </aside>
+        </section>
+        <section class="panel noise admin-provider-workspace is-hidden" id="admin-provider-workspace" data-admin-provider-workspace role="tabpanel" aria-hidden="true" aria-labelledby="admin-console-tab-provider" tabindex="-1">
+          <header class="admin-provider-heading">
+            <div><span class="t-micro g400">MODEL EXCHANGE</span><h2 class="t-section g100">Bot provider</h2><p class="t-body ink-2">Configure one server-side provider at a time. Credentials are write-only and never enter the game client.</p></div>
+            <span class="admin-provider-state t-label f11" data-admin-provider-state>UNCONFIGURED</span>
+          </header>
+          <div class="admin-provider-layout">
+            <aside class="admin-provider-active panel" aria-label="Active provider">
+              <div class="admin-provider-section-label t-micro g400">ACTIVE PROVIDER</div>
+              <h3 class="t-label f12 g100" data-admin-provider-active-label>NO PROFILE ACTIVE</h3>
+              <dl class="admin-provider-facts">
+                <div><dt class="t-micro ink-3">MODEL</dt><dd class="t-label f11" data-admin-provider-active-model>—</dd></div>
+                <div><dt class="t-micro ink-3">FORMAT</dt><dd class="t-label f11" data-admin-provider-active-format>AUTO · UNTESTED</dd></div>
+                <div><dt class="t-micro ink-3">ENDPOINT</dt><dd class="t-label f11" data-admin-provider-active-url>—</dd></div>
+                <div><dt class="t-micro ink-3">KEY</dt><dd class="t-label f11" data-admin-provider-active-key>NOT CONFIGURED</dd></div>
+              </dl>
+              <p class="t-micro ink-3 admin-provider-active-note" data-admin-provider-active-note>AI failures always return to the deterministic house brain.</p>
+            </aside>
+            <section class="admin-provider-editor" aria-labelledby="admin-provider-editor-title">
+              <div class="admin-provider-section-label t-micro g400" id="admin-provider-editor-title">PROVIDER PROFILE</div>
+              <form data-admin-provider-form novalidate>
+                <div class="admin-provider-form-grid">
+                  <label class="admin-provider-field"><span class="t-micro g400">PROFILE NAME</span><input class="input-dark" name="label" data-admin-provider-field="label" maxlength="80" required autocomplete="off" placeholder="OpenAI main"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">MODEL</span><input class="input-dark" name="model" data-admin-provider-field="model" maxlength="120" required autocomplete="off" placeholder="gpt-4o-mini"></label>
+                  <label class="admin-provider-field admin-provider-field-wide"><span class="t-micro g400">BASE URL</span><input class="input-dark" name="baseUrl" data-admin-provider-field="baseUrl" type="url" maxlength="400" required autocomplete="url" placeholder="https://api.openai.com/v1"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">REQUEST FORMAT</span><select class="input-dark" name="protocol" data-admin-provider-field="protocol"><option value="auto">AUTO · DETECT</option><option value="chat">CHAT COMPLETIONS</option><option value="responses">RESPONSES</option></select></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">API KEY</span><input class="input-dark" name="apiKey" data-admin-provider-field="apiKey" type="password" maxlength="2000" autocomplete="new-password" placeholder="Paste a new key to replace it"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">TIMEOUT · MS</span><input class="input-dark" name="timeoutMs" data-admin-provider-field="timeoutMs" type="number" min="1000" max="60000" step="100" value="4000" inputmode="numeric"></label>
+                  <label class="admin-provider-field"><span class="t-micro g400">AI DECISIONS · GAME</span><input class="input-dark" name="maxDecisionsPerGame" data-admin-provider-field="maxDecisionsPerGame" type="number" min="1" max="10000" step="1" value="120" inputmode="numeric"></label>
+                </div>
+                <p class="t-micro ink-3 admin-provider-key-note">The key is stored server-side only. Leave it blank when editing to keep the existing key. Test before activation.</p>
+                <div class="admin-provider-form-actions"><button class="btn-dark" type="submit" data-admin-provider-save><span class="t-label f11">SAVE PROFILE</span></button><button class="btn-dark" type="button" data-admin-provider-new><span class="t-label f11">NEW PROFILE</span></button></div>
+              </form>
+              <p class="t-body analytics-status muted" data-admin-provider-test-status role="status" aria-live="polite">Select a profile or create one to test the connection.</p>
+            </section>
+          </div>
+          <section class="admin-provider-profiles" aria-labelledby="admin-provider-profiles-title">
+            <div class="admin-provider-section-head"><div><span class="t-micro g400">SAVED PROFILES</span><h3 class="t-label f12 g100" id="admin-provider-profiles-title">Provider roster</h3></div><span class="t-micro ink-3">REDACTED VIEW</span></div>
+            <div class="admin-provider-list" data-admin-provider-list aria-live="polite"></div>
+          </section>
         </section>
         <p class="t-body analytics-status muted" id="admin-analytics-status" data-analytics-state="loading" role="status" aria-live="polite">Loading analytics…</p>
       </main>
@@ -730,7 +751,7 @@
               <span class="hair"></span>
               <span data-sprite="diamond" data-size="3"></span>
             </div>
-            <div class="chat-body thin-scroll" id="chat-body"></div>
+            <div class="chat-body thin-scroll" id="chat-body" role="log" aria-live="polite" aria-relevant="additions text"></div>
             <form class="chat-form" id="chat-form">
               <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" name="message" inputmode="text" autocomplete="off" placeholder="Join the room to chat…" maxlength="120" disabled />
               <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
@@ -743,21 +764,6 @@
         <!-- CENTER -->
         <div class="rail-center">
           <div class="board-area">
-            <section class="global-event-banner is-hidden" id="global-event-banner" aria-live="polite" aria-labelledby="global-event-title">
-              <div class="global-event-main">
-                <span class="global-event-mark" aria-hidden="true">!</span>
-                <div>
-                  <span class="t-micro g400" id="global-event-kicker">GLOBAL HEADLINE</span>
-                  <h2 class="t-section" id="global-event-title">No active event</h2>
-                  <p class="t-micro ink-2" id="global-event-copy"></p>
-                  <div class="global-event-effects" id="global-event-effects"></div>
-                </div>
-              </div>
-              <div class="global-event-meta">
-                <span class="t-micro ink-3" id="global-event-rounds"></span>
-                <div class="global-event-choices" id="global-event-choices"></div>
-              </div>
-            </section>
             <div class="board-holder">
               <div class="board-frame noise vignette" id="board-frame">
                 <div class="board-grid" id="board-grid">
@@ -772,6 +778,39 @@
                       </div>
                       <p class="t-label cf-sub"><span class="g300">✦</span> After-Hours Game Parlor <span class="g300">✦</span></p>
                     </div>
+                    <section class="global-event-banner is-hidden" id="global-event-banner" role="region" aria-live="polite" aria-labelledby="global-event-title">
+                      <div class="global-event-header">
+                        <div class="global-event-badge-group">
+                          <span class="global-event-emblem" id="global-event-emblem" aria-hidden="true"></span>
+                          <span class="t-micro g400 global-event-kicker" id="global-event-kicker">GLOBAL HEADLINE</span>
+                        </div>
+                        <div class="global-event-status-group">
+                          <span class="global-event-rounds-badge" id="global-event-rounds-badge">
+                            <span class="global-event-timer-icon" id="global-event-timer-icon" aria-hidden="true"></span>
+                            <span class="t-micro ink-3" id="global-event-rounds"></span>
+                          </span>
+                          <button class="global-event-toggle" id="global-event-toggle" type="button" aria-expanded="true" aria-controls="global-event-body-wrap" title="Toggle event details [H]">
+                            <span class="global-event-toggle-label" id="global-event-toggle-label">HIDE</span>
+                            <span class="global-event-toggle-icon" id="global-event-toggle-icon" aria-hidden="true"></span>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="global-event-body-wrap" id="global-event-body-wrap">
+                        <div class="global-event-main">
+                          <h2 class="t-section" id="global-event-title">No active event</h2>
+                          <p class="t-micro ink-2" id="global-event-copy"></p>
+                        </div>
+                        <div class="global-event-effects" id="global-event-effects"></div>
+                        <div class="global-event-meta">
+                          <div class="global-event-choices" id="global-event-choices"></div>
+                        </div>
+                      </div>
+                      <div class="global-event-compact-row is-hidden" id="global-event-compact-row">
+                        <span class="global-event-compact-title" id="global-event-compact-title"></span>
+                        <div class="global-event-compact-effects" id="global-event-compact-effects"></div>
+                        <span class="global-event-compact-vote is-hidden" id="global-event-compact-vote"></span>
+                      </div>
+                    </section>
                     <div class="deck deck-chest"><span data-sprite="chest" data-size="5"></span></div>
                     <div class="deck deck-chance"><span class="q-mark q-lg">?</span></div>
                   </div>
@@ -1038,6 +1077,5 @@
     </aside>
 
     <script type="module" src="/main.js" defer></script>
-    <script type="module" src="/clientMusicBoxUi.js" defer></script>
   </body>
 </html>
