@@ -232,6 +232,42 @@ check('debt settlement: build refused, sell allowed, proceeds auto-settle', () =
   assert.equal(owner.cash, Math.floor(cost * 0.5) - 10);
 });
 
+check('transferMoney rejects non-finite amounts without touching seats', () => {  const { game } = ownedRoom();
+  const from = { cash: 100 };
+  const to = { cash: 50 };
+  game.transferMoney(from, to, NaN, 'nan');
+  game.transferMoney(from, to, Infinity, 'inf');
+  game.transferMoney(from, to, 0, 'zero');
+  game.transferMoney(from, to, -10, 'neg');
+  assert.deepEqual([from.cash, to.cash], [100, 50]);
+  game.transferMoney(from, to, 30, 'ok');
+  assert.deepEqual([from.cash, to.cash], [70, 80]);
+});
+
+check('dead seats cannot build or sell', () => {  const { game } = ownedRoom();
+  const owner = game.players[0];
+  owner.disconnected = true;
+  assert.deepEqual(
+    game.manageProperty('socket-a', { tileIndex: 1, action: 'build-house' }),
+    { success: false, error: 'Property access is unavailable right now.' }
+  );
+  assert.deepEqual(
+    game.manageProperty('socket-a', { tileIndex: 1, action: 'sell-house' }),
+    { success: false, error: 'Property access is unavailable right now.' }
+  );
+});
+
+check('mortgage never blocked by debt — only endTurn is', () => {
+  const { game, owner, give } = ownedRoom();
+  give(1);
+  game.pendingPayment = { playerId: owner.id, creditorId: game.players[1].id, amountRemaining: 40 };
+  assert.equal(game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
+  // Someone else's debt also does not block your mortgage.
+  give(3);
+  game.pendingPayment = { playerId: game.players[1].id, creditorId: owner.id, amountRemaining: 40 };
+  assert.equal(game.manageProperty('socket-a', { tileIndex: 3, action: 'mortgage' }).success, true);
+});
+
 const failed = results.filter(r => !r).length;
 console.log(`\nproperty action tests: ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

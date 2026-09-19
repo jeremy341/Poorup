@@ -303,7 +303,17 @@ function railActivityBodyHTML() {
   let content = railMarketBodyHTML();
   if (mode === "predictions") content = railPredictionsBodyHTML();
   if (mode === "casino") content = railCasinoBodyHTML();
-  return `<div class="activity-surface">${activityModeTabsHTML()}<div class="activity-mode-content" id="activity-mode-panel-${mode}" role="tabpanel" aria-labelledby="activity-mode-${mode}">${content}</div></div>`;
+  const status = state.economySnapshotStatus === "stale"
+    ? `<p class="t-micro red activity-data-status" role="status" aria-live="polite">ACTIVITY DATA STALE · RECONNECTING…</p>`
+    : state.economySnapshotStatus === "fresh"
+      ? `<p class="t-micro ink-3 activity-data-status" role="status" aria-live="polite">ACTIVITY DATA VERIFIED</p>`
+      : "";
+  return `<div class="activity-surface">${activityModeTabsHTML()}${status}<div class="activity-mode-content" id="activity-mode-panel-${mode}" role="tabpanel" aria-labelledby="activity-mode-${mode}">${content}</div></div>`;
+}
+
+function spectatorRailHTML(player) {
+  const name = esc(player?.name || "PLAYER");
+  return `<section class="spectator-rail panel noise" aria-labelledby="spectator-rail-heading"><div class="spectator-rail-kicker t-micro g400">ROUND OBSERVER</div><h3 class="t-section g100" id="spectator-rail-heading">SPECTATOR MODE</h3><p class="t-body ink-2">${name}, you are out of the turn order. The board, public ledger, chat, log, and event headlines remain visible.</p><p class="t-micro ink-3">No rolls, purchases, trades, loans, auctions, or market actions are available.</p><button class="btn-dark" type="button" data-spectator-leave><span class="t-label f11">LEAVE TABLE</span></button></section>`;
 }
 
 function renderRailBody(owned) {
@@ -375,6 +385,11 @@ export function renderRightRail() {
   const owned = TILES.filter((t) => state.owners[t.i] === "p1");
   state.tab = normalizeRailTab(state.tab);
   renderRailHeader(owned);
+  if (state.players[0]?.spectating || (state.players[0]?.bankrupt && !state.players[0]?.bot)) {
+    const body = $("#rr-body");
+    if (body) body.innerHTML = spectatorRailHTML(state.players[0]);
+    return;
+  }
   renderRailBody(owned);
 }
 

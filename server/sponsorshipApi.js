@@ -36,7 +36,7 @@ function contributionCheck(game, sponsor, ctx, payload) {
   if (!ctx.sponsorship || !ctx.buyer || !ctx.tile || ctx.tile.ownerId !== null) return { error: 'That sponsorship is no longer available.', stale: true };
   if (!livePlayer(sponsor)) return { error: 'Sponsorship is unavailable.' };
   if (hasLoanBackedCash(sponsor)) return { error: 'Loan-backed cash cannot fund sponsorships.' };
-  if (game.pendingPayment || game.auction || game.pendingTrade || game.pendingPlayerContract) {
+  if (game.auction || game.pendingTrade || game.pendingPlayerContract) {
     return { error: 'Resolve the table obligation before sponsoring.' };
   }
   if (sponsor.id === ctx.buyer.id) return { error: 'The buyer cannot sponsor their own purchase.' };
@@ -76,7 +76,8 @@ const sponsorshipApi = {
       tileName: tile.name,
       price: tile.price,
       contributions: [],
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      createdRound: this.roundNumber,
     };
     this.feedMessage(`${buyer.nickname} is seeking sponsors for ${tile.name}.`);
     return { success: true, sponsorship: this.summarySponsoredPurchase() };
@@ -114,9 +115,49 @@ const sponsorshipApi = {
     if (check.stale) this.cancelSponsoredPurchase();
     if (check.error) return { success: false, error: check.error };
     const { total } = check;
-    buyer.cash += total;
+    // Excess escrow returns to sponsors pro-rata: a buyer whose cash rose
+    // after sponsoring must not pocket the overfund.
+    const buyerCashBefore = Math.max(0, Math.floor(Number(buyer.cash) || 0));
+    const needed = Math.max(0, Number(ctx.tile.price || 0) - buyerCashBefore);
+    const excess = Math.max(0, total - needed);
+    const contributions = (this.pendingSponsoredPurchase?.contributions || []).map(entry => ({ ...entry }));
+    // Atomic settlement: snapshot everything the purchase can mutate, so a
+    // mid-settlement throw restores the exact prior state (buyer cash,
+    // escrow record, deed, portfolio) instead of crediting the buyer while
+    // sponsors lose their refund path.
+    const rollback = {
+      cash: buyer.cash,
+      pending: this.pendingSponsoredPurchase,
+      purchaseOffer: this.pendingPurchaseOffer,
+      ownerId: ctx.tile.ownerId,
+      mortgaged: ctx.tile.mortgaged,
+      houseCount: ctx.tile.houseCount,
+      properties: [...(buyer.properties || [])],
+    };
+    buyer.cash += total - excess;
     this.pendingSponsoredPurchase = null;
-    this.acceptPurchaseOffer(buyer, ctx.tile);
+    try {
+      this.acceptPurchaseOffer(buyer, ctx.tile);
+    } catch (error) {
+      buyer.cash = rollback.cash;
+      this.pendingSponsoredPurchase = rollback.pending;
+      this.pendingPurchaseOffer = rollback.purchaseOffer;
+      ctx.tile.ownerId = rollback.ownerId;
+      ctx.tile.mortgaged = rollback.mortgaged;
+      ctx.tile.houseCount = rollback.houseCount;
+      buyer.properties = rollback.properties;
+      return { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' };
+    }
+    let refunded = 0;
+    for (const entry of contributions) {
+      const share = total > 0 ? Math.floor(Number(entry.amount || 0) * excess / total) : 0;
+      const sponsor = this.getPlayerById(entry.sponsorId);
+      if (share > 0 && sponsor && !sponsor.bankrupt) {
+        sponsor.cash = Math.max(0, Number(sponsor.cash) || 0) + share;
+        refunded += share;
+      }
+    }
+    buyer.cash += Math.max(0, excess - refunded);
     this.feedMessage(`${buyer.nickname} completed a sponsored purchase of ${ctx.tile.name}.`);
     return { success: true, purchased: true, contributionTotal: total };
   },

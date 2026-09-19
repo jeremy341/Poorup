@@ -439,7 +439,7 @@ function lobbyPlayerRowHTML(p, seed) {
     <div class="lobby-av">${avatarHTML(p, 3, seed)}</div>
       <div class="lobby-player-info">
         <div class="t-label lobby-player-name" style="color:${p.textColor}">${p.bot ? '<img class="lobby-brain-icon" src="/assets/bot-brain.svg" alt="">' : ''}${esc(p.name)}${isHost ? '<span class="lobby-host-badge t-micro g400">HOST</span>' : ''}</div>
-        <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.personality || "survivor").toUpperCase()} · ${(p.botBrain || "auto").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
+        <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.personality || "survivor").toUpperCase()} · ${(p.botBrain || "ai").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
     </div>
     <span class="lobby-ready-dot" style="background:${ready ? "#35a653" : "#3a382a"};box-shadow:${ready ? "0 0 5px rgb(53 166 83/60%)" : "none"}"></span>
   </div>`;
@@ -476,7 +476,7 @@ function lobbyRulesSnapshot(settings) {
       ${toggleCopy(settings.market, "market on", "market off")} ·
       ${botCopy(settings)} ·
       ${settings.turnTimer ? settings.turnTimer + "s timer" : "no timer"} ·
-      ${settings.bankruptMode === "elim" ? "eliminate busted" : "debt deals"}
+      eliminate busted players when no legal rescue remains
     </div>`;
 }
 
@@ -490,7 +490,17 @@ function bankLoanCopy(settings) {
 
 function botCopy(settings) {
   if (!settings.bots) return "no bots";
-  return `bot ${String(settings.botBrain || "auto").toLowerCase()} · ${String(settings.botPersonality || "survivor").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
+  return `bot ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botPersonality || "survivor").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
+}
+
+function botBrainControl(settings) {
+  const exhausted = state.botProviderStatus?.state === "quota-exhausted";
+  const selected = String(settings.botBrain || "ai").toLowerCase() === "no-ai" ? "no-ai" : "ai";
+  const aiLabel = exhausted ? "AI BOT · CREDITS EXHAUSTED" : "AI BOT";
+  const aiDisabled = exhausted ? "disabled" : "";
+  const status = exhausted ? '<span class="setting-status setting-status-error" data-bot-provider-copy>AI CREDITS EXHAUSTED</span>' : "";
+  const help = exhausted ? "AI BOT is unavailable. Select NO-AI BOT to use the offline house brain." : "AI BOT uses the provider and falls back automatically when unavailable.";
+  return `<span class="setting-control-stack"><select class="setting-select${exhausted ? " is-error" : ""}" data-setting="botBrain" aria-describedby="bot-brain-help"><option value="ai" ${selected === "ai" ? "selected" : ""} ${aiDisabled}>${aiLabel}</option><option value="no-ai" ${selected === "no-ai" ? "selected" : ""}>NO-AI BOT</option></select><span id="bot-brain-help" class="sr-only">${help}</span>${status}</span>`;
 }
 
 function renderLobbyRail() {
@@ -519,7 +529,7 @@ function lobbyTableRules(s) {
     settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
     settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
     settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
-    settingRow("Bot Brain", "AI is preferred; the house brain takes over when credits or service are unavailable.", sel("botBrain", s.botBrain, [["auto","AUTO · AI → NO-AI"],["ai","AI · FALLBACK ON"],["no-ai","NO-AI · OFFLINE"]])),
+    settingRow("Bot Brain", "Choose AI or the offline house brain. AI falls back automatically when credits or service are unavailable.", botBrainControl(s)),
     settingRow("Bot Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
     settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
     settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
@@ -532,7 +542,7 @@ function lobbyEconomy(s) {
     settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
     settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
     settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
-    settingRow("Bankruptcy", "How to handle a bust player.", sel("bankruptMode", s.bankruptMode, [["elim","ELIMINATE"],["debt","DEBT DEAL"]])),
+    settingRow("Bankruptcy", "A player must settle every open debt or declare bankruptcy; eliminated humans become read-only spectators.", `<span class="setting-static t-label f11 g300">ELIMINATE · SPECTATE</span>`),
     settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
     settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
     settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
@@ -641,12 +651,15 @@ function resetTableForEntry(requestedCode, requestId = "") {
   state.dice = [3, 5];
   state.rolling = false;
   state.busy = false;
+  state.pendingAction = null;
   state.turnStage = "roll";
   state.highlight = null;
   state.selectedTile = null;
   state.tradeWith = null;
   state.profileDraft = null;
   state.botStatus = null;
+  state.economySnapshotStatus = "unknown";
+  state.globalEventVotePending = false;
   state.pendingBuyTile = null;
   state.auction = null;
   state.mortgaged = {};
@@ -847,6 +860,7 @@ export function goHome() {
   stopAuctionTimer();
   state.busy = false;
   state.rolling = false;
+  state.pendingAction = null;
   state.turnStage = "roll";
   state.selectedTile = null;
   state.highlight = null;
@@ -860,6 +874,8 @@ export function goHome() {
   state.card = null;
   state.gameOver = null;
   state.botStatus = null;
+  state.economySnapshotStatus = "unknown";
+  state.globalEventVotePending = false;
   // Audit #16: home must not keep the previous room's transcript or activity
   // log. Rejoining a room re-seeds both from the server's next snapshot, so
   // emptying here never leaves stale content behind.
@@ -897,8 +913,17 @@ export function leaveRoomForHome() {
     });
     return;
   }
-  if (inRoomSession()) goHome();
-  else host.showView("home");
+  // Lobby seats are live too: a misclick must not silently release the room.
+  if (inRoomSession()) {
+    host.openConfirmModal({
+      title: "Leave this room?",
+      message: "Leaving releases your seat; the room may be garbage-collected without you.",
+      confirmLabel: "LEAVE ROOM",
+      onConfirm: () => goHome(),
+    });
+    return;
+  }
+  host.showView("home");
 }
 
 function entryEvent(requestedCode, requestedRoomId) {
@@ -1079,6 +1104,8 @@ export function bindLobbyUi() {
     state.settings.vacationPool = true;
     state.settings.trading = true;
     state.settings.auction = false;
+    // Quick Table rewrites the rules silently otherwise: say so up front.
+    parlorNotice("QUICK TABLE", "NO AUCTIONS · VACATION POOL ON · TRADING ON.");
     requestQuickTableDirectory();
   });
 

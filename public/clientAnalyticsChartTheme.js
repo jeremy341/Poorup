@@ -41,7 +41,7 @@ function readToken(element, name, fallback) {
   return value || fallback;
 }
 
-export function resolvePoorupChartTokens(element = globalThis.document?.documentElement) {
+export function resolvePoorupChartTokens(element = globalThis.document?.body || globalThis.document?.documentElement) {
   return Object.freeze(Object.fromEntries(Object.entries(TOKEN_NAMES).map(([key, name]) => [key, readToken(element, name, FALLBACK_TOKENS[key])] )));
 }
 

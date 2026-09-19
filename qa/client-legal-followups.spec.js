@@ -1,58 +1,33 @@
-/* global window, document, Event, localStorage, HTMLMediaElement, DOMException */
 import { test, expect } from "@playwright/test";
 
-async function startPendingTrack(page) {
-  const audios = page.locator("[data-music-audio]");
-  await expect(audios).toHaveCount(2);
-  await page.evaluate(() => {
-    window.__poorupMusicBoxController.resetToThemeTrack();
-    document.querySelectorAll("[data-music-audio]").forEach(audio => audio.dispatchEvent(new Event("canplay")));
-  });
-}
-
-test("A/B music retry uses the current blocked status and succeeds from the dock", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("poorup.music.enabled.v1", "1");
-    window.__poorupPlayCalls = 0;
-    HTMLMediaElement.prototype.play = function play() {
-      window.__poorupPlayCalls += 1;
-      return window.__poorupPlayCalls === 1
-        ? Promise.reject(new DOMException("autoplay blocked", "NotAllowedError"))
-        : Promise.resolve();
-    };
-  });
+test("theme soundtrack exposes a single deterministic looping track", async ({ page }) => {
   await page.goto("/");
-  await startPendingTrack(page);
-  await expect.poll(() => page.evaluate(() => window.__poorupMusicBoxController?.snapshot().status)).toBe("autoplay-blocked");
-  await expect(page.locator("[data-music-status]")).toContainText("autoplay-blocked");
-  const firstPlayCalls = await page.evaluate(() => window.__poorupPlayCalls);
-
-  await page.locator('[data-music-action="play"]').click();
-  await expect.poll(() => page.evaluate(() => window.__poorupMusicBoxController?.snapshot().status)).toBe("playing");
-  await expect.poll(() => page.evaluate(() => window.__poorupPlayCalls)).toBe(firstPlayCalls + 1);
-  await expect(page.locator("#music-status")).toContainText("playing");
+  const values = await page.evaluate(() => {
+    const controller = window.__poorupThemeMusicController;
+    const result = {};
+    for (const theme of ["original", "spring", "summer", "autumn", "winter", "light"]) {
+      controller.setTheme(theme, { userInitiated: true });
+      const snapshot = controller.snapshot();
+      result[theme] = { track: snapshot.currentTrackId, queue: snapshot.queue, loop: snapshot.loop, mode: snapshot.mode };
+    }
+    return result;
+  });
+  expect(values.original).toEqual({ track: "pondering-the-cosmos", queue: ["pondering-the-cosmos"], loop: true, mode: "AUTO THEME" });
+  expect(values.spring).toEqual({ track: "hot-springs-town", queue: ["hot-springs-town"], loop: true, mode: "AUTO THEME" });
+  expect(values.summer).toEqual({ track: "summers", queue: ["summers"], loop: true, mode: "AUTO THEME" });
+  expect(values.autumn).toEqual({ track: "autumn", queue: ["autumn"], loop: true, mode: "AUTO THEME" });
+  expect(values.winter).toEqual({ track: "snowy-village", queue: ["snowy-village"], loop: true, mode: "AUTO THEME" });
+  expect(values.light).toEqual({ track: "town", queue: ["town"], loop: true, mode: "AUTO THEME" });
 });
 
-test("current A/B event listeners distinguish loop-off ended from stalled errors", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("poorup.music.enabled.v1", "1");
-    HTMLMediaElement.prototype.play = () => Promise.resolve();
-  });
+test("music toggle can stop and resume the hidden soundtrack runtime", async ({ page }) => {
   await page.goto("/");
-  await startPendingTrack(page);
-  await expect.poll(() => page.evaluate(() => window.__poorupMusicBoxController?.snapshot().status)).toBe("playing");
-
-  await page.evaluate(() => {
-    const controller = window.__poorupMusicBoxController;
-    controller.toggleLoop();
-    document.querySelectorAll("[data-music-audio]").forEach(audio => audio.dispatchEvent(new Event("ended")));
-  });
-  await expect.poll(() => page.evaluate(() => window.__poorupMusicBoxController?.snapshot().status)).toBe("ended");
-  await expect(page.locator("#music-status")).toContainText("ended");
-
-  await page.evaluate(() => {
-    document.querySelectorAll("[data-music-audio]").forEach(audio => audio.dispatchEvent(new Event("stalled")));
-  });
-  await expect.poll(() => page.evaluate(() => window.__poorupMusicBoxController?.snapshot().status)).toBe("track-error");
-  await expect(page.locator("#music-status")).toContainText("track-error");
+  const toggle = page.locator("#music-toggle-btn");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("[data-music-runtime]")).toBeHidden();
+  await expect(page.locator("[data-music-box]")).toHaveCount(0);
 });

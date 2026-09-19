@@ -162,7 +162,10 @@ test.describe('admin analytics visual contract', () => {
     });
     await openFixture(page);
     const forbidden = /displayName|username|accountId|roomCode|chat|hiddenCards|privateLoanTerms|sessionToken|rawPayload|rawEvent|ipAddress|rawIp|userAgent|rawUserAgent/i;
-    await expect(page.locator('#view-admin-analytics')).not.toContainText(forbidden);
+    // The provider workspace intentionally names protocol formats (including
+    // Chat Completions). Scope the analytics privacy assertion to the
+    // analytics surface instead of treating that protocol label as a leak.
+    await expect(page.locator('#admin-analytics-workspace')).not.toContainText(forbidden);
     expect(page.url()).not.toMatch(forbidden);
     await expect.poll(() => responseBodies.length).toBeGreaterThan(0);
     expect(responseBodies.every(body => !forbidden.test(body))).toBe(true);

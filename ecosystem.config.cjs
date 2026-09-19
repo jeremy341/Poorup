@@ -9,7 +9,9 @@ module.exports = {
     autorestart: true,
     restart_delay: 2000,
     max_memory_restart: '512M',
-    kill_timeout: 15000,
+    // Must exceed the server's drain deadline (default 30s): SIGKILL
+    // arriving first would abort in-flight writes mid-drain.
+    kill_timeout: 45000,
     listen_timeout: 10000,
     shutdown_with_message: true,
     env: {

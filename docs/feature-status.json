@@ -27,7 +27,7 @@
       "id": "bots",
       "status": "active",
       "ownerSurface": "server bot decision modules",
-      "evidence": ["server/botLogic.js", "server/bot-brain.test.js", "server/bot-simulation.test.js"]
+      "evidence": ["server/botLogic.js", "server/bot-brain.test.js", "server/bot-simulation.test.js", "server/botTableBrain.js", "server/botTableMind.js", "server/botTradeValuation.js", "server/botDevelopmentForecast.js"]
     },
     {
       "id": "contracts",
@@ -66,6 +66,18 @@
       "evidence": ["server/globalEventData.js", "server/global-events.test.js", "public/clientGlobalEventRender.js"]
     },
     {
+      "id": "bankruptcy-spectator-lifecycle",
+      "status": "active",
+      "ownerSurface": "authoritative bankruptcy settlement and read-only spectator UI",
+      "evidence": ["server/bankruptcyApi.js", "server/audit-game-contracts.test.js", "public/clientRailRender.js"]
+    },
+    {
+      "id": "balance-campaign",
+      "status": "active",
+      "ownerSurface": "deterministic bot balance metrics",
+      "evidence": ["server/balanceMetrics.js", "server/balanceMetrics.test.js", "server/bot-simulation.test.js"]
+    },
+    {
       "id": "maintenance",
       "status": "complete",
       "ownerSurface": "maintenance state and operator wire",
@@ -82,12 +94,6 @@
       "status": "deferred",
       "ownerSurface": "protected aggregate analytics and policy owner",
       "evidence": ["server/analyticsApi.js", "server/analytics-route-security.test.js", "public/clientAnalytics.js"]
-    },
-    {
-      "id": "legal-surfaces",
-      "status": "deferred",
-      "ownerSurface": "legal copy, support identity, and policy owner",
-      "evidence": ["server/legalRoutes.js", "server/legalRoutes.test.js", "server/legalContent.test.js", "public/legal/privacy.html", "public/legal/terms.html", "public/legal/acceptable-use.html", "public/legal/support.html", "public/legal/licenses.html", "public/legal/accessibility.html", "public/legal/storage.html", "public/legal/ai.html", "qa/legal-document-shell.spec.js"]
     },
     {
       "id": "account-controls",

@@ -27,6 +27,7 @@ import { applyRoomsUpdated } from "./clientRoomsUi.js";
 import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
 import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
 import { DEFAULT_THEME_ID } from "./clientThemeData.js";
+import { reconcileAccountLifecycleEvent } from "./clientAccountRights.js";
 
 let host = {
   setConnectionStatus: noop,
@@ -82,8 +83,17 @@ export function reconcileSignedOutState(message = "This account session ended in
 }
 
 export function onStorage(event) {
+  if (event?.key === "poorup.account.lifecycle.v1" && event.newValue) {
+    try {
+      const lifecycle = JSON.parse(event.newValue);
+      reconcileAccountLifecycleEvent(lifecycle, state);
+      renderAccountPanel();
+      host.renderAll();
+    } catch { /* malformed cross-tab data is ignored */ }
+    return;
+  }
   if (event?.key !== "poorup.account.session.v1" || event.newValue !== null) return;
-  if (!state.account?.sessionToken) return;
+  if (!state.account) return;
   reconcileSignedOutState();
 }
 
@@ -95,7 +105,10 @@ export function isExplicitSessionInvalidation(response) {
 
 function onSocketConnect(socket) {
   host.setConnectionStatus("online", true);
-  if (state.account?.sessionToken) restoreAccountSession(socket);
+  if (state.account) {
+    bootstrapCookieSession();
+    if (state.account.sessionToken) restoreAccountSession(socket);
+  }
   host.emitServer("restore-session", {}, (response) => host.handleRestoreSessionResponse(response, false));
 }
 
@@ -130,10 +143,10 @@ function onBotStatus(status) {
   label.classList.remove("is-hidden", "is-thinking");
   if (status.state === "thinking") {
     label.classList.add("is-thinking");
-    label.textContent = `${status.nickname} · CPU THINKING · ${String(status.brain || "auto").toUpperCase()}`;
+    label.textContent = `${status.nickname} · CPU THINKING · ${String(status.brain || "ai").toUpperCase()}`;
     return;
   }
-  const brainLabel = status.fallback ? "HOUSE BRAIN" : "AI ADVISOR";
+  const brainLabel = status.fallback || status.effectiveBrain === "no-ai" ? "NO-AI FALLBACK" : "AI ADVISOR";
   const actionLabel = status.actionId ? String(status.actionId).toUpperCase() : "ACTION COMPLETE";
   label.textContent = `${status.nickname} · ${brainLabel} · ${actionLabel}`;
   label._hideTimer = setTimeout(() => label.classList.add("is-hidden"), 3200);
@@ -141,6 +154,53 @@ function onBotStatus(status) {
     host.say(`${status.nickname} chose ${status.actionId}${status.fallback ? " (house fallback)" : " (AI advisor)"}.`);
     host.renderChat();
   }
+}
+
+function bootstrapCookieSession() {
+  if (typeof fetch !== "function" || !state.account) return;
+  const headers = state.account.sessionToken ? { 'x-poorup-session-token': state.account.sessionToken } : {};
+  fetch('/account/session', { credentials: 'include', headers }).then(response => {
+    if (!response.ok) {
+      if (response.status === 401 && !state.account.sessionToken) reconcileSignedOutState('Account session expired. Sign in again.');
+      return null;
+    }
+    return response.json();
+  }).then(payload => {
+    if (payload?.success && payload.account) {
+      updateAccountFromResponse({ account: payload.account, sessionToken: state.account.sessionToken });
+      // Bootstrap rehydrated from the cookie: apply the newest buffered
+      // sync directly (the token guard below would re-buffer forever).
+      if (pendingAccountSync) {
+        const buffered = pendingAccountSync;
+        pendingAccountSync = null;
+        updateAccountFromResponse({ account: buffered, sessionToken: state.account.sessionToken });
+      }
+    }
+  }).catch(() => {});
+}
+
+function onBotProviderStatus(status) {
+  const allowed = new Set(["healthy", "unconfigured", "quota-exhausted", "cooldown"]);
+  const stateName = allowed.has(status?.state) ? status.state : "unconfigured";
+  const revision = Number.isFinite(Number(status?.revision)) ? Math.max(0, Math.floor(Number(status.revision))) : 0;
+  const next = { state: stateName, revision, reason: stateName === "quota-exhausted" ? "credits-exhausted" : stateName === "unconfigured" ? "missing-credentials" : stateName === "cooldown" ? "provider-cooldown" : null };
+  const previous = state.botProviderStatus;
+  if (previous && revision < Number(previous.revision || 0)) return;
+  state.botProviderStatus = next;
+  document.dispatchEvent(new CustomEvent("poorup-bot-provider-status", { detail: next }));
+  const banner = $("#bot-provider-banner");
+  const usingAi = state.players.some(player => player.bot && player.botBrain === "ai")
+    || (Number(state.settings?.bots) > 0 && state.settings?.botBrain === "ai");
+  if (banner) {
+    const show = next.state === "quota-exhausted" && usingAi;
+    banner.hidden = !show;
+    banner.setAttribute("aria-hidden", String(!show));
+    if (show) banner.textContent = "AI CREDITS EXHAUSTED · BOT IS NOW USING NO-AI MODE";
+  }
+  if (next.state === "quota-exhausted" && (!previous || previous.state !== next.state || previous.revision !== next.revision)) {
+    $("#error-announcer").textContent = "AI credits are exhausted. Bots are now using No-AI mode.";
+  }
+  host.renderAll();
 }
 
 function clearBotStatus() {
@@ -189,8 +249,16 @@ function onAchievementUnlocked(notification) {
   announceAchievementUnlocked(notification);
 }
 
+let pendingAccountSync = null;
+
 function onAccountSync({ account } = {}) {
-  if (!state.account?.sessionToken) return;
+  // Post-reload cookie state has no bearer token yet: buffer the latest
+  // payload and flush it once bootstrap rehydrates the account instead of
+  // dropping legitimate syncs until a full re-login.
+  if (!state.account?.sessionToken) {
+    if (account) pendingAccountSync = account;
+    return;
+  }
   if (!account) return;
   updateAccountFromResponse({ account, sessionToken: state.account.sessionToken });
 }
@@ -279,7 +347,7 @@ function normalizeTradeOffer(trade) {
 
 function onTradeOffer({ trade }) {
   if (!trade) return;
-  const normalized = normalizeTradeOffer(trade);
+  const normalized = { ...normalizeTradeOffer(trade), receivedAt: Date.now() };
   state.offers = [
     normalized,
     ...(state.offers || []).filter(offer => offer?.id !== normalized.id),
@@ -310,10 +378,19 @@ function attachSocialListeners(socket) {
   socket.on("mythical-achievement", onMythicalAchievement);
   socket.on("achievement-unlocked", onAchievementUnlocked);
   socket.on("bot-status", onBotStatus);
+  socket.on("bot-provider-status", onBotProviderStatus);
+}
+
+function onAccountLifecycle(event) {
+  if (!event?.state) return;
+  reconcileAccountLifecycleEvent(event, state);
+  renderAccountPanel();
+  host.renderAll();
 }
 
 function attachAccountListeners(socket) {
   socket.on("account-sync", onAccountSync);
+  socket.on("account-lifecycle", onAccountLifecycle);
   socket.on("player-contract-offer", ({ contract }) => {
     state.playerContractOffer = contract || null;
     announceSocialNotification({ body: "A player contract is waiting in Finance." });
