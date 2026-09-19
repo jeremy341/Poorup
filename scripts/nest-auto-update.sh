@@ -57,7 +57,9 @@ if [ ! -f "$RELEASE_DIR/package.json" ]; then
     -o "$ARCHIVE" "https://codeload.github.com/$REPO/tar.gz/$latest_sha"
   tar -tzf "$ARCHIVE" >/dev/null
   mkdir -p "$RELEASE_DIR"
-  tar -xzf "$ARCHIVE" -C "$RELEASE_DIR"
+  # Codeload tarballs nest everything under a top-level Poorup-<sha>/ dir;
+  # strip it so the release layout matches the deploy contract.
+  tar -xzf "$ARCHIVE" -C "$RELEASE_DIR" --strip-components=1
 fi
 
 if [ ! -f "$RELEASE_DIR/package.json" ] || [ ! -f "$RELEASE_DIR/server/server.js" ]; then
