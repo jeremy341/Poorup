@@ -522,11 +522,21 @@ function syncHomeMusic({ force = false, userGesture = false } = {}) {
   // The dock controller is canonical; no single-track fallback.
 }
 
-function retryAudioAfterGesture() {
-  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
+function resumeSuspendedAudio() {
+  if (audioCtx?.state !== "suspended") return;
+  audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
+}
+
+function maybeResumeMusic() {
   if (!state.music) return;
   const snapshot = ensureMusicController()?.snapshot?.();
-  if (snapshot && snapshot.status !== "playing") syncHomeMusic({ userGesture: true });
+  const needsResume = snapshot && snapshot.status !== "playing";
+  if (needsResume) syncHomeMusic({ userGesture: true });
+}
+
+function retryAudioAfterGesture() {
+  resumeSuspendedAudio();
+  maybeResumeMusic();
 }
 
 // Theme music is intentionally UI-free: the existing audio toggle controls
@@ -575,8 +585,14 @@ function playerDotHTML(p) {
   return `<span class="pr-dot" style="background:${background};box-shadow:${boxShadow}"></span>`;
 }
 
+function isSpectatingStatus(p) {
+  if (p.spectating) return true;
+  if (p.bankrupt && !p.bot) return true;
+  return false;
+}
+
 function playerStatusLabel(p) {
-  if (p.spectating || (p.bankrupt && !p.bot)) return "SPECTATING";
+  if (isSpectatingStatus(p)) return "SPECTATING";
   if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
@@ -650,73 +666,76 @@ function renderAll() {
    ============================================================ */
 
 
-async function runTurn(idx) {
-  if (state.phase !== "playing") return;
-  if (state.players[0]?.bankrupt || state.players[0]?.spectating) return;
-  if (state.turnIndex !== idx) return;
-  if (state.busy) return;
-  if (state.turnStage !== "roll") return;
-  state.busy = true;
-  state.rolling = true;
-  const requestId = createRequestId("roll");
-  state.pendingAction = { kind: "roll", requestId };
+function isLocalPlayerBlocked() {
+  const p0 = state.players[0];
+  return Boolean(p0?.bankrupt || p0?.spectating);
+}
+
+function canActForStage(idx, expectedStage) {
+  if (state.phase !== "playing") return false;
+  if (isLocalPlayerBlocked()) return false;
+  if (state.turnIndex !== idx) return false;
+  if (state.busy) return false;
+  if (state.turnStage !== expectedStage) return false;
+  return true;
+}
+
+function createTurnRequest(kind) {
+  const requestId = createRequestId(kind);
+  state.pendingAction = { kind, requestId };
+  return requestId;
+}
+
+function executeTurnEmit({ kind, requestId, event, errorMessage, timeoutMessage }) {
   renderHud();
   let settled = false;
   const finish = () => {
     if (state.pendingAction?.requestId !== requestId) return;
     state.pendingAction = null;
     state.busy = false;
-    state.rolling = false;
+    if (kind === "roll") state.rolling = false;
   };
   const timeout = setTimeout(() => {
     if (settled) return;
     settled = true;
     finish();
-    say("Roll could not be confirmed — try again.");
+    say(timeoutMessage);
     renderAll();
   }, 8000);
-  emitServer("roll-dice", { requestId }, (response) => {
+  emitServer(event, { requestId }, (response) => {
     if (settled) return;
     settled = true;
     clearTimeout(timeout);
     finish();
-    reportChatError(response, "The roll could not be completed.");
+    reportChatError(response, errorMessage);
     renderAll();
   });
 }
 
-
+async function runTurn(idx) {
+  if (!canActForStage(idx, "roll")) return;
+  state.busy = true;
+  state.rolling = true;
+  const requestId = createTurnRequest("roll");
+  executeTurnEmit({
+    kind: "roll",
+    requestId,
+    event: "roll-dice",
+    errorMessage: "The roll could not be completed.",
+    timeoutMessage: "Roll could not be confirmed — try again.",
+  });
+}
 
 function endTurn(idx) {
-  if (state.phase !== "playing") return;
-  if (state.players[0]?.bankrupt || state.players[0]?.spectating) return;
-  if (state.turnIndex !== idx) return;
-  if (state.busy) return;
-  if (state.turnStage !== "end") return;
+  if (!canActForStage(idx, "end")) return;
   state.busy = true;
-  const requestId = createRequestId("end-turn");
-  state.pendingAction = { kind: "end-turn", requestId };
-  renderHud();
-  let settled = false;
-  const finish = () => {
-    if (state.pendingAction?.requestId !== requestId) return;
-    state.pendingAction = null;
-    state.busy = false;
-  };
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    finish();
-    say("The turn could not be confirmed — try again.");
-    renderAll();
-  }, 8000);
-  emitServer("end-turn", { requestId }, (response) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timeout);
-    finish();
-    reportChatError(response, "The turn could not be ended.");
-    renderAll();
+  const requestId = createTurnRequest("end-turn");
+  executeTurnEmit({
+    kind: "end-turn",
+    requestId,
+    event: "end-turn",
+    errorMessage: "The turn could not be ended.",
+    timeoutMessage: "The turn could not be confirmed — try again.",
   });
 }
 
@@ -724,19 +743,30 @@ function mustResolveAcquisition() {
   return Boolean(state.auction || state.pendingBuyTile != null || state.sponsorship);
 }
 
+function hasPendingPurchase() {
+  return state.pendingBuyTile != null;
+}
+
+function reopenPendingPurchase() {
+  const tile = TILES[state.pendingBuyTile];
+  if (tile) openChoiceModal(tile);
+}
+
+function canUsePrimaryAction() {
+  if (state.phase !== "playing") return false;
+  if (isLocalPlayerBlocked()) return false;
+  if (state.busy) return false;
+  if (state.turnIndex !== 0) return false;
+  return true;
+}
+
 function primaryTurnAction() {
-  if (state.phase !== "playing") return;
-  if (state.players[0]?.bankrupt || state.players[0]?.spectating) return;
-  if (state.busy) return;
-  if (state.turnIndex !== 0) return;
-  // Dismissed purchase card: the HUD says Resolve Purchase — tapping the
-  // main button reopens the decision instead of sitting dead.
-  if (state.pendingBuyTile != null) {
-    const tile = TILES[state.pendingBuyTile];
-    if (tile) openChoiceModal(tile);
+  if (!canUsePrimaryAction()) return;
+  if (hasPendingPurchase()) {
+    reopenPendingPurchase();
     return;
   }
-  if (mustResolveAcquisition()) return; // must resolve first
+  if (mustResolveAcquisition()) return;
   if (state.turnStage === "end") endTurn(0);
   else runTurn(0);
 }
