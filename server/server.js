@@ -96,15 +96,22 @@ const socketAdmission = createSocketAdmission({
 if (process.env.NODE_ENV === 'production' && !String(process.env.POORUP_ALLOWED_ORIGINS || '').trim()) {
   console.warn('POORUP_ALLOWED_ORIGINS is unset; browser-origin Socket.IO requests are blocked until an allow-list is configured.');
 }
+function isOriginAllowedForSocket(origin) {
+  if (configuredSocketOrigins.length) return isAllowedSocketOrigin(origin, configuredSocketOrigins);
+  if (!productionRuntime) return true;
+  return !origin;
+}
+
+function isPeerAllowedForSocket(request) {
+  const peerKey = resolveClientAddress({ request }, trustedProxyHops);
+  return socketAdmission.allow(peerKey, io?.engine?.clientsCount || 0);
+}
+
 const io = new Server(server, {
   cors: { origin: createCorsOrigin(process.env) },
   allowRequest: (request, callback) => {
-    const origin = request?.headers?.origin;
-    const allowedOrigin = configuredSocketOrigins.length
-      ? isAllowedSocketOrigin(origin, configuredSocketOrigins)
-      : (!productionRuntime || !origin);
-    const peerKey = resolveClientAddress({ request }, trustedProxyHops);
-    const allowed = allowedOrigin && socketAdmission.allow(peerKey, io.engine?.clientsCount || 0);
+    const allowedOrigin = isOriginAllowedForSocket(request?.headers?.origin);
+    const allowed = allowedOrigin && isPeerAllowedForSocket(request);
     if (!allowed) metrics?.incrementMetric('socket-admission-rejections', { scope: 'handshake' });
     callback(null, allowed);
   },
@@ -234,9 +241,20 @@ app.get('/account/session', (req, res) => {
   if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
   return res.json({ success: true, account: withAdminFlag(accountStore.getAccountSnapshot(account.id), adminAccountIds) });
 });
+function resolveRetentionToken() {
+  return String(process.env.POORUP_RETENTION_TOKEN || process.env.POORUP_MAINTENANCE_TOKEN || '').trim();
+}
+
+function isRetentionAuthorized(req, token) {
+  if (!token) return { authorized: false, status: 404, error: 'Not found.' };
+  if (req.get('x-poorup-retention-token') !== token) return { authorized: false, status: 403, error: 'Forbidden.' };
+  return { authorized: true };
+}
+
 app.post('/internal/retention/run', async (req, res) => {
-  const token = String(process.env.POORUP_RETENTION_TOKEN || process.env.POORUP_MAINTENANCE_TOKEN || '').trim();
-  if (!token || req.get('x-poorup-retention-token') !== token) return res.status(token ? 403 : 404).json({ success: false, error: token ? 'Forbidden.' : 'Not found.' });
+  const token = resolveRetentionToken();
+  const auth = isRetentionAuthorized(req, token);
+  if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
   const result = await httpRetentionJob?.runOnce?.();
   return res.status(200).json({ success: true, result: result || null });
 });
@@ -278,13 +296,26 @@ app.post('/account/recovery/reset', express.json({ limit: '8kb' }), async (req, 
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'poorup', releaseId: process.env.POORUP_RELEASE_ID || 'local' });
 });
-app.get('/readyz', (_req, res) => {
-  const snapshot = maintenance.snapshot();
-  const rollupHealth = analyticsRollupStore.health();
-  const backupReady = !backupHealth.configured || backupHealth.fresh;
-  const ready = snapshot.mode === 'normal' && storesLoaded && backupReady;
-  res.status(ready ? 200 : 503).json({
-    status: ready ? 'ready' : snapshot.mode === 'draining' ? 'draining' : 'unavailable',
+function isBackupReady() {
+  return !backupHealth.configured || backupHealth.fresh;
+}
+
+function isSystemReady(snapshot) {
+  if (snapshot.mode !== 'normal') return false;
+  if (!storesLoaded) return false;
+  if (!isBackupReady()) return false;
+  return true;
+}
+
+function readinessStatus(snapshot, ready) {
+  if (ready) return 'ready';
+  if (snapshot.mode === 'draining') return 'draining';
+  return 'unavailable';
+}
+
+function buildReadinessPayload(snapshot, rollupHealth, ready) {
+  return {
+    status: readinessStatus(snapshot, ready),
     acceptingNewRounds: snapshot.mode === 'normal',
     activeRounds: snapshot.activeRounds,
     storeLoaded: storesLoaded,
@@ -292,7 +323,14 @@ app.get('/readyz', (_req, res) => {
     backupFresh: backupHealth.configured ? backupHealth.fresh : null,
     analyticsRollup: { loaded: rollupHealth.loaded, fresh: rollupHealth.fresh, lagSeconds: rollupHealth.lagSeconds, pendingWrites: rollupHealth.pendingWrites },
     releaseId: snapshot.releaseId || process.env.POORUP_RELEASE_ID || 'local'
-  });
+  };
+}
+
+app.get('/readyz', (_req, res) => {
+  const snapshot = maintenance.snapshot();
+  const rollupHealth = analyticsRollupStore.health();
+  const ready = isSystemReady(snapshot);
+  res.status(ready ? 200 : 503).json(buildReadinessPayload(snapshot, rollupHealth, ready));
 });
 app.get('/robots.txt', (_req, res) => {
   if (!indexingApproved) return res.type('text').send('User-agent: *\nDisallow: /\n');
@@ -445,21 +483,35 @@ runtime.accountRights = {
   requestRecoveryEmail: input => accountRecovery.requestEmailVerification(input),
   verifyRecoveryEmail: input => accountRecovery.consumeEmailVerification(input.token)
 };
-function requestAccount(req) {
+function accountFromCookie(req) {
   const cookies = parseCookieHeader(req.headers.cookie || '');
   const session = sessionStore.resolve(cookies[SESSION_COOKIE_NAME]);
-  if (session?.accountId) return accountStore.getAccountById(session.accountId);
+  if (!session?.accountId) return null;
+  return accountStore.getAccountById(session.accountId);
+}
+
+function accountFromLegacyToken(req) {
   const legacy = req.get('x-poorup-session-token') || '';
+  if (!legacy) return null;
   const account = accountStore.sessionAccount(legacy);
   if (!account) return null;
+  return { legacy, account };
+}
+
+function maybeExchangeLegacy(req, legacy, account) {
   const exchanged = sessionStore.exchangeLegacy(legacy, token => accountStore.sessionAccount(token)?.id || null);
-  if (exchanged) {
-    req.sessionCookie = sessionStore.cookie(exchanged.cookieValue);
-    // Single-use upgrade: the legacy token dies with the exchange so a
-    // stolen copy cannot mint fresh cookies indefinitely.
-    accountStore.revokeSessionToken?.(legacy);
-  }
-  return account;
+  if (!exchanged) return;
+  req.sessionCookie = sessionStore.cookie(exchanged.cookieValue);
+  accountStore.revokeSessionToken?.(legacy);
+}
+
+function requestAccount(req) {
+  const cookieAccount = accountFromCookie(req);
+  if (cookieAccount) return cookieAccount;
+  const legacyResult = accountFromLegacyToken(req);
+  if (!legacyResult) return null;
+  maybeExchangeLegacy(req, legacyResult.legacy, legacyResult.account);
+  return legacyResult.account;
 }
 httpAccountResolver = requestAccount;
 httpAccountRights = runtime.accountRights;
@@ -503,15 +555,31 @@ function shutdownDeadline() {
   return Date.now() + drainMs;
 }
 
-async function closeServerResources() {
+function disposeRuntimeResources() {
   maintenance.dispose();
   retentionJob.stop();
   runtime.unsubscribeBotProviderStatus?.();
   pubsubAdapter.close?.();
+}
+
+async function flushTelemetryStore() {
   try { await telemetryStore.close?.(); } catch (error) { console.error('Telemetry flush failed:', error?.message || 'unknown error'); }
+}
+
+async function flushAnalyticsRollupStore() {
   try { await analyticsRollupStore.close?.(); } catch (error) { console.error('Analytics rollup flush failed:', error?.message || 'unknown error'); }
+}
+
+function closeNetworkAndExit() {
   io.close(() => server.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 2_000).unref?.();
+}
+
+async function closeServerResources() {
+  disposeRuntimeResources();
+  await flushTelemetryStore();
+  await flushAnalyticsRollupStore();
+  closeNetworkAndExit();
 }
 
 function waitForDrain(deadline) {

@@ -426,8 +426,7 @@ function publicPlayerStats(stats = {}) {
   };
 }
 
-function publicAccount(account, includePrivateHistory = true) {
-  if (!account) return null;
+function buildPublicAccountBase(account, includePrivateHistory) {
   return {
     id: account.id,
     username: account.username,
@@ -436,23 +435,37 @@ function publicAccount(account, includePrivateHistory = true) {
     avatarGrid: account.avatarGrid,
     stats: { ...account.stats },
     history: publicHistory(account.history, includePrivateHistory),
-    // Full match records contain exact cash, contracts, and other private
-    // economy facts. They are returned only to the signed-in owner; the
-    // account-id lookup used by social/search projections must never leak
-    // this field.
-    ...(includePrivateHistory ? { matchHistory: clippedList(account.matchHistory, 50) } : {}),
     achievements: publicAchievements(account, includePrivateHistory),
     achievementsPrivate: account.privacy?.achievements === 'private',
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: account.recentClearedAt || null,
     accountDeactivated: account.accountDeactivated === true,
-    deletionRequestedAt: includePrivateHistory ? (account.deletionRequestedAt || null) : null,
-    deletionDueAt: includePrivateHistory ? (account.deletionDueAt || null) : null,
-    deletionRequestId: includePrivateHistory ? (account.deletionRequestId || null) : null,
-    recoveryEmail: includePrivateHistory ? (account.recoveryEmail || null) : null,
-    recoveryEmailVerified: includePrivateHistory && account.recoveryEmailVerified === true,
     createdAt: account.createdAt,
   };
+}
+
+function applyPrivateAccountFields(target, account, includePrivateHistory) {
+  if (includePrivateHistory) {
+    target.matchHistory = clippedList(account.matchHistory, 50);
+    target.deletionRequestedAt = account.deletionRequestedAt || null;
+    target.deletionDueAt = account.deletionDueAt || null;
+    target.deletionRequestId = account.deletionRequestId || null;
+    target.recoveryEmail = account.recoveryEmail || null;
+    target.recoveryEmailVerified = account.recoveryEmailVerified === true;
+  } else {
+    target.deletionRequestedAt = null;
+    target.deletionDueAt = null;
+    target.deletionRequestId = null;
+    target.recoveryEmail = null;
+    target.recoveryEmailVerified = false;
+  }
+}
+
+function publicAccount(account, includePrivateHistory = true) {
+  if (!account) return null;
+  const base = buildPublicAccountBase(account, includePrivateHistory);
+  applyPrivateAccountFields(base, account, includePrivateHistory);
+  return base;
 }
 
 function hashPassword(password, salt) {
@@ -485,8 +498,30 @@ function sanitizeStats(stats) {
   return clean;
 }
 
-function normalizeLoadedAccount(handle, account) {
-  const normalized = {
+function applyDeletionFields(normalized, account) {
+  if (Object.prototype.hasOwnProperty.call(account, 'accountDeactivated')) {
+    normalized.accountDeactivated = account.accountDeactivated === true;
+  }
+  if (typeof account.deletionRequestedAt === 'string') normalized.deletionRequestedAt = account.deletionRequestedAt;
+  if (typeof account.deletionDueAt === 'string') normalized.deletionDueAt = account.deletionDueAt;
+  if (typeof account.deletionRequestId === 'string') normalized.deletionRequestId = account.deletionRequestId.slice(0, 100);
+}
+
+function applyRecoveryFields(normalized, account) {
+  if (typeof account.recoveryEmail === 'string') normalized.recoveryEmail = account.recoveryEmail.trim().toLowerCase().slice(0, 254);
+  if (Object.prototype.hasOwnProperty.call(account, 'recoveryEmailVerified')) normalized.recoveryEmailVerified = account.recoveryEmailVerified === true;
+  if (typeof account.pendingRecoveryEmail === 'string') normalized.pendingRecoveryEmail = account.pendingRecoveryEmail.trim().toLowerCase().slice(0, 254);
+  if (typeof account.pendingRecoveryEmailTokenHash === 'string') normalized.pendingRecoveryEmailTokenHash = account.pendingRecoveryEmailTokenHash.slice(0, 128);
+  if (typeof account.pendingRecoveryEmailExpiresAt === 'string') normalized.pendingRecoveryEmailExpiresAt = account.pendingRecoveryEmailExpiresAt;
+}
+
+function applyOptionalAccountFields(normalized, account) {
+  applyDeletionFields(normalized, account);
+  applyRecoveryFields(normalized, account);
+}
+
+function buildBaseNormalizedAccount(handle, account) {
+  return {
     ...account,
     username: handle,
     displayName: normalizeDisplayName(account.displayName, account.username),
@@ -500,15 +535,11 @@ function normalizeLoadedAccount(handle, account) {
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null
   };
-  if (Object.prototype.hasOwnProperty.call(account, 'accountDeactivated')) normalized.accountDeactivated = account.accountDeactivated === true;
-  if (typeof account.deletionRequestedAt === 'string') normalized.deletionRequestedAt = account.deletionRequestedAt;
-  if (typeof account.deletionDueAt === 'string') normalized.deletionDueAt = account.deletionDueAt;
-  if (typeof account.deletionRequestId === 'string') normalized.deletionRequestId = account.deletionRequestId.slice(0, 100);
-  if (typeof account.recoveryEmail === 'string') normalized.recoveryEmail = account.recoveryEmail.trim().toLowerCase().slice(0, 254);
-  if (Object.prototype.hasOwnProperty.call(account, 'recoveryEmailVerified')) normalized.recoveryEmailVerified = account.recoveryEmailVerified === true;
-  if (typeof account.pendingRecoveryEmail === 'string') normalized.pendingRecoveryEmail = account.pendingRecoveryEmail.trim().toLowerCase().slice(0, 254);
-  if (typeof account.pendingRecoveryEmailTokenHash === 'string') normalized.pendingRecoveryEmailTokenHash = account.pendingRecoveryEmailTokenHash.slice(0, 128);
-  if (typeof account.pendingRecoveryEmailExpiresAt === 'string') normalized.pendingRecoveryEmailExpiresAt = account.pendingRecoveryEmailExpiresAt;
+}
+
+function normalizeLoadedAccount(handle, account) {
+  const normalized = buildBaseNormalizedAccount(handle, account);
+  applyOptionalAccountFields(normalized, account);
   return normalized;
 }
 
@@ -546,33 +577,42 @@ export class AccountStore {
     writeJson(this.filePath, [...this.accounts.values()]);
   }
 
-  sessionAccount(sessionToken) {
-    if (typeof sessionToken !== 'string' || !sessionToken) return null;
+  resolveSessionUsername(sessionToken) {
     let username = this.sessions.get(sessionToken);
-    let key = sessionToken;
-    if (!username) {
-      const tokenHash = hashSessionToken(sessionToken);
-      username = this.sessionHashes.get(tokenHash);
-      if (username) {
-        this.sessions.set(sessionToken, username);
-        key = tokenHash;
-      }
+    if (username) return { username, key: sessionToken };
+    const tokenHash = hashSessionToken(sessionToken);
+    username = this.sessionHashes.get(tokenHash);
+    if (username) {
+      this.sessions.set(sessionToken, username);
+      return { username, key: tokenHash };
     }
-    if (!username) return null;
-    // Absolute legacy TTL (mirrors the cookie store's absolute window).
-    // Missing stamps are grandfathered from first use after cutover.
+    return { username: null, key: null };
+  }
+
+  ensureLegacyIssuedAt(key) {
     const now = Date.now();
     let issuedAt = this.sessionIssuedAt.get(key);
     if (!Number.isFinite(issuedAt)) {
       issuedAt = now;
       this.sessionIssuedAt.set(key, issuedAt);
     }
-    if (now - issuedAt >= LEGACY_SESSION_TTL_MS) {
-      this.sessions.delete(sessionToken);
-      try { this.sessionHashes.delete(hashSessionToken(sessionToken)); } catch { /* unhashable */ }
-      this.sessionIssuedAt.delete(key);
-      return null;
-    }
+    return { now, issuedAt };
+  }
+
+  expireLegacySessionIfNeeded(sessionToken, key, now, issuedAt) {
+    if (now - issuedAt < LEGACY_SESSION_TTL_MS) return false;
+    this.sessions.delete(sessionToken);
+    try { this.sessionHashes.delete(hashSessionToken(sessionToken)); } catch { /* unhashable */ }
+    this.sessionIssuedAt.delete(key);
+    return true;
+  }
+
+  sessionAccount(sessionToken) {
+    if (typeof sessionToken !== 'string' || !sessionToken) return null;
+    const { username, key } = this.resolveSessionUsername(sessionToken);
+    if (!username) return null;
+    const { now, issuedAt } = this.ensureLegacyIssuedAt(key);
+    if (this.expireLegacySessionIfNeeded(sessionToken, key, now, issuedAt)) return null;
     return this.accounts.get(username) || null;
   }
 
@@ -744,20 +784,44 @@ export class AccountStore {
     });
   }
 
-  revokeSessionsForAccount(accountId, persist = true, keepToken = null) {
-    const account = this.getAccountById(accountId);
-    if (!account) return 0;
+  shouldRevokeLiveSession(owner, accountUsername, keepToken, token) {
+    if (owner !== accountUsername) return false;
+    if (keepToken && token === keepToken) return false;
+    return true;
+  }
+
+  shouldRevokeHash(owner, accountUsername, keepToken, hash) {
+    if (owner !== accountUsername) return false;
+    if (!keepToken) return true;
+    try {
+      return hash !== hashSessionToken(keepToken);
+    } catch {
+      return true;
+    }
+  }
+
+  revokeLiveSessionsForAccount(accountUsername, keepToken) {
     let revoked = 0;
     for (const [token, owner] of [...this.sessions]) {
-      if (owner !== account.username || (keepToken && token === keepToken)) continue;
+      if (!this.shouldRevokeLiveSession(owner, accountUsername, keepToken, token)) continue;
       this.sessions.delete(token);
       revoked += 1;
     }
+    return revoked;
+  }
+
+  revokeHashSessionsForAccount(accountUsername, keepToken) {
     for (const [hash, owner] of [...this.sessionHashes]) {
-      if (owner !== account.username) continue;
-      if (keepToken && hash === hashSessionToken(keepToken)) continue;
+      if (!this.shouldRevokeHash(owner, accountUsername, keepToken, hash)) continue;
       this.sessionHashes.delete(hash);
     }
+  }
+
+  revokeSessionsForAccount(accountId, persist = true, keepToken = null) {
+    const account = this.getAccountById(accountId);
+    if (!account) return 0;
+    const revoked = this.revokeLiveSessionsForAccount(account.username, keepToken);
+    this.revokeHashSessionsForAccount(account.username, keepToken);
     if (!keepToken) account.sessionTokenHash = null;
     if (persist) this.persist();
     return revoked;
