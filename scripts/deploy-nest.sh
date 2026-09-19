@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Pin PM2 to the invoking user's daemon. A bare non-interactive SSH shell can
+# otherwise resolve a different PM2_HOME and reload the wrong process list.
+export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
+
 if [ -z "$RELEASE_SHA" ] || [ -z "$RELEASE_ARCHIVE" ] || [ -z "$APP_ROOT" ] || [ -z "$MAINTENANCE_URL" ] || [ -z "$HEALTH_URL" ] || [ -z "$READY_URL" ] || [ -z "$MAINTENANCE_TOKEN" ]; then
   echo "RELEASE_SHA, RELEASE_ARCHIVE, APP_ROOT, MAINTENANCE_URL, HEALTH_URL, READY_URL, and MAINTENANCE_TOKEN are required"
   exit 2
@@ -72,5 +76,12 @@ for attempt in $(seq 1 30); do
 done
 
 curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "content-type: application/json" -H "x-poorup-maintenance-token: $MAINTENANCE_TOKEN" --data-binary "{\"mode\":\"normal\",\"releaseId\":\"$RELEASE_SHA\"}" >/dev/null
+
+# Keep the pull-timer entrypoint in sync with the deployed release so updater
+# improvements ship automatically with the code.
+if [ -f "$RELEASE_DIR/scripts/nest-auto-update.sh" ]; then
+  cp "$RELEASE_DIR/scripts/nest-auto-update.sh" "$APP_ROOT/shared/nest-auto-update.sh" \
+    || echo "Warning: could not refresh the update entrypoint"
+fi
 
 echo "Deployed $RELEASE_SHA"

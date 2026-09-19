@@ -1,35 +1,64 @@
 # Nest Live Runbook
 
-## Verified baseline
+## Verified baseline (2026-09-19)
 
-The previous Nest checkout was /root/Poorup on main at b1f3cd7 (23 June 2026). PM2 process poorup served node /root/Poorup/server/server.js on port 8080 and had been online for about 24 hours. pm2-root.service was enabled; poorup.service was disabled. No automatic pull, webhook, or deploy timer existed.
+The previous Nest checkout was /root/Poorup on main at b1f3cd7 (23 June 2026):
+an old pre-rewrite build (public/gameClient.js, 18 KB server.js, express +
+socket.io only) with a catch-all `app.get('*')` route, so /healthz, /readyz,
+and /internal/maintenance all returned the SPA shell with HTTP 200. No
+maintenance, drain, or readiness code existed in the deployed tree. PM2 process
+poorup ran as root on port 8080 (watch off, pm2-root.service enabled). No
+crontab, systemd timer, webhook, or deploy script existed.
 
-## First migration
+## First migration (completed 2026-09-19)
 
-1. Announce a maintenance window.
-2. Confirm the old SHA and capture a backup outside the release directory.
-3. Install the dedicated poorup runtime user.
-4. Install PM2 startup for that user.
-5. Create /srv/poorup/releases, /srv/poorup/data, and /srv/poorup/backups.
-6. Bootstrap the maintenance-capable release during the approved window.
-7. Verify /healthz, /readyz, and Socket.IO.
-8. Only then enable automatic main deployments.
+1. Captured `/root/poorup-legacy-20260919-190348.tgz` (code only, no node_modules).
+2. Created dedicated `poorup` system user and `/srv/poorup/{releases,data,backups,shared}`.
+3. Provisioned `/srv/poorup/shared/poorup.env` (0600, poorup-owned): production
+   origin `https://poorup.jeremy-d.hackclub.app`, data/backup dirs,
+   `POORUP_TRUST_PROXY_HOPS=1` (single Caddy hop), generated
+   `POORUP_MAINTENANCE_TOKEN`, `POORUP_AI_CONFIG_KEY`,
+   `POORUP_ANALYTICS_PSEUDONYM_KEY`. No dotenv loader exists by design;
+   `ecosystem.config.cjs` merges this file so bare-shell `pm2 startOrReload`
+   cannot boot without it.
+4. Seeded valid empty stores (arrays for accounts/matches/achievements/
+   telemetry, objects for social/cosmetics/analytics-rollup, versioned object
+   for ai-providers). Required because backup rotation treats a missing source
+   as failure, which wedged `/readyz` on fresh volumes (fixed in server.js to
+   back up only existing files).
+5. Verified release `3e26d3c` on port 8082: real `/healthz`, `/readyz` ready,
+   drain/normal cycle, 403 on wrong token.
+6. Cut over: deleted legacy root PM2 process, symlinked
+   `/srv/poorup/current`, started via poorup PM2, enabled `pm2-poorup.service`.
+7. Verified publicly: page serves new build (maintenance panel, no
+   gameClient.js), `/healthz` JSON, Socket.IO handshake, all 200.
 
-The deploy script refuses to continue when the old server does not expose /internal/maintenance; this prevents an unplanned restart of the live legacy version.
+Legacy root PM2 dump saved empty so the old app cannot resurrect on reboot.
+The deploy script refuses to continue when the old server does not expose
+/internal/maintenance; this prevented an unplanned restart of the legacy
+version during bootstrap (bootstrap ran outside the script for that reason).
 
-## Automatic main deployment
+## Automatic main deployment (active path: pull timer)
 
-Set the repository variable `NEST_DEPLOY_ENABLED=true` and configure the
-environment `nest-production` secrets `NEST_HOST`, `NEST_USER`,
-`NEST_DEPLOY_KEY`, `NEST_KNOWN_HOSTS`, and `POORUP_MAINTENANCE_TOKEN` once the
-first maintenance-capable bootstrap is complete. Until that variable is true,
-`.github/workflows/deploy-nest.yml` is intentionally skipped so a main push
-cannot produce a misleading failed deployment or touch the legacy process.
+`poorup-update.timer` (every 3 min, `User=poorup`) runs
+`/srv/poorup/shared/nest-auto-update.sh`, which polls `origin/main`. On a new
+SHA it downloads the exact codeload tarball, runs `npm ci --omit=dev`, and
+hands off to the NEW release's `scripts/deploy-nest.sh`: drain via
+`/internal/maintenance`, wait for `"activeRounds":0`, atomically switch
+`/srv/poorup/current`, `pm2 startOrReload` the new `ecosystem.config.cjs`
+(which merges the shared env file), verify health/readiness, return to
+`normal`, and refresh the shared updater copy on success. Overlaps are
+skipped via `flock`; failures run `rollback-nest.sh` (`previous` is seeded).
+No GitHub secrets are needed for this path.
 
-When enabled, the workflow runs after CI succeeds for main. It uploads the
-exact verified SHA, calls the drain endpoint, installs production dependencies,
-atomically switches `/srv/poorup/current`, reloads PM2, verifies
-health/readiness, and returns to normal service.
+Push-triggered maintenance screen: `maintenance-drain.yml` (push to main) and
+`maintenance-undrain.yml` (CI non-success) exist for the push path but stay
+parked: the front gateway only forwards the existing `jeremy-d` SSH identity
+and rejects newly provisioned keys, so Actions cannot SSH in. If the gateway
+authorizes a deploy key later, set the repository variable
+`NEST_DEPLOY_ENABLED=true` plus the `nest-production` secrets (`NEST_HOST`,
+`NEST_USER`, `NEST_DEPLOY_KEY`, `NEST_KNOWN_HOSTS`, `POORUP_MAINTENANCE_TOKEN`)
+and the SSH path activates. Until then those workflows intentionally skip.
 
 ## Emergency rollback
 
