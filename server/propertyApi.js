@@ -193,6 +193,10 @@ const propertyApi = {
   propertyActionRejection(player, tile, action) {
     if (!player) return { success: false, error: 'Property not found.' };
     if (!tile) return { success: false, error: 'Property not found.' };
+    // Dead seats act on nothing: the live-seat gate leads every leg
+    // (mortgage already had it; build/sell relied on the turn window).
+    const seat = this.propertySeatRejection(player);
+    if (seat) return seat;
     if (tile.ownerId !== player.id) return { success: false, error: 'You do not own this property.' };
     if (this.isBuildOrSellAction(action)) return this.buildSellRejection(player, action);
     return this.mortgageActionRejection(player);
@@ -207,12 +211,13 @@ const propertyApi = {
   mortgageActionRejection(player) {
     const seat = this.propertySeatRejection(player);
     if (seat) return seat;
-    return this.mortgageTableRejection();
+    return this.mortgageTableRejection(player);
   },
 
-  mortgageTableRejection() {
+  mortgageTableRejection(player = null) {
     const blocked = { success: false, error: 'Resolve the table obligation before managing property.' };
-    if (this.pendingPayment) return blocked;
+    // Debt never blocks property management: debt is cured via mortgage/sell,
+    // and only endTurn is gated by debt (server/gameLogic.js:1174).
     if (this.auction) return blocked;
     if (this.pendingTrade) return blocked;
     if (this.pendingPlayerContract) return blocked;

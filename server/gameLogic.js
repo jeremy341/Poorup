@@ -79,6 +79,10 @@ const PLAYER_STATE_DEFAULTS = [
   ['crisisMarketBuys', () => ({})],
   ['crisisMarketProfit', false],
   ['playerContractIds', () => []],
+  // Bots get one pre-roll deal window per turn. This prevents a resolved
+  // offer from being immediately reopened forever while still allowing the
+  // normal human finance flow to remain unrestricted.
+  ['botDealActionsThisTurn', 0],
   ['auctionWins', 0],
   ['rentCollected', 0],
   ['globalEventsExperienced', 0],
@@ -126,6 +130,7 @@ const PLAYER_STATE_DEFAULTS = [
   ['moveCount', 0],
   ['hiddenMovementSequence', false],
   ['bankrupt', false],
+  ['spectating', false],
   ['inDebt', false],
   ['ready', false],
   ['disconnected', false],
@@ -216,6 +221,7 @@ class GameState {
   reset() {
     this.tiles = tilesForVariant(this.boardVariant);
     this.players = [];
+    this.turnOrder = [];
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
     this.hasRolled = false;
@@ -234,6 +240,7 @@ class GameState {
     this.pendingPlayerContract = null;
     this.playerContracts = [];
     this.contractTransactions = new BoundedReplayMap();
+    this.tradeTransactions = new BoundedReplayMap();
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
@@ -321,6 +328,7 @@ class GameState {
     this.pendingPlayerContract = null;
     this.playerContracts = [];
     this.contractTransactions = new BoundedReplayMap();
+    this.tradeTransactions = new BoundedReplayMap();
     this.tradesCompleted = 0;
     this.auctionsCompleted = 0;
     this.pendingPayment = null;
@@ -692,7 +700,7 @@ class GameState {
         this.feedMessage(`${player.nickname} paid $${JAIL_FINE} to leave jail after ${JAIL_MAX_TURNS} turns.`);
         return this.movePlayer(player, dice[0] + dice[1], { allowExtraRoll: false });
       }
-      this.feedMessage(`${player.nickname} could not pay the jail fine and remains in jail.`);
+      this.feedMessage(`${player.nickname} could not pay the jail fine and remains in jail. Mortgage, sell buildings, or declare bankruptcy to raise the fine.`);
     } else {
       this.feedMessage(`${player.nickname} failed to roll doubles in jail (turn ${player.jailTurns}/${JAIL_MAX_TURNS}).`);
     }
@@ -774,8 +782,16 @@ class GameState {
     defaultBankLoan(this, player);
   }
 
-  movePlayer(player, steps, options = {}) {
-    player.moveCount = (player.moveCount || 0) + 1;
+  // Catch-up rule: strictly last by cash among 2+ live seats. Ties and
+  // solo tables pay no bonus.
+  isLastPlaceByCash(player) {
+    const live = (this.players || []).filter(entry => entry && !entry.bankrupt && !entry.disconnected);
+    if (live.length < 2 || !player) return false;
+    const cash = Number(player.cash) || 0;
+    return live.every(entry => entry.id === player.id || cash < (Number(entry.cash) || 0));
+  }
+
+  movePlayer(player, steps, options = {}) {    player.moveCount = (player.moveCount || 0) + 1;
     if (player.moveCount === 41) {
       player.hiddenMovementSequence = true;
       this.feedMessage(`${player.nickname} stepped on the 41st movement. The ledger skipped a line.`);
@@ -786,8 +802,11 @@ class GameState {
     if (distanceToStart <= steps) {
       const exactStart = distanceToStart === steps;
       const reward = exactStart && this.settings.doubleGo ? 400 : 200;
-      player.cash += reward;
-      this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward}.`);
+      // Catch-up: the outright last-place seat by cash collects a $100
+      // bonus on top of salary. Leaders gain nothing extra.
+      const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
+      player.cash += reward + bonus;
+      this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
     }
     const tile = this.getTile(player.position);
     if (tile?.type === 'railroad') {
@@ -912,6 +931,7 @@ class GameState {
   beginSeatTurn(player) {
     this.currentPlayerId = player.id;
     this.hasRolled = false;
+    player.botDealActionsThisTurn = 0;
     player.buildActionsThisTurn = 0;
     player.marketActionsThisTurn = 0;
     this.feedMessage(`${player.nickname}'s turn.`);
@@ -1012,7 +1032,13 @@ class GameState {
     if (!this.pendingPayment) return false;
     const player = this.getPlayerById(this.pendingPayment.playerId);
     if (!this.pendingPayerCanSettle(player)) {
+      // Debts never evaporate: a present-but-unsettleable debtor goes
+      // through bankruptcy (assets to creditor); a removed seat simply
+      // clears like before, its deeds already forfeited on the way out.
+      const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
+      const debtor = player;
       this.clearPendingPayment();
+      if (debtor && !debtor.bankrupt) this.handleBankruptcy(debtor, creditor);
       return false;
     }
     if (player.cash < this.pendingPayment.amountRemaining) {
@@ -1088,7 +1114,8 @@ class GameState {
   transferMoney(from, to, amount, message) {
     if (!from) return;
     if (!to) return;
-    if (amount <= 0) return;
+    // NaN slips past `<= 0` and poisons both seats; Infinity mints money.
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) return;
     from.cash -= amount;
     to.cash += amount;
     this.feedMessage(message);
@@ -1158,6 +1185,14 @@ class GameState {
     if (!current.disconnected) return;
     if (current.bankrupt) return;
     this.pendingPurchaseOffer = null;
+    // A parked debt travels with the seat: route it through bankruptcy
+    // instead of orphaning the creditor's claim until reconnect.
+    if (this.pendingPayment?.playerId === current.id && !current.bankrupt) {
+      const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
+      this.clearPendingPayment();
+      this.handleBankruptcy(current, creditor);
+      return;
+    }
     this.feedMessage(`${current.nickname} was skipped due to disconnect.`);
     this.nextTurn();
   }

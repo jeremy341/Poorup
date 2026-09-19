@@ -93,7 +93,7 @@ const tileApi = {
   },
 
   landingGoToVacation(player, tile, options) {
-    player.position = this.tiles.find(tileItem => tileItem.type === 'jail').index;
+    player.position = this.tiles.find(tileItem => tileItem.type === 'vacation').index;
     player.inJail = false;
     player.jailTurns = 0;
     this.vacationPool += 50;
@@ -237,7 +237,7 @@ const tileApi = {
 
   recordAirportStrikeRentFacts(tile, owner) {
     if (!this.globalEventActive('airport-strike')) return;
-    if (owner.properties.some(index => this.getTile(index)?.type === 'railroad')) owner.airportOwnedDuringStrike = true;
+    if (owner.properties.some(index => { const deed = this.getTile(index); return deed?.type === 'railroad' && !deed.mortgaged; })) owner.airportOwnedDuringStrike = true;
     if (tile.type !== 'railroad') owner.nonAirportRentDuringStrike = true;
   }
 };

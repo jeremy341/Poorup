@@ -226,6 +226,7 @@ class Player {
     this.moveCount = 0;
     this.hiddenMovementSequence = false;
     this.bankrupt = false;
+    this.spectating = false;
     this.disconnected = false;
     this.disconnectDeadline = 0;
     this.ready = false;
@@ -619,6 +620,7 @@ class Room {
       inJail: player.inJail,
       jailTurns: player.jailTurns || 0,
       bankrupt: player.bankrupt,
+      spectating: Boolean(player.spectating),
       disconnected: player.disconnected,
       isHost: player.isHost,
       ready: player.ready,
@@ -721,7 +723,9 @@ class RoomManager {
 
   createRoom(hostInfo) {
     const player = new Player({ ...hostInfo, isHost: true });
-    const roomCode = hostInfo.roomCode || this.reserveRoomCode();
+    // Requested codes must never silently overwrite a live room entry.
+    let roomCode = hostInfo.roomCode || this.reserveRoomCode();
+    if (this.rooms.has(roomCode)) roomCode = this.reserveRoomCode();
     const room = new Room(player, {
       roomName: hostInfo.roomName,
       visibility: hostInfo.visibility,
@@ -899,6 +903,26 @@ class RoomManager {
 
   clearStartedGameSeat(game, player, wasCurrentTurn) {
     const playerId = player.id;
+    // Consecutive-doubles state belongs to the seated roller, not the seat:
+    // otherwise the successor inherits the count and jails one roll early.
+    if (wasCurrentTurn) game.consecutiveDoubles = 0;
+    // Capture the successor BEFORE filtering: nulling the id and calling
+    // nextTurn() restarts at turnOrder[0] and skips the rightful next seat.
+    let successor = null;
+    let wrapped = false;
+    if (wasCurrentTurn && Array.isArray(game.turnOrder)) {
+      const oldIndex = game.turnOrder.indexOf(playerId);
+      if (oldIndex >= 0) {
+        for (let step = 1; step <= game.turnOrder.length; step += 1) {
+          if (oldIndex + step >= game.turnOrder.length) wrapped = true;
+          const candidate = game.getPlayerById(game.turnOrder[(oldIndex + step) % game.turnOrder.length]);
+          if (candidate && !candidate.bankrupt && !candidate.disconnected && candidate.id !== playerId) {
+            successor = candidate;
+            break;
+          }
+        }
+      }
+    }
     if (Array.isArray(game.turnOrder)) {
       game.turnOrder = game.turnOrder.filter(id => id !== playerId);
     }
@@ -910,6 +934,12 @@ class RoomManager {
       return;
     }
     if (!wasCurrentTurn) return;
+    if (successor) {
+      if (wrapped) game.advanceRound();
+      game.resetTurnState();
+      game.beginSeatTurn(successor);
+      return;
+    }
     // nextTurn() treats an unknown current id as "before the first seat"
     // and hands the dice to the next surviving player in turn order.
     game.currentPlayerId = null;

@@ -213,8 +213,12 @@ function coverShort(game, player, { instrument, amount, inventory }) {
   const gross = quote * amount;
   const fee = Math.max(1, Math.ceil(gross * 0.02));
   const collateralRelease = Math.ceil((position.collateral / position.quantity) * amount);
-  const total = gross + fee;
   const cashAvailable = Math.max(0, Number(player.cash) || 0);
+  // Borrow fee accrues at open but is never debited there: charge the
+  // prorated portion here and retire it, so partial covers cannot
+  // re-charge the same fee twice.
+  const feePortion = Math.ceil(Number(position.borrowFee || 0) * (amount / Math.max(1, Number(position.quantity) || 0)));
+  const total = gross + fee + feePortion;
   if (cashAvailable + collateralRelease < total) return { success: false, error: 'You cannot cover this short at the current quote.' };
   const cashRequired = Math.max(0, total - collateralRelease);
   player.cash = cashAvailable - cashRequired + Math.max(0, collateralRelease - total);
@@ -222,7 +226,8 @@ function coverShort(game, player, { instrument, amount, inventory }) {
   inventory[instrument.id] = (inventory[instrument.id] || 0) + amount;
   position.quantity -= amount;
   position.collateral = Math.max(0, position.collateral - collateralRelease);
-  const pnl = (position.entryQuote - quote) * amount - fee - Math.ceil(position.borrowFee * (amount / Math.max(1, position.quantity + amount)));
+  position.borrowFee = Math.max(0, Number(position.borrowFee || 0) - feePortion);
+  const pnl = (position.entryQuote - quote) * amount - fee - feePortion;
   if (!position.quantity) delete player.shortPositions[instrument.id];
   return { success: true, action: 'cover-short', instrumentId: instrument.id, quantity: amount, quote, fee, collateralReleased: collateralRelease, realizedPnl: pnl };
 }
@@ -333,6 +338,9 @@ function closeOption(game, player, optionId) {
   ensurePlayerMarketState(player);
   const option = openOptionForPlayer(player, optionId);
   if (!option) return { success: false, error: 'That option is no longer open.' };
+  // Expired options settle at zero through expiry, never through close:
+  // without this, holding past expiry then closing extracts value.
+  if (game.roundNumber > option.expiryRound) return { success: false, error: 'That option has expired.' };
   const quote = optionQuote(game, option);
   const intrinsic = optionIntrinsic(option, quote);
   if (option.role === 'writer') {
@@ -345,10 +353,12 @@ function closeOption(game, player, optionId) {
     player.cash += payout;
     game.marketOptionReserve += reserveHeld - payout;
   }
+  // Receipt matches the credited payout (reserveHeld cap), not maxPayout.
+  const reported = option.role === 'writer' ? 0 : Math.min(Math.floor(intrinsic * option.quantity * 0.8), Math.max(0, Number(option.reserveHeld) || 0));
   option.reserveHeld = 0;
   option.collateral = 0;
   option.status = 'closed';
-  return { success: true, action: 'close-position', optionId, payout: option.role === 'writer' ? 0 : Math.min(Math.floor(intrinsic * option.quantity * 0.8), Math.max(0, Number(option.maxPayout) || 0)) };
+  return { success: true, action: 'close-position', optionId, payout: reported };
 }
 
 function addCandidate(candidates, condition, candidate) {

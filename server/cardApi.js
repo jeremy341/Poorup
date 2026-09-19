@@ -11,6 +11,22 @@ import { decksForVariant } from './boardRegistry.js';
 
 const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
 
+// Refills exclude Get-Out-of-Prison cards currently held by players: a held
+// card stays out of circulation until used, so the deck can never mint a
+// duplicate copy of it.
+function refillExcludingHeld(source, players) {
+  const refilled = [...source];
+  const held = (Array.isArray(players) ? players : []).reduce(
+    (sum, player) => sum + Math.max(0, Math.floor(Number(player?.jailFreeCards) || 0)), 0);
+  for (let n = 0; n < held; n += 1) {
+    const at = refilled.findIndex(card => card?.action === 'jailFree');
+    if (at < 0) break;
+    refilled.splice(at, 1);
+  }
+  // Never deal from an empty deck: every held card implies a used one.
+  return refilled.length ? refilled : [...source];
+}
+
 // Card action dispatch: the action verbs mapped to their handler method
 // names on GameState, replacing the original switch statement.
 const CARD_ACTION_HANDLERS = {
@@ -55,7 +71,7 @@ const cardApi = {
     const key = deckName === 'treasure' ? 'treasureDeck' : 'surpriseDeck';
     const variantDecks = decksForVariant(this.boardVariant || 'standard-40');
     const source = deckName === 'treasure' ? variantDecks.treasure : variantDecks.surprise;
-    if (this[key].length === 0) this[key] = [...source];
+    if (this[key].length === 0) this[key] = refillExcludingHeld(source, this.players);
     const index = randomInt(0, this[key].length - 1);
     return this[key].splice(index, 1)[0];
   },
@@ -239,7 +255,14 @@ const cardApi = {
   payEachCard(player, card) {
     const amount = this.payEachAmount(card);
     const total = this.payEachPayout(player, amount);
-    this.feedMessage(`${player.nickname} paid $${total} to other players from the card.`);
+    const parked = this.pendingPayment?.playerId === player.id ? Number(this.pendingPayment.amountRemaining) || 0 : 0;
+    const queued = (this.pendingPaymentQueue || [])
+      .filter(entry => entry?.payment?.playerId === player.id)
+      .reduce((sum, entry) => sum + (Number(entry.payment.amountRemaining) || 0), 0);
+    const outstanding = parked + queued;
+    this.feedMessage(outstanding > 0
+      ? `${player.nickname} paid $${total} to other players from the card and owes $${outstanding} more.`
+      : `${player.nickname} paid $${total} to other players from the card.`);
     return RESOLVE_TAIL;
   },
 

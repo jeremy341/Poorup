@@ -366,9 +366,12 @@ const globalEventsApi = {
       if (!loan || !['active', 'due'].includes(loan.status)) return;
       const remaining = Math.max(0, Math.floor(Number(loan.remaining) || 0));
       if (!remaining) return;
+      // Preserve paid credit: only the unpaid remainder reprices, so
+      // paid + remaining still equals the (new) total due.
+      const paid = Math.max(0, Math.floor(Number(loan.totalDue) || 0) - remaining);
       const repriced = Math.ceil(remaining * multiplier);
       loan.remaining = repriced;
-      loan.totalDue = Math.max(repriced, Math.floor(Number(loan.totalDue) || 0));
+      loan.totalDue = paid + repriced;
       this.feedMessage(`${player.nickname}'s bank loan was repriced to $${repriced} by ${String(event.title || 'the active event').toLowerCase()}.`);
     });
   },
