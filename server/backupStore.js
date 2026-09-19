@@ -76,6 +76,81 @@ export function backupJsonStores(storePaths = {}, backupDirectory, options = {})
   return { success: results.every(result => result.success), results };
 }
 
+export function pruneBackupsByAge(backupDirectory, { olderThan = Date.now() - 30 * 86400000, quarantine = true } = {}) {
+  const directory = safePath(backupDirectory);
+  if (!directory || !fs.existsSync(directory)) return 0;
+  let removed = 0;
+  fs.readdirSync(directory).filter(file => file.endsWith('.json') && fs.statSync(path.join(directory, file)).mtimeMs < Number(olderThan)).forEach((file) => {
+    const target = path.join(directory, file);
+    const verified = verifyBackup(target);
+    if (!verified.success) {
+      // Quarantine instead of keeping forever: tampered/partial files leave
+      // the live set but stay inspectable under quarantine/.
+      if (quarantine) {
+        const pen = path.join(directory, 'quarantine');
+        fs.mkdirSync(pen, { recursive: true });
+        fs.renameSync(target, path.join(pen, file));
+        const sidecar = `${target}.sha256`;
+        if (fs.existsSync(sidecar)) fs.renameSync(sidecar, path.join(pen, `${file}.sha256`));
+        console.log(`Quarantined invalid backup: ${file}`);
+      }
+      return;
+    }
+    fs.unlinkSync(target);
+    const sidecar = `${target}.sha256`;
+    if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+    removed += 1;
+  });
+  return removed;
+}
+
+function scrubAccount(value, accountId) {
+  if (Array.isArray(value)) return value.map(item => scrubAccount(item, accountId)).filter(item => item !== null);
+  if (!value || typeof value !== 'object') return value;
+  if (value.id === accountId && typeof value.username === 'string') return null;
+  if (value.accountId === accountId) return { ...value, accountId: null, displayNameAtMatch: value.displayNameAtMatch ? 'ACCOUNT DEACTIVATED' : value.displayNameAtMatch };
+  const output = {};
+  Object.entries(value).forEach(([key, child]) => {
+    if (key === accountId || key === 'sessionToken' || key === 'passwordHash' || key === 'passwordSalt') return;
+    if (typeof child === 'string' && child === accountId && /account.?id|owner.?id|holder.?id|player.?id/i.test(key)) {
+      output[key] = null;
+      return;
+    }
+    output[key] = scrubAccount(child, accountId);
+  });
+  return output;
+}
+
+export function anonymizeAccountInBackups(backupDirectory, accountId) {
+  const directory = safePath(backupDirectory);
+  const id = typeof accountId === 'string' ? accountId.trim() : '';
+  if (!directory || !id || !fs.existsSync(directory)) return 0;
+  let changed = 0;
+  fs.readdirSync(directory).filter(file => file.endsWith('.json')).forEach((file) => {
+    const target = path.join(directory, file);
+    const verified = verifyBackup(target);
+    if (!verified.success) return;
+    const bytes = fs.readFileSync(target);
+    let parsed;
+    try { parsed = JSON.parse(bytes.toString('utf8')); } catch { return; }
+    const scrubbed = scrubAccount(parsed, id);
+    const nextBytes = Buffer.from(JSON.stringify(scrubbed, null, 2) + '\n', 'utf8');
+    if (nextBytes.equals(bytes)) return;
+    const checksum = checksumBytes(nextBytes);
+    atomicWrite(target, nextBytes);
+    atomicWrite(`${target}.sha256`, `${checksum}  ${path.basename(target)}\n`, 'utf8');
+    changed += 1;
+  });
+  return changed;
+}
+
+export function createBackupRetentionAdapter(backupDirectory) {
+  return {
+    pruneByAge: options => pruneBackupsByAge(backupDirectory, options),
+    anonymizeAccount: accountId => anonymizeAccountInBackups(backupDirectory, accountId)
+  };
+}
+
 export function verifyBackup(backupPath) {
   const file = safePath(backupPath);
   if (!file || !fs.existsSync(file)) return { success: false, valid: false, reason: 'Backup does not exist.', error: 'Backup does not exist.' };
@@ -93,10 +168,20 @@ export function verifyBackup(backupPath) {
   return { success: true, valid: true, reason: null, digest, checksum: digest, recordType: Array.isArray(parsed) ? 'array' : typeof parsed };
 }
 
-export function restoreJsonBackup(backupPath, destinationPath) {
+export function restoreJsonBackup(backupPath, destinationPath, { allowDirs = [] } = {}) {
   const backup = safePath(backupPath);
   const destination = safePath(destinationPath);
   if (!backup || !destination) return { success: false, error: 'Restore paths are required.' };
+  // Jail the write: raw '..' segments never resolve inside, and configured
+  // allow-lists (e.g. the live data dir) bound absolute destinations.
+  if (String(destinationPath).split(/[\\/]/).includes('..')) return { success: false, error: 'Restore destination is invalid.' };
+  const roots = (Array.isArray(allowDirs) ? allowDirs : [])
+    .filter(value => typeof value === 'string')
+    .map(value => safePath(value))
+    .filter(Boolean);
+  if (roots.length && !roots.some(root => destination === root || destination.startsWith(root + path.sep))) {
+    return { success: false, error: 'Restore destination is outside the allowed directories.' };
+  }
   const verified = verifyBackup(backup);
   if (!verified.success) return verified;
   if (path.dirname(destination) !== path.dirname(backup) && path.basename(destination).includes('..')) return { success: false, error: 'Restore destination is invalid.' };

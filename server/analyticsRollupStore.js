@@ -1,7 +1,7 @@
 import { loadJson, writeJson } from './storeIO.js';
 
 export const ROLLUP_SCHEMA_VERSION = 1;
-export const DEFAULT_RETENTION_DAYS = 30;
+export const DEFAULT_RETENTION_DAYS = 365;
 export const DEFAULT_MAX_BUCKETS = 168;
 
 export const ALLOWED_ANALYTICS_DIMENSIONS = Object.freeze([
@@ -237,7 +237,10 @@ function applyEvent(target, event, dimensions, limits) {
     const outcome = cleanDimension(data.outcome || data.outcomeBucket, '');
     if (outcome && (target.outcomes[outcome] || Object.keys(target.outcomes).length < limits.outcomes)) target.outcomes[outcome] = (target.outcomes[outcome] || 0) + count;
   }
-  if (event.kind === 'match-stalled') { target.stalled += count; target.started += count; }
+  if (event.kind === 'match-stalled') {
+    // A stalled match already counted its start: only the stall increments.
+    target.stalled += count;
+  }
   if (event.kind === 'event-eligible' || event.kind === 'event-triggered' || event.kind === 'event-choice' || event.kind === 'event-recovered') incrementEvent(target, event.kind, data, dimensions.eventId, limits);
   if (event.kind === 'market-volatility') { addDuration(target.market.volatility, data.volatility ?? data.return ?? data.value); target.market.negativeCashPreventions += Math.max(0, integerDimension(data.negativeCashPreventions)); }
   if (event.kind === 'market-liquidation') { target.market.liquidations += Math.max(1, integerDimension(data.count ?? data.actionCount, 1)); target.market.marginPositions += Math.max(0, integerDimension(data.marginPositions ?? data.marginOpenPositions)); }
@@ -315,12 +318,15 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
   latestAt = loadedBuckets.sort((a, b) => bucketTime(b) - bucketTime(a))[0] || null;
   loaded = true;
 
-  function prune() {
+  function prune(options = {}) {
     const nowMs = parseDate(now())?.getTime() || Date.now();
-    const cutoff = nowMs - retention * 86400000;
-    Object.keys(state.buckets).forEach(key => { if (bucketTime(key) < cutoff) delete state.buckets[key]; });
+    const cutoff = Number.isFinite(Number(options.olderThan)) ? Number(options.olderThan) : nowMs - retention * 86400000;
+    let removed = 0;
+    Object.keys(state.buckets).forEach(key => { if (bucketTime(key) < cutoff) { delete state.buckets[key]; removed += 1; } });
     const keys = Object.keys(state.buckets).sort((a, b) => bucketTime(a) - bucketTime(b));
-    while (keys.length > bucketLimit) delete state.buckets[keys.shift()];
+    while (keys.length > bucketLimit) { delete state.buckets[keys.shift()]; removed += 1; }
+    if (removed) pendingWrites += 1;
+    return removed;
   }
 
   function record(event = {}) {
@@ -436,7 +442,7 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     while (pendingWrites) await flush();
   }
 
-  return Object.freeze({ close, flush, health, query, record });
+  return Object.freeze({ close, flush, health, prune, query, record });
 }
 
 export { DIMENSION_KEYS, dimensionKey };

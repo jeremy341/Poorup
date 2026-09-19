@@ -66,7 +66,7 @@ async function testActivateWarningSnapshot() {
   assert.equal(event.resolvedChoice, null);
   assert.equal(event.targetPlayerId, null);
   assert.equal(event.comboId, null);
-  assert.deepEqual(event.effects, { airportRentMultiplier: 1.75, premiumRentMultiplier: 1.3, marketPriceMultiplier: 1.15 });
+  assert.deepEqual(event.effects, { airportRentMultiplier: 1.5, premiumRentMultiplier: 1.3, marketPriceMultiplier: 1.15 });
   assert.notEqual(event.effects, definition.effects);
   assert.equal(game.globalEventsTriggered, 1);
   game.players.forEach(player => assert.equal(player.globalEventsExperienced, 1));
@@ -644,6 +644,19 @@ function testInterestRateShockSettlement() {
   assert.equal(game.players[0].bankLoan.remaining, 608);
 }
 
+function testInterestRateShockPreservesPaidCredit() {
+  const room = makeEventRoom();
+  const game = room.game;
+  game.players.forEach(player => {
+    player.bankLoan = { status: 'active', principal: 300, totalDue: 450, remaining: 250 };
+  });
+  game.activateGlobalEvent(game.globalEventDefinition('interest-rate-shock'));
+  game.advanceRound();
+  // Paid 200 stays paid: 200 + ceil(250 × 1.35) = 538, not max(338, 450).
+  assert.equal(game.players[0].bankLoan.remaining, 338);
+  assert.equal(game.players[0].bankLoan.totalDue, 538);
+}
+
 function testLaborStrikeShortfallCreatesDebt() {
   const room = makeEventRoom();
   const game = room.game;
@@ -712,6 +725,7 @@ const CONTRACT_SUITES = [
   ['settlements — bank-run bailout', testBankRunBailoutSettlement],
   ['settlements — ledger-run no-op + tax-audit amounts', testLetTheLedgerRunAndTaxAuditSettlement],
   ['settlements — interest-rate shock reprices existing loans once', testInterestRateShockSettlement],
+  ['settlements — interest-rate shock preserves paid credit', testInterestRateShockPreservesPaidCredit],
   ['settlements — labor-strike shortfalls become payable debt', testLaborStrikeShortfallCreatesDebt],
   ['phases — housing-bubble survivor flags', testHousingBubbleSurvivorFlags],
   ['effects — active-phase queries', testActivePhaseEffectQueries]

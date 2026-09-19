@@ -71,7 +71,7 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'Visitors flood the city. Airports and premium districts surge.',
     weight: 1,
     eligible: () => true,
-    effects: { airportRentMultiplier: 1.75, premiumRentMultiplier: 1.3, marketPriceMultiplier: 1.15 }
+    effects: { airportRentMultiplier: 1.5, premiumRentMultiplier: 1.3, marketPriceMultiplier: 1.15 }
   },
   {
     id: 'anti-monopoly',
@@ -111,7 +111,7 @@ const GLOBAL_EVENT_DEFINITIONS = [
     summary: 'The council caps the most concentrated rents and returns a small stipend.',
     weight: 1,
     eligible: game => game.players.some(player => game.playerGroups(player).length >= 1),
-    effects: { rentCap: 80, rentControlStipend: 25 }
+    effects: { rentCap: 150, rentControlStipend: 25 }
   },
   {
     id: 'public-works',

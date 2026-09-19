@@ -19,6 +19,7 @@ import {
 } from './roomSetup.js';
 import { reply } from './socketHandlerSupport.js';
 import { resolveClientAddress } from './serverConfig.js';
+import { withAdminFlag } from './analyticsApi.js';
 
 const AUTH_ATTEMPT_WINDOW_MS = 60_000;
 const AUTH_ATTEMPT_LIMIT = 8;
@@ -120,6 +121,8 @@ function seatUnavailable(room, clientId, socketId) {
 
 function registerAccountSocketHandlers(on, socket, runtime) {
   const { accountStore, roomManager } = runtime;
+  const accountRights = runtime.accountRights || {};
+  const restrictedError = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
 
   on('check-username', (payload = {}, callback) => {
     // Availability is a read-only hint for the form. Registration still
@@ -150,18 +153,82 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('account-login', sessionGrantHandler(payload => accountStore.login(payload), false, true));
   on('account-restore', sessionGrantHandler(payload => accountStore.restore(payload.sessionToken), true, true));
 
+  on('account-export', (payload = {}, callback) => {
+    const account = runtime.social.accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to download your account data.' });
+    try {
+      const result = typeof accountRights.export === 'function'
+        ? accountRights.export({ account, payload, socket })
+        : { success: false, code: 'ACCOUNT_EXPORT_UNAVAILABLE', error: 'Account export is not configured.' };
+      return reply(callback, result);
+    } catch (error) {
+      return reply(callback, { success: false, code: 'ACCOUNT_EXPORT_FAILED', error: 'Account export is temporarily unavailable.' });
+    }
+  });
+
+  on('account-revoke-sessions', (payload = {}, callback) => {
+    const account = runtime.social.accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to manage sessions.' });
+    const result = typeof accountRights.revokeSessions === 'function'
+      ? accountRights.revokeSessions({ account, payload, socket })
+      : { success: false, code: 'ACCOUNT_SESSION_UNAVAILABLE', error: 'Session management is not configured.' };
+    return reply(callback, result);
+  });
+
+  on('account-delete-request', async (payload = {}, callback) => {
+    const account = runtime.social.accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to manage your account.' });
+    const room = roomManager.getRoomBySocket(socket.id);
+    const result = typeof accountRights.requestDeletion === 'function'
+      ? await accountRights.requestDeletion({ accountId: account.id, sessionId: socket.data.sessionId || payload.sessionId || null, currentPassword: payload.currentPassword, typedPhrase: payload.typedPhrase, requestId: payload.requestId, activeRoom: Boolean(room) })
+      : { success: false, code: 'ACCOUNT_DELETION_UNAVAILABLE', error: 'Account deletion is not configured.' };
+    if (result?.success) socket.emit('account-lifecycle', { state: 'deletion-pending', dueAt: result.dueAt || null, requestId: result.requestId || null });
+    return reply(callback, result);
+  });
+
+  on('account-delete-cancel', async (payload = {}, callback) => {
+    const account = runtime.social.accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to manage your account.' });
+    const result = typeof accountRights.cancelDeletion === 'function'
+      ? await accountRights.cancelDeletion({ accountId: account.id, currentPassword: payload.currentPassword, requestId: payload.requestId })
+      : { success: false, code: 'ACCOUNT_DELETION_UNAVAILABLE', error: 'Account deletion is not configured.' };
+    if (result?.success) socket.emit('account-lifecycle', { state: 'deletion-cancelled' });
+    return reply(callback, result);
+  });
+
+  on('account-recovery-email-request', async (payload = {}, callback) => {
+    const account = runtime.social.accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to manage recovery email.' });
+    const result = typeof accountRights.requestRecoveryEmail === 'function'
+      ? await accountRights.requestRecoveryEmail({ accountId: account.id, currentPassword: payload.currentPassword, email: payload.email })
+      : { success: false, code: 'ACCOUNT_RECOVERY_UNAVAILABLE', error: 'Recovery email is not configured.' };
+    return reply(callback, result);
+  });
+
+  on('account-recovery-email-verify', async (payload = {}, callback) => {
+    const result = typeof accountRights.verifyRecoveryEmail === 'function'
+      ? await accountRights.verifyRecoveryEmail({ token: payload.token })
+      : false;
+    return reply(callback, result === true ? { success: true, state: 'verified' } : { success: false, code: 'RECOVERY_TOKEN_INVALID', error: 'That verification link is invalid or expired.' });
+  });
+
   on('set-setting', handleSetSetting);
   on('start-game', handleStartGame);
 
   // register/login/restore share the exact same flow: run the store verb,
   // adopt the session account on the socket, forward the store's ack verbatim.
+  function stampOwnerAccount(result) {
+    if (!result?.account?.id) return result;
+    return { ...result, account: withAdminFlag(result.account, runtime.adminIds) };
+  }
+
   function sessionGrantHandler(run, clearOnFailure = false, rateLimit = false, clearAttemptsOnSuccess = true) {
     return function sessionGrant(payload = {}, callback) {
       if (rateLimit && !allowAuthAttempt(socket)) {
         reply(callback, { success: false, error: 'Too many account attempts. Try again shortly.' });
         return;
       }
-      const result = run(payload);
+      const result = stampOwnerAccount(run(payload));
       if (result?.account?.id) {
         if (clearAttemptsOnSuccess) clearAuthAttempts(socket);
         socket.data.accountId = result.account.id;
@@ -197,7 +264,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   function handleAccountUpdate(payload = {}, callback) {
-    const result = accountStore.updateProfile(payload.sessionToken, payload);
+    const current = runtime.social.accountForSocket(socket, payload);
+    if (current?.accountDeactivated === true) return reply(callback, restrictedError);
+    const result = stampOwnerAccount(accountStore.updateProfile(payload.sessionToken, payload));
     if (!result.success) return reply(callback, result);
     socket.data.accountId = result.account.id;
     socket.data.sessionTokenHash = accountStore.sessionTokenHashFor(payload.sessionToken);
@@ -276,6 +345,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const requestId = normalizeRequestId(payload?.requestId);
     const clientId = normalizeClientId(payload?.clientId);
     const account = runtime.social.accountForSocket(socket, payload);
+    if (account?.accountDeactivated === true) return reply(callback, restrictedError);
     const request = buildCreateRoomRequest(payload, account);
     const replayKey = requestId ? createRoomReplayKey(account, clientId, socket.id, requestId) : '';
     const fingerprint = requestId ? createRoomFingerprint(request, clientId) : '';
@@ -427,6 +497,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const roomCode = normalizeRoomCode(payload?.roomCode);
     const roomId = normalizeRoomId(payload?.roomId);
     const account = runtime.social.accountForSocket(socket, payload);
+    if (account?.accountDeactivated === true) return reply(callback, restrictedError);
     const participant = buildRoomParticipant(payload, account);
     if (participant.accountId) socket.data.accountId = participant.accountId;
     const clientId = normalizeClientId(payload?.clientId);
@@ -465,6 +536,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   function handleSetPlayerAppearance(payload = {}, callback) {
+    const account = runtime.social.accountForSocket(socket, payload);
+    if (account?.accountDeactivated === true) return reply(callback, restrictedError);
     const { color, nickname } = payload;
     const avatarGrid = normalizeAvatarGrid(payload.avatarGrid);
     const room = roomManager.getRoomBySocket(socket.id);
@@ -482,6 +555,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   function handleSetSetting(payload = {}, callback) {
     const { key, value } = payload;
+    const account = runtime.social.accountForSocket(socket, payload);
+    if (account?.accountDeactivated === true) return reply(callback, restrictedError);
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);
@@ -490,6 +565,11 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     }
     if (room.game.started) {
       return reply(callback, { success: false, error: 'Game settings can only be changed before the game starts.' });
+    }
+    const normalizedBrain = String(value ?? '').trim().toLowerCase().replace('_', '-');
+    if (key === 'botBrain' && normalizedBrain !== 'no-ai'
+      && runtime.botProviderStatus?.().state === 'quota-exhausted') {
+      return reply(callback, { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI BOT.' });
     }
     const settingResult = room.setRoomSetting(key, value);
     if (settingResult?.rejected) {
