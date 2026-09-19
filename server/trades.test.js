@@ -374,6 +374,8 @@ check('accepted trade moves cash and ownership exactly', () => {
   assert.deepEqual(b.properties, [1]);
   assert.equal(game.pendingTrade, null);
   assert.equal(game.tradesCompleted, 1);
+  assert.equal(a.tradesCompleted, 1);
+  assert.equal(b.tradesCompleted, 1);
   assert.equal(game.feed[0].text, 'A and B completed a trade.');
 });
 
@@ -584,7 +586,6 @@ check('trade adjustment increments and enforces the negotiation depth cap', () =
 });
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });
-const casino = (color, stake, score) => ({ id: 'casino:red', kind: 'casino', color, stake, risk: 0.55, score });
 
 const BUILDS_150 = [build(6, 150, 10), build(8, 150, 10), build(9, 150, 10)];
 const MORTGAGES_150 = [mortgage(3, 30, 8), mortgage(6, 50, 8), mortgage(8, 50, 8), mortgage(9, 60, 8)];
@@ -597,33 +598,29 @@ check('non-bots and missing players produce no candidates', () => {
 });
 
 check('speculator at 150: full candidate array with score/risk/tie-order pinned', () => {
-  const { game, bot, a } = botRoom('speculator', 150);
+  const { game, bot } = botRoom('speculator', 150);
   assert.deepEqual(game.getBotCandidates(bot), [
     market(150, 20),
     loan(18, game.getBankLoanOffer(bot)),
     ...BUILDS_150,
-    tradeAsk(a.id, 8, 0),
     ...MORTGAGES_150,
     ROLL
   ]);
 });
 
 check('builder at 1500: build-only board, mortgage/loan/casino gated out', () => {
-  const { game, bot, a } = botRoom('builder', 1500);
+  const { game, bot } = botRoom('builder', 1500);
   assert.deepEqual(game.getBotCandidates(bot), [
     build(6, 1500, 30), build(8, 1500, 30), build(9, 1500, 30),
-    tradeAsk(a.id, 8, 0),
     market(1500, 4),
     ROLL
   ]);
 });
 
-check('chaos at 120: green casino leads, non-speculator loan sinks below roll', () => {
-  const { game, bot, a } = botRoom('chaos', 120);
+check('chaos at 120 skips casino while cash-poor (discipline)', () => {
+  const { game, bot } = botRoom('chaos', 120);
   assert.deepEqual(game.getBotCandidates(bot), [
-    casino('green', 9, 18),
     build(6, 120, 10), build(8, 120, 10), build(9, 120, 10),
-    tradeAsk(a.id, 8, 0),
     mortgage(3, 30, 8), mortgage(6, 50, 8), mortgage(8, 50, 8), mortgage(9, 60, 8),
     market(120, 4),
     ROLL,
@@ -631,21 +628,18 @@ check('chaos at 120: green casino leads, non-speculator loan sinks below roll', 
   ]);
 });
 
-check('shark at 500: red casino stake 3%, trade asks 40', () => {
-  const { game, bot, a } = botRoom('shark', 500);
+check('shark at 500 skips casino (chaos-only flavor)', () => {
+  const { game, bot } = botRoom('shark', 500);
   assert.deepEqual(game.getBotCandidates(bot), [
-    casino('red', 15, 11),
     build(6, 500, 10), build(8, 500, 10), build(9, 500, 10),
-    tradeAsk(a.id, 8, 40),
     market(500, 4),
     ROLL
   ]);
 });
 
-check('diplomat at 500 leads with the group-collection trade ask at score 24', () => {
-  const { game, bot, a } = botRoom('diplomat', 500);
+check('diplomat at 500 skips the monopoly-gifting trade ask (veto)', () => {
+  const { game, bot } = botRoom('diplomat', 500);
   assert.deepEqual(game.getBotCandidates(bot), [
-    tradeAsk(a.id, 24, 0),
     build(6, 500, 10), build(8, 500, 10), build(9, 500, 10),
     market(500, 4),
     ROLL
@@ -653,18 +647,17 @@ check('diplomat at 500 leads with the group-collection trade ask at score 24', (
 });
 
 check('survivor at 150 mortgages score 24 above builds', () => {
-  const { game, bot, a } = botRoom('survivor', 150);
+  const { game, bot } = botRoom('survivor', 150);
   assert.deepEqual(game.getBotCandidates(bot), [
     mortgage(3, 30, 24), mortgage(6, 50, 24), mortgage(8, 50, 24), mortgage(9, 60, 24),
     ...BUILDS_150,
-    tradeAsk(a.id, 8, 0),
     market(150, 4),
     ROLL,
     loan(-20, game.getBankLoanOffer(bot))
   ]);
 });
 
-check('cash thresholds: mortgage below 180, loan up to 250, casino above 20', () => {
+check('cash thresholds: mortgage below 180, loan up to 250, casino cash-strong', () => {
   const kinds = ctx => ctx.game.getBotCandidates(ctx.bot).map(candidate => candidate.kind);
   assert.equal(kinds(botRoom('builder', 180)).includes('mortgage'), false);
   const under = kinds(botRoom('builder', 179));
@@ -672,7 +665,8 @@ check('cash thresholds: mortgage below 180, loan up to 250, casino above 20', ()
   assert.equal(kinds(botRoom('survivor', 250)).includes('loan'), true);
   assert.equal(kinds(botRoom('survivor', 251)).includes('loan'), false);
   assert.equal(kinds(botRoom('chaos', 20)).includes('casino'), false);
-  assert.equal(kinds(botRoom('chaos', 21)).includes('casino'), true);
+  assert.equal(kinds(botRoom('chaos', 524)).includes('casino'), false);
+  assert.equal(kinds(botRoom('chaos', 525)).includes('casino'), true);
 });
 
 check('market/casino toggles and per-turn throttles drop their candidates', () => {
@@ -694,10 +688,20 @@ function kindsOf(ctx) {
   return ctx.game.getBotCandidates(ctx.bot).map(candidate => candidate.kind);
 }
 
+function game_getTrade(ctx) {
+  return ctx.game.getBotCandidates(ctx.bot).find(candidate => candidate.kind === 'trade');
+}
+
 check('trade candidate needs a human partner and a same-group deed on both sides', () => {
   const ctx = botRoom('diplomat', 500);
   const hasTrade = () => kindsOf(ctx).includes('trade');
+  // A (cash 1500) is build-ready: handing over Rio would complete A's Brown
+  // monopoly, so the bot no longer proposes the swap (monopoly veto).
+  assert.equal(hasTrade(), false);
+  // A cash-strapped partner cannot build houses yet: the swap is proposed.
+  ctx.a.cash = 0;
   assert.equal(hasTrade(), true);
+  assert.deepEqual(game_getTrade(ctx), tradeAsk(ctx.a.id, 24, 60));
   ctx.game.getTile(1).ownerId = null;
   ctx.a.properties = [];
   assert.equal(hasTrade(), false);
@@ -714,9 +718,16 @@ check('trade candidate needs a human partner and a same-group deed on both sides
   assert.equal(hasTradeIn(ctx4), false);
 });
 
-function hasTradeIn(ctx) {
-  return kindsOf(ctx).includes('trade');
+function hasTradeIn(ctx) {  return kindsOf(ctx).includes('trade');
 }
+
+check('post-roll with a foreign purchase offer still offers end-turn', () => {
+  const ctx = botRoom('diplomat', 500);
+  ctx.game.currentPlayerId = ctx.bot.id;
+  ctx.game.pendingPurchaseOffer = { playerId: 'someone-else', tileIndex: 5 };
+  const kinds = ctx.game.getBotCandidates(ctx.bot, { postRoll: true }).map(candidate => candidate.kind);
+  assert.equal(kinds.includes('end-turn'), true);
+});
 
 check('build candidates follow full-set and even-build rules; mortgages drop encumbered deeds', () => {
   const ctx = botRoom('builder', 150);
