@@ -401,12 +401,18 @@ if (backupDirectory) {
       // Fresh volume with no stores yet is vacuously fresh: there is
       // nothing to lose, so readiness must not 503 forever.
       const storeFiles = Object.values(allStorePaths).filter(value => typeof value === 'string');
-      const anythingToCopy = storeFiles.some(file => { try { return fs.existsSync(file); } catch { return false; } });
-      if (!anythingToCopy) {
+      const existingFiles = new Set(storeFiles.filter(file => { try { return fs.existsSync(file); } catch { return false; } }));
+      if (!existingFiles.size) {
         backupHealth = { ...backupHealth, fresh: true, lastRunAt: new Date().toISOString() };
         return;
       }
-      const result = backupJsonStores(allStorePaths, backupDirectory);
+      // Back up only stores that exist yet. A store that has never been
+      // written (e.g. cosmetics before the first purchase) must not fail
+      // the whole rotation or wedge readiness on an otherwise healthy host.
+      const presentPaths = Object.fromEntries(
+        Object.entries(allStorePaths).filter(([, filePath]) => existingFiles.has(filePath))
+      );
+      const result = backupJsonStores(presentPaths, backupDirectory);
       backupHealth = { ...backupHealth, fresh: result.success, lastRunAt: new Date().toISOString(), failures: result.success ? backupHealth.failures : backupHealth.failures + 1 };
       if (!result.success) console.error('Backup rotation failed: one or more stores could not be copied.');
     } catch (error) {
