@@ -43,7 +43,10 @@ curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "c
 DRAIN_TIMEOUT_SECONDS="${DRAIN_TIMEOUT_SECONDS:-1800}"
 drain_complete=false
 for attempt in $(seq 1 "$DRAIN_TIMEOUT_SECONDS"); do
-  ready_body="$(curl --fail --silent --show-error --max-time 5 "$READY_URL")"
+  # NOTE: /readyz answers HTTP 503 while draining; the activeRounds count is
+  # in the body either way, so this poll must not use curl --fail (it would
+  # abort on the very first draining response and never observe the drain).
+  ready_body="$(curl --silent --show-error --max-time 5 "$READY_URL" || true)"
   if printf '%s' "$ready_body" | grep -q '"activeRounds":0'; then
     drain_complete=true
     break
@@ -60,12 +63,35 @@ if [ -L "$CURRENT_LINK" ]; then
 fi
 ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
 
+# Stamp the release id so /healthz and /readyz report this SHA after reload
+# (the fresh process boots into the persisted draining snapshot, whose own
+# releaseId field is empty by construction).
+SHARED_ENV_FILE="${SHARED_ENV_FILE:-$APP_ROOT/shared/poorup.env}"
+if [ -f "$SHARED_ENV_FILE" ]; then
+  if grep -q '^POORUP_RELEASE_ID=' "$SHARED_ENV_FILE"; then
+    sed -i "s|^POORUP_RELEASE_ID=.*|POORUP_RELEASE_ID=$RELEASE_SHA|" "$SHARED_ENV_FILE"
+  else
+    printf 'POORUP_RELEASE_ID=%s\n' "$RELEASE_SHA" >> "$SHARED_ENV_FILE"
+  fi
+fi
+
 pm2 startOrReload "$CURRENT_LINK/ecosystem.config.cjs" --update-env
 pm2 save
 
+# The fresh process boots into the persisted draining mode, so /readyz answers
+# 503 here by design. Gate on the body instead: stores loaded, backup fresh,
+# still draining, and reporting this release. Only then return to normal.
+healthy=false
 for attempt in $(seq 1 30); do
-  if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null && curl --fail --silent --show-error --max-time 5 "$READY_URL" >/dev/null; then
-    break
+  if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null; then
+    ready_body="$(curl --silent --show-error --max-time 5 "$READY_URL" || true)"
+    if printf '%s' "$ready_body" | grep -q '"storeLoaded":true' \
+      && printf '%s' "$ready_body" | grep -q '"backupFresh":true' \
+      && printf '%s' "$ready_body" | grep -q '"acceptingNewRounds":false' \
+      && printf '%s' "$ready_body" | grep -q "\"releaseId\":\"$RELEASE_SHA\""; then
+      healthy=true
+      break
+    fi
   fi
   if [ "$attempt" -eq 30 ]; then
     echo "New release failed health checks; rolling back"
