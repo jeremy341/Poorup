@@ -192,14 +192,41 @@ function opponentView(game, bot, player, index) {
     kind: player.isBot ? 'cpu' : 'player',
     position: nonNegative(player.position),
     cashBand: cashBand(player.cash, game.settings?.startingCash),
+    cashExactBucket: Math.floor(Math.max(0, Number(player.cash) || 0) / 25) * 25,
     propertyCount: Array.isArray(player.properties) ? player.properties.length : 0,
     completeGroups: typeof game.hasFullSet === 'function' && typeof game.playerGroups === 'function'
       ? game.playerGroups(player).filter(group => game.hasFullSet(player.id, group)).length
       : 0,
+    nearGroups: nearOpponentGroups(game, player).slice(0, 3),
+    desire: opponentDesire(game, player),
+    stance: typeof player.lastVoteChoice === 'string' ? player.lastVoteChoice.slice(0, 40) : null,
     inJail: player.inJail === true,
     bankrupt: player.bankrupt === true,
     disconnected: player.disconnected === true
   };
+}
+
+// Nearest completions for an opponent: owned/total per group, most urgent
+// first. Powers the AI's "don't feed the finisher" reasoning.
+function nearOpponentGroups(game, player) {
+  const groups = [...new Set((game.tiles || []).map(tile => tile?.group).filter(Boolean))];
+  const out = [];
+  for (const group of groups) {
+    const tiles = typeof game.getGroupTiles === 'function' ? game.getGroupTiles(group) : [];
+    if (!tiles?.length) continue;
+    const owned = tiles.filter(tile => tile?.ownerId === player?.id).length;
+    if (!owned || owned >= tiles.length) continue;
+    out.push({ group, owned, total: tiles.length });
+  }
+  return out.sort((a, b) => b.owned / b.total - a.owned / a.total).slice(0, 3);
+}
+
+function opponentDesire(game, player) {
+  if (!player) return 'drifter';
+  const cash = Math.max(0, Math.floor(Number(player.cash) || 0));
+  const starting = Math.max(1, Number(game?.settings?.startingCash) || 1500);
+  if (game?.pendingPayment?.playerId === player.id || cash < starting * 0.35) return 'survivor';
+  return 'contender';
 }
 
 function turnView(game, bot) {
@@ -448,8 +475,34 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
     decisionMemory: botDecisionMemory(game || {}, safeBot),
     board,
     opponents,
+    table: tableSummaryView(game || {}, safeBot, opponents),
     obligations: obligationView(game || {}, safeBot),
     activeEvent: eventView(game || {}),
     rulesDigest: rulesDigest(game || {})
+  };
+}
+
+// Anonymized whole-table brief for the advisor: standings, threats,
+// alliances, and the win path — seats only, never stable identifiers.
+function tableSummaryView(game, bot, opponents) {
+  const seats = ['self', ...(opponents || []).map(entry => entry.seat)];
+  const bySeatCash = { self: nonNegative(bot?.cash) };
+  (opponents || []).forEach(entry => { bySeatCash[entry.seat] = nonNegative(entry.cashExactBucket); });
+  const myStance = typeof bot?.lastVoteChoice === 'string' ? bot.lastVoteChoice.slice(0, 40) : null;
+  const ranked = [...seats].sort((a, b) => bySeatCash[b] - bySeatCash[a]);
+  const myRank = Math.max(1, ranked.indexOf('self') + 1);
+  return {
+    rank: myRank,
+    seats: seats.length,
+    leaderGap: Math.max(0, bySeatCash[ranked[0]] - bySeatCash.self),
+    threats: (opponents || []).map(entry => ({
+      seat: entry.seat,
+      nearGroups: entry.nearGroups || [],
+      desire: entry.desire || 'drifter',
+    })),
+    alliances: (opponents || [])
+      .filter(entry => entry.stance && myStance && entry.stance === myStance)
+      .map(entry => entry.seat),
+    endgame: seats.length <= 2,
   };
 }

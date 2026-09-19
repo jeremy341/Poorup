@@ -64,4 +64,12 @@ const first = rankCandidates(snapshot, candidates, { difficulty: 'expert', seed:
 const second = rankCandidates(snapshot, candidates, { difficulty: 'expert', seed: 'same' });
 assert.deepEqual(first.map(entry => entry.candidate.id), second.map(entry => entry.candidate.id));
 assert.equal(first.length, candidates.length);
-console.log('bot future planner: 10 passed, 0 failed');
+// Heads-up survival damps risky plays; multiplayer snapshots are unaffected.
+const multi = evaluateCandidate(snapshot, { id: 'm', kind: 'market', risk: 0.5 }, { difficulty: 'table', seed: 'same' });
+const duel = { ...snapshot, opponents: [{ seat: 'opponent-1' }] };
+const duelRisky = evaluateCandidate(duel, { id: 'm', kind: 'market', risk: 0.5 }, { difficulty: 'table', seed: 'same' });
+assert.equal(multi.score - duelRisky.score, 5);
+// Real purchase offers spend cash like buys (were evaluated as free).
+const purchaseEval = evaluateCandidate(snapshot, { id: 'purchase:6', kind: 'purchase', tileIndex: 6, price: 100, risk: 0.2 }, { difficulty: 'table', seed: 'same' });
+assert.equal(purchaseEval.liquidity, 400);
+console.log('bot future planner: 12 passed, 0 failed');

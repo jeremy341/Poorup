@@ -20,6 +20,8 @@ From an engineering perspective, Poorup is a real-time multiplayer systems proje
 - Auction system for declined properties
 - Room-based lobby with host controls and configurable game settings
 - Reconnect support — disconnected players can rejoin and resume their turn
+- Optional Profile account rights: owner-safe export, verified recovery email,
+  session revocation, and a 30-day deletion grace period
 - Runs on a plain Node.js server with no database
 
 ## How to run
@@ -55,6 +57,8 @@ server/
   rooms.js        — Room lifecycle, seats, settings, and projections
   gameLogic.js    — Authoritative game state and player actions
   *Api.js/modules — Focused market, contract, season, social, and maintenance seams
+  sessionStore.js   — server-side cookie sessions and expiry policy
+  accountRecovery.js / accountDeletion.js — recovery and deletion lifecycle
 
 public/
   index.html      — Single-page app shell
@@ -62,6 +66,10 @@ public/
   main.js         — Client-side interactions, rendering, and Socket.IO bridge
   assets/         — Protected SVG references and local fonts
 ```
+
+Account data controls live only in Profile. The factual [Privacy & Account
+Data](/privacy) page describes guest play, retention, export, recovery, and
+deletion behavior; no Terms-of-Service route is claimed by the app.
 
 ## Game settings
 

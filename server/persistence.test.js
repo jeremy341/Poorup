@@ -205,6 +205,31 @@ check('friends-only achievements stay hidden from outsider cards', () => {
   assert.deepStrictEqual(publicCard.stats, { gamesPlayed: 10, wins: 6, winRate: 60, eventSurvival: 0 });
 });
 
+check('legacy sessions expire absolutely and revoke singly', () => {
+  const filePath = fileFor('session-ttl');
+  const store = new AccountStore(filePath);
+  const registered = register(store, 'ttlbound');
+  assert.equal(store.sessionAccount(registered.sessionToken)?.username, 'ttlbound');
+  // Backdate past the 90-day absolute window: the token dies.
+  store.sessionIssuedAt.set(registered.sessionToken, Date.now() - 91 * 24 * 3600 * 1000);
+  assert.equal(store.sessionAccount(registered.sessionToken), null);
+  const fresh = store.login({ username: 'ttlbound', password: 'hunter2hunter2' });
+  assert.equal(fresh.success, true);
+  assert.equal(store.sessionAccount(fresh.sessionToken)?.username, 'ttlbound');
+  assert.equal(store.revokeSessionToken(fresh.sessionToken), true);
+  assert.equal(store.sessionAccount(fresh.sessionToken), null);
+  assert.equal(store.revokeSessionToken('nope'), false);
+});
+
+check('restarted legacy hashes are not rehydrated', () => {
+  const filePath = fileFor('session-cutover');
+  const first = new AccountStore(filePath);
+  const registered = register(first, 'cutoverbound');
+  assert.equal(first.sessionAccount(registered.sessionToken)?.username, 'cutoverbound');
+  const second = new AccountStore(filePath);
+  assert.equal(second.sessionAccount(registered.sessionToken), null);
+});
+
 fs.rmSync(tempDir, { recursive: true, force: true });
 const failed = results.filter(ok => !ok).length;
 console.log(`persistence tests: ${results.length - failed} passed, ${failed} failed`);

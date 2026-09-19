@@ -2,11 +2,12 @@
 // but only normalized values reach GameState and queued CPU seats.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
+import { BOT_PRESETS, resolveBotPreset } from './roomSettings.js';
 
 const manager = new RoomManager();
 const room = manager.createRoom({ socketId: 'bot-settings-a', clientId: 'bot-settings-a', nickname: 'Host' });
 
-assert.equal(room.settings.botBrain, 'auto');
+assert.equal(room.settings.botBrain, 'ai');
 assert.equal(room.settings.botDifficulty, 'table');
 room.setRoomSetting('botBrain', 'AI');
 room.setRoomSetting('botDifficulty', 'EXPERT');
@@ -18,6 +19,8 @@ assert.equal(room.game.settings.botDifficulty, 'expert');
 room.setRoomSetting('botBrain', 'NO-AI');
 room.setRoomSetting('botDifficulty', 'not-a-level');
 assert.equal(room.settings.botBrain, 'no-ai');
+room.setRoomSetting('botBrain', 'AUTO');
+assert.equal(room.settings.botBrain, 'ai');
 assert.equal(room.settings.botDifficulty, 'table');
 
 room.setRoomSetting('bots', 1);
@@ -68,4 +71,12 @@ assert.deepEqual(room.runBotAction(bot.id, () => ({ success: true })), { success
 bot.disconnected = false;
 bot.bankrupt = true;
 assert.deepEqual(room.runBotAction(bot.id, () => ({ success: true })), { success: false, error: 'Bot is unavailable.' });
-console.log('bot-brain room settings: 10 passed, 0 failed');
+
+assert.deepEqual(BOT_PRESETS.easy, { botBrain: 'no-ai', botDifficulty: 'house' });
+assert.deepEqual(BOT_PRESETS.medium, { botBrain: 'ai', botDifficulty: 'table' });
+assert.deepEqual(BOT_PRESETS.hard, { botBrain: 'all', botDifficulty: 'expert' });
+assert.deepEqual(resolveBotPreset('HARD'), BOT_PRESETS.hard);
+assert.equal(resolveBotPreset('unknown'), null);
+room.setRoomSetting('botBrain', 'all');
+assert.equal(room.settings.botBrain, 'all');
+console.log('bot-brain room settings: 12 passed, 0 failed');

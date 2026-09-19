@@ -138,13 +138,15 @@ check('auction acquisition clears stale equity and duplicate deed references', (
   assert.deepEqual(winner.properties, [tile.index]);
 });
 
-check('trade proposal blocked during pendingPayment', () => {
+check('trade proposal allowed during pendingPayment — only endTurn is gated', () => {
   const { game, b } = startedRoom();
-  const toPlayer = game.getPlayerById(b.id);
-  toPlayer.cash = 50;
   game.pendingPayment = { playerId: 'x', creditorId: null, amountRemaining: 1, reason: 'r' };
-  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 500 }), { success: false, error: 'Another trade is already pending.' });
-  assert.equal(game.pendingTrade, null);
+  // Debt no longer blocks trading; the trade validates on its own merits
+  // (here: requestCash too high for the target).
+  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 5000 }), { success: false, error: 'One of the players no longer has enough cash.' });
+  // A affordable trade does go through even with debt pending.
+  assert.equal(game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 10 }).success, true);
+  assert.notEqual(game.pendingTrade, null);
 });
 
 check('trade proposal respects the room trading toggle', () => {
@@ -208,6 +210,27 @@ check('trade proposes and settles off-turn by design', () => {
   assert.equal(settled.success, true);
   assert.equal(a.cash, cashA + 10);
   assert.equal(b.cash, cashB - 10);
+});
+
+check('bankrupt seats cannot pass auctions they cannot settle', () => {
+  const ctx = startedRoom();
+  const tile = ctx.game.getTile(1);
+  tile.ownerId = null;
+  ctx.game.auction = { propertyTile: tile, active: true, highestBid: 0, highestBidderId: null, participants: [ctx.a.id, ctx.b.id], passedPlayerIds: [], startedAt: Date.now(), endsAt: Date.now() + 5000, cooldownUntil: 0, lastBidAt: 0 };
+  ctx.b.bankrupt = true;
+  assert.deepEqual(ctx.game.passAuction('socket-b'), { success: false, error: 'You cannot bid right now.' });
+});
+
+check('startAuction refuses to overwrite a live auction', () => {
+  const ctx = startedRoom();
+  const first = ctx.game.getTile(1);
+  first.ownerId = null;
+  ctx.game.auction = { propertyTile: first, active: true, highestBid: 100, highestBidderId: ctx.a.id, participants: [ctx.a.id], passedPlayerIds: [] };
+  const second = ctx.game.getTile(3);
+  second.ownerId = null;
+  assert.deepEqual(ctx.game.startAuction(second, ctx.b.id), { success: false, error: 'An auction is already active.' });
+  assert.equal(ctx.game.auction.propertyTile.index, 1);
+  assert.equal(ctx.game.auction.highestBid, 100);
 });
 
 const failed = results.filter((r) => !r).length;

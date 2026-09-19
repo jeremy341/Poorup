@@ -39,6 +39,10 @@ function sanitizeLabels(labels = {}) {
   return Object.fromEntries(entries);
 }
 
+function seriesKey(labels = {}) {
+  return JSON.stringify(sanitizeLabels(labels));
+}
+
 function timestamp(now) {
   const value = now();
   const date = value instanceof Date ? value : new Date(value);
@@ -72,6 +76,17 @@ export function createMetricsRegistry({ now = () => Date.now(), maxMetrics = 64 
     const entry = ensureEntry(name, labels);
     if (!entry || entry.type !== 'counter') return null;
     const safeValue = boundedValue(value);
+    // Per-label breakdown: a single entry must never silently merge counts
+    // recorded under different label sets. Cap series to bound memory.
+    const series = seriesKey(labels);
+    entry.byLabels ||= {};
+    if (!entry.byLabels[series] && Object.keys(entry.byLabels).length < 16) {
+      entry.byLabels[series] = { count: 0, total: 0 };
+    }
+    if (entry.byLabels[series]) {
+      entry.byLabels[series].count += 1;
+      entry.byLabels[series].total = boundedValue(entry.byLabels[series].total + safeValue);
+    }
     entry.labels = sanitizeLabels(labels);
     entry.count += 1;
     entry.total = boundedValue(entry.total + safeValue);
@@ -97,6 +112,8 @@ export function createMetricsRegistry({ now = () => Date.now(), maxMetrics = 64 
   }
 
   function snapshotMetrics(range = 'hour') {
+    // Live gauges only: no retention windows are kept, so every range
+    // returns the current snapshot. Documented (not silently windowed).
     const safeRange = ['hour', 'day', 'week'].includes(String(range)) ? String(range) : 'hour';
     const output = {};
     metrics.forEach((entry, name) => {

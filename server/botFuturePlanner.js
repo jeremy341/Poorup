@@ -3,6 +3,7 @@
 // a live GameState. It is deliberately small: a deterministic horizon is a
 // better first step than an unbounded tree in a real-time table.
 import { MARKET_FEE_RATE } from './marketLogic.js';
+import { bestGainGroup, forecastMaxHit } from './botDevelopmentForecast.js';
 
 export const PLANNING_HORIZONS = { house: 0, table: 1, expert: 3 };
 const MAX_HORIZON = 3;
@@ -70,7 +71,12 @@ function completeGroupCount(snapshot, state) {
 }
 
 function currentReserve(snapshot) {
-  return Math.max(120, number(snapshot.rulesDigest?.purchaseReserve, 120));
+  // Static floor plus half the forecasted max opponent hit (capped): the
+  // liquidity target now follows board development instead of sitting at
+  // 120 while hotels go up. Bounded so bare-board fixtures are unaffected.
+  const staticReserve = Math.max(120, number(snapshot.rulesDigest?.purchaseReserve, 120));
+  const forecastFloor = Math.min(400, Math.floor(forecastMaxHit(snapshot.board) / 2));
+  return Math.max(staticReserve, forecastFloor);
 }
 
 function applyPropertyTransfer(state, indexes, fromSeat, toSeat) {
@@ -191,6 +197,9 @@ function applyMarketExpansionCandidate(snapshot, state, candidate) {
 
 const CANDIDATE_APPLIERS = {
   buy: (snapshot, state, candidate, tile) => tile && applyBuyCandidate(state, candidate, tile),
+  // Real purchase offers arrive as kind 'purchase' with the same shape;
+  // without this alias they evaluated as free (cash untouched).
+  purchase: (snapshot, state, candidate, tile) => tile && applyBuyCandidate(state, candidate, tile),
   build: (snapshot, state, candidate, tile) => tile && applyBuildCandidate(state, candidate, tile),
   mortgage: (snapshot, state, candidate, tile) => tile && applyMortgageCandidate(state, candidate, tile),
   loan: (_snapshot, state, candidate) => applyLoanCandidate(state, candidate),
@@ -248,8 +257,10 @@ function landingRentRisk(snapshot, tile) {
   const buildings = 1 + number(tile.houseCount) * 0.45;
   const rent = number(tile.rent) * buildings * eventRentMultiplier(snapshot, tile);
   const owner = tileOwner(tile);
+  // Landing on your own deed pays nothing: only opponent deeds are risk.
+  // (The old code credited self-rent as income, inflating every plan.)
   return {
-    rent: owner === 'self' && !tile.mortgaged ? rent : 0,
+    rent: 0,
     risk: owner.startsWith('opponent') && !tile.mortgaged ? rent : 0
   };
 }
@@ -355,13 +366,29 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
   applyCandidate(snapshot, state, candidate);
   expectedLandingValue(snapshot, state, horizon);
   const afterGroups = completeGroupCount(snapshot, state);
+  // Concentration bonus (bounded +8): develop the single highest-gain
+  // group first instead of spreading houses. Needs no cost data; the
+  // candidate's own cost gate still applies downstream.
+  let concentration = 0;
+  if (candidate?.kind === 'build' && candidate?.tileIndex != null) {
+    const built = tileFor(snapshot, candidate.tileIndex);
+    const best = bestGainGroup(snapshot.board);
+    if (built?.group && best && built.group === best.group) concentration = 8;
+  }
+  // Heads-up survival: with exactly two seats, damp risky plays so the
+  // bot preserves winning lines instead of gambling them. Skipped when
+  // the snapshot carries no opponent list (fixtures stay pinned).
+  const survival = Array.isArray(snapshot.opponents) && snapshot.opponents.length === 1
+    ? -Math.max(0, Number(candidate?.risk) || 0) * 10
+    : 0;
   const strategic = liquidityValue(snapshot, state)
-    + state.expectedRent * 0.65
     - state.expectedRisk * 0.5
     + state.expectedCardDelta * 0.35
     + state.expectedCashFlow * 0.25
     + groupPotential(snapshot, state)
     + (afterGroups - beforeGroups) * 90
+    + concentration
+    + survival
     + eventHedgeValue(snapshot, state)
     - debtRisk(state)
     + (seedValue(seed, candidate?.id) - 0.5) * (difficulty === 'expert' ? 4 : 1);

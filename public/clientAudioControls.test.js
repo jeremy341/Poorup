@@ -7,7 +7,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const audio = readFileSync(join(root, "clientAudioControls.js"), "utf8");
 const theme = readFileSync(join(root, "clientTheme.js"), "utf8");
 const main = readFileSync(join(root, "main.js"), "utf8");
-const musicBoxUi = readFileSync(join(root, "clientMusicBoxUi.js"), "utf8");
+const index = readFileSync(join(root, "index.html"), "utf8");
 const checks = [];
 function check(name, fn) {
   try { fn(); checks.push({ name, ok: true }); }
@@ -25,12 +25,19 @@ check("music controller is injected instead of replacing state.music", () => {
   assert.match(audio, /musicController/);
   assert.match(audio, /state\.music/);
   assert.match(main, /musicController/);
-  assert.match(main, /__poorupMusicBoxController/);
-  assert.match(musicBoxUi, /globalThis\.__poorupMusicBoxController/);
+  assert.match(main, /__poorupThemeMusicController/);
+  assert.match(main, /\[data-music-runtime\]/);
+  assert.match(index, /data-music-runtime/);
+  assert.doesNotMatch(index, /data-music-box|clientMusicBoxUi\.js/);
 });
 
-check("dock auto-mount reuses the registered controller", () => {
-  assert.match(musicBoxUi, /controller \|\| globalThis\.__poorupMusicBoxController \|\| createMusicPlayer/);
+check("theme music has one hidden runtime and one theme track", () => {
+  assert.match(main, /createMusicPlayer/);
+  assert.match(main, /audio\[data-music-audio="a"\]/);
+  assert.match(main, /audio\[data-music-audio="b"\]/);
+  assert.match(index, /data-music-audio="a"/);
+  assert.match(index, /data-music-audio="b"/);
+  assert.doesNotMatch(index, /data-music-action|music-volume-popover|music-position-menu/);
 });
 
 check("global toggle starts once and stops through the controller", () => {
@@ -51,20 +58,14 @@ check("theme changes apply visuals before resetting music", () => {
 });
 
 check("blocked playback announces once", () => {
-  assert.match(musicBoxUi, /autoplay-blocked/);
   assert.match(main, /music-status|announceSoundMessage/);
 });
 
-check("dock play intent is handled by the canonical global state", () => {
-  assert.match(main, /music-box-play/);
-  assert.match(main, /state\.music = true/);
-  assert.match(main, /saveMusicPreference\(true\)/);
+check("the global toggle controls the theme soundtrack", () => {
   assert.match(main, /resetToThemeTrack/);
   assert.match(main, /controller\.stop\?\./);
-  assert.doesNotMatch(musicBoxUi, /player\.togglePlay\(\).*state\.music/);
-  assert.match(musicBoxUi, /CustomEvent\("music-box-play", \{ bubbles: true, cancelable: true \}\)/);
-  assert.match(musicBoxUi, /if \(!handled\.defaultPrevented\) player\?\.togglePlay/);
-  assert.match(main, /event\.preventDefault\(\)/);
+  assert.match(audio, /host\.syncHomeMusic\(\{ force: true \}\)/);
+  assert.doesNotMatch(main, /music-box-play|bindMusicBoxIntent|data-music-box/);
 });
 
 const failures = checks.filter((result) => !result.ok);

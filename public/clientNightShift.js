@@ -20,7 +20,7 @@ let nightShiftSpawnTimers = [];
 let nightShiftWaveHeld = false;
 const nightShiftTargetTimers = new Map();
 let nightShiftPausedAt = 0;
-const nightShiftState = { active: false, wave: 0, score: 0, best: 0, endsAt: 0, targetSeq: 0, hearts: NIGHT_SHIFT_START_HEARTS, misses: 0, serverRunToken: null, serverRunSubmitted: false };
+const nightShiftState = { active: false, wave: 0, score: 0, best: 0, endsAt: 0, targetSeq: 0, hearts: NIGHT_SHIFT_START_HEARTS, misses: 0, serverRunToken: null, serverRunSubmitted: false, serverRunError: null };
 let nightShiftSuppressSnapshot = false;
 try { nightShiftState.best = Number(localStorage.getItem(NIGHT_SHIFT_BEST_KEY)) || 0; } catch { /* storage unavailable */ }
 
@@ -594,10 +594,16 @@ function resetNightShiftRun() {
   nightShiftState.misses = 0;
   nightShiftState.serverRunToken = null;
   nightShiftState.serverRunSubmitted = false;
+  nightShiftState.serverRunError = null;
 }
 
 function nightShiftRunStartAck(response) {
-  if (!response?.success) return;
+  if (!response?.success) {
+    nightShiftState.serverRunError = String(response?.error || "Score sync unavailable.").slice(0, 120);
+    renderNightShiftHud("NIGHT SHIFT LOCAL · SCORE SYNC UNAVAILABLE");
+    return;
+  }
+  nightShiftState.serverRunError = null;
   nightShiftState.serverRunToken = response.runToken;
   if (!nightShiftState.active) submitNightShiftRun();
 }

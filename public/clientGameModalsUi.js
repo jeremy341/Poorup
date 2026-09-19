@@ -82,7 +82,9 @@ function openChoiceModal(tile) {
   const scrim = $("#choice-scrim");
   if (scrim) {
     scrim.classList.toggle("popup-scrim-locked", auctionMode);
-    scrim.onclick = auctionMode ? null : closeChoiceModalWithoutAction;
+    // Even a locked auction choice can be intentionally dismissed after the
+    // shared controller confirms that the required decision remains pending.
+    scrim.onclick = closeChoiceModalWithoutAction;
   }
   const buyBtn = $("#choice-buy");
   if (buyBtn) buyBtn.addEventListener("click", () => {
@@ -159,7 +161,10 @@ function acceptTradeOffer(offer) {
 function openOfferModal(offer) {
   const from = state.players.find((p) => p.id === offer.from || p.serverId === offer.from);
   if (!from) return;
-  const wantNames = offer.wantDeeds.map((i) => TILES[i].name).join(", ") || "nothing";
+  const wantNames = (Array.isArray(offer.wantDeeds) ? offer.wantDeeds : [])
+    .map((i) => TILES[Number(i)]?.name || null)
+    .filter(Boolean)
+    .join(", ") || "nothing";
   $("#offer-card").innerHTML = `
     <div class="offer-rail" style="background:${from.color}"></div>
     <div class="offer-body">
@@ -171,12 +176,13 @@ function openOfferModal(offer) {
         </div>
       </div>
       <p class="t-body ink-2 offer-rows" style="margin-top:14px">
-        ${from.name} will give you <span class="green">$${offer.giveCash.toLocaleString()}</span>
+        ${esc(from.name)} will give you <span class="green">$${offer.giveCash.toLocaleString()}</span>
         and wants <span class="g300">${esc(wantNames)}</span>.
       </p>
       <div class="offer-actions">
         <button class="cta-red offer-btn" id="offer-accept"><span class="cta-text cta-text-sm">Accept</span></button>
         <button class="btn-dark offer-btn" id="offer-counter"><span class="t-label f12">Negotiate</span></button>
+        <button class="btn-dark offer-btn" id="offer-decline"><span class="t-label f12">Decline</span></button>
       </div>
       <p class="t-micro ink-3 offer-note">Trades only transfer cash or deeds offered here.</p>
     </div>`;
@@ -185,6 +191,16 @@ function openOfferModal(offer) {
   $("#offer-counter").addEventListener("click", () => {
     closeSurface("#offer-modal");
     host.openTradeNegotiation(offer);
+  });
+  $("#offer-decline").addEventListener("click", () => {
+    host.emitServer("respond-trade", { tradeId: offer.id, accept: false }, (response) => {
+      if (response?.success === false) {
+        host.say(response.error || "Trade could not be declined.");
+        host.renderChat();
+        return;
+      }
+      closeSurface("#offer-modal");
+    });
   });
 }
 
@@ -199,7 +215,7 @@ function bankruptPlayer(idx, creditorId) {
         host.renderChat();
         return;
       }
-      closeSurface("#bankruptcy-modal");
+      closeSurface("#bankruptcy-modal", { force: true });
     });
     return;
 }
@@ -209,11 +225,13 @@ function showGameOver(winnerName, winnerId) {
   const ranking = state.players
     .slice()
     .sort((x, y) => (y.cash + totalAssets(y)) - (x.cash + totalAssets(x)));
+  const resolvedWinnerId = winnerId || ranking[0]?.id || null;
   const summary = ranking
     .map((p, i) => {
       const deeds = TILES.filter((t) => state.owners[t.i] === p.id).length;
-      const crown = p.id === winnerId || i === 0 ? ' <span class="t-micro g300">★ WINNER</span>' : "";
-      return `<div class="go-summary-row${p.id === winnerId ? " is-winner" : ""}">
+      const isWinner = p.id === resolvedWinnerId;
+      const crown = isWinner ? ' <span class="t-micro g300">★ WINNER</span>' : "";
+      return `<div class="go-summary-row${isWinner ? " is-winner" : ""}">
         <span class="go-kicker">${String(i + 1).padStart(2, "0")}</span>
         <span class="t-label f13" style="color:${p.textColor};flex:1">${esc(p.name)}${crown}</span>
         <span class="t-label f12 g-muted">${deeds} DEED${deeds === 1 ? "" : "S"}</span>
@@ -274,13 +292,27 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-liquidate");
   $("#bank-liquidate").addEventListener("click", () => {
-    closeSurface("#bankruptcy-modal");
+    closeSurface("#bankruptcy-modal", { force: true });
       host.openHoldings();
       host.say("Holdings is open. Sell houses or mortgage deeds, then return here to settle the debt.");
       host.renderChat();
       return;
   });
-  $("#bank-declare").addEventListener("click", () => bankruptPlayer(idx, creditorId));
+  $("#bank-declare").addEventListener("click", () => {
+    // Debt bankruptcy is irreversible: require an explicit second tap,
+    // mirroring the voluntary-exit confirm. No accidental eliminations.
+    const actions = $("#bankruptcy-modal .bank-actions");
+    if (actions && !actions.dataset.armed) {
+      actions.dataset.armed = "1";
+      actions.innerHTML = `<button class="cta-red bank-btn" id="bank-declare-confirm"><span class="cta-text cta-text-sm">Confirm Bankruptcy</span></button>
+        <button class="btn-dark bank-btn" id="bank-declare-cancel"><span class="t-label f12">Keep Playing</span></button>`;
+      openSurface("#bankruptcy-modal", "#bank-declare-cancel");
+      $("#bank-declare-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
+      $("#bank-declare-confirm").addEventListener("click", () => bankruptPlayer(idx, creditorId));
+      return;
+    }
+    bankruptPlayer(idx, creditorId);
+  });
 }
 
 function openVoluntaryExitModal() {
@@ -304,9 +336,9 @@ function openVoluntaryExitModal() {
       </div>
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-retire-cancel");
-  $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal"));
+  $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
   $("#bank-retire-confirm").addEventListener("click", () => {
-    closeSurface("#bankruptcy-modal");
+    closeSurface("#bankruptcy-modal", { force: true });
     bankruptPlayer(0, null);
   });
 }
@@ -372,6 +404,11 @@ function isMyOwnDebt(debt) {
 }
 
 function onRetireClick() {
+  const me = state.players[0];
+  if (me?.spectating || me?.bankrupt) {
+    goHome();
+    return;
+  }
   const debt = state.pendingDebt;
   if (isMyOwnDebt(debt)) {
     openBankruptcyModal(0, Number(debt.amountRemaining) || 0, debt.creditorId, debt.reason || "This payment is due.");

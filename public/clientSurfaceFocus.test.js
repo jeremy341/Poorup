@@ -50,12 +50,23 @@ globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
 const { state } = await import("./clientState.js");
 state.phase = "playing";
-const { openSurface, closeSurface, closeAllSurfaces } = await import("./clientSurfaces.js");
+const { openSurface, closeSurface, closeAllSurfaces, shouldConfirmSurfaceClose, hasUnresolvedSurfaceDecision } = await import("./clientSurfaces.js");
 
 openSurface("#trade-modal", "#trade-close", { trigger });
 assert.equal(document.activeElement, close);
 closeSurface("#trade-modal");
 assert.equal(document.activeElement, trigger);
 closeAllSurfaces();
+
+state.settings.auction = true;
+state.pendingBuyTile = 3;
+assert.equal(shouldConfirmSurfaceClose("#choice-modal"), true);
+state.pendingBuyTile = null;
+assert.equal(shouldConfirmSurfaceClose("#choice-modal"), false);
+assert.equal(shouldConfirmSurfaceClose("#popup"), false);
+assert.equal(hasUnresolvedSurfaceDecision(), false);
+state.auction = { active: true };
+assert.equal(hasUnresolvedSurfaceDecision(), true);
+state.auction = null;
 
 console.log("client surface trigger focus tests: passed");

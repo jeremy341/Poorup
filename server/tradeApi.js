@@ -7,6 +7,23 @@ import crypto from 'crypto';
 
 const MAX_TRADE_PROPERTIES = 40;
 
+function tradeTransactionKey(prefix, playerId, requestId) {
+  if (!requestId) return null;
+  return `${playerId}:${prefix}:${String(requestId).slice(0, 100)}`;
+}
+
+function memoizedTradeResult(game, key) {
+  if (!key || !game.tradeTransactions) return undefined;
+  return game.tradeTransactions.get(key);
+}
+
+function memoizeTradeSuccess(game, key, result) {
+  if (!key || !game.tradeTransactions) return result;
+  if (!result || result.success !== true) return result;
+  game.tradeTransactions.set(key, result);
+  return result;
+}
+
 function normalizePropertyIndexes(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.slice(0, MAX_TRADE_PROPERTIES).map(Number))];
@@ -36,7 +53,7 @@ const TRADE_PROPOSAL_GUARDS = [
   },
   {
     error: 'Another trade is already pending.',
-    rejects: game => Boolean(game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract)
+    rejects: game => Boolean(game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract)
   },
   {
     error: 'Cash values must be valid numbers.',
@@ -92,6 +109,11 @@ const tradeApi = {
     const ctx = this.tradeProposalContext(socketId, offer);
     const guard = TRADE_PROPOSAL_GUARDS.find(entry => entry.rejects(this, ctx));
     if (guard) return { success: false, error: guard.error };
+    // Idempotent retry: a double-click with the same requestId replays the
+    // original offer instead of stacking a duplicate on the table.
+    const replayKey = tradeTransactionKey('trade-propose', ctx.fromPlayer.id, offer.requestId);
+    const replayed = memoizedTradeResult(this, replayKey);
+    if (replayed) return replayed;
     const trade = {
       id: crypto.randomUUID(),
       fromPlayerId: ctx.fromPlayer.id,
@@ -106,8 +128,9 @@ const tradeApi = {
       createdAt: Date.now()
     };
     this.pendingTrade = trade;
+    if (ctx.fromPlayer.isBot) ctx.fromPlayer.botDealActionsThisTurn = (ctx.fromPlayer.botDealActionsThisTurn || 0) + 1;
     this.feedMessage(`${ctx.fromPlayer.nickname} sent a trade offer to ${ctx.toPlayer.nickname}.`);
-    return { success: true, trade };
+    return memoizeTradeSuccess(this, replayKey, { success: true, trade });
   },
 
   // One normalization pass for the raw offer: cash clamping, index coercion,
@@ -256,6 +279,11 @@ const tradeApi = {
     requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
     this.pendingTrade = null;
     this.tradesCompleted += 1;
+    // Keep a participant-level count for season/analytics projections. The
+    // table counter remains the canonical total; each participant receives
+    // exactly one increment for a completed trade.
+    fromPlayer.tradesCompleted = (fromPlayer.tradesCompleted || 0) + 1;
+    toPlayer.tradesCompleted = (toPlayer.tradesCompleted || 0) + 1;
     this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
     this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
     this.settleTradeLinkedPayments(fromPlayer, toPlayer);

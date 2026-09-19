@@ -3,6 +3,7 @@
 // registration modules (account/room lifecycle, in-game verbs, social).
 // Static UI serving, PORT binding, and the crash guards live here only.
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import { fileURLToPath } from 'url';
@@ -30,14 +31,22 @@ import { backupJsonStores } from './backupStore.js';
 import { assertPersistenceMode } from './persistenceMode.js';
 import { createDrainController } from './drainController.js';
 import { createMetricsRegistry } from './metricsRegistry.js';
-import { buildAnalyticsBalance, buildAnalyticsDrilldown, buildAnalyticsSummary, normalizeAdminIds, setAnalyticsNoStoreHeaders } from './analyticsApi.js';
+import { buildAnalyticsBalance, buildAnalyticsDrilldown, buildAnalyticsSummary, normalizeAdminIds, setAnalyticsNoStoreHeaders, withAdminFlag } from './analyticsApi.js';
 import { createPseudonymizer } from './analyticsPrivacy.js';
 import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
-import { createLegalRouter } from './legalRoutes.js';
 import { createMetadataRouter, metadataConfig } from './metadata.js';
 import { loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
 import { createPubSubAdapter } from './pubsubAdapter.js';
+import { createAiProviderManager, createAiProviderStore } from './aiProviderConfig.js';
+import { registerAiProviderRoutes } from './aiProviderRoutes.js';
+import { createSessionStore, parseCookieHeader, SESSION_COOKIE_NAME } from './sessionStore.js';
+import { createMailAdapter } from './mailAdapter.js';
+import { createAccountRecovery } from './accountRecovery.js';
+import { createAccountDeletionCoordinator } from './accountDeletion.js';
+import { buildAccountExport } from './accountExport.js';
+import { createRetentionJob } from './retentionJob.js';
+import { createBackupRetentionAdapter } from './backupStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,6 +55,10 @@ assertProductionCors(process.env);
 
 const app = express();
 const server = http.createServer(app);
+let httpAccountResolver = () => null;
+let httpAccountRights = null;
+let httpAccountRecovery = null;
+let httpRetentionJob = null;
 const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
 if (trustedProxyHops > 0) app.set('trust proxy', trustedProxyHops);
 app.disable('x-powered-by');
@@ -64,7 +77,13 @@ app.use((_req, res, next) => {
   res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src ${connectSources.join(' ')}; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
   next();
 });
-app.use(createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxyHops > 0 }));
+const httpRateLimit = createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxyHops > 0 });
+app.use((req, res, next) => {
+  // Health probes bypass the limiter: a traffic burst must never make the
+  // orchestrator restart a healthy pod with 429s.
+  if (req.path === '/healthz' || req.path === '/readyz') return next();
+  return httpRateLimit(req, res, next);
+});
 const socketRateLimiter = createSocketRateLimiter({
   max: process.env.POORUP_SOCKET_RATE_LIMIT,
   windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
@@ -159,15 +178,13 @@ app.post('/internal/maintenance', express.json({ limit: '4kb' }), (req, res) => 
   return res.status(400).json({ success: false, error: 'Choose normal, draining, or maintenance.' });
 });
 app.get('/admin/analytics/summary', (req, res) => {
-  const sessionToken = req.get('x-poorup-session-token') || '';
-  const account = accountStore.sessionAccount(sessionToken);
+  const account = httpAccountResolver(req) || accountStore.sessionAccount(req.get('x-poorup-session-token') || '');
   const result = buildAnalyticsSummary(metrics, account?.id, adminAccountIds, req.query?.range);
   setAnalyticsNoStoreHeaders(res);
   return res.status(result.success ? 200 : result.status).json(result);
 });
 app.get('/admin/analytics/balance', (req, res) => {
-  const sessionToken = req.get('x-poorup-session-token') || '';
-  const account = accountStore.sessionAccount(sessionToken);
+  const account = httpAccountResolver(req) || accountStore.sessionAccount(req.get('x-poorup-session-token') || '');
   const result = buildAnalyticsBalance({
     rollup: analyticsRollupStore,
     registry: metrics,
@@ -179,8 +196,7 @@ app.get('/admin/analytics/balance', (req, res) => {
   return res.status(result.success ? 200 : result.status).json(result);
 });
 app.get('/admin/analytics/drilldown', (req, res) => {
-  const sessionToken = req.get('x-poorup-session-token') || '';
-  const account = accountStore.sessionAccount(sessionToken);
+  const account = httpAccountResolver(req) || accountStore.sessionAccount(req.get('x-poorup-session-token') || '');
   const result = buildAnalyticsDrilldown({
     rollup: analyticsRollupStore,
     accountId: account?.id,
@@ -191,9 +207,8 @@ app.get('/admin/analytics/drilldown', (req, res) => {
   return res.status(result.success ? 200 : result.status).json(result);
 });
 
-// These routers are mounted before static serving so legal documents and
-// per-route metadata cannot be swallowed by express.static's index fallback.
-app.use(createLegalRouter({ publicDirectory: publicPath }));
+// Metadata is mounted before static serving so per-route tags cannot be
+// swallowed by express.static's index fallback.
 app.use(createMetadataRouter({ env: process.env, indexFile: path.join(publicPath, 'index.html') }));
 
 const metadataOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
@@ -212,6 +227,54 @@ app.use(express.static(publicPath, {
     if (filePath.endsWith(`${path.sep}index.html`)) response.setHeader('Cache-Control', 'no-cache');
   }
 }));
+app.get('/privacy', (_req, res, next) => res.sendFile(path.join(publicPath, 'privacy.html'), error => { if (error) next(error); }));
+app.get('/account/session', (req, res) => {
+  const account = httpAccountResolver(req);
+  if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
+  if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
+  return res.json({ success: true, account: withAdminFlag(accountStore.getAccountSnapshot(account.id), adminAccountIds) });
+});
+app.post('/internal/retention/run', async (req, res) => {
+  const token = String(process.env.POORUP_RETENTION_TOKEN || process.env.POORUP_MAINTENANCE_TOKEN || '').trim();
+  if (!token || req.get('x-poorup-retention-token') !== token) return res.status(token ? 403 : 404).json({ success: false, error: token ? 'Forbidden.' : 'Not found.' });
+  const result = await httpRetentionJob?.runOnce?.();
+  return res.status(200).json({ success: true, result: result || null });
+});
+app.get('/account/export', (req, res) => {
+  const account = httpAccountResolver(req);
+  if (!account || !httpAccountRights?.export) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to download your account data.' });
+  try {
+    const result = httpAccountRights.export({ account, req });
+    if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    return res.type('application/json').status(200).send(JSON.stringify(result.document));
+  } catch {
+    return res.status(500).json({ success: false, code: 'ACCOUNT_EXPORT_FAILED', error: 'Account export is temporarily unavailable.' });
+  }
+});
+app.post('/account/logout', (req, res) => {
+  const cookies = parseCookieHeader(req.headers.cookie || '');
+  sessionStore.revoke(cookies[SESSION_COOKIE_NAME]);
+  res.setHeader('Set-Cookie', sessionStore.clearCookie());
+  return res.json({ success: true });
+});
+app.get('/account/recovery/verify', async (req, res) => {
+  const token = typeof req.query?.token === 'string' ? req.query.token : '';
+  const verified = await httpAccountRecovery?.consumeEmailVerification?.(token);
+  return res.status(verified ? 200 : 400).type('html').send(errorPage(verified ? 'Recovery email verified' : 'Recovery link expired', verified ? 'Your recovery email is now active. Return to the parlor.' : 'That single-use link is invalid or expired.'));
+});
+app.post('/account/recovery/request', express.json({ limit: '8kb' }), async (req, res) => {
+  const result = await httpAccountRecovery?.requestPasswordReset?.({ username: req.body?.username, email: req.body?.email });
+  // Uniform response: the sent flag would otherwise oracle valid
+  // username+email pairs to enumerators.
+  void result;
+  return res.status(200).json({ success: true, sent: true });
+});
+app.post('/account/recovery/reset', express.json({ limit: '8kb' }), async (req, res) => {
+  const reset = await httpAccountRecovery?.consumePasswordReset?.(req.body?.token, req.body?.newPassword);
+  return res.status(reset ? 200 : 400).json(reset ? { success: true } : { success: false, code: 'RECOVERY_TOKEN_INVALID', error: 'That reset link is invalid or expired.' });
+});
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'poorup', releaseId: process.env.POORUP_RELEASE_ID || 'local' });
 });
@@ -270,12 +333,41 @@ const seasonStore = new SeasonStore(auxiliaryStorePaths.seasons);
 const cosmeticStore = new CosmeticStore(auxiliaryStorePaths.cosmetics);
 const telemetryStore = new TelemetryStore(auxiliaryStorePaths.telemetry, { rollupStore: analyticsRollupStore });
 storesLoaded = true;
+const sessionStore = createSessionStore({
+  filePath: dataDirectory ? path.join(dataDirectory, 'sessions.json') : '',
+  secure: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true'
+});
+io.use((socket, next) => {
+  const cookies = parseCookieHeader(socket.handshake?.headers?.cookie || socket.request?.headers?.cookie || '');
+  const session = sessionStore.resolve(cookies[SESSION_COOKIE_NAME]);
+  if (session) {
+    socket.data.sessionId = session.sessionId;
+    socket.data.sessionAccountId = session.accountId;
+  }
+  next();
+});
+const mailAdapter = createMailAdapter({ env: process.env });
+const accountRecovery = createAccountRecovery({
+  accountStore,
+  mailAdapter,
+  sessionStore,
+  publicOrigin: configuredPublicOrigin || '',
+  filePath: dataDirectory ? path.join(dataDirectory, 'recovery-tokens.json') : ''
+});
 const backupDirectory = String(process.env.POORUP_BACKUP_DIR || '').trim();
 if (backupDirectory) {
   backupHealth = { configured: true, fresh: false, lastRunAt: null, failures: 0 };
   const intervalMs = Math.max(60_000, Number(process.env.POORUP_BACKUP_INTERVAL_MS) || 15 * 60 * 1000);
   const runBackup = () => {
     try {
+      // Fresh volume with no stores yet is vacuously fresh: there is
+      // nothing to lose, so readiness must not 503 forever.
+      const storeFiles = Object.values(allStorePaths).filter(value => typeof value === 'string');
+      const anythingToCopy = storeFiles.some(file => { try { return fs.existsSync(file); } catch { return false; } });
+      if (!anythingToCopy) {
+        backupHealth = { ...backupHealth, fresh: true, lastRunAt: new Date().toISOString() };
+        return;
+      }
       const result = backupJsonStores(allStorePaths, backupDirectory);
       backupHealth = { ...backupHealth, fresh: result.success, lastRunAt: new Date().toISOString(), failures: result.success ? backupHealth.failures : backupHealth.failures + 1 };
       if (!result.success) console.error('Backup rotation failed: one or more stores could not be copied.');
@@ -289,9 +381,92 @@ if (backupDirectory) {
   backupTimer.unref?.();
 }
 const botAdvisor = createBotAdvisor();
+const aiProviderStore = createAiProviderStore({
+  filePath: auxiliaryStorePaths.aiProviders || '',
+  masterKey: process.env.POORUP_AI_CONFIG_KEY,
+  production: productionRuntime,
+  allowPrivateEndpoints: !productionRuntime || String(process.env.POORUP_AI_ALLOW_PRIVATE_ENDPOINTS || '').toLowerCase() === 'true'
+});
+const aiProviderManager = createAiProviderManager({ store: aiProviderStore, advisor: botAdvisor, env: process.env });
+registerAiProviderRoutes(app, { manager: aiProviderManager, accountStore, adminIds: adminAccountIds, publicOrigin: configuredPublicOrigin });
 
-const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore });
+const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore, sessionStore });
 const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter });
+runtime.adminIds = adminAccountIds;
+const accountDeletion = createAccountDeletionCoordinator({
+  accountStore,
+  sessionStore,
+  roomManager,
+  socialStore,
+  matchStore,
+  achievementStore,
+  seasonStore,
+  cosmeticStore,
+  telemetryStore,
+  backupStore: backupDirectory ? createBackupRetentionAdapter(backupDirectory) : null,
+  mailAdapter,
+  onLifecycle: event => io.sockets.sockets.forEach(candidate => { if (candidate.data?.accountId === event.accountId) candidate.emit('account-lifecycle', { state: event.state }); })
+});
+const retentionJob = createRetentionJob({
+  deletionCoordinator: accountDeletion,
+  recovery: accountRecovery,
+  analyticsRollupStore,
+  telemetryStore,
+  backupStore: backupDirectory ? createBackupRetentionAdapter(backupDirectory) : null,
+  intervalMs: process.env.POORUP_RETENTION_INTERVAL_MS,
+  analyticsRetentionMs: process.env.POORUP_RETENTION_ANALYTICS_MS,
+  backupRetentionMs: process.env.POORUP_RETENTION_BACKUPS_MS
+});
+runtime.accountRights = {
+  export: ({ account }) => {
+    const document = buildAccountExport({
+      account,
+      social: socialStore.listFor(account.id),
+      cosmetics: cosmeticStore.snapshot(account.id),
+      matches: matchStore.listForAccount(account.id)
+    });
+    return { success: true, filename: `poorup-account-export-${account.username}.json`, contentType: 'application/json', document };
+  },
+  revokeSessions: ({ account, payload, socket }) => ({ success: true, revoked: accountStore.revokeSessionsForAccount(account.id, true, payload?.sessionToken || null) + (sessionStore.revokeOthers(socket?.data?.sessionId) || 0) }),
+  requestDeletion: async input => {
+    const result = await accountDeletion.request(input);
+    if (result?.success) {
+      io.sockets.sockets.forEach(candidate => { if (candidate.data?.accountId === input.accountId) candidate.emit('account-lifecycle', { state: 'deletion-pending', dueAt: result.dueAt || null, requestId: result.requestId || null }); });
+    }
+    return result;
+  },
+  cancelDeletion: async input => {
+    const result = await accountDeletion.cancel(input);
+    if (result?.success) {
+      io.sockets.sockets.forEach(candidate => { if (candidate.data?.accountId === input.accountId) candidate.emit('account-lifecycle', { state: 'deletion-cancelled' }); });
+    }
+    return result;
+  },
+  requestRecoveryEmail: input => accountRecovery.requestEmailVerification(input),
+  verifyRecoveryEmail: input => accountRecovery.consumeEmailVerification(input.token)
+};
+function requestAccount(req) {
+  const cookies = parseCookieHeader(req.headers.cookie || '');
+  const session = sessionStore.resolve(cookies[SESSION_COOKIE_NAME]);
+  if (session?.accountId) return accountStore.getAccountById(session.accountId);
+  const legacy = req.get('x-poorup-session-token') || '';
+  const account = accountStore.sessionAccount(legacy);
+  if (!account) return null;
+  const exchanged = sessionStore.exchangeLegacy(legacy, token => accountStore.sessionAccount(token)?.id || null);
+  if (exchanged) {
+    req.sessionCookie = sessionStore.cookie(exchanged.cookieValue);
+    // Single-use upgrade: the legacy token dies with the exchange so a
+    // stolen copy cannot mint fresh cookies indefinitely.
+    accountStore.revokeSessionToken?.(legacy);
+  }
+  return account;
+}
+httpAccountResolver = requestAccount;
+httpAccountRights = runtime.accountRights;
+httpAccountRecovery = accountRecovery;
+httpRetentionJob = retentionJob;
+retentionJob.runOnce().catch(error => console.error('Retention job failed:', error?.message || 'unknown error'));
+retentionJob.start();
 
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
@@ -301,13 +476,16 @@ io.on('connection', (socket) => {
   registerAccountSocketHandlers(on, socket, runtime);
   registerGameSocketHandlers(on, socket, runtime);
   registerSocialSocketHandlers(on, socket, runtime);
+  socket.emit('bot-provider-status', runtime.botProviderStatus?.() || { state: 'unconfigured', revision: 0, reason: 'missing-credentials' });
   socket.emit('maintenance-state', maintenance.snapshot());
   metrics.setMetric('active-sockets', io.sockets.sockets.size, { scope: 'all' });
   metrics.setMetric('active-rooms', roomManager.rooms.size, { scope: 'all' });
   metrics.setMetric('active-rounds', maintenance.activeRoundCount(), { scope: 'all' });
 
   socket.on('disconnect', () => {
-    socketRateLimiter.forget(socket.id);
+    // Intentionally no limiter.forget(): the event budget must survive
+    // reconnects for the rest of its window, or spammers get a fresh
+    // bucket per connection (the handshake admission already bounds those).
     runtime.handleSocketDisconnect(socket);
     metrics.setMetric('active-sockets', io.sockets.sockets.size, { scope: 'all' });
   });
@@ -327,6 +505,8 @@ function shutdownDeadline() {
 
 async function closeServerResources() {
   maintenance.dispose();
+  retentionJob.stop();
+  runtime.unsubscribeBotProviderStatus?.();
   pubsubAdapter.close?.();
   try { await telemetryStore.close?.(); } catch (error) { console.error('Telemetry flush failed:', error?.message || 'unknown error'); }
   try { await analyticsRollupStore.close?.(); } catch (error) { console.error('Analytics rollup flush failed:', error?.message || 'unknown error'); }
@@ -369,4 +549,5 @@ process.on('uncaughtException', (error) => {
 });
 process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED REJECTION:', reason);
+  process.exit(1);
 });

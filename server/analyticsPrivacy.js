@@ -84,12 +84,24 @@ function safePrimitive(value) {
   return undefined;
 }
 
+// Free-text display keys pass the allowlist by design (dimension labels),
+// but must never carry identity: redact anything shaped like an address.
+const FREE_TEXT_KEYS = new Set(['name', 'label', 'id', 'feature', 'eventid', 'dimensionkey']);
+
+function redactIdentityLike(value, key) {
+  if (typeof value !== 'string' || !FREE_TEXT_KEYS.has(String(key || '').toLowerCase())) return value;
+  if (/[^@\s]+@[^@\s]+\.[^@\s]+/.test(value)) return '[redacted]';
+  return value;
+}
+
 function sanitizeValue(value, key, depth = 0) {
   if (FORBIDDEN_KEYS.has(String(key || '').toLowerCase())) return undefined;
   if (depth > 12) return undefined;
   if (value === null) return null;
   const primitive = safePrimitive(value);
-  if (primitive !== undefined || value === null) return primitive;
+  if (primitive !== undefined || value === null) {
+    return typeof primitive === 'string' ? redactIdentityLike(primitive, key) : primitive;
+  }
   if (Array.isArray(value)) return value.slice(0, 100).map(item => sanitizeValue(item, '', depth + 1)).filter(item => item !== undefined);
   if (!value || typeof value !== 'object') return undefined;
   const result = {};

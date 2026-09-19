@@ -1,7 +1,7 @@
 // The client-facing game projection as a prototype mixin: one small
 // projector per top-level section of getGameSummary, each emitting the exact
 // field set, clamps, and viewer-scoped privacy the original single literal
-// produced. server/rooms.test.js and server/client-state.test.js pin the
+// produced. server/rooms.test.js and public/clientStateSync.test.js pin the
 // payload shapes.
 import { AUCTION_DURATION_MS } from './auctionApi.js';
 import { MARKET_FEE_RATE } from './marketLogic.js';
@@ -23,6 +23,7 @@ function playerSummaryFields(game, player, viewerPlayerId) {
     bankLoan: game.summaryBankLoan(player, viewerPlayerId),
     bankLoanOffer: game.summaryBankLoanOffer(player, viewerPlayerId),
     bankrupt: player.bankrupt,
+    spectating: Boolean(player.spectating),
     inDebt: player.inDebt,
     disconnected: player.disconnected,
     isHost: player.isHost,
