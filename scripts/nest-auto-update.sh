@@ -43,6 +43,24 @@ case "$latest_sha" in
   *[!a-fA-F0-9]*|'') echo "Invalid SHA from origin: $latest_sha"; exit 1 ;;
 esac
 
+# Self-hygiene every tick (under the timer's flock, so no concurrent run can
+# be mid-download): drop stale download artifacts and orphaned release dirs
+# left by past failed attempts. Current, previous, and latest targets are
+# always spared, so the live app and its rollback can never be pruned.
+rm -f /tmp/poorup-*.tgz
+PREVIOUS_LINK="$APP_ROOT/previous"
+current_target=""
+if [ -L "$CURRENT_LINK" ]; then current_target="$(readlink "$CURRENT_LINK")"; fi
+previous_target=""
+if [ -L "$PREVIOUS_LINK" ]; then previous_target="$(readlink "$PREVIOUS_LINK")"; fi
+for candidate in "$APP_ROOT/releases"/*; do
+  if [ ! -d "$candidate" ]; then continue; fi
+  case "$candidate" in
+    "$current_target"|"$previous_target"|"$APP_ROOT/releases/$latest_sha") ;;
+    *) rm -rf "$candidate" || echo "Warning: could not prune $candidate" ;;
+  esac
+done
+
 if [ "$latest_sha" = "$current_sha" ]; then
   echo "Up to date at $current_sha"
   exit 0
