@@ -14,6 +14,7 @@ import {
 } from "./clientBoardData.js";
 import { getTheme } from "./clientThemeData.js";
 import { state } from "./clientState.js";
+import { createWalkTimeline } from "./clientBoardMotion.js";
 
 export const SKYLINE = [
   [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
@@ -182,6 +183,7 @@ function buildTile(tile, onTileClick) {
   const el = document.createElement("button");
   el.className = tileClassName(tile);
   el.dataset.tile = String(tile.i);
+  el.setAttribute("aria-label", `${tile.name || "Tile"}${tile.price ? `, price $${tile.price}` : ""}`);
   el.style.gridColumn = String(tile.col);
   el.style.gridRow = String(tile.row);
   applyTileFace(el, tile);
@@ -289,6 +291,11 @@ export function playerTileCenter(player, i = player?.pos) {
 const pieceWalks = new Map();
 const PIECE_WALK_STEP_MS = 130;
 
+function motionNow() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") return performance.now();
+  return Date.now();
+}
+
 function pieceElement(playerId) {
   const layer = $("#token-layer");
   if (!layer) return null;
@@ -323,24 +330,31 @@ function hopPiece(el) {
   el.classList.add("is-hopping");
 }
 
-function advancePieceWalk(playerId, walk, path, el) {
+function reconcilePieceWalk(playerId, walk, el, timestamp = motionNow()) {
   if (walk.cancelled) return;
   if (pieceWalks.get(playerId) !== walk) return;
-  const next = path[walk.index++];
-  // A walk across the combined Passing By corner always uses the open lane.
-  const center = tileCenter(next, "passing");
-  if (!center) {
-    cancelPieceWalk(playerId);
-    placePieces();
+  const progress = walk.timeline.snapshot(timestamp);
+  if (progress.beforeFirst) {
+    setPiecePosition(el, walk.start.x, walk.start.y);
+  } else {
+    // A walk across the combined Passing By corner always uses the open lane.
+    const center = tileCenter(walk.path[progress.index], "passing");
+    if (!center) {
+      cancelPieceWalk(playerId);
+      placePieces();
+      return;
+    }
+    setPiecePosition(el, center.x, center.y);
+    hopPiece(el);
+  }
+  if (progress.done) {
+    finishPieceWalk(playerId, walk, el);
     return;
   }
-  setPiecePosition(el, center.x, center.y);
-  hopPiece(el);
-  if (walk.index < path.length) {
-    walk.timer = setTimeout(() => advancePieceWalk(playerId, walk, path, el), PIECE_WALK_STEP_MS);
-    return;
-  }
-  walk.timer = setTimeout(() => finishPieceWalk(playerId, walk, el), PIECE_WALK_STEP_MS);
+  const completedSteps = Math.floor(progress.elapsed / walk.timeline.stepMs);
+  const nextBoundary = walk.startedAt + ((completedSteps + 1) * walk.timeline.stepMs);
+  clearTimeout(walk.timer);
+  walk.timer = setTimeout(() => reconcilePieceWalk(playerId, walk, el), Math.max(16, nextBoundary - timestamp));
 }
 
 function finishPieceWalk(playerId, walk, el) {
@@ -356,7 +370,7 @@ function canAnimateWalk(el, path) {
   return !REDUCED_MOTION;
 }
 
-export function startPieceWalk(playerId, from, to) {
+export function startPieceWalk(playerId, from, to, options = {}) {
   const path = pieceWalkPath(Number(from) || 0, Number(to) || 0);
   const el = pieceElement(playerId);
   if (!canAnimateWalk(el, path)) return;
@@ -364,11 +378,39 @@ export function startPieceWalk(playerId, from, to) {
   const player = state.players.find((entry) => entry.id === playerId);
   const start = playerTileCenter(player, Number(from) || 0);
   if (!start) return;
-  const walk = { cancelled: false, index: 0, timer: null };
+  const requestedStart = Number(options.startedAt);
+  const startedAt = Number.isFinite(requestedStart) ? requestedStart : motionNow();
+  const walk = {
+    cancelled: false,
+    timer: null,
+    path,
+    start,
+    startedAt,
+    timeline: createWalkTimeline({ path, stepMs: PIECE_WALK_STEP_MS, startedAt, now: motionNow }),
+  };
   pieceWalks.set(playerId, walk);
   el.classList.add("is-moving");
   setPiecePosition(el, start.x, start.y);
-  walk.timer = setTimeout(() => advancePieceWalk(playerId, walk, path, el), 16);
+  reconcilePieceWalk(playerId, walk, el);
+}
+
+export function reconcilePieceWalks(timestamp = motionNow()) {
+  pieceWalks.forEach((walk, playerId) => {
+    const el = pieceElement(playerId);
+    if (!el) {
+      cancelPieceWalk(playerId);
+      return;
+    }
+    reconcilePieceWalk(playerId, walk, el, timestamp);
+  });
+}
+
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    reconcilePieceWalks();
+    placePieces();
+  });
 }
 
 function pieceMarkupFor(player, index) {
@@ -395,7 +437,7 @@ function ensurePiece(layer, p, i) {
 
 function pruneStrayPieces(layer) {
   layer.querySelectorAll(".piece").forEach((el) => {
-    if (state.players.some((p) => p.id === el.dataset.player)) return;
+    if (state.players.some((p) => p.id === el.dataset.player && !p.bankrupt && !p.spectating)) return;
     el.remove();
   });
 }
@@ -403,7 +445,7 @@ function pruneStrayPieces(layer) {
 function ensurePieces() {
   const layer = $("#token-layer");
   if (!layer) return;
-  state.players.forEach((p, i) => ensurePiece(layer, p, i));
+  state.players.filter(p => !p.bankrupt && !p.spectating).forEach((p, i) => ensurePiece(layer, p, i));
   pruneStrayPieces(layer);
 }
 
@@ -416,7 +458,7 @@ function pruneFinishedWalks() {
 
 function occupantsByPosition() {
   const occupants = {};
-  state.players.forEach((p) => {
+  state.players.filter(p => !p.bankrupt && !p.spectating).forEach((p) => {
     const list = occupants[p.pos];
     if (list) {
       list.push(p.id);

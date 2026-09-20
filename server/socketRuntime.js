@@ -201,6 +201,29 @@ function createRuntime(deps) {
   const auctionDecisionLocks = new Set();
   let roomsUpdatedTimer = null;
 
+  function safeBotProviderStatus(status = {}) {
+    const states = new Set(['healthy', 'unconfigured', 'quota-exhausted', 'cooldown']);
+    const state = states.has(status.state) ? status.state : 'unconfigured';
+    const reasons = new Set(['credits-exhausted', 'missing-credentials', 'provider-cooldown']);
+    const reason = reasons.has(status.reason) ? status.reason : null;
+    const revision = Number.isFinite(Number(status.revision)) ? Math.max(0, Math.floor(Number(status.revision))) : 0;
+    return { state, revision, reason };
+  }
+
+  function botProviderStatus() {
+    if (typeof botAdvisor?.getPublicStatus === 'function') return safeBotProviderStatus(botAdvisor.getPublicStatus());
+    const health = typeof botAdvisor?.getHealth === 'function' ? botAdvisor.getHealth() : null;
+    return safeBotProviderStatus({
+      state: health?.state,
+      reason: health?.state === 'quota-exhausted' ? 'credits-exhausted' : health?.state === 'unconfigured' ? 'missing-credentials' : health?.state === 'open' ? 'provider-cooldown' : null,
+      revision: 0
+    });
+  }
+
+  const unsubscribeBotProviderStatus = typeof botAdvisor?.subscribeProviderStatus === 'function'
+    ? botAdvisor.subscribeProviderStatus(status => io.emit('bot-provider-status', safeBotProviderStatus(status)))
+    : null;
+
   function accountFromPayload(payload = {}) {
     return accountStore.sessionAccount(payload.sessionToken);
   }

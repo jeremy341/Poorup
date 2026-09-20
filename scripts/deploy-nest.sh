@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Pin PM2 to the invoking user's daemon. A bare non-interactive SSH shell can
+# otherwise resolve a different PM2_HOME and reload the wrong process list.
+export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
+
 if [ -z "$RELEASE_SHA" ] || [ -z "$RELEASE_ARCHIVE" ] || [ -z "$APP_ROOT" ] || [ -z "$MAINTENANCE_URL" ] || [ -z "$HEALTH_URL" ] || [ -z "$READY_URL" ] || [ -z "$MAINTENANCE_TOKEN" ]; then
   echo "RELEASE_SHA, RELEASE_ARCHIVE, APP_ROOT, MAINTENANCE_URL, HEALTH_URL, READY_URL, and MAINTENANCE_TOKEN are required"
   exit 2
@@ -39,7 +43,10 @@ curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "c
 DRAIN_TIMEOUT_SECONDS="${DRAIN_TIMEOUT_SECONDS:-1800}"
 drain_complete=false
 for attempt in $(seq 1 "$DRAIN_TIMEOUT_SECONDS"); do
-  ready_body="$(curl --fail --silent --show-error --max-time 5 "$READY_URL")"
+  # NOTE: /readyz answers HTTP 503 while draining; the activeRounds count is
+  # in the body either way, so this poll must not use curl --fail (it would
+  # abort on the very first draining response and never observe the drain).
+  ready_body="$(curl --silent --show-error --max-time 5 "$READY_URL" || true)"
   if printf '%s' "$ready_body" | grep -q '"activeRounds":0'; then
     drain_complete=true
     break
@@ -56,12 +63,35 @@ if [ -L "$CURRENT_LINK" ]; then
 fi
 ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
 
+# Stamp the release id so /healthz and /readyz report this SHA after reload
+# (the fresh process boots into the persisted draining snapshot, whose own
+# releaseId field is empty by construction).
+SHARED_ENV_FILE="${SHARED_ENV_FILE:-$APP_ROOT/shared/poorup.env}"
+if [ -f "$SHARED_ENV_FILE" ]; then
+  if grep -q '^POORUP_RELEASE_ID=' "$SHARED_ENV_FILE"; then
+    sed -i "s|^POORUP_RELEASE_ID=.*|POORUP_RELEASE_ID=$RELEASE_SHA|" "$SHARED_ENV_FILE"
+  else
+    printf 'POORUP_RELEASE_ID=%s\n' "$RELEASE_SHA" >> "$SHARED_ENV_FILE"
+  fi
+fi
+
 pm2 startOrReload "$CURRENT_LINK/ecosystem.config.cjs" --update-env
 pm2 save
 
+# The fresh process boots into the persisted draining mode, so /readyz answers
+# 503 here by design. Gate on the body instead: stores loaded, backup fresh,
+# still draining, and reporting this release. Only then return to normal.
+healthy=false
 for attempt in $(seq 1 30); do
-  if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null && curl --fail --silent --show-error --max-time 5 "$READY_URL" >/dev/null; then
-    break
+  if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null; then
+    ready_body="$(curl --silent --show-error --max-time 5 "$READY_URL" || true)"
+    if printf '%s' "$ready_body" | grep -q '"storeLoaded":true' \
+      && printf '%s' "$ready_body" | grep -q '"backupFresh":true' \
+      && printf '%s' "$ready_body" | grep -q '"acceptingNewRounds":false' \
+      && printf '%s' "$ready_body" | grep -q "\"releaseId\":\"$RELEASE_SHA\""; then
+      healthy=true
+      break
+    fi
   fi
   if [ "$attempt" -eq 30 ]; then
     echo "New release failed health checks; rolling back"
@@ -72,5 +102,25 @@ for attempt in $(seq 1 30); do
 done
 
 curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "content-type: application/json" -H "x-poorup-maintenance-token: $MAINTENANCE_TOKEN" --data-binary "{\"mode\":\"normal\",\"releaseId\":\"$RELEASE_SHA\"}" >/dev/null
+
+# Keep the pull-timer entrypoint in sync with the deployed release so updater
+# improvements ship automatically with the code. This MUST NOT use plain `cp`:
+# the running updater is this very file family, and truncating it in place
+# tears the interpreter's reads mid-run (observed live as a syntax error
+# after an otherwise successful deploy). Skip when identical; otherwise write
+# temp + atomic rename so open readers keep the old inode undisturbed.
+if [ -f "$RELEASE_DIR/scripts/nest-auto-update.sh" ]; then
+  if ! cmp -s "$RELEASE_DIR/scripts/nest-auto-update.sh" "$APP_ROOT/shared/nest-auto-update.sh" 2>/dev/null; then
+    tmp_update="$(mktemp "$APP_ROOT/shared/.nest-auto-update.XXXXXX" 2>/dev/null)" || tmp_update=""
+    if [ -n "$tmp_update" ] \
+      && cp "$RELEASE_DIR/scripts/nest-auto-update.sh" "$tmp_update" \
+      && mv "$tmp_update" "$APP_ROOT/shared/nest-auto-update.sh"; then
+      chmod 755 "$APP_ROOT/shared/nest-auto-update.sh" || true
+    else
+      echo "Warning: could not refresh the update entrypoint"
+      rm -f "$tmp_update"
+    fi
+  fi
+fi
 
 echo "Deployed $RELEASE_SHA"

@@ -153,6 +153,30 @@ function clearBotStatus() {
   label.textContent = "";
 }
 
+function onBotProviderStatus(status) {
+  const allowed = new Set(["healthy", "unconfigured", "quota-exhausted", "cooldown"]);
+  const stateName = allowed.has(status?.state) ? status.state : "unconfigured";
+  const revision = Number.isFinite(Number(status?.revision)) ? Math.max(0, Math.floor(Number(status.revision))) : 0;
+  const next = { state: stateName, revision, reason: stateName === "quota-exhausted" ? "credits-exhausted" : stateName === "unconfigured" ? "missing-credentials" : stateName === "cooldown" ? "provider-cooldown" : null };
+  const previous = state.botProviderStatus;
+  if (previous && revision < Number(previous.revision || 0)) return;
+  state.botProviderStatus = next;
+  document.dispatchEvent(new CustomEvent("poorup-bot-provider-status", { detail: next }));
+  const banner = $("#bot-provider-banner");
+  const usingAi = state.players.some(player => player.bot && player.botBrain === "ai")
+    || (Number(state.settings?.bots) > 0 && state.settings?.botBrain === "ai");
+  if (banner) {
+    const show = next.state === "quota-exhausted" && usingAi;
+    banner.hidden = !show;
+    banner.setAttribute("aria-hidden", String(!show));
+    if (show) banner.textContent = "AI CREDITS EXHAUSTED · BOT IS NOW USING NO-AI MODE";
+  }
+  if (next.state === "quota-exhausted" && (!previous || previous.state !== next.state || previous.revision !== next.revision)) {
+    $("#error-announcer").textContent = "AI credits are exhausted. Bots are now using No-AI mode.";
+  }
+  host.renderAll();
+}
+
 function syncSelectedPlayerRelationship() {
   const accountId = state.selectedPlayer?.accountId;
   if (!accountId) return;
@@ -310,6 +334,7 @@ function attachSocialListeners(socket) {
   socket.on("mythical-achievement", onMythicalAchievement);
   socket.on("achievement-unlocked", onAchievementUnlocked);
   socket.on("bot-status", onBotStatus);
+  socket.on("bot-provider-status", onBotProviderStatus);
 }
 
 function attachAccountListeners(socket) {

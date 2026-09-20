@@ -214,6 +214,7 @@ import {
 /* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
 let audioCtx = null;
 let musicController = null;
+let globalEventVoteTimer = null;
 
 function announceSoundMessage(message) {
   const status = $("#music-status");
@@ -761,8 +762,11 @@ function showView(name) {
 
 function reportChatError(response, message) {
   if (response?.success === false) {
-    say(response.error || message);
+    const text = response.error || message;
+    say(text);
     renderChat();
+    // Chat may be collapsed or on another surface: toast errors too.
+    parlorNotice("TABLE", text);
   }
 }
 
@@ -892,7 +896,23 @@ function onGlobalEventVoteClick(event) {
   const choice = event.target.closest("[data-global-choice]");
   if (!choice) return;
   if (choice.disabled) return;
-  emitWithChatError("vote-global-event", { choiceId: choice.dataset.globalChoice }, "Your vote could not be recorded.");
+  if (state.globalEventVotePending) return;
+  state.globalEventVotePending = true;
+  choice.disabled = true;
+  clearTimeout(globalEventVoteTimer);
+  globalEventVoteTimer = setTimeout(() => {
+    state.globalEventVotePending = false;
+    if (state.phase !== "playing") return;
+    parlorNotice("GLOBAL EVENT", "Vote timed out. The table state will refresh when the connection returns.");
+    renderGlobalEvent();
+  }, 8000);
+  emitServer("vote-global-event", { choiceId: choice.dataset.globalChoice }, (response) => {
+    clearTimeout(globalEventVoteTimer);
+    globalEventVoteTimer = null;
+    state.globalEventVotePending = false;
+    reportChatError(response, "Your vote could not be recorded.");
+    renderGlobalEvent();
+  });
 }
 
 function bindGameActions() {
@@ -901,6 +921,12 @@ function bindGameActions() {
   $("#tn-room-copy").addEventListener("click", copyRoomCode);
   $("#hud-cash-action")?.addEventListener("click", (event) => {
     if (event.currentTarget.disabled) return;
+    openWalletModal("account", event.currentTarget);
+  });
+  // Debt has a home: the loan pill opens the same wallet surface where
+  // repayments live, instead of hiding behind RETIRE.
+  $("#hud-loan-status")?.addEventListener("click", (event) => {
+    if (event.currentTarget.classList.contains("is-hidden")) return;
     openWalletModal("account", event.currentTarget);
   });
 

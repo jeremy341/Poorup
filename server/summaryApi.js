@@ -23,6 +23,7 @@ function playerSummaryFields(game, player, viewerPlayerId) {
     bankLoan: game.summaryBankLoan(player, viewerPlayerId),
     bankLoanOffer: game.summaryBankLoanOffer(player, viewerPlayerId),
     bankrupt: player.bankrupt,
+    spectating: Boolean(player.spectating),
     inDebt: player.inDebt,
     disconnected: player.disconnected,
     isHost: player.isHost,
