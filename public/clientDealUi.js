@@ -18,7 +18,8 @@ export function configureDealUi(hooks) {
 }
 
 function localServerId() {
-  return state.players[0]?.serverId || null;
+  const self = state.players.find((candidate) => candidate.clientId === state.clientId);
+  return self?.serverId || null;
 }
 
 function deedNames(indexes = []) {

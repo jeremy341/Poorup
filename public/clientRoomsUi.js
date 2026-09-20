@@ -5,7 +5,7 @@
    rebind it). emitServer, say, renderChat and enterParlor are
    injected by the entry module.
    ============================================================ */
-import { $ } from "./clientDom.js";
+import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { hydrateSprites, spriteHTML } from "./clientSprites.js";
 import { paintSkyline } from "./clientBoardRender.js";
@@ -62,26 +62,26 @@ function roomRowHTML(r) {
   return `<div class="room-row">
     <div class="room-main">
       <div class="room-top">
-        ${isPrivate ? `<span class="t-label f12 room-code">${r.code}</span>` : `<span class="t-label f12 room-code room-code-public">OPEN TABLE</span>`}
-        <span class="t-label f13 room-name">${r.name}</span>
+        ${isPrivate ? `<span class="t-label f12 room-code">${esc(r.code)}</span>` : `<span class="t-label f12 room-code room-code-public">OPEN TABLE</span>`}
+        <span class="t-label f13 room-name">${esc(r.name)}</span>
         <span class="t-micro g400" style="margin-left:4px">${visLabel}</span>
-        <span class="room-meta-item room-state-tag"><span class="st-dot" style="background:${roomStateColor(r.state)}"></span><span class="t-micro ink-3">${r.state}</span></span>
+        <span class="room-meta-item room-state-tag"><span class="st-dot" style="background:${esc(roomStateColor(r.state))}"></span><span class="t-micro ink-3">${esc(r.state)}</span></span>
       </div>
       <div class="room-meta">
-        <span class="t-micro ink-3 room-meta-item">SEATS ${r.seats}/${r.cap}</span>
-        <span class="t-micro ink-3 room-meta-item">OPEN ${open}</span>
-        <span class="t-micro ink-3 room-meta-item">BANK ${r.bank}</span>
-        <span class="t-micro g400 room-meta-item">${String(r.rulesetPreset || "classic").toUpperCase()}</span>
-        <span class="t-micro g400 room-meta-item">${String(r.boardVariant || "standard-40").toUpperCase()}</span>
-        <span class="t-micro ink-3 room-meta-item">${Array.isArray(r.addOns) && r.addOns.length ? r.addOns.join(" · ") : "NO ADD-ONS"}</span>
-        <span class="t-micro g-muted room-meta-item">${r.note}</span>
+        <span class="t-micro ink-3 room-meta-item">SEATS ${esc(r.seats)}/${esc(r.cap)}</span>
+        <span class="t-micro ink-3 room-meta-item">OPEN ${esc(open)}</span>
+        <span class="t-micro ink-3 room-meta-item">BANK ${esc(r.bank)}</span>
+        <span class="t-micro g400 room-meta-item">${esc(String(r.rulesetPreset || "classic").toUpperCase())}</span>
+        <span class="t-micro g400 room-meta-item">${esc(String(r.boardVariant || "standard-40").toUpperCase())}</span>
+        <span class="t-micro ink-3 room-meta-item">${Array.isArray(r.addOns) && r.addOns.length ? esc(r.addOns.join(" · ")) : "NO ADD-ONS"}</span>
+        <span class="t-micro g-muted room-meta-item">${esc(r.note)}</span>
       </div>
     </div>
     <div class="room-actions">
-      <button class="btn-dark" ${isPrivate ? 'data-join="' + r.code + '"' : 'data-join-id="' + (r.roomId || "") + '"'} ${full ? "disabled" : ""}>
+      <button class="btn-dark" ${isPrivate ? 'data-join="' + esc(r.code) + '"' : 'data-join-id="' + esc(r.roomId || "") + '"'} ${full ? "disabled" : ""}>
         <span class="t-label f11">${full ? "FULL" : "JOIN"}</span>
       </button>
-      ${isPrivate ? `<button class="btn-dark" data-copy="${r.code}" title="Copy code"><span class="t-label f11">COPY</span></button>` : ""}
+      ${isPrivate ? `<button class="btn-dark" data-copy="${esc(r.code)}" title="Copy code"><span class="t-label f11">COPY</span></button>` : ""}
     </div>
   </div>`;
 }
@@ -434,7 +434,9 @@ function onCreateRoomClick() {
   const vis = lobbyState.createRoomSettings.visibility;
   const code = lobbyState.createRoomSettings.code || "";
   if (needsGuestAlias()) {
-    closeRoomsModal();
+    // Stay in the modal: vanishing it strands guests hunting for the tiny
+    // home alias field. The toast explains; closing stays their choice.
+    parlorNotice("ALIAS", "Create an alias on Home before making a table.");
     requireGuestAlias();
     return;
   }

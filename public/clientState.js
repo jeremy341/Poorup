@@ -43,6 +43,7 @@ function buildPlayers(choiceIndex, alias) {
       cash: 1500,
       pos: START_TILE_INDEX,
       online: true,
+      spectating: false,
       jailFree: 0,
       avatarGrid: selected.avatarGrid || undefined,
     },
@@ -56,6 +57,7 @@ function buildPlayers(choiceIndex, alias) {
       online: i !== 2,
       bot: true,
       jailFree: 0,
+      spectating: false,
     })),
   ];
 }
@@ -183,6 +185,9 @@ const state = {
   dice: [3, 5],
   rolling: false,
   busy: false,
+  // A local action stays locked until its acknowledgement or timeout. A
+  // server snapshot alone is not proof that the request was accepted.
+  pendingAction: null,
   turnStage: "roll", // roll | end — landing actions happen before explicit end
   pool: 0,
   owners: {},
@@ -224,6 +229,7 @@ const state = {
   gameStarted: false,
   turnDeadline: 0,
   globalEvent: null,
+  globalEventVotePending: false,
   playerContractOffer: null,
   negotiationContractId: null,
   playerContracts: { pending: null, active: [] },
@@ -240,17 +246,19 @@ const state = {
   rankingSearchQuery: "",
   rankingSearchResults: [],
   economy: { casino: { enabled: false, maxBet: 500, lastResult: null, net: 0 }, market: { enabled: false, round: 0, feeRate: 0.02, quotes: {}, positions: {} } },
+  economySnapshotStatus: "unknown", // unknown | fresh | stale
   selectedPlayer: null,
   selectedPlayerRelationship: "none",
   selectedPlayerView: "profile",
   selectedPlayerHistory: null,
   selectedPlayerHistoryScope: "all",
   botStatus: null,
+  botProviderStatus: null,
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
   sound: loadSoundPreference(), // global effects toggle
-  // Canonical global soundtrack preference. The music-box controller mirrors
-  // this value but never owns or replaces it (including across tabs).
+  // Canonical global soundtrack preference. The hidden theme-music runtime
+  // mirrors this value but never owns or replaces it (including across tabs).
   music: loadMusicPreference(),
   quickJoin: false,     // "quick table" uses all-default rules
   settings: {
@@ -264,10 +272,10 @@ const state = {
     houseLimit:      32,      // house bank 10 / 20 / 32 (unlimited)
     hotelLimit:      12,      // hotel bank 6 / 12 (unlimited)
     turnTimer:       0,       // seconds per turn: 0=off, 30, 60, 120
-    bankruptMode:    "elim",  // "elim" | "debt" (debt = give assets, stay in)
+    bankruptMode:    "elim",  // legacy snapshot key; bankruptcy always eliminates/spectates
     bots:            0,        // reserved CPU seats; bot turns are added separately
     botPersonality: "survivor",
-    botBrain:        "auto",  // "auto" | "ai" | "no-ai"
+    botBrain:        "ai",    // "ai" | "no-ai" (legacy "auto" normalizes to "ai")
     botDifficulty:   "table", // "house" | "table" | "expert"
     bankLoans:       true,
     bankLoanSeverity: "predatory",
