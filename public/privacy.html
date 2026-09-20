@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#01070a">
+  <title>Privacy &amp; Account Data · Poorup</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="privacy-document-page">
+  <div class="scanlines" aria-hidden="true"></div>
+  <header class="hdr privacy-document-header">
+    <a class="hdr-brand" href="/" aria-label="Return to Poorup home"><svg class="privacy-logo-mark" width="32" height="32" viewBox="0 0 8 8" shape-rendering="crispEdges" aria-hidden="true"><rect width="8" height="8" fill="var(--theme-logo-primary,#9b783d)"/><rect x="1" y="1" width="6" height="6" fill="var(--surface-avatar,#0a1416)"/><rect x="2" y="2" width="4" height="4" fill="var(--theme-logo-secondary,#cfa75f)"/><rect x="3" y="3" width="2" height="2" fill="var(--surface-avatar,#0a1416)"/></svg><span class="hdr-brand-text"><span class="hdr-wordmark">Poorup</span><span class="t-micro ink-3 hdr-sub">privacy &amp; account data</span></span></a>
+    <span class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">POORUP</span><span>account data desk</span></span>
+    <a class="btn-dark privacy-back" href="/">BACK TO PARLOR</a>
+  </header>
+  <a class="skip-link" href="#privacy-main">Skip to privacy content</a>
+  <main class="rules-page-main privacy-page-main" id="privacy-main" tabindex="-1">
+    <article class="panel noise privacy-document" aria-labelledby="privacy-title">
+      <header class="privacy-document-intro"><span class="t-micro g400">PLAYER DATA DESK</span><h1 class="t-display g100" id="privacy-title">Privacy &amp; Account Data</h1><p class="t-body ink-2">A plain-language description of the data Poorup stores for account play, guest play, social features, and aggregate operations.</p><p class="t-micro ink-3">Last updated: 17 September 2026 · This page describes the current local server behavior.</p></header>
+      <nav class="privacy-document-nav" aria-label="Privacy sections"><a href="#collected">Collected data</a><a href="#guest">Guest play</a><a href="#rights">Your controls</a><a href="#retention">Retention</a><a href="#security">Security</a></nav>
+      <div class="privacy-document-body">
+        <section id="collected"><h2 class="t-section g300">What is collected</h2><p class="t-body ink-2">An account stores a username, display name, avatar and colour choices, password verifier, optional recovery-email status, preferences, completed-round statistics, achievements, and account-linked match summaries. Passwords, bearer tokens, and provider credentials are never shown in an export.</p></section>
+        <section id="guest"><h2 class="t-section g300">Guest play</h2><p class="t-body ink-2">You can create or join a table without an account. Guest identity is kept in the browser for the current play experience; the server does not create a personal account history for guest rounds. Only privacy-safe aggregate operational metrics may remain.</p></section>
+        <section id="rights"><h2 class="t-section g300">Your account controls</h2><p class="t-body ink-2">From Profile, a signed-in player can request an owner-safe JSON export, revoke other sessions, set and verify a recovery email, or request account deletion. Deletion first deactivates the account for 30 days. During that period the Profile surface can cancel the request or download data. A seated player must leave the table before requesting deletion.</p><p class="t-body ink-2">After the grace period, account-linked profile, social, cosmetic, achievement, and personal match-history data are removed or anonymized. Existing references use the label ACCOUNT DEACTIVATED. Aggregate analytics cannot be used to reconstruct an account and may be retained for up to 12 months.</p></section>
+        <section id="social"><h2 class="t-section g300">Social and match projections</h2><p class="t-body ink-2">Friends, requests, invites, notifications, and match projections are account-linked while the account is active. Private match details are shown only to the authorized owner or an allowed relationship. Deactivated accounts are omitted from search, rankings, invites, and new social actions.</p></section>
+        <section id="ai"><h2 class="t-section g300">AI provider boundary</h2><p class="t-body ink-2">Bot-provider configuration is an operator feature. Player passwords, session cookies, private chat, private deal terms, and raw account identifiers are not sent to an AI provider. Aggregate bot outcomes may be recorded for balancing.</p></section>
+        <section id="retention"><h2 class="t-section g300">Retention windows</h2><table class="privacy-retention-table"><caption class="sr-only">Poorup retention windows</caption><thead><tr><th scope="col">Record</th><th scope="col">Window</th><th scope="col">Action</th></tr></thead><tbody><tr><th scope="row">Deletion request</th><td>30 days</td><td>Restricted Profile; cancel or final purge</td></tr><tr><th scope="row">Aggregate analytics</th><td>Up to 12 months</td><td>Privacy-safe rollups only</td></tr><tr><th scope="row">Backups</th><td>30 days</td><td>Checksum-verified rotation</td></tr><tr><th scope="row">Sessions</th><td>30-day idle / 90-day absolute</td><td>Expired sessions are rejected</td></tr></tbody></table></section>
+        <section id="security"><h2 class="t-section g300">Recovery and security</h2><p class="t-body ink-2">Recovery links are single-use and expire after 30 minutes. A verified recovery-email change keeps the previous address active until the new address is verified. Cookies are intended to be HttpOnly, Secure, and SameSite-limited in production. Mail delivery and operator ownership remain deployment configuration rather than facts asserted by this page.</p></section>
+        <section><h2 class="t-section g300">Questions or account help</h2><p class="t-body ink-2">For support, use <a class="text-link" href="https://github.com/jeremy341/Poorup/issues" rel="noreferrer">Poorup Issues</a>. Do not include passwords, recovery tokens, session cookies, or private game details in a public issue.</p></section>
+      </div>
+    </article>
+  </main>
+  <footer class="privacy-document-footer"><span class="t-micro ink-3">AFTER-HOURS PARLOR · PRIVACY &amp; ACCOUNT DATA</span><a class="text-link t-micro" href="/">RETURN TO POORUP</a></footer>
+</body>
+</html>

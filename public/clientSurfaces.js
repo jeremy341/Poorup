@@ -26,6 +26,7 @@ const surfaceReturns = new Map();
 const surfaceInertNodes = new Set();
 let pendingConfirmation = null;
 let notice = () => {};
+let beforeUnloadBound = false;
 
 function surfaceVisible(el) {
   if (!el) return false;
@@ -45,6 +46,45 @@ function setSurfaceHidden(el, hidden) {
 
 export function configureSurfaces(hooks) {
   notice = hooks.notice;
+}
+
+export function shouldConfirmSurfaceClose(selector) {
+  if (selector === "#bankruptcy-modal") return true;
+  if (selector === "#auction-modal") return Boolean(state.auction?.active);
+  if (selector === "#choice-modal") return Boolean(state.settings?.auction && state.pendingBuyTile != null);
+  if (selector === "#sponsorship-modal") return Boolean(state.sponsorship);
+  return false;
+}
+
+export function hasUnresolvedSurfaceDecision() {
+  return Boolean(state.pendingDebt
+    || state.auction?.active
+    || (state.settings?.auction && state.pendingBuyTile != null)
+    || state.sponsorship);
+}
+
+export function bindBeforeUnloadGuard() {
+  if (beforeUnloadBound) return;
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  beforeUnloadBound = true;
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasUnresolvedSurfaceDecision()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+}
+
+function closeConfirmationCopy(selector) {
+  if (selector === "#bankruptcy-modal") {
+    return { title: "Leave this decision open?", message: "Your payment or bankruptcy decision is still required. Close without choosing and the table will keep waiting for you." };
+  }
+  if (selector === "#auction-modal") {
+    return { title: "Leave the auction?", message: "The auction is still active. Keep this window open to bid or pass, or close it without changing your bid." };
+  }
+  if (selector === "#choice-modal") {
+    return { title: "Leave the required choice?", message: "This auction purchase choice is still required. Close without choosing and the table will keep waiting." };
+  }
+  return { title: "Leave this decision open?", message: "This table action is still waiting for a decision. Close without changing it?" };
 }
 
 export function setSurfaceReturnFocus(el) {
@@ -193,9 +233,14 @@ function restoreReturnFocus() {
   surfaceReturnFocus = null;
 }
 
-export function closeSurface(selector) {
+export function closeSurface(selector, options = {}) {
   const surface = $(selector);
   if (!surface) return;
+  if (!options.force && shouldConfirmSurfaceClose(selector) && surfaceVisible(surface)) {
+    const copy = closeConfirmationCopy(selector);
+    openConfirmModal({ ...copy, confirmLabel: "CLOSE WITHOUT ACTION", onConfirm: () => closeSurface(selector, { force: true }) });
+    return false;
+  }
   const returnFocus = surfaceReturns.get(selector) || null;
   surfaceReturns.delete(selector);
   surfaceStack = surfaceStack.filter(entry => entry !== selector);

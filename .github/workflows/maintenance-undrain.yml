@@ -1,0 +1,52 @@
+name: Maintenance Undrain
+
+# If CI fails or is cancelled after Maintenance Drain opened the drain, return
+# the app to normal service so new rounds are not paused indefinitely. A
+# successful CI run instead proceeds to Deploy Nest, which ends in normal mode
+# itself. (Edge: a failed run can undrain a drain that a newer push reopened;
+# the newer push's own drain already ran first, and its CI will re-drain on
+# the deploy path if needed, so the window is seconds, not stuck states.)
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nest-drain
+  cancel-in-progress: false
+
+jobs:
+  undrain:
+    if: >-
+      ${{ github.event.workflow_run.conclusion != 'success'
+        && github.event.workflow_run.head_branch == 'main'
+        && vars.NEST_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: nest-production
+    steps:
+      - name: Check out scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Configure SSH
+        env:
+          NEST_DEPLOY_KEY: ${{ secrets.NEST_DEPLOY_KEY }}
+          NEST_KNOWN_HOSTS: ${{ secrets.NEST_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$NEST_DEPLOY_KEY" > "$HOME/.ssh/poorup_deploy"
+          chmod 600 "$HOME/.ssh/poorup_deploy"
+          printf '%s\n' "$NEST_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+
+      - name: Return to normal service
+        env:
+          NEST_HOST: ${{ secrets.NEST_HOST }}
+          NEST_USER: ${{ secrets.NEST_USER }}
+          MAINTENANCE_TOKEN: ${{ secrets.POORUP_MAINTENANCE_TOKEN }}
+        run: ssh -i "$HOME/.ssh/poorup_deploy" "$NEST_USER@$NEST_HOST" "MAINTENANCE_URL=http://127.0.0.1:8080/internal/maintenance MAINTENANCE_TOKEN=$MAINTENANCE_TOKEN bash -s" < scripts/end-drain.sh

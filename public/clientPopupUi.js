@@ -175,6 +175,7 @@ function popAuctionHintHTML(unowned) {
 
 function popCanBuyNow(tile) {
   const me = state.players[0];
+  if (me?.bankrupt || me?.spectating) return false;
   return state.pendingBuyTile === tile.i
     && me.cash >= (tile.price ?? 0)
     && state.phase === "playing"
@@ -184,6 +185,7 @@ function popCanBuyNow(tile) {
 
 function popBuyLabel(tile) {
   const me = state.players[0];
+  if (me?.bankrupt || me?.spectating) return "SPECTATING";
   if (state.phase !== "playing") return "JOIN TO BUY";
   if (state.turnIndex !== 0) return "NOT YOUR TURN";
   if (state.pendingBuyTile !== tile.i) return "WAIT FOR LANDING";
@@ -209,17 +211,17 @@ function popupCardHTML({ tile, owner, buyable, unowned, level }) {
   const ownerLabel = popOwnerLabel(owner, buyable);
   const buildTag = popBuildTag(buyable, level);
   return `
-    <div class="pop-rail" style="background:${accentOf(tile)}"></div>
-    <div class="pop-body">
-      <div class="pop-head">
-        <div class="pop-icon">${popIconHTML(tile)}</div>
+    <div class="pop-rail dd-rail" style="background:${accentOf(tile)}"></div>
+    <div class="pop-body dd-body">
+      <div class="pop-head dd-head">
+        <div class="pop-icon dd-icon">${popIconHTML(tile)}</div>
         <div class="pop-headtext">
           <div class="t-micro g400">${kindLabel(tile)}</div>
-          <h3 class="t-section pop-title" id="popup-card-title">${tile.name}${buildTag}</h3>
+          <h3 class="t-section pop-title dd-title" id="popup-card-title">${tile.name}${buildTag}</h3>
         </div>
         <button class="btn-dark pop-close" id="pop-close"><span class="t-label f11">CLOSE</span></button>
       </div>
-      <div class="pop-rows">
+      <div class="pop-rows dd-stats">
         ${popRow("PURCHASE", price, "g300")}
         ${popRow("BASE RENT", rent, "green")}
         ${popRow("OWNER", ownerLabel, owner ? "ink" : "g-muted")}
@@ -229,7 +231,7 @@ function popupCardHTML({ tile, owner, buyable, unowned, level }) {
       <div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">SPECIAL EFFECT</span></div>
       <div class="pop-effect"><p class="t-body ink-2">${effectText(tile)}</p></div>
       ${popBuyRowHTML(tile, unowned)}
-      <div class="pop-foot">
+      <div class="pop-foot dd-foot">
         <span class="t-micro ink-3">PRESS ESC OR CLICK OUTSIDE TO CLOSE</span>
         ${popOwnerFootHTML(owner)}
       </div>
