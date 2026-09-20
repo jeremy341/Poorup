@@ -9,10 +9,6 @@ import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
 
 export const AUCTION_MS = 5000;
 
-function serverNow() {
-  return Date.now() + (state.serverTimeOffset || 0);
-}
-
 function num(value) {
   return Number(value) || 0;
 }
@@ -37,9 +33,15 @@ function arrayOr(value) {
   return [];
 }
 
-function gridOrNull(grid) {
-  if (Array.isArray(grid)) return grid;
-  return null;
+// Defense in depth: the server hex-normalizes avatar cells, but sprite
+// fills interpolate raw — keep only #rrggbb-or-null cells on ingest so a
+// compromised snapshot can never inject markup into SVG fills.
+function sanitizeAvatarGrid(grid) {
+  if (!Array.isArray(grid)) return null;
+  const clean = grid.map(row => Array.isArray(row)
+    ? row.map(cell => (typeof cell === "string" && /^#[0-9a-f]{6}$/i.test(cell) ? cell.toLowerCase() : null))
+    : null);
+  return clean.some(row => row === null) ? null : clean;
 }
 
 function clientPlayerId(player) {
@@ -53,8 +55,15 @@ function findLocalPlayerId(serverId) {
   return null;
 }
 
+function hexColor(value, fallback) {
+  return /^#[0-9a-f]{6}$/i.test(String(value)) ? String(value).toLowerCase() : fallback;
+}
+
 function localServerId() {
-  return state.players[0]?.serverId;
+  // Never assume sort order: spectators, placeholders, and duplicate-tab
+  // clientIds can all leave someone else at index 0.
+  const self = state.players.find((candidate) => candidate.clientId === state.clientId);
+  return self?.serverId || null;
 }
 
 function syncClock(snapshot) {
@@ -101,12 +110,13 @@ function serverPlayerView(player) {
     accountLinked: player.accountLinked === true,
     roomPlayerId: player.roomPlayerId || player.id,
     name: String(orDefault(player.nickname, "PLAYER")).toUpperCase(),
-    color: orDefault(player.color, "#cfa75f"),
-    textColor: orDefault(player.color, "#e8d3ab"),
+    color: hexColor(player.color, "#cfa75f"),
+    textColor: hexColor(player.textColor ?? player.color, "#e8d3ab"),
     cash: num(player.cash),
     pos: num(player.position),
     online: !player.disconnected,
     bankrupt: Boolean(player.bankrupt),
+    spectating: Boolean(player.spectating),
     inDebt: Boolean(player.inDebt),
     bot: Boolean(player.isBot),
     jailFree: num(player.jailFreeCards),
@@ -120,7 +130,7 @@ function serverPlayerView(player) {
     casinoNet: num(player.casinoNet),
     marketPositions: orDefault(player.marketPositions, {}),
     isHost: Boolean(player.isHost),
-    avatarGrid: gridOrNull(player.avatarGrid),
+    avatarGrid: sanitizeAvatarGrid(player.avatarGrid),
     personality: orNull(player.personality),
     botBrain: orNull(player.botBrain),
     botDifficulty: orNull(player.botDifficulty),
@@ -167,9 +177,13 @@ function syncRoundFlags(game) {
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
   state.pendingTrade = orNull(game.pendingTrade);
   const pendingTradeId = state.pendingTrade?.id || null;
+  // Race grace: an offer that just arrived via socket may precede the
+  // snapshot carrying it. Keep fresh arrivals 15s instead of wiping the
+  // inbox (and the open modal) out from under them.
+  const now = Date.now();
   state.offers = pendingTradeId
     ? (state.offers || []).filter(offer => offer?.id === pendingTradeId)
-    : [];
+    : (state.offers || []).filter(offer => now - (Number(offer?.receivedAt) || 0) < 15000);
 }
 
 function diceOf(game) {
@@ -301,11 +315,14 @@ function passedEntries(passedPlayerIds) {
 }
 
 function auctionView(auction) {
+  const endsAt = Number(auction.endsAt);
   return {
     tileIndex: Number(auction.tileIndex),
     bid: num(auction.highestBid),
     leaderId: findLocalPlayerId(auction.highestBidderId),
-    deadline: orNum(auction.endsAt, serverNow() + AUCTION_MS),
+    // Never fabricate a deadline: without a server endsAt the UI shows
+    // SYNCING instead of counting down a phantom window.
+    deadline: Number.isFinite(endsAt) && endsAt > 0 ? endsAt : null,
     caps: {},
     passed: Object.fromEntries(passedEntries(auction.passedPlayerIds)),
   };
@@ -328,14 +345,28 @@ function syncView(host) {
 function scheduleWalks(movementPlans, host) {
   if (!movementPlans.length) return;
   const plans = movementPlans;
-  requestAnimationFrame(() => plans.forEach(({ player, from, to }) => host.startPieceWalk(player.id, from, to)));
+  const startedAt = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+  const start = () => plans.forEach(({ player, from, to }) => host.startPieceWalk(player.id, from, to, { startedAt }));
+  if (typeof document !== "undefined" && document.hidden) start();
+  else requestAnimationFrame(start);
+}
+
+let auctionSnoozeUntil = 0;
+
+export function snoozeAuctionSurface(durationMs = 8000) {
+  auctionSnoozeUntil = Date.now() + Math.max(0, durationMs);
 }
 
 function syncAuctionSurface(host) {
   if (state.auction) {
+    // A manual close snoozes re-rendering so the surface stops fighting
+    // the player; a new auction tile still breaks through immediately.
+    if (Date.now() < auctionSnoozeUntil && state.auctionSnoozedTile === state.auction.tileIndex) return;
+    state.auctionSnoozedTile = state.auction.tileIndex;
     host.openAuctionSurface();
     return;
   }
+  state.auctionSnoozedTile = null;
   host.closeAuctionSurface();
 }
 
@@ -343,6 +374,7 @@ function retireAllowed() {
   if (state.phase !== "playing") return false;
   const me = state.players[0];
   if (!me) return false;
+  if (me.spectating) return true;
   if (me.bankrupt) return false;
   if (me.inDebt) return false;
   return me.online !== false;
@@ -353,8 +385,8 @@ function syncRetireButton(host) {
   if (!retireBtn) return;
   const label = retireBtn.querySelector(".t-label");
   const me = state.players[0];
-  if (label) label.textContent = me?.inDebt ? "BANKRUPT" : "RETIRE";
-  retireBtn.title = me?.inDebt ? "Resolve bankruptcy" : "Retire from the table";
+  if (label) label.textContent = me?.spectating ? "LEAVE TABLE" : me?.inDebt ? "BANKRUPT" : "RETIRE";
+  retireBtn.title = me?.spectating ? "Leave the table" : me?.inDebt ? "Resolve bankruptcy" : "Retire from the table";
   retireBtn.disabled = !retireAllowed();
 }
 
@@ -381,7 +413,12 @@ function syncWinner(game, host) {
 }
 
 function maybeStartCountdown(turnChanged, host) {
-  if (!turnChanged) return;
+  // A server-extended deadline must restart the local countdown even when
+  // the turn itself did not change; otherwise the HUD counts to a stale zero.
+  const deadline = Number(state.turnDeadline) || 0;
+  const extended = state.lastTurnDeadline !== deadline;
+  state.lastTurnDeadline = deadline;
+  if (!turnChanged && !extended) return;
   if (state.phase !== "playing") return;
   if (state.turnIndex !== 0) return;
   host.startTurnCountdown();
@@ -391,6 +428,15 @@ function snapshotIsPlayable(snapshot) {
   if (!snapshot) return false;
   if (!snapshot.room) return false;
   return Boolean(snapshot.game);
+}
+
+export function syncActionLockFromSnapshot() {
+  // Preserve the local lock while an action is awaiting its acknowledgement;
+  // a snapshot can arrive before the server callback and must not re-enable a
+  // roll or end-turn control prematurely.
+  if (state.pendingAction) return;
+  state.busy = false;
+  state.rolling = false;
 }
 
 export function applyServerState(snapshot, host) {
@@ -422,8 +468,7 @@ export function applyServerState(snapshot, host) {
   const turnChanged = state.previousTurnKey !== turnKey;
   state.previousTurnKey = turnKey;
   state.turnStage = turnStageOf(game);
-  state.busy = false;
-  state.rolling = false;
+  syncActionLockFromSnapshot();
   syncLog(game);
   syncRoomSettings(room);
   state.pendingBuyTile = nullish(game.pendingPurchaseOffer?.tileIndex, null);
