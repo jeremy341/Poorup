@@ -226,9 +226,9 @@ function applyAccountAchievements(account) {
 
 export function updateAccountFromResponse(response) {
   if (!response?.account) return;
-  const token = response.sessionToken || state.account?.sessionToken;
-  if (!token) return;
+  const token = response.sessionToken ?? state.account?.sessionToken ?? "";
   saveAccountSession({ sessionToken: token, account: response.account });
+  if (token) void exchangeLegacySessionCookie(token);
   state.alias = response.account.displayName;
   state.unlockedAchievements = new Set();
   state.achievementRecords = new Map();
@@ -237,6 +237,24 @@ export function updateAccountFromResponse(response) {
   renderAccountPanel();
   renderAchievements();
   applyProfileToHomeUI();
+}
+
+async function exchangeLegacySessionCookie(token) {
+  try {
+    const response = await fetch("/account/session", {
+      headers: { "x-poorup-session-token": token, Accept: "application/json" },
+      credentials: "include",
+    });
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (payload?.success && payload.account) {
+      saveAccountSession({ sessionToken: "", account: payload.account });
+      globalThis.window?.dispatchEvent?.(new Event("poorup-session-cookie-ready"));
+    }
+  } catch {
+    // The bearer session remains usable for the current socket; a later
+    // connect retries the cookie exchange.
+  }
 }
 
 const ACCOUNT_USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
@@ -506,6 +524,7 @@ export function closeAccountModal() {
 export function logoutAccount() {
   const token = state.account?.sessionToken;
   if (token) host.emitServer("account-logout", { sessionToken: token }, noop);
+  void fetch("/account/logout", { method: "POST", credentials: "include" }).catch(() => {});
   clearLocalPlayerData();
   saveAccountSession(null);
   state.profiles = [];

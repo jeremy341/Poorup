@@ -132,7 +132,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   on('account-logout', (payload = {}, callback) => {
     socket.data.accountId = null;
+    socket.data.sessionAccountId = null;
     socket.data.sessionTokenHash = null;
+    socket.data.resolveCookieSession = () => null;
     reply(callback, accountStore.logout(payload.sessionToken));
   });
 

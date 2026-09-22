@@ -33,10 +33,14 @@ function resolveAccount(accountStore, socket, payload = {}) {
   // socket's cached account after that token fails, otherwise a logout or
   // revocation on another device leaves the old socket authenticated.
   const hasExplicitToken = payload && payload.sessionToken !== undefined && payload.sessionToken !== null;
+  const cookieSession = typeof socket.data?.resolveCookieSession === 'function'
+    ? socket.data.resolveCookieSession()
+    : null;
+  const cookieAccountId = cookieSession?.accountId || (typeof socket.data?.resolveCookieSession === 'function' ? null : socket.data?.sessionAccountId);
   const account = hasExplicitToken
     ? accountStore.sessionAccount(payload.sessionToken)
     : accountStore.accountForSessionHash?.(socket.data?.sessionTokenHash, socket.data?.accountId)
-      || accountStore.getAccountById?.(socket.data?.sessionAccountId);
+      || accountStore.getAccountById?.(cookieAccountId);
   if (account) {
     socket.data.accountId = account.id;
     if (hasExplicitToken) socket.data.sessionTokenHash = accountStore.sessionTokenHashFor?.(payload.sessionToken) || null;

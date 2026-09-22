@@ -46,6 +46,7 @@ let host = {
   serverSyncHost: {},
 };
 let storageListenerInstalled = false;
+let cookieListenerInstalled = false;
 
 function noop() {}
 
@@ -98,6 +99,12 @@ function onSocketConnect(socket) {
   if (state.account?.sessionToken) restoreAccountSession(socket);
   else void restoreCookieSession();
   host.emitServer("restore-session", {}, (response) => host.handleRestoreSessionResponse(response, false));
+}
+
+function onCookieSessionReady(socket) {
+  if (!socket || state.account?.sessionToken) return;
+  socket.disconnect?.();
+  socket.connect?.();
 }
 
 async function restoreCookieSession() {
@@ -383,6 +390,10 @@ export function configureSocketListeners(socket, hooks) {
   if (!storageListenerInstalled && typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("storage", onStorage);
     storageListenerInstalled = true;
+  }
+  if (!cookieListenerInstalled && typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("poorup-session-cookie-ready", () => onCookieSessionReady(socket));
+    cookieListenerInstalled = true;
   }
   if (!socket) return;
   attachConnectionListeners(socket);

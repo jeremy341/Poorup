@@ -10,6 +10,13 @@ const { persistAccountSession, loadAccountSession } = await import('./clientSani
 const socketListeners = readFileSync(new URL('./clientSocketListeners.js', import.meta.url), 'utf8');
 assert.match(socketListeners, /fetch\("\/account\/session"/);
 assert.match(socketListeners, /credentials:\s*"include"/);
+assert.match(socketListeners, /poorup-session-cookie-ready/);
+assert.match(socketListeners, /socket\.disconnect/);
+assert.match(socketListeners, /socket\.connect/);
+const accountIdentity = readFileSync(new URL('./clientAccountIdentity.js', import.meta.url), 'utf8');
+assert.match(accountIdentity, /x-poorup-session-token/);
+assert.match(accountIdentity, /fetch\("\/account\/logout"/);
+assert.match(accountIdentity, /poorup-session-cookie-ready/);
 persistAccountSession({ sessionToken: 'secret-bearer', account: { id: 'acct-1', username: 'owner', displayName: 'Owner' } });
 const stored = JSON.parse(values.get('poorup.account.session.v1'));
 assert.equal(Object.prototype.hasOwnProperty.call(stored, 'sessionToken'), false, 'new persisted sessions contain no bearer token');

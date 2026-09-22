@@ -262,7 +262,10 @@ app.get('/account/export', (req, res) => {
 });
 app.post('/account/logout', (req, res) => {
   const cookies = parseCookieHeader(req.headers.cookie || '');
-  sessionStore.revoke(cookies[SESSION_COOKIE_NAME]);
+  const cookieValue = cookies[SESSION_COOKIE_NAME] || '';
+  const session = sessionStore.resolve(cookieValue);
+  if (session?.accountId) accountStore.revokeSessionsForAccount(session.accountId, true);
+  sessionStore.revoke(cookieValue);
   res.setHeader('Set-Cookie', sessionStore.clearCookie());
   return res.json({ success: true });
 });
@@ -346,11 +349,13 @@ const sessionStore = createSessionStore({
 });
 io.use((socket, next) => {
   const cookies = parseCookieHeader(socket.handshake?.headers?.cookie || socket.request?.headers?.cookie || '');
-  const session = sessionStore.resolve(cookies[SESSION_COOKIE_NAME]);
+  const cookieValue = cookies[SESSION_COOKIE_NAME] || '';
+  const session = sessionStore.resolve(cookieValue);
   if (session) {
     socket.data.sessionId = session.sessionId;
     socket.data.sessionAccountId = session.accountId;
   }
+  socket.data.resolveCookieSession = () => cookieValue ? sessionStore.resolve(cookieValue) : null;
   next();
 });
 const mailAdapter = createMailAdapter({ env: process.env });
