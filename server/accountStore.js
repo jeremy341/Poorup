@@ -785,6 +785,15 @@ export class AccountStore {
 
   updateProfile(sessionToken, patch = {}) {
     const account = this.sessionAccount(sessionToken);
+    return this.updateProfileForAccount(account, patch);
+  }
+
+  // Cookie-backed socket sessions do not expose a bearer token to the
+  // browser. The socket resolver has already authenticated the account, so
+  // profile mutations can use that authoritative account without trying to
+  // re-parse an intentionally empty sessionToken field.
+  updateProfileForAccount(accountOrId, patch = {}) {
+    const account = typeof accountOrId === 'string' ? this.getAccountById(accountOrId) : accountOrId;
     if (!account) return { success: false, error: 'Account session expired. Sign in again.' };
     return commitMutation(this, () => {
       if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);

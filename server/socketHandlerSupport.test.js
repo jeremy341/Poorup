@@ -6,6 +6,7 @@ const accountStore = {
   getAccountById: id => id === account.id ? account : null,
   sessionAccount: () => null,
   accountForSessionHash: () => null,
+  sessionTokenHashFor: () => null,
 };
 const socket = { data: { sessionAccountId: account.id, resolveCookieSession: () => ({ accountId: account.id }) } };
 

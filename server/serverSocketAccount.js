@@ -268,7 +268,10 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   function handleAccountUpdate(payload = {}, callback) {
     const current = runtime.social.accountForSocket(socket, payload);
     if (current?.accountDeactivated === true) return reply(callback, restrictedError);
-    const result = stampOwnerAccount(accountStore.updateProfile(payload.sessionToken, payload));
+    const hasBearerToken = typeof payload.sessionToken === 'string' && payload.sessionToken !== '';
+    const result = stampOwnerAccount(hasBearerToken
+      ? accountStore.updateProfile(payload.sessionToken, payload)
+      : accountStore.updateProfileForAccount?.(current, payload) || { success: false, error: 'Account session expired. Sign in again.' });
     if (!result.success) return reply(callback, result);
     socket.data.accountId = result.account.id;
     socket.data.sessionTokenHash = accountStore.sessionTokenHashFor(payload.sessionToken);
