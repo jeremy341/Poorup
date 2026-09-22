@@ -41,8 +41,20 @@ const CANCELLED_OBLIGATIONS = [
 // Room-local timer failures must not escape into the process-level exception
 // path. Keep the wrapper dependency-free so each timer callback remains easy
 // to test and teardown.
-export function runRoomTimer(label, roomCode, callback, onError = console.error) {
-  try {
+export function reassignHostIfNeeded(room, departedPlayerId) {
+  if (!room) return;
+  if (room.hostId !== departedPlayerId) return;
+  const available = room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && !p.inDebt && p.id !== departedPlayerId);
+  // An in-debt host can still manage lobby settings; a null host blocks
+  // every human forever. Fall back before giving up.
+  const fallback = available || room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && p.id !== departedPlayerId);
+  room.hostId = fallback ? fallback.id : null;
+  room.game.players.forEach(player => {
+    player.isHost = player.id === room.hostId;
+  });
+}
+
+export function runRoomTimer(label, roomCode, callback, onError = console.error) {  try {
     callback();
     return true;
   } catch (error) {
@@ -60,12 +72,6 @@ export function settleAfkPayment(game, player) {
     return Boolean(game.trySettlePendingPayment?.());
   }
   const creditor = pending.creditorId ? game.getPlayerById?.(pending.creditorId) : null;
-  if (game.settings?.bankruptMode === 'debt' && typeof game.handleDebtBankruptcy === 'function') {
-    game.handleDebtBankruptcy(player, creditor);
-    game.clearPendingPayment?.(false);
-    game.concludeBankruptRound?.(player);
-    return true;
-  }
   if (typeof game.handleBankruptcy === 'function') {
     game.handleBankruptcy(player, creditor);
     return true;
@@ -192,6 +198,10 @@ export function recordSeasonTelemetry(context) {
 
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
+  const configuredDisconnectGrace = Number(deps.disconnectGraceMs);
+  const disconnectGraceMs = Number.isFinite(configuredDisconnectGrace) && configuredDisconnectGrace > 0
+    ? Math.max(1, Math.floor(configuredDisconnectGrace))
+    : DISCONNECT_GRACE_MS;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
@@ -355,20 +365,6 @@ function createRuntime(deps) {
 
   // --- seat lifecycle ------------------------------------------------------
 
-  function reassignHostIfNeeded(room, departedPlayerId) {
-    if (!room) return;
-    if (room.hostId !== departedPlayerId) return;
-    const available = room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && !p.inDebt && p.id !== departedPlayerId);
-    if (available) {
-      room.hostId = available.id;
-    } else {
-      room.hostId = null;
-    }
-    room.game.players.forEach(player => {
-      player.isHost = player.id === room.hostId;
-    });
-  }
-
   // Leave any previous game rooms so we don't receive ghost updates
   function leaveAllGameRooms(socket) {
     for (const joined of [...socket.rooms]) {
@@ -397,9 +393,11 @@ function createRuntime(deps) {
   }
 
   function detachStartedSeat(oldRoom, oldPlayer) {
-    oldPlayer.disconnected = true;
-    oldPlayer.socketId = null;
-    oldPlayer.disconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
+    const socketId = oldPlayer.socketId;
+    // A room switch is a disconnect from the previous started room. Route it
+    // through the same timer/expiry pipeline as a transport close so the old
+    // seat cannot strand a payment or turn indefinitely.
+    scheduleDisconnect(oldRoom, socketId, oldPlayer);
     reassignHostIfNeeded(oldRoom, oldPlayer.id);
     emitRoomState(oldRoom);
   }
@@ -558,7 +556,8 @@ function createRuntime(deps) {
       playerId: bot.id,
       nickname: bot.nickname,
       state,
-      brain: details.brain || room.settings.botBrain || 'auto',
+      brain: details.brain || room.settings.botBrain || 'ai',
+      effectiveBrain: details.effectiveBrain || (details.fallback ? 'no-ai' : 'ai'),
       difficulty: details.difficulty || room.settings.botDifficulty || 'table',
       provider: details.provider === 'ai' ? 'ai' : 'deterministic',
       fallback: details.fallback === true,
@@ -623,11 +622,11 @@ function createRuntime(deps) {
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
-    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
+    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash, room.game);
     const minimum = baseline.minimum;
     const context = {
       botId: bot.id,
-      botBrain: room.settings.botBrain || 'auto',
+      botBrain: room.settings.botBrain || 'ai',
       botDifficulty: room.settings.botDifficulty || 'table',
       gameId: `${room.roomCode}:${room.game.startedAt || 'pending'}`,
       decisionSequence,
@@ -716,8 +715,8 @@ function createRuntime(deps) {
     clearDisconnectTimer(player.clientId);
     player.disconnected = true;
     player.socketId = null;
-    player.disconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
-    const timer = setTimeout(() => runRoomTimer('disconnect-expiry', room.roomCode, () => expireDisconnectedSeat(room, player, socketId)), DISCONNECT_GRACE_MS);
+    player.disconnectDeadline = Date.now() + disconnectGraceMs;
+    const timer = setTimeout(() => runRoomTimer('disconnect-expiry', room.roomCode, () => expireDisconnectedSeat(room, player, socketId)), disconnectGraceMs);
     disconnectTimers.set(player.clientId, timer);
   }
 
@@ -789,7 +788,7 @@ function createRuntime(deps) {
     clearPendingObligations(room, game, player, 'turn timeout');
     game.pendingPurchaseOffer = null;
     if (settleAfkPayment(game, player)) {
-      game.feedMessage(`${player.nickname} ran out of time and the payment was settled through the debt path.`);
+      game.feedMessage(`${player.nickname} ran out of time and the payment was settled through the bankruptcy path.`);
       io.in(room.roomCode).emit('system-message', { text: `${player.nickname} ran out of time. The payment was settled through the bankruptcy path.` });
       emitRoomState(room);
       return;
@@ -1017,6 +1016,7 @@ function createRuntime(deps) {
     seasonStore,
     cosmeticStore,
     telemetryStore,
+    botProviderStatus,
     reassignHostIfNeeded,
     roomManager,
     scheduleAuctionFinish,
@@ -1024,7 +1024,8 @@ function createRuntime(deps) {
     social,
     socialStore,
     emitPendingInteractions,
-    emitRoomState
+    emitRoomState,
+    unsubscribeBotProviderStatus
   };
 
   roomManager.setRoomDestroyer?.(destroyRoom);

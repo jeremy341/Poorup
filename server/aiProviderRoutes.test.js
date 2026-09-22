@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import http from 'node:http';
 import { createAiProviderManager, createAiProviderStore } from './aiProviderConfig.js';
-import { DeepSeekAdvisor } from './botAdvisor.js';
+import { AiAdvisor } from './botAdvisor.js';
 import { registerAiProviderRoutes } from './aiProviderRoutes.js';
 
 const app = express();
 const accountStore = { sessionAccount: token => token === 'admin-session' ? { id: 'acct-admin' } : null };
 const store = createAiProviderStore({});
-const advisor = new DeepSeekAdvisor({ apiKey: '', fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const advisor = new AiAdvisor({ apiKey: '', fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 const manager = createAiProviderManager({ store, advisor, fetchImpl: async (_url, options) => {
   const body = JSON.parse(options.body);
   if (body.messages) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) };

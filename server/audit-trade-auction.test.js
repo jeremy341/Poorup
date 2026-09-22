@@ -138,13 +138,15 @@ check('auction acquisition clears stale equity and duplicate deed references', (
   assert.deepEqual(winner.properties, [tile.index]);
 });
 
-check('trade proposal blocked during pendingPayment', () => {
+check('trade proposal remains available during pendingPayment as a rescue path', () => {
   const { game, b } = startedRoom();
-  const toPlayer = game.getPlayerById(b.id);
-  toPlayer.cash = 50;
-  game.pendingPayment = { playerId: 'x', creditorId: null, amountRemaining: 1, reason: 'r' };
-  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 500 }), { success: false, error: 'Another trade is already pending.' });
-  assert.equal(game.pendingTrade, null);
+  const a = game.getPlayerBySocket('socket-a');
+  b.cash = 500;
+  game.pendingPayment = { playerId: a.id, creditorId: null, amountRemaining: 1, reason: 'r' };
+  const result = game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 500 });
+  assert.equal(result.success, true);
+  assert.equal(game.pendingTrade.id, result.trade.id);
+  assert.deepEqual(game.pendingPayment, { playerId: a.id, creditorId: null, amountRemaining: 1, reason: 'r' });
 });
 
 check('trade proposal respects the room trading toggle', () => {

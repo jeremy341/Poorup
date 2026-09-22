@@ -61,6 +61,18 @@ check('loan contract derives totalDue, due and cure rounds, collateral', () => {
   assert.equal(contract.equityShare, 0);
 });
 
+check('player loan offer remains available to a debtor during pendingPayment', () => {
+  const { game, a, b } = startedRoom();
+  game.currentPlayerId = b.id;
+  game.pendingPayment = { playerId: a.id, creditorId: null, amountRemaining: 100, reason: 'rent' };
+  const offer = game.proposePlayerContract('socket-b', {
+    toPlayerId: a.id, kind: 'loan', amount: 100, premiumRate: 12, durationRounds: 3
+  });
+  assert.equal(offer.success, true);
+  assert.equal(offer.contract.toPlayerId, a.id);
+  assert.deepEqual(game.pendingPayment, { playerId: a.id, creditorId: null, amountRemaining: 100, reason: 'rent' });
+});
+
 check('borrower can negotiate every loan term before lender approval', () => {
   const { game, a, b } = startedRoom();
   const deed = game.getTile(1);

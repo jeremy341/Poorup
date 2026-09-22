@@ -34,10 +34,10 @@ function normalizePropertyIndexes(value) {
 // error string wins exactly as before. The context is fully normalized up
 // front (pure lookups only), and every predicate reads just that context.
 //
-// Deliberate design, not a gap: trades have NO turn guard. Loans, market,
-// casino and bank loans require your turn; player-to-player trades may be
-// proposed and settled on anyone's turn. Table obligations (payment, auction,
-// purchase offer, pending trade/contract) still block both legs.
+// Deliberate design, not a gap: trades have NO turn guard and remain available
+// during pending payment so players can negotiate a rescue. Other pending
+// table interactions (auction, purchase offer, trade, contract) still block
+// both legs until they resolve.
 const TRADE_PROPOSAL_GUARDS = [
   {
     error: 'Choose a valid trade partner.',

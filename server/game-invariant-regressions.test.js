@@ -65,7 +65,7 @@ check('failed hybrid conversion records the unpaid principal for an explicit def
   assert.equal(contract.defaultReason, 'conversion-unavailable');
 });
 
-check('debt-mode bankruptcy concludes a two-player round and crowns the solvent player', () => {
+check('legacy debt-mode bankruptcy concludes a two-player round and crowns the solvent player', () => {
   const room = startedRoom({ rulesetPreset: 'after-hours' });
   room.game.settings.bankruptMode = 'debt';
   const debtor = room.game.players[0];
@@ -76,7 +76,9 @@ check('debt-mode bankruptcy concludes a two-player round and crowns the solvent 
   assert.equal(result.success, true);
   assert.equal(room.game.started, false);
   assert.equal(room.game.lastWinner?.id, creditor.id);
-  assert.equal(debtor.inDebt, true);
+  assert.equal(debtor.bankrupt, true);
+  assert.equal(debtor.inDebt, false);
+  assert.equal(debtor.spectating, true);
 });
 
 check('AFK expiry settles or concludes an active payment instead of forgiving it', () => {

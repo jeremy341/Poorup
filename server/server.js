@@ -47,6 +47,7 @@ import { createAccountDeletionCoordinator } from './accountDeletion.js';
 import { buildAccountExport } from './accountExport.js';
 import { createRetentionJob } from './retentionJob.js';
 import { createBackupRetentionAdapter } from './backupStore.js';
+import { createLegalRouter } from './legalRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -220,6 +221,10 @@ app.get('/sitemap.xml', (_req, res, next) => {
   const body = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${publicRoutes.map(route => `<url><loc>${escapeXml(`${metadataOrigin}${route}`)}</loc></url>`).join('')}</urlset>`;
   return res.type('application/xml').send(body);
 });
+// Keep extensionless legal documents behind one explicit router. Mount this
+// before static serving so `/legal` and its aliases cannot fall through to the
+// SPA 404 handler, while the document files remain local static assets.
+app.use(createLegalRouter({ publicDirectory: publicPath }));
 app.use(express.static(publicPath, {
   etag: true,
   maxAge: '1h',

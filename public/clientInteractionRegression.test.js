@@ -14,10 +14,9 @@ const stateSync = readFileSync(new URL("./clientStateSync.js", import.meta.url),
 const main = readFileSync(new URL("./main.js", import.meta.url), "utf8");
 
 const ticker = index.match(/<div class="ticker">([\s\S]*?)<\/div>/i)?.[1] || "";
-assert.equal((ticker.match(/class="[^"]*legal-links[^"]*"/g) || []).length, 1);
-assert.match(ticker, /href="\/legal#privacy"/);
-assert.match(ticker, /href="\/legal#terms"/);
-assert.match(ticker, /href="\/legal#support"/);
+assert.equal((ticker.match(/class="[^"]*ticker-link[^"]*"/g) || []).length, 1);
+assert.match(ticker, /href="\/privacy"/);
+assert.doesNotMatch(ticker, /href="\/legal#/);
 assert.doesNotMatch(ticker, /<button[\s\S]*<a|<a[\s\S]*<button/i);
 
 assert.match(surfaces, /options\.trigger|setSurfaceReturnFocus\(options\.trigger\)/);

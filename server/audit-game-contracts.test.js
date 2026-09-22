@@ -82,10 +82,16 @@ check('contract counters respect other table obligations', () => {
     const { game, b } = startedRoom();
     const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
     assert.equal(first.success, true);
-    game[field] = {};
+    game[field] = field === 'pendingPayment' ? { playerId: b.id, amountRemaining: 10 } : {};
     const counter = game.counterPlayerContract('socket-b', { contractId: first.contract.id, amount: 60 });
-    assert.deepEqual(counter, { success: false, error: 'Resolve the current table obligation first.' }, field);
-    assert.equal(game.pendingPlayerContract.id, first.contract.id);
+    if (field === 'pendingPayment') {
+      assert.equal(counter.success, true, field);
+      assert.equal(counter.countered, true, field);
+      assert.equal(game.pendingPlayerContract.amount, 60, field);
+    } else {
+      assert.deepEqual(counter, { success: false, error: 'Resolve the current table obligation first.' }, field);
+      assert.equal(game.pendingPlayerContract.id, first.contract.id, field);
+    }
   });
 });
 
@@ -162,7 +168,9 @@ check('bankruptcy cash sweep never pays a bankrupt creditor', () => {
   b.cash = 100;
   game.sweepCashToCreditor(b, a);
   assert.equal(a.cash, 1500);
-  assert.equal(b.cash, 100);
+  // The bankrupt creditor receives nothing; the elimination pipeline returns
+  // the debtor's remaining cash to the bank instead of leaving it on a dead seat.
+  assert.equal(b.cash, 0);
 });
 
 check('disconnected payer cannot settle and clears the debt', () => {
