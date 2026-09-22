@@ -170,10 +170,10 @@ export function initAdminAiProvider() {
   function render() { renderActive(model); renderProfiles(model); }
 
   async function load() {
-    if (!state.account?.sessionToken) { setStatus('ADMIN ACCOUNT REQUIRED', 'warning'); render(); return false; }
+    if (!state.account?.account) { setStatus('ADMIN ACCOUNT REQUIRED', 'warning'); render(); return false; }
     model.loading = true;
     try {
-      const response = await fetch(`${API_ROOT}/providers`, { headers: sessionHeaders(), cache: 'no-store' });
+      const response = await fetch(`${API_ROOT}/providers`, { headers: sessionHeaders(), credentials: 'include', cache: 'no-store' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.success === false) throw new Error(payload.error || 'Provider roster unavailable.');
       model.profiles = (Array.isArray(payload.providers) ? payload.providers : []).map(normalizeProfile).filter(Boolean);
@@ -195,7 +195,7 @@ export function initAdminAiProvider() {
     event.preventDefault();
     const form = query('[data-admin-provider-form]');
     if (!form?.reportValidity?.()) return;
-    if (!state.account?.sessionToken) { setStatus('ADMIN ACCOUNT REQUIRED', 'warning'); return; }
+    if (!state.account?.account) { setStatus('ADMIN ACCOUNT REQUIRED', 'warning'); return; }
     const values = readForm();
     const editing = model.selectedId && model.profiles.some(profile => profile.id === model.selectedId && !profile.readOnly);
     const body = { label: values.label, model: values.model, baseUrl: values.baseUrl, protocol: values.protocol, timeoutMs: values.timeoutMs, maxDecisionsPerGame: values.maxDecisionsPerGame };
@@ -203,7 +203,7 @@ export function initAdminAiProvider() {
     model.saving = true;
     render();
     try {
-      const response = await fetch(editing ? `${API_ROOT}/providers/${encodeURIComponent(model.selectedId)}` : `${API_ROOT}/providers`, { method: editing ? 'PATCH' : 'POST', headers: sessionHeaders(true), body: JSON.stringify(body), cache: 'no-store' });
+      const response = await fetch(editing ? `${API_ROOT}/providers/${encodeURIComponent(model.selectedId)}` : `${API_ROOT}/providers`, { method: editing ? 'PATCH' : 'POST', headers: sessionHeaders(true), body: JSON.stringify(body), credentials: 'include', cache: 'no-store' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.success === false) throw new Error(payload.error || 'Provider profile could not be saved.');
       model.selectedId = payload.profile?.id || model.selectedId;
@@ -219,7 +219,7 @@ export function initAdminAiProvider() {
     model.testing = true;
     render();
     try {
-      const response = await fetch(`${API_ROOT}/providers/${encodeURIComponent(id)}/test`, { method: 'POST', headers: sessionHeaders(true), body: '{}', cache: 'no-store' });
+      const response = await fetch(`${API_ROOT}/providers/${encodeURIComponent(id)}/test`, { method: 'POST', headers: sessionHeaders(true), body: '{}', credentials: 'include', cache: 'no-store' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.success === false) throw new Error(payload.test?.reason ? `CONNECTION TEST FAILED · ${String(payload.test.reason).toUpperCase()}` : payload.error || 'Connection test failed.');
       const protocol = PROTOCOL_LABELS[payload.test?.protocol] || 'FORMAT DETECTED';
@@ -240,7 +240,7 @@ export function initAdminAiProvider() {
     model.saving = true;
     render();
     try {
-      const response = await fetch(`${API_ROOT}/providers/${encodeURIComponent(id)}/activate`, { method: 'POST', headers: sessionHeaders(true), body: '{}', cache: 'no-store' });
+      const response = await fetch(`${API_ROOT}/providers/${encodeURIComponent(id)}/activate`, { method: 'POST', headers: sessionHeaders(true), body: '{}', credentials: 'include', cache: 'no-store' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.success === false) throw new Error(payload.error || 'Provider activation failed.');
       const activeProfile = normalizeProfile(payload.active);

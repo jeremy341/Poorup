@@ -83,13 +83,38 @@ await check('controller reports rollup unavailable when fetch is missing', async
   const previousAccount = state.account;
   globalThis.window = { location: { pathname: '/admin/analytics', search: '' }, matchMedia: () => ({ matches: false }) };
   globalThis.fetch = undefined;
-  state.account = { sessionToken: 'session' };
+  state.account = { sessionToken: 'session', account: { id: 'admin-1' } };
   const status = fakeElement({ id: 'admin-analytics-status' });
   globalThis.document = fakeAnalyticsDocument({ status, grid: fakeElement({ id: 'admin-analytics-grid' }) });
   const controller = createAnalyticsController();
   const result = await controller.load();
   assert.equal(result.status, 503);
   assert.equal(status.textContent, 'ROLLUP UNAVAILABLE · RETRY');
+  controller.destroy();
+  state.account = previousAccount;
+  globalThis.fetch = previousFetch;
+  globalThis.window = previousWindow;
+  globalThis.document = previousDocument;
+});
+
+await check('cookie-backed admin sessions can load analytics without a bearer token', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const previousAccount = state.account;
+  let requestOptions = null;
+  globalThis.window = { location: { pathname: '/admin/analytics', search: '' }, matchMedia: () => ({ matches: false }) };
+  state.account = { sessionToken: '', account: { id: 'admin-cookie', isAdmin: true } };
+  globalThis.fetch = async (_url, options) => {
+    requestOptions = options;
+    return { ok: true, json: async () => ({ success: true, overview: { kpis: [] } }) };
+  };
+  const status = fakeElement({ id: 'admin-analytics-status' });
+  globalThis.document = fakeAnalyticsDocument({ status, grid: fakeElement({ id: 'admin-analytics-grid' }) });
+  const controller = createAnalyticsController();
+  const result = await controller.load();
+  assert.ok(result && typeof result === 'object');
+  assert.equal(requestOptions.credentials, 'include');
   controller.destroy();
   state.account = previousAccount;
   globalThis.fetch = previousFetch;

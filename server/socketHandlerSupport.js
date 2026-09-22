@@ -32,7 +32,11 @@ function resolveAccount(accountStore, socket, payload = {}) {
   // An explicitly supplied token is authoritative. Never fall back to a
   // socket's cached account after that token fails, otherwise a logout or
   // revocation on another device leaves the old socket authenticated.
-  const hasExplicitToken = payload && payload.sessionToken !== undefined && payload.sessionToken !== null;
+  // The client includes an empty `sessionToken` field in its common socket
+  // envelope. Treat that value as absent so cookie-backed sessions can still
+  // resolve, while any non-empty (including invalid) token remains explicit
+  // and authoritative.
+  const hasExplicitToken = payload && payload.sessionToken !== undefined && payload.sessionToken !== null && payload.sessionToken !== '';
   const cookieSession = typeof socket.data?.resolveCookieSession === 'function'
     ? socket.data.resolveCookieSession()
     : null;

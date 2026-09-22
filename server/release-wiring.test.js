@@ -77,6 +77,11 @@ try {
   const analyticsBody = await analytics.json();
   assert.equal(analyticsBody.success, false);
 
+  const session = await fetch(`${base}/account/session`);
+  assert.equal(session.status, 401);
+  assert.equal(session.headers.get('cache-control'), 'no-store');
+  assert.match(session.headers.get('vary') || '', /Cookie/i);
+
   const metadata = await fetch(`${base}/`);
   assert.equal(metadata.status, 200);
   const metadataBody = await metadata.text();

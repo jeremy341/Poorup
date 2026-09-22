@@ -236,6 +236,8 @@ app.use(express.static(publicPath, {
   }
 }));
 app.get('/account/session', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Vary', 'Cookie, x-poorup-session-token');
   const account = httpAccountResolver(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
   if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);

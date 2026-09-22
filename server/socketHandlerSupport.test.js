@@ -12,6 +12,9 @@ const socket = { data: { sessionAccountId: account.id, resolveCookieSession: () 
 assert.equal(resolveAccount(accountStore, socket, {}), account);
 assert.equal(socket.data.accountId, account.id);
 
+assert.equal(resolveAccount(accountStore, socket, { sessionToken: '' }), account);
+assert.equal(socket.data.accountId, account.id);
+
 assert.equal(resolveAccount(accountStore, socket, { sessionToken: 'invalid-explicit-token' }), null);
 assert.equal(socket.data.accountId, null);
 
@@ -19,4 +22,4 @@ socket.data.accountId = null;
 socket.data.resolveCookieSession = () => null;
 assert.equal(resolveAccount(accountStore, socket, {}), null);
 
-console.log('socket handler session resolution: 2 passed, 0 failed');
+console.log('socket handler session resolution: 3 passed, 0 failed');

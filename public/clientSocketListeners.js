@@ -84,7 +84,7 @@ export function reconcileSignedOutState(message = "This account session ended in
 
 export function onStorage(event) {
   if (event?.key !== "poorup.account.session.v1" || event.newValue !== null) return;
-  if (!state.account?.sessionToken) return;
+  if (!state.account?.account) return;
   reconcileSignedOutState();
 }
 
@@ -234,7 +234,7 @@ function onAchievementUnlocked(notification) {
 }
 
 function onAccountSync({ account } = {}) {
-  if (!state.account?.sessionToken) return;
+  if (!state.account?.account) return;
   if (!account) return;
   updateAccountFromResponse({ account, sessionToken: state.account.sessionToken });
 }

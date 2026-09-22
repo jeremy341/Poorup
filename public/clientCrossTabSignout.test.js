@@ -71,4 +71,8 @@ assert.equal(storage.getItem("other-app.state"), "retain-me");
 assert.ok(calls.includes("syncAudioButtons"));
 assert.ok(calls.includes("syncHomeMusic"));
 
+state.account = { sessionToken: "", account: { id: "acct-cookie", username: "COOKIE", displayName: "Cookie" } };
+onStorage({ key: "poorup.account.session.v1", oldValue: "cookie", newValue: null });
+assert.equal(state.account, null, "cookie-backed sessions also clear after a cross-tab logout");
+
 console.log("client cross-tab sign-out tests: passed");
