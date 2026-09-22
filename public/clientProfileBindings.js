@@ -125,12 +125,13 @@ function accountUpdateAck(response) {
 }
 
 function syncSavedDesignToAccount(saved) {
-  if (!state.account?.sessionToken) return;
-  host.emitServer("account-update", {
-    sessionToken: state.account.sessionToken,
+  if (!state.account?.account) return;
+  const payload = {
     color: saved.color,
     avatarGrid: saved.avatarGrid,
-  }, accountUpdateAck);
+  };
+  if (state.account.sessionToken) payload.sessionToken = state.account.sessionToken;
+  host.emitServer("account-update", payload, accountUpdateAck);
 }
 
 function stayAfterSave(saved) {

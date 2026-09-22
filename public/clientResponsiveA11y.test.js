@@ -101,6 +101,11 @@ check("touch painting resolves the cell under the pointer", () => {
   expectMatch(profileBindings, /elementFromPoint\(e\.clientX,\s*e\.clientY\)/, "pointer painting does not resolve under-pointer cell");
 });
 
+check("cookie-backed profile designs still sync without a bearer token", () => {
+  expectMatch(profileBindings, /if \(!state\.account\?\.account\) return;/, "profile sync must accept cookie-backed accounts");
+  expectMatch(profileBindings, /if \(state\.account\.sessionToken\) payload\.sessionToken/, "legacy bearer tokens remain optional");
+});
+
 const failures = checks.filter((result) => !result.ok);
 checks.forEach((result) => {
   if (result.ok) console.log(`PASS - ${result.name}`);
