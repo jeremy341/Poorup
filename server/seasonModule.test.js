@@ -40,5 +40,11 @@ assert.deepEqual(store.claimedRewards('a'), ['season-bronze']);
 assert.equal(store.claimReward('b', 'season-master').success, false);
 assert.equal(eligibleSeasonMatch({ matchId: 'bot', participants: [{ accountId: 'a' }, { accountId: 'b' }], botOnly: true }), false);
 assert.equal(eligibleSeasonMatch({ matchId: 'afk', participants: [{ accountId: 'a' }, { accountId: 'b' }], afkOnly: true }), false);
+const replayStore = new SeasonStore(path.join(dir, 'season-replay.json'), Date.UTC(2026, 0, 6));
+const replayParticipants = Array.from({ length: 10 }, (_, index) => ({ accountId: `r-${index}`, finalPlacement: index + 1 }));
+for (let index = 0; index <= 5000; index += 1) {
+  assert.equal(replayStore.recordMatch({ matchId: `replay-${index}`, completedAt: new Date().toISOString(), participants: replayParticipants }).recorded, true);
+}
+assert.equal(replayStore.recordMatch({ matchId: 'replay-0', completedAt: new Date().toISOString(), participants: replayParticipants }).recorded, false);
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('season module: 13 passed, 0 failed');

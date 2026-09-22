@@ -269,7 +269,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!account) return reply(callback, { success: false, error: 'Sign in to claim seasonal rewards.' });
     const seasonStore = runtime.seasonStore;
     const cosmeticStore = runtime.cosmeticStore;
-    const claimed = seasonStore?.claimReward(account.id, payload.rewardId);
+    const claimed = seasonStore?.claimReward(account.id, payload.rewardId, Date.now(), payload.seasonId);
     if (!claimed?.success) return reply(callback, claimed || { success: false, error: 'Season reward is unavailable.' });
     if (cosmeticStore) {
       const grant = applySeasonRewardGrant(cosmeticStore, account.id, claimed);

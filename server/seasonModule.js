@@ -356,7 +356,6 @@ export class SeasonStore {
     season.settledMatchIds ||= normalizedSettledMatchIds(season.matches);
     if (season.settledMatchIds.includes(record.matchId)) return { success: true, recorded: false, season: clone(season) };
     season.settledMatchIds.push(String(record.matchId).slice(0, 120));
-    season.settledMatchIds = season.settledMatchIds.slice(-5000);
     season.matches.push(String(record.matchId).slice(0, 120));
     season.matches = season.matches.slice(-1000);
     const completedAt = typeof record.completedAt === 'string' ? record.completedAt : new Date(now).toISOString();

@@ -221,6 +221,9 @@ app.get('/sitemap.xml', (_req, res, next) => {
   const body = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${publicRoutes.map(route => `<url><loc>${escapeXml(`${metadataOrigin}${route}`)}</loc></url>`).join('')}</urlset>`;
   return res.type('application/xml').send(body);
 });
+// Preserve the established local privacy surface at `/privacy`; the legal
+// router owns only `/legal/*` documents and the other extensionless notices.
+app.get('/privacy', (_req, res, next) => res.sendFile(path.join(publicPath, 'privacy.html'), error => { if (error) next(error); }));
 // Keep extensionless legal documents behind one explicit router. Mount this
 // before static serving so `/legal` and its aliases cannot fall through to the
 // SPA 404 handler, while the document files remain local static assets.
@@ -232,7 +235,6 @@ app.use(express.static(publicPath, {
     if (filePath.endsWith(`${path.sep}index.html`)) response.setHeader('Cache-Control', 'no-cache');
   }
 }));
-app.get('/privacy', (_req, res, next) => res.sendFile(path.join(publicPath, 'privacy.html'), error => { if (error) next(error); }));
 app.get('/account/session', (req, res) => {
   const account = httpAccountResolver(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });

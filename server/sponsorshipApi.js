@@ -133,6 +133,13 @@ const sponsorshipApi = {
       mortgaged: ctx.tile.mortgaged,
       houseCount: ctx.tile.houseCount,
       properties: [...(buyer.properties || [])],
+      boughtDuringHousingBubble: buyer.boughtDuringHousingBubble,
+      currentPlayerId: this.currentPlayerId,
+      hasRolled: this.hasRolled,
+      extraRollPending: this.extraRollPending,
+      turnAllowsExtraRoll: this.turnAllowsExtraRoll,
+      awaitingEndTurn: this.awaitingEndTurn,
+      feed: Array.isArray(this.feed) ? [...this.feed] : this.feed,
     };
     buyer.cash += total - excess;
     this.pendingSponsoredPurchase = null;
@@ -146,18 +153,32 @@ const sponsorshipApi = {
       ctx.tile.mortgaged = rollback.mortgaged;
       ctx.tile.houseCount = rollback.houseCount;
       buyer.properties = rollback.properties;
+      buyer.boughtDuringHousingBubble = rollback.boughtDuringHousingBubble;
+      this.currentPlayerId = rollback.currentPlayerId;
+      this.hasRolled = rollback.hasRolled;
+      this.extraRollPending = rollback.extraRollPending;
+      this.turnAllowsExtraRoll = rollback.turnAllowsExtraRoll;
+      this.awaitingEndTurn = rollback.awaitingEndTurn;
+      if (Array.isArray(rollback.feed)) this.feed = rollback.feed;
       return { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' };
     }
-    let refunded = 0;
-    for (const entry of contributions) {
-      const share = total > 0 ? Math.floor(Number(entry.amount || 0) * excess / total) : 0;
+    const refunds = contributions.map((entry, index) => {
       const sponsor = this.getPlayerById(entry.sponsorId);
-      if (share > 0 && sponsor && !sponsor.bankrupt) {
-        sponsor.cash = Math.max(0, Number(sponsor.cash) || 0) + share;
-        refunded += share;
-      }
+      const amount = Math.max(0, Number(entry.amount) || 0);
+      const numerator = total > 0 ? amount * excess : 0;
+      return { entry, sponsor, index, share: Math.floor(numerator / Math.max(1, total)), remainder: numerator % Math.max(1, total) };
+    }).filter(refund => refund.sponsor && !refund.sponsor.bankrupt);
+    let refunded = refunds.reduce((sum, refund) => sum + refund.share, 0);
+    let remainder = Math.max(0, excess - refunded);
+    refunds.sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+    for (const refund of refunds) {
+      if (remainder <= 0) break;
+      refund.share += 1;
+      remainder -= 1;
     }
-    buyer.cash += Math.max(0, excess - refunded);
+    refunds.forEach(({ sponsor, share }) => {
+      if (share > 0) sponsor.cash = Math.max(0, Number(sponsor.cash) || 0) + share;
+    });
     this.feedMessage(`${buyer.nickname} completed a sponsored purchase of ${ctx.tile.name}.`);
     return { success: true, purchased: true, contributionTotal: total };
   },

@@ -96,7 +96,20 @@ export function isExplicitSessionInvalidation(response) {
 function onSocketConnect(socket) {
   host.setConnectionStatus("online", true);
   if (state.account?.sessionToken) restoreAccountSession(socket);
+  else void restoreCookieSession();
   host.emitServer("restore-session", {}, (response) => host.handleRestoreSessionResponse(response, false));
+}
+
+async function restoreCookieSession() {
+  try {
+    const response = await fetch("/account/session", { credentials: "include", headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (payload?.success && payload.account) updateAccountFromResponse({ account: payload.account, sessionToken: "" });
+  } catch {
+    // A disconnected or guest browser simply remains in guest mode; the next
+    // socket connect retries the cookie-backed session lookup.
+  }
 }
 
 function restoreAccountSession(socket) {

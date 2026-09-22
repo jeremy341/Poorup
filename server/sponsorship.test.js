@@ -92,6 +92,32 @@ assert.deepEqual(atomicCtx.buyer.properties.includes(atomicCtx.tile.index), fals
 assert.ok(atomicCtx.game.pendingSponsoredPurchase);
 assert.equal(atomicCtx.sponsor.cash, 480);
 
+const turnRollbackCtx = fixture();
+assert.equal(turnRollbackCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+assert.equal(turnRollbackCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 20 }).success, true);
+assert.equal(turnRollbackCtx.game.contributeToSponsoredPurchase('s-sponsor-2', { amount: turnRollbackCtx.tile.price - 40 }).success, true);
+turnRollbackCtx.game.globalEvent = { id: 'housing-bubble', phase: 'active' };
+const turnSnapshot = {
+  currentPlayerId: turnRollbackCtx.game.currentPlayerId,
+  hasRolled: turnRollbackCtx.game.hasRolled,
+  extraRollPending: turnRollbackCtx.game.extraRollPending,
+  turnAllowsExtraRoll: turnRollbackCtx.game.turnAllowsExtraRoll,
+  awaitingEndTurn: turnRollbackCtx.game.awaitingEndTurn,
+  feedLength: turnRollbackCtx.game.feed.length,
+};
+turnRollbackCtx.game.resolveTurnAfterAction = () => { throw new Error('turn boom'); };
+assert.deepEqual(turnRollbackCtx.game.acceptSponsoredPurchase('s-buyer'), { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' });
+assert.equal(turnRollbackCtx.buyer.boughtDuringHousingBubble, false);
+assert.deepEqual({
+  currentPlayerId: turnRollbackCtx.game.currentPlayerId,
+  hasRolled: turnRollbackCtx.game.hasRolled,
+  extraRollPending: turnRollbackCtx.game.extraRollPending,
+  turnAllowsExtraRoll: turnRollbackCtx.game.turnAllowsExtraRoll,
+  awaitingEndTurn: turnRollbackCtx.game.awaitingEndTurn,
+  feedLength: turnRollbackCtx.game.feed.length,
+}, turnSnapshot);
+assert.ok(turnRollbackCtx.game.pendingSponsoredPurchase);
+
 // Vacation landing teleports to the Vacation tile, never Jail.
 const vacationCtx = fixture();
 const holiday = vacationCtx.game.tiles.find(tile => tile.type === 'vacation');
@@ -113,4 +139,18 @@ assert.equal(excessCtx.sponsor.cash, 500 - 20 + 15);
 assert.equal(excessCtx.second.cash, 500 - 20 + 15);
 assert.equal(excessCtx.buyer.cash, 0);
 
-console.log('sponsored purchase: 23 passed, 0 failed');
+// Pro-rata refund rounding must conserve every excess dollar. With equal
+// one-dollar contributions and one dollar of excess, the stable first sponsor
+// receives the remainder rather than the buyer pocketing it.
+const roundingCtx = fixture();
+roundingCtx.buyer.cash = roundingCtx.tile.price - 2;
+assert.equal(roundingCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+assert.equal(roundingCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 1 }).success, true);
+assert.equal(roundingCtx.game.contributeToSponsoredPurchase('s-sponsor-2', { amount: 1 }).success, true);
+roundingCtx.buyer.cash += 1;
+assert.equal(roundingCtx.game.acceptSponsoredPurchase('s-buyer').success, true);
+assert.equal(roundingCtx.sponsor.cash, 500);
+assert.equal(roundingCtx.second.cash, 499);
+assert.equal(roundingCtx.buyer.cash, 0);
+
+console.log('sponsored purchase: 24 passed, 0 failed');

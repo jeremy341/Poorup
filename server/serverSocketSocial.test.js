@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { projectPlayerCardAccess, publicLeaderboardRow, publicSearchProfile, registerSocialSocketHandlers } from "./serverSocketSocial.js";
 
 const target = {
@@ -46,6 +47,8 @@ const leaderboardProfile = publicLeaderboardRow({
 });
 assert.equal(leaderboardProfile.accountId, "alice");
 assert.equal(leaderboardProfile.publicId, undefined);
+const socialSource = readFileSync(new URL('./serverSocketSocial.js', import.meta.url), 'utf8');
+assert.match(socialSource, /claimReward\(account\.id, payload\.rewardId, Date\.now\(\), payload\.seasonId\)/);
 
 const handlers = new Map();
 const account = { id: "acct-secret", username: "alice", displayName: "Alice", color: "#d74438", avatarGrid: null, privacy: { history: "private" } };

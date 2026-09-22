@@ -58,7 +58,7 @@ try {
 
   const alias = await fetch(`${base}/privacy`);
   assert.equal(alias.status, 200);
-  assert.match(await alias.text(), /<h1\b/i);
+  assert.match(await alias.text(), /Privacy (?:&amp;|&) Account Data/);
 
   const acceptableUse = await fetch(`${base}/acceptable-use`);
   assert.equal(acceptableUse.status, 200);
