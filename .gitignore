@@ -34,3 +34,4 @@ skills-lock.json
 *.njsproj
 *.sln
 *.sw?
+server/backups/
