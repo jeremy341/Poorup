@@ -84,12 +84,6 @@
       "evidence": ["server/analyticsApi.js", "server/analytics-route-security.test.js", "public/clientAnalytics.js"]
     },
     {
-      "id": "legal-surfaces",
-      "status": "deferred",
-      "ownerSurface": "legal copy, support identity, and policy owner",
-      "evidence": ["server/legalRoutes.js", "server/legalRoutes.test.js", "server/legalContent.test.js", "public/legal/privacy.html", "public/legal/terms.html", "public/legal/acceptable-use.html", "public/legal/support.html", "public/legal/licenses.html", "public/legal/accessibility.html", "public/legal/storage.html", "public/legal/ai.html", "qa/legal-document-shell.spec.js"]
-    },
-    {
       "id": "account-controls",
       "status": "planned",
       "ownerSurface": "account privacy, deletion, export, and session policy",

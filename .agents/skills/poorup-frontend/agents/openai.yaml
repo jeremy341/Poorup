@@ -1,0 +1,4 @@
+interface:
+  display_name: "Poorup Frontend"
+  short_description: "Design and verify Poorup frontend surfaces"
+  default_prompt: "Use $poorup-frontend to plan, implement, and verify a Poorup UI change."
