@@ -13,7 +13,11 @@ const record = {
   completedAt: new Date().toISOString(),
   participants: [
     { accountId: 'a', finalPlacement: 1, globalEventsSurvived: 2, bankLoanStatus: 'paid', fairTrades: 2 },
-    { accountId: 'b', finalPlacement: 2, globalEventsSurvived: 0, bankLoanStatus: null, fairTrades: 0 }
+    { accountId: 'b', finalPlacement: 2, globalEventsSurvived: 0, bankLoanStatus: null, fairTrades: 0 },
+    { accountId: 'c', finalPlacement: 3 }, { accountId: 'd', finalPlacement: 4 },
+    { accountId: 'e', finalPlacement: 5 }, { accountId: 'f', finalPlacement: 6 },
+    { accountId: 'g', finalPlacement: 7 }, { accountId: 'h', finalPlacement: 8 },
+    { accountId: 'i', finalPlacement: 9 }, { accountId: 'j', finalPlacement: 10 }
   ]
 };
 assert.equal(eligibleSeasonMatch(record), true);
@@ -23,6 +27,13 @@ const standings = store.standings({ metric: 'points' });
 assert.equal(standings.rows[0].accountId, 'a');
 assert.equal(standings.rows[0].wins, 1);
 assert.equal(standings.rows[0].games, 1);
+const masteryBeforeSecondMatch = standings.rows.find(row => row.accountId === 'a').mastery;
+assert.equal(store.recordMatch({ ...record, matchId: 'm2' }).recorded, true);
+const masteryAfterSecondMatch = store.standings({ metric: 'points' }).rows.find(row => row.accountId === 'a').mastery;
+assert.equal(masteryAfterSecondMatch - masteryBeforeSecondMatch, 20);
+const currentSeason = store.seasons.get(store.getCurrent().id);
+currentSeason.matches = Array.from({ length: 1000 }, (_, index) => `old-${index}`);
+assert.equal(store.recordMatch(record).recorded, false);
 assert.equal(store.claimReward('a', 'season-bronze').success, true);
 assert.equal(store.claimReward('a', 'season-bronze').created, false);
 assert.deepEqual(store.claimedRewards('a'), ['season-bronze']);

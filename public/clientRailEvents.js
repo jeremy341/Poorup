@@ -27,6 +27,7 @@ let host = {
   openMarketDesk: noop,
   openCasinoDesk: noop,
   refreshEconomySnapshot: noop,
+  leaveRoomForHome: noop,
 };
 
 function noop() {}
@@ -237,7 +238,14 @@ function onFinanceView(node) {
   return true;
 }
 
+function onSpectatorLeave(node) {
+  if (!node) return false;
+  host.leaveRoomForHome();
+  return true;
+}
+
 const RAIL_CLICKS = [
+  ["[data-spectator-leave]", onSpectatorLeave],
   ["[data-wallet-open]", onWalletOpen],
   ["[data-market-desk]", onMarketDeskOpen],
   ["[data-casino-desk]", onCasinoDeskOpen],

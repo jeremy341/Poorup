@@ -27,6 +27,11 @@ async function waitForServer(child) {
 }
 
 const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-release-wiring-'));
+const codeSceneScript = fs.readFileSync(path.join(process.cwd(), 'scripts/codescene-delta.ps1'), 'utf8');
+assert.match(codeSceneScript, /CS_ACCESS_TOKEN/);
+assert.match(codeSceneScript, /origin\/main/);
+assert.match(codeSceneScript, /qa-artifacts/);
+assert.doesNotMatch(codeSceneScript, /Write-Host\s+\$env:CS_ACCESS_TOKEN/);
 const child = spawn(process.execPath, [path.join(process.cwd(), 'server/server.js')], {
   env: {
     ...process.env,
@@ -46,6 +51,15 @@ child.stderr.on('data', chunk => { output += chunk; });
 try {
   await waitForServer(child);
 
+  const missingLegal = await fetch(`${base}/legal`);
+  assert.equal(missingLegal.status, 404);
+
+  const privacy = await fetch(`${base}/privacy`);
+  assert.equal(privacy.status, 200);
+  const privacyBody = await privacy.text();
+  assert.match(privacyBody, /Privacy &amp; Account Data/);
+  assert.doesNotMatch(privacyBody, /Terms of Service/);
+
   const robots = await fetch(`${base}/robots.txt`);
   assert.equal(robots.status, 200);
   assert.match(await robots.text(), /Allow: \/\n/);
@@ -58,6 +72,9 @@ try {
   assert.equal(analytics.headers.get('cache-control'), 'no-store');
   const analyticsBody = await analytics.json();
   assert.equal(analyticsBody.success, false);
+
+  const retention = await fetch(`${base}/internal/retention/run`, { method: 'POST' });
+  assert.equal(retention.status, 404);
 
   const metadata = await fetch(`${base}/`);
   assert.equal(metadata.status, 200);

@@ -16,7 +16,11 @@ const lobby = fs.readFileSync(new URL("./clientLobbyUi.js", import.meta.url), "u
 const roomsUi = fs.readFileSync(new URL("./clientRoomsUi.js", import.meta.url), "utf8");
 const state = fs.readFileSync(new URL("./clientState.js", import.meta.url), "utf8");
 const stateSync = fs.readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");
+const rules = fs.readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url), "utf8");
+const gameModalsSource = fs.readFileSync(new URL("./clientGameModalsUi.js", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const { state: liveState } = await import("./clientState.js");
+const { turnTagText } = await import("./clientTopNavRender.js");
 
 let passed = 0;
 let failed = 0;
@@ -76,6 +80,34 @@ check("rejected host settings visibly roll back the optimistic client state", ()
   assert.match(main, /settingResult\?\.success !== false/);
   assert.match(main, /state\.settings\[key\] = previousSettings\[key\]/);
   assert.match(main, /parlorNotice\("TABLE SETTINGS"/);
+});
+
+check("bot brain exposes only AI/no-AI and a global exhausted notice", () => {
+  assert.match(lobby, /botBrainControl/);
+  assert.doesNotMatch(lobby, /AUTO · AI/);
+  assert.match(index, /id="bot-provider-banner"[^>]*role="alert"/);
+  assert.match(state, /botProviderStatus/);
+  assert.match(styles, /\.bot-provider-banner/);
+});
+
+check("degraded snapshots use a safe turn label instead of throwing", () => {
+  const previous = { phase: liveState.phase, players: liveState.players, turnIndex: liveState.turnIndex };
+  liveState.phase = "playing";
+  liveState.players = [];
+  liveState.turnIndex = 0;
+  assert.equal(turnTagText(), "SYNCING");
+  Object.assign(liveState, previous);
+});
+
+check("rules describe the single bankruptcy and spectator lifecycle", () => {
+  assert.match(rules, /read-only spectator/i);
+  assert.doesNotMatch(rules, /Debt Deal mode can transfer assets and keep the player/i);
+});
+
+check("spectators can leave through the existing table action", () => {
+  assert.match(stateSync, /spectating/);
+  assert.match(stateSync, /LEAVE TABLE/);
+  assert.match(gameModalsSource, /spectating/);
 });
 
 console.log(`client UX contract tests: ${passed} passed, ${failed} failed`);

@@ -11,6 +11,11 @@ export function createSocketRateLimiter({ max = 240, windowMs = 10_000, now = ()
     if (!socketId) return false;
     if (!limit) return false;
     const current = now();
+    if (buckets.size > 10000) {
+      for (const [id, entry] of buckets) {
+        if (current - entry.startedAt >= window) buckets.delete(id);
+      }
+    }
     const bucket = buckets.get(socketId);
     if (!bucket || current - bucket.startedAt >= window) {
       buckets.set(socketId, { startedAt: current, count: 1 });
@@ -55,7 +60,10 @@ export function createSocketAdmission({ maxConnections = 2_000, maxHandshakes = 
     const bucket = existing && current - existing.startedAt < window
       ? existing
       : { startedAt: current, count: 0 };
-    if (bucket.count >= handshakeLimit) return false;
+    // Unresolvable peers share one bucket: rate-limit them harder so one
+    // abusive direct-connect client can neither hide in nor DoS the crowd.
+    const effective = key === 'unknown' ? Math.max(1, Math.floor(handshakeLimit / 10)) : handshakeLimit;
+    if (bucket.count >= effective) return false;
     bucket.count += 1;
     buckets.set(key, bucket);
     prune(current);

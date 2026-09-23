@@ -133,10 +133,16 @@ function registerGameSocketHandlers(on, socket, runtime) {
 
   function finalizeContractCancel(room, payload) {
     const player = room.getPlayerBySocket(socket.id);
+    const counterpartyId = room.game.pendingPlayerContract?.toPlayerId;
     room.game.pendingPlayerContract = null;
     room.game.feedMessage(player.nickname + ' canceled the player contract.');
     const result = { success: true };
     runtime.cacheContractCancel(room, socket, payload, result);
+    // The counterparty holds a stale modal otherwise: push the cancel plus
+    // a system message like every other contract transition.
+    const target = counterpartyId ? room.game.getPlayerById(counterpartyId) : null;
+    if (target?.socketId) runtime.io.to(target.socketId).emit('player-contract-update', { contract: null, canceled: true });
+    runtime.io.in(room.roomCode).emit('system-message', { text: `${player.nickname} canceled the player contract.` });
     runtime.emitRoomState(room);
     return result;
   }

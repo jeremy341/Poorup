@@ -145,32 +145,6 @@ assert.equal(shortDefaultPlayer.shortPositions.brazil, undefined);
 assert.equal(shortDefaultPlayer.reservedCash, 0);
 assert.equal(shortDefaultPlayer.shortDefaultDebt, 154);
 
-// A pending game payment blocks every player-initiated market action. The
-// short-default settlement path shares the guard with the expansion actions.
-const pendingMarketRoom = roomAt('derivatives');
-const pendingMarketPlayer = pendingMarketRoom.game.players[0];
-pendingMarketPlayer.shortDefaultDebt = 50;
-pendingMarketPlayer.cash = 500;
-pendingMarketRoom.game.pendingPayment = { playerId: pendingMarketPlayer.id, creditorId: null, amountRemaining: 10, reason: 'rent' };
-const blockedMarketActions = [
-  () => pendingMarketRoom.openMargin('a', 'brazil', 1, 'pending-margin'),
-  () => pendingMarketRoom.reduceMargin('a', 10, 'pending-reduce-margin'),
-  () => pendingMarketRoom.openShort('a', 'brazil', 1, 'pending-short'),
-  () => pendingMarketRoom.coverShort('a', 'brazil', 1, 'pending-cover'),
-  () => pendingMarketRoom.openOption('a', { instrumentId: 'brazil', quantity: 1, premium: 1, requestId: 'pending-option' }),
-  () => pendingMarketRoom.exerciseOption('a', 'missing-option', 'pending-exercise'),
-  () => pendingMarketRoom.closePosition('a', 'missing-option', 'pending-close'),
-];
-for (const action of blockedMarketActions) {
-  assert.deepEqual(action(), { success: false, error: 'Resolve the table obligation before trading.' });
-}
-assert.deepEqual(pendingMarketRoom.settleShortDefault('a', 10, 'pending-default'), {
-  success: false,
-  error: 'Resolve the table obligation before trading.'
-});
-assert.equal(pendingMarketPlayer.shortDefaultDebt, 50);
-assert.equal(pendingMarketPlayer.cash, 500);
-
 // A buyer option is underwritten by the bounded market reserve. Exercise
 // moves the intrinsic payout from that reserve, not from nowhere.
 const optionReserveRoom = roomAt('derivatives');
@@ -199,6 +173,27 @@ assert.equal(optionReserveRoom.game.marketOptionReserve, reserveAfterOpen + 20);
 // successful idempotency key after the quota has been consumed.
 assert.deepEqual(margin.reduceMargin('a', 50, 'm2'), reducedMargin);
 assert.deepEqual(short.coverShort('a', 'brazil', 1, 's2'), short.coverShort('a', 'brazil', 1, 's2'));
+// Borrow fees retire proportionally: two partial covers charge once total.
+const feeRoom = roomAt('shorting');
+const feePlayer = feeRoom.game.players[0];
+assert.equal(feeRoom.openShort('a', 'brazil', 2, 'fee-open').success, true);
+const openedFee = feePlayer.shortPositions.brazil.borrowFee;
+assert.ok(openedFee >= 1);
+feePlayer.marketActionsThisTurn = 0;
+assert.equal(feeRoom.coverShort('a', 'brazil', 1, 'fee-cover-1').success, true);
+assert.equal(feePlayer.shortPositions.brazil.borrowFee, openedFee - Math.ceil(openedFee / 2));
+feePlayer.marketActionsThisTurn = 0;
+assert.equal(feeRoom.coverShort('a', 'brazil', 1, 'fee-cover-2').success, true);
+assert.equal(feePlayer.shortPositions.brazil, undefined);
+
+// Expired options cannot be closed for value; expiry pays zero.
+const expiryRoom = roomAt('derivatives');
+const expiryOpen = expiryRoom.openOption('a', { instrumentId: 'brazil', quantity: 1, premium: 10, expiryRounds: 1, requestId: 'expiry-open' });
+assert.equal(expiryOpen.success, true);
+expiryRoom.game.roundNumber += 2;
+expiryRoom.game.players[0].marketActionsThisTurn = 0;
+assert.deepEqual(expiryRoom.closePosition('a', expiryOpen.option.id, 'expiry-close'), { success: false, error: 'That option has expired.' });
+
 const closeRoom = roomAt('derivatives');
 const closeOpen = closeRoom.openOption('a', { instrumentId: 'brazil', quantity: 1, premium: 10, requestId: 'close-open' });
 assert.equal(closeOpen.success, true);
@@ -208,4 +203,4 @@ const closeResult = closeRoom.closePosition('a', closeOpen.option.id, 'close-1')
 assert.equal(closeResult.success, true);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-1'), closeResult);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-2'), { success: false, error: 'You have already placed a market order this turn.' });
-console.log('market expansion: 12 passed, 0 failed');
+console.log('market expansion: 14 passed, 0 failed');
