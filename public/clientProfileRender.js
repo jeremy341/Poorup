@@ -490,32 +490,43 @@ function renderSignedAccountPanel(account) {
   renderAccountRights(account);
 }
 
+function syncAccountPanelVisibility(signedIn) {
+  $("#account-guest-state")?.classList.toggle("is-hidden", signedIn);
+  $("#account-signed-state")?.classList.toggle("is-hidden", !signedIn);
+  setText("#account-panel-title", signedIn ? `@${state.account.account.username}` : "Guest mode");
+}
+
+function accountPendingDeletion(signedIn) {
+  return signedIn && state.account.account.accountDeactivated === true;
+}
+
+function applyPendingDeletionLock() {
+  const profileRoot = $("#view-profile");
+  state.profileTab = "account";
+  if (profileRoot) profileRoot.dataset.profileTab = "account";
+  document.querySelectorAll("#profile-tabs [data-profile-tab]").forEach((button) => {
+    const active = button.dataset.profileTab === "account";
+    button.disabled = !active;
+    button.setAttribute("aria-disabled", String(!active));
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll("#view-profile .profile-tab-panel").forEach((panel) => panel.classList.toggle("is-hidden", panel.id !== "profile-panel-account"));
+}
+
+function clearPendingDeletionLock() {
+  document.querySelectorAll("#profile-tabs [data-profile-tab]").forEach((button) => {
+    button.disabled = false;
+    button.removeAttribute("aria-disabled");
+  });
+}
+
 export function renderAccountPanel() {
   const signedIn = Boolean(state.account?.account);
-  const guest = $("#account-guest-state");
-  const signed = $("#account-signed-state");
-  guest?.classList.toggle("is-hidden", signedIn);
-  signed?.classList.toggle("is-hidden", !signedIn);
-  setText("#account-panel-title", signedIn ? `@${state.account.account.username}` : "Guest mode");
-  const pending = signedIn && state.account.account.accountDeactivated === true;
+  syncAccountPanelVisibility(signedIn);
+  const pending = accountPendingDeletion(signedIn);
   setText("#account-panel-badge", signedIn ? (pending ? "DELETION PENDING" : "ACCOUNT ACTIVE") : "LOCAL ONLY");
-  if (pending) {
-    const profileRoot = $("#view-profile");
-    state.profileTab = "account";
-    if (profileRoot) profileRoot.dataset.profileTab = "account";
-    document.querySelectorAll("#profile-tabs [data-profile-tab]").forEach((button) => {
-      const active = button.dataset.profileTab === "account";
-      button.disabled = !active;
-      button.setAttribute("aria-disabled", String(!active));
-      button.setAttribute("aria-selected", String(active));
-    });
-    document.querySelectorAll("#view-profile .profile-tab-panel").forEach((panel) => panel.classList.toggle("is-hidden", panel.id !== "profile-panel-account"));
-  } else {
-    document.querySelectorAll("#profile-tabs [data-profile-tab]").forEach((button) => {
-      button.disabled = false;
-      button.removeAttribute("aria-disabled");
-    });
-  }
+  if (pending) applyPendingDeletionLock();
+  else clearPendingDeletionLock();
   renderProfileSummary();
   if (!signedIn) return;
   renderSignedAccountPanel(state.account.account);

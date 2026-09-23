@@ -190,17 +190,25 @@ class BoundedReplayMap extends Map {
     return super.clear();
   }
 
-  purge(now = Date.now()) {
+  purgeExpiredTimestamps(now) {
     for (const [key, timestamp] of this.timestamps) {
-      if (now - timestamp >= this.ttlMs) {
-        super.delete(key);
-        this.timestamps.delete(key);
-        this.rememberTerminal(key, now + this.ttlMs);
-      }
+      if (now - timestamp < this.ttlMs) continue;
+      super.delete(key);
+      this.timestamps.delete(key);
+      this.rememberTerminal(key, now + this.ttlMs);
     }
+  }
+
+  purgeExpiredTerminals(now) {
     for (const [key, expiresAt] of this.terminal) {
-      if (expiresAt <= now) this.terminal.delete(key);
+      if (expiresAt > now) continue;
+      this.terminal.delete(key);
     }
+  }
+
+  purge(now = Date.now()) {
+    this.purgeExpiredTimestamps(now);
+    this.purgeExpiredTerminals(now);
   }
 
   rememberTerminal(key, expiresAt) {
@@ -784,35 +792,57 @@ class GameState {
 
   // Catch-up rule: strictly last by cash among 2+ live seats. Ties and
   // solo tables pay no bonus.
-  isLastPlaceByCash(player) {
-    const live = (this.players || []).filter(entry => entry && !entry.bankrupt && !entry.disconnected);
-    if (live.length < 2 || !player) return false;
-    const cash = Number(player.cash) || 0;
-    return live.every(entry => entry.id === player.id || cash < (Number(entry.cash) || 0));
+  liveContestants() {
+    return (this.players || []).filter(entry => entry && !entry.bankrupt && !entry.disconnected);
   }
 
-  movePlayer(player, steps, options = {}) {    player.moveCount = (player.moveCount || 0) + 1;
-    if (player.moveCount === 41) {
-      player.hiddenMovementSequence = true;
-      this.feedMessage(`${player.nickname} stepped on the 41st movement. The ledger skipped a line.`);
-    }
+  cashFor(player) {
+    return Number(player.cash) || 0;
+  }
+
+  isLastPlaceByCash(player) {
+    if (!player) return false;
+    const live = this.liveContestants();
+    if (live.length < 2) return false;
+    const cash = this.cashFor(player);
+    return live.every(entry => entry.id === player.id || cash < this.cashFor(entry));
+  }
+
+  handleFortyFirstMove(player) {
+    player.moveCount = (player.moveCount || 0) + 1;
+    if (player.moveCount !== 41) return;
+    player.hiddenMovementSequence = true;
+    this.feedMessage(`${player.nickname} stepped on the 41st movement. The ledger skipped a line.`);
+  }
+
+  startPassReward(exactStart) {
+    if (exactStart && this.settings.doubleGo) return 400;
+    return 200;
+  }
+
+  awardStartPass(player, oldPosition, steps) {
+    const distanceToStart = (START_TILE_INDEX - oldPosition + this.tiles.length) % this.tiles.length || this.tiles.length;
+    if (distanceToStart > steps) return;
+    const exactStart = distanceToStart === steps;
+    const reward = this.startPassReward(exactStart);
+    const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
+    player.cash += reward + bonus;
+    this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
+  }
+
+  trackRailroadVisit(player, tile) {
+    if (tile?.type !== 'railroad') return;
+    if (!(player.airportVisits instanceof Set)) player.airportVisits = new Set();
+    player.airportVisits.add(tile.index);
+  }
+
+  movePlayer(player, steps, options = {}) {
+    this.handleFortyFirstMove(player);
     const oldPosition = player.position;
     player.position = (player.position + steps) % this.tiles.length;
-    const distanceToStart = (START_TILE_INDEX - oldPosition + this.tiles.length) % this.tiles.length || this.tiles.length;
-    if (distanceToStart <= steps) {
-      const exactStart = distanceToStart === steps;
-      const reward = exactStart && this.settings.doubleGo ? 400 : 200;
-      // Catch-up: the outright last-place seat by cash collects a $100
-      // bonus on top of salary. Leaders gain nothing extra.
-      const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
-      player.cash += reward + bonus;
-      this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
-    }
+    this.awardStartPass(player, oldPosition, steps);
     const tile = this.getTile(player.position);
-    if (tile?.type === 'railroad') {
-      if (!(player.airportVisits instanceof Set)) player.airportVisits = new Set();
-      player.airportVisits.add(tile.index);
-    }
+    this.trackRailroadVisit(player, tile);
     return this.applyTile(player, tile, options);
   }
 
