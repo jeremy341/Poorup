@@ -528,7 +528,11 @@ class Room {
     const expired = this.game.players.filter(player => player.disconnected
       && (Number(player.disconnectDeadline) === 0 || Number(player.disconnectDeadline) <= now));
     expired.forEach(player => {
-      this.game.removePlayerByClient(player.clientId);
+      if (typeof this.releaseExpiredSeat === 'function') {
+        this.releaseExpiredSeat(player);
+      } else {
+        this.game.removePlayerByClient(player.clientId);
+      }
     });
     if (expired.some(player => player.id === this.hostId)) {
       const replacement = this.game.players.find(player => !player.isBot && !player.disconnected && !player.bankrupt && !player.inDebt);
@@ -736,6 +740,7 @@ class RoomManager {
       boardVariant: hostInfo.boardVariant,
       marketComplexity: hostInfo.marketComplexity
     });
+    room.releaseExpiredSeat = expiredPlayer => this.releaseSeat(room.game, expiredPlayer);
     player.color = resolveFreeAppearanceColor(room.game.players, player.color, player, player.avatarGrid);
     this.rooms.set(room.roomCode, room);
     this.socketRoom.set(hostInfo.socketId, room);
@@ -923,7 +928,9 @@ class RoomManager {
         }
       }
     }
-    if (Array.isArray(game.turnOrder)) {
+    if (typeof game.removePlayerFromTurnOrder === 'function') {
+      game.removePlayerFromTurnOrder(playerId);
+    } else if (Array.isArray(game.turnOrder)) {
       game.turnOrder = game.turnOrder.filter(id => id !== playerId);
     }
     this.clearPendingSeatObligations(game, player);

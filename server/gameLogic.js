@@ -380,6 +380,13 @@ class GameState {
     }
   }
 
+  removePlayerFromTurnOrder(playerId) {
+    if (!playerId || !Array.isArray(this.turnOrder)) return false;
+    const originalLength = this.turnOrder.length;
+    this.turnOrder = this.turnOrder.filter(id => id !== playerId);
+    return this.turnOrder.length !== originalLength;
+  }
+
   getPlayerBySocket(socketId) {
     return this.players.find(player => player.socketId === socketId);
   }
