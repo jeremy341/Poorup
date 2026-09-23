@@ -38,19 +38,27 @@ The deploy script refuses to continue when the old server does not expose
 /internal/maintenance; this prevented an unplanned restart of the legacy
 version during bootstrap (bootstrap ran outside the script for that reason).
 
-## Automatic main deployment
+## Automatic main deployment (active path: pull timer)
 
-Set the repository variable `NEST_DEPLOY_ENABLED=true` and configure the
-environment `nest-production` secrets `NEST_HOST`, `NEST_USER`,
-`NEST_DEPLOY_KEY`, `NEST_KNOWN_HOSTS`, and `POORUP_MAINTENANCE_TOKEN` once the
-first maintenance-capable bootstrap is complete. Until that variable is true,
-`.github/workflows/deploy-nest.yml` is intentionally skipped so a main push
-cannot produce a misleading failed deployment or touch the legacy process.
+`poorup-update.timer` (every 3 min, `User=poorup`) runs
+`/srv/poorup/shared/nest-auto-update.sh`, which polls `origin/main`. On a new
+SHA it downloads the exact codeload tarball, runs `npm ci --omit=dev`, and
+hands off to the NEW release's `scripts/deploy-nest.sh`: drain via
+`/internal/maintenance`, wait for `"activeRounds":0`, atomically switch
+`/srv/poorup/current`, `pm2 startOrReload` the new `ecosystem.config.cjs`
+(which merges the shared env file), verify health/readiness, return to
+`normal`, and refresh the shared updater copy on success. Overlaps are
+skipped via `flock`; failures run `rollback-nest.sh` (`previous` is seeded).
+No GitHub secrets are needed for this path.
 
-When enabled, the workflow runs after CI succeeds for main. It uploads the
-exact verified SHA, calls the drain endpoint, installs production dependencies,
-atomically switches `/srv/poorup/current`, reloads PM2, verifies
-health/readiness, and returns to normal service.
+Push-triggered maintenance screen: `maintenance-drain.yml` (push to main) and
+`maintenance-undrain.yml` (CI non-success) exist for the push path but stay
+parked: the front gateway only forwards the existing `jeremy-d` SSH identity
+and rejects newly provisioned keys, so Actions cannot SSH in. If the gateway
+authorizes a deploy key later, set the repository variable
+`NEST_DEPLOY_ENABLED=true` plus the `nest-production` secrets (`NEST_HOST`,
+`NEST_USER`, `NEST_DEPLOY_KEY`, `NEST_KNOWN_HOSTS`, `POORUP_MAINTENANCE_TOKEN`)
+and the SSH path activates. Until then those workflows intentionally skip.
 
 ## Emergency rollback
 
