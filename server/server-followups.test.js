@@ -78,6 +78,22 @@ check('readiness projection exposes only store, backup, and maintenance health',
   assert.equal(JSON.stringify(persistence.buildReadinessProjection({ storeLoaded: true, backupFresh: true, maintenance: 'normal' })).includes('password'), false);
 });
 
+check('runtime exposes current AI provider status and its subscription cleanup', () => {
+  const manager = new RoomManager();
+  manager.createRoom({ socketId: 'provider-socket', clientId: 'provider-client', nickname: 'Provider' });
+  let unsubscribeCalled = false;
+  const runtime = createRuntime(runtimeDeps(manager, {
+    botAdvisor: {
+      getPublicStatus() { return { state: 'quota-exhausted', reason: 'credits-exhausted', revision: 4 }; },
+      subscribeProviderStatus() { return () => { unsubscribeCalled = true; }; }
+    }
+  }));
+
+  assert.deepEqual(runtime.botProviderStatus(), { state: 'quota-exhausted', revision: 4, reason: 'credits-exhausted' });
+  runtime.unsubscribeBotProviderStatus();
+  assert.equal(unsubscribeCalled, true);
+});
+
 check('transport disconnect marks a seat disconnected so a grace-window restore succeeds', () => {
   const { manager, room } = startedRoom();
   const runtime = createRuntime(runtimeDeps(manager));
