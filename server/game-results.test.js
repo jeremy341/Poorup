@@ -138,6 +138,16 @@ check('null players do not crash placement', () => {
   assert.ok(true);
 });
 
+check('old match replays stay idempotent after the visible history window rolls over', () => {
+  for (let index = 0; index < 60; index += 1) {
+    store.recordGameResults(fixturePlayers(), 'p1', { ...fixtureMeta(), gameId: `match-window-${index}` });
+  }
+  const before = byName('alice').stats.gamesPlayed;
+  assert.equal(byName('alice').matchHistory.some(entry => entry.matchId === 'match-fixed'), false);
+  store.recordGameResults(fixturePlayers(), 'p1', fixtureMeta());
+  assert.equal(byName('alice').stats.gamesPlayed, before);
+});
+
 const failed = results.filter(r => !r).length;
 console.log(`\nrecordGameResults tests: ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

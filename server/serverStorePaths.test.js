@@ -17,13 +17,15 @@ assert.deepEqual(resolveAuxiliaryStorePaths({ POORUP_DATA_DIR: `  ${root}  ` }),
   seasons: path.join(root, 'seasons.json'),
   cosmetics: path.join(root, 'cosmetics.json'),
   telemetry: path.join(root, 'telemetry.json'),
-  analyticsRollup: path.join(root, 'analytics-rollup.json')
+  analyticsRollup: path.join(root, 'analytics-rollup.json'),
+  aiProviders: path.join(root, 'ai-providers.json')
 });
 assert.deepEqual(resolveAuxiliaryStorePaths({}), {
   seasons: undefined,
   cosmetics: undefined,
   telemetry: undefined,
-  analyticsRollup: undefined
+  analyticsRollup: undefined,
+  aiProviders: undefined
 });
 
-console.log('server store paths: 5 passed, 0 failed');
+console.log('server store paths: 7 passed, 0 failed');

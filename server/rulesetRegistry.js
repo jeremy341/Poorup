@@ -10,6 +10,7 @@ const RULESET_BASES = ['classic', 'after-hours'];
 const BOARD_VARIANTS = ['standard-40', 'metro-52', 'grand-64'];
 const EXPOSED_BOARD_VARIANTS = ['standard-40', 'metro-52'];
 const MARKET_COMPLEXITIES = ['basic', 'margin', 'shorting', 'derivatives'];
+const BANK_LOAN_SEVERITIES = ['fair', 'predatory', 'extreme'];
 
 // These are the optional Poorup systems. Legacy room settings are retained in
 // the underlying room object, while the effective map is the authority for a
@@ -85,6 +86,7 @@ const KNOWN_OVERRIDE_KEYS = new Set([
   'hotelLimit',
   'turnTimer',
   'bankruptMode',
+  'bankLoanSeverity',
   'startingCash',
   'bots',
   'botPersonality',
@@ -143,6 +145,11 @@ function primitive(value) {
 }
 
 function normalizedOverrideValue(key, value) {
+  if (key === 'bankruptMode') return 'elim';
+  if (key === 'bankLoanSeverity') {
+    const normalized = String(value || '').trim().toLowerCase();
+    return BANK_LOAN_SEVERITIES.includes(normalized) ? normalized : 'predatory';
+  }
   if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
     return value === true || value === 1 || ['true', '1', 'on'].includes(String(value).trim().toLowerCase());
   }
@@ -190,6 +197,11 @@ function effectiveSettingsFor({ rulesetPreset = 'classic', rulesetBase, rulesetO
   });
   if (requestedPreset === 'custom') Object.assign(effective, overrides);
   else Object.assign(effective, overrides);
+  // Bankruptcy is a single authoritative elimination/spectator lifecycle;
+  // legacy snapshots cannot re-enable the removed debt-deal mode.
+  effective.bankruptMode = 'elim';
+  const normalizedSeverity = String(effective.bankLoanSeverity || '').trim().toLowerCase();
+  effective.bankLoanSeverity = BANK_LOAN_SEVERITIES.includes(normalizedSeverity) ? normalizedSeverity : 'predatory';
   effective.marketComplexity = safeMarketComplexity(effective.marketComplexity);
   const board = safeBoardVariant(boardVariant);
   const meta = BOARD_VARIANT_META[board];

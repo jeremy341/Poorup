@@ -11,7 +11,8 @@ const AUXILIARY_STORE_FILES = {
   seasons: 'seasons.json',
   cosmetics: 'cosmetics.json',
   telemetry: 'telemetry.json',
-  analyticsRollup: 'analytics-rollup.json'
+  analyticsRollup: 'analytics-rollup.json',
+  aiProviders: 'ai-providers.json'
 };
 
 export function resolveStorePaths(env = process.env) {

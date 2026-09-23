@@ -311,4 +311,19 @@ export class SocialStore {
     this.persist();
     return { success: true };
   }
+
+  purgeAccount(accountId) {
+    const id = boundedIdentifier(accountId);
+    if (!id) return false;
+    const before = { friendships: this.friendships.length, blocks: this.blocks.length, invites: this.invites.length, reports: this.reports.length, notification: this.notifications.has(id) };
+    this.friendships = this.friendships.filter(entry => !involvesAccount(entry, id));
+    this.blocks = this.blocks.filter(entry => entry.blockerId !== id && entry.blockedId !== id);
+    this.invites = this.invites.filter(entry => entry.senderId !== id && entry.recipientId !== id);
+    this.reports = this.reports.filter(entry => entry.reporterId !== id && entry.reportedId !== id);
+    this.notifications.delete(id);
+    const after = { friendships: this.friendships.length, blocks: this.blocks.length, invites: this.invites.length, reports: this.reports.length, notification: this.notifications.has(id) };
+    if (before.friendships === after.friendships && before.blocks === after.blocks && before.invites === after.invites && before.reports === after.reports && before.notification === after.notification) return false;
+    this.persist();
+    return true;
+  }
 }

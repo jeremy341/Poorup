@@ -9,15 +9,6 @@ export const THEME_STORAGE_KEY = "poorup.theme.id.v2";
 const scenePath = (id) => `/assets/themes/${id}/scene.svg`;
 const propPath = (id, name) => `/assets/themes/${id}/${name}.svg`;
 
-export const MUSIC_TOKEN_SETS = Object.freeze({
-  original: Object.freeze({ "--music-surface": "#071314", "--music-border": "#5c5033", "--music-accent": "#c88f2e", "--music-text": "#e8d3ab", "--music-muted": "#a79d7d", "--music-meter": "#c88f2e" }),
-  spring: Object.freeze({ "--music-surface": "#0b2a2d", "--music-border": "#66845e", "--music-accent": "#d6c46f", "--music-text": "#ecf1d7", "--music-muted": "#94b49b", "--music-meter": "#d6c46f" }),
-  summer: Object.freeze({ "--music-surface": "#183333", "--music-border": "#8b7946", "--music-accent": "#e5bd57", "--music-text": "#f7eac3", "--music-muted": "#b2a26f", "--music-meter": "#e5bd57" }),
-  autumn: Object.freeze({ "--music-surface": "#252f2d", "--music-border": "#80633f", "--music-accent": "#d28c47", "--music-text": "#f4e2c5", "--music-muted": "#a99073", "--music-meter": "#d28c47" }),
-  winter: Object.freeze({ "--music-surface": "#102936", "--music-border": "#5f7480", "--music-accent": "#b9c8c5", "--music-text": "#e7f1ed", "--music-muted": "#91adb7", "--music-meter": "#b9c8c5" }),
-  light: Object.freeze({ "--music-surface": "#dcece8", "--music-border": "#4e7b7a", "--music-accent": "#23666f", "--music-text": "#173f4d", "--music-muted": "#42686d", "--music-meter": "#23666f" }),
-});
-
 const BASE_SKYLINE = [
   [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
   [33, 6, 7, 30], [41, 15, 5, 21], [47, 2, 8, 34], [56, 18, 5, 18], [62, 10, 6, 26],
@@ -62,7 +53,6 @@ const THEMES = [
     skyline: { home: BASE_SKYLINE, board: BASE_SKYLINE },
     motion: { weather: "petal", durationMs: 11000 },
     tokens: {
-      ...MUSIC_TOKEN_SETS.spring,
       "--bg-canvas": "#071b24", "--bg-chrome": "#09232a",
       "--surface-panel": "#0b2a2d", "--surface-panel-raised": "#123b38", "--surface-panel-deep": "#06191f",
       "--surface-board-tile": "#0a2229", "--surface-board-center": "#0d3435", "--surface-input": "#0b282b", "--surface-button-dark": "#0e3030",
@@ -93,7 +83,6 @@ const THEMES = [
     skyline: { home: BASE_SKYLINE, board: BASE_SKYLINE },
     motion: { weather: "water", durationMs: 14000 },
     tokens: {
-      ...MUSIC_TOKEN_SETS.summer,
       "--bg-canvas": "#111c22", "--bg-chrome": "#12282d",
       "--surface-panel": "#183333", "--surface-panel-raised": "#23443f", "--surface-panel-deep": "#0c2025",
       "--surface-board-tile": "#122c30", "--surface-board-center": "#1a4240", "--surface-input": "#173737", "--surface-button-dark": "#1d3f3c",
@@ -125,7 +114,6 @@ const THEMES = [
     skyline: { home: BASE_SKYLINE, board: BASE_SKYLINE },
     motion: { weather: "leaves", durationMs: 9000 },
     tokens: {
-      ...MUSIC_TOKEN_SETS.autumn,
       "--bg-canvas": "#11181c", "--bg-chrome": "#1c2728",
       "--surface-panel": "#252f2d", "--surface-panel-raised": "#303b34", "--surface-panel-deep": "#141e21",
       "--surface-board-tile": "#1d2b2c", "--surface-board-center": "#2b403a", "--surface-input": "#263633", "--surface-button-dark": "#2a3a35",
@@ -156,7 +144,6 @@ const THEMES = [
     skyline: { home: BASE_SKYLINE, board: BASE_SKYLINE },
     motion: { weather: "snow", durationMs: 12000 },
     tokens: {
-      ...MUSIC_TOKEN_SETS.winter,
       "--bg-canvas": "#07121d", "--bg-chrome": "#0a1c2a",
       "--surface-panel": "#102936", "--surface-panel-raised": "#173847", "--surface-panel-deep": "#061923",
       "--surface-board-tile": "#0d2532", "--surface-board-center": "#123b48", "--surface-input": "#102c38", "--surface-button-dark": "#153440",
@@ -190,7 +177,6 @@ const THEMES = [
     skyline: { home: BASE_SKYLINE, board: BASE_SKYLINE },
     motion: { weather: "cloud", durationMs: 15000 },
     tokens: {
-      ...MUSIC_TOKEN_SETS.light,
       "--bg-canvas": "#08323c", "--bg-chrome": "#0b252c",
       "--surface-panel": "#09282e", "--surface-panel-raised": "#10383d", "--surface-panel-deep": "#061c23",
       "--surface-board-tile": "#0a252d", "--surface-board-center": "#0f3d43", "--surface-input": "#0a2930", "--surface-button-dark": "#0d3336",

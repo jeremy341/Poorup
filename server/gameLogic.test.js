@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
-import { DeterministicAdvisor, AiAdvisor } from './botAdvisor.js';
+import { DeterministicAdvisor, DeepSeekAdvisor } from './botAdvisor.js';
 import { AchievementStore } from './achievementStore.js';
 import { AccountStore } from './accountStore.js';
 import { MatchStore } from './matchStore.js';
@@ -220,6 +220,8 @@ async function testLeaveRoomByClientMidGame() {
   assert.equal(room.game.getPlayerBySocket('socket-b'), undefined);
   assert.equal(manager.getRoomBySocket('socket-b'), null);
   assert.notEqual(room.game.currentPlayerId, b.id);
+  // Successor, not restart: B leaves on B's turn with order A-B-C, so C bats.
+  assert.equal(room.game.currentPlayerId, playerOf(room, 'client-c').id);
   const nextUp = room.game.getPlayerById(room.game.currentPlayerId);
   assert.ok(nextUp);
   assert.equal(nextUp.disconnected, false);
@@ -363,7 +365,7 @@ async function runAdvisorSmoke() {
   const advisor = new DeterministicAdvisor();
   const choice = await advisor.chooseAction({ personality: 'builder', candidates: [{ id: 'roll', kind: 'roll', score: 0 }, { id: 'build:1', kind: 'build', score: 1 }] });
   assert.equal(choice.actionId, 'build:1');
-  const fallback = new AiAdvisor({ apiKey: 'test', fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '{"actionId":"invented","confidence":2}' } }] }) }) });
+  const fallback = new DeepSeekAdvisor({ apiKey: 'test', fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '{"actionId":"invented","confidence":2}' } }] }) }) });
   const safeFallback = await fallback.chooseAction({ candidates: [{ id: 'roll', kind: 'roll', score: 0 }] });
   assert.equal(safeFallback.actionId, 'roll');
 }

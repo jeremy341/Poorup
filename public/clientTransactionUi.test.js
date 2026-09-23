@@ -31,7 +31,7 @@ function check(name, fn) {
 check("purchase backdrop and Escape dismissal stay neutral", () => {
   assert.match(modals, /function closeChoiceModalWithoutAction\(\)/);
   assert.match(modals, /scrim\.onclick = closeChoiceModalWithoutAction/);
-  assert.match(modals, /Dismissal is intentionally neutral/i);
+  assert.match(surfaces, /shouldConfirmSurfaceClose/);
   assert.match(keyboard, /"choice-modal": \(\) => closeSurface\("#choice-modal"\)/);
   assert.doesNotMatch(keyboard, /"choice-modal": \(\) => host\.closeChoiceModalAsPass\(\)/);
 });
@@ -68,7 +68,7 @@ check("open event log refreshes from snapshots without losing reader position", 
   assert.match(logDrawer, /scrollHeight/);
   assert.match(logDrawer, /data-log-new-status/);
   assert.match(main, /isLogDrawerOpen\(\)/);
-  assert.match(main, /renderLogDrawer\(\)/);
+  assert.match(main, /renderStep\("Event log", renderLogDrawer\)/);
 });
 
 check("social, rankings, and season requests fail visibly within a bounded window", () => {
