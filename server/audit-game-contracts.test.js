@@ -76,8 +76,20 @@ check('accept rejects a disconnected borrower and clears pending', () => {
   assert.equal(game.pendingPlayerContract, null);
 });
 
-check('contract counters respect other table obligations', () => {
-  const fields = ['pendingPayment', 'auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingTrade'];
+check('contract counter is allowed during pendingPayment as a debt-rescue path', () => {
+  const { game, b } = startedRoom();
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
+  assert.equal(first.success, true);
+  game.pendingPayment = { playerId: b.id, creditorId: null, amountRemaining: 100, reason: 'rent' };
+  const counter = game.counterPlayerContract('socket-b', { contractId: first.contract.id, amount: 60 });
+  assert.equal(counter.success, true);
+  assert.equal(counter.countered, true);
+  assert.equal(counter.contract.amount, 60);
+  assert.equal(game.pendingPlayerContract.id, counter.contract.id);
+});
+
+check('contract counters respect competing table obligations', () => {
+  const fields = ['auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingTrade'];
   fields.forEach(field => {
     const { game, b } = startedRoom();
     const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
@@ -156,13 +168,13 @@ check('bankrupt creditors are not enriched', () => {
   assert.equal(b.cash, cashB);
 });
 
-check('bankruptcy cash sweep never pays a bankrupt creditor', () => {
+check('bankruptcy cash sweep returns cash to the bank when its creditor is bankrupt', () => {
   const { game, a, b } = startedRoom();
   a.bankrupt = true;
   b.cash = 100;
   game.sweepCashToCreditor(b, a);
   assert.equal(a.cash, 1500);
-  assert.equal(b.cash, 100);
+  assert.equal(b.cash, 0);
 });
 
 check('disconnected payer cannot settle and clears the debt', () => {

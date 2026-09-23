@@ -8,7 +8,7 @@ globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
 const { normalizeAnalyticsSnapshot, normalizeAnalyticsQuery, metricValue, isAnalyticsPath, createAnalyticsController, renderAnalyticsSnapshot } = await import('./clientAnalytics.js');
 const { ANALYTICS_TABS, ANALYTICS_FILTERS, PANEL_DEFINITIONS, OVERVIEW_KPIS, CONTEXTUAL_PANELS } = await import('./clientAnalyticsCatalog.js');
-const { MIN_COHORT, normalizeAnalyticsQuery: viewModelQuery, normalizeAnalyticsSnapshot: viewModelSnapshot } = await import('./clientAnalyticsViewModel.js');
+const { normalizeAnalyticsQuery: viewModelQuery, normalizeAnalyticsSnapshot: viewModelSnapshot } = await import('./clientAnalyticsViewModel.js');
 const { renderAnalyticsChart, renderBoardMetricMap, CHART_COLORS } = await import('./clientAnalyticsCharts.js');
 const { state } = await import('./clientState.js');
 
@@ -235,7 +235,7 @@ await check('chart adapter supports every declared mode with bounded accessible 
     renderAnalyticsChart(container, Array.from({ length: 240 }, (_, index) => ({ label: `<${index}>`, value: index % 7 - 3, series: index % 2 ? 'AI' : 'HUMAN' })), { mode, title: `<${mode}>`, unit: 'rounds', sampleSize: 240 });
     assert.match(markup, /<figure/);
     assert.match(markup, /<figcaption/);
-    assert.match(markup, /SAMPLE/);
+    assert.match(markup, /POINTS/);
     assert.match(markup, /SHOW DATA TABLE/);
     assert.equal(markup.includes('<240>'), false);
     assert.equal(markup.includes('height="-'), false);
@@ -455,11 +455,30 @@ await check('renders the nested ledger model for every non-overview tab', () => 
   globalThis.document = fakeAnalyticsDocument({ panels, grid, status });
   for (const tab of ['match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']) {
     const panel = panels.find(candidate => candidate.getAttribute('data-analytics-panel') === tab);
-    renderAnalyticsSnapshot({ filters: { tab }, overview: { kpis: [{ id: 'kpi', value: 1, denominator: 2 }] }, breakdowns: [{ rows: [{ id: tab, value: 3, denominator: 5 }] }] });
+    renderAnalyticsSnapshot({ filters: { tab }, overview: { kpis: [{ id: 'kpi', value: 1, denominator: 2 }] }, breakdowns: [{ rows: [{ id: tab, value: 3, denominator: 5, completionRate: { value: 0.72, unit: 'percent', sampleSize: 18, numerator: 13, denominator: 18 } }] }] });
     assert.match(panel.innerHTML, new RegExp(`${tab}`));
     assert.match(panel.innerHTML, /denominator<\/b> 5/);
+    assert.match(panel.innerHTML, /completionRate<\/b> 72% · UNIT percent · SAMPLE 18 · NUMERATOR 13 · DENOMINATOR 18/);
+    assert.match(panel.innerHTML, /class="analytics-read-model" tabindex="0" role="region" aria-label=/);
   }
   globalThis.document = previousDocument;
+});
+
+await check('hides overview KPI cards on specialized report tabs', () => {
+  const grid = fakeElement({ id: 'admin-analytics-grid' });
+  const status = fakeElement({ id: 'admin-analytics-status' });
+  const previousDocument = globalThis.document;
+  globalThis.document = fakeAnalyticsDocument({ grid, status });
+  try {
+    renderAnalyticsSnapshot({ filters: { tab: 'economy' }, overview: { kpis: [{ id: 'completion-rate', label: 'Completion rate', value: 0.8 }] }, metrics: {} });
+    assert.equal(grid.hidden, true);
+    assert.equal(grid.innerHTML, '');
+    renderAnalyticsSnapshot({ filters: { tab: 'overview' }, overview: { kpis: [{ id: 'completion-rate', label: 'Completion rate', value: 0.8 }] }, metrics: {} });
+    assert.equal(grid.hidden, false);
+    assert.match(grid.innerHTML, /Completion rate/i);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 await check('tab activation requests the selected tab while retaining the last snapshot', async () => {
@@ -482,7 +501,8 @@ await check('tab activation requests the selected tab while retaining the last s
   assert.match(urls[1], /seasonId=S1/);
   assert.match(urls[1], /rulesetRevision=3/);
   assert.match(urls[1], /balanceRevision=4/);
-  assert.equal(grid.innerHTML.length > 0, true);
+  assert.equal(grid.hidden, true);
+  assert.equal(grid.innerHTML, '');
   assert.equal(before.length > 0, true);
   controller.destroy();
   globalThis.document = previousDocument;

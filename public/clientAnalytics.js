@@ -1,9 +1,8 @@
 import { state } from './clientState.js';
-import { renderAnalyticsChart } from './clientAnalyticsCharts.js';
-import { disposeAnalyticsChart } from './clientAnalyticsChartAdapter.js';
+import { renderAnalyticsChart, disposeAnalyticsChart } from './clientAnalyticsCharts.js';
 import { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 import { createAnalyticsPageController } from './clientAnalyticsPage.js';
-import { ALLOWED_METRICS, METRIC_LABELS, MIN_COHORT, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
+import { ALLOWED_METRICS, METRIC_LABELS, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
 export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
 export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 
@@ -12,6 +11,7 @@ function clearAnalyticsOutput() {
   const grid = query('#admin-analytics-grid');
   if (grid) grid.textContent = '';
   if (typeof document === 'undefined') return;
+  document.querySelectorAll?.('[data-analytics-chart]')?.forEach(element => disposeAnalyticsChart(element));
   document.querySelectorAll?.('.analytics-read-model, [data-analytics-chart]')?.forEach(element => { element.textContent = ''; });
 }
 
@@ -55,7 +55,7 @@ function finiteAnalyticsNumber(value) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   if (value && typeof value === 'object') {
-    for (const key of ['value', 'rate', 'count', 'sampleSize', 'numerator', 'denominator']) {
+    for (const key of ['value', 'rate', 'count']) {
       const parsed = finiteAnalyticsNumber(value[key]);
       if (parsed !== null) return parsed;
     }
@@ -65,7 +65,14 @@ function finiteAnalyticsNumber(value) {
 
 function panelPoint(label, value, unit = '') {
   const numeric = finiteAnalyticsNumber(value);
-  return numeric === null ? null : { label: String(label || 'Observation').slice(0, 80), value: numeric, ...(unit ? { unit } : {}) };
+  if (numeric === null) return null;
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const point = { label: String(label || 'Observation').slice(0, 80), value: numeric, ...(unit || typeof source.unit === 'string' ? { unit: unit || source.unit.slice(0, 24) } : {}) };
+  for (const key of ['sampleSize', 'numerator', 'denominator']) {
+    const metadata = finiteAnalyticsNumber(source[key]);
+    if (metadata !== null) point[key] = metadata;
+  }
+  return point;
 }
 
 function panelRows(model) { return Array.isArray(model?.rows) ? model.rows : []; }
@@ -96,6 +103,7 @@ const ANALYTICS_PANEL_DESCRIPTORS = Object.freeze({
 export { ANALYTICS_PANEL_DESCRIPTORS };
 
 function renderAnalyticsChartEmpty(container, title) {
+  disposeAnalyticsChart(container);
   container.innerHTML = `<figure class="analytics-chart analytics-chart-placeholder" data-chart-state="empty"><figcaption>${escapeHtml(title)}</figcaption><p class="t-micro ink-3">NO VERIFIED OBSERVATIONS FOR THIS PANEL</p></figure>`;
 }
 
@@ -108,22 +116,25 @@ function renderKpis(snapshot) {
     const unit = rawUnit || (id.includes('rate') || id.includes('adoption') ? 'percent' : id.includes('latency') || id.includes('duration') ? 'seconds' : id.includes('player') || id.includes('room') ? 'players' : id.includes('match') || id.includes('round') || id.includes('started') ? 'matches' : 'value');
     const value = finiteAnalyticsNumber(item.value);
     const numberFormat = (number, maximumFractionDigits = 2) => number === null ? 'N/A' : number.toLocaleString(undefined, { maximumFractionDigits });
-    const displayValue = value === null ? '·' : unit === 'percent' ? `${numberFormat(Math.abs(value) <= 1 ? value * 100 : value, 1)}%` : unit === 'seconds' ? numberFormat(value) : unit === 'milliseconds' ? numberFormat(value, 0) : numberFormat(value, unit === 'value' ? 2 : 1);
+    const percentUnit = unit === 'percent' || unit === 'adoption' || unit.endsWith('rate');
+    const displayValue = value === null ? '·' : percentUnit ? `${numberFormat(Math.abs(value) <= 1 ? value * 100 : value, 1)}%` : unit === 'seconds' ? numberFormat(value) : unit === 'milliseconds' ? numberFormat(value, 0) : numberFormat(value, unit === 'value' ? 2 : 1);
     const displayUnit = unit === 'value' ? '' : unit;
     const numerator = finiteAnalyticsNumber(item.numerator);
     const denominator = finiteAnalyticsNumber(item.denominator);
-    const denominatorMarkup = numerator === null
-      ? `DENOMINATOR ${denominator === null ? 'N/A' : numberFormat(denominator, 0)}`
-      : `NUMERATOR ${numberFormat(numerator, 0)} / DENOMINATOR ${denominator === null ? 'N/A' : numberFormat(denominator, 0)}`;
+    const sampleSize = finiteAnalyticsNumber(item.sampleSize);
+    const denominatorParts = [];
+    if (sampleSize !== null) denominatorParts.push(`SAMPLE ${numberFormat(sampleSize, 0)}`);
+    if (numerator !== null) denominatorParts.push(`NUMERATOR ${numberFormat(numerator, 0)}`);
+    if (denominator !== null) denominatorParts.push(`DENOMINATOR ${numberFormat(denominator, 0)}`);
     const comparison = item.comparison && typeof item.comparison === 'object' ? item.comparison : null;
     const comparisonValue = finiteAnalyticsNumber(comparison?.value ?? comparison?.baseline);
     const comparisonDelta = finiteAnalyticsNumber(comparison?.delta ?? comparison?.change);
-    const comparisonParts = comparison ? [`BASELINE ${comparisonValue === null ? 'N/A' : (unit === 'percent' ? `${numberFormat(Math.abs(comparisonValue) <= 1 ? comparisonValue * 100 : comparisonValue, 1)}%` : numberFormat(comparisonValue))}`] : [];
-    if (comparisonDelta !== null) comparisonParts.push(`DELTA ${comparisonDelta >= 0 ? '+' : ''}${unit === 'percent' ? `${numberFormat(comparisonDelta * 100, 1)}pp` : numberFormat(comparisonDelta)}`);
+    const comparisonParts = comparison ? [`BASELINE ${comparisonValue === null ? 'N/A' : (percentUnit ? `${numberFormat(Math.abs(comparisonValue) <= 1 ? comparisonValue * 100 : comparisonValue, 1)}%` : numberFormat(comparisonValue))}`] : [];
+    if (comparisonDelta !== null) comparisonParts.push(`DELTA ${comparisonDelta >= 0 ? '+' : ''}${percentUnit ? `${numberFormat(comparisonDelta * 100, 1)}pp` : numberFormat(comparisonDelta)}`);
     if (comparison?.period || comparison?.label) comparisonParts.push(String(comparison.period || comparison.label).toUpperCase());
     if (!comparisonParts.length) comparisonParts.push('COMPARISON UNAVAILABLE');
     const generatedAt = typeof item.generatedAt === 'string' && item.generatedAt ? item.generatedAt : snapshot.generatedAt || 'UNKNOWN';
-    return `<article class="analytics-metric panel noise" data-kpi-id="${escapeHtml(item.id || 'metric')}"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${escapeHtml(displayValue)}</strong>${displayUnit ? `<span class="t-micro ink-3 analytics-kpi-unit">${escapeHtml(displayUnit)}</span>` : ''}<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(denominatorMarkup)}</span><span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(comparisonParts.join(' · '))}</span><span class="t-micro ink-3 analytics-kpi-definition">${escapeHtml(item.definition || 'DEFINITION NOT PROVIDED')}</span><time class="t-micro ink-3 analytics-kpi-timestamp" datetime="${escapeHtml(generatedAt)}">VERIFIED ${escapeHtml(generatedAt)}</time></article>`;
+    return `<article class="analytics-metric panel noise" data-kpi-id="${escapeHtml(item.id || 'metric')}"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${escapeHtml(displayValue)}</strong>${displayUnit ? `<span class="t-micro ink-3 analytics-kpi-unit">${escapeHtml(displayUnit)}</span>` : ''}${denominatorParts.length ? `<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(denominatorParts.join(' / '))}</span>` : ''}<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(comparisonParts.join(' · '))}</span><span class="t-micro ink-3 analytics-kpi-definition">${escapeHtml(item.definition || 'DEFINITION NOT PROVIDED')}</span><time class="t-micro ink-3 analytics-kpi-timestamp" datetime="${escapeHtml(generatedAt)}">VERIFIED ${escapeHtml(generatedAt)}</time></article>`;
   }).join('');
 }
 
@@ -133,8 +144,7 @@ function renderAnalyticsCharts(snapshot) {
     const tab = container.getAttribute('data-analytics-panel-chart') || snapshot.filters.tab;
     const panel = container.closest?.('[data-analytics-panel]');
     if (panel && panel.getAttribute('data-analytics-panel') !== snapshot.filters.tab) {
-      const mount = container.querySelector?.('.analytics-chart-engine');
-      if (mount) disposeAnalyticsChart(mount);
+      disposeAnalyticsChart(container);
       return;
     }
     const descriptor = ANALYTICS_PANEL_DESCRIPTORS[tab] || ANALYTICS_PANEL_DESCRIPTORS.overview;
@@ -143,17 +153,28 @@ function renderAnalyticsCharts(snapshot) {
     const mode = container.getAttribute('data-chart-mode') || descriptor.mode;
     const values = descriptor.series(snapshot) || [];
     if (!values.length) renderAnalyticsChartEmpty(container, title);
-    else renderAnalyticsChart(container, values, { title, unit, mode, summary: `${values.length} verified ${unit}` });
+    else renderAnalyticsChart(container, values, { title, unit, mode });
   });
 }
 
 function aggregateValue(value) {
   if (value === null || value === undefined) return 'N/A';
   if (typeof value !== 'object') return String(value);
-  if (Object.hasOwn(value, 'value') || Object.hasOwn(value, 'denominator')) {
-    const current = value.value === null || value.value === undefined ? 'N/A' : value.value;
-    const denominator = value.denominator === null || value.denominator === undefined ? '' : ` / DENOMINATOR ${value.denominator}`;
-    return `${current}${denominator}`;
+  if (Object.hasOwn(value, 'value') || Object.hasOwn(value, 'rate') || Object.hasOwn(value, 'count') || Object.hasOwn(value, 'denominator')) {
+    const current = value.value ?? value.rate ?? value.count;
+    const unit = typeof value.unit === 'string' ? value.unit : '';
+    const number = finiteAnalyticsNumber(current);
+    const normalizedUnit = unit.toLowerCase();
+    const isPercent = normalizedUnit === 'percent' || normalizedUnit === 'adoption' || normalizedUnit.endsWith('rate');
+    const display = current === null || current === undefined ? 'N/A'
+      : isPercent && number !== null ? `${(Math.abs(number) <= 1 ? number * 100 : number).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`
+        : String(current);
+    const parts = [display];
+    if (unit) parts.push(`UNIT ${unit}`);
+    if (value.sampleSize !== null && value.sampleSize !== undefined) parts.push(`SAMPLE ${value.sampleSize}`);
+    if (value.numerator !== null && value.numerator !== undefined) parts.push(`NUMERATOR ${value.numerator}`);
+    if (value.denominator !== null && value.denominator !== undefined) parts.push(`DENOMINATOR ${value.denominator}`);
+    return parts.join(' · ');
   }
   return Object.entries(value).slice(0, 8).map(([key, child]) => `${key}: ${aggregateValue(child)}`).join('; ') || 'N/A';
 }
@@ -181,8 +202,9 @@ function renderAnalyticsReadModel(snapshot) {
     content = '<p class="analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p><button class="btn-dark analytics-reset-filter" type="button" data-analytics-reset>RESET FILTERS</button>';
   }
   if (!content) return;
-  panel.insertAdjacentHTML?.('beforeend', `<div class="analytics-read-model">${content}</div>`);
-  if (!panel.insertAdjacentHTML) panel.innerHTML += `<div class="analytics-read-model">${content}</div>`;
+  const readModel = `<div class="analytics-read-model" tabindex="0" role="region" aria-label="Scrollable ${escapeHtml(tab)} verified read model">${content}</div>`;
+  panel.insertAdjacentHTML?.('beforeend', readModel);
+  if (!panel.insertAdjacentHTML) panel.innerHTML += readModel;
   panel.querySelectorAll?.('[data-analytics-reset]')?.forEach(button => listenReset(button));
 }
 
@@ -199,11 +221,14 @@ export function renderAnalyticsSnapshot(value) {
   if (lastVerified) lastVerified.textContent = `LAST VERIFIED · ${snapshot.generatedAt || 'UNKNOWN'}`;
   const grid = query('#admin-analytics-grid');
   if (grid) {
-    const kpis = renderKpis(snapshot);
-    const entries = Object.entries(snapshot.metrics);
-    grid.innerHTML = kpis || (entries.length
+    const overview = snapshot.filters.tab === 'overview';
+    grid.hidden = !overview;
+    grid.setAttribute?.('aria-hidden', String(!overview));
+    const kpis = overview ? renderKpis(snapshot) : '';
+    const entries = overview ? Object.entries(snapshot.metrics) : [];
+    grid.innerHTML = !overview ? '' : (kpis || (entries.length
       ? entries.map(([name, entry]) => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(METRIC_LABELS[name])}</span><strong class="t-money g100">${escapeHtml(metricValue(entry).toLocaleString())}</strong><span class="t-micro ink-3">${entry.type === 'gauge' ? 'CURRENT' : 'RECORDED'}</span></article>`).join('')
-      : '<p class="t-body ink-2 analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p>');
+      : '<p class="t-body ink-2 analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p>'));
   }
   renderAnalyticsCharts(snapshot);
   renderAnalyticsReadModel(snapshot);
@@ -352,6 +377,12 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
 
   function wireControls() {
     if (typeof document === 'undefined') return;
+    const reportPage = query('[data-analytics-report-page]');
+    if (reportPage) {
+      reportPage.setAttribute?.('role', 'region');
+      reportPage.setAttribute?.('aria-label', 'Scrollable analytics report content');
+      if (!reportPage.hasAttribute?.('tabindex')) reportPage.setAttribute?.('tabindex', '0');
+    }
     applyTabState();
     renderActiveAnalyticsFilters(filters);
     if (Object.keys(readUrlFilters()).length) syncFilterControls();
@@ -424,7 +455,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (typeof modal.show === 'function') return modal.show(options);
     return null;
   }
-  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; pageController?.destroy(); pageController = null; if (globalThis.__poorupAnalyticsReset) delete globalThis.__poorupAnalyticsReset; listeners.splice(0).forEach(remove => remove()); }
+  function destroy() { destroyed = true; requestGeneration += 1; abortController?.abort(); request = null; if (typeof document !== 'undefined') document.querySelectorAll?.('[data-analytics-chart]')?.forEach(element => disposeAnalyticsChart(element)); pageController?.destroy(); pageController = null; if (globalThis.__poorupAnalyticsReset) delete globalThis.__poorupAnalyticsReset; listeners.splice(0).forEach(remove => remove()); }
 
   wireControls();
   return Object.freeze({ destroy, load, openDrilldown, refresh, setFilters, setTab, get filters() { return { ...filters }; }, get snapshot() { return snapshot; } });

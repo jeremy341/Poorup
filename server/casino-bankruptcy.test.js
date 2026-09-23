@@ -1,10 +1,6 @@
-// Characterization suite for the casino / bankruptcy / room-settings hotspot
-// cluster: GameState.placeCasinoBet, GameState.chargePlayer + the
-// handleBankruptcy path reached through declareBankruptcy, and
-// Room.setRoomSetting. Every expectation below was captured from the
-// pre-refactor code (exact errors, coerced values, ledger fields, feed order,
-// liquidation sequence, and RNG call sites), so the structural refactor must
-// keep it green byte-for-byte.
+// Focused coverage for the casino / bankruptcy / room-settings hotspot:
+// pending payments block wagers, while bankruptcy always removes the seat and
+// room settings keep their canonical server-owned values.
 import assert from 'node:assert/strict';
 import nodeCrypto from 'crypto';
 import { RoomManager } from './gameLogic.js';
@@ -670,10 +666,9 @@ check('bankruptcy — releasing a deed also terminates its equity holders', () =
   assert.equal(game.playerContractById('equity-release').status, 'terminated');
 });
 
-check('debt mode — contract collateral settles before rent-creditor forfeiture', () => {
+check('bankruptcy — contract collateral settles before rent-creditor forfeiture', () => {
   const room = trioRoom();
   const game = room.game;
-  game.settings.bankruptMode = 'debt';
   const lender = game.getPlayerBySocket('socket-a');
   const borrower = game.getPlayerBySocket('socket-b');
   const rentCreditor = game.getPlayerBySocket('socket-c');
@@ -682,8 +677,10 @@ check('debt mode — contract collateral settles before rent-creditor forfeiture
   borrower.properties = [tile.index];
   game.playerContracts = [{ id: 'debt-collateral', kind: 'loan', status: 'active', fromPlayerId: lender.id, toPlayerId: borrower.id, collateralTileIndex: tile.index }];
   game.pendingPayment = { playerId: borrower.id, creditorId: rentCreditor.id, amountRemaining: 50, reason: 'rent' };
-  assert.equal(room.declareBankruptcy('socket-b').success, true);
-  assert.equal(borrower.inDebt, true);
+  const result = room.declareBankruptcy('socket-b');
+  assert.equal(result.success, true);
+  assert.equal(borrower.bankrupt, true);
+  assert.equal(borrower.inDebt, false);
   assert.equal(tile.ownerId, lender.id);
   assert.equal(game.playerContractById('debt-collateral').status, 'defaulted');
   assert.equal(rentCreditor.properties.includes(tile.index), false);
@@ -937,33 +934,24 @@ check('setRoomSetting — boolean keys parse only true/"true"/1/"1"', () => {
   }
 });
 
-check('setRoomSetting — string keys trim, non-strings pass through', () => {
+check('setRoomSetting — legacy bankrupt mode always stays eliminated', () => {
   const room = lobby();
-  room.setRoomSetting('bankruptMode', '  elim  ');
+  room.setRoomSetting('bankruptMode', '  debt  ');
   assert.equal(room.settings.bankruptMode, 'elim');
   room.setRoomSetting('bankruptMode', 5);
-  assert.equal(room.settings.bankruptMode, 5);
-  room.setRoomSetting('bankLoanSeverity', ' aggressive ');
-  assert.equal(room.settings.bankLoanSeverity, 'aggressive');
-  room.setRoomSetting('bankLoanSeverity', 'anything');
-  assert.equal(room.settings.bankLoanSeverity, 'anything');
-  assert.equal(room.game.settings.bankruptMode, 5);
+  assert.equal(room.settings.bankruptMode, 'elim');
+  assert.equal(room.game.settings.bankruptMode, 'elim');
 });
 
-// ---------------------------------------------------------------------------
-// bankruptMode=debt
-// ---------------------------------------------------------------------------
+check('setRoomSetting — bank-loan severity is trimmed and allowlisted', () => {
+  const room = lobby();
+  room.setRoomSetting('bankLoanSeverity', ' extreme ');
+  assert.equal(room.settings.bankLoanSeverity, 'extreme');
+  room.setRoomSetting('bankLoanSeverity', 'anything');
+  assert.equal(room.settings.bankLoanSeverity, 'predatory');
+});
 
-function debtTransferOutcomeProblem(result, player) {
-  if (!result.success) return 'should succeed';
-  if (result.voluntary !== false) return 'should not be voluntary';
-  if (player.bankrupt) return 'should NOT be bankrupt';
-  if (!player.inDebt) return 'should be inDebt';
-  if (player.cash !== 0) return 'cash should be 0';
-  return null;
-}
-
-check('debt mode — bankruptMode=debt transfers assets without elimination', () => {
+check('bankruptcy — legacy debt mode does not prevent seat elimination', () => {
   const room = makeStartedRoom(false);
   room.game.settings.bankruptMode = 'debt';
   const player = room.game.getPlayerBySocket('socket-a');
@@ -971,11 +959,14 @@ check('debt mode — bankruptMode=debt transfers assets without elimination', ()
   const pendingPayment = { playerId: player.id, creditorId: null, amountRemaining: 500, reason: 'test' };
   room.game.pendingPayment = pendingPayment;
   const result = room.game.declareBankruptcy('socket-a');
-  const problem = debtTransferOutcomeProblem(result, player);
-  if (problem) throw new Error(problem);
+  assert.equal(result.success, true);
+  assert.equal(result.voluntary, false);
+  assert.equal(player.bankrupt, true);
+  assert.equal(player.inDebt, false);
+  assert.equal(room.game.pendingPayment, null);
 });
 
-check('debt mode — clears the debtor gate and liquidates market positions', () => {
+check('bankruptcy — legacy debt mode still clears the debtor gate and liquidates market positions', () => {
   const room = makeStartedRoom(false);
   const game = room.game;
   game.settings.bankruptMode = 'debt';
@@ -984,9 +975,9 @@ check('debt mode — clears the debtor gate and liquidates market positions', ()
   player.marketPositions = { brazil: { quantity: 2, averageCost: 120, realizedPnl: 0 } };
   game.pendingPayment = { playerId: player.id, creditorId: null, amountRemaining: 500, reason: 'test' };
   assert.equal(room.declareBankruptcy('socket-a').success, true);
-  assert.equal(player.inDebt, true);
-  assert.equal(player.bankrupt, false);
-  assert.equal(player.cash, 0);
+  assert.equal(player.inDebt, false);
+  assert.equal(player.bankrupt, true);
+  assert.equal(player.cash, 196);
   assert.equal(player.marketPositions.brazil.quantity, 0);
   assert.equal(player.marketPositions.brazil.realizedPnl, -44);
   assert.equal(game.pendingPayment, null);
