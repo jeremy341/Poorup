@@ -12,7 +12,6 @@ import {
   state,
   syncLocalAppearance,
 } from "./clientState.js";
-import { saveMusicPreference } from "./clientSanitize.js";
 import {
   buildBoard,
   renderBoardState,
@@ -148,6 +147,7 @@ import { renderTheme } from "./clientThemeRender.js";
 import { createMusicPlayer } from "./clientMusicPlayer.js";
 import { applyMaintenanceState, configureMaintenanceUi } from "./clientMaintenance.js";
 import { initAnalytics } from "./clientAnalytics.js";
+import { initAdminAiProvider } from "./clientAdminAiProvider.js";
 import { setDocumentMeta } from "./clientDocumentMeta.js";
 import {
   bindRoomsUi,
@@ -480,7 +480,7 @@ function ensureMusicController() {
     musicController = globalThis.__poorupMusicBoxController;
     return musicController;
   }
-  const root = document.querySelector("[data-music-box]");
+  const root = document.querySelector("[data-music-runtime]");
   if (!root) return null;
   musicController = createMusicPlayer({
     audioA: root.querySelector('audio[data-music-audio="a"]'),
@@ -524,28 +524,7 @@ function retryAudioAfterGesture() {
   if (snapshot && snapshot.status !== "playing") syncHomeMusic({ userGesture: true });
 }
 
-function handleMusicBoxPlayIntent(event) {
-  event.preventDefault();
-  const controller = ensureMusicController();
-  if (!controller) return;
-  if (!state.music) {
-    state.music = true;
-    saveMusicPreference(true);
-    syncAudioButtons();
-    controller.resetToThemeTrack?.();
-    return;
-  }
-  const snapshot = controller.snapshot?.();
-  if (snapshot?.status === "playing") controller.stop?.();
-  else controller.resetToThemeTrack?.();
-}
-
-function bindMusicBoxIntent() {
-  document.querySelector("[data-music-box]")?.addEventListener("music-box-play", handleMusicBoxPlayIntent);
-}
-
-// Legacy single-track media events were removed; the music-box controller
-// owns playback and status announcements.
+// The hidden theme runtime owns playback and status announcements.
 
 
 /* ============================================================
@@ -1149,12 +1128,11 @@ configureNightShift({
   stopHomeHelicopter,
   scheduleHomeHelicopter,
 });
-configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId) });
+configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId, { play: state.music }) });
 configureMaintenanceUi({ emitServer });
 bindThemeVisibility();
 initThemePreference();
 ensureMusicController();
-bindMusicBoxIntent();
 renderHome();
 buildBoard(onTileClick);
 renderTheme(state.themeId, { animate: false });
@@ -1164,6 +1142,7 @@ const analyticsRouteActive = globalThis.window?.location?.pathname === "/admin/a
 setDocumentMeta({ view: analyticsRouteActive ? "analytics" : "home" });
 renderAll();
 const analyticsPathActive = initAnalytics();
+if (analyticsPathActive) initAdminAiProvider();
 if (!analyticsPathActive) {
   showView("home");
   openCardPreviewFromUrl();

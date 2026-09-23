@@ -1,4 +1,7 @@
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import { loadJson, writeJson } from './storeIO.js';
 
@@ -10,7 +13,8 @@ const MAX_MODEL_LENGTH = 120;
 const MAX_URL_LENGTH = 400;
 const DEFAULT_TIMEOUT_MS = 4_000;
 const DEFAULT_DECISION_BUDGET = 120;
-const PRIVATE_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]', '169.254.169.254', 'metadata.google.internal']);
+const MAX_PROVIDER_RESPONSE_BYTES = 1_048_576;
+const PRIVATE_HOSTS = new Set(['localhost', 'metadata.google.internal']);
 
 export class ProviderConfigError extends Error {
   constructor(message, code = 'INVALID_PROVIDER_CONFIG') {
@@ -34,21 +38,168 @@ function slugFromLabel(label) {
   return providerId(label || 'provider').replace(/^-+|-+$/g, '').slice(0, MAX_ID_LENGTH) || 'provider';
 }
 
+function isNonPublicIpv4(host) {
+  const [a, b, c] = host.split('.').map(Number);
+  return a === 0
+    || a === 10
+    || a === 127
+    || a >= 224
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168)
+    || (a === 192 && b === 0 && (c === 0 || c === 2))
+    || (a === 192 && b === 88 && c === 99)
+    || (a === 198 && (b === 18 || b === 19))
+    || (a === 198 && b === 51 && c === 100)
+    || (a === 203 && b === 0 && c === 113);
+}
+
+function ipv6Words(host) {
+  let address = host;
+  if (address.includes('.')) {
+    const separator = address.lastIndexOf(':');
+    const ipv4 = address.slice(separator + 1);
+    if (separator < 0 || net.isIP(ipv4) !== 4) return null;
+    const [a, b, c, d] = ipv4.split('.').map(Number);
+    address = `${address.slice(0, separator)}:${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = address.split('::');
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(':').map(word => Number.parseInt(word, 16)) : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':').map(word => Number.parseInt(word, 16)) : [];
+  const missing = 8 - left.length - right.length;
+  if ((halves.length === 1 && missing !== 0) || (halves.length === 2 && missing < 1)) return null;
+  return [...left, ...Array(missing).fill(0), ...right];
+}
+
+function ipv4FromIpv6(words) {
+  return [words[6] >> 8, words[6] & 0xff, words[7] >> 8, words[7] & 0xff].join('.');
+}
+
+function isNonPublicIpv6(host) {
+  if (host === '::' || host === '::1') return true;
+  const words = ipv6Words(host);
+  if (!words) return true;
+  const ipv4Mapped = words.slice(0, 5).every(word => word === 0) && words[5] === 0xffff;
+  if (ipv4Mapped) return isNonPublicIpv4(ipv4FromIpv6(words));
+  // Deprecated IPv4-compatible addresses are not valid public destinations.
+  if (words.slice(0, 6).every(word => word === 0)) return true;
+  if ((words[0] & 0xfe00) === 0xfc00) return true; // unique-local fc00::/7
+  if ((words[0] & 0xffc0) === 0xfe80) return true; // link-local fe80::/10
+  if ((words[0] & 0xffc0) === 0xfec0) return true; // deprecated site-local fec0::/10
+  if ((words[0] & 0xff00) === 0xff00) return true; // multicast ff00::/8
+  if ((words[0] & 0xe000) !== 0x2000) return true; // only global-unicast 2000::/3 remains
+  if (words[0] === 0x2001 && (words[1] <= 0x01ff || words[1] === 0x0db8)) return true;
+  if ([0x2002, 0x3fff].includes(words[0])) return true; // 6to4 and documentation ranges
+  return false;
+}
+
 function isPrivateHost(hostname) {
-  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
-  if (PRIVATE_HOSTS.has(host)) return true;
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  if (PRIVATE_HOSTS.has(host) || host.endsWith('.localhost')) return true;
   if (host.endsWith('.local') || host.endsWith('.internal')) return true;
   const ipVersion = net.isIP(host);
-  if (ipVersion === 4) {
-    const octets = host.split('.').map(Number);
-    return octets[0] === 10
-      || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
-      || (octets[0] === 192 && octets[1] === 168)
-      || octets[0] === 127
-      || (octets[0] === 169 && octets[1] === 254);
-  }
-  if (ipVersion === 6) return host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:');
+  if (ipVersion === 4) return isNonPublicIpv4(host);
+  if (ipVersion === 6) return isNonPublicIpv6(host);
   return false;
+}
+
+async function validateProviderResolution(value, { resolveHost = dns.lookup, allowPrivateEndpoints = false } = {}) {
+  const url = new URL(String(value));
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
+  if (!allowPrivateEndpoints && isPrivateHost(hostname)) {
+    throw new ProviderConfigError('Private or link-local provider endpoints require explicit opt-in.', 'BASE_URL_PRIVATE_HOST');
+  }
+  if (net.isIP(hostname)) return { hostname, addresses: [hostname] };
+  const records = await resolveHost(hostname, { all: true, verbatim: true });
+  if (!Array.isArray(records) || records.length === 0) throw new Error('Provider hostname did not resolve.');
+  const addresses = [];
+  for (const record of records) {
+    const address = typeof record === 'string' ? record : record?.address;
+    const family = net.isIP(address);
+    if (!family || (record?.family && record.family !== family) || (!allowPrivateEndpoints && isPrivateHost(address))) {
+      throw new ProviderConfigError('Provider hostname resolves to a private or invalid address.', 'BASE_URL_PRIVATE_HOST');
+    }
+    addresses.push(address);
+  }
+  return { hostname, addresses };
+}
+
+function pinnedLookup(addresses) {
+  const results = addresses.map(address => ({ address, family: net.isIP(address) }));
+  return (_hostname, options, callback) => {
+    const lookupOptions = typeof options === 'function' ? {} : options || {};
+    const done = typeof options === 'function' ? options : callback;
+    queueMicrotask(() => {
+      if (lookupOptions.all) done(null, results);
+      else done(null, results[0].address, results[0].family);
+    });
+  };
+}
+
+function pinnedProviderRequest(input, options = {}, destination) {
+  const url = new URL(String(input));
+  const transport = url.protocol === 'https:' ? https : url.protocol === 'http:' ? http : null;
+  if (!transport || !destination?.addresses?.length) {
+    return Promise.reject(new ProviderConfigError('Provider request destination is invalid.', 'BASE_URL_INVALID'));
+  }
+  if (typeof options.body === 'function' || (options.body && typeof options.body !== 'string' && !Buffer.isBuffer(options.body) && !(options.body instanceof Uint8Array))) {
+    return Promise.reject(new ProviderConfigError('Provider request body is unsupported.', 'REQUEST_BODY_INVALID'));
+  }
+  const headers = options.headers instanceof Headers
+    ? Object.fromEntries(options.headers.entries())
+    : options.headers;
+
+  return new Promise((resolve, reject) => {
+    let request;
+    try {
+      request = transport.request(url, {
+        method: options.method || 'GET',
+        headers,
+        signal: options.signal,
+        lookup: pinnedLookup(destination.addresses),
+        maxHeaderSize: 16 * 1024,
+      }, response => {
+        const declaredSize = Number(response.headers['content-length']);
+        if (Number.isFinite(declaredSize) && declaredSize > MAX_PROVIDER_RESPONSE_BYTES) {
+          request.destroy(new Error('Provider response exceeded the size limit.'));
+          return;
+        }
+        const chunks = [];
+        let receivedBytes = 0;
+        response.on('data', chunk => {
+          receivedBytes += chunk.length;
+          if (receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
+            request.destroy(new Error('Provider response exceeded the size limit.'));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on('aborted', () => request.destroy(new Error('Provider response ended prematurely.')));
+        response.on('end', () => {
+          try {
+            const status = Number(response.statusCode);
+            const body = [204, 205, 304].includes(status) ? null : Buffer.concat(chunks);
+            resolve(new Response(body, { status, headers: response.headers }));
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    request.on('error', reject);
+    if (options.body !== undefined && options.body !== null) request.write(options.body);
+    request.end();
+  });
+}
+
+async function safePinnedProviderFetch(input, options, { resolveHost, allowPrivateEndpoints, requestImpl }) {
+  const destination = await validateProviderResolution(input, { resolveHost, allowPrivateEndpoints });
+  return requestImpl(input, { ...options, redirect: 'error' }, destination);
 }
 
 export function detectProtocolFromUrl(value) {
@@ -110,6 +261,7 @@ export function normalizeProviderConfig(input = {}, options = {}) {
     id,
     label,
     baseUrl,
+    allowPrivateEndpoints,
     model,
     protocol: normalizeProtocol(input.protocol),
     timeoutMs: boundedNumber(input.timeoutMs, DEFAULT_TIMEOUT_MS, 1_000, 60_000),
@@ -338,20 +490,28 @@ function probeProtocols(config) {
   return inferred ? [inferred, inferred === 'chat' ? 'responses' : 'chat'] : ['chat', 'responses'];
 }
 
-export async function probeProvider(config, fetchImpl = globalThis.fetch, now = () => Date.now()) {
+export async function probeProvider(config, fetchImpl = globalThis.fetch, now = () => Date.now(), { resolveHost = dns.lookup, allowPrivateEndpoints = false, requestImpl } = {}) {
   const startedAt = now();
   if (!config?.apiKey) return { ok: false, protocol: null, reason: 'auth', latencyMs: 0, testedAt: new Date().toISOString() };
-  if (typeof fetchImpl !== 'function') return { ok: false, protocol: null, reason: 'network', latencyMs: 0, testedAt: new Date().toISOString() };
+  if (typeof fetchImpl !== 'function' && typeof requestImpl !== 'function') return { ok: false, protocol: null, reason: 'network', latencyMs: 0, testedAt: new Date().toISOString() };
   for (const protocol of probeProtocols(config)) {
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const timeout = setTimeout(() => controller?.abort(), config.timeoutMs || DEFAULT_TIMEOUT_MS);
     try {
-      const response = await fetchImpl(deriveProviderEndpoint(config.baseUrl, protocol), {
+      const requestUrl = deriveProviderEndpoint(config.baseUrl, protocol);
+      const requestOptions = {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
         signal: controller?.signal,
+        redirect: 'error',
         body: JSON.stringify(probePayload(protocol, config.model)),
-      });
+      };
+      const response = typeof requestImpl === 'function'
+        ? await safePinnedProviderFetch(requestUrl, requestOptions, { resolveHost, allowPrivateEndpoints, requestImpl })
+        : await (async () => {
+          await validateProviderResolution(requestUrl, { resolveHost, allowPrivateEndpoints });
+          return fetchImpl(requestUrl, requestOptions);
+        })();
       if (!response?.ok) {
         const reason = classifyProbeFailure(response?.status);
         if (config.protocol === 'auto' && [404, 405].includes(Number(response?.status))) continue;
@@ -394,13 +554,19 @@ function envProfile(env = process.env, production = false) {
   }
 }
 
-export function createAiProviderManager({ store, advisor, env = process.env, fetchImpl = globalThis.fetch } = {}) {
-  const production = String(env.NODE_ENV || '').toLowerCase() === 'production';
+export function createAiProviderManager({ store, advisor, env = process.env, fetchImpl = globalThis.fetch, resolveHost = dns.lookup, requestImpl = pinnedProviderRequest } = {}) {
+  const production = String(env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  let activeAllowsPrivateEndpoints = false;
   const environmentProfile = envProfile(env, production);
+  const advisorFetch = advisor?.fetchImpl;
+  const safeAdvisorFetch = typeof advisorFetch === 'function'
+    ? async (input, options = {}) => safePinnedProviderFetch(input, options, { resolveHost, allowPrivateEndpoints: activeAllowsPrivateEndpoints, requestImpl })
+    : null;
   let activeSource = 'environment';
 
   function apply(config) {
     if (!config || typeof advisor?.configureProvider !== 'function') return false;
+    activeAllowsPrivateEndpoints = !production && config.allowPrivateEndpoints === true;
     advisor.configureProvider({
       apiKey: config.apiKey,
       endpoint: config.baseUrl,
@@ -410,6 +576,7 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
       maxDecisionsPerGame: config.maxDecisionsPerGame,
       providerName: config.label,
     });
+    if (safeAdvisorFetch) advisor.fetchImpl = safeAdvisorFetch;
     return true;
   }
 
@@ -427,7 +594,11 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
   async function test(id) {
     const config = store?.get?.(id);
     if (!config) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
-    const result = await probeProvider(config, fetchImpl);
+    const result = await probeProvider(config, fetchImpl, () => Date.now(), {
+      resolveHost,
+      allowPrivateEndpoints: !production && config.allowPrivateEndpoints === true,
+      requestImpl,
+    });
     store.markTest(id, result);
     return result;
   }
