@@ -11,7 +11,6 @@ const PROFILE = {
 const TESTED_PROFILE = { ...PROFILE, detectedProtocol: 'chat', lastTest: { ok: true, protocol: 'chat', latencyMs: 12, testedAt: '2026-09-16T12:00:00.000Z', reason: null } };
 
 async function seedAdmin(page, active = TESTED_PROFILE) {
-  await page.addInitScript(({ key, session }) => localStorage.setItem(key, JSON.stringify(session)), { key: 'poorup.account.session.v1', session: SESSION });
   await page.route('**/admin/analytics/balance**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, schemaVersion: 1, generatedAt: '2026-09-16T12:00:00.000Z', filters: { range: 'hour', tab: 'overview' }, overview: { kpis: [] }, series: [], breakdowns: [], dataQuality: { fresh: true } }) }));
   await page.route('**/admin/ai/providers**', async route => {
     const request = route.request();
@@ -29,6 +28,10 @@ async function seedAdmin(page, active = TESTED_PROFILE) {
   });
   await page.goto('/admin/analytics');
   await expect(page.locator('#admin-analytics-main')).toBeVisible();
+  await page.evaluate(async session => {
+    const { state } = await import('/clientState.js');
+    state.account = session;
+  }, SESSION);
   await page.locator('[data-admin-console-tab="provider"]').click();
   await expect(page.locator('[data-admin-provider-workspace]')).toBeVisible();
 }

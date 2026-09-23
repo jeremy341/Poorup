@@ -234,7 +234,6 @@ app.use(express.static(publicPath, {
     if (filePath.endsWith(`${path.sep}index.html`)) response.setHeader('Cache-Control', 'no-cache');
   }
 }));
-app.get('/privacy', (_req, res, next) => res.sendFile(path.join(publicPath, 'privacy.html'), error => { if (error) next(error); }));
 app.get('/account/session', (req, res) => {
   const account = httpAccountResolver(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });

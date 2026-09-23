@@ -46,8 +46,22 @@ export function resolvePoorupChartTokens(element = globalThis.document?.body || 
 }
 
 function finite(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function valueVisualScale(points, tokens) {
+  const values = points.map(point => finite(point.value)).filter(value => value !== null);
+  if (!values.length) return { min: 0, max: 1, color: [tokens.surfaceDeep, tokens.warning] };
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  if (minimum < 0 && maximum > 0) {
+    const bound = Math.max(Math.abs(minimum), Math.abs(maximum));
+    return { min: -bound, max: bound, color: [tokens.negative, tokens.surfaceDeep, tokens.positive] };
+  }
+  if (minimum < 0) return { min: minimum, max: Math.max(0, maximum), color: [tokens.negative, tokens.surfaceDeep] };
+  return { min: 0, max: Math.max(1, maximum), color: [tokens.surfaceDeep, tokens.warning] };
 }
 
 function formatChartValue(value, unit) {
@@ -66,7 +80,7 @@ function cleanPoints(points) {
     values: point?.values && typeof point.values === 'object' && !Array.isArray(point.values) ? point.values : null,
     series: typeof point?.series === 'string' ? point.series.slice(0, 40) : '',
     unit: typeof point?.unit === 'string' ? point.unit.slice(0, 24) : ''
-  })).filter(point => point.value !== null || point.values);
+  }));
 }
 
 function groupedPoints(points) {
@@ -114,21 +128,26 @@ function commonOptions(tokens, title, reducedMotion) {
   };
 }
 
-function axis(tokens, unit, horizontal = false) {
+function axis(tokens, unit, horizontal = false, { type = horizontal ? 'value' : 'category', position, axisLabel: axisLabelOptions = {} } = {}) {
   const base = {
     axisLine: { lineStyle: { color: tokens.grid, width: 1 } },
     axisTick: { show: false },
-    axisLabel: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11, hideOverlap: true, ...(horizontal ? { formatter: value => formatChartValue(value, unit) } : {}) },
+    axisLabel: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11, hideOverlap: true, ...(type === 'value' ? { formatter: value => formatChartValue(value, unit) } : {}), ...axisLabelOptions },
     splitLine: { lineStyle: { color: tokens.grid, width: 1, opacity: 0.7 } },
     name: String(unit || 'VALUE').toUpperCase(),
     nameTextStyle: { color: tokens.primary, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11 },
-    nameGap: 18
+    nameLocation: 'middle',
+    nameGap: type === 'value' ? (horizontal ? 28 : 42) : 18
   };
-  return horizontal ? { ...base, type: 'value', position: 'bottom' } : { ...base, type: 'category' };
+  return { ...base, type, ...(type === 'value' ? { position: position || (horizontal ? 'bottom' : 'left') } : {}) };
 }
 
-function numericAxis(tokens, unit) {
-  return { ...axis(tokens, unit, true), min: 0, nameLocation: 'end' };
+function numericAxis(tokens, unit, horizontal = false, values = []) {
+  const hasNegative = values.some(value => {
+    const number = finite(value);
+    return number !== null && number < 0;
+  });
+  return { ...axis(tokens, unit, horizontal, { type: 'value' }), ...(hasNegative ? {} : { min: 0 }) };
 }
 
 function lineOptions(points, unit, tokens, title, reducedMotion) {
@@ -136,9 +155,9 @@ function lineOptions(points, unit, tokens, title, reducedMotion) {
   const groups = groupedPoints(points);
   return {
     ...commonOptions(tokens, title, reducedMotion),
-    grid: { left: 70, right: 20, top: 52, bottom: 42, containLabel: true },
+    grid: { left: 84, right: 24, top: 52, bottom: 48, containLabel: true },
     xAxis: { ...axis(tokens, '', false), data: labels, boundaryGap: false },
-    yAxis: { ...numericAxis(tokens, unit), nameGap: 42 },
+    yAxis: numericAxis(tokens, unit, false, groups.flatMap(group => group.values.map(point => point.value))),
     series: groups.map((group, index) => ({
       name: labelForSeries(group.name),
       type: 'line',
@@ -155,7 +174,7 @@ function lineOptions(points, unit, tokens, title, reducedMotion) {
   };
 }
 
-function barOptions(points, unit, tokens, title, reducedMotion) {
+function barOptions(points, unit, tokens, title, reducedMotion, { height = 240 } = {}) {
   const unitGroups = new Map();
   points.forEach(point => {
     const groupUnit = point.unit || unit || 'value';
@@ -169,8 +188,8 @@ function barOptions(points, unit, tokens, title, reducedMotion) {
     return {
       groupUnit,
       labels,
-      xAxis: { ...numericAxis(tokens, groupUnit), gridIndex: index },
-      yAxis: { ...axis(tokens, groupUnit, false), data: labels, inverse: true, gridIndex: index },
+      xAxis: { ...numericAxis(tokens, groupUnit, true, groupPoints.map(point => point.value)), nameGap: 26, gridIndex: index },
+      yAxis: { ...axis(tokens, groupUnit, false, { axisLabel: { width: 116, overflow: 'truncate', margin: 8 } }), name: '', data: labels, inverse: true, gridIndex: index },
       series: {
         name: groups.length > 1 ? String(groupUnit).toUpperCase() : 'Verified',
         type: 'bar',
@@ -184,16 +203,19 @@ function barOptions(points, unit, tokens, title, reducedMotion) {
       }
     };
   });
-  const grids = groups.map((_, index) => groups.length === 1
-    ? { left: 150, right: 48, top: 36, bottom: 40, containLabel: true }
-    : { left: 150, right: 48, top: `${34 + index * (62 / groups.length)}%`, height: `${Math.max(20, Math.floor(52 / groups.length))}%`, containLabel: true });
+  const top = groups.length > 1 ? 14 : 36;
+  const bottom = groups.length > 1 ? 44 : 48;
+  const gap = groups.length > 1 ? 12 : 0;
+  const usableHeight = Math.max(64, Number(height || 240) - top - bottom - gap * (groups.length - 1));
+  const bandHeight = usableHeight / Math.max(1, groups.length);
+  const grids = groups.map((_, index) => ({ left: 132, right: 82, top: top + index * (bandHeight + gap), height: bandHeight, containLabel: true }));
   return {
     ...commonOptions(tokens, title, reducedMotion),
     grid: grids,
     xAxis: axes.map(axisValue => axisValue.xAxis),
     yAxis: axes.map(axisValue => axisValue.yAxis),
     series: axes.map(axisValue => axisValue.series),
-    legend: groups.length > 1 ? { ...commonOptions(tokens, title, reducedMotion).legend, data: axes.map(axisValue => axisValue.series.name) } : commonOptions(tokens, title, reducedMotion).legend
+    legend: groups.length > 1 ? { show: false } : commonOptions(tokens, title, reducedMotion).legend
   };
 }
 
@@ -206,7 +228,7 @@ function stackedOptions(points, unit, tokens, title, reducedMotion) {
     ...commonOptions(tokens, title, reducedMotion),
     grid: { left: 70, right: 20, top: 40, bottom: 42, containLabel: true },
     xAxis: { ...axis(tokens, '', false), data: labels },
-    yAxis: numericAxis(tokens, unit),
+    yAxis: numericAxis(tokens, unit, false, points.flatMap(point => Object.values(point.values || {}).map(value => finite(value) ?? point.value))),
     series: groups.map((key, index) => ({
       name: key,
       type: 'bar',
@@ -221,15 +243,17 @@ function stackedOptions(points, unit, tokens, title, reducedMotion) {
 function heatmapOptions(points, unit, tokens, title, reducedMotion, cohort = false, boardColumns = 0) {
   const columns = boardColumns || (cohort ? 12 : 14);
   const rows = Math.max(1, Math.ceil(points.length / columns));
-  const values = points.map(point => Math.abs(finite(point.value) ?? 0));
-  const max = Math.max(1, ...values);
+  const scale = valueVisualScale(points, tokens);
   return {
     ...commonOptions(tokens, title, reducedMotion),
     grid: { left: 46, right: 20, top: 40, bottom: 42, containLabel: true },
-    visualMap: { min: 0, max, show: true, orient: 'horizontal', left: 'center', bottom: 4, textStyle: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 10 }, inRange: { color: [tokens.surfaceDeep, tokens.warning] } },
+    visualMap: { min: scale.min, max: scale.max, show: true, orient: 'horizontal', left: 'center', bottom: 4, textStyle: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 10 }, inRange: { color: scale.color } },
     xAxis: { type: 'category', data: Array.from({ length: columns }, (_, index) => String(index + 1)), axisLabel: { show: false }, splitArea: { show: false }, axisLine: { lineStyle: { color: tokens.grid } } },
     yAxis: { type: 'category', data: Array.from({ length: rows }, (_, index) => String(index + 1)), axisLabel: { show: false }, axisLine: { lineStyle: { color: tokens.grid } } },
-    series: [{ name: String(unit || 'OBSERVATIONS').toUpperCase(), type: 'heatmap', data: points.map((point, index) => [index % columns, Math.floor(index / columns), finite(point.value) ?? 0]), itemStyle: { borderColor: tokens.surfaceDeep, borderWidth: 1 } }]
+    series: [{ name: String(unit || 'OBSERVATIONS').toUpperCase(), type: 'heatmap', data: points.flatMap((point, index) => {
+      const value = finite(point.value);
+      return value === null ? [] : [[index % columns, Math.floor(index / columns), value]];
+    }), itemStyle: { borderColor: tokens.surfaceDeep, borderWidth: 1 } }]
   };
 }
 
@@ -255,7 +279,7 @@ function boxOptions(points, unit, tokens, title, reducedMotion) {
   return {
     ...commonOptions(tokens, title, reducedMotion),
     xAxis: { ...axis(tokens, unit, false), data: ['Verified'] },
-    yAxis: numericAxis(tokens, unit),
+    yAxis: numericAxis(tokens, unit, false, values),
     series: [{ name: 'Verified', type: 'boxplot', data: [[percentile(0), percentile(.25), percentile(.5), percentile(.75), percentile(1)]], itemStyle: { color: tokens.comparison, borderColor: tokens.focus, borderWidth: 1 } }]
   };
 }
@@ -264,7 +288,7 @@ function scatterOptions(points, unit, tokens, title, reducedMotion) {
   return {
     ...commonOptions(tokens, title, reducedMotion),
     xAxis: { ...axis(tokens, '', false), data: points.map(point => point.label) },
-    yAxis: numericAxis(tokens, unit),
+    yAxis: numericAxis(tokens, unit, false, points.map(point => point.value)),
     series: [{ name: 'Verified', type: 'scatter', symbol: 'rect', symbolSize: 8, data: points.map((point, index) => [index, point.value]), itemStyle: { color: tokens.primary, borderColor: tokens.focus, borderWidth: 1 } }]
   };
 }
@@ -278,9 +302,30 @@ function funnelOptions(points, unit, tokens, title, reducedMotion) {
   };
 }
 
-function boardOptions(points, unit, tokens, title, reducedMotion, variant = 'standard-40') {
-  const columns = String(variant).toLowerCase() === 'metro-52' ? 13 : 10;
-  return heatmapOptions(points, unit, tokens, title, reducedMotion, false, columns);
+function boardOptions(points, unit, tokens, title, reducedMotion, { variant = 'standard-40', width = 360, height = 240 } = {}) {
+  const side = String(variant).toLowerCase() === 'metro-52' ? 14 : 11;
+  const edge = side - 1;
+  const coordinates = points.map((point, index) => {
+    if (index <= edge) return [index, 0];
+    if (index <= edge * 2) return [edge, index - edge];
+    if (index <= edge * 3) return [edge * 3 - index, edge];
+    return [0, edge * 4 - index];
+  });
+  const scale = valueVisualScale(points, tokens);
+  const chartSize = Math.max(144, Math.min(Math.max(144, Number(width) - 32), Math.max(144, Number(height) - 76), 344));
+  return {
+    ...commonOptions(tokens, title, reducedMotion),
+    grid: { left: 'center', top: 18, width: chartSize, height: chartSize, containLabel: false },
+    legend: { show: false },
+    tooltip: { ...commonOptions(tokens, title, reducedMotion).tooltip, trigger: 'item' },
+    visualMap: { min: scale.min, max: scale.max, show: true, orient: 'horizontal', left: 'center', bottom: 4, textStyle: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 10 }, inRange: { color: scale.color } },
+    xAxis: { type: 'category', data: Array.from({ length: side }, (_, index) => String(index)), axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false }, splitArea: { show: false } },
+    yAxis: { type: 'category', data: Array.from({ length: side }, (_, index) => String(index)), inverse: true, axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false }, splitArea: { show: false } },
+    series: [{ name: String(unit || 'METRIC').toUpperCase(), type: 'heatmap', data: coordinates.flatMap(([column, row], index) => {
+      const value = finite(points[index].value);
+      return value === null ? [] : [{ name: points[index].label, value: [column, row, value] }];
+    }), itemStyle: { borderColor: tokens.surfaceDeep, borderWidth: 1 } }]
+  };
 }
 
 const OPTION_BUILDERS = Object.freeze({
@@ -293,14 +338,14 @@ const OPTION_BUILDERS = Object.freeze({
   box: boxOptions,
   scatter: scatterOptions,
   funnel: funnelOptions,
-  board: (points, unit, tokens, title, reducedMotion, options) => boardOptions(points, unit, tokens, title, reducedMotion, options.variant)
+  board: (points, unit, tokens, title, reducedMotion, options) => boardOptions(points, unit, tokens, title, reducedMotion, options)
 });
 
-export function createPoorupChartOptions(points, { mode = 'line', unit = 'value', title = 'Analytics series', tokens = resolvePoorupChartTokens(), reducedMotion = false, variant = 'standard-40' } = {}) {
+export function createPoorupChartOptions(points, { mode = 'line', unit = 'value', title = 'Analytics series', tokens = resolvePoorupChartTokens(), reducedMotion = false, variant = 'standard-40', width = 360, height = 240 } = {}) {
   const clean = cleanPoints(points);
   const normalizedMode = String(mode).toLowerCase();
   const builder = OPTION_BUILDERS[normalizedMode] || barOptions;
-  return builder(clean, unit, tokens, title, reducedMotion, { variant });
+  return builder(clean, unit, tokens, title, reducedMotion, { variant, width, height });
 }
 
 export { FALLBACK_TOKENS };

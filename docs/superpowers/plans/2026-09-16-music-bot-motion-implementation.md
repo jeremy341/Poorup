@@ -50,7 +50,7 @@ assert.deepEqual(timeline.snapshot(1390), { index: 2, done: true });
 
 - [ ] **Step 2: Run the focused test and verify it fails**
 
-Run: `node public/clientBoardMotion.test.js`  
+Run: `node public/clientBoardMotion.test.js`
 Expected: module-not-found or missing-export failure.
 
 - [ ] **Step 3: Implement the bounded pure helper**
@@ -59,7 +59,7 @@ Clamp negative elapsed time to zero, use `Math.floor(elapsed / stepMs)`, cap at 
 
 - [ ] **Step 4: Run the focused test**
 
-Run: `node public/clientBoardMotion.test.js`  
+Run: `node public/clientBoardMotion.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Register the test in the existing client test command**
@@ -83,7 +83,7 @@ Test that a timeline sampled after a delayed callback is at the middle index, an
 
 - [ ] **Step 2: Run the focused test**
 
-Run: `node public/clientBoardMotion.test.js`  
+Run: `node public/clientBoardMotion.test.js`
 Expected: FAIL for the new cases.
 
 - [ ] **Step 3: Replace chained step counters with timeline sampling**
@@ -100,7 +100,7 @@ Keep `REDUCED_MOTION`, large-jump, first-snapshot, board-change, and rematch pat
 
 - [ ] **Step 6: Run focused and client regressions**
 
-Run: `node public/clientBoardMotion.test.js` and `npm run lint:client -- --quiet`  
+Run: `node public/clientBoardMotion.test.js` and `npm run lint:client -- --quiet`
 Expected: PASS.
 
 ### Task 3: Harden the music dock interaction
@@ -122,7 +122,7 @@ Assert that a drag threshold suppresses the post-drag click/menu open, pointer c
 
 - [ ] **Step 2: Run the focused tests**
 
-Run: `node public/clientMusicBoxUi.test.js` and `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js --workers=1`  
+Run: `node public/clientMusicBoxUi.test.js` and `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js --workers=1`
 Expected: the new interaction assertions fail before implementation.
 
 - [ ] **Step 3: Implement pointer-capture drag state**
@@ -139,7 +139,7 @@ Keep existing `env(safe-area-inset-*)`, ticker clearance, coarse-pointer 44px ta
 
 - [ ] **Step 6: Run focused browser checks**
 
-Run: `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js --workers=1`  
+Run: `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js --workers=1`
 Expected: PASS with no duplicate dock.
 
 ### Task 4: Reconcile music state across visibility and themes
@@ -160,7 +160,7 @@ Use injected clocks and fake media elements to assert that a crossfade sampled a
 
 - [ ] **Step 2: Run the focused test**
 
-Run: `node public/clientMusicPlayer.test.js`  
+Run: `node public/clientMusicPlayer.test.js`
 Expected: FAIL for the new cases.
 
 - [ ] **Step 3: Make crossfade progress clock-based**
@@ -177,7 +177,7 @@ Register handlers only when `navigator.mediaSession` exists. Fail silently when 
 
 - [ ] **Step 6: Run focused unit and browser tests**
 
-Run: `node public/clientMusicPlayer.test.js` and `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js --workers=1`  
+Run: `node public/clientMusicPlayer.test.js` and `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js --workers=1`
 Expected: PASS.
 
 ### Task 5: Reduce bot brain choices and add provider state
@@ -202,7 +202,7 @@ Assert that `auto` normalizes to `ai`, the room setting accepts only the two can
 
 - [ ] **Step 2: Run focused bot tests**
 
-Run: `node server/bot-brain.test.js` and `node server/botAdvisor.test.js`  
+Run: `node server/bot-brain.test.js` and `node server/botAdvisor.test.js`
 Expected: the new canonical/sticky assertions fail.
 
 - [ ] **Step 3: Implement compatibility normalization**
@@ -223,7 +223,7 @@ Render two choices. When the client provider status is quota-exhausted, keep `AI
 
 - [ ] **Step 7: Run focused bot tests and client lint**
 
-Run: `node server/bot-brain.test.js; node server/botAdvisor.test.js; npm run lint:client -- --quiet`  
+Run: `node server/bot-brain.test.js; node server/botAdvisor.test.js; npm run lint:client -- --quiet`
 Expected: PASS.
 
 ### Task 6: Broadcast the redacted AI fallback notice
@@ -249,7 +249,7 @@ Assert that quota exhaustion emits exactly one status revision, payloads contain
 
 - [ ] **Step 2: Run focused tests**
 
-Run: `node server/server.test.js; node public/clientUxContracts.test.js`  
+Run: `node server/server.test.js; node public/clientUxContracts.test.js`
 Expected: FAIL for the new event/banner contracts.
 
 - [ ] **Step 3: Subscribe runtime to advisor state**
@@ -266,7 +266,7 @@ Before `room.setRoomSetting`, reject `botBrain=ai` while provider state is quota
 
 - [ ] **Step 6: Run focused server/client tests**
 
-Run: `node server/server.test.js; node server/rooms.test.js; node public/clientUxContracts.test.js`  
+Run: `node server/server.test.js; node server/rooms.test.js; node public/clientUxContracts.test.js`
 Expected: PASS.
 
 ### Task 7: Verify bot bankruptcy without changing game rules
@@ -285,7 +285,7 @@ Cover an AI advisor returning the bankruptcy candidate, a deterministic no-AI bo
 
 - [ ] **Step 2: Run focused bot tests**
 
-Run: `node server/botLogic.test.js; node server/botAdvisor.test.js`  
+Run: `node server/botLogic.test.js; node server/botAdvisor.test.js`
 Expected: any missing path or duplicate-action bug is visible.
 
 - [ ] **Step 3: Fix only the proven seam**
@@ -294,7 +294,7 @@ If a case fails, correct the smallest phase classification, candidate selection,
 
 - [ ] **Step 4: Run bot simulation and focused tests**
 
-Run: `node server/botLogic.test.js; node server/bot-simulation.test.js; node server/botAdvisor.test.js`  
+Run: `node server/botLogic.test.js; node server/bot-simulation.test.js; node server/botAdvisor.test.js`
 Expected: PASS with no stalled bot turns.
 
 ### Task 8: Full verification and visual review
@@ -305,17 +305,17 @@ Expected: PASS with no stalled bot turns.
 
 - [ ] **Step 1: Run lint and unit/audit suites**
 
-Run: `npm run lint -- --quiet; npm run lint:client -- --quiet; npm run test:full --silent`  
+Run: `npm run lint -- --quiet; npm run lint:client -- --quiet; npm run test:full --silent`
 Expected: all commands exit 0.
 
 - [ ] **Step 2: Run focused browser coverage**
 
-Run: `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js qa/poorup.spec.js --workers=1`  
+Run: `npx playwright test -c qa/playwright.config.js qa/music-box-reference.spec.js qa/poorup.spec.js --workers=1`
 Expected: no dock duplicates, no page overflow, correct theme-aware controls, and no regressions in game chrome.
 
 - [ ] **Step 3: Run the full browser matrix**
 
-Run: `npx playwright test -c qa/playwright.config.js --workers=1 --reporter=dot`  
+Run: `npx playwright test -c qa/playwright.config.js --workers=1 --reporter=dot`
 Expected: zero failures; record pass/skip totals.
 
 - [ ] **Step 4: Inspect 1920x1080 screenshots**
@@ -328,5 +328,5 @@ Run keyboard-only dock movement, reduced motion, forced colors, 200% zoom, iPad 
 
 - [ ] **Step 6: Run final integrity checks**
 
-Run: `git diff --check; npm audit --omit=dev --audit-level=moderate; git status --short --branch`  
+Run: `git diff --check; npm audit --omit=dev --audit-level=moderate; git status --short --branch`
 Expected: clean diff check, zero production vulnerabilities, and an explicit list of pending files. Do not commit, push, or merge unless separately requested.

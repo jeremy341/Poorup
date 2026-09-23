@@ -1,10 +1,6 @@
-// Characterization suite for the casino / bankruptcy / room-settings hotspot
-// cluster: GameState.placeCasinoBet, GameState.chargePlayer + the
-// handleBankruptcy path reached through declareBankruptcy, and
-// Room.setRoomSetting. Every expectation below was captured from the
-// pre-refactor code (exact errors, coerced values, ledger fields, feed order,
-// liquidation sequence, and RNG call sites), so the structural refactor must
-// keep it green byte-for-byte.
+// Focused coverage for the casino / bankruptcy / room-settings hotspot:
+// pending payments block wagers, while bankruptcy always removes the seat and
+// room settings keep their canonical server-owned values.
 import assert from 'node:assert/strict';
 import nodeCrypto from 'crypto';
 import { RoomManager } from './gameLogic.js';
@@ -69,8 +65,9 @@ check('casino — disabled room rejects before every other rule', () => {
   assert.deepEqual(room.placeCasinoBet('socket-a', 'blue', 0, 'c1'), { success: false, error: 'Casino access is off for this room.' });
 });
 
-check('casino — rejects when table obligation is pending (auction/trade/contract/purchase)', () => {
+check('casino — rejects when table obligation is pending (all five kinds)', () => {
   const obligations = [
+    ['pendingPayment', { playerId: 'x', creditorId: null, amountRemaining: 1, reason: 'r' }],
     ['auction', { active: true }],
     ['pendingPurchaseOffer', { playerId: 'x', tileIndex: 1 }],
     ['pendingTrade', { from: 'x' }],
@@ -81,13 +78,6 @@ check('casino — rejects when table obligation is pending (auction/trade/contra
     room.game[field] = value;
     assert.deepEqual(room.placeCasinoBet('socket-a', 'red', 10, 'c1'), { success: false, error: 'Resolve the table obligation before betting.' }, field);
     room.game[field] = null;
-  }
-  // Debt (pendingPayment) does NOT block casino — only endTurn is gated.
-  {
-    const room = makeStartedRoom();
-    room.game.pendingPayment = { playerId: 'x', creditorId: null, amountRemaining: 1, reason: 'r' };
-    const result = room.placeCasinoBet('socket-a', 'red', 10, 'c1');
-    assert.equal(result.success, true);
   }
 });
 
@@ -494,23 +484,25 @@ check('collateralized bank default clears the settled balance', () => {
   assert.equal(deed.ownerId, null);
 });
 
-check('bank seizure liquidates houses to the borrower instead of wiping them', () => {
+check('bank seizure sells collateral buildings to the borrower before transfer', () => {
   const room = makeStartedRoom(false);
   const game = room.game;
-  const b = game.getPlayerBySocket('socket-b');
+  const borrower = game.getPlayerBySocket('socket-b');
   const deed = game.getTile(1);
-  deed.ownerId = b.id;
+  deed.ownerId = borrower.id;
   deed.houseCount = 2;
-  b.properties.push(deed.index);
-  b.cash = 0;
-  b.bankLoan = { status: 'due', remaining: 300, collateralTileIndex: deed.index, dueRound: 1, cureRound: 1 };
+  borrower.properties.push(deed.index);
+  borrower.cash = 0;
+  borrower.bankLoan = { status: 'due', remaining: 300, collateralTileIndex: deed.index, dueRound: 1, cureRound: 1 };
   game.roundNumber = 3;
+
   game.processBankLoans();
-  assert.equal(b.bankLoan.status, 'defaulted');
+
+  assert.equal(borrower.bankLoan.status, 'defaulted');
   assert.equal(deed.ownerId, null);
   assert.equal(deed.houseCount, 0);
-  assert.equal(b.cash, 50); // 2 houses x 50 cost x 0.5 sale rate
-  assert.equal(b.collateralLost, true);
+  assert.equal(borrower.cash, 50);
+  assert.equal(borrower.collateralLost, true);
 });
 
 check('bank loan final-cure achievement fact requires a successful full repayment', () => {
@@ -695,10 +687,9 @@ check('bankruptcy — releasing a deed also terminates its equity holders', () =
   assert.equal(game.playerContractById('equity-release').status, 'terminated');
 });
 
-check('legacy debt setting still settles contract collateral before creditor forfeiture', () => {
+check('bankruptcy — contract collateral settles before rent-creditor forfeiture', () => {
   const room = trioRoom();
   const game = room.game;
-  game.settings.bankruptMode = 'debt';
   const lender = game.getPlayerBySocket('socket-a');
   const borrower = game.getPlayerBySocket('socket-b');
   const rentCreditor = game.getPlayerBySocket('socket-c');
@@ -707,9 +698,10 @@ check('legacy debt setting still settles contract collateral before creditor for
   borrower.properties = [tile.index];
   game.playerContracts = [{ id: 'debt-collateral', kind: 'loan', status: 'active', fromPlayerId: lender.id, toPlayerId: borrower.id, collateralTileIndex: tile.index }];
   game.pendingPayment = { playerId: borrower.id, creditorId: rentCreditor.id, amountRemaining: 50, reason: 'rent' };
-  assert.equal(room.declareBankruptcy('socket-b').success, true);
-  assert.equal(borrower.inDebt, false);
+  const result = room.declareBankruptcy('socket-b');
+  assert.equal(result.success, true);
   assert.equal(borrower.bankrupt, true);
+  assert.equal(borrower.inDebt, false);
   assert.equal(tile.ownerId, lender.id);
   assert.equal(game.playerContractById('debt-collateral').status, 'defaulted');
   assert.equal(rentCreditor.properties.includes(tile.index), false);
@@ -772,7 +764,8 @@ check('bankruptcy — collateral only transfers while the debtor still holds it'
   assert.equal(game.playerContracts[0].status, 'defaulted');
 });
 
-check('bankruptcy — bankrupt current player hands over the turn', () => {  const room = trioRoom();
+check('bankruptcy — bankrupt current player hands over the turn', () => {
+  const room = trioRoom();
   const game = room.game;
   const a = game.getPlayerBySocket('socket-a');
   const b = game.getPlayerBySocket('socket-b');
@@ -962,24 +955,24 @@ check('setRoomSetting — boolean keys parse only true/"true"/1/"1"', () => {
   }
 });
 
-check('setRoomSetting — legacy bankruptcy mode is fixed while loan severity remains bounded', () => {
+check('setRoomSetting — legacy bankrupt mode always stays eliminated', () => {
   const room = lobby();
-  room.setRoomSetting('bankruptMode', '  elim  ');
+  room.setRoomSetting('bankruptMode', '  debt  ');
   assert.equal(room.settings.bankruptMode, 'elim');
   room.setRoomSetting('bankruptMode', 5);
   assert.equal(room.settings.bankruptMode, 'elim');
-  room.setRoomSetting('bankLoanSeverity', ' FAIR ');
-  assert.equal(room.settings.bankLoanSeverity, 'fair');
-  room.setRoomSetting('bankLoanSeverity', 'anything');
-  assert.equal(room.settings.bankLoanSeverity, 'predatory');
   assert.equal(room.game.settings.bankruptMode, 'elim');
 });
 
-// ---------------------------------------------------------------------------
-// Legacy bankruptMode compatibility
-// ---------------------------------------------------------------------------
+check('setRoomSetting — bank-loan severity is trimmed and allowlisted', () => {
+  const room = lobby();
+  room.setRoomSetting('bankLoanSeverity', ' extreme ');
+  assert.equal(room.settings.bankLoanSeverity, 'extreme');
+  room.setRoomSetting('bankLoanSeverity', 'anything');
+  assert.equal(room.settings.bankLoanSeverity, 'predatory');
+});
 
-check('legacy bankruptMode=debt transfers assets and eliminates the seat', () => {
+check('bankruptcy — legacy debt mode does not prevent seat elimination', () => {
   const room = makeStartedRoom(false);
   room.game.settings.bankruptMode = 'debt';
   const player = room.game.getPlayerBySocket('socket-a');
@@ -990,11 +983,12 @@ check('legacy bankruptMode=debt transfers assets and eliminates the seat', () =>
   assert.equal(result.success, true);
   assert.equal(result.voluntary, false);
   assert.equal(player.bankrupt, true);
-  assert.equal(player.inDebt, false);
   assert.equal(player.spectating, true);
+  assert.equal(player.inDebt, false);
+  assert.equal(room.game.pendingPayment, null);
 });
 
-check('legacy bankruptMode=debt clears the debtor gate and liquidates market positions', () => {
+check('bankruptcy — legacy debt mode still clears the debtor gate and liquidates market positions', () => {
   const room = makeStartedRoom(false);
   const game = room.game;
   game.settings.bankruptMode = 'debt';
@@ -1012,18 +1006,6 @@ check('legacy bankruptMode=debt clears the debtor gate and liquidates market pos
   assert.equal(game.pendingPaymentTurnOptions, null);
 });
 
-check('legacy debt mode cannot keep a bankrupt seat in the game', () => {
-  const room = makeStartedRoom(false);
-  const game = room.game;
-  const player = game.getPlayerBySocket('socket-a');
-  game.settings.bankruptMode = 'debt';
-  game.pendingPayment = { playerId: player.id, creditorId: null, amountRemaining: 500, reason: 'test' };
-  assert.equal(game.declareBankruptcy('socket-a').success, true);
-  assert.equal(player.bankrupt, true);
-  assert.equal(player.inDebt, false);
-  assert.equal(player.spectating, true);
-});
-
 check('bankruptcy — creditor exit clears the other player payment gate', () => {
   const room = trioRoom();
   const game = room.game;
@@ -1032,6 +1014,45 @@ check('bankruptcy — creditor exit clears the other player payment gate', () =>
   game.pendingPayment = { playerId: debtor.id, creditorId: creditor.id, amountRemaining: 100, reason: 'rent' };
   assert.equal(room.declareBankruptcy('socket-a').success, true);
   assert.equal(game.pendingPayment, null);
+});
+
+check('uncollectible debtor is declared bankrupt instead of losing the outstanding claim', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const creditor = game.getPlayerBySocket('socket-a');
+  const debtor = game.getPlayerBySocket('socket-b');
+  const deed = game.getTile(1);
+  deed.ownerId = debtor.id;
+  debtor.properties.push(deed.index);
+  debtor.cash = 0;
+  game.pendingPayment = { playerId: debtor.id, creditorId: creditor.id, amountRemaining: 100, reason: 'rent' };
+  debtor.disconnected = true;
+
+  assert.equal(game.trySettlePendingPayment(), false);
+  assert.equal(debtor.bankrupt, true);
+  assert.equal(debtor.spectating, true);
+  assert.equal(game.pendingPayment, null);
+  assert.equal(deed.ownerId, creditor.id);
+});
+
+check('bankruptcy sends remaining cash to the bank when the creditor is gone', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const bankruptCreditor = game.getPlayerBySocket('socket-a');
+  const debtor = game.getPlayerBySocket('socket-b');
+  const deed = game.getTile(1);
+  bankruptCreditor.bankrupt = true;
+  debtor.cash = 250;
+  deed.ownerId = debtor.id;
+  debtor.properties.push(deed.index);
+  game.currentPlayerId = debtor.id;
+  game.pendingPayment = { playerId: debtor.id, creditorId: bankruptCreditor.id, amountRemaining: 400, reason: 'rent' };
+
+  room.declareBankruptcy('socket-b');
+
+  assert.equal(debtor.bankrupt, true);
+  assert.equal(debtor.cash, 0);
+  assert.equal(deed.ownerId, null);
 });
 
 check('round debt processing queues independent unsecured defaults', () => {
@@ -1073,42 +1094,6 @@ check('leaving a queued debtor removes its orphaned payment claim', () => {
   const leavingId = queued[0];
   game.removeQueuedPaymentsForPlayer(leavingId);
   assert.equal(game.pendingPaymentQueue.some(entry => entry.payment.playerId === leavingId), false);
-});
-
-check('uncollectible debtor goes bankrupt instead of evaporating the debt', () => {
-  const room = trioRoom();
-  const game = room.game;
-  const a = game.getPlayerBySocket('socket-a');
-  const b = game.getPlayerBySocket('socket-b');
-  game.currentPlayerId = a.id;
-  const deed = game.getTile(1);
-  deed.ownerId = b.id;
-  b.properties.push(deed.index);
-  b.cash = 0;
-  game.pendingPayment = { playerId: b.id, creditorId: a.id, amountRemaining: 100, reason: 'test debt' };
-  b.disconnected = true;
-  assert.equal(game.trySettlePendingPayment(), false);
-  assert.equal(b.bankrupt, true);
-  assert.equal(game.pendingPayment, null);
-  assert.equal(game.getTile(1).ownerId, a.id);
-});
-
-check('bankruptcy — cash returns to the bank when the creditor is gone', () => {
-  const room = trioRoom();
-  const game = room.game;
-  const a = game.getPlayerBySocket('socket-a');
-  const b = game.getPlayerBySocket('socket-b');
-  a.bankrupt = true;
-  b.cash = 250;
-  const deed = game.getTile(1);
-  deed.ownerId = b.id;
-  b.properties.push(deed.index);
-  game.currentPlayerId = b.id;
-  game.pendingPayment = { playerId: b.id, creditorId: a.id, amountRemaining: 400, reason: 'test debt' };
-  room.declareBankruptcy('socket-b');
-  assert.equal(b.bankrupt, true);
-  assert.equal(b.cash, 0);
-  assert.equal(game.getTile(1).ownerId, null);
 });
 
 console.log(`casino-bankruptcy tests: ${passed + failures.length} checks — ${passed} passed, ${failures.length} failed`);

@@ -303,6 +303,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     leaveForeignRooms(room.roomCode);
     socket.join(room.roomCode);
     if (account?.id) socket.data.accountId = account.id;
+    runtime.recordPlayerActivity?.(socket);
     runtime.emitRoomState(room);
     runtime.emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
     socket.emit('system-message', { text: 'Reconnected to your room.' });

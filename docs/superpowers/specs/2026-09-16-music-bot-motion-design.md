@@ -1,7 +1,7 @@
 # Music Dock, Bot Fallback, and Background Motion Design
 
-**Status:** approved for implementation  
-**Scope:** client music controls, bot provider availability, and decorative board-piece motion  
+**Status:** approved for implementation
+**Scope:** client music controls, bot provider availability, and decorative board-piece motion
 **Non-goals:** game-rule changes, new navigation, new frameworks, legal surfaces, or server-owned economy behavior
 
 ## Design authority

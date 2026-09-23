@@ -78,6 +78,22 @@ check('readiness projection exposes only store, backup, and maintenance health',
   assert.equal(JSON.stringify(persistence.buildReadinessProjection({ storeLoaded: true, backupFresh: true, maintenance: 'normal' })).includes('password'), false);
 });
 
+check('runtime exposes current AI provider status and its subscription cleanup', () => {
+  const manager = new RoomManager();
+  manager.createRoom({ socketId: 'provider-socket', clientId: 'provider-client', nickname: 'Provider' });
+  let unsubscribeCalled = false;
+  const runtime = createRuntime(runtimeDeps(manager, {
+    botAdvisor: {
+      getPublicStatus() { return { state: 'quota-exhausted', reason: 'credits-exhausted', revision: 4 }; },
+      subscribeProviderStatus() { return () => { unsubscribeCalled = true; }; }
+    }
+  }));
+
+  assert.deepEqual(runtime.botProviderStatus(), { state: 'quota-exhausted', revision: 4, reason: 'credits-exhausted' });
+  runtime.unsubscribeBotProviderStatus();
+  assert.equal(unsubscribeCalled, true);
+});
+
 check('transport disconnect marks a seat disconnected so a grace-window restore succeeds', () => {
   const { manager, room } = startedRoom();
   const runtime = createRuntime(runtimeDeps(manager));
@@ -233,13 +249,13 @@ check('owner match history strips bot decisions while full match result remains 
   assert.equal(store.getAccountById(registered.account.id).matchHistory[0].botDecisions, undefined);
 });
 
-check('inDebt humans are the last-resort host fallback, never a null host', () => {
+check('connected inDebt humans are not eligible for host reassignment', () => {
   const { manager, room } = startedRoom();
   const human = room.game.players[1];
   human.inDebt = true;
   const runtime = createRuntime(runtimeDeps(manager));
   runtime.reassignHostIfNeeded(room, room.hostId);
-  assert.equal(room.hostId, human.id);
+  assert.equal(room.hostId, null);
 });
 
 check('auth attempt address resolution uses the documented trusted-proxy setting', () => {
