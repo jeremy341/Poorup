@@ -1,5 +1,6 @@
 /* global process */
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { createMusicPlayer } from "./clientMusicPlayer.js";
 import { MUSIC_MANIFEST } from "./clientMusicData.js";
 
@@ -22,6 +23,22 @@ test("manifest is frozen and rejects arbitrary tracks", () => {
   assert.equal(MUSIC_MANIFEST.tracks["evil"], undefined);
   assert.equal(MUSIC_MANIFEST.tracks["pondering-the-cosmos"].artist, "Ruskerdax");
   assert.equal(MUSIC_MANIFEST.tracks["pondering-the-cosmos"].license, "CC0/public domain");
+});
+test("main binds the controller to the hidden music runtime", () => {
+  const source = fs.readFileSync(new URL("./main.js", import.meta.url), "utf8");
+  assert.match(source, /querySelector\("\[data-music-runtime\]"\)/);
+});
+test("theme runtime selects the approved theme track and stays stopped when disabled", () => {
+  const { player, audioA, audioB } = setup();
+  player.setTheme("spring", { play: false });
+  const snapshot = player.snapshot();
+  assert.equal(snapshot.currentTrackId, "hot-springs-town");
+  assert.equal(snapshot.loop, true);
+  assert.equal(snapshot.playing, false);
+  assert.equal(audioA.paused, true);
+  assert.equal(audioB.paused, true);
+  assert.equal(audioA.loop, true);
+  assert.equal(audioB.loop, true);
 });
 test("theme reset clears custom state and enables loop", () => {
   const { player } = setup(); player.selectTrack("pondering-the-cosmos"); player.toggleLoop();
@@ -118,7 +135,7 @@ test("failed custom selection restores queue and history state", () => {
 });
 test("failed theme and reset preserve prior history", () => {
   const listeners = {}; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
-  const { player } = setup({ audioB }); player.selectTrack("hot-springs-town"); const before = player.snapshot(); player.setTheme("spring"); listeners.error();
+  const { player } = setup({ audioB }); player.selectTrack("hot-springs-town"); player.setTheme("spring"); listeners.error();
   assert.equal(player.previous(), true); assert.equal(player.snapshot().currentTrackId, "pondering-the-cosmos");
 });
 test("theme change and reset clear shuffle and restore ordered queue", () => {
@@ -170,7 +187,7 @@ test("blocked pending target is retried before pausing prior playback", async ()
 });
 test("pausing an in-flight transition immediately restores its full snapshot", async () => {
   const listeners = {}; let queued; const audioB = { ...media(), addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
-  const { player, audioA } = setup({ audioB, requestFrame: fn => { queued = fn; return 9; }, cancelFrame: () => {} }); player.togglePlay(); const before = player.snapshot(); player.setTheme("spring"); listeners.canplay(); player.togglePlay(); queued?.();
+  const { player } = setup({ audioB, requestFrame: fn => { queued = fn; return 9; }, cancelFrame: () => {} }); player.togglePlay(); player.setTheme("spring"); listeners.canplay(); player.togglePlay(); queued?.();
   const after = player.snapshot(); assert.equal(after.playing, false);
 });
 test("retrying blocked incoming audio pauses the old active channel", async () => {

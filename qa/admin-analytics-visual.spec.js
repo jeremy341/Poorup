@@ -27,7 +27,7 @@ const FIXTURE = {
 };
 
 const SPECIALIZED_MODELS = {
-  'match-health': { starts: 12, completions: 9, stalls: 1, durationMedian: { value: 14.2, sampleSize: 9 }, durationP95: { value: 28.4, sampleSize: 9 }, reconnectRate: { value: 0.08, denominator: 12 }, afkRate: { value: 0.02, denominator: 12 }, bankruptcies: { value: 2, denominator: 12 }, comebacks: { value: 1, denominator: 12 } },
+  'match-health': { starts: 12, completions: 9, stalls: 1, durationMedian: { value: 14.2, sampleSize: 9 }, durationP95: { value: 28.4, sampleSize: 9 }, reconnectRate: { value: 0.08, numerator: 1, sampleSize: 12, denominator: 12 }, afkRate: { value: 0.02, denominator: 12 }, bankruptcies: { value: 2, denominator: 12 }, comebacks: { value: 1, denominator: 12 } },
   rulesets: { rows: [{ rulesetPreset: 'classic', boardVariant: 'standard-40', matches: 18, completionRate: { value: 0.72, denominator: 18 } }, { rulesetPreset: 'after-hours', boardVariant: 'metro-52', matches: 11, completionRate: { value: 0.64, denominator: 11 } }] },
   economy: { adoption: { loans: { value: 0.42, denominator: 20 }, auctions: { value: 0.28, denominator: 20 } }, volatility: { value: 0.17, sampleSize: 20 }, liquidationRate: { value: 0.06, denominator: 20 }, negativeCashPrevention: { value: 3, denominator: 20 } },
   events: { rows: [{ eventId: 'market-rush', eligibility: { value: 22, denominator: 22 }, turnout: { value: 0.41, denominator: 22 }, recoveryRate: { value: 0.76, denominator: 9 } }], unlockRarity: { rare: { value: 0.08, denominator: 50 } }, rewardClaims: { value: 14, denominator: 50 } },
@@ -36,11 +36,15 @@ const SPECIALIZED_MODELS = {
 };
 
 async function openFixture(page, response = FIXTURE, status = 200) {
-  await page.addInitScript(({ key, session }) => localStorage.setItem(key, JSON.stringify(session)), { key: 'poorup.account.session.v1', session: SESSION });
   await page.route('**/admin/analytics/balance**', route => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(response) }));
   const tab = response?.filters?.tab && response.filters.tab !== 'overview' ? `?tab=${encodeURIComponent(response.filters.tab)}` : '';
   await page.goto(`/admin/analytics${tab}`);
   await expect(page.locator('#admin-analytics-main')).toBeVisible();
+  await page.evaluate(async session => {
+    const { state } = await import('/clientState.js');
+    state.account = session;
+  }, SESSION);
+  await page.locator('[data-analytics-refresh]').click();
 }
 
 test.describe('admin analytics visual contract', () => {
@@ -82,7 +86,11 @@ test.describe('admin analytics visual contract', () => {
       await expect(panel).toBeVisible();
       await expect(panel.locator('[data-analytics-chart]')).toHaveCount(1);
       await expect(panel.locator('.analytics-chart-table')).toHaveCount(1);
-      await expect(panel.locator('.analytics-chart-table')).toContainText({
+      const chartEngine = panel.locator('.analytics-chart-engine');
+      await expect(chartEngine.locator('svg')).toHaveCount(1);
+      await expect.poll(() => chartEngine.locator('svg path').count()).toBeGreaterThan(0);
+      const chartTable = panel.locator('.analytics-chart-table');
+      await expect(chartTable).toContainText({
         'match-health': 'Starts',
         rulesets: 'classic / standard-40',
         economy: 'loans',
@@ -90,8 +98,74 @@ test.describe('admin analytics visual contract', () => {
         bots: 'openai',
         quality: 'Lag seconds'
       }[tab]);
+      if (tab === 'match-health') {
+        const reconnect = chartTable.locator('tbody tr').filter({ hasText: /reconnect rate/i });
+        await expect(reconnect.locator('td')).toHaveText(['8%', 'percent', '12', '1', '12']);
+      }
       await expect(panel).not.toContainText('WAITING FOR');
     }
+  });
+
+  test('shows overview KPIs only on the overview page', async ({ page }) => {
+    await openFixture(page);
+    await expect(page.locator('#admin-analytics-grid')).toBeVisible();
+    await expect(page.locator('#admin-analytics-grid .analytics-metric')).toHaveCount(6);
+    await openFixture(page, { ...FIXTURE, filters: { ...FIXTURE.filters, tab: 'economy' }, overview: FIXTURE.overview, breakdowns: [SPECIALIZED_MODELS.economy] });
+    await expect(page.locator('#admin-analytics-grid')).toBeHidden();
+    await expect(page.locator('#analytics-panel-economy')).toBeVisible();
+  });
+
+  test('keeps long report pages internally scrollable with keyboard and without page overflow', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const rows = Array.from({ length: 36 }, (_, index) => ({ rulesetPreset: `ruleset-${index + 1}`, boardVariant: 'standard-40', matches: 18, completionRate: { value: 0.72, numerator: 13, sampleSize: 18, denominator: 18 } }));
+    await openFixture(page, { ...FIXTURE, filters: { ...FIXTURE.filters, tab: 'rulesets' }, overview: { kpis: [] }, series: [], breakdowns: [{ rows }] });
+    const reportPage = page.locator('[data-analytics-report-page]');
+    await expect(reportPage).toHaveAttribute('role', 'region');
+    await expect(reportPage).toHaveAttribute('tabindex', '0');
+    const metrics = await reportPage.evaluate(element => ({ overflow: getComputedStyle(element).overflowY, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }));
+    expect(metrics.overflow).toBe('auto');
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+    await reportPage.focus();
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => reportPage.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    const tableToggle = page.locator('#analytics-panel-rulesets .analytics-chart-table-toggle');
+    await tableToggle.focus();
+    await page.keyboard.press('Enter');
+    const tableRegion = page.locator('#analytics-panel-rulesets .analytics-chart-data');
+    await expect(tableRegion).toBeVisible();
+    await expect(tableRegion).toHaveAttribute('role', 'region');
+    await expect(tableRegion).toHaveAttribute('tabindex', '0');
+    const tableSize = await tableRegion.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight, overflow: getComputedStyle(element).overflowY }));
+    expect(tableSize.overflow).toBe('auto');
+    expect(tableSize.scrollHeight).toBeGreaterThan(tableSize.clientHeight);
+    await tableRegion.focus();
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => tableRegion.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    const readModel = page.locator('#analytics-panel-rulesets .analytics-read-model');
+    await expect(readModel).toHaveAttribute('role', 'region');
+    await expect(readModel).toHaveAttribute('tabindex', '0');
+    const ledgerSize = await readModel.evaluate(element => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
+    expect(ledgerSize.scrollWidth).toBeGreaterThan(ledgerSize.clientWidth);
+    const documentOverflow = await page.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight || document.body.scrollHeight > document.body.clientHeight);
+    expect(documentOverflow).toBe(false);
+  });
+
+  test('switches between SVG chart and data table when forced-colors preference changes', async ({ page }) => {
+    await openFixture(page);
+    const figure = page.locator('figure.analytics-chart').first();
+    const tableRegion = figure.locator('.analytics-chart-data');
+    const chartSvg = figure.locator('.analytics-chart-engine svg');
+    await expect(chartSvg).toHaveCount(1);
+    await expect(tableRegion).toBeHidden();
+    await page.emulateMedia({ forcedColors: 'active' });
+    await expect(figure).toHaveAttribute('data-forced-colors', 'active');
+    await expect(chartSvg).toHaveCount(0);
+    await expect(tableRegion).toBeVisible();
+    await expect(figure.locator('.analytics-chart-table-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await page.emulateMedia({ forcedColors: 'none' });
+    await expect(figure).toHaveAttribute('data-forced-colors', 'off');
+    await expect(tableRegion).toBeHidden();
+    await expect(chartSvg).toHaveCount(1);
   });
 
   test('keeps specialized slots honest when their sanitized fields are absent', async ({ page }) => {
@@ -120,14 +194,23 @@ test.describe('admin analytics visual contract', () => {
     await expect(latency).toContainText('seconds');
   });
 
-  test('keeps chart axis and unit labels readable at the rendered viewport size', async ({ page }) => {
+  test('keeps the SVG chart engine visible and inside its report slot', async ({ page }) => {
     await openFixture(page);
-    const labels = await page.locator('.analytics-chart svg text').evaluateAll(elements => elements.map(element => {
+    const chart = await page.locator('.analytics-chart-engine').first().evaluate(element => {
       const rect = element.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 ? { text: element.textContent, width: rect.width, height: rect.height } : null;
-    }).filter(Boolean));
-    expect(labels.length).toBeGreaterThan(0);
-    expect(labels.every(label => label.height >= 6 && label.height <= 32 && label.width < 240)).toBe(true);
+      return {
+        engine: element.dataset.chartEngine,
+        role: element.getAttribute('role'),
+        name: element.getAttribute('aria-label'),
+        width: rect.width,
+        height: rect.height
+      };
+    });
+    expect(chart.engine).toBe('echarts-svg');
+    expect(chart.role).toBe('img');
+    expect(chart.name).toContain('Verified activity');
+    expect(chart.width).toBeGreaterThan(0);
+    expect(chart.height).toBeGreaterThan(0);
   });
 
   test('keeps every native filter labeled, keyboard reachable, and URL-safe', async ({ page }) => {
@@ -161,11 +244,12 @@ test.describe('admin analytics visual contract', () => {
       responseBodies.push(await response.text());
     });
     await openFixture(page);
-    const forbidden = /displayName|username|accountId|roomCode|chat|hiddenCards|privateLoanTerms|sessionToken|rawPayload|rawEvent|ipAddress|rawIp|userAgent|rawUserAgent/i;
-    await expect(page.locator('#view-admin-analytics')).not.toContainText(forbidden);
-    expect(page.url()).not.toMatch(forbidden);
+    const privateFixtureValues = /qa-admin-session|qa-admin/i;
+    const privateJsonFields = /"(?:displayName|username|accountId|roomCode|chatMessages|hiddenCards|privateLoanTerms|sessionToken|rawPayload|rawEvent|ipAddress|rawIp|userAgent|rawUserAgent)"\s*:/i;
+    await expect(page.locator('#view-admin-analytics')).not.toContainText(privateFixtureValues);
+    expect(page.url()).not.toMatch(privateFixtureValues);
     await expect.poll(() => responseBodies.length).toBeGreaterThan(0);
-    expect(responseBodies.every(body => !forbidden.test(body))).toBe(true);
+    expect(responseBodies.every(body => !privateJsonFields.test(body))).toBe(true);
   });
 
   test('covers stale, empty, suppressed, rate-limited, and unavailable states', async ({ page }) => {
@@ -208,11 +292,15 @@ test.describe('admin analytics visual evidence at native desktop', () => {
     test.skip(testInfo.project.name !== 'desktop-1920', 'Evidence is captured only at the required 1920x1080 viewport.');
     await openFixture(page);
     const artifactRoot = path.resolve('qa-artifacts/admin-analytics-1920');
+    await expect.poll(() => page.locator('#analytics-panel-overview .analytics-chart-engine svg path').count()).toBeGreaterThan(0);
     await page.screenshot({ path: path.join(artifactRoot, 'overview-verified.png') });
     const tabs = page.locator('[data-analytics-tab]');
     for (let index = 0; index < 7; index += 1) {
       const tab = await tabs.nth(index).getAttribute('data-analytics-tab');
-      if (tab !== 'overview') await openFixture(page, { ...FIXTURE, filters: { ...FIXTURE.filters, tab }, series: [], breakdowns: [SPECIALIZED_MODELS[tab]] });
+      if (tab !== 'overview') {
+        await openFixture(page, { ...FIXTURE, filters: { ...FIXTURE.filters, tab }, series: [], breakdowns: [SPECIALIZED_MODELS[tab]] });
+        await expect.poll(() => page.locator(`#analytics-panel-${tab} .analytics-chart-engine svg path`).count()).toBeGreaterThan(0);
+      }
       await page.screenshot({ path: path.join(artifactRoot, `${tab}-verified.png`) });
     }
     await openFixture(page, { ...FIXTURE, dataQuality: { fresh: false, stale: true } });

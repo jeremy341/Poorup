@@ -25,7 +25,7 @@ import {
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
 import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
-import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
+import { ACCOUNT_SESSION_KEY, clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
 import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 
 let host = {
@@ -82,8 +82,8 @@ export function reconcileSignedOutState(message = "This account session ended in
 }
 
 export function onStorage(event) {
-  if (event?.key !== "poorup.account.session.v1" || event.newValue !== null) return;
-  if (!state.account?.sessionToken) return;
+  if (event?.key !== ACCOUNT_SESSION_KEY || event.newValue !== null) return;
+  if (!state.account?.account?.id) return;
   reconcileSignedOutState();
 }
 

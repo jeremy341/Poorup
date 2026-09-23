@@ -324,24 +324,29 @@ function sanitizedAccount(account) {
 function sanitizeAccountSession(value) {
   if (!value) return null;
   if (typeof value !== "object") return null;
-  if (typeof value.sessionToken !== "string") return null;
   const account = value.account;
   if (!account) return null;
   if (typeof account.id !== "string") return null;
   if (typeof account.username !== "string") return null;
-  return { sessionToken: value.sessionToken, account: sanitizedAccount(account) };
+  return { sessionToken: typeof value.sessionToken === "string" ? value.sessionToken : "", account: sanitizedAccount(account) };
 }
 
 function persistAccountSession(session) {
   try {
-    if (session) localStorage.setItem(ACCOUNT_SESSION_KEY, JSON.stringify(session));
+    const sanitized = sanitizeAccountSession(session);
+    if (sanitized) localStorage.setItem(ACCOUNT_SESSION_KEY, JSON.stringify({ account: sanitized.account }));
     else localStorage.removeItem(ACCOUNT_SESSION_KEY);
   } catch { /* storage unavailable */ }
 }
 
 function loadAccountSession() {
   try {
-    return sanitizeAccountSession(JSON.parse(localStorage.getItem(ACCOUNT_SESSION_KEY) || "null"));
+    const session = sanitizeAccountSession(JSON.parse(localStorage.getItem(ACCOUNT_SESSION_KEY) || "null"));
+    if (!session) return null;
+    const cookieSession = { sessionToken: "", account: session.account };
+    // Migrate legacy snapshots and keep only the non-secret account view.
+    persistAccountSession(cookieSession);
+    return cookieSession;
   } catch {
     return null;
   }
