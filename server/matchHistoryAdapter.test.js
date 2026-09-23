@@ -126,6 +126,7 @@ const merged = mergeMatchRecords(
 assert.deepEqual(merged.map(record => record.matchId), ['new', 'same', 'legacy']);
 assert.equal(merged.find(record => record.matchId === 'same').source, 'stored');
 assert.deepEqual(listMatchRecordsForAccount({ accountId: target.id, accountStore, matchStore }).map(record => record.matchId), ['private-hidden', 'stored-newest', 'legacy-only', 'duplicate']);
+assert.equal(listMatchRecordsForAccount({ accountId: target.id, accountStore, matchStore, limit: 2 }).length, 2);
 
 // The second reader (recent-player suggestions) uses the same compatibility
 // seam and must observe the same stored-over-legacy winner.

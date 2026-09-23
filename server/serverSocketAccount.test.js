@@ -42,6 +42,11 @@ assert.deepEqual(invoke({ key: 'startingCash', value: 'not-number' }), { success
 assert.deepEqual(invoke({ key: 'maxPlayers', value: 2 }), { success: false, error: 'Room capacity cannot be lower than the number of active players.' });
 assert.deepEqual(invoke({ key: 'startingCash', value: 1800 }), { success: true });
 assert.equal(room.settings.startingCash, 1800);
+assert.deepEqual(invoke({ key: 'botBrain', value: 'no-ai' }), { success: true });
+runtime.botProviderStatus = () => ({ state: 'quota-exhausted', revision: 1, reason: 'credits-exhausted' });
+assert.deepEqual(invoke({ key: 'botBrain', value: 'ai' }), { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI BOT.' });
+assert.equal(room.settings.botBrain, 'no-ai');
+assert.deepEqual(invoke({ key: 'botBrain', value: { unexpected: true } }), { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI BOT.' });
 
 function makeSocket(id) {
   return {

@@ -77,4 +77,40 @@ blockedCtx.game.pendingTrade = { id: 'trade-open' };
 assert.deepEqual(blockedCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 15 }), { success: false, error: 'Resolve the table obligation before sponsoring.' });
 assert.equal(blockedCtx.sponsor.cash, 500);
 
-console.log('sponsored purchase: 21 passed, 0 failed');
+// Atomic settlement: a mid-settlement throw restores buyer cash, the deed,
+// the portfolio, and the escrow record instead of crediting the buyer.
+const atomicCtx = fixture();
+assert.equal(atomicCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+assert.equal(atomicCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 20 }).success, true);
+assert.equal(atomicCtx.game.contributeToSponsoredPurchase('s-sponsor-2', { amount: atomicCtx.tile.price - 40 }).success, true);
+const cashBefore = atomicCtx.buyer.cash;
+atomicCtx.game.refreshPlayerGroups = () => { throw new Error('boom'); };
+assert.deepEqual(atomicCtx.game.acceptSponsoredPurchase('s-buyer'), { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' });
+assert.equal(atomicCtx.buyer.cash, cashBefore);
+assert.equal(atomicCtx.tile.ownerId, null);
+assert.deepEqual(atomicCtx.buyer.properties.includes(atomicCtx.tile.index), false);
+assert.ok(atomicCtx.game.pendingSponsoredPurchase);
+assert.equal(atomicCtx.sponsor.cash, 480);
+
+// Vacation landing teleports to the Vacation tile, never Jail.
+const vacationCtx = fixture();
+const holiday = vacationCtx.game.tiles.find(tile => tile.type === 'vacation');
+vacationCtx.buyer.position = 0;
+vacationCtx.game.landingGoToVacation(vacationCtx.buyer, { index: -1, type: 'goToVacation' }, {});
+assert.equal(vacationCtx.buyer.position, holiday.index);
+assert.equal(vacationCtx.buyer.inJail, false);
+
+// Overfunded escrow returns the excess pro-rata instead of gifting the buyer.
+// Overfunding cannot come from contributions (capped at need): it arrives
+// when the buyer earns cash mid-escrow.
+const excessCtx = fixture();
+assert.equal(excessCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+assert.equal(excessCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 20 }).success, true);
+assert.equal(excessCtx.game.contributeToSponsoredPurchase('s-sponsor-2', { amount: 20 }).success, true);
+excessCtx.buyer.cash = 50;
+assert.equal(excessCtx.game.acceptSponsoredPurchase('s-buyer').success, true);
+assert.equal(excessCtx.sponsor.cash, 500 - 20 + 15);
+assert.equal(excessCtx.second.cash, 500 - 20 + 15);
+assert.equal(excessCtx.buyer.cash, 0);
+
+console.log('sponsored purchase: 23 passed, 0 failed');

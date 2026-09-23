@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildAnalyticsSummary, buildAnalyticsBalance, buildAnalyticsDrilldown, isAdminAccount, normalizeAdminIds } from './analyticsApi.js';
+import { buildAnalyticsSummary, buildAnalyticsBalance, buildAnalyticsDrilldown, isAdminAccount, normalizeAdminIds, withAdminFlag } from './analyticsApi.js';
 
 function check(name, run) {
   try {
@@ -21,6 +21,9 @@ check('authorizes only explicit account ids', () => {
   assert.equal(isAdminAccount('acct-owner', admins), true);
   assert.equal(isAdminAccount('acct-other', admins), false);
   assert.equal(isAdminAccount('', admins), false);
+  assert.equal(withAdminFlag({ id: 'acct-owner', username: 'owner' }, admins).isAdmin, true);
+  assert.equal(withAdminFlag({ id: 'acct-other', username: 'other' }, admins).isAdmin, false);
+  assert.equal(withAdminFlag(null, admins), null);
 });
 
 check('builds a safe read-only summary', () => {

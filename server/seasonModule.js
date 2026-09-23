@@ -18,14 +18,17 @@ export const SEASON_METRICS = Object.freeze([
   'equity', 'loans', 'patrol'
 ]);
 
-const REWARD_TRACK = Object.freeze([
-  { id: 'season-bronze', track: 'placement', threshold: 0.50, cosmeticId: 'frame-copper', tokens: 40 },
+const REWARD_TRACK = Object.freeze([  { id: 'season-bronze', track: 'placement', threshold: 0.50, cosmeticId: 'frame-copper', tokens: 40 },
   { id: 'season-silver', track: 'placement', threshold: 0.25, cosmeticId: 'frame-silver', tokens: 80 },
   { id: 'season-gold', track: 'placement', threshold: 0.10, cosmeticId: 'frame-gold', tokens: 140 },
   { id: 'season-top', track: 'placement', threshold: 0.01, cosmeticId: 'stamp-parlor-star', tokens: 220 },
   { id: 'season-grinder', track: 'participation', threshold: 8, cosmeticId: 'title-night-shift', tokens: 60 },
   { id: 'season-master', track: 'mastery', threshold: 500, cosmeticId: 'frame-ledger', tokens: 120 }
 ]);
+
+// Placement tracks need a real population: a lone account must not sweep
+// bronze through top in a one-player season.
+const MIN_PLACEMENT_POPULATION = 10;
 
 function safeAccountId(value) {
   return typeof value === 'string' ? value.trim().slice(0, 120) : '';
@@ -57,6 +60,9 @@ function makeSeason(date = Date.now()) {
     revision: 1,
     rewardTrack: REWARD_TRACK.map(reward => ({ ...reward })),
     matches: [],
+    // `matches` is a bounded display/history window; this private ledger is
+    // the durable idempotency source and is never trimmed with that window.
+    settledMatchIds: [],
     standings: {},
     claims: {}
   };
@@ -75,7 +81,9 @@ export function publicSeasonSummary(season) {
     status: season.status,
     revision: season.revision,
     rewardTrack: (season.rewardTrack || []).map(reward => ({ ...reward })),
-    matchCount: Array.isArray(season.matches) ? season.matches.length : 0
+    matchCount: Array.isArray(season.settledMatchIds)
+      ? season.settledMatchIds.length
+      : (Array.isArray(season.matches) ? season.matches.length : 0)
   };
 }
 
@@ -91,6 +99,13 @@ function normalizedRewardTrack(value) {
 
 function normalizedMatches(value) {
   return Array.isArray(value) ? value.filter(id => typeof id === 'string').slice(-1000) : [];
+}
+
+function normalizedSettledMatchIds(value, legacyMatches = []) {
+  const source = Array.isArray(value) ? value : legacyMatches;
+  return [...new Set(source
+    .filter(id => typeof id === 'string' && id.trim())
+    .map(id => id.trim().slice(0, 120)))];
 }
 
 function validStandingEntry(id, row) {
@@ -129,6 +144,7 @@ function normalizeSeason(source) {
     revision: Math.max(1, Math.floor(Number(source.revision) || 1)),
     rewardTrack: normalizedRewardTrack(source.rewardTrack),
     matches: normalizedMatches(source.matches),
+    settledMatchIds: normalizedSettledMatchIds(source.settledMatchIds, source.matches),
     standings: normalizedStandings(source.standings),
     claims: normalizedClaims(source.claims)
   };
@@ -224,14 +240,20 @@ export function seasonMetricValue(metric, row = {}) {
 
 function updateStandingCore(next, participant) {
   const placement = Number(participant.finalPlacement);
+  const eventDelta = nonNegativeInt(participant.globalEventsSurvived);
+  const tradeDelta = nonNegativeInt(participant.fairTrades ?? participant.tradesCompleted);
+  const debtDelta = participant.bankLoanStatus === 'paid' ? 1 : 0;
   next.games += 1;
   next.wins += placement === 1 ? 1 : 0;
   next.points += participantPoints(participant);
   next.participation = Math.min(PARTICIPATION_CAP, next.participation + 1);
-  next.fairTrades += nonNegativeInt(participant.fairTrades ?? participant.tradesCompleted);
-  next.eventSurvival += nonNegativeInt(participant.globalEventsSurvived);
-  next.debtDiscipline += participant.bankLoanStatus === 'paid' ? 1 : 0;
-  next.mastery += Math.min(100, next.eventSurvival * 4 + next.fairTrades * 3 + next.debtDiscipline * 6);
+  next.fairTrades += tradeDelta;
+  next.eventSurvival += eventDelta;
+  next.debtDiscipline += debtDelta;
+  // Mastery is a per-match contribution. Using the cumulative standing here
+  // compounds identical matches and lets long-lived accounts accelerate
+  // without earning new evidence.
+  next.mastery += Math.min(100, eventDelta * 4 + tradeDelta * 3 + debtDelta * 6);
   next.mythical += participant.mythicalUnlocked === true ? 1 : 0;
   next.bankruptcies += participant.bankrupt === true ? 1 : 0;
   next.auctionWins += nonNegativeInt(participant.auctionWins);
@@ -331,7 +353,10 @@ export class SeasonStore {
   recordMatch(record, now = Date.now()) {
     if (!eligibleSeasonMatch(record)) return { success: false, recorded: false, error: 'Match is not eligible for seasonal standings.' };
     const season = this.ensureCurrent(now);
-    if (season.matches.includes(record.matchId)) return { success: true, recorded: false, season: clone(season) };
+    season.settledMatchIds ||= normalizedSettledMatchIds(season.matches);
+    if (season.settledMatchIds.includes(record.matchId)) return { success: true, recorded: false, season: clone(season) };
+    season.settledMatchIds.push(String(record.matchId).slice(0, 120));
+    season.settledMatchIds = season.settledMatchIds.slice(-5000);
     season.matches.push(String(record.matchId).slice(0, 120));
     season.matches = season.matches.slice(-1000);
     const completedAt = typeof record.completedAt === 'string' ? record.completedAt : new Date(now).toISOString();
@@ -358,9 +383,12 @@ export class SeasonStore {
     return [...(source.claims[id] || [])].slice(0, 64);
   }
 
-  claimReward(accountId, rewardId, now = Date.now()) {
+  claimReward(accountId, rewardId, now = Date.now(), seasonId = null) {
     const id = safeAccountId(accountId);
-    const season = this.ensureCurrent(now);
+    const season = seasonId ? this.seasons.get(safeSeasonId(seasonId)) : this.ensureCurrent(now);
+    if (!id || !season) return { success: false, error: 'Season reward is unavailable.' };
+    // Claiming pins to the resolved season: after rollover the caller names
+    // the prior season explicitly instead of evaluating a fresh empty one.
     const reward = season.rewardTrack.find(item => item.id === rewardId);
     if (!id || !reward) return { success: false, error: 'Season reward is unavailable.' };
     const claims = season.claims[id] || [];
@@ -377,9 +405,28 @@ export class SeasonStore {
     if (reward.track === 'participation') return row.participation >= reward.threshold;
     if (reward.track === 'mastery') return row.mastery >= reward.threshold;
     const size = Math.max(1, Number(population) || 1);
+    if (size < MIN_PLACEMENT_POPULATION) return false;
     const rank = Number(row.placementRank || row.rank);
     const eligibleRank = Math.max(1, Math.ceil(size * Number(reward.threshold) || 0));
     return Number.isFinite(rank) && rank >= 1 && rank <= eligibleRank;
+  }
+
+  purgeAccount(accountId) {
+    const id = safeAccountId(accountId);
+    if (!id) return 0;
+    let changed = 0;
+    this.seasons.forEach((season) => {
+      if (Object.prototype.hasOwnProperty.call(season.standings, id)) {
+        delete season.standings[id];
+        changed += 1;
+      }
+      if (Object.prototype.hasOwnProperty.call(season.claims, id)) {
+        delete season.claims[id];
+        changed += 1;
+      }
+    });
+    if (changed) this.persist();
+    return changed;
   }
 }
 

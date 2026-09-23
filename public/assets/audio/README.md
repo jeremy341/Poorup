@@ -1,6 +1,6 @@
 # Poorup music assets
 
-The music-box manifest ships these local files. Credits and source links are retained for every track.
+The theme-music manifest ships one approved local track per theme. Credits and source links are retained for every track.
 
 | File | Creator | License | Source |
 | --- | --- | --- | --- |

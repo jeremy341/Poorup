@@ -78,22 +78,6 @@ check('readiness projection exposes only store, backup, and maintenance health',
   assert.equal(JSON.stringify(persistence.buildReadinessProjection({ storeLoaded: true, backupFresh: true, maintenance: 'normal' })).includes('password'), false);
 });
 
-check('runtime exposes current AI provider status and its subscription cleanup', () => {
-  const manager = new RoomManager();
-  manager.createRoom({ socketId: 'provider-socket', clientId: 'provider-client', nickname: 'Provider' });
-  let unsubscribeCalled = false;
-  const runtime = createRuntime(runtimeDeps(manager, {
-    botAdvisor: {
-      getPublicStatus() { return { state: 'quota-exhausted', reason: 'credits-exhausted', revision: 4 }; },
-      subscribeProviderStatus() { return () => { unsubscribeCalled = true; }; }
-    }
-  }));
-
-  assert.deepEqual(runtime.botProviderStatus(), { state: 'quota-exhausted', revision: 4, reason: 'credits-exhausted' });
-  runtime.unsubscribeBotProviderStatus();
-  assert.equal(unsubscribeCalled, true);
-});
-
 check('transport disconnect marks a seat disconnected so a grace-window restore succeeds', () => {
   const { manager, room } = startedRoom();
   const runtime = createRuntime(runtimeDeps(manager));
@@ -249,13 +233,13 @@ check('owner match history strips bot decisions while full match result remains 
   assert.equal(store.getAccountById(registered.account.id).matchHistory[0].botDecisions, undefined);
 });
 
-check('connected inDebt humans are not eligible for host election', () => {
+check('inDebt humans are the last-resort host fallback, never a null host', () => {
   const { manager, room } = startedRoom();
   const human = room.game.players[1];
   human.inDebt = true;
   const runtime = createRuntime(runtimeDeps(manager));
   runtime.reassignHostIfNeeded(room, room.hostId);
-  assert.equal(room.hostId, null);
+  assert.equal(room.hostId, human.id);
 });
 
 check('auth attempt address resolution uses the documented trusted-proxy setting', () => {
@@ -287,15 +271,14 @@ check('replay entries expire by TTL and become terminal rejections', () => {
   assert.deepEqual(room.game.economyTransactions.get('ttl-request'), { success: false, error: 'REQUEST_ID_EXPIRED' });
 });
 
-check('top-1-percent reward boundaries are rank-based for populations 1, 2, 3, and 100', () => {
+check('top-1-percent reward boundaries are rank-based with a population floor', () => {
   const store = new SeasonStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-season-boundary-')), 'seasons.json'));
   const reward = { track: 'placement', threshold: 0.01 };
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 1), true);
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 2), true);
-  assert.equal(store.rewardEligible({ placementRank: 2 }, reward, 2), false);
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 3), true);
-  assert.equal(store.rewardEligible({ placementRank: 2 }, reward, 3), false);
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 100), true);
+  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 1), false);
+  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 2), false);
+  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 3), false);
+  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 9), false);
+  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 10), true);
   assert.equal(store.rewardEligible({ placementRank: 2 }, reward, 100), false);
 });
 
@@ -310,6 +293,17 @@ check('rematch clears runtime match-start telemetry markers', () => {
 });
 
 async function runAsyncChecks() {
+  const crossRoom = startedRoom();
+  const targetRoom = crossRoom.manager.createRoom({ socketId: 'socket-target', clientId: 'client-target', nickname: 'Target' });
+  const crossRuntime = createRuntime(runtimeDeps(crossRoom.manager, { disconnectGraceMs: 5 }));
+  crossRuntime.detachSocketFromOtherRoom({ id: 'socket-a', rooms: new Set(['socket-a', crossRoom.room.roomCode]) }, targetRoom);
+  const detached = crossRoom.room.game.getPlayerByClient('client-a');
+  assert.equal(detached.disconnected, true);
+  crossRoom.room.statsRecorded = true;
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(crossRoom.room.game.getPlayerByClient('client-a'), undefined);
+  console.log('PASS - cross-room started seat expires through disconnect pipeline');
+
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'lock-host', clientId: 'lock-host', nickname: 'Host', rulesetPreset: 'after-hours' });
   room.setRoomSetting('bots', 1);

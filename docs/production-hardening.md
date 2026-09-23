@@ -29,11 +29,30 @@ POORUP_RELEASE_ID=<commit-sha>
 POORUP_MAINTENANCE_MODE=normal
 POORUP_MAINTENANCE_TOKEN=<operator-secret>
 POORUP_ADMIN_ACCOUNT_IDS=<comma-separated-account-ids>
+POORUP_AI_CONFIG_KEY=<32+ character secret used to encrypt admin provider profiles>
+POORUP_MAIL_API_URL=<provider-neutral transactional mail endpoint>
+POORUP_MAIL_API_KEY=<mail provider secret>
+POORUP_MAIL_FROM=<verified sender address>
+POORUP_COOKIE_SECURE=true
+POORUP_ANALYTICS_PSEUDONYM_KEY=<stable aggregate-only HMAC key>
 ```
 
 `POORUP_ALLOWED_ORIGINS` is mandatory for browser-origin production traffic.
 The HTTP/IP limiter is a process-level second layer; put Cloudflare (or an
 equivalent edge WAF) in front of it for distributed rate limiting.
+
+The internal `/admin/analytics?admin=provider` surface stores provider
+profiles in `POORUP_DATA_DIR/ai-providers.json`. `POORUP_AI_CONFIG_KEY` is
+required for durable encrypted API-key storage; without it, provider profiles
+remain memory-only. The optional `POORUP_AI_API_KEY`, `POORUP_AI_BASE_URL`,
+`POORUP_AI_MODEL`, and `POORUP_AI_PROTOCOL` variables bootstrap a read-only
+environment profile. Legacy `DEEPSEEK_*` variables remain supported.
+
+Bankruptcy is one authoritative lifecycle: an open payment may be rescued through
+selling, mortgaging, trading, or borrowing, but `END TURN` stays blocked until the
+payment is settled. Choosing bankruptcy eliminates the seat; a human remains as a
+read-only spectator until leaving the table. The legacy `bankruptMode=debt` setting is
+normalized to elimination for snapshot compatibility and no longer keeps a seat active.
 
 ## Backup and restore drill
 
@@ -55,6 +74,25 @@ in-process implementations are single-process adapters only.
 `GET /healthz` reports process liveness. `GET /readyz` reports whether the
 instance accepts new rooms and rounds, plus the bounded active-round count and
 release ID. Both responses contain no account or game-private data.
+
+## Account rights lifecycle
+
+The Profile account surface now exposes an owner-safe export, other-session
+revocation, verified recovery-email setup, and deletion/cancellation. Deletion
+requires the current password and the exact phrase `DELETE ACCOUNT`, is blocked
+while seated, and marks the account restricted for 30 days before the daily
+retention job can purge or anonymize account-linked records. `/account/session`
+performs a one-time legacy-token exchange into an HttpOnly/Secure/SameSite
+cookie; raw bearer tokens are not written by the session store. The existing
+localStorage token remains a compatibility migration seam and must be removed
+after the cookie fixture is promoted.
+
+An operator can trigger one bounded pass with `POST /internal/retention/run`
+using `x-poorup-retention-token` (or the maintenance token when no dedicated
+retention token is set). The route is absent when no token is configured.
+
+`/privacy` is the compact factual Privacy & Account Data document. It is not a
+Terms-of-Service route and does not invent operator or mail-provider facts.
 
 `POST /internal/maintenance` is operator-only and requires the
 `x-poorup-maintenance-token` header. Its JSON body accepts `normal`, `draining`,
