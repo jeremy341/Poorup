@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Pin PM2 to the invoking user's daemon. A bare non-interactive SSH shell can
+# otherwise resolve a different PM2_HOME and reload the wrong process list.
+export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
+
 if [ -z "$RELEASE_SHA" ] || [ -z "$RELEASE_ARCHIVE" ] || [ -z "$APP_ROOT" ] || [ -z "$MAINTENANCE_URL" ] || [ -z "$HEALTH_URL" ] || [ -z "$READY_URL" ] || [ -z "$MAINTENANCE_TOKEN" ]; then
   echo "RELEASE_SHA, RELEASE_ARCHIVE, APP_ROOT, MAINTENANCE_URL, HEALTH_URL, READY_URL, and MAINTENANCE_TOKEN are required"
   exit 2
