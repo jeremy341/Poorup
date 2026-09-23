@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createAccountRecovery } from './accountRecovery.js';
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-recovery-persist-'));
+const filePath = path.join(root, 'recovery.json');
+let now = Date.parse('2026-09-17T12:00:00.000Z');
+const account = { id: 'acct-1', username: 'owner', recoveryEmail: 'owner@example.test', recoveryEmailVerified: true };
+const store = { getAccountById: id => id === account.id ? account : null, findAccountByUsername: () => account, persist: () => {}, verifyPassword: () => true, updatePassword: () => true };
+const first = createAccountRecovery({ accountStore: store, filePath, now: () => now, mailAdapter: { send: async () => ({ success: true }) } });
+const issued = await first.requestPasswordReset({ username: 'owner', email: 'owner@example.test' });
+assert.equal(fs.readFileSync(filePath, 'utf8').includes(issued.token), false);
+const second = createAccountRecovery({ accountStore: store, filePath, now: () => now, mailAdapter: { send: async () => ({ success: true }) } });
+assert.equal(await second.consumePasswordReset(issued.token, 'new-password'), true);
+now += 31 * 60 * 1000;
+assert.equal(second.prune(), 0);
+fs.rmSync(root, { recursive: true, force: true });
+console.log('account recovery persistence: 3 passed, 0 failed');

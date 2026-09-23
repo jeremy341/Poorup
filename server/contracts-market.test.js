@@ -46,6 +46,27 @@ check('contract guards run in original order with exact strings', () => {
   assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 0 }), { success: false, error: 'The lender does not have enough cash for that offer.' });
 });
 
+check('loan rejects a collateral index that resolves to no deed', () => {
+  const { game, b } = startedRoom();
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  assert.deepEqual(
+    game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 12, durationRounds: 3, collateralTileIndex: 9999 }),
+    { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' }
+  );
+});
+
+check('equity counter is not double-counted against the pending offer', () => {
+  const { game, b } = startedRoom();
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 80 });
+  assert.equal(first.success, true);
+  const counter = game.counterPlayerContract('socket-b', { contractId: first.contract.id, equityShare: 60 });
+  assert.equal(counter.success, true);
+  assert.equal(game.pendingPlayerContract.equityShare, 60);
+});
+
 check('loan contract derives totalDue, due and cure rounds, collateral', () => {
   const { game, b } = startedRoom();
   const deed = game.getTile(1);
@@ -172,9 +193,9 @@ check('market guards keep order and wording', () => {
   g2.currentPlayerId = g2.players[1].id;
   assert.deepEqual(g2.tradeMarket('socket-a', 'brazil', 'buy', 1), { success: false, error: 'Market orders are available during your turn.' });
   g2.currentPlayerId = g2.players[0].id;
-  g2.pendingPayment = { playerId: g2.players[1].id };
+  g2.pendingTrade = { id: 't1' };
   assert.deepEqual(g2.tradeMarket('socket-a', 'brazil', 'buy', 1), { success: false, error: 'Resolve the table obligation before trading.' });
-  g2.pendingPayment = null;
+  g2.pendingTrade = null;
   g2.globalEvent = { id: 'halt', phase: 'active', effects: { tradingEnabled: false } };
   assert.deepEqual(g2.tradeMarket('socket-a', 'brazil', 'buy', 1), { success: false, error: 'Market trading is paused by the active global event.' });
   g2.globalEvent = null;
@@ -411,6 +432,30 @@ check('hybrid with a lost conversion target falls back to loan default', () => {
   game.processPlayerContracts();
   assert.equal(contract.status, 'defaulted');
   assert.deepEqual(property.equityShares || [], []);
+});
+
+check('hybrid with collateral validates borrower ownership instead of crashing', () => {
+  const { game, b } = startedRoom();
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  const spare = game.getTile(3);
+  spare.ownerId = b.id;
+  const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 100, premiumRate: 10, durationRounds: 3, propertyIndex: 1, conversionShare: 25, collateralTileIndex: 3 });
+  assert.equal(result.success, true);
+  assert.equal(game.pendingPlayerContract.collateralTileIndex, 3);
+  assert.equal(game.pendingPlayerContract.conversionShare, 25);
+});
+
+check('hybrid rejects collateral owned by someone else', () => {
+  const { game, a, b } = startedRoom();
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  const spare = game.getTile(3);
+  spare.ownerId = a.id;
+  assert.deepEqual(
+    game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 100, premiumRate: 10, durationRounds: 3, propertyIndex: 1, conversionShare: 25, collateralTileIndex: 3 }),
+    { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' }
+  );
 });
 
 const failed = results.filter(r => !r).length;

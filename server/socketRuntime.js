@@ -187,12 +187,28 @@ export function recordSeasonTelemetry(context) {
   return true;
 }
 
+export function reassignHostIfNeeded(room, departedPlayerId) {
+  if (!room) return;
+  if (room.hostId !== departedPlayerId) return;
+  const available = room.game.players.find(player => !player.isBot
+    && !player.disconnected
+    && !player.bankrupt
+    && !player.inDebt
+    && player.id !== departedPlayerId);
+  room.hostId = available?.id || null;
+  room.game.players.forEach(player => { player.isHost = player.id === room.hostId; });
+}
+
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
   const setTimeoutFn = deps.setTimeout || globalThis.setTimeout;
   const clearTimeoutFn = deps.clearTimeout || globalThis.clearTimeout;
   const setIntervalFn = deps.setInterval || globalThis.setInterval;
   const now = deps.now || (() => Date.now());
+  const configuredDisconnectGrace = Number(deps.disconnectGraceMs);
+  const disconnectGraceMs = Number.isFinite(configuredDisconnectGrace) && configuredDisconnectGrace > 0
+    ? Math.max(1, Math.floor(configuredDisconnectGrace))
+    : DISCONNECT_GRACE_MS;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const inactivityTimers = new Map();
@@ -357,20 +373,6 @@ function createRuntime(deps) {
   }
 
   // --- seat lifecycle ------------------------------------------------------
-
-  function reassignHostIfNeeded(room, departedPlayerId) {
-    if (!room) return;
-    if (room.hostId !== departedPlayerId) return;
-    const available = room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && !p.inDebt && p.id !== departedPlayerId);
-    if (available) {
-      room.hostId = available.id;
-    } else {
-      room.hostId = null;
-    }
-    room.game.players.forEach(player => {
-      player.isHost = player.id === room.hostId;
-    });
-  }
 
   // Leave any previous game rooms so we don't receive ghost updates
   function leaveAllGameRooms(socket) {
@@ -869,7 +871,7 @@ function createRuntime(deps) {
     if (!player) return;
     clearDisconnectTimer(player.clientId);
     clearInactivityTimer(room, true);
-    const deadline = now() + DISCONNECT_GRACE_MS;
+    const deadline = now() + disconnectGraceMs;
     player.disconnected = true;
     player.socketId = null;
     player.disconnectDeadline = deadline;

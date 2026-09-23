@@ -220,6 +220,8 @@ async function testLeaveRoomByClientMidGame() {
   assert.equal(room.game.getPlayerBySocket('socket-b'), undefined);
   assert.equal(manager.getRoomBySocket('socket-b'), null);
   assert.notEqual(room.game.currentPlayerId, b.id);
+  // Successor, not restart: B leaves on B's turn with order A-B-C, so C bats.
+  assert.equal(room.game.currentPlayerId, playerOf(room, 'client-c').id);
   const nextUp = room.game.getPlayerById(room.game.currentPlayerId);
   assert.ok(nextUp);
   assert.equal(nextUp.disconnected, false);

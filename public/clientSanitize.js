@@ -301,8 +301,11 @@ function cleanCreatedAt(value) {
 }
 
 function accountAvatarGrid(grid) {
-  if (Array.isArray(grid)) return grid;
-  return null;
+  if (!Array.isArray(grid)) return null;
+  const clean = grid.map(row => Array.isArray(row)
+    ? row.map(cell => (typeof cell === "string" && /^#[0-9a-f]{6}$/i.test(cell) ? cell.toLowerCase() : null))
+    : null);
+  return clean.some(row => row === null) ? null : clean;
 }
 
 function sanitizedAccount(account) {
@@ -318,12 +321,19 @@ function sanitizedAccount(account) {
     matchHistory: cleanMatchHistory(account.matchHistory),
     achievements: cleanAccountAchievements(account.achievements),
     privacy: cleanAccountPrivacy(account.privacy),
+    isAdmin: account.isAdmin === true,
+    accountDeactivated: account.accountDeactivated === true,
+    deletionRequestedAt: cleanCreatedAt(account.deletionRequestedAt),
+    deletionDueAt: cleanCreatedAt(account.deletionDueAt),
+    deletionRequestId: typeof account.deletionRequestId === "string" ? account.deletionRequestId.slice(0, 100) : null,
+    recoveryEmailVerified: account.recoveryEmailVerified === true,
   };
 }
 
 function sanitizeAccountSession(value) {
   if (!value) return null;
   if (typeof value !== "object") return null;
+  if (value.sessionToken !== undefined && typeof value.sessionToken !== "string") return null;
   const account = value.account;
   if (!account) return null;
   if (typeof account.id !== "string") return null;

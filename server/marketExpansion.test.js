@@ -199,6 +199,27 @@ assert.equal(optionReserveRoom.game.marketOptionReserve, reserveAfterOpen + 20);
 // successful idempotency key after the quota has been consumed.
 assert.deepEqual(margin.reduceMargin('a', 50, 'm2'), reducedMargin);
 assert.deepEqual(short.coverShort('a', 'brazil', 1, 's2'), short.coverShort('a', 'brazil', 1, 's2'));
+// Borrow fees retire proportionally: two partial covers charge once total.
+const feeRoom = roomAt('shorting');
+const feePlayer = feeRoom.game.players[0];
+assert.equal(feeRoom.openShort('a', 'brazil', 2, 'fee-open').success, true);
+const openedFee = feePlayer.shortPositions.brazil.borrowFee;
+assert.ok(openedFee >= 1);
+feePlayer.marketActionsThisTurn = 0;
+assert.equal(feeRoom.coverShort('a', 'brazil', 1, 'fee-cover-1').success, true);
+assert.equal(feePlayer.shortPositions.brazil.borrowFee, openedFee - Math.ceil(openedFee / 2));
+feePlayer.marketActionsThisTurn = 0;
+assert.equal(feeRoom.coverShort('a', 'brazil', 1, 'fee-cover-2').success, true);
+assert.equal(feePlayer.shortPositions.brazil, undefined);
+
+// Expired options cannot be closed for value; expiry pays zero.
+const expiryRoom = roomAt('derivatives');
+const expiryOpen = expiryRoom.openOption('a', { instrumentId: 'brazil', quantity: 1, premium: 10, expiryRounds: 1, requestId: 'expiry-open' });
+assert.equal(expiryOpen.success, true);
+expiryRoom.game.roundNumber += 2;
+expiryRoom.game.players[0].marketActionsThisTurn = 0;
+assert.deepEqual(expiryRoom.closePosition('a', expiryOpen.option.id, 'expiry-close'), { success: false, error: 'That option has expired.' });
+
 const closeRoom = roomAt('derivatives');
 const closeOpen = closeRoom.openOption('a', { instrumentId: 'brazil', quantity: 1, premium: 10, requestId: 'close-open' });
 assert.equal(closeOpen.success, true);
@@ -208,4 +229,4 @@ const closeResult = closeRoom.closePosition('a', closeOpen.option.id, 'close-1')
 assert.equal(closeResult.success, true);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-1'), closeResult);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-2'), { success: false, error: 'You have already placed a market order this turn.' });
-console.log('market expansion: 12 passed, 0 failed');
+console.log('market expansion: 14 passed, 0 failed');

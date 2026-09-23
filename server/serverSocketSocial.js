@@ -14,6 +14,7 @@ const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const LEADERBOARD_METRICS = [...SEASON_METRICS];
 
 const PLAYER_NOT_FOUND = { success: false, error: 'Player not found.' };
+const ACCOUNT_DELETION_PENDING = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
 
 // Public social references use the already-public username rather than the
 // internal account UUID. Keep the existing wire field names while ensuring
@@ -67,6 +68,10 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   const { accountStore, socialStore, matchStore } = runtime;
   const { accountForSocket, allowAnonymousAction, allowSocialAction, chatBlockedInRoom, chatRateLimited, emitSocialUpdate, maxPlausiblePatrolScore, notifyAccount, patrolAchievementCandidates, patrolRunError, patrolRunPlausible, prunePatrolRuns, patrolRuns, publicPlayerCard, recentPlayers, recordVerifiedAchievement, socialSummary } = runtime.social;
 
+  function restricted(account) {
+    return account?.accountDeactivated === true;
+  }
+
   on('send-chat', (payload = {}, callback) => {
     const text = normalizeChatText(payload.text);
     const room = runtime.getRoomForSocket(socket, callback);
@@ -94,6 +99,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('get-social-data', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to use social features.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     reply(callback, { success: true, social: socialSummary(account.id) });
   });
 
@@ -106,6 +112,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('get-friends', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view friends.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const summary = socialSummary(account.id);
     reply(callback, { success: true, friends: summary.friends, requests: summary.requests, outgoing: summary.outgoing });
   });
@@ -113,6 +120,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('get-friend-requests', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view friend requests.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const summary = socialSummary(account.id);
     reply(callback, { success: true, requests: summary.requests, outgoing: summary.outgoing });
   });
@@ -120,12 +128,14 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('get-notifications', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view notifications.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     reply(callback, { success: true, notifications: socialStore.listFor(account.id).notifications });
   });
 
   on('send-friend-request', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Create an account before sending friend requests.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     if (!allowSocialAction(account.id, 'friend-request')) return reply(callback, { success: false, error: 'Too many requests. Try again in a minute.' });
     const target = lookupTarget(payload.targetAccountId, payload.username);
     if (!target) return reply(callback, PLAYER_NOT_FOUND);
@@ -137,6 +147,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('respond-friend-request', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage friend requests.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const result = socialStore.respondFriend(account.id, payload.friendshipId, payload.accept === true);
     if (result.success) respondFriendRequestSideEffects(account, result);
     reply(callback, result);
@@ -156,6 +167,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     return function socialMutation(payload = {}, callback) {
       const account = accountForSocket(socket, payload);
       if (!account) return reply(callback, { success: false, error: signInError });
+      if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
       const otherId = payload.otherAccountId ? resolveAccountId(payload.otherAccountId) : null;
       if (payload.otherAccountId && !otherId) return reply(callback, PLAYER_NOT_FOUND);
       const normalizedPayload = otherId ? { ...payload, otherAccountId: otherId } : payload;
@@ -170,6 +182,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('report-player', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to report a player.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const otherId = resolveAccountId(payload.otherAccountId);
     if (!otherId) return reply(callback, PLAYER_NOT_FOUND);
     const result = socialStore.reportPlayer(account.id, otherId, payload.reason);
@@ -178,6 +191,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   on('get-public-player-card', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
+    if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const rateError = playerCardRateError(viewer);
     if (rateError) {
       return reply(callback, { success: false, error: rateError });
@@ -199,6 +213,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   on('get-match-history', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
+    if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const target = lookupAccountTarget(payload.accountId, viewer);
     if (!target) return reply(callback, PLAYER_NOT_FOUND);
     const friendship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
@@ -211,12 +226,14 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   on('get-recent-players', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to view recent players.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     reply(callback, { success: true, players: recentPlayers(account.id).slice(0, 20) });
   });
 
   on('clear-recent-players', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to clear recent players.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const result = accountStore.clearRecentPlayersForAccount(account.id);
     if (result.success) emitSocialUpdate(account.id);
     reply(callback, result);
@@ -486,6 +503,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   }
 
   function searchableByViewer(candidate, viewer) {
+    if (candidate.accountDeactivated === true && candidate.id !== viewer?.id) return false;
     if (!viewer) return true;
     if (candidate.id === viewer.id) return true;
     return !socialStore.areBlocked(viewer.id, candidate.id);
@@ -529,6 +547,7 @@ function leaderboardScope(rawScope) {
 
   function leaderboardGuardedQuery(payload, callback, buildAck) {
     const viewer = accountForSocket(socket, payload);
+    if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const scope = leaderboardScope(payload.scope);
     const options = { ...leaderboardWindow(scope), primaryMetric: payload.metric };
     if (scope !== 'friends') return buildAck(scope, options);

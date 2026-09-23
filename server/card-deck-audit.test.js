@@ -23,4 +23,10 @@ const treasureCards = Array.from({ length: 12 }, () => game.drawCard('treasure')
     assert.equal(game.getTile(tileIndexById('metro-52', card.tileId))?.tileId, card.tileId);
   });
 
-console.log('card deck audit: 1 passed, 0 failed');
+// A held Get-Out-of-Prison card stays out of the refill: no duplicates.
+game.surpriseDeck = [];
+game.players[0].jailFreeCards = 1;
+game.drawCard('surprise');
+assert.equal(game.surpriseDeck.some(card => card.action === 'jailFree'), false);
+
+console.log('card deck audit: 2 passed, 0 failed');

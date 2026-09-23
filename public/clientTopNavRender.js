@@ -105,8 +105,8 @@ function lobbyTagText(code, isPublic) {
   return `${preset} · ${board} · ${code}`;
 }
 
-function turnTagText() {
-  if (state.phase === "playing") return state.players[state.turnIndex].name;
+export function turnTagText() {
+  if (state.phase === "playing") return state.players[state.turnIndex]?.name || "SYNCING";
   if (state.phase === "lobby") return "LOBBY";
   return "SETUP";
 }

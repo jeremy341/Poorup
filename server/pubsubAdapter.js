@@ -47,12 +47,13 @@ export function createPubSubAdapter() {
   function publish(topic, payload) {
     const key = safeTopic(topic);
     if (invalidPublish(closed, topic, payload)) return { success: false, delivered: 0, error: 'Topic or payload is invalid.' };
-    const copy = safePayload(payload);
     const listeners = topics.get(key);
     if (!listeners?.size) return { success: true, delivered: 0 };
     let delivered = 0;
     [...listeners].forEach(handler => {
-      try { handler(copy); delivered += 1; } catch { /* subscriber isolation */ }
+      // Per-delivery copy: subscriber A mutating the payload must never
+      // leak into subscriber B's view of the same event.
+      try { handler(safePayload(payload)); delivered += 1; } catch { /* subscriber isolation */ }
     });
     return { success: true, delivered };
   }

@@ -141,6 +141,8 @@ check('auction acquisition clears stale equity and duplicate deed references', (
 check('trade proposal remains available during pendingPayment for debt rescue', () => {
   const { game, a, b } = startedRoom();
   game.pendingPayment = { playerId: a.id, creditorId: null, amountRemaining: 100, reason: 'rent' };
+  const unaffordable = game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 5000 });
+  assert.deepEqual(unaffordable, { success: false, error: 'One of the players no longer has enough cash.' });
   const result = game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 100 });
   assert.equal(result.success, true);
   assert.equal(game.pendingTrade?.fromPlayerId, a.id);

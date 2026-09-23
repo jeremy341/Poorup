@@ -68,7 +68,7 @@ check("open event log refreshes from snapshots without losing reader position", 
   assert.match(logDrawer, /scrollHeight/);
   assert.match(logDrawer, /data-log-new-status/);
   assert.match(main, /isLogDrawerOpen\(\)/);
-  assert.match(main, /renderLogDrawer\(\)/);
+  assert.match(main, /renderStep\("Event log", renderLogDrawer\)/);
 });
 
 check("social, rankings, and season requests fail visibly within a bounded window", () => {

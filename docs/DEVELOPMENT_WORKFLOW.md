@@ -1,6 +1,6 @@
 # Poorup Development Workflow
 
-_Last updated: 2026-09-11. This is the contract between contributors (human or
+_Last updated: 2026-09-17. This is the contract between contributors (human or
 AI) and `main`._
 
 ## The rule
@@ -70,6 +70,13 @@ The three lane branches are permanent. Promotion merges must never use a
 provider option that deletes the source branch (for example
 `gh pr merge --delete-branch`); delete only short-lived feature branches after
 their merge.
+
+Account-rights changes use the Profile-only contract in
+`docs/decisions/account-rights-and-auth-2026-09-17.md`. A deletion request is
+never a one-click purge: it requires password plus `DELETE ACCOUNT`, blocks
+seated players, enters a 30-day restricted state, and is finalized only by the
+bounded retention job. Mail, canonical origin, cookie, backup, and operator
+facts stay deployment configuration; do not invent them in code or docs.
 
 ## Contributor checklist (per PR)
 

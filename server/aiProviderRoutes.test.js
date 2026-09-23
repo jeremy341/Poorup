@@ -13,6 +13,10 @@ const manager = createAiProviderManager({ store, advisor, fetchImpl: async (_url
   const body = JSON.parse(options.body);
   if (body.messages) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) };
   return { ok: true, status: 200, json: async () => ({ output_text: '{"ok":true}' }) };
+}, resolveHost: async () => [{ address: '8.8.8.8', family: 4 }], requestImpl: async (_url, options) => {
+  const body = JSON.parse(options.body);
+  if (body.messages) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) };
+  return { ok: true, status: 200, json: async () => ({ output_text: '{"ok":true}' }) };
 } });
 registerAiProviderRoutes(app, { manager, accountStore, adminIds: ['acct-admin'] });
 

@@ -98,6 +98,14 @@ check('FIX1 mortgage raises funds to settle pendingPayment', () => {
   assert.equal(ctx.owner.cash, 20);
 });
 
+check('FIX1 debt owed by another seat does not block a mortgage', () => {
+  const ctx = ownedRoom();
+  ctx.give(1);
+  ctx.game.pendingPayment = { playerId: 'another-player', creditorId: null, amountRemaining: 10, reason: 'r' };
+  const result = ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' });
+  assert.equal(result.success, true);
+});
+
 check('FIX1 mortgage blocked while auction is open', () => {
   const ctx = ownedRoom();
   ctx.give(1);

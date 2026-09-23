@@ -148,6 +148,19 @@ check('end turn cannot silently cancel an open sponsorship', () => {
   assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the open sponsorship before ending the turn.' });
 });
 
+check('a zero-cash solvent player cannot end the turn without declaring bankruptcy', () => {
+  const { game, a } = startedRoom();
+  game.currentPlayerId = a.id;
+  game.awaitingEndTurn = true;
+  a.cash = 0;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Raise cash or declare bankruptcy before ending the turn.' });
+  a.cash = 1;
+  assert.equal(game.endTurnRejection(a), null);
+  a.cash = 0;
+  a.bankrupt = true;
+  assert.equal(game.endTurnRejection(a), null);
+});
+
 check('endGame clears contract and payment obligations', () => {
   const { game, a } = startedRoom();
   game.pendingPlayerContract = { id: 'x' };
@@ -175,6 +188,26 @@ check('bankruptcy cash sweep returns cash to the bank when its creditor is bankr
   game.sweepCashToCreditor(b, a);
   assert.equal(a.cash, 1500);
   assert.equal(b.cash, 0);
+});
+
+check('bankrupt human seats remain as spectators while bankrupt bots do not', () => {
+  const { game, a } = startedRoom();
+  game.markPlayerBankrupt(a);
+  assert.equal(a.bankrupt, true);
+  assert.equal(a.spectating, true);
+
+  const bot = { id: 'bot-seat', isBot: true, bankrupt: false, inDebt: true };
+  game.markPlayerBankrupt(bot);
+  assert.equal(bot.bankrupt, true);
+  assert.equal(bot.spectating, false);
+  assert.equal(bot.inDebt, false);
+});
+
+check('game summary exposes authoritative spectator status for eliminated humans', () => {
+  const { game, a } = startedRoom();
+  game.markPlayerBankrupt(a);
+  const summary = game.getGameSummary().players.find(player => player.id === a.id);
+  assert.equal(summary.spectating, true);
 });
 
 check('disconnected payer cannot settle and clears the debt', () => {

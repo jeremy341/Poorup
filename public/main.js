@@ -63,6 +63,8 @@ import {
   openSurface,
   closeSurface,
   openConfirmModal,
+  setSurfaceReturnFocus,
+  bindBeforeUnloadGuard,
 } from "./clientSurfaces.js";
 import {
   toggleLogDrawerFromButton,
@@ -77,7 +79,7 @@ import {
   onRailClick,
   onRailSubmit,
 } from "./clientRailEvents.js";
-import { configureProfileRender } from "./clientProfileRender.js";
+import { configureProfileRender, renderAccountPanel } from "./clientProfileRender.js";
 import { configureCosmetics, renderCollection } from "./clientCosmetics.js";
 import {
   configureNightShift,
@@ -148,6 +150,7 @@ import { createMusicPlayer } from "./clientMusicPlayer.js";
 import { applyMaintenanceState, configureMaintenanceUi } from "./clientMaintenance.js";
 import { initAnalytics } from "./clientAnalytics.js";
 import { initAdminAiProvider } from "./clientAdminAiProvider.js";
+import { configureAccountRights, bindAccountRights } from "./clientAccountRights.js";
 import { setDocumentMeta } from "./clientDocumentMeta.js";
 import {
   bindRoomsUi,
@@ -162,6 +165,7 @@ import {
   syncGlobalNavigation,
 } from "./clientRoomsUi.js";
 import { configureSocketListeners } from "./clientSocketListeners.js";
+import { TILES } from "./clientBoardData.js";
 import {
   bindGameModalSurfaces,
   closeCardGallery,
@@ -299,11 +303,9 @@ function emitServer(event, payload = {}, callback) {
     callback?.({ success: false, error: "Live connection unavailable." });
     return;
   }
-  socket.emit(event, {
-    ...payload,
-    clientId: state.clientId,
-    sessionToken: state.account?.sessionToken,
-  }, callback);
+  const packet = { ...payload, clientId: state.clientId };
+  if (state.account?.sessionToken) packet.sessionToken = state.account.sessionToken;
+  socket.emit(event, packet, callback);
 }
 
 function updateServerSetting(key, value) {
@@ -464,7 +466,12 @@ function record(text) {
 
 function refreshEconomySnapshot() {
   emitServer("get-economy-snapshot", {}, (response) => {
-    if (!response?.success || !response.economy) return;
+    if (!response?.success || !response.economy) {
+      state.economySnapshotStatus = "stale";
+      renderRightRail();
+      return;
+    }
+    state.economySnapshotStatus = "fresh";
     state.economy = {
       ...state.economy,
       ...response.economy,
@@ -476,8 +483,8 @@ function refreshEconomySnapshot() {
 }
 function ensureMusicController() {
   if (musicController) return musicController;
-  if (globalThis.__poorupMusicBoxController) {
-    musicController = globalThis.__poorupMusicBoxController;
+  if (globalThis.__poorupThemeMusicController) {
+    musicController = globalThis.__poorupThemeMusicController;
     return musicController;
   }
   const root = document.querySelector("[data-music-runtime]");
@@ -493,7 +500,7 @@ function ensureMusicController() {
       if (globalStatus && globalStatus.textContent !== message) globalStatus.textContent = message;
     },
   });
-  globalThis.__poorupMusicBoxController = musicController;
+  globalThis.__poorupThemeMusicController = musicController;
   return musicController;
 }
 
@@ -538,25 +545,30 @@ function renderPlayers() {
 
 function playerRowHTML(p, i) {
   const active = i === state.turnIndex && state.phase === "playing";
+  const spectating = Boolean(p.spectating || (p.bankrupt && !p.bot));
+  const eliminated = Boolean(p.bankrupt);
   const playerId = p.serverId || p.id;
-  return `<button class="player-row player-row-action${active ? " is-active" : ""}" type="button" data-player-id="${esc(playerId)}" aria-label="Open player card for ${esc(p.name)}">
+  const status = spectating ? "SPECTATING" : playerStatusLabel(p);
+  return `<button class="player-row player-row-action${active ? " is-active" : ""}${spectating ? " is-spectating" : ""}${eliminated ? " is-eliminated" : ""}" type="button" data-player-id="${esc(playerId)}" aria-label="Open player card for ${esc(p.name)}${spectating ? ", spectating" : eliminated ? ", bankrupt" : ""}">
         ${active ? `<span class="pr-arrow">${spriteHTML("arrow", 3)}</span>` : ""}
-        <div class="pr-av">${avatarHTML(p, 4, i)}</div>
+        <div class="pr-av${spectating ? " pr-av-spectating" : ""}">${avatarHTML(p, 4, i)}</div>
         <div class="pr-mid">
           <div class="pr-nameline">
             ${active ? spriteHTML("crown", 2) : ""}
             <span class="t-label pr-name" style="color:${p.textColor}">${esc(p.name)}</span>
           </div>
-          <div class="t-label pr-cash">$${p.cash.toLocaleString()}</div>
+          ${spectating ? `<span class="t-micro pr-spectating-label">SPECTATING</span>` : ""}
+          <div class="t-label pr-cash">$${Number(p.cash || 0).toLocaleString()}</div>
         </div>
         <div class="pr-right">
           ${playerDotHTML(p)}
-          <span class="t-micro ink-3">${playerStatusLabel(p)}</span>
+          <span class="t-micro ink-3">${status}</span>
         </div>
       </button>`;
 }
 
 function playerDotHTML(p) {
+  if (p.bankrupt) return `<span class="pr-dot pr-dot-spectating"></span>`;
   const on = Boolean(p.online);
   const background = on ? "#35a653" : "#3a382a";
   const boxShadow = on ? "0 0 5px rgb(53 166 83 / 60%)" : "none";
@@ -564,6 +576,8 @@ function playerDotHTML(p) {
 }
 
 function playerStatusLabel(p) {
+  if (p.spectating || (p.bankrupt && !p.bot)) return "SPECTATING";
+  if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
   if (p.bot) return `CPU · ${(p.personality || "survivor").toUpperCase()}`;
@@ -595,25 +609,35 @@ function renderChat() {
 
 /* Deed detail/house manager + card reveal now live in
    clientDeedDetailUi.js / clientGameModalsUi.js. */
+function renderStep(label, render) {
+  try {
+    render();
+  } catch (error) {
+    console.error(`Poorup render step failed: ${label}`, error);
+    const announcer = $("#error-announcer");
+    if (announcer) announcer.textContent = `${label} is temporarily unavailable.`;
+  }
+}
+
 function renderAll() {
-  renderTopNav();
-  renderPlayers();
-  renderChat();
-  if (isLogDrawerOpen()) renderLogDrawer();
-  renderBoardState();
-  placePieces();
-  renderGlobalEvent();
-  renderHud();
-  renderRightRail();
-  renderWalletModalIfOpen();
-  renderMarketDeskIfOpen();
-  renderCasinoDeskIfOpen();
-  renderPanelMenu();
-  renderSetup();
-  renderLobbyRail();
-  if (state.deedDetail != null) renderDeedDetail();
-  if (state.phase === "playing") saveGame();
-  syncSurfaceA11y();
+  renderStep("Top bar", renderTopNav);
+  renderStep("Players", renderPlayers);
+  renderStep("Chat", renderChat);
+  if (isLogDrawerOpen()) renderStep("Event log", renderLogDrawer);
+  renderStep("Board", renderBoardState);
+  renderStep("Player pieces", placePieces);
+  renderStep("Global event", renderGlobalEvent);
+  renderStep("HUD", renderHud);
+  renderStep("Right rail", renderRightRail);
+  renderStep("Wallet", renderWalletModalIfOpen);
+  renderStep("Market desk", renderMarketDeskIfOpen);
+  renderStep("Casino desk", renderCasinoDeskIfOpen);
+  renderStep("Panel menu", renderPanelMenu);
+  renderStep("Setup", renderSetup);
+  renderStep("Lobby", renderLobbyRail);
+  if (state.deedDetail != null) renderStep("Deed detail", renderDeedDetail);
+  if (state.phase === "playing") renderStep("Save game", saveGame);
+  renderStep("Surface accessibility", syncSurfaceA11y);
 }
 
 /* Lobby settings rail + profile editor/identity bindings now live in
@@ -625,59 +649,75 @@ function renderAll() {
    8. GAME LOGIC
    ============================================================ */
 
+function isLocalPlayerBlocked() {
+  const localPlayer = state.players[0];
+  return Boolean(localPlayer?.bankrupt || localPlayer?.spectating);
+}
 
-async function runTurn(idx) {
-  if (state.phase !== "playing") return;
-  if (state.turnIndex !== idx) return;
-  if (state.busy) return;
-  if (state.turnStage !== "roll") return;
-  state.busy = true;
-  state.rolling = true;
+function canActForStage(idx, expectedStage) {
+  if (state.phase !== "playing" || isLocalPlayerBlocked()) return false;
+  if (state.turnIndex !== idx || state.busy) return false;
+  return state.turnStage === expectedStage;
+}
+
+function createTurnRequest(kind) {
+  const requestId = createRequestId(kind);
+  state.pendingAction = { kind, requestId };
+  return requestId;
+}
+
+function executeTurnEmit({ kind, requestId, event, errorMessage, timeoutMessage }) {
   renderHud();
   let settled = false;
+  const finish = () => {
+    if (state.pendingAction?.requestId !== requestId) return;
+    state.pendingAction = null;
+    state.busy = false;
+    if (kind === "roll") state.rolling = false;
+  };
   const timeout = setTimeout(() => {
     if (settled) return;
     settled = true;
-    state.busy = false;
-    state.rolling = false;
-    say("Roll could not be confirmed — try again.");
+    finish();
+    say(timeoutMessage);
     renderAll();
   }, 8000);
-  emitServer("roll-dice", {}, (response) => {
+  emitServer(event, { requestId }, (response) => {
     if (settled) return;
     settled = true;
     clearTimeout(timeout);
-    state.busy = false;
-    state.rolling = false;
-    reportChatError(response, "The roll could not be completed.");
+    finish();
+    reportChatError(response, errorMessage);
     renderAll();
+  });
+}
+
+async function runTurn(idx) {
+  if (!canActForStage(idx, "roll")) return;
+  state.busy = true;
+  state.rolling = true;
+  const requestId = createTurnRequest("roll");
+  executeTurnEmit({
+    kind: "roll",
+    requestId,
+    event: "roll-dice",
+    errorMessage: "The roll could not be completed.",
+    timeoutMessage: "Roll could not be confirmed — try again.",
   });
 }
 
 
 
 function endTurn(idx) {
-  if (state.phase !== "playing") return;
-  if (state.turnIndex !== idx) return;
-  if (state.busy) return;
-  if (state.turnStage !== "end") return;
+  if (!canActForStage(idx, "end")) return;
   state.busy = true;
-  renderHud();
-  let settled = false;
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    state.busy = false;
-    say("The turn could not be confirmed — try again.");
-    renderAll();
-  }, 8000);
-  emitServer("end-turn", {}, (response) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timeout);
-    state.busy = false;
-    reportChatError(response, "The turn could not be ended.");
-    renderAll();
+  const requestId = createTurnRequest("end-turn");
+  executeTurnEmit({
+    kind: "end-turn",
+    requestId,
+    event: "end-turn",
+    errorMessage: "The turn could not be ended.",
+    timeoutMessage: "The turn could not be confirmed — try again.",
   });
 }
 
@@ -686,10 +726,13 @@ function mustResolveAcquisition() {
 }
 
 function primaryTurnAction() {
-  if (state.phase !== "playing") return;
-  if (state.busy) return;
-  if (state.turnIndex !== 0) return;
-  if (mustResolveAcquisition()) return; // must resolve first
+  if (state.phase !== "playing" || isLocalPlayerBlocked() || state.busy || state.turnIndex !== 0) return;
+  if (state.pendingBuyTile != null) {
+    const tile = TILES[state.pendingBuyTile];
+    if (tile) openChoiceModal(tile);
+    return;
+  }
+  if (mustResolveAcquisition()) return;
   if (state.turnStage === "end") endTurn(0);
   else runTurn(0);
 }
@@ -926,6 +969,7 @@ function onChatFormSubmit(e) {
   const input = $("#chat-input");
   const text = input.value.trim();
   if (!text) return;
+  if (!state.players.some(player => player.clientId === state.clientId)) return;
   input.value = "";
   emitWithChatError("send-chat", { text }, "Message could not be sent.");
 }
@@ -1029,6 +1073,7 @@ function bindEvents() {
 
   // profile editor, account and achievements surfaces (clientProfileBindings.js)
   bindProfileUi();
+  bindAccountRights();
 
   // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
   bindAudioControls({ playSound, syncHomeMusic, musicController, setMusicEnabled });
@@ -1083,10 +1128,12 @@ function bindEvents() {
    10. INIT
    ============================================================ */
 configureSurfaces({ notice: parlorNotice });
+bindBeforeUnloadGuard();
 configureSocialSurfaces({ emitServer, showView });
 configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
 configureAccountIdentity({ emitServer, say, syncAudioButtons, syncHomeMusic });
-configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot });
+configureAccountRights({ state, emitServer, announce: say, refresh: renderAccountPanel, setSurfaceReturnFocus });
+configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot, leaveRoomForHome });
 configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
 configureMarketUi({ emitServer, renderRightRail, createRequestId, say, renderChat });
 configureCasinoUi({ emitServer, renderRightRail, createRequestId, say, renderChat, playSound, refreshEconomySnapshot });

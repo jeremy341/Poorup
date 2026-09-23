@@ -27,6 +27,11 @@ async function waitForServer(child) {
 }
 
 const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-release-wiring-'));
+const codeSceneScript = fs.readFileSync(path.join(process.cwd(), 'scripts/codescene-delta.ps1'), 'utf8');
+assert.match(codeSceneScript, /CS_ACCESS_TOKEN/);
+assert.match(codeSceneScript, /origin\/main/);
+assert.match(codeSceneScript, /qa-artifacts/);
+assert.doesNotMatch(codeSceneScript, /Write-Host\s+\$env:CS_ACCESS_TOKEN/);
 const child = spawn(process.execPath, [path.join(process.cwd(), 'server/server.js')], {
   env: {
     ...process.env,
@@ -45,6 +50,12 @@ child.stderr.on('data', chunk => { output += chunk; });
 
 try {
   await waitForServer(child);
+
+  assert.equal((await fetch(`${base}/legal`)).status, 404);
+  assert.equal((await fetch(`${base}/privacy`)).status, 404);
+
+  const retention = await fetch(`${base}/internal/retention/run`, { method: 'POST' });
+  assert.equal(retention.status, 404);
 
   const robots = await fetch(`${base}/robots.txt`);
   assert.equal(robots.status, 200);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { RoomManager } from "./gameLogic.js";
+import { reassignHostIfNeeded } from "./socketRuntime.js";
 
 const manager = new RoomManager();
 const room = manager.createRoom({
@@ -39,4 +40,32 @@ const second = manager.createRoom({
 });
 assert.notEqual(second.hostId, room.hostId, "each public room keeps its own host");
 
-console.log("room host lifecycle tests: 8 passed");
+// A connected debtor can keep playing and use rescue actions, but does not
+// become the room host while their table obligation is unresolved.
+const debtRoom = { hostId: "host", game: { players: [
+  { id: "host", isBot: false, disconnected: false, bankrupt: false },
+  { id: "debtor", isBot: false, disconnected: false, bankrupt: false, inDebt: true },
+] } };
+reassignHostIfNeeded(debtRoom, "host");
+assert.equal(debtRoom.hostId, null);
+assert.equal(debtRoom.game.players[1].isHost, false);
+
+// No live humans at all: host clears instead of pointing at ghosts.
+const emptyRoom = { hostId: "host", game: { players: [
+  { id: "host", isBot: false, disconnected: true, bankrupt: false },
+] } };
+reassignHostIfNeeded(emptyRoom, "host");
+assert.equal(emptyRoom.hostId, null);
+
+// Doubles state belongs to the roller: leaving mid-chain resets it.
+const diceManager = new RoomManager();
+const diceRoom = diceManager.createRoom({ socketId: "d1", clientId: "d1", nickname: "D1" });
+diceRoom.addOrReconnectPlayer({ socketId: "d2", clientId: "d2", nickname: "D2" });
+diceRoom.addOrReconnectPlayer({ socketId: "d3", clientId: "d3", nickname: "D3" });
+assert.equal(diceRoom.startGame().success, true);
+diceRoom.game.consecutiveDoubles = 1;
+diceRoom.game.currentPlayerId = diceRoom.game.players[0].id;
+diceManager.leaveRoomByClient("d1", "d1");
+assert.equal(diceRoom.game.consecutiveDoubles, 0);
+
+console.log("room host lifecycle tests: 11 passed");
