@@ -57,7 +57,9 @@ if [ ! -f "$RELEASE_DIR/package.json" ]; then
     -o "$ARCHIVE" "https://codeload.github.com/$REPO/tar.gz/$latest_sha"
   tar -tzf "$ARCHIVE" >/dev/null
   mkdir -p "$RELEASE_DIR"
-  tar -xzf "$ARCHIVE" -C "$RELEASE_DIR"
+  # Codeload tarballs nest everything under a top-level Poorup-<sha>/ dir;
+  # strip it so the release layout matches the deploy contract.
+  tar -xzf "$ARCHIVE" -C "$RELEASE_DIR" --strip-components=1
 fi
 
 if [ ! -f "$RELEASE_DIR/package.json" ] || [ ! -f "$RELEASE_DIR/server/server.js" ]; then
@@ -69,6 +71,7 @@ npm ci --omit=dev --prefix "$RELEASE_DIR" --no-audit --no-fund >/dev/null 2>&1
 
 # Hand off to the drain-gated deploy from the NEW release so deploy logic
 # itself is versioned with the code it ships.
+echo "Handing off to new-release deploy for $latest_sha"
 RELEASE_SHA="$latest_sha" \
 RELEASE_ARCHIVE="$ARCHIVE" \
 APP_ROOT="$APP_ROOT" \
@@ -78,7 +81,9 @@ READY_URL="$READY_URL" \
 MAINTENANCE_TOKEN="$POORUP_MAINTENANCE_TOKEN" \
 bash "$RELEASE_DIR/scripts/deploy-nest.sh"
 
-# Keep /tmp tidy; older stragglers are trimmed too.
+# Keep /tmp tidy; older stragglers are trimmed too. The trailing `|| true`
+# matters: with `set -o pipefail`, an empty glob makes `ls` fail and would
+# otherwise fail the whole (already successful) update.
 rm -f "$ARCHIVE"
-ls -t /tmp/poorup-*.tgz 2>/dev/null | tail -n +3 | xargs -r rm -f
+ls -t /tmp/poorup-*.tgz 2>/dev/null | tail -n +3 | xargs -r rm -f || true
 echo "Auto-update to $latest_sha complete"
