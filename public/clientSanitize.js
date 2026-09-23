@@ -326,7 +326,6 @@ function sanitizedAccount(account) {
     deletionRequestedAt: cleanCreatedAt(account.deletionRequestedAt),
     deletionDueAt: cleanCreatedAt(account.deletionDueAt),
     deletionRequestId: typeof account.deletionRequestId === "string" ? account.deletionRequestId.slice(0, 100) : null,
-    recoveryEmail: typeof account.recoveryEmail === "string" ? account.recoveryEmail.slice(0, 254) : null,
     recoveryEmailVerified: account.recoveryEmailVerified === true,
   };
 }
@@ -344,22 +343,20 @@ function sanitizeAccountSession(value) {
 
 function persistAccountSession(session) {
   try {
-    if (session) {
-      // New sessions are cookie-backed. Keep a non-sensitive account snapshot
-      // for optimistic rendering after reload, but never persist the bearer
-      // token. Older records with a token remain readable for one-time
-      // migration by the server's /account/session endpoint.
-      const account = session.account ? sanitizedAccount(session.account) : null;
-      if (account) localStorage.setItem(ACCOUNT_SESSION_KEY, JSON.stringify({ account }));
-      else localStorage.removeItem(ACCOUNT_SESSION_KEY);
-    }
+    const sanitized = sanitizeAccountSession(session);
+    if (sanitized) localStorage.setItem(ACCOUNT_SESSION_KEY, JSON.stringify({ account: sanitized.account }));
     else localStorage.removeItem(ACCOUNT_SESSION_KEY);
   } catch { /* storage unavailable */ }
 }
 
 function loadAccountSession() {
   try {
-    return sanitizeAccountSession(JSON.parse(localStorage.getItem(ACCOUNT_SESSION_KEY) || "null"));
+    const session = sanitizeAccountSession(JSON.parse(localStorage.getItem(ACCOUNT_SESSION_KEY) || "null"));
+    if (!session) return null;
+    const cookieSession = { sessionToken: "", account: session.account };
+    // Migrate legacy snapshots and keep only the non-secret account view.
+    persistAccountSession(cookieSession);
+    return cookieSession;
   } catch {
     return null;
   }
