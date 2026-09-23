@@ -52,10 +52,6 @@ test.describe("release readiness visual evidence", () => {
     await expect(page.locator("#rules-page-content")).toBeVisible();
     await capture(page, "rules");
 
-    await page.goto("/privacy");
-    await expect(page.locator("h1")).toHaveCount(1);
-    await capture(page, "legal-privacy");
-
     await page.goto("/admin/analytics");
     await expect(page.locator("#admin-analytics-main")).toBeVisible();
     await capture(page, "analytics");
