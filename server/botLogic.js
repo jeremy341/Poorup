@@ -252,6 +252,7 @@ const CANDIDATE_MAPPERS = [
   { kind: 'jail-free', takes: () => true, type: 'jail-free' },
   { kind: 'chat', takes: () => true, type: 'chat' },
   { kind: 'purchase', takes: () => true, type: 'purchase' },
+  { kind: 'bankruptcy', takes: () => true, type: 'bankruptcy' },
   { kind: 'end-turn', takes: () => true, type: 'end-turn' },
   { kind: 'trade', takes: () => true, type: 'trade' },
   { kind: 'contract-propose', takes: () => true, type: 'contract-propose' },
@@ -791,6 +792,7 @@ const PHASE_EXECUTORS = {
     if (game.pendingPurchaseOffer?.playerId === bot.id) {
       return resolvePurchaseOffer(room, bot, { success: true, purchaseOffer: game.pendingPurchaseOffer });
     }
+    if (!(Number(bot.cash) > 0) && !bot.bankrupt) return room.runBotAction(bot.id, actor => room.declareBankruptcy(actor));
     if (game.awaitingEndTurn) return room.runBotAction(bot.id, actor => room.endTurn(actor));
     return { success: true, noEmit: true, botDecision: { reasonCode: 'post-roll-no-op' } };
   }
@@ -911,6 +913,7 @@ const CANDIDATE_RUNNERS = {
     success: true,
     purchaseOffer: { playerId: bot.id, tileIndex: candidate.tileIndex }
   }),
+  bankruptcy: (room, bot) => room.runBotAction(bot.id, actor => room.declareBankruptcy(actor)),
   'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
   trade: (room, bot, candidate) => {
     const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, candidate));
@@ -987,7 +990,9 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
   const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
   if (result?.success === false && action.type !== 'roll') {
     const fallbackCandidate = phase === 'post-roll'
-      ? { id: 'end-turn', kind: 'end-turn' }
+      ? (Number(bot.cash) > 0 || bot.bankrupt
+        ? { id: 'end-turn', kind: 'end-turn' }
+        : { id: 'bankruptcy:zero-cash', kind: 'bankruptcy' })
       : { id: 'roll', kind: 'roll' };
     const fallback = CANDIDATE_RUNNERS[fallbackCandidate.kind](room, bot, fallbackCandidate);
     return attachBotDecision(fallback, { ...trace, actionId: fallbackCandidate.id, fallbackReason: 'candidate-rejected' });
