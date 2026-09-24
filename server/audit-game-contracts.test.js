@@ -158,6 +158,50 @@ check('a zero-cash solvent player cannot end the turn without declaring bankrupt
   assert.equal(game.endTurnRejection(a), null);
   a.cash = 0;
   a.bankrupt = true;
+  a.spectating = true;
+  assert.equal(game.endTurnRejection(a), null);
+});
+
+check('end-turn rejection guard order preserves debt and insolvency behavior', () => {
+  const { game, a, b } = startedRoom();
+  game.currentPlayerId = a.id;
+  game.extraRollPending = true;
+  game.turnAllowsExtraRoll = true;
+  game.awaitingEndTurn = false;
+  game.auction = { active: true };
+  game.pendingPurchaseOffer = { playerId: a.id };
+  game.pendingPayment = { playerId: a.id, amountRemaining: 100 };
+  game.pendingSponsoredPurchase = { buyerId: a.id };
+  game.pendingTrade = { fromPlayerId: a.id, toPlayerId: b.id };
+  game.pendingPlayerContract = { fromPlayerId: a.id, toPlayerId: b.id };
+  a.cash = 0;
+
+  assert.deepEqual(game.endTurnRejection(b), { success: false, error: 'Only the active player can end the turn.' });
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'You must roll again after doubles before ending your turn.' });
+
+  game.extraRollPending = false;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'You must roll again after doubles before ending your turn.' });
+
+  game.turnAllowsExtraRoll = false;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve your roll before ending the turn.' });
+
+  game.awaitingEndTurn = true;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Finish the active auction before ending the turn.' });
+  game.auction.active = false;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the property offer before ending the turn.' });
+  game.pendingPurchaseOffer = null;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Settle your debt before ending the turn.' });
+  game.pendingPayment = null;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the open sponsorship before ending the turn.' });
+  game.pendingSponsoredPurchase = null;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the pending trade before ending the turn.' });
+  game.pendingTrade = null;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the pending contract before ending the turn.' });
+  game.pendingPlayerContract = null;
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Raise cash or declare bankruptcy before ending the turn.' });
+
+  a.bankrupt = true;
+  a.spectating = true;
   assert.equal(game.endTurnRejection(a), null);
 });
 
