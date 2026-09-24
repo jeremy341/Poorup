@@ -24,6 +24,7 @@ test-results/
 # Generated tooling state and local agent logs
 skills-lock.json
 .impeccable/
+.superpowers/sdd/
 
 # Editor directories and files
 .vscode/*
