@@ -524,11 +524,22 @@ function syncHomeMusic({ force = false, userGesture = false } = {}) {
   // The dock controller is canonical; no single-track fallback.
 }
 
-function retryAudioAfterGesture() {
-  if (audioCtx?.state === "suspended") audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
-  if (!state.music) return;
+function resumeSuspendedAudioContext() {
+  if (audioCtx?.state !== "suspended") return;
+  audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
+}
+
+function retryThemeTrackAfterGesture() {
   const snapshot = ensureMusicController()?.snapshot?.();
-  if (snapshot && snapshot.status !== "playing") syncHomeMusic({ userGesture: true });
+  if (!snapshot) return;
+  if (snapshot.status === "playing") return;
+  syncHomeMusic({ userGesture: true });
+}
+
+function retryAudioAfterGesture() {
+  resumeSuspendedAudioContext();
+  if (!state.music) return;
+  retryThemeTrackAfterGesture();
 }
 
 // The hidden theme runtime owns playback and status announcements.
@@ -545,7 +556,7 @@ function renderPlayers() {
 
 function playerRowHTML(p, i) {
   const active = i === state.turnIndex && state.phase === "playing";
-  const spectating = Boolean(p.spectating || (p.bankrupt && !p.bot));
+  const spectating = isSpectatingPlayer(p);
   const eliminated = Boolean(p.bankrupt);
   const playerId = p.serverId || p.id;
   const status = spectating ? "SPECTATING" : playerStatusLabel(p);
@@ -575,8 +586,14 @@ function playerDotHTML(p) {
   return `<span class="pr-dot" style="background:${background};box-shadow:${boxShadow}"></span>`;
 }
 
+function isSpectatingPlayer(p) {
+  if (p.spectating) return true;
+  if (!p.bankrupt) return false;
+  return !p.bot;
+}
+
 function playerStatusLabel(p) {
-  if (p.spectating || (p.bankrupt && !p.bot)) return "SPECTATING";
+  if (isSpectatingPlayer(p)) return "SPECTATING";
   if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
@@ -725,13 +742,24 @@ function mustResolveAcquisition() {
   return Boolean(state.auction || state.pendingBuyTile != null || state.sponsorship);
 }
 
+function canUsePrimaryTurnAction() {
+  if (state.phase !== "playing") return false;
+  if (isLocalPlayerBlocked()) return false;
+  if (state.busy) return false;
+  return state.turnIndex === 0;
+}
+
+function openPendingPurchaseChoice() {
+  if (state.pendingBuyTile == null) return false;
+  const tile = TILES[state.pendingBuyTile];
+  if (!tile) return true;
+  openChoiceModal(tile);
+  return true;
+}
+
 function primaryTurnAction() {
-  if (state.phase !== "playing" || isLocalPlayerBlocked() || state.busy || state.turnIndex !== 0) return;
-  if (state.pendingBuyTile != null) {
-    const tile = TILES[state.pendingBuyTile];
-    if (tile) openChoiceModal(tile);
-    return;
-  }
+  if (!canUsePrimaryTurnAction()) return;
+  if (openPendingPurchaseChoice()) return;
   if (mustResolveAcquisition()) return;
   if (state.turnStage === "end") endTurn(0);
   else runTurn(0);

@@ -322,6 +322,25 @@ check('current human inactivity expires after 180 seconds without inbound socket
   assert.equal(ctx.room.game.currentPlayerId, next.id);
 });
 
+check('same-seat synchronization is idempotent and a new game start resets its inactivity deadline', () => {
+  const ctx = makeFixture();
+  ctx.runtime.emitRoomState(ctx.room);
+  const originalTimer = ctx.clock.records.at(-1);
+  assert.ok(originalTimer, 'the active human should receive an inactivity timer');
+
+  ctx.clock.advanceBy(5_000);
+  ctx.runtime.emitRoomState(ctx.room);
+  assert.equal(ctx.clock.records.at(-1), originalTimer, 'same-socket sync should preserve the current timer callback');
+  assert.equal(originalTimer.dueAt, 1_180_000, 'same-socket sync should preserve the original deadline');
+
+  ctx.room.game.startedAt += 1;
+  ctx.runtime.emitRoomState(ctx.room);
+  const restartedTimer = ctx.clock.records.at(-1);
+  assert.notEqual(restartedTimer, originalTimer, 'a new game must receive a fresh timer callback');
+  assert.equal(originalTimer.cancelled, true, 'the previous game timer must be cleared');
+  assert.equal(restartedTimer.dueAt, ctx.clock.now() + 180_000, 'a new game must receive a full inactivity budget');
+});
+
 check('any inbound player packet resets the current seat inactivity budget', () => {
   const ctx = makeFixture();
   const [current] = ctx.seats;
