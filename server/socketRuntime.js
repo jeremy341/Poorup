@@ -506,27 +506,39 @@ function createRuntime(deps) {
     inactivityTimers.set(room.roomCode, watch);
   }
 
+  function resetInactivityTracking(room, gameStartedAt) {
+    clearInactivityTimer(room, false);
+    room?.playerInactivityStates?.clear();
+    if (!room) return;
+    room.inactivityGameStartedAt = gameStartedAt;
+  }
+
+  function isStaleInactivityState(game, playerId, state) {
+    if (game.getPlayerById(playerId) !== state.player) return true;
+    if (state.player.isBot) return true;
+    return state.player.bankrupt;
+  }
+
+  function pruneStaleInactivityStates(room, game) {
+    const states = inactivityStates(room);
+    const stalePlayerIds = [...states.entries()]
+      .filter(([playerId, state]) => isStaleInactivityState(game, playerId, state))
+      .map(([playerId]) => playerId);
+    stalePlayerIds.forEach(playerId => states.delete(playerId));
+  }
+
   function synchronizeInactivityTimer(room) {
     const game = room?.game;
     if (!room || !game?.started) {
-      clearInactivityTimer(room, false);
-      room?.playerInactivityStates?.clear();
-      if (room) room.inactivityGameStartedAt = null;
+      resetInactivityTracking(room, null);
       return;
     }
 
     if (room.inactivityGameStartedAt !== game.startedAt) {
-      clearInactivityTimer(room, false);
-      room.playerInactivityStates?.clear();
-      room.inactivityGameStartedAt = game.startedAt;
+      resetInactivityTracking(room, game.startedAt);
     }
 
-    const states = inactivityStates(room);
-    for (const [playerId, state] of states.entries()) {
-      if (game.getPlayerById(playerId) !== state.player || state.player.isBot || state.player.bankrupt) {
-        states.delete(playerId);
-      }
-    }
+    pruneStaleInactivityStates(room, game);
 
     const current = inactivityWatchTarget(game);
     if (!current) {

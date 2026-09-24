@@ -26,9 +26,8 @@ second game shell:
 > the turn countdown remains visible through turn-owned resolution while the
 > server deadline is live, and the shared focus trap excludes native `[hidden]`
 > descendants. The old `FOCUS` control is retired; `PANELS` is the single
-> explicit visibility menu. Evidence: `docs/audit/fix-transaction-ui-batch-2026-09-12.md`,
-> `public/index.html:572-591`, `public/clientTransactionUi.test.js`, and
-> `public/clientUxContracts.test.js`. Current feature and policy status is
+> explicit visibility menu. Evidence: `public/clientTransactionUi.test.js`,
+> `public/index.html:572-591`, and `public/clientUxContracts.test.js`. Current feature and policy status is
 > tracked in [`docs/feature-status.json`](../feature-status.json).
 
 ## Non-negotiable product constraints

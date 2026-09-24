@@ -7,8 +7,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const read = relativePath => fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 
 const readme = read("README.md");
-const showcase = read("SHOWCASE.md");
-const instructions = read("Instructions.md");
 const accountDesign = read(".ulpi/design/ACCOUNT-PROFILE.md");
 const homeDesign = read(".ulpi/design/HOME-PROFILE-REDESIGN.md");
 const themeDesign = read(".ulpi/design/THEME-FIVE-VISUAL-BRAINSTORM.md");
@@ -19,10 +17,9 @@ const branchPlan = read("docs/superpowers/plans/2026-09-13-branch-release-mainte
 const productionHardening = read("docs/production-hardening.md");
 
 assert.doesNotMatch(readme, /no downloads?\s+(?:or\s+)?accounts?\s+required/i);
-assert.doesNotMatch(showcase, /no downloads,\s*no accounts?\b/i);
-assert.doesNotMatch(`${readme}\n${showcase}`, /\bv2\.4\.1\b/i);
+assert.doesNotMatch(readme, /no downloads,\s*no accounts?\b/i);
+assert.doesNotMatch(readme, /\bv2\.4\.1\b/i);
 assert.match(readme, /accounts?\s+(?:are|remain)\s+optional/i);
-assert.match(showcase, /accounts?\s+(?:are|remain)\s+optional/i);
 
 assert.doesNotMatch(homeDesign, /profileViewState/i);
 assert.doesNotMatch(accountDesign, /expired sessions fail closed/i);
@@ -34,7 +31,7 @@ assert.equal(fs.existsSync(path.join(repoRoot, "docs/superpowers/specs/2026-09-1
 
 assert.match(readme, /Metro-52/i);
 for (const feature of ["rulesets", "bots", "events", "contracts", "seasons", "market"]) {
-  assert.match(instructions, new RegExp(feature, "i"), `Instructions.md should name ${feature}`);
+  assert.match(readme, new RegExp(feature, "i"), `README.md should name ${feature}`);
 }
 
 for (const currentDoc of [refactorRoadmap, inGamePlan, branchPlan, productionHardening]) {

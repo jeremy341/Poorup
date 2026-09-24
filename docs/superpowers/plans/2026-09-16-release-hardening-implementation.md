@@ -4,7 +4,7 @@
 **Status:** Approved for implementation planning; source changes have not started.
 **Base:** current `admin-analytics-dashboard-plan` working tree; preserve all existing
 uncommitted work until an explicit scope review.
-**Companion audit:** `docs/audit/release-hardening-balance-ui-audit-2026-09-16.md`
+**Companion audit:** retired with `docs/audit/**` (see `docs/feature-status.json`)
 
 ## 1. Objective and boundaries
 
@@ -75,7 +75,7 @@ server behavior and its tests are green.
 
 ### 4.2 Deliverables
 
-- `docs/audit/release-hardening-balance-ui-audit-2026-09-16.md` (the companion audit).
+- Companion audit archived under `docs/audit/**` (removed with the docs cleanup).
 - A generated inventory artifact for the implementation branch (path and checksum only;
   no private data).
 - A proposed deletion/archive list. The list is reviewed before any destructive action.
