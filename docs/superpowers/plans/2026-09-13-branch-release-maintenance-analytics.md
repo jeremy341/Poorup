@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub protected branches and Actions, Node.js, Express, Socket.IO, vanilla HTML/CSS/JavaScript, Nest for development/testing, existing JSON adapters during the first phase, PostgreSQL and Redis adapter seams for the horizontal-scale phase.
 
-**Spec:** docs/DEVELOPMENT_WORKFLOW.md, docs/production-hardening.md, docs/audit/release-readiness-40-agent-2026-09-12.md, and the current Poorup UI/design tokens.
+**Spec:** docs/DEVELOPMENT_WORKFLOW.md, docs/production-hardening.md, docs/feature-status.json, and the current Poorup UI/design tokens.
 
 > **Current-status pointer (2026-09-14).** This is a dated branch and
 > operations plan. Its host, branch, SHA, and checkbox expectations are
@@ -51,7 +51,7 @@
 ### Task 1: Freeze and verify the historical integration-branch baseline
 
 **Files:**
-- Read: git status, git log, docs/audit/release-readiness-40-agent-2026-09-12.md
+- Read: git status, git log, docs/feature-status.json
 - Preserve: all current Markdown/README files and public/assets/themes/**
 
 **Interfaces:**
@@ -72,12 +72,16 @@
 
 - [ ] Step 2: Verify documentation preservation
 
+    Historical release-readiness audit folders under `docs/audit/**` were
+    removed with the docs cleanup. Confirm the living docs still exist:
+
     Run:
 
-        (Get-ChildItem docs/audit/release-readiness-2026-09-12 -Filter '*.md' -File).Count
-        Test-Path docs/audit/release-readiness-40-agent-2026-09-12.md
+        Test-Path docs/feature-status.json
+        Test-Path docs/DEVELOPMENT_WORKFLOW.md
+        Test-Path docs/production-hardening.md
 
-    Expected: 40 and True.
+    Expected: True, True, True.
 
 - [ ] Step 3: Run the current full verification suite
 
@@ -463,7 +467,7 @@
 
 **Files:**
 - Create: scripts/codescene-delta.ps1
-- Create: docs/DEVELOPMENT_WORKFLOW-CODESCENE.md
+- Create: docs/DEVELOPMENT_WORKFLOW.md (CodeScene section; CODESCENE companion file retired)
 - Modify: .github/workflows/ci.yml only if full-history checkout or required statuses are missing
 
 **Interfaces:**

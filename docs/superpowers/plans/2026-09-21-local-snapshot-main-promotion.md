@@ -16,7 +16,7 @@
 - Import only these seven missing test files from the freshly fetched Main ref: `public/clientAccountRights.test.js`, `public/clientAccountSessionStorage.test.js`, `server/accountDeletion.test.js`, `server/accountRecoveryPersistence.test.js`, `server/accountRightsSocket.test.js`, `server/accountStore-rights.test.js`, and `server/backupAccountPurge.test.js`.
 - Add Main's `test:account` script to `package.json` and make `test:full` run it; retain the local `test` and `test:audit` commands.
 - Do not import other Main implementation, UI, documentation, skills, scripts, or assets unless separately approved.
-- Never stage `server/backups/`; it is untracked local account/match/telemetry data. Leave `docs/audit/batch1-gamelogic.md` outside the release commit unless the user separately requests it.
+- Never stage `server/backups/`; it is untracked local account/match/telemetry data.
 - No `reset --hard`, force-push, tag/version bump, or broad `git add .`.
 - Do not weaken or delete imported tests to make the candidate pass. If they expose code incompatibility, stop and request approval before expanding scope to implementation fixes.
 - Create and push only a normal candidate branch/PR; no direct push to protected Main. The final tree must be checked against the approved snapshot before each promotion.
@@ -34,7 +34,7 @@
 - **Restore from Main:** the seven test files listed above.
 - **Modify:** `package.json`, only to add `test:account` and append it to `test:full`.
 - **Carry forward from local:** all tracked files from `selective-picks` plus the four current tracked edits in `server/aiProviderRoutes.test.js`, `server/botAdvisor.js`, `server/botAdvisor.test.js`, and `server/gameLogic.test.js`.
-- **Keep out of the commit:** untracked `server/backups/` and `docs/audit/batch1-gamelogic.md` by default.
+- **Keep out of the commit:** untracked `server/backups/`.
 - **Do not port:** any other Main-only file or implementation change.
 
 ## Important Tree Consequence

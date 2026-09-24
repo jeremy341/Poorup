@@ -6,6 +6,10 @@ I built this project to get hands-on experience with real-time web development, 
 
 From an engineering perspective, Poorup is a real-time multiplayer systems project: the game rules, room state, reconnect flow and persistence boundaries are handled on the server.
 
+**Live demo:** https://poorup.jeremy-d.hackclub.app/
+
+To test multiplayer: open two browser tabs (or share the link with a friend), enter different nicknames, and have one player create a room while the other joins with the room code.
+
 ## Overview
 
 - Real-time multiplayer using Socket.IO
@@ -13,13 +17,14 @@ From an engineering perspective, Poorup is a real-time multiplayer systems proje
 - Full Monopoly-style rules: buying, renting, building, mortgaging, trading, and going to prison
 - Host-selectable Classic, After Hours, and Custom rulesets
 - Optional server-settled Casino and fictional Market add-ons
-- Server-backed friends, recent players, match history, achievements, and multi-scope rankings
+- Server-backed friends, recent players, match history, achievements, seasons, and multi-scope rankings
 - Rare round-scaled Global Events with curated combinations
-- Server-controlled deterministic CPU seats with selectable personalities
+- Server-controlled deterministic CPU seats (bots) with selectable personalities
 - Player-to-player loan and property-equity contracts with collateral, repayment, and default rules
 - Auction system for declined properties
 - Room-based lobby with host controls and configurable game settings
 - Reconnect support — disconnected players can rejoin and resume their turn
+- In-game chat and automatic room cleanup when everyone leaves
 - Optional Profile account rights: owner-safe export, verified recovery email,
   session revocation, and a 30-day deletion grace period
 - Runs on a plain Node.js server with no database
@@ -27,20 +32,20 @@ From an engineering perspective, Poorup is a real-time multiplayer systems proje
 ## How to run
 
 ```bash
+git clone https://github.com/jeremy341/Poorup.git
+cd Poorup
 npm install
 npm start
 ```
 
-Then open `http://localhost:8080` in your browser.
-
-**Live demo:** https://poorup.jeremy-d.hackclub.app/
-
-For Instructions see [Instructions.md](Instructions.md).
+Then open `http://localhost:8080` in your browser (two tabs for a local multiplayer test). A full game needs at least two players; the host starts from the lobby once seats are filled.
 
 For how contributions flow (branches, PRs, CI, reviews), see [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md).
 
 For the current source-backed status of live, completed, planned, deferred, and
 reference surfaces, see [docs/feature-status.json](docs/feature-status.json).
+
+Full gameplay rules live in the in-game **Rules** surface. Quick guide:
 
 | Layer | Technology |
 |---|---|
@@ -48,6 +53,27 @@ reference surfaces, see [docs/feature-status.json](docs/feature-status.json).
 | Real-time | Socket.IO |
 | Frontend | Vanilla HTML, CSS, JavaScript |
 | State | In-memory game state managed server-side |
+
+## How to play
+
+Guest play is the default: no account is required to create or join a room.
+Optional accounts add a durable identity and server-backed history.
+
+**Goal:** bankrupt the other players by buying properties, charging rent, trading smartly, and managing cash.
+
+**A turn:** roll → move → resolve the space (buy, rent, tax, cards, jail, or other specials) → end turn when every required decision is complete.
+
+**Properties and rent:** owning a full color set strengthens the group; houses and hotels raise rent; mortgaged deeds collect no normal rent until redeemed.
+
+**Trading:** trades can include cash and properties; both players must agree.
+
+**Jail:** roll doubles, pay the fine, or wait out turns when the rules allow.
+
+**Bankruptcy:** low cash is not elimination — mortgage, sell, trade, or declare bankruptcy only when no legal rescue remains.
+
+**Optional systems:** auctions; contracts (player loans and property-equity); Casino and Market (fictional currency, staged complexity); Global Events; bots; social and seasons (friends, match history, achievements, cosmetics, rankings, seasonal rewards where available).
+
+**Setup:** the host configures board variant (Standard-40 up to four seats, Metro-52 up to six), ruleset preset (`CLASSIC`, `AFTER HOURS`, or `CUSTOM`), starting cash, turn timer, CPU seats, auctions, mortgage rules, and other house rules before the round starts.
 
 ## Project structure
 
@@ -75,7 +101,7 @@ deletion behavior; no Terms-of-Service route is claimed by the app.
 
 The host can configure the following before starting:
 
-- Board variant: Standard-40 (up to four seats) or Metro-52 (up to six seats)
+- Board variant: Standard-40 (up to four seats) or Metro-52 (up to six)
 - Ruleset preset, Custom base, and resettable house-rule overrides
 - Starting cash amount
 - CPU seats and selectable bot personality
