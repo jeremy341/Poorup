@@ -1,42 +1,637 @@
 import { MUSIC_MANIFEST, resolveThemeTrack, sanitizeThemeId, sanitizeTrackId } from "./clientMusicData.js";
 
 const PREFS = "poorup.music.preferences";
+const DEFAULT_VOLUME = 0.16;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value) || 0));
 
-export function createMusicPlayer(options = {}) {
-  const { audioA, audioB, manifest = MUSIC_MANIFEST, getThemeId = () => "original", storage = {}, announce = () => {}, now = () => Date.now(), requestFrame = (fn) => setTimeout(fn, 16), cancelFrame = (id) => clearTimeout(id), reducedMotion = false, random = Math.random } = options;
-  const audios = [audioA, audioB];
-  let active = 0; let transition = 0; let frame = null; let theme = sanitizeThemeId(getThemeId(), manifest);
-  let current = resolveThemeTrack(theme, manifest); let mode = "AUTO THEME"; let loop = true; let shuffle = false; let volume = 0.16; let status = "idle"; let playing = false; let playAttempt = 0; let pending = null; let pendingIndex = -1; let blockedPending = null; let pendingRestore = null; let startedAt = now();
-  let queue = []; let queueIndex = 0; let history = [];
-  try { const saved = JSON.parse(storage.getItem(PREFS) || "{}"); volume = Number.isFinite(Number(saved.volume)) ? clamp(saved.volume, 0, 1) : 0.16; shuffle = saved.shuffle === true; loop = saved.loop !== false; mode = saved.mode === "CUSTOM" ? "CUSTOM" : "AUTO THEME"; if (saved.theme) theme = sanitizeThemeId(saved.theme, manifest); const savedTrack = sanitizeTrackId(saved.track, manifest); if (savedTrack && (manifest.themes[theme] || []).includes(savedTrack)) current = savedTrack; else mode = "AUTO THEME"; } catch {}
-  const track = () => manifest.tracks[current];
-  const persist = () => { audios.forEach(audio => { if (audio) audio.loop = loop; }); try { storage.setItem(PREFS, JSON.stringify({ volume, shuffle, loop, mode: mode === "CUSTOM" ? "CUSTOM" : "AUTO THEME", theme: sanitizeThemeId(theme, manifest), track: sanitizeTrackId(current, manifest) || resolveThemeTrack(theme, manifest) })); } catch {} };
-  const setVolumes = () => audios.forEach((audio, index) => { if (audio) { if (index === active && !audio.src && manifest.tracks[current]) audio.src = manifest.tracks[current].src; audio.volume = index === active ? volume : 0; audio.loop = loop; } });
-  const announceStatus = (message) => { status = message; announce(message); };
-  const rebuildQueue = () => { const fallback = resolveThemeTrack(theme, manifest); const ids = [...new Set((manifest.themes[theme] || (fallback ? [fallback] : [])).filter(id => sanitizeTrackId(id, manifest)))]; if (shuffle) { for (let i = ids.length - 1; i > 0; i -= 1) { const j = Math.floor(clamp(random(), 0, 0.999999) * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; } } queue = ids; queueIndex = Math.max(0, queue.indexOf(current)); history = []; };
-  rebuildQueue(); setVolumes(); audios.forEach(audio => audio?.addEventListener?.("ended", () => { if (audio !== audios[active] || !playing) return; if (loop) { audio.currentTime = 0; audio.play?.(); } else { playing = false; pending = null; blockedPending = null; announceStatus("ended"); } }));
-  function load(id, duration = 350, restore = { current, queueIndex }) {
-    const safe = sanitizeTrackId(id, manifest); if (!safe) { announceStatus("track-unavailable"); return false; }
-    const token = ++transition; const incoming = 1 - active; const element = audios[incoming]; if (!element) return false; const prior = restore.current; const priorIndex = restore.queueIndex; pending = element; pendingIndex = incoming; blockedPending = null; pendingRestore = { ...restore, queue: restore.queue ? [...restore.queue] : undefined, history: restore.history ? [...restore.history] : undefined }; frame = 0;
-    if (frame !== null) { cancelFrame(frame); frame = null; }
-    element.pause?.(); element.src = manifest.tracks[safe].src; element.currentTime = 0; element.volume = 0;
-    current = safe; startedAt = now();
-    const finish = () => { if (token !== transition) return; active = incoming; pending = null; pendingIndex = -1; blockedPending = null; element.volume = volume; audios[1 - active]?.pause?.(); playing = true; setVolumes(); announceStatus("playing"); };
-    const ramp = () => { if (token !== transition) return; playing = true; const ratio = reducedMotion ? 1 : Math.min(1, Math.max(0, (now() - startedAt) / duration)); element.volume = volume * ratio; if (audios[active]) audios[active].volume = volume * (1 - ratio); if (ratio >= 1) finish(); else frame = requestFrame(ramp); };
-    const playToken = ++playAttempt;
-    const play = () => { if (token !== transition) return; try { const result = element.play?.(); if (result?.then) result.then(ramp).catch(() => { if (token === transition && playToken === playAttempt) { blockedPending = element; audios.forEach((audio, index) => { if (index !== incoming) audio?.pause?.(); }); announceStatus("autoplay-blocked"); } }); else ramp(); } catch { if (token === transition && playToken === playAttempt) { blockedPending = element; audios.forEach((audio, index) => { if (index !== incoming) audio?.pause?.(); }); announceStatus("autoplay-blocked"); } } };
-    if (typeof element.addEventListener === "function") {
-      const onReady = () => { element.removeEventListener?.("canplay", onReady); play(); };
-      const onError = () => { if (token === transition) { if (frame !== null) { cancelFrame(frame); frame = null; } transition += 1; pending = null; pendingIndex = -1; blockedPending = null; pendingRestore = null; current = prior; queueIndex = priorIndex; if (restore.theme !== undefined) theme = restore.theme; if (restore.mode !== undefined) mode = restore.mode; if (restore.loop !== undefined) loop = restore.loop; if (restore.shuffle !== undefined) shuffle = restore.shuffle; if (restore.queue) queue = [...restore.queue]; if (restore.history) history = [...restore.history]; element.pause?.(); setVolumes(); persist(); announceStatus("track-error"); } };
-      element.addEventListener("canplay", onReady, { once: true }); element.addEventListener("error", onError, { once: true }); element.addEventListener("stalled", onError, { once: true });
+function createPlayerState(options) {
+  const {
+    audioA,
+    audioB,
+    manifest = MUSIC_MANIFEST,
+    getThemeId = () => "original",
+    storage = {},
+    announce = () => {},
+    now = () => Date.now(),
+    requestFrame = fn => setTimeout(fn, 16),
+    cancelFrame = id => clearTimeout(id),
+    reducedMotion = false,
+    random = Math.random
+  } = options;
+  const theme = sanitizeThemeId(getThemeId(), manifest);
+  return {
+    audioA,
+    audioB,
+    audios: [audioA, audioB],
+    manifest,
+    getThemeId,
+    storage,
+    announce,
+    now,
+    requestFrame,
+    cancelFrame,
+    reducedMotion,
+    random,
+    active: 0,
+    transition: 0,
+    frame: null,
+    theme,
+    current: resolveThemeTrack(theme, manifest),
+    mode: "AUTO THEME",
+    loop: true,
+    shuffle: false,
+    volume: DEFAULT_VOLUME,
+    status: "idle",
+    playing: false,
+    playAttempt: 0,
+    pending: null,
+    pendingIndex: -1,
+    blockedPending: null,
+    pendingRestore: null,
+    startedAt: now(),
+    queue: [],
+    queueIndex: 0,
+    history: []
+  };
+}
+
+function restorePreferences(state) {
+  try {
+    const saved = JSON.parse(state.storage.getItem(PREFS) || "{}");
+    state.volume = Number.isFinite(Number(saved.volume)) ? clamp(saved.volume, 0, 1) : DEFAULT_VOLUME;
+    state.shuffle = saved.shuffle === true;
+    state.loop = saved.loop !== false;
+    state.mode = saved.mode === "CUSTOM" ? "CUSTOM" : "AUTO THEME";
+    if (saved.theme) state.theme = sanitizeThemeId(saved.theme, state.manifest);
+    const savedTrack = sanitizeTrackId(saved.track, state.manifest);
+    if (!savedTrack) {
+      state.mode = "AUTO THEME";
+      return;
     }
-    else play();
-    persist(); if (!safe) announceStatus("track-unavailable"); return true;
+    const themeTracks = state.manifest.themes[state.theme] || [];
+    if (!themeTracks.includes(savedTrack)) {
+      state.mode = "AUTO THEME";
+      return;
+    }
+    state.current = savedTrack;
+  } catch {
+    // Storage is optional; a broken preference store must not block playback.
   }
-  function selectTrack(id) { if (!sanitizeTrackId(id, manifest)) return false; const restore = { current, queueIndex, mode, queue: [...queue], history: [...history] }; mode = "CUSTOM"; if (!queue.includes(id)) queue.push(id); queueIndex = queue.indexOf(id); history.push(current); return load(id, 350, restore); }
-  function setTheme(id, { userInitiated = false, play = true } = {}) { const restore = { current, queueIndex, theme, mode, loop, shuffle, queue: [...queue], history: [...history] }; const nextTheme = sanitizeThemeId(id, manifest); if (!userInitiated && nextTheme === theme && mode !== "CUSTOM") return; theme = nextTheme; mode = "AUTO THEME"; loop = true; shuffle = false; const target = resolveThemeTrack(theme, manifest); rebuildQueue(); if (!target) { current = restore.current; queueIndex = restore.queueIndex; theme = restore.theme; mode = restore.mode; loop = restore.loop; shuffle = restore.shuffle; queue = restore.queue; history = restore.history; announceStatus("track-unavailable"); persist(); return false; } if (!play) { stop(); current = target; rebuildQueue(); setVolumes(); persist(); return true; } current = target; return load(target, 650, restore); }
-  function next() { if (!queue.length) { announceStatus("track-unavailable"); return false; } if (queueIndex >= queue.length - 1 && !loop) { announceStatus("ended"); audios[active]?.pause?.(); return false; } const restore = { current, queueIndex, history: [...history] }; const prior = current; queueIndex = (queueIndex + 1) % queue.length; history.push(prior); return load(queue[queueIndex], 350, restore); }
-  function previous() { if (!queue.length) { announceStatus("track-unavailable"); return false; } const elapsed = audios[active]?.currentTime ?? ((now() - startedAt) / 1000); if (elapsed > 3) { if (audios[active]) audios[active].currentTime = 0; return true; } const restore = { current, queueIndex, history: [...history] }; if (history.length) { const id = history.pop(); queueIndex = Math.max(0, queue.indexOf(id)); return load(id, 350, restore); } queueIndex = (queueIndex - 1 + queue.length) % queue.length; return load(queue[queueIndex], 350, restore); }
-  const stop = () => { if (frame !== null) { cancelFrame(frame); frame = null; } transition += 1; playAttempt += 1; audios.forEach(audio => audio?.pause?.()); pending = null; blockedPending = null; pendingRestore = null; pendingIndex = -1; playing = false; setVolumes(); announceStatus("paused"); return false; }; return { syncPreferences(raw) { try { const value = typeof raw === "string" ? JSON.parse(raw) : raw; if (!value || typeof value !== "object") return false; if (Number.isFinite(Number(value.volume))) volume = clamp(value.volume, 0, 1); const oldShuffle = shuffle; shuffle = value.shuffle === true; if (shuffle !== oldShuffle) rebuildQueue(); loop = value.loop !== false; mode = value.mode === "CUSTOM" ? "CUSTOM" : "AUTO THEME"; setVolumes(); return true; } catch { return false; } }, stop, pause: stop, setTheme, selectTrack, togglePlay() { const token = ++playAttempt; if (blockedPending) { const element = blockedPending; blockedPending = null; try { const result = element.play?.(); const success = () => { if (token === playAttempt) { active = pendingIndex; pending = null; pendingIndex = -1; playing = true; setVolumes(); announceStatus("playing"); } }; if (result?.then) result.then(success).catch(() => { if (token === playAttempt) announceStatus("autoplay-blocked"); }); else success(); } catch { if (token === playAttempt) announceStatus("autoplay-blocked"); } return true; } if (playing || audios[active]?.paused === false || (pending && frame !== null)) { const restore = pendingRestore; if (frame !== null) { cancelFrame(frame); frame = null; } transition += 1; audios.forEach(audio => audio?.pause?.()); pending = null; pendingIndex = -1; if (restore) { current = restore.current; queueIndex = restore.queueIndex; theme = restore.theme ?? theme; mode = restore.mode ?? mode; loop = restore.loop ?? loop; shuffle = restore.shuffle ?? shuffle; queue = restore.queue ? [...restore.queue] : queue; history = restore.history ? [...restore.history] : history; pendingRestore = null; } playing = false; setVolumes(); announceStatus("paused"); return false; } const index = pending ? pendingIndex : active; const element = audios[index]; if (!element) { announceStatus("track-unavailable"); return false; } audios.forEach((audio, i) => { if (i !== index) audio?.pause?.(); }); try { const result = element.play?.(); const success = () => { if (token === playAttempt) { active = index; pending = null; pendingIndex = -1; playing = true; setVolumes(); announceStatus("playing"); } }; if (result?.then) result.then(success).catch(() => { if (token === playAttempt) { playing = false; announceStatus("autoplay-blocked"); } }); else success(); } catch { if (token === playAttempt) { playing = false; announceStatus("autoplay-blocked"); } } return true; }, toggleShuffle() { shuffle = !shuffle; mode = "CUSTOM"; rebuildQueue(); persist(); return shuffle; }, toggleLoop() { loop = !loop; mode = "CUSTOM"; persist(); return loop; }, next, previous, seek(fraction) { const value = clamp(fraction, 0, 1); const duration = Number(audios[active]?.duration) || 0; if (audios[active]) audios[active].currentTime = duration * value; return value; }, setVolume(value) { volume = clamp(value, 0, 1); setVolumes(); persist(); return volume; }, resetToThemeTrack() { const restore = { current, queueIndex, theme, mode, loop, shuffle, queue: [...queue], history: [...history] }; mode = "AUTO THEME"; loop = true; shuffle = false; current = resolveThemeTrack(theme, manifest); rebuildQueue(); if (!current) { current = restore.current; queueIndex = restore.queueIndex; mode = restore.mode; loop = restore.loop; shuffle = restore.shuffle; queue = restore.queue; history = restore.history; announceStatus("track-unavailable"); return false; } return load(current, 350, restore); }, snapshot() { return { theme, currentTrackId: current, title: track()?.title, mode, loop, shuffle, volume, status, playing, currentTime: audios[active]?.currentTime || 0, queue: [...queue], history: [...history] }; } };
+}
+
+function trackFor(state) {
+  return state.manifest.tracks[state.current];
+}
+
+function announceStatus(state, message) {
+  state.status = message;
+  state.announce(message);
+}
+
+function persistPreferences(state) {
+  state.audios.forEach(audio => {
+    if (audio) audio.loop = state.loop;
+  });
+  try {
+    state.storage.setItem(PREFS, JSON.stringify({
+      volume: state.volume,
+      shuffle: state.shuffle,
+      loop: state.loop,
+      mode: state.mode === "CUSTOM" ? "CUSTOM" : "AUTO THEME",
+      theme: sanitizeThemeId(state.theme, state.manifest),
+      track: sanitizeTrackId(state.current, state.manifest) || resolveThemeTrack(state.theme, state.manifest)
+    }));
+  } catch {
+    // Playback remains available if persistence is unavailable.
+  }
+}
+
+function syncAudioVolume(state, audio, index) {
+  if (!audio) return;
+  const active = index === state.active;
+  if (!active) {
+    audio.volume = 0;
+    audio.loop = state.loop;
+    return;
+  }
+  ensureAudioSource(state, audio);
+  audio.volume = state.volume;
+  audio.loop = state.loop;
+}
+
+function ensureAudioSource(state, audio) {
+  if (audio.src) return;
+  const currentTrack = state.manifest.tracks[state.current];
+  if (!currentTrack) return;
+  audio.src = currentTrack.src;
+}
+
+function setAudioVolumes(state) {
+  state.audios.forEach((audio, index) => syncAudioVolume(state, audio, index));
+}
+
+function rebuildQueue(state) {
+  const fallback = resolveThemeTrack(state.theme, state.manifest);
+  const candidates = state.manifest.themes[state.theme] || (fallback ? [fallback] : []);
+  const ids = [...new Set(candidates.filter(id => sanitizeTrackId(id, state.manifest)))];
+  if (state.shuffle) {
+    for (let index = ids.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(clamp(state.random(), 0, 0.999999) * (index + 1));
+      [ids[index], ids[swapIndex]] = [ids[swapIndex], ids[index]];
+    }
+  }
+  state.queue = ids;
+  state.queueIndex = Math.max(0, state.queue.indexOf(state.current));
+  state.history = [];
+}
+
+function handleNaturalEnd(state, audio) {
+  if (audio !== state.audios[state.active]) return;
+  if (!state.playing) return;
+  if (state.loop) {
+    audio.currentTime = 0;
+    audio.play?.();
+    return;
+  }
+  state.playing = false;
+  state.pending = null;
+  state.blockedPending = null;
+  announceStatus(state, "ended");
+}
+
+function connectEndedHandlers(state) {
+  state.audios.forEach(audio => {
+    audio?.addEventListener?.("ended", () => handleNaturalEnd(state, audio));
+  });
+}
+
+function cancelFade(state) {
+  if (state.frame === null) return;
+  state.cancelFrame(state.frame);
+  state.frame = null;
+}
+
+function rememberRestore(state, restore) {
+  state.pendingRestore = {
+    ...restore,
+    queue: restore.queue ? [...restore.queue] : undefined,
+    history: restore.history ? [...restore.history] : undefined
+  };
+}
+
+function prepareTrackLoad(state, safe, restore) {
+  const token = ++state.transition;
+  const incoming = 1 - state.active;
+  const element = state.audios[incoming];
+  if (!element) return null;
+  state.pending = element;
+  state.pendingIndex = incoming;
+  state.blockedPending = null;
+  rememberRestore(state, restore);
+  cancelFade(state);
+  element.pause?.();
+  element.src = state.manifest.tracks[safe].src;
+  element.currentTime = 0;
+  element.volume = 0;
+  state.current = safe;
+  state.startedAt = state.now();
+  return { token, incoming, element, restore };
+}
+
+function transitionIsCurrent(state, context) {
+  return context.token === state.transition;
+}
+
+function finishTransition(state, context) {
+  if (!transitionIsCurrent(state, context)) return;
+  state.active = context.incoming;
+  state.pending = null;
+  state.pendingIndex = -1;
+  state.blockedPending = null;
+  context.element.volume = state.volume;
+  state.audios[1 - state.active]?.pause?.();
+  state.playing = true;
+  setAudioVolumes(state);
+  announceStatus(state, "playing");
+}
+
+function createFade(state, context, duration) {
+  const finish = () => finishTransition(state, context);
+  return function rampIncomingVolume() {
+    if (!transitionIsCurrent(state, context)) return;
+    state.playing = true;
+    const elapsed = (state.now() - state.startedAt) / duration;
+    let ratio = Math.min(1, Math.max(0, elapsed));
+    if (state.reducedMotion) ratio = 1;
+    context.element.volume = state.volume * ratio;
+    if (state.audios[state.active]) state.audios[state.active].volume = state.volume * (1 - ratio);
+    if (ratio >= 1) finish();
+    else state.frame = state.requestFrame(rampIncomingVolume);
+  };
+}
+
+function restoreLoadedState(state, restore) {
+  state.current = restore.current;
+  state.queueIndex = restore.queueIndex;
+  for (const key of ["theme", "mode", "loop", "shuffle"]) {
+    if (restore[key] !== undefined) state[key] = restore[key];
+  }
+  if (restore.queue) state.queue = [...restore.queue];
+  if (restore.history) state.history = [...restore.history];
+}
+
+function rollbackTrackLoad(state, context) {
+  if (!transitionIsCurrent(state, context)) return;
+  cancelFade(state);
+  state.transition += 1;
+  state.pending = null;
+  state.pendingIndex = -1;
+  state.blockedPending = null;
+  state.pendingRestore = null;
+  restoreLoadedState(state, context.restore);
+  context.element.pause?.();
+  setAudioVolumes(state);
+  persistPreferences(state);
+  announceStatus(state, "track-error");
+}
+
+function handleAutoplayBlocked(state, context, playToken) {
+  if (!transitionIsCurrent(state, context)) return;
+  if (playToken !== state.playAttempt) return;
+  state.blockedPending = context.element;
+  state.audios.forEach((audio, index) => {
+    if (index !== context.incoming) audio?.pause?.();
+  });
+  announceStatus(state, "autoplay-blocked");
+}
+
+function settleLoadPlay(state, context, playToken, ramp, result) {
+  if (result?.then) {
+    result.then(ramp).catch(() => handleAutoplayBlocked(state, context, playToken));
+    return;
+  }
+  ramp();
+}
+
+function startIncomingAudio(state, context, ramp) {
+  if (!transitionIsCurrent(state, context)) return;
+  const playToken = ++state.playAttempt;
+  try {
+    const result = context.element.play?.();
+    settleLoadPlay(state, context, playToken, ramp, result);
+  } catch {
+    handleAutoplayBlocked(state, context, playToken);
+  }
+}
+
+function connectLoadHandlers(state, context, ramp) {
+  const element = context.element;
+  if (typeof element.addEventListener !== "function") {
+    startIncomingAudio(state, context, ramp);
+    return;
+  }
+  const onReady = () => {
+    element.removeEventListener?.("canplay", onReady);
+    startIncomingAudio(state, context, ramp);
+  };
+  const onError = () => rollbackTrackLoad(state, context);
+  element.addEventListener("canplay", onReady, { once: true });
+  element.addEventListener("error", onError, { once: true });
+  element.addEventListener("stalled", onError, { once: true });
+}
+
+function loadTrack(state, id, duration = 350, restore = { current: state.current, queueIndex: state.queueIndex }) {
+  const safe = sanitizeTrackId(id, state.manifest);
+  if (!safe) {
+    announceStatus(state, "track-unavailable");
+    return false;
+  }
+  const context = prepareTrackLoad(state, safe, restore);
+  if (!context) return false;
+  const ramp = createFade(state, context, duration);
+  connectLoadHandlers(state, context, ramp);
+  persistPreferences(state);
+  return true;
+}
+
+function selectTrack(state, id) {
+  if (!sanitizeTrackId(id, state.manifest)) return false;
+  const restore = { current: state.current, queueIndex: state.queueIndex, mode: state.mode, queue: [...state.queue], history: [...state.history] };
+  state.mode = "CUSTOM";
+  if (!state.queue.includes(id)) state.queue.push(id);
+  state.queueIndex = state.queue.indexOf(id);
+  state.history.push(state.current);
+  return loadTrack(state, id, 350, restore);
+}
+
+function setTheme(state, id, { userInitiated = false, play = true } = {}) {
+  const restore = {
+    current: state.current,
+    queueIndex: state.queueIndex,
+    theme: state.theme,
+    mode: state.mode,
+    loop: state.loop,
+    shuffle: state.shuffle,
+    queue: [...state.queue],
+    history: [...state.history]
+  };
+  const nextTheme = sanitizeThemeId(id, state.manifest);
+  if (shouldIgnoreThemeChange(state, nextTheme, userInitiated)) return;
+  state.theme = nextTheme;
+  state.mode = "AUTO THEME";
+  state.loop = true;
+  state.shuffle = false;
+  const target = resolveThemeTrack(state.theme, state.manifest);
+  rebuildQueue(state);
+  if (!target) {
+    restoreLoadedState(state, restore);
+    announceStatus(state, "track-unavailable");
+    persistPreferences(state);
+    return false;
+  }
+  if (!play) {
+    stopPlayer(state);
+    state.current = target;
+    rebuildQueue(state);
+    setAudioVolumes(state);
+    persistPreferences(state);
+    return true;
+  }
+  state.current = target;
+  return loadTrack(state, target, 650, restore);
+}
+
+function shouldIgnoreThemeChange(state, nextTheme, userInitiated) {
+  if (userInitiated) return false;
+  if (nextTheme !== state.theme) return false;
+  return state.mode !== "CUSTOM";
+}
+
+function nextTrack(state) {
+  if (!state.queue.length) {
+    announceStatus(state, "track-unavailable");
+    return false;
+  }
+  if (state.queueIndex < state.queue.length - 1) return advanceQueue(state);
+  if (!state.loop) {
+    announceStatus(state, "ended");
+    state.audios[state.active]?.pause?.();
+    return false;
+  }
+  return advanceQueue(state);
+}
+
+function advanceQueue(state) {
+  const restore = { current: state.current, queueIndex: state.queueIndex, history: [...state.history] };
+  const prior = state.current;
+  state.queueIndex = (state.queueIndex + 1) % state.queue.length;
+  state.history.push(prior);
+  return loadTrack(state, state.queue[state.queueIndex], 350, restore);
+}
+
+function previousTrack(state) {
+  if (!state.queue.length) {
+    announceStatus(state, "track-unavailable");
+    return false;
+  }
+  const elapsed = state.audios[state.active]?.currentTime ?? ((state.now() - state.startedAt) / 1000);
+  if (elapsed > 3) {
+    if (state.audios[state.active]) state.audios[state.active].currentTime = 0;
+    return true;
+  }
+  const restore = { current: state.current, queueIndex: state.queueIndex, history: [...state.history] };
+  if (state.history.length) {
+    const id = state.history.pop();
+    state.queueIndex = Math.max(0, state.queue.indexOf(id));
+    return loadTrack(state, id, 350, restore);
+  }
+  state.queueIndex = (state.queueIndex - 1 + state.queue.length) % state.queue.length;
+  return loadTrack(state, state.queue[state.queueIndex], 350, restore);
+}
+
+function stopPlayer(state) {
+  cancelFade(state);
+  state.transition += 1;
+  state.playAttempt += 1;
+  state.audios.forEach(audio => audio?.pause?.());
+  state.pending = null;
+  state.blockedPending = null;
+  state.pendingRestore = null;
+  state.pendingIndex = -1;
+  state.playing = false;
+  setAudioVolumes(state);
+  announceStatus(state, "paused");
+  return false;
+}
+
+function retryBlockedPlayback(state, token) {
+  const element = state.blockedPending;
+  if (!element) return false;
+  state.blockedPending = null;
+  const pendingIndex = state.pendingIndex;
+  const complete = () => {
+    if (token !== state.playAttempt) return;
+    state.active = pendingIndex;
+    state.pending = null;
+    state.pendingIndex = -1;
+    state.playing = true;
+    setAudioVolumes(state);
+    announceStatus(state, "playing");
+  };
+  const failed = () => {
+    if (token === state.playAttempt) announceStatus(state, "autoplay-blocked");
+  };
+  try {
+    const result = element.play?.();
+    settleDirectPlay(result, complete, failed);
+  } catch {
+    failed();
+  }
+  return true;
+}
+
+function isPlayingOrFading(state) {
+  if (state.playing) return true;
+  if (state.audios[state.active]?.paused === false) return true;
+  if (!state.pending) return false;
+  return state.frame !== null;
+}
+
+function restorePendingSnapshot(state) {
+  if (!state.pendingRestore) return;
+  restoreLoadedState(state, state.pendingRestore);
+  state.pendingRestore = null;
+}
+
+function pauseTransition(state) {
+  cancelFade(state);
+  state.transition += 1;
+  state.audios.forEach(audio => audio?.pause?.());
+  state.pending = null;
+  state.pendingIndex = -1;
+  restorePendingSnapshot(state);
+  state.playing = false;
+  setAudioVolumes(state);
+  announceStatus(state, "paused");
+  return false;
+}
+
+function settleDirectPlay(result, complete, failed) {
+  if (result?.then) {
+    result.then(complete).catch(failed);
+    return;
+  }
+  complete();
+}
+
+function startDirectPlayback(state, token) {
+  const index = state.pending ? state.pendingIndex : state.active;
+  const element = state.audios[index];
+  if (!element) {
+    announceStatus(state, "track-unavailable");
+    return false;
+  }
+  state.audios.forEach((audio, audioIndex) => {
+    if (audioIndex !== index) audio?.pause?.();
+  });
+  const complete = () => {
+    if (token !== state.playAttempt) return;
+    state.active = index;
+    state.pending = null;
+    state.pendingIndex = -1;
+    state.playing = true;
+    setAudioVolumes(state);
+    announceStatus(state, "playing");
+  };
+  const failed = () => {
+    if (token !== state.playAttempt) return;
+    state.playing = false;
+    announceStatus(state, "autoplay-blocked");
+  };
+  try {
+    const result = element.play?.();
+    settleDirectPlay(result, complete, failed);
+  } catch {
+    failed();
+  }
+  return true;
+}
+
+function togglePlay(state) {
+  const token = ++state.playAttempt;
+  if (state.blockedPending) return retryBlockedPlayback(state, token);
+  if (isPlayingOrFading(state)) return pauseTransition(state);
+  return startDirectPlayback(state, token);
+}
+
+function syncPreferences(state, raw) {
+  try {
+    const value = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!value) return false;
+    if (typeof value !== "object") return false;
+    if (Number.isFinite(Number(value.volume))) state.volume = clamp(value.volume, 0, 1);
+    const oldShuffle = state.shuffle;
+    state.shuffle = value.shuffle === true;
+    if (state.shuffle !== oldShuffle) rebuildQueue(state);
+    state.loop = value.loop !== false;
+    state.mode = value.mode === "CUSTOM" ? "CUSTOM" : "AUTO THEME";
+    setAudioVolumes(state);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function toggleShuffle(state) {
+  state.shuffle = !state.shuffle;
+  state.mode = "CUSTOM";
+  rebuildQueue(state);
+  persistPreferences(state);
+  return state.shuffle;
+}
+
+function toggleLoop(state) {
+  state.loop = !state.loop;
+  state.mode = "CUSTOM";
+  persistPreferences(state);
+  return state.loop;
+}
+
+function seek(state, fraction) {
+  const value = clamp(fraction, 0, 1);
+  const duration = Number(state.audios[state.active]?.duration) || 0;
+  if (state.audios[state.active]) state.audios[state.active].currentTime = duration * value;
+  return value;
+}
+
+function setVolume(state, value) {
+  state.volume = clamp(value, 0, 1);
+  setAudioVolumes(state);
+  persistPreferences(state);
+  return state.volume;
+}
+
+function resetToThemeTrack(state) {
+  const restore = {
+    current: state.current,
+    queueIndex: state.queueIndex,
+    theme: state.theme,
+    mode: state.mode,
+    loop: state.loop,
+    shuffle: state.shuffle,
+    queue: [...state.queue],
+    history: [...state.history]
+  };
+  state.mode = "AUTO THEME";
+  state.loop = true;
+  state.shuffle = false;
+  state.current = resolveThemeTrack(state.theme, state.manifest);
+  rebuildQueue(state);
+  if (!state.current) {
+    restoreLoadedState(state, restore);
+    announceStatus(state, "track-unavailable");
+    return false;
+  }
+  return loadTrack(state, state.current, 350, restore);
+}
+
+function snapshot(state) {
+  return {
+    theme: state.theme,
+    currentTrackId: state.current,
+    title: trackFor(state)?.title,
+    mode: state.mode,
+    loop: state.loop,
+    shuffle: state.shuffle,
+    volume: state.volume,
+    status: state.status,
+    playing: state.playing,
+    currentTime: state.audios[state.active]?.currentTime || 0,
+    queue: [...state.queue],
+    history: [...state.history]
+  };
+}
+
+export function createMusicPlayer(options = {}) {
+  const state = createPlayerState(options);
+  restorePreferences(state);
+  rebuildQueue(state);
+  setAudioVolumes(state);
+  connectEndedHandlers(state);
+  return {
+    syncPreferences: raw => syncPreferences(state, raw),
+    stop: () => stopPlayer(state),
+    pause: () => stopPlayer(state),
+    setTheme: (id, settings) => setTheme(state, id, settings),
+    selectTrack: id => selectTrack(state, id),
+    togglePlay: () => togglePlay(state),
+    toggleShuffle: () => toggleShuffle(state),
+    toggleLoop: () => toggleLoop(state),
+    next: () => nextTrack(state),
+    previous: () => previousTrack(state),
+    seek: fraction => seek(state, fraction),
+    setVolume: value => setVolume(state, value),
+    resetToThemeTrack: () => resetToThemeTrack(state),
+    snapshot: () => snapshot(state)
+  };
 }

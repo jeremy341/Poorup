@@ -99,7 +99,7 @@
       "id": "account-controls",
       "status": "planned",
       "ownerSurface": "account privacy, deletion, export, and session policy",
-      "evidence": ["server/accountStore.js", "server/account-session-audit.test.js", "docs/audit/release-readiness-2026-09-12/RR-02-account-deletion.md"]
+      "evidence": ["server/accountStore.js", "server/account-session-audit.test.js", "server/accountDeletion.test.js"]
     },
     {
       "id": "link-previews",
@@ -135,7 +135,7 @@
       "id": "historical-audits",
       "status": "reference",
       "ownerSurface": "dated audit and release evidence",
-      "evidence": ["docs/audit/markdown-bug-feature-audit-2026-09-13.md", "docs/audit/docs-parity-manifest-2026-09-12.json"]
+      "evidence": ["server/docsFeatureStatus.test.js", "server/docs-parity.test.js"]
     }
   ]
 }
