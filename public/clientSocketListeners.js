@@ -25,7 +25,7 @@ import {
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
 import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
-import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
+import { ACCOUNT_SESSION_KEY, clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
 import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 import { reconcileAccountLifecycleEvent } from "./clientAccountRights.js";
 
@@ -47,6 +47,7 @@ let host = {
   serverSyncHost: {},
 };
 let storageListenerInstalled = false;
+let pendingAccountSync = null;
 
 function noop() {}
 
@@ -85,15 +86,14 @@ export function reconcileSignedOutState(message = "This account session ended in
 export function onStorage(event) {
   if (event?.key === "poorup.account.lifecycle.v1" && event.newValue) {
     try {
-      const lifecycle = JSON.parse(event.newValue);
-      reconcileAccountLifecycleEvent(lifecycle, state);
+      reconcileAccountLifecycleEvent(JSON.parse(event.newValue), state);
       renderAccountPanel();
       host.renderAll();
-    } catch { /* malformed cross-tab data is ignored */ }
+    } catch { /* malformed cross-tab lifecycle data is ignored */ }
     return;
   }
-  if (event?.key !== "poorup.account.session.v1" || event.newValue !== null) return;
-  if (!state.account) return;
+  if (event?.key !== ACCOUNT_SESSION_KEY || event.newValue !== null) return;
+  if (!state.account?.account?.id) return;
   reconcileSignedOutState();
 }
 
@@ -118,6 +118,26 @@ function restoreAccountSession(socket) {
     else if (isExplicitSessionInvalidation(response)) reconcileSignedOutState(response.error || "Account session expired. Sign in again.");
     else host.say("Account restore is temporarily unavailable. We will retry when the connection returns.");
   });
+}
+
+function bootstrapCookieSession() {
+  if (typeof fetch !== "function" || !state.account) return;
+  const headers = state.account.sessionToken ? { "x-poorup-session-token": state.account.sessionToken } : {};
+  fetch("/account/session", { credentials: "include", headers }).then(response => {
+    if (!response.ok) {
+      if (response.status === 401 && !state.account?.sessionToken) reconcileSignedOutState("Account session expired. Sign in again.");
+      return null;
+    }
+    return response.json();
+  }).then(payload => {
+    if (!payload?.success || !payload.account) return;
+    updateAccountFromResponse({ account: payload.account, sessionToken: state.account?.sessionToken || "" });
+    if (pendingAccountSync) {
+      const buffered = pendingAccountSync;
+      pendingAccountSync = null;
+      updateAccountFromResponse({ account: buffered, sessionToken: state.account?.sessionToken || "" });
+    }
+  }).catch(() => {});
 }
 
 function onSocialNotification(notification) {
@@ -156,27 +176,14 @@ function onBotStatus(status) {
   }
 }
 
-function bootstrapCookieSession() {
-  if (typeof fetch !== "function" || !state.account) return;
-  const headers = state.account.sessionToken ? { 'x-poorup-session-token': state.account.sessionToken } : {};
-  fetch('/account/session', { credentials: 'include', headers }).then(response => {
-    if (!response.ok) {
-      if (response.status === 401 && !state.account.sessionToken) reconcileSignedOutState('Account session expired. Sign in again.');
-      return null;
-    }
-    return response.json();
-  }).then(payload => {
-    if (payload?.success && payload.account) {
-      updateAccountFromResponse({ account: payload.account, sessionToken: state.account.sessionToken });
-      // Bootstrap rehydrated from the cookie: apply the newest buffered
-      // sync directly (the token guard below would re-buffer forever).
-      if (pendingAccountSync) {
-        const buffered = pendingAccountSync;
-        pendingAccountSync = null;
-        updateAccountFromResponse({ account: buffered, sessionToken: state.account.sessionToken });
-      }
-    }
-  }).catch(() => {});
+function clearBotStatus() {
+  state.botStatus = null;
+  const label = $("#hud-bot-status");
+  if (!label) return;
+  clearTimeout(label._hideTimer);
+  label.classList.add("is-hidden");
+  label.classList.remove("is-thinking");
+  label.textContent = "";
 }
 
 function onBotProviderStatus(status) {
@@ -201,16 +208,6 @@ function onBotProviderStatus(status) {
     $("#error-announcer").textContent = "AI credits are exhausted. Bots are now using No-AI mode.";
   }
   host.renderAll();
-}
-
-function clearBotStatus() {
-  state.botStatus = null;
-  const label = $("#hud-bot-status");
-  if (!label) return;
-  clearTimeout(label._hideTimer);
-  label.classList.add("is-hidden");
-  label.classList.remove("is-thinking");
-  label.textContent = "";
 }
 
 function syncSelectedPlayerRelationship() {
@@ -249,18 +246,20 @@ function onAchievementUnlocked(notification) {
   announceAchievementUnlocked(notification);
 }
 
-let pendingAccountSync = null;
-
 function onAccountSync({ account } = {}) {
-  // Post-reload cookie state has no bearer token yet: buffer the latest
-  // payload and flush it once bootstrap rehydrates the account instead of
-  // dropping legitimate syncs until a full re-login.
   if (!state.account?.sessionToken) {
     if (account) pendingAccountSync = account;
     return;
   }
   if (!account) return;
   updateAccountFromResponse({ account, sessionToken: state.account.sessionToken });
+}
+
+function onAccountLifecycle(event) {
+  if (!event?.state) return;
+  reconcileAccountLifecycleEvent(event, state);
+  renderAccountPanel();
+  host.renderAll();
 }
 
 function onPlayerContractUpdate({ contract }) {
@@ -379,13 +378,6 @@ function attachSocialListeners(socket) {
   socket.on("achievement-unlocked", onAchievementUnlocked);
   socket.on("bot-status", onBotStatus);
   socket.on("bot-provider-status", onBotProviderStatus);
-}
-
-function onAccountLifecycle(event) {
-  if (!event?.state) return;
-  reconcileAccountLifecycleEvent(event, state);
-  renderAccountPanel();
-  host.renderAll();
 }
 
 function attachAccountListeners(socket) {

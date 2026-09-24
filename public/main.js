@@ -494,7 +494,9 @@ function ensureMusicController() {
     audioB: root.querySelector('audio[data-music-audio="b"]'),
     getThemeId: () => state.themeId,
     announce: message => {
+      const status = root.querySelector("[data-music-status]");
       const globalStatus = $("#music-status");
+      if (status && status.textContent !== message) status.textContent = message;
       if (globalStatus && globalStatus.textContent !== message) globalStatus.textContent = message;
     },
   });
@@ -522,26 +524,25 @@ function syncHomeMusic({ force = false, userGesture = false } = {}) {
   // The dock controller is canonical; no single-track fallback.
 }
 
-function resumeSuspendedAudio() {
+function resumeSuspendedAudioContext() {
   if (audioCtx?.state !== "suspended") return;
   audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
 }
 
-function maybeResumeMusic() {
-  if (!state.music) return;
+function retryThemeTrackAfterGesture() {
   const snapshot = ensureMusicController()?.snapshot?.();
-  const needsResume = snapshot && snapshot.status !== "playing";
-  if (needsResume) syncHomeMusic({ userGesture: true });
+  if (!snapshot) return;
+  if (snapshot.status === "playing") return;
+  syncHomeMusic({ userGesture: true });
 }
 
 function retryAudioAfterGesture() {
-  resumeSuspendedAudio();
-  maybeResumeMusic();
+  resumeSuspendedAudioContext();
+  if (!state.music) return;
+  retryThemeTrackAfterGesture();
 }
 
-// Theme music is intentionally UI-free: the existing audio toggle controls
-// whether the single theme track is playing, while this controller owns
-// looping and seamless theme transitions.
+// The hidden theme runtime owns playback and status announcements.
 
 
 /* ============================================================
@@ -555,7 +556,7 @@ function renderPlayers() {
 
 function playerRowHTML(p, i) {
   const active = i === state.turnIndex && state.phase === "playing";
-  const spectating = Boolean(p.spectating || (p.bankrupt && !p.bot));
+  const spectating = isSpectatingPlayer(p);
   const eliminated = Boolean(p.bankrupt);
   const playerId = p.serverId || p.id;
   const status = spectating ? "SPECTATING" : playerStatusLabel(p);
@@ -563,7 +564,7 @@ function playerRowHTML(p, i) {
         ${active ? `<span class="pr-arrow">${spriteHTML("arrow", 3)}</span>` : ""}
         <div class="pr-av${spectating ? " pr-av-spectating" : ""}">${avatarHTML(p, 4, i)}</div>
         <div class="pr-mid">
-            <div class="pr-nameline">
+          <div class="pr-nameline">
             ${active ? spriteHTML("crown", 2) : ""}
             <span class="t-label pr-name" style="color:${p.textColor}">${esc(p.name)}</span>
           </div>
@@ -585,14 +586,14 @@ function playerDotHTML(p) {
   return `<span class="pr-dot" style="background:${background};box-shadow:${boxShadow}"></span>`;
 }
 
-function isSpectatingStatus(p) {
+function isSpectatingPlayer(p) {
   if (p.spectating) return true;
-  if (p.bankrupt && !p.bot) return true;
-  return false;
+  if (!p.bankrupt) return false;
+  return !p.bot;
 }
 
 function playerStatusLabel(p) {
-  if (isSpectatingStatus(p)) return "SPECTATING";
+  if (isSpectatingPlayer(p)) return "SPECTATING";
   if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
@@ -665,19 +666,15 @@ function renderAll() {
    8. GAME LOGIC
    ============================================================ */
 
-
 function isLocalPlayerBlocked() {
-  const p0 = state.players[0];
-  return Boolean(p0?.bankrupt || p0?.spectating);
+  const localPlayer = state.players[0];
+  return Boolean(localPlayer?.bankrupt || localPlayer?.spectating);
 }
 
 function canActForStage(idx, expectedStage) {
-  if (state.phase !== "playing") return false;
-  if (isLocalPlayerBlocked()) return false;
-  if (state.turnIndex !== idx) return false;
-  if (state.busy) return false;
-  if (state.turnStage !== expectedStage) return false;
-  return true;
+  if (state.phase !== "playing" || isLocalPlayerBlocked()) return false;
+  if (state.turnIndex !== idx || state.busy) return false;
+  return state.turnStage === expectedStage;
 }
 
 function createTurnRequest(kind) {
@@ -726,6 +723,8 @@ async function runTurn(idx) {
   });
 }
 
+
+
 function endTurn(idx) {
   if (!canActForStage(idx, "end")) return;
   state.busy = true;
@@ -743,29 +742,24 @@ function mustResolveAcquisition() {
   return Boolean(state.auction || state.pendingBuyTile != null || state.sponsorship);
 }
 
-function hasPendingPurchase() {
-  return state.pendingBuyTile != null;
-}
-
-function reopenPendingPurchase() {
-  const tile = TILES[state.pendingBuyTile];
-  if (tile) openChoiceModal(tile);
-}
-
-function canUsePrimaryAction() {
+function canUsePrimaryTurnAction() {
   if (state.phase !== "playing") return false;
   if (isLocalPlayerBlocked()) return false;
   if (state.busy) return false;
-  if (state.turnIndex !== 0) return false;
+  return state.turnIndex === 0;
+}
+
+function openPendingPurchaseChoice() {
+  if (state.pendingBuyTile == null) return false;
+  const tile = TILES[state.pendingBuyTile];
+  if (!tile) return true;
+  openChoiceModal(tile);
   return true;
 }
 
 function primaryTurnAction() {
-  if (!canUsePrimaryAction()) return;
-  if (hasPendingPurchase()) {
-    reopenPendingPurchase();
-    return;
-  }
+  if (!canUsePrimaryTurnAction()) return;
+  if (openPendingPurchaseChoice()) return;
   if (mustResolveAcquisition()) return;
   if (state.turnStage === "end") endTurn(0);
   else runTurn(0);
@@ -1003,9 +997,7 @@ function onChatFormSubmit(e) {
   const input = $("#chat-input");
   const text = input.value.trim();
   if (!text) return;
-  // Seated players only: placeholder seats in setup must not emit
-  // malformed unauthenticated payloads for the server to reject.
-  if (!state.players.some((player) => player.clientId === state.clientId)) return;
+  if (!state.players.some(player => player.clientId === state.clientId)) return;
   input.value = "";
   emitWithChatError("send-chat", { text }, "Message could not be sent.");
 }
@@ -1211,7 +1203,7 @@ configureNightShift({
   stopHomeHelicopter,
   scheduleHomeHelicopter,
 });
-configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId) });
+configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId, { play: state.music }) });
 configureMaintenanceUi({ emitServer });
 bindThemeVisibility();
 initThemePreference();
@@ -1231,7 +1223,3 @@ if (!analyticsPathActive) {
   openCardPreviewFromUrl();
   openSurfaceFromUrl();
 }
-
-// QA-only consumers can re-render the existing player rail after injecting a
-// deterministic fixture; the browser entry still runs the same normal path.
-export { renderPlayers };

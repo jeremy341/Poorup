@@ -1,7 +1,7 @@
 // Provider seam tests: AI is preferred when available, but every failure mode
 // must return a deterministic decision without delaying the room.
 import assert from 'node:assert/strict';
-import { createBotAdvisor, DeepSeekAdvisor, DeterministicAdvisor } from './botAdvisor.js';
+import { createBotAdvisor, AiAdvisor, DeepSeekAdvisor, DeterministicAdvisor } from './botAdvisor.js';
 
 const candidates = [
   { id: 'roll', kind: 'roll', score: 0, risk: 0 },
@@ -171,6 +171,9 @@ const metroPrompt = JSON.parse(ai.advisorUserPrompt({
 }));
 assert.equal(metroPrompt.board.length, 52);
 
+assert.equal(DeepSeekAdvisor, AiAdvisor);
+assert.equal(createBotAdvisor({ DEEPSEEK_API_KEY: 'test-key' }) instanceof AiAdvisor, true);
+assert.equal(createBotAdvisor({ POORUP_AI_API_KEY: 'test-key' }) instanceof AiAdvisor, true);
 assert.equal(createBotAdvisor({ DEEPSEEK_API_KEY: 'test-key' }) instanceof DeepSeekAdvisor, true);
 assert.equal(createBotAdvisor({ POORUP_BOT_ADVISOR: 'no-ai', DEEPSEEK_API_KEY: 'test-key' }) instanceof DeterministicAdvisor, true);
 const genericProvider = createBotAdvisor({

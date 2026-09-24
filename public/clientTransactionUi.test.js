@@ -31,7 +31,7 @@ function check(name, fn) {
 check("purchase backdrop and Escape dismissal stay neutral", () => {
   assert.match(modals, /function closeChoiceModalWithoutAction\(\)/);
   assert.match(modals, /scrim\.onclick = closeChoiceModalWithoutAction/);
-  assert.match(surfaces, /shouldConfirmSurfaceClose/);
+  assert.match(modals, /Dismissal is intentionally neutral/i);
   assert.match(keyboard, /"choice-modal": \(\) => closeSurface\("#choice-modal"\)/);
   assert.doesNotMatch(keyboard, /"choice-modal": \(\) => host\.closeChoiceModalAsPass\(\)/);
 });

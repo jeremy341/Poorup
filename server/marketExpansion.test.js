@@ -145,6 +145,32 @@ assert.equal(shortDefaultPlayer.shortPositions.brazil, undefined);
 assert.equal(shortDefaultPlayer.reservedCash, 0);
 assert.equal(shortDefaultPlayer.shortDefaultDebt, 154);
 
+// A pending game payment blocks every player-initiated market action. The
+// short-default settlement path shares the guard with the expansion actions.
+const pendingMarketRoom = roomAt('derivatives');
+const pendingMarketPlayer = pendingMarketRoom.game.players[0];
+pendingMarketPlayer.shortDefaultDebt = 50;
+pendingMarketPlayer.cash = 500;
+pendingMarketRoom.game.pendingPayment = { playerId: pendingMarketPlayer.id, creditorId: null, amountRemaining: 10, reason: 'rent' };
+const blockedMarketActions = [
+  () => pendingMarketRoom.openMargin('a', 'brazil', 1, 'pending-margin'),
+  () => pendingMarketRoom.reduceMargin('a', 10, 'pending-reduce-margin'),
+  () => pendingMarketRoom.openShort('a', 'brazil', 1, 'pending-short'),
+  () => pendingMarketRoom.coverShort('a', 'brazil', 1, 'pending-cover'),
+  () => pendingMarketRoom.openOption('a', { instrumentId: 'brazil', quantity: 1, premium: 1, requestId: 'pending-option' }),
+  () => pendingMarketRoom.exerciseOption('a', 'missing-option', 'pending-exercise'),
+  () => pendingMarketRoom.closePosition('a', 'missing-option', 'pending-close'),
+];
+for (const action of blockedMarketActions) {
+  assert.deepEqual(action(), { success: false, error: 'Resolve the table obligation before trading.' });
+}
+assert.deepEqual(pendingMarketRoom.settleShortDefault('a', 10, 'pending-default'), {
+  success: false,
+  error: 'Resolve the table obligation before trading.'
+});
+assert.equal(pendingMarketPlayer.shortDefaultDebt, 50);
+assert.equal(pendingMarketPlayer.cash, 500);
+
 // A buyer option is underwritten by the bounded market reserve. Exercise
 // moves the intrinsic payout from that reserve, not from nowhere.
 const optionReserveRoom = roomAt('derivatives');
