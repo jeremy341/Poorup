@@ -104,7 +104,7 @@
 - Modify `server/release-wiring.test.js` — account-rights routes, cookie flags, retention lifecycle, and disabled-mail behavior.
 - Modify `docs/feature-status.json` only after the implementation commit SHA exists.
 - Create `docs/decisions/mail-and-operator-config-2026-09-17.md` after the owner supplies non-code deployment facts.
-- Update `docs/production-hardening.md`, `docs/audit/markdown-release-audit-2026-09-16.md`, and the current release audit with factual status and verification links.
+- Update `docs/production-hardening.md` and the current release audit (historical `docs/audit/**` reports were removed with the docs cleanup) with factual status and verification links.
 - Keep historical ToS/legal/music-box plans; mark them superseded rather than deleting them.
 
 ## Skill usage
@@ -408,7 +408,7 @@ feedback; deletion never receives celebratory or distracting motion.
 
 **Files:**
 - Read: all changed files and both account-rights documents
-- Evidence: `docs/audit/account-release-readiness-2026-09-17.md`
+- Evidence: `docs/production-hardening.md` + `server/accountDeletion.test.js` (historical audit report removed)
 
 - [ ] Step 1: Run `npm run test:full --silent`.
 - [ ] Step 2: Run `npm run lint -- --quiet` and `npm run lint:client -- --quiet`.
@@ -464,7 +464,7 @@ Implemented in the current working tree:
   exposed through an adapter.
 
 Focused red/green tests are listed in
-`docs/audit/account-release-readiness-2026-09-17.md`. The remaining unchecked
+see `docs/production-hardening.md`. The remaining unchecked
 items are deployment/configuration gates or browser fixture work that cannot be
 truthfully completed without the production mail/origin/operator facts. No
 merge, push, or deploy was performed.

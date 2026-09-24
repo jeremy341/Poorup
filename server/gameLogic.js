@@ -144,6 +144,16 @@ function isHumanActionSeat(player) {
   return !player.disconnected;
 }
 
+function isCurrentTurnPlayer(player, currentPlayerId) {
+  if (!player) return false;
+  return player.id === currentPlayerId;
+}
+
+function endTurnRequiresExtraRoll(game) {
+  if (game.extraRollPending) return true;
+  return Boolean(game.turnAllowsExtraRoll);
+}
+
 class BoundedReplayMap extends Map {
   constructor(limit = 1_000, ttlMs = 15 * 60_000) {
     super();
@@ -1172,10 +1182,8 @@ class GameState {
 
   endTurnRejection(player) {
     const notActive = { success: false, error: 'Only the active player can end the turn.' };
-    if (!player) return notActive;
-    if (player.id !== this.currentPlayerId) return notActive;
-    if (this.extraRollPending) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
-    if (this.turnAllowsExtraRoll) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    if (!isCurrentTurnPlayer(player, this.currentPlayerId)) return notActive;
+    if (endTurnRequiresExtraRoll(this)) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
     if (!this.awaitingEndTurn) return { success: false, error: 'Resolve your roll before ending the turn.' };
     const flowRejection = this.pendingFlowRejection(player);
     if (flowRejection) return flowRejection;
