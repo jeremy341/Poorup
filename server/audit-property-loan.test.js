@@ -86,15 +86,24 @@ check('FIX1 unmortgage blocked for bankrupt seat', () => {
   assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'unmortgage' }), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX1 mortgage never blocked by debt — only endTurn is', () => {
+check('FIX1 mortgage raises funds to settle pendingPayment', () => {
+  const ctx = ownedRoom();
+  const tile = ctx.give(1);
+  ctx.owner.cash = 0;
+  ctx.game.pendingPayment = { playerId: ctx.owner.id, creditorId: null, amountRemaining: 10, reason: 'r' };
+  const result = ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' });
+  assert.equal(result.success, true);
+  assert.equal(tile.mortgaged, true);
+  assert.equal(ctx.game.pendingPayment, null);
+  assert.equal(ctx.owner.cash, 20);
+});
+
+check('FIX1 debt owed by another seat does not block a mortgage', () => {
   const ctx = ownedRoom();
   ctx.give(1);
-  ctx.game.pendingPayment = { playerId: ctx.owner.id, creditorId: null, amountRemaining: 10, reason: 'r' };
-  assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
-  const ctx2 = ownedRoom();
-  ctx2.give(1);
-  ctx2.game.pendingPayment = { playerId: 'someone-else', creditorId: null, amountRemaining: 10, reason: 'r' };
-  assert.equal(ctx2.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
+  ctx.game.pendingPayment = { playerId: 'another-player', creditorId: null, amountRemaining: 10, reason: 'r' };
+  const result = ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' });
+  assert.equal(result.success, true);
 });
 
 check('FIX1 mortgage blocked while auction is open', () => {
@@ -219,10 +228,15 @@ check('FIX3 bank loan blocked for disconnected seat', () => {
   assert.deepEqual(ctx.game.takeBankLoan('socket-a', 'audit-disconnected'), { success: false, error: BANK_LIVENESS_ERROR });
 });
 
-check('FIX3 bank loan allowed while inDebt — only endTurn is gated', () => {
+check('FIX3 bank loan remains available as an in-debt rescue action', () => {
   const ctx = loanRoom();
   ctx.borrower.inDebt = true;
-  assert.equal(ctx.game.takeBankLoan('socket-a', 'audit-indebt').success, true);
+  ctx.game.pendingPayment = { playerId: ctx.borrower.id, creditorId: null, amountRemaining: 500, reason: 'rent' };
+  const result = ctx.game.takeBankLoan('socket-a', 'audit-indebt');
+  assert.equal(result.success, true);
+  assert.equal(result.loan.status, 'active');
+  assert.equal(ctx.borrower.cash, 400);
+  assert.equal(ctx.game.pendingPayment.amountRemaining, 500);
 });
 
 check('FIX3 unknown socket reports unavailable bank credit', () => {
@@ -237,7 +251,7 @@ check('FIX3 bank loan still succeeds for a live solvent seat', () => {
   assert.equal(result.loan.status, 'active');
 });
 
-check('FIX3 bank loan is blocked while any table obligation is open (except debt)', () => {
+check('FIX3 bank loan remains blocked by other table obligations', () => {
   ['pendingPurchaseOffer', 'auction', 'pendingTrade', 'pendingPlayerContract'].forEach((key) => {
     const ctx = loanRoom();
     ctx.borrower.cash = 100;
@@ -247,13 +261,6 @@ check('FIX3 bank loan is blocked while any table obligation is open (except debt
       { success: false, error: 'Resolve the table obligation before borrowing.' }
     );
   });
-  // Debt (pendingPayment) no longer blocks borrowing — only endTurn is gated.
-  {
-    const ctx = loanRoom();
-    ctx.borrower.cash = 100;
-    ctx.game.pendingPayment = { playerId: ctx.borrower.id, amountRemaining: 10 };
-    assert.equal(ctx.game.takeBankLoan('socket-a', 'audit-obligation-pendingPayment').success, true);
-  }
 });
 
 check('FIX4 issued loan stores collateralName', () => {

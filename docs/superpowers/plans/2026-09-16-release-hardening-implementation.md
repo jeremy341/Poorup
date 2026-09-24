@@ -1,9 +1,9 @@
 # Poorup Release-Hardening Implementation Plan
 
-**Date:** 2026-09-16  
-**Status:** Approved for implementation planning; source changes have not started.  
+**Date:** 2026-09-16
+**Status:** Approved for implementation planning; source changes have not started.
 **Base:** current `admin-analytics-dashboard-plan` working tree; preserve all existing
-uncommitted work until an explicit scope review.  
+uncommitted work until an explicit scope review.
 **Companion audit:** `docs/audit/release-hardening-balance-ui-audit-2026-09-16.md`
 
 ## 1. Objective and boundaries
@@ -124,35 +124,35 @@ implementation, then the relevant regression suites.
 
 ### 6.1 Cross-room seat detach
 
-**Files:** `server/socketRuntime.js`, room lifecycle helpers, corresponding tests.  
+**Files:** `server/socketRuntime.js`, room lifecycle helpers, corresponding tests.
 **Behavior:** one idempotent path handles detach, reconnect grace, expiry, obligations,
 current-turn ownership and room cleanup. It must work during a payment, auction, trade,
-event vote, normal turn and room switch.  
+event vote, normal turn and room switch.
 **Tests:** old room never stalls; expiry settles/advances once; reconnect before expiry
 restores the seat; duplicate detach is harmless; the new room is unaffected.
 
 ### 6.2 Snapshot-safe rendering support
 
 **Files:** `public/clientTopNavRender.js`, `public/clientHudRender.js`, `public/main.js`,
-client state-sync tests.  
+client state-sync tests.
 **Behavior:** partial snapshots render an explicit unavailable state instead of throwing;
-one panel failure does not prevent debt, auction, winner or accessibility sync.  
+one panel failure does not prevent debt, auction, winner or accessibility sync.
 **Tests:** empty players, missing turn, missing settings, stale room, delayed economy,
 and malformed optional fields.
 
 ### 6.3 Durable idempotency
 
-**Files:** `server/accountStore.js`, `server/seasonModule.js`, match/telemetry tests.  
+**Files:** `server/accountStore.js`, `server/seasonModule.js`, match/telemetry tests.
 **Behavior:** history display limits remain bounded, but dedupe is durable by account and
 match ID. Account stats, seasons, rewards, telemetry and match history all ignore a replay
-of an old completed match.  
+of an old completed match.
 **Tests:** replay the first record after 50/1,000+ later matches; concurrent duplicate
 settlements; process restart; legacy record migration.
 
 ### 6.4 Season deltas and fair-trade schema
 
 **Files:** `server/seasonModule.js`, `server/participantFields.js`, result builders and
-tests.  
+tests.
 **Behavior:** mastery and points consume one normalized match delta; `fairTrades` is
 recorded consistently; bot-only, AFK-only, preview and duplicate records remain excluded.
 **Tests:** repeated identical matches grow linearly; missing fields fail closed; migration
@@ -205,13 +205,13 @@ equity shares attached to neutral deeds, or settle the same request twice.
 
 ### 7.3 Human Spectator UI
 
-**Board:** hide the bankrupt human token and make it non-selectable.  
+**Board:** hide the bankrupt human token and make it non-selectable.
 **Sidebar:** preserve row, desaturate/grey the icon, keep username readable, add grey
-`SPECTATING` under it, and remove action affordances.  
-**Shell:** show a persistent read-only banner and `LEAVE TABLE`.  
-**Allowed:** board/log/chat/public standings/global-event read access.  
+`SPECTATING` under it, and remove action affordances.
+**Shell:** show a persistent read-only banner and `LEAVE TABLE`.
+**Allowed:** board/log/chat/public standings/global-event read access.
 **Forbidden:** roll, resolve, buy, build, mortgage, trade, loan, casino, market, auction,
-or private-decision controls.  
+or private-decision controls.
 **Leave:** remove live presence, run host/capacity cleanup and preserve match history.
 
 ### 7.4 Bot bankruptcy
@@ -229,9 +229,9 @@ Add a single modal metadata registry to the existing surface controller. Each su
 declares whether closing is neutral or potentially loses a decision.
 
 **Confirm:** bankruptcy, required purchase/auction, Global Event vote, unsent trade/loan/
-equity/hybrid offer, and any future irreversible action.  
+equity/hybrid offer, and any future irreversible action.
 **No confirm:** Deed/field details, Airport information, Rules, Log, Wallet read-only
-view, completed result, and already-settled card.  
+view, completed result, and already-settled card.
 **Browser exit:** native `beforeunload` only while an unresolved required decision exists.
 
 ### 8.2 Interaction contract

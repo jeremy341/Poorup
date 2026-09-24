@@ -1,0 +1,4 @@
+interface:
+  display_name: "Poorup Code Quality"
+  short_description: "Debug and audit Poorup code safely"
+  default_prompt: "Use $poorup-code-quality to investigate and fix a Poorup defect."

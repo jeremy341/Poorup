@@ -134,11 +134,16 @@ function postRollCandidates(game, player, options) {
   candidates.push(...game.botRepaymentCandidates(player));
   candidates.push(...game.botBankLoanRepaymentCandidates(player));
   candidates.push(...game.botMortgageCandidates(player));
+  candidates.push(...game.botSellCandidates(player));
   candidates.push(...game.botUnmortgageCandidates(player));
-  if (player.personality === 'speculator') candidates.push(...game.botLoanCandidate(player));
   appendPostRollParityCandidates(game, player, options, candidates);
-  if (game.settings.market) candidates.push({ id: 'end-finance-window', kind: 'end-finance-window', risk: 0, score: -49 });
-  candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
+  const canEndTurn = player.bankrupt || Number(player.cash) > 0;
+  if (!canEndTurn) {
+    candidates.push({ id: 'bankruptcy:zero-cash', kind: 'bankruptcy', risk: 0, score: 2 });
+  } else {
+    if (game.settings.market) candidates.push({ id: 'end-finance-window', kind: 'end-finance-window', risk: 0, score: -49 });
+    candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
+  }
   return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
 }
 
@@ -265,7 +270,9 @@ const botApi = {
     if (purchase) return [purchase];
     // Another seat's offer: nothing for me to buy, but the turn still needs
     // an explicit end action instead of a no-op stall.
-    if (offer) return [{ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 }];
+    if (offer) return Number(player.cash) > 0 || player.bankrupt
+      ? [{ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 }]
+      : [{ id: 'bankruptcy:zero-cash', kind: 'bankruptcy', risk: 0, score: 2 }];
     return postRollCandidates(this, player, options);
   },
 

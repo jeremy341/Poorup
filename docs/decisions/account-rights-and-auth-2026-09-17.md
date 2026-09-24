@@ -1,7 +1,7 @@
 # Account Rights and Authentication Decision Record
 
-**Decision date:** 2026-09-17  
-**Status:** Owner-confirmed product decisions; implementation is not yet applied.  
+**Decision date:** 2026-09-17
+**Status:** Owner-confirmed product decisions; implementation is not yet applied.
 **Scope:** Account profile, export, deletion, recovery, sessions, retention, and related release gates.
 
 ## Confirmed decisions

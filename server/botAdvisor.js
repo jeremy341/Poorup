@@ -222,13 +222,13 @@ export class DeterministicAdvisor {
   }
 }
 
-export class DeepSeekAdvisor {
+export class AiAdvisor {
   constructor({
     apiKey,
     endpoint = 'https://api.deepseek.com/chat/completions',
     model = 'deepseek-v4-flash',
     protocol = 'auto',
-    providerName = 'deepseek',
+    providerName = 'ai',
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxTokens = 500,
     maxDecisionsPerGame = DEFAULT_MAX_DECISIONS_PER_GAME,
@@ -240,7 +240,7 @@ export class DeepSeekAdvisor {
     this.endpoint = endpoint;
     this.model = model;
     this.protocol = normalizeProviderProtocol(protocol);
-    this.providerName = String(providerName || 'deepseek').slice(0, 80) || 'deepseek';
+    this.providerName = String(providerName || 'ai').slice(0, 80) || 'ai';
     this.timeoutMs = timeoutMs;
     // Token budget for the JSON-only choice response. The model returns
     // {"actionId","confidence","reasonCode"} plus an optional short
@@ -528,10 +528,12 @@ export class DeepSeekAdvisor {
   }
 }
 
+export const DeepSeekAdvisor = AiAdvisor;
+
 export function createBotAdvisor(env = process.env) {
   const requested = String(env?.POORUP_BOT_BRAIN || env?.POORUP_BOT_ADVISOR || 'auto').trim().toLowerCase();
   if (requested === 'no-ai' || requested === 'deterministic') return new DeterministicAdvisor({ defaultMode: 'no-ai' });
-  return new DeepSeekAdvisor({
+  return new AiAdvisor({
     apiKey: env?.POORUP_AI_API_KEY || env?.DEEPSEEK_API_KEY || '',
     endpoint: env?.POORUP_AI_BASE_URL || env?.DEEPSEEK_API_URL || 'https://api.deepseek.com/chat/completions',
     model: env?.POORUP_AI_MODEL || env?.DEEPSEEK_MODEL || 'deepseek-v4-flash',

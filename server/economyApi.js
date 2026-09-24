@@ -151,6 +151,7 @@ const economyApi = {
   // keeps players away from the casino wheel.
   tableObligationPending() {
     return [
+      this.pendingPayment,
       this.auction,
       this.pendingPurchaseOffer,
       this.pendingSponsoredPurchase,
@@ -429,6 +430,7 @@ const economyApi = {
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
     if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Market access is unavailable right now.' };
+    if (this.pendingPayment) return { success: false, error: 'Resolve the table obligation before trading.' };
     if (Number(player.shortDefaultDebt) <= 0) return { success: false, error: 'There is no short buy-in debt to settle.' };
     const result = settleShortDefault(this, player, amount);
     if (result.success) result.economy = this.economySnapshot(player.id);
