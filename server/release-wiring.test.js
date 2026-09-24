@@ -51,14 +51,11 @@ child.stderr.on('data', chunk => { output += chunk; });
 try {
   await waitForServer(child);
 
-  const missingLegal = await fetch(`${base}/legal`);
-  assert.equal(missingLegal.status, 404);
+  assert.equal((await fetch(`${base}/legal`)).status, 404);
+  assert.equal((await fetch(`${base}/privacy`)).status, 404);
 
-  const privacy = await fetch(`${base}/privacy`);
-  assert.equal(privacy.status, 200);
-  const privacyBody = await privacy.text();
-  assert.match(privacyBody, /Privacy &amp; Account Data/);
-  assert.doesNotMatch(privacyBody, /Terms of Service/);
+  const retention = await fetch(`${base}/internal/retention/run`, { method: 'POST' });
+  assert.equal(retention.status, 404);
 
   const robots = await fetch(`${base}/robots.txt`);
   assert.equal(robots.status, 200);
@@ -72,9 +69,6 @@ try {
   assert.equal(analytics.headers.get('cache-control'), 'no-store');
   const analyticsBody = await analytics.json();
   assert.equal(analyticsBody.success, false);
-
-  const retention = await fetch(`${base}/internal/retention/run`, { method: 'POST' });
-  assert.equal(retention.status, 404);
 
   const metadata = await fetch(`${base}/`);
   assert.equal(metadata.status, 200);

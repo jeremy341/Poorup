@@ -84,7 +84,14 @@ async function openSocket(clientSockets) {
 async function withServer(runScenarios) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-rooms-wire-'));
   const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), POORUP_DATA_DIR: dataDir, POORUP_SHUTDOWN_DRAIN_MS: '1000' },
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      PORT: String(PORT),
+      POORUP_DATA_DIR: dataDir,
+      POORUP_SHUTDOWN_DRAIN_MS: '1000',
+      POORUP_TEST_RECONNECT_GRACE_MS: '1000'
+    },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let serverLog = '';
@@ -351,7 +358,9 @@ function watchStates(socket) {
   return () => seen[seen.length - 1] || null;
 }
 
-// The disconnect grace (server.js DISCONNECT_GRACE_MS = 10s) must drop a
+// The reconnect grace is shortened only inside this test server; the default
+// production grace remains 120 seconds and is pinned by fake-clock coverage.
+// It must drop a
 // pending player contract held by the departing seat, or the table stays
 // gated for everyone else until someone manually resolves it. These two
 // scenarios share the CT0001 fixture via ctx.
@@ -388,7 +397,7 @@ async function contractReleasesOnDisconnect(ctx) {
     ackEquals(await ctx.ask(ctx.sockCB, 'place-casino-bet', { color: 'red', stake: 10 }),
       { success: false, error: 'Resolve the table obligation before betting.' }));
   ctx.sockCT.close();
-  await wait(11500);
+  await wait(1500);
   ctx.check('B can bet again once the grace expiry released the contract',
     (await ctx.ask(ctx.sockCB, 'place-casino-bet', { color: 'red', stake: 10, requestId: 'post-grace-bet' }))?.success === true);
 }

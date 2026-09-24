@@ -1,5 +1,5 @@
 // The shared runtime every socket domain registers against: room state
-// broadcast, the bot/auction/disconnect/AFK timers, the empty-room garbage
+// broadcast, the bot/auction/disconnect/inactivity timers, the empty-room garbage
 // collector, seat detach/host-reassign bookkeeping, and the invite/cancel
 // flows two domains share. One createRuntime() per server process — server.js
 // builds the stores and io, then hands them here. Behavior (emit ordering,
@@ -18,15 +18,14 @@ import {
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
 
-const DISCONNECT_GRACE_MS = 10000;
-// C8: AFK turn watchdog cadence. A connected-but-idle seat stalls a started
-// game forever (the disconnect-grace skip only fires on real disconnects), so
-// each turn owner gets a bounded budget; the timeout is env-tunable for tests.
-const TURN_AFK_CHECK_INTERVAL_MS = 15 * 1000;
-const configuredAfkTimeout = Number(process.env.TURN_AFK_TIMEOUT_MS);
-const TURN_AFK_TIMEOUT_MS = Number.isFinite(configuredAfkTimeout) && configuredAfkTimeout > 0
-  ? Math.max(1000, configuredAfkTimeout)
-  : 180000;
+const DEFAULT_RECONNECT_GRACE_MS = 120000;
+const configuredTestReconnectGrace = Number(process.env.POORUP_TEST_RECONNECT_GRACE_MS);
+const DISCONNECT_GRACE_MS = process.env.NODE_ENV === 'test'
+  && Number.isFinite(configuredTestReconnectGrace)
+  && configuredTestReconnectGrace > 0
+  ? Math.min(DEFAULT_RECONNECT_GRACE_MS, Math.floor(configuredTestReconnectGrace))
+  : DEFAULT_RECONNECT_GRACE_MS;
+const PLAYER_INACTIVITY_TIMEOUT_MS = 180000;
 const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
 const ROOMS_UPDATED_DEBOUNCE_MS = 750;
@@ -41,20 +40,8 @@ const CANCELLED_OBLIGATIONS = [
 // Room-local timer failures must not escape into the process-level exception
 // path. Keep the wrapper dependency-free so each timer callback remains easy
 // to test and teardown.
-export function reassignHostIfNeeded(room, departedPlayerId) {
-  if (!room) return;
-  if (room.hostId !== departedPlayerId) return;
-  const available = room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && !p.inDebt && p.id !== departedPlayerId);
-  // An in-debt host can still manage lobby settings; a null host blocks
-  // every human forever. Fall back before giving up.
-  const fallback = available || room.game.players.find(p => !p.isBot && !p.disconnected && !p.bankrupt && p.id !== departedPlayerId);
-  room.hostId = fallback ? fallback.id : null;
-  room.game.players.forEach(player => {
-    player.isHost = player.id === room.hostId;
-  });
-}
-
-export function runRoomTimer(label, roomCode, callback, onError = console.error) {  try {
+export function runRoomTimer(label, roomCode, callback, onError = console.error) {
+  try {
     callback();
     return true;
   } catch (error) {
@@ -72,6 +59,10 @@ export function settleAfkPayment(game, player) {
     return Boolean(game.trySettlePendingPayment?.());
   }
   const creditor = pending.creditorId ? game.getPlayerById?.(pending.creditorId) : null;
+  if (game.settings?.bankruptMode === 'debt' && typeof game.handleDebtBankruptcy === 'function') {
+    game.handleDebtBankruptcy(player, creditor);
+    return true;
+  }
   if (typeof game.handleBankruptcy === 'function') {
     game.handleBankruptcy(player, creditor);
     return true;
@@ -196,14 +187,31 @@ export function recordSeasonTelemetry(context) {
   return true;
 }
 
+export function reassignHostIfNeeded(room, departedPlayerId) {
+  if (!room) return;
+  if (room.hostId !== departedPlayerId) return;
+  const available = room.game.players.find(player => !player.isBot
+    && !player.disconnected
+    && !player.bankrupt
+    && !player.inDebt
+    && player.id !== departedPlayerId);
+  room.hostId = available?.id || null;
+  room.game.players.forEach(player => { player.isHost = player.id === room.hostId; });
+}
+
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
+  const setTimeoutFn = deps.setTimeout || globalThis.setTimeout;
+  const clearTimeoutFn = deps.clearTimeout || globalThis.clearTimeout;
+  const setIntervalFn = deps.setInterval || globalThis.setInterval;
+  const now = deps.now || (() => Date.now());
   const configuredDisconnectGrace = Number(deps.disconnectGraceMs);
   const disconnectGraceMs = Number.isFinite(configuredDisconnectGrace) && configuredDisconnectGrace > 0
     ? Math.max(1, Math.floor(configuredDisconnectGrace))
     : DISCONNECT_GRACE_MS;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
+  const inactivityTimers = new Map();
   const botTimers = new Map();
   const turnTimers = new Map();
   const botDecisionLocks = new Set();
@@ -245,8 +253,8 @@ function createRuntime(deps) {
   // One debounced push keeps public-room browsers current without emitting per
   // create/join/leave/start burst.
   function scheduleRoomsUpdated() {
-    clearTimeout(roomsUpdatedTimer);
-    roomsUpdatedTimer = setTimeout(() => runRoomTimer('rooms-updated', '*', () => {
+    clearTimeoutFn(roomsUpdatedTimer);
+    roomsUpdatedTimer = setTimeoutFn(() => runRoomTimer('rooms-updated', '*', () => {
       roomsUpdatedTimer = null;
       io.emit('rooms-updated', { rooms: roomManager.listPublicRooms() });
     }), ROOMS_UPDATED_DEBOUNCE_MS);
@@ -268,6 +276,7 @@ function createRuntime(deps) {
       console.error('recordRoomStats failed for room', room.roomCode, error);
     }
     try {
+      synchronizeInactivityTimer(room);
       scheduleTurnTimer(room);
       broadcastRoomState(room);
       scheduleBotTurn(room);
@@ -393,11 +402,7 @@ function createRuntime(deps) {
   }
 
   function detachStartedSeat(oldRoom, oldPlayer) {
-    const socketId = oldPlayer.socketId;
-    // A room switch is a disconnect from the previous started room. Route it
-    // through the same timer/expiry pipeline as a transport close so the old
-    // seat cannot strand a payment or turn indefinitely.
-    scheduleDisconnect(oldRoom, socketId, oldPlayer);
+    scheduleDisconnect(oldRoom, oldPlayer.socketId, oldPlayer);
     reassignHostIfNeeded(oldRoom, oldPlayer.id);
     emitRoomState(oldRoom);
   }
@@ -405,7 +410,7 @@ function createRuntime(deps) {
   function clearAuctionTimer(room) {
     const timer = auctionTimers.get(room.roomCode);
     if (timer) {
-      clearTimeout(timer);
+      clearTimeoutFn(timer);
     }
     auctionTimers.delete(room.roomCode);
   }
@@ -413,7 +418,7 @@ function createRuntime(deps) {
   function clearTurnTimer(room) {
     if (!room) return;
     const timer = turnTimers.get(room.roomCode);
-    if (timer) clearTimeout(timer);
+    if (timer) clearTimeoutFn(timer);
     turnTimers.delete(room.roomCode);
     room.turnTimerWatch = null;
     if (room.game) room.game.turnDeadline = 0;
@@ -433,10 +438,10 @@ function createRuntime(deps) {
     const key = `${current.id}:${room.game.roundNumber}:${room.game.startedAt || 0}`;
     if (room.turnTimerWatch?.key === key) return;
     clearTurnTimer(room);
-    const deadline = Date.now() + seconds * 1000;
+    const deadline = now() + seconds * 1000;
     room.game.turnDeadline = deadline;
     room.turnTimerWatch = { key, playerId: current.id, deadline };
-    const timer = setTimeout(() => runRoomTimer('turn-timeout', room.roomCode, () => {
+    const timer = setTimeoutFn(() => runRoomTimer('turn-timeout', room.roomCode, () => {
       const watch = room.turnTimerWatch;
       const active = room.game.getCurrentPlayer();
       if (!watch || watch.key !== key || active?.id !== current.id || !room.game.started) return;
@@ -446,10 +451,161 @@ function createRuntime(deps) {
     turnTimers.set(room.roomCode, timer);
   }
 
+  function inactivityStates(room) {
+    if (!(room.playerInactivityStates instanceof Map)) room.playerInactivityStates = new Map();
+    return room.playerInactivityStates;
+  }
+
+  function inactivityStateFor(room, player) {
+    const states = inactivityStates(room);
+    let state = states.get(player.id);
+    if (!state || state.player !== player) {
+      state = { player, remainingMs: PLAYER_INACTIVITY_TIMEOUT_MS };
+      states.set(player.id, state);
+    }
+    return state;
+  }
+
+  function clearInactivityTimer(room, preserveBudget = true) {
+    if (!room?.roomCode) return;
+    const watch = inactivityTimers.get(room.roomCode);
+    if (!watch) return;
+    clearTimeoutFn(watch.handle);
+    if (inactivityTimers.get(room.roomCode) === watch) inactivityTimers.delete(room.roomCode);
+    if (preserveBudget && watch.room === room) {
+      const state = room.playerInactivityStates?.get(watch.playerId);
+      if (state?.player === watch.player) {
+        state.remainingMs = Math.max(0, watch.deadline - now());
+      }
+    }
+  }
+
+  function scheduleInactivityTimer(room, player, state) {
+    clearInactivityTimer(room, false);
+    const watch = {
+      room,
+      roomCode: room.roomCode,
+      player,
+      playerId: player.id,
+      clientId: player.clientId,
+      socketId: player.socketId,
+      gameStartedAt: room.game.startedAt,
+      deadline: now() + Math.max(0, state.remainingMs),
+      handle: null
+    };
+    const run = () => runRoomTimer('player-inactivity-expiry', room.roomCode, () => {
+      if (inactivityTimers.get(room.roomCode) !== watch) return;
+      const remaining = watch.deadline - now();
+      if (remaining > 0) {
+        watch.handle = setTimeoutFn(run, remaining);
+        return;
+      }
+      expireInactiveSeat(room, watch);
+    });
+    watch.handle = setTimeoutFn(run, Math.max(0, state.remainingMs));
+    inactivityTimers.set(room.roomCode, watch);
+  }
+
+  function synchronizeInactivityTimer(room) {
+    const game = room?.game;
+    if (!room || !game?.started) {
+      clearInactivityTimer(room, false);
+      room?.playerInactivityStates?.clear();
+      if (room) room.inactivityGameStartedAt = null;
+      return;
+    }
+
+    if (room.inactivityGameStartedAt !== game.startedAt) {
+      clearInactivityTimer(room, false);
+      room.playerInactivityStates?.clear();
+      room.inactivityGameStartedAt = game.startedAt;
+    }
+
+    const states = inactivityStates(room);
+    for (const [playerId, state] of states.entries()) {
+      if (game.getPlayerById(playerId) !== state.player || state.player.isBot || state.player.bankrupt) {
+        states.delete(playerId);
+      }
+    }
+
+    const current = inactivityWatchTarget(game);
+    if (!current) {
+      clearInactivityTimer(room, true);
+      return;
+    }
+
+    const existing = inactivityTimers.get(room.roomCode);
+    if (existing?.room === room
+      && existing.player === current
+      && existing.socketId === current.socketId
+      && existing.gameStartedAt === game.startedAt) return;
+
+    clearInactivityTimer(room, true);
+    scheduleInactivityTimer(room, current, inactivityStateFor(room, current));
+  }
+
+  function recordPlayerActivity(socket) {
+    const room = roomManager.getRoomBySocket(socket?.id);
+    const player = room?.getPlayerBySocket(socket.id);
+    if (!room || !player || player.isBot || player.bankrupt || player.disconnected) return false;
+    const state = inactivityStateFor(room, player);
+    state.remainingMs = PLAYER_INACTIVITY_TIMEOUT_MS;
+    if (room.game?.currentPlayerId === player.id && inactivityWatchTarget(room.game)?.id === player.id) {
+      scheduleInactivityTimer(room, player, state);
+    }
+    return true;
+  }
+
+  function installSocketActivityTracking(socket) {
+    if (typeof socket?.use !== 'function') return;
+    socket.use((_packet, next) => {
+      try {
+        recordPlayerActivity(socket);
+      } catch (error) {
+        console.error('Socket activity tracking failed:', error);
+      }
+      next();
+    });
+  }
+
+  function expireInactiveSeat(room, watch) {
+    if (inactivityTimers.get(watch.roomCode) !== watch) return false;
+    if (now() < watch.deadline) return false;
+    const currentRoom = roomManager.getRoom(watch.roomCode);
+    if (currentRoom !== room) return false;
+    const player = currentRoom.game.getPlayerByClient(watch.clientId);
+    if (player !== watch.player
+      || player.id !== watch.playerId
+      || player.socketId !== watch.socketId
+      || player.disconnected
+      || player.bankrupt
+      || player.isBot
+      || currentRoom.game.currentPlayerId !== player.id
+      || currentRoom.game.startedAt !== watch.gameStartedAt) return false;
+
+    inactivityTimers.delete(watch.roomCode);
+    currentRoom.playerInactivityStates?.delete(player.id);
+    if (currentRoom.game.pendingPayment?.playerId === player.id) {
+      settleAfkPayment(currentRoom.game, player);
+    }
+    clearPendingObligations(currentRoom, currentRoom.game, player, 'inactivity expiry');
+    revokeAuctionLeadIfLeader(currentRoom, player);
+    const seatSocket = io.sockets?.sockets?.get(watch.socketId);
+    seatSocket?.emit('system-message', { text: `${player.nickname} was removed for inactivity.` });
+    const releasedRoom = roomManager.leaveRoomByClient(player.clientId, watch.socketId);
+    if (!releasedRoom) return false;
+    reassignHostIfNeeded(releasedRoom, player.id);
+    seatSocket?.leave(releasedRoom.roomCode);
+    emitRoomState(releasedRoom);
+    io.in(releasedRoom.roomCode).emit('system-message', { text: `${player.nickname} was removed for inactivity.` });
+    scheduleRoomsUpdated();
+    return true;
+  }
+
   function clearDisconnectTimer(clientId) {
     const timer = disconnectTimers.get(clientId);
     if (timer) {
-      clearTimeout(timer);
+      clearTimeoutFn(timer.handle);
       disconnectTimers.delete(clientId);
     }
   }
@@ -471,10 +627,12 @@ function createRuntime(deps) {
     room.destroyed = true;
     clearAuctionTimer(room);
     clearTurnTimer(room);
+    clearInactivityTimer(room);
+    room.playerInactivityStates?.clear();
     clearDisconnectTimersForRoom(room);
-    clearTimeout(auctionBotTimers.get(roomCode));
+    clearTimeoutFn(auctionBotTimers.get(roomCode));
     auctionBotTimers.delete(roomCode);
-    clearTimeout(botTimers.get(roomCode));
+    clearTimeoutFn(botTimers.get(roomCode));
     botTimers.delete(roomCode);
     botDecisionLocks.delete(roomCode);
     auctionDecisionLocks.delete(roomCode);
@@ -504,7 +662,7 @@ function createRuntime(deps) {
     if (!bot?.isBot) return;
     if (bot.bankrupt) return;
     if (bot.disconnected) return;
-    const timer = setTimeout(() => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)), 650);
+    const timer = setTimeoutFn(() => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)), 650);
     botTimers.set(room.roomCode, timer);
   }
 
@@ -556,8 +714,7 @@ function createRuntime(deps) {
       playerId: bot.id,
       nickname: bot.nickname,
       state,
-      brain: details.brain || room.settings.botBrain || 'ai',
-      effectiveBrain: details.effectiveBrain || (details.fallback ? 'no-ai' : 'ai'),
+      brain: details.brain || room.settings.botBrain || 'auto',
       difficulty: details.difficulty || room.settings.botDifficulty || 'table',
       provider: details.provider === 'ai' ? 'ai' : 'deterministic',
       fallback: details.fallback === true,
@@ -596,7 +753,7 @@ function createRuntime(deps) {
     if (auctionBotTimers.has(key) || auctionDecisionLocks.has(key)) return;
     const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
     if (!bot) return;
-    const timer = setTimeout(() => runRoomTimer('bot-auction', room.roomCode, () => {
+    const timer = setTimeoutFn(() => runRoomTimer('bot-auction', room.roomCode, () => {
       beginBotAuctionBid(room, bot, key).catch(error => {
         console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
       });
@@ -622,11 +779,11 @@ function createRuntime(deps) {
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
-    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash, room.game);
+    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
     const minimum = baseline.minimum;
     const context = {
       botId: bot.id,
-      botBrain: room.settings.botBrain || 'ai',
+      botBrain: room.settings.botBrain || 'auto',
       botDifficulty: room.settings.botDifficulty || 'table',
       gameId: `${room.roomCode}:${room.game.startedAt || 'pending'}`,
       decisionSequence,
@@ -685,12 +842,12 @@ function createRuntime(deps) {
     if (!auction?.active || room.destroyed) return;
     const roomCode = room.roomCode;
     clearAuctionTimer(room);
-    const endsAt = auction.endsAt || (Date.now() + AUCTION_DURATION_MS);
-    const delay = Math.max(0, endsAt - Date.now());
+    const endsAt = auction.endsAt || (now() + AUCTION_DURATION_MS);
+    const delay = Math.max(0, endsAt - now());
     // Capture the auction object itself, not just the room code. A stale
     // callback that survives clearTimeout must never finish a newer auction in
     // the same room.
-    const timer = setTimeout(() => runRoomTimer('auction-finish', roomCode, () => finishAuctionIfStillActive(roomCode, auction)), delay);
+    const timer = setTimeoutFn(() => runRoomTimer('auction-finish', roomCode, () => finishAuctionIfStillActive(roomCode, auction)), delay);
     auctionTimers.set(roomCode, timer);
   }
 
@@ -713,38 +870,59 @@ function createRuntime(deps) {
     const player = disconnectedPlayer || room.getPlayerBySocket(socketId);
     if (!player) return;
     clearDisconnectTimer(player.clientId);
+    clearInactivityTimer(room, true);
+    const deadline = now() + disconnectGraceMs;
     player.disconnected = true;
     player.socketId = null;
-    player.disconnectDeadline = Date.now() + disconnectGraceMs;
-    const timer = setTimeout(() => runRoomTimer('disconnect-expiry', room.roomCode, () => expireDisconnectedSeat(room, player, socketId)), disconnectGraceMs);
+    player.disconnectDeadline = deadline;
+    const timer = { room, player, clientId: player.clientId, socketId, deadline, handle: null };
     disconnectTimers.set(player.clientId, timer);
+    scheduleDisconnectExpiry(timer);
   }
 
-  function expireDisconnectedSeat(room, player, socketId) {
-    disconnectTimers.delete(player.clientId);
-    if (player.socketId && player.socketId !== socketId) return;
-    const currentRoom = roomManager.getRoom(room.roomCode);
-    if (!currentRoom) return;
-    const currentPlayer = currentRoom.game.getPlayerByClient(player.clientId);
-    if (!currentPlayer) return;
-    if (currentPlayer.socketId && currentPlayer.socketId !== socketId) return;
-    const wasCurrentTurn = currentRoom.game.currentPlayerId === currentPlayer.id;
-    currentPlayer.disconnected = true;
-    currentPlayer.socketId = null;
-    currentPlayer.disconnectDeadline = 0;
-    roomManager.socketRoom.delete(socketId);
-    reassignHostIfNeeded(currentRoom, currentPlayer.id);
+  function scheduleDisconnectExpiry(timer) {
+    timer.handle = setTimeoutFn(() => runRoomTimer('disconnect-expiry', timer.room.roomCode, () => expireDisconnectedSeat(timer)), Math.max(0, timer.deadline - now()));
+  }
+
+  function expireDisconnectedSeat(timer) {
+    if (disconnectTimers.get(timer.clientId) !== timer) return false;
+    const currentRoom = roomManager.getRoom(timer.room.roomCode);
+    const currentPlayer = currentRoom === timer.room ? currentRoom.game.getPlayerByClient(timer.clientId) : null;
+    if (currentRoom !== timer.room
+      || currentPlayer !== timer.player
+      || currentPlayer.socketId !== null
+      || !currentPlayer.disconnected
+      || Number(currentPlayer.disconnectDeadline) !== timer.deadline) {
+      // The seat may have been pruned synchronously before this callback ran.
+      // Remove only this exact timer registration; a newer reconnect/disconnect
+      // cycle for the same client id owns a different timer object.
+      disconnectTimers.delete(timer.clientId);
+      return false;
+    }
+    const remaining = timer.deadline - now();
+    if (remaining > 0) {
+      scheduleDisconnectExpiry(timer);
+      return false;
+    }
+
+    disconnectTimers.delete(timer.clientId);
+    currentRoom.playerInactivityStates?.delete(currentPlayer.id);
+    if (currentRoom.game.pendingPayment?.playerId === currentPlayer.id) {
+      settleAfkPayment(currentRoom.game, currentPlayer);
+    }
     clearPendingObligations(currentRoom, currentRoom.game, currentPlayer, 'disconnect');
     revokeAuctionLeadIfLeader(currentRoom, currentPlayer);
-    currentRoom.game.removePlayerByClient(currentPlayer.clientId);
-    if (wasCurrentTurn) {
-      currentRoom.game.currentPlayerId = null;
-      currentRoom.game.nextTurn();
+    if (roomManager.getRoomBySocket(timer.socketId) === currentRoom) {
+      roomManager.socketRoom.delete(timer.socketId);
     }
-    emitRoomState(currentRoom);
-    io.in(currentRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname} disconnected.` });
+    const releasedRoom = roomManager.leaveRoomByClient(currentPlayer.clientId);
+    if (!releasedRoom) return false;
+    reassignHostIfNeeded(releasedRoom, currentPlayer.id);
+    emitRoomState(releasedRoom);
+    io.in(releasedRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname} disconnected.` });
     // A room that just lost its last human may leave the directory.
     scheduleRoomsUpdated();
+    return true;
   }
 
   function revokeAuctionLeadIfLeader(room, player) {
@@ -788,7 +966,7 @@ function createRuntime(deps) {
     clearPendingObligations(room, game, player, 'turn timeout');
     game.pendingPurchaseOffer = null;
     if (settleAfkPayment(game, player)) {
-      game.feedMessage(`${player.nickname} ran out of time and the payment was settled through the bankruptcy path.`);
+      game.feedMessage(`${player.nickname} ran out of time and the payment was settled through the debt path.`);
       io.in(room.roomCode).emit('system-message', { text: `${player.nickname} ran out of time. The payment was settled through the bankruptcy path.` });
       emitRoomState(room);
       return;
@@ -824,38 +1002,6 @@ function createRuntime(deps) {
     scheduleRoomsUpdated();
   }
 
-  function afkTurnTick() {
-    const now = Date.now();
-    for (const room of roomManager.rooms.values()) {
-      watchRoomTurn(room, now);
-    }
-  }
-
-  function watchRoomTurn(room, now) {
-    // Fire only for a started game with no live auction and a connected,
-    // non-bankrupt turn owner — a disconnected seat is the grace path's
-    // problem; anything else keeps the watch timestamp fresh.
-    const current = afkWatchTarget(room.game);
-    if (!current) {
-      room.turnWatch = null;
-      return;
-    }
-    const watch = room.turnWatch;
-    if (!watch) {
-      room.turnWatch = { player: current.id, at: now };
-      return;
-    }
-    if (watch.player !== current.id) {
-      room.turnWatch = { player: current.id, at: now };
-      return;
-    }
-    if (now - watch.at < TURN_AFK_TIMEOUT_MS) return;
-    // Clear the watch before firing so the same turn ownership can never be
-    // skipped twice; the new turn owner gets a fresh window next tick.
-    room.turnWatch = null;
-    expireAfkTurn(room, room.game, current);
-  }
-
   function afkWatchTarget(game) {
     if (!game?.started) return null;
     if (game.auction?.active) return null;
@@ -864,6 +1010,11 @@ function createRuntime(deps) {
     if (current.bankrupt) return null;
     if (current.disconnected) return null;
     return current;
+  }
+
+  function inactivityWatchTarget(game) {
+    const current = afkWatchTarget(game);
+    return current?.isBot ? null : current;
   }
 
   // --- invite / contract-cancel flows ----------------------------------------
@@ -1013,10 +1164,11 @@ function createRuntime(deps) {
     maintenanceSnapshot,
     canCreateRoom: () => maintenance?.canCreateRoom?.() ?? true,
     canStartRound: () => maintenance?.canStartRound?.() ?? true,
+    botProviderStatus,
+    unsubscribeBotProviderStatus,
     seasonStore,
     cosmeticStore,
     telemetryStore,
-    botProviderStatus,
     reassignHostIfNeeded,
     roomManager,
     scheduleAuctionFinish,
@@ -1025,12 +1177,12 @@ function createRuntime(deps) {
     socialStore,
     emitPendingInteractions,
     emitRoomState,
-    unsubscribeBotProviderStatus
+    recordPlayerActivity
   };
 
+  if (typeof io?.on === 'function') io.on('connection', installSocketActivityTracking);
   roomManager.setRoomDestroyer?.(destroyRoom);
-  setInterval(() => runRoomTimer('empty-room-gc', '*', emptyRoomGcTick), EMPTY_ROOM_GC_INTERVAL_MS);
-  setInterval(() => runRoomTimer('afk-watchdog', '*', afkTurnTick), TURN_AFK_CHECK_INTERVAL_MS);
+  setIntervalFn(() => runRoomTimer('empty-room-gc', '*', emptyRoomGcTick), EMPTY_ROOM_GC_INTERVAL_MS);
 
   return runtime;
 }

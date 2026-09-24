@@ -40,15 +40,15 @@ const second = manager.createRoom({
 });
 assert.notEqual(second.hostId, room.hostId, "each public room keeps its own host");
 
-// An in-debt survivor still beats a null host: lobby management must never
-// strand live humans.
+// A connected debtor can keep playing and use rescue actions, but does not
+// become the room host while their table obligation is unresolved.
 const debtRoom = { hostId: "host", game: { players: [
   { id: "host", isBot: false, disconnected: false, bankrupt: false },
   { id: "debtor", isBot: false, disconnected: false, bankrupt: false, inDebt: true },
 ] } };
 reassignHostIfNeeded(debtRoom, "host");
-assert.equal(debtRoom.hostId, "debtor");
-assert.equal(debtRoom.game.players[1].isHost, true);
+assert.equal(debtRoom.hostId, null);
+assert.equal(debtRoom.game.players[1].isHost, false);
 
 // No live humans at all: host clears instead of pointing at ghosts.
 const emptyRoom = { hostId: "host", game: { players: [

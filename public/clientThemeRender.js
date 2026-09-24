@@ -2,9 +2,9 @@
    THEME RENDERER: mounts the five decorative worlds behind the
    existing Poorup surfaces. It never reads or writes game state.
    ============================================================ */
-import { DEFAULT_THEME_ID, getTheme } from "./clientThemeData.js";
+import { DEFAULT_THEME_ID, getTheme, MUSIC_TOKEN_SETS } from "./clientThemeData.js";
 
-const VIEW_SELECTORS = ["#view-home", "#view-game", "#view-profile", "#view-rankings", "#view-social", "#view-rules", "#view-admin-analytics"];
+const VIEW_SELECTORS = ["#view-home", "#view-game", "#view-profile", "#view-rankings", "#view-social", "#view-rules"];
 const DEFAULT_SKYLINE = { far: "#123634", near: "#0d2725", light: "#78894f" };
 let transitionTimer = null;
 let motionQuery = null;
@@ -116,6 +116,7 @@ function clearThemeVariables() {
     "--text-secondary", "--text-muted", "--gold-050", "--gold-100", "--gold-300", "--gold-400", "--gold-500",
     "--gold-muted", "--line-dark", "--line-subtle", "--line-default", "--line-strong", "--line-active", "--line-board",
     "--red-action", "--red-action-hover", "--red-action-pressed",
+    "--music-surface", "--music-border", "--music-accent", "--music-text", "--music-muted", "--music-meter",
   ]);
   known.forEach((name) => body.style.removeProperty(name));
 }
@@ -123,6 +124,8 @@ function clearThemeVariables() {
 function setThemeVariables(theme) {
   if (!document.body) return;
   clearThemeVariables();
+  const musicTokens = MUSIC_TOKEN_SETS[theme.id] || MUSIC_TOKEN_SETS[DEFAULT_THEME_ID];
+  Object.entries(musicTokens).forEach(([name, value]) => document.body.style.setProperty(name, value));
   if (theme.id === DEFAULT_THEME_ID) return;
   Object.entries(theme.tokens).forEach(([name, value]) => document.body.style.setProperty(name, value));
   document.body.style.setProperty("--theme-sky", theme.tokens["--bg-canvas"] || "#01070a");

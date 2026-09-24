@@ -77,7 +77,6 @@ test.describe('release surface evidence', () => {
 
     await page.evaluate(async () => {
       const { state } = await import('/clientState.js');
-      const { renderPlayers } = await import('/main.js');
       const { renderRightRail } = await import('/clientRailRender.js');
       const { renderGlobalEvent } = await import('/clientGlobalEventRender.js');
       state.globalEvent = null;
@@ -86,10 +85,9 @@ test.describe('release surface evidence', () => {
       state.players[0].spectating = true;
       state.turnIndex = 1;
       renderGlobalEvent();
-      renderPlayers();
       renderRightRail();
     });
-    await expect(page.locator('#view-game .player-row.is-spectating')).toBeVisible();
+    await expect(page.locator('#right-rail-game .spectator-rail')).toBeVisible();
     await page.screenshot({ path: path.join(artifactRoot, 'human-spectator-1920.png') });
 
     await page.evaluate(async () => {
@@ -97,9 +95,7 @@ test.describe('release surface evidence', () => {
       const { showGameOver } = await import('/clientGameModalsUi.js');
       state.players[0].bankrupt = false;
       state.players[0].spectating = false;
-      const { renderPlayers } = await import('/main.js');
       const { renderRightRail } = await import('/clientRailRender.js');
-      renderPlayers();
       renderRightRail();
       showGameOver('RELEASEGUEST', state.players[1]?.serverId || state.players[1]?.id);
     });

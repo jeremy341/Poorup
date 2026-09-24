@@ -7,6 +7,7 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 const index = readFileSync(join(root, 'index.html'), 'utf8');
 const styles = readFileSync(join(root, 'styles.css'), 'utf8');
 const source = readFileSync(join(root, 'clientAdminAiProvider.js'), 'utf8');
+const main = readFileSync(join(root, 'main.js'), 'utf8');
 
 assert.match(index, /data-admin-console-tabs/);
 assert.match(index, /data-admin-console-tab="provider"/);
@@ -25,5 +26,8 @@ assert.match(source, /credentials are write-only|write-only/i);
 assert.match(source, /ArrowLeft|ArrowRight/);
 assert.match(source, /poorup-bot-provider-status/);
 assert.doesNotMatch(source, /localStorage/);
+assert.match(main, /import \{ initAdminAiProvider \} from ["']\.\/clientAdminAiProvider\.js["'];/);
+assert.match(main, /const analyticsPathActive = initAnalytics\(\);\s*if \(analyticsPathActive\) initAdminAiProvider\(\);/);
+assert.equal((main.match(/initAdminAiProvider\(\)/g) || []).length, 1);
 
 console.log('admin AI provider client contract: passed');

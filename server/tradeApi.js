@@ -36,8 +36,9 @@ function normalizePropertyIndexes(value) {
 //
 // Deliberate design, not a gap: trades have NO turn guard. Loans, market,
 // casino and bank loans require your turn; player-to-player trades may be
-// proposed and settled on anyone's turn. Table obligations (payment, auction,
-// purchase offer, pending trade/contract) still block both legs.
+// proposed and settled on anyone's turn. A pending payment intentionally does
+// not block debt-rescue deals; auctions, purchase offers, existing trades, and
+// contracts still block a second trade.
 const TRADE_PROPOSAL_GUARDS = [
   {
     error: 'Choose a valid trade partner.',

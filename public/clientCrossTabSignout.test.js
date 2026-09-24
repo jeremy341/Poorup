@@ -30,8 +30,19 @@ globalThis.document = {
 
 const { state } = await import("./clientState.js");
 const { configureSocketListeners, onStorage } = await import("./clientSocketListeners.js");
+const { ACCOUNT_SESSION_KEY, loadAccountSession, persistAccountSession } = await import("./clientSanitize.js");
 
-state.account = { sessionToken: "tab-session", account: { id: "acct-1", username: "PLAYER", displayName: "Player" } };
+const migratedSession = loadAccountSession();
+assert.equal(migratedSession?.sessionToken, "");
+assert.equal(migratedSession?.account?.id, "acct-1");
+assert.equal(JSON.parse(storage.getItem(ACCOUNT_SESSION_KEY)).sessionToken, undefined);
+
+persistAccountSession({ sessionToken: "new-bearer-secret", account: migratedSession.account });
+const persistedSession = JSON.parse(storage.getItem(ACCOUNT_SESSION_KEY));
+assert.equal(persistedSession.sessionToken, undefined);
+assert.equal(JSON.stringify(persistedSession).includes("new-bearer-secret"), false);
+
+state.account = migratedSession;
 state.profiles = [{ id: "signed", color: "#d74438", avatarGrid: Array.from({ length: 8 }, () => Array(8).fill(null)) }];
 state.appearance = "signed";
 state.themeId = "spring";
@@ -52,6 +63,18 @@ configureSocketListeners(null, {
   say: (message) => calls.push(message),
 });
 assert.equal(typeof listeners.get("storage"), "function");
+
+const reconnectHandlers = new Map();
+const reconnectEvents = [];
+const reconnectSocket = {
+  on(event, handler) { reconnectHandlers.set(event, handler); },
+};
+configureSocketListeners(reconnectSocket, {
+  emitServer: event => reconnectEvents.push(event),
+  setConnectionStatus() {},
+});
+reconnectHandlers.get("connect")();
+assert.deepEqual(reconnectEvents, ["restore-session"]);
 
 onStorage({ key: "poorup.account.session.v1", oldValue: "signed", newValue: null });
 
