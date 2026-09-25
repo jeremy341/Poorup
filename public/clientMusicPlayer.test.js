@@ -269,6 +269,42 @@ test("storage shuffle sync rebuilds queue and restores order", () => {
   const { player } = setup({ manifest, getThemeId: () => "one", random: () => 0 }); player.syncPreferences({ shuffle: true }); assert.deepEqual(player.snapshot().queue, ["b", "c", "a"]); player.syncPreferences({ shuffle: false }); assert.deepEqual(player.snapshot().queue, ["a", "b", "c"]);
 });
 
+test("syncing a selected track while playing starts the matching source", () => {
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a", "b"] } };
+  let playsB = 0;
+  const audioA = { ...media(), play() { this.paused = false; }, pause() { this.paused = true; } };
+  const audioB = { ...media(), play() { playsB += 1; this.paused = false; }, pause() { this.paused = true; } };
+  const { player } = setup({ manifest, getThemeId: () => "one", audioA, audioB });
+  player.togglePlay();
+  assert.equal(player.snapshot().playing, true);
+  player.syncPreferences({ selections: { one: "b" }, loop: false, shuffle: true });
+  assert.equal(player.snapshot().currentTrackId, "b");
+  assert.equal(audioB.src, "/b");
+  assert.equal(playsB, 1);
+  assert.equal(audioB.paused, false);
+  assert.equal(player.snapshot().playing, true);
+  assert.equal(player.snapshot().loop, false);
+  assert.equal(player.snapshot().shuffle, true);
+  assert.equal(player.snapshot().queue.includes("b"), true);
+});
+
+test("syncing a selected track while stopped updates its source without starting playback", () => {
+  const manifest = { tracks: { a: { id: "a", title: "A", src: "/a", status: "approved" }, b: { id: "b", title: "B", src: "/b", status: "approved" } }, defaults: { one: "a" }, themes: { one: ["a", "b"] } };
+  let plays = 0;
+  const audioA = { ...media(), play() { plays += 1; return Promise.resolve(); } };
+  const audioB = { ...media(), play() { plays += 1; return Promise.resolve(); } };
+  const { player } = setup({ manifest, getThemeId: () => "one", audioA, audioB });
+  assert.equal(audioA.src, "/a");
+  player.syncPreferences({ selections: { one: "b" }, loop: false, shuffle: true });
+  assert.equal(player.snapshot().currentTrackId, "b");
+  assert.equal(audioA.src, "/b");
+  assert.equal(plays, 0);
+  assert.equal(player.snapshot().playing, false);
+  assert.equal(player.snapshot().loop, false);
+  assert.equal(player.snapshot().shuffle, true);
+  assert.equal(player.snapshot().queue.includes("b"), true);
+});
+
 test("theme music choices persist per theme without resetting playback preferences", () => {
   const manifest = {
     tracks: {

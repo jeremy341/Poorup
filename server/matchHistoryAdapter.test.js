@@ -128,6 +128,35 @@ assert.equal(merged.find(record => record.matchId === 'same').source, 'stored');
 assert.deepEqual(listMatchRecordsForAccount({ accountId: target.id, accountStore, matchStore }).map(record => record.matchId), ['private-hidden', 'stored-newest', 'legacy-only', 'duplicate']);
 assert.equal(listMatchRecordsForAccount({ accountId: target.id, accountStore, matchStore, limit: 2 }).length, 2);
 
+let requestedStoreLimit;
+listMatchRecordsForAccount({
+  accountId: target.id,
+  accountStore,
+  matchStore: {
+    listForAccount(accountId, limit) {
+      requestedStoreLimit = limit;
+      return [];
+    }
+  },
+  limit: '1000000'
+});
+assert.equal(requestedStoreLimit, 100);
+assert.equal(Number.isInteger(requestedStoreLimit), true);
+
+listMatchRecordsForAccount({
+  accountId: target.id,
+  accountStore,
+  matchStore: {
+    listForAccount(accountId, limit) {
+      requestedStoreLimit = limit;
+      return [];
+    }
+  },
+  limit: 2.5
+});
+assert.equal(requestedStoreLimit, 2);
+assert.equal(Number.isInteger(requestedStoreLimit), true);
+
 // The second reader (recent-player suggestions) uses the same compatibility
 // seam and must observe the same stored-over-legacy winner.
 const recentNow = Date.now();
@@ -163,4 +192,4 @@ assert.deepEqual(socialApi.recentPlayers(target.id).map(player => [player.id, pl
   ['stored-player', 'recent-duplicate'],
   ['legacy-player', 'recent-legacy']
 ]);
-console.log('match history adapter characterization: 11 passed, 0 failed');
+console.log('match history adapter characterization: 15 passed, 0 failed');
