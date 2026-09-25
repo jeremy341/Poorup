@@ -3790,6 +3790,49 @@ button[id$="-close"],
 .profile-preference-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 0; border-top: 1px solid var(--line-subtle); }
 .profile-preference-row:first-of-type { margin-top: 4px; }
 .profile-preference-row > div { display: flex; flex-direction: column; gap: 5px; }
+#view-profile { height: 100dvh; min-height: 0; overflow: hidden; }
+#view-profile .profile-main { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.profile-preferences-local { white-space: nowrap; }
+.theme-preference-board { display: grid; gap: 12px; margin-top: 16px; padding: 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
+.theme-preference-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line-dark); }
+.theme-preference-head > div { display: grid; gap: 6px; min-width: 0; }
+.theme-preference-head h3 { color: var(--gold-100); }
+.theme-preference-description { color: var(--text-secondary); }
+.theme-choice-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; max-height: none; overflow: visible; padding: 2px; }
+.theme-choice { position: relative; grid-template-columns: 68px minmax(0, 1fr); min-height: 76px; cursor: pointer; }
+.theme-choice input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.theme-choice:focus-within { color: var(--gold-050); border-color: var(--line-active); outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 1px; }
+.theme-choice:has(input:checked) { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); box-shadow: var(--shadow-active); }
+.theme-choice-track { color: var(--gold-400); }
+.theme-choice-copy { pointer-events: none; }
+.theme-music-panel { min-width: 0; padding: 12px; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
+.theme-music-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.theme-music-head > div { display: grid; gap: 5px; }
+.theme-music-head h3 { color: var(--gold-050); }
+.theme-music-mode { padding: 4px 6px; color: var(--gold-100); border: 1px solid var(--line-active); white-space: nowrap; }
+.theme-music-copy { margin-top: 8px; }
+.theme-track-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 7px; margin-top: 10px; }
+.theme-track-choice { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-width: 0; min-height: 48px; padding: 7px 9px; color: var(--text-muted); background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); cursor: pointer; }
+.theme-track-choice input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.theme-track-choice:focus-within { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 1px; }
+.theme-track-choice:has(input:checked), .theme-track-choice[data-selected="true"] { color: var(--gold-050); border-color: var(--line-active); }
+.theme-track-mark { color: var(--gold-300); font-size: 12px; }
+.theme-track-copy { display: grid; gap: 4px; min-width: 0; pointer-events: none; }
+.theme-track-state { color: var(--gold-400); pointer-events: none; }
+.theme-track-empty { padding: 10px 0; }
+.theme-preference-status { min-height: 1em; margin-top: 8px; color: var(--text-secondary); }
+@media (max-width: 900px) { .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  #view-profile .profile-main { padding-inline: 12px; }
+  .theme-preference-board { padding: 10px; }
+  .theme-preference-head { flex-direction: column; }
+  .theme-choice-grid { grid-template-columns: 1fr; }
+  .theme-choice { min-height: 64px; }
+  .theme-track-list { grid-template-columns: 1fr; }
+}
+@media (forced-colors: active) {
+  .theme-choice:has(input:checked), .theme-track-choice:has(input:checked) { outline: 2px solid Highlight; }
+}
 
 /* ============================================================
    PROFILE — ACHIEVEMENT DECK
