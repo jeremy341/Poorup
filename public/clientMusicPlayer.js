@@ -556,10 +556,21 @@ function syncPreferences(state, raw) {
     const value = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!value) return false;
     if (typeof value !== "object") return false;
+    const restore = {
+      current: state.current,
+      queueIndex: state.queueIndex,
+      theme: state.theme,
+      mode: state.mode,
+      loop: state.loop,
+      shuffle: state.shuffle,
+      queue: [...state.queue],
+      history: [...state.history],
+      selections: { ...state.selections },
+    };
+    const wasPlaying = state.playing || Boolean(state.pending) || Boolean(state.blockedPending) || state.audios[state.active]?.paused === false;
     if (Number.isFinite(Number(value.volume))) state.volume = clamp(value.volume, 0, 1);
     const oldShuffle = state.shuffle;
     state.shuffle = value.shuffle === true;
-    if (state.shuffle !== oldShuffle) rebuildQueue(state);
     state.loop = value.loop !== false;
     if (value.selections && typeof value.selections === "object" && !Array.isArray(value.selections)) {
       state.selections = Object.fromEntries(Object.entries(value.selections).filter(([theme, track]) => themeTracks(state, theme).includes(track)));
@@ -572,6 +583,29 @@ function syncPreferences(state, raw) {
     } else {
       state.mode = "AUTO THEME";
     }
+    const trackChanged = state.current !== restore.current;
+    if (trackChanged && wasPlaying) {
+      restore.loop = state.loop;
+      restore.shuffle = state.shuffle;
+      rebuildQueue(state);
+      const accepted = loadTrack(state, state.current, 350, restore);
+      if (!accepted) {
+        restoreLoadedState(state, restore);
+        setAudioVolumes(state);
+        return false;
+      }
+      return true;
+    }
+    if (trackChanged) {
+      stopPlayer(state);
+      const activeAudio = state.audios[state.active];
+      const track = trackFor(state);
+      if (activeAudio && track) {
+        activeAudio.src = track.src;
+        activeAudio.currentTime = 0;
+      }
+    }
+    if (trackChanged || state.shuffle !== oldShuffle) rebuildQueue(state);
     setAudioVolumes(state);
     return true;
   } catch {
