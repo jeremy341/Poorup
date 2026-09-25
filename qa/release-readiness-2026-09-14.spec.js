@@ -33,10 +33,10 @@ test.describe("release readiness visual evidence", () => {
     await page.locator("#profile-tab-account").click();
     await expect(page.locator("#profile-panel-account")).toBeVisible();
     await capture(page, "profile-account");
-    await page.locator("#theme-open-btn").click();
-    await expect(page.locator("#theme-popover")).toBeVisible();
+    await expect(page.locator("#theme-choice-grid")).toBeVisible();
+    await page.locator(".theme-preference-board").scrollIntoViewIfNeeded();
+    await expect(page.locator("#theme-music-panel")).toBeVisible();
     await capture(page, "profile-theme-selector");
-    await page.keyboard.press("Escape");
 
     await page.goto("/");
     await page.locator("#home-rankings-tab").click();
