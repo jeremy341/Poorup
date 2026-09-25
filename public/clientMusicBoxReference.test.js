@@ -32,7 +32,7 @@ const expected = {
 };
 assert.deepEqual(MUSIC_MANIFEST.defaults, expected);
 for (const [theme, track] of Object.entries(expected)) {
-  assert.deepEqual(MUSIC_MANIFEST.themes[theme], [track]);
+  assert.equal(MUSIC_MANIFEST.themes[theme][0], track, `${theme} keeps its existing main track first`);
   assert.equal(MUSIC_MANIFEST.tracks[track].status, "approved");
 }
 
