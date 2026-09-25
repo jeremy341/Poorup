@@ -59,6 +59,33 @@ function createPlayerState(options) {
   };
 }
 
+function isRecord(value) {
+  if (value === null) return false;
+  if (typeof value !== "object") return false;
+  return !Array.isArray(value);
+}
+
+function restoreThemeSelections(state, saved) {
+  if (isRecord(saved.selections)) {
+    for (const [theme, track] of Object.entries(saved.selections)) {
+      if (themeTracks(state, theme).includes(track)) state.selections[theme] = track;
+    }
+    return;
+  }
+  if (saved.selections) return;
+  if (saved.mode !== "CUSTOM") return;
+  const savedTrack = sanitizeTrackId(saved.track, state.manifest);
+  if (!savedTrack) return;
+  if (!themeTracks(state, state.theme).includes(savedTrack)) return;
+  state.selections[state.theme] = savedTrack;
+}
+
+function applyRestoredThemeTrack(state) {
+  const selectedTrack = state.selections[state.theme];
+  state.current = selectedTrack || resolveThemeTrack(state.theme, state.manifest);
+  state.mode = selectedTrack ? "CUSTOM" : "AUTO THEME";
+}
+
 function restorePreferences(state) {
   try {
     const saved = JSON.parse(state.storage.getItem(PREFS) || "{}");
@@ -66,17 +93,8 @@ function restorePreferences(state) {
     state.shuffle = saved.shuffle === true;
     state.loop = saved.loop !== false;
     if (saved.theme) state.theme = sanitizeThemeId(saved.theme, state.manifest);
-    if (saved.selections && typeof saved.selections === "object" && !Array.isArray(saved.selections)) {
-      for (const [theme, track] of Object.entries(saved.selections)) {
-        if (themeTracks(state, theme).includes(track)) state.selections[theme] = track;
-      }
-    }
-    if (!saved.selections && saved.mode === "CUSTOM") {
-      const savedTrack = sanitizeTrackId(saved.track, state.manifest);
-      if (savedTrack && themeTracks(state, state.theme).includes(savedTrack)) state.selections[state.theme] = savedTrack;
-    }
-    state.current = state.selections[state.theme] || resolveThemeTrack(state.theme, state.manifest);
-    state.mode = state.selections[state.theme] ? "CUSTOM" : "AUTO THEME";
+    restoreThemeSelections(state, saved);
+    applyRestoredThemeTrack(state);
   } catch {
     // Storage is optional; a broken preference store must not block playback.
   }
@@ -551,61 +569,100 @@ function togglePlay(state) {
   return startDirectPlayback(state, token);
 }
 
+function snapshotPreferences(state) {
+  return {
+    current: state.current,
+    queueIndex: state.queueIndex,
+    theme: state.theme,
+    mode: state.mode,
+    loop: state.loop,
+    shuffle: state.shuffle,
+    queue: [...state.queue],
+    history: [...state.history],
+    selections: { ...state.selections },
+  };
+}
+
+function playbackIsActive(state) {
+  if (state.playing) return true;
+  if (state.pending) return true;
+  if (state.blockedPending) return true;
+  return state.audios[state.active]?.paused === false;
+}
+
+function applyScalarPreferences(state, value) {
+  if (Number.isFinite(Number(value.volume))) state.volume = clamp(value.volume, 0, 1);
+  const previousShuffle = state.shuffle;
+  state.shuffle = value.shuffle === true;
+  state.loop = value.loop !== false;
+  return previousShuffle;
+}
+
+function applySavedSelectionMap(state, selections) {
+  state.selections = Object.fromEntries(Object.entries(selections).filter(([theme, track]) => themeTracks(state, theme).includes(track)));
+  applyRestoredThemeTrack(state);
+}
+
+function applyLegacyTrackSelection(state, value) {
+  if (value.mode !== "CUSTOM") {
+    state.mode = "AUTO THEME";
+    return;
+  }
+  if (!themeTracks(state, state.theme).includes(value.track)) {
+    state.mode = "AUTO THEME";
+    return;
+  }
+  state.current = value.track;
+  state.selections[state.theme] = value.track;
+  state.mode = "CUSTOM";
+}
+
+function applySyncedTrackPreferences(state, value) {
+  if (isRecord(value.selections)) {
+    applySavedSelectionMap(state, value.selections);
+    return;
+  }
+  applyLegacyTrackSelection(state, value);
+}
+
+function syncPlayingTrack(state, restore) {
+  restore.loop = state.loop;
+  restore.shuffle = state.shuffle;
+  rebuildQueue(state);
+  if (loadTrack(state, state.current, 350, restore)) return true;
+  restoreLoadedState(state, restore);
+  setAudioVolumes(state);
+  return false;
+}
+
+function syncStoppedTrack(state) {
+  stopPlayer(state);
+  const activeAudio = state.audios[state.active];
+  const track = trackFor(state);
+  if (activeAudio && track) {
+    activeAudio.src = track.src;
+    activeAudio.currentTime = 0;
+  }
+  rebuildQueue(state);
+  setAudioVolumes(state);
+  return true;
+}
+
+function syncTrackPlayback(state, restore, wasPlaying) {
+  if (wasPlaying) return syncPlayingTrack(state, restore);
+  return syncStoppedTrack(state);
+}
+
 function syncPreferences(state, raw) {
   try {
     const value = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (!value) return false;
-    if (typeof value !== "object") return false;
-    const restore = {
-      current: state.current,
-      queueIndex: state.queueIndex,
-      theme: state.theme,
-      mode: state.mode,
-      loop: state.loop,
-      shuffle: state.shuffle,
-      queue: [...state.queue],
-      history: [...state.history],
-      selections: { ...state.selections },
-    };
-    const wasPlaying = state.playing || Boolean(state.pending) || Boolean(state.blockedPending) || state.audios[state.active]?.paused === false;
-    if (Number.isFinite(Number(value.volume))) state.volume = clamp(value.volume, 0, 1);
-    const oldShuffle = state.shuffle;
-    state.shuffle = value.shuffle === true;
-    state.loop = value.loop !== false;
-    if (value.selections && typeof value.selections === "object" && !Array.isArray(value.selections)) {
-      state.selections = Object.fromEntries(Object.entries(value.selections).filter(([theme, track]) => themeTracks(state, theme).includes(track)));
-      state.current = state.selections[state.theme] || resolveThemeTrack(state.theme, state.manifest);
-      state.mode = state.selections[state.theme] ? "CUSTOM" : "AUTO THEME";
-    } else if (value.mode === "CUSTOM" && themeTracks(state, state.theme).includes(value.track)) {
-      state.current = value.track;
-      state.selections[state.theme] = value.track;
-      state.mode = "CUSTOM";
-    } else {
-      state.mode = "AUTO THEME";
-    }
-    const trackChanged = state.current !== restore.current;
-    if (trackChanged && wasPlaying) {
-      restore.loop = state.loop;
-      restore.shuffle = state.shuffle;
-      rebuildQueue(state);
-      const accepted = loadTrack(state, state.current, 350, restore);
-      if (!accepted) {
-        restoreLoadedState(state, restore);
-        setAudioVolumes(state);
-        return false;
-      }
-      return true;
-    }
-    if (trackChanged) {
-      stopPlayer(state);
-      const activeAudio = state.audios[state.active];
-      const track = trackFor(state);
-      if (activeAudio && track) {
-        activeAudio.src = track.src;
-        activeAudio.currentTime = 0;
-      }
-    }
-    if (trackChanged || state.shuffle !== oldShuffle) rebuildQueue(state);
+    if (!isRecord(value)) return false;
+    const restore = snapshotPreferences(state);
+    const wasPlaying = playbackIsActive(state);
+    const previousShuffle = applyScalarPreferences(state, value);
+    applySyncedTrackPreferences(state, value);
+    if (state.current !== restore.current) return syncTrackPlayback(state, restore, wasPlaying);
+    if (state.shuffle !== previousShuffle) rebuildQueue(state);
     setAudioVolumes(state);
     return true;
   } catch {
