@@ -8,14 +8,13 @@ async function openThemeChooser(page) {
   await page.goto("/");
   await page.locator("#home-profile-tab").click();
   await page.locator("#profile-tab-account").click();
-  await page.locator("#theme-open-btn").click();
-  await expect(page.locator("#theme-popover")).toBeVisible();
+  await expect(page.locator("#theme-choice-grid")).toBeVisible();
 }
 
 test.describe("Poorup seasonal worlds", () => {
-  test("offers six accessible radio choices and restores focus", async ({ page }) => {
+  test("offers six native radio choices and keeps keyboard focus on the selected world", async ({ page }) => {
     await openThemeChooser(page);
-    const choices = page.locator("#theme-popover [data-theme-choice]");
+    const choices = page.locator("#theme-choice-grid [data-theme-choice]");
     await expect(choices).toHaveCount(6);
     expect(await page.locator(".theme-choice-art img").evaluateAll((images) => images.map((image) => new URL(image.src).pathname))).toEqual([
       "/assets/themes/original/scene.svg",
@@ -32,9 +31,10 @@ test.describe("Poorup seasonal worlds", () => {
     await choices.first().focus();
     await page.keyboard.press("ArrowRight");
     await expect(choices.nth(1)).toBeChecked();
+    await expect(choices.nth(1)).toHaveAttribute("aria-checked", "true");
+    await expect(choices.nth(1)).toBeFocused();
     await expect(page.locator("body")).toHaveAttribute("data-theme-id", "spring");
-    await page.keyboard.press("Escape");
-    await expect(page.locator("#theme-open-btn")).toBeFocused();
+    await expect(page.locator("#theme-music-title")).toContainText("SPRING soundtrack");
   });
 
   test("applies a themed scene without changing the shell geometry", async ({ page }) => {
@@ -42,20 +42,14 @@ test.describe("Poorup seasonal worlds", () => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.locator("#home-profile-tab").click();
     await page.locator("#profile-tab-account").click();
-    await page.locator("#theme-open-btn").click();
-    // Clicking an offscreen choice scrolls the document on short viewports.
-    // Compare layout coordinates so scrolling is not mistaken for reflow.
-    const preferencesGeometry = () => page.locator(".profile-preferences").evaluate(element => {
-      const rect = element.getBoundingClientRect();
-      let x = rect.x;
-      let y = rect.y;
-      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-        x += parent.scrollLeft;
-        y += parent.scrollTop;
-      }
-      return { x, y, width: rect.width, height: rect.height };
+    const shellGeometry = () => page.evaluate(() => {
+      const bounds = (selector) => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      };
+      return { header: bounds("#view-profile .hdr"), main: bounds("#view-profile .profile-main") };
     });
-    const baseline = await preferencesGeometry();
+    const baseline = await shellGeometry();
     for (const id of themeIds.slice(1)) {
       await page.locator(`[data-theme-choice-label="${id}"]`).click();
       await expect(page.locator("body")).toHaveAttribute("data-theme-id", id);
@@ -81,7 +75,7 @@ test.describe("Poorup seasonal worlds", () => {
       if (id === "light") {
         await expect(page.locator("#theme-home-world .theme-pedestrian-band")).toHaveCount(2);
       }
-      expect(await preferencesGeometry()).toEqual(baseline);
+      expect(await shellGeometry()).toEqual(baseline);
     }
     await page.locator('[data-theme-choice="original"]').click();
     await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
@@ -120,7 +114,6 @@ test.describe("Poorup seasonal worlds", () => {
     await page.locator("#profile-back-btn").click();
     await page.locator("#home-profile-tab").click();
     await page.locator("#profile-tab-account").click();
-    await page.locator("#theme-open-btn").click();
     await page.locator('[data-theme-choice-label="light"]').click();
     const pedestrianMotion = await page.locator("#theme-home-world .theme-pedestrian-a").evaluate((element) => getComputedStyle(element).animationName);
     expect(pedestrianMotion).toBe("none");
@@ -176,15 +169,28 @@ test.describe("Poorup seasonal worlds", () => {
     await expect(page.locator("#theme-home-world .theme-fog-a")).toHaveCSS("will-change", "auto");
   });
 
-  test("keeps the chooser inside the viewport at desktop and phone widths", async ({ page }) => {
+  test("keeps inline preferences in internal Profile scrolling without document overflow", async ({ page }) => {
     await openThemeChooser(page);
+    await page.locator('[data-theme-choice="light"]').click();
+    await page.locator("#theme-music-panel").scrollIntoViewIfNeeded();
     const metrics = await page.evaluate(() => ({
-      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      popover: document.querySelector("#theme-popover")?.getBoundingClientRect().toJSON(),
+      documentX: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth,
+      documentY: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - document.documentElement.clientHeight,
+      pageScrollY: window.scrollY,
+      profileScrollTop: document.querySelector("#view-profile .profile-main")?.scrollTop,
+      profileScrollHeight: document.querySelector("#view-profile .profile-main")?.scrollHeight,
+      profileClientHeight: document.querySelector("#view-profile .profile-main")?.clientHeight,
+      panel: document.querySelector("#theme-music-panel")?.getBoundingClientRect().toJSON(),
     }));
-    expect(metrics.overflow).toBeLessThanOrEqual(1);
-    expect(metrics.popover.x).toBeGreaterThanOrEqual(0);
-    expect(metrics.popover.right).toBeLessThanOrEqual(1920);
+    expect(metrics.documentX).toBeLessThanOrEqual(1);
+    expect(metrics.documentY).toBeLessThanOrEqual(1);
+    expect(metrics.pageScrollY).toBe(0);
+    expect(metrics.profileScrollTop).toBeGreaterThan(0);
+    expect(metrics.profileScrollHeight).toBeGreaterThan(metrics.profileClientHeight);
+    expect(metrics.panel.left).toBeGreaterThanOrEqual(0);
+    expect(metrics.panel.right).toBeLessThanOrEqual(page.viewportSize().width + 1);
+    expect(metrics.panel.top).toBeGreaterThanOrEqual(0);
+    expect(metrics.panel.bottom).toBeLessThanOrEqual(page.viewportSize().height + 1);
   });
 
   test("captures the six home worlds at native 1920", async ({ page }, testInfo) => {
