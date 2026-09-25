@@ -257,6 +257,14 @@ test("mode persists and restores only sanitized values", () => {
 test("storage sync applies approved preference fields", () => {
   const { player } = setup(); player.syncPreferences(JSON.stringify({ volume: 0.4, shuffle: true, loop: false, mode: "CUSTOM", track: "pondering-the-cosmos" })); const snap = player.snapshot(); assert.equal(snap.volume, 0.4); assert.equal(snap.shuffle, true); assert.equal(snap.loop, false); assert.equal(snap.mode, "CUSTOM");
 });
+test("storage sync rejects array payloads without mutating player preferences", () => {
+  const { player } = setup();
+  player.toggleLoop();
+  player.toggleShuffle();
+  const before = player.snapshot();
+  assert.equal(player.syncPreferences([]), false);
+  assert.deepEqual(player.snapshot(), before);
+});
 test("non-loop ended clears playing intent and reports ended", () => {
   let ended; const audioA = { ...media(), play() {}, addEventListener(type, fn) { if (type === "ended") ended = fn; } }; const { player } = setup({ audioA }); player.togglePlay(); player.toggleLoop(); ended(); assert.equal(player.snapshot().playing, false); assert.equal(player.snapshot().status, "ended");
 });
