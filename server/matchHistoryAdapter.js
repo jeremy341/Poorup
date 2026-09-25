@@ -21,7 +21,7 @@ function mergeMatchRecords(legacyRecords = [], storedRecords = []) {
 
 function listMatchRecordsForAccount({ accountId, accountStore, matchStore, limit = 50 } = {}) {
   if (!accountId) return [];
-  const boundedLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const boundedLimit = Math.trunc(Math.max(1, Math.min(100, Number(limit) || 50)));
   const storedRecords = matchStore?.listForAccount?.(accountId, boundedLimit) || [];
   const legacyRecords = accountStore?.getMatchHistory?.(accountId) || [];
   return mergeMatchRecords(legacyRecords, storedRecords).slice(0, boundedLimit);
