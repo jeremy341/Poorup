@@ -34,7 +34,6 @@ import {
 import { closeAllSurfaces, focusSurface } from "./clientSurfaces.js";
 import { parlorNotice } from "./clientSocialSurfaces.js";
 import { stopAuctionTimer } from "./clientAuctionUi.js";
-import { stopTurnCountdown } from "./clientHudRender.js";
 
 let host = {
   emitServer: noop,
@@ -459,14 +458,11 @@ function lobbySetupNotice(locked, hostLocked) {
 }
 
 function lobbyRulesSnapshot(settings) {
-  const preset = String(settings.rulesetPreset || state.ruleset?.preset || "classic").toUpperCase();
   const board = String(settings.boardVariant || state.boardVariant || "standard-40").toUpperCase();
-  const overrides = Array.isArray(settings.rulesetOverrides) ? settings.rulesetOverrides.length : 0;
-  const overrideCopy = overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : "";
   const players = `${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start`;
   return `<div class="settings-rule">
       <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
-      ${preset} · ${board}${overrideCopy}<br>
+      ${board}<br>
       ${players} · ${toggleCopy(settings.vacationPool, "pool on", "no pool")} ·
       ${toggleCopy(settings.trading, "trading on", "no trades")} ·
       ${toggleCopy(settings.auction, "auction on", "no auction")} ·
@@ -475,7 +471,6 @@ function lobbyRulesSnapshot(settings) {
       ${toggleCopy(settings.casino, "casino on", "casino off")} ·
       ${toggleCopy(settings.market, "market on", "market off")} ·
       ${botCopy(settings)} ·
-      ${settings.turnTimer ? settings.turnTimer + "s timer" : "no timer"} ·
       eliminate busted players when no legal rescue remains
     </div>`;
 }
@@ -520,12 +515,7 @@ function renderLobbyRail() {
 
 function lobbyTableRules(s) {
   return lobbySection("Table Rules", [
-    settingRow("Ruleset Preset", "Classic is the clean baseline; After Hours enables Poorup systems by default.", sel("rulesetPreset", s.rulesetPreset || "classic", [["classic", "CLASSIC"], ["after-hours", "AFTER HOURS"], ["custom", "CUSTOM"]])),
-    s.rulesetPreset === "custom"
-      ? settingRow("Ruleset Base", "Custom starts from this preset before explicit overrides are applied.", sel("rulesetBase", s.rulesetBase || "classic", [["classic", "CLASSIC"], ["after-hours", "AFTER HOURS"]]))
-      : "",
-    settingRow("Board Variant", "Board size changes capacity and spaces, never the Classic 40 layout.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD 40 · 2–4"], ["metro-52", "METRO 52 · 2–6"]])),
-    settingRow("Custom Overrides", "Host-only changes are recorded on the active preset.", `<span class="ruleset-override-control"><span class="t-label f11 g400" id="ruleset-override-count">${Array.isArray(s.rulesetOverrides) ? s.rulesetOverrides.length : 0} OVERRIDES</span><button class="btn-dark ruleset-reset-btn" type="button" data-reset-ruleset ${(!Array.isArray(s.rulesetOverrides) || !s.rulesetOverrides.length) ? "disabled" : ""}><span class="t-label f11">RESET TO PRESET</span></button></span>`),
+    settingRow("Board Variant", "Standard 40 is the classic board; Metro 52 adds more spaces and seats.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD 40"], ["metro-52", "METRO 52 · 2–6"]])),
     settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
     settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
     settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
@@ -542,7 +532,6 @@ function lobbyEconomy(s) {
     settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
     settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
     settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
-    settingRow("Bankruptcy", "A player must settle every open debt or declare bankruptcy; eliminated humans become read-only spectators.", `<span class="setting-static t-label f11 g300">ELIMINATE · SPECTATE</span>`),
     settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
     settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
     settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
@@ -554,8 +543,7 @@ function lobbyEconomy(s) {
 function lobbyOptionalSections(s) {
   return [
     lobbySection("Global Events", [settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents)))]),
-    lobbySection("Building", [settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"]])), settingRowNum("Hotel Limit", "Total hotels in the bank.", sel("hotelLimit", s.hotelLimit, [["6","6 HOTELS"],["12","12 HOTELS"]]))]),
-    lobbySection("Turn Timer", [settingRow("Timer Per Turn", "Seconds allowed per move (0 = off).", sel("turnTimer", s.turnTimer, [["0","OFF"],["30","30 SEC"],["60","60 SEC"],["120","2 MIN"]]))]),
+    lobbySection("Building", [settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"],["40","40 HOUSES"],["50","50 HOUSES"],["64","64 HOUSES"],["unlimited","UNLIMITED"]])), settingRowNum("Hotel Limit", "Total hotels in the bank.", sel("hotelLimit", s.hotelLimit, [["6","6 HOTELS"],["12","12 HOTELS"],["16","16 HOTELS"],["24","24 HOTELS"],["32","32 HOTELS"],["unlimited","UNLIMITED"]]))]),
   ];
 }
 
@@ -881,7 +869,6 @@ export function goHome() {
   // emptying here never leaves stale content behind.
   state.messages = [];
   state.log = [];
-  stopTurnCountdown();
   state.phase = "home";
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
@@ -979,16 +966,6 @@ function onLobbySettingsClick(e) {
   }
   const stepBtn = e.target.closest("[data-step]");
   if (isStepperEnabled(stepBtn)) onStepperSetting(stepBtn);
-  const reset = e.target.closest("[data-reset-ruleset]");
-  if (reset && !reset.disabled) resetRuleset();
-}
-
-function resetRuleset() {
-  const base = state.settings.rulesetBase || (state.settings.rulesetPreset === "after-hours" ? "after-hours" : "classic");
-  state.settings.rulesetOverrides = [];
-  host.updateServerSetting("rulesetBase", base);
-  host.updateServerSetting("rulesetOverrides", []);
-  renderLobbyRail();
 }
 
 function isStepperEnabled(stepBtn) {
@@ -1024,7 +1001,8 @@ function clampBotsToSeats() {
   state.settings.bots = clamp(Number(state.settings.bots) || 0, 0, Math.max(0, state.settings.maxPlayers - 1));
 }
 
-const NUMERIC_SETTING_KEYS = ["startingCash", "houseLimit", "hotelLimit", "turnTimer"];
+const NUMERIC_SETTING_KEYS = ["startingCash"];
+const LIMIT_SETTING_KEYS = ["houseLimit", "hotelLimit"];
 
 function applyNumericSettingField(key, value) {
   if (value.trim() === "") return false;
@@ -1045,7 +1023,11 @@ const applySettingField = (e) => {
   const sel = e.target.closest("[data-setting]");
   if (!isSettingField(sel)) return;
   const key = sel.dataset.setting;
-  if (NUMERIC_SETTING_KEYS.includes(key)) {
+  if (LIMIT_SETTING_KEYS.includes(key) && sel.value === "unlimited") {
+    state.settings[key] = "unlimited";
+  } else if (LIMIT_SETTING_KEYS.includes(key)) {
+    if (!applyNumericSettingField(key, sel.value)) return;
+  } else if (NUMERIC_SETTING_KEYS.includes(key)) {
     if (!applyNumericSettingField(key, sel.value)) return;
   } else {
     state.settings[key] = sel.matches("input[type=checkbox]") ? sel.checked : sel.value;

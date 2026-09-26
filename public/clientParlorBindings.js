@@ -9,6 +9,7 @@ import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { closeSurface } from "./clientSurfaces.js";
 import { openAccountModal } from "./clientAccountIdentity.js";
+import { createVoteKickUi } from "./clientVoteKickUi.js";
 import {
   announceSocialNotification,
   renderSocialSurface,
@@ -23,6 +24,7 @@ import {
 } from "./clientSocialSurfaces.js";
 
 let host = { emitServer: noop, leaveRoomForHome: noop };
+let roomVoteKickUi = null;
 const SOCIAL_ACTION_TIMEOUT_MS = 8000;
 let rankingSearchRequestId = 0;
 let rankingSearchTimer = null;
@@ -458,6 +460,11 @@ function handlePlayerCardClick(event) {
   const action = event.target.closest("[data-player-action]");
   if (!playerActionEnabled(action)) return;
   const handler = PLAYER_ACTIONS[action.dataset.playerAction];
+  if (action.dataset.playerAction === "vote-kick") {
+    const targetId = state.selectedPlayer?.serverId || state.selectedPlayer?.roomPlayerId || state.selectedPlayer?.id;
+    if (targetId && roomVoteKickUi) roomVoteKickUi.requestStart(targetId, state.players);
+    return;
+  }
   if (handler && beginPendingAction(action)) handler(state.selectedPlayer.accountId, action);
 }
 
@@ -496,6 +503,8 @@ function bindSocialListeners() {
 }
 
 function bindPlayerListeners() {
+  roomVoteKickUi?.destroy();
+  roomVoteKickUi = createVoteKickUi({ container: $("#room-votekick-host"), emit: host.emitServer });
   $("#player-card")?.addEventListener("click", handlePlayerCardClick);
   $("#rankings-scrim")?.addEventListener("click", closeScrimRankings);
   $("#player-scrim")?.addEventListener("click", closeScrimPlayer);
@@ -506,4 +515,8 @@ export function bindParlorSurfaces(hooks) {
   bindRankingsListeners();
   bindSocialListeners();
   bindPlayerListeners();
+}
+
+export function syncRoomVoteKickUi(vote, players, serverTime) {
+  roomVoteKickUi?.update(vote, players, serverTime);
 }
