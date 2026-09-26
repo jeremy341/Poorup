@@ -881,7 +881,7 @@ check('setRoomSetting — lowering capacity never strands human seats or excess 
 });
 
 check('setRoomSetting — integer bounds reject invalid values without mutation', () => {
-  for (const [key, valid] of [['houseLimit', 100], ['hotelLimit', 50], ['turnTimer', 100]]) {
+  for (const [key, valid] of [['houseLimit', 64], ['hotelLimit', 32]]) {
     const room = lobby();
     room.setRoomSetting(key, `${valid}.9`);
     assert.equal(room.settings[key], valid, key);
@@ -890,6 +890,9 @@ check('setRoomSetting — integer bounds reject invalid values without mutation'
     assert.equal(room.setRoomSetting(key, 'abc').rejected, true, key);
     assert.equal(room.settings[key], valid, key);
   }
+  const room = lobby();
+  assert.equal(room.setRoomSetting('turnTimer', 100).rejected, true);
+  assert.equal(Object.hasOwn(room.settings, 'turnTimer'), false);
 });
 
 check('setRoomSetting — startingCash floors valid values and rejects unsafe values without mutation', () => {
