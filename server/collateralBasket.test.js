@@ -112,3 +112,73 @@ defaulted.game.processPlayerContracts();
 assert.equal(defaultContract.status, 'defaulted');
 assert.equal(defaulted.game.getTile(1).ownerId, defaulted.lender.id);
 assert.equal(defaulted.game.getTile(3).ownerId, defaulted.lender.id);
+
+const bankruptHybrid = startedRoom();
+ownDeeds(bankruptHybrid.game, bankruptHybrid.borrower, [1, 3]);
+const hybridOffer = bankruptHybrid.game.proposePlayerContract('socket-a', {
+  toPlayerId: bankruptHybrid.borrower.id,
+  kind: 'hybrid',
+  amount: 100,
+  durationRounds: 2,
+  propertyIndex: 1,
+  conversionShare: 25,
+  collateralTileIndices: [1, 3]
+});
+assert.equal(hybridOffer.success, true);
+assert.equal(bankruptHybrid.game.respondPlayerContract('socket-b', true, 'accept-bankrupt-hybrid', hybridOffer.contract.id).success, true);
+const hybridContract = bankruptHybrid.game.playerContractById(hybridOffer.contract.id);
+hybridContract.remaining = 70;
+bankruptHybrid.game.handleBankruptcy(bankruptHybrid.borrower, bankruptHybrid.lender);
+assert.equal(bankruptHybrid.game.getTile(1).ownerId, bankruptHybrid.lender.id);
+assert.equal(bankruptHybrid.game.getTile(3).ownerId, bankruptHybrid.lender.id);
+assert.equal(bankruptHybrid.lender.properties.filter(index => [1, 3].includes(index)).length, 2);
+assert.equal(hybridContract.status, 'defaulted');
+assert.equal(hybridContract.defaultedPrincipal, 70);
+assert.equal(hybridContract.unsecuredDefault, false);
+assert.deepEqual(bankruptHybrid.game.defaultClaims[0].collateralTileIndices, [1, 3]);
+assert.equal(bankruptHybrid.game.defaultClaims[0].collateralTileIndex, 1);
+assert.equal(bankruptHybrid.game.defaultClaims[0].lenderId, bankruptHybrid.lender.id);
+assert.equal(bankruptHybrid.game.defaultClaims[0].borrowerId, bankruptHybrid.borrower.id);
+assert.equal(bankruptHybrid.game.defaultClaims[0].principal, 70);
+assert.equal(bankruptHybrid.game.defaultClaims[0].remaining, 70);
+assert.equal(bankruptHybrid.game.defaultClaims[0].status, 'open');
+
+const legacyHybrid = startedRoom();
+ownDeeds(legacyHybrid.game, legacyHybrid.borrower, [1]);
+const legacyHybridOffer = legacyHybrid.game.proposePlayerContract('socket-a', {
+  toPlayerId: legacyHybrid.borrower.id,
+  kind: 'hybrid',
+  amount: 100,
+  durationRounds: 2,
+  propertyIndex: 1,
+  conversionShare: 25,
+  collateralTileIndex: 1
+});
+assert.equal(legacyHybridOffer.success, true);
+assert.equal(legacyHybrid.game.respondPlayerContract('socket-b', true, 'accept-legacy-hybrid', legacyHybridOffer.contract.id).success, true);
+const legacyHybridContract = legacyHybrid.game.playerContractById(legacyHybridOffer.contract.id);
+delete legacyHybridContract.collateralTileIndices;
+legacyHybrid.game.handleBankruptcy(legacyHybrid.borrower, legacyHybrid.lender);
+assert.equal(legacyHybrid.game.getTile(1).ownerId, legacyHybrid.lender.id);
+assert.deepEqual(legacyHybrid.game.defaultClaims[0].collateralTileIndices, [1]);
+
+const missingHybridLender = startedRoom();
+ownDeeds(missingHybridLender.game, missingHybridLender.borrower, [1, 3]);
+const missingLenderOffer = missingHybridLender.game.proposePlayerContract('socket-a', {
+  toPlayerId: missingHybridLender.borrower.id,
+  kind: 'hybrid',
+  amount: 100,
+  durationRounds: 2,
+  propertyIndex: 1,
+  conversionShare: 25,
+  collateralTileIndices: [1, 3]
+});
+assert.equal(missingLenderOffer.success, true);
+assert.equal(missingHybridLender.game.respondPlayerContract('socket-b', true, 'accept-missing-lender', missingLenderOffer.contract.id).success, true);
+const missingLenderContract = missingHybridLender.game.playerContractById(missingLenderOffer.contract.id);
+missingLenderContract.fromPlayerId = 'missing-lender';
+missingHybridLender.game.handleBankruptcy(missingHybridLender.borrower, null);
+assert.equal(missingLenderContract.status, 'defaulted');
+assert.equal(missingHybridLender.game.getTile(1).ownerId, null);
+assert.equal(missingHybridLender.game.getTile(3).ownerId, null);
+assert.equal(missingHybridLender.game.defaultClaims[0].lenderId, 'missing-lender');
