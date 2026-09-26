@@ -11,6 +11,8 @@ assert.deepEqual(timeline.snapshot(1390), { index: 2, beforeFirst: false, done: 
 const replaced = createWalkTimeline({ path: [8], stepMs: 100, startedAt: 500, now: () => 500 });
 assert.equal(replaced.snapshot(700).done, true);
 assert.deepEqual(createWalkTimeline({ path: [], startedAt: 1 }).snapshot(1), { index: -1, beforeFirst: false, done: true, elapsed: 0 });
+assert.equal(createWalkTimeline({ path: Array.from({ length: 12 }, (_, index) => index + 1), startedAt: 1000 }).duration, 3600,
+  'a twelve-space move uses the approved 300 ms per-tile cadence');
 
 console.log("client board motion timeline tests: passed");
 

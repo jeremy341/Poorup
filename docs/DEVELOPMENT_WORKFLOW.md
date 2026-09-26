@@ -197,3 +197,21 @@ report the blocker. Do not suppress a finding merely to make the check green.
 OpenRouter, Google keys, `/cs-agent` triggers, and background polling are
 intentionally outside this workflow; a future user-owned Action is a separate
 project.
+
+## Bot strategy comparisons
+
+Run the bounded, reproducible policy tournament with `npm run bot:compare`.
+The default uses a stubbed AI advisor and makes no provider network calls.
+`POORUP_BOT_EVAL_COUNT` sets the campaign seed count, `POORUP_BOT_EVAL_SEEDS`
+accepts a comma-separated seed list, and `POORUP_BOT_EVAL_STEP_LIMIT` bounds
+each match. Live provider calls require `POORUP_BOT_LIVE_AI=1` and a positive
+`POORUP_BOT_LIVE_AI_MAX_CALLS`; provider credentials use the existing
+`POORUP_AI_API_KEY` / `DEEPSEEK_API_KEY` configuration. Reports include model,
+prompt version, actual provider calls, completed and capped matches, policy
+outcomes, paired differences, and uncertainty intervals. Incomplete matches
+are excluded from winner and placement rates.
+Pairwise summaries are stratified by the other policy in each three-policy
+match (for example, `no-ai:ai-stub:vs:score-greedy`). Each stratum retains the
+same opponent set across all seat rotations. Live-cap exhaustion is reported
+as `cap-exhausted-fallbacks` on the campaign and affected matches, with actual
+calls, cap rejections, and cap-triggered fallbacks counted separately.

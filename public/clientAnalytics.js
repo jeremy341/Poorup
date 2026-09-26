@@ -421,7 +421,6 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     if (destroyed) return { success: false, status: 499 };
     if (request) return request;
     filters = normalizeAnalyticsQuery({ ...filters, ...next });
-    if (!customFetcher && !state.account?.sessionToken) { renderStatus('ADMIN ACCOUNT REQUIRED', 'warning'); return { success: false, status: 403 }; }
     if (!requestFetcher) { renderStatus('ROLLUP UNAVAILABLE · RETRY', 'warning'); return { success: false, status: 503 }; }
     const url = `${endpoint}?${queryString(filters)}`;
     const headers = !customFetcher && state.account?.sessionToken ? { 'x-poorup-session-token': state.account.sessionToken } : {};
@@ -429,12 +428,13 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     renderStatus(snapshot ? 'REFRESHING ANALYTICS…' : 'LOADING ANALYTICS…');
     announce(snapshot ? 'Refreshing analytics' : 'Loading analytics');
     const generation = ++requestGeneration;
-    request = Promise.resolve().then(() => requestFetcher(url, { headers, signal: abortController?.signal }))
+    request = Promise.resolve().then(() => requestFetcher(url, { headers, credentials: 'include', signal: abortController?.signal }))
       .then(async response => {
         const payload = typeof response?.json === 'function' ? await response.json() : response;
         if (generation !== requestGeneration || destroyed) return { success: false, status: 499 };
         if (response?.ok === false || payload?.success === false) {
-          if (payload?.status === 403 || response?.status === 403) { snapshot = null; clearAnalyticsOutput(); renderStatus('ADMIN ACCESS REQUIRED', 'warning'); }
+          if (payload?.status === 401 || response?.status === 401) { snapshot = null; clearAnalyticsOutput(); renderStatus('ADMIN ACCOUNT REQUIRED', 'warning'); }
+          else if (payload?.status === 403 || response?.status === 403) { snapshot = null; clearAnalyticsOutput(); renderStatus('ADMIN ACCESS REQUIRED', 'warning'); }
           else if (payload?.status === 503 || response?.status === 503) renderStatus('ROLLUP UNAVAILABLE · RETRY', 'warning');
           else if (payload?.status === 429 || response?.status === 429) renderStatus('ANALYTICS RATE LIMITED · RETRY', 'warning');
           else renderStatus('ANALYTICS UNAVAILABLE · RETRY', 'warning');

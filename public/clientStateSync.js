@@ -8,6 +8,10 @@ import { state } from "./clientState.js";
 import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
 
 export const AUCTION_MS = 5000;
+let movementRevision = 0;
+let movementCompletion = Promise.resolve();
+let debtSurfaceRevision = 0;
+let winnerSurfaceRevision = 0;
 
 function num(value) {
   return Number(value) || 0;
@@ -342,11 +346,32 @@ function syncView(host) {
   host.showView("game");
 }
 
+export function afterPieceMovement(callback) {
+  const revision = movementRevision;
+  return movementCompletion.then(() => {
+    if (revision !== movementRevision) return afterPieceMovement(callback);
+    return callback();
+  });
+}
+
 function scheduleWalks(movementPlans, host) {
   if (!movementPlans.length) return;
   const plans = movementPlans;
   const startedAt = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-  const start = () => plans.forEach(({ player, from, to }) => host.startPieceWalk(player.id, from, to, { startedAt }));
+  movementRevision += 1;
+  let completeBatch;
+  const scheduledWalks = new Promise(resolve => { completeBatch = resolve; });
+  movementCompletion = Promise.all([movementCompletion, scheduledWalks]).then(() => undefined);
+  const start = () => {
+    const walks = plans.map(({ player, from, to }) => {
+      try {
+        return Promise.resolve(host.startPieceWalk(player.id, from, to, { startedAt }));
+      } catch {
+        return Promise.resolve();
+      }
+    });
+    Promise.allSettled(walks).then(completeBatch);
+  };
   if (typeof document !== "undefined" && document.hidden) start();
   else requestAnimationFrame(start);
 }
@@ -391,6 +416,7 @@ function syncRetireButton(host) {
 }
 
 function syncDebtModal(game, host) {
+  const revision = ++debtSurfaceRevision;
   const debt = game.pendingPayment;
   state.pendingDebt = debt || null;
   syncRetireButton(host);
@@ -403,13 +429,21 @@ function syncDebtModal(game, host) {
   if (!host.bankruptcyHidden()) return;
   const meIndex = state.players.findIndex((player) => player.serverId === meServerId);
   if (meIndex < 0) return;
-  host.openBankruptcyModal(meIndex, num(debt.amountRemaining), debt.creditorId, orDefault(debt.reason, "This payment is due."));
+  afterPieceMovement(() => {
+    if (revision !== debtSurfaceRevision || state.pendingDebt !== debt || !host.bankruptcyHidden()) return;
+    host.openBankruptcyModal(meIndex, num(debt.amountRemaining), debt.creditorId, orDefault(debt.reason, "This payment is due."));
+  });
 }
 
 function syncWinner(game, host) {
+  const revision = ++winnerSurfaceRevision;
   if (!game.lastWinner) return;
   if (state.gameOver) return;
-  host.showGameOver(orDefault(game.lastWinner.nickname, "The winner"), game.lastWinner.id);
+  const winnerId = game.lastWinner.id;
+  afterPieceMovement(() => {
+    if (revision !== winnerSurfaceRevision || state.gameOver || game.lastWinner?.id !== winnerId) return;
+    host.showGameOver(orDefault(game.lastWinner.nickname, "The winner"), winnerId);
+  });
 }
 
 function maybeStartCountdown(turnChanged, host) {

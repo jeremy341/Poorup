@@ -16,6 +16,8 @@ import {
   classifyBotTurnPhase,
   candidateAction,
   auctionBidDecision,
+  decideBotAuction,
+  getBotChoiceCandidates,
   isAuctionBotParticipant,
   shouldBuyProperty,
   sponsorshipContributionAmount,
@@ -28,6 +30,7 @@ import {
   shouldBuyWithPlan
 } from './botLogic.js';
 import { jailStayBeatsExit } from './botApi.js';
+import { DeterministicAdvisor } from './botAdvisor.js';
 
 let passed = 0;
 const pending = [];
@@ -43,6 +46,37 @@ function check(name, fn) {
   passed += 1;
   console.log(`ok - ${name}`);
 }
+
+check('auction selector preserves NO-AI baseline bid and pass decisions', async () => {
+  const bot = { id: 'auction-bot', cash: 500, personality: 'builder' };
+  const bid = await decideBotAuction({ auction: { highestBid: 0, propertyTile: {} }, bot, startingCash: 500 });
+  const pass = await decideBotAuction({ auction: { highestBid: 400, propertyTile: {} }, bot, startingCash: 500 });
+  assert.equal(bid.actionId, 'auction:bid');
+  assert.equal(pass.actionId, 'auction:pass');
+  assert.equal(bid.minimum, 10);
+});
+
+check('auction selector accepts only legal AI overrides and retains minimum bid', async () => {
+  const bot = { id: 'auction-bot', cash: 500, personality: 'builder' };
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:pass' }) };
+  const legal = await decideBotAuction({ auction: { highestBid: 5, propertyTile: {} }, bot, startingCash: 500, advisor, context: {} });
+  assert.equal(legal.actionId, 'auction:pass');
+  assert.equal(legal.minimum, 15);
+  const invalid = await decideBotAuction({ auction: { highestBid: 5, propertyTile: {} }, bot, startingCash: 500, advisor: { ...advisor, chooseAction: async () => ({ actionId: 'auction:invent' }) }, context: {} });
+  assert.equal(invalid.actionId, 'auction:bid');
+});
+
+check('auction shadow comparison stays out of persisted decision and reaches evaluation result', async () => {
+  const evaluationTrace = { actionKind: 'auction', deterministicActionKind: 'auction', phase: 'auction' };
+  const choice = await decideBotAuction({
+    auction: { highestBid: 0, propertyTile: {} },
+    bot: { id: 'auction-bot-shadow', cash: 1000, personality: 'builder' },
+    startingCash: 1000,
+    advisor: { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:bid', shadowEvaluation: evaluationTrace }) }
+  });
+  assert.equal(choice.decision.shadowEvaluation, undefined);
+  assert.deepEqual(choice.evaluationTrace, evaluationTrace);
+});
 
 const CHOICES = [{ id: 'low-tax' }, { id: 'public-works' }, { id: 'bank-first' }];
 
@@ -112,6 +146,20 @@ function fakeGame(over = {}) {
     ...over
   };
 }
+
+check('public choice candidate helper returns the runtime trade candidates', () => {
+  const bot = { id: 'b1', isBot: true, cash: 1000, personality: 'builder' };
+  const game = fakeGame({
+    pendingTrade: { id: 'trade-1', toPlayerId: 'b1', fromPlayerId: 'h1', giveCash: 100, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [], counterDepth: 0 },
+    getTile: () => null,
+    pendingPayment: null,
+    auction: null,
+    pendingPurchaseOffer: null,
+    pendingSponsoredPurchase: null,
+    pendingPlayerContract: null
+  });
+  assert.deepEqual(getBotChoiceCandidates(game, bot, 'trade').map(candidate => candidate.id), ['trade:accept', 'trade:counter', 'trade:decline']);
+});
 
 check('target selection: vote beats pending counterparty beats current', () => {
   const bot1 = { id: 'b1', isBot: true };
@@ -342,6 +390,93 @@ check('AI advisor ranks an event vote through legal choice candidates', async ()
   assert.deepEqual(result.botDecision.candidateIds, ['vote:low-tax', 'vote:bank-first']);
 });
 
+check('vote aborts when the global event is replaced while the advisor thinks', async () => {
+  const room = fakeRoom([]);
+  const original = { id: 'event-old', phase: 'voting', choices: [{ id: 'low-tax', label: 'LOW TAX' }, { id: 'bank-first', label: 'BANK FIRST' }], votes: {} };
+  room.game.globalEvent = original;
+  room.game.players = [bot1];
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => {
+    room.game.globalEvent = { ...original, id: 'event-new', votes: {} };
+    return { actionId: 'vote:bank-first', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'vote-event-changed');
+  assert.equal(room.game.getCurrentPlayer().id, bot1.id);
+  assert.equal(room.game.globalEvent.id, 'event-new');
+});
+
+check('vote aborts when event options change in place but selected option remains', async () => {
+  const room = fakeRoom([]);
+  room.game.globalEvent = { id: 'event-options', phase: 'voting', choices: [{ id: 'low-tax', label: 'LOW TAX' }, { id: 'bank-first', label: 'BANK FIRST' }], votes: {} };
+  room.game.players = [bot1];
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => {
+    room.game.globalEvent.choices = [{ id: 'bank-first', label: 'BANK FIRST' }, { id: 'public-works', label: 'PUBLIC WORKS' }];
+    return { actionId: 'vote:bank-first', provider: 'ai', fallback: false };
+  } };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'vote-event-changed');
+});
+
+check('unchanged vote event executes the selected current option', async () => {
+  const room = fakeRoom([]);
+  room.game.globalEvent = { id: 'event-stable', phase: 'voting', choices: [{ id: 'low-tax', label: 'LOW TAX' }, { id: 'bank-first', label: 'BANK FIRST' }], votes: {} };
+  room.game.players = [bot1];
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'vote:bank-first', provider: 'ai', fallback: false }) };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.name, 'vote:bank-first');
+  assert.equal(result.botDecision.actionId, 'vote:bank-first');
+});
+
+function sponsorshipFixture() {
+  const room = fakeRoom([]);
+  const bot = { ...bot1, cash: 1000 };
+  const buyer = { id: 'buyer', cash: 100, isBot: false };
+  const tile = { index: 4, price: 400 };
+  let contributionsExecuted = 0;
+  room.game.players = [bot, buyer];
+  room.game.getCurrentPlayer = () => bot;
+  room.game.getPlayerById = id => id === bot.id ? bot : id === buyer.id ? buyer : null;
+  room.game.getTile = index => Number(index) === tile.index ? tile : null;
+  room.game.pendingSponsoredPurchase = {
+    id: 'sponsorship-original', buyerId: buyer.id, tileIndex: tile.index, price: tile.price,
+    buyerCash: buyer.cash, contributions: [], createdAt: 3, createdRound: room.game.roundNumber
+  };
+  room.game.contributeToSponsoredPurchase = (_actor, payload) => {
+    contributionsExecuted += 1;
+    return { name: `contributed:${payload.amount}`, success: true };
+  };
+  return { room, bot, buyer, tile, contributionsExecuted: () => contributionsExecuted };
+}
+
+for (const mutation of [
+  ['request replacement', state => { state.room.game.pendingSponsoredPurchase = { ...state.room.game.pendingSponsoredPurchase, id: 'sponsorship-replacement' }; }],
+  ['contribution terms', state => { state.room.game.pendingSponsoredPurchase.contributions.push({ sponsorId: 'other-sponsor', amount: 100 }); }],
+  ['request clearing', state => { state.room.game.pendingSponsoredPurchase = null; }]
+]) {
+  check(`sponsorship aborts after ${mutation[0]} while bot seat remains`, async () => {
+    const state = sponsorshipFixture();
+    const advisor = { supportsChoicePhases: true, chooseAction: async () => {
+      mutation[1](state);
+      return { actionId: 'sponsorship:contribute', provider: 'ai', fallback: false };
+    } };
+    const result = await runBotTurn(state.room, state.bot, advisor);
+    assert.equal(result.noEmit, true);
+    assert.equal(result.botDecision.reasonCode, 'sponsorship-changed');
+    assert.equal(state.room.game.getCurrentPlayer().id, state.bot.id);
+    assert.equal(state.contributionsExecuted(), 0);
+  });
+}
+
+check('unchanged sponsorship request executes the current legal contribution', async () => {
+  const state = sponsorshipFixture();
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'sponsorship:contribute', provider: 'ai', fallback: false }) };
+  const result = await runBotTurn(state.room, state.bot, advisor);
+  assert.equal(result.name, 'contributed:300');
+  assert.equal(state.contributionsExecuted(), 1);
+});
+
 check('AI advisor ranks a trade response without leaving the room seam', async () => {
   const room = fakeRoom([]);
   room.game.pendingTrade = { id: 'trade-1', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 200, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [] };
@@ -349,6 +484,85 @@ check('AI advisor ranks a trade response without leaving the room seam', async (
   const result = await runBotTurn(room, bot1, advisor);
   assert.strictEqual(result.name, 'respondTrade:false');
   assert.strictEqual(result.botDecision.actionId, 'trade:decline');
+});
+
+check('legacy supportsChoicePhases adapters still route choice phases', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingTrade = { id: 'legacy-trade', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 200, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [] };
+  let called = false;
+  const legacyAdvisor = {
+    supportsChoicePhases: true,
+    chooseAction: async context => {
+      called = context.phase === 'trade';
+      return { actionId: 'trade:decline', provider: 'ai', fallback: false };
+    }
+  };
+  const result = await runBotTurn(room, bot1, legacyAdvisor);
+  assert.equal(called, true);
+  assert.equal(result.name, 'respondTrade:false');
+});
+
+check('NO-AI trade capability enables local choice routing', async () => {
+  const room = fakeRoom([]);
+  room.game.settings = { botBrain: 'no-ai', botDifficulty: 'table' };
+  room.game.pendingTrade = { id: 'local-trade', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 250, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [7], counterDepth: 0 };
+  const result = await runBotTurn(room, { ...bot1, properties: [7] }, new DeterministicAdvisor());
+  assert.equal(result.name, 'respondTrade:false');
+  assert.equal(result.botDecision.phase, 'trade');
+  assert.equal(result.botDecision.provider, 'deterministic');
+});
+
+check('NO-AI contract capability uses the same-phase candidate set', async () => {
+  const room = fakeRoom([]);
+  room.game.settings = { botBrain: 'no-ai' };
+  room.game.pendingPlayerContract = { id: 'local-contract', toPlayerId: 'b1', fromPlayerId: 'lender', kind: 'repayment', amount: 100, counterDepth: 0 };
+  const result = await runBotTurn(room, bot1, new DeterministicAdvisor());
+  assert.deepEqual(result.botDecision.candidateIds, ['contract:accept', 'contract:counter', 'contract:decline']);
+  assert.equal(result.botDecision.phase, 'contract');
+  assert.equal(result.botDecision.actionId, 'contract:accept');
+});
+
+check('NO-AI payment capability routes the selected rescue candidate', async () => {
+  const room = fakeRoom([]);
+  room.game.settings = { botBrain: 'no-ai' };
+  room.game.pendingPayment = { playerId: 'b1', amountRemaining: 100 };
+  const result = await runBotTurn(room, bot1, new DeterministicAdvisor());
+  assert.equal(result.name, 'bankrupt');
+  assert.deepEqual(result.botDecision.candidateIds, ['debt:bankruptcy']);
+  assert.equal(result.botDecision.actionId, 'debt:bankruptcy');
+});
+
+check('NO-AI vote and sponsorship remain on fixed executors', async () => {
+  const voterRoom = fakeRoom([]);
+  voterRoom.game.settings = { botBrain: 'no-ai' };
+  voterRoom.game.globalEvent = { phase: 'voting', choices: [{ id: 'low-tax' }, { id: 'public-works' }], votes: {} };
+  const vote = await runBotTurn(voterRoom, bot1, new DeterministicAdvisor());
+  assert.equal(vote.name, 'vote:public-works');
+  assert.deepEqual(vote.botDecision.candidateIds, []);
+
+  const sponsorRoom = fakeRoom([]);
+  sponsorRoom.game.settings = { botBrain: 'no-ai' };
+  sponsorRoom.game.players = [bot1];
+  sponsorRoom.game.pendingSponsoredPurchase = { buyerId: 'buyer', tileIndex: 1, price: 100, buyerCash: 0, contributions: [] };
+  sponsorRoom.game.contributeToSponsoredPurchase = () => ({ name: 'contributed', success: true });
+  const sponsorship = await runBotTurn(sponsorRoom, bot1, new DeterministicAdvisor());
+  assert.equal(sponsorship.name, 'contributed');
+  assert.deepEqual(sponsorship.botDecision.candidateIds, []);
+});
+
+check('local NO-AI payment skips AI-only table brain construction', async () => {
+  const room = fakeRoom([]);
+  room.game.settings = { botBrain: 'no-ai' };
+  room.game.pendingPayment = { playerId: 'b1', amountRemaining: 100 };
+  room.game.players = [];
+  room.game.tiles = [{ index: 1, type: 'property', group: 'Brown', ownerId: 'b1', price: 60, rent: 10, houseCount: 0 }];
+  room.game.getTile = index => room.game.tiles.find(tile => tile.index === index) || null;
+  Object.defineProperty(room.game, 'getGroupTiles', {
+    get() { throw new Error('AI-only table brain must not be constructed for local phases'); }
+  });
+  const result = await runBotTurn(room, bot1, new DeterministicAdvisor());
+  assert.ok(result && typeof result === 'object');
+  assert.equal(result.botDecision.phase, 'payment');
 });
 
 check('AI advisor abandons a trade decision when the offer changes mid-thought', async () => {
@@ -362,6 +576,36 @@ check('AI advisor abandons a trade decision when the offer changes mid-thought',
   assert.equal(result.noEmit, true);
   assert.equal(result.botDecision.reasonCode, 'offer-changed');
   assert.equal(room.game.pendingTrade.id, 'trade-new');
+});
+
+check('choice revalidation rejects same-id trade moved to another responding seat', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingTrade = { id: 'trade-same-id', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 200, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [] };
+  const advisor = {
+    supportsChoicePhases: true,
+    chooseAction: async () => {
+      room.game.pendingTrade.toPlayerId = 'another-seat';
+      return { actionId: 'trade:accept', provider: 'ai', fallback: false };
+    }
+  };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'offer-changed');
+});
+
+check('choice revalidation rejects same-id contract counter reassigned to another responder', async () => {
+  const room = fakeRoom([]);
+  room.game.pendingPlayerContract = { id: 'contract-same-id', toPlayerId: 'b1', fromPlayerId: 'lender', kind: 'loan', amount: 200, premiumRate: 30, durationRounds: 3, counterDepth: 0 };
+  const advisor = {
+    supportsChoicePhases: true,
+    chooseAction: async () => {
+      room.game.pendingPlayerContract.counterDepth = 1;
+      return { actionId: 'contract:accept', provider: 'ai', fallback: false };
+    }
+  };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'offer-changed');
 });
 
 check('AI advisor can counter a close trade with a bounded premium', async () => {
@@ -417,6 +661,74 @@ check('AI advisor can choose a legal debt rescue path', async () => {
   const result = await runBotTurn(room, bot1, advisor);
   assert.strictEqual(result.name, 'loan');
   assert.strictEqual(result.botDecision.actionId, 'debt:loan');
+});
+
+check('payment choice aborts after obligation clears while advisor is thinking', async () => {
+  const log = [];
+  const room = fakeRoom(log);
+  room.game.players = [bot1];
+  room.game.pendingPayment = { playerId: bot1.id, creditorId: 'h1', amountRemaining: 500, reason: 'rent' };
+  room.game.currentPlayerId = bot1.id;
+  room.game.getBankLoanOffer = () => ({ available: false });
+  let bankruptcies = 0;
+  room.declareBankruptcy = () => { bankruptcies += 1; return { name: 'bankrupt' }; };
+  const advisor = {
+    supportsChoicePhases: true,
+    chooseAction: async () => {
+      room.game.pendingPayment = null;
+      return { actionId: 'debt:bankruptcy', provider: 'ai', fallback: false };
+    }
+  };
+
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'payment-changed');
+  assert.equal(bankruptcies, 0);
+  assert.deepEqual(log, []);
+});
+
+check('payment choice aborts after obligation identity changes while seat remains', async () => {
+  const log = [];
+  const room = fakeRoom(log);
+  room.game.players = [bot1];
+  room.game.pendingPayment = { playerId: bot1.id, creditorId: 'h1', amountRemaining: 500, reason: 'rent' };
+  room.game.currentPlayerId = bot1.id;
+  room.game.getBankLoanOffer = () => ({ available: false });
+  let bankruptcies = 0;
+  room.declareBankruptcy = () => { bankruptcies += 1; return { name: 'bankrupt' }; };
+  const advisor = {
+    supportsChoicePhases: true,
+    chooseAction: async () => {
+      room.game.pendingPayment = { playerId: bot1.id, creditorId: 'h2', amountRemaining: 450, reason: 'contract' };
+      return { actionId: 'debt:bankruptcy', provider: 'ai', fallback: false };
+    }
+  };
+
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(result.botDecision.reasonCode, 'payment-changed');
+  assert.equal(bankruptcies, 0);
+  assert.deepEqual(log, []);
+});
+
+check('unchanged payment obligation executes the selected legal rescue', async () => {
+  const log = [];
+  const room = fakeRoom(log);
+  room.game.players = [bot1];
+  const obligation = { playerId: bot1.id, creditorId: 'h1', amountRemaining: 220, reason: 'rent' };
+  room.game.pendingPayment = obligation;
+  room.game.currentPlayerId = bot1.id;
+  room.game.getBankLoanOffer = () => ({ available: true, totalDue: 450, principal: 300 });
+  const advisor = {
+    supportsChoicePhases: true,
+    chooseAction: async () => ({ actionId: 'debt:loan', provider: 'ai', fallback: false })
+  };
+
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.name, 'loan');
+  assert.equal(result.botDecision.actionId, 'debt:loan');
+  assert.strictEqual(room.game.pendingPayment, obligation);
+  assert.deepEqual(log, ['loan']);
 });
 
 check('payment phase sells a legal building before declaring bankruptcy', async () => {
@@ -519,6 +831,32 @@ check('runBotTurn runs advisor candidates through the action map', async () => {
   room.game.getBotCandidates = () => [{ id: 'c1', kind: 'market', instrumentId: 'ACME', side: 'buy', quantity: 2 }];
   const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'c1' }));
   assert.strictEqual(result.name, 'market:ACME:buy:2');
+});
+
+check('runBotTurn remaps only candidates that remain live after advisor await', async () => {
+  const room = fakeRoom([]);
+  let candidateRead = 0;
+  room.game.getBotCandidates = () => {
+    candidateRead += 1;
+    return candidateRead === 1
+      ? [{ id: 'market:stale', kind: 'market', instrumentId: 'ACME', side: 'buy', quantity: 2 }]
+      : [{ id: 'market:fresh', kind: 'market', instrumentId: 'ACME', side: 'buy', quantity: 5 }];
+  };
+  const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'market:stale', provider: 'ai', fallback: false }));
+  assert.equal(candidateRead, 2);
+  assert.equal(result.name, 'market:ACME:buy:5');
+  assert.equal(result.botDecision.reasonCode, 'stale-candidate');
+  assert.equal(result.botDecision.fallbackReason, 'stale-candidate');
+});
+
+check('runBotTurn keeps evaluation-only shadow data outside persisted botDecision', async () => {
+  const room = fakeRoom([]);
+  room.game.getBotCandidates = () => [{ id: 'roll', kind: 'roll' }];
+  const evaluationTrace = { actionKind: 'roll', deterministicActionKind: 'roll', agreement: true, phase: 'pre-roll' };
+  const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'roll', shadowEvaluation: evaluationTrace }));
+  assert.equal(result.name, 'roll');
+  assert.equal(result.botDecision.shadowEvaluation, undefined);
+  assert.deepEqual(result.evaluationTrace, evaluationTrace);
 });
 
 check('runBotTurn forwards brain settings and returns replay metadata', async () => {

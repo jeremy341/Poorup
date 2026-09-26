@@ -6,6 +6,8 @@
 // offers) so no persistence migration is needed. All helpers degrade on
 // thin stubs. Money math is integer whole-dollars.
 
+export { summarizePublicActionProfile } from './publicActionHistory.js';
+
 function number(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;

@@ -2,10 +2,13 @@
 // authoritative GameState; it never executes an action or exposes stable
 // account/socket identifiers. Keep it separate from bot execution so a future
 // simulator and the AI adapter can consume the same snapshot contract.
-import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX, SURPRISE_DECK, TREASURE_DECK } from './gameData.js';
+import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX } from './gameData.js';
+import { decksForVariant } from './boardRegistry.js';
 import { MARKET_FEE_RATE } from './marketLogic.js';
+import { summarizePublicActionProfile } from './publicActionHistory.js';
+import { PUBLIC_ACTION_PROFILE_PRODUCTION_ENABLED } from './publicActionHistory.js';
 
-export const BOT_CONTEXT_VERSION = 'bot-context-v2';
+export const BOT_CONTEXT_VERSION = 'bot-context-v3';
 export const BOT_RULE_VERSION = 'bot-policy-v2';
 
 function integer(value, fallback = 0) {
@@ -186,7 +189,30 @@ function cardExpectedCash(deck, playerCount) {
   return Math.round((total / deck.length) * 100) / 100;
 }
 
+function publicMovementDistribution(deck, game) {
+  const grouped = new Map();
+  (deck || []).forEach(card => {
+    let movement;
+    if (card.action === 'moveTo') movement = { action: card.action, tileIndex: card.tileIndex, tileId: card.tileId || game.getTile?.(card.tileIndex)?.tileId || null };
+    else if (card.action === 'collectStart') movement = { action: card.action, tileIndex: START_TILE_INDEX };
+    else if (card.action === 'moveBack') movement = { action: card.action, steps: nonNegative(card.steps) };
+    else if (card.action === 'nearestRailroad' || card.action === 'nearestUtility') movement = { action: card.action, multiplier: nonNegative(card.multiplier) };
+    else if (card.action === 'goToJail') movement = { action: card.action, tileIndex: game.tiles?.find(tile => tile.type === 'jail')?.index ?? null };
+    else return;
+    const key = JSON.stringify(movement);
+    const entry = grouped.get(key) || { ...movement, count: 0 };
+    entry.count += 1;
+    grouped.set(key, entry);
+  });
+  return [...grouped.values()].sort((a, b) => a.action.localeCompare(b.action)
+    || Number(a.tileIndex ?? a.steps ?? a.multiplier ?? 0) - Number(b.tileIndex ?? b.steps ?? b.multiplier ?? 0));
+}
+
 function opponentView(game, bot, player, index) {
+  const seatIndex = Array.isArray(game?.players) ? game.players.indexOf(player) : -1;
+  const publicActionProfile = PUBLIC_ACTION_PROFILE_PRODUCTION_ENABLED
+    ? summarizePublicActionProfile(game.publicActionHistory, seatIndex, game.roundNumber)
+    : { status: 'unknown', effectiveSampleWeight: 0, confidence: 0, actionFrequencies: null };
   return {
     seat: `opponent-${index + 1}`,
     kind: player.isBot ? 'cpu' : 'player',
@@ -199,6 +225,7 @@ function opponentView(game, bot, player, index) {
       : 0,
     nearGroups: nearOpponentGroups(game, player).slice(0, 3),
     desire: opponentDesire(game, player),
+    publicActionProfile,
     stance: typeof player.lastVoteChoice === 'string' ? player.lastVoteChoice.slice(0, 40) : null,
     inJail: player.inJail === true,
     bankrupt: player.bankrupt === true,
@@ -330,13 +357,26 @@ function tradeObligation(game, bot) {
     giveCash: nonNegative(sender ? item.giveCash : item.requestCash),
     requestCash: nonNegative(sender ? item.requestCash : item.giveCash),
     givePropertyIndexes: (sender ? item.givePropertyIndexes || [] : item.requestPropertyIndexes || []).slice(0, 12),
-    requestPropertyIndexes: (sender ? item.requestPropertyIndexes || [] : item.givePropertyIndexes || []).slice(0, 12)
+    requestPropertyIndexes: (sender ? item.requestPropertyIndexes || [] : item.givePropertyIndexes || []).slice(0, 12),
+    counterDepth: nonNegative(item.counterDepth)
   };
 }
 
 function contractObligation(game, bot) {
   const item = game.pendingPlayerContract;
-  return item ? { role: participantRole(item, bot), kind: item.kind, amount: nonNegative(item.amount), premiumRate: Math.max(0, Number(item.premiumRate) || 0), durationRounds: nonNegative(item.durationRounds) } : null;
+  return item ? {
+    role: participantRole(item, bot),
+    kind: item.kind,
+    amount: nonNegative(item.amount),
+    premiumRate: Math.max(0, Number(item.premiumRate) || 0),
+    durationRounds: nonNegative(item.durationRounds),
+    propertyIndex: item.propertyIndex ?? null,
+    collateralTileIndex: item.collateralTileIndex ?? null,
+    equityShare: Math.max(0, Number(item.equityShare) || 0),
+    equityControl: item.equityControl || null,
+    conversionShare: Math.max(0, Number(item.conversionShare) || 0),
+    permanent: item.expiresRound == null
+  } : null;
 }
 
 function obligationView(game, bot) {
@@ -384,6 +424,7 @@ function rulesDigest(game) {
   const settings = game.settings || {};
   const effects = typeof game.activeEventEffects === 'function' ? game.activeEventEffects() : {};
   const casinoLimits = typeof game.casinoLimits === 'function' ? game.casinoLimits() : {};
+  const decks = decksForVariant(game.boardVariant);
   return {
     version: BOT_RULE_VERSION,
     boardSize: Array.isArray(game.tiles) ? game.tiles.length : 40,
@@ -391,8 +432,10 @@ function rulesDigest(game) {
     startTileIndex: START_TILE_INDEX,
     passStartCash: 200,
     doubleGo: settings.doubleGo === true,
+    doubleRent: settings.doubleRent === true,
     jailFine: JAIL_FINE,
     jailMaxTurns: JAIL_MAX_TURNS,
+    jailTileIndex: Array.isArray(game.tiles) ? game.tiles.find(tile => tile.type === 'jail')?.index ?? null : null,
     purchaseReserve: 120,
     evenBuild: settings.evenBuild !== false,
     houseLimit: nonNegative(settings.houseLimit),
@@ -406,16 +449,18 @@ function rulesDigest(game) {
     casino: { enabled: settings.casino === true, ...casinoLimits, loanBackedCashAllowed: false },
     market: marketRulesView(settings),
     cards: {
-      surpriseCount: SURPRISE_DECK.length,
-      treasureCount: TREASURE_DECK.length,
-      surpriseExpectedCash: cardExpectedCash(SURPRISE_DECK, game.players?.length),
-      treasureExpectedCash: cardExpectedCash(TREASURE_DECK, game.players?.length)
+      surpriseCount: decks.surprise.length,
+      treasureCount: decks.treasure.length,
+      surpriseExpectedCash: cardExpectedCash(decks.surprise, game.players?.length),
+      treasureExpectedCash: cardExpectedCash(decks.treasure, game.players?.length),
+      surpriseMovement: publicMovementDistribution(decks.surprise, game),
+      treasureMovement: publicMovementDistribution(decks.treasure, game)
     },
     globalEvents: { enabled: Boolean(settings.globalEvents), activeEffects: { ...effects } }
   };
 }
 
-function eventView(game) {
+function eventView(game, bot) {
   const event = game.globalEvent;
   if (!event) return null;
   return {
@@ -426,6 +471,8 @@ function eventView(game) {
     roundsRemaining: nonNegative(event.roundsRemaining),
     durationRounds: nonNegative(event.durationRounds),
     effects: { ...(event.effects || {}) },
+    targetSeat: seatOf(game, bot, event.targetPlayerId),
+    resolvedChoice: typeof event.resolvedChoice === 'string' ? event.resolvedChoice : null,
     choices: Array.isArray(event.choices) ? event.choices.slice(0, 6).map(choice => ({
       id: choice.id,
       label: choice.label,
@@ -464,6 +511,7 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
       buildActionsThisTurn: nonNegative(safeBot.buildActionsThisTurn),
       inJail: safeBot.inJail === true,
       jailTurns: nonNegative(safeBot.jailTurns),
+      jailFreeCards: nonNegative(safeBot.jailFreeCards),
       bankLoan: ownLoanView(safeBot),
       contracts: typeof game?.playerContracts !== 'undefined' ? ownContractView(game, safeBot) : [],
       marketPositions: ownMarketView(safeBot),
@@ -475,9 +523,10 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
     decisionMemory: botDecisionMemory(game || {}, safeBot),
     board,
     opponents,
+    opponentProfilesEnabled: PUBLIC_ACTION_PROFILE_PRODUCTION_ENABLED,
     table: tableSummaryView(game || {}, safeBot, opponents),
     obligations: obligationView(game || {}, safeBot),
-    activeEvent: eventView(game || {}),
+    activeEvent: eventView(game || {}, safeBot),
     rulesDigest: rulesDigest(game || {})
   };
 }

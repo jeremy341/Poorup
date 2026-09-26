@@ -20,6 +20,19 @@ test.describe('protected analytics console shell', () => {
     expect(overflow.body).toBe(false);
   });
 
+  test('leaving analytics hides the admin surface and returns to the normal home view', async ({ page }) => {
+    await page.goto('/admin/analytics');
+    await page.locator('#view-admin-analytics [data-top-back="home"]').click();
+    await expect(page.locator('#view-admin-analytics')).toBeHidden();
+    await expect(page.locator('#view-home')).toBeVisible();
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollHeight > document.documentElement.clientHeight,
+      body: document.body.scrollHeight > document.body.clientHeight
+    }));
+    expect(overflow.document).toBe(false);
+    expect(overflow.body).toBe(false);
+  });
+
   test('insets native filter chevrons inside a dedicated select shell', async ({ page }) => {
     await page.goto('/admin/analytics');
     const market = page.locator('#analytics-filter-marketComplexity');

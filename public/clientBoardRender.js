@@ -14,7 +14,7 @@ import {
 } from "./clientBoardData.js";
 import { getTheme } from "./clientThemeData.js";
 import { state } from "./clientState.js";
-import { createWalkTimeline } from "./clientBoardMotion.js";
+import { createWalkTimeline, PIECE_WALK_STEP_MS } from "./clientBoardMotion.js";
 
 export const SKYLINE = [
   [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
@@ -289,7 +289,6 @@ export function playerTileCenter(player, i = player?.pos) {
 }
 
 const pieceWalks = new Map();
-const PIECE_WALK_STEP_MS = 130;
 
 function motionNow() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") return performance.now();
@@ -308,6 +307,7 @@ export function cancelPieceWalk(playerId) {
   walk.cancelled = true;
   clearTimeout(walk.timer);
   pieceWalks.delete(playerId);
+  walk.complete();
   const el = pieceElement(playerId);
   if (!el) return;
   el.classList.remove("is-moving", "is-hopping");
@@ -361,6 +361,7 @@ function finishPieceWalk(playerId, walk, el) {
   if (pieceWalks.get(playerId) !== walk) return;
   pieceWalks.delete(playerId);
   el.classList.remove("is-moving", "is-hopping");
+  walk.complete();
   placePieces();
 }
 
@@ -373,16 +374,19 @@ function canAnimateWalk(el, path) {
 export function startPieceWalk(playerId, from, to, options = {}) {
   const path = pieceWalkPath(Number(from) || 0, Number(to) || 0);
   const el = pieceElement(playerId);
-  if (!canAnimateWalk(el, path)) return;
+  if (!canAnimateWalk(el, path)) return Promise.resolve();
   cancelPieceWalk(playerId);
   const player = state.players.find((entry) => entry.id === playerId);
   const start = playerTileCenter(player, Number(from) || 0);
-  if (!start) return;
+  if (!start) return Promise.resolve();
   const requestedStart = Number(options.startedAt);
   const startedAt = Number.isFinite(requestedStart) ? requestedStart : motionNow();
+  let complete;
+  const movementComplete = new Promise(resolve => { complete = resolve; });
   const walk = {
     cancelled: false,
     timer: null,
+    complete,
     path,
     start,
     startedAt,
@@ -392,6 +396,7 @@ export function startPieceWalk(playerId, from, to, options = {}) {
   el.classList.add("is-moving");
   setPiecePosition(el, start.x, start.y);
   reconcilePieceWalk(playerId, walk, el);
+  return movementComplete;
 }
 
 export function reconcilePieceWalks(timestamp = motionNow()) {

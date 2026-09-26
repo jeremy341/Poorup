@@ -135,6 +135,20 @@ async function testSetPlayerAppearance() {
   assert.equal(room.game.setPlayerAppearance('socket-zzz', { color: '#35a653' }).success, false);
 }
 
+function testGamePublicActionHistoryUsesSeatAndRoundOnly() {
+  const room = makeRoom();
+  const game = room.game;
+  const player = game.players[1];
+  game.roundNumber = 12;
+  assert.equal(typeof game.recordPublicAction, 'function');
+  assert.equal(game.recordPublicAction(player, 'purchase'), true);
+  assert.deepEqual(game.publicActionHistory, [{ actionKind: 'purchase', seatIndex: 1, roundNumber: 12 }]);
+  assert.equal(game.recordPublicAction(player, 'private-offer-kind'), false);
+  assert.deepEqual(game.publicActionHistory, [{ actionKind: 'purchase', seatIndex: 1, roundNumber: 12 }]);
+  game.resetForNewGame();
+  assert.deepEqual(game.publicActionHistory, [], 'starting a new game clears its public history');
+}
+
 // Contract 4: Room.hasConnectedHumans().
 async function testHasConnectedHumans() {
   const manager = new RoomManager();
@@ -883,6 +897,7 @@ function testStoresCharacterization() {
 }
 
 const CONTRACT_SUITES = [
+  ['public action history stores only seat/round/kind and resets per game', testGamePublicActionHistoryUsesSeatAndRoundOnly],
   ['contract 7 — createRoom generated codes never overwrite', testCreateRoomCodeCollision],
   ['contract 7b — createRoom requested codes never overwrite', testRequestedRoomCodeCollision],
   ['contract 6 — join/create icon collision auto-assign', testJoinColorUniqueness],

@@ -431,7 +431,7 @@ const aiProviderStore = createAiProviderStore({
   allowPrivateEndpoints: !productionRuntime || String(process.env.POORUP_AI_ALLOW_PRIVATE_ENDPOINTS || '').toLowerCase() === 'true'
 });
 const aiProviderManager = createAiProviderManager({ store: aiProviderStore, advisor: botAdvisor, env: process.env });
-registerAiProviderRoutes(app, { manager: aiProviderManager, accountStore, adminIds: adminAccountIds, publicOrigin: configuredPublicOrigin });
+registerAiProviderRoutes(app, { manager: aiProviderManager, accountStore, accountResolver: requestAccount, adminIds: adminAccountIds, publicOrigin: configuredPublicOrigin });
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore, sessionStore });
 const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter });

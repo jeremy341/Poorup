@@ -49,6 +49,7 @@ import { botApi } from './botApi.js';
 import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
 import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
+import { appendPublicAction } from './publicActionHistory.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -287,6 +288,7 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.publicActionHistory = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
@@ -322,6 +324,12 @@ class GameState {
   recordHumanAction(player) {
     if (!isHumanActionSeat(player)) return;
     this.humanActionCount = Math.max(0, Math.floor(Number(this.humanActionCount) || 0)) + 1;
+  }
+
+  recordPublicAction(player, actionKind) {
+    const seatIndex = this.players.indexOf(player);
+    if (seatIndex < 0) return false;
+    return appendPublicAction(this.publicActionHistory, actionKind, seatIndex, this.roundNumber);
   }
 
   resetForNewGame() {
@@ -375,6 +383,7 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.publicActionHistory = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
