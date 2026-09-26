@@ -184,6 +184,33 @@ check('disconnect expiry removes a non-current seat without moving the active tu
   assert.equal(ctx.room.game.currentPlayerId, active.id, 'the current seat should keep the turn');
 });
 
+check('disconnect expiry passes a pending purchase without reviving the seat and excludes it from auction', () => {
+  const ctx = makeFixture();
+  const [departing] = ctx.seats;
+  const property = ctx.room.game.getTile(1);
+  departing.cash = property.price;
+  ctx.room.game.currentPlayerId = departing.id;
+  ctx.room.game.pendingPurchaseOffer = { playerId: departing.id, tileIndex: property.index };
+  ctx.room.game.settings.auction = true;
+  ctx.runtime.handleSocketDisconnect(ctx.sockets.get(departing.socketId));
+  const disconnectTimer = ctx.clock.records.at(-1);
+
+  ctx.clock.advanceBy(119_999);
+  assert.equal(Boolean(ctx.room.game.pendingPurchaseOffer), true, 'the reconnect grace keeps the offer pending');
+  assert.equal(ctx.room.game.auction, null);
+
+  ctx.clock.advanceBy(1);
+  assert.equal(Boolean(ctx.room.game.getPlayerByClient(departing.clientId)), false);
+  assert.equal(departing.disconnected, true);
+  assert.equal(departing.socketId, null);
+  assert.equal(Boolean(ctx.room.game.pendingPurchaseOffer), false);
+  assert.equal(ctx.room.game.auction?.active, true);
+  assert.equal(ctx.room.game.auction.participants.includes(departing.id), false);
+  const auction = ctx.room.game.auction;
+  ctx.clock.invokeEvenIfCancelled(disconnectTimer);
+  assert.equal(ctx.room.game.auction, auction, 'a stale disconnect callback cannot open a duplicate auction');
+});
+
 check('disconnect expiry settles a debtor and clears the removed seat assets and obligations', () => {
   const ctx = makeFixture();
   const [departing, creditor] = ctx.seats;

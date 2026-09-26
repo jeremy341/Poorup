@@ -76,6 +76,49 @@ export function settleAfkPayment(game, player) {
   return false;
 }
 
+function passPendingPurchaseForSeatRemoval(game, player) {
+  const offer = game?.pendingPurchaseOffer;
+  if (!offer || offer.playerId !== player?.id) return { resolved: false, auctionStarted: false };
+
+  const tile = game.getTile?.(offer.tileIndex);
+  game.cancelSponsoredPurchase?.();
+  game.pendingPurchaseOffer = null;
+  if (!tile || tile.ownerId !== null || !game.settings?.auction) {
+    game.feedMessage?.(`${player.nickname} passed on the property before leaving.`);
+    return { resolved: true, auctionStarted: false };
+  }
+
+  const startingPlayerId = nextAuctionStarter(game, player.id);
+  if (!startingPlayerId) {
+    game.feedMessage?.(`${player.nickname} passed on the property before leaving.`);
+    return { resolved: true, auctionStarted: false };
+  }
+  game.startAuction?.(tile, startingPlayerId);
+  const auction = game.auction;
+  if (!auction?.active) {
+    game.feedMessage?.(`${player.nickname} passed on the property before leaving.`);
+    return { resolved: true, auctionStarted: false };
+  }
+
+  auction.participants = [...new Set((auction.participants || []).filter(id => id !== player.id))];
+  auction.passedPlayerIds = [...new Set([...(auction.passedPlayerIds || []), player.id])];
+  if (auction.startingPlayerId === player.id) auction.startingPlayerId = startingPlayerId;
+  game.feedMessage?.(`${player.nickname} passed on ${tile.name} before leaving.`);
+  return { resolved: true, auctionStarted: true };
+}
+
+function nextAuctionStarter(game, departingPlayerId) {
+  const playersById = new Map((game.players || []).map(player => [player.id, player]));
+  const order = Array.isArray(game.turnOrder) ? game.turnOrder : (game.players || []).map(player => player.id);
+  const oldIndex = order.indexOf(departingPlayerId);
+  for (let offset = 1; offset <= order.length; offset += 1) {
+    const index = oldIndex < 0 ? offset - 1 : (oldIndex + offset) % order.length;
+    const candidate = playersById.get(order[index]);
+    if (candidate && candidate.id !== departingPlayerId && !candidate.bankrupt && !candidate.disconnected) return candidate.id;
+  }
+  return null;
+}
+
 export function annotateMatchAchievements(matchRecord, candidates = []) {
   if (!matchRecord || !Array.isArray(matchRecord.participants)) return matchRecord;
   matchRecord.participants.forEach((participant) => {
@@ -620,13 +663,8 @@ function createRuntime(deps) {
     clearPendingObligations(room, room.game, player, reason);
     revokeAuctionLeadIfLeader(room, player, reason);
     if (room.game.pendingPurchaseOffer?.playerId === playerId) {
-      const purchase = room.game.pendingPurchaseOffer;
-      const result = room.game.declineProperty(player.socketId, purchase.tileIndex);
-      if (result?.auctionStarted && room.game.auction) {
-        room.game.auction.participants = room.game.auction.participants.filter(id => id !== playerId);
-        room.game.auction.passedPlayerIds = [...new Set([...(room.game.auction.passedPlayerIds || []), playerId])];
-        scheduleAuctionFinish(room);
-      }
+      const result = passPendingPurchaseForSeatRemoval(room.game, player);
+      if (result.auctionStarted) scheduleAuctionFinish(room);
     }
     const socket = io.sockets?.sockets?.get(player.socketId);
     const message = reason === 'disconnect'
