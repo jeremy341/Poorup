@@ -44,9 +44,12 @@ function ask(socket, event, payload) {
 }
 
 const results = [];
-function check(name, condition) {
+function check(name, condition, details) {
   results.push({ name, ok: Boolean(condition) });
   console.log(`${condition ? 'PASS' : 'FAIL'} — ${name}`);
+  if (!condition && details !== undefined) {
+    console.error(JSON.stringify(details, null, 2));
+  }
 }
 
 function isBadAck(response) {
@@ -140,7 +143,15 @@ async function checkBotStatusAndReconnect(socket, child) {
   const human = snapshot?.game?.players?.find(player => player.nickname === 'Bot Probe');
   const humanCanEndTurn = Boolean(human && snapshot.game.currentPlayerId === human.id && snapshot.game.awaitingEndTurn);
   const humanAutoAdvancedToJail = Boolean(human?.inJail && snapshot.game.currentPlayerId !== human.id);
-  check('bot probe human roll resolves by end-turn or third-double jail', rolled?.success === true && humanTurnResolved && (humanCanEndTurn || humanAutoAdvancedToJail));
+  check(
+    'bot probe human roll resolves by end-turn or third-double jail',
+    rolled?.success === true && humanTurnResolved && (humanCanEndTurn || humanAutoAdvancedToJail),
+    {
+      rollResponse: rolled,
+      finalSnapshot: snapshot,
+      humanPlayer: human
+    }
+  );
   const ended = humanCanEndTurn ? await ask(socket, 'end-turn', {}) : { success: humanAutoAdvancedToJail, autoAdvanced: humanAutoAdvancedToJail };
   await wait(1200);
   socket.off('bot-status', onStatus);
