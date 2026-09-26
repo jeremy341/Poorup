@@ -794,6 +794,7 @@ function showView(name) {
   $("#view-rankings")?.classList.toggle("is-hidden", name !== "rankings");
   $("#view-social")?.classList.toggle("is-hidden", name !== "social");
   $("#view-rules")?.classList.toggle("is-hidden", name !== "rules");
+  $("#view-admin-analytics")?.classList.toggle("is-hidden", name !== "analytics");
   syncGlobalNavigation(name);
   setDocumentMeta({ view: name, roomCode: state.roomCode });
   window.scrollTo(0, 0);
@@ -847,7 +848,11 @@ function onTopSurfaceClick(button) {
 
 function onTopBackClick(button) {
   const target = button.dataset.topBack || "home";
-  if (target === "home") leaveRoomForHome();
+  if (target === "home" && window.location.pathname === "/admin/analytics") {
+    window.history.replaceState(null, "", "/");
+    leaveRoomForHome();
+  }
+  else if (target === "home") leaveRoomForHome();
   else showView(target);
 }
 
