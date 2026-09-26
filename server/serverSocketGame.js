@@ -81,6 +81,41 @@ const GAME_VERB_HANDLERS = [
   { event: 'declare-bankruptcy', verb: 'declareBankruptcy', args: NO_ARGS }
 ];
 
+const BASE_GAME_EVENTS = new Set([
+  'purchase-property', 'decline-property', 'auction-bid', 'auction-pass', 'end-turn',
+  'manage-property', 'propose-trade', 'counter-trade', 'cancel-trade', 'respond-trade',
+  'pay-jail-fine', 'use-jail-free', 'declare-bankruptcy'
+]);
+const DIRECT_GAME_SOCKET_EVENTS = [
+  'roll-dice', 'cancel-player-contract', 'get-bank-loan-offer', 'get-economy-snapshot',
+  'place-casino-bet', 'request-sponsored-purchase', 'contribute-sponsored-purchase',
+  'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase'
+];
+const GAME_ACTION_VARIANTS = Object.freeze({
+  'manage-property': Object.freeze([
+    Object.freeze({ action: 'build-house', candidateKind: 'build' }),
+    Object.freeze({ action: 'sell-house', candidateKind: 'sell' }),
+    Object.freeze({ action: 'mortgage', candidateKind: 'mortgage' }),
+    Object.freeze({ action: 'unmortgage', candidateKind: 'unmortgage' })
+  ])
+});
+
+export const GAME_ACTION_CATALOG = Object.freeze([
+  ...GAME_VERB_HANDLERS.map(definition => Object.freeze({
+    event: definition.event,
+    verb: definition.verb,
+    registration: 'registered-game-verb',
+    surface: BASE_GAME_EVENTS.has(definition.event) ? 'base' : 'extended',
+    ...(GAME_ACTION_VARIANTS[definition.event] ? { variants: GAME_ACTION_VARIANTS[definition.event] } : {})
+  })),
+  ...DIRECT_GAME_SOCKET_EVENTS.map(event => Object.freeze({
+    event,
+    verb: null,
+    registration: 'direct-socket',
+    surface: 'dynamic'
+  }))
+]);
+
 function registerGameSocketHandlers(on, socket, runtime) {
   GAME_VERB_HANDLERS.forEach(definition => {
     on(definition.event, makeRoomVerbHandler(socket, runtime, definition));
