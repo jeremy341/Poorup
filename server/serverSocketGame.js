@@ -91,11 +91,15 @@ function registerGameSocketHandlers(on, socket, runtime) {
   on('get-bank-loan-offer', handleBankLoanOffer);
   on('get-economy-snapshot', handleEconomySnapshot);
   on('place-casino-bet', handlePlaceCasinoBet);
-  on('request-sponsored-purchase', (_payload, callback) => handleSponsorship('request', {}, callback));
+  on('player-presence', (payload, callback) => reply(callback, runtime.setPlayerPresence(socket, payload || {})));
+  on('room-votekick-start', (payload, callback) => reply(callback, runtime.startRoomVoteKick(socket, payload || {})));
+  on('room-votekick-cast', (payload, callback) => reply(callback, runtime.castRoomVoteKick(socket, payload || {})));
+  on('propose-equity-share-transfer', handleEquityShareTransfer);
+  on('request-sponsored-purchase', (payload, callback) => handleSponsorship('request', payload || {}, callback));
   on('contribute-sponsored-purchase', (payload, callback) => handleSponsorship('contribute', payload || {}, callback));
-  on('withdraw-sponsored-purchase', (_payload, callback) => handleSponsorship('withdraw', {}, callback));
-  on('accept-sponsored-purchase', (_payload, callback) => handleSponsorship('accept', {}, callback));
-  on('decline-sponsored-purchase', (_payload, callback) => handleSponsorship('decline', {}, callback));
+  on('withdraw-sponsored-purchase', (payload, callback) => handleSponsorship('withdraw', payload || {}, callback));
+  on('accept-sponsored-purchase', (payload, callback) => handleSponsorship('accept', payload || {}, callback));
+  on('decline-sponsored-purchase', (payload, callback) => handleSponsorship('decline', payload || {}, callback));
 
   function handleRollDice(_payload, callback) {
     const room = runtime.getRoomForSocket(socket, callback);
@@ -117,6 +121,25 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const result = finalizeContractCancel(room, payload);
     recordHumanAction(room, socket, result);
     reply(callback, result);
+  }
+
+  function handleEquityShareTransfer(payload = {}, callback) {
+    const room = runtime.getRoomForSocket(socket, callback);
+    if (!room) return;
+    const player = room.getPlayerBySocket(socket.id);
+    if (!player) return reply(callback, { success: false, error: 'Player not found.' });
+    const result = room.game.proposeEquityShareTransfer(socket.id, {
+      ...payload,
+      fromPlayerId: player.id,
+    });
+    if (result?.success !== false) room.game.recordHumanAction?.(player);
+    runtime.emitRoomState(room);
+    const transfer = result?.transfer;
+    const recipient = transfer?.toPlayerId ? room.game.getPlayerById(transfer.toPlayerId) : null;
+    if (transfer && recipient?.socketId) {
+      runtime.io.to(recipient.socketId).emit('player-contract-offer', { contract: transfer });
+    }
+    reply(callback, { success: result?.success ?? false, error: result?.error, contract: transfer });
   }
 
   function contractCancelRejection(room, payload = {}) {
@@ -180,11 +203,11 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const methods = {
-      request: () => room.game.requestPurchaseSponsorship(socket.id),
+      request: () => room.game.requestPurchaseSponsorship(socket.id, payload),
       contribute: () => room.game.contributeToSponsoredPurchase(socket.id, payload),
-      withdraw: () => room.game.withdrawSponsoredPurchase(socket.id),
-      accept: () => room.game.acceptSponsoredPurchase(socket.id),
-      decline: () => room.game.declineSponsoredPurchase(socket.id)
+      withdraw: () => room.game.withdrawSponsoredPurchase(socket.id, payload),
+      accept: () => room.game.acceptSponsoredPurchase(socket.id, payload),
+      decline: () => room.game.declineSponsoredPurchase(socket.id, payload)
     };
     const result = methods[action]?.() || { success: false, error: 'Unknown sponsorship action.' };
     recordHumanAction(room, socket, result);

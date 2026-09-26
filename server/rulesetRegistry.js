@@ -84,7 +84,6 @@ const KNOWN_OVERRIDE_KEYS = new Set([
   'randomizePlayerOrder',
   'houseLimit',
   'hotelLimit',
-  'turnTimer',
   'bankruptMode',
   'bankLoanSeverity',
   'startingCash',
@@ -93,6 +92,7 @@ const KNOWN_OVERRIDE_KEYS = new Set([
   'botBrain',
   'botDifficulty'
 ]);
+const HISTORICAL_OVERRIDE_KEYS = new Set([...KNOWN_OVERRIDE_KEYS, 'turnTimer']);
 
 const BOOLEAN_OVERRIDE_KEYS = new Set([
   ...OPTIONAL_SYSTEM_KEYS,
@@ -106,12 +106,11 @@ const BOOLEAN_OVERRIDE_KEYS = new Set([
   'evenBuild',
   'randomizePlayerOrder'
 ]);
-const NUMERIC_OVERRIDE_KEYS = new Set(['maxPlayers', 'houseLimit', 'hotelLimit', 'turnTimer', 'startingCash', 'bots']);
+const NUMERIC_OVERRIDE_KEYS = new Set(['maxPlayers', 'houseLimit', 'hotelLimit', 'startingCash', 'bots']);
 const NUMERIC_OVERRIDE_LIMITS = Object.freeze({
   maxPlayers: [2, 8],
   houseLimit: [0, 100],
   hotelLimit: [0, 50],
-  turnTimer: [0, 3_600],
   startingCash: [0, 1_000_000],
   bots: [0, 7]
 });
@@ -153,6 +152,10 @@ function normalizedOverrideValue(key, value) {
   if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
     return value === true || value === 1 || ['true', '1', 'on'].includes(String(value).trim().toLowerCase());
   }
+  if (key === 'turnTimer') return boundedInteger(value, { min: 0, max: 3_600, fallback: null });
+  if ((key === 'houseLimit' || key === 'hotelLimit')
+    && typeof value === 'string'
+    && value.trim().toLowerCase() === 'unlimited') return 'unlimited';
   if (key === 'marketComplexity') return safeMarketComplexity(value);
   if (NUMERIC_OVERRIDE_KEYS.has(key)) {
     const [min, max] = NUMERIC_OVERRIDE_LIMITS[key];
@@ -172,7 +175,7 @@ function normalizeOverrides(overrides) {
   const source = overrideSource(overrides);
   const normalized = {};
   Object.keys(source).sort().forEach(key => {
-    if (!KNOWN_OVERRIDE_KEYS.has(key)) return;
+    if (!HISTORICAL_OVERRIDE_KEYS.has(key)) return;
     const value = normalizedOverrideValue(key, source[key]);
     if (value !== null && value !== undefined) normalized[key] = value;
   });
@@ -274,6 +277,7 @@ export {
   BOARD_VARIANT_META,
   EXPOSED_BOARD_VARIANTS,
   KNOWN_OVERRIDE_KEYS,
+  HISTORICAL_OVERRIDE_KEYS,
   MARKET_COMPLEXITIES,
   OPTIONAL_SYSTEM_KEYS,
   PRESET_DEFAULTS,

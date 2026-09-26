@@ -121,7 +121,9 @@ check('buildCreateRoomRequest pins visibility and only codes private rooms', () 
   assert.strictEqual(publicRequest.requestedRoomCode, '');
   assert.strictEqual(publicRequest.roomName, 'Parlor');
   const expansion = buildCreateRoomRequest({ nickname: 'Host', visibility: 'public', rulesetPreset: 'after-hours', boardVariant: 'metro-52', marketComplexity: 'margin' }, null);
-  assert.equal(expansion.rulesetPreset, 'after-hours');
+  assert.equal('rulesetPreset' in expansion, false);
+  assert.equal('rulesetBase' in expansion, false);
+  assert.equal('rulesetOverrides' in expansion, false);
   assert.equal(expansion.boardVariant, 'metro-52');
   assert.equal(expansion.marketComplexity, 'margin');
 });
@@ -215,7 +217,8 @@ function fakeSettledRoom() {
     globalEvent: { id: 'e3', title: 'Bonus', comboId: 'c2' },
     playerContracts: [
       { id: 'pc1', kind: 'loan', fromPlayerId: 'p1', toPlayerId: 'p2', amount: 50, premiumRate: 0.2, equityShare: null, collateralTileIndex: 7, status: 'active' },
-      { id: 'pc2', kind: 'equity', fromPlayerId: 'p9', toPlayerId: 'pX', amount: 10, premiumRate: null, equityShare: 0.1, collateralTileIndex: null, status: 'settled' }
+      { id: 'pc2', kind: 'equity', fromPlayerId: 'p9', toPlayerId: 'pX', amount: 10, premiumRate: null, equityShare: 0.1, collateralTileIndex: null, status: 'settled' },
+      { id: 'pc3', kind: 'equity-transfer', fromPlayerId: 'p1', toPlayerId: 'p2', amount: 40, sourceContractId: 'source-1', transferSharePct: 15, transferPrice: 40, propertyIndex: 8, collateralTileIndices: [2, 4, 2, -1, 52], status: 'pending' }
     ],
     getPlayerById: id => (id === 'p1' ? { accountId: 'acct_a' } : id === 'p2' ? { accountId: null } : null)
   };
@@ -237,14 +240,23 @@ check('buildMatchRecordOptions matches the emitRoomState settlement shape', () =
     { accountId: null, bets: 0, net: 0 }
   ]);
   assert.deepStrictEqual(options.market[0], { accountId: 'acct_a', positions: { bonds: { quantity: 3, averageCost: 0, realizedPnl: 0 } } });
-  assert.strictEqual(options.playerContracts.length, 2);
+  assert.strictEqual(options.playerContracts.length, 3);
   assert.deepStrictEqual(options.playerContracts[0], {
     id: 'pc1', kind: 'loan', fromPlayerId: 'p1', toPlayerId: 'p2',
     fromAccountId: 'acct_a', toAccountId: null, amount: 50, premiumRate: 0.2,
-    equityShare: null, collateralTileIndex: 7, propertyIndex: null,
+    equityShare: null, collateralTileIndices: [7], collateralTileIndex: 7, propertyIndex: null,
+    sourceContractId: null, transferSharePct: null, transferPrice: null,
     conversionShare: 0, equityControl: null, status: 'active'
   });
   assert.strictEqual(options.playerContracts[1].collateralTileIndex, null);
+  assert.deepStrictEqual(options.playerContracts[1].collateralTileIndices, []);
+  assert.deepStrictEqual(options.playerContracts[2], {
+    id: 'pc3', kind: 'equity-transfer', fromPlayerId: 'p1', toPlayerId: 'p2',
+    fromAccountId: 'acct_a', toAccountId: null, amount: 40, premiumRate: undefined,
+    equityShare: undefined, collateralTileIndices: [2, 4], collateralTileIndex: 2,
+    propertyIndex: 8, sourceContractId: 'source-1', transferSharePct: 15,
+    transferPrice: 40, conversionShare: 0, equityControl: null, status: 'pending'
+  });
 });
 
 check('buildMatchRecordOptions defaults a never-started room and caps event lists', () => {

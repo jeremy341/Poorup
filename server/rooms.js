@@ -25,6 +25,18 @@ import {
 } from './rulesetRegistry.js';
 
 const RULESET_META_KEYS = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
+const LOBBY_BOT_NAMES = [
+  'Dice Goblin',
+  'Mossy Roll',
+  'Penny Arcade',
+  'Lady Luck',
+  'Coin Flip',
+  'Bailiff Bob',
+  'Rent Reaper',
+  'Tax Goblin',
+  'Vault Dweller',
+  'Chance Sprite'
+];
 
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -69,7 +81,7 @@ function normalizedRoomSetting(room, key, value) {
 
 function capacityAllowsSetting(room, key, value) {
   if (key !== 'maxPlayers') return true;
-  const retainedSeats = room.game.players.filter(player => !player.bankrupt).length;
+  const retainedSeats = room.game.players.filter(player => !player.isBot && !player.bankrupt).length;
   return value >= retainedSeats;
 }
 
@@ -165,6 +177,7 @@ class Player {
   // The full per-seat game baseline, written as plain field assignments so
   // constructing (and re-constructing) a seat is one straight-line pass.
   resetTableState() {
+    this.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
     this.properties = [];
     this.inJail = false;
     this.jailTurns = 0;
@@ -250,6 +263,8 @@ class Room {
     this.visibility = visibility;
     this.statsRecorded = false;
     this.hostId = hostPlayer.id;
+    this.kickedClientIds = new Set();
+    this.kickedAccountIds = new Set();
     this.settings = {
       ...DEFAULT_ROOM_SETTINGS,
       ...(rulesetPreset !== undefined ? { rulesetPreset } : {}),
@@ -316,9 +331,19 @@ class Room {
   }
 
   addOrReconnectPlayer(playerInfo) {
+    if (this.isSeatBlocked(playerInfo?.clientId, playerInfo?.accountId)) {
+      return { success: false, error: 'You cannot rejoin this room after a vote-kick.' };
+    }
     const existing = this.game.getPlayerByClient(playerInfo.clientId);
     if (existing) return this.reconnectPlayer(existing, playerInfo);
     return this.seatNewPlayer(playerInfo);
+  }
+
+  isSeatBlocked(clientId, accountId) {
+    return Boolean(
+      (clientId && this.kickedClientIds?.has(clientId))
+      || (accountId && this.kickedAccountIds?.has(accountId)),
+    );
   }
 
   reconnectPlayer(existing, playerInfo) {
@@ -338,6 +363,7 @@ class Room {
     existing.socketId = playerInfo.socketId;
     existing.disconnected = false;
     existing.disconnectDeadline = 0;
+    existing.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
     this.refreshReconnectNickname(existing, playerInfo.nickname);
     this.refreshReconnectAppearance(existing, playerInfo.color, playerInfo.avatarGrid);
     this.refreshReconnectAccount(existing, playerInfo.accountId);
@@ -417,12 +443,18 @@ class Room {
     if (playerInfo.accountId && this.game.players.some(player => player.accountId === playerInfo.accountId)) {
       return { success: false, error: 'This account is already seated in this room.' };
     }
+    while (!this.game.canJoin()) {
+      const lastBot = this.game.players.filter(player => player.isBot).at(-1);
+      if (!lastBot) break;
+      this.game.removePlayerByClient(lastBot.clientId);
+    }
     if (!this.game.canJoin()) {
       return { success: false, error: 'Room is full.' };
     }
     const player = new Player(playerInfo);
     player.color = resolveFreeAppearanceColor(this.game.players, player.color, player, player.avatarGrid);
     this.game.addPlayer(player);
+    this.ensureBots();
     return { success: true, player };
   }
 
@@ -495,6 +527,10 @@ class Room {
   }
 
   applyRoomSettingSideEffect(key, value) {
+    if (key === 'bots' || key === 'maxPlayers' || key === 'boardVariant') {
+      this.ensureBots();
+      return;
+    }
     if (key === 'startingCash') {
       this.game.players.forEach(player => {
         player.cash = Number(value);
@@ -561,7 +597,7 @@ class Room {
     for (let index = botCount; index < required; index += 1) {
       const bot = new Player({
         clientId: `bot-${this.roomCode}-${index + 1}`,
-        nickname: `BOT ${index + 1}`,
+        nickname: LOBBY_BOT_NAMES[index % LOBBY_BOT_NAMES.length],
         color: colors[index % colors.length],
         isBot: true,
         personality: this.settings.botPersonality
@@ -609,6 +645,7 @@ class Room {
         corners: boardVariantMeta(this.ruleset.boardVariant).corners
       },
       players: this.game.players.map(player => this.summarySeat(player, viewerPlayerId)),
+      voteKick: this.voteKickSnapshot || null,
       started: this.game.started,
       vacationPool: this.game.vacationPool
     };
@@ -626,6 +663,11 @@ class Room {
       bankrupt: player.bankrupt,
       spectating: Boolean(player.spectating),
       disconnected: player.disconnected,
+      presence: player.isBot ? null : {
+        state: player.presence?.state === 'inactive' ? 'inactive' : 'active',
+        inactiveSince: Number.isFinite(player.presence?.inactiveSince) ? player.presence.inactiveSince : null,
+        inactiveUntil: Number.isFinite(player.presence?.inactiveUntil) ? player.presence.inactiveUntil : null,
+      },
       isHost: player.isHost,
       ready: player.ready,
       isBot: player.isBot,
@@ -775,6 +817,7 @@ class RoomManager {
     if (!safeId) return null;
     const mappedRoom = this.socketRoom.get(socketId);
     const room = this.findLiveRoomFor(safeId) || this.findRoomFor(safeId);
+    if (room?.isSeatBlocked(safeId, accountId)) return null;
     if (room) {
       if (mappedRoom && mappedRoom !== room) return null;
       const player = room.game.getPlayerByClient(safeId);
@@ -792,6 +835,7 @@ class RoomManager {
       player.socketId = socketId;
       player.disconnected = false;
       player.disconnectDeadline = 0;
+      player.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
       this.socketRoom.set(socketId, room);
       return room;
     }
@@ -808,6 +852,7 @@ class RoomManager {
     if (!accountId) return null;
     if (!clientId) return null;
     if (this.socketRoom.has(socketId)) return null;
+    if ([...this.rooms.values()].some(room => room.isSeatBlocked(clientId, accountId))) return null;
     const accountSeats = [...this.rooms.values()].flatMap(roomItem => roomItem.game.players.filter(player => player.accountId === accountId && !player.bankrupt));
     if (accountSeats.some(player => !player.disconnected)) return null;
     const room = [...this.rooms.values()].find(roomItem => {
@@ -824,6 +869,7 @@ class RoomManager {
     player.socketId = socketId;
     player.disconnected = false;
     player.disconnectDeadline = 0;
+    player.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
     this.socketRoom.set(socketId, room);
     return room;
   }
@@ -872,6 +918,31 @@ class RoomManager {
       else this.rooms.delete(room.roomCode);
     }
     return room;
+  }
+
+  removeRoomSeat({ clientId, socketId, reason = 'leave', preventRejoin = false } = {}) {
+    const room = this.getRoomByClient(clientId);
+    const player = room?.game.getPlayerByClient(clientId);
+    if (!room || !player || (socketId && player.socketId && player.socketId !== socketId)) {
+      return { success: false, error: 'That room seat is no longer active.' };
+    }
+
+    if (preventRejoin) {
+      room.kickedClientIds.add(player.clientId);
+      if (player.accountId) room.kickedAccountIds.add(player.accountId);
+    }
+    const wasHost = room.hostId === player.id;
+    const releasedRoom = this.leaveRoomByClient(player.clientId, socketId || player.socketId);
+    if (!releasedRoom) return { success: false, error: 'That room seat is no longer active.' };
+    if (wasHost) {
+      const replacement = releasedRoom.game.players.find(candidate => !candidate.isBot
+        && !candidate.disconnected
+        && !candidate.bankrupt
+        && !candidate.inDebt);
+      releasedRoom.hostId = replacement?.id || null;
+      releasedRoom.game.players.forEach(candidate => { candidate.isHost = candidate.id === releasedRoom.hostId; });
+    }
+    return { success: true, room: releasedRoom, player, reason };
   }
 
   // A real leave releases the seat in the lobby AND mid-game, so the room
