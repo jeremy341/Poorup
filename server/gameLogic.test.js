@@ -592,6 +592,37 @@ async function testExplicitEndTurn() {
   }
 }
 
+async function testThirdDoubleAutoAdvancesWithoutEndTurn() {
+  const nodeCrypto = (await import('crypto')).default;
+  const original = nodeCrypto.randomInt;
+  const diceQueue = [1, 1, 2, 2, 3, 3];
+  nodeCrypto.randomInt = (min, max) => (min === 1 && max === 7 && diceQueue.length ? diceQueue.shift() : original(min, max));
+  try {
+    const room = makeRoom();
+    room.startGame();
+    const [player, successor] = room.game.players;
+    assert.equal(room.game.currentPlayerId, player.id);
+    player.position = 7;
+    room.game.getTile(9).ownerId = player.id;
+    room.game.getTile(13).ownerId = player.id;
+
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(room.game.extraRollPending, true);
+    assert.equal(room.game.currentPlayerId, player.id);
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(room.game.extraRollPending, true);
+    assert.equal(room.game.currentPlayerId, player.id);
+
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(player.inJail, true);
+    assert.equal(room.game.currentPlayerId, successor.id);
+    assert.equal(room.game.extraRollPending, false);
+    assert.equal(room.game.awaitingEndTurn, false);
+  } finally {
+    nodeCrypto.randomInt = original;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Stores characterization. The FIX_* fixtures below and the GOLDEN_* constants
 // were captured verbatim from the pre-refactor stores (main @ e23788d, 2026-09-04).
@@ -893,6 +924,7 @@ const CONTRACT_SUITES = [
   ['contract 8 — getGameSummary players[] avatarGrid', testGameSummaryAvatarGrid],
   ['contract 9 — leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame],
   ['contract 10 — explicit end-turn hold after landing', testExplicitEndTurn],
+  ['contract 10b — third doubles jail and auto-advance', testThirdDoubleAutoAdvancesWithoutEndTurn],
   ['stores — participant schema + achievement characterization', testStoresCharacterization]
 ];
 

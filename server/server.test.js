@@ -110,11 +110,18 @@ async function checkBotStatusAndReconnect(socket, child) {
   check('bot probe room creates', created?.success === true);
   await ask(socket, 'set-setting', { key: 'bots', value: 1 });
   await ask(socket, 'set-setting', { key: 'auction', value: false });
+  await ask(socket, 'set-setting', { key: 'randomizePlayerOrder', value: false });
+  await ask(socket, 'set-setting', { key: 'globalEvents', value: false });
+  await ask(socket, 'set-setting', { key: 'market', value: false });
+  await ask(socket, 'set-setting', { key: 'casino', value: false });
+  const startedState = nextEvent(socket, 'update-state');
   const started = await ask(socket, 'start-game', {});
-  check('bot probe round starts', started?.success === true);
+  const startedSnapshot = await startedState;
+  check('bot probe round starts', started?.success === true && startedSnapshot?.game?.started === true);
 
   let rolled = null;
   let snapshot = null;
+  let humanTurnResolved = false;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const stateUpdate = nextEvent(socket, 'update-state');
     rolled = await ask(socket, 'roll-dice', {});
@@ -124,14 +131,21 @@ async function checkBotStatusAndReconnect(socket, child) {
       await ask(socket, 'decline-property', { tileIndex: snapshot.game.pendingPurchaseOffer.tileIndex });
       snapshot = await afterDecline;
     }
-    if (!snapshot?.game?.extraRollPending) break;
+    const human = snapshot?.game?.players?.find(player => player.nickname === 'Bot Probe');
+    const humanCanEndTurn = Boolean(human && snapshot.game.currentPlayerId === human.id && snapshot.game.awaitingEndTurn);
+    const humanAutoAdvancedToJail = Boolean(human?.inJail && snapshot.game.currentPlayerId !== human.id);
+    humanTurnResolved = humanCanEndTurn || humanAutoAdvancedToJail;
+    if (humanTurnResolved || !snapshot?.game?.extraRollPending) break;
   }
-  check('bot probe human roll succeeds', rolled?.success === true && snapshot?.game?.awaitingEndTurn === true);
-  const ended = await ask(socket, 'end-turn', {});
+  const human = snapshot?.game?.players?.find(player => player.nickname === 'Bot Probe');
+  const humanCanEndTurn = Boolean(human && snapshot.game.currentPlayerId === human.id && snapshot.game.awaitingEndTurn);
+  const humanAutoAdvancedToJail = Boolean(human?.inJail && snapshot.game.currentPlayerId !== human.id);
+  check('bot probe human roll resolves by end-turn or third-double jail', rolled?.success === true && humanTurnResolved && (humanCanEndTurn || humanAutoAdvancedToJail));
+  const ended = humanCanEndTurn ? await ask(socket, 'end-turn', {}) : { success: humanAutoAdvancedToJail, autoAdvanced: humanAutoAdvancedToJail };
   await wait(1200);
   socket.off('bot-status', onStatus);
   const status = statuses.find(candidate => candidate?.state === 'thinking') || statuses.find(candidate => candidate?.state === 'chosen');
-  check('bot turn advances through the normal seam', ended?.success === true);
+  check('bot turn advances through the normal turn seam', ended?.success === true);
   check('bot status is announced with a safe public payload', status?.nickname && ['ai', 'deterministic'].includes(status.provider));
   check('server survives bot status flow', child.exitCode === null);
 
