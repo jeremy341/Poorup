@@ -5,6 +5,7 @@ import { error as logError, log as logInfo } from 'node:console';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { normalizeAdminIds } from '../server/analyticsApi.js';
 import { resolveAuxiliaryStorePaths, resolveStorePaths } from '../server/serverStorePaths.js';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -127,10 +128,12 @@ function restoreFiles(snapshots, backups) {
 export function purgeAccountData({
   dataDir = process.env.POORUP_DATA_DIR,
   backupDir = process.env.POORUP_BACKUP_DIR || '',
+  env = process.env,
   repositoryRoot = REPOSITORY_ROOT,
   apply = false,
   confirmation = '',
   expectedDataDir = '',
+  adminAllowlistCleared = false,
   replaceFile = atomicReplace,
   removeFile = filePath => fs.unlinkSync(filePath),
   io = fs
@@ -139,9 +142,12 @@ export function purgeAccountData({
   const backupRoot = backupDir
     ? validatedDirectory(backupDir, 'POORUP_BACKUP_DIR', path.resolve(repositoryRoot), io)
     : '';
+  const configuredAdminAllowlistEntries = normalizeAdminIds(env?.POORUP_ADMIN_ACCOUNT_IDS).length;
   if (apply) {
     if (confirmation !== ACCOUNT_PURGE_CONFIRMATION) throw new Error('Exact account purge confirmation is required.');
     if (path.resolve(expectedDataDir || '') !== root) throw new Error('Expected data directory must exactly match POORUP_DATA_DIR.');
+    if (configuredAdminAllowlistEntries) throw new Error('Remove the old POORUP_ADMIN_ACCOUNT_IDS entries before applying an all-account reset.');
+    if (!adminAllowlistCleared) throw new Error('Confirm the persistent admin allowlist was cleared before applying an all-account reset.');
   }
 
   const paths = storePaths(root);
@@ -154,7 +160,12 @@ export function purgeAccountData({
     return { name, path: filePath, exists: true, records: countRecords(loaded.value) };
   });
   const backups = backupInventory(backupRoot, io);
-  const report = { mode: apply ? 'applied' : 'dry-run', stores, accountStoreBackups: backups.length };
+  const report = {
+    mode: apply ? 'applied' : 'dry-run',
+    stores,
+    accountStoreBackups: backups.length,
+    configuredAdminAllowlistEntries,
+  };
   if (!apply) return report;
 
   const snapshots = stores
@@ -178,9 +189,10 @@ export function purgeAccountData({
 }
 
 function cliOptions(args) {
-  const options = { apply: false, confirmation: '', expectedDataDir: '' };
+  const options = { apply: false, confirmation: '', expectedDataDir: '', adminAllowlistCleared: false };
   for (const arg of args) {
     if (arg === '--apply') options.apply = true;
+    else if (arg === '--admin-allowlist-cleared') options.adminAllowlistCleared = true;
     else if (arg.startsWith('--confirm=')) options.confirmation = arg.slice('--confirm='.length);
     else if (arg.startsWith('--expect-data-dir=')) options.expectedDataDir = arg.slice('--expect-data-dir='.length);
     else throw new Error('Unknown account-purge option.');

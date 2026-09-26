@@ -32,11 +32,12 @@ fs.writeFileSync(path.join(backupDir, 'ai-providers.json.2026-09-26.json'), JSON
 
 const original = new Map([...Object.keys(stores), 'accounts.json.2026-09-26.json', 'accounts.json.2026-09-26.json.sha256', 'ai-providers.json.2026-09-26.json']
   .map(name => [name, fs.readFileSync(path.join(name.endsWith('.sha256') || name.includes('.json.') ? backupDir : dataDir, name))]));
-const safeOptions = { dataDir, backupDir, repositoryRoot: path.resolve('.') };
+const safeOptions = { dataDir, backupDir, env: {}, repositoryRoot: path.resolve('.') };
 
 const preview = purgeAccountData(safeOptions);
 assert.equal(preview.mode, 'dry-run');
 assert.ok(preview.stores.length >= 10);
+assert.equal(preview.configuredAdminAllowlistEntries, 0);
 const previewText = JSON.stringify(preview);
 assert.doesNotMatch(previewText, /private-account-id|hidden_user|secret-hash|private-match|private-token/i);
 for (const [name, bytes] of original) {
@@ -48,6 +49,23 @@ assert.throws(() => purgeAccountData({ ...safeOptions, dataDir: '' }), /POORUP_D
 assert.throws(() => purgeAccountData({ ...safeOptions, dataDir: path.parse(dataDir).root }), /filesystem root/);
 assert.throws(() => purgeAccountData({ ...safeOptions, dataDir: safeOptions.repositoryRoot }), /inside the repository/);
 assert.throws(() => purgeAccountData({ ...safeOptions, apply: true, confirmation: 'wrong' }), /confirmation/);
+const adminPreview = purgeAccountData({ ...safeOptions, env: { POORUP_ADMIN_ACCOUNT_IDS: 'old-admin-id, second-admin-id' } });
+assert.equal(adminPreview.configuredAdminAllowlistEntries, 2);
+assert.doesNotMatch(JSON.stringify(adminPreview), /old-admin-id|second-admin-id/);
+assert.throws(() => purgeAccountData({
+  ...safeOptions,
+  env: { POORUP_ADMIN_ACCOUNT_IDS: 'old-admin-id' },
+  apply: true,
+  confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
+  expectedDataDir: dataDir,
+  adminAllowlistCleared: true
+}), /Remove the old POORUP_ADMIN_ACCOUNT_IDS/);
+assert.throws(() => purgeAccountData({
+  ...safeOptions,
+  apply: true,
+  confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
+  expectedDataDir: dataDir
+}), /persistent admin allowlist was cleared/);
 assert.throws(() => purgeAccountData({
   ...safeOptions,
   apply: true,
@@ -61,6 +79,7 @@ assert.throws(() => purgeAccountData({
   apply: true,
   confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
   expectedDataDir: dataDir,
+  adminAllowlistCleared: true,
   replaceFile: (target, contents) => {
     if (failOnce && target.endsWith('social.json')) {
       failOnce = false;
@@ -79,7 +98,8 @@ const applied = purgeAccountData({
   ...safeOptions,
   apply: true,
   confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
-  expectedDataDir: dataDir
+  expectedDataDir: dataDir,
+  adminAllowlistCleared: true
 });
 assert.equal(applied.mode, 'applied');
 assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'accounts.json'), 'utf8')), []);

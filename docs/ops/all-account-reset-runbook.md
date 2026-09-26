@@ -9,7 +9,8 @@ The tool is dry-run by default. It rejects an empty or relative data path,
 filesystem roots, repository paths, symlinked data/backup directories, and
 symlinked store files. Its report includes only store names, resolved paths, and
 row/file counts; it never prints account names, IDs, credentials, recovery
-addresses, token values, or backup contents.
+addresses, token values, or backup contents. It also reports only the count of
+IDs in `POORUP_ADMIN_ACCOUNT_IDS`, never the IDs themselves.
 
 ## Preconditions
 
@@ -20,7 +21,12 @@ addresses, token values, or backup contents.
    hidden application-side copy.
 4. Set `POORUP_DATA_DIR` and, if configured, `POORUP_BACKUP_DIR` for exactly
    one environment. Never reuse a path copied from another environment.
-5. Review the dry-run paths/counts out of band. Do not paste its output if it
+5. Remove the old `POORUP_ADMIN_ACCOUNT_IDS` values from the persistent local
+   and Nest service configurations before reset. Confirm the dry-run reports
+   zero configured allowlist entries. The script blocks apply if the current
+   process still sees any old admin IDs and requires an explicit
+   `--admin-allowlist-cleared` acknowledgement.
+6. Review the dry-run paths/counts out of band. Do not paste its output if it
    contains infrastructure paths you do not want in chat.
 
 ## Dry-run
@@ -47,7 +53,8 @@ explicit phrase is required as a second guard:
 ```powershell
 node scripts/purge-all-account-data.mjs --apply `
   --confirm="DELETE ALL POORUP ACCOUNT DATA" `
-  --expect-data-dir="$env:POORUP_DATA_DIR"
+  --expect-data-dir="$env:POORUP_DATA_DIR" `
+  --admin-allowlist-cleared
 ```
 
 This is irreversible once the external recovery window expires. Store files
@@ -58,5 +65,7 @@ stopped and retain the verified external recovery copy until post-checks pass.
 
 After an approved apply, inspect only aggregate health (store parseability,
 empty account/session counts, expected global AI-provider configuration,
-service readiness) and never log account records. Keep the environment in
+service readiness) and never log account records. Only after creating and
+verifying the replacement account should the operator add that account's new
+internal ID to `POORUP_ADMIN_ACCOUNT_IDS` and restart the service. Keep the environment in
 maintenance until the owner creates a fresh account and signs in successfully.
