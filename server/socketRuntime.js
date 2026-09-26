@@ -13,11 +13,10 @@ import {
   runBotTurn,
   resolvePurchaseOffer,
   isAuctionBotParticipant,
-  decideBotAuction
+  auctionBidDecision
 } from './botLogic.js';
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
-import { scheduleBotTimer } from './botTiming.js';
 
 const DEFAULT_RECONNECT_GRACE_MS = 120000;
 const configuredTestReconnectGrace = Number(process.env.POORUP_TEST_RECONNECT_GRACE_MS);
@@ -675,11 +674,7 @@ function createRuntime(deps) {
     if (!bot?.isBot) return;
     if (bot.bankrupt) return;
     if (bot.disconnected) return;
-    const timer = scheduleBotTimer(
-      setTimeoutFn,
-      () => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)),
-      'turn'
-    );
+    const timer = setTimeoutFn(() => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)), 650);
     botTimers.set(room.roomCode, timer);
   }
 
@@ -770,15 +765,11 @@ function createRuntime(deps) {
     if (auctionBotTimers.has(key) || auctionDecisionLocks.has(key)) return;
     const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
     if (!bot) return;
-    const timer = scheduleBotTimer(
-      setTimeoutFn,
-      () => runRoomTimer('bot-auction', room.roomCode, () => {
-        beginBotAuctionBid(room, bot, key).catch(error => {
-          console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
-        });
-      }),
-      'auction'
-    );
+    const timer = setTimeoutFn(() => runRoomTimer('bot-auction', room.roomCode, () => {
+      beginBotAuctionBid(room, bot, key).catch(error => {
+        console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
+      });
+    }), 450);
     auctionBotTimers.set(key, timer);
   }
 
@@ -800,6 +791,8 @@ function createRuntime(deps) {
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
+    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
+    const minimum = baseline.minimum;
     const context = {
       botId: bot.id,
       botBrain: room.settings.botBrain || 'auto',
@@ -809,16 +802,18 @@ function createRuntime(deps) {
       ruleVersion: BOT_RULE_VERSION,
       ...buildBotStrategicContext(room.game, bot, 'auction', decisionSequence)
     };
-    const choice = await decideBotAuction({
-      auction: room.game.auction,
-      bot,
-      startingCash: room.game.settings.startingCash,
-      advisor: botAdvisor,
-      context: { ...context, event: room.game.globalEvent }
-    });
+    const candidates = [
+      { id: 'auction:bid', kind: 'auction', amount: minimum, risk: minimum / Math.max(1, bot.cash), score: baseline.shouldBid ? 12 : 2 },
+      { id: 'auction:pass', kind: 'auction', risk: 0, score: baseline.shouldBid ? 1 : 10 }
+    ];
+    let decision = null;
+    if (botAdvisor.supportsChoicePhases) {
+      decision = await botAdvisor.chooseAction({ ...context, candidates, personality: bot.personality, event: room.game.globalEvent });
+    }
     if (room.destroyed || !sameAuction(room.game.auction, auctionVersion)) return;
-    const { candidates, minimum, decision } = choice;
-    const actionId = choice.actionId;
+    const actionId = decision?.actionId === 'auction:bid' || decision?.actionId === 'auction:pass'
+      ? decision.actionId
+      : baseline.shouldBid ? 'auction:bid' : 'auction:pass';
     const shouldBid = actionId === 'auction:bid';
     const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
     const trace = room.game.recordBotDecisionTrace({
@@ -826,8 +821,8 @@ function createRuntime(deps) {
       phase: 'auction',
       ...decision,
       provider: decision?.provider || 'deterministic',
-      fallback: choice.actionId !== decision?.actionId || decision?.fallback !== false,
-      fallbackReason: choice.actionId !== decision?.actionId ? 'invalid-auction-action' : decision?.fallbackReason || 'auction-policy',
+      fallback: decision?.fallback !== false,
+      fallbackReason: decision?.fallbackReason || 'auction-policy',
       actionId,
       confidence: Number.isFinite(Number(decision?.confidence)) ? decision.confidence : 0.55,
       success: result?.success !== false,
@@ -1189,8 +1184,6 @@ function createRuntime(deps) {
     reassignHostIfNeeded,
     roomManager,
     scheduleAuctionFinish,
-    scheduleBotAuction,
-    scheduleBotTurn,
     scheduleRoomsUpdated,
     social,
     socialStore,

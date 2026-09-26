@@ -76,28 +76,12 @@ function makeRoomVerbHandler(socket, runtime, definition) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const result = room[definition.verb](socket.id, ...definition.args(payload));
-    const player = room.getPlayerBySocket(socket.id);
-    if (result?.success !== false) room.game.recordHumanAction?.(player);
-    const actionKind = publicActionHistoryKind(definition.event, payload, result);
-    if (actionKind) room.game.recordPublicAction?.(player, actionKind);
+    if (result?.success !== false) room.game.recordHumanAction?.(room.getPlayerBySocket(socket.id));
     refreshLiveAuction(runtime, definition, room, result);
     runtime.emitRoomState(room);
     announceVerbResult(runtime.io, room, result, definition);
     reply(callback, roomVerbAck(result, definition.ackExtras));
   };
-}
-
-function publicActionHistoryKind(event, payload = {}, result) {
-  if (result?.success !== true) return null;
-  if (event === 'auction-bid') return 'auction-bid';
-  if (event === 'auction-pass') return 'auction-pass';
-  if (event === 'purchase-property') return 'purchase';
-  if (event === 'manage-property') return payload.action === 'build-house' ? 'build' : null;
-  if (event === 'respond-trade') return payload.accept === true ? 'trade-accept' : null;
-  if (event === 'counter-trade') return 'trade-counter';
-  if (event === 'respond-player-contract') return payload.accept === true ? 'contract-accept' : null;
-  if (event === 'counter-player-contract') return 'contract-counter';
-  return null;
 }
 
 function refreshLiveAuction(runtime, definition, room, result) {
@@ -172,4 +156,4 @@ function isPromiseLike(result) {
   return typeof result.catch === 'function';
 }
 
-export { createSafeEmitter, emitResultMessage, getRoomForSocket, makeRoomVerbHandler, publicActionHistoryKind, relayResultOffer, reply, resolveAccount, roomVerbAck };
+export { createSafeEmitter, emitResultMessage, getRoomForSocket, makeRoomVerbHandler, relayResultOffer, reply, resolveAccount, roomVerbAck };
