@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { log } from 'node:console';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -48,6 +49,11 @@ for (const [name, bytes] of original) {
 assert.throws(() => purgeAccountData({ ...safeOptions, dataDir: '' }), /POORUP_DATA_DIR/);
 assert.throws(() => purgeAccountData({ ...safeOptions, dataDir: path.parse(dataDir).root }), /filesystem root/);
 assert.throws(() => purgeAccountData({ ...safeOptions, dataDir: safeOptions.repositoryRoot }), /inside the repository/);
+const otherRepository = path.join(root, 'other-repository');
+const otherRepositoryData = path.join(otherRepository, 'server', 'data');
+fs.mkdirSync(path.join(otherRepository, '.git'), { recursive: true });
+fs.mkdirSync(otherRepositoryData, { recursive: true });
+assert.throws(() => purgeAccountData({ ...safeOptions, dataDir: otherRepositoryData }), /inside a Git working tree/);
 assert.throws(() => purgeAccountData({ ...safeOptions, apply: true, confirmation: 'wrong' }), /confirmation/);
 const adminPreview = purgeAccountData({ ...safeOptions, env: { POORUP_ADMIN_ACCOUNT_IDS: 'old-admin-id, second-admin-id' } });
 assert.equal(adminPreview.configuredAdminAllowlistEntries, 2);
@@ -72,6 +78,98 @@ assert.throws(() => purgeAccountData({
   confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
   expectedDataDir: path.join(dataDir, 'other')
 }), /exactly match/);
+
+const localRepository = path.join(root, 'local-repository');
+const localDefaultData = path.join(localRepository, 'server', 'data');
+fs.mkdirSync(path.join(localRepository, '.git'), { recursive: true });
+fs.mkdirSync(localDefaultData, { recursive: true });
+fs.writeFileSync(path.join(localRepository, '.gitignore'), 'server/data/\n');
+const localAccountBytes = Buffer.from(JSON.stringify([{ id: 'local-private', username: 'local_user' }]));
+fs.writeFileSync(path.join(localDefaultData, 'accounts.json'), localAccountBytes);
+const localDefaultPreview = purgeAccountData({
+  dataDir: localDefaultData,
+  repositoryRoot: localRepository,
+  previewRepositoryRoot: localRepository,
+  env: {},
+});
+assert.equal(localDefaultPreview.mode, 'dry-run');
+assert.equal(localDefaultPreview.stores.find(store => store.name === 'accounts').records, 1);
+assert.doesNotMatch(JSON.stringify(localDefaultPreview), /local-private|local_user/);
+assert.deepEqual(fs.readFileSync(path.join(localDefaultData, 'accounts.json')), localAccountBytes);
+assert.throws(() => purgeAccountData({
+  dataDir: localDefaultData,
+  repositoryRoot: localRepository,
+  previewRepositoryRoot: localRepository,
+  env: {},
+  apply: true,
+  confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
+  expectedDataDir: localDefaultData,
+  adminAllowlistCleared: true,
+}), /read-only preview/);
+
+const extraDataDir = path.join(root, 'data-with-unknown-file');
+fs.mkdirSync(extraDataDir);
+fs.writeFileSync(path.join(extraDataDir, 'accounts.json'), '[]\n');
+for (const name of ['__dbg.json', '__gold_acct.json', '__gold_matches.json']) {
+  fs.writeFileSync(path.join(extraDataDir, name), JSON.stringify({ privatePayload: 'must not print' }));
+}
+fs.writeFileSync(path.join(extraDataDir, '__unclassified.json'), JSON.stringify({ privatePayload: 'must not print' }));
+const extraFilePreview = purgeAccountData({ dataDir: extraDataDir, repositoryRoot: path.resolve('.'), env: {} });
+assert.equal(extraFilePreview.unrecognizedDataFileCount, 1);
+assert.equal(extraFilePreview.additionalAccountFilesToDelete, 3);
+assert.doesNotMatch(JSON.stringify(extraFilePreview), /privatePayload|must not print/);
+assert.throws(() => purgeAccountData({
+  dataDir: extraDataDir,
+  repositoryRoot: path.resolve('.'),
+  env: {},
+  apply: true,
+  confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
+  expectedDataDir: extraDataDir,
+  adminAllowlistCleared: true,
+}), /Unexpected data files must be classified/);
+
+const classifiedDataDir = path.join(root, 'data-with-classified-files');
+fs.mkdirSync(classifiedDataDir);
+fs.writeFileSync(path.join(classifiedDataDir, 'accounts.json'), JSON.stringify(stores['accounts.json']));
+for (const name of ['__dbg.json', '__gold_acct.json', '__gold_matches.json']) {
+  fs.writeFileSync(path.join(classifiedDataDir, name), JSON.stringify({ privatePayload: 'must not print' }));
+}
+let failAdditionalRemovalOnce = true;
+assert.throws(() => purgeAccountData({
+  dataDir: classifiedDataDir,
+  repositoryRoot: path.resolve('.'),
+  env: {},
+  apply: true,
+  confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
+  expectedDataDir: classifiedDataDir,
+  adminAllowlistCleared: true,
+  removeFile: filePath => {
+    if (failAdditionalRemovalOnce && filePath.endsWith('__gold_acct.json')) {
+      failAdditionalRemovalOnce = false;
+      throw new Error('injected extra-file removal failure');
+    }
+    fs.unlinkSync(filePath);
+  }
+}), /rolled back/);
+assert.equal(JSON.parse(fs.readFileSync(path.join(classifiedDataDir, 'accounts.json'), 'utf8'))[0].id, 'private-account-id');
+for (const name of ['__dbg.json', '__gold_acct.json', '__gold_matches.json']) {
+  assert.equal(fs.existsSync(path.join(classifiedDataDir, name)), true, `${name} was not restored after partial failure`);
+}
+const classifiedApplied = purgeAccountData({
+  dataDir: classifiedDataDir,
+  repositoryRoot: path.resolve('.'),
+  env: {},
+  apply: true,
+  confirmation: 'DELETE ALL POORUP ACCOUNT DATA',
+  expectedDataDir: classifiedDataDir,
+  adminAllowlistCleared: true,
+});
+assert.equal(classifiedApplied.additionalAccountFilesToDelete, 3);
+assert.equal(classifiedApplied.stores.find(store => store.name === 'accounts').records, 1);
+assert.deepEqual(JSON.parse(fs.readFileSync(path.join(classifiedDataDir, 'accounts.json'), 'utf8')), []);
+for (const name of ['__dbg.json', '__gold_acct.json', '__gold_matches.json']) {
+  assert.equal(fs.existsSync(path.join(classifiedDataDir, name)), false, `${name} remains after purge`);
+}
 
 let failOnce = true;
 assert.throws(() => purgeAccountData({

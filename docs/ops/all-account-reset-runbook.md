@@ -7,10 +7,23 @@ The global AI-provider configuration and maintenance marker are preserved.
 
 The tool is dry-run by default. It rejects an empty or relative data path,
 filesystem roots, repository paths, symlinked data/backup directories, and
-symlinked store files. Its report includes only store names, resolved paths, and
-row/file counts; it never prints account names, IDs, credentials, recovery
-addresses, token values, or backup contents. It also reports only the count of
-IDs in `POORUP_ADMIN_ACCOUNT_IDS`, never the IDs themselves.
+symlinked store files. Its report includes only store names, resolved paths,
+row/file counts, and the count of unrecognized data files; it never prints
+account names, IDs, credentials, recovery addresses, token values, or backup
+contents. It also reports only the count of IDs in
+`POORUP_ADMIN_ACCOUNT_IDS`, never the IDs themselves.
+
+The known local `__dbg.json`, `__gold_acct.json`, and `__gold_matches.json`
+files are classified as account/match data and are included in the purge.
+Other unrecognized files still block apply until reviewed.
+
+When `POORUP_DATA_DIR` is unset, the local app defaults to the ignored
+`server/data` directory inside its checkout. The special
+`--preview-repository-root=<repo>` option is read-only and previews only that
+exact `server/data` directory. It cannot be combined with `--apply`. Any
+unrecognized data files are counted and block apply until they are classified.
+Applying a reset still requires an external data directory; migrate the app's
+data to an external `POORUP_DATA_DIR` before the destructive apply step.
 
 ## Preconditions
 
@@ -42,6 +55,14 @@ node scripts/purge-all-account-data.mjs
 Repeat separately for local development and Nest. The default command does not
 write files. It fails closed if any configured store is malformed or any
 allowlisted path is unsafe.
+
+For a local checkout that relies on the legacy in-repository default, use only
+this read-only preview; it cannot apply a reset:
+
+```powershell
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+node scripts/purge-all-account-data.mjs "--preview-repository-root=$repoRoot"
+```
 
 ## Apply gate
 
