@@ -172,11 +172,16 @@ const bankruptcyApi = {
 
   seizeCollateralForLender(player, contract) {
     const lender = this.getPlayerById(contract.fromPlayerId);
-    const collateral = this.collateralForContract(contract);
+    const indices = Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length
+      ? contract.collateralTileIndices
+      : contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
     if (lender) {
-      if (collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+      for (const index of indices) {
+        const collateral = this.getTile(Number(index));
+        if (collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+      }
     }
-    if (contract.collateralTileIndex != null) player.collateralLost = true;
+    if (indices.length) player.collateralLost = true;
     contract.status = 'defaulted';
     contract.defaultedRound = this.roundNumber;
   },

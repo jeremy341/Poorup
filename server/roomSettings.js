@@ -18,7 +18,6 @@ const DEFAULT_ROOM_SETTINGS = {
   randomizePlayerOrder: false,
   houseLimit: 32,
   hotelLimit: 12,
-  turnTimer: 0,
   bankruptMode: 'elim',
   bots: 0,
   botPersonality: 'survivor',
@@ -60,6 +59,8 @@ const ROOM_RULESET_BASES = ['classic', 'after-hours'];
 const ROOM_BOARD_VARIANTS = ['standard-40', 'metro-52'];
 const ROOM_MARKET_COMPLEXITIES = ['basic', 'margin', 'shorting', 'derivatives'];
 const ROOM_BANK_LOAN_SEVERITIES = ['fair', 'predatory', 'extreme'];
+const ROOM_HOUSE_LIMITS = [10, 20, 32, 40, 50, 64];
+const ROOM_HOTEL_LIMITS = [6, 12, 16, 24, 32];
 // Legacy clients may still send these fields; the server owns scaling now.
 const LEGACY_SCALED_SETTINGS = ['globalEventDuration', 'globalEventMax'];
 
@@ -88,6 +89,12 @@ function boundedInteger(value, { min = 0, max = Number.MAX_SAFE_INTEGER, fallbac
   const floored = Math.floor(parsed);
   if (floored < min || floored > max) return fallback;
   return floored;
+}
+
+function normalizeBuildingLimit(value, allowedValues) {
+  if (typeof value === 'string' && value.trim().toLowerCase() === 'unlimited') return 'unlimited';
+  const parsed = boundedInteger(value, { min: 0, max: 100, fallback: SETTING_REJECTED });
+  return parsed !== SETTING_REJECTED && allowedValues.includes(parsed) ? parsed : SETTING_REJECTED;
 }
 
 // The legacy duration/max knobs snap to the two-step ladder the old client
@@ -169,9 +176,8 @@ const ROOM_SETTING_NORMALIZERS = {
   // Bots are clamped against the live maxPlayers so seat math stays coherent.
   bots: (value, room) => clampSetting(value, 0, room.settings.maxPlayers - 1),
   startingCash: value => boundedInteger(value, { min: 0, max: 1_000_000, fallback: SETTING_REJECTED }),
-  houseLimit: value => boundedInteger(value, { min: 0, max: 100, fallback: SETTING_REJECTED }),
-  hotelLimit: value => boundedInteger(value, { min: 0, max: 50, fallback: SETTING_REJECTED }),
-  turnTimer: value => boundedInteger(value, { min: 0, max: 3_600, fallback: SETTING_REJECTED }),
+  houseLimit: value => normalizeBuildingLimit(value, ROOM_HOUSE_LIMITS),
+  hotelLimit: value => normalizeBuildingLimit(value, ROOM_HOTEL_LIMITS),
   // Bankrupt mode is retained only for snapshot compatibility; the game has
   // one authoritative elimination/spectator path now.
   bankruptMode: () => 'elim',
@@ -203,6 +209,8 @@ export {
   ROOM_BOARD_VARIANTS,
   ROOM_MARKET_COMPLEXITIES,
   ROOM_BANK_LOAN_SEVERITIES,
+  ROOM_HOUSE_LIMITS,
+  ROOM_HOTEL_LIMITS,
   ROOM_FLAG_TRUE_VALUES,
   ROOM_SETTING_NORMALIZERS,
   SETTING_REJECTED,

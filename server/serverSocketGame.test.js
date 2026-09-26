@@ -86,4 +86,22 @@ const lenderResponse = invoke(second.hostHandlers.get('respond-player-contract')
 });
 assert.equal(lenderResponse.success, true);
 assert.deepEqual(second.delivered.filter(entry => entry.event === 'player-contract-update').map(entry => entry.target), [secondBorrower.socketId]);
-console.log('server socket game relay: 2 scenarios passed, 0 failed');
+
+const equity = relayRoom('relay-equity-a', 'relay-equity-b', 'relay-equity-a-client', 'relay-equity-b-client');
+const [seller, buyer] = equity.room.game.players;
+let equityCall;
+const transfer = { id: 'equity-transfer-1', fromPlayerId: seller.id, toPlayerId: buyer.id, amount: 40, kind: 'equity-transfer' };
+equity.room.game.proposeEquityShareTransfer = (socketId, offer) => {
+  equityCall = { socketId, offer };
+  return { success: true, transfer };
+};
+const equityResult = invoke(equity.hostHandlers.get('propose-equity-share-transfer'), {
+  fromPlayerId: buyer.id,
+  toPlayerId: buyer.id,
+  requestId: 'equity-transfer-request',
+});
+assert.equal(equityCall.socketId, seller.socketId);
+assert.equal(equityCall.offer.fromPlayerId, seller.id, 'the actor id comes from the authenticated room seat');
+assert.equal(equityResult.contract, transfer);
+assert.deepEqual(equity.delivered.filter(entry => entry.event === 'player-contract-offer').map(entry => [entry.target, entry.payload.contract]), [[buyer.socketId, transfer]]);
+console.log('server socket game relay: 3 scenarios passed, 0 failed');

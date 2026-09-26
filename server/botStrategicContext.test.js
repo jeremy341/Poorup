@@ -55,7 +55,7 @@ assert.equal(context.botState.properties[0].houseCount, 2);
 assert.equal(context.turn.currentSeat, 'self');
 assert.equal(context.turn.turnCount, 2);
 assert.equal(context.obligations.payment.amountRemaining, 140);
-assert.equal(context.obligations.payment.creditorSeat, 'opponent-2');
+assert.equal(context.obligations.payment.creditorSeat, 'opponent-1');
 assert.equal(context.activeEvent.id, 'housing-bubble');
 assert.equal(context.rulesDigest.version, BOT_RULE_VERSION);
 assert.equal(context.rulesDigest.boardSize, 40);
