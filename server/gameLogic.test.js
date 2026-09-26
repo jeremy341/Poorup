@@ -75,9 +75,7 @@ async function testJoinColorUniqueness() {
   // All four presets in use (bots are players too) → keep the requested color.
   const packed = new RoomManager();
   const full = packed.createRoom({ socketId: 'socket-f', clientId: 'client-f', nickname: 'F', color: '#d74438' });
-  full.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT 1', color: '#286ea1', isBot: true });
-  full.addOrReconnectPlayer({ socketId: null, clientId: 'bot-2', nickname: 'BOT 2', color: '#d9a62f', isBot: true });
-  full.addOrReconnectPlayer({ socketId: null, clientId: 'bot-3', nickname: 'BOT 3', color: '#35a653', isBot: true });
+  full.setRoomSetting('bots', 3);
   // The table is full once bots count against retained capacity. Exercise the
   // same resolver through an existing seat instead of allowing a fifth seat.
   const desperate = full.game.setPlayerAppearance('socket-f', { color: '#d74438' });
@@ -158,7 +156,7 @@ async function testHasConnectedHumans() {
   const solo = new RoomManager();
   const empty = solo.createRoom({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   empty.game.removePlayerByClient('client-b');
-  empty.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT 1', isBot: true });
+  empty.setRoomSetting('bots', 1);
   assert.equal(empty.hasConnectedHumans(), false);
   // Disconnected humans do not count; reconnecting restores occupancy.
   const pair = new RoomManager();
@@ -177,7 +175,7 @@ async function testListPublicRooms() {
   const human = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   const botOnly = manager.createRoom({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   botOnly.game.removePlayerByClient('client-b');
-  botOnly.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT 1', isBot: true });
+  botOnly.setRoomSetting('bots', 1);
   const privateRoom = manager.createRoom({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C', visibility: 'private' });
   let listings = manager.listPublicRooms();
   assert.equal(listings.some(entry => entry.roomId === human.publicId && entry.code === null), true);
@@ -193,7 +191,7 @@ async function testListPublicRooms() {
   // Bots still count toward directory seats.
   const mixed = new RoomManager();
   const seatRoom = mixed.createRoom({ socketId: 'socket-d', clientId: 'client-d', nickname: 'D' });
-  seatRoom.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT 1', isBot: true });
+  seatRoom.setRoomSetting('bots', 1);
   const listing = mixed.listPublicRooms().find(entry => entry.roomId === seatRoom.publicId);
   assert.ok(listing);
   assert.equal(listing.seats, 2);
@@ -606,6 +604,48 @@ async function testExplicitEndTurn() {
   }
 }
 
+function testGameStateDoesNotCreateTurnDeadlineState() {
+  const room = makeRoom();
+  assert.equal(room.startGame().success, true);
+  const game = room.game;
+  assert.equal(Object.hasOwn(game, 'turnDeadline'), false, 'new game state has no live turn deadline field');
+  game.reset();
+  assert.equal(Object.hasOwn(game, 'turnDeadline'), false, 'reset does not restore removed turn deadline state');
+  game.resetForNewGame();
+  assert.equal(Object.hasOwn(game, 'turnDeadline'), false, 'new-game reset does not restore removed turn deadline state');
+}
+
+async function testThirdDoubleAutoAdvancesWithoutEndTurn() {
+  const nodeCrypto = (await import('crypto')).default;
+  const original = nodeCrypto.randomInt;
+  const diceQueue = [1, 1, 2, 2, 3, 3];
+  nodeCrypto.randomInt = (min, max) => (min === 1 && max === 7 && diceQueue.length ? diceQueue.shift() : original(min, max));
+  try {
+    const room = makeRoom();
+    room.startGame();
+    const [player, successor] = room.game.players;
+    assert.equal(room.game.currentPlayerId, player.id);
+    player.position = 7;
+    room.game.getTile(9).ownerId = player.id;
+    room.game.getTile(13).ownerId = player.id;
+
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(room.game.extraRollPending, true);
+    assert.equal(room.game.currentPlayerId, player.id);
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(room.game.extraRollPending, true);
+    assert.equal(room.game.currentPlayerId, player.id);
+
+    assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(player.inJail, true);
+    assert.equal(room.game.currentPlayerId, successor.id);
+    assert.equal(room.game.extraRollPending, false);
+    assert.equal(room.game.awaitingEndTurn, false);
+  } finally {
+    nodeCrypto.randomInt = original;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Stores characterization. The FIX_* fixtures below and the GOLDEN_* constants
 // were captured verbatim from the pre-refactor stores (main @ e23788d, 2026-09-04).
@@ -898,6 +938,7 @@ function testStoresCharacterization() {
 
 const CONTRACT_SUITES = [
   ['public action history stores only seat/round/kind and resets per game', testGamePublicActionHistoryUsesSeatAndRoundOnly],
+  ['turn timer removal — no turnDeadline state', testGameStateDoesNotCreateTurnDeadlineState],
   ['contract 7 — createRoom generated codes never overwrite', testCreateRoomCodeCollision],
   ['contract 7b — createRoom requested codes never overwrite', testRequestedRoomCodeCollision],
   ['contract 6 — join/create icon collision auto-assign', testJoinColorUniqueness],
@@ -908,6 +949,7 @@ const CONTRACT_SUITES = [
   ['contract 8 — getGameSummary players[] avatarGrid', testGameSummaryAvatarGrid],
   ['contract 9 — leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame],
   ['contract 10 — explicit end-turn hold after landing', testExplicitEndTurn],
+  ['contract 10b — third doubles jail and auto-advance', testThirdDoubleAutoAdvancesWithoutEndTurn],
   ['stores — participant schema + achievement characterization', testStoresCharacterization]
 ];
 

@@ -145,110 +145,6 @@ function hudStageKind(cur) {
   return { label: "ROLL", className: "" };
 }
 
-// ---- per-turn countdown -------------------------------------------
-let turnDeadline = 0;
-let turnTimerInterval = null;
-let turnTimerLeft = 0;
-let lastAnnouncedTurnSecond = null;
-export function configureTurnCountdown(_hooks) {
-  // Kept as a compatibility seam; expiry is now resolved by the server.
-}
-
-function autoEndExpiredTurn() {
-  if (state.phase !== "playing") return;
-  if (state.turnIndex !== 0) return;
-  // Expiry is server-authoritative. The local clock only renders feedback;
-  // the runtime clears obligations and advances the turn atomically.
-}
-
-function countdownTick() {
-  turnTimerLeft = Math.max(0, turnDeadline - serverNow());
-  updateTurnTimerState();
-  if (turnTimerLeft > 0) return;
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-  // auto-end the human's turn when time runs out
-  autoEndExpiredTurn();
-}
-
-export function stopTurnCountdown() {
-  clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-}
-
-export function startTurnCountdown() {
-  stopTurnCountdown();
-  if (state.settings.turnTimer <= 0 || state.turnIndex !== 0) return;
-  // Never fabricate a deadline: without a server timestamp the timer stays
-  // hidden instead of counting down a phantom window.
-  const serverDeadline = Number(state.turnDeadline);
-  if (!Number.isFinite(serverDeadline) || serverDeadline <= 0) return;
-  turnDeadline = serverDeadline;
-  lastAnnouncedTurnSecond = null;
-  turnTimerInterval = setInterval(countdownTick, 120);
-}
-
-function turnTimerAnnouncer(timerEl) {
-  const parent = timerEl?.parentElement;
-  if (!parent) return null;
-  let announcer = parent.querySelector("#hud-timer-announcer");
-  if (announcer) return announcer;
-  announcer = document.createElement("span");
-  announcer.id = "hud-timer-announcer";
-  announcer.className = "sr-only";
-  announcer.setAttribute("aria-live", "polite");
-  announcer.setAttribute("aria-atomic", "true");
-  parent.appendChild(announcer);
-  return announcer;
-}
-
-export function updateTurnTimerState() {
-  const timerEl = $("#hud-timer");
-  if (!timerEl) return;
-  const left = Math.max(0, (turnDeadline - serverNow()) / 1000);
-  const shown = timerShownNow();
-  timerEl.classList.toggle("is-hidden", !shown);
-  if (!shown) {
-    timerEl.removeAttribute("aria-label");
-    const announcer = timerEl.parentElement?.querySelector("#hud-timer-announcer");
-    if (announcer) announcer.textContent = "";
-    lastAnnouncedTurnSecond = null;
-    return;
-  }
-  timerEl.setAttribute("role", "timer");
-  timerEl.textContent = `${left.toFixed(1)}s`;
-  const seconds = Math.max(0, Math.ceil(left));
-  timerEl.setAttribute("aria-label", `Turn timer: ${seconds} seconds remaining`);
-  const announcer = turnTimerAnnouncer(timerEl);
-  if (announcer && lastAnnouncedTurnSecond !== seconds) {
-    lastAnnouncedTurnSecond = seconds;
-    announcer.textContent = `${seconds} seconds remaining in your turn.`;
-  }
-  timerEl.classList.toggle("is-low", left <= 5);
-}
-
-function serverNow() {
-  return Date.now() + (state.serverTimeOffset || 0);
-}
-
-function timerShownNow() {
-  return state.settings.turnTimer > 0 && humanTurnNow();
-}
-
-function timerActive(waiting, isLobby) {
-  if (waiting) return false;
-  if (isLobby) return false;
-  return timerShownNow();
-}
-
-function renderHudTimer(waiting, isLobby) {
-  const timerEl = $("#hud-timer");
-  if (!timerEl) return;
-  const useTimer = timerActive(waiting, isLobby);
-  timerEl.classList.toggle("is-hidden", !useTimer);
-  if (useTimer) updateTurnTimerState();
-}
-
 function renderHudStage(cur, waiting, isLobby) {
   const stageEl = $("#hud-stage");
   if (stageEl) {
@@ -259,7 +155,6 @@ function renderHudStage(cur, waiting, isLobby) {
     stageEl.classList.remove("st-end", "st-resolve");
     if (stage.className) stageEl.classList.add(stage.className);
   }
-  renderHudTimer(waiting, isLobby);
 }
 
 function jailPhaseReady(waiting, isLobby) {

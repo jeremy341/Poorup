@@ -10,7 +10,7 @@
     "test:audit": "node server/market-settlement-audit.test.js && node server/lifecycle-audit.test.js && node server/card-deck-audit.test.js && node server/rooms-directory-audit.test.js && node server/account-session-audit.test.js && node server/season-reward-audit.test.js && node server/season-metrics-audit.test.js && node server/summary-privacy-audit.test.js && node public/clientCasinoReel.test.js && node server/session-room-regressions.test.js && node server/game-invariant-regressions.test.js && node server/backup-restore-integrity.test.js && node server/socket-admission.test.js && node server/runtime-safety.test.js && node server/analyticsRuntime.test.js && node server/capacity-followup.test.js && node server/server-followups.test.js",
     "test:timers": "node server/player-lifecycle-timers.test.js",
     "test:bot-timing": "node server/botTiming.test.js && node server/socketRuntime.test.js",
-    "test:full": "npm test && npm run test:audit && npm run test:timers && npm run test:account",
+    "test:full": "npm test && npm run test:audit && npm run test:timers && npm run test:account && npm run test:inactivity",
     "lint": "eslint server",
     "lint:client": "eslint public",
     "bot:balance": "node server/bot-balance-runner.js",
@@ -19,7 +19,8 @@
     "test:browser": "playwright test -c qa/playwright.config.js",
     "load:testing": "node qa/load/poorup-socket-load.mjs",
     "sync:analytics-vendor": "node scripts/sync-admin-analytics-vendor.mjs",
-    "test:account": "node server/accountStore-rights.test.js && node server/accountLifecycleStores.test.js && node server/accountRightsSocket.test.js && node server/sessionStore.test.js && node server/accountExport.test.js && node server/mailAdapter.test.js && node server/accountRecovery.test.js && node server/accountRecoveryPersistence.test.js && node server/accountDeletion.test.js && node server/retentionJob.test.js && node server/backupAccountPurge.test.js && node public/clientAccountRights.test.js && node public/clientAccountSessionStorage.test.js"
+    "test:account": "node server/accountStore-rights.test.js && node server/accountLifecycleStores.test.js && node server/accountRightsSocket.test.js && node server/sessionStore.test.js && node server/accountExport.test.js && node server/mailAdapter.test.js && node server/accountRecovery.test.js && node server/accountRecoveryPersistence.test.js && node server/accountDeletion.test.js && node server/retentionJob.test.js && node server/backupAccountPurge.test.js && node public/clientAccountRights.test.js && node public/clientAccountSessionStorage.test.js",
+    "test:inactivity": "node server/playerPresence.test.js && node server/roomVoteKick.test.js && node server/roomPresenceRuntime.test.js && node server/roomVoteKickRuntime.test.js && node server/roomSettings.test.js && node server/lobbyBotRoster.test.js && node server/collateralBasket.test.js && node server/equityPurchase.test.js && node server/equityTransfer.test.js && node server/player-lifecycle-timers.test.js && node public/clientPlayerPresence.test.js && node public/clientInactivityUi.test.js && node public/clientVoteKickUi.test.js && node public/clientSponsorshipUi.test.js && node public/clientTradeUi.test.js && node public/clientStateSync.test.js && node public/turn-timer-removal.test.js && node scripts/purge-all-account-data.test.mjs"
   },
   "dependencies": {
     "echarts": "6.1.0",

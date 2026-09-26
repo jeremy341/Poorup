@@ -18,11 +18,7 @@ import {
   placePieces,
   startPieceWalk,
 } from "./clientBoardRender.js";
-import {
-  renderHud,
-  startTurnCountdown,
-  configureTurnCountdown,
-} from "./clientHudRender.js";
+import { renderHud } from "./clientHudRender.js";
 import {
   CONNECTION_COPY,
   renderConnectionStatus,
@@ -118,7 +114,9 @@ import {
   openTradeNegotiation,
   closeTradeModal,
 } from "./clientTradeUi.js";
-import { bindParlorSurfaces } from "./clientParlorBindings.js";
+import { bindParlorSurfaces, syncRoomVoteKickUi } from "./clientParlorBindings.js";
+import { createPresenceMonitor } from "./clientPlayerPresence.js";
+import { createInactivityUi } from "./clientInactivityUi.js";
 import {
   bindDealUi,
   closeDealDetails,
@@ -279,7 +277,6 @@ const SERVER_SETTING_KEYS = {
   doubleGo: "doubleGo",
   houseLimit: "houseLimit",
   hotelLimit: "hotelLimit",
-  turnTimer: "turnTimer",
   bankruptMode: "bankruptMode",
   bankLoans: "bankLoans",
   bankLoanSeverity: "bankLoanSeverity",
@@ -353,7 +350,6 @@ const serverSyncHost = {
   startPieceWalk,
   openBankruptcyModal,
   showGameOver,
-  startTurnCountdown,
   gameViewVisible: () => !$("#view-game").classList.contains("is-hidden"),
   openAuctionSurface: () => {
     renderAuction();
@@ -371,7 +367,6 @@ const serverSyncHost = {
   rebuildBoard: () => buildBoard(onTileClick),
 };
 
-configureTurnCountdown({ endTurn });
 
 configureSocketListeners(socket, {
   setConnectionStatus,
@@ -639,6 +634,7 @@ function renderStep(label, render) {
 function renderAll() {
   renderStep("Top bar", renderTopNav);
   renderStep("Players", renderPlayers);
+  renderStep("Room presence", syncRoomPresenceUi);
   renderStep("Chat", renderChat);
   if (isLogDrawerOpen()) renderStep("Event log", renderLogDrawer);
   renderStep("Board", renderBoardState);
@@ -655,6 +651,39 @@ function renderAll() {
   if (state.deedDetail != null) renderStep("Deed detail", renderDeedDetail);
   if (state.phase === "playing") renderStep("Save game", saveGame);
   renderStep("Surface accessibility", syncSurfaceA11y);
+}
+
+let roomPresenceMonitor = null;
+let roomInactivityUi = null;
+
+function stopRoomPresence() {
+  roomPresenceMonitor?.destroy();
+  roomPresenceMonitor = null;
+  roomInactivityUi?.destroy();
+  roomInactivityUi = null;
+  syncRoomVoteKickUi(null, [], Date.now());
+}
+
+function syncRoomPresenceUi() {
+  const hasRoomSeat = state.phase !== "home" && Boolean(state.roomCode) && Boolean(state.roomPlayerId);
+  if (!hasRoomSeat) {
+    if (roomPresenceMonitor || roomInactivityUi) stopRoomPresence();
+    return;
+  }
+  if (!roomPresenceMonitor) {
+    roomPresenceMonitor = createPresenceMonitor({
+      emit: (eventName, payload) => emitServer(eventName, payload),
+    });
+  }
+  if (!roomInactivityUi) {
+    roomInactivityUi = createInactivityUi({
+      timerHost: $("#inactivity-timer-host"),
+      sidebarHost: $("#inactive-player-sidebar"),
+    });
+  }
+  const serverTime = Date.now() + (Number(state.serverTimeOffset) || 0);
+  roomInactivityUi.update(state.players, serverTime);
+  syncRoomVoteKickUi(state.voteKick || null, state.players, serverTime);
 }
 
 /* Lobby settings rail + profile editor/identity bindings now live in
@@ -808,6 +837,7 @@ function showView(name) {
     stopHomeHelicopter();
     syncHomeMusic();
   }
+  syncRoomPresenceUi();
 }
 
 

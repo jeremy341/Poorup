@@ -189,6 +189,9 @@ async function capacityAndRejoin(ctx) {
   ctx.check('server-owned scaled setting is rejected with a failure ack',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'globalEventDuration', value: 10 }),
       { success: false, error: 'This setting is controlled by the server.' }));
+  ctx.check('player-facing ruleset preset inputs are rejected',
+    ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'rulesetPreset', value: 'after-hours' }),
+      { success: false, error: 'Ruleset presets and custom overrides are no longer supported.' }));
   // The public room has no visible code; create a fresh private fixture.
   ctx.check('create-room private FULL01 succeeds for the capacity fixture',
     ackEquals(await ctx.ask(ctx.host, 'create-room', { clientId: 'c1', nickname: 'Host One', visibility: 'private', roomCode: 'FULL01' }),

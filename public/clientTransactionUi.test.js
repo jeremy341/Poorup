@@ -58,10 +58,10 @@ check("partial repayment sends a bounded amount and reports settlement", () => {
   assert.match(trade, /const status = `Repaid \$\$\{settled/);
 });
 
-check("turn timer remains visible through resolution and is announced accessibly", () => {
-  assert.doesNotMatch(hud, /function timerShownNow\(\) \{[^}]*return state\.turnStage === "roll";/);
-  assert.doesNotMatch(hud, /function timerActive\(waiting, isLobby\) \{[^}]*return state\.turnStage === "roll";/);
-  assert.match(hud, /setAttribute\("aria-live", "polite"\)/);
+check("per-turn timer is absent from the HUD and only room presence is wired", () => {
+  assert.doesNotMatch(hud, /turnTimer|turnDeadline|hud-timer/i);
+  assert.doesNotMatch(main, /startTurnCountdown|configureTurnCountdown|turnTimer/i);
+  assert.match(main, /createPresenceMonitor/);
 });
 
 check("open event log refreshes from snapshots without losing reader position", () => {

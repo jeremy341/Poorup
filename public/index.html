@@ -267,16 +267,6 @@
                 </div>
               </div>
 
-              <div class="rc-field rc-ruleset-fields">
-                <label class="t-label f12 g-muted" for="rc-ruleset-preset">Ruleset Preset</label>
-                <select class="field rc-input" id="rc-ruleset-preset" name="rulesetPreset" autocomplete="off">
-                  <option value="classic" selected>CLASSIC · STANDARD RULES</option>
-                  <option value="after-hours">AFTER HOURS · POORUP SYSTEMS</option>
-                  <option value="custom">CUSTOM · SET IN LOBBY</option>
-                </select>
-                <span class="t-micro ink-3">Classic starts clean. You can enable every optional system in the host rail.</span>
-              </div>
-
               <div class="rc-field is-hidden" id="rc-private-code-field">
                 <label class="t-label f12 g-muted" for="rc-room-code">Private Room Code</label>
                 <div class="rc-code-entry">
@@ -706,6 +696,9 @@
           </div>
         </div>
 
+        <div id="inactivity-timer-host" class="inactivity-timer-host" hidden></div>
+        <div id="inactivity-announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
         <div class="tn-right">
           <div class="tn-turn">
             <span class="t-label f11 ink-3">TURN</span>
@@ -739,6 +732,7 @@
         <span class="t-label g100" data-maintenance-copy></span>
         <span class="t-micro ink-3" data-maintenance-rounds></span>
       </div>
+      <div id="room-votekick-host" class="room-vote-host" hidden></div>
 
       <a class="skip-link" href="#game-main">Skip to main content</a>
       <main class="game-main" id="game-main" tabindex="-1">
@@ -752,6 +746,7 @@
               <span data-sprite="diamond" data-size="3"></span>
             </div>
             <div class="player-list" id="player-list"></div>
+            <div id="inactive-player-sidebar"></div>
           </section>
 
           <section class="panel noise pad12 chat-panel">
@@ -874,7 +869,6 @@
               <div class="hud-top-row">
                 <span class="t-label f11 g400" id="hud-turn-label">Waiting For Game</span>
                 <span class="t-micro hud-stage is-hidden" id="hud-stage">ROLL</span>
-                <span class="t-micro hud-timer is-hidden" id="hud-timer">0.0s</span>
               </div>
               <div class="hud-body">
                 <span data-sprite="arrow" data-size="4"></span>

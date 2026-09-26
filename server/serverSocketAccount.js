@@ -567,6 +567,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     if (room.game.started) {
       return reply(callback, { success: false, error: 'Game settings can only be changed before the game starts.' });
     }
+    if (['rulesetPreset', 'rulesetBase', 'rulesetOverrides'].includes(key)) {
+      return reply(callback, { success: false, error: 'Ruleset presets and custom overrides are no longer supported.' });
+    }
     const normalizedBrain = String(value ?? '').trim().toLowerCase().replace('_', '-');
     if (key === 'botBrain' && normalizedBrain !== 'no-ai'
       && runtime.botProviderStatus?.().state === 'quota-exhausted') {

@@ -75,11 +75,30 @@ function syncClock(snapshot) {
   if (Number.isFinite(serverTime) && serverTime > 0) state.serverTimeOffset = serverTime - Date.now();
 }
 
+function voteKickView(vote) {
+  if (!vote || typeof vote !== "object") return null;
+  const status = ["open", "active", "passed", "failed", "expired"].includes(vote.status) ? vote.status : null;
+  if (!status || typeof vote.voteId !== "string" || typeof vote.targetPlayerId !== "string") return null;
+  const count = value => Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+  const timestamp = value => Number.isFinite(value) && value >= 0 ? value : null;
+  return {
+    voteId: vote.voteId,
+    targetPlayerId: vote.targetPlayerId,
+    openedAt: timestamp(vote.openedAt),
+    expiresAt: timestamp(vote.expiresAt),
+    eligibleCount: count(vote.eligibleCount),
+    yesCount: count(vote.yesCount),
+    noCount: count(vote.noCount),
+    requiredYes: count(vote.requiredYes),
+    status,
+  };
+}
+
 function previousPositionsOf() {
   return new Map(state.players.map((player) => [player.id, num(player.pos)]));
 }
 
-function syncRoom(room, game = null) {
+export function syncRoom(room, game = null) {
   const nextVariant = room?.board?.variant || room?.ruleset?.boardVariant || room?.settings?.boardVariant || game?.boardVariant || "standard-40";
   const changed = state.boardVariant !== nextVariant;
   if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = orDefault(room.roomCode, "");
@@ -87,6 +106,7 @@ function syncRoom(room, game = null) {
   state.hostId = room.hostId || null;
   state.boardVariant = nextVariant;
   state.ruleset = room.ruleset || null;
+  state.voteKick = voteKickView(room.voteKick);
   return changed;
 }
 
@@ -105,7 +125,7 @@ function turnOrderOf(game, remotePlayers) {
   return remotePlayers.map((player) => player.id);
 }
 
-function serverPlayerView(player) {
+export function serverPlayerView(player) {
   return {
     id: clientPlayerId(player),
     serverId: player.id,
@@ -119,6 +139,11 @@ function serverPlayerView(player) {
     cash: num(player.cash),
     pos: num(player.position),
     online: !player.disconnected,
+    presence: player.isBot ? null : {
+      state: player.presence?.state === "inactive" ? "inactive" : "active",
+      inactiveSince: Number.isFinite(player.presence?.inactiveSince) ? player.presence.inactiveSince : null,
+      inactiveUntil: Number.isFinite(player.presence?.inactiveUntil) ? player.presence.inactiveUntil : null,
+    },
     bankrupt: Boolean(player.bankrupt),
     spectating: Boolean(player.spectating),
     inDebt: Boolean(player.inDebt),
@@ -171,12 +196,10 @@ function syncRoundFlags(game) {
   const startedTransition = isStartedTransition(game);
   if (nextRoundNumber !== state.roundNumber || startedTransition) {
     state.gameOver = null;
-    state.previousTurnKey = "";
   }
   state.gameStarted = nextGameStarted;
   state.dice = diceOf(game);
   state.roundNumber = nextRoundNumber;
-  state.turnDeadline = num(game.turnDeadline);
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
   state.pendingTrade = orNull(game.pendingTrade);
@@ -261,21 +284,6 @@ function movementPlansFrom(previousPositions) {
   return state.players
     .map((player) => movementPlanFor(player, previousPositions))
     .filter((plan) => plan);
-}
-
-function rollFlag(game) {
-  if (game.hasRolled) return "rolled";
-  return "roll";
-}
-
-function extraFlag(game) {
-  if (game.extraRollPending) return "extra";
-  return "normal";
-}
-
-function turnKeyOf(game) {
-  const mover = orDefault(game.currentPlayerId, "none");
-  return `${mover}:${rollFlag(game)}:${extraFlag(game)}`;
 }
 
 function turnStageOf(game) {
@@ -446,18 +454,6 @@ function syncWinner(game, host) {
   });
 }
 
-function maybeStartCountdown(turnChanged, host) {
-  // A server-extended deadline must restart the local countdown even when
-  // the turn itself did not change; otherwise the HUD counts to a stale zero.
-  const deadline = Number(state.turnDeadline) || 0;
-  const extended = state.lastTurnDeadline !== deadline;
-  state.lastTurnDeadline = deadline;
-  if (!turnChanged && !extended) return;
-  if (state.phase !== "playing") return;
-  if (state.turnIndex !== 0) return;
-  host.startTurnCountdown();
-}
-
 function snapshotIsPlayable(snapshot) {
   if (!snapshot) return false;
   if (!snapshot.room) return false;
@@ -498,9 +494,6 @@ export function applyServerState(snapshot, host) {
   syncJail(remotePlayers);
   state.phase = phaseOf(game);
   const movementPlans = movementPlansFrom(previousPositions);
-  const turnKey = turnKeyOf(game);
-  const turnChanged = state.previousTurnKey !== turnKey;
-  state.previousTurnKey = turnKey;
   state.turnStage = turnStageOf(game);
   syncActionLockFromSnapshot();
   syncLog(game);
@@ -517,6 +510,5 @@ export function applyServerState(snapshot, host) {
   syncAuctionSurface(host);
   syncDebtModal(game, host);
   syncWinner(game, host);
-  maybeStartCountdown(turnChanged, host);
   host.placePiecesSoon();
 }

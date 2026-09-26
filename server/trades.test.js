@@ -503,13 +503,13 @@ function botRoom(personality, cash) {
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', roomCode: 'BOTCAND' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
-  room.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT', isBot: true, personality });
   room.setRoomSetting('bots', 1);
+  room.setRoomSetting('botPersonality', personality);
   room.setRoomSetting('market', true);
   room.setRoomSetting('casino', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
-  const bot = game.getPlayerByClient('bot-1');
+  const bot = game.players.find(player => player.isBot);
   const a = game.getPlayerByClient('client-a');
   bot.cash = cash;
   own(room, bot, [3, 6, 8, 9]);
