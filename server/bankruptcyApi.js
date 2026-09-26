@@ -151,6 +151,10 @@ const bankruptcyApi = {
   },
 
   settleBankruptHybrid(player, contract) {
+    if (contract.status === 'converted') {
+      this.terminateEquityContract(contract);
+      return;
+    }
     if (contract.toPlayerId === player.id) {
       // The borrower still owes the funded principal; bankruptcy defaults the
       // loan leg. The default helper records the claim; the bankruptcy path

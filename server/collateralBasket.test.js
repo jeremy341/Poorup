@@ -143,6 +143,32 @@ assert.equal(bankruptHybrid.game.defaultClaims[0].principal, 70);
 assert.equal(bankruptHybrid.game.defaultClaims[0].remaining, 70);
 assert.equal(bankruptHybrid.game.defaultClaims[0].status, 'open');
 
+const convertedHybrid = startedRoom();
+ownDeeds(convertedHybrid.game, convertedHybrid.borrower, [1, 3]);
+const convertedOffer = convertedHybrid.game.proposePlayerContract('socket-a', {
+  toPlayerId: convertedHybrid.borrower.id,
+  kind: 'hybrid',
+  amount: 100,
+  durationRounds: 1,
+  propertyIndex: 1,
+  conversionShare: 25,
+  collateralTileIndices: [1, 3]
+});
+assert.equal(convertedOffer.success, true);
+assert.equal(convertedHybrid.game.respondPlayerContract('socket-b', true, 'accept-converted-hybrid', convertedOffer.contract.id).success, true);
+const convertedContract = convertedHybrid.game.playerContractById(convertedOffer.contract.id);
+convertedHybrid.game.roundNumber = convertedContract.cureRound + 1;
+convertedHybrid.game.processPlayerContracts();
+convertedHybrid.game.processPlayerContracts();
+assert.equal(convertedContract.status, 'converted');
+assert.equal(convertedHybrid.game.getTile(1).equityShares[0].share, 25);
+convertedHybrid.game.handleBankruptcy(convertedHybrid.borrower, null);
+assert.equal(convertedContract.status, 'terminated');
+assert.deepEqual(convertedHybrid.game.getTile(1).equityShares, []);
+assert.equal(convertedHybrid.game.getTile(1).ownerId, null);
+assert.equal(convertedHybrid.game.getTile(3).ownerId, null);
+assert.equal(convertedHybrid.game.defaultClaims.some(claim => claim.contractId === convertedContract.id), false);
+
 const legacyHybrid = startedRoom();
 ownDeeds(legacyHybrid.game, legacyHybrid.borrower, [1]);
 const legacyHybridOffer = legacyHybrid.game.proposePlayerContract('socket-a', {
