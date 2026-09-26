@@ -61,8 +61,12 @@ function buildingSupplyAllows(game, tile) {
   const level = Math.max(0, Math.min(5, Number(tile?.houseCount) || 0));
   if (level >= 5) return false;
   const tiles = Array.isArray(game.tiles) ? game.tiles : [];
-  const houseLimitValue = Number(game.settings?.houseLimit);
-  const hotelLimitValue = Number(game.settings?.hotelLimit);
+  const houseLimitSetting = game.settings?.houseLimit;
+  const hotelLimitSetting = game.settings?.hotelLimit;
+  const houseLimitValue = Number(houseLimitSetting);
+  const hotelLimitValue = Number(hotelLimitSetting);
+  const unlimitedHouses = houseLimitSetting === 'unlimited';
+  const unlimitedHotels = hotelLimitSetting === 'unlimited';
   const houseLimit = Number.isFinite(houseLimitValue) ? Math.max(0, Math.floor(houseLimitValue)) : 32;
   const hotelLimit = Number.isFinite(hotelLimitValue) ? Math.max(0, Math.floor(hotelLimitValue)) : 12;
   let housesUsed = 0;
@@ -73,8 +77,8 @@ function buildingSupplyAllows(game, tile) {
     if (count >= 5) hotelsUsed += 1;
     else housesUsed += count;
   });
-  if (level === 4) return hotelsUsed < hotelLimit;
-  return housesUsed < houseLimit;
+  if (level === 4) return unlimitedHotels || hotelsUsed < hotelLimit;
+  return unlimitedHouses || housesUsed < houseLimit;
 }
 
 function evenBuildAllows(game, player, tile, groupTiles) {

@@ -135,6 +135,34 @@ check('shared house and hotel supplies cap construction', () => {
   reject(game, 'socket-a', first.index, 'build-house', 'You cannot build on this property right now.');
 });
 
+check('unlimited house supply bypasses numeric house inventory cap', () => {
+  const { game, owner, give } = ownedRoom();
+  const target = give(1);
+  const groupMate = give(3);
+  groupMate.houseCount = 4;
+  game.tiles.filter(tile => tile.type === 'property' && tile.index !== target.index && tile.index !== groupMate.index)
+    .forEach(tile => { tile.houseCount = 4; });
+  game.settings.houseLimit = 'unlimited';
+  owner.cash = 5000;
+  delete game.canBuildOnTile;
+  assert.equal(game.manageProperty('socket-a', { tileIndex: target.index, action: 'build-house' }).success, true);
+});
+
+check('unlimited hotel supply bypasses numeric hotel inventory cap', () => {
+  const { game, owner, give } = ownedRoom();
+  const target = give(1);
+  const groupMate = give(3);
+  target.houseCount = 4;
+  groupMate.houseCount = 4;
+  game.tiles.filter(tile => tile.type === 'property' && tile.index !== target.index && tile.index !== groupMate.index)
+    .forEach(tile => { tile.houseCount = 5; });
+  game.settings.hotelLimit = 'unlimited';
+  owner.cash = 5000;
+  delete game.canBuildOnTile;
+  assert.equal(game.manageProperty('socket-a', { tileIndex: target.index, action: 'build-house' }).success, true);
+  assert.equal(target.houseCount, 5);
+});
+
 check('public-works election tracks builds, evenBuild counts, bubble rebuild flags', () => {
   const { game, owner, give } = ownedRoom();
   give(1);

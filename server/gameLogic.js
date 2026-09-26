@@ -4,6 +4,7 @@ import {
   playerContractSummary,
   processContracts,
   proposeContract,
+  proposeEquityShareTransfer,
   counterContract,
   adjustContract,
   repayContract,
@@ -247,7 +248,6 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
@@ -335,7 +335,6 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
@@ -467,6 +466,10 @@ class GameState {
     return proposeContract(this, socketId, offer);
   }
 
+  proposeEquityShareTransfer(socketId, offer = {}) {
+    return proposeEquityShareTransfer(this, socketId, offer);
+  }
+
   counterPlayerContract(socketId, offer = {}) {
     return counterContract(this, socketId, offer);
   }
@@ -501,7 +504,10 @@ class GameState {
       ['loan', 'hybrid'].includes(contract.kind)
       && ['active', 'due'].includes(contract.status)
       && contract.toPlayerId === player.id
-      && Number(contract.kind === 'hybrid' ? contract.propertyIndex : contract.collateralTileIndex) === Number(tile.index)
+      && (contract.kind === 'hybrid' && Number(contract.propertyIndex) === Number(tile.index)
+        || ((Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length)
+          ? contract.collateralTileIndices
+          : [contract.collateralTileIndex]).some(index => index != null && Number(index) === Number(tile.index)))
     ));
   }
 

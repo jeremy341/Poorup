@@ -101,34 +101,191 @@ function draftContract(game, terms) {
     status: 'pending',
     counterDepth: 0,
     collateralTileIndex: null,
+    collateralTileIndices: [],
     equityShare: 0,
     equityControl: 'passive',
     conversionShare: 0
   };
 }
 
+function collateralIndicesForOffer(game, offer) {
+  if (offer.collateralTileIndices != null && !Array.isArray(offer.collateralTileIndices)) return null;
+  const supplied = Array.isArray(offer.collateralTileIndices)
+    ? offer.collateralTileIndices
+    : offer.collateralTileIndex == null ? [] : [offer.collateralTileIndex];
+  const maximum = Math.min(Array.isArray(game.tiles) ? game.tiles.length : 0, 52);
+  if (supplied.length > maximum) return null;
+  const indices = [];
+  for (const value of supplied) {
+    const index = Number(value);
+    if (!Number.isInteger(index) || !game.getTile(index)) return null;
+    if (!indices.includes(index)) indices.push(index);
+  }
+  return indices;
+}
+
+function equityTransferContext(game, seller, buyer, sourceContractId, sharePct, price) {
+  if (!isPairOfActivePlayers(seller, buyer)) return { error: 'Choose two active players.' };
+  const source = game.playerContractById(sourceContractId);
+  if (!source || !['equity', 'hybrid'].includes(source.kind) || !equityShareContractLive(source)) return { error: 'That equity share is no longer available.' };
+  if (source.kind === 'equity' && !source.permanent && source.expiresRound && game.roundNumber >= source.expiresRound) {
+    return { error: 'That equity share has expired.' };
+  }
+  const tile = game.getTile(Number(source.propertyIndex));
+  if (!tile || tile.ownerId !== source.toPlayerId || tile.type !== 'property' || tile.mortgaged || Number(tile.houseCount) > 0) {
+    return { error: 'That property cannot transfer equity right now.' };
+  }
+  if (source.fromPlayerId !== seller.id) return { error: 'You do not own that equity share.' };
+  const owner = game.getPlayerById(source.toPlayerId);
+  if (!activeSeat(owner)) return { error: 'The property owner is no longer available.' };
+  const sourceShare = Number(source.equityShare || source.conversionShare);
+  const entry = (tile.equityShares || []).find(item => item.contractId === source.id && item.holderId === seller.id);
+  if (!entry || !Number.isFinite(sourceShare) || Number(entry.share) !== sourceShare) return { error: 'That equity share is no longer available.' };
+  if (!Number.isInteger(sharePct) || sharePct < 5 || sharePct > sourceShare) return { error: 'Enter a valid share amount.' };
+  if (!Number.isInteger(price) || price < 1) return { error: 'Enter a whole-dollar transfer price.' };
+  const buyerShare = (tile.equityShares || []).filter(item => item.holderId === buyer.id)
+    .reduce((sum, item) => sum + Math.max(0, Number(item.share) || 0), 0);
+  if (buyerShare + sharePct > 100 || (tile.equityShares || []).reduce((sum, item) => sum + Math.max(0, Number(item.share) || 0), 0) > 100) {
+    return { error: 'That property has no remaining equity to transfer.' };
+  }
+  if (buyer.cash < price) return { error: 'The buyer does not have enough cash for that transfer.' };
+  return { source, tile, entry };
+}
+
+export function proposeEquityShareTransfer(game, socketId, offer = {}) {
+  const seller = game.getPlayerBySocket(socketId);
+  const buyer = game.getPlayerById(offer.toPlayerId);
+  if (!seller || seller.id !== offer.fromPlayerId || seller.id !== game.currentPlayerId) return { success: false, error: 'Choose a valid equity seller.' };
+  const key = transactionKey('equity-transfer', seller.id, String(offer.requestId || '').trim().slice(0, 100));
+  const cached = memoizedResult(game, key);
+  if (cached) return cached;
+  if (tableObligationOpen(game)) return { success: false, error: 'Resolve the current table obligation first.' };
+  const sharePct = Math.floor(Number(offer.sharePct));
+  const price = Math.floor(Number(offer.price));
+  const ctx = equityTransferContext(game, seller, buyer, offer.contractId, sharePct, price);
+  if (ctx.error) return { success: false, error: ctx.error };
+  const transfer = {
+    id: 'contract_' + crypto.randomUUID(), kind: 'equity-transfer',
+    fromPlayerId: seller.id, toPlayerId: buyer.id, propertyIndex: ctx.tile.index,
+    sourceContractId: ctx.source.id, transferSharePct: sharePct, transferPrice: price,
+    amount: price, equityShare: sharePct, equityControl: 'passive',
+    permanent: ctx.source.permanent === true, expiresRound: ctx.source.expiresRound ?? null,
+    requestId: String(offer.requestId || '').trim().slice(0, 100),
+    createdRound: game.roundNumber, status: 'pending', counterDepth: 0, lastProposerId: seller.id
+  };
+  game.pendingPlayerContract = transfer;
+  return memoizeSuccess(game, key, { success: true, transfer });
+}
+
+function equityTransferOffer(game, current, offer = {}, counteredBy) {
+  const seller = game.getPlayerById(current.fromPlayerId);
+  const buyer = game.getPlayerById(current.toPlayerId);
+  const sharePct = Math.floor(Number(offer.sharePct ?? current.transferSharePct));
+  const price = Math.floor(Number(offer.price ?? current.transferPrice));
+  const ctx = equityTransferContext(game, seller, buyer, current.sourceContractId, sharePct, price);
+  if (ctx.error) return { success: false, error: ctx.error };
+  const next = {
+    ...current, transferSharePct: sharePct, equityShare: sharePct,
+    transferPrice: price, amount: price,
+    counterDepth: Math.min(2, (Number(current.counterDepth) || 0) + 1),
+    lastProposerId: counteredBy
+  };
+  game.pendingPlayerContract = next;
+  return { success: true, countered: true, contract: next };
+}
+
+function settleEquityTransfer(game, transfer) {
+  const seller = game.getPlayerById(transfer.fromPlayerId);
+  const buyer = game.getPlayerById(transfer.toPlayerId);
+  const check = equityTransferContext(game, seller, buyer, transfer.sourceContractId, transfer.transferSharePct, transfer.transferPrice);
+  if (check.error) return { success: false, error: check.error };
+  const { source, tile, entry } = check;
+  const propertyOwner = game.getPlayerById(source.toPlayerId);
+  const sourceShareKey = source.kind === 'hybrid'
+    && (source.status === 'converted' || source.equityShare == null)
+    ? 'conversionShare'
+    : 'equityShare';
+  const before = {
+    sellerCash: seller.cash, buyerCash: buyer.cash, sourceShare: source[sourceShareKey],
+    sourceStatus: source.status, sourceTerminatedRound: source.terminatedRound,
+    sourceEntryShare: entry.share, pending: game.pendingPlayerContract,
+    contracts: [...game.playerContracts], sellerIds: [...seller.playerContractIds],
+    buyerIds: [...buyer.playerContractIds], shares: [...tile.equityShares],
+    ownerIds: [...(propertyOwner?.playerContractIds || [])]
+  };
+  try {
+    buyer.cash -= transfer.transferPrice;
+    seller.cash += transfer.transferPrice;
+    source[sourceShareKey] -= transfer.transferSharePct;
+    entry.share -= transfer.transferSharePct;
+    if (source[sourceShareKey] === 0) {
+      source.status = 'terminated';
+      source.terminatedRound = game.roundNumber;
+      tile.equityShares = tile.equityShares.filter(item => item !== entry);
+    }
+    const contract = {
+      id: 'contract_' + crypto.randomUUID(), kind: 'equity',
+      fromPlayerId: buyer.id, toPlayerId: source.toPlayerId, amount: transfer.transferPrice,
+      propertyIndex: tile.index, equityShare: transfer.transferSharePct, equityControl: 'passive',
+      permanent: source.permanent === true, expiresRound: source.expiresRound ?? null,
+      durationRounds: source.durationRounds, createdRound: game.roundNumber,
+      acceptedRound: game.roundNumber, status: 'active', transferredFromContractId: source.id
+    };
+    game.playerContracts.push(contract);
+    buyer.playerContractIds.push(contract.id);
+    propertyOwner.playerContractIds.push(contract.id);
+    tile.equityShares.push({ holderId: buyer.id, share: transfer.transferSharePct, contractId: contract.id, control: 'passive' });
+    game.pendingPlayerContract = null;
+    game.feedMessage(`${seller.nickname} transferred ${transfer.transferSharePct}% equity to ${buyer.nickname} for $${transfer.transferPrice}.`);
+    return { success: true, accepted: true, contract };
+  } catch (error) {
+    seller.cash = before.sellerCash;
+    buyer.cash = before.buyerCash;
+    source[sourceShareKey] = before.sourceShare;
+    source.status = before.sourceStatus;
+    if (before.sourceTerminatedRound === undefined) delete source.terminatedRound;
+    else source.terminatedRound = before.sourceTerminatedRound;
+    entry.share = before.sourceEntryShare;
+    game.pendingPlayerContract = before.pending;
+    game.playerContracts = before.contracts;
+    seller.playerContractIds = before.sellerIds;
+    buyer.playerContractIds = before.buyerIds;
+    if (propertyOwner) propertyOwner.playerContractIds = before.ownerIds;
+    tile.equityShares = before.shares;
+    return { success: false, error: 'Equity transfer failed; no assets moved.' };
+  }
+}
+
 function collateralIsBorrowerDeed(game, collateral, borrower) {
-  if (!collateral) return true;
-  if (collateral.ownerId !== borrower.id) return false;
-  return game.isTradeableTile(collateral);
+  return Boolean(collateral && collateral.ownerId === borrower.id && game.isTradeableTile(collateral));
+}
+
+function setContractCollateral(contract, collateralIndices) {
+  contract.collateralTileIndices = collateralIndices;
+  contract.collateralTileIndex = collateralIndices[0] ?? null;
+}
+
+function validateCollateralBasket(game, offer, borrower) {
+  const indices = collateralIndicesForOffer(game, offer);
+  if (!indices) return { error: 'Collateral must be an unencumbered deed owned by the borrower.' };
+  for (const index of indices) {
+    if (!collateralIsBorrowerDeed(game, game.getTile(index), borrower)) {
+      return { error: 'Collateral must be an unencumbered deed owned by the borrower.' };
+    }
+  }
+  return { indices };
 }
 
 // Term builders mutate the draft contract and return null, or return the
 // rejection when the loan/equity specifics are invalid.
 function loanDraftTerms(game, contract, offer, borrower) {
-  const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
-  const collateral = collateralIndex == null ? null : game.getTile(collateralIndex);
-  if (collateralIndex != null && !collateral) {
-    return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
-  }
-  if (!collateralIsBorrowerDeed(game, collateral, borrower)) {
-    return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
-  }
+  const basket = validateCollateralBasket(game, offer, borrower);
+  if (basket.error) return { success: false, error: basket.error };
   contract.totalDue = contract.amount + Math.ceil(contract.amount * (contract.premiumRate / 100));
   contract.remaining = contract.totalDue;
   contract.dueRound = game.roundNumber + contract.durationRounds;
   contract.cureRound = contract.dueRound + 1;
-  contract.collateralTileIndex = collateral?.index ?? null;
+  setContractCollateral(contract, basket.indices);
   return null;
 }
 
@@ -203,12 +360,9 @@ function hybridDraftTerms(game, contract, offer, recipient) {
   contract.cureRound = contract.dueRound + 1;
   contract.propertyIndex = property.index;
   contract.conversionShare = conversion;
-  const collateralIndex = offer.collateralTileIndex == null ? null : Number(offer.collateralTileIndex);
-  const collateral = collateralIndex == null ? null : game.getTile(collateralIndex);
-  if (collateralIndex != null && !collateralIsBorrowerDeed(game, collateral, recipient)) {
-    return { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' };
-  }
-  contract.collateralTileIndex = collateral?.index ?? null;
+  const basket = validateCollateralBasket(game, offer, recipient);
+  if (basket.error) return { success: false, error: basket.error };
+  setContractCollateral(contract, basket.indices);
   return null;
 }
 
@@ -257,6 +411,7 @@ export function counterContract(game, socketId, offer = {}) {
   if (offer.contractId && offer.contractId !== current.id) {
     return { success: false, error: 'That contract offer is no longer current.' };
   }
+  if (current.kind === 'equity-transfer') return equityTransferOffer(game, current, offer, responder.id);
   if (Number(current.counterDepth) >= 2) {
     return { success: false, error: 'This contract has reached its negotiation limit.' };
   }
@@ -298,6 +453,12 @@ export function adjustContract(game, socketId, offer = {}) {
   }
   if (offer.contractId && offer.contractId !== current.id) {
     return { success: false, error: 'That contract offer is no longer current.' };
+  }
+  if (current.kind === 'equity-transfer') {
+    if (Number(current.counterDepth) >= 2) return { success: false, error: 'This contract has reached its negotiation limit.' };
+    const result = equityTransferOffer(game, current, offer, editor.id);
+    if (result.success) return { ...result, countered: undefined, adjusted: true };
+    return result;
   }
   if (Number(current.counterDepth) >= 2) {
     return { success: false, error: 'This contract has reached its negotiation limit.' };
@@ -347,6 +508,7 @@ function responseTargetMatches(player, contract) {
 }
 
 function contractLastProposerId(contract) {
+  if (contract?.lastProposerId) return contract.lastProposerId;
   const depth = Math.max(0, Math.floor(Number(contract?.counterDepth) || 0));
   return depth % 2 === 0 ? contract?.fromPlayerId : contract?.toPlayerId;
 }
@@ -427,6 +589,11 @@ export function respondContract(game, socketId, accept, requestId = null, contra
   if (contractId && contract?.id !== contractId) return { success: false, error: 'No matching player contract was found.' };
   if (!responseTargetMatches(player, contract)) return { success: false, error: 'No matching player contract was found.' };
   const borrower = game.getPlayerById(contract.toPlayerId);
+  if (accept && contract.kind === 'equity-transfer') {
+    const result = settleEquityTransfer(game, contract);
+    if (!result.success && game.pendingPlayerContract === contract) game.pendingPlayerContract = null;
+    return memoizeSuccess(game, key, result);
+  }
   const result = accept ? acceptContract(game, borrower, contract) : declineContract(game, player);
   return memoizeSuccess(game, key, result);
 }
@@ -501,7 +668,33 @@ function expireEquityContract(game, contract) {
 
 function handleDueLoanContract(game, contract) {
   if (game.roundNumber <= contract.cureRound) return;
-  handlePlayerLoanDefault(game, contract);
+  defaultPlayerLoanWithBasket(game, contract);
+}
+
+function defaultPlayerLoanWithBasket(game, contract, options = {}) {
+  const borrower = game.getPlayerById(contract.toPlayerId);
+  const lender = game.getPlayerById(contract.fromPlayerId);
+  const indices = Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length
+    ? contract.collateralTileIndices
+    : contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
+  const first = contract.collateralTileIndex;
+  contract.collateralTileIndex = null;
+  handlePlayerLoanDefault(game, contract, options);
+  contract.collateralTileIndex = first;
+  if (borrower && !borrower.bankrupt && lender) {
+    for (const index of indices) {
+      const deed = game.getTile(Number(index));
+      if (deed?.ownerId === borrower.id) game.applyPropertyOwnershipChange(borrower, lender, deed);
+    }
+  }
+  contract.collateralTileIndices = indices.slice();
+  contract.unsecuredDefault = indices.length === 0;
+  if (borrower && indices.length) borrower.collateralLost = true;
+  const claim = (game.defaultClaims || []).find(entry => entry.contractId === contract.id);
+  if (claim) {
+    claim.collateralTileIndex = indices[0] ?? null;
+    claim.collateralTileIndices = indices.slice();
+  }
 }
 
 function handleActiveLoanContract(game, contract) {
@@ -545,12 +738,12 @@ function recordHybridConversion(game, contract, lender) {
 // to the plain loan-default path.
 function convertHybridContract(game, contract) {
   if (!hybridConversionEligible(game, contract)) {
-    handlePlayerLoanDefault(game, contract, { reason: 'conversion-unavailable' });
+    defaultPlayerLoanWithBasket(game, contract, { reason: 'conversion-unavailable' });
     return;
   }
   const lender = game.getPlayerById(contract.fromPlayerId);
   if (!lender) {
-    handlePlayerLoanDefault(game, contract, { reason: 'conversion-lender-unavailable' });
+    defaultPlayerLoanWithBasket(game, contract, { reason: 'conversion-lender-unavailable' });
     return;
   }
   const borrower = game.getPlayerById(contract.toPlayerId);
