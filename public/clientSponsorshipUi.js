@@ -8,7 +8,7 @@ import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 
-let host = { emitServer: noop, say: noop, renderChat: noop, createRequestId: null };
+let host = { emitServer: noop, say: noop, recordActivity: noop, captureActionStatusNode: () => null, announceActionStatus: noop, renderChat: noop, createRequestId: null };
 let requestPending = false;
 let sponsorshipRequestDraft = null;
 function noop() {}
@@ -131,13 +131,13 @@ function sendSponsorshipAction(action, button = null) {
   const payload = sponsorshipFlowPayload(state.sponsorship);
   const actionKey = payload.requestId || "gift-action";
   if (!sponsorshipActionGate.begin(actionKey)) return;
+  const statusNode = host.captureActionStatusNode(button || document.activeElement);
   if (button) button.disabled = true;
   host.emitServer(event, payload, response => {
     if (response?.success === false) {
       sponsorshipActionGate.complete(actionKey);
       if (button) button.disabled = false;
-      host.say(response.error || "The sponsorship could not be updated.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "The sponsorship could not be updated.", statusNode);
     }
   });
 }
@@ -160,12 +160,12 @@ function onSponsorshipSubmit(event) {
     requestPending = true;
     const submit = requestForm.querySelector('[type="submit"]');
     if (submit) submit.disabled = true;
+    const statusNode = host.captureActionStatusNode(submit || requestForm);
     host.emitServer("request-sponsored-purchase", payload, response => {
       if (response?.success === false) {
         requestPending = false;
         if (submit) submit.disabled = false;
-        host.say(response.error || "Sponsorship is unavailable.");
-        host.renderChat();
+        host.announceActionStatus(response.error || "Sponsorship is unavailable.", statusNode);
         return;
       }
       sponsorshipRequestDraft = null;
@@ -182,12 +182,12 @@ function onSponsorshipSubmit(event) {
   if (!sponsorshipActionGate.begin(actionKey)) return;
   const submit = form.querySelector('[type="submit"]');
   if (submit) submit.disabled = true;
+  const statusNode = host.captureActionStatusNode(submit || form);
   host.emitServer("contribute-sponsored-purchase", payload, response => {
     if (response?.success === false) {
       sponsorshipActionGate.complete(actionKey);
       if (submit) submit.disabled = false;
-      host.say(response.error || "The contribution could not be reserved.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "The contribution could not be reserved.", statusNode);
     }
   });
 }

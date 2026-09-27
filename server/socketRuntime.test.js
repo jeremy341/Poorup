@@ -165,3 +165,81 @@ console.log('socket runtime bot scheduling: ordinary turn 300 ms, auction 450 ms
 }
 
 console.log('socket runtime auction deadline checks: 2 passed, 0 failed');
+
+{
+  let currentTime = 80_000;
+  const delivered = [];
+  const timers = [];
+  const manager = new RoomManager();
+  const hostSocket = { id: 'auction-feed-host', emit() {}, join() {}, leave() {} };
+  const guestSocket = { id: 'auction-feed-guest', emit() {}, join() {}, leave() {} };
+  const room = manager.createRoom({ socketId: hostSocket.id, clientId: 'auction-feed-host-client', nickname: 'Host', roomCode: 'AUCFD1' });
+  room.addOrReconnectPlayer({ socketId: guestSocket.id, clientId: 'auction-feed-guest-client', nickname: 'Guest' });
+  manager.socketRoom.set(guestSocket.id, room);
+  assert.equal(room.startGame().success, true);
+  room.game.startAuction(room.game.getTile(1), room.game.players[0].id);
+  room.game.auction.endsAt = currentTime + 100;
+  const runtime = createRuntime({
+    io: {
+      emit() {}, on() {},
+      in(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; },
+      to(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; },
+      sockets: { sockets: new Map() }
+    },
+    roomManager: manager, accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    botAdvisor: {}, social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },
+    maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {}, now: () => currentTime,
+    setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
+    clearTimeout(timer) { if (timer) timer.cleared = true; }, setInterval() { return { unref() {} }; }, clearInterval() {}
+  });
+  runtime.scheduleAuctionFinish(room);
+  currentTime = room.game.auction.endsAt;
+  timers.at(-1).callback();
+  assert.ok(room.game.feed.some(entry => entry.text === `No bids were placed for ${room.game.getTile(1).name}. The property remains unsold.`));
+  assert.equal(delivered.filter(entry => entry.event === 'system-message').length, 0, 'auction expiry uses its specific result feed without a second summary notice');
+  console.log('PASS auctionExpiryUsesSpecificFeedResultOnly');
+}
+
+{
+  const currentTime = 90_000;
+  const delivered = [];
+  const timers = [];
+  const sockets = new Map();
+  const makeSocket = id => ({ id, data: {}, emitted: [], rooms: new Set([id]), emit(event, payload) { this.emitted.push({ event, payload }); }, join(roomCode) { this.rooms.add(roomCode); }, leave(roomCode) { this.rooms.delete(roomCode); } });
+  const manager = new RoomManager();
+  const hostSocket = makeSocket('vote-host');
+  const secondSocket = makeSocket('vote-second');
+  const targetSocket = makeSocket('vote-target');
+  const room = manager.createRoom({ socketId: hostSocket.id, clientId: 'vote-host-client', nickname: 'Host', roomCode: 'VOTE01' });
+  room.addOrReconnectPlayer({ socketId: secondSocket.id, clientId: 'vote-second-client', nickname: 'Second' });
+  room.addOrReconnectPlayer({ socketId: targetSocket.id, clientId: 'vote-target-client', nickname: 'Target' });
+  manager.socketRoom.set(secondSocket.id, room);
+  manager.socketRoom.set(targetSocket.id, room);
+  sockets.set(hostSocket.id, hostSocket);
+  sockets.set(secondSocket.id, secondSocket);
+  sockets.set(targetSocket.id, targetSocket);
+  assert.equal(room.startGame().success, true);
+  const runtime = createRuntime({
+    io: {
+      emit() {}, on() {},
+      in(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; },
+      to(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; },
+      sockets: { sockets }
+    },
+    roomManager: manager, accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    botAdvisor: {}, social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; }, accountForSocket() { return null; } },
+    maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {}, now: () => currentTime,
+    setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
+    clearTimeout(timer) { if (timer) timer.cleared = true; }, setInterval() { return { unref() {} }; }, clearInterval() {}
+  });
+  const target = room.game.getPlayerBySocket(targetSocket.id);
+  const vote = runtime.startRoomVoteKick(hostSocket, { targetPlayerId: target.id, requestId: 'vote-start' });
+  assert.equal(vote.success, true);
+  assert.equal(runtime.castRoomVoteKick(secondSocket, { voteId: vote.vote.voteId, choice: 'yes', requestId: 'vote-cast' }).success, true);
+  const notices = delivered.filter(entry => entry.event === 'system-message');
+  assert.equal(notices.length, 1, 'the passed vote is the only room-wide removal notice');
+  assert.equal(notices[0].payload.text, 'Target was removed after the room vote-kick passed.');
+  assert.equal(targetSocket.emitted.filter(entry => entry.event === 'system-message').length, 0, 'the target already received the passed vote through the room broadcast');
+  assert.equal(room.game.getPlayerByClient('vote-target-client'), undefined);
+  console.log('PASS passedVoteKickProducesOneRemovalNotice');
+}

@@ -28,6 +28,8 @@ let host = {
   openCasinoDesk: noop,
   refreshEconomySnapshot: noop,
   leaveRoomForHome: noop,
+  captureActionStatusNode: () => null,
+  announceActionStatus: noop,
 };
 
 function noop() {}
@@ -36,9 +38,8 @@ export function configureRailEvents(hooks) {
   host = { ...host, ...hooks };
 }
 
-function ackFailure(response, message) {
-  host.say(response.error || message);
-  host.renderChat();
+function ackFailure(response, message, statusNode) {
+  host.announceActionStatus(response.error || message, statusNode);
 }
 
 function markPending(node) {
@@ -66,20 +67,19 @@ function clearPending(node) {
   }
 }
 
-function contractEmit(event, payload, message, pendingNode = null) {
+function contractEmit(event, payload, message, pendingNode = null, statusNode = host.captureActionStatusNode(pendingNode)) {
   emitWithTimeout(host.emitServer, event, payload, {
     onResponse: response => {
       if (response?.success === false) {
         clearPending(pendingNode);
-        ackFailure(response, message);
+        ackFailure(response, message, statusNode);
         return;
       }
       host.renderRightRail();
     },
     onTimeout: () => {
       clearPending(pendingNode);
-      host.say("The deal response timed out. Your Finance rail will refresh when the connection returns.");
-      host.renderChat();
+      host.announceActionStatus("The deal response timed out. Your Finance rail will refresh when the connection returns.", statusNode);
       host.refreshEconomySnapshot();
     }
   });
@@ -100,7 +100,7 @@ function onContractRepay(node) {
   const amount = Math.floor(Number(input?.value) || 0);
   const payload = { contractId: node.dataset.playerContractRepay, requestId: host.createRequestId("contract-repay") };
   if (amount > 0) payload.amount = amount;
-  contractEmit("repay-player-contract", payload, "The player loan could not be repaid.", node);
+  contractEmit("repay-player-contract", payload, "The player loan could not be repaid.", node, host.captureActionStatusNode(node));
   return true;
 }
 
@@ -122,13 +122,14 @@ function mergeEconomySnapshot(response) {
 
 function onMarketOrder(node) {
   if (!node || !markPending(node)) return false;
+  const statusNode = host.captureActionStatusNode(node);
   const quantity = marketQuantity();
   const requestId = host.createRequestId("market");
   emitWithTimeout(host.emitServer, "market-order", { instrumentId: node.dataset.marketId, side: node.dataset.marketSide, quantity, requestId }, {
     onResponse: response => {
       if (response?.success === false) {
         clearPending(node);
-        ackFailure(response, "Market order could not be completed.");
+        ackFailure(response, "Market order could not be completed.", statusNode);
         return;
       }
       mergeEconomySnapshot(response);
@@ -136,8 +137,7 @@ function onMarketOrder(node) {
     },
     onTimeout: () => {
       clearPending(node);
-      host.say("Market response timed out. Your positions will refresh when the connection returns.");
-      host.renderChat();
+      host.announceActionStatus("Market response timed out. Your positions will refresh when the connection returns.", statusNode);
       host.refreshEconomySnapshot();
     }
   });
@@ -146,6 +146,7 @@ function onMarketOrder(node) {
 
 function onBankAction(node) {
   if (!node || !markPending(node)) return false;
+  const statusNode = host.captureActionStatusNode(node);
   const eventName = node.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
   const payload = { requestId: host.createRequestId(eventName) };
   if (eventName === "repay-bank-loan") {
@@ -157,15 +158,14 @@ function onBankAction(node) {
     onResponse: response => {
       if (response?.success === false) {
         clearPending(node);
-        ackFailure(response, "The bank transaction could not be completed.");
+        ackFailure(response, "The bank transaction could not be completed.", statusNode);
         return;
       }
       host.refreshEconomySnapshot();
     },
     onTimeout: () => {
       clearPending(node);
-      host.say("Bank response timed out. Your wallet will refresh when the connection returns.");
-      host.renderChat();
+      host.announceActionStatus("Bank response timed out. Your wallet will refresh when the connection returns.", statusNode);
       host.refreshEconomySnapshot();
     }
   });

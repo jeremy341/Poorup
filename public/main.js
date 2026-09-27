@@ -163,6 +163,8 @@ import {
   syncGlobalNavigation,
 } from "./clientRoomsUi.js";
 import { configureSocketListeners } from "./clientSocketListeners.js";
+import { syncLog } from "./clientStateSync.js";
+import { getChatRenderPlan } from "./clientChatView.js";
 import { TILES } from "./clientBoardData.js";
 import {
   bindGameModalSurfaces,
@@ -371,10 +373,12 @@ const serverSyncHost = {
 configureSocketListeners(socket, {
   setConnectionStatus,
   emitServer,
+  notice: parlorNotice,
   handleRestoreSessionResponse,
   say,
   renderChat,
   renderAll,
+  addActivityNotice,
   openChoiceModal,
   openCardReveal,
   openOfferModal,
@@ -386,7 +390,6 @@ configureSocketListeners(socket, {
   serverSyncHost,
 });
 
-const CHAT_ERRORISH = /(?:error|could not|cannot|can't|unable|failed|insufficient|not found|not your turn|must |need \$)/i;
 function systemMessage(text) {
   return { who: "", color: "", text, system: true };
 }
@@ -402,11 +405,9 @@ function isDuplicateSystem(message, previous) {
 function announceSystemLine(text) {
   const announcer = $("#system-announcer");
   if (announcer) announcer.textContent = String(text);
-  if (!CHAT_ERRORISH.test(String(text))) return;
-  const errorAnnouncer = $("#error-announcer");
-  if (errorAnnouncer) errorAnnouncer.textContent = String(text);
 }
 function say(text, who) {
+  if (!who) return;
   const message = chatMessage(text, who);
   const previous = state.messages[state.messages.length - 1];
   if (isDuplicateSystem(message, previous)) return;
@@ -414,6 +415,54 @@ function say(text, who) {
   if (state.messages.length > 80) state.messages.splice(0, state.messages.length - 80);
   if (!message.system) return;
   announceSystemLine(text);
+}
+
+function announceActionStatus(message, statusNode = null) {
+  const text = String(message || "Action could not be completed.");
+  if (statusNode) {
+    statusNode.textContent = text;
+    statusNode.hidden = false;
+  }
+  const announcer = $("#error-announcer");
+  if (announcer) announcer.textContent = text;
+}
+
+function captureActionStatusNode(control = document.activeElement) {
+  if (!control || typeof control.closest !== "function") return null;
+  const host = control.closest('[role="dialog"], .modal, .panel') || control.form || control.parentElement;
+  if (!host) return null;
+  let statusNode = control._actionStatusNode;
+  if (statusNode?.isConnected) {
+    statusNode.textContent = "";
+    statusNode.hidden = true;
+    return statusNode;
+  }
+  if (!statusNode?.isConnected) {
+    statusNode = document.createElement("p");
+    statusNode.className = "action-status t-micro";
+    statusNode.setAttribute("aria-live", "off");
+    statusNode.setAttribute("aria-atomic", "true");
+    statusNode.hidden = true;
+    host.append(statusNode);
+    control._actionStatusNode = statusNode;
+  }
+  return statusNode;
+}
+
+function addActivityNotice(text) {
+  const value = String(text || "").trim();
+  if (!value) return;
+  if (state.activityRoomCode !== state.roomCode) {
+    state.activityRoomCode = state.roomCode;
+    state.activityNotices = [];
+  }
+  state.activityNotices.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text: value, timestamp: Date.now() });
+  state.activityNotices = state.activityNotices.slice(0, 40);
+  syncLog({ feed: state.lastGameFeed });
+}
+
+function recordActivity(text) {
+  addActivityNotice(text);
 }
 
 function setConnectionStatus(status, announce = false) {
@@ -432,8 +481,7 @@ function setConnectionStatus(status, announce = false) {
     const message = status === "online" ? "Live table connection restored." : `Table connection ${copy.toLowerCase()}.`;
     if (state.lastConnectionAnnouncement !== message) {
       state.lastConnectionAnnouncement = message;
-      say(message);
-      renderChat();
+      announceSystemLine(message);
     }
   }
 }
@@ -596,17 +644,49 @@ function playerStatusLabel(p) {
   return "ONLINE";
 }
 
+let hasRenderedChat = false;
+let lastRenderedChatRoomCode = "";
+let lastRenderedChatCount = 0;
+let lastRenderedChatTail = null;
+
+function hasUnrenderedChatMessages() {
+  return state.messages.length !== lastRenderedChatCount
+    || state.messages.at(-1) !== lastRenderedChatTail;
+}
+
 function renderChat() {
   const body = $("#chat-body");
-  body.innerHTML = state.messages
-    .slice(-60)
-    .map((m) =>
-      m.system
-        ? `<p class="t-body chat-line"><span class="ink-3">» </span><span class="g-muted">${esc(m.text)}</span></p>`
-        : `<p class="t-body chat-line"><span style="color:${m.color}">${esc(m.who)}:</span> <span class="ink-2">${esc(m.text)}</span></p>`,
-    )
-    .join("");
-  body.scrollTop = body.scrollHeight;
+  const wasNearBottom = body.scrollHeight - body.scrollTop - body.clientHeight <= 32;
+  const roomChanged = hasRenderedChat && state.roomCode !== lastRenderedChatRoomCode;
+  const renderPlan = getChatRenderPlan({
+    isFirstRender: !hasRenderedChat,
+    isNearBottom: wasNearBottom,
+    roomChanged,
+    hasNewMessages: hasUnrenderedChatMessages(),
+  });
+  if (renderPlan.updateContent) {
+    body.innerHTML = state.messages
+      .slice(-60)
+      .map((m) =>
+        m.system
+          ? `<p class="t-body chat-line"><span class="ink-3">» </span><span class="g-muted">${esc(m.text)}</span></p>`
+          : `<p class="t-body chat-line"><span style="color:${m.color}">${esc(m.who)}:</span> <span class="ink-2">${esc(m.text)}</span></p>`,
+      )
+      .join("");
+    hasRenderedChat = true;
+    lastRenderedChatRoomCode = state.roomCode;
+    lastRenderedChatCount = state.messages.length;
+    lastRenderedChatTail = state.messages.at(-1) || null;
+  }
+  const affordance = $("#chat-new-message");
+  if (renderPlan.followBottom) {
+    body.scrollTop = body.scrollHeight;
+  }
+  if (renderPlan.showNewMessages) {
+    affordance?.classList.remove("is-hidden");
+  } else {
+    affordance?.classList.add("is-hidden");
+  }
 
   const joined = (state.phase !== "home" && state.players.length > 0);
   $("#chat-input").disabled = !joined;
@@ -713,6 +793,7 @@ function createTurnRequest(kind) {
 }
 
 function executeTurnEmit({ kind, requestId, event, errorMessage, timeoutMessage }) {
+  const statusNode = captureActionStatusNode();
   renderHud();
   let settled = false;
   const finish = () => {
@@ -725,7 +806,7 @@ function executeTurnEmit({ kind, requestId, event, errorMessage, timeoutMessage 
     if (settled) return;
     settled = true;
     finish();
-    say(timeoutMessage);
+    announceActionStatus(timeoutMessage, statusNode);
     renderAll();
   }, 8000);
   emitServer(event, { requestId }, (response) => {
@@ -733,7 +814,7 @@ function executeTurnEmit({ kind, requestId, event, errorMessage, timeoutMessage 
     settled = true;
     clearTimeout(timeout);
     finish();
-    reportChatError(response, errorMessage);
+    reportChatError(response, errorMessage, statusNode);
     renderAll();
   });
 }
@@ -799,14 +880,22 @@ function startGame() {
   emitWithChatError("start-game", {}, "Only the host can start the game.");
 }
 
-function buyTile(tile) {
+function buyTile(tile, submittedStatusNode = null, onSuccess = null) {
   if (tile?.i == null) return;
+  const statusNode = submittedStatusNode || captureActionStatusNode();
   emitServer("purchase-property", { tileIndex: tile.i }, (response) => {
-    reportChatError(response, "That deed is no longer available.");
+    reportChatError(response, "That deed is no longer available.", statusNode);
+    if (response?.success === false) return;
+    if (onSuccess) {
+      onSuccess();
+      closePopup();
+    }
+    else {
+      state.pendingBuyTile = null;
+      $("#choice-modal")?.classList.add("is-hidden");
+      closePopup();
+    }
   });
-  state.pendingBuyTile = null;
-  $("#choice-modal")?.classList.add("is-hidden");
-  closePopup();
 }
 /* Forced choice/auction, trading modals and the persist/resume cluster
    live in clientGameModalsUi.js / clientGameSave.js. */
@@ -841,18 +930,15 @@ function showView(name) {
 }
 
 
-function reportChatError(response, message) {
+function reportChatError(response, message, statusNode = null) {
   if (response?.success === false) {
     const text = response.error || message;
-    say(text);
-    renderChat();
-    // Chat may be collapsed or on another surface: toast errors too.
-    parlorNotice("TABLE", text);
+    announceActionStatus(text, statusNode);
   }
 }
 
-function emitWithChatError(event, payload, message) {
-  emitServer(event, payload, (response) => reportChatError(response, message));
+function emitWithChatError(event, payload, message, statusNode = captureActionStatusNode()) {
+  emitServer(event, payload, (response) => reportChatError(response, message, statusNode));
 }
 
 function homeProfileEditTarget() {
@@ -982,6 +1068,7 @@ function onGlobalEventVoteClick(event) {
   if (!choice) return;
   if (choice.disabled) return;
   if (state.globalEventVotePending) return;
+  const statusNode = captureActionStatusNode(choice);
   state.globalEventVotePending = true;
   choice.disabled = true;
   clearTimeout(globalEventVoteTimer);
@@ -995,7 +1082,7 @@ function onGlobalEventVoteClick(event) {
     clearTimeout(globalEventVoteTimer);
     globalEventVoteTimer = null;
     state.globalEventVotePending = false;
-    reportChatError(response, "Your vote could not be recorded.");
+    reportChatError(response, "Your vote could not be recorded.", statusNode);
     renderGlobalEvent();
   });
 }
@@ -1036,6 +1123,19 @@ function onChatFormSubmit(e) {
   input.value = "";
   emitWithChatError("send-chat", { text }, "Message could not be sent.");
 }
+
+$("#chat-new-message")?.addEventListener("click", () => {
+  const body = $("#chat-body");
+  body.scrollTop = body.scrollHeight;
+  renderChat();
+});
+$("#chat-body")?.addEventListener("scroll", () => {
+  const body = $("#chat-body");
+  if (body.scrollHeight - body.scrollTop - body.clientHeight <= 32) {
+    if (hasUnrenderedChatMessages()) renderChat();
+    else $("#chat-new-message")?.classList.add("is-hidden");
+  }
+});
 
 function bindBoardLayout() {
   // keep tokens glued to tiles when the board resizes
@@ -1193,30 +1293,32 @@ function bindEvents() {
 configureSurfaces({ notice: parlorNotice });
 bindBeforeUnloadGuard();
 configureSocialSurfaces({ emitServer, showView });
-configureDealUi({ emitServer, say, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
-configureAccountIdentity({ emitServer, say, syncAudioButtons, syncHomeMusic });
+configureDealUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
+configureAccountIdentity({ emitServer, say, notice: parlorNotice, announceActionStatus, syncAudioButtons, syncHomeMusic });
 configureAccountRights({ state, emitServer, announce: say, refresh: renderAccountPanel, setSurfaceReturnFocus });
-configureRailEvents({ emitServer, say, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot, leaveRoomForHome });
+configureRailEvents({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot, leaveRoomForHome });
 configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
-configureMarketUi({ emitServer, renderRightRail, createRequestId, say, renderChat });
-configureCasinoUi({ emitServer, renderRightRail, createRequestId, say, renderChat, playSound, refreshEconomySnapshot });
-configureTradeUi({ emitServer, say, renderChat, record, createRequestId, renderRightRail });
-configureAuctionUi({ emitServer, say, renderChat });
+configureMarketUi({ emitServer, renderRightRail, createRequestId, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
+configureCasinoUi({ emitServer, renderRightRail, createRequestId, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, playSound, refreshEconomySnapshot });
+configureTradeUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, record, createRequestId, renderRightRail });
+configureAuctionUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configurePopup({ buyTile, record });
 configureCosmetics({ emitServer, announce: message => parlorNotice("COLLECTION", message) });
 configureProfileRender({ renderAchievements, renderCollection, loadSavedGame, renderHomeSignals });
-configureGameModals({ emitServer, say, renderChat, renderAll, buyTile, openHoldings: () => { state.tab = "holdings"; renderRightRail(); }, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
-configureSponsorshipUi({ emitServer, say, renderChat });
-configureDeedDetail({ emitServer, say, renderAll });
+configureGameModals({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderAll, buyTile, openHoldings: () => { state.tab = "holdings"; renderRightRail(); }, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
+configureSponsorshipUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
+configureDeedDetail({ emitServer, say, captureActionStatusNode, announceActionStatus, renderAll });
 configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });
-configureRoomsUi({ emitServer, say, renderChat, enterParlor, createRequestId });
+configureRoomsUi({ emitServer, say, captureActionStatusNode, announceActionStatus, renderChat, enterParlor, createRequestId });
 configureLobbyUi({
   emitServer,
   updateServerSetting,
   showView,
   renderAll,
   say,
+  captureActionStatusNode,
+  announceActionStatus,
   renderChat,
   clearSave,
   renderPlayers,

@@ -53,18 +53,20 @@ function makeSocket(id) {
     id,
     data: {},
     rooms: new Set([id]),
+    emitted: [],
     join(roomCode) { this.rooms.add(roomCode); },
     leave(roomCode) { this.rooms.delete(roomCode); },
-    emit() {}
+    emit(event, payload) { this.emitted.push({ event, payload }); }
   };
 }
 
-function registerRoomHarness(roomManager, testSocket, snapshots) {
+function registerRoomHarness(roomManager, testSocket, snapshots, delivered = []) {
   const handlers = new Map();
   const testRuntime = {
     accountStore: {},
     roomManager,
     social: { accountForSocket() { return null; } },
+    getRoomForSocket() { return roomManager.getRoomBySocket(testSocket.id); },
     emitRoomState(roomState) { snapshots.push(roomState); },
     scheduleRoomsUpdated() {},
     leaveAllGameRooms() {},
@@ -73,11 +75,66 @@ function registerRoomHarness(roomManager, testSocket, snapshots) {
     reassignHostIfNeeded() {},
     emitPendingInteractions() {},
     destroyRoom(roomState) { roomManager.rooms.delete(roomState.roomCode); },
-    io: { in() { return { emit() {} }; } }
+    io: { in(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; } }
   };
   registerAccountSocketHandlers((event, handler) => handlers.set(event, handler), testSocket, testRuntime);
   return handlers;
 }
+
+function accountRoomScenario(id, started = false, includeGuest = true) {
+  const roomManager = new RoomManager();
+  const host = makeSocket(`${id}-host`);
+  const guest = makeSocket(`${id}-guest`);
+  const room = roomManager.createRoom({ socketId: host.id, clientId: `${id}-host-client`, nickname: 'Host', visibility: 'private', roomCode: `${id.slice(0, 3)}001` });
+  if (includeGuest) {
+    room.addOrReconnectPlayer({ socketId: guest.id, clientId: `${id}-guest-client`, nickname: 'Guest' });
+    roomManager.socketRoom.set(guest.id, room);
+  }
+  if (started) assert.equal(room.startGame().success, true);
+  const snapshots = [];
+  const delivered = [];
+  const handlers = registerRoomHarness(roomManager, started ? host : guest, snapshots, delivered);
+  return { roomManager, host, guest, room, snapshots, delivered, handlers };
+}
+
+const freshJoin = accountRoomScenario('JOIN', false, false);
+const freshJoinAck = { value: null };
+freshJoin.handlers.get('join-room')({ roomCode: freshJoin.room.roomCode, clientId: 'JOIN-guest-client', nickname: 'Guest' }, value => { freshJoinAck.value = value; });
+assert.equal(freshJoinAck.value?.success, true);
+assert.equal(freshJoin.room.game.feed.filter(entry => entry.text === 'Guest joined the room.').length, 1);
+assert.equal(freshJoin.delivered.filter(entry => entry.event === 'system-message').length, 0, 'fresh join is represented once by the authoritative feed');
+
+const reconnect = accountRoomScenario('RECONNECT');
+const reconnectingPlayer = reconnect.room.game.getPlayerByClient('RECONNECT-guest-client');
+reconnectingPlayer.socketId = null;
+reconnectingPlayer.disconnected = true;
+reconnect.guest.id = 'RECONNECT-guest-replacement';
+reconnect.guest.rooms = new Set([reconnect.guest.id]);
+reconnect.roomManager.socketRoom.set(reconnect.guest.id, reconnect.room);
+const reconnectEvents = [];
+const reconnectHandlers = registerRoomHarness(reconnect.roomManager, reconnect.guest, reconnect.snapshots, reconnectEvents);
+reconnectHandlers.get('join-room')({ roomCode: reconnect.room.roomCode, clientId: 'RECONNECT-guest-client', nickname: 'Guest' }, () => {});
+assert.equal(reconnectEvents.filter(entry => entry.event === 'system-message').length, 1, 'reconnect retains its explicit notice when no new-join feed entry is added');
+console.log('PASS joinRoomRoutesFreshJoinThroughFeedAndReconnectOnce');
+
+const startedLeave = accountRoomScenario('LEAVEGAME', true);
+const startedLeaveHandlers = registerRoomHarness(startedLeave.roomManager, startedLeave.guest, startedLeave.snapshots, startedLeave.delivered);
+startedLeaveHandlers.get('leave-room')({ clientId: 'LEAVEGAME-guest-client' }, response => assert.equal(response.success, true));
+assert.ok(startedLeave.room.game.feed.some(entry => entry.text === 'Guest left the table.'));
+assert.equal(startedLeave.delivered.filter(entry => entry.event === 'system-message').length, 0, 'started-game departure uses its feed entry');
+
+const lobbyLeave = accountRoomScenario('LEAVELOBBY');
+lobbyLeave.handlers.get('leave-room')({ clientId: 'LEAVELOBBY-guest-client' }, response => assert.equal(response.success, true));
+assert.equal(lobbyLeave.room.game.feed.some(entry => entry.text === 'Guest left the table.'), false);
+assert.equal(lobbyLeave.delivered.filter(entry => entry.event === 'system-message').length, 1, 'lobby departure keeps its only notice');
+console.log('PASS leaveRoomUsesFeedOnceInStartedGameAndNoticeInLobby');
+
+const gameStart = accountRoomScenario('START');
+const startHandlers = registerRoomHarness(gameStart.roomManager, gameStart.host, gameStart.snapshots, gameStart.delivered);
+startHandlers.get('start-game')({}, response => assert.equal(response.success, true));
+assert.ok(gameStart.room.game.feed.some(entry => entry.text === 'The game begins. Players take turns clockwise.'));
+assert.equal(gameStart.delivered.filter(entry => entry.event === 'system-message').length, 0, 'game start is represented once by the authoritative feed');
+console.log('PASS gameStartAppearsOnceInFeed');
 
 const replayManager = new RoomManager();
 const snapshots = [];
@@ -129,4 +186,4 @@ assert.deepEqual(conflictAck, {
 });
 assert.equal(replayManager.rooms.size, 1, 'request-id payload conflicts must not mutate rooms');
 
-console.log('server socket account settings/replay: 13 scenarios passed, 0 failed');
+console.log('server socket account settings/replay: 18 scenarios passed, 0 failed');

@@ -50,7 +50,6 @@ function lenderCanFund(lender, amount) {
 // Guard order and wording are pinned by server/contracts-market.test.js.
 export function contractProposalRejection(game, fromPlayer, toPlayer, amount) {
   if (!isPairOfActivePlayers(fromPlayer, toPlayer)) return { success: false, error: 'Choose two active players.' };
-  if (fromPlayer.id !== game.currentPlayerId) return { success: false, error: 'Player contracts are proposed during your turn.' };
   if (tableObligationOpen(game)) return { success: false, error: 'Resolve the current table obligation first.' };
   if (!lenderCanFund(fromPlayer, amount)) return { success: false, error: 'The lender does not have enough cash for that offer.' };
   if (game.hasLoanBackedCash(fromPlayer)) return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };

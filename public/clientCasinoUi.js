@@ -8,7 +8,7 @@ import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfac
 import { emitWithTimeout } from "./clientRequestController.js";
 import { casinoReelHTML, startCasinoReel, stopCasinoReel } from "./clientCasinoReel.js";
 
-let host = { emitServer: noop, createRequestId: noop, renderRightRail: noop, say: noop, renderChat: noop };
+let host = { emitServer: noop, createRequestId: noop, renderRightRail: noop, say: noop, renderChat: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 function noop() {}
 let casinoDraft = null;
 let casinoResult = null;
@@ -127,11 +127,10 @@ function casinoBetPayload(form) {
   };
 }
 
-function casinoResponse(submit, response) {
+function casinoResponse(submit, statusNode, response) {
   if (response?.success === false) {
     clearPending(submit);
-    host.say(response.error || "Casino bet could not be completed.");
-    host.renderChat();
+    host.announceActionStatus(response.error || "Casino bet could not be completed.", statusNode);
     return;
   }
   mergeEconomySnapshot(response);
@@ -145,12 +144,12 @@ function onCasinoSubmit(event) {
   const form = event.currentTarget;
   const submit = form.querySelector("button[type=submit]");
   if (!markPending(submit)) return;
+  const statusNode = host.captureActionStatusNode(submit);
   emitWithTimeout(host.emitServer, "place-casino-bet", casinoBetPayload(form), {
-    onResponse: response => casinoResponse(submit, response),
+    onResponse: response => casinoResponse(submit, statusNode, response),
     onTimeout: () => {
       clearPending(submit);
-      host.say("Casino response timed out. Your result will refresh when the connection returns.");
-      host.renderChat();
+      host.announceActionStatus("Casino response timed out. Your result will refresh when the connection returns.", statusNode);
       host.refreshEconomySnapshot?.();
     }
   });
