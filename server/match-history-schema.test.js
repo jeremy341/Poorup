@@ -44,6 +44,53 @@ assert.deepEqual(loaded.participants[0].avatarAtMatch, grid);
 assert.deepEqual(loaded.participants[0].achievementsUnlocked, ['41st-tile']);
 assert.equal(loaded.participants[0].mythicalUnlocked, true);
 
+const sparseProfileFields = matches.record({
+  matchId: 'sparse-legacy-profile-fields',
+  casino: [{ accountId: 'legacy-sparse', bets: 0 }]
+}).match;
+for (const key of ['completedAt', 'durationSeconds', 'roundCount', 'participants', 'globalEvents', 'eventCombinations', 'playerCount', 'tradesCompleted', 'auctionsCompleted', 'market', 'playerContracts']) {
+  assert.equal(Object.prototype.hasOwnProperty.call(sparseProfileFields, key), false, `missing ${key} must remain unrecorded`);
+}
+assert.equal(Object.prototype.hasOwnProperty.call(sparseProfileFields.casino[0], 'net'), false, 'missing casino net must remain unrecorded');
+
+const sparseParticipantFields = matches.record({
+  matchId: 'sparse-legacy-participant-fields',
+  participants: [{ accountId: 'legacy-sparse', displayNameAtMatch: 'Sparse Legacy', finalPlacement: 2 }]
+}).match.participants[0];
+assert.equal(Object.prototype.hasOwnProperty.call(sparseParticipantFields, 'endingCash'), false, 'missing participant endingCash must remain unrecorded');
+assert.equal(Object.prototype.hasOwnProperty.call(sparseParticipantFields, 'propertyCount'), false, 'missing participant propertyCount must remain unrecorded');
+
+const explicitZeroProfileFields = matches.record({
+  matchId: 'explicit-zero-profile-fields',
+  completedAt: '2026-09-27T00:00:00.000Z',
+  durationSeconds: 0,
+  roundCount: 0,
+  playerCount: 0,
+  participants: [{ accountId: 'explicit-zero', displayNameAtMatch: 'Zero', finalPlacement: 1, endingCash: 0, propertyCount: 0 }],
+  globalEvents: [],
+  eventCombinations: [],
+  tradesCompleted: 0,
+  auctionsCompleted: 0,
+  casino: [{ accountId: 'explicit-zero', bets: 0, net: 0 }],
+  market: [],
+  playerContracts: []
+}).match;
+assert.equal(explicitZeroProfileFields.completedAt, '2026-09-27T00:00:00.000Z');
+assert.equal(explicitZeroProfileFields.durationSeconds, 0);
+assert.equal(explicitZeroProfileFields.roundCount, 0);
+assert.equal(explicitZeroProfileFields.playerCount, 0);
+assert.equal(explicitZeroProfileFields.participants[0].endingCash, 0);
+assert.equal(explicitZeroProfileFields.participants[0].propertyCount, 0);
+assert.deepEqual(explicitZeroProfileFields.globalEvents, []);
+assert.deepEqual(explicitZeroProfileFields.eventCombinations, []);
+assert.equal(explicitZeroProfileFields.tradesCompleted, 0);
+assert.equal(explicitZeroProfileFields.auctionsCompleted, 0);
+assert.equal(explicitZeroProfileFields.casino[0].net, 0);
+assert.deepEqual(explicitZeroProfileFields.market, []);
+assert.deepEqual(explicitZeroProfileFields.playerContracts, []);
+const explicitEmptyParticipants = matches.record({ matchId: 'explicit-empty-participants', participants: [] }).match;
+assert.deepEqual(explicitEmptyParticipants.participants, [], 'an explicit empty participant list must stay distinct from a missing list');
+
 const persistedRecord = accounts.recordGameResults(players, 'p1', {
   gameId: 'history-reload',
   roomVisibility: 'public',
@@ -67,4 +114,4 @@ for (let index = 0; index < 510; index += 1) {
 }
 matches.persist();
 assert.equal(matches.matches.size, 500);
-console.log('match-history v2 schema and achievement annotation: 5 passed, 0 failed');
+console.log('match-history v2 schema and achievement annotation: 6 passed, 0 failed');
