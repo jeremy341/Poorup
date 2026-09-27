@@ -776,6 +776,12 @@
                   <div class="center-field noise" id="center-field">
                     <div class="theme-board-world" id="theme-board-world" data-theme-layer="board" aria-hidden="true"></div>
                     <svg class="skyline center-skyline" viewBox="0 0 88 36" shape-rendering="crispEdges" aria-hidden="true" id="board-skyline"></svg>
+                    <div class="global-event-ribbon is-hidden" id="global-event-ribbon" aria-hidden="true">
+                      <span class="global-event-ribbon-label">GLOBAL EVENT</span>
+                      <strong class="global-event-ribbon-title" id="global-event-ribbon-title"></strong>
+                      <span class="global-event-ribbon-cue" id="global-event-ribbon-cue"></span>
+                    </div>
+                    <span class="sr-live" id="global-event-announcer" role="status" aria-live="polite" aria-atomic="true"></span>
                     <div class="cf-inner">
                       <div class="cf-logo-row">
                         <span class="cf-orn">✚</span>
@@ -784,7 +790,7 @@
                       </div>
                       <p class="t-label cf-sub"><span class="g300">✦</span> After-Hours Game Parlor <span class="g300">✦</span></p>
                     </div>
-                    <section class="global-event-banner is-hidden" id="global-event-banner" role="region" aria-live="polite" aria-labelledby="global-event-title">
+                    <section class="global-event-banner is-hidden" id="global-event-banner" role="region" aria-labelledby="global-event-title">
                       <div class="global-event-header">
                         <div class="global-event-badge-group">
                           <span class="global-event-emblem" id="global-event-emblem" aria-hidden="true"></span>
@@ -813,8 +819,9 @@
                       </div>
                       <div class="global-event-compact-row is-hidden" id="global-event-compact-row">
                         <span class="global-event-compact-title" id="global-event-compact-title"></span>
+                        <span class="global-event-compact-rounds" id="global-event-compact-rounds"></span>
                         <div class="global-event-compact-effects" id="global-event-compact-effects"></div>
-                        <span class="global-event-compact-vote is-hidden" id="global-event-compact-vote"></span>
+                        <button class="global-event-compact-vote is-hidden" id="global-event-compact-vote" type="button" aria-controls="global-event-body-wrap" aria-expanded="false" aria-label="Show global event details and voting controls"></button>
                       </div>
                     </section>
                     <div class="deck deck-chest"><span data-sprite="chest" data-size="5"></span></div>
