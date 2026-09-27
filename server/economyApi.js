@@ -12,6 +12,7 @@ import {
   advanceMarket as stepMarketQuotes,
   applyMarketBuy as marketBuyLeg,
   applyMarketSell as marketSellLeg,
+  marketQuoteHistorySnapshot,
   marketOrderRejection as rejectMarketOrder
 } from './marketLogic.js';
 import { hasLoanBackedCash as cashIsLoanBacked } from './loanLogic.js';
@@ -58,6 +59,7 @@ function marketSnapshot(game, player) {
     round: game.marketRound,
     feeRate: MARKET_FEE_RATE,
     quotes: { ...game.marketQuotes },
+    quoteHistory: marketQuoteHistorySnapshot(game),
     positions: { ...(player?.marketPositions || {}) },
     complexity: game.settings.marketComplexity || 'basic',
     margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, collateral: Number(player.marginCollateral) || 0, positions: { ...(player.marginPositions || {}) } } : null,
