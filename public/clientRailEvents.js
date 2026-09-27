@@ -26,6 +26,7 @@ let host = {
   openWalletModal: noop,
   openMarketDesk: noop,
   openCasinoDesk: noop,
+  openBankLoanOffer: noop,
   refreshEconomySnapshot: noop,
   leaveRoomForHome: noop,
   captureActionStatusNode: () => null,
@@ -147,7 +148,7 @@ function onMarketOrder(node) {
 function onBankAction(node) {
   if (!node || !markPending(node)) return false;
   const statusNode = host.captureActionStatusNode(node);
-  const eventName = node.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
+  const eventName = "repay-bank-loan";
   const payload = { requestId: host.createRequestId(eventName) };
   if (eventName === "repay-bank-loan") {
     const input = node.closest(".finance-repay-controls")?.querySelector("[data-bank-repay-amount]");
@@ -169,6 +170,12 @@ function onBankAction(node) {
       host.refreshEconomySnapshot();
     }
   });
+  return true;
+}
+
+function onBankOfferOpen(node) {
+  if (!node) return false;
+  host.openBankLoanOffer(node);
   return true;
 }
 
@@ -254,6 +261,7 @@ const RAIL_CLICKS = [
   ["[data-deal-view]", onDealView],
   ["[data-player-contract-repay]", onContractRepay],
   ["[data-market-order]", onMarketOrder],
+  ["[data-bank-offer-open]", onBankOfferOpen],
   ["[data-bank-action]", onBankAction],
   ["[data-finance-open]", onFinanceOpen],
   ["[data-buy]", onBuyTile],

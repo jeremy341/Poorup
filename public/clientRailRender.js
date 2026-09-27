@@ -56,12 +56,13 @@ function repayActionHTML(loan, disabled) {
 function takeActionHTML(offer, disabled) {
   const amount = Number(offer.principal || 0).toLocaleString();
   const flag = disabled ? "disabled" : "";
-  return `<button class="cta-red finance-bank-action" type="button" data-bank-action="take" ${flag}><span class="cta-text cta-text-sm">ACCEPT $${amount}</span></button>`;
+  return `<button class="cta-red finance-bank-action" type="button" data-bank-offer-open aria-haspopup="dialog" aria-controls="bank-loan-modal" ${flag}><span class="cta-text cta-text-sm">REVIEW $${amount} CREDIT</span></button>`;
 }
 
 function bankLoanActionHTML(loan, offer, disabled) {
   if (loan && ["active", "due"].includes(loan.status)) return repayActionHTML(loan, disabled);
   if (offer?.available) return takeActionHTML(offer, disabled);
+  if (!loan && offer?.reason) return `<p class="t-body ink-2 finance-bank-unavailable" data-bank-offer-reason>${esc(offer.reason)}</p>`;
   return "";
 }
 
@@ -76,7 +77,8 @@ function offerMetrics(offer) {
   const advance = `$${Number(offer.principal || 0).toLocaleString()}`;
   const totalDue = `$${Number(offer.totalDue || 0).toLocaleString()}`;
   const collateral = offer.collateralName || "NONE";
-  return [["ADVANCE", advance], ["TOTAL DUE", totalDue], ["DUE IN", `${offer.dueInRounds} ROUNDS`], ["COLLATERAL", collateral]];
+  const interestRate = Number(offer.principal) > 0 ? `${(Number(offer.premium || 0) / Number(offer.principal) * 100).toFixed(0)}%` : "—";
+  return [["ADVANCE", advance], ["INTEREST", `$${Number(offer.premium || 0).toLocaleString()} · ${interestRate}`], ["TOTAL DUE", totalDue], ["DUE ROUND", offer.dueRound ?? "—"], ["CURE ROUND", offer.cureRound ?? "—"], ["SEVERITY", String(offer.severity || "—").toUpperCase()], ["COLLATERAL", collateral]];
 }
 
 function bankLoanMetrics(loan, offer) {
@@ -98,7 +100,7 @@ function bankOfferCopy(offer) {
 }
 
 function bankLoanCopy(loan, offer) {
-  if (!loan) return bankOfferCopy(offer);
+  if (!loan) return offer?.available ? bankOfferCopy(offer) : "Emergency credit is unavailable right now.";
   if (loan.status === "defaulted") return "DEFAULTED · The bank has closed this credit line for the rest of the round.";
   if (loan.status === "paid") return paidLoanCopy(loan);
   return `Repay before round ${loan.dueRound}. The cure window ends after round ${loan.cureRound}.`;

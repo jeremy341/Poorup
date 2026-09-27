@@ -25,6 +25,7 @@ import {
   renderTopNav,
 } from "./clientTopNavRender.js";
 import { renderRightRail } from "./clientRailRender.js";
+import { bindBankLoanUi, configureBankLoanUi, openBankLoanOffer } from "./clientBankLoanUi.js";
 import {
   bindWalletUi,
   closeWalletModal,
@@ -1296,7 +1297,9 @@ configureSocialSurfaces({ emitServer, showView });
 configureDealUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
 configureAccountIdentity({ emitServer, say, notice: parlorNotice, announceActionStatus, syncAudioButtons, syncHomeMusic });
 configureAccountRights({ state, emitServer, announce: say, refresh: renderAccountPanel, setSurfaceReturnFocus });
-configureRailEvents({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, refreshEconomySnapshot, leaveRoomForHome });
+configureRailEvents({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, openBankLoanOffer, refreshEconomySnapshot, leaveRoomForHome });
+configureBankLoanUi({ getOffer: () => state.players[0]?.bankLoanOffer, openSurface, closeSurface, emitServer, createRequestId, announceActionStatus, captureActionStatusNode, refreshEconomySnapshot });
+bindBankLoanUi();
 configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
 configureMarketUi({ emitServer, renderRightRail, createRequestId, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configureCasinoUi({ emitServer, renderRightRail, createRequestId, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, playSound, refreshEconomySnapshot });
