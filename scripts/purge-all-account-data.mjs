@@ -25,7 +25,10 @@ const STORE_NAMES = {
   recoveryTokens: 'recovery-tokens.json'
 };
 
-const BACKUP_PREFIXES = Object.values(STORE_NAMES).map(name => `${name}.`);
+const PURGED_BACKUP_PREFIXES = Object.entries(STORE_NAMES)
+  .filter(([store]) => store !== 'analyticsRollup')
+  .map(([, name]) => `${name}.`);
+const PRESERVED_STORES = new Set(['analyticsRollup']);
 const PRESERVED_DATA_FILES = new Set(['ai-providers.json', 'maintenance.json', 'rooms.json']);
 const ADDITIONAL_ACCOUNT_FILES = ['__dbg.json', '__gold_acct.json', '__gold_matches.json'];
 
@@ -139,7 +142,7 @@ function backupInventory(directory, io) {
   const entries = io.readdirSync(directory, { withFileTypes: true });
   const backups = [];
   for (const entry of entries) {
-    if (!BACKUP_PREFIXES.some(prefix => entry.name.startsWith(prefix)) || !(entry.name.endsWith('.json') || entry.name.endsWith('.json.sha256'))) continue;
+    if (!PURGED_BACKUP_PREFIXES.some(prefix => entry.name.startsWith(prefix)) || !(entry.name.endsWith('.json') || entry.name.endsWith('.json.sha256'))) continue;
     if (entry.isSymbolicLink() || !entry.isFile()) throw new Error(`Account-store backup is not a regular file: ${entry.name}.`);
     backups.push(path.join(directory, entry.name));
   }
@@ -240,7 +243,7 @@ export function purgeAccountData({
   const backupSnapshots = backups.map(filePath => [filePath, io.readFileSync(filePath)]);
   try {
     for (const store of stores) {
-      if (!store.exists) continue;
+      if (!store.exists || PRESERVED_STORES.has(store.name)) continue;
       const previous = parsed.get(store.name)?.value;
       const bytes = Buffer.from(`${JSON.stringify(emptyStore(store.name, previous), null, 2)}\n`, 'utf8');
       replaceFile(store.path, bytes);

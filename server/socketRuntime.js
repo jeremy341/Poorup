@@ -905,6 +905,7 @@ function createRuntime(deps) {
     const actionId = choice.actionId;
     const shouldBid = actionId === 'auction:bid';
     const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    if (shouldBid && result?.success) scheduleAuctionFinish(room);
     const trace = room.game.recordBotDecisionTrace({
       ...context,
       phase: 'auction',
@@ -958,6 +959,11 @@ function createRuntime(deps) {
       // Do not clear a timer for a newer auction when an older callback fires.
       if (currentRoom?.game.auction && expectedAuction && currentRoom.game.auction !== expectedAuction) return;
       clearAuctionTimer({ roomCode });
+      return;
+    }
+    const remaining = Number(expectedAuction?.endsAt) - now();
+    if (Number.isFinite(remaining) && remaining > 0) {
+      scheduleAuctionFinish(currentRoom);
       return;
     }
     currentRoom.game.finishAuction();

@@ -848,7 +848,12 @@ export class AccountStore {
   }
 
   updateProfile(sessionToken, patch = {}) {
-    const account = this.sessionAccount(sessionToken);
+    return this.updateProfileForAccount(this.sessionAccount(sessionToken), patch);
+  }
+
+  updateProfileForAccount(accountOrId, patch = {}) {
+    const accountId = typeof accountOrId === 'string' ? accountOrId : accountOrId?.id;
+    const account = accountId ? this.getAccountById(accountId) : null;
     if (!account) return { success: false, error: 'Account session expired. Sign in again.' };
     return commitMutation(this, () => {
       if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);

@@ -173,8 +173,10 @@ check('target selection: vote beats pending counterparty beats current', () => {
   assert.strictEqual(selectBotTurnTarget(voting).id, 'b2');
   const pending = fakeGame({ current: bot1, players: [bot2], pendingTrade: { toPlayerId: 'b2' } });
   assert.strictEqual(selectBotTurnTarget(pending).id, 'b2');
-  const pendingHuman = fakeGame({ current: bot1, players: [bot2], pendingTrade: { toPlayerId: 'h9' } });
+  const pendingHuman = fakeGame({ current: bot1, players: [bot2], pendingTrade: { fromPlayerId: bot1.id, toPlayerId: 'h9' } });
   assert.strictEqual(selectBotTurnTarget(pendingHuman).id, 'b1');
+  const pendingContractHuman = fakeGame({ current: bot1, players: [bot2], pendingPlayerContract: { fromPlayerId: bot1.id, toPlayerId: 'h9' } });
+  assert.strictEqual(selectBotTurnTarget(pendingContractHuman).id, 'b1');
   const contract = fakeGame({ current: human, players: [bot1], pendingPlayerContract: { toPlayerId: 'b1' } });
   assert.strictEqual(selectBotTurnTarget(contract).id, 'b1');
   const payment = fakeGame({ current: human, players: [bot1], pendingPayment: { playerId: 'b1' } });
@@ -211,6 +213,7 @@ check('phase classification order matches original if/else chain', () => {
 check('candidateAction maps kind to room action or roll fallback', () => {
   const bot = { cash: 1000, personality: 'speculator' };
   assert.deepStrictEqual(candidateAction({ kind: 'trade', id: 't1' }, bot), { type: 'trade', candidate: { kind: 'trade', id: 't1' } });
+  assert.strictEqual(candidateAction({ kind: 'cancel-trade', tradeId: 't1' }, bot).type, 'cancel-trade');
   assert.strictEqual(candidateAction({ kind: 'market' }, bot).type, 'market');
   assert.strictEqual(candidateAction({ kind: 'casino' }, bot).type, 'casino');
   assert.strictEqual(candidateAction({ kind: 'repay', contractId: 'c1', amount: 20 }, bot).type, 'repay');
@@ -822,6 +825,45 @@ check('post-roll trade proposals do not attempt a second dice roll', async () =>
   const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'trade:human' }));
   assert.strictEqual(result.name, 'propose');
   assert.strictEqual(rolls, 0);
+});
+
+check('bot cancellation sends the exact pending trade id', async () => {
+  const room = fakeRoom([]);
+  room.game.hasRolled = true;
+  room.game.awaitingEndTurn = true;
+  room.game.getBotCandidates = () => [{ id: 'cancel-trade:t1', kind: 'cancel-trade', tradeId: 't1', score: 4 }];
+  room.game.pendingTrade = { id: 't1', fromPlayerId: bot1.id, toPlayerId: 'human' };
+  let canceledWith = null;
+  room.cancelTrade = (_actor, payload) => { canceledWith = payload.tradeId; return { success: true, canceled: true }; };
+  const result = await runBotTurn(room, bot1, advisorStub({ actionId: 'cancel-trade:t1' }));
+  assert.equal(result.success, true);
+  assert.equal(canceledWith, 't1');
+});
+
+check('stale bot cancellation does not revoke a replacement trade', async () => {
+  const room = fakeRoom([]);
+  room.game.hasRolled = true;
+  room.game.awaitingEndTurn = true;
+  room.game.pendingTrade = { id: 't-old', fromPlayerId: bot1.id, toPlayerId: 'human', createdRound: 1, counterDepth: 0 };
+  room.game.getPlayerById = id => id === 'human' ? { id, bankrupt: false, disconnected: false } : null;
+  room.game.getBotCandidates = () => [{
+    id: `cancel-trade:${room.game.pendingTrade.id}`,
+    kind: 'cancel-trade',
+    tradeId: room.game.pendingTrade.id,
+    score: 4
+  }];
+  let cancelCalls = 0;
+  room.cancelTrade = () => { cancelCalls += 1; return { success: true, canceled: true }; };
+  const advisor = {
+    chooseAction: async () => {
+      room.game.pendingTrade = { id: 't-new', fromPlayerId: bot1.id, toPlayerId: 'human', createdRound: 1, counterDepth: 0 };
+      return { actionId: 'cancel-trade:t-old', provider: 'ai', fallback: false };
+    }
+  };
+  const result = await runBotTurn(room, bot1, advisor);
+  assert.equal(result.noEmit, true);
+  assert.equal(room.game.pendingTrade.id, 't-new');
+  assert.equal(cancelCalls, 0);
 });
 
 check('runBotTurn runs advisor candidates through the action map', async () => {
