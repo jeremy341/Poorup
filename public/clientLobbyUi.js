@@ -49,6 +49,8 @@ let host = {
   goHome: noop,
   openConfirmModal: noop,
   createRequestId: () => "",
+  captureActionStatusNode: () => null,
+  announceActionStatus: noop,
 };
 
 function noop() {}
@@ -62,6 +64,7 @@ let quickTableRetryCount = 0;
 let quickTableRequestId = 0;
 let quickTableDirectoryTimer = null;
 let activeRoomEntryAttempt = null;
+let activeRoomEntryStatusNode = null;
 
 export function sendRoomEntryWithRetries({
   emit,
@@ -588,6 +591,7 @@ function buildPreviewSelf() {
 }
 
 function syncServerAppearance() {
+  const statusNode = host.captureActionStatusNode(document.activeElement);
   const meta = getAppearanceMeta(activeAppearance());
   host.emitServer("set-player-appearance", {
     nickname: state.alias.trim() || meta.baseName,
@@ -595,11 +599,7 @@ function syncServerAppearance() {
     avatarGrid: meta.avatarGrid || null,
   }, (response) => {
     if (response?.success === false) {
-      // Audit #24: the rejection also has to reach players stuck on the home
-      // screen, where the chat transcript is invisible.
-      parlorNotice("APPEARANCE", response.error || "Appearance could not be updated.");
-      host.say(response.error || "Appearance could not be updated.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "Appearance could not be updated.", statusNode);
     }
   });
 }
@@ -750,10 +750,8 @@ function parlorPendingRoomMeta(event) {
 }
 
 function rejectParlorEntry(response) {
-  // Surface the rejection on the visible toast stack before bouncing
-  // home — say() alone lands in the hidden chat panel (A1/A3).
-  parlorNotice("TABLE NOTICE", response.error || "Room could not be entered.");
-  host.say(response.error || "Room could not be entered.");
+  host.announceActionStatus(response.error || "Room could not be entered.", activeRoomEntryStatusNode);
+  activeRoomEntryStatusNode = null;
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
   state.roomPlayerId = null;
@@ -808,6 +806,7 @@ function onParlorEntryResponse(response, event) {
 export function enterParlor(code) {
   if (!requireGuestAlias()) return;
   if (state.roomEntryPending) return;
+  activeRoomEntryStatusNode = host.captureActionStatusNode(document.activeElement);
   const { requestedCode, requestedRoomId } = normalizeEntryDescriptor(code);
   const meta = getAppearanceMeta(activeAppearance());
   const event = entryEvent(requestedCode, requestedRoomId);

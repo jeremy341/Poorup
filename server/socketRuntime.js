@@ -671,7 +671,7 @@ function createRuntime(deps) {
     const message = reason === 'disconnect'
       ? `${player.nickname} disconnected.`
       : `${player.nickname} was removed for ${reason}.`;
-    socket?.emit('system-message', { text: message });
+    if (reason !== 'vote-kick') socket?.emit('system-message', { text: message });
     const removed = roomManager.removeRoomSeat({
       clientId: player.clientId,
       socketId: player.socketId,
@@ -682,7 +682,7 @@ function createRuntime(deps) {
     clearInactivityTimer(room, playerId);
     socket?.leave(room.roomCode);
     emitRoomState(room);
-    io.in(room.roomCode).emit('system-message', { text: message });
+    if (reason !== 'vote-kick') io.in(room.roomCode).emit('system-message', { text: message });
     scheduleRoomsUpdated();
     return true;
   }
@@ -968,7 +968,6 @@ function createRuntime(deps) {
     }
     currentRoom.game.finishAuction();
     emitRoomState(currentRoom);
-    io.in(roomCode).emit('system-message', { text: 'Auction ended.' });
     clearAuctionTimer(currentRoom);
   }
 

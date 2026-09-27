@@ -155,6 +155,17 @@ const debtSnapshot = {
     pendingPayment: { playerId: "server-player", amountRemaining: 50, creditorId: null, reason: "Rent is due." }
   }
 };
+
+state.activityRoomCode = "LAND1";
+state.activityNotices = [{ id: "notice-1", text: "A lifecycle notice", timestamp: 300 }];
+applyServerState({
+  ...debtSnapshot,
+  game: { ...debtSnapshot.game, feed: ["Latest game event", "Earlier game event"] }
+}, host);
+assert.deepEqual(state.log.slice(0, 3), ["A lifecycle notice", "Latest game event", "Earlier game event"], "Activity combines transient notices and the latest feed newest-first");
+applyServerState({ ...debtSnapshot, room: { ...debtSnapshot.room, roomCode: "LAND2" } }, host);
+assert.deepEqual(state.activityNotices, [], "Activity notices are cleared when the room changes");
+
 applyServerState(debtSnapshot, host);
 assert.equal(bankruptcyModalOpens, 0, "the debt prompt waits for the pawn to finish its landing movement");
 walkResolvers.shift()();
