@@ -4891,7 +4891,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
     min-height: 0;
   }
   #view-game .hud {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, .8fr) minmax(0, .8fr) minmax(0, 1.15fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, .95fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, 1.15fr);
     gap: 6px;
     height: 86px;
     min-height: 86px;

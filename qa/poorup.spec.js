@@ -399,6 +399,7 @@ test.describe('Landscape iPad desk contract', () => {
       const hudCells = [...document.querySelectorAll('#hud > .hud-cell')];
       const turnBox = hudCells[0]?.getBoundingClientRect();
       const moneyBox = hudCells[1]?.getBoundingClientRect();
+      const vacationBox = hudCells[3]?.getBoundingClientRect();
       const cashAction = document.querySelector('#hud-cash-action')?.getBoundingClientRect();
       const cashValue = document.querySelector('#hud-cash')?.getBoundingClientRect();
       const cashIcon = document.querySelector('#hud-cash-action [data-sprite="note"]');
@@ -416,6 +417,7 @@ test.describe('Landscape iPad desk contract', () => {
         hud: box('#hud'),
         turnBox: turnBox ? { width: turnBox.width } : null,
         moneyBox: moneyBox ? { width: moneyBox.width } : null,
+        vacationBox: vacationBox ? { width: vacationBox.width } : null,
         cashContents: cashAction && cashValue && cashIcon ? {
           iconHidden: getComputedStyle(cashIcon).display === 'none',
           valueInside: cashValue.right <= cashAction.right,
@@ -440,6 +442,7 @@ test.describe('Landscape iPad desk contract', () => {
       expect(geometry[key].bottom).toBeLessThanOrEqual(geometry.viewport.height + 2);
     }
     expect(geometry.moneyBox.width / geometry.turnBox.width).toBeGreaterThanOrEqual(0.85);
+    expect(geometry.vacationBox.width / geometry.moneyBox.width).toBeGreaterThanOrEqual(1.1);
     expect(geometry.cashContents.iconHidden).toBe(true);
     expect(geometry.cashContents.valueInside, JSON.stringify(geometry.cashContents)).toBe(true);
     expect(geometry.boardHolder.width).toBeLessThanOrEqual(geometry.viewport.height * 0.66);
