@@ -8,7 +8,7 @@ import { state } from "./clientState.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 import { emitWithTimeout } from "./clientRequestController.js";
 
-let host = { emitServer: noop, createRequestId: noop, renderRightRail: noop, say: noop, renderChat: noop };
+let host = { emitServer: noop, createRequestId: noop, renderRightRail: noop, say: noop, renderChat: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 function noop() {}
 let deskDraft = null;
 
@@ -213,11 +213,10 @@ function requestForMarketAction(action, button, card) {
   return MARKET_ACTION_REQUESTS[action]?.(context) || null;
 }
 
-function marketActionResponse(button, response) {
+function marketActionResponse(button, statusNode, response) {
   if (response?.success === false) {
     clearPending(button);
-    host.say(response.error || "Market position could not be updated.");
-    host.renderChat();
+    host.announceActionStatus(response.error || "Market position could not be updated.", statusNode);
     return;
   }
   mergeEconomySnapshot(response);
@@ -227,17 +226,17 @@ function marketActionResponse(button, response) {
 
 function onMarketAdvanced(button, card) {
   if (!markPending(button)) return;
+  const statusNode = host.captureActionStatusNode(button);
   const request = requestForMarketAction(button.dataset.marketAdvanced, button, card);
   if (!request) {
     clearPending(button);
     return;
   }
   emitWithTimeout(host.emitServer, request.eventName, request.payload, {
-    onResponse: response => marketActionResponse(button, response),
+    onResponse: response => marketActionResponse(button, statusNode, response),
     onTimeout: () => {
       clearPending(button);
-      host.say("Market response timed out. Your ledger will refresh when the connection returns.");
-      host.renderChat();
+      host.announceActionStatus("Market response timed out. Your ledger will refresh when the connection returns.", statusNode);
       host.refreshEconomySnapshot?.();
     }
   });

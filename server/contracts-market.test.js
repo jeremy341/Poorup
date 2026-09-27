@@ -29,13 +29,13 @@ function startedRoom(settings = {}) {
   return { room, game, a: game.players[0], b: game.players[1] };
 }
 
-check('contract guards run in original order with exact strings', () => {
+check('contract guards preserve active pair, obligation and funding order off-turn', () => {
   const { game, a, b } = startedRoom();
   assert.deepEqual(game.proposePlayerContract('socket-z', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'Choose two active players.' });
   assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: a.id, amount: 10 }), { success: false, error: 'Choose two active players.' });
   game.currentPlayerId = b.id;
-  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'Player contracts are proposed during your turn.' });
-  game.currentPlayerId = a.id;
+  assert.equal(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }).success, true);
+  game.pendingPlayerContract = null;
   game.pendingTrade = { id: 'x' };
   assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'Resolve the current table obligation first.' });
   game.pendingTrade = null;
@@ -44,6 +44,56 @@ check('contract guards run in original order with exact strings', () => {
   a.cash = 1500;
   assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 'x' }), { success: false, error: 'The lender does not have enough cash for that offer.' });
   assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 0 }), { success: false, error: 'The lender does not have enough cash for that offer.' });
+});
+
+check('playerContractProposalCanBeCreatedOffTurn', () => {
+  const { game, a, b } = startedRoom();
+  game.currentPlayerId = b.id;
+  const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 12, durationRounds: 3, requestId: 'off-turn-proposal' });
+  assert.equal(result.success, true);
+  assert.equal(game.pendingPlayerContract.fromPlayerId, a.id);
+  assert.equal(game.pendingPlayerContract.toPlayerId, b.id);
+});
+
+check('offTurnContractResponsesSurviveTurnChanges', () => {
+  const { game, a, b } = startedRoom();
+  game.currentPlayerId = b.id;
+  const proposal = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 12, durationRounds: 3 });
+  assert.equal(proposal.success, true);
+  game.currentPlayerId = a.id;
+  const counter = game.counterPlayerContract('socket-b', { contractId: proposal.contract.id, amount: 120, premiumRate: 8 });
+  assert.equal(counter.success, true);
+  game.currentPlayerId = b.id;
+  const accepted = game.respondPlayerContract('socket-a', true, 'off-turn-accept', counter.contract.id);
+  assert.equal(accepted.success, true);
+  assert.equal(a.cash, 1380);
+  assert.equal(b.cash, 1620);
+
+  const toDecline = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 80 });
+  assert.equal(toDecline.success, true);
+  game.currentPlayerId = a.id;
+  const declined = game.respondPlayerContract('socket-b', false, 'off-turn-decline', toDecline.contract.id);
+  assert.equal(declined.success, true);
+  assert.equal(game.pendingPlayerContract, null);
+});
+
+check('offTurnProposalRetainsActiveSeatFundingAndObligationGuards', () => {
+  const { game, a, b } = startedRoom();
+  game.currentPlayerId = b.id;
+  a.disconnected = true;
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'Choose two active players.' });
+  a.disconnected = false;
+  b.disconnected = true;
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'Choose two active players.' });
+  b.disconnected = false;
+  a.cash = 5;
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'The lender does not have enough cash for that offer.' });
+  a.cash = 1500;
+  a.bankLoan = { status: 'active', remaining: 450 };
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'Loan-backed cash cannot be used for player contracts.' });
+  a.bankLoan = null;
+  game.pendingTrade = { id: 'open-obligation' };
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 10 }), { success: false, error: 'Resolve the current table obligation first.' });
 });
 
 check('loan rejects a collateral index that resolves to no deed', () => {

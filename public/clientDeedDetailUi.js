@@ -13,14 +13,15 @@ import { deedLadderHTML } from "./clientDeedsRender.js";
 import { closeSurface, openSurface } from "./clientSurfaces.js";
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 
-let host = { emitServer: noop, say: noop, renderAll: noop };
+let host = { emitServer: noop, say: noop, renderAll: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 
 function noop() {}
 
 function manageProperty(tileIndex, action) {
+  const statusNode = host.captureActionStatusNode(document.activeElement);
   host.emitServer("manage-property", { tileIndex, action }, (response) => {
     if (response?.success === false) {
-      host.say(response.error || "Property action could not be completed.");
+      host.announceActionStatus(response.error || "Property action could not be completed.", statusNode);
     }
     host.renderAll();
   });
@@ -180,9 +181,10 @@ function renderDeedDetail() {
 
   // these all funnel through renderAll(), which re-renders this modal in place
   $("#dd-close").addEventListener("click", closeDeedDetail);
-  $("#dd-buy")?.addEventListener("click", () => buildNextHouse(tile));
-  $("#dd-sell")?.addEventListener("click", () => sellHouse(tile));
-  $("#dd-mortgage")?.addEventListener("click", () => {
+  $("#dd-buy")?.addEventListener("click", event => { host.captureActionStatusNode(event.currentTarget); buildNextHouse(tile); });
+  $("#dd-sell")?.addEventListener("click", event => { host.captureActionStatusNode(event.currentTarget); sellHouse(tile); });
+  $("#dd-mortgage")?.addEventListener("click", event => {
+    host.captureActionStatusNode(event.currentTarget);
     if (state.mortgaged[tile.i]) unmortgageTile(tile.i);
     else mortgageTile(tile.i);
   });

@@ -34,7 +34,8 @@ export const lobbyState = {
   },
 };
 
-let host = { emitServer: noop, say: noop, renderChat: noop, enterParlor: noop };
+let host = { emitServer: noop, say: noop, renderChat: noop, enterParlor: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
+let roomsDirectoryStatusNode = null;
 
 function noop() {}
 
@@ -209,6 +210,7 @@ function paintJoinDescription(signedIn) {
 }
 
 export function requestRoomsDirectory() {
+  roomsDirectoryStatusNode = host.captureActionStatusNode(document.activeElement);
   const requestId = ++lobbyState.roomsDirectoryRequestId;
   lobbyState.roomsLoading = true;
   renderHomeSignals();
@@ -220,18 +222,19 @@ export function requestRoomsDirectory() {
     lobbyState.roomsLoading = false;
     renderHomeSignals();
     renderRoomsList();
-    parlorNotice("BROWSE", "Public tables could not be loaded — try again.");
+    host.announceActionStatus("Public tables could not be loaded — try again.", roomsDirectoryStatusNode);
+    roomsDirectoryStatusNode = null;
   }, 5000);
-  host.emitServer("list-rooms", {}, (response) => applyRoomsDirectoryResponse(response, requestId));
+  host.emitServer("list-rooms", {}, (response) => applyRoomsDirectoryResponse(response, requestId, roomsDirectoryStatusNode));
 }
 
-function applyRoomsDirectoryResponse(response, requestId = lobbyState.roomsDirectoryRequestId) {
+function applyRoomsDirectoryResponse(response, requestId = lobbyState.roomsDirectoryRequestId, statusNode = roomsDirectoryStatusNode) {
   if (requestId !== lobbyState.roomsDirectoryRequestId) return;
   clearTimeout(lobbyState.roomsDirectoryTimeout);
   lobbyState.roomsDirectoryTimeout = null;
   lobbyState.roomsLoading = false;
   if (response?.success === false) {
-    failRoomsDirectory(response);
+    failRoomsDirectory(response, statusNode);
   } else {
     lobbyState.roomsDirectory = Array.isArray(response?.rooms) ? response.rooms : [];
     lobbyState.roomsDirectoryLoaded = true;
@@ -241,11 +244,10 @@ function applyRoomsDirectoryResponse(response, requestId = lobbyState.roomsDirec
   renderRoomsList();
 }
 
-function failRoomsDirectory(response) {
+function failRoomsDirectory(response, statusNode) {
   if (!lobbyState.roomsDirectoryLoaded) lobbyState.roomsDirectory = [];
-  parlorNotice("BROWSE", response.error || "Public tables could not be loaded.");
-  host.say(response.error || "Public tables could not be loaded.");
-  host.renderChat();
+  host.announceActionStatus(response.error || "Public tables could not be loaded.", statusNode);
+  roomsDirectoryStatusNode = null;
 }
 
 export function applyRoomsUpdated(payload) {

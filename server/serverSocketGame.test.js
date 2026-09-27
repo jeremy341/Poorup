@@ -7,6 +7,7 @@ function fakeSocket(id) {
 }
 
 function fakeRuntime(room, delivered) {
+  let scheduledAuctions = 0;
   const emitTo = target => ({
     emit(event, payload) {
       delivered.push({ target, event, payload });
@@ -15,10 +16,14 @@ function fakeRuntime(room, delivered) {
   return {
     getRoomForSocket() { return room; },
     emitRoomState() {},
+    scheduleAuctionFinish() { scheduledAuctions += 1; },
+    cachedContractCancel() { return null; },
+    cacheContractCancel() {},
     io: {
       to: emitTo,
-      in() { return { emit() {} }; }
-    }
+      in(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; }
+    },
+    getScheduledAuctions() { return scheduledAuctions; }
   };
 }
 
@@ -44,7 +49,7 @@ function relayRoom(hostSocketId, guestSocketId, hostClientId, guestClientId) {
   room.game.currentPlayerId = room.game.players[0].id;
   const delivered = [];
   const runtime = fakeRuntime(room, delivered);
-  return { room, host, guest, delivered, hostHandlers: handlersFor(host, runtime), guestHandlers: handlersFor(guest, runtime) };
+  return { room, host, guest, delivered, getScheduledAuctions: runtime.getScheduledAuctions, hostHandlers: handlersFor(host, runtime), guestHandlers: handlersFor(guest, runtime) };
 }
 
 const first = relayRoom('relay-a', 'relay-b', 'relay-a-client', 'relay-b-client');
@@ -104,4 +109,49 @@ assert.equal(equityCall.socketId, seller.socketId);
 assert.equal(equityCall.offer.fromPlayerId, seller.id, 'the actor id comes from the authenticated room seat');
 assert.equal(equityResult.contract, transfer);
 assert.deepEqual(equity.delivered.filter(entry => entry.event === 'player-contract-offer').map(entry => [entry.target, entry.payload.contract]), [[buyer.socketId, transfer]]);
-console.log('server socket game relay: 3 scenarios passed, 0 failed');
+
+const cancellation = relayRoom('relay-cancel-a', 'relay-cancel-b', 'relay-cancel-a-client', 'relay-cancel-b-client');
+const [, cancellationRecipient] = cancellation.room.game.players;
+const cancellationOffer = invoke(cancellation.hostHandlers.get('propose-player-contract'), {
+  toPlayerId: cancellationRecipient.id, kind: 'loan', amount: 50, requestId: 'cancel-propose'
+});
+assert.equal(cancellationOffer.success, true);
+const cancellationResult = invoke(cancellation.hostHandlers.get('cancel-player-contract'), {
+  contractId: cancellationOffer.contract.id, requestId: 'cancel-request'
+});
+assert.equal(cancellationResult.success, true);
+assert.equal(cancellation.room.game.feed.filter(entry => entry.text === 'Host canceled the player contract.').length, 1);
+assert.equal(cancellation.delivered.filter(entry => entry.event === 'system-message').length, 0, 'feed-backed cancellation is not emitted again as a system message');
+assert.equal(cancellation.delivered.filter(entry => entry.event === 'player-contract-update').length, 1, 'the other seat still receives a contract update');
+
+const rollAuction = relayRoom('relay-roll-auction-a', 'relay-roll-auction-b', 'relay-roll-auction-a-client', 'relay-roll-auction-b-client');
+const roller = rollAuction.room.game.players[0];
+const auctionTile = rollAuction.room.game.getTile(1);
+rollAuction.room.game.rollDice = () => {
+  rollAuction.room.game.startAuction(auctionTile, roller.id);
+  return { success: true, auctionStarted: true };
+};
+assert.equal(invoke(rollAuction.hostHandlers.get('roll-dice'), {}).success, true);
+assert.ok(rollAuction.room.game.feed.some(entry => entry.text === `Auction started for ${auctionTile.name}. Players may place bids.`));
+assert.equal(rollAuction.delivered.filter(entry => entry.event === 'system-message').length, 0, 'roll auction start is announced by its detailed feed entry only');
+assert.equal(rollAuction.getScheduledAuctions(), 1, 'removing the broadcast preserves the authoritative auction deadline');
+console.log('PASS rollAuctionStartAppearsOnceInFeedAndStillSchedulesFinish');
+
+const casino = relayRoom('relay-casino-a', 'relay-casino-b', 'relay-casino-a-client', 'relay-casino-b-client');
+casino.room.game.settings.casino = true;
+const casinoPlayer = casino.room.game.players[0];
+assert.equal(invoke(casino.hostHandlers.get('place-casino-bet'), { color: 'red', stake: 10, requestId: 'casino-activity' }).success, true);
+assert.equal(casino.room.game.feed.filter(entry => entry.text.startsWith(`${casinoPlayer.nickname} bet $10 on RED and `)).length, 1);
+assert.equal(casino.delivered.filter(entry => entry.event === 'system-message').length, 0, 'the casino result feed replaces the generic settlement notice');
+console.log('PASS casinoSettlementAppearsOnceInFeed');
+
+const declinedAuction = relayRoom('relay-decline-auction-a', 'relay-decline-auction-b', 'relay-decline-auction-a-client', 'relay-decline-auction-b-client');
+declinedAuction.room.game.settings.auction = true;
+const decliningPlayer = declinedAuction.room.game.players[0];
+const declinedTile = declinedAuction.room.game.getTile(1);
+declinedAuction.room.game.pendingPurchaseOffer = { playerId: decliningPlayer.id, tileIndex: declinedTile.index, price: declinedTile.price };
+assert.equal(invoke(declinedAuction.hostHandlers.get('decline-property'), { tileIndex: declinedTile.index }).success, true);
+assert.ok(declinedAuction.room.game.feed.some(entry => entry.text === `Auction started for ${declinedTile.name}. Players may place bids.`));
+assert.equal(declinedAuction.delivered.filter(entry => entry.event === 'system-message').length, 0, 'declining into auction uses the detailed feed instead of result.message');
+console.log('PASS declinedAuctionStartUsesFeedOnly');
+console.log('server socket game relay and activity deduplication: 7 scenarios passed, 0 failed');

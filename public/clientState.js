@@ -294,10 +294,10 @@ const state = {
     globalEventMax:  1,
   },
   log: ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."],
-  messages: [
-    { who: "", color: "", text: "TABLE OPENED. CHOOSE YOUR APPEARANCE.", system: true },
-    { who: "", color: "", text: "JOIN A ROOM TO GET STARTED.", system: true },
-  ],
+  activityNotices: [],
+  activityRoomCode: "",
+  lastGameFeed: [],
+  messages: [],
 };
 
 if (state.profiles.length) {

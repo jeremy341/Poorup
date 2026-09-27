@@ -101,7 +101,15 @@ function previousPositionsOf() {
 export function syncRoom(room, game = null) {
   const nextVariant = room?.board?.variant || room?.ruleset?.boardVariant || room?.settings?.boardVariant || game?.boardVariant || "standard-40";
   const changed = state.boardVariant !== nextVariant;
-  if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = orDefault(room.roomCode, "");
+  if (Object.prototype.hasOwnProperty.call(room, "roomCode")) {
+    const roomCode = orDefault(room.roomCode, "");
+    if (state.activityRoomCode !== roomCode) {
+      state.activityRoomCode = roomCode;
+      state.activityNotices = [];
+      state.lastGameFeed = [];
+    }
+    state.roomCode = roomCode;
+  }
   state.roomVisibility = orDefault(room.visibility === "public" ? "public" : null, "private");
   state.hostId = room.hostId || null;
   state.boardVariant = nextVariant;
@@ -297,8 +305,24 @@ function feedLine(entry) {
   return entry.text;
 }
 
-function syncLog(game) {
-  state.log = arrayOr(game.feed).map(feedLine).filter(Boolean).slice(0, 40);
+export function syncLog(game = {}) {
+  const rawFeed = arrayOr(game.feed);
+  state.lastGameFeed = rawFeed.slice();
+  const feed = rawFeed.map((entry, index) => ({
+    text: feedLine(entry),
+    timestamp: Number(entry && typeof entry === "object" ? entry.timestamp ?? entry.createdAt : 0) || 0,
+    order: index,
+  })).filter(entry => entry.text);
+  const notices = arrayOr(state.activityNotices).map((notice, index) => ({
+    text: notice.text,
+    timestamp: Number(notice.timestamp) || 0,
+    order: index,
+  })).filter(entry => entry.text);
+  state.log = [...feed, ...notices]
+    .map((entry, sourceOrder) => ({ ...entry, sourceOrder }))
+    .sort((a, b) => b.timestamp - a.timestamp || a.sourceOrder - b.sourceOrder)
+    .slice(0, 40)
+    .map(entry => entry.text);
 }
 
 function syncRoomSettings(room) {
