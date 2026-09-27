@@ -1521,10 +1521,13 @@ button[id$="-close"],
 .room-vote-actions button, .room-vote-confirm, .player-profile-votekick button { min-height: 44px; }
 .player-profile-votekick { display: grid; gap: 6px; padding: 0 20px 20px; }
 .player-profile-votekick > span { line-height: 1.5; }
-.financing-collateral-accordion { border: 1px solid var(--line-default); background: var(--surface-panel-deep); }
-.financing-collateral-accordion > summary { min-height: 44px; padding: 13px 12px; cursor: pointer; }
-.financing-collateral-accordion > p { margin: 0; padding: 0 12px 10px; }
-.financing-collateral-options { display: grid; gap: 4px; padding: 0 8px 8px; }
+.financing-collateral-picker { display: grid; gap: 6px; min-width: 0; }
+.financing-collateral-trigger { display: block; width: 100%; min-height: 44px; padding: 10px 12px; text-overflow: ellipsis; }
+.financing-collateral-trigger::placeholder { color: var(--text-primary); opacity: 1; }
+.financing-collateral-panel { display: grid; gap: 10px; margin-top: 2px; padding: 10px; border: 1px solid var(--line-default); background: var(--surface-panel-deep); }
+.financing-collateral-panel[hidden] { display: none; }
+.financing-collateral-options { display: grid; gap: 4px; max-height: 112px; min-width: 0; margin: 0; padding: 0 4px 0 0; overflow-y: auto; border: 0; }
+.financing-collateral-options legend { padding: 0 0 5px; }
 .financing-collateral-option { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px; border: 1px solid var(--line-subtle); background: var(--surface-input); cursor: pointer; }
 .financing-collateral-option input { width: 20px; height: 20px; accent-color: var(--gold-400); }
 .financing-collateral-option:focus-within { outline: 2px solid var(--line-active); outline-offset: 2px; }
