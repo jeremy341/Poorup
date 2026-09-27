@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('option writer survives a market desk economy refresh', async ({ page }) => {
+test('derivatives remain unavailable without server pricing policy across market refreshes', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(async () => {
     document.body.innerHTML = '<div id="market-modal" role="dialog"><div id="market-card"></div></div>';
@@ -44,21 +44,13 @@ test('option writer survives a market desk economy refresh', async ({ page }) =>
     };
   });
 
-  const role = page.locator('#market-desk-role');
-  await role.selectOption('writer');
+  const index = page.locator('#market-desk-index');
+  await index.selectOption('canada');
   await page.evaluate(() => window.__refreshMarketDesk());
 
-  await expect(role.locator('option')).toHaveCount(2);
-  expect(await role.locator('option').evaluateAll(options => options.map(option => option.value))).toEqual(['writer', 'buyer']);
-  await expect(role).toHaveValue('writer');
-
-  await page.locator('[data-market-advanced="open-option"][data-market-id="brazil"]').click();
-  await expect.poll(() => page.evaluate(() => window.__marketActions.at(-1))).toMatchObject({
-    eventName: 'open-option',
-    payload: {
-      instrumentId: 'brazil',
-      role: 'writer',
-      requestId: 'market-option-test',
-    },
-  });
+  await expect(index).toHaveValue('canada');
+  await expect(page.locator('.market-derivatives-unavailable').first()).toContainText('SERVER PRICING POLICY NOT CONFIGURED');
+  await expect(page.locator('#market-desk-role')).toHaveCount(0);
+  await expect(page.locator('[data-market-advanced="open-option"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__marketActions)).toEqual([]);
 });

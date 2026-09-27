@@ -21,17 +21,14 @@ function check(name, assertion) {
   }
 }
 
-check("rankingMetricFamiliesPreserveExistingMetricSnapshots", () => {
-  assert.deepEqual(surfaces.RANKING_METRIC_FAMILIES, {
-    results: ["wins", "rate", "games", "bankruptcies"],
-    tablecraft: ["achievements", "mythical", "events", "auctions", "patrol"],
-    economy: ["rent", "casino", "market", "playerloans", "equity", "loans"],
-  });
+check("rankingArrowNavigationPreservesExistingMetricSnapshots", () => {
+  assert.equal(surfaces.RANKING_ORDER.length, 15);
   for (const metric of surfaces.RANKING_ORDER) assert.ok(surfaces.RANKING_LABELS[metric]);
   const html = surfaces.rankingMetricNavigationHTML("market");
-  assert.match(html, /class="ranking-family-control is-active" aria-current="true">ECONOMY & DEALS/);
-  assert.match(html, /class="ranking-metric-control is-active" type="button" data-ranking-metric="market"[^>]+aria-pressed="true"/);
-  assert.match(html, /data-ranking-metric="rent"/);
+  assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"/);
+  assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"/);
+  assert.match(html, /<strong class="t-label f12 g100">11 \/ 15<\/strong>/);
+  assert.doesNotMatch(source, /RANKING_METRIC_FAMILIES|ranking-family-control/);
 });
 
 check("rankingScopesAndSearchRemainAvailable", () => {
@@ -41,21 +38,13 @@ check("rankingScopesAndSearchRemainAvailable", () => {
   assert.match(source, /data-ranking-scope=/);
 });
 
-check("rankingFamilyTabsAreKeyboardAccessible", () => {
+check("rankingArrowControlsRemainKeyboardAccessible", () => {
   const html = surfaces.rankingMetricNavigationHTML("wins");
-  assert.match(html, /role="group" aria-label="Ranking metric families"/);
-  assert.match(html, /<button[^>]+type="button"[^>]+data-ranking-family=/);
-  assert.match(html, /<button[^>]+type="button"[^>]+data-ranking-metric=/);
-  assert.match(html, /aria-current="true"/);
-  assert.match(styles, /\.ranking-family-control:focus-visible/);
-  assert.match(styles, /\.ranking-metric-control:focus-visible/);
-});
-
-check("rankingFocusReturnsToSelectedMetric", () => {
-  const html = surfaces.rankingMetricNavigationHTML("market");
-  assert.match(html, /<button class="ranking-metric-control is-active" type="button" data-ranking-metric="market"[^>]+aria-pressed="true"[^>]+aria-current="true"[^>]+aria-disabled="true">MARKET PROFIT/);
-  assert.match(bindings, /function focusSelectedRankingMetric\(surface\)[\s\S]*?\[data-ranking-metric="\$\{state\.leaderboard\.metric\}"\][\s\S]*?focus\(\{ preventScroll: true \}\)/);
-  assert.equal((bindings.match(/focusSelectedRankingMetric\(surface\);/g) || []).length, 2);
+  assert.match(html, /role="group" aria-label="Change ranking category"/);
+  assert.equal((html.match(/class="btn-dark ranking-step"/g) || []).length, 2);
+  assert.match(styles, /\.ranking-step:hover, \.ranking-step:focus-visible/);
+  assert.match(bindings, /function focusRankingStep\(surface, direction\)[\s\S]*?\[data-ranking-step="\$\{direction\}"\][\s\S]*?focus\(\{ preventScroll: true \}\)/);
+  assert.equal((bindings.match(/focusRankingStep\(surface,/g) || []).length, 3);
 });
 
 check("seasonGuestSeesExactlyOneSignInCta", () => {

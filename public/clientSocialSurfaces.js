@@ -559,32 +559,15 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
 
 export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
 export const RANKING_ORDER = Object.keys(RANKING_LABELS);
-export const RANKING_METRIC_FAMILIES = {
-  results: ["wins", "rate", "games", "bankruptcies"],
-  tablecraft: ["achievements", "mythical", "events", "auctions", "patrol"],
-  economy: ["rent", "casino", "market", "playerloans", "equity", "loans"],
-};
-const RANKING_FAMILY_LABELS = { results: "RESULTS", tablecraft: "TABLECRAFT", economy: "ECONOMY & DEALS" };
+
+function rankingPosition(metric) {
+  const index = Math.max(0, RANKING_ORDER.indexOf(metric));
+  return { index, label: `${String(index + 1).padStart(2, "0")} / ${String(RANKING_ORDER.length).padStart(2, "0")}` };
+}
 
 export function rankingMetricNavigationHTML(metric) {
-  const activeMetric = normalizeRankingMetric(metric);
-  const activeFamily = Object.keys(RANKING_METRIC_FAMILIES).find((family) => RANKING_METRIC_FAMILIES[family].includes(activeMetric)) || "results";
-  const currentIndex = RANKING_ORDER.indexOf(activeMetric);
-  const stepTo = (targetMetric) => {
-    const targetIndex = RANKING_ORDER.indexOf(targetMetric);
-    const forward = (targetIndex - currentIndex + RANKING_ORDER.length) % RANKING_ORDER.length;
-    const backward = forward - RANKING_ORDER.length;
-    return Math.abs(backward) < Math.abs(forward) ? backward : forward;
-  };
-  const families = Object.entries(RANKING_METRIC_FAMILIES).map(([family, metrics]) => {
-    if (family === activeFamily) return `<span class="ranking-family-control is-active" aria-current="true">${RANKING_FAMILY_LABELS[family]}</span>`;
-    return `<button class="ranking-family-control" type="button" data-ranking-family="${family}" data-ranking-step="${stepTo(metrics[0])}" aria-label="Show ${RANKING_FAMILY_LABELS[family]} rankings">${RANKING_FAMILY_LABELS[family]}</button>`;
-  }).join("");
-  const metrics = RANKING_METRIC_FAMILIES[activeFamily].map((id) => {
-    if (id === activeMetric) return `<button class="ranking-metric-control is-active" type="button" data-ranking-metric="${id}" aria-pressed="true" aria-current="true" aria-disabled="true">${RANKING_LABELS[id]}</button>`;
-    return `<button class="ranking-metric-control" type="button" data-ranking-metric="${id}" data-ranking-step="${stepTo(id)}" aria-label="Show ${RANKING_LABELS[id]} rankings">${RANKING_LABELS[id]}</button>`;
-  }).join("");
-  return `<div class="ranking-metric-navigation"><div class="ranking-family-controls" role="group" aria-label="Ranking metric families">${families}</div><div class="ranking-metric-controls" role="group" aria-label="${RANKING_FAMILY_LABELS[activeFamily]} metrics">${metrics}</div></div>`;
+  const position = rankingPosition(metric);
+  return `<div class="ranking-metric-navigation"><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div>`;
 }
 
 const RANKING_DESCRIPTIONS = {
@@ -811,6 +794,8 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
   card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
+  const metricCount = card.querySelector(".ranking-stage-count");
+  if (metricCount) metricCount.textContent = `${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC`;
   const rankingResults = rankingSearchResultsHTML();
   const rankingSearch = document.createElement("section");
   rankingSearch.className = "rankings-search-band panel noise";

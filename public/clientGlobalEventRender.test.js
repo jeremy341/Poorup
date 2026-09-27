@@ -89,6 +89,7 @@ check("reducedMotionRendersStaticEquivalent", () => {
 check("announcementDoesNotCoverHeaderBoardOrActions", () => {
   expectMatch(html, /<div class="center-field noise" id="center-field">[\s\S]*?id="global-event-ribbon"[\s\S]*?<\/div>/, "ribbon is not contained in the board center field");
   expectMatch(styles, /\.global-event-ribbon\s*\{[^}]*position:\s*absolute/i, "ribbon is not anchored to the game field");
+  expectMatch(styles, /\.global-event-ribbon\s*\{[^}]*top:\s*12px/i, "announcement ribbon is not near the top of the game field");
   expectMatch(styles, /\.global-event-ribbon\s*\{[^}]*pointer-events:\s*none/i, "announcement ribbon can intercept game actions");
   expectMatch(styles, /\.global-event-banner\s*\{[^}]*position:\s*absolute/i, "persistent banner reflows the game shell");
 });
