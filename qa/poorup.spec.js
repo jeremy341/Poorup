@@ -36,11 +36,16 @@ test.describe('Poorup ruleset and social surfaces', () => {
 
   test('create table keeps board selection in the host lobby', async ({ page }) => {
     await page.goto('/');
+    await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
-    await expect(page.locator('#rc-ruleset-preset')).toHaveValue('classic');
+    await expect(page.locator('#rc-ruleset-preset')).toHaveCount(0);
     await expect(page.locator('#rc-board-variant')).toHaveCount(0);
-    await page.locator('#rc-ruleset-preset').selectOption('after-hours');
-    await expect(page.locator('#rc-ruleset-preset')).toHaveValue('after-hours');
+    await page.locator('#rc-create-btn').click();
+    await page.locator('#su-start').click();
+    const boardVariant = page.locator('#lobby-settings-body [data-setting="boardVariant"]');
+    await expect(boardVariant).toHaveValue('standard-40');
+    await boardVariant.selectOption('metro-52');
+    await expect(boardVariant).toHaveValue('metro-52');
     await page.keyboard.press('Escape');
     await expect(page.locator('#rooms-modal')).toHaveClass(/is-hidden/);
   });
@@ -172,7 +177,6 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.locator('#open-create-btn').click();
     await page.locator('#rc-vis-selector [data-vis="private"]').click();
     await page.locator('#rc-room-code').fill('METRO1');
-    await page.locator('#rc-ruleset-preset').selectOption('after-hours');
     await page.locator('#rc-create-btn').click();
     await page.locator('#su-start').click();
     await page.locator('#lobby-settings-body [data-setting="boardVariant"]').selectOption('metro-52');
@@ -192,6 +196,8 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await complexity.selectOption('derivatives');
     await expect(complexity).toHaveValue('derivatives');
     await expect(page.locator('#lobby-settings-body')).toContainText('DERIVATIVES');
+    const casinoToggle = page.locator('#lobby-settings-body [data-setting="casino"]');
+    if (!await casinoToggle.evaluate((node) => node.classList.contains('is-on'))) await casinoToggle.click();
     await page.locator('#lobby-start-btn').click();
     await expect(page.locator('#right-rail-game')).toBeVisible();
     await page.locator('#hud-cash-action').click();
@@ -207,7 +213,8 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#rr-body')).toContainText('DERIVATIVES');
     await page.locator('#rr-body [data-market-desk]').click();
     await expect(page.locator('#market-modal')).not.toHaveClass(/is-hidden/);
-    await expect(page.locator('#market-card [data-market-advanced="open-option"]')).toHaveCount(11);
+    await expect(page.locator('#market-card .market-derivatives-unavailable')).toHaveCount(11);
+    await expect(page.locator('#market-card [data-market-advanced="open-option"]')).toHaveCount(0);
     await page.locator('#market-modal-close').click();
     await page.locator('#rr-body #activity-mode-casino').click();
     await page.locator('#rr-body [data-casino-desk]').click();

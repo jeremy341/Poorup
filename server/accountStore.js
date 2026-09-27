@@ -1022,7 +1022,7 @@ export class AccountStore {
       .map(record => ({
         matchId: record.matchId,
         completedAt: record.completedAt,
-        roundCount: record.roundCount,
+        roundCount: nonNegative(record.roundCount),
         roomVisibility: record.roomVisibility,
         participants: (record.participants || []).map(participant => ({
           displayNameAtMatch: participant.displayNameAtMatch,
