@@ -4,10 +4,77 @@ import path from 'node:path';
 test.describe('release surface evidence', () => {
   test('captures the 1920px release surfaces', async ({ page, context }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop-1920', 'Native release evidence is captured at 1920x1080.');
-    const artifactRoot = path.resolve('qa-artifacts', 'release-surfaces-2026-09-17');
+    const artifactRoot = path.resolve('qa-artifacts', 'release-surfaces-2026-09-27');
     await page.goto('/');
     await expect(page.locator('#view-home')).toBeVisible();
     await page.screenshot({ path: path.join(artifactRoot, 'home-1920.png') });
+
+    await page.locator('#home-rankings-tab').click();
+    await page.evaluate(async () => {
+      const { state } = await import('/clientState.js');
+      const { renderRankingsSurface } = await import('/clientSocialSurfaces.js');
+      const rows = [
+        { accountId: 'rank-alpha', displayName: 'ALPHA', username: 'alpha', games: 8, wins: 5, value: 5, trend: { direction: 'up', delta: 2 } },
+        { accountId: 'rank-beta', displayName: 'BETA', username: 'beta', games: 6, wins: 3, value: 3, trend: { direction: 'flat', delta: 0 } },
+      ];
+      state.account = { account: null, sessionToken: '' };
+      state.leaderboard.metric = 'wins';
+      state.leaderboard.scope = 'all';
+      state.leaderboard.rows = rows;
+      state.leaderboard.snapshots = { wins: rows };
+      state.leaderboard.loading = false;
+      state.leaderboard.error = '';
+      state.season.current = { id: 'S-2026-09', status: 'active', startsAt: '2026-09-01', endsAt: '2026-10-27' };
+      state.season.rows = [{ displayName: 'ALPHA', username: 'alpha', games: 8, points: 420 }, { displayName: 'BETA', username: 'beta', games: 6, points: 300 }];
+      state.season.rewards = [
+        { id: 'season-bronze', track: 'placement', threshold: 0.9, tokens: 40 },
+        { id: 'season-silver', track: 'placement', threshold: 0.8, tokens: 80 },
+        { id: 'season-gold', track: 'placement', threshold: 0.7, tokens: 140 },
+      ];
+      state.season.claimedRewardIds = [];
+      state.season.loading = false;
+      state.season.error = '';
+      renderRankingsSurface('#rankings-page-content');
+    });
+    await expect(page.locator('#rankings-page-content .season-signin-prompt')).toContainText('SIGN IN');
+    await page.screenshot({ path: path.join(artifactRoot, 'rankings-season-1920.png') });
+
+    await page.locator('#view-rankings [data-home-tab="profile"]').click();
+    await expect(page.locator('#view-profile')).toBeVisible();
+    await page.evaluate(async () => {
+      const { state } = await import('/clientState.js');
+      const { renderProfileStatistics, renderProfileHistory } = await import('/clientProfileRender.js');
+      const accountId = 'release-owner';
+      const match = {
+        matchId: 'release-match-01', completedAt: '2026-09-26T20:30:00.000Z', durationSeconds: 840,
+        roundCount: 12, boardVariant: 'standard-40', result: 'WIN',
+        participants: [
+          { accountId, displayNameAtMatch: 'RELEASE OWNER', finalPlacement: 1, endingCash: 1320, propertyCount: 5 },
+          { accountId: 'guest-02', displayNameAtMatch: 'NIGHT OWL', finalPlacement: 2, endingCash: 760, propertyCount: 3 },
+        ],
+        globalEvents: ['Market rush', 'Housing bubble'], tradesCompleted: 2, auctionsCompleted: 1,
+        casino: [{ accountId, net: -20 }], market: [{ accountId, net: 65 }], playerContracts: [{ status: 'paid' }],
+      };
+      state.account = { sessionToken: 'qa-release-session', account: {
+        id: accountId, username: 'release-owner', displayName: 'RELEASE OWNER',
+        stats: { gamesPlayed: 8, wins: 5, bankruptcies: 1, casinoNet: -20, marketProfit: 65, eventSurvival: 6, auctionWins: 4, playerLoansGiven: 2, equityDeals: 1 },
+        matchHistory: [match], history: [match],
+      } };
+      renderProfileStatistics();
+      renderProfileHistory();
+    });
+    await page.locator('#profile-tab-stats').click();
+    await expect(page.locator('#profile-tab-stats')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#profile-panel-stats')).toBeVisible();
+    await page.screenshot({ path: path.join(artifactRoot, 'profile-statistics-1920.png') });
+    await page.locator('#profile-tab-history').click();
+    await page.locator('[data-profile-history-toggle="release-match-01"]').click();
+    await page.locator('[data-profile-history-detail-tab="economy"]').click();
+    await page.screenshot({ path: path.join(artifactRoot, 'profile-match-history-detail-1920.png') });
+    await page.evaluate(async () => {
+      const { state } = await import('/clientState.js');
+      state.account = { account: null, sessionToken: '' };
+    });
 
     await page.goto('/?rules=book');
     await expect(page.locator('#view-rules')).toBeVisible();
@@ -33,6 +100,36 @@ test.describe('release surface evidence', () => {
     await page.locator('#lobby-start-btn').click();
     await expect(page.locator('#view-game')).toBeVisible();
 
+    await page.evaluate(async () => {
+      const { state } = await import('/clientState.js');
+      const { openMarketDesk } = await import('/clientMarketUi.js');
+      state.suppressRoomUpdates = true;
+      state.economy.market = {
+        enabled: true, round: 3, feeRate: 0.02, complexity: 'derivatives',
+        quotes: { brazil: 113, canada: 106, japan: 98 },
+        quoteHistory: [
+          { round: 0, quotes: { brazil: 100, canada: 100, japan: 100 } },
+          { round: 1, quotes: { brazil: 104, canada: 102, japan: 99 }, eventId: 'market-rush' },
+          { round: 2, quotes: { brazil: 113, canada: 106, japan: 98 } },
+        ],
+        personalTrades: [{ roundNumber: 1, instrumentId: 'brazil', side: 'buy', quantity: 2, quote: 104, fee: 5 }],
+        positions: { brazil: { quantity: 2, averageCost: 106.5, realizedPnl: 0 } },
+        shorts: { positions: {} }, options: [],
+      };
+      openMarketDesk();
+    });
+    await expect(page.locator('#market-modal')).not.toHaveClass(/is-hidden/);
+    await page.screenshot({ path: path.join(artifactRoot, 'market-desk-1920.png') });
+    await page.locator('#market-card [data-market-preview]').scrollIntoViewIfNeeded();
+    const marketCard = await page.locator('#market-card').boundingBox();
+    const marketClose = await page.locator('#market-modal-close').boundingBox();
+    expect(marketClose).not.toBeNull();
+    expect(marketClose.y).toBeGreaterThanOrEqual(marketCard.y);
+    expect(marketClose.y).toBeLessThan(marketCard.y + 120);
+    await page.screenshot({ path: path.join(artifactRoot, 'market-order-controls-1920.png') });
+    await page.locator('#market-modal-close').click();
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+
     await page.locator('.tile[data-tile="15"]').click();
     await expect(page.locator('#popup')).not.toHaveClass(/is-hidden/);
     await page.screenshot({ path: path.join(artifactRoot, 'airport-field-modal-1920.png') });
@@ -53,8 +150,14 @@ test.describe('release surface evidence', () => {
         effects: { rentMultiplier: 0.8, buildingCostMultiplier: 1.25, marketVolatility: 1.15 },
         choices: []
       };
+      state.globalEventCompact = false;
+      state.lastAnnouncedGlobalEventKey = '';
+      state.globalEventAnnouncementRoomCode = state.roomCode;
+      state.globalEventAnnouncementGameStarted = true;
       renderGlobalEvent();
     });
+    await expect(page.locator('#global-event-ribbon')).toBeVisible();
+    await page.screenshot({ path: path.join(artifactRoot, 'global-event-announcement-1920.png') });
     await expect(page.locator('#global-event-banner')).toBeVisible();
     await page.screenshot({ path: path.join(artifactRoot, 'global-event-warning-1920.png') });
 

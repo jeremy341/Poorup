@@ -202,6 +202,52 @@ check('summarizeMatchHistoryRecordForViewer projects the exact viewer fields', (
   assert.deepStrictEqual(noViewer.participants.map(p => p.sharedWithViewer), [false, false, false]);
 });
 
+check('summarizeSparseLegacyHistoryDoesNotThrowOrInventCounts', () => {
+  const sparse = {
+    matchId: 'legacy-1',
+    completedAt: '2024-01-01T00:00:00.000Z',
+    privatePayload: 'must not escape'
+  };
+  const summary = summarizeMatchHistoryRecordForViewer(sparse, 'viewer', 'target');
+  assert.equal(summary.matchId, 'legacy-1');
+  for (const key of ['participants', 'playerCount', 'globalEvents', 'eventCombinations']) {
+    assert.equal(Object.hasOwn(summary, key), false, `${key} should remain absent`);
+  }
+  assert.equal(Object.hasOwn(summary, 'privatePayload'), false);
+
+  const partial = summarizeMatchHistoryRecordForViewer({ ...sparse, participants: [{ accountId: 'target' }] }, 'viewer', 'target');
+  assert.equal(Object.hasOwn(partial, 'playerCount'), false);
+  for (const key of ['finalPlacement', 'propertyCount', 'completedGroups', 'bankrupt']) {
+    assert.equal(Object.hasOwn(partial.participants[0], key), false, `${key} should remain absent`);
+  }
+
+  const malformed = summarizeMatchHistoryRecordForViewer({
+    ...sparse,
+    participants: [{ accountId: 'target', displayNameAtMatch: 42, avatarAtMatch: 'bad', finalPlacement: '2', propertyCount: '4', completedGroups: 'bad', bankrupt: 'true' }]
+  }, 'viewer', 'target').participants[0];
+  assert.equal(malformed.displayNameAtMatch, 'PLAYER');
+  assert.equal(malformed.avatarAtMatch, null);
+  assert.equal(malformed.finalPlacement, null);
+  assert.equal(malformed.propertyCount, 4);
+  assert.equal(malformed.completedGroups, 0);
+  assert.equal(malformed.bankrupt, false);
+
+  const explicitEmpty = summarizeMatchHistoryRecordForViewer({
+    ...sparse,
+    participants: [{ accountId: 'target', finalPlacement: 0, propertyCount: 0, completedGroups: 0 }],
+    playerCount: 0,
+    globalEvents: [],
+    eventCombinations: []
+  }, 'viewer', 'target');
+  assert.equal(explicitEmpty.playerCount, 0);
+  assert.deepEqual(explicitEmpty.globalEvents, []);
+  assert.deepEqual(explicitEmpty.eventCombinations, []);
+  assert.equal(explicitEmpty.participants[0].finalPlacement, null);
+  assert.equal(explicitEmpty.participants[0].propertyCount, 0);
+  assert.equal(explicitEmpty.participants[0].completedGroups, 0);
+  assert.equal(Object.hasOwn(explicitEmpty.participants[0], 'bankrupt'), false);
+});
+
 function fakeSettledRoom() {
   const players = [
     { accountId: 'acct_a', casinoLedger: [1, 2], casinoNet: '-5', marketPositions: { bonds: { quantity: '3', realizedPnl: 'bad' } } },

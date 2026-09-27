@@ -4,6 +4,7 @@
 // so the wire-visible behavior (check order, error strings, ack shapes) is
 // pinned by server/rooms.test.js and the shapes themselves by
 // server/roomSetup.test.js.
+import { sanitizeParticipant } from './participantFields.js';
 
 export function normalizeNickname(value) {
   if (typeof value !== 'string') return '';
@@ -194,28 +195,33 @@ export function matchHistoryPrivacyError(viewer, target, friendship) {
 // Viewer-scoped projection used for every history request that is not the
 // owner reading their own records.
 export function summarizeMatchHistoryRecordForViewer(record, viewerId, targetId) {
-  const participants = record.participants.map(participant => ({
-    displayNameAtMatch: participant.displayNameAtMatch,
-    avatarAtMatch: participant.avatarAtMatch || null,
-    finalPlacement: participant.finalPlacement,
-    propertyCount: participant.propertyCount,
-    completedGroups: Number(participant.completedGroups) || 0,
-    bankrupt: participant.bankrupt,
-    isViewedPlayer: participant.accountId === targetId,
-    sharedWithViewer: Boolean(viewerId && record.participants.some(entry => entry.accountId === viewerId))
-  }));
+  const sourceParticipants = Array.isArray(record.participants) ? record.participants : null;
+  const viewerIsParticipant = Boolean(viewerId && sourceParticipants?.some(entry => entry?.accountId === viewerId));
+  const participants = sourceParticipants?.map(participant => {
+    const source = participant && typeof participant === 'object' ? participant : {};
+    const projected = {};
+    const sanitized = sanitizeParticipant(source);
+    ['displayNameAtMatch', 'avatarAtMatch', 'finalPlacement', 'propertyCount', 'completedGroups', 'bankrupt'].forEach(key => {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+      projected[key] = key === 'finalPlacement'
+        ? (Number.isInteger(source.finalPlacement) && source.finalPlacement > 0 ? source.finalPlacement : null)
+        : sanitized[key];
+    });
+    projected.isViewedPlayer = source.accountId === targetId;
+    projected.sharedWithViewer = viewerIsParticipant;
+    return projected;
+  });
   const summary = {
     matchId: record.matchId,
     completedAt: record.completedAt,
     roundCount: record.roundCount,
-    roomVisibility: record.roomVisibility,
-    playerCount: Number(record.playerCount) || participants.length,
-    participants,
-    globalEvents: record.globalEvents,
-    eventCombinations: record.eventCombinations,
-    tradesCompleted: record.tradesCompleted,
-    auctionsCompleted: record.auctionsCompleted
+    roomVisibility: record.roomVisibility
   };
+  if (sourceParticipants) summary.participants = participants;
+  if (Object.prototype.hasOwnProperty.call(record, 'playerCount')) summary.playerCount = record.playerCount;
+  ['globalEvents', 'eventCombinations', 'tradesCompleted', 'auctionsCompleted'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(record, key)) summary[key] = record[key];
+  });
   ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(record, key)) summary[key] = record[key];
   });
