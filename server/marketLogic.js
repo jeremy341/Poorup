@@ -29,6 +29,46 @@ export function freshMarketQuotes() {
   return Object.fromEntries(MARKET_INSTRUMENTS.map(instrument => [instrument.id, instrument.price]));
 }
 
+function validMarketQuoteRecord(quotes) {
+  if (!quotes || typeof quotes !== 'object' || Array.isArray(quotes)) return null;
+  const ids = MARKET_INSTRUMENTS.map(instrument => instrument.id);
+  if (Object.keys(quotes).length !== ids.length || ids.some(id => !Object.hasOwn(quotes, id))) return null;
+  if (!ids.every(id => Number.isInteger(quotes[id]) && quotes[id] > 0)) return null;
+  return Object.fromEntries(ids.map(id => [id, quotes[id]]));
+}
+
+export function marketQuoteHistorySnapshot(game) {
+  const history = Array.isArray(game.marketQuoteHistory) ? game.marketQuoteHistory : [];
+  const validated = history.flatMap(point => {
+    const quotes = validMarketQuoteRecord(point?.quotes);
+    if (!quotes || !Number.isInteger(point.round) || point.round < 0) return [];
+    if (point.eventId !== null && typeof point.eventId !== 'string') return [];
+    return [{ round: point.round, quotes, eventId: point.eventId }];
+  }).slice(-128);
+  if (validated.length) return validated;
+
+  const current = freshMarketQuotes();
+  const ids = Object.keys(current);
+  for (const id of ids) {
+    const quote = game.marketQuotes?.[id];
+    if (Number.isInteger(quote) && quote > 0) current[id] = quote;
+  }
+  return [{
+    round: Number.isInteger(game.marketRound) && game.marketRound >= 0 ? game.marketRound : 0,
+    quotes: current,
+    eventId: null
+  }];
+}
+
+export function createMarketQuotePoint(game, round = game.marketRound, eventId = null) {
+  const quotes = validMarketQuoteRecord(game.marketQuotes) || freshMarketQuotes();
+  return {
+    round: Number.isInteger(round) && round >= 0 ? round : 0,
+    quotes,
+    eventId: typeof eventId === 'string' ? eventId : null
+  };
+}
+
 function marketSpread(game) {
   const volatility = Number(game.activeEventEffects().marketVolatility);
   if (Number.isFinite(volatility)) {
