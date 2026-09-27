@@ -19,8 +19,8 @@ const stores = {
   'achievements.json': [{ accountId: 'private-account-id', achievementId: 'first' }],
   'seasons.json': [{ id: 'season', standings: [{ accountId: 'private-account-id' }] }],
   'cosmetics.json': { 'private-account-id': { owned: ['hat'] } },
-  'telemetry.json': [{ accountId: 'private-account-id', payload: 'private' }],
-  'analytics-rollup.json': { schemaVersion: 1, buckets: { private: { actors: ['private-account-id'] } } },
+  'telemetry.json': [{ kind: 'match-complete', createdAt: '2026-09-26T00:00:00.000Z', data: { playerCount: 3, roundCount: 12 } }],
+  'analytics-rollup.json': { schemaVersion: 1, buckets: { '2026-09-26T00:00:00.000Z': { dimensions: { boardVariant: 'standard-40' }, events: { 'match-complete': 3 } } } },
   'sessions.json': [{ accountId: 'private-account-id', tokenHash: 'secret' }],
   'recovery-tokens.json': [{ accountId: 'private-account-id', tokenHash: 'secret' }],
   'ai-providers.json': { profiles: [{ id: 'global-provider-profile' }] },
@@ -29,9 +29,11 @@ const stores = {
 for (const [name, value] of Object.entries(stores)) fs.writeFileSync(path.join(dataDir, name), JSON.stringify(value));
 fs.writeFileSync(path.join(backupDir, 'accounts.json.2026-09-26.json'), JSON.stringify(stores['accounts.json']));
 fs.writeFileSync(path.join(backupDir, 'accounts.json.2026-09-26.json.sha256'), 'checksum');
+fs.writeFileSync(path.join(backupDir, 'telemetry.json.2026-09-26.json'), JSON.stringify(stores['telemetry.json']));
+fs.writeFileSync(path.join(backupDir, 'analytics-rollup.json.2026-09-26.json'), JSON.stringify(stores['analytics-rollup.json']));
 fs.writeFileSync(path.join(backupDir, 'ai-providers.json.2026-09-26.json'), JSON.stringify(stores['ai-providers.json']));
 
-const original = new Map([...Object.keys(stores), 'accounts.json.2026-09-26.json', 'accounts.json.2026-09-26.json.sha256', 'ai-providers.json.2026-09-26.json']
+const original = new Map([...Object.keys(stores), 'accounts.json.2026-09-26.json', 'accounts.json.2026-09-26.json.sha256', 'telemetry.json.2026-09-26.json', 'analytics-rollup.json.2026-09-26.json', 'ai-providers.json.2026-09-26.json']
   .map(name => [name, fs.readFileSync(path.join(name.endsWith('.sha256') || name.includes('.json.') ? backupDir : dataDir, name))]));
 const safeOptions = { dataDir, backupDir, env: {}, repositoryRoot: path.resolve('.') };
 
@@ -204,11 +206,14 @@ assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'accounts.json'),
 assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'social.json'), 'utf8')), {
   friendships: [], blocks: [], invites: [], reports: [], notifications: {}
 });
-assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'analytics-rollup.json'), 'utf8')), { schemaVersion: 1, buckets: {} });
+assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'telemetry.json'), 'utf8')), [], 'event-level telemetry is cleared during the all-account reset');
+assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'analytics-rollup.json'), 'utf8')), stores['analytics-rollup.json'], 'aggregate analytics rollups are retained');
 assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'ai-providers.json'), 'utf8')), stores['ai-providers.json']);
 assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'maintenance.json'), 'utf8')), stores['maintenance.json']);
 assert.equal(fs.existsSync(path.join(backupDir, 'accounts.json.2026-09-26.json')), false);
 assert.equal(fs.existsSync(path.join(backupDir, 'accounts.json.2026-09-26.json.sha256')), false);
+assert.equal(fs.existsSync(path.join(backupDir, 'telemetry.json.2026-09-26.json')), false, 'event-level telemetry backups are removed');
+assert.equal(fs.existsSync(path.join(backupDir, 'analytics-rollup.json.2026-09-26.json')), true, 'aggregate rollup backups are retained');
 assert.equal(fs.existsSync(path.join(backupDir, 'ai-providers.json.2026-09-26.json')), true);
 
 fs.rmSync(root, { recursive: true, force: true });
