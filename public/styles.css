@@ -5049,27 +5049,104 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   }
 }
 
-/* ---- Picked from origin/main: compact global-event paint ---- */
+/* Global events live only inside the board's center field, so the status
+   never reflows the fixed game shell or covers the board's action controls. */
+.global-event-banner {
+  position: absolute;
+  z-index: 6;
+  top: 8px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(680px, calc(100% - 20px));
+  max-height: calc(100% - 16px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  transform: translateX(-50%);
+  padding: 10px 12px;
+  color: var(--gold-100);
+  background: color-mix(in srgb, var(--surface-board-center) 88%, transparent);
+  border: 1px solid var(--line-board);
+  border-top: 2px solid var(--event-accent, var(--gold-500));
+  border-radius: 2px;
+  box-shadow: inset 0 1px 0 rgb(240 217 172 / 8%), 0 4px 18px rgb(0 0 0 / 45%);
+}
+.global-event-banner.is-delayed { visibility: hidden; }
+.global-event-ribbon {
+  position: absolute;
+  z-index: 5;
+  top: 42%;
+  left: 50%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  width: min(760px, calc(100% - 24px));
+  min-height: 54px;
+  padding: 8px 14px;
+  color: var(--gold-050);
+  background: color-mix(in srgb, var(--red-action) 86%, transparent);
+  border: 1px solid var(--gold-400);
+  border-top: 2px solid var(--gold-100);
+  box-shadow: inset 0 1px 0 rgb(255 235 195 / 16%), 0 5px 16px rgb(0 0 0 / 55%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 0) rotate(0deg);
+}
+.global-event-ribbon.is-visible {
+  opacity: 1;
+  animation: global-event-ribbon-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@media (max-width: 620px) {
+  .global-event-ribbon {
+    grid-template-columns: auto minmax(0, 1fr);
+    width: calc(100% - 12px);
+  }
+  .global-event-ribbon-cue { grid-column: 1 / -1; }
+}
+.global-event-ribbon-label,
+.global-event-ribbon-cue {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.global-event-ribbon-label { color: var(--gold-050); }
+.global-event-ribbon-title {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: clamp(14px, 2.4vw, 20px);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+.global-event-ribbon-cue { color: var(--gold-050); }
+@keyframes global-event-ribbon-in {
+  from { opacity: 0; transform: translate(-50%, -8px) rotate(-2deg); }
+  to { opacity: 1; transform: translate(-50%, 0) rotate(0deg); }
+}
+
+/* ---- Compact global-event paint ---- */
 @media (max-width: 620px) {
   .global-event-banner {
-  position: relative;
+  position: absolute;
+  top: 6px;
+  left: 50%;
   z-index: 6;
-  width: min(440px, 88%);
-  margin: 6px auto 0;
+  width: min(440px, calc(100% - 12px));
+  margin: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 12px;
   color: var(--gold-100);
-  background: color-mix(in srgb, var(--surface-board-center) 82%, var(--surface-panel-deep));
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--surface-board-center) 88%, transparent);
   border: 1px solid var(--line-board);
   border-top: 2px solid var(--event-accent, var(--gold-500));
   border-radius: 2px;
   box-shadow: inset 0 1px 0 rgb(240 217 172 / 8%), 0 4px 18px rgb(0 0 0 / 45%);
-  animation: event-banner-in 240ms cubic-bezier(0.23, 1, 0.32, 1) both;
-  transition: all 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  transform: translateX(-50%);
 }
   .global-event-copy { white-space: normal; overflow: visible; }
 .global-event-header {
@@ -5270,6 +5347,14 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   text-overflow: ellipsis;
   max-width: 120px;
 }
+.global-event-compact-rounds {
+  flex: 0 0 auto;
+  color: var(--gold-300);
+  font-family: var(--font-numeric);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
 .global-event-compact-effects {
   display: flex;
   align-items: center;
@@ -5292,10 +5377,13 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   white-space: nowrap;
 }
 .global-event-compact-vote {
+  appearance: none;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 5px;
+  min-height: 32px;
+  padding: 2px 6px;
   color: var(--gold-050);
   background: rgb(217 166 47 / 20%);
   border: 1px solid var(--gold-400);
@@ -5303,7 +5391,6 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   font-family: var(--font-pixel);
   font-size: 7px;
   cursor: pointer;
-  animation: vote-pulse 1000ms ease-in-out infinite alternate;
 }
 .global-event-compact-vote.is-hidden {
   display: none;
@@ -5311,9 +5398,19 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .popup-card, .panel, .hud-cell, .global-event-banner, .panel-menu, .auction-bar-fill { transition: none !important; animation: none !important; }
+  .global-event-ribbon,
+  .global-event-ribbon.is-visible { animation: none !important; opacity: 1; transform: translate(-50%, 0) rotate(0deg); }
   .inactivity-ring-art { animation: none !important; }
 }
 @media (forced-colors: active) {
+  .global-event-ribbon,
+  .global-event-banner { color: CanvasText; background: Canvas; border-color: CanvasText; box-shadow: none; }
+  .global-event-ribbon-label,
+  .global-event-ribbon-title,
+  .global-event-ribbon-cue,
+  .global-event-banner :is(h2, p, button, span) { color: CanvasText; }
+  .global-event-toggle,
+  .global-event-choice { border-color: CanvasText; forced-color-adjust: none; }
   .inactive-player-row,
   .inactivity-timer-host { border-color: CanvasText; color: CanvasText; }
   .inactivity-timer-time,
@@ -5324,11 +5421,16 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 @media (orientation: landscape) and (min-width: 768px) and (max-width: 1279px) {
   #view-game .global-event-banner { width: min(680px, calc(100% - 14px)); gap: 8px; padding: 8px 10px; }
 }
+@media (hover: none) and (pointer: coarse) {
+  .global-event-toggle,
+  .global-event-compact-vote { min-height: 44px; }
+}
 @keyframes event-banner-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-transparency: reduce) {
+  .global-event-ribbon,
   .global-event-banner {
     background: var(--surface-board-center);
     backdrop-filter: none;
