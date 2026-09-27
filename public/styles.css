@@ -4878,20 +4878,20 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   }
   #view-game .board-area { min-width: 0; min-height: 0; overflow: hidden; }
   #view-game .board-holder {
-    width: min(100%, 68vh);
-    width: min(100%, 68dvh);
+    width: min(100%, 64vh);
+    width: min(100%, 64dvh);
     height: auto;
     max-width: 100%;
     max-height: 100%;
   }
   #view-game .board-holder.is-metro {
-    width: min(100%, 68vh);
-    width: min(100%, 68dvh);
+    width: min(100%, 64vh);
+    width: min(100%, 64dvh);
     min-width: 0;
     min-height: 0;
   }
   #view-game .hud {
-    grid-template-columns: minmax(0, 1.25fr) repeat(3, minmax(0, .8fr)) minmax(0, 1.2fr);
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, .8fr) minmax(0, 1.15fr);
     gap: 6px;
     height: 86px;
     min-height: 86px;
@@ -4902,10 +4902,24 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #view-game .hud-cell:first-child { overflow-y: auto; overscroll-behavior: contain; }
   #view-game .hud-body { min-width: 0; gap: 6px; }
   #view-game .hud-body > div { min-width: 0; }
+  #view-game #hud-cash-action { gap: 4px; }
+  #view-game #hud-cash-action #hud-cash { flex: 1 1 auto; min-width: 0; font-size: clamp(16px, 1.5vw, 18px); }
+  #view-game #hud-cash-action [data-sprite="note"] { flex: 0 0 30px; width: 30px; height: 15px; }
+  #view-game #hud-cash-action [data-sprite="note"] svg { display: block; width: 30px; height: 15px; }
   #view-game .hud-name { font-size: 20px; }
   #view-game .hud-note { margin-top: 4px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #view-game .t-money { font-size: 24px; }
   #view-game .pool-val { font-size: 20px; }
+  #view-game .tile-name { font-size: clamp(8px, 1.05cqw, 11px); }
+  #view-game .tile-price { font-size: clamp(9px, 1.05cqw, 12px); }
+  #view-game .tile-face-special .tile-name { font-size: clamp(8px, 1.05cqw, 11px); }
+  #view-game .go-big { font-size: 23px; }
+  #view-game .tile-icon > svg { transform: scale(.92); transform-origin: center; }
+  #view-game .tile-icon-large svg { width: 28px; height: 28px; }
+  #view-game .airport-mark { width: clamp(14px, 3.6cqw, 32px); }
+  #view-game .board-icon-chest,
+  #view-game .board-icon-surprise,
+  #view-game .tile-icon-large .board-icon-mark { width: clamp(24px, 6.5cqw, 76px); }
   #view-game .die,
   #view-game .die-blank { width: 32px; height: 32px; padding: 5px; gap: 2px; }
   #view-game .hud-roll { padding-inline: 10px; }

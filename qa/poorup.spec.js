@@ -396,7 +396,36 @@ test.describe('Landscape iPad desk contract', () => {
 
     const geometry = await page.evaluate(() => {
       const box = selector => { const el = document.querySelector(selector); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom }; };
-      return { viewport: { width: innerWidth, height: innerHeight }, body: { clientWidth: document.body.clientWidth, clientHeight: document.body.clientHeight, scrollWidth: document.body.scrollWidth, scrollHeight: document.body.scrollHeight }, board: box('#board-frame'), hud: box('#hud'), roll: box('#roll-btn'), rightRail: box('#right-rail-game') };
+      const hudCells = [...document.querySelectorAll('#hud > .hud-cell')];
+      const turnBox = hudCells[0]?.getBoundingClientRect();
+      const moneyBox = hudCells[1]?.getBoundingClientRect();
+      const cashAction = document.querySelector('#hud-cash-action')?.getBoundingClientRect();
+      const cashValue = document.querySelector('#hud-cash')?.getBoundingClientRect();
+      const cashIcon = document.querySelector('#hud-cash-action [data-sprite="note"] svg')?.getBoundingClientRect();
+      const tileName = document.querySelector('#board-grid .tile:not(.is-corner) .tile-name');
+      const tileSvg = document.querySelector('#board-grid .tile-icon svg');
+      const airportIcon = document.querySelector('#board-grid .airport-mark');
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        body: { clientWidth: document.body.clientWidth, clientHeight: document.body.clientHeight, scrollWidth: document.body.scrollWidth, scrollHeight: document.body.scrollHeight },
+        board: box('#board-frame'),
+        boardHolder: box('#view-game .board-holder'),
+        hud: box('#hud'),
+        turnBox: turnBox ? { width: turnBox.width } : null,
+        moneyBox: moneyBox ? { width: moneyBox.width } : null,
+        cashContents: cashAction && cashValue && cashIcon ? {
+          overlap: cashValue.right > cashIcon.left,
+          iconInside: cashIcon.right <= cashAction.right,
+          valueWidth: cashValue.width,
+          iconWidth: cashIcon.width,
+          actionWidth: cashAction.width
+        } : null,
+        tileNameFontSize: tileName ? Number.parseFloat(getComputedStyle(tileName).fontSize) : null,
+        tileSvgWidth: tileSvg?.getBoundingClientRect().width ?? null,
+        airportIconWidth: airportIcon?.getBoundingClientRect().width ?? null,
+        roll: box('#roll-btn'),
+        rightRail: box('#right-rail-game')
+      };
     });
     expect(geometry.body.scrollWidth - geometry.body.clientWidth).toBeLessThanOrEqual(2);
     expect(geometry.body.scrollHeight - geometry.body.clientHeight).toBeLessThanOrEqual(2);
@@ -405,6 +434,13 @@ test.describe('Landscape iPad desk contract', () => {
       expect(geometry[key].y).toBeGreaterThanOrEqual(0);
       expect(geometry[key].bottom).toBeLessThanOrEqual(geometry.viewport.height + 2);
     }
+    expect(geometry.moneyBox.width / geometry.turnBox.width).toBeGreaterThanOrEqual(0.85);
+    expect(geometry.cashContents.overlap).toBe(false);
+    expect(geometry.cashContents.iconInside, JSON.stringify(geometry.cashContents)).toBe(true);
+    expect(geometry.boardHolder.width).toBeLessThanOrEqual(geometry.viewport.height * 0.66);
+    expect(geometry.tileNameFontSize).toBeLessThanOrEqual(8.5);
+    expect(geometry.tileSvgWidth).toBeLessThanOrEqual(20);
+    expect(geometry.airportIconWidth).toBeLessThanOrEqual(21);
     if (process.env.POORUP_CAPTURE_VISUALS) {
       await page.screenshot({ path: testInfo.outputPath('ipad-live-game.png'), fullPage: true });
     }
