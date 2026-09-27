@@ -229,6 +229,9 @@ const state = {
   // transition so stale game-over state cannot survive a new game.
   gameStarted: false,
   globalEvent: null,
+  lastAnnouncedGlobalEventKey: "",
+  globalEventAnnouncementRoomCode: "",
+  globalEventAnnouncementGameStarted: false,
   globalEventVotePending: false,
   playerContractOffer: null,
   negotiationContractId: null,
