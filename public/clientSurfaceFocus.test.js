@@ -28,6 +28,7 @@ class FakeElement {
     return null;
   }
   querySelectorAll() { return this.children; }
+  closest() { return null; }
   focus() { globalThis.document.activeElement = this; }
 }
 
@@ -35,13 +36,19 @@ const trigger = new FakeElement("trade-trigger");
 const surface = new FakeElement("trade-modal", "is-hidden");
 const close = new FakeElement("trade-close");
 surface.append(close);
-const nodes = new Map([["#trade-modal", surface]]);
+const bankTrigger = new FakeElement("bank-loan-trigger");
+const bankSurface = new FakeElement("bank-loan-modal", "is-hidden");
+const bankCancel = new FakeElement("bank-loan-cancel");
+const bankConfirm = new FakeElement("bank-loan-confirm");
+bankSurface.append(bankCancel);
+bankSurface.append(bankConfirm);
+const nodes = new Map([["#trade-modal", surface], ["#bank-loan-modal", bankSurface]]);
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.document = {
   activeElement: trigger,
   querySelector: (selector) => nodes.get(selector) || null,
   querySelectorAll: () => [],
-  contains: (node) => node === trigger || node === surface || node === close,
+  contains: (node) => [trigger, surface, close, bankTrigger, bankSurface, bankCancel, bankConfirm].includes(node),
 };
 globalThis.HTMLElement = FakeElement;
 globalThis.requestAnimationFrame = (callback) => callback();
@@ -50,12 +57,24 @@ globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
 const { state } = await import("./clientState.js");
 state.phase = "playing";
-const { openSurface, closeSurface, closeAllSurfaces, shouldConfirmSurfaceClose, hasUnresolvedSurfaceDecision } = await import("./clientSurfaces.js");
+const { openSurface, closeSurface, closeAllSurfaces, shouldConfirmSurfaceClose, hasUnresolvedSurfaceDecision, visibleSurfaces, surfaceFocusable } = await import("./clientSurfaces.js");
 
 openSurface("#trade-modal", "#trade-close", { trigger });
 assert.equal(document.activeElement, close);
 closeSurface("#trade-modal");
 assert.equal(document.activeElement, trigger);
+closeAllSurfaces();
+
+state.phase = "home";
+openSurface("#bank-loan-modal", "#bank-loan-cancel", { trigger: bankTrigger });
+assert.equal(bankSurface.classList.contains("is-hidden"), true);
+state.phase = "playing";
+openSurface("#bank-loan-modal", "#bank-loan-cancel", { trigger: bankTrigger });
+assert.equal(document.activeElement, bankCancel);
+assert.ok(visibleSurfaces().includes(bankSurface));
+assert.deepEqual(surfaceFocusable(bankSurface), [bankCancel, bankConfirm]);
+closeSurface("#bank-loan-modal");
+assert.equal(document.activeElement, bankTrigger);
 closeAllSurfaces();
 
 state.settings.auction = true;
