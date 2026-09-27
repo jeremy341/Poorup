@@ -154,7 +154,7 @@ function equityTransferContext(game, seller, buyer, sourceContractId, sharePct, 
 export function proposeEquityShareTransfer(game, socketId, offer = {}) {
   const seller = game.getPlayerBySocket(socketId);
   const buyer = game.getPlayerById(offer.toPlayerId);
-  if (!seller || seller.id !== offer.fromPlayerId || seller.id !== game.currentPlayerId) return { success: false, error: 'Choose a valid equity seller.' };
+  if (!seller || seller.id !== offer.fromPlayerId) return { success: false, error: 'Choose a valid equity seller.' };
   const key = transactionKey('equity-transfer', seller.id, String(offer.requestId || '').trim().slice(0, 100));
   const cached = memoizedResult(game, key);
   if (cached) return cached;
