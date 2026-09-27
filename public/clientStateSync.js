@@ -107,6 +107,7 @@ export function syncRoom(room, game = null) {
       state.activityRoomCode = roomCode;
       state.activityNotices = [];
       state.lastGameFeed = [];
+      state.economy = { ...state.economy, market: { ...state.economy?.market, personalTrades: [] } };
     }
     state.roomCode = roomCode;
   }
@@ -243,11 +244,24 @@ function syncContractOffer() {
 
 function syncEconomy(game) {
   const incoming = game.economy || {};
+  const market = incoming.market || {};
+  const personalTradeSource = Array.isArray(market.personalTrades) ? market.personalTrades : state.economy.market?.personalTrades;
+  const personalTrades = Array.isArray(personalTradeSource) ? personalTradeSource.slice(0, 128).flatMap(entry => {
+    if (!entry || typeof entry !== "object" || !["buy", "sell"].includes(entry.side)) return [];
+    return [{
+      roundNumber: num(entry.roundNumber),
+      instrumentId: String(entry.instrumentId || "").slice(0, 40),
+      side: entry.side,
+      quantity: Math.max(0, num(entry.quantity)),
+      quote: Math.max(0, num(entry.quote)),
+      fee: Math.max(0, num(entry.fee)),
+    }];
+  }) : [];
   state.economy = {
     ...state.economy,
     ...incoming,
     casino: { ...state.economy.casino, ...(incoming.casino || {}) },
-    market: { ...state.economy.market, ...(incoming.market || {}) },
+    market: { ...state.economy.market, ...market, personalTrades },
   };
 }
 
