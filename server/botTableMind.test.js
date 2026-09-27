@@ -1,6 +1,7 @@
 // Unit tests for opponent minds: beliefs, desires, emotions, ledger,
 // alliance scoring from existing state only.
 import assert from 'node:assert/strict';
+import * as botTableMind from './botTableMind.js';
 import {
   wantedGroups,
   desireClass,
@@ -116,3 +117,19 @@ check('readMind composes the full readout', () => {
 });
 
 console.log(`botTableMind tests: ${passed} passed, 0 failed`);
+
+assert.equal(typeof botTableMind.summarizePublicActionProfile, 'function', 'opponent profile summarizes only public action history');
+const publicActions = [
+  ...Array.from({ length: 4 }, () => ({ actionKind: 'auction-bid', seatIndex: 1, roundNumber: 10 })),
+  ...Array.from({ length: 6 }, () => ({ actionKind: 'trade-counter', seatIndex: 1, roundNumber: 10 }))
+];
+const fourActionProfile = botTableMind.summarizePublicActionProfile(publicActions.slice(0, 4), 1, 10);
+assert.equal(fourActionProfile.status, 'unknown', 'fewer than five effective observations remain unknown');
+const fiveWeightProfile = botTableMind.summarizePublicActionProfile(publicActions, 1, 11);
+assert.equal(fiveWeightProfile.status, 'known');
+assert.equal(fiveWeightProfile.effectiveSampleWeight, 5, 'each full elapsed round halves each observation weight');
+assert.equal(fiveWeightProfile.actionFrequencies['auction-bid'], 0.4);
+assert.equal(fiveWeightProfile.actionFrequencies['trade-counter'], 0.6);
+const decayedProfile = botTableMind.summarizePublicActionProfile(publicActions, 1, 12);
+assert.equal(decayedProfile.effectiveSampleWeight, 2.5);
+assert.equal(decayedProfile.status, 'unknown', 'decay can take a previously known profile below the confidence threshold');

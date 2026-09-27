@@ -50,6 +50,7 @@ import { botApi } from './botApi.js';
 import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
 import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
+import { appendPublicAction } from './publicActionHistory.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -287,6 +288,7 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.publicActionHistory = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
@@ -322,6 +324,12 @@ class GameState {
   recordHumanAction(player) {
     if (!isHumanActionSeat(player)) return;
     this.humanActionCount = Math.max(0, Math.floor(Number(this.humanActionCount) || 0)) + 1;
+  }
+
+  recordPublicAction(player, actionKind) {
+    const seatIndex = this.players.indexOf(player);
+    if (seatIndex < 0) return false;
+    return appendPublicAction(this.publicActionHistory, actionKind, seatIndex, this.roundNumber);
   }
 
   resetForNewGame() {
@@ -374,6 +382,7 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.publicActionHistory = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
@@ -1199,26 +1208,6 @@ class GameState {
     return null;
   }
 
-  pendingTradeBlocksEndTurn(player) {
-    const trade = this.pendingTrade;
-    if (!trade) return false;
-    if (trade.fromPlayerId === player.id) return true;
-    return trade.toPlayerId === player.id;
-  }
-
-  pendingContractBlocksEndTurn(player) {
-    const contract = this.pendingPlayerContract;
-    if (!contract) return false;
-    if (contract.fromPlayerId === player.id) return true;
-    return contract.toPlayerId === player.id;
-  }
-
-  pendingDealBlockReason(player) {
-    if (this.pendingTradeBlocksEndTurn(player)) return 'Resolve the pending trade before ending the turn.';
-    if (this.pendingContractBlocksEndTurn(player)) return 'Resolve the pending contract before ending the turn.';
-    return null;
-  }
-
   pendingFlowRejection(player) {
     const error = this.pendingFlowError(player);
     return error ? { success: false, error } : null;
@@ -1227,12 +1216,12 @@ class GameState {
   pendingFlowError(player) {
     const blockers = [
       [Boolean(this.auction?.active), 'Finish the active auction before ending the turn.'],
-      [this.pendingPurchaseOffer?.playerId === player.id, 'Resolve the property offer before ending the turn.'],
-      [this.pendingPayment?.playerId === player.id, 'Settle your debt before ending the turn.'],
+      [this.pendingPurchaseOffer?.playerId === player?.id, 'Resolve the property offer before ending the turn.'],
+      [this.pendingPayment?.playerId === player?.id, 'Settle your debt before ending the turn.'],
       [Boolean(this.pendingSponsoredPurchase), 'Resolve the open sponsorship before ending the turn.']
     ];
     const blocker = blockers.find(([active]) => active);
-    return blocker?.[1] || this.pendingDealBlockReason(player);
+    return blocker?.[1] || null;
   }
 
   skipDisconnectedCurrentPlayer() {

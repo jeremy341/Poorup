@@ -21,6 +21,7 @@ function errorPayload(error) {
 export function registerAiProviderRoutes(app, {
   manager,
   accountStore,
+  accountResolver = null,
   adminIds = [],
   publicOrigin = '',
 } = {}) {
@@ -29,7 +30,8 @@ export function registerAiProviderRoutes(app, {
 
   function requireAdmin(req, res, next) {
     const token = String(req.get?.('x-poorup-session-token') || '');
-    const account = accountStore?.sessionAccount?.(token);
+    const account = accountResolver?.(req) || accountStore?.sessionAccount?.(token);
+    if (!account?.id) return res.status(401).json({ success: false, error: 'Account session required.' });
     if (!isAdminAccount(account?.id, adminIds)) return res.status(403).json({ success: false, error: 'Forbidden.' });
     if (!sameOrigin(req, publicOrigin)) return res.status(403).json({ success: false, error: 'Origin is not allowed.' });
     req.adminAccountId = account.id;
