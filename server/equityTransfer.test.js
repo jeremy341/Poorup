@@ -52,6 +52,22 @@ assert.equal(ctx.tile.equityShares.reduce((sum, share) => sum + share.share, 0),
 const acquired = ctx.game.playerContracts.find(contract => contract.kind === 'equity' && contract.fromPlayerId === ctx.buyer.id);
 assert.equal(acquired.expiresRound, ctx.source.expiresRound, 'transferred shares keep the original expiry');
 
+const offTurnProposal = fixture();
+offTurnProposal.game.currentPlayerId = offTurnProposal.buyer.id;
+const offTurnTransfer = offTurnProposal.game.proposeEquityShareTransfer('s-seller', {
+  fromPlayerId: offTurnProposal.seller.id,
+  toPlayerId: offTurnProposal.buyer.id,
+  contractId: offTurnProposal.source.id,
+  sharePct: 15,
+  price: 60,
+  requestId: 'off-turn-transfer'
+});
+assert.equal(offTurnTransfer.success, true, 'a valid share holder can propose a transfer off-turn');
+assert.equal(offTurnProposal.game.respondPlayerContract('s-buyer', true, 'off-turn-transfer-accept', offTurnTransfer.transfer.id).success, true);
+assert.equal(offTurnProposal.seller.cash, 560);
+assert.equal(offTurnProposal.buyer.cash, 440);
+assert.equal(offTurnProposal.source.equityShare, 25);
+
 const convertedHybrid = fixture();
 convertedHybrid.source.kind = 'hybrid';
 convertedHybrid.source.status = 'converted';
