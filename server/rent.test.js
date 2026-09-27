@@ -6,7 +6,10 @@
 // bubble, airport strike, tourism boom, anti-monopoly, energy crisis, public
 // works, global rent multiplier, rent cap). Captured from the pre-refactor
 // method; the modifier-table extraction must keep it green.
+import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
+import { calculateRentFromFacts, rentFactsFromGame, rentFactsFromSnapshot } from './botRentForecast.js';
+import { buildBotStrategicContext } from './botStrategicContext.js';
 
 const GOLDEN = {"mortgaged":0,"property-plain":10,"property-h1":50,"property-h2":150,"property-h3":450,"property-h4":800,"property-h5-hotel":1250,"property-clamped-level":1250,"double-rent-full-group":20,"double-rent-off":10,"double-rent-partial-group":10,"utility-one-owned":28,"utility-both-owned":70,"utility-mortgaged-sibling":28,"utility-no-dice":8,"utility-unowned":12,"utility-unowned-zero-rent":20,"railroad-1":25,"railroad-2":50,"railroad-mortgaged-sibling":25,"railroad-3":100,"railroad-4":200,"railroad-unowned":25,"bubble-property":32,"bubble-excludes-global-multiplier":32,"strike-railroad-zero":0,"strike-skips-airport-multiplier":0,"airport-multiplier":75,"tourism-railroad":37,"tourism-dark-blue":45,"tourism-skips-premium-multiplier":45,"premium-multiplier":70,"anti-monopoly-target":6,"anti-monopoly-dismissed":10,"anti-monopoly-non-target":10,"energy-crisis-utility":42,"energy-crisis-skips-utility-multiplier":42,"utility-multiplier":56,"election-public-works-property":7,"global-rent-multiplier":20,"global-rent-multiplier-zero-skips":10,"global-rent-multiplier-nan-skips":10,"cap-applies":30,"cap-zero-skips":25,"start-tile":0};
 
@@ -75,13 +78,23 @@ for (const [name, [setup, index]] of Object.entries(CASES)) {
   const tile = game.tiles[index];
   setup(game, tile);
   const actual = game.getPropertyRent(tile);
-  if (actual === GOLDEN[name]) {
+  const snapshot = buildBotStrategicContext(game, game.players[0]);
+  const diceTotal = Math.max(2, (game.lastDice?.[0] || 0) + (game.lastDice?.[1] || 0));
+  const gameForecast = calculateRentFromFacts(rentFactsFromGame(game, tile, diceTotal));
+  const snapshotForecast = calculateRentFromFacts(rentFactsFromSnapshot(snapshot, snapshot.board[index], diceTotal));
+  if (actual === GOLDEN[name] && gameForecast === actual && snapshotForecast === actual) {
     passed += 1;
-    console.log(`PASS — rent ${name} = ${actual}`);
+    console.log(`PASS — rent ${name} = ${actual} (live/game/snapshot)`);
   } else {
     failures.push(name);
-    console.log(`FAIL — rent ${name}: expected ${GOLDEN[name]}, got ${actual}`);
+    console.log(`FAIL — rent ${name}: expected ${GOLDEN[name]}, got live=${actual}, gameForecast=${gameForecast}, snapshotForecast=${snapshotForecast}`);
   }
 }
+const cardGame = newGame();
+cardGame.tiles[12].ownerId = cardGame.players[0].id;
+cardGame.lastDice = [3, 4];
+event(cardGame, 'energy-crisis');
+assert.equal(cardGame.diceTotal(), 7);
+assert.equal(cardGame.applyEventRentModifiers(70, cardGame.tiles[12]), 105);
 console.log(`rent tests: ${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exitCode = 1;

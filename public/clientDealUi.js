@@ -41,7 +41,8 @@ function tradeDetailHTML(trade) {
 }
 
 function contractTerms(contract) {
-  const terms = [`$${Number(contract.amount || 0).toLocaleString()} ADVANCE`, `${Number(contract.premiumRate || 0)}% PREMIUM`, `${Number(contract.durationRounds || 0)} ROUNDS`];
+  const terms = [`$${Number(contract.amount || 0).toLocaleString()} ADVANCE`, `${Number(contract.durationRounds || 0)} ROUNDS`];
+  if (["loan", "hybrid"].includes(contract.kind || "loan")) terms.splice(1, 0, `${Number(contract.premiumRate || 0)}% TOTAL INTEREST`);
   const collateral = contract.kind === "loan" && contract.collateralTileIndex != null ? `COLLATERAL · ${TILES[Number(contract.collateralTileIndex)]?.name || "DEED"}` : null;
   const equity = contract.kind === "equity" ? `${Number(contract.equityShare || 0)}% EQUITY` : null;
   const duration = contract.kind === "equity" ? (contract.expiresRound == null ? "FOREVER" : "TERM-LIMITED") : null;

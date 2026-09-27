@@ -21,6 +21,8 @@ assert.match(styles, /\.admin-provider-workspace/);
 assert.match(styles, /@keyframes admin-provider-in/);
 assert.match(styles, /prefers-reduced-motion:\s*reduce[\s\S]*?admin-provider-workspace/);
 assert.match(source, /x-poorup-session-token/);
+assert.doesNotMatch(source, /if \(!state\.account\?\.sessionToken\)/);
+assert.match(source, /credentials:\s*['"]include['"]/);
 assert.match(source, /cache:\s*['"]no-store['"]/);
 assert.match(source, /credentials are write-only|write-only/i);
 assert.match(source, /ArrowLeft|ArrowRight/);
