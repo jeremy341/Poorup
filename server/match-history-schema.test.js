@@ -7,6 +7,7 @@ import path from 'node:path';
 import { AccountStore } from './accountStore.js';
 import { MatchStore } from './matchStore.js';
 import { annotateMatchAchievements } from './socketRuntime.js';
+import { summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
 
 const grid = Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => '#f0d9ac'));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-history-v2-'));
@@ -90,6 +91,18 @@ assert.deepEqual(explicitZeroProfileFields.market, []);
 assert.deepEqual(explicitZeroProfileFields.playerContracts, []);
 const explicitEmptyParticipants = matches.record({ matchId: 'explicit-empty-participants', participants: [] }).match;
 assert.deepEqual(explicitEmptyParticipants.participants, [], 'an explicit empty participant list must stay distinct from a missing list');
+
+for (const [index, finalPlacement] of [0, -1, 1.5].entries()) {
+  const stored = matches.record({
+    matchId: `invalid-placement-${index}`,
+    participants: [{ accountId: `invalid-${index}`, displayNameAtMatch: 'Legacy Player', finalPlacement, propertyCount: 0, completedGroups: 0 }]
+  }).match;
+  const shared = summarizeMatchHistoryRecordForViewer(stored, 'friend', `invalid-${index}`);
+  assert.equal(stored.participants[0].finalPlacement, null, `stored invalid placement ${finalPlacement} must stay unrecorded`);
+  assert.equal(shared.participants[0].finalPlacement, null, `projected invalid placement ${finalPlacement} must stay unrecorded`);
+  assert.equal(shared.participants[0].propertyCount, 0, 'explicit zero property count remains recorded');
+  assert.equal(shared.participants[0].completedGroups, 0, 'explicit zero completed groups remains recorded');
+}
 
 const persistedRecord = accounts.recordGameResults(players, 'p1', {
   gameId: 'history-reload',

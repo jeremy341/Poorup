@@ -723,7 +723,7 @@ const FIX_full = {
       accountId: 'a1',
       displayNameAtMatch: 'P'.repeat(50),
       colorAtMatch: '#abc',
-      finalPlacement: 0,
+      finalPlacement: 1,
       endingCash: '1500',
       propertyCount: 2,
       bankrupt: 'yes',

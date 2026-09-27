@@ -31,6 +31,37 @@ check("rankingArrowNavigationPreservesExistingMetricSnapshots", () => {
   assert.doesNotMatch(source, /RANKING_METRIC_FAMILIES|ranking-family-control/);
 });
 
+check("sharedHistoryShowsNotRecordedForSparseLegacyFields", () => {
+  const html = surfaces.playerHistoryHTML([{
+    completedAt: "2024-01-01T00:00:00.000Z"
+  }], { accountId: "target" });
+  assert.match(html, /RESULT NOT RECORDED/);
+  assert.match(html, /NOT RECORDED PLAYERS/);
+  assert.match(html, /NOT RECORDED DEEDS/);
+  assert.match(html, /NOT RECORDED EVENTS/);
+  assert.match(html, /NOT RECORDED COMBOS/);
+  assert.doesNotMatch(html, /ROUND COMPLETE|0 PLAYERS|0 DEEDS|0 EVENTS|0 COMBOS/);
+
+  const recorded = surfaces.playerHistoryHTML([{
+    participants: [{ isViewedPlayer: true, finalPlacement: 2, propertyCount: 0 }],
+    globalEvents: [],
+    eventCombinations: []
+  }], { accountId: "target" });
+  assert.match(recorded, /PLACE 2/);
+  assert.match(recorded, /0 DEEDS/);
+  assert.match(recorded, /1 PLAYERS/);
+  assert.match(recorded, /0 EVENTS/);
+  assert.match(recorded, /0 COMBOS/);
+
+  for (const finalPlacement of [null, 0, -1, 1.5, "2"]) {
+    const invalidPlacement = surfaces.playerHistoryHTML([{
+      participants: [{ isViewedPlayer: true, finalPlacement }]
+    }], { accountId: "target" });
+    assert.match(invalidPlacement, /RESULT NOT RECORDED/);
+    assert.doesNotMatch(invalidPlacement, /PLACE (?:null|0|-1|1\.5|2)/);
+  }
+});
+
 check("rankingScopesAndSearchRemainAvailable", () => {
   assert.match(source, /\[\["all", "ALL TIME"\], \["season", "THIS SEASON"\], \["month", "30 DAYS"\], \["friends", "FRIENDS"\]\]/);
   assert.match(source, /data-ranking-search-form/);

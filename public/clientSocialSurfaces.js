@@ -1138,9 +1138,19 @@ function historyParticipant(entry, player) {
 }
 
 function historyRowWon(participant, entry) {
-  if (participant) return participant.finalPlacement === 1;
+  if (Number.isInteger(participant?.finalPlacement) && participant.finalPlacement > 0) return participant.finalPlacement === 1;
   if (entry.won === true) return true;
   return entry.result === 'WIN';
+}
+
+function historyRowResult(participant, entry) {
+  if (Number.isInteger(participant?.finalPlacement) && participant.finalPlacement > 0) {
+    return participant.finalPlacement === 1 ? 'WIN' : 'PLACE ' + participant.finalPlacement;
+  }
+  if (participant?.bankrupt === true) return 'BANKRUPT';
+  if (entry.won === true || entry.result === 'WIN') return 'WIN';
+  if (entry.won === false || entry.result === 'LOSS' || entry.result === 'LOST') return 'LOSS';
+  return 'RESULT NOT RECORDED';
 }
 
 function historyRowDate(entry) {
@@ -1150,27 +1160,28 @@ function historyRowDate(entry) {
 function historyRowDeeds(participant, entry) {
   if (participant?.propertyCount != null) return participant.propertyCount;
   if (entry.properties != null) return entry.properties;
-  return 0;
+  return 'NOT RECORDED';
 }
 
 function playerHistoryMetaHTML(participants, deeds, events, combos) {
-  const eventsTone = events ? 'g300' : 'ink-3';
-  const combosTone = combos ? 'g300' : 'ink-3';
-  return '<div class="player-history-meta"><span class="t-micro ink-3">' + participants + ' PLAYERS</span><span class="t-micro ink-3">' + deeds + ' DEEDS</span><span class="t-micro ' + eventsTone + '">' + events + ' EVENTS</span><span class="t-micro ' + combosTone + '">' + combos + ' COMBOS</span></div></article>';
+  const eventsTone = events !== 'NOT RECORDED' && events ? 'g300' : 'ink-3';
+  const combosTone = combos !== 'NOT RECORDED' && combos ? 'g300' : 'ink-3';
+  return '<div class="player-history-meta"><span class="t-micro ink-3">' + esc(String(participants)) + ' PLAYERS</span><span class="t-micro ink-3">' + esc(String(deeds)) + ' DEEDS</span><span class="t-micro ' + eventsTone + '">' + esc(String(events)) + ' EVENTS</span><span class="t-micro ' + combosTone + '">' + esc(String(combos)) + ' COMBOS</span></div></article>';
 }
 
 function historyRowHTML(entry, index, history, player) {
   const participant = historyParticipant(entry, player);
   const won = historyRowWon(participant, entry);
+  const result = historyRowResult(participant, entry);
   const date = historyRowDate(entry);
   const deeds = historyRowDeeds(participant, entry);
-  const participants = Array.isArray(entry.participants) ? entry.participants.length : '—';
-  const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 0;
-  const combos = Array.isArray(entry.eventCombinations) ? entry.eventCombinations.length : 0;
-  return '<article class="player-history-row' + (won ? ' is-win' : '') + '"><div class="player-history-main"><span class="t-micro ink-3">' + date + ' · MATCH ' + String(history.length - index).padStart(2, '0') + '</span><strong class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + (won ? 'WIN' : 'ROUND COMPLETE') + '</strong></div>' + playerHistoryMetaHTML(participants, deeds, events, combos);;
+  const participants = Array.isArray(entry.participants) ? entry.participants.length : 'NOT RECORDED';
+  const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 'NOT RECORDED';
+  const combos = Array.isArray(entry.eventCombinations) ? entry.eventCombinations.length : 'NOT RECORDED';
+  return '<article class="player-history-row' + (won ? ' is-win' : '') + '"><div class="player-history-main"><span class="t-micro ink-3">' + esc(date) + ' · MATCH ' + String(history.length - index).padStart(2, '0') + '</span><strong class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + esc(result) + '</strong></div>' + playerHistoryMetaHTML(participants, deeds, events, combos);
 }
 
-function playerHistoryHTML(history, player) {
+export function playerHistoryHTML(history, player) {
   const scope = state.selectedPlayerHistoryScope || "all";
   const filtered = history.filter((entry) => historyScopeMatch(entry, scope));
   if (!filtered.length) return '<p class="t-body ink-3 social-empty">NO MATCHES IN THIS HISTORY VIEW.</p>';
@@ -1262,7 +1273,7 @@ function renderPlayerHistoryView(card, player) {
   const history = state.selectedPlayerHistory || [];
   const name = esc(player.displayName || player.name);
   const scopes = historyScopesHTML();
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Recent completed matches visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Recent match records visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
 }
 
 function renderPlayerProfileView(card, player, accountId) {
