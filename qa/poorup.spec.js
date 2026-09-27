@@ -413,6 +413,7 @@ test.describe('Landscape iPad desk contract', () => {
         viewport: { width: innerWidth, height: innerHeight },
         body: { clientWidth: document.body.clientWidth, clientHeight: document.body.clientHeight, scrollWidth: document.body.scrollWidth, scrollHeight: document.body.scrollHeight },
         board: box('#board-frame'),
+        boardArea: box('#view-game .board-area'),
         boardHolder: box('#view-game .board-holder'),
         hud: box('#hud'),
         turnBox: turnBox ? { width: turnBox.width } : null,
@@ -445,7 +446,14 @@ test.describe('Landscape iPad desk contract', () => {
     expect(geometry.vacationBox.width / geometry.moneyBox.width).toBeGreaterThanOrEqual(1.1);
     expect(geometry.cashContents.iconHidden).toBe(true);
     expect(geometry.cashContents.valueInside, JSON.stringify(geometry.cashContents)).toBe(true);
-    expect(geometry.boardHolder.width).toBeLessThanOrEqual(geometry.viewport.height * 0.66);
+    const boardHeightRatio = geometry.boardHolder.width / geometry.viewport.height;
+    if (testInfo.project.name === 'ipad-pro-11-landscape') {
+      expect(boardHeightRatio).toBeGreaterThanOrEqual(0.70);
+      expect(boardHeightRatio).toBeLessThanOrEqual(0.74);
+      expect(geometry.boardHolder.width / geometry.boardArea.width).toBeGreaterThanOrEqual(0.9);
+    } else {
+      expect(boardHeightRatio).toBeLessThanOrEqual(0.66);
+    }
     expect(geometry.tileNameFontSize).toBeLessThanOrEqual(7.5);
     expect(geometry.tilePriceFontSize).toBeLessThanOrEqual(8.5);
     expect(geometry.tileSvgWidth).toBeLessThanOrEqual(20);
