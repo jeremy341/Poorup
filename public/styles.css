@@ -4203,13 +4203,30 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .market-actions .btn-dark { min-height: 30px; padding: 4px 6px; }
 .market-desk-open { width: 100%; min-height: 38px; }
 .market-desk-card { width: min(860px, 100%); max-height: min(820px, calc(100vh - 32px)); overflow: hidden; }
-.market-desk-body { display: flex; flex-direction: column; min-height: 0; padding: 20px; }
+.market-desk-body { display: flex; flex-direction: column; min-height: 0; max-height: inherit; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 20px; }
 .market-desk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .market-desk-head h2 { margin-top: 7px; color: var(--gold-100); }
 .market-desk-head p { max-width: 68ch; margin-top: 10px; }
 .market-desk-head > button { min-height: 34px; padding: 0 9px; flex-shrink: 0; }
 .market-desk-summary { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .market-desk-summary strong { margin-right: auto; }
+.market-index-select, .market-order-controls > label { display: grid; gap: 5px; margin-top: 12px; }
+.market-history { display: grid; gap: 7px; min-width: 0; margin-top: 12px; }
+.market-history h3 { margin: 0; }
+.market-quote-chart { display: block; width: 100%; height: 210px; min-height: 180px; overflow: hidden; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.market-history-table { max-height: min(180px, 24dvh); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; border: 1px solid var(--line-subtle); }
+.market-history-empty { margin: 0; padding: 12px; color: var(--text-muted); border: 1px dashed var(--line-subtle); }
+.market-holding { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; color: var(--text-secondary); font: 11px var(--font-numeric); }
+.market-advanced-settings { margin-top: 12px; padding: 9px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
+.market-advanced-settings > summary, .market-advanced-disclosure > summary { min-height: 36px; align-content: center; color: var(--gold-300); cursor: pointer; font: 9px var(--font-pixel); }
+.market-advanced-disclosure { min-width: 0; }
+.market-advanced-disclosure .market-desk-actions { margin-top: 5px; }
+.market-advanced-settings summary:focus-visible, .market-advanced-disclosure summary:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 2px; }
+.market-order-controls { display: grid; grid-template-columns: minmax(100px, .5fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-top: 10px; }
+.market-order-controls > label { margin: 0; }
+.market-order-controls p { margin: 0; color: var(--text-secondary); font: 11px/1.5 var(--font-numeric); }
+.market-order-controls button { min-height: 44px; padding: 0 12px; }
+.market-derivatives-unavailable { grid-column: 1 / -1; padding: 7px; color: var(--text-muted); border: 1px solid var(--line-subtle); font: 10px/1.4 var(--font-pixel); }
 .market-desk-quantity { display: grid; gap: 5px; margin-top: 12px; }
 .market-desk-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-top: 10px; }
 .market-desk-tools label, .market-desk-option-fields label { display: grid; gap: 5px; }
@@ -4225,6 +4242,8 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .market-desk-body { padding: 16px; }
   .market-desk-option-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .market-desk-row { grid-template-columns: 1fr; }
+  .market-order-controls { grid-template-columns: minmax(0, 1fr) auto; }
+  .market-order-controls > p { grid-column: 1 / -1; grid-row: 2; }
 }
 @media (max-width: 760px) {
   .right-rail .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow-x: visible; }

@@ -150,16 +150,11 @@ function pnlSign(pnl) {
   return "";
 }
 
-function sellDisabledAttr(position) {
-  if (position.quantity) return "";
-  return "disabled";
-}
-
 function marketRowHTML(id, label, quotes, positions) {
   const quote = Number(quotes[id] || 100);
   const position = positions[id] || {};
   const pnl = Number(position.realizedPnl || 0);
-        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong><span class="market-actions"><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="buy">BUY</button><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="sell" ' + sellDisabledAttr(position) + '>SELL</button></span></div>';
+        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong></div>';
 }
 
 function marketRowsHTML(market) {
@@ -170,10 +165,6 @@ function marketRowsHTML(market) {
 
 function marketRound(market) {
   return Number(market.round || 0);
-}
-
-function marketFeePercent(market) {
-  return (Number(market.feeRate || 0.02) * 100).toFixed(0);
 }
 
 function marketRiskSummaryHTML(market) {
@@ -192,7 +183,7 @@ function railMarketBodyHTML() {
   const expansion = complexity === "BASIC"
     ? "No leverage, shorting, or derivatives."
     : `COMPLEXITY ${complexity} · obligations are fully disclosed and collateralized.`;
-  return `<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ${marketRound(market)}</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div><span class="t-micro g300">${complexity}</span></div>${marketRiskSummaryHTML(market)}<label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label><button class="btn-dark market-desk-open" type="button" data-market-desk aria-haspopup="dialog" aria-controls="market-modal"><span class="t-label f11">OPEN MARKET DESK</span></button><div class="market-list thin-scroll">${rows}</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ${marketFeePercent(market)}% settlement fee applies. ${expansion} Advanced actions open in the Market Desk.</p></section>`;
+  return `<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ${marketRound(market)}</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div><span class="t-micro g300">${complexity}</span></div>${marketRiskSummaryHTML(market)}<button class="btn-dark market-desk-open" type="button" data-market-desk aria-haspopup="dialog" aria-controls="market-modal"><span class="t-label f11">OPEN MARKET DESK · BUY / SELL</span></button><div class="market-list thin-scroll" aria-label="Shared index quotes">${rows}</div><p class="t-micro ink-3 economy-note">Shared prices move at round boundaries and with global events. Your orders affect only your holdings and P&amp;L. ${expansion} Order controls and previews are in the Market Desk.</p></section>`;
 }
 
 function railDeedRowHTML(tile) {
