@@ -89,7 +89,8 @@ const BASE_GAME_EVENTS = new Set([
 const DIRECT_GAME_SOCKET_EVENTS = [
   'roll-dice', 'cancel-player-contract', 'get-bank-loan-offer', 'get-economy-snapshot',
   'place-casino-bet', 'request-sponsored-purchase', 'contribute-sponsored-purchase',
-  'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase'
+  'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase',
+  'player-presence', 'room-votekick-start', 'room-votekick-cast', 'propose-equity-share-transfer'
 ];
 const GAME_ACTION_VARIANTS = Object.freeze({
   'manage-property': Object.freeze([

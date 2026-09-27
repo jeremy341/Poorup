@@ -86,6 +86,29 @@ check('roll is blocked while a purchase, sponsorship, or auction decision is ope
   }
 });
 
+check('a human can still outbid the bot during the refreshed five-second response window', () => {
+  const { game, a, b } = startedRoom();
+  const tile = game.getTile(1);
+  a.isBot = true;
+  game.auction = {
+    propertyTile: tile,
+    active: true,
+    highestBid: 20,
+    highestBidderId: a.id,
+    participants: [a.id, b.id],
+    passedPlayerIds: [],
+    startedAt: Date.now(),
+    endsAt: Date.now() + 1_000,
+    cooldownUntil: 0,
+    lastBidAt: 0
+  };
+  const priorDeadline = game.auction.endsAt;
+  const result = game.placeAuctionBid('socket-b', 30);
+  assert.equal(result.success, true);
+  assert.equal(game.auction.highestBidderId, b.id);
+  assert.ok(game.auction.endsAt > priorDeadline, 'the human bid also restarts the response window');
+});
+
 function feedHas(game, text) {
   return game.feed.map((entry) => entry.text).includes(text);
 }

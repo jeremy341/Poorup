@@ -22,4 +22,22 @@ assert.equal(store.purgeAccount(accountId), true);
 assert.equal(store.getAccountById(accountId), null);
 assert.equal(store.listAccounts().length, 0);
 fs.rmSync(filePath, { force: true });
-console.log('account rights store: 8 passed, 0 failed');
+
+const cookieFilePath = path.join(os.tmpdir(), `poorup-cookie-profile-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+const cookieStore = new AccountStore(cookieFilePath);
+try {
+  const cookieRegistered = cookieStore.register({ username: 'cookierights', displayName: 'Cookie User', password: 'long-enough-password' });
+  const cookieUpdate = cookieStore.updateProfileForAccount(cookieRegistered.account, { displayName: 'Cookie Profile' });
+  assert.equal(cookieUpdate.success, true);
+  assert.equal(cookieUpdate.account.id, cookieRegistered.account.id);
+  assert.equal(cookieStore.getAccountById(cookieRegistered.account.id).displayName, 'Cookie Profile');
+  const reloadedCookieStore = new AccountStore(cookieFilePath);
+  assert.equal(
+    reloadedCookieStore.getAccountById(cookieRegistered.account.id).displayName,
+    'Cookie Profile',
+    'cookie-authenticated profile updates persist after reopening the account store'
+  );
+} finally {
+  fs.rmSync(cookieFilePath, { force: true });
+}
+console.log('account rights store: 10 passed, 0 failed');

@@ -134,13 +134,6 @@ export function selectBotTurnTarget(game) {
   // A sponsorship can remain open for human contributors. Do not repeatedly
   // wake the buyer's turn while it is waiting for the table.
   if (game.pendingSponsoredPurchase) return null;
-  // The sender must wait for the human recipient after opening a deal. Without
-  // this guard the post-roll finance pass would keep proposing the same offer
-  // while the pending obligation correctly blocks ending the turn.
-  const current = game.getCurrentPlayer?.();
-  if (current?.isBot && game.pendingTrade?.fromPlayerId === current.id) return null;
-  if (current?.isBot && game.pendingPlayerContract
-    && contractLastProposerId(game.pendingPlayerContract) === current.id) return null;
   return game.getCurrentPlayer();
 }
 
@@ -264,6 +257,7 @@ const CANDIDATE_MAPPERS = [
   { kind: 'bankruptcy', takes: () => true, type: 'bankruptcy' },
   { kind: 'end-turn', takes: () => true, type: 'end-turn' },
   { kind: 'trade', takes: () => true, type: 'trade' },
+  { kind: 'cancel-trade', takes: () => true, type: 'cancel-trade' },
   { kind: 'contract-propose', takes: () => true, type: 'contract-propose' },
   { kind: 'market', takes: () => true, type: 'market' },
   { kind: 'open-margin', takes: () => true, type: 'open-margin' },
@@ -1075,6 +1069,10 @@ const CANDIDATE_RUNNERS = {
   }),
   bankruptcy: (room, bot) => room.runBotAction(bot.id, actor => room.declareBankruptcy(actor)),
   'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
+  'cancel-trade': (room, bot, candidate) => room.runBotAction(bot.id, actor => {
+    if (room.game?.pendingTrade?.id !== candidate.tradeId) return { success: false, error: 'That trade offer is no longer current.' };
+    return room.cancelTrade(actor, { tradeId: candidate.tradeId });
+  }),
   trade: (room, bot, candidate) => {
     const proposal = room.runBotAction(bot.id, actor => room.proposeTrade(actor, candidate));
     if (!proposal?.success) return proposal;
@@ -1146,6 +1144,15 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
   const requested = candidates.find(entry => entry.id === decision?.actionId);
   const currentCandidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: phase === 'post-roll' });
   const currentSelection = requested && currentCandidates.find(entry => entry.id === requested.id && sameCandidateTerms(entry, requested));
+  if (requested?.kind === 'cancel-trade' && !currentSelection) {
+    return attachBotDecision({ success: true, noEmit: true }, {
+      ...trace,
+      actionId: null,
+      reasonCode: 'trade-changed',
+      fallback: true,
+      fallbackReason: 'trade-changed'
+    }, evaluationTrace);
+  }
   const staleCandidate = !currentSelection;
   const candidate = currentSelection || currentCandidates[0];
   if (!candidate) {
