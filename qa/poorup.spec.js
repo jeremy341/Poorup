@@ -401,10 +401,13 @@ test.describe('Landscape iPad desk contract', () => {
       const moneyBox = hudCells[1]?.getBoundingClientRect();
       const cashAction = document.querySelector('#hud-cash-action')?.getBoundingClientRect();
       const cashValue = document.querySelector('#hud-cash')?.getBoundingClientRect();
-      const cashIcon = document.querySelector('#hud-cash-action [data-sprite="note"] svg')?.getBoundingClientRect();
+      const cashIcon = document.querySelector('#hud-cash-action [data-sprite="note"]');
       const tileName = document.querySelector('#board-grid .tile:not(.is-corner) .tile-name');
+      const tilePrice = document.querySelector('#board-grid .tile:not(.is-corner) .tile-price');
       const tileSvg = document.querySelector('#board-grid .tile-icon svg');
       const airportIcon = document.querySelector('#board-grid .airport-mark');
+      const piece = document.querySelector('#token-layer .piece');
+      const pieceSvg = piece?.querySelector('svg');
       return {
         viewport: { width: innerWidth, height: innerHeight },
         body: { clientWidth: document.body.clientWidth, clientHeight: document.body.clientHeight, scrollWidth: document.body.scrollWidth, scrollHeight: document.body.scrollHeight },
@@ -414,15 +417,17 @@ test.describe('Landscape iPad desk contract', () => {
         turnBox: turnBox ? { width: turnBox.width } : null,
         moneyBox: moneyBox ? { width: moneyBox.width } : null,
         cashContents: cashAction && cashValue && cashIcon ? {
-          overlap: cashValue.right > cashIcon.left,
-          iconInside: cashIcon.right <= cashAction.right,
+          iconHidden: getComputedStyle(cashIcon).display === 'none',
+          valueInside: cashValue.right <= cashAction.right,
           valueWidth: cashValue.width,
-          iconWidth: cashIcon.width,
           actionWidth: cashAction.width
         } : null,
         tileNameFontSize: tileName ? Number.parseFloat(getComputedStyle(tileName).fontSize) : null,
+        tilePriceFontSize: tilePrice ? Number.parseFloat(getComputedStyle(tilePrice).fontSize) : null,
         tileSvgWidth: tileSvg?.getBoundingClientRect().width ?? null,
         airportIconWidth: airportIcon?.getBoundingClientRect().width ?? null,
+        playerPieceWidth: piece?.getBoundingClientRect().width ?? null,
+        playerPieceSvgWidth: pieceSvg?.getBoundingClientRect().width ?? null,
         roll: box('#roll-btn'),
         rightRail: box('#right-rail-game')
       };
@@ -435,12 +440,15 @@ test.describe('Landscape iPad desk contract', () => {
       expect(geometry[key].bottom).toBeLessThanOrEqual(geometry.viewport.height + 2);
     }
     expect(geometry.moneyBox.width / geometry.turnBox.width).toBeGreaterThanOrEqual(0.85);
-    expect(geometry.cashContents.overlap).toBe(false);
-    expect(geometry.cashContents.iconInside, JSON.stringify(geometry.cashContents)).toBe(true);
+    expect(geometry.cashContents.iconHidden).toBe(true);
+    expect(geometry.cashContents.valueInside, JSON.stringify(geometry.cashContents)).toBe(true);
     expect(geometry.boardHolder.width).toBeLessThanOrEqual(geometry.viewport.height * 0.66);
-    expect(geometry.tileNameFontSize).toBeLessThanOrEqual(8.5);
+    expect(geometry.tileNameFontSize).toBeLessThanOrEqual(7.5);
+    expect(geometry.tilePriceFontSize).toBeLessThanOrEqual(8.5);
     expect(geometry.tileSvgWidth).toBeLessThanOrEqual(20);
     expect(geometry.airportIconWidth).toBeLessThanOrEqual(21);
+    expect(geometry.playerPieceWidth).toBeLessThanOrEqual(22);
+    expect(geometry.playerPieceSvgWidth).toBeLessThanOrEqual(18);
     if (process.env.POORUP_CAPTURE_VISUALS) {
       await page.screenshot({ path: testInfo.outputPath('ipad-live-game.png'), fullPage: true });
     }
