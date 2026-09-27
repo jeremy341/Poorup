@@ -147,7 +147,7 @@ function sanitizeMatch(record = {}) {
     matchId: clipString(record.matchId, 80),
     roomVisibility: roomVisibility(record.roomVisibility),
   };
-  if (Object.prototype.hasOwnProperty.call(record, 'completedAt')) match.completedAt = stringOrNull(record.completedAt);
+  if (Object.prototype.hasOwnProperty.call(record, 'completedAt')) match.completedAt = stringOr(record.completedAt, new Date().toISOString());
   if (Object.prototype.hasOwnProperty.call(record, 'durationSeconds')) match.durationSeconds = nonNegativeNumber(record.durationSeconds);
   if (Object.prototype.hasOwnProperty.call(record, 'roundCount')) match.roundCount = nonNegativeNumber(record.roundCount);
   if (Object.prototype.hasOwnProperty.call(record, 'participants')) {

@@ -90,9 +90,9 @@ function onRankingScope(scope, inGameModal) {
   openRankingsSurface(state.leaderboard.metric, scope.dataset.rankingScope);
 }
 
-function focusSelectedRankingMetric(surface) {
+function focusRankingStep(surface, direction) {
   requestAnimationFrame(() => {
-    const button = document.querySelector(`${surface} [data-ranking-metric="${state.leaderboard.metric}"]`);
+    const button = document.querySelector(`${surface} [data-ranking-step="${direction}"]`);
     button?.focus({ preventScroll: true });
   });
 }
@@ -107,7 +107,7 @@ function onRankingStep(step, inGameModal, surface) {
   } else {
     openRankingsSurface(state.leaderboard.metric, state.leaderboard.scope);
   }
-  focusSelectedRankingMetric(surface);
+  focusRankingStep(surface, String(step > 0 ? 1 : -1));
 }
 
 function closeRankingsFromEvent(event) {
@@ -157,6 +157,7 @@ function handleRankingKeydown(event) {
   event.preventDefault();
   const current = Math.max(0, RANKING_ORDER.indexOf(state.leaderboard.metric));
   const next = event.key === "Home" ? 0 : event.key === "End" ? RANKING_ORDER.length - 1 : (current + step + RANKING_ORDER.length) % RANKING_ORDER.length;
+  const direction = next > current || event.key === "End" ? 1 : -1;
   const surface = event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
   const inGameModal = event.currentTarget?.id === "rankings-card" && rankingScopeInGame();
   state.leaderboard.metric = RANKING_ORDER[next];
@@ -166,7 +167,7 @@ function handleRankingKeydown(event) {
   } else {
     openRankingsSurface(state.leaderboard.metric, state.leaderboard.scope);
   }
-  focusSelectedRankingMetric(surface);
+  focusRankingStep(surface, String(direction));
 }
 
 function rankingSearchSurface(event) {
