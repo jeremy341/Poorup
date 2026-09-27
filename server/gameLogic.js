@@ -1208,26 +1208,6 @@ class GameState {
     return null;
   }
 
-  pendingTradeBlocksEndTurn(player) {
-    const trade = this.pendingTrade;
-    if (!trade) return false;
-    if (trade.fromPlayerId === player.id) return true;
-    return trade.toPlayerId === player.id;
-  }
-
-  pendingContractBlocksEndTurn(player) {
-    const contract = this.pendingPlayerContract;
-    if (!contract) return false;
-    if (contract.fromPlayerId === player.id) return true;
-    return contract.toPlayerId === player.id;
-  }
-
-  pendingDealBlockReason(player) {
-    if (this.pendingTradeBlocksEndTurn(player)) return 'Resolve the pending trade before ending the turn.';
-    if (this.pendingContractBlocksEndTurn(player)) return 'Resolve the pending contract before ending the turn.';
-    return null;
-  }
-
   pendingFlowRejection(player) {
     const error = this.pendingFlowError(player);
     return error ? { success: false, error } : null;
@@ -1236,12 +1216,12 @@ class GameState {
   pendingFlowError(player) {
     const blockers = [
       [Boolean(this.auction?.active), 'Finish the active auction before ending the turn.'],
-      [this.pendingPurchaseOffer?.playerId === player.id, 'Resolve the property offer before ending the turn.'],
-      [this.pendingPayment?.playerId === player.id, 'Settle your debt before ending the turn.'],
+      [this.pendingPurchaseOffer?.playerId === player?.id, 'Resolve the property offer before ending the turn.'],
+      [this.pendingPayment?.playerId === player?.id, 'Settle your debt before ending the turn.'],
       [Boolean(this.pendingSponsoredPurchase), 'Resolve the open sponsorship before ending the turn.']
     ];
     const blocker = blockers.find(([active]) => active);
-    return blocker?.[1] || this.pendingDealBlockReason(player);
+    return blocker?.[1] || null;
   }
 
   skipDisconnectedCurrentPlayer() {

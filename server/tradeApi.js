@@ -126,7 +126,8 @@ const tradeApi = {
       givePropertyIndexes: ctx.givePropertyIndexes,
       requestPropertyIndexes: ctx.requestPropertyIndexes,
       counterDepth: Math.max(0, Math.min(2, Math.floor(Number(offer.counterDepth) || 0))),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      createdRound: Math.max(1, Math.floor(Number(this.roundNumber) || 1))
     };
     this.pendingTrade = trade;
     if (ctx.fromPlayer.isBot) ctx.fromPlayer.botDealActionsThisTurn = (ctx.fromPlayer.botDealActionsThisTurn || 0) + 1;
