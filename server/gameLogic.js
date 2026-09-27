@@ -1,4 +1,4 @@
-import { freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
+import { createMarketQuotePoint, freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
 import {
   equityShareContractLive,
   playerContractSummary,
@@ -281,6 +281,7 @@ class GameState {
     this.marketLedger = [];
     this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
+    this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
     this.marketOptionReserve = 100_000;
     this.marketShortInventory = {};
     this.marketInstruments = MARKET_INSTRUMENTS;
@@ -375,6 +376,7 @@ class GameState {
     this.marketLedger = [];
     this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
+    this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
     this.marketOptionReserve = 100_000;
     this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, 50]));
     this.marketInstruments = MARKET_INSTRUMENTS;
@@ -906,6 +908,10 @@ class GameState {
       this.processPlayerContracts();
       this.maybeTriggerGlobalEvent();
       this.advanceMarket();
+      if (this.settings.market) {
+        const activeEventId = this.globalEvent?.phase === 'active' ? this.globalEvent.id : null;
+        this.marketQuoteHistory = [...(Array.isArray(this.marketQuoteHistory) ? this.marketQuoteHistory : []), createMarketQuotePoint(this, this.marketRound, activeEventId)].slice(-128);
+      }
       this.players.forEach(player => {
         player.rentPayersThisRound = new Set();
         player.casinoBetsThisRound = 0;

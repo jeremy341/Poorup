@@ -4,7 +4,7 @@
 // produced. server/rooms.test.js and public/clientStateSync.test.js pin the
 // payload shapes.
 import { AUCTION_DURATION_MS } from './auctionApi.js';
-import { MARKET_FEE_RATE } from './marketLogic.js';
+import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 
 function isViewerSeat(player, viewerPlayerId) {
   return Boolean(viewerPlayerId && player.id === viewerPlayerId);
@@ -201,7 +201,8 @@ const summaryApi = {
         round: this.marketRound,
         feeRate: MARKET_FEE_RATE,
         complexity: this.settings.marketComplexity || 'basic',
-        quotes: { ...this.marketQuotes }
+        quotes: { ...this.marketQuotes },
+        quoteHistory: marketQuoteHistorySnapshot(this)
       }
     };
   }
