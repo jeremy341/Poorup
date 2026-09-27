@@ -4719,9 +4719,22 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   }
   .hdr-brand,
   .topnav-brand { gap: 8px; flex-shrink: 0; }
+  .hdr-brand {
+    box-sizing: border-box;
+    width: 180px;
+    min-width: 180px;
+    flex: 0 0 180px;
+    margin-right: 0;
+  }
+  #view-rankings .hdr-brand,
+  #view-social .hdr-brand,
+  #view-rules .hdr-brand { margin-right: 0; }
+  .hdr-brand-text { flex: 1; min-width: 0; }
+  .hdr-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hdr-wordmark { font-size: 28px; }
   .tn-word { font-size: 28px; }
   .home-nav { margin-left: 4px; }
+  .hdr .home-nav { height: 50px; min-height: 50px; }
   .home-nav-tab { min-height: 44px; padding-inline: 8px; }
   .hdr-right,
   .tn-right { gap: 6px; }
