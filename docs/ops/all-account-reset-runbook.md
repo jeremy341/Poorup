@@ -2,7 +2,8 @@
 
 This operation clears every account and account-linked local store, including
 sessions, recovery tokens, social links, match history, achievements, seasons,
-cosmetics, telemetry, analytics rollups, and their configured store backups.
+cosmetics, event-level telemetry, and their configured store backups. The
+account-independent aggregate analytics rollup and its backups are retained.
 The global AI-provider configuration and maintenance marker are preserved.
 
 The tool is dry-run by default. It rejects an empty or relative data path,
@@ -30,8 +31,9 @@ data to an external `POORUP_DATA_DIR` before the destructive apply step.
 1. Put the application into maintenance/draining mode and stop new matches.
 2. Stop the local or hosted process so no store can be rewritten concurrently.
 3. Take and verify an operator-controlled backup outside the application data
-   directory. Keep it only for the approved recovery window; do not create a
-   hidden application-side copy.
+   directory. For this reset, retain it for seven days after post-purge
+   verification, then securely remove it; do not create a hidden
+   application-side copy.
 4. Set `POORUP_DATA_DIR` and, if configured, `POORUP_BACKUP_DIR` for exactly
    one environment. Never reuse a path copied from another environment.
 5. Remove the old `POORUP_ADMIN_ACCOUNT_IDS` values from the persistent local
