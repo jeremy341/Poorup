@@ -474,12 +474,13 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     runtime.clearDisconnectTimer(clientId);
     const currentRoom = roomManager.getRoomByClient(clientId);
     const departing = currentRoom?.game.getPlayerByClient(clientId) || null;
+    const wasStarted = Boolean(currentRoom?.game.started);
     const oldRoom = roomManager.leaveRoomByClient(clientId, socket.id);
-    announceRoomDeparture(oldRoom, departing, currentRoom);
+    announceRoomDeparture(oldRoom, departing, currentRoom, wasStarted);
     reply(callback, { success: true });
   }
 
-  function announceRoomDeparture(oldRoom, departing, currentRoom) {
+  function announceRoomDeparture(oldRoom, departing, currentRoom, wasStarted) {
     if (!oldRoom) return;
     const departedId = departing?.id;
     const nickname = departing?.nickname || 'A player';
@@ -491,7 +492,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     }
     socket.leave(oldRoom.roomCode);
     runtime.emitRoomState(oldRoom);
-    runtime.io.in(oldRoom.roomCode).emit('system-message', { text: `${nickname} left the room.` });
+    if (!wasStarted) {
+      runtime.io.in(oldRoom.roomCode).emit('system-message', { text: `${nickname} left the room.` });
+    }
     if (wasPublic) {
       runtime.scheduleRoomsUpdated();
     }
@@ -516,6 +519,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     if (seatUnavailable(room, clientId, socket.id)) {
       return reply(callback, { success: false, error: 'That seat is already in use.' });
     }
+    const reconnectingSeat = Boolean(room.game.getPlayerByClient(clientId));
     const result = room.addOrReconnectPlayer(toJoinPlayerInfo(participant, clientId, socket.id));
     if (!result.success) {
       return reply(callback, { success: false, error: result.error });
@@ -526,17 +530,19 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     // they were, including their socket-room membership and seat mapping.
     runtime.leaveAllGameRooms(socket);
     runtime.detachSocketFromOtherRoom(socket, room);
-    completeRoomJoin(room, participant, result);
+    completeRoomJoin(room, participant, result, reconnectingSeat);
     reply(callback, roomAccessAck(room));
     runtime.scheduleRoomsUpdated();
   }
 
-  function completeRoomJoin(room, participant, result) {
+  function completeRoomJoin(room, participant, result, reconnectingSeat = false) {
     roomManager.socketRoom.set(socket.id, room);
     socket.join(room.roomCode);
     runtime.emitRoomState(room);
     runtime.emitPendingInteractions(room, socket, result.player);
-    runtime.io.in(room.roomCode).emit('system-message', { text: `${participant.nickname} joined the room.` });
+    if (reconnectingSeat) {
+      runtime.io.in(room.roomCode).emit('system-message', { text: `${participant.nickname} joined the room.` });
+    }
   }
 
   function handleSetPlayerAppearance(payload = {}, callback) {
@@ -610,7 +616,6 @@ function registerAccountSocketHandlers(on, socket, runtime) {
       return reply(callback, { success: false, error: result.error });
     }
     runtime.emitRoomState(room);
-    runtime.io.in(room.roomCode).emit('system-message', { text: 'The game has started.' });
     reply(callback, { success: true });
     runtime.scheduleRoomsUpdated();
   }

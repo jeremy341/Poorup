@@ -11,7 +11,7 @@ import { TILES, GROUP_COLOR, RENT_TABLE } from "./clientBoardData.js";
 import { spriteHTML, avatarHTML } from "./clientSprites.js";
 import { openSurface, closeSurface } from "./clientSurfaces.js";
 
-let host = { emitServer: noop, say: noop, renderChat: noop, record: noop, createRequestId: noop, renderRightRail: noop };
+let host = { emitServer: noop, say: noop, record: noop, recordActivity: noop, captureActionStatusNode: () => null, announceActionStatus: noop, renderChat: noop, createRequestId: noop, renderRightRail: noop };
 
 function noop() {}
 
@@ -309,23 +309,21 @@ function financingSendPayload(recipient) {
   return { ...base, ...terms };
 }
 
-function sendFinancingContract() {
+function sendFinancingContract(control = document.activeElement) {
+  const statusNode = host.captureActionStatusNode(control);
   const error = financingSendBlocked();
   if (error) {
-    host.say(error);
-    host.renderChat();
+    host.announceActionStatus(error, statusNode);
     return;
   }
   const recipient = recipientPlayer();
   host.emitServer("propose-player-contract", financingSendPayload(recipient), (response) => {
     if (response?.success === false) {
-      host.say(response.error || "The player contract could not be sent.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "The player contract could not be sent.", statusNode);
       return;
     }
     host.record(`CONTRACT SENT TO ${recipient.name}`);
-    host.say(`Contract sent to ${recipient.name} for review.`);
-    host.renderChat();
+    host.recordActivity(`Contract sent to ${recipient.name} for review.`);
     host.renderRightRail();
     closeFinancingModal();
   });
@@ -796,15 +794,14 @@ function onEquityTransferSubmit(event) {
   });
   const submit = form.querySelector('[type="submit"]');
   if (submit) submit.disabled = true;
+  const statusNode = host.captureActionStatusNode(submit || form);
   host.emitServer("propose-equity-share-transfer", payload, response => {
     if (response?.success === false) {
       if (submit) submit.disabled = false;
-      host.say(response.error || "The equity transfer offer could not be sent.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "The equity transfer offer could not be sent.", statusNode);
       return;
     }
-    host.say("Equity transfer offer sent. Cash and shares move only if it is accepted.");
-    host.renderChat();
+    host.recordActivity("Equity transfer offer sent. Cash and shares move only if it is accepted.");
     host.renderRightRail();
     renderFinancingModal();
   });
@@ -1087,19 +1084,18 @@ function negotiationPayload(contract) {
   return payload;
 }
 
-function sendFinancingNegotiation() {
+function sendFinancingNegotiation(control = document.activeElement) {
+  const statusNode = host.captureActionStatusNode(control);
   const contract = currentNegotiationContract();
   if (!contract || contract.id !== financingNegotiationContractId) return;
   host.emitServer(financingNegotiationAction === "adjust" ? "adjust-player-contract" : "counter-player-contract", negotiationPayload(contract), (response) => {
     if (response?.success === false) {
-      host.say(response.error || "The contract counteroffer could not be sent.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "The contract counteroffer could not be sent.", statusNode);
       return;
     }
     state.playerContractOffer = null;
     state.negotiationContractId = null;
-    host.say("Counteroffer sent for review.");
-    host.renderChat();
+    host.recordActivity("Counteroffer sent for review.");
     host.renderRightRail();
     closeFinancingModal();
   });
@@ -1112,22 +1108,21 @@ export function repaymentAmountForContract(contract, rawAmount) {
   return Math.min(requested, remaining);
 }
 
-function sendFinancingRepay(contractId) {
+function sendFinancingRepay(contractId, control = document.activeElement) {
+  const statusNode = host.captureActionStatusNode(control);
   const contract = financingActiveContracts().find((c) => c.id === contractId);
   if (!contract) return;
   const input = $("#financing-repay-" + contractId);
   const amount = repaymentAmountForContract(contract, input?.value);
   if (!amount) {
-    host.say("Enter a positive repayment amount.");
-    host.renderChat();
+    host.announceActionStatus("Enter a positive repayment amount.", statusNode);
     return;
   }
   const remainingBefore = Math.max(0, Math.floor(Number(contract.remaining) || 0));
   const payload = { contractId, amount, requestId: host.createRequestId("contract-repay") };
   host.emitServer("repay-player-contract", payload, (response) => {
     if (response?.success === false) {
-      host.say(response.error || "The player loan could not be repaid.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "The player loan could not be repaid.", statusNode);
       return;
     }
     const remainingAfter = Number(response?.contract?.remaining);
@@ -1136,8 +1131,7 @@ function sendFinancingRepay(contractId) {
       : amount;
     const status = `Repaid $${settled.toLocaleString()} on the player loan.`;
     financingRepayStatus = { contractId, text: status };
-    host.say(status);
-    host.renderChat();
+    host.recordActivity(status);
     host.renderRightRail();
     renderFinancingModal();
   });
@@ -1146,7 +1140,7 @@ function sendFinancingRepay(contractId) {
 function onFinancingRepayNode(event) {
   const repay = event.target.closest("[data-financing-repay]");
   if (!repay) return false;
-  sendFinancingRepay(repay.dataset.financingRepay);
+  sendFinancingRepay(repay.dataset.financingRepay, repay);
   return true;
 }
 
@@ -1223,8 +1217,8 @@ function bindFinancingOfferSurface(card) {
 
 function wireFinancingChrome() {
   $("#financing-close")?.addEventListener("click", closeFinancingModal);
-  $("#financing-send")?.addEventListener("click", sendFinancingContract);
-  $("#financing-negotiate-send")?.addEventListener("click", sendFinancingNegotiation);
+  $("#financing-send")?.addEventListener("click", event => sendFinancingContract(event.currentTarget));
+  $("#financing-negotiate-send")?.addEventListener("click", event => sendFinancingNegotiation(event.currentTarget));
   $("#finance-equity-permanent")?.addEventListener("change", onFinancingPermanentChange);
   const card = $("#financing-card");
   if (card) bindCollateralPicker(card);
@@ -1271,8 +1265,7 @@ function ensureFinancingDraft(propertyIndex) {
 export function openFinancingContract(contractId, trigger = null) {
   const contract = financingActiveContracts().find((c) => c.id === contractId);
   if (!contract) {
-    host.say("That contract is no longer live.");
-    host.renderChat();
+    host.announceActionStatus("That contract is no longer live.", host.captureActionStatusNode(trigger || document.activeElement));
     return;
   }
   financingSurfaceContractId = contractId;
@@ -1290,8 +1283,7 @@ function financingPreviewModeFor(mode) {
 
 export function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null) {
   if (!otherPlayers().length) {
-    host.say("No other players at the table.");
-    host.renderChat();
+    host.announceActionStatus("No other players at the table.", host.captureActionStatusNode(trigger || document.activeElement));
     return;
   }
   financingPreviewMode = financingPreviewModeFor(mode);
@@ -1322,8 +1314,7 @@ export function openFinancingNegotiation(contractId, trigger = null) {
     ? state.playerContractOffer
     : state.playerContracts?.pending?.id === contractId ? state.playerContracts.pending : null;
   if (!contract || contract.id !== contractId) {
-    host.say("That contract offer is no longer live.");
-    host.renderChat();
+    host.announceActionStatus("That contract offer is no longer live.", host.captureActionStatusNode(trigger || document.activeElement));
     return;
   }
   financingNegotiationContractId = contractId;
@@ -1496,8 +1487,7 @@ export function renderTradeModal() {
 export function openTradeModal(playerId, trigger = null) {
   if (state.phase !== "playing") return;
   if (!state.settings.trading) {
-    host.say("Trading is disabled for this round.");
-    host.renderChat();
+    host.announceActionStatus("Trading is disabled for this round.", host.captureActionStatusNode(trigger || document.activeElement));
     return;
   }
   const other = state.players.find((p) => p.id === playerId);
@@ -1514,9 +1504,8 @@ export function closeTradeModal() {
   closeSurface("#trade-modal");
 }
 
-function blockTrade(message) {
-  host.say(message);
-  host.renderChat();
+function blockTrade(message, control = document.activeElement) {
+  host.announceActionStatus(message, host.captureActionStatusNode(control));
 }
 
 function tradeIsBlank(myCash, theirCash) {
@@ -1569,7 +1558,7 @@ function tradeRejected(response) {
   return response?.success === false;
 }
 
-function emitTradeOffer(me, other, myCash, theirCash) {
+function emitTradeOffer(me, other, myCash, theirCash, statusNode) {
   const giveDeeds = [...state.tradeMyDeeds];
   const wantDeeds = [...state.tradeTheirDeeds];
   const eventName = state.tradeCounterId ? "counter-trade" : state.tradeAdjustId ? "adjust-trade" : "propose-trade";
@@ -1583,16 +1572,14 @@ function emitTradeOffer(me, other, myCash, theirCash) {
     requestCash: theirCash,
   }, (response) => {
     if (tradeRejected(response)) {
-      host.say(response.error || "Trade could not be sent.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "Trade could not be sent.", statusNode);
       return;
     }
     host.record(`OFFER SENT TO ${other.name}`);
-    host.say(`Offer sent to ${other.name}.`, me);
-    host.renderChat();
+    host.recordActivity(`Offer sent to ${other.name}.`);
     state.tradeCounterId = null;
+    closeTradeModal();
   });
-  closeTradeModal();
 }
 
 export function openTradeNegotiation(trade, trigger = null) {
@@ -1614,17 +1601,18 @@ export function openTradeNegotiation(trade, trigger = null) {
   openSurface("#trade-modal", "#trade-close", { trigger });
 }
 
-function sendTrade() {
+function sendTrade(event) {
   if (!state.tradeWith) return;
   const me = state.players[0];
   const other = state.players.find((p) => p.id === state.tradeWith);
   if (!other) return;
+  const statusNode = host.captureActionStatusNode(event?.currentTarget || document.activeElement);
   const myCash = clamp(state.tradeMyCash, 0, me.cash);
   const theirCash = clamp(state.tradeTheirCash, 0, other.cash);
   if (tradeIsBlank(myCash, theirCash)) {
-    blockTrade("Add at least one deed or cash amount before sending a trade.");
+    host.announceActionStatus("Add at least one deed or cash amount before sending a trade.", statusNode);
     return;
   }
   if (tradeValidationBlocked()) return;
-  emitTradeOffer(me, other, myCash, theirCash);
+  emitTradeOffer(me, other, myCash, theirCash, statusNode);
 }

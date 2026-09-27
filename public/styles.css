@@ -2122,6 +2122,8 @@ button[id$="-close"],
   display: flex; flex-direction: column; gap: 6px;
 }
 .chat-line { word-break: break-word; }
+.chat-new-message { align-self: flex-end; margin-top: 6px; }
+.action-status { color: var(--red-bright); margin: 8px 0 0; }
 .chat-form { margin-top: 12px; display: flex; gap: 8px; }
 .chat-input { flex: 1; min-width: 0; }
 .chat-send { width: 44px; height: 44px; flex-shrink: 0; padding: 0; }

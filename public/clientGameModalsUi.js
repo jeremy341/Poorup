@@ -26,6 +26,9 @@ let host = {
   openTradeNegotiation: noop,
   openSponsorshipRequest: noop,
   startGame: noop,
+  captureActionStatusNode: () => null,
+  announceActionStatus: noop,
+  recordActivity: noop,
 };
 
 function noop() {}
@@ -87,18 +90,24 @@ function openChoiceModal(tile) {
     scrim.onclick = closeChoiceModalWithoutAction;
   }
   const buyBtn = $("#choice-buy");
-  if (buyBtn) buyBtn.addEventListener("click", () => {
-    host.buyTile(tile);
-    state.pendingBuyTile = null;
-    closeSurface("#choice-modal");
-    afterLandingResolved();
+  if (buyBtn) buyBtn.addEventListener("click", event => {
+    const statusNode = host.captureActionStatusNode(event.currentTarget);
+    host.buyTile(tile, statusNode, () => {
+      state.pendingBuyTile = null;
+      closeSurface("#choice-modal");
+      afterLandingResolved();
+    });
   });
 
   if (auctionMode) {
-    $("#choice-auction").addEventListener("click", () => {
+    $("#choice-auction").addEventListener("click", event => {
       state.pendingBuyTile = null;
       closeSurface("#choice-modal");
-      startAuction(tile);
+      startAuction(tile, event.currentTarget, () => {
+        state.pendingBuyTile = tile.i;
+        openChoiceModal(tile);
+        return host.captureActionStatusNode($("#choice-buy"));
+      });
     });
   } else {
     $("#choice-pass").addEventListener("click", closeChoiceModalAsPass);
@@ -117,16 +126,19 @@ function afterLandingResolved() {
 
 function closeChoiceModalAsPass() {
   if (state.settings.auction) return;
+  const statusNode = host.captureActionStatusNode(document.activeElement);
   const tile = state.pendingBuyTile != null ? TILES[state.pendingBuyTile] : null;
   if (tile) {
     host.emitServer("decline-property", { tileIndex: tile.i }, (response) => {
       if (response?.success === false) {
-        host.say(response.error || "The deed could not be declined.");
-        host.renderChat();
+        openChoiceModal(tile);
+        host.announceActionStatus(response.error || "The deed could not be declined.", host.captureActionStatusNode($("#choice-pass") || document.activeElement) || statusNode);
+        return;
       }
+      state.pendingBuyTile = null;
+      closeSurface("#choice-modal");
+      afterLandingResolved();
     });
-    state.pendingBuyTile = null;
-    closeSurface("#choice-modal");
     return;
   }
   state.pendingBuyTile = null;
@@ -142,6 +154,7 @@ function closeChoiceModalWithoutAction() {
 
 function acceptTradeOffer(offer) {
   const button = $("#offer-accept");
+  const statusNode = host.captureActionStatusNode(button);
   button.disabled = true;
   button.querySelector(".cta-text")?.replaceChildren(document.createTextNode("PROCESSING…"));
   $("#offer-counter").disabled = true;
@@ -149,8 +162,7 @@ function acceptTradeOffer(offer) {
   host.emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
     if (response?.success === false) {
       state.offers = [offer, ...(state.offers || []).filter((x) => x?.id !== offer.id)];
-      host.say(response.error || "Trade could not be accepted.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "Trade could not be accepted.", statusNode);
       openOfferModal(offer);
       return;
     }
@@ -193,10 +205,10 @@ function openOfferModal(offer) {
     host.openTradeNegotiation(offer);
   });
   $("#offer-decline").addEventListener("click", () => {
+    const statusNode = host.captureActionStatusNode($("#offer-decline"));
     host.emitServer("respond-trade", { tradeId: offer.id, accept: false }, (response) => {
       if (response?.success === false) {
-        host.say(response.error || "Trade could not be declined.");
-        host.renderChat();
+        host.announceActionStatus(response.error || "Trade could not be declined.", statusNode);
         return;
       }
       closeSurface("#offer-modal");
@@ -208,11 +220,10 @@ function closeOfferWithoutResponse() {
   closeSurface("#offer-modal");
 }
 
-function bankruptPlayer(idx, creditorId) {
+function bankruptPlayer(idx, creditorId, statusNode = host.captureActionStatusNode(document.activeElement)) {
   host.emitServer("declare-bankruptcy", {}, (response) => {
       if (response?.success === false) {
-        host.say(response.error || "Bankruptcy could not be declared.");
-        host.renderChat();
+        host.announceActionStatus(response.error || "Bankruptcy could not be declared.", statusNode);
         return;
       }
       closeSurface("#bankruptcy-modal", { force: true });
@@ -294,8 +305,7 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
   $("#bank-liquidate").addEventListener("click", () => {
     closeSurface("#bankruptcy-modal", { force: true });
       host.openHoldings();
-      host.say("Holdings is open. Sell houses or mortgage deeds, then return here to settle the debt.");
-      host.renderChat();
+      host.recordActivity("Holdings is open. Sell houses or mortgage deeds, then return here to settle the debt.");
       return;
   });
   $("#bank-declare").addEventListener("click", () => {
@@ -308,10 +318,10 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
         <button class="btn-dark bank-btn" id="bank-declare-cancel"><span class="t-label f12">Keep Playing</span></button>`;
       openSurface("#bankruptcy-modal", "#bank-declare-cancel");
       $("#bank-declare-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
-      $("#bank-declare-confirm").addEventListener("click", () => bankruptPlayer(idx, creditorId));
+      $("#bank-declare-confirm").addEventListener("click", event => bankruptPlayer(idx, creditorId, host.captureActionStatusNode(event.currentTarget)));
       return;
     }
-    bankruptPlayer(idx, creditorId);
+    bankruptPlayer(idx, creditorId, host.captureActionStatusNode(event.currentTarget));
   });
 }
 
@@ -337,9 +347,10 @@ function openVoluntaryExitModal() {
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-retire-cancel");
   $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
-  $("#bank-retire-confirm").addEventListener("click", () => {
+  $("#bank-retire-confirm").addEventListener("click", event => {
+    const statusNode = host.captureActionStatusNode(event.currentTarget);
     closeSurface("#bankruptcy-modal", { force: true });
-    bankruptPlayer(0, null);
+    bankruptPlayer(0, null, statusNode);
   });
 }
 

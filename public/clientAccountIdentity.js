@@ -12,7 +12,7 @@ import { openSurface, closeSurface, focusSurface, setSurfaceReturnFocus } from "
 import { renderAccountPanel, applyProfileToHomeUI, renderProfileEditor, renderProfileLibrary, formatStatDate } from "./clientProfileRender.js";
 
 function noop() {}
-let host = { emitServer: noop, say: noop, syncAudioButtons: noop, syncHomeMusic: noop };
+let host = { emitServer: noop, say: noop, notice: noop, announceActionStatus: noop, syncAudioButtons: noop, syncHomeMusic: noop };
 
 export function configureAccountIdentity(hooks) {
   host = { ...host, ...hooks };
@@ -308,7 +308,7 @@ function accountModalHTML(mode) {
        ${accountDisplayNameFieldHTML(register, edit, account)}
         ${accountPrivacyHTML(edit, account)}
         ${accountPasswordFieldHTML(edit, register)}
-        <p class="account-form-error" id="account-form-error" role="alert" aria-live="assertive"></p>
+        <p class="account-form-error" id="account-form-error" aria-live="off"></p>
         <button class="cta-red account-submit" type="submit"><span class="cta-text cta-text-sm">${accountSubmitLabel(edit, register)}</span></button>
       </form>
       <p class="t-micro ink-3 account-modal-foot">Guest play remains available without an account. Passwords are never shown in the game UI.</p>
@@ -450,8 +450,7 @@ function accountSubmitFailure(response, gate) {
   const message = response?.error || "Account action failed.";
   gate.setError(message);
   markTakenIfRejected(response, gate);
-  const announcer = $("#error-announcer");
-  if (announcer) announcer.textContent = message;
+  host.announceActionStatus(message, $("#account-form-error"));
   gate.restoreSubmitDisabled();
 }
 
@@ -462,7 +461,7 @@ function accountSubmitAck(response, gate) {
   }
   updateAccountFromResponse(response);
   closeAccountModal();
-  host.say(accountSubmitSuccessMessage());
+  host.notice("ACCOUNT", accountSubmitSuccessMessage());
 }
 
 function accountFormSubmit(event, gate) {
@@ -472,12 +471,16 @@ function accountFormSubmit(event, gate) {
   if (accountModalMode === "edit") editPrivacyPayload(payload);
   gate.setError("");
   if (accountModalMode === "register" && gate.availability() === false) {
-    gate.setError("Choose an available username before creating your account.");
+    const message = "Choose an available username before creating your account.";
+    gate.setError(message);
+    host.announceActionStatus(message, $("#account-form-error"));
     gate.focusUsername();
     return;
   }
   if (accountModalMode === "register" && gate.pending()) {
-    gate.setError("Wait for the username availability check to finish.");
+    const message = "Wait for the username availability check to finish.";
+    gate.setError(message);
+    host.announceActionStatus(message, $("#account-form-error"));
     return;
   }
   const eventName = accountSubmitEventName();
@@ -527,5 +530,5 @@ export function logoutAccount() {
   renderProfileEditor();
   host.syncAudioButtons();
   host.syncHomeMusic();
-  host.say("Signed out. Guest mode is active.");
+  host.notice("ACCOUNT", "Signed out. Guest mode is active.");
 }

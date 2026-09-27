@@ -49,7 +49,7 @@ function recordHumanAction(room, socket, result) {
 
 const GAME_VERB_HANDLERS = [
   { event: 'purchase-property', verb: 'purchaseProperty', args: pickArgs(['tileIndex']), message: true },
-  { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted), message: true },
+  { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted) },
   { event: 'auction-bid', verb: 'placeAuctionBid', args: pickArgs(['amount']), auctionRefresh: AUCTION_STILL_OPEN, message: true },
   { event: 'auction-pass', verb: 'passAuction', args: NO_ARGS, auctionRefresh: AUCTION_STILL_OPEN },
   { event: 'end-turn', verb: 'endTurn', args: NO_ARGS },
@@ -197,11 +197,9 @@ function registerGameSocketHandlers(on, socket, runtime) {
     room.game.feedMessage(player.nickname + ' canceled the player contract.');
     const result = { success: true };
     runtime.cacheContractCancel(room, socket, payload, result);
-    // The counterparty holds a stale modal otherwise: push the cancel plus
-    // a system message like every other contract transition.
+    // The counterparty holds a stale modal otherwise; push the state update.
     const target = counterpartyId ? room.game.getPlayerById(counterpartyId) : null;
     if (target?.socketId) runtime.io.to(target.socketId).emit('player-contract-update', { contract: null, canceled: true });
-    runtime.io.in(room.roomCode).emit('system-message', { text: `${player.nickname} canceled the player contract.` });
     runtime.emitRoomState(room);
     return result;
   }
@@ -231,7 +229,6 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const result = room.placeCasinoBet(socket.id, payload.color, payload.stake, payload.requestId);
     recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
-    announceCasinoSpin(runtime, socket, room, result);
     reply(callback, roomVerbAck(result, pickAckFields(['result', 'economy'])));
   }
 
@@ -273,18 +270,11 @@ function emitRollPurchaseOffer(socket, room, result) {
 function announceRollAuction(runtime, room, result) {
   if (!result?.auctionStarted) return;
   runtime.scheduleAuctionFinish(room);
-  runtime.io.in(room.roomCode).emit('system-message', { text: 'Auction started.' });
 }
 
 function emitRollCardReveal(socket, result) {
   if (!result?.cardReveal) return;
   socket.emit('card-reveal', result.cardReveal);
-}
-
-function announceCasinoSpin(runtime, socket, room, result) {
-  if (!result?.success) return;
-  const nickname = room.game.getPlayerBySocket(socket.id)?.nickname || 'Player';
-  runtime.io.in(room.roomCode).emit('system-message', { text: `${nickname} settled a casino spin.` });
 }
 
 export { registerGameSocketHandlers };
