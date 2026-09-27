@@ -2995,6 +2995,17 @@ button[id$="-close"],
 .ranking-stage-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .ranking-step { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; padding: 0; font-family: var(--font-pixel); font-size: 25px; line-height: 1; color: var(--gold-100); }
 .ranking-step:hover, .ranking-step:focus-visible { color: var(--gold-050); border-color: var(--line-active); }
+.ranking-metric-navigation { display: grid; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--line-dark); background: var(--surface-panel-deep); }
+.ranking-family-controls, .ranking-metric-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+.ranking-family-control, .ranking-metric-control { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 5px 9px; color: var(--text-secondary); font: 600 11px/1.25 var(--font-ui); text-align: center; background: var(--surface-panel); border: 1px solid var(--line-subtle); cursor: pointer; }
+.ranking-family-control { min-height: 38px; color: var(--gold-300); font-size: 12px; }
+.ranking-family-control.is-active, .ranking-metric-control.is-active { color: var(--gold-050); border-color: var(--line-active); background: rgb(217 166 47 / 10%); }
+.ranking-family-control:focus-visible, .ranking-metric-control:focus-visible { outline: 2px solid var(--gold-300); outline-offset: 2px; }
+.ranking-family-control:hover, .ranking-metric-control:hover { border-color: var(--line-active); color: var(--gold-100); }
+.ranking-family-control.is-active, .ranking-metric-control.is-active { cursor: default; }
+.ranking-family-control:not(button), .ranking-metric-control:not(button) { cursor: default; }
+.season-signin-prompt { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; padding: 7px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.season-signin-prompt button { flex-shrink: 0; min-width: 74px; min-height: 34px; }
 .ranking-position { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 65px; text-align: center; }
 .ranking-position strong { font-variant-numeric: tabular-nums; }
 .rankings-stage-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 47px; padding: 0 14px; border-bottom: 1px solid var(--line-dark); background: var(--surface-panel-deep); }
