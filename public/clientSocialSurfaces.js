@@ -7,6 +7,7 @@ import { $, esc } from "./clientDom.js";
 import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { openSurface } from "./clientSurfaces.js";
+import { openAccountModal } from "./clientAccountIdentity.js";
 
 function noop() {}
 let host = { emitServer: noop, showView: noop };
@@ -558,6 +559,33 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
 
 export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
 export const RANKING_ORDER = Object.keys(RANKING_LABELS);
+export const RANKING_METRIC_FAMILIES = {
+  results: ["wins", "rate", "games", "bankruptcies"],
+  tablecraft: ["achievements", "mythical", "events", "auctions", "patrol"],
+  economy: ["rent", "casino", "market", "playerloans", "equity", "loans"],
+};
+const RANKING_FAMILY_LABELS = { results: "RESULTS", tablecraft: "TABLECRAFT", economy: "ECONOMY & DEALS" };
+
+export function rankingMetricNavigationHTML(metric) {
+  const activeMetric = normalizeRankingMetric(metric);
+  const activeFamily = Object.keys(RANKING_METRIC_FAMILIES).find((family) => RANKING_METRIC_FAMILIES[family].includes(activeMetric)) || "results";
+  const currentIndex = RANKING_ORDER.indexOf(activeMetric);
+  const stepTo = (targetMetric) => {
+    const targetIndex = RANKING_ORDER.indexOf(targetMetric);
+    const forward = (targetIndex - currentIndex + RANKING_ORDER.length) % RANKING_ORDER.length;
+    const backward = forward - RANKING_ORDER.length;
+    return Math.abs(backward) < Math.abs(forward) ? backward : forward;
+  };
+  const families = Object.entries(RANKING_METRIC_FAMILIES).map(([family, metrics]) => {
+    if (family === activeFamily) return `<span class="ranking-family-control is-active" aria-current="true">${RANKING_FAMILY_LABELS[family]}</span>`;
+    return `<button class="ranking-family-control" type="button" data-ranking-family="${family}" data-ranking-step="${stepTo(metrics[0])}" aria-label="Show ${RANKING_FAMILY_LABELS[family]} rankings">${RANKING_FAMILY_LABELS[family]}</button>`;
+  }).join("");
+  const metrics = RANKING_METRIC_FAMILIES[activeFamily].map((id) => {
+    if (id === activeMetric) return `<button class="ranking-metric-control is-active" type="button" data-ranking-metric="${id}" aria-pressed="true" aria-current="true" aria-disabled="true">${RANKING_LABELS[id]}</button>`;
+    return `<button class="ranking-metric-control" type="button" data-ranking-metric="${id}" data-ranking-step="${stepTo(id)}" aria-label="Show ${RANKING_LABELS[id]} rankings">${RANKING_LABELS[id]}</button>`;
+  }).join("");
+  return `<div class="ranking-metric-navigation"><div class="ranking-family-controls" role="group" aria-label="Ranking metric families">${families}</div><div class="ranking-metric-controls" role="group" aria-label="${RANKING_FAMILY_LABELS[activeFamily]} metrics">${metrics}</div></div>`;
+}
 
 const RANKING_DESCRIPTIONS = {
   wins: "Completed server rounds won. Ties are resolved by verified wins, then name.",
@@ -579,11 +607,6 @@ const RANKING_DESCRIPTIONS = {
 
 function rankingDescription(metric) {
   return RANKING_DESCRIPTIONS[metric] || "Verified server records only.";
-}
-
-function rankingPosition(metric) {
-  const index = Math.max(0, RANKING_ORDER.indexOf(metric));
-  return { index, label: `${String(index + 1).padStart(2, "0")} / ${String(RANKING_ORDER.length).padStart(2, "0")}` };
 }
 
 function rankingValueLabel(metric, value) {
@@ -703,15 +726,15 @@ function seasonDateLabel(value) {
   return String(value).slice(0, 10);
 }
 
-function seasonStatusPanelHTML() {
-  if (state.season.loading && !state.season.current) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3" aria-live="polite">LOADING VERIFIED SEASON…</p></section>`;
-  if (state.season.error && !state.season.current) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(state.season.error)}</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></section>`;
+function seasonStatusPanelHTML(view) {
+  if (view.loading && !view.season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3" aria-live="polite">LOADING VERIFIED SEASON…</p></section>`;
+  if (view.error && !view.season) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(view.error)}</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></section>`;
   return "";
 }
 
-function seasonSyncStatusHTML() {
-  if (state.season.loading && state.season.current) return `<p class="t-micro ink-3" data-season-status aria-live="polite">REFRESHING… LAST VERIFIED SEASON SHOWN.</p>`;
-  if (state.season.error && state.season.current) return `<div class="social-empty ranking-error" role="alert" data-season-status><p class="t-body ink-2">${esc(state.season.error)} LAST VERIFIED SEASON SHOWN.</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
+function seasonSyncStatusHTML(view) {
+  if (view.loading && view.season) return `<p class="t-micro ink-3" data-season-status aria-live="polite">REFRESHING… LAST VERIFIED SEASON SHOWN.</p>`;
+  if (view.error && view.season) return `<div class="social-empty ranking-error" role="alert" data-season-status><p class="t-body ink-2">${esc(view.error)} LAST VERIFIED SEASON SHOWN.</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
   return "";
 }
 
@@ -741,20 +764,34 @@ function seasonRewardRows(rewards, claimed, signedIn) {
     const action = seasonRewardAction(reward, claimed, signedIn);
     const threshold = seasonRewardThreshold(reward, track);
     const tokenCopy = reward.tokens ? ` · ${reward.tokens} TOKENS` : "";
-    return `<div class="season-reward${action.isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${tokenCopy}</span></div><button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${action.disabled ? "disabled" : ""}><span class="t-label f11">${action.label}</span></button></div>`;
+    const claimControl = signedIn
+      ? `<button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${action.disabled ? "disabled" : ""}><span class="t-label f11">${action.label}</span></button>`
+      : "";
+    return `<div class="season-reward${action.isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${tokenCopy}</span></div>${claimControl}</div>`;
   }).join("");
 }
 
-function seasonPanelHTML(surfaceKey = "page") {
-  const status = seasonStatusPanelHTML();
+export function seasonPanelHTML(surfaceKey = "page", override = null) {
+  const view = override || {
+    season: state.season.current,
+    loading: state.season.loading,
+    error: state.season.error,
+    stale: state.season.stale,
+    rows: state.season.rows,
+    rewards: state.season.rewards,
+    claimedRewardIds: state.season.claimedRewardIds,
+    signedIn: Boolean(state.account?.account),
+  };
+  const status = seasonStatusPanelHTML(view);
   if (status) return status;
-  const season = state.season.current;
+  const season = view.season;
   if (!season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
-  const syncStatus = seasonSyncStatusHTML();
-  const rows = seasonPlacementRows((state.season.rows || []).slice(0, 3));
-  const claimed = new Set(state.season.claimedRewardIds || []);
-  const rewards = seasonRewardRows(state.season.rewards || [], claimed, Boolean(state.account?.account));
-  return `${syncStatus}<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div></div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
+  const syncStatus = seasonSyncStatusHTML(view);
+  const rows = seasonPlacementRows((view.rows || []).slice(0, 3));
+  const claimed = new Set(view.claimedRewardIds || []);
+  const rewards = seasonRewardRows(view.rewards || [], claimed, Boolean(view.signedIn));
+  const signIn = view.signedIn ? "" : `<div class="season-signin-prompt"><span class="t-body ink-2">Sign in to claim earned rewards.</span><button class="btn-dark" type="button" data-season-sign-in><span class="t-label f11">SIGN IN</span></button></div>`;
+  return `${syncStatus}<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div>${signIn}</div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
 }
 
 export function renderRankingsSurface(target = "#rankings-card") {
@@ -773,13 +810,13 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const syncLabel = generatedLabel();
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
-  const position = rankingPosition(state.leaderboard.metric);
-  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div><div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
+  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
   const rankingResults = rankingSearchResultsHTML();
   const rankingSearch = document.createElement("section");
   rankingSearch.className = "rankings-search-band panel noise";
   rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><div class="rankings-search-field"><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span></label><div class="rankings-search-controls"><input class="field" id="rankings-${surfaceKey}-search" name="ranking-username" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}" aria-describedby="rankings-${surfaceKey}-search-help"><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button></div><span class="t-micro ink-3" id="rankings-${surfaceKey}-search-help">Exact username lookup · public identity only</span></div><div class="rankings-search-results">${rankingResults}</div></form>`;
   card.querySelector(".rankings-search-slot")?.replaceWith(rankingSearch);
+  card.querySelector("[data-season-sign-in]")?.addEventListener("click", (event) => openAccountModal("register", event.currentTarget));
 }
 
 const RULES_SECTIONS = [
