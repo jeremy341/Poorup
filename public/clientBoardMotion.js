@@ -1,6 +1,8 @@
 // Pure timing seam for board-piece walks. The renderer owns DOM placement;
 // this helper only answers which path step should be visible at a given time.
-export function createWalkTimeline({ path = [], stepMs = 130, startedAt = 0, now = () => Date.now() } = {}) {
+export const PIECE_WALK_STEP_MS = 300;
+
+export function createWalkTimeline({ path = [], stepMs = PIECE_WALK_STEP_MS, startedAt = 0, now = () => Date.now() } = {}) {
   const safePath = Array.isArray(path) ? [...path] : [];
   const duration = Math.max(0, Number(stepMs) || 0) * safePath.length;
   const start = Number.isFinite(Number(startedAt)) ? Number(startedAt) : 0;

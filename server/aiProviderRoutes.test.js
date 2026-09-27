@@ -18,7 +18,16 @@ const manager = createAiProviderManager({ store, advisor, fetchImpl: async (_url
   if (body.messages) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) };
   return { ok: true, status: 200, json: async () => ({ output_text: '{"ok":true}' }) };
 } });
-registerAiProviderRoutes(app, { manager, accountStore, adminIds: ['acct-admin'] });
+registerAiProviderRoutes(app, {
+  manager,
+  accountStore,
+  adminIds: ['acct-admin'],
+  accountResolver: req => {
+    if (req.headers.cookie === 'poorup_session=valid-cookie-session') return { id: 'acct-admin' };
+    if (req.headers.cookie === 'poorup_session=member-session') return { id: 'acct-member' };
+    return null;
+  }
+});
 
 const server = http.createServer(app);
 await new Promise(resolve => server.listen(0, resolve));
@@ -27,7 +36,13 @@ const headers = { 'x-poorup-session-token': 'admin-session' };
 
 try {
   const denied = await fetch(`${base}/admin/ai/providers`);
-  assert.equal(denied.status, 403);
+  assert.equal(denied.status, 401);
+
+  const cookieSessionResponse = await fetch(`${base}/admin/ai/providers`, { headers: { cookie: 'poorup_session=valid-cookie-session' } });
+  assert.equal(cookieSessionResponse.status, 200);
+
+  const nonAdminCookieResponse = await fetch(`${base}/admin/ai/providers`, { headers: { cookie: 'poorup_session=member-session' } });
+  assert.equal(nonAdminCookieResponse.status, 403);
 
   const forbiddenOrigin = await fetch(`${base}/admin/ai/providers`, { headers: { ...headers, origin: 'https://evil.example' } });
   assert.equal(forbiddenOrigin.status, 403);

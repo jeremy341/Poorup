@@ -7,7 +7,6 @@
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { evaluateCandidate } from './botFuturePlanner.js';
 import { vetoTrade, deedValue, MONOPOLY_PREMIUM_NUM, MONOPOLY_PREMIUM_DEN } from './botTradeValuation.js';
-import { tableBrain } from './botTableBrain.js';
 import { tickLedger, addGratitude, coalitionAgainst } from './botTableMind.js';
 
 // Global-event voting: personality -> preferred policy id.
@@ -33,6 +32,7 @@ export const AUCTION_BID_POLICY = {
   builder: { step: 10, reserve: 120, always: true }
 };
 export const DEFAULT_AUCTION_BID_POLICY = { step: 10, reserve: 120, always: false };
+const ADVISOR_CHOICE_PHASES = new Set(['vote', 'trade', 'contract', 'sponsorship', 'payment', 'auction']);
 // A non-always personality only bids while comfortably above starting cash.
 export const AUCTION_COMFORT_RATIO = 0.7;
 
@@ -40,9 +40,18 @@ export const AUCTION_COMFORT_RATIO = 0.7;
 export const PURCHASE_RESERVE_CASH = 120;
 export const SPONSORSHIP_RESERVE_CASH = 180;
 
-function attachBotDecision(result, decision) {
+function attachBotDecision(result, decision, evaluationTrace = null) {
   if (!result || typeof result !== 'object') return result;
-  return { ...result, botDecision: { ...decision, success: result.success !== false } };
+  return {
+    ...result,
+    botDecision: { ...decision, success: result.success !== false },
+    ...(evaluationTrace ? { evaluationTrace } : {})
+  };
+}
+
+function splitEvaluationTrace(decision = {}) {
+  const { shadowEvaluation, ...botDecision } = decision || {};
+  return { botDecision, evaluationTrace: shadowEvaluation || null };
 }
 
 export function selectGlobalEventPolicy(globalEvent, personality) {
@@ -290,6 +299,32 @@ export function auctionBidDecision(auction, bot, startingCash, game = null) {
   const ceiling = auctionWillingness(auction, bot, game);
   if (ceiling != null && minimum > ceiling) return { shouldBid: false, minimum };
   return { shouldBid: true, minimum };
+}
+
+export async function decideBotAuction({ auction, bot, startingCash, advisor, context = {} }) {
+  const baseline = auctionBidDecision(auction, bot, startingCash);
+  const candidates = [
+    { id: 'auction:bid', kind: 'auction', amount: baseline.minimum, risk: baseline.minimum / Math.max(1, bot.cash), score: baseline.shouldBid ? 12 : 2 },
+    { id: 'auction:pass', kind: 'auction', risk: 0, score: baseline.shouldBid ? 1 : 10 }
+  ];
+  const supportsAuctionChoice = advisorSupportsChoicePhase(advisor, 'auction');
+  const decision = supportsAuctionChoice
+    ? await advisor.chooseAction({ ...context, candidates, personality: bot.personality })
+    : null;
+  const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);
+  const chosen = candidates.find(candidate => candidate.id === safeDecision?.actionId);
+  return {
+    candidates,
+    minimum: baseline.minimum,
+    actionId: chosen?.id || (baseline.shouldBid ? 'auction:bid' : 'auction:pass'),
+    decision: safeDecision,
+    ...(evaluationTrace ? { evaluationTrace } : {})
+  };
+}
+
+function advisorSupportsChoicePhase(advisor, phase) {
+  if (typeof advisor?.supportsChoicePhase === 'function') return advisor.supportsChoicePhase(phase) === true;
+  return advisor?.supportsChoicePhases === true && ADVISOR_CHOICE_PHASES.has(phase);
 }
 
 // Max the bot pays: sticker price, doubled when the deed completes its set
@@ -588,7 +623,7 @@ function paymentChoiceCandidates(game, bot) {
 
 const PHASE_CANDIDATE_BUILDERS = { vote: voteChoiceCandidates, trade: tradeChoiceCandidates, contract: contractChoiceCandidates, sponsorship: sponsorshipChoiceCandidates, payment: paymentChoiceCandidates };
 
-function phaseChoiceCandidates(game, bot, phase) {
+export function getBotChoiceCandidates(game, bot, phase) {
   return PHASE_CANDIDATE_BUILDERS[phase]?.(game, bot) || [];
 }
 
@@ -678,45 +713,173 @@ function runPhaseChoice(room, bot, game, phase, candidate) {
   return runner ? runner(room, bot, game, candidate) : { success: false, error: 'No bot choice is available.' };
 }
 
+function sameCandidateTerms(first, second) {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
 async function runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase) {
   const game = room.game;
-  const candidates = phaseChoiceCandidates(game, bot, phase);
+  const candidates = getBotChoiceCandidates(game, bot, phase);
   if (!candidates.length) return PHASE_EXECUTORS[phase](room, bot, game);
   // Capture the offer version before the asynchronous provider call. A human
   // may counter, cancel, or replace the deal while the AI is thinking; the
   // old choice must never be rebound to the newer offer after the await.
-  const pendingTradeId = phase === 'trade' ? game.pendingTrade?.id || null : null;
-  const pendingContractId = phase === 'contract' ? game.pendingPlayerContract?.id || null : null;
+  const actingBotId = bot.id;
+  const offerIdentity = choiceOfferIdentity(game, phase);
+  const paymentIdentity = phase === 'payment' ? choicePaymentIdentity(game) : null;
+  const voteEvent = phase === 'vote' ? game.globalEvent : null;
+  const voteIdentity = phase === 'vote' ? voteEventIdentity(game) : null;
+  const sponsorshipRequest = phase === 'sponsorship' ? game.pendingSponsoredPurchase : null;
+  const sponsorshipIdentity = phase === 'sponsorship' ? sponsorshipChoiceIdentity(game, bot) : null;
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
     personality: bot.personality,
     event: game.globalEvent
   });
-  if (!botSeatStillLive(game, bot)) {
-    return { noEmit: true, botDecision: { ...decisionContext, ...decision, phase, reasonCode: 'seat-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) } };
+  const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);
+  if (!botSeatStillLive(game, bot) || bot.id !== actingBotId) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...safeDecision, phase, reasonCode: 'seat-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) }, ...(evaluationTrace ? { evaluationTrace } : {}) };
   }
-  if (phase === 'trade' && game.pendingTrade?.id !== pendingTradeId) {
-    return { noEmit: true, botDecision: { ...decisionContext, ...decision, phase, reasonCode: 'offer-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) } };
+  if (phase === 'vote'
+    && (game.globalEvent !== voteEvent
+      || voteEventIdentity(game) !== voteIdentity
+      || game.globalEvent?.votes?.[actingBotId]
+      || classifyBotTurnPhase(game, bot) !== phase)) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...safeDecision, phase, reasonCode: 'vote-event-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) }, ...(evaluationTrace ? { evaluationTrace } : {}) };
   }
-  if (phase === 'contract' && game.pendingPlayerContract?.id !== pendingContractId) {
-    return { noEmit: true, botDecision: { ...decisionContext, ...decision, phase, reasonCode: 'offer-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) } };
+  if (['trade', 'contract'].includes(phase)
+    && (choiceOfferIdentity(game, phase) !== offerIdentity
+      || choiceResponderId(game, phase) !== actingBotId
+      || classifyBotTurnPhase(game, bot) !== phase)) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...safeDecision, phase, reasonCode: 'offer-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) }, ...(evaluationTrace ? { evaluationTrace } : {}) };
   }
-  const selected = candidates.find(candidate => candidate.id === decision?.actionId) || candidates[0];
-  if (phase === 'trade') selected.tradeId = pendingTradeId;
-  if (phase === 'contract') selected.contractId = pendingContractId;
+  if (phase === 'payment'
+    && (choicePaymentIdentity(game) !== paymentIdentity
+      || game.pendingPayment?.playerId !== actingBotId
+      || classifyBotTurnPhase(game, bot) !== phase)) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...safeDecision, phase, reasonCode: 'payment-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) }, ...(evaluationTrace ? { evaluationTrace } : {}) };
+  }
+  if (phase === 'sponsorship'
+    && (game.pendingSponsoredPurchase !== sponsorshipRequest
+      || sponsorshipChoiceIdentity(game, bot) !== sponsorshipIdentity
+      || classifyBotTurnPhase(game, bot) !== phase
+      || !isSponsorshipActor(game, bot))) {
+    return { noEmit: true, botDecision: { ...decisionContext, ...safeDecision, phase, reasonCode: 'sponsorship-changed', actionId: null, candidateIds: candidates.map(candidate => candidate.id) }, ...(evaluationTrace ? { evaluationTrace } : {}) };
+  }
+  const requested = candidates.find(candidate => candidate.id === decision?.actionId);
+  const currentCandidates = getBotChoiceCandidates(game, bot, phase);
+  const currentSelection = requested && currentCandidates.find(candidate => candidate.id === requested.id && sameCandidateTerms(candidate, requested));
+  const usedFallback = !currentSelection;
+  const selected = currentSelection || currentCandidates[0];
+  if (!selected) return PHASE_EXECUTORS[phase](room, bot, game);
+  if (phase === 'trade') selected.tradeId = game.pendingTrade.id;
+  if (phase === 'contract') selected.contractId = game.pendingPlayerContract.id;
   const trace = {
     ...decisionContext,
-    ...decision,
+    ...safeDecision,
     phase,
     provider: decision?.provider || 'deterministic',
     fallback: decision?.fallback !== false,
     fallbackReason: decision?.fallbackReason || 'choice-phase-fallback',
     actionId: selected.id,
-    candidateIds: candidates.map(candidate => candidate.id)
+    candidateIds: currentCandidates.map(candidate => candidate.id),
+    ...(usedFallback ? { reasonCode: 'stale-candidate', fallbackReason: 'stale-candidate', fallback: true } : {})
   };
   const result = runPhaseChoice(room, bot, game, phase, selected);
-  return attachBotDecision(result, trace);
+  return attachBotDecision(result, trace, evaluationTrace);
+}
+
+function choiceResponderId(game, phase) {
+  if (phase === 'trade') return game.pendingTrade?.toPlayerId || null;
+  if (phase === 'contract') return contractResponderId(game.pendingPlayerContract);
+  return null;
+}
+
+function choicePaymentIdentity(game) {
+  const payment = game.pendingPayment;
+  if (!payment) return null;
+  return JSON.stringify({
+    payment,
+    requestId: game.pendingPaymentRequestId ?? payment.requestId ?? null,
+    queueId: game.pendingPaymentQueueId ?? payment.queueId ?? null
+  });
+}
+
+function voteEventIdentity(game) {
+  const event = game?.globalEvent;
+  return event ? JSON.stringify({ id: event.id ?? null, phase: event.phase ?? null, choices: event.choices || [] }) : null;
+}
+
+function sponsorshipChoiceIdentity(game, bot) {
+  const request = game?.pendingSponsoredPurchase;
+  if (!request) return null;
+  const buyer = typeof game.getPlayerById === 'function' ? game.getPlayerById(request.buyerId) : null;
+  const tile = typeof game.getTile === 'function' ? game.getTile(Number(request.tileIndex)) : null;
+  const contributions = (request.contributions || []).map(entry => ({
+    sponsorId: entry.sponsorId || null,
+    amount: Math.max(0, Number(entry.amount) || 0)
+  })).sort((left, right) => String(left.sponsorId).localeCompare(String(right.sponsorId)) || left.amount - right.amount);
+  const purchaseOffer = game.pendingPurchaseOffer;
+  return JSON.stringify({
+    id: request.id ?? null,
+    createdAt: request.createdAt ?? null,
+    createdRound: request.createdRound ?? null,
+    buyerId: request.buyerId,
+    buyerCash: buyer ? Number(buyer.cash) || 0 : Number(request.buyerCash) || 0,
+    buyerLive: buyer ? !buyer.bankrupt && !buyer.disconnected : false,
+    tileIndex: request.tileIndex,
+    price: Number(request.price) || 0,
+    tilePrice: Number(tile?.price) || 0,
+    contributions,
+    roundNumber: Number(game.roundNumber) || 0,
+    actorId: bot.id,
+    actorCash: Number(bot.cash) || 0,
+    actorLastSponsorRound: bot.lastSponsorRound ?? null,
+    actorSponsorLedger: Number(bot.sponsorLedger?.[request.buyerId]) || 0,
+    actorSponsoredBy: Number(bot.sponsoredBy?.[request.buyerId]) || 0,
+    actorLive: !bot.bankrupt && !bot.disconnected,
+    purchaseOffer: purchaseOffer ? {
+      playerId: purchaseOffer.playerId ?? null,
+      tileIndex: purchaseOffer.tileIndex ?? null,
+      price: Number(purchaseOffer.price) || 0
+    } : null
+  });
+}
+
+function choiceOfferIdentity(game, phase) {
+  if (phase === 'trade') {
+    const offer = game.pendingTrade;
+    return offer ? JSON.stringify({
+      id: offer.id,
+      fromPlayerId: offer.fromPlayerId,
+      toPlayerId: offer.toPlayerId,
+      giveCash: offer.giveCash,
+      requestCash: offer.requestCash,
+      givePropertyIndexes: offer.givePropertyIndexes || [],
+      requestPropertyIndexes: offer.requestPropertyIndexes || [],
+      counterDepth: offer.counterDepth
+    }) : null;
+  }
+  if (phase === 'contract') {
+    const offer = game.pendingPlayerContract;
+    return offer ? JSON.stringify({
+      id: offer.id,
+      fromPlayerId: offer.fromPlayerId,
+      toPlayerId: offer.toPlayerId,
+      kind: offer.kind,
+      amount: offer.amount,
+      premiumRate: offer.premiumRate,
+      durationRounds: offer.durationRounds,
+      propertyIndex: offer.propertyIndex,
+      collateralTileIndex: offer.collateralTileIndex,
+      equityShare: offer.equityShare,
+      equityControl: offer.equityControl,
+      conversionShare: offer.conversionShare,
+      counterDepth: offer.counterDepth
+    }) : null;
+  }
+  return null;
 }
 
 // One small executor per phase, keyed by the state machine above. Each
@@ -820,13 +983,10 @@ export async function runBotTurn(room, bot, advisor) {
     gameId: `${room.roomCode}:${game.startedAt || 'pending'}`,
     decisionSequence,
     ruleVersion: BOT_RULE_VERSION,
-    // Whole-table report (trace + advisor context). Scoring consumption
-    // lands per-phase; the report itself never mutates game state.
-    table: tableBrain(game, bot.id),
     ...buildBotStrategicContext(game, bot, phase, decisionSequence)
   };
   if (phase === 'pre-roll' || phase === 'post-roll') return runAdvisorTurn(room, bot, advisor, decisionContext, phase);
-  if (advisor?.supportsChoicePhases && ['vote', 'trade', 'contract', 'sponsorship', 'payment'].includes(phase)) {
+  if (advisorSupportsChoicePhase(advisor, phase)) {
     return runAdvisorChoicePhase(room, bot, advisor, decisionContext, phase);
   }
   const result = PHASE_EXECUTORS[phase](room, bot, game);
@@ -965,9 +1125,10 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
     personality: bot.personality,
     event: game.globalEvent
   });
+  const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);
   const trace = {
     ...decisionContext,
-    ...decision,
+    ...safeDecision,
     phase,
     provider: decision?.provider || 'deterministic',
     fallback: decision?.fallback !== false,
@@ -976,15 +1137,24 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
   };
   // The advisor call is async; if the seat moved on while it thought, the
   // original code aborted the tick without emitting.
-  if (game.getCurrentPlayer()?.id !== bot.id || !botSeatStillLive(game, bot)) return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' } };
+  if (game.getCurrentPlayer()?.id !== bot.id || !botSeatStillLive(game, bot)) return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' }, ...(evaluationTrace ? { evaluationTrace } : {}) };
   const tableChanged = (game.pendingTrade?.id || null) !== pendingTradeId
     || (game.pendingPlayerContract?.id || null) !== pendingContractId
     || (game.pendingPayment ? `${game.pendingPayment.playerId}:${game.pendingPayment.amountRemaining}` : null) !== pendingPaymentId
     || Boolean(game.auction?.active) !== auctionActive;
-  if (tableChanged) return { noEmit: true, botDecision: { ...trace, reasonCode: 'table-changed', actionId: null } };
-  const candidate = candidates.find(entry => entry.id === decision?.actionId) || candidates[0];
+  if (tableChanged) return { noEmit: true, botDecision: { ...trace, reasonCode: 'table-changed', actionId: null }, ...(evaluationTrace ? { evaluationTrace } : {}) };
+  const requested = candidates.find(entry => entry.id === decision?.actionId);
+  const currentCandidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: phase === 'post-roll' });
+  const currentSelection = requested && currentCandidates.find(entry => entry.id === requested.id && sameCandidateTerms(entry, requested));
+  const staleCandidate = !currentSelection;
+  const candidate = currentSelection || currentCandidates[0];
   if (!candidate) {
-    return attachBotDecision({ success: true, noEmit: true }, { ...trace, reasonCode: 'no-legal-action' });
+    return attachBotDecision({ success: true, noEmit: true }, { ...trace, reasonCode: 'no-legal-action' }, evaluationTrace);
+  }
+  if (staleCandidate) {
+    trace.reasonCode = 'stale-candidate';
+    trace.fallbackReason = 'stale-candidate';
+    trace.fallback = true;
   }
   const action = candidateAction(candidate, bot);
   const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
@@ -995,9 +1165,9 @@ async function runAdvisorTurn(room, bot, advisor, decisionContext = {}, phase = 
         : { id: 'bankruptcy:zero-cash', kind: 'bankruptcy' })
       : { id: 'roll', kind: 'roll' };
     const fallback = CANDIDATE_RUNNERS[fallbackCandidate.kind](room, bot, fallbackCandidate);
-    return attachBotDecision(fallback, { ...trace, actionId: fallbackCandidate.id, fallbackReason: 'candidate-rejected' });
+    return attachBotDecision(fallback, { ...trace, actionId: fallbackCandidate.id, fallbackReason: 'candidate-rejected' }, evaluationTrace);
   }
-  return attachBotDecision(result, trace);
+  return attachBotDecision(result, trace, evaluationTrace);
 }
 
 // Applies one pending purchase offer for the bot, if the result carries it.

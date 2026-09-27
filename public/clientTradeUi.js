@@ -366,7 +366,7 @@ function financingNoDeedsHintHTML() {
 }
 
 function financingPropertyPickerHTML() {
-  if (!financingPropertyRequired()) return `<p class="t-micro ink-3 financing-unsecured-note">UNSECURED LOAN · NO PROPERTY REQUIRED</p>`;
+  if (!financingPropertyRequired()) return "";
   return `${financingNoDeedsHintHTML()}${dropdownHTML({ id: "finance-property", label: "Property (their deed)", value: financingPreviewDraft.propertyIndex, options: financingPropertyOptions() })}`;
 }
 
@@ -444,17 +444,14 @@ function loanPreviewCopy(tile, amount) {
     copy: secured
       ? `$${amount} advanced with ${rate}% total interest for ${duration} turns. ${collateralNames} ${collateral.length === 1 ? "is" : "are"} at risk if the loan defaults.`
       : `$${amount} advanced with ${rate}% total interest for ${duration} turns. No deed is pledged as collateral.`,
-    note: secured
-      ? "Every selected deed is pledged until full repayment or termination. No rent or ownership share is attached to this mode."
-      : "The lender receives a fixed return without a deed claim. No rent or ownership share is attached to this mode.",
+    note: "",
   };
 }
 
 function financingCollateralAccordionHTML() {
   const selected = new Set(financingEligibleCollateralIndices());
   const deeds = financingRecipientDeeds();
-  const summary = selected.size ? `${selected.size} DEED${selected.size === 1 ? "" : "S"} SELECTED` : "OPTIONAL · NONE SELECTED";
-  return `<details class="financing-collateral-accordion"><summary><span class="t-label f11 g-muted">COLLATERAL · ${summary}</span></summary><p class="t-micro ink-3">Every selected deed is at risk on uncured default.</p><div class="financing-collateral-options">${deeds.length ? deeds.map(tile => `<label class="financing-collateral-option"><input type="checkbox" data-finance-collateral value="${tile.i}" ${selected.has(tile.i) ? "checked" : ""}><span class="t-label f11 g100">${esc(tile.name)}</span><span class="t-micro ink-3">$${Number(tile.price || 0).toLocaleString()}</span></label>`).join("") : '<span class="t-micro ink-3">NO ELIGIBLE DEEDS</span>'}</div></details>`;
+  return collateralPickerHTML({ id: "finance-collateral", deeds, selected, checkboxAttribute: "data-finance-collateral" });
 }
 
 const FINANCE_PREVIEW_BUILDERS = {
@@ -479,7 +476,7 @@ function financingPreviewHTML() {
   return `<div class="financing-preview-head"><span class="t-micro g400">${esc(financingPreviewKicker())}</span><span class="t-label f12 g100">${esc(preview.title)}</span></div>
     <div class="financing-metrics">${preview.metrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f13 g100">${esc(value)}</strong></div>`).join("")}</div>
     <p class="t-body ink-2 financing-preview-copy">${esc(preview.copy)}</p>
-    <p class="t-micro ink-3 financing-preview-note">${esc(preview.note)}</p>`;
+    ${preview.note ? `<p class="t-micro ink-3 financing-preview-note">${esc(preview.note)}</p>` : ""}`;
 }
 
 function financingModeFieldsHTML() {
@@ -847,8 +844,12 @@ function financingBuilderHTML() {
   return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-recipient", label: "Counterparty", value: financingRecipientId(), options: financingRecipients() })}${financingPropertyPickerHTML()}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions is-solo"><button class="cta-red${sendDisabled ? " financing-disabled-action" : ""}" id="financing-send" type="button" ${sendDisabled ? "disabled" : ""}><span class="cta-text cta-text-sm">SEND CONTRACT</span></button></div></section>`;
 }
 
-function negotiationOwnedPropertyOptions() {
-  return TILES.filter((tile) => tile.kind === "property" && state.owners[tile.i] === "p1");
+function negotiationOwnedPropertyOptions(contract) {
+  const borrowerId = contract?.toPlayerId;
+  if (!borrowerId) return [];
+  const borrower = state.players.find((player) => player.serverId === borrowerId || player.id === borrowerId);
+  if (!borrower) return [];
+  return TILES.filter((tile) => tile.kind === "property" && state.owners[tile.i] === borrower.id);
 }
 
 function negotiationSelectHTML(id, label, value, options) {
@@ -860,16 +861,84 @@ function negotiationPropertySelectHTML(id, label, value, options) {
   return negotiationSelectHTML(id, label, value ?? options[0].i, options.map((tile) => ({ value: tile.i, label: `${tile.name} · $${tile.price}` })));
 }
 
-function negotiationCollateralAccordionHTML() {
-  const deeds = negotiationOwnedPropertyOptions();
+function negotiationCollateralAccordionHTML(contract) {
+  const deeds = negotiationOwnedPropertyOptions(contract);
   const selected = new Set(financingNegotiationDraft.collateralTileIndices || []);
-  const summary = selected.size ? `${selected.size} DEEDS SELECTED` : "OPTIONAL · NONE SELECTED";
-  return `<details class="financing-collateral-accordion"><summary><span class="t-label f11 g-muted">COLLATERAL · ${summary}</span></summary><p class="t-micro ink-3">Every selected deed is at risk on uncured default.</p><div class="financing-collateral-options">${deeds.length ? deeds.map(tile => `<label class="financing-collateral-option"><input type="checkbox" data-negotiation-field="negotiation-collateral" value="${tile.i}" ${selected.has(tile.i) ? "checked" : ""}><span class="t-label f11 g100">${esc(tile.name)}</span><span class="t-micro ink-3">$${Number(tile.price || 0).toLocaleString()}</span></label>`).join("") : '<span class="t-micro ink-3">NO ELIGIBLE DEEDS</span>'}</div></details>`;
+  return collateralPickerHTML({
+    id: "negotiation-collateral",
+    deeds,
+    selected,
+    checkboxAttribute: 'data-negotiation-field="negotiation-collateral"'
+  });
+}
+
+function collateralPickerHTML({ id, deeds, selected, checkboxAttribute }) {
+  const selectedDeeds = deeds.filter((tile) => selected.has(tile.i));
+  const selectedLabel = selectedDeeds.length
+    ? `${selectedDeeds.length} SELECTED · ${selectedDeeds.map((tile) => tile.name).join(", ")}`
+    : "SELECT DEEDS…";
+  const options = deeds.length
+    ? deeds.map((tile) => `<label class="financing-collateral-option" data-collateral-option><input type="checkbox" ${checkboxAttribute} value="${tile.i}" ${selected.has(tile.i) ? "checked" : ""}><span class="t-label f11 g100" data-collateral-name>${esc(tile.name)}</span><span class="t-micro ink-3">$${Number(tile.price || 0).toLocaleString()}</span></label>`).join("")
+    : '<span class="t-micro ink-3">NO ELIGIBLE DEEDS</span>';
+  return `<div class="financing-collateral-picker" data-collateral-root><label class="t-label f11 g-muted" for="${id}-trigger">COLLATERAL</label><input class="field financing-collateral-trigger" type="text" id="${id}-trigger" data-collateral-trigger readonly aria-readonly="true" aria-label="Choose collateral deeds. ${esc(selectedLabel)}" aria-expanded="false" aria-controls="${id}-panel" placeholder="${esc(selectedLabel)}"><div class="financing-collateral-panel" id="${id}-panel" data-collateral-panel hidden><fieldset class="financing-collateral-options" id="${id}-options"><legend class="t-micro g400">ELIGIBLE DEEDS · SELECT ANY</legend>${options}</fieldset></div></div>`;
+}
+
+function setCollateralPickerOpen(picker, open, { restoreFocus = false } = {}) {
+  const trigger = picker?.querySelector("[data-collateral-trigger]");
+  const panel = picker?.querySelector("[data-collateral-panel]");
+  if (!trigger || !panel) return;
+  trigger.setAttribute("aria-expanded", String(open));
+  panel.hidden = !open;
+  if (!open) {
+    trigger.value = "";
+  }
+  if (restoreFocus && !open) trigger.focus({ preventScroll: true });
+}
+
+function updateCollateralPickerLabel(picker) {
+  if (!picker) return;
+  const selected = [...picker.querySelectorAll("[data-collateral-option] input:checked")];
+  const names = selected.map((input) => input.closest("[data-collateral-option]")?.querySelector("[data-collateral-name]")?.textContent).filter(Boolean);
+  const trigger = picker.querySelector("[data-collateral-trigger]");
+  const selectedLabel = names.length ? `${names.length} SELECTED · ${names.join(", ")}` : "SELECT DEEDS…";
+  trigger.placeholder = selectedLabel;
+  trigger.setAttribute("aria-label", `Choose collateral deeds. ${selectedLabel}`);
+}
+
+function bindCollateralPicker(card) {
+  if (card.dataset.collateralPickerBound) return;
+  card.addEventListener("click", (event) => {
+    const picker = event.target.closest?.("[data-collateral-root]");
+    const trigger = event.target.closest?.("[data-collateral-trigger]");
+    if (trigger && picker) {
+      if (trigger.getAttribute("aria-expanded") !== "true") setCollateralPickerOpen(picker, true);
+      return;
+    }
+    card.querySelectorAll("[data-collateral-root]").forEach((root) => {
+      if (!root.contains(event.target)) setCollateralPickerOpen(root, false);
+    });
+  });
+  card.addEventListener("keydown", (event) => {
+    const picker = event.target.closest?.("[data-collateral-root]");
+    const trigger = picker?.querySelector("[data-collateral-trigger]");
+    if (!trigger) return;
+    if (event.target === trigger && trigger.getAttribute("aria-expanded") !== "true" && ["Enter", "ArrowDown"].includes(event.key)) {
+      event.preventDefault();
+      setCollateralPickerOpen(picker, true);
+      return;
+    }
+    if (event.key === "Escape" && trigger.getAttribute("aria-expanded") === "true") {
+      event.preventDefault();
+      event.stopPropagation();
+      setCollateralPickerOpen(picker, false, { restoreFocus: true });
+    }
+  });
+  card.dataset.collateralPickerBound = "true";
 }
 
 function negotiationFieldsHTML(contract) {
   const kind = contract.kind;
-  const deeds = negotiationOwnedPropertyOptions();
+  const deeds = negotiationOwnedPropertyOptions(contract);
   const common = `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Advance / contribution</span><input class="field" id="negotiation-amount" data-negotiation-field="negotiation-amount" type="number" min="1" step="1" value="${financingNegotiationDraft.amount}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in rounds</span><input class="field" id="negotiation-duration" data-negotiation-field="negotiation-duration" type="number" min="1" max="20" step="1" value="${financingNegotiationDraft.durationRounds}" /></label></div>`;
   if (kind === "equity") {
     return `${common}<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Economic share %</span><input class="field" id="negotiation-equity-share" data-negotiation-field="negotiation-equity-share" type="number" min="5" max="100" step="5" value="${financingNegotiationDraft.equityShare}" /></label>${negotiationSelectHTML("negotiation-equity-control", "Control", financingNegotiationDraft.equityControl, [{ value: "passive", label: "PASSIVE" }, { value: "shared", label: "SHARED" }, { value: "controlling", label: "CONTROLLING" }])}</div>${negotiationPropertySelectHTML("negotiation-property", "Recipient property", financingNegotiationDraft.propertyIndex, deeds)}<label class="financing-check"><input id="negotiation-permanent" data-negotiation-field="negotiation-permanent" type="checkbox" ${financingNegotiationDraft.permanent ? "checked" : ""} /><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label>`;
@@ -877,7 +946,7 @@ function negotiationFieldsHTML(contract) {
   if (kind === "hybrid") {
     return `${common}<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="negotiation-premium" data-negotiation-field="negotiation-premium" type="number" min="0" max="100" step="1" value="${financingNegotiationDraft.premiumRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Conversion share %</span><input class="field" id="negotiation-conversion" data-negotiation-field="negotiation-conversion" type="number" min="5" max="100" step="5" value="${financingNegotiationDraft.conversionShare}" /></label></div>${negotiationPropertySelectHTML("negotiation-property", "Conversion property", financingNegotiationDraft.propertyIndex, deeds)}`;
   }
-  return `${common}<label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="negotiation-premium" data-negotiation-field="negotiation-premium" type="number" min="0" max="100" step="1" value="${financingNegotiationDraft.premiumRate}" /></label>${negotiationCollateralAccordionHTML()}`;
+  return `${common}<label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="negotiation-premium" data-negotiation-field="negotiation-premium" type="number" min="0" max="100" step="1" value="${financingNegotiationDraft.premiumRate}" /></label>${negotiationCollateralAccordionHTML(contract)}`;
 }
 
 function negotiationPreviewHTML(contract) {
@@ -964,9 +1033,7 @@ function onFinancingChange(card, event) {
   const input = event.target.closest?.("[data-finance-collateral]");
   if (!input) return;
   onFinancingCollateralChange(input);
-  const selectedCount = financingEligibleCollateralIndices().length;
-  const label = card.querySelector(".financing-collateral-accordion summary .t-label");
-  if (label) label.textContent = `COLLATERAL · ${selectedCount ? `${selectedCount} DEED${selectedCount === 1 ? "" : "S"} SELECTED` : "OPTIONAL · NONE SELECTED"}`;
+  updateCollateralPickerLabel(input.closest("[data-collateral-root]"));
   refreshFinancingPreview();
 }
 
@@ -987,6 +1054,7 @@ function negotiationFieldChanged(event) {
     if (event.target.checked) selected.add(index);
     else selected.delete(index);
     financingNegotiationDraft.collateralTileIndices = [...selected].sort((a, b) => a - b);
+    updateCollateralPickerLabel(event.target.closest("[data-collateral-root]"));
   }
   if (field === "negotiation-equity-control") financingNegotiationDraft.equityControl = String(value);
   if (field === "negotiation-permanent") financingNegotiationDraft.permanent = Boolean(value);
@@ -1143,6 +1211,7 @@ function onFinancingPermanentChange(event) {
 }
 
 function bindFinancingOfferSurface(card) {
+  bindCollateralPicker(card);
   $("#financing-mode-tabs")?.addEventListener("click", onFinancingModeTab);
   if (!card.dataset.financingInputBound) {
     card.addEventListener("input", (event) => onFinancingInput(card, event));
@@ -1158,6 +1227,7 @@ function wireFinancingChrome() {
   $("#financing-negotiate-send")?.addEventListener("click", sendFinancingNegotiation);
   $("#finance-equity-permanent")?.addEventListener("change", onFinancingPermanentChange);
   const card = $("#financing-card");
+  if (card) bindCollateralPicker(card);
   if (card && !card.dataset.negotiationInputBound) {
     card.addEventListener("input", negotiationFieldChanged);
     card.addEventListener("change", negotiationFieldChanged);

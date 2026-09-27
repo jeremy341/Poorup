@@ -427,7 +427,8 @@ function contractOfferHybridHTML(offer) {
 
 function contractOfferBlockHTML(offer) {
   if (!offer) return "";
-  return '<button class="player-contract-offer deal-collapsed" type="button" data-deal-view="contract:' + esc(offer.id) + '"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS' + esc(contractOfferHybridHTML(offer)) + '</span><span class="t-micro g400">VIEW DEAL · ACCEPT OR NEGOTIATE</span></button>';
+  const interest = ["loan", "hybrid"].includes(offer.kind || "loan") ? ' · ' + Number(offer.premiumRate || 0) + '% TOTAL INTEREST' : "";
+  return '<button class="player-contract-offer deal-collapsed" type="button" data-deal-view="contract:' + esc(offer.id) + '"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE' + interest + ' · ' + Number(offer.durationRounds || 0) + ' ROUNDS' + esc(contractOfferHybridHTML(offer)) + '</span><span class="t-micro g400">VIEW DEAL · ACCEPT OR NEGOTIATE</span></button>';
 }
 
 function contractOutgoingBlockHTML(outgoing) {
