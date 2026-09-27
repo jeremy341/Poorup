@@ -137,6 +137,7 @@ function postRollCandidates(game, player, options) {
   candidates.push(...game.botSellCandidates(player));
   candidates.push(...game.botUnmortgageCandidates(player));
   appendPostRollParityCandidates(game, player, options, candidates);
+  candidates.push(...game.botPendingTradeCancelCandidates(player));
   const canEndTurn = player.bankrupt || Number(player.cash) > 0;
   if (!canEndTurn) {
     candidates.push({ id: 'bankruptcy:zero-cash', kind: 'bankruptcy', risk: 0, score: 2 });
@@ -245,6 +246,7 @@ const botApi = {
       for (const source of BOT_CANDIDATE_SOURCES) {
         candidates.push(...source.collect(this, player, options));
       }
+      candidates.push(...this.botPendingTradeCancelCandidates(player));
       if (options.parity) {
         candidates.push(...this.botSellCandidates(player));
         candidates.push(...this.botUnmortgageCandidates(player));
@@ -274,6 +276,20 @@ const botApi = {
       ? [{ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 }]
       : [{ id: 'bankruptcy:zero-cash', kind: 'bankruptcy', risk: 0, score: 2 }];
     return postRollCandidates(this, player, options);
+  },
+
+  botPendingTradeCancelCandidates(player) {
+    const trade = this.pendingTrade;
+    if (!player?.isBot || player.id !== this.currentPlayerId || trade?.fromPlayerId !== player.id) return [];
+    const createdRound = Math.max(0, Math.floor(Number(trade.createdRound) || 0));
+    if (Math.max(1, Math.floor(Number(this.roundNumber) || 1)) <= createdRound) return [];
+    return [{
+      id: `cancel-trade:${trade.id}`,
+      kind: 'cancel-trade',
+      tradeId: trade.id,
+      risk: 0.05,
+      score: 4
+    }];
   },
 
   botJailCandidates(player) {
@@ -427,7 +443,7 @@ const botApi = {
   },
 
   botGroupTradeCandidates(player) {
-    if (this.settings.trading === false) return [];
+    if (this.settings.trading === false || this.pendingTrade || this.pendingPlayerContract) return [];
     if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
     const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
     const owned = player.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
@@ -474,7 +490,7 @@ const botApi = {
   },
 
   botRichTradeCandidates(player) {
-    if (this.settings.trading === false) return [];
+    if (this.settings.trading === false || this.pendingTrade || this.pendingPlayerContract) return [];
     if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
     const table = coalitionAgainst(this, player.id);
     const grudges = player.grudge || {};
@@ -503,6 +519,7 @@ const botApi = {
 
   botContractCandidates(player) {
     if (!player || player.id !== this.currentPlayerId) return [];
+    if (this.pendingTrade || this.pendingPlayerContract) return [];
     if (player.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
     const reserve = Math.max(180, Number(this.settings.startingCash || 1500) * 0.2);
     const lenderCash = Number(player.cash || 0);
