@@ -10,14 +10,14 @@ import { state } from "./clientState.js";
 
 const SURFACE_SELECTORS = [
   "#log-drawer", "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#deal-detail-modal", "#choice-modal", "#sponsorship-modal",
-  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#bankruptcy-modal",
+  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#bankruptcy-modal",
   "#card-modal", "#card-gallery", "#gameover-modal",
 ];
 
 /* Table popups belong only to a live game — blocked while parked at parlor home. */
 const GAME_POPUP = new Set([
   "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal", "#deal-detail-modal",
-  "#auction-modal", "#financing-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
+  "#auction-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
 ]);
 let nextTableNoticeAt = 0;
 let surfaceReturnFocus = null;

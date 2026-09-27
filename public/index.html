@@ -997,6 +997,12 @@
       <div class="popup-card financing-card panel noise" id="financing-card"></div>
     </div>
 
+    <!-- emergency bank credit confirmation stays separate from player financing -->
+    <div class="popup is-hidden" id="bank-loan-modal" role="dialog" aria-modal="true" aria-labelledby="bank-loan-title" aria-describedby="bank-loan-description" aria-hidden="true">
+      <button class="popup-scrim" id="bank-loan-scrim" data-bank-loan-close aria-label="Close bank credit confirmation"></button>
+      <div class="popup-card bank-loan-card panel noise" id="bank-loan-card"></div>
+    </div>
+
     <!-- wallet and earned item workbench -->
     <div class="popup is-hidden" id="wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-modal-title" aria-describedby="wallet-modal-description" aria-hidden="true">
       <button class="popup-scrim" id="wallet-scrim" aria-label="Close wallet and items"></button>

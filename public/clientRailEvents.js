@@ -6,7 +6,6 @@
    Game-bound functions are injected by the entry module. Repayment controls
    pass an optional amount while preserving the server's full-pay default.
    ============================================================ */
-import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { emitWithTimeout } from "./clientRequestController.js";
@@ -26,6 +25,7 @@ let host = {
   openWalletModal: noop,
   openMarketDesk: noop,
   openCasinoDesk: noop,
+  openBankLoanOffer: noop,
   refreshEconomySnapshot: noop,
   leaveRoomForHome: noop,
   captureActionStatusNode: () => null,
@@ -104,50 +104,10 @@ function onContractRepay(node) {
   return true;
 }
 
-function marketQuantity() {
-  const raw = Number($("#market-quantity")?.value) || 1;
-  return Math.max(1, Math.min(1000, Math.floor(raw)));
-}
-
-function mergeEconomySnapshot(response) {
-  if (!response?.economy) return;
-  const economy = response.economy;
-  state.economy = {
-    ...state.economy,
-    ...economy,
-    market: { ...state.economy.market, ...(economy.market || {}) },
-    casino: { ...state.economy.casino, ...(economy.casino || {}) },
-  };
-}
-
-function onMarketOrder(node) {
-  if (!node || !markPending(node)) return false;
-  const statusNode = host.captureActionStatusNode(node);
-  const quantity = marketQuantity();
-  const requestId = host.createRequestId("market");
-  emitWithTimeout(host.emitServer, "market-order", { instrumentId: node.dataset.marketId, side: node.dataset.marketSide, quantity, requestId }, {
-    onResponse: response => {
-      if (response?.success === false) {
-        clearPending(node);
-        ackFailure(response, "Market order could not be completed.", statusNode);
-        return;
-      }
-      mergeEconomySnapshot(response);
-      host.renderRightRail();
-    },
-    onTimeout: () => {
-      clearPending(node);
-      host.announceActionStatus("Market response timed out. Your positions will refresh when the connection returns.", statusNode);
-      host.refreshEconomySnapshot();
-    }
-  });
-  return true;
-}
-
 function onBankAction(node) {
   if (!node || !markPending(node)) return false;
   const statusNode = host.captureActionStatusNode(node);
-  const eventName = node.dataset.bankAction === "take" ? "take-bank-loan" : "repay-bank-loan";
+  const eventName = "repay-bank-loan";
   const payload = { requestId: host.createRequestId(eventName) };
   if (eventName === "repay-bank-loan") {
     const input = node.closest(".finance-repay-controls")?.querySelector("[data-bank-repay-amount]");
@@ -169,6 +129,12 @@ function onBankAction(node) {
       host.refreshEconomySnapshot();
     }
   });
+  return true;
+}
+
+function onBankOfferOpen(node) {
+  if (!node) return false;
+  host.openBankLoanOffer(node);
   return true;
 }
 
@@ -253,7 +219,7 @@ const RAIL_CLICKS = [
   ["[data-activity-mode]", onActivityMode],
   ["[data-deal-view]", onDealView],
   ["[data-player-contract-repay]", onContractRepay],
-  ["[data-market-order]", onMarketOrder],
+  ["[data-bank-offer-open]", onBankOfferOpen],
   ["[data-bank-action]", onBankAction],
   ["[data-finance-open]", onFinanceOpen],
   ["[data-buy]", onBuyTile],
