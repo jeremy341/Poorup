@@ -322,8 +322,6 @@ function sendFinancingContract(control = document.activeElement) {
       host.announceActionStatus(response.error || "The player contract could not be sent.", statusNode);
       return;
     }
-    host.record(`CONTRACT SENT TO ${recipient.name}`);
-    host.recordActivity(`Contract sent to ${recipient.name} for review.`);
     host.renderRightRail();
     closeFinancingModal();
   });
@@ -1095,7 +1093,6 @@ function sendFinancingNegotiation(control = document.activeElement) {
     }
     state.playerContractOffer = null;
     state.negotiationContractId = null;
-    host.recordActivity("Counteroffer sent for review.");
     host.renderRightRail();
     closeFinancingModal();
   });
@@ -1131,7 +1128,6 @@ function sendFinancingRepay(contractId, control = document.activeElement) {
       : amount;
     const status = `Repaid $${settled.toLocaleString()} on the player loan.`;
     financingRepayStatus = { contractId, text: status };
-    host.recordActivity(status);
     host.renderRightRail();
     renderFinancingModal();
   });
@@ -1575,8 +1571,6 @@ function emitTradeOffer(me, other, myCash, theirCash, statusNode) {
       host.announceActionStatus(response.error || "Trade could not be sent.", statusNode);
       return;
     }
-    host.record(`OFFER SENT TO ${other.name}`);
-    host.recordActivity(`Offer sent to ${other.name}.`);
     state.tradeCounterId = null;
     closeTradeModal();
   });
