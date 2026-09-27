@@ -38,18 +38,39 @@ export function loadAnalyticsChartEngine() {
   const documentRef = chartDocument();
   if (!documentRef) return Promise.reject(new Error('chart engine requires a document'));
   enginePromise = new Promise((resolve, reject) => {
-    const existing = documentRef.querySelector?.('script[data-analytics-engine]');
-    if (existing) {
-      existing.addEventListener('load', () => globalThis.echarts?.init ? resolve(globalThis.echarts) : reject(new Error('chart engine did not expose echarts')), { once: true });
-      existing.addEventListener('error', () => reject(new Error('chart engine failed to load')), { once: true });
+    const failScript = (script) => {
+      if (script?.dataset) script.dataset.analyticsEngineState = 'failed';
+      script?.remove?.();
+      reject(new Error('chart engine failed to load'));
+    };
+    let script = documentRef.querySelector?.('script[data-analytics-engine]');
+    if (script && (script.dataset?.analyticsEngineState === 'failed'
+      || (script.dataset?.analyticsEngineState === 'loaded' && !globalThis.echarts?.init))) {
+      script.remove?.();
+      script = null;
+    }
+    if (script) {
+      script.addEventListener('load', () => {
+        if (globalThis.echarts?.init) {
+          if (script.dataset) script.dataset.analyticsEngineState = 'loaded';
+          resolve(globalThis.echarts);
+        } else failScript(script);
+      }, { once: true });
+      script.addEventListener('error', () => failScript(script), { once: true });
       return;
     }
-    const script = documentRef.createElement('script');
+    script = documentRef.createElement('script');
     script.src = '/vendor/echarts.min.js';
     script.async = true;
     script.dataset.analyticsEngine = 'true';
-    script.addEventListener('load', () => globalThis.echarts?.init ? resolve(globalThis.echarts) : reject(new Error('chart engine did not expose echarts')), { once: true });
-    script.addEventListener('error', () => reject(new Error('chart engine failed to load')), { once: true });
+    script.dataset.analyticsEngineState = 'loading';
+    script.addEventListener('load', () => {
+      if (globalThis.echarts?.init) {
+        script.dataset.analyticsEngineState = 'loaded';
+        resolve(globalThis.echarts);
+      } else failScript(script);
+    }, { once: true });
+    script.addEventListener('error', () => failScript(script), { once: true });
     documentRef.head?.appendChild(script);
   }).catch(error => { enginePromise = null; throw error; });
   return enginePromise;
