@@ -16,6 +16,7 @@ import {
   updateProfilePreview,
   paintFaceCell,
   renderAccountPanel,
+  profileHistoryToggleAccessibleName,
 } from "./clientProfileRender.js";
 import { openConfirmModal } from "./clientSurfaces.js";
 import {
@@ -62,6 +63,75 @@ function setProfileTab(tab = "designs", focus = false) {
     const panel = $(`#profile-panel-${next}`);
     panel?.focus({ preventScroll: true });
   }
+}
+
+function focusTabWithKey(event, tablist, selector) {
+  const tabs = [...tablist.querySelectorAll(selector)];
+  const current = tabs.indexOf(event.target.closest(selector));
+  if (current < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return false;
+  event.preventDefault();
+  let nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  const next = tabs[nextIndex];
+  next.click();
+  next.focus({ preventScroll: true });
+  return true;
+}
+
+function onProfileStatsClick(event) {
+  const button = event.target.closest("[data-profile-stat-tab]");
+  if (!button) return;
+  const root = button.closest("#profile-statistics-content");
+  const selected = button.dataset.profileStatTab;
+  root.querySelectorAll("[data-profile-stat-tab]").forEach((tab) => {
+    const active = tab === button;
+    tab.classList.toggle("is-active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  root.querySelectorAll(".profile-stat-tab-panel").forEach((panel) => {
+    panel.hidden = panel.id !== `profile-stat-panel-${selected}`;
+  });
+  button.focus({ preventScroll: true });
+}
+
+function onProfileHistoryClick(event) {
+  const toggle = event.target.closest("[data-profile-history-toggle]");
+  if (toggle) {
+    const details = document.getElementById(toggle.getAttribute("aria-controls"));
+    if (!details) return;
+    const scrollContainer = toggle.closest("#view-profile")?.querySelector(".profile-main");
+    const scrollTop = scrollContainer?.scrollTop ?? 0;
+    const expanded = toggle.getAttribute("aria-expanded") !== "true";
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.setAttribute("aria-label", profileHistoryToggleAccessibleName(toggle.getAttribute("aria-label"), expanded));
+    toggle.querySelector("[aria-hidden='true']")?.replaceChildren(document.createTextNode(expanded ? "DETAILS −" : "DETAILS +"));
+    details.hidden = !expanded;
+    toggle.focus({ preventScroll: true });
+    if (scrollContainer) scrollContainer.scrollTop = scrollTop;
+    return;
+  }
+
+  const tab = event.target.closest("[data-profile-history-detail-tab]");
+  if (!tab) return;
+  const details = tab.closest(".profile-history-details");
+  const selected = tab.getAttribute("aria-controls");
+  details.querySelectorAll("[data-profile-history-detail-tab]").forEach((button) => {
+    const active = button === tab;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  details.querySelectorAll("[role='tabpanel']").forEach((panel) => {
+    panel.hidden = panel.id !== selected;
+  });
+  tab.focus({ preventScroll: true });
+}
+
+function onProfileHistoryKeydown(event) {
+  const statsTablist = event.target.closest(".profile-stat-tabs");
+  if (statsTablist && focusTabWithKey(event, statsTablist, "[data-profile-stat-tab]")) return;
+  const detailTablist = event.target.closest(".profile-history-detail-tabs");
+  if (detailTablist) focusTabWithKey(event, detailTablist, "[data-profile-history-detail-tab]");
 }
 
 /** Open editor. Pass a profile id to edit, or nothing to create a new one. */
@@ -325,6 +395,10 @@ function onFacePointerMove(e) {
 }
 
 export function bindProfileUi() {
+  $("#profile-statistics-content")?.addEventListener("click", onProfileStatsClick);
+  $("#profile-statistics-content")?.addEventListener("keydown", onProfileHistoryKeydown);
+  $("#profile-history-content")?.addEventListener("click", onProfileHistoryClick);
+  $("#profile-history-content")?.addEventListener("keydown", onProfileHistoryKeydown);
   // profile editor — entry points
   document.querySelectorAll("[data-global-profile-trigger]").forEach((button) => {
     button.addEventListener("click", onActiveProfileEditClick);

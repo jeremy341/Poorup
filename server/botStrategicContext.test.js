@@ -55,7 +55,7 @@ assert.equal(context.botState.properties[0].houseCount, 2);
 assert.equal(context.turn.currentSeat, 'self');
 assert.equal(context.turn.turnCount, 2);
 assert.equal(context.obligations.payment.amountRemaining, 140);
-assert.equal(context.obligations.payment.creditorSeat, 'opponent-2');
+assert.equal(context.obligations.payment.creditorSeat, 'opponent-1');
 assert.equal(context.activeEvent.id, 'housing-bubble');
 assert.equal(context.rulesDigest.version, BOT_RULE_VERSION);
 assert.equal(context.rulesDigest.boardSize, 40);
@@ -76,9 +76,47 @@ assert.ok(context.table && typeof context.table.rank === 'number');
 assert.ok(Array.isArray(context.table.threats));
 assert.ok(Array.isArray(context.table.alliances));
 
+game.pendingTrade = {
+  id: 'internal-offer-id', fromPlayerId: human.id, toPlayerId: bot.id,
+  giveCash: 250, requestCash: 40, givePropertyIndexes: [deed.index], requestPropertyIndexes: [], counterDepth: 1
+};
+const tradeContext = buildBotStrategicContext(game, bot, 'trade', 8);
+assert.deepEqual(tradeContext.obligations.trade, {
+  role: 'recipient', giveCash: 40, requestCash: 250,
+  givePropertyIndexes: [], requestPropertyIndexes: [deed.index], counterDepth: 1
+});
+
+game.pendingPlayerContract = {
+  id: 'internal-contract-id', fromPlayerId: human.id, toPlayerId: bot.id,
+  kind: 'equity', amount: 300, premiumRate: 12, durationRounds: 5,
+  propertyIndex: 4, collateralTileIndex: 7, equityShare: 15, equityControl: 'passive',
+  conversionShare: 25, expiresRound: null
+};
+const contractContext = buildBotStrategicContext(game, bot, 'contract', 9);
+assert.deepEqual(contractContext.obligations.contract, {
+  role: 'recipient', kind: 'equity', amount: 300, premiumRate: 12, durationRounds: 5,
+  propertyIndex: 4, collateralTileIndex: 7, equityShare: 15, equityControl: 'passive',
+  conversionShare: 25, permanent: true
+});
+
 const serialized = JSON.stringify(context);
 assert.equal(serialized.includes('context-host'), false);
 assert.equal(serialized.includes('context-human'), false);
 assert.equal(serialized.includes('accountId'), false);
 assert.equal(serialized.includes('socketId'), false);
 console.log('bot strategic context: 18 passed, 0 failed');
+
+game.publicActionHistory = [
+  ...Array.from({ length: 20 }, (_, index) => ({
+    actionKind: index % 2 ? 'auction-bid' : 'trade-counter',
+    seatIndex: game.players.indexOf(human),
+    roundNumber: game.roundNumber
+  }))
+];
+const profileContext = buildBotStrategicContext(game, bot, 'pre-roll', 10);
+assert.equal(profileContext.opponentProfilesEnabled, false, 'public-action profiling stays production-disabled pending held-out gates');
+assert.equal(profileContext.opponents[0].publicActionProfile.status, 'unknown');
+const profileJson = JSON.stringify(profileContext);
+assert.equal(profileJson.includes(human.id), false);
+assert.equal(profileJson.includes('offer'), false);
+assert.equal(profileJson.includes('cashExactBucket'), true, 'existing context is retained independently of profile history');

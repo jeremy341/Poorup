@@ -9,6 +9,7 @@ import { TILES } from "./clientBoardData.js";
 import { state } from "./clientState.js";
 import { ownsFullGroup } from "./clientDeedRules.js";
 import { deedCardHTML } from "./clientDeedsRender.js";
+import { MARKET_LABELS } from "./clientMarketCatalog.js";
 
 export function tradePlayerRowHTML(p, seed) {
 const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
@@ -56,12 +57,13 @@ function repayActionHTML(loan, disabled) {
 function takeActionHTML(offer, disabled) {
   const amount = Number(offer.principal || 0).toLocaleString();
   const flag = disabled ? "disabled" : "";
-  return `<button class="cta-red finance-bank-action" type="button" data-bank-action="take" ${flag}><span class="cta-text cta-text-sm">ACCEPT $${amount}</span></button>`;
+  return `<button class="cta-red finance-bank-action" type="button" data-bank-offer-open aria-haspopup="dialog" aria-controls="bank-loan-modal" ${flag}><span class="cta-text cta-text-sm">REVIEW $${amount} CREDIT</span></button>`;
 }
 
 function bankLoanActionHTML(loan, offer, disabled) {
   if (loan && ["active", "due"].includes(loan.status)) return repayActionHTML(loan, disabled);
   if (offer?.available) return takeActionHTML(offer, disabled);
+  if (!loan && offer?.reason) return `<p class="t-body ink-2 finance-bank-unavailable" data-bank-offer-reason>${esc(offer.reason)}</p>`;
   return "";
 }
 
@@ -76,7 +78,8 @@ function offerMetrics(offer) {
   const advance = `$${Number(offer.principal || 0).toLocaleString()}`;
   const totalDue = `$${Number(offer.totalDue || 0).toLocaleString()}`;
   const collateral = offer.collateralName || "NONE";
-  return [["ADVANCE", advance], ["TOTAL DUE", totalDue], ["DUE IN", `${offer.dueInRounds} ROUNDS`], ["COLLATERAL", collateral]];
+  const interestRate = Number(offer.principal) > 0 ? `${(Number(offer.premium || 0) / Number(offer.principal) * 100).toFixed(0)}%` : "—";
+  return [["ADVANCE", advance], ["INTEREST", `$${Number(offer.premium || 0).toLocaleString()} · ${interestRate}`], ["TOTAL DUE", totalDue], ["DUE ROUND", offer.dueRound ?? "—"], ["CURE ROUND", offer.cureRound ?? "—"], ["SEVERITY", String(offer.severity || "—").toUpperCase()], ["COLLATERAL", collateral]];
 }
 
 function bankLoanMetrics(loan, offer) {
@@ -98,7 +101,7 @@ function bankOfferCopy(offer) {
 }
 
 function bankLoanCopy(loan, offer) {
-  if (!loan) return bankOfferCopy(offer);
+  if (!loan) return offer?.available ? bankOfferCopy(offer) : "Emergency credit is unavailable right now.";
   if (loan.status === "defaulted") return "DEFAULTED · The bank has closed this credit line for the rest of the round.";
   if (loan.status === "paid") return paidLoanCopy(loan);
   return `Repay before round ${loan.dueRound}. The cure window ends after round ${loan.cureRound}.`;
@@ -139,25 +142,18 @@ function railCasinoBodyHTML() {
   return `<section class="economy-surface casino-surface" aria-labelledby="casino-heading"><div class="economy-surface-head"><img src="/assets/casino-wheel.svg" alt="" width="32" height="32"><div><span class="t-micro g400">EUROPEAN WHEEL · SERVER SETTLED</span><h3 class="t-section g100" id="casino-heading">Place a bet</h3></div></div><div class="casino-odds" aria-label="Roulette odds"><span><strong>RED</strong><small>18 / 37 · 1:1</small></span><span><strong>BLACK</strong><small>18 / 37 · 1:1</small></span><span><strong class="green">GREEN 0</strong><small>1 / 37 · 35:1</small></span></div><button class="btn-dark casino-desk-open" type="button" data-casino-desk aria-haspopup="dialog" aria-controls="casino-modal"><span class="t-label f11">OPEN CASINO DESK</span></button><div class="economy-result" aria-live="polite">${resultCopy}</div><p class="t-micro ink-3 economy-note">Fictional board money only. Loan-backed cash cannot enter the casino. Bets open in the Casino Desk.</p></section>`;
 }
 
-const MARKET_LABELS = { brazil: "BRAZIL", ghana: "GHANA", thailand: "THAILAND", japan: "JAPAN", netherlands: "NETHERLANDS", canada: "CANADA", switzerland: "SWITZERLAND", singapore: "SINGAPORE", airports: "AIRPORTS", utilities: "UTILITIES", property: "PROPERTY" };
-
-const MARKET_OFF_HTML = '<section class="economy-empty panel noise"><img src="/assets/market-chart.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">MARKET ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable fictional country and infrastructure indexes before the round begins.</p></section>';
+const MARKET_OFF_HTML = '<section class="economy-empty panel noise"><img src="/assets/market-chart.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">MARKET ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable fictional sector indexes before the round begins.</p></section>';
 
 function pnlSign(pnl) {
   if (pnl >= 0) return "+";
   return "";
 }
 
-function sellDisabledAttr(position) {
-  if (position.quantity) return "";
-  return "disabled";
-}
-
 function marketRowHTML(id, label, quotes, positions) {
   const quote = Number(quotes[id] || 100);
   const position = positions[id] || {};
   const pnl = Number(position.realizedPnl || 0);
-        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong><span class="market-actions"><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="buy">BUY</button><button class="btn-dark" type="button" data-market-order data-market-id="' + id + '" data-market-side="sell" ' + sellDisabledAttr(position) + '>SELL</button></span></div>';
+        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong></div>';
 }
 
 function marketRowsHTML(market) {
@@ -168,10 +164,6 @@ function marketRowsHTML(market) {
 
 function marketRound(market) {
   return Number(market.round || 0);
-}
-
-function marketFeePercent(market) {
-  return (Number(market.feeRate || 0.02) * 100).toFixed(0);
 }
 
 function marketRiskSummaryHTML(market) {
@@ -190,7 +182,7 @@ function railMarketBodyHTML() {
   const expansion = complexity === "BASIC"
     ? "No leverage, shorting, or derivatives."
     : `COMPLEXITY ${complexity} · obligations are fully disclosed and collateralized.`;
-  return `<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ${marketRound(market)}</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div><span class="t-micro g300">${complexity}</span></div>${marketRiskSummaryHTML(market)}<label class="market-quantity"><span class="t-micro ink-3">ORDER QUANTITY</span><input class="field" id="market-quantity" type="number" min="1" max="1000" value="1" inputmode="numeric"></label><button class="btn-dark market-desk-open" type="button" data-market-desk aria-haspopup="dialog" aria-controls="market-modal"><span class="t-label f11">OPEN MARKET DESK</span></button><div class="market-list thin-scroll">${rows}</div><p class="t-micro ink-3 economy-note">Prices update at round boundaries. A ${marketFeePercent(market)}% settlement fee applies. ${expansion} Advanced actions open in the Market Desk.</p></section>`;
+  return `<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ${marketRound(market)}</span><h3 class="t-section g100" id="market-heading">Sector indexes</h3></div><span class="t-micro g300">${complexity}</span></div>${marketRiskSummaryHTML(market)}<button class="btn-dark market-desk-open" type="button" data-market-desk aria-haspopup="dialog" aria-controls="market-modal"><span class="t-label f11">OPEN MARKET DESK · 11 INDEXES</span></button><div class="market-list thin-scroll" aria-label="Shared sector index quotes">${rows}</div><p class="t-micro ink-3 economy-note">Sector names are display labels, not deed ownership. Round drift and global events move all shared quotes; your orders affect only your holdings and P&amp;L. ${expansion} Select an index, review its chart, and place orders in the Market Desk.</p></section>`;
 }
 
 function railDeedRowHTML(tile) {
@@ -427,7 +419,8 @@ function contractOfferHybridHTML(offer) {
 
 function contractOfferBlockHTML(offer) {
   if (!offer) return "";
-  return '<button class="player-contract-offer deal-collapsed" type="button" data-deal-view="contract:' + esc(offer.id) + '"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE · ' + Number(offer.premiumRate || 0) + '% PREMIUM · ' + Number(offer.durationRounds || 0) + ' ROUNDS' + esc(contractOfferHybridHTML(offer)) + '</span><span class="t-micro g400">VIEW DEAL · ACCEPT OR NEGOTIATE</span></button>';
+  const interest = ["loan", "hybrid"].includes(offer.kind || "loan") ? ' · ' + Number(offer.premiumRate || 0) + '% TOTAL INTEREST' : "";
+  return '<button class="player-contract-offer deal-collapsed" type="button" data-deal-view="contract:' + esc(offer.id) + '"><strong class="t-label f12 g100">' + esc(String(offer.kind || "loan").toUpperCase()) + ' FROM ' + esc(offer.fromPlayerName || "PLAYER") + '</strong><span class="t-micro ink-3">$' + Number(offer.amount || 0).toLocaleString() + ' ADVANCE' + interest + ' · ' + Number(offer.durationRounds || 0) + ' ROUNDS' + esc(contractOfferHybridHTML(offer)) + '</span><span class="t-micro g400">VIEW DEAL · ACCEPT OR NEGOTIATE</span></button>';
 }
 
 function contractOutgoingBlockHTML(outgoing) {

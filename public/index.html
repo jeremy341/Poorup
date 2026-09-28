@@ -267,16 +267,6 @@
                 </div>
               </div>
 
-              <div class="rc-field rc-ruleset-fields">
-                <label class="t-label f12 g-muted" for="rc-ruleset-preset">Ruleset Preset</label>
-                <select class="field rc-input" id="rc-ruleset-preset" name="rulesetPreset" autocomplete="off">
-                  <option value="classic" selected>CLASSIC · STANDARD RULES</option>
-                  <option value="after-hours">AFTER HOURS · POORUP SYSTEMS</option>
-                  <option value="custom">CUSTOM · SET IN LOBBY</option>
-                </select>
-                <span class="t-micro ink-3">Classic starts clean. You can enable every optional system in the host rail.</span>
-              </div>
-
               <div class="rc-field is-hidden" id="rc-private-code-field">
                 <label class="t-label f12 g-muted" for="rc-room-code">Private Room Code</label>
                 <div class="rc-code-entry">
@@ -706,6 +696,9 @@
           </div>
         </div>
 
+        <div id="inactivity-timer-host" class="inactivity-timer-host" hidden></div>
+        <div id="inactivity-announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
         <div class="tn-right">
           <div class="tn-turn">
             <span class="t-label f11 ink-3">TURN</span>
@@ -739,6 +732,7 @@
         <span class="t-label g100" data-maintenance-copy></span>
         <span class="t-micro ink-3" data-maintenance-rounds></span>
       </div>
+      <div id="room-votekick-host" class="room-vote-host" hidden></div>
 
       <a class="skip-link" href="#game-main">Skip to main content</a>
       <main class="game-main" id="game-main" tabindex="-1">
@@ -752,6 +746,7 @@
               <span data-sprite="diamond" data-size="3"></span>
             </div>
             <div class="player-list" id="player-list"></div>
+            <div id="inactive-player-sidebar"></div>
           </section>
 
           <section class="panel noise pad12 chat-panel">
@@ -762,6 +757,7 @@
               <span data-sprite="diamond" data-size="3"></span>
             </div>
             <div class="chat-body thin-scroll" id="chat-body" role="log" aria-live="polite" aria-relevant="additions text"></div>
+            <button type="button" id="chat-new-message" class="chat-new-message is-hidden">NEW MESSAGE ↓</button>
             <form class="chat-form" id="chat-form">
               <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" name="message" inputmode="text" autocomplete="off" placeholder="Join the room to chat…" maxlength="120" disabled />
               <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
@@ -780,6 +776,12 @@
                   <div class="center-field noise" id="center-field">
                     <div class="theme-board-world" id="theme-board-world" data-theme-layer="board" aria-hidden="true"></div>
                     <svg class="skyline center-skyline" viewBox="0 0 88 36" shape-rendering="crispEdges" aria-hidden="true" id="board-skyline"></svg>
+                    <div class="global-event-ribbon is-hidden" id="global-event-ribbon" aria-hidden="true">
+                      <span class="global-event-ribbon-label">GLOBAL EVENT</span>
+                      <strong class="global-event-ribbon-title" id="global-event-ribbon-title"></strong>
+                      <span class="global-event-ribbon-cue" id="global-event-ribbon-cue"></span>
+                    </div>
+                    <span class="sr-live" id="global-event-announcer" role="status" aria-live="polite" aria-atomic="true"></span>
                     <div class="cf-inner">
                       <div class="cf-logo-row">
                         <span class="cf-orn">✚</span>
@@ -788,7 +790,7 @@
                       </div>
                       <p class="t-label cf-sub"><span class="g300">✦</span> After-Hours Game Parlor <span class="g300">✦</span></p>
                     </div>
-                    <section class="global-event-banner is-hidden" id="global-event-banner" role="region" aria-live="polite" aria-labelledby="global-event-title">
+                    <section class="global-event-banner is-hidden" id="global-event-banner" role="region" aria-labelledby="global-event-title">
                       <div class="global-event-header">
                         <div class="global-event-badge-group">
                           <span class="global-event-emblem" id="global-event-emblem" aria-hidden="true"></span>
@@ -817,8 +819,9 @@
                       </div>
                       <div class="global-event-compact-row is-hidden" id="global-event-compact-row">
                         <span class="global-event-compact-title" id="global-event-compact-title"></span>
+                        <span class="global-event-compact-rounds" id="global-event-compact-rounds"></span>
                         <div class="global-event-compact-effects" id="global-event-compact-effects"></div>
-                        <span class="global-event-compact-vote is-hidden" id="global-event-compact-vote"></span>
+                        <button class="global-event-compact-vote is-hidden" id="global-event-compact-vote" type="button" aria-controls="global-event-body-wrap" aria-expanded="false" aria-label="Show global event details and voting controls"></button>
                       </div>
                     </section>
                     <div class="deck deck-chest"><span data-sprite="chest" data-size="5"></span></div>
@@ -874,7 +877,6 @@
               <div class="hud-top-row">
                 <span class="t-label f11 g400" id="hud-turn-label">Waiting For Game</span>
                 <span class="t-micro hud-stage is-hidden" id="hud-stage">ROLL</span>
-                <span class="t-micro hud-timer is-hidden" id="hud-timer">0.0s</span>
               </div>
               <div class="hud-body">
                 <span data-sprite="arrow" data-size="4"></span>
@@ -1000,6 +1002,12 @@
     <div class="popup is-hidden" id="financing-modal" role="dialog" aria-modal="true" aria-labelledby="financing-card-title" aria-describedby="financing-card-description" aria-hidden="true">
       <button class="popup-scrim" id="financing-scrim" aria-label="Close financing preview"></button>
       <div class="popup-card financing-card panel noise" id="financing-card"></div>
+    </div>
+
+    <!-- emergency bank credit confirmation stays separate from player financing -->
+    <div class="popup is-hidden" id="bank-loan-modal" role="dialog" aria-modal="true" aria-labelledby="bank-loan-title" aria-describedby="bank-loan-description" aria-hidden="true">
+      <button class="popup-scrim" id="bank-loan-scrim" data-bank-loan-close aria-label="Close bank credit confirmation"></button>
+      <div class="popup-card bank-loan-card panel noise" id="bank-loan-card"></div>
     </div>
 
     <!-- wallet and earned item workbench -->

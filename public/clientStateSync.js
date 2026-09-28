@@ -8,6 +8,10 @@ import { state } from "./clientState.js";
 import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
 
 export const AUCTION_MS = 5000;
+let movementRevision = 0;
+let movementCompletion = Promise.resolve();
+let debtSurfaceRevision = 0;
+let winnerSurfaceRevision = 0;
 
 function num(value) {
   return Number(value) || 0;
@@ -71,18 +75,47 @@ function syncClock(snapshot) {
   if (Number.isFinite(serverTime) && serverTime > 0) state.serverTimeOffset = serverTime - Date.now();
 }
 
+function voteKickView(vote) {
+  if (!vote || typeof vote !== "object") return null;
+  const status = ["open", "active", "passed", "failed", "expired"].includes(vote.status) ? vote.status : null;
+  if (!status || typeof vote.voteId !== "string" || typeof vote.targetPlayerId !== "string") return null;
+  const count = value => Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+  const timestamp = value => Number.isFinite(value) && value >= 0 ? value : null;
+  return {
+    voteId: vote.voteId,
+    targetPlayerId: vote.targetPlayerId,
+    openedAt: timestamp(vote.openedAt),
+    expiresAt: timestamp(vote.expiresAt),
+    eligibleCount: count(vote.eligibleCount),
+    yesCount: count(vote.yesCount),
+    noCount: count(vote.noCount),
+    requiredYes: count(vote.requiredYes),
+    status,
+  };
+}
+
 function previousPositionsOf() {
   return new Map(state.players.map((player) => [player.id, num(player.pos)]));
 }
 
-function syncRoom(room, game = null) {
+export function syncRoom(room, game = null) {
   const nextVariant = room?.board?.variant || room?.ruleset?.boardVariant || room?.settings?.boardVariant || game?.boardVariant || "standard-40";
   const changed = state.boardVariant !== nextVariant;
-  if (Object.prototype.hasOwnProperty.call(room, "roomCode")) state.roomCode = orDefault(room.roomCode, "");
+  if (Object.prototype.hasOwnProperty.call(room, "roomCode")) {
+    const roomCode = orDefault(room.roomCode, "");
+    if (state.activityRoomCode !== roomCode) {
+      state.activityRoomCode = roomCode;
+      state.activityNotices = [];
+      state.lastGameFeed = [];
+      state.economy = { ...state.economy, market: { ...state.economy?.market, personalTrades: [] } };
+    }
+    state.roomCode = roomCode;
+  }
   state.roomVisibility = orDefault(room.visibility === "public" ? "public" : null, "private");
   state.hostId = room.hostId || null;
   state.boardVariant = nextVariant;
   state.ruleset = room.ruleset || null;
+  state.voteKick = voteKickView(room.voteKick);
   return changed;
 }
 
@@ -101,7 +134,7 @@ function turnOrderOf(game, remotePlayers) {
   return remotePlayers.map((player) => player.id);
 }
 
-function serverPlayerView(player) {
+export function serverPlayerView(player) {
   return {
     id: clientPlayerId(player),
     serverId: player.id,
@@ -115,6 +148,11 @@ function serverPlayerView(player) {
     cash: num(player.cash),
     pos: num(player.position),
     online: !player.disconnected,
+    presence: player.isBot ? null : {
+      state: player.presence?.state === "inactive" ? "inactive" : "active",
+      inactiveSince: Number.isFinite(player.presence?.inactiveSince) ? player.presence.inactiveSince : null,
+      inactiveUntil: Number.isFinite(player.presence?.inactiveUntil) ? player.presence.inactiveUntil : null,
+    },
     bankrupt: Boolean(player.bankrupt),
     spectating: Boolean(player.spectating),
     inDebt: Boolean(player.inDebt),
@@ -167,12 +205,10 @@ function syncRoundFlags(game) {
   const startedTransition = isStartedTransition(game);
   if (nextRoundNumber !== state.roundNumber || startedTransition) {
     state.gameOver = null;
-    state.previousTurnKey = "";
   }
   state.gameStarted = nextGameStarted;
   state.dice = diceOf(game);
   state.roundNumber = nextRoundNumber;
-  state.turnDeadline = num(game.turnDeadline);
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
   state.pendingTrade = orNull(game.pendingTrade);
@@ -208,11 +244,24 @@ function syncContractOffer() {
 
 function syncEconomy(game) {
   const incoming = game.economy || {};
+  const market = incoming.market || {};
+  const personalTradeSource = Array.isArray(market.personalTrades) ? market.personalTrades : state.economy.market?.personalTrades;
+  const personalTrades = Array.isArray(personalTradeSource) ? personalTradeSource.slice(0, 128).flatMap(entry => {
+    if (!entry || typeof entry !== "object" || !["buy", "sell"].includes(entry.side)) return [];
+    return [{
+      roundNumber: num(entry.roundNumber),
+      instrumentId: String(entry.instrumentId || "").slice(0, 40),
+      side: entry.side,
+      quantity: Math.max(0, num(entry.quantity)),
+      quote: Math.max(0, num(entry.quote)),
+      fee: Math.max(0, num(entry.fee)),
+    }];
+  }) : [];
   state.economy = {
     ...state.economy,
     ...incoming,
     casino: { ...state.economy.casino, ...(incoming.casino || {}) },
-    market: { ...state.economy.market, ...(incoming.market || {}) },
+    market: { ...state.economy.market, ...market, personalTrades },
   };
 }
 
@@ -259,21 +308,6 @@ function movementPlansFrom(previousPositions) {
     .filter((plan) => plan);
 }
 
-function rollFlag(game) {
-  if (game.hasRolled) return "rolled";
-  return "roll";
-}
-
-function extraFlag(game) {
-  if (game.extraRollPending) return "extra";
-  return "normal";
-}
-
-function turnKeyOf(game) {
-  const mover = orDefault(game.currentPlayerId, "none");
-  return `${mover}:${rollFlag(game)}:${extraFlag(game)}`;
-}
-
 function turnStageOf(game) {
   if (game.awaitingEndTurn) return "end";
   if (game.hasRolled && !game.extraRollPending) return "end";
@@ -285,8 +319,24 @@ function feedLine(entry) {
   return entry.text;
 }
 
-function syncLog(game) {
-  state.log = arrayOr(game.feed).map(feedLine).filter(Boolean).slice(0, 40);
+export function syncLog(game = {}) {
+  const rawFeed = arrayOr(game.feed);
+  state.lastGameFeed = rawFeed.slice();
+  const feed = rawFeed.map((entry, index) => ({
+    text: feedLine(entry),
+    timestamp: Number(entry && typeof entry === "object" ? entry.timestamp ?? entry.createdAt : 0) || 0,
+    order: index,
+  })).filter(entry => entry.text);
+  const notices = arrayOr(state.activityNotices).map((notice, index) => ({
+    text: notice.text,
+    timestamp: Number(notice.timestamp) || 0,
+    order: index,
+  })).filter(entry => entry.text);
+  state.log = [...feed, ...notices]
+    .map((entry, sourceOrder) => ({ ...entry, sourceOrder }))
+    .sort((a, b) => b.timestamp - a.timestamp || a.sourceOrder - b.sourceOrder)
+    .slice(0, 40)
+    .map(entry => entry.text);
 }
 
 function syncRoomSettings(room) {
@@ -342,11 +392,32 @@ function syncView(host) {
   host.showView("game");
 }
 
+export function afterPieceMovement(callback) {
+  const revision = movementRevision;
+  return movementCompletion.then(() => {
+    if (revision !== movementRevision) return afterPieceMovement(callback);
+    return callback();
+  });
+}
+
 function scheduleWalks(movementPlans, host) {
   if (!movementPlans.length) return;
   const plans = movementPlans;
   const startedAt = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-  const start = () => plans.forEach(({ player, from, to }) => host.startPieceWalk(player.id, from, to, { startedAt }));
+  movementRevision += 1;
+  let completeBatch;
+  const scheduledWalks = new Promise(resolve => { completeBatch = resolve; });
+  movementCompletion = Promise.all([movementCompletion, scheduledWalks]).then(() => undefined);
+  const start = () => {
+    const walks = plans.map(({ player, from, to }) => {
+      try {
+        return Promise.resolve(host.startPieceWalk(player.id, from, to, { startedAt }));
+      } catch {
+        return Promise.resolve();
+      }
+    });
+    Promise.allSettled(walks).then(completeBatch);
+  };
   if (typeof document !== "undefined" && document.hidden) start();
   else requestAnimationFrame(start);
 }
@@ -391,6 +462,7 @@ function syncRetireButton(host) {
 }
 
 function syncDebtModal(game, host) {
+  const revision = ++debtSurfaceRevision;
   const debt = game.pendingPayment;
   state.pendingDebt = debt || null;
   syncRetireButton(host);
@@ -403,25 +475,21 @@ function syncDebtModal(game, host) {
   if (!host.bankruptcyHidden()) return;
   const meIndex = state.players.findIndex((player) => player.serverId === meServerId);
   if (meIndex < 0) return;
-  host.openBankruptcyModal(meIndex, num(debt.amountRemaining), debt.creditorId, orDefault(debt.reason, "This payment is due."));
+  afterPieceMovement(() => {
+    if (revision !== debtSurfaceRevision || state.pendingDebt !== debt || !host.bankruptcyHidden()) return;
+    host.openBankruptcyModal(meIndex, num(debt.amountRemaining), debt.creditorId, orDefault(debt.reason, "This payment is due."));
+  });
 }
 
 function syncWinner(game, host) {
+  const revision = ++winnerSurfaceRevision;
   if (!game.lastWinner) return;
   if (state.gameOver) return;
-  host.showGameOver(orDefault(game.lastWinner.nickname, "The winner"), game.lastWinner.id);
-}
-
-function maybeStartCountdown(turnChanged, host) {
-  // A server-extended deadline must restart the local countdown even when
-  // the turn itself did not change; otherwise the HUD counts to a stale zero.
-  const deadline = Number(state.turnDeadline) || 0;
-  const extended = state.lastTurnDeadline !== deadline;
-  state.lastTurnDeadline = deadline;
-  if (!turnChanged && !extended) return;
-  if (state.phase !== "playing") return;
-  if (state.turnIndex !== 0) return;
-  host.startTurnCountdown();
+  const winnerId = game.lastWinner.id;
+  afterPieceMovement(() => {
+    if (revision !== winnerSurfaceRevision || state.gameOver || game.lastWinner?.id !== winnerId) return;
+    host.showGameOver(orDefault(game.lastWinner.nickname, "The winner"), winnerId);
+  });
 }
 
 function snapshotIsPlayable(snapshot) {
@@ -464,9 +532,6 @@ export function applyServerState(snapshot, host) {
   syncJail(remotePlayers);
   state.phase = phaseOf(game);
   const movementPlans = movementPlansFrom(previousPositions);
-  const turnKey = turnKeyOf(game);
-  const turnChanged = state.previousTurnKey !== turnKey;
-  state.previousTurnKey = turnKey;
   state.turnStage = turnStageOf(game);
   syncActionLockFromSnapshot();
   syncLog(game);
@@ -483,6 +548,5 @@ export function applyServerState(snapshot, host) {
   syncAuctionSurface(host);
   syncDebtModal(game, host);
   syncWinner(game, host);
-  maybeStartCountdown(turnChanged, host);
   host.placePiecesSoon();
 }

@@ -12,6 +12,7 @@ import {
   advanceMarket as stepMarketQuotes,
   applyMarketBuy as marketBuyLeg,
   applyMarketSell as marketSellLeg,
+  marketQuoteHistorySnapshot,
   marketOrderRejection as rejectMarketOrder
 } from './marketLogic.js';
 import { hasLoanBackedCash as cashIsLoanBacked } from './loanLogic.js';
@@ -53,11 +54,28 @@ function casinoSnapshot(game, player, limits) {
 }
 
 function marketSnapshot(game, player) {
+  const ledger = player ? (game.marketLedger || [])
+    .filter(entry => entry?.playerId === player.id
+      && typeof entry.instrumentId === 'string'
+      && ['buy', 'sell'].includes(entry.side)
+      && Number.isFinite(Number(entry.quantity))
+      && Number.isFinite(Number(entry.quote)))
+    .slice(0, 128)
+    .map(({ roundNumber, instrumentId, side, quantity, quote, fee }) => ({
+      roundNumber: Number(roundNumber) || 0,
+      instrumentId: String(instrumentId || ''),
+      side: side === 'sell' ? 'sell' : 'buy',
+      quantity: Number(quantity) || 0,
+      quote: Number(quote) || 0,
+      fee: Number(fee) || 0
+    })) : [];
   return {
     enabled: Boolean(game.settings.market),
     round: game.marketRound,
     feeRate: MARKET_FEE_RATE,
     quotes: { ...game.marketQuotes },
+    quoteHistory: marketQuoteHistorySnapshot(game),
+    personalTrades: ledger,
     positions: { ...(player?.marketPositions || {}) },
     complexity: game.settings.marketComplexity || 'basic',
     margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, collateral: Number(player.marginCollateral) || 0, positions: { ...(player.marginPositions || {}) } } : null,

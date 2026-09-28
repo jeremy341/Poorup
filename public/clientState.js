@@ -218,6 +218,7 @@ const state = {
   mortgaged: {},   // { [tileId]: true }
   offers: [],      // pending bot→human trade offers
   pendingTrade: null,
+  voteKick: null,
   pendingBuyTile: null, // tile the human must resolve (buy/auction) before ending
   sponsorship: null,    // optional escrowed contribution flow for the open purchase
   auction: null,        // live auction state object
@@ -227,8 +228,10 @@ const state = {
   // `roundNumber` restarts at one for every rematch; retain the started
   // transition so stale game-over state cannot survive a new game.
   gameStarted: false,
-  turnDeadline: 0,
   globalEvent: null,
+  lastAnnouncedGlobalEventKey: "",
+  globalEventAnnouncementRoomCode: "",
+  globalEventAnnouncementGameStarted: false,
   globalEventVotePending: false,
   playerContractOffer: null,
   negotiationContractId: null,
@@ -271,7 +274,6 @@ const state = {
     noRentInJail:    true,    // owner can't collect while visiting
     houseLimit:      32,      // house bank 10 / 20 / 32 (unlimited)
     hotelLimit:      12,      // hotel bank 6 / 12 (unlimited)
-    turnTimer:       0,       // seconds per turn: 0=off, 30, 60, 120
     bankruptMode:    "elim",  // legacy snapshot key; bankruptcy always eliminates/spectates
     bots:            0,        // reserved CPU seats; bot turns are added separately
     botPersonality: "survivor",
@@ -295,10 +297,10 @@ const state = {
     globalEventMax:  1,
   },
   log: ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."],
-  messages: [
-    { who: "", color: "", text: "TABLE OPENED. CHOOSE YOUR APPEARANCE.", system: true },
-    { who: "", color: "", text: "JOIN A ROOM TO GET STARTED.", system: true },
-  ],
+  activityNotices: [],
+  activityRoomCode: "",
+  lastGameFeed: [],
+  messages: [],
 };
 
 if (state.profiles.length) {

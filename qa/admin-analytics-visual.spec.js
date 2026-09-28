@@ -48,14 +48,16 @@ async function openFixture(page, response = FIXTURE, status = 200) {
 }
 
 test.describe('admin analytics visual contract', () => {
-  test('blocks analytics requests without a session and clears unauthorized data', async ({ page }) => {
-    const requests = [];
+  test('keeps analytics unavailable without a cookie session and clears unauthorized data', async ({ page }) => {
+    const responses = [];
     await page.addInitScript(() => localStorage.removeItem('poorup.account.session.v1'));
-    page.on('request', request => { if (request.url().includes('/admin/analytics/balance')) requests.push(request.url()); });
+    page.on('response', response => { if (response.url().includes('/admin/analytics/balance')) responses.push(response.status()); });
     await page.goto('/admin/analytics');
     await expect(page.locator('#admin-analytics-main')).toBeVisible();
-    await expect(page.locator('#admin-analytics-status')).toContainText('ADMIN ACCOUNT REQUIRED');
-    expect(requests).toHaveLength(0);
+    await expect.poll(() => responses.length).toBeGreaterThan(0);
+    expect([401, 403]).toContain(responses[0]);
+    await expect(page.locator('#admin-analytics-status')).toContainText(/ADMIN (ACCOUNT|ACCESS) REQUIRED/);
+    await expect(page.locator('#admin-analytics-grid')).toBeEmpty();
 
     await openFixture(page, { success: false, status: 403 }, 403);
     await expect(page.locator('#admin-analytics-status')).toContainText('ADMIN ACCESS REQUIRED');

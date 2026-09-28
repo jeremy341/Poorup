@@ -481,6 +481,31 @@ await check('hides overview KPI cards on specialized report tabs', () => {
   }
 });
 
+await check('cookie-authenticated analytics requests do not require a JavaScript session token', async () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const previousAccount = state.account;
+  let requestOptions = null;
+  globalThis.window = { location: { pathname: '/admin/analytics', search: '' }, matchMedia: () => ({ matches: false }) };
+  globalThis.fetch = async (_url, options) => {
+    requestOptions = options;
+    return { ok: true, status: 200, json: async () => ({ success: true, overview: { kpis: [] } }) };
+  };
+  state.account = { sessionToken: '' };
+  globalThis.document = fakeAnalyticsDocument({ grid: fakeElement({ id: 'admin-analytics-grid' }), status: fakeElement({ id: 'admin-analytics-status' }) });
+  const controller = createAnalyticsController();
+  const result = await controller.load();
+  assert.equal(requestOptions?.credentials, 'include');
+  assert.notEqual(result?.status, 403);
+  assert.notEqual(globalThis.document.querySelector('#admin-analytics-status').textContent, 'ADMIN ACCOUNT REQUIRED');
+  controller.destroy();
+  state.account = previousAccount;
+  globalThis.fetch = previousFetch;
+  globalThis.window = previousWindow;
+  globalThis.document = previousDocument;
+});
+
 await check('tab activation requests the selected tab while retaining the last snapshot', async () => {
   const overviewTab = fakeElement({ attrs: { 'data-analytics-tab': 'overview' } });
   const economyTab = fakeElement({ attrs: { 'data-analytics-tab': 'economy' } });

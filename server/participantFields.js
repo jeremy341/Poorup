@@ -33,7 +33,7 @@ export const PARTICIPANT_FIELDS = [
   { key: 'accountId', fromRecord: (v) => (typeof v?.accountId === 'string' ? v.accountId : null), fromPlayer: (p) => p.accountId },
   { key: 'displayNameAtMatch', fromRecord: (v) => (typeof v?.displayNameAtMatch === 'string' ? v.displayNameAtMatch.slice(0, 24) : 'PLAYER'), fromPlayer: (p) => p.nickname },
   { key: 'colorAtMatch', fromRecord: (v) => (typeof v?.colorAtMatch === 'string' ? v.colorAtMatch : '#35a653'), fromPlayer: (p) => p.color },
-  { key: 'finalPlacement', fromRecord: (v) => (Number.isInteger(v?.finalPlacement) ? Math.max(1, v.finalPlacement) : null), fromPlayer: (p, ctx) => ctx.placementById.get(p.id) || (p.id === ctx.winnerId ? 1 : null) },
+  { key: 'finalPlacement', fromRecord: (v) => (Number.isInteger(v?.finalPlacement) && v.finalPlacement > 0 ? v.finalPlacement : null), fromPlayer: (p, ctx) => ctx.placementById.get(p.id) || (p.id === ctx.winnerId ? 1 : null) },
   { key: 'endingCash', fromRecord: (v) => nonNegative(v?.endingCash), fromPlayer: (p) => nonNegative(p.cash) },
   { key: 'propertyCount', fromRecord: (v) => nonNegative(v?.propertyCount), fromPlayer: (p) => (Array.isArray(p.properties) ? p.properties.length : 0) },
   { key: 'bankrupt', fromRecord: (v) => flag(v?.bankrupt), fromPlayer: (p) => Boolean(p.bankrupt) },

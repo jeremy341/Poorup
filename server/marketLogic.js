@@ -7,10 +7,10 @@ import { randomFloat } from './random.js';
 export const MARKET_FEE_RATE = 0.02;
 export const MARKET_SIDES = ['buy', 'sell'];
 export const MARKET_INSTRUMENTS = [
-  ['brazil', 'BRAZIL', 100], ['ghana', 'GHANA', 100], ['thailand', 'THAILAND', 100],
-  ['japan', 'JAPAN', 100], ['netherlands', 'NETHERLANDS', 100], ['canada', 'CANADA', 100],
-  ['switzerland', 'SWITZERLAND', 100], ['singapore', 'SINGAPORE', 100],
-  ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
+  ['brazil', 'HOUSING MARKET', 100], ['ghana', 'AGRICULTURE', 100], ['thailand', 'CONSUMER GOODS', 100],
+  ['japan', 'TECHNOLOGY', 100], ['netherlands', 'TRADE & LOGISTICS', 100], ['canada', 'ENERGY & RESOURCES', 100],
+  ['switzerland', 'FINANCIAL SERVICES', 100], ['singapore', 'TOURISM & HOSPITALITY', 100],
+  ['airports', 'AIR TRANSPORT', 100], ['utilities', 'PUBLIC UTILITIES', 100], ['property', 'CONSTRUCTION & MATERIALS', 100]
 ].map(([id, name, price]) => ({ id, name, price }));
 
 // Order gates run in the exact historical check order;
@@ -27,6 +27,46 @@ export const MARKET_ORDER_GUARDS = [
 
 export function freshMarketQuotes() {
   return Object.fromEntries(MARKET_INSTRUMENTS.map(instrument => [instrument.id, instrument.price]));
+}
+
+function validMarketQuoteRecord(quotes) {
+  if (!quotes || typeof quotes !== 'object' || Array.isArray(quotes)) return null;
+  const ids = MARKET_INSTRUMENTS.map(instrument => instrument.id);
+  if (Object.keys(quotes).length !== ids.length || ids.some(id => !Object.hasOwn(quotes, id))) return null;
+  if (!ids.every(id => Number.isInteger(quotes[id]) && quotes[id] > 0)) return null;
+  return Object.fromEntries(ids.map(id => [id, quotes[id]]));
+}
+
+export function marketQuoteHistorySnapshot(game) {
+  const history = Array.isArray(game.marketQuoteHistory) ? game.marketQuoteHistory : [];
+  const validated = history.flatMap(point => {
+    const quotes = validMarketQuoteRecord(point?.quotes);
+    if (!quotes || !Number.isInteger(point.round) || point.round < 0) return [];
+    if (point.eventId !== null && typeof point.eventId !== 'string') return [];
+    return [{ round: point.round, quotes, eventId: point.eventId }];
+  }).slice(-128);
+  if (validated.length) return validated;
+
+  const current = freshMarketQuotes();
+  const ids = Object.keys(current);
+  for (const id of ids) {
+    const quote = game.marketQuotes?.[id];
+    if (Number.isInteger(quote) && quote > 0) current[id] = quote;
+  }
+  return [{
+    round: Number.isInteger(game.marketRound) && game.marketRound >= 0 ? game.marketRound : 0,
+    quotes: current,
+    eventId: null
+  }];
+}
+
+export function createMarketQuotePoint(game, round = game.marketRound, eventId = null) {
+  const quotes = validMarketQuoteRecord(game.marketQuotes) || freshMarketQuotes();
+  return {
+    round: Number.isInteger(round) && round >= 0 ? round : 0,
+    quotes,
+    eventId: typeof eventId === 'string' ? eventId : null
+  };
 }
 
 function marketSpread(game) {

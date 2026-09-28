@@ -162,9 +162,9 @@ export function renderProfileSummary() {
 }
 
 export function formatStatDate(value) {
-  if (!value) return "ROUND";
+  if (!value) return "NOT RECORDED";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "ROUND";
+  if (Number.isNaN(date.getTime())) return "NOT RECORDED";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
 }
 
@@ -184,19 +184,6 @@ function ownParticipant(entry, accountId) {
   return entry.participants.find((item) => item.accountId === accountId) || null;
 }
 
-function ownMatchValue(entry, accountId, key, fallback = 0) {
-  const participant = ownParticipant(entry, accountId);
-  const raw = participant?.[key] ?? entry[key] ?? fallback;
-  return Math.max(0, Number(raw) || 0);
-}
-
-function entryWon(entry, accountId) {
-  const own = ownParticipant(entry, accountId);
-  if (own) return own.finalPlacement === 1;
-  if (String(entry.result || "").toUpperCase() === "WIN") return true;
-  return entry.won === true;
-}
-
 function baseSummary(account) {
   const stats = account?.stats || {};
   const games = Math.max(0, Number(stats.gamesPlayed) || 0);
@@ -212,139 +199,96 @@ function baseSummary(account) {
   };
 }
 
+function recordedOwnValue(entry, accountId, key, fallbackKey) {
+  const participant = ownParticipant(entry, accountId);
+  const value = participant?.[key] ?? (fallbackKey ? entry?.[fallbackKey] : entry?.[key]);
+  return value != null && Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
 function historyValues(history, accountId) {
-  const cashOf = (entry) => ownMatchValue(entry, accountId, "endingCash");
-  const propsOf = (entry) => ownMatchValue(entry, accountId, "propertyCount", entry.properties);
-  if (!history.length) return { averageCash: null, bestCash: null, bestProperties: null };
+  const cashValues = history.map((entry) => recordedOwnValue(entry, accountId, "endingCash")).filter((value) => value != null);
+  const propertyValues = history.map((entry) => recordedOwnValue(entry, accountId, "propertyCount", "properties")).filter((value) => value != null);
   return {
-    averageCash: Math.round(history.reduce((sum, entry) => sum + cashOf(entry), 0) / history.length),
-    bestCash: Math.max(...history.map(cashOf)),
-    bestProperties: Math.max(...history.map(propsOf)),
+    averageCash: cashValues.length ? Math.round(cashValues.reduce((sum, value) => sum + value, 0) / cashValues.length) : null,
+    bestCash: cashValues.length ? Math.max(...cashValues) : null,
+    bestProperties: propertyValues.length ? Math.max(...propertyValues) : null,
   };
 }
 
-function record(label, value, tone = "g100") {
-  return `<div class="stats-record"><span class="t-micro ink-3">${label}</span><strong class="t-label f16 ${tone}">${value}</strong></div>`;
+function statValue(stats, key, format = String) {
+  if (!Object.prototype.hasOwnProperty.call(stats, key) || stats[key] == null || !Number.isFinite(Number(stats[key]))) return "NOT RECORDED";
+  return format(Number(stats[key]));
 }
 
-function numStat(stats, key) {
-  return String(stats[key] || 0);
+function statRecords(items) {
+  return `<dl class="profile-stat-list">${items.map(([label, value]) => `<div class="profile-stat-record"><dt class="t-micro ink-3">${label}</dt><dd class="t-label f14 g100">${value}</dd></div>`).join("")}</dl>`;
 }
 
-function moneyStat(stats, key) {
-  return "$" + Number(stats[key] || 0).toLocaleString();
+function categoricalOutcome(entry, accountId) {
+  const participant = ownParticipant(entry, accountId);
+  if (participant?.bankrupt === true || entry.bankrupt === true) return "BANKRUPT";
+  const placement = Number(participant?.finalPlacement ?? entry.finalPlacement);
+  if (Number.isInteger(placement) && placement > 0) return placement === 1 ? "WIN" : `PLACED #${placement}`;
+  if (String(entry.result || "").toUpperCase() === "WIN" || entry.won === true) return "WIN";
+  if (String(entry.result || "").toUpperCase() === "ROUND" || entry.won === false) return "ROUND COMPLETE";
+  return "NOT RECORDED";
 }
 
-function roundCells(ctx) {
-  const gated = ctx.account;
-  const s = ctx.stats;
-  return [
-    ["ROUNDS", gated ? String(ctx.games) : "—", "g100"],
-    ["WINS", gated ? String(ctx.wins) : "—", "green"],
-    ["WIN RATE", gated ? `${ctx.winShare}%` : "—", "g300"],
-    ["BANKRUPTCIES", gated ? String(ctx.bankruptcies) : "—", "g-muted"],
-    ["EVENT SURVIVAL", gated ? numStat(s, "eventSurvival") : "—", "g300"],
-    ["AUCTION WINS", gated ? numStat(s, "auctionWins") : "—", "g100"],
+function recentResultsHTML(ctx) {
+  if (!ctx.chronological.length) {
+    const message = ctx.account ? "NO COMPLETED ROUNDS YET" : "ACCOUNT HISTORY UNAVAILABLE";
+    return `<p class="profile-results-empty t-body ink-2">${message}</p>`;
+  }
+  const rows = ctx.chronological.map((entry) => {
+    const outcome = categoricalOutcome(entry, ctx.accountId);
+    const tone = outcome === "WIN" ? "green" : outcome === "BANKRUPT" ? "red" : "g100";
+    return `<li class="profile-result-row"><span class="t-micro ink-3">${formatStatDate(entry.completedAt || entry.playedAt)}</span><strong class="t-label f12 ${tone}">${outcome}</strong></li>`;
+  }).join("");
+  return `<ol class="profile-recent-results" aria-label="Recent completed match outcomes">${rows}</ol>`;
+}
+
+function profilePersonalRecordsHTML(ctx) {
+  const values = [
+    ["AVG ENDING CASH", ctx.averageCash == null ? "NOT RECORDED" : `$${ctx.averageCash.toLocaleString()}`],
+    ["BEST CASH STACK", ctx.bestCash == null ? "NOT RECORDED" : `$${ctx.bestCash.toLocaleString()}`],
+    ["MOST PROPERTIES", ctx.bestProperties == null ? "NOT RECORDED" : String(ctx.bestProperties)],
+    ["DATA WINDOW", ctx.account ? (ctx.historyLength ? `${ctx.historyLength} ROUNDS` : "NO ROUNDS") : "ACCOUNT ONLY"],
   ];
+  return `<section class="profile-personal-records" aria-label="Personal records">${values.map(([label, value]) => `<div class="profile-personal-record"><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${value}</strong></div>`).join("")}</section>`;
 }
 
-function economyCells(ctx) {
-  const gated = ctx.account;
-  const s = ctx.stats;
-  return [
-    ["CASINO NET", gated ? moneyStat(s, "casinoNet") : "—", "green"],
-    ["MARKET P/L", gated ? moneyStat(s, "marketProfit") : "—", "g300"],
-    ["PATROL BEST", gated ? numStat(s, "patrolBest") : "—", "g300"],
-    ["BANK LOANS REPAID", gated ? numStat(s, "bankLoanRepayments") : "—", "g100"],
-    ["LOANS GIVEN", gated ? numStat(s, "playerLoansGiven") : "—", "g100"],
-    ["EQUITY DEALS", gated ? numStat(s, "equityDeals") : "—", "g100"],
+function statisticsTabsHTML(ctx) {
+  const stats = ctx.stats;
+  const values = statRecords([
+    ["CASINO NET", ctx.account ? statValue(stats, "casinoNet", (value) => `$${value.toLocaleString()}`) : "NOT RECORDED"],
+    ["MARKET P/L", ctx.account ? statValue(stats, "marketProfit", (value) => `$${value.toLocaleString()}`) : "NOT RECORDED"],
+    ["PATROL BEST", ctx.account ? statValue(stats, "patrolBest") : "NOT RECORDED"],
+    ["BANK LOANS REPAID", ctx.account ? statValue(stats, "bankLoanRepayments") : "NOT RECORDED"],
+  ]);
+  const activity = statRecords([
+    ["EVENT SURVIVAL", ctx.account ? statValue(stats, "eventSurvival") : "NOT RECORDED"],
+    ["AUCTION WINS", ctx.account ? statValue(stats, "auctionWins") : "NOT RECORDED"],
+    ["LOANS GIVEN", ctx.account ? statValue(stats, "playerLoansGiven") : "NOT RECORDED"],
+    ["EQUITY DEALS", ctx.account ? statValue(stats, "equityDeals") : "NOT RECORDED"],
+  ]);
+  const tabs = ["results", "economy", "deals-events"];
+  const labels = ["RESULTS", "ECONOMY", "DEALS &amp; EVENTS"];
+  return `<div class="profile-stat-tabs" role="tablist" aria-label="Statistics categories">${tabs.map((tab, index) => `<button class="profile-stat-tab${index === 0 ? " is-active" : ""}" type="button" role="tab" id="profile-stat-tab-${tab}" aria-selected="${index === 0}" aria-controls="profile-stat-panel-${tab}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-stat-tab="${tab}">${labels[index]}</button>`).join("")}</div>
+    <section class="profile-stat-tab-panel" role="tabpanel" id="profile-stat-panel-results" aria-labelledby="profile-stat-tab-results" tabindex="0">${recentResultsHTML(ctx)}${profilePersonalRecordsHTML(ctx)}</section>
+    <section class="profile-stat-tab-panel" role="tabpanel" id="profile-stat-panel-economy" aria-labelledby="profile-stat-tab-economy" tabindex="0" hidden>${values}</section>
+    <section class="profile-stat-tab-panel" role="tabpanel" id="profile-stat-panel-deals-events" aria-labelledby="profile-stat-tab-deals-events" tabindex="0" hidden>${activity}</section>`;
+}
+
+export function profileStatisticsHTML(ctx) {
+  const account = ctx.account;
+  const values = [
+    ["ROUNDS", account ? String(ctx.games) : "—", "g100"],
+    ["WINS", account ? String(ctx.wins) : "—", "green"],
+    ["WIN RATE", account ? `${ctx.winShare}%` : "—", "g300"],
+    ["BANKRUPTCIES", account ? String(ctx.bankruptcies) : "—", "g-muted"],
   ];
-}
-
-function metricGridHTML(ctx) {
-  const cells = [...roundCells(ctx), ...economyCells(ctx)];
-  return cells.map(([label, value, tone]) => record(label, value, tone)).join("");
-}
-
-function trendBarHTML(entry, accountId) {
-  const won = entryWon(entry, accountId);
-  const label = won ? "WIN" : "ROUND";
-  const height = won ? 100 : 30;
-  const tone = won ? "green" : "ink-3";
-  const barState = won ? "is-win" : "is-loss";
-  const dateLabel = formatStatDate(entry.completedAt || entry.playedAt);
-  return `<div class="stats-bar-column"><span class="stats-bar-value t-micro ${tone}">${label}</span><span class="stats-bar ${barState}" style="--bar-height:${height}%" title="${dateLabel} · ${label}"></span><span class="stats-bar-label t-micro ink-3">${dateLabel}</span></div>`;
-}
-
-function trendEmptyHTML(account) {
-  const headline = account ? "NO ROUND HISTORY YET" : "ACCOUNT HISTORY UNAVAILABLE";
-  const blurb = account
-    ? "Complete a server round to unlock this trend."
-    : "Create an account to sync completed-round statistics.";
-  return `<div class="stats-chart-empty"><span data-sprite="diamond" data-size="4"></span><strong class="t-label f12 g100">${headline}</strong><span class="t-micro ink-3">${blurb}</span></div>`;
-}
-
-function trendBarsHTML(ctx) {
-  if (!ctx.chronological.length) return trendEmptyHTML(ctx.account);
-  return ctx.chronological.map((entry) => trendBarHTML(entry, ctx.accountId)).join("");
-}
-
-function trendTableRowHTML(entry, index, accountId) {
-  const won = entryWon(entry, accountId);
-  const resultCls = won ? "green" : "ink-2";
-  const resultLabel = won ? "WIN" : "ROUND";
-  const cash = ownMatchValue(entry, accountId, "endingCash").toLocaleString();
-  const props = ownMatchValue(entry, accountId, "propertyCount", entry.properties);
-  const dateLabel = formatStatDate(entry.completedAt || entry.playedAt);
-  const num = String(index + 1).padStart(2, "0");
-  return `<tr><th scope="row">${dateLabel} · ${num}</th><td class="${resultCls}">${resultLabel}</td><td>$${cash}</td><td>${props}</td></tr>`;
-}
-
-function trendTableHTML(ctx) {
-  if (!ctx.chronological.length) return "";
-  const rows = ctx.chronological.map((entry, index) => trendTableRowHTML(entry, index, ctx.accountId)).join("");
-  return `<table class="stats-data-table"><caption>Recent round results</caption><thead><tr><th scope="col">ROUND</th><th scope="col">RESULT</th><th scope="col">ENDING CASH</th><th scope="col">PROPERTIES</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function statsIntroHTML(ctx) {
-  const cls = ctx.account ? "green" : "g300";
-  const sourceLabel = ctx.account ? "ACCOUNT SYNC" : "LOCAL ONLY";
-  return `<div class="stats-intro panel noise"><div><div class="t-micro g400">PERFORMANCE DECK</div><h2 class="t-section g100">Player Statistics</h2><p class="t-body ink-2">A readable record of the rounds you have finished, not a live ranking or a promise of future results.</p></div><span class="t-micro stats-source ${cls}">${sourceLabel}</span></div>`;
-}
-
-function statsTrendPanelHTML(ctx) {
-  const count = ctx.chronological.length || 0;
-  return `<section class="panel noise pad16 stats-trend-panel" aria-labelledby="stats-trend-heading"><div class="stats-panel-head"><div><div class="t-micro g400">RECENT FORM</div><h3 class="t-section g100" id="stats-trend-heading">Win history</h3></div><span class="t-micro ink-3">LAST ${count} ROUNDS</span></div><div class="stats-chart" role="img" aria-label="Win history chart showing ${ctx.wins} wins across ${ctx.games} completed rounds"><div class="stats-chart-y"><span class="t-micro ink-3">WIN</span><span class="t-micro ink-3">ROUND</span></div><div class="stats-chart-plot"><div class="stats-chart-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="stats-chart-bars">${trendBarsHTML(ctx)}</div></div></div>${trendTableHTML(ctx)}</section>`;
-}
-
-function moneyCell(label, value, tone) {
-  if (value == null) return record(label, "—", tone);
-  return record(label, `$${value.toLocaleString()}`, tone);
-}
-
-function propertiesCell(bestProperties) {
-  if (bestProperties == null) return record("MOST PROPERTIES", "—", "g300");
-  return record("MOST PROPERTIES", String(bestProperties), "g300");
-}
-
-function dataWindowCell(ctx) {
-  if (!ctx.account) return record("DATA WINDOW", "ACCOUNT ONLY", "g-muted");
-  if (!ctx.historyLength) return record("DATA WINDOW", "NO ROUNDS", "g-muted");
-  return record("DATA WINDOW", `${ctx.historyLength} ROUNDS`, "g-muted");
-}
-
-function statsRecordsPanelHTML(ctx) {
-  const records = moneyCell("AVG ENDING CASH", ctx.averageCash, "g100")
-    + moneyCell("BEST CASH STACK", ctx.bestCash, "green")
-    + propertiesCell(ctx.bestProperties)
-    + dataWindowCell(ctx);
-  return `<section class="panel noise pad16 stats-records-panel" aria-labelledby="stats-records-heading"><div class="stats-panel-head"><div><div class="t-micro g400">PARLOR RECORDS</div><h3 class="t-section g100" id="stats-records-heading">Personal bests</h3></div><span class="t-micro ink-3">VERIFIED ROUNDS</span></div><div class="stats-record-list">${records}</div><p class="t-micro ink-3 stats-method">Values are calculated from completed server rounds. No estimates are shown.</p></section>`;
-}
-
-function statisticsHTML(ctx) {
-  return `${statsIntroHTML(ctx)}
-    <div class="stats-metric-grid" aria-label="Performance summary">${metricGridHTML(ctx)}</div>
-    <div class="stats-content-grid">${statsTrendPanelHTML(ctx)}${statsRecordsPanelHTML(ctx)}</div>`;
+  return `<section class="profile-stats-overview panel noise" aria-label="Statistics overview"><div><span class="t-micro g400">PERFORMANCE</span><h2 class="t-section g100">Statistics</h2></div><div class="profile-stats-headline">${values.map(([label, value, tone]) => `<div class="profile-stats-kpi"><span class="t-micro ink-3">${label}</span><strong class="t-label f18 ${tone}">${value}</strong></div>`).join("")}</div></section>
+    <div class="profile-stats-categories">${statisticsTabsHTML(ctx)}</div>`;
 }
 
 export function renderProfileStatistics() {
@@ -361,7 +305,7 @@ export function renderProfileStatistics() {
     historyLength: history.length,
     chronological: [...history].reverse().slice(-12),
   };
-  root.innerHTML = statisticsHTML(ctx);
+  root.innerHTML = profileStatisticsHTML(ctx);
   hydrateSprites(root);
 }
 
@@ -373,71 +317,101 @@ function listSize(list, fallback) {
 function deedCount(participant, entry) {
   if (participant?.propertyCount != null) return participant.propertyCount;
   if (entry.properties != null) return entry.properties;
-  return 0;
+  return null;
 }
 
-function casinoNet(entry, accountId) {
-  if (!Array.isArray(entry.casino)) return 0;
-  const recordEntry = entry.casino.find((item) => item.accountId === accountId);
-  return recordEntry?.net || 0;
+export function profileHistoryToggleAccessibleName(currentName, expanded) {
+  const name = String(currentName || "");
+  const action = expanded ? "Hide details" : "Show details";
+  return /^(Show|Hide) details/.test(name)
+    ? name.replace(/^(Show|Hide) details/, action)
+    : `${action} for match`;
 }
 
-function participantNames(entry) {
-  if (!Array.isArray(entry.participants)) return "";
-  return entry.participants.map((item) => item.displayNameAtMatch).filter(Boolean).slice(0, 4).join(" · ");
+function safeId(value) {
+  return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
 }
 
-function rowEntryWon(participant, entry) {
-  if (participant) return participant.finalPlacement === 1;
-  if (entry.won === true) return true;
-  return entry.result === "WIN";
+function recordedText(recordValue, key, format = (value) => String(value)) {
+  if (!recordValue || !Object.prototype.hasOwnProperty.call(recordValue, key) || recordValue[key] == null) return "NOT RECORDED";
+  return format(recordValue[key]);
 }
 
-function rowOutcomeHTML(won) {
-  const cls = won ? "green" : "g100";
-  const label = won ? "WIN" : "ROUND COMPLETE";
-  return '<span class="t-label f12 ' + cls + '">' + label + "</span>";
+function detailField(label, value) {
+  return `<div class="profile-history-detail-field"><dt class="t-micro ink-3">${label}</dt><dd class="t-label f12 g100">${value}</dd></div>`;
 }
 
-function eventsCellHTML(events) {
-  const tone = events ? "g300" : "ink-3";
-  return '<span class="t-micro ' + tone + '">' + events + " EVENTS</span>";
+function ownParticipantResult(recordValue, accountId) {
+  return ownParticipant(recordValue || {}, accountId);
 }
 
-function plainCell(label, value) {
-  return '<span class="t-micro ink-3">' + label + " " + value + "</span>";
+function matchResult(recordValue, accountId) {
+  if (!recordValue) return "NOT RECORDED";
+  return categoricalOutcome(recordValue, accountId);
 }
 
-function casinoCellHTML(casino) {
-  const tone = casino >= 0 ? "green" : "red";
-  const sign = casino >= 0 ? "+" : "";
-  return '<span class="t-micro ' + tone + '">CASINO ' + sign + "$" + Number(casino).toLocaleString() + "</span>";
+function formatDuration(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0));
+  if (!seconds) return "0:00";
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function participantsCellHTML(names) {
-  if (!names) return "";
-  return '<span class="t-micro profile-history-participants">' + esc(names) + "</span>";
+function ownerDetailsPanels(recordValue, accountId, detailId) {
+  const participant = ownParticipantResult(recordValue, accountId);
+  const result = matchResult(recordValue, accountId);
+  const placement = participant?.finalPlacement ?? recordValue?.finalPlacement;
+  const propertyCount = participant?.propertyCount ?? participant?.properties;
+  const board = recordValue?.boardVariant ?? recordValue?.rulesetPreset ?? recordValue?.rulesetBase;
+  const summaryFields = [
+    detailField("MATCH", esc(recordedText(recordValue, "matchId"))),
+    detailField("RESULT", esc(result)),
+    detailField("DURATION", esc(recordedText(recordValue, "durationSeconds", formatDuration))),
+    detailField("ROUNDS", esc(recordedText(recordValue, "roundCount"))),
+    detailField("BOARD / RULES", board == null ? "NOT RECORDED" : esc(String(board).toUpperCase())),
+    detailField("PLACEMENT", placement == null ? "NOT RECORDED" : `#${esc(placement)}`),
+  ].join("");
+  const playerRows = Array.isArray(recordValue?.participants) && recordValue.participants.length
+    ? recordValue.participants.map((player) => `<li><span>${esc(player.displayNameAtMatch || "PLAYER")}</span><strong>${player.finalPlacement == null ? "NOT RECORDED" : `#${esc(player.finalPlacement)}`}</strong></li>`).join("")
+    : "<li>NOT RECORDED</li>";
+  const economyFields = [
+    detailField("ENDING CASH", recordedText(participant, "endingCash", (value) => `$${Number(value).toLocaleString()}`)),
+    detailField("PROPERTIES", propertyCount == null ? "NOT RECORDED" : esc(propertyCount)),
+    detailField("CASINO NET", recordedText((recordValue?.casino || []).find((item) => item.accountId === accountId), "net", (value) => `$${Number(value).toLocaleString()}`)),
+    detailField("MARKET NET", recordedText((recordValue?.market || []).find((item) => item.accountId === accountId), "net", (value) => `$${Number(value).toLocaleString()}`)),
+    detailField("TRADES", recordedText(recordValue, "tradesCompleted")),
+    detailField("CONTRACTS", recordedText(recordValue, "playerContracts", (items) => Array.isArray(items) ? String(items.length) : "NOT RECORDED")),
+  ].join("");
+  const events = Array.isArray(recordValue?.globalEvents) && recordValue.globalEvents.length
+    ? `<ul>${recordValue.globalEvents.map((event) => `<li>${esc(typeof event === "string" ? event : event?.name || event?.title || "EVENT")}</li>`).join("")}</ul>`
+    : "<p>NOT RECORDED</p>";
+  const panels = [
+    ["summary", "SUMMARY", `<dl class="profile-history-detail-grid">${summaryFields}</dl>`],
+    ["players", "PLAYERS", `<ul class="profile-history-player-list">${playerRows}</ul>`],
+    ["economy", "ECONOMY &amp; DEALS", `<dl class="profile-history-detail-grid">${economyFields}</dl>`],
+    ["events", "EVENTS", `<div class="profile-history-event-list">${events}</div>`],
+  ];
+  const buttons = panels.map(([key, label], index) => `<button type="button" role="tab" id="${detailId}-tab-${key}" aria-selected="${index === 0}" aria-controls="${detailId}-panel-${key}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-history-detail-tab="${key}">${label}</button>`).join("");
+  const contents = panels.map(([key, , content], index) => `<section role="tabpanel" id="${detailId}-panel-${key}" aria-labelledby="${detailId}-tab-${key}" tabindex="0"${index ? " hidden" : ""}>${content}</section>`).join("");
+  return `<div class="profile-history-details" id="${detailId}" data-profile-detail-source="${recordValue ? "owner" : "unavailable"}" hidden><div class="profile-history-detail-tabs" role="tablist" aria-label="Match details">${buttons}</div><div class="profile-detail-scroll" tabindex="0" aria-label="Scrollable match details">${contents}</div></div>`;
 }
 
-export function profileHistoryRowHTML(entry, index, total, accountId) {
-  const participant = ownParticipant(entry, accountId);
-  const won = rowEntryWon(participant, entry);
+export function profileHistoryRowHTML(entry, index, total, accountId, ownerRecord = null) {
+  const matchId = typeof entry.matchId === "string" ? entry.matchId : "";
   const date = formatStatDate(entry.completedAt || entry.playedAt);
-  const deeds = deedCount(participant, entry);
-  const players = listSize(entry.participants, "—");
-  const events = listSize(entry.globalEvents, 0);
-  const casino = casinoNet(entry, accountId);
-  const contracts = listSize(entry.playerContracts, 0);
-  const trades = Number(entry.tradesCompleted) || 0;
-  const auctions = Number(entry.auctionsCompleted) || 0;
-  const names = participantNames(entry);
+  const outcome = matchResult(entry, accountId);
+  const won = outcome === "WIN";
+  const resultTone = won ? "green" : outcome === "BANKRUPT" ? "red" : "g100";
+  const deeds = deedCount(ownParticipant(entry, accountId), entry);
+  const playerCount = listSize(entry.participants, "NOT RECORDED");
   const lead = String(total - index).padStart(2, "0");
-  return '<article class="profile-history-row' + (won ? " is-win" : "") + '"><span class="profile-history-index t-micro ink-3">' + lead
-    + '</span><div class="profile-history-main">' + rowOutcomeHTML(won)
-    + '<span class="t-micro ink-3">' + date + " · " + players + " PLAYERS</span>" + participantsCellHTML(names)
-    + '</div><div class="profile-history-meta">' + plainCell("DEEDS", deeds) + eventsCellHTML(events)
-    + plainCell("TRADES", trades) + plainCell("AUCTIONS", auctions) + casinoCellHTML(casino)
-    + plainCell("DEALS", contracts) + "</div></article>";
+  const detailId = `profile-history-details-${safeId(matchId)}`;
+  const deedLabel = deeds == null ? "NOT RECORDED" : esc(deeds);
+  const eventCount = listSize(entry.globalEvents, "NOT RECORDED");
+  const rowContent = `<span class="profile-history-index t-micro ink-3">${lead}</span><span class="profile-history-main"><strong class="t-label f12 ${resultTone}">${esc(outcome)}</strong><span class="t-micro ink-3">${esc(date)} · ${esc(playerCount)} PLAYERS</span></span><span class="profile-history-meta"><span class="t-micro ink-3">DEEDS ${deedLabel}</span><span class="t-micro ink-3">${esc(eventCount)} EVENTS</span></span>`;
+  const summary = matchId
+    ? `<button type="button" class="profile-history-toggle" aria-label="Show details for ${esc(date)}: ${esc(outcome)}" aria-expanded="false" aria-controls="${detailId}" data-profile-history-toggle="${esc(matchId)}">${rowContent}<span class="t-micro g400" aria-hidden="true">DETAILS +</span></button>`
+    : `<div class="profile-history-summary">${rowContent}<span class="t-micro ink-3">DETAILS NOT RECORDED</span></div>`;
+  return `<article class="profile-history-row${won ? " is-win" : ""}" data-profile-history-row="${esc(matchId)}">${summary}${matchId ? ownerDetailsPanels(ownerRecord, accountId, detailId) : ""}</article>`;
 }
 
 function emptyHistoryPanelHTML(account) {
@@ -448,7 +422,8 @@ function emptyHistoryPanelHTML(account) {
 }
 
 function historyPanelHTML(history, accountId) {
-  const rows = history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, accountId)).join("");
+  const ownerRecords = new Map((Array.isArray(state.account?.account?.matchHistory) ? state.account.account.matchHistory : []).filter((entry) => typeof entry?.matchId === "string").map((entry) => [entry.matchId, entry]));
+  const rows = history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, accountId, ownerRecords.get(entry.matchId) || null)).join("");
   return `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${rows}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.</p></section>`;
 }
 

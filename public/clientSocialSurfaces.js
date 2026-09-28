@@ -7,6 +7,7 @@ import { $, esc } from "./clientDom.js";
 import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { openSurface } from "./clientSurfaces.js";
+import { openAccountModal } from "./clientAccountIdentity.js";
 
 function noop() {}
 let host = { emitServer: noop, showView: noop };
@@ -559,6 +560,16 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
 export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
 export const RANKING_ORDER = Object.keys(RANKING_LABELS);
 
+function rankingPosition(metric) {
+  const index = Math.max(0, RANKING_ORDER.indexOf(metric));
+  return { index, label: `${String(index + 1).padStart(2, "0")} / ${String(RANKING_ORDER.length).padStart(2, "0")}` };
+}
+
+export function rankingMetricNavigationHTML(metric) {
+  const position = rankingPosition(metric);
+  return `<div class="ranking-metric-navigation"><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div>`;
+}
+
 const RANKING_DESCRIPTIONS = {
   wins: "Completed server rounds won. Ties are resolved by verified wins, then name.",
   rate: "Verified win percentage. Five completed games are required before a rate ranks.",
@@ -579,11 +590,6 @@ const RANKING_DESCRIPTIONS = {
 
 function rankingDescription(metric) {
   return RANKING_DESCRIPTIONS[metric] || "Verified server records only.";
-}
-
-function rankingPosition(metric) {
-  const index = Math.max(0, RANKING_ORDER.indexOf(metric));
-  return { index, label: `${String(index + 1).padStart(2, "0")} / ${String(RANKING_ORDER.length).padStart(2, "0")}` };
 }
 
 function rankingValueLabel(metric, value) {
@@ -703,15 +709,15 @@ function seasonDateLabel(value) {
   return String(value).slice(0, 10);
 }
 
-function seasonStatusPanelHTML() {
-  if (state.season.loading && !state.season.current) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3" aria-live="polite">LOADING VERIFIED SEASON…</p></section>`;
-  if (state.season.error && !state.season.current) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(state.season.error)}</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></section>`;
+function seasonStatusPanelHTML(view) {
+  if (view.loading && !view.season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3" aria-live="polite">LOADING VERIFIED SEASON…</p></section>`;
+  if (view.error && !view.season) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(view.error)}</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></section>`;
   return "";
 }
 
-function seasonSyncStatusHTML() {
-  if (state.season.loading && state.season.current) return `<p class="t-micro ink-3" data-season-status aria-live="polite">REFRESHING… LAST VERIFIED SEASON SHOWN.</p>`;
-  if (state.season.error && state.season.current) return `<div class="social-empty ranking-error" role="alert" data-season-status><p class="t-body ink-2">${esc(state.season.error)} LAST VERIFIED SEASON SHOWN.</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
+function seasonSyncStatusHTML(view) {
+  if (view.loading && view.season) return `<p class="t-micro ink-3" data-season-status aria-live="polite">REFRESHING… LAST VERIFIED SEASON SHOWN.</p>`;
+  if (view.error && view.season) return `<div class="social-empty ranking-error" role="alert" data-season-status><p class="t-body ink-2">${esc(view.error)} LAST VERIFIED SEASON SHOWN.</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
   return "";
 }
 
@@ -741,20 +747,34 @@ function seasonRewardRows(rewards, claimed, signedIn) {
     const action = seasonRewardAction(reward, claimed, signedIn);
     const threshold = seasonRewardThreshold(reward, track);
     const tokenCopy = reward.tokens ? ` · ${reward.tokens} TOKENS` : "";
-    return `<div class="season-reward${action.isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${tokenCopy}</span></div><button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${action.disabled ? "disabled" : ""}><span class="t-label f11">${action.label}</span></button></div>`;
+    const claimControl = signedIn
+      ? `<button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${action.disabled ? "disabled" : ""}><span class="t-label f11">${action.label}</span></button>`
+      : "";
+    return `<div class="season-reward${action.isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${tokenCopy}</span></div>${claimControl}</div>`;
   }).join("");
 }
 
-function seasonPanelHTML(surfaceKey = "page") {
-  const status = seasonStatusPanelHTML();
+export function seasonPanelHTML(surfaceKey = "page", override = null) {
+  const view = override || {
+    season: state.season.current,
+    loading: state.season.loading,
+    error: state.season.error,
+    stale: state.season.stale,
+    rows: state.season.rows,
+    rewards: state.season.rewards,
+    claimedRewardIds: state.season.claimedRewardIds,
+    signedIn: Boolean(state.account?.account),
+  };
+  const status = seasonStatusPanelHTML(view);
   if (status) return status;
-  const season = state.season.current;
+  const season = view.season;
   if (!season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
-  const syncStatus = seasonSyncStatusHTML();
-  const rows = seasonPlacementRows((state.season.rows || []).slice(0, 3));
-  const claimed = new Set(state.season.claimedRewardIds || []);
-  const rewards = seasonRewardRows(state.season.rewards || [], claimed, Boolean(state.account?.account));
-  return `${syncStatus}<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div></div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
+  const syncStatus = seasonSyncStatusHTML(view);
+  const rows = seasonPlacementRows((view.rows || []).slice(0, 3));
+  const claimed = new Set(view.claimedRewardIds || []);
+  const rewards = seasonRewardRows(view.rewards || [], claimed, Boolean(view.signedIn));
+  const signIn = view.signedIn ? "" : `<div class="season-signin-prompt"><span class="t-body ink-2">Sign in to claim earned rewards.</span><button class="btn-dark" type="button" data-season-sign-in><span class="t-label f11">SIGN IN</span></button></div>`;
+  return `${syncStatus}<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div>${signIn}</div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
 }
 
 export function renderRankingsSurface(target = "#rankings-card") {
@@ -773,13 +793,15 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const syncLabel = generatedLabel();
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
-  const position = rankingPosition(state.leaderboard.metric);
-  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div><div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
+  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
+  const metricCount = card.querySelector(".ranking-stage-count");
+  if (metricCount) metricCount.textContent = `${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC`;
   const rankingResults = rankingSearchResultsHTML();
   const rankingSearch = document.createElement("section");
   rankingSearch.className = "rankings-search-band panel noise";
   rankingSearch.innerHTML = `<form class="rankings-search" data-ranking-search-form><div class="rankings-search-field"><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span></label><div class="rankings-search-controls"><input class="field" id="rankings-${surfaceKey}-search" name="ranking-username" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}" aria-describedby="rankings-${surfaceKey}-search-help"><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button></div><span class="t-micro ink-3" id="rankings-${surfaceKey}-search-help">Exact username lookup · public identity only</span></div><div class="rankings-search-results">${rankingResults}</div></form>`;
   card.querySelector(".rankings-search-slot")?.replaceWith(rankingSearch);
+  card.querySelector("[data-season-sign-in]")?.addEventListener("click", (event) => openAccountModal("register", event.currentTarget));
 }
 
 const RULES_SECTIONS = [
@@ -808,7 +830,7 @@ const RULES_SECTIONS = [
     title: "The next legal action is always the priority",
     status: "LIVE",
     summary: "Poorup uses a small state machine so movement never skips a purchase, card, auction, or payment decision.",
-    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. The server rejects stale or out-of-turn requests.</li><li>The turn timer, when enabled, advances through the same legal resolution path rather than skipping settlement.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
+    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn; only the independent inactivity removal clock applies.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. The server rejects stale or out-of-turn requests.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
   },
   {
     id: "cash-bank",
@@ -880,7 +902,7 @@ const RULES_SECTIONS = [
     title: "Borrow only when the table can carry it",
     status: "LIVE",
     summary: "Player loans and bank loans are separate contracts. Both are recorded, visible, and resolved before a player can quietly spend beyond their means.",
-  content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, premium, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan, equity, or hybrid deal is a social contract recorded in the room history. Incoming deals can be negotiated from the Deals rail; the sender can adjust or cancel before acceptance.</p><h3 class="t-section g300">Wallet &amp; items</h3><p class="t-body ink-2">Press Cash On Hand to open the Wallet &amp; Items workbench. Account and Items are two views of the same private round ledger, so closing the modal never accepts, sells, or cancels anything.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">An unpaid player may sell, mortgage, trade, or borrow through the legal rescue path, but cannot end the turn while a payment remains open. After the debt is paid, a balance of exactly $0 is valid. If no legal rescue remains, the player declares bankruptcy: a human becomes a read-only spectator, their board token disappears, and the Sidebar shows <strong> SPECTATING</strong>. A solvent creditor receives eligible assets; bank or voluntary releases return assets to the bank.</p>`,
+  content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, total interest, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed interest surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan, equity, or hybrid deal is a social contract recorded in the room history. Incoming deals can be negotiated from the Deals rail; the sender can adjust or cancel before acceptance.</p><h3 class="t-section g300">Wallet &amp; items</h3><p class="t-body ink-2">Press Cash On Hand to open the Wallet &amp; Items workbench. Account and Items are two views of the same private round ledger, so closing the modal never accepts, sells, or cancels anything.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">An unpaid player may sell, mortgage, trade, or borrow through the legal rescue path, but cannot end the turn while a payment remains open. After the debt is paid, a balance of exactly $0 is valid. If no legal rescue remains, the player declares bankruptcy: a human becomes a read-only spectator, their board token disappears, and the Sidebar shows <strong> SPECTATING</strong>. A solvent creditor receives eligible assets; bank or voluntary releases return assets to the bank.</p>`,
   },
   {
     id: "global-events",
@@ -934,7 +956,7 @@ const RULES_SECTIONS = [
     title: "Every switch has a consequence",
     status: "LIVE",
     summary: "Hosts configure the table before the first round. The active rules snapshot stays visible in the lobby so nobody has to guess what changed.",
-  content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats at the table.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses the provider and falls back automatically to the no-AI House Brain when credits or service fail. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert changes evaluation depth, never legality.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme premium tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">House / Hotel Limit</strong><span class="t-body ink-2">Shared bank supply for construction.</span></div><div><strong class="t-label f12 g100">Turn Timer</strong><span class="t-body ink-2">Off, 30 seconds, 60 seconds, or 2 minutes.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Settle an open payment through legal rescue actions or declare bankruptcy. Human bankrupt players become read-only spectators; bots are eliminated without spectator controls.</span></div></div>`,
+  content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats at the table.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses the provider and falls back automatically to the no-AI House Brain when credits or service fail. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert changes evaluation depth, never legality.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme interest tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">House / Hotel Limit</strong><span class="t-body ink-2">Shared bank supply for construction.</span></div><div><strong class="t-label f12 g100">Turn Time</strong><span class="t-body ink-2">Active players have unlimited time. A separate inactivity clock appears to everyone after 30 seconds without input; hiding the game tab starts it immediately.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Settle an open payment through legal rescue actions or declare bankruptcy. Human bankrupt players become read-only spectators; bots are eliminated without spectator controls.</span></div></div>`,
   },
   {
     id: "reconnect-accessibility",
@@ -1116,9 +1138,19 @@ function historyParticipant(entry, player) {
 }
 
 function historyRowWon(participant, entry) {
-  if (participant) return participant.finalPlacement === 1;
+  if (Number.isInteger(participant?.finalPlacement) && participant.finalPlacement > 0) return participant.finalPlacement === 1;
   if (entry.won === true) return true;
   return entry.result === 'WIN';
+}
+
+function historyRowResult(participant, entry) {
+  if (Number.isInteger(participant?.finalPlacement) && participant.finalPlacement > 0) {
+    return participant.finalPlacement === 1 ? 'WIN' : 'PLACE ' + participant.finalPlacement;
+  }
+  if (participant?.bankrupt === true) return 'BANKRUPT';
+  if (entry.won === true || entry.result === 'WIN') return 'WIN';
+  if (entry.won === false || entry.result === 'LOSS' || entry.result === 'LOST') return 'LOSS';
+  return 'RESULT NOT RECORDED';
 }
 
 function historyRowDate(entry) {
@@ -1128,27 +1160,28 @@ function historyRowDate(entry) {
 function historyRowDeeds(participant, entry) {
   if (participant?.propertyCount != null) return participant.propertyCount;
   if (entry.properties != null) return entry.properties;
-  return 0;
+  return 'NOT RECORDED';
 }
 
 function playerHistoryMetaHTML(participants, deeds, events, combos) {
-  const eventsTone = events ? 'g300' : 'ink-3';
-  const combosTone = combos ? 'g300' : 'ink-3';
-  return '<div class="player-history-meta"><span class="t-micro ink-3">' + participants + ' PLAYERS</span><span class="t-micro ink-3">' + deeds + ' DEEDS</span><span class="t-micro ' + eventsTone + '">' + events + ' EVENTS</span><span class="t-micro ' + combosTone + '">' + combos + ' COMBOS</span></div></article>';
+  const eventsTone = events !== 'NOT RECORDED' && events ? 'g300' : 'ink-3';
+  const combosTone = combos !== 'NOT RECORDED' && combos ? 'g300' : 'ink-3';
+  return '<div class="player-history-meta"><span class="t-micro ink-3">' + esc(String(participants)) + ' PLAYERS</span><span class="t-micro ink-3">' + esc(String(deeds)) + ' DEEDS</span><span class="t-micro ' + eventsTone + '">' + esc(String(events)) + ' EVENTS</span><span class="t-micro ' + combosTone + '">' + esc(String(combos)) + ' COMBOS</span></div></article>';
 }
 
 function historyRowHTML(entry, index, history, player) {
   const participant = historyParticipant(entry, player);
   const won = historyRowWon(participant, entry);
+  const result = historyRowResult(participant, entry);
   const date = historyRowDate(entry);
   const deeds = historyRowDeeds(participant, entry);
-  const participants = Array.isArray(entry.participants) ? entry.participants.length : '—';
-  const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 0;
-  const combos = Array.isArray(entry.eventCombinations) ? entry.eventCombinations.length : 0;
-  return '<article class="player-history-row' + (won ? ' is-win' : '') + '"><div class="player-history-main"><span class="t-micro ink-3">' + date + ' · MATCH ' + String(history.length - index).padStart(2, '0') + '</span><strong class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + (won ? 'WIN' : 'ROUND COMPLETE') + '</strong></div>' + playerHistoryMetaHTML(participants, deeds, events, combos);;
+  const participants = Array.isArray(entry.participants) ? entry.participants.length : 'NOT RECORDED';
+  const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 'NOT RECORDED';
+  const combos = Array.isArray(entry.eventCombinations) ? entry.eventCombinations.length : 'NOT RECORDED';
+  return '<article class="player-history-row' + (won ? ' is-win' : '') + '"><div class="player-history-main"><span class="t-micro ink-3">' + esc(date) + ' · MATCH ' + String(history.length - index).padStart(2, '0') + '</span><strong class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + esc(result) + '</strong></div>' + playerHistoryMetaHTML(participants, deeds, events, combos);
 }
 
-function playerHistoryHTML(history, player) {
+export function playerHistoryHTML(history, player) {
   const scope = state.selectedPlayerHistoryScope || "all";
   const filtered = history.filter((entry) => historyScopeMatch(entry, scope));
   if (!filtered.length) return '<p class="t-body ink-3 social-empty">NO MATCHES IN THIS HISTORY VIEW.</p>';
@@ -1240,7 +1273,7 @@ function renderPlayerHistoryView(card, player) {
   const history = state.selectedPlayerHistory || [];
   const name = esc(player.displayName || player.name);
   const scopes = historyScopesHTML();
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Recent completed matches visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Recent match records visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
 }
 
 function renderPlayerProfileView(card, player, accountId) {
@@ -1251,7 +1284,17 @@ function renderPlayerProfileView(card, player, accountId) {
   const bits = playerIdentityBits(player);
   const facts = playerFactsBits(player);
   const actions = playerActionBits(player, canSocial, friendStatus);
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${bits.name}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${bits.name}</strong><span class="t-micro ink-3">${bits.online}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${facts.games}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${facts.wins}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${facts.achievements}</strong></div><div><span class="t-micro ink-3">MUTUAL FRIENDS</span><strong class="t-label f13 g300">${facts.mutual}</strong></div></div><div class="player-profile-actions">${playerActionPanelHTML(player, canSocial, actions, friendLabel)}</div>`;
+  const localId = state.players[0]?.serverId || state.players[0]?.id;
+  const targetId = player.serverId || player.roomPlayerId || player.id;
+  const activeHumans = state.players.filter(candidate => !candidate.bot && !candidate.bankrupt && !candidate.spectating);
+  const eligibleTarget = state.phase === "lobby" || state.phase === "playing"
+    ? !player.bot && !player.bankrupt && !player.spectating && String(targetId) !== String(localId)
+    : false;
+  const voteDisabled = activeHumans.length < 3;
+  const voteAction = eligibleTarget
+    ? `<div class="player-profile-votekick"><button class="btn-dark" type="button" data-player-action="vote-kick" ${voteDisabled ? 'disabled aria-describedby="player-votekick-help"' : ""}><span class="t-label f11">START VOTE KICK</span></button><span class="t-micro ink-3" id="player-votekick-help">${voteDisabled ? "A vote needs at least three human seats." : "A passed vote removes this seat from the room."}</span></div>`
+    : "";
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${bits.name}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${bits.name}</strong><span class="t-micro ink-3">${bits.online}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${facts.games}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${facts.wins}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${facts.achievements}</strong></div><div><span class="t-micro ink-3">MUTUAL FRIENDS</span><strong class="t-label f13 g300">${facts.mutual}</strong></div></div><div class="player-profile-actions">${playerActionPanelHTML(player, canSocial, actions, friendLabel)}</div>${voteAction}`;
   renderRecentMatches(card, player);
 }
 

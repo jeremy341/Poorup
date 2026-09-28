@@ -14,7 +14,7 @@ import { AUCTION_MS, snoozeAuctionSurface } from "./clientStateSync.js";
 import { accentOf, popIconHTML, kindLabel } from "./clientPopupUi.js";
 import { closeSurface } from "./clientSurfaces.js";
 
-let host = { emitServer: noop, say: noop, renderChat: noop };
+let host = { emitServer: noop, say: noop, renderChat: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 
 function noop() {}
 
@@ -30,21 +30,22 @@ let auctionTimer = null;
 let lastAuctionAnnouncementKey = null;
 let auctionActionPending = false;
 let auctionActionTimer = null;
+let auctionActionStatusNode = null;
 
 function clearAuctionActionTimer() {
   clearTimeout(auctionActionTimer);
   auctionActionTimer = null;
 }
 
-function beginAuctionAction() {
+function beginAuctionAction(control = document.activeElement) {
   if (auctionActionPending) return false;
   auctionActionPending = true;
+  auctionActionStatusNode = host.captureActionStatusNode(control);
   clearAuctionActionTimer();
   auctionActionTimer = setTimeout(() => {
     auctionActionPending = false;
     auctionActionTimer = null;
-    host.say("Auction response timed out. The table state will refresh when the connection returns.");
-    host.renderChat();
+    host.announceActionStatus("Auction response timed out. The table state will refresh when the connection returns.", auctionActionStatusNode);
     updateAuctionLive();
   }, 8000);
   return true;
@@ -79,54 +80,51 @@ export function stopAuctionTimer() {
   auctionTimer = null;
 }
 
-export function startAuction(tile) {
+export function startAuction(tile, control = document.activeElement, onFailure = noop) {
+  const statusNode = host.captureActionStatusNode(control);
   host.emitServer("decline-property", { tileIndex: tile.i }, (response) => {
     if (response?.success === false) {
-      host.say(response.error || "The auction could not be opened.");
-      host.renderChat();
+      const retryStatusNode = onFailure();
+      host.announceActionStatus(response.error || "The auction could not be opened.", retryStatusNode || statusNode);
     }
   });
 }
 
-function humanBid(inc) {
+function humanBid(inc, control) {
   const a = state.auction;
   if (!a) return;
   if (auctionActionPending) return;
   const me = state.players[0];
   if (a.passed.p1) {
-    host.say("You already passed on this auction.");
-    host.renderChat();
+    host.announceActionStatus("You already passed on this auction.", host.captureActionStatusNode(control));
     return;
   }
   if (me.cash < a.bid + inc) {
-    host.say(`That raise costs $${(a.bid + inc).toLocaleString()} and you hold $${Number(me.cash || 0).toLocaleString()}.`);
-    host.renderChat();
+    host.announceActionStatus(`That raise costs $${(a.bid + inc).toLocaleString()} and you hold $${Number(me.cash || 0).toLocaleString()}.`, host.captureActionStatusNode(control));
     return;
   }
-  if (!beginAuctionAction()) return;
+  if (!beginAuctionAction(control)) return;
   updateAuctionLive();
   host.emitServer("auction-bid", { amount: a.bid + inc }, (response) => {
     clearAuctionActionTimer();
     auctionActionPending = false;
     if (response?.success === false) {
-      host.say(response.error || "Bid rejected.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "Bid rejected.", auctionActionStatusNode);
     }
     updateAuctionLive();
   });
 }
 
-function humanPassAuction() {
+function humanPassAuction(control) {
   const a = state.auction;
   if (!a) return;
-  if (!beginAuctionAction()) return;
+  if (!beginAuctionAction(control)) return;
   updateAuctionLive();
   host.emitServer("auction-pass", {}, (response) => {
     clearAuctionActionTimer();
     auctionActionPending = false;
     if (response?.success === false) {
-      host.say(response.error || "You cannot pass this auction.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "You cannot pass this auction.", auctionActionStatusNode);
     }
     updateAuctionLive();
   });
@@ -217,9 +215,9 @@ export function renderAuction() {
   card.dataset.auctionTile = String(a.tileIndex);
 
   card.querySelectorAll("[data-bid]").forEach((btn) => {
-    btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid)));
+    btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid), btn));
   });
-  $("#auction-pass").addEventListener("click", humanPassAuction);
+  $("#auction-pass").addEventListener("click", event => humanPassAuction(event.currentTarget));
   $("#auction-close")?.addEventListener("click", () => {
     // Dismissing a live auction snoozes re-rendering instead of fighting it.
     snoozeAuctionSurface();

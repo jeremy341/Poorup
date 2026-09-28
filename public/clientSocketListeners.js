@@ -9,7 +9,7 @@
    ============================================================ */
 import { state, saveAccountSession, activeAppearance, buildPlayers } from "./clientState.js";
 import { $ } from "./clientDom.js";
-import { applyServerState } from "./clientStateSync.js";
+import { afterPieceMovement, applyServerState } from "./clientStateSync.js";
 import { TILES, TILE_COUNT } from "./clientBoardData.js";
 import { serverTileFor } from "./clientDeedRules.js";
 import { renderRightRail } from "./clientRailRender.js";
@@ -34,8 +34,10 @@ let host = {
   emitServer: noop,
   handleRestoreSessionResponse: noop,
   say: noop,
+  notice: noop,
   renderChat: noop,
   renderAll: noop,
+  addActivityNotice: noop,
   openChoiceModal: noop,
   openCardReveal: noop,
   openOfferModal: noop,
@@ -80,7 +82,7 @@ export function reconcileSignedOutState(message = "This account session ended in
   // A live-room render can persist a guest save; ensure account-owned local
   // data stays cleared after the render hook has completed.
   clearLocalPlayerData();
-  host.say(message);
+  host.notice("ACCOUNT", message);
 }
 
 export function onStorage(event) {
@@ -116,7 +118,7 @@ function restoreAccountSession(socket) {
   socket.emit("account-restore", { sessionToken: state.account.sessionToken }, (response) => {
     if (response?.success) updateAccountFromResponse({ account: response.account, sessionToken: state.account.sessionToken });
     else if (isExplicitSessionInvalidation(response)) reconcileSignedOutState(response.error || "Account session expired. Sign in again.");
-    else host.say("Account restore is temporarily unavailable. We will retry when the connection returns.");
+    else host.notice("ACCOUNT", "Account restore is temporarily unavailable. We will retry when the connection returns.");
   });
 }
 
@@ -170,10 +172,6 @@ function onBotStatus(status) {
   const actionLabel = status.actionId ? String(status.actionId).toUpperCase() : "ACTION COMPLETE";
   label.textContent = `${status.nickname} · ${brainLabel} · ${actionLabel}`;
   label._hideTimer = setTimeout(() => label.classList.add("is-hidden"), 3200);
-  if (status.actionId) {
-    host.say(`${status.nickname} chose ${status.actionId}${status.fallback ? " (house fallback)" : " (AI advisor)"}.`);
-    host.renderChat();
-  }
 }
 
 function clearBotStatus() {
@@ -313,7 +311,15 @@ function onPurchaseOffer(offer) {
   state.pendingBuyTile = tile.i;
   const name = purchaseOfferName(serverTile, offer, tile);
   const price = purchaseOfferPrice(serverTile, offer, tile);
-  host.openChoiceModal({ ...tile, name, price, canAfford: offer?.canAfford, canSeekSponsorship: offer?.canSeekSponsorship !== false });
+  const surface = { ...tile, name, price, canAfford: offer?.canAfford, canSeekSponsorship: offer?.canSeekSponsorship !== false };
+  afterPieceMovement(() => {
+    if (state.pendingBuyTile !== tile.i) return;
+    host.openChoiceModal(surface);
+  });
+}
+
+function routeActivityNotice(text) {
+  host.addActivityNotice(text);
 }
 
 function onCardReveal(reveal) {
@@ -321,7 +327,11 @@ function onCardReveal(reveal) {
   if (!tile) return;
   if (tile.kind !== "chance" && tile.kind !== "chest") return;
   const event = { text: reveal.text || "Card resolved.", action: reveal.action, cash: Number(reveal.cash) || 0 };
-  host.openCardReveal(tile, event);
+  const roomCode = state.roomCode;
+  afterPieceMovement(() => {
+    if (state.roomCode !== roomCode) return;
+    host.openCardReveal(tile, event);
+  });
 }
 
 function tradeOfferSides(trade) {
@@ -394,7 +404,10 @@ function attachAccountListeners(socket) {
 }
 
 function attachChatListeners(socket) {
-  socket.on("system-message", ({ text }) => { host.say(text); host.renderChat(); });
+  socket.on("system-message", ({ text }) => {
+    if (text) routeActivityNotice(text);
+    host.renderAll();
+  });
   socket.on("chat-message", onChatMessage);
 }
 
