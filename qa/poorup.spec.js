@@ -213,7 +213,10 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#rr-body')).toContainText('DERIVATIVES');
     await page.locator('#rr-body [data-market-desk]').click();
     await expect(page.locator('#market-modal')).not.toHaveClass(/is-hidden/);
-    await expect(page.locator('#market-card .market-derivatives-unavailable')).toHaveCount(11);
+    await expect(page.locator('#market-card .market-derivatives-unavailable')).toHaveCount(1);
+    await page.locator('#market-card .market-advanced-settings > summary').click();
+    await expect(page.locator('#market-card .market-derivatives-unavailable')).toBeVisible();
+    await expect(page.locator('#market-card .market-derivatives-unavailable')).toContainText('SERVER PRICING POLICY NOT CONFIGURED');
     await expect(page.locator('#market-card [data-market-advanced="open-option"]')).toHaveCount(0);
     await page.locator('#market-modal-close').click();
     await page.locator('#rr-body #activity-mode-casino').click();
