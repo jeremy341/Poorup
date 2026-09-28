@@ -50,6 +50,7 @@ jobs:
         with:
           name: coverage-data-shard-${{ matrix.shard }}
           path: .nyc_output
+          include-hidden-files: true
           if-no-files-found: warn
       - name: Upload per-suite timing record
         if: always()
