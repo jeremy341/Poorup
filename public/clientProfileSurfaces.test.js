@@ -38,7 +38,7 @@ check("recentResultsAreCategoricalAndTruthful", () => {
 });
 
 check("historyRowsExpandWithAccessibleControlsAndRestoreFocus", () => {
-  const html = profileHistoryRowHTML({ matchId: "stable-id", result: "WIN", playedAt: "2026-09-01" }, 0, 1, "self");
+  const html = profileHistoryRowHTML({ matchId: "stable-id", result: "WIN", playedAt: "2026-09-01" }, 0, 1, { accountId: "self" });
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /aria-controls=/);
   for (const label of ["SUMMARY", "PLAYERS", "ECONOMY &amp; DEALS", "EVENTS"]) assert.ok(html.includes(label), `${label} detail tab missing`);
@@ -48,13 +48,13 @@ check("historyRowsExpandWithAccessibleControlsAndRestoreFocus", () => {
 });
 
 check("legacyMissingFieldsRenderNotRecorded", () => {
-  const html = profileHistoryRowHTML({ matchId: "older-id", playedAt: "2026-09-01" }, 0, 1, "self");
+  const html = profileHistoryRowHTML({ matchId: "older-id", playedAt: "2026-09-01" }, 0, 1, { accountId: "self" });
   assert.match(html, /NOT RECORDED/);
   assert.match(html, /data-profile-detail-source="unavailable"/);
 });
 
 check("legacyRowsDoNotInventDateDeedOrEventCounts", () => {
-  const html = profileHistoryRowHTML({ matchId: "sparse-legacy" }, 0, 1, "self");
+  const html = profileHistoryRowHTML({ matchId: "sparse-legacy" }, 0, 1, { accountId: "self" });
   assert.match(html, /NOT RECORDED/);
   assert.doesNotMatch(html, /· ROUND ·|DEEDS 0|>0 EVENTS</);
 });
@@ -65,7 +65,7 @@ check("scrollableDefaultResultsPanelIsKeyboardFocusable", () => {
 });
 
 check("historyToggleKeepsMatchContextInAccessibleName", () => {
-  const html = profileHistoryRowHTML({ matchId: "named-match", result: "WIN", playedAt: "2026-09-01" }, 0, 1, "self");
+  const html = profileHistoryRowHTML({ matchId: "named-match", result: "WIN", playedAt: "2026-09-01" }, 0, 1, { accountId: "self" });
   const initial = html.match(/aria-label="([^"]+)"/)[1];
   assert.match(initial, /^Show details for .+: WIN$/);
   assert.equal(typeof profileHistoryToggleAccessibleName, "function");
@@ -76,12 +76,12 @@ check("historyToggleKeepsMatchContextInAccessibleName", () => {
 });
 
 check("redactedHistoryCannotRenderPrivateFields", () => {
-  const redacted = profileHistoryRowHTML({ matchId: "public-id", result: "ROUND", endingCash: 9123, playerContracts: [{ terms: "secret-term" }] }, 0, 1, "self");
+  const redacted = profileHistoryRowHTML({ matchId: "public-id", result: "ROUND", endingCash: 9123, playerContracts: [{ terms: "secret-term" }] }, 0, 1, { accountId: "self" });
   assert.match(redacted, /data-profile-detail-source="unavailable"/);
   assert.doesNotMatch(redacted, /9123|secret-term/);
-  const owner = profileHistoryRowHTML({ matchId: "private-id", result: "ROUND" }, 0, 1, "self", {
+  const owner = profileHistoryRowHTML({ matchId: "private-id", result: "ROUND" }, 0, 1, { accountId: "self", ownerRecord: {
     matchId: "private-id", participants: [{ accountId: "self", endingCash: 500, finalPlacement: 2 }], botDecisions: ["do-not-render"],
-  });
+  } });
   assert.match(owner, /data-profile-detail-source="owner"/);
   assert.match(owner, /\$500/);
   assert.doesNotMatch(owner, /do-not-render/);

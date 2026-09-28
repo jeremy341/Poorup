@@ -78,7 +78,7 @@ check("cancelRestoresFocusToRailTrigger", () => {
   assert.equal(closed, "#bank-loan-modal");
 });
 
-check("staleTermsAreRevalidatedByServer", () => {
+check("confirmUsesAnIdempotentServerRequestAndShowsStaleTermRejection", () => {
   let sent;
   const card = makeCard();
   installDocument(card);
@@ -88,18 +88,32 @@ check("staleTermsAreRevalidatedByServer", () => {
   card.listener({ target: { closest: selector => selector.includes("confirm") ? card.confirm : null } });
   assert.equal(sent.event, "take-bank-loan");
   assert.deepEqual(sent.payload, { requestId: "request-1" });
+  sent.ack({ success: false, error: "The offer changed; refresh the table." });
+  assert.equal(card.confirm.disabled, false);
+  assert.equal(card.confirm.attributes["aria-busy"], undefined);
+  assert.equal(card.status.textContent, "The offer changed; refresh the table.");
 });
 
-check("confirmUsesExistingIdempotentAcceptEvent", () => {
-  let sent;
+check("successfulConfirmationRefreshesTheWalletAndClosesTheOffer", () => {
+  let acknowledge;
+  let refreshes = 0;
+  let closed = null;
   const card = makeCard();
   installDocument(card);
-  configureBankLoanUi({ getOffer: () => offer, openSurface: () => {}, emitServer: (event, payload) => { sent = { event, payload }; }, createRequestId: kind => `${kind}-id` });
+  configureBankLoanUi({
+    getOffer: () => offer,
+    openSurface: () => {},
+    closeSurface: selector => { closed = selector; },
+    emitServer: (_event, _payload, ack) => { acknowledge = ack; },
+    createRequestId: () => "request-success",
+    refreshEconomySnapshot: () => { refreshes += 1; },
+  });
   openBankLoanOffer({});
   bindBankLoanUi();
   card.listener({ target: { closest: selector => selector.includes("confirm") ? card.confirm : null } });
-  assert.equal(sent.event, "take-bank-loan");
-  assert.equal(sent.payload.requestId, "take-bank-loan-id");
+  acknowledge({ success: true });
+  assert.equal(refreshes, 1);
+  assert.equal(closed, "#bank-loan-modal");
 });
 
 check("rejectionAppearsBesideDialogActionAndAnnouncesOnce", () => {

@@ -37,51 +37,79 @@ function inside(parent, candidate) {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
+function hasGitMarker(directory, io) {
+  const marker = path.join(directory, '.git');
+  try {
+    const stats = io.lstatSync(marker);
+    if (stats.isFile() || stats.isDirectory()) return true;
+    throw new Error('Git metadata marker has an unsupported type.');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw new Error('Cannot verify whether the data path is inside a Git working tree.', { cause: error });
+  }
+}
+
 function hasGitAncestor(candidate, io = fs) {
   let current = candidate;
   while (true) {
-    const marker = path.join(current, '.git');
-    try {
-      const stats = io.lstatSync(marker);
-      if (stats.isFile() || stats.isDirectory()) return true;
-      throw new Error('Git metadata marker has an unsupported type.');
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw new Error('Cannot verify whether the data path is inside a Git working tree.', { cause: error });
-    }
+    if (hasGitMarker(current, io)) return true;
     const parent = path.dirname(current);
     if (parent === current) return false;
     current = parent;
   }
 }
 
-function validatePreviewRepository(value, io) {
-  if (typeof value !== 'string' || !value.trim() || !path.isAbsolute(value.trim())) {
-    throw new Error('Local repository preview requires an absolute repository root.');
-  }
-  const resolved = path.resolve(value.trim());
+function hasAbsolutePath(value) {
+  return typeof value === 'string' && value.trim().length > 0 && path.isAbsolute(value.trim());
+}
+
+function isCanonicalRealDirectory(directory, stats, io) {
+  if (stats.isSymbolicLink()) return false;
+  if (!stats.isDirectory()) return false;
+  return io.realpathSync(directory) === directory;
+}
+
+function assertRealDirectory(directory, io, missingMessage, invalidMessage) {
   let stats;
-  try { stats = io.lstatSync(resolved); } catch { throw new Error('Local repository preview root must exist.'); }
-  if (stats.isSymbolicLink() || !stats.isDirectory() || io.realpathSync(resolved) !== resolved) {
-    throw new Error('Local repository preview root must be a real directory, not a symlink.');
-  }
-  const marker = path.join(resolved, '.git');
+  try { stats = io.lstatSync(directory); } catch { throw new Error(missingMessage); }
+  if (!isCanonicalRealDirectory(directory, stats, io)) throw new Error(invalidMessage);
+  return stats;
+}
+
+function hasPreviewGitMetadata(directory, io) {
+  const marker = path.join(directory, '.git');
   try {
     const markerStats = io.lstatSync(marker);
     if (!markerStats.isFile() && !markerStats.isDirectory()) throw new Error('Local repository preview root has invalid Git metadata.');
   } catch { throw new Error('Local repository preview root must contain Git metadata.'); }
+}
+
+function validatePreviewRepository(value, io) {
+  if (!hasAbsolutePath(value)) throw new Error('Local repository preview requires an absolute repository root.');
+  const resolved = path.resolve(value.trim());
+  assertRealDirectory(resolved, io, 'Local repository preview root must exist.', 'Local repository preview root must be a real directory, not a symlink.');
+  hasPreviewGitMetadata(resolved, io);
   return resolved;
 }
 
-function validatedDirectory(value, name, repositoryRoot, io = fs, { allowedRepositoryPath = '' } = {}) {
+function resolveDirectoryPath(value, name) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required.`);
-  const resolved = path.resolve(value.trim());
   if (!path.isAbsolute(value.trim())) throw new Error(`${name} must be an absolute path.`);
+  const resolved = path.resolve(value.trim());
   if (resolved === path.parse(resolved).root) throw new Error(`${name} cannot be a filesystem root.`);
+  return resolved;
+}
+
+function validateDirectoryScope(resolved, name, repositoryRoot, allowedRepositoryPath) {
   const allowedPreview = Boolean(allowedRepositoryPath && resolved === allowedRepositoryPath);
   if (inside(repositoryRoot, resolved) && !allowedPreview) throw new Error(`${name} cannot be inside the repository.`);
-  let stats;
-  try { stats = io.lstatSync(resolved); } catch { throw new Error(`${name} must be an existing directory.`); }
-  if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error(`${name} must be a real directory, not a symlink.`);
+  return allowedPreview;
+}
+
+function validatedDirectory({ value, name, repositoryRoot, io = fs, allowedRepositoryPath = '' }) {
+  const resolved = resolveDirectoryPath(value, name);
+  const allowedPreview = validateDirectoryScope(resolved, name, repositoryRoot, allowedRepositoryPath);
+  assertRealDirectory(resolved, io, `${name} must be an existing directory.`, `${name} must be a real directory, not a symlink.`);
   const actual = io.realpathSync(resolved);
   if (actual !== resolved) throw new Error(`${name} resolves through a symlink.`);
   if (hasGitAncestor(actual, io) && !allowedPreview) throw new Error(`${name} cannot be inside a Git working tree.`);
@@ -137,16 +165,20 @@ function assertRegularFile(filePath, io) {
   return true;
 }
 
+function isAccountBackup(entry) {
+  const name = entry.name;
+  const hasStorePrefix = PURGED_BACKUP_PREFIXES.some(prefix => name.startsWith(prefix));
+  const hasSupportedSuffix = name.endsWith('.json') || name.endsWith('.json.sha256');
+  return hasStorePrefix && hasSupportedSuffix;
+}
+
 function backupInventory(directory, io) {
   if (!directory) return [];
-  const entries = io.readdirSync(directory, { withFileTypes: true });
-  const backups = [];
-  for (const entry of entries) {
-    if (!PURGED_BACKUP_PREFIXES.some(prefix => entry.name.startsWith(prefix)) || !(entry.name.endsWith('.json') || entry.name.endsWith('.json.sha256'))) continue;
+  const backups = io.readdirSync(directory, { withFileTypes: true }).filter(isAccountBackup);
+  return backups.map(entry => {
     if (entry.isSymbolicLink() || !entry.isFile()) throw new Error(`Account-store backup is not a regular file: ${entry.name}.`);
-    backups.push(path.join(directory, entry.name));
-  }
-  return backups.sort();
+    return path.join(directory, entry.name);
+  }).sort();
 }
 
 function unrecognizedDataFileCount(directory, io) {
@@ -180,40 +212,72 @@ function restoreFiles(snapshots, backups) {
   }
 }
 
-export function purgeAccountData({
-  dataDir = process.env.POORUP_DATA_DIR,
-  backupDir = process.env.POORUP_BACKUP_DIR || '',
-  env = process.env,
-  repositoryRoot = REPOSITORY_ROOT,
-  previewRepositoryRoot = '',
-  apply = false,
-  confirmation = '',
-  expectedDataDir = '',
-  adminAllowlistCleared = false,
-  replaceFile = atomicReplace,
-  removeFile = filePath => fs.unlinkSync(filePath),
-  io = fs
-} = {}) {
-  if (previewRepositoryRoot && apply) throw new Error('Local repository data is available for read-only preview only.');
-  const previewRoot = previewRepositoryRoot ? validatePreviewRepository(previewRepositoryRoot, io) : '';
-  const previewDataDir = previewRoot ? path.join(previewRoot, 'server', 'data') : '';
-  if (previewRoot && dataDir && path.resolve(dataDir) !== previewDataDir) {
-    throw new Error('Local repository preview only accepts its exact server/data directory.');
-  }
-  const dataPath = previewRoot ? previewDataDir : dataDir;
-  const root = validatedDirectory(dataPath, 'POORUP_DATA_DIR', path.resolve(repositoryRoot), io, { allowedRepositoryPath: previewDataDir });
-  const backupRoot = backupDir
-    ? validatedDirectory(backupDir, 'POORUP_BACKUP_DIR', path.resolve(repositoryRoot), io)
-    : '';
-  const configuredAdminAllowlistEntries = normalizeAdminIds(env?.POORUP_ADMIN_ACCOUNT_IDS).length;
-  if (apply) {
-    if (confirmation !== ACCOUNT_PURGE_CONFIRMATION) throw new Error('Exact account purge confirmation is required.');
-    if (path.resolve(expectedDataDir || '') !== root) throw new Error('Expected data directory must exactly match POORUP_DATA_DIR.');
-    if (configuredAdminAllowlistEntries) throw new Error('Remove the old POORUP_ADMIN_ACCOUNT_IDS entries before applying an all-account reset.');
-    if (!adminAllowlistCleared) throw new Error('Confirm the persistent admin allowlist was cleared before applying an all-account reset.');
-  }
+function optionOrDefault(options, key, fallback) {
+  return options[key] === undefined ? fallback : options[key];
+}
 
-  const paths = storePaths(root);
+function normalizePurgeOptions(options) {
+  return {
+    dataDir: optionOrDefault(options, 'dataDir', process.env.POORUP_DATA_DIR),
+    backupDir: optionOrDefault(options, 'backupDir', process.env.POORUP_BACKUP_DIR || ''),
+    env: optionOrDefault(options, 'env', process.env),
+    repositoryRoot: optionOrDefault(options, 'repositoryRoot', REPOSITORY_ROOT),
+    previewRepositoryRoot: optionOrDefault(options, 'previewRepositoryRoot', ''),
+    apply: optionOrDefault(options, 'apply', false),
+    confirmation: optionOrDefault(options, 'confirmation', ''),
+    expectedDataDir: optionOrDefault(options, 'expectedDataDir', ''),
+    adminAllowlistCleared: optionOrDefault(options, 'adminAllowlistCleared', false),
+    replaceFile: optionOrDefault(options, 'replaceFile', atomicReplace),
+    removeFile: optionOrDefault(options, 'removeFile', filePath => fs.unlinkSync(filePath)),
+    io: optionOrDefault(options, 'io', fs),
+  };
+}
+
+function previewDataDirectory(options) {
+  if (!options.previewRepositoryRoot) return '';
+  if (options.apply) throw new Error('Local repository data is available for read-only preview only.');
+  const previewRoot = validatePreviewRepository(options.previewRepositoryRoot, options.io);
+  const previewDataDir = path.join(previewRoot, 'server', 'data');
+  if (!options.dataDir) return previewDataDir;
+  if (path.resolve(options.dataDir) !== previewDataDir) throw new Error('Local repository preview only accepts its exact server/data directory.');
+  return previewDataDir;
+}
+
+function resolvePurgeDirectories(options) {
+  const previewDataDir = previewDataDirectory(options);
+  const dataPath = previewDataDir || options.dataDir;
+  const root = validatedDirectory({ value: dataPath, name: 'POORUP_DATA_DIR', repositoryRoot: path.resolve(options.repositoryRoot), io: options.io, allowedRepositoryPath: previewDataDir });
+  const backupRoot = options.backupDir
+    ? validatedDirectory({ value: options.backupDir, name: 'POORUP_BACKUP_DIR', repositoryRoot: path.resolve(options.repositoryRoot), io: options.io })
+    : '';
+  return { root, backupRoot };
+}
+
+function requirePurgeConfirmation(options) {
+  if (options.confirmation !== ACCOUNT_PURGE_CONFIRMATION) throw new Error('Exact account purge confirmation is required.');
+}
+
+function requireExpectedDataPath(options, root) {
+  if (path.resolve(options.expectedDataDir || '') !== root) throw new Error('Expected data directory must exactly match POORUP_DATA_DIR.');
+}
+
+function requireAdminAllowlistRemoved(configuredAdminAllowlistEntries) {
+  if (configuredAdminAllowlistEntries) throw new Error('Remove the old POORUP_ADMIN_ACCOUNT_IDS entries before applying an all-account reset.');
+}
+
+function requireAllowlistRemovalConfirmed(options) {
+  if (!options.adminAllowlistCleared) throw new Error('Confirm the persistent admin allowlist was cleared before applying an all-account reset.');
+}
+
+function assertPurgeAuthorized(options, root, configuredAdminAllowlistEntries) {
+  if (!options.apply) return;
+  requirePurgeConfirmation(options);
+  requireExpectedDataPath(options, root);
+  requireAdminAllowlistRemoved(configuredAdminAllowlistEntries);
+  requireAllowlistRemovalConfirmed(options);
+}
+
+function readConfiguredStores(paths, io) {
   const parsed = new Map();
   const stores = Object.entries(paths).map(([name, filePath]) => {
     const exists = assertRegularFile(filePath, io);
@@ -222,40 +286,69 @@ export function purgeAccountData({
     parsed.set(name, loaded);
     return { name, path: filePath, exists: true, records: countRecords(loaded.value) };
   });
-  const backups = backupInventory(backupRoot, io);
-  const additionalFiles = additionalAccountFilePaths(root, io);
-  const unrecognizedFiles = unrecognizedDataFileCount(root, io);
+  return { parsed, stores };
+}
+
+function createPurgePlan(options) {
+  const { root, backupRoot } = resolvePurgeDirectories(options);
+  const configuredAdminAllowlistEntries = normalizeAdminIds(options.env?.POORUP_ADMIN_ACCOUNT_IDS).length;
+  assertPurgeAuthorized(options, root, configuredAdminAllowlistEntries);
+  const paths = storePaths(root);
+  const { parsed, stores } = readConfiguredStores(paths, options.io);
+  const backups = backupInventory(backupRoot, options.io);
+  const additionalFiles = additionalAccountFilePaths(root, options.io);
+  const unrecognizedFiles = unrecognizedDataFileCount(root, options.io);
   const report = {
-    mode: apply ? 'applied' : 'dry-run',
+    mode: options.apply ? 'applied' : 'dry-run',
     stores,
     accountStoreBackups: backups.length,
     configuredAdminAllowlistEntries,
     additionalAccountFilesToDelete: additionalFiles.length,
     unrecognizedDataFileCount: unrecognizedFiles,
   };
-  if (!apply) return report;
-  if (unrecognizedFiles) throw new Error('Unexpected data files must be classified before applying an all-account reset.');
+  return { ...options, root, paths, parsed, stores, backups, additionalFiles, unrecognizedFiles, report };
+}
 
-  const snapshots = stores
+function purgeSnapshots(plan) {
+  const snapshots = plan.stores
     .filter(store => store.exists)
-    .map(store => [store.path, parsed.get(store.name).bytes]);
-  snapshots.push(...additionalFiles.map(filePath => [filePath, io.readFileSync(filePath)]));
-  const backupSnapshots = backups.map(filePath => [filePath, io.readFileSync(filePath)]);
+    .map(store => [store.path, plan.parsed.get(store.name).bytes]);
+  snapshots.push(...plan.additionalFiles.map(filePath => [filePath, plan.io.readFileSync(filePath)]));
+  const backupSnapshots = plan.backups.map(filePath => [filePath, plan.io.readFileSync(filePath)]);
+  return { snapshots, backupSnapshots };
+}
+
+function resetStores(plan) {
+  for (const store of plan.stores) {
+    if (!store.exists || PRESERVED_STORES.has(store.name)) continue;
+    const previous = plan.parsed.get(store.name)?.value;
+    const bytes = Buffer.from(`${JSON.stringify(emptyStore(store.name, previous), null, 2)}\n`, 'utf8');
+    plan.replaceFile(store.path, bytes);
+  }
+}
+
+function removePurgeFiles(plan) {
+  for (const filePath of plan.additionalFiles) plan.removeFile(filePath);
+  for (const filePath of plan.backups) plan.removeFile(filePath);
+}
+
+function applyPurgePlan(plan) {
+  if (plan.unrecognizedFiles) throw new Error('Unexpected data files must be classified before applying an all-account reset.');
+  const { snapshots, backupSnapshots } = purgeSnapshots(plan);
   try {
-    for (const store of stores) {
-      if (!store.exists || PRESERVED_STORES.has(store.name)) continue;
-      const previous = parsed.get(store.name)?.value;
-      const bytes = Buffer.from(`${JSON.stringify(emptyStore(store.name, previous), null, 2)}\n`, 'utf8');
-      replaceFile(store.path, bytes);
-    }
-    for (const filePath of additionalFiles) removeFile(filePath);
-    for (const filePath of backups) removeFile(filePath);
+    resetStores(plan);
+    removePurgeFiles(plan);
   } catch {
     try { restoreFiles(snapshots, backupSnapshots); }
     catch { throw new Error('Account purge failed and automatic rollback was incomplete; keep the service drained and restore from the operator backup.'); }
     throw new Error('Account purge failed; all changed stores were rolled back.');
   }
-  return report;
+}
+
+export function purgeAccountData(input = {}) {
+  const plan = createPurgePlan(normalizePurgeOptions(input));
+  if (plan.apply) applyPurgePlan(plan);
+  return plan.report;
 }
 
 function cliOptions(args) {

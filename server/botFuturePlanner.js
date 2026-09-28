@@ -156,29 +156,42 @@ function marketQuote(snapshot, instrumentId) {
   return Number.isFinite(quote) && quote > 0 ? quote : null;
 }
 
-function applyMarketCandidate(snapshot, state, candidate) {
-  if (!['buy', 'sell'].includes(candidate.side) || !candidate.instrumentId) return false;
+function marketOrderContext(snapshot, candidate) {
+  if (!['buy', 'sell'].includes(candidate.side)) return null;
+  if (!candidate.instrumentId) return null;
   const quote = marketQuote(snapshot, candidate.instrumentId);
-  if (quote === null) return false;
+  if (quote === null) return null;
   const quantity = nonNegative(candidate.quantity || 1);
   const fee = Math.max(1, Math.ceil(quote * quantity * MARKET_FEE_RATE));
-  if (candidate.side === 'sell') {
-    const position = state.marketPositions[candidate.instrumentId];
-    if (!position || position.quantity < quantity) return false;
-    state.cash += Math.max(0, quote * quantity - fee);
-    position.realizedPnl = number(position.realizedPnl) + (quote - number(position.averageCost)) * quantity - fee;
-    position.quantity -= quantity;
-    if (position.quantity <= 0) delete state.marketPositions[candidate.instrumentId];
-    return true;
-  }
-  state.cash = Math.max(0, state.cash - quote * quantity - fee);
-  const position = state.marketPositions[candidate.instrumentId] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
+  return { quote, quantity, fee, instrumentId: candidate.instrumentId };
+}
+
+function applyMarketSell(state, context) {
+  const position = state.marketPositions[context.instrumentId];
+  if (!position || position.quantity < context.quantity) return false;
+  state.cash += Math.max(0, context.quote * context.quantity - context.fee);
+  position.realizedPnl = number(position.realizedPnl) + (context.quote - number(position.averageCost)) * context.quantity - context.fee;
+  position.quantity -= context.quantity;
+  if (position.quantity <= 0) delete state.marketPositions[context.instrumentId];
+  return true;
+}
+
+function applyMarketBuy(state, context) {
+  state.cash = Math.max(0, state.cash - context.quote * context.quantity - context.fee);
+  const position = state.marketPositions[context.instrumentId] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
   const existingQuantity = nonNegative(position.quantity);
   const existingCost = number(position.averageCost) * existingQuantity;
-  position.quantity += quantity;
-  position.averageCost = (existingCost + quote * quantity + fee) / Math.max(1, existingQuantity + quantity);
-  state.marketPositions[candidate.instrumentId] = position;
+  position.quantity += context.quantity;
+  position.averageCost = (existingCost + context.quote * context.quantity + context.fee) / Math.max(1, existingQuantity + context.quantity);
+  state.marketPositions[context.instrumentId] = position;
   return true;
+}
+
+function applyMarketCandidate(snapshot, state, candidate) {
+  const context = marketOrderContext(snapshot, candidate);
+  if (!context) return false;
+  if (candidate.side === 'sell') return applyMarketSell(state, context);
+  return applyMarketBuy(state, context);
 }
 
 function applyCasinoCandidate(snapshot, state, candidate) {
@@ -198,60 +211,110 @@ function applyTradeCandidate(state, candidate) {
   return true;
 }
 
-function applyMarketExpansionCandidate(snapshot, state, candidate) {
-  const quote = marketQuote(snapshot, candidate.instrumentId);
-  if (['open-margin', 'open-short', 'cover-short'].includes(candidate.kind) && quote === null) return false;
-  const projectionQuote = quote ?? 0;
-  const quantity = nonNegative(candidate.quantity || 1);
+function marketExpansionNeedsQuote(kind) {
+  return ['open-margin', 'open-short', 'cover-short'].includes(kind);
+}
+
+function marketExpansionQuoteMissing(kind, quote) {
+  if (!marketExpansionNeedsQuote(kind)) return false;
+  return quote === null;
+}
+
+function marketExpansionState(state) {
   const expansion = state.marketExpansion || (state.marketExpansion = {});
   const margin = expansion.margin || (expansion.margin = { balance: 0, maintenance: 0, positions: {} });
   margin.positions ||= {};
   const shorts = expansion.shorts || (expansion.shorts = {});
-  const shortPositions = shorts.positions || (shorts.positions = {});
-  const fee = Math.max(1, Math.ceil(quote * quantity * MARKET_FEE_RATE));
-  if (candidate.kind === 'open-margin') {
-    if (!candidate.instrumentId) return false;
-    state.cash = Math.max(0, state.cash - fee);
-    const position = margin.positions[candidate.instrumentId] || { quantity: 0, averageCost: 0 };
-    position.averageCost = ((number(position.averageCost) * nonNegative(position.quantity)) + projectionQuote * quantity) / Math.max(1, nonNegative(position.quantity) + quantity);
-    position.quantity = nonNegative(position.quantity) + quantity;
-    margin.positions[candidate.instrumentId] = position;
-    margin.balance = number(margin.balance) + projectionQuote * quantity;
-    margin.maintenance = number(margin.maintenance) + projectionQuote * quantity * 0.25;
-    return true;
-  } else if (candidate.kind === 'reduce-margin') {
-    if (number(margin.balance) <= 0) return false;
-    const repayment = Math.min(number(margin.balance), nonNegative(candidate.amount));
-    state.cash = Math.max(0, state.cash - repayment);
-    margin.balance = Math.max(0, number(margin.balance) - repayment);
-    return repayment > 0;
-  } else if (candidate.kind === 'open-short') {
-    if (!candidate.instrumentId) return false;
-    const gross = projectionQuote * quantity;
-    const collateral = Math.ceil(gross * 0.5);
-    state.cash = Math.max(0, state.cash + gross - fee - collateral);
-    shorts.reservedCash = number(shorts.reservedCash) + collateral;
-    const position = shortPositions[candidate.instrumentId] || { quantity: 0, entryQuote: 0, collateral: 0 };
-    position.entryQuote = ((number(position.entryQuote) * nonNegative(position.quantity)) + gross) / Math.max(1, nonNegative(position.quantity) + quantity);
-    position.quantity = nonNegative(position.quantity) + quantity;
-    position.collateral = number(position.collateral) + collateral;
-    shortPositions[candidate.instrumentId] = position;
-    return true;
-  } else if (candidate.kind === 'cover-short') {
-    const position = shortPositions[candidate.instrumentId];
-    if (!position || !candidate.instrumentId) return false;
-    const collateral = Math.min(number(position.collateral), number(shorts.reservedCash));
-    state.cash = Math.max(0, state.cash - Math.max(0, projectionQuote * quantity + fee - collateral));
-    shorts.reservedCash = Math.max(0, number(shorts.reservedCash) - collateral);
-    position.quantity = Math.max(0, nonNegative(position.quantity) - quantity);
-    if (!position.quantity) delete shortPositions[candidate.instrumentId];
-    return true;
-  } else if (candidate.kind === 'open-option') {
-    if (!candidate.instrumentId) return false;
-    state.cash = Math.max(0, state.cash - nonNegative(candidate.premium || 10) * quantity);
-    return true;
-  }
-  return false;
+  shorts.positions ||= {};
+  return { margin, shorts, shortPositions: shorts.positions };
+}
+
+function expansionOrderFee(quote, candidate) {
+  const quantity = nonNegative(candidate.quantity || 1);
+  return Math.max(1, Math.ceil(quote * quantity * MARKET_FEE_RATE));
+}
+
+function marketExpansionContext(snapshot, state, candidate) {
+  const quote = marketQuote(snapshot, candidate.instrumentId);
+  if (marketExpansionQuoteMissing(candidate.kind, quote)) return null;
+  const positionState = marketExpansionState(state);
+  return {
+    quote,
+    projectionQuote: quote ?? 0,
+    quantity: nonNegative(candidate.quantity || 1),
+    fee: expansionOrderFee(quote, candidate),
+    ...positionState,
+  };
+}
+
+function openMarginCandidate(state, candidate, context) {
+  if (!candidate.instrumentId) return false;
+  state.cash = Math.max(0, state.cash - context.fee);
+  const position = context.margin.positions[candidate.instrumentId] || { quantity: 0, averageCost: 0 };
+  const oldQuantity = nonNegative(position.quantity);
+  position.averageCost = ((number(position.averageCost) * oldQuantity) + context.projectionQuote * context.quantity) / Math.max(1, oldQuantity + context.quantity);
+  position.quantity = oldQuantity + context.quantity;
+  context.margin.positions[candidate.instrumentId] = position;
+  context.margin.balance = number(context.margin.balance) + context.projectionQuote * context.quantity;
+  context.margin.maintenance = number(context.margin.maintenance) + context.projectionQuote * context.quantity * 0.25;
+  return true;
+}
+
+function reduceMarginCandidate(state, candidate, context) {
+  if (number(context.margin.balance) <= 0) return false;
+  const repayment = Math.min(number(context.margin.balance), nonNegative(candidate.amount));
+  state.cash = Math.max(0, state.cash - repayment);
+  context.margin.balance = Math.max(0, number(context.margin.balance) - repayment);
+  return repayment > 0;
+}
+
+function openShortCandidate(state, candidate, context) {
+  if (!candidate.instrumentId) return false;
+  const gross = context.projectionQuote * context.quantity;
+  const collateral = Math.ceil(gross * 0.5);
+  state.cash = Math.max(0, state.cash + gross - context.fee - collateral);
+  context.shorts.reservedCash = number(context.shorts.reservedCash) + collateral;
+  const position = context.shortPositions[candidate.instrumentId] || { quantity: 0, entryQuote: 0, collateral: 0 };
+  const oldQuantity = nonNegative(position.quantity);
+  position.entryQuote = ((number(position.entryQuote) * oldQuantity) + gross) / Math.max(1, oldQuantity + context.quantity);
+  position.quantity = oldQuantity + context.quantity;
+  position.collateral = number(position.collateral) + collateral;
+  context.shortPositions[candidate.instrumentId] = position;
+  return true;
+}
+
+function coverShortCandidate(state, candidate, context) {
+  const position = context.shortPositions[candidate.instrumentId];
+  if (!position) return false;
+  if (!candidate.instrumentId) return false;
+  const collateral = Math.min(number(position.collateral), number(context.shorts.reservedCash));
+  state.cash = Math.max(0, state.cash - Math.max(0, context.projectionQuote * context.quantity + context.fee - collateral));
+  context.shorts.reservedCash = Math.max(0, number(context.shorts.reservedCash) - collateral);
+  position.quantity = Math.max(0, nonNegative(position.quantity) - context.quantity);
+  if (!position.quantity) delete context.shortPositions[candidate.instrumentId];
+  return true;
+}
+
+function openOptionCandidate(state, candidate, context) {
+  if (!candidate.instrumentId) return false;
+  state.cash = Math.max(0, state.cash - nonNegative(candidate.premium || 10) * context.quantity);
+  return true;
+}
+
+const MARKET_EXPANSION_APPLIERS = {
+  'open-margin': openMarginCandidate,
+  'reduce-margin': reduceMarginCandidate,
+  'open-short': openShortCandidate,
+  'cover-short': coverShortCandidate,
+  'open-option': openOptionCandidate,
+};
+
+function applyMarketExpansionCandidate(snapshot, state, candidate) {
+  const apply = MARKET_EXPANSION_APPLIERS[candidate.kind];
+  if (!apply) return false;
+  const context = marketExpansionContext(snapshot, state, candidate);
+  if (!context) return false;
+  return apply(state, candidate, context);
 }
 
 const CANDIDATE_APPLIERS = {
@@ -349,22 +412,48 @@ function applyBankRepayment(state, candidate) {
 
 function applyContractProposal(state, candidate) {
   const offer = candidate.offer;
-  if (!offer || !Number.isFinite(Number(offer.amount)) || Number(offer.amount) <= 0) return false;
+  if (!validContractProposal(offer)) return false;
   const amount = nonNegative(offer.amount);
   state.cash = Math.max(0, state.cash - amount);
   state.contracts.push({ kind: offer.kind, status: 'pending', role: 'lender', amount, premiumRate: number(offer.premiumRate), durationRounds: nonNegative(offer.durationRounds) });
   return true;
 }
 
+function validContractProposal(offer) {
+  if (!offer) return false;
+  if (!Number.isFinite(Number(offer.amount))) return false;
+  return Number(offer.amount) > 0;
+}
+
+function currentOption(state, candidate) {
+  return (state.marketExpansion?.options || []).find(entry => entry.id === candidate.optionId && entry.status === 'open');
+}
+
+function optionStillAvailable(snapshot, option) {
+  if (!option) return false;
+  if (snapshot.roundNumber != null && Number(snapshot.roundNumber) > Number(option.expiryRound)) return false;
+  return option.role !== 'writer';
+}
+
+function optionIntrinsicValue(option, quote) {
+  if (option.side === 'call') return Math.max(0, quote - nonNegative(option.strike));
+  return Math.max(0, nonNegative(option.strike) - quote);
+}
+
+function optionPayout(option, intrinsic, close) {
+  const quantity = nonNegative(option.quantity);
+  const gross = intrinsic * quantity;
+  const closeValue = Math.floor(gross * 0.8);
+  return Math.min(close ? closeValue : gross, nonNegative(option.reserveHeld));
+}
+
 function applyOptionCandidate(snapshot, state, candidate, close = false) {
-  const option = (state.marketExpansion?.options || []).find(entry => entry.id === candidate.optionId && entry.status === 'open');
-  if (!option || (snapshot.roundNumber != null && Number(snapshot.roundNumber) > Number(option.expiryRound)) || option.role === 'writer') return false;
+  const option = currentOption(state, candidate);
+  if (!optionStillAvailable(snapshot, option)) return false;
   const quote = marketQuote(snapshot, option.instrumentId);
   if (quote === null) return false;
-  const strike = nonNegative(option.strike);
-  const intrinsic = option.side === 'call' ? Math.max(0, quote - strike) : Math.max(0, strike - quote);
-  const payout = Math.min(close ? Math.floor(intrinsic * nonNegative(option.quantity) * 0.8) : intrinsic * nonNegative(option.quantity), nonNegative(option.reserveHeld));
-  state.cash += payout;
+  const intrinsic = optionIntrinsicValue(option, quote);
+  state.cash += optionPayout(option, intrinsic, close);
   option.reserveHeld = 0;
   option.status = close ? 'closed' : 'exercised';
   option.exercised = !close;
@@ -373,26 +462,31 @@ function applyOptionCandidate(snapshot, state, candidate, close = false) {
 
 function applyJailCandidate(state, candidate) {
   if (!state.inJail) return false;
-  if (candidate.kind === 'jail-fine') {
-    const fine = nonNegative(candidate.fine || 50);
-    if (state.cash < fine) return false;
-    state.cash -= fine;
-  } else {
-    if (state.jailFreeCards <= 0) return false;
-    state.jailFreeCards -= 1;
-  }
+  const paysFine = candidate.kind === 'jail-fine';
+  const fine = nonNegative(candidate.fine || 50);
+  if (paysFine && state.cash < fine) return false;
+  if (!paysFine && state.jailFreeCards <= 0) return false;
+  if (paysFine) state.cash -= fine;
+  else state.jailFreeCards -= 1;
   state.inJail = false;
   state.jailTurns = 0;
   return true;
 }
 
-function landingRentRisk(snapshot, board, tile, diceTotal, ownerInJail = false) {
+function landingRentRisk({ snapshot, board, tile, diceTotal, ownerInJail = false }) {
   const rent = landingRent(snapshot, board, tile, diceTotal);
   const owner = tileOwner(tile);
+  const canCollectRent = !tile.mortgaged;
+  const selfCollects = owner === 'self' && canCollectRent && !selfRentBlocked(snapshot, ownerInJail);
+  const opponentCollects = owner.startsWith('opponent') && canCollectRent && !opponentIsJailed(snapshot, owner);
   return {
-    rent: owner === 'self' && !tile.mortgaged && !(ownerInJail && snapshot.rulesDigest?.noRentWhileInPrison) ? rent : 0,
-    risk: owner.startsWith('opponent') && !tile.mortgaged && !opponentIsJailed(snapshot, owner) ? rent : 0
+    rent: selfCollects ? rent : 0,
+    risk: opponentCollects ? rent : 0
   };
+}
+
+function selfRentBlocked(snapshot, ownerInJail) {
+  return Boolean(ownerInJail && snapshot.rulesDigest?.noRentWhileInPrison);
 }
 
 function opponentIsJailed(snapshot, ownerSeat) {
@@ -413,58 +507,133 @@ function nearestCardDestination(board, position, type) {
   return null;
 }
 
-function movementCardOutcomes(snapshot, tile, landing, boardLength) {
-  if (!['chance', 'chest'].includes(tile?.type)) return [{ landing, probability: 1, card: null }];
-  const cards = snapshot.rulesDigest?.cards || {};
-  const key = tile.type === 'chance' ? 'surprise' : 'treasure';
-  const count = Math.max(0, number(cards[`${key}Count`]));
-  if (!count) return [{ landing, probability: 1, card: null }];
-  const movements = cards[`${key}Movement`] || [];
+function movementCardKey(tile) {
+  if (tile?.type === 'chance') return 'surprise';
+  if (tile?.type === 'chest') return 'treasure';
+  return null;
+}
+
+function moveToCardDestination({ snapshot, card }) {
+  if (card.tileId) return snapshot.board.find(entry => entry.tileId === card.tileId)?.index ?? null;
+  return Number(card.tileIndex);
+}
+
+function startCardDestination({ snapshot, card }) {
+  if (card.tileIndex != null) return card.tileIndex;
+  if (card.action === 'goToJail') return snapshot.rulesDigest?.jailTileIndex;
+  return snapshot.rulesDigest?.startTileIndex;
+}
+
+function moveBackCardDestination({ landing, boardLength, card }) {
+  return (landing - nonNegative(card.steps) + boardLength) % boardLength;
+}
+
+function railroadCardsGrounded(snapshot) {
+  if (snapshot.activeEvent?.phase === 'active' && snapshot.activeEvent?.id === 'airport-strike') return true;
+  const effects = snapshot.rulesDigest?.globalEvents?.activeEffects || {};
+  return Boolean(effects.airportCardsBlocked);
+}
+
+function nearestRailroadCard(context) {
+  const grounded = railroadCardsGrounded(context.snapshot);
+  const landing = grounded
+    ? context.landing
+    : nearestCardDestination(context.snapshot.board, context.landing, 'railroad');
+  const card = grounded ? { ...context.card, grounded: true } : context.card;
+  return { landing, card };
+}
+
+function nearestUtilityCard(context) {
+  return { landing: nearestCardDestination(context.snapshot.board, context.landing, 'utility'), card: context.card };
+}
+
+const MOVEMENT_CARD_RESOLVERS = {
+  moveTo: context => ({ landing: moveToCardDestination(context), card: context.card }),
+  collectStart: context => ({ landing: startCardDestination(context), card: context.card }),
+  goToJail: context => ({ landing: startCardDestination(context), card: context.card }),
+  moveBack: context => ({ landing: moveBackCardDestination(context), card: context.card }),
+  nearestRailroad: nearestRailroadCard,
+  nearestUtility: nearestUtilityCard,
+};
+
+function resolveMovementCard(context) {
+  const resolve = MOVEMENT_CARD_RESOLVERS[context.card.action];
+  if (!resolve) return null;
+  const result = resolve(context);
+  if (!Number.isInteger(result.landing)) return null;
+  if (!context.snapshot.board.some(entry => entry.index === result.landing)) return null;
+  return result;
+}
+
+function resolvedMovementCardOutcomes({ snapshot, landing, boardLength, movements, count }) {
+  const context = { snapshot, landing, boardLength };
   const outcomes = [];
   let movementCount = 0;
   movements.forEach(card => {
     const cardCount = Math.max(0, nonNegative(card.count));
-    let destination = null;
-    if (card.action === 'moveTo') {
-      destination = card.tileId ? snapshot.board.find(entry => entry.tileId === card.tileId)?.index : Number(card.tileIndex);
-    } else if (card.action === 'collectStart' || card.action === 'goToJail') {
-      destination = card.tileIndex ?? (card.action === 'goToJail' ? snapshot.rulesDigest?.jailTileIndex : snapshot.rulesDigest?.startTileIndex);
-    } else if (card.action === 'moveBack') {
-      destination = (landing - nonNegative(card.steps) + boardLength) % boardLength;
-    } else if (card.action === 'nearestRailroad') {
-      const effects = snapshot.rulesDigest?.globalEvents?.activeEffects || {};
-      const grounded = (snapshot.activeEvent?.phase === 'active' && snapshot.activeEvent?.id === 'airport-strike') || effects.airportCardsBlocked;
-      destination = grounded ? landing : nearestCardDestination(snapshot.board, landing, 'railroad');
-      if (grounded) card = { ...card, grounded: true };
-    } else if (card.action === 'nearestUtility') {
-      destination = nearestCardDestination(snapshot.board, landing, 'utility');
-    }
-    if (!Number.isInteger(destination) || !snapshot.board.some(entry => entry.index === destination)) return;
+    const resolved = resolveMovementCard({ ...context, card });
+    if (!resolved) return;
     movementCount += cardCount;
-    outcomes.push({ landing: destination, probability: cardCount / count, card });
+    outcomes.push({ landing: resolved.landing, probability: cardCount / count, card: resolved.card });
   });
+  return { outcomes, movementCount };
+}
+
+function completeMovementCardOutcomes(outcomes, landing, movementCount, count) {
   if (movementCount < count) outcomes.push({ landing, probability: (count - movementCount) / count, card: null });
-  return outcomes.length ? outcomes : [{ landing, probability: 1, card: null }];
+  if (outcomes.length) return outcomes;
+  return [{ landing, probability: 1, card: null }];
 }
 
-function movementCardRent(snapshot, state, tile, move, card) {
-  if (!tile || card?.grounded) return 0;
+function movementCardOutcomes(snapshot, tile, landing, boardLength) {
+  const key = movementCardKey(tile);
+  if (!key) return [{ landing, probability: 1, card: null }];
+  const cards = snapshot.rulesDigest?.cards || {};
+  const count = Math.max(0, number(cards[`${key}Count`]));
+  if (!count) return [{ landing, probability: 1, card: null }];
+  const movements = cards[`${key}Movement`] || [];
+  const result = resolvedMovementCardOutcomes({ snapshot, landing, boardLength, movements, count });
+  return completeMovementCardOutcomes(result.outcomes, landing, result.movementCount, count);
+}
+
+function canCollectMovementRent(snapshot, tile, card) {
+  if (!tile) return false;
+  if (card?.grounded) return false;
   const owner = tileOwner(tile);
-  if (owner === 'bank' || tile.mortgaged || (owner.startsWith('opponent') && opponentIsJailed(snapshot, owner))) return 0;
-  let facts = rentFactsFromSnapshot({ ...snapshot, board: state.board }, tile, move);
-  if (card?.action === 'nearestUtility') {
-    facts = { ...facts, tile: { ...tile, type: 'other', rent: move * nonNegative(card.multiplier || 10) }, hasFullSet: false, doubleRent: false };
-  }
-  const amount = calculateRentFromFacts(facts);
-  const multiplied = card?.action === 'nearestRailroad' ? amount * nonNegative(card.multiplier || 2) : amount;
-  return owner === 'self' && !(state.inJail && snapshot.rulesDigest?.noRentWhileInPrison) ? multiplied : 0;
+  if (owner === 'bank') return false;
+  if (tile.mortgaged) return false;
+  return !(owner.startsWith('opponent') && opponentIsJailed(snapshot, owner));
 }
 
-function landingOutcome(snapshot, state, position, move, probability, boardLength) {
-  const landing = (position + move) % boardLength;
-  const tile = state.board.find(entry => entry.index === landing);
-  const baseRentRisk = tile ? landingRentRisk(snapshot, state.board, tile, move, state.inJail) : { rent: 0, risk: 0 };
-  const direct = {
+function movementCardRentFacts({ snapshot, state, tile, move, card }) {
+  const facts = rentFactsFromSnapshot({ ...snapshot, board: state.board }, tile, move);
+  if (card?.action !== 'nearestUtility') return facts;
+  return {
+    ...facts,
+    tile: { ...tile, type: 'other', rent: move * nonNegative(card.multiplier || 10) },
+    hasFullSet: false,
+    doubleRent: false,
+  };
+}
+
+function movementCardRentMultiplier(amount, card) {
+  if (card?.action !== 'nearestRailroad') return amount;
+  return amount * nonNegative(card.multiplier || 2);
+}
+
+function movementCardRent({ snapshot, state, tile, move, card }) {
+  if (!canCollectMovementRent(snapshot, tile, card)) return 0;
+  const amount = calculateRentFromFacts(movementCardRentFacts({ snapshot, state, tile, move, card }));
+  const multiplied = movementCardRentMultiplier(amount, card);
+  const owner = tileOwner(tile);
+  if (owner !== 'self') return 0;
+  if (state.inJail && snapshot.rulesDigest?.noRentWhileInPrison) return 0;
+  return multiplied;
+}
+
+function directLandingOutcome({ snapshot, state, position, move, probability, boardLength, landing, tile }) {
+  const baseRentRisk = tile ? landingRentRisk({ snapshot, board: state.board, tile, diceTotal: move, ownerInJail: state.inJail }) : { rent: 0, risk: 0 };
+  return {
     landing,
     probability,
     rent: baseRentRisk.rent * probability,
@@ -474,38 +643,89 @@ function landingOutcome(snapshot, state, position, move, probability, boardLengt
     inJail: false,
     jailTurns: 0
   };
-  if (!tile || !['chance', 'chest'].includes(tile.type)) return [direct];
-  return movementCardOutcomes(snapshot, tile, landing, boardLength).map(outcome => {
-    const destination = state.board.find(entry => entry.index === outcome.landing);
-    if (!outcome.card) return { ...direct, landing: outcome.landing, probability: probability * outcome.probability, rent: 0, risk: 0, cardDelta: direct.cardDelta * outcome.probability, cashFlow: direct.cashFlow * outcome.probability };
-    const rent = movementCardRent(snapshot, state, destination, move, outcome.card);
-    const risk = destination?.ownerSeat?.startsWith('opponent') && !opponentIsJailed(snapshot, destination.ownerSeat) && !destination.mortgaged
-      ? (outcome.card.action === 'nearestRailroad'
-        ? landingRent(snapshot, state.board, destination, move) * nonNegative(outcome.card.multiplier || 2)
-        : outcome.card.action === 'nearestUtility'
-          ? calculateRentFromFacts({ ...rentFactsFromSnapshot({ ...snapshot, board: state.board }, destination, move), tile: { ...destination, type: 'other', rent: move * nonNegative(outcome.card.multiplier || 10) }, hasFullSet: false, doubleRent: false })
-          : landingRent(snapshot, state.board, destination, move))
-      : 0;
-    const sentToJail = outcome.card.action === 'goToJail';
-    const cardPassedStart = ['moveTo', 'nearestRailroad', 'nearestUtility'].includes(outcome.card.action)
-      && outcome.landing < landing;
-    const cardStartCash = cardPassedStart
-      ? outcome.landing === number(snapshot.rulesDigest?.startTileIndex) && snapshot.rulesDigest?.doubleGo
-        ? number(snapshot.rulesDigest?.passStartCash, 200) * 2
-        : number(snapshot.rulesDigest?.passStartCash, 200)
-      : 0;
+}
+
+function isCardTile(tile) {
+  return Boolean(tile && ['chance', 'chest'].includes(tile.type));
+}
+
+function isOpponentRentRiskDestination(snapshot, destination) {
+  if (!destination) return 0;
+  if (!destination.ownerSeat?.startsWith('opponent')) return 0;
+  if (opponentIsJailed(snapshot, destination.ownerSeat)) return 0;
+  if (destination.mortgaged) return 0;
+  return 1;
+}
+
+function nearestUtilityCardRisk({ snapshot, state, destination, move, card }) {
+  const facts = rentFactsFromSnapshot({ ...snapshot, board: state.board }, destination, move);
+  const utilityFacts = {
+    ...facts,
+    tile: { ...destination, type: 'other', rent: move * nonNegative(card.multiplier || 10) },
+    hasFullSet: false,
+    doubleRent: false,
+  };
+  return calculateRentFromFacts(utilityFacts);
+}
+
+function movementCardLandingRentRisk(context) {
+  const { snapshot, state, destination, move, card } = context;
+  if (!isOpponentRentRiskDestination(snapshot, destination)) return 0;
+  if (card.action === 'nearestRailroad') {
+    return landingRent(snapshot, state.board, destination, move) * nonNegative(card.multiplier || 2);
+  }
+  if (card.action === 'nearestUtility') return nearestUtilityCardRisk(context);
+  return landingRent(snapshot, state.board, destination, move);
+}
+
+function cardPassStartCash(snapshot, originLanding, outcome) {
+  const startPassingActions = ['moveTo', 'nearestRailroad', 'nearestUtility'];
+  if (!startPassingActions.includes(outcome.card.action)) return 0;
+  if (outcome.landing >= originLanding) return 0;
+  const base = number(snapshot.rulesDigest?.passStartCash, 200);
+  const startIndex = number(snapshot.rulesDigest?.startTileIndex);
+  if (outcome.landing === startIndex && snapshot.rulesDigest?.doubleGo) return base * 2;
+  return base;
+}
+
+function movementCardLandingOutcome({ snapshot, state, position, move, probability, boardLength, landing, direct, outcome }) {
+  const destination = state.board.find(entry => entry.index === outcome.landing);
+  if (!outcome.card) {
     return {
       ...direct,
       landing: outcome.landing,
       probability: probability * outcome.probability,
-      rent: rent * probability * outcome.probability,
-      risk: (risk + (destination ? landingTaxRisk(snapshot, destination) : 0)) * probability * outcome.probability,
+      rent: 0,
+      risk: 0,
       cardDelta: direct.cardDelta * outcome.probability,
-      cashFlow: direct.cashFlow * outcome.probability + cardStartCash * probability * outcome.probability,
-      inJail: sentToJail,
-      jailTurns: 0
+      cashFlow: direct.cashFlow * outcome.probability,
     };
-  });
+  }
+  const rent = movementCardRent({ snapshot, state, tile: destination, move, card: outcome.card });
+  const risk = movementCardLandingRentRisk({ snapshot, state, destination, move, card: outcome.card });
+  const sentToJail = outcome.card.action === 'goToJail';
+  const cardCash = cardPassStartCash(snapshot, landing, outcome);
+  return {
+    ...direct,
+    landing: outcome.landing,
+    probability: probability * outcome.probability,
+    rent: rent * probability * outcome.probability,
+    risk: (risk + (destination ? landingTaxRisk(snapshot, destination) : 0)) * probability * outcome.probability,
+    cardDelta: direct.cardDelta * outcome.probability,
+    cashFlow: direct.cashFlow * outcome.probability + cardCash * probability * outcome.probability,
+    inJail: sentToJail,
+    jailTurns: 0
+  };
+}
+
+function landingOutcome({ snapshot, state, position, move, probability, boardLength }) {
+  const landing = (position + move) % boardLength;
+  const tile = state.board.find(entry => entry.index === landing);
+  const direct = directLandingOutcome({ snapshot, state, position, move, probability, boardLength, landing, tile });
+  if (!isCardTile(tile)) return [direct];
+  return movementCardOutcomes(snapshot, tile, landing, boardLength).map(outcome => movementCardLandingOutcome({
+    snapshot, state, position, move, probability, boardLength, landing, direct, outcome,
+  }));
 }
 
 function seedHash(seed) {
@@ -556,71 +776,174 @@ function diceRolls(actorState, { rolloutBudget = 0, seed = 'poorup' } = {}) {
   return DICE_PAIRS.map(pair => ({ move: pair.first + pair.second, probability: 1 / 36, isDouble: pair.first === pair.second }));
 }
 
+function initialActorPositions(state) {
+  const key = `${state.position}:${state.inJail ? 1 : 0}:${state.jailTurns}`;
+  return new Map([[key, { position: state.position, inJail: state.inJail, jailTurns: state.jailTurns, probability: 1 }]]);
+}
+
+function jailedNoMoveOutcome(actorState, moveProbability) {
+  return {
+    position: actorState.position,
+    inJail: true,
+    jailTurns: actorState.jailTurns + 1,
+    probability: actorState.probability * moveProbability,
+    rent: 0,
+    risk: 0,
+    cardDelta: 0,
+    cashFlow: 0,
+  };
+}
+
+function jailFineForRoll(snapshot, actorState, isDouble) {
+  if (!actorState.inJail) return 0;
+  if (actorState.jailTurns < 2 || isDouble) return 0;
+  return number(snapshot.rulesDigest?.jailFine, 50);
+}
+
+function actorRollLandingOutcomes(context, actorState, roll) {
+  const { snapshot, state, boardLength } = context;
+  const { move, probability, isDouble } = roll;
+  if (move == null) return [jailedNoMoveOutcome(actorState, probability)];
+  const weight = actorState.probability * probability;
+  const fine = jailFineForRoll(snapshot, actorState, isDouble) * weight;
+  const projectionState = { ...state, inJail: false };
+  return landingOutcome({ snapshot, state: projectionState, position: actorState.position, move, probability: weight, boardLength })
+    .map(outcome => ({ ...outcome, position: outcome.landing, risk: outcome.risk + fine }));
+}
+
+function actorTurnOutcomes(context, actorState) {
+  const { options, turn } = context;
+  const seed = `${options.seed}:${options.candidateId}:self:${turn}:${actorState.position}:${actorState.jailTurns}`;
+  const rolls = diceRolls(actorState, { rolloutBudget: options.rolloutBudget, seed });
+  return rolls.flatMap(roll => actorRollLandingOutcomes(context, actorState, roll));
+}
+
+function expandLandingTurn(context) {
+  const outcomes = [];
+  context.positions.forEach(actorState => outcomes.push(...actorTurnOutcomes(context, actorState)));
+  return outcomes;
+}
+
+function accumulateLandingTotals(totals, outcomes) {
+  outcomes.forEach(outcome => Object.keys(totals).forEach(key => { totals[key] += outcome[key] || 0; }));
+}
+
+function mergeLandingPositions(outcomes) {
+  const next = new Map();
+  outcomes.forEach(outcome => {
+    const key = `${outcome.position}:${outcome.inJail ? 1 : 0}:${outcome.jailTurns}`;
+    const prior = next.get(key);
+    const position = { position: outcome.position, inJail: outcome.inJail, jailTurns: outcome.jailTurns };
+    next.set(key, prior ? { ...prior, probability: prior.probability + outcome.probability } : { ...position, probability: outcome.probability });
+  });
+  return next;
+}
+
 function expectedLandingValue(snapshot, state, horizon, options = {}) {
   const boardLength = Math.max(1, (snapshot.board || []).length || 40);
   const totals = { rent: 0, risk: 0, cardDelta: 0, cashFlow: 0 };
-  let positions = new Map([[`${state.position}:${state.inJail ? 1 : 0}:${state.jailTurns}`, { position: state.position, inJail: state.inJail, jailTurns: state.jailTurns, probability: 1 }]]);
+  let positions = initialActorPositions(state);
   for (let turn = 0; turn < horizon; turn += 1) {
-    const outcomes = [];
-    positions.forEach(actorState => {
-      const seed = `${options.seed}:${options.candidateId}:self:${turn}:${actorState.position}:${actorState.jailTurns}`;
-      diceRolls(actorState, { rolloutBudget: options.rolloutBudget, seed }).forEach(({ move, probability: moveProbability, isDouble }) => {
-        if (move == null) {
-          outcomes.push({ position: actorState.position, inJail: true, jailTurns: actorState.jailTurns + 1, probability: actorState.probability * moveProbability, rent: 0, risk: 0, cardDelta: 0, cashFlow: 0 });
-          return;
-        }
-        const jailTurnExpired = actorState.inJail && actorState.jailTurns >= 2 && !isDouble;
-        const fine = jailTurnExpired ? number(snapshot.rulesDigest?.jailFine, 50) : 0;
-        landingOutcome(snapshot, { ...state, inJail: false }, actorState.position, move, actorState.probability * moveProbability, boardLength)
-          .forEach(next => outcomes.push({ ...next, position: next.landing, inJail: next.inJail, jailTurns: next.jailTurns, risk: next.risk + fine * actorState.probability * moveProbability }));
-      });
-    });
-    outcomes.forEach(outcome => Object.keys(totals).forEach(key => { totals[key] += outcome[key] || 0; }));
-    const next = new Map();
-    outcomes.forEach(outcome => {
-      const key = `${outcome.position}:${outcome.inJail ? 1 : 0}:${outcome.jailTurns}`;
-      const prior = next.get(key);
-      next.set(key, prior ? { ...prior, probability: prior.probability + outcome.probability } : { position: outcome.position, inJail: outcome.inJail, jailTurns: outcome.jailTurns, probability: outcome.probability });
-    });
-    positions = next;
+    const context = { snapshot, state, options, positions, boardLength, turn };
+    const outcomes = expandLandingTurn(context);
+    accumulateLandingTotals(totals, outcomes);
+    positions = mergeLandingPositions(outcomes);
   }
   state.expectedRisk = totals.risk;
   state.expectedCardDelta = totals.cardDelta;
   state.expectedCashFlow = totals.cashFlow;
-  state.expectedRent = expectedOpponentRent(snapshot, state, horizon, boardLength, options);
+  state.expectedRent = expectedOpponentRent({ snapshot, state, horizon, boardLength, options });
 }
 
-function expectedOpponentRent(snapshot, state, horizon, boardLength, options = {}) {
-  let total = 0;
-  (snapshot.opponents || []).forEach((opponent, opponentIndex) => {
-    let positions = new Map([[`${opponent.position || 0}:${opponent.inJail ? 1 : 0}:${number(opponent.jailTurns)}`, {
-      position: number(opponent.position), inJail: opponent.inJail === true, jailTurns: nonNegative(opponent.jailTurns), probability: 1
-    }]]);
-    for (let turn = 0; turn < horizon; turn += 1) {
-      const next = new Map();
-      positions.forEach(actorState => {
-        const seed = `${options.seed}:${options.candidateId}:opponent:${opponentIndex}:${turn}:${actorState.position}:${actorState.jailTurns}`;
-        diceRolls(actorState, { rolloutBudget: options.rolloutBudget, seed }).forEach(({ move, probability, isDouble }) => {
-        if (move == null) {
-          const key = `${actorState.position}:1:${actorState.jailTurns + 1}`;
-          const prior = next.get(key);
-          next.set(key, prior ? { ...prior, probability: prior.probability + actorState.probability * probability } : { position: actorState.position, inJail: true, jailTurns: actorState.jailTurns + 1, probability: actorState.probability * probability });
-          return;
-        }
-        landingOutcome(snapshot, state, actorState.position, move, actorState.probability * probability, boardLength)
-          .forEach(outcome => {
-            total += outcome.rent;
-            const key = `${outcome.landing}:${outcome.inJail ? 1 : 0}:${outcome.jailTurns}`;
-            const prior = next.get(key);
-            const entry = { position: outcome.landing, inJail: outcome.inJail, jailTurns: outcome.jailTurns, probability: outcome.probability };
-            next.set(key, prior ? { ...prior, probability: prior.probability + entry.probability } : entry);
-          });
-        });
-      });
-      positions = next;
-    }
+function opponentStartPositions(opponent) {
+  const position = number(opponent.position);
+  const inJail = opponent.inJail === true;
+  const jailTurns = nonNegative(opponent.jailTurns);
+  const key = `${position}:${inJail ? 1 : 0}:${jailTurns}`;
+  return new Map([[key, { position, inJail, jailTurns, probability: 1 }]]);
+}
+
+function storeOpponentPosition(next, outcome) {
+  const key = `${outcome.position}:${outcome.inJail ? 1 : 0}:${outcome.jailTurns}`;
+  const prior = next.get(key);
+  if (prior) {
+    next.set(key, { ...prior, probability: prior.probability + outcome.probability });
+    return;
+  }
+  next.set(key, { ...outcome });
+}
+
+function opponentJailOutcome(actorState, moveProbability) {
+  return {
+    position: actorState.position,
+    inJail: true,
+    jailTurns: actorState.jailTurns + 1,
+    probability: actorState.probability * moveProbability,
+  };
+}
+
+function opponentRollProjection(context, actorState, roll) {
+  if (roll.move == null) return { rent: 0, outcomes: [opponentJailOutcome(actorState, roll.probability)] };
+  const landings = landingOutcome({
+    snapshot: context.snapshot,
+    state: context.state,
+    position: actorState.position,
+    move: roll.move,
+    probability: actorState.probability * roll.probability,
+    boardLength: context.boardLength,
   });
-  return total;
+  return {
+    rent: landings.reduce((sum, outcome) => sum + outcome.rent, 0),
+    outcomes: landings.map(outcome => ({
+      position: outcome.landing,
+      inJail: outcome.inJail,
+      jailTurns: outcome.jailTurns,
+      probability: outcome.probability,
+    })),
+  };
+}
+
+function opponentTurnSeed(context, actorState) {
+  const { options, opponentIndex, turn } = context;
+  return `${options.seed}:${options.candidateId}:opponent:${opponentIndex}:${turn}:${actorState.position}:${actorState.jailTurns}`;
+}
+
+function projectOpponentTurn(context) {
+  const next = new Map();
+  let rent = 0;
+  context.positions.forEach(actorState => {
+    const seed = opponentTurnSeed(context, actorState);
+    const rolls = diceRolls(actorState, { rolloutBudget: context.options.rolloutBudget, seed });
+    rolls.forEach(roll => {
+      const projection = opponentRollProjection(context, actorState, roll);
+      rent += projection.rent;
+      projection.outcomes.forEach(outcome => storeOpponentPosition(next, outcome));
+    });
+  });
+  return { positions: next, rent };
+}
+
+function opponentRentOverHorizon(context) {
+  let positions = opponentStartPositions(context.opponent);
+  let rent = 0;
+  for (let turn = 0; turn < context.horizon; turn += 1) {
+    const turnProjection = projectOpponentTurn({ ...context, turn, positions });
+    rent += turnProjection.rent;
+    positions = turnProjection.positions;
+  }
+  return rent;
+}
+
+function expectedOpponentRent({ snapshot, state, horizon, boardLength, options = {} }) {
+  return (snapshot.opponents || []).reduce((total, opponent, opponentIndex) => total + opponentRentOverHorizon({
+    snapshot,
+    state,
+    horizon,
+    boardLength,
+    options,
+    opponent,
+    opponentIndex,
+  }), 0);
 }
 
 function groupPotential(snapshot, state) {
@@ -644,22 +967,30 @@ function debtRisk(state) {
   return bank + margin + short;
 }
 
+function deedNetWorth(tile) {
+  if (tile.ownerSeat !== 'self') return 0;
+  const faceValue = nonNegative(tile.price);
+  return tile.mortgaged ? Math.floor(faceValue / 2) : faceValue;
+}
+
+function contractNetWorth(contract) {
+  if (!['active', 'due', 'pending'].includes(contract.status)) return 0;
+  const exposure = nonNegative(contract.remaining || contract.amount);
+  return contract.role === 'lender' ? exposure : -exposure;
+}
+
+function bankDebtNetWorth(state) {
+  if (!state.bankLoan) return 0;
+  if (['paid', 'defaulted'].includes(state.bankLoan.status)) return 0;
+  return -nonNegative(state.bankLoan.remaining);
+}
+
 function estimatedNetWorth(state) {
-  let value = state.cash;
-  state.board.forEach(tile => {
-    if (tile.ownerSeat !== 'self') return;
-    const faceValue = nonNegative(tile.price);
-    value += tile.mortgaged ? Math.floor(faceValue / 2) : faceValue;
-  });
-  state.contracts.forEach(contract => {
-    if (!['active', 'due', 'pending'].includes(contract.status)) return;
-    const exposure = nonNegative(contract.remaining || contract.amount);
-    value += contract.role === 'lender' ? exposure : -exposure;
-  });
-  if (state.bankLoan && !['paid', 'defaulted'].includes(state.bankLoan.status)) value -= nonNegative(state.bankLoan.remaining);
-  value -= nonNegative(state.marketExpansion?.margin?.balance);
-  value -= nonNegative(state.shortDefaultDebt);
-  return value;
+  const deedValue = state.board.reduce((sum, tile) => sum + deedNetWorth(tile), 0);
+  const contractValue = state.contracts.reduce((sum, contract) => sum + contractNetWorth(contract), 0);
+  const expansionDebt = nonNegative(state.marketExpansion?.margin?.balance);
+  const shortDebt = nonNegative(state.shortDefaultDebt);
+  return state.cash + deedValue + contractValue + bankDebtNetWorth(state) - expansionDebt - shortDebt;
 }
 
 function eventHedgeValue(snapshot, state) {

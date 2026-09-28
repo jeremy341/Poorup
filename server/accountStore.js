@@ -45,6 +45,18 @@ function validPasswordShape(password) {
   return typeof password === 'string' && password.length >= 8 && password.length <= 72;
 }
 
+function profileAccountId(accountOrId) {
+  if (typeof accountOrId === 'string') return accountOrId;
+  return accountOrId?.id;
+}
+
+function applyProfilePatch(account, patch) {
+  if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);
+  if (patch.color != null) account.color = normalizeColor(patch.color, account.color);
+  if (patch.avatarGrid != null) account.avatarGrid = sanitizeAvatarGrid(patch.avatarGrid);
+  if (patch.privacy && typeof patch.privacy === 'object') account.privacy = sanitizePrivacy(patch.privacy);
+}
+
 function hasCredentialShape(account, password) {
   return Boolean(account)
     && typeof password === 'string'
@@ -852,14 +864,11 @@ export class AccountStore {
   }
 
   updateProfileForAccount(accountOrId, patch = {}) {
-    const accountId = typeof accountOrId === 'string' ? accountOrId : accountOrId?.id;
+    const accountId = profileAccountId(accountOrId);
     const account = accountId ? this.getAccountById(accountId) : null;
     if (!account) return { success: false, error: 'Account session expired. Sign in again.' };
     return commitMutation(this, () => {
-      if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);
-      if (patch.color != null) account.color = normalizeColor(patch.color, account.color);
-      if (patch.avatarGrid != null) account.avatarGrid = sanitizeAvatarGrid(patch.avatarGrid);
-      if (patch.privacy && typeof patch.privacy === 'object') account.privacy = sanitizePrivacy(patch.privacy);
+      applyProfilePatch(account, patch);
       return { success: true, account: publicAccount(account) };
     });
   }
