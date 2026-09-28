@@ -3,23 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { shardedTestSuites, testSuites } from './test-manifest.mjs';
-
-function optionValue(args, name, fallback = null) {
-  const prefix = `--${name}=`;
-  const exactIndex = args.findIndex(value => value === `--${name}`);
-  if (exactIndex >= 0) return args[exactIndex + 1] || fallback;
-  const option = args.find(value => value.startsWith(prefix));
-  return option ? option.slice(prefix.length) : fallback;
-}
-
-function shardParts(value) {
-  if (!value) return null;
-  const [index, count] = value.split('/').map(Number);
-  if (!Number.isInteger(index) || !Number.isInteger(count) || index < 1 || count < 1 || index > count) {
-    throw new Error(`Invalid shard "${value}"; expected INDEX/COUNT such as 2/4.`);
-  }
-  return { index, count };
-}
+import { parseRunnerOptions } from './test-runner-options.mjs';
 
 function suiteEnvironment(suite) {
   const environment = { ...process.env };
@@ -46,22 +30,37 @@ function writeTimings(filePath, results, shard) {
   writeFileSync(resolvedPath, JSON.stringify({ shard, generatedAt: new Date().toISOString(), results }, null, 2));
 }
 
-function main() {
-  const args = process.argv.slice(2);
-  const group = optionValue(args, 'group', 'full');
-  const singleSuite = optionValue(args, 'suite');
-  const shard = shardParts(optionValue(args, 'shard'));
-  const allSuites = testSuites(group);
-  if (singleSuite && !testSuites('full').includes(singleSuite)) throw new Error(`Unknown test suite: ${singleSuite}`);
-  if (singleSuite && shard) throw new Error('Choose either --suite or --shard, not both.');
-  const selectedSuites = singleSuite
-    ? [singleSuite]
-    : shard ? shardedTestSuites(allSuites, shard.index, shard.count) : allSuites;
-  console.log(`Test manifest: ${group} · ${selectedSuites.length}/${allSuites.length} suites${shard ? ` · shard ${shard.index}/${shard.count}` : ''}`);
-  const results = selectedSuites.map(runSuite);
-  writeTimings(optionValue(args, 'timings', process.env.POORUP_TEST_TIMING_FILE), results, shard);
+function isUnknownSuite(singleSuite, allSuites) {
+  return Boolean(singleSuite) && !allSuites.includes(singleSuite);
+}
+
+function hasConflictingSelection(singleSuite, shard) {
+  return Boolean(singleSuite) && Boolean(shard);
+}
+
+function selectedSuites(singleSuite, shard, allSuites, knownSuites) {
+  if (isUnknownSuite(singleSuite, knownSuites)) throw new Error(`Unknown test suite: ${singleSuite}`);
+  if (hasConflictingSelection(singleSuite, shard)) throw new Error('Choose either --suite or --shard, not both.');
+  if (singleSuite) return [singleSuite];
+  if (shard) return shardedTestSuites(allSuites, shard.index, shard.count);
+  return allSuites;
+}
+
+function summarizeResults(results) {
   const failures = results.filter(result => result.status !== 0);
   const duration = results.reduce((sum, result) => sum + result.elapsedMs, 0);
+  return { failures, duration };
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  const { group, singleSuite, shard, timings } = parseRunnerOptions(args, process.env.POORUP_TEST_TIMING_FILE);
+  const allSuites = testSuites(group);
+  const selected = selectedSuites(singleSuite, shard, allSuites, testSuites('full'));
+  console.log(`Test manifest: ${group} · ${selected.length}/${allSuites.length} suites${shard ? ` · shard ${shard.index}/${shard.count}` : ''}`);
+  const results = selected.map(runSuite);
+  writeTimings(timings, results, shard);
+  const { failures, duration } = summarizeResults(results);
   console.log(`Test manifest result: ${results.length - failures.length}/${results.length} passed · ${Math.round(duration / 1000)}s summed suite time`);
   if (failures.length) {
     failures.forEach(result => console.error(`FAILED ${result.suite}: ${result.error || result.signal || `exit ${result.status}`}`));
