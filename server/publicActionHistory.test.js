@@ -16,4 +16,22 @@ assert.deepEqual(Object.keys(history[0]).sort(), ['actionKind', 'roundNumber', '
 assert.deepEqual(history.at(-1), { actionKind: 'auction-bid', seatIndex: 2, roundNumber: 201 });
 assert.equal(JSON.stringify(history).includes('player-id'), false);
 assert.equal(JSON.stringify(history).includes('account-id'), false);
+
+const knownProfile = publicActionHistory.summarizePublicActionProfile([
+  ...Array.from({ length: 5 }, () => ({ actionKind: 'auction-bid', seatIndex: 2, roundNumber: 10 })),
+  ...Array.from({ length: 5 }, () => ({ actionKind: 'trade-counter', seatIndex: 2, roundNumber: 10 })),
+  { actionKind: 'purchase', seatIndex: 1, roundNumber: 10 },
+  { actionKind: 'chat', seatIndex: 2, roundNumber: 10 },
+], 2, 10);
+assert.equal(knownProfile.status, 'known');
+assert.equal(knownProfile.effectiveSampleWeight, 10);
+assert.equal(knownProfile.confidence, 1);
+assert.equal(knownProfile.actionFrequencies['auction-bid'], 0.5);
+assert.equal(knownProfile.actionFrequencies['trade-counter'], 0.5);
+assert.equal(knownProfile.actionFrequencies.purchase, 0);
+
+const unknownProfile = publicActionHistory.summarizePublicActionProfile([], 2, 10);
+assert.equal(unknownProfile.status, 'unknown');
+assert.equal(unknownProfile.actionFrequencies, null);
+assert.equal(unknownProfile.confidence, 0);
 console.log('public action history: bounded allowlisted records passed');

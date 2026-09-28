@@ -216,7 +216,9 @@ function historyValues(history, accountId) {
 }
 
 function statValue(stats, key, format = String) {
-  if (!Object.prototype.hasOwnProperty.call(stats, key) || stats[key] == null || !Number.isFinite(Number(stats[key]))) return "NOT RECORDED";
+  if (!Object.prototype.hasOwnProperty.call(stats, key)) return "NOT RECORDED";
+  if (stats[key] == null) return "NOT RECORDED";
+  if (!Number.isFinite(Number(stats[key]))) return "NOT RECORDED";
   return format(Number(stats[key]));
 }
 
@@ -226,11 +228,26 @@ function statRecords(items) {
 
 function categoricalOutcome(entry, accountId) {
   const participant = ownParticipant(entry, accountId);
-  if (participant?.bankrupt === true || entry.bankrupt === true) return "BANKRUPT";
+  if (participant?.bankrupt === true) return "BANKRUPT";
+  if (entry.bankrupt === true) return "BANKRUPT";
+  const placementOutcomeValue = placementOutcome(participant, entry);
+  if (placementOutcomeValue) return placementOutcomeValue;
+  return fallbackOutcome(entry);
+}
+
+function placementOutcome(participant, entry) {
   const placement = Number(participant?.finalPlacement ?? entry.finalPlacement);
-  if (Number.isInteger(placement) && placement > 0) return placement === 1 ? "WIN" : `PLACED #${placement}`;
-  if (String(entry.result || "").toUpperCase() === "WIN" || entry.won === true) return "WIN";
-  if (String(entry.result || "").toUpperCase() === "ROUND" || entry.won === false) return "ROUND COMPLETE";
+  if (!Number.isInteger(placement) || placement <= 0) return "";
+  if (placement === 1) return "WIN";
+  return `PLACED #${placement}`;
+}
+
+function fallbackOutcome(entry) {
+  const result = String(entry.result || "").toUpperCase();
+  if (result === "WIN") return "WIN";
+  if (entry.won === true) return "WIN";
+  if (result === "ROUND") return "ROUND COMPLETE";
+  if (entry.won === false) return "ROUND COMPLETE";
   return "NOT RECORDED";
 }
 
@@ -257,23 +274,36 @@ function profilePersonalRecordsHTML(ctx) {
   return `<section class="profile-personal-records" aria-label="Personal records">${values.map(([label, value]) => `<div class="profile-personal-record"><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${value}</strong></div>`).join("")}</section>`;
 }
 
+const ECONOMY_STAT_FIELDS = [
+  ["CASINO NET", "casinoNet", (value) => `$${value.toLocaleString()}`],
+  ["MARKET P/L", "marketProfit", (value) => `$${value.toLocaleString()}`],
+  ["PATROL BEST", "patrolBest"],
+  ["BANK LOANS REPAID", "bankLoanRepayments"],
+];
+
+const ACTIVITY_STAT_FIELDS = [
+  ["EVENT SURVIVAL", "eventSurvival"],
+  ["AUCTION WINS", "auctionWins"],
+  ["LOANS GIVEN", "playerLoansGiven"],
+  ["EQUITY DEALS", "equityDeals"],
+];
+
+function profileStatValue(ctx, key, format) {
+  if (!ctx.account) return "NOT RECORDED";
+  return statValue(ctx.stats, key, format);
+}
+
+function statisticsGroupHTML(ctx, fields) {
+  const items = fields.map(([label, key, format]) => [label, profileStatValue(ctx, key, format)]);
+  return statRecords(items);
+}
+
 function statisticsTabsHTML(ctx) {
-  const stats = ctx.stats;
-  const values = statRecords([
-    ["CASINO NET", ctx.account ? statValue(stats, "casinoNet", (value) => `$${value.toLocaleString()}`) : "NOT RECORDED"],
-    ["MARKET P/L", ctx.account ? statValue(stats, "marketProfit", (value) => `$${value.toLocaleString()}`) : "NOT RECORDED"],
-    ["PATROL BEST", ctx.account ? statValue(stats, "patrolBest") : "NOT RECORDED"],
-    ["BANK LOANS REPAID", ctx.account ? statValue(stats, "bankLoanRepayments") : "NOT RECORDED"],
-  ]);
-  const activity = statRecords([
-    ["EVENT SURVIVAL", ctx.account ? statValue(stats, "eventSurvival") : "NOT RECORDED"],
-    ["AUCTION WINS", ctx.account ? statValue(stats, "auctionWins") : "NOT RECORDED"],
-    ["LOANS GIVEN", ctx.account ? statValue(stats, "playerLoansGiven") : "NOT RECORDED"],
-    ["EQUITY DEALS", ctx.account ? statValue(stats, "equityDeals") : "NOT RECORDED"],
-  ]);
-  const tabs = ["results", "economy", "deals-events"];
-  const labels = ["RESULTS", "ECONOMY", "DEALS &amp; EVENTS"];
-  return `<div class="profile-stat-tabs" role="tablist" aria-label="Statistics categories">${tabs.map((tab, index) => `<button class="profile-stat-tab${index === 0 ? " is-active" : ""}" type="button" role="tab" id="profile-stat-tab-${tab}" aria-selected="${index === 0}" aria-controls="profile-stat-panel-${tab}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-stat-tab="${tab}">${labels[index]}</button>`).join("")}</div>
+  const values = statisticsGroupHTML(ctx, ECONOMY_STAT_FIELDS);
+  const activity = statisticsGroupHTML(ctx, ACTIVITY_STAT_FIELDS);
+  const tabs = [["results", "RESULTS"], ["economy", "ECONOMY"], ["deals-events", "DEALS &amp; EVENTS"]];
+  const buttons = tabs.map(([tab, label], index) => `<button class="profile-stat-tab${index === 0 ? " is-active" : ""}" type="button" role="tab" id="profile-stat-tab-${tab}" aria-selected="${index === 0}" aria-controls="profile-stat-panel-${tab}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-stat-tab="${tab}">${label}</button>`).join("");
+  return `<div class="profile-stat-tabs" role="tablist" aria-label="Statistics categories">${buttons}</div>
     <section class="profile-stat-tab-panel" role="tabpanel" id="profile-stat-panel-results" aria-labelledby="profile-stat-tab-results" tabindex="0">${recentResultsHTML(ctx)}${profilePersonalRecordsHTML(ctx)}</section>
     <section class="profile-stat-tab-panel" role="tabpanel" id="profile-stat-panel-economy" aria-labelledby="profile-stat-tab-economy" tabindex="0" hidden>${values}</section>
     <section class="profile-stat-tab-panel" role="tabpanel" id="profile-stat-panel-deals-events" aria-labelledby="profile-stat-tab-deals-events" tabindex="0" hidden>${activity}</section>`;
@@ -356,13 +386,10 @@ function formatDuration(value) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function ownerDetailsPanels(recordValue, accountId, detailId) {
-  const participant = ownParticipantResult(recordValue, accountId);
-  const result = matchResult(recordValue, accountId);
+function historySummaryFields(recordValue, participant, result) {
   const placement = participant?.finalPlacement ?? recordValue?.finalPlacement;
-  const propertyCount = participant?.propertyCount ?? participant?.properties;
   const board = recordValue?.boardVariant ?? recordValue?.rulesetPreset ?? recordValue?.rulesetBase;
-  const summaryFields = [
+  return [
     detailField("MATCH", esc(recordedText(recordValue, "matchId"))),
     detailField("RESULT", esc(result)),
     detailField("DURATION", esc(recordedText(recordValue, "durationSeconds", formatDuration))),
@@ -370,32 +397,80 @@ function ownerDetailsPanels(recordValue, accountId, detailId) {
     detailField("BOARD / RULES", board == null ? "NOT RECORDED" : esc(String(board).toUpperCase())),
     detailField("PLACEMENT", placement == null ? "NOT RECORDED" : `#${esc(placement)}`),
   ].join("");
-  const playerRows = Array.isArray(recordValue?.participants) && recordValue.participants.length
-    ? recordValue.participants.map((player) => `<li><span>${esc(player.displayNameAtMatch || "PLAYER")}</span><strong>${player.finalPlacement == null ? "NOT RECORDED" : `#${esc(player.finalPlacement)}`}</strong></li>`).join("")
-    : "<li>NOT RECORDED</li>";
-  const economyFields = [
+}
+
+function historyPlayerRows(recordValue) {
+  const participants = recordValue?.participants;
+  if (!Array.isArray(participants) || !participants.length) return "<li>NOT RECORDED</li>";
+  return participants.map((player) => `<li><span>${esc(player.displayNameAtMatch || "PLAYER")}</span><strong>${player.finalPlacement == null ? "NOT RECORDED" : `#${esc(player.finalPlacement)}`}</strong></li>`).join("");
+}
+
+function historyEconomyFields(recordValue, participant, accountId) {
+  return [
     detailField("ENDING CASH", recordedText(participant, "endingCash", (value) => `$${Number(value).toLocaleString()}`)),
-    detailField("PROPERTIES", propertyCount == null ? "NOT RECORDED" : esc(propertyCount)),
+    detailField("PROPERTIES", historyPropertyCount(participant)),
     detailField("CASINO NET", recordedText((recordValue?.casino || []).find((item) => item.accountId === accountId), "net", (value) => `$${Number(value).toLocaleString()}`)),
     detailField("MARKET NET", recordedText((recordValue?.market || []).find((item) => item.accountId === accountId), "net", (value) => `$${Number(value).toLocaleString()}`)),
     detailField("TRADES", recordedText(recordValue, "tradesCompleted")),
     detailField("CONTRACTS", recordedText(recordValue, "playerContracts", (items) => Array.isArray(items) ? String(items.length) : "NOT RECORDED")),
   ].join("");
+}
+
+function historyPropertyCount(participant) {
+  const propertyCount = participant?.propertyCount ?? participant?.properties;
+  if (propertyCount == null) return "NOT RECORDED";
+  return esc(propertyCount);
+}
+
+function historyEventList(recordValue) {
   const events = Array.isArray(recordValue?.globalEvents) && recordValue.globalEvents.length
-    ? `<ul>${recordValue.globalEvents.map((event) => `<li>${esc(typeof event === "string" ? event : event?.name || event?.title || "EVENT")}</li>`).join("")}</ul>`
+    ? `<ul>${recordValue.globalEvents.map((event) => `<li>${esc(historyEventName(event))}</li>`).join("")}</ul>`
     : "<p>NOT RECORDED</p>";
-  const panels = [
+  return events;
+}
+
+function historyEventName(event) {
+  if (typeof event === "string") return event;
+  if (event?.name) return event.name;
+  if (event?.title) return event.title;
+  return "EVENT";
+}
+
+function historyDetailPanels(recordValue, accountId, participant) {
+  const result = matchResult(recordValue, accountId);
+  const summaryFields = historySummaryFields(recordValue, participant, result);
+  const playerRows = historyPlayerRows(recordValue);
+  const economyFields = historyEconomyFields(recordValue, participant, accountId);
+  const events = historyEventList(recordValue);
+  return [
     ["summary", "SUMMARY", `<dl class="profile-history-detail-grid">${summaryFields}</dl>`],
     ["players", "PLAYERS", `<ul class="profile-history-player-list">${playerRows}</ul>`],
     ["economy", "ECONOMY &amp; DEALS", `<dl class="profile-history-detail-grid">${economyFields}</dl>`],
     ["events", "EVENTS", `<div class="profile-history-event-list">${events}</div>`],
   ];
-  const buttons = panels.map(([key, label], index) => `<button type="button" role="tab" id="${detailId}-tab-${key}" aria-selected="${index === 0}" aria-controls="${detailId}-panel-${key}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-history-detail-tab="${key}">${label}</button>`).join("");
-  const contents = panels.map(([key, , content], index) => `<section role="tabpanel" id="${detailId}-panel-${key}" aria-labelledby="${detailId}-tab-${key}" tabindex="0"${index ? " hidden" : ""}>${content}</section>`).join("");
-  return `<div class="profile-history-details" id="${detailId}" data-profile-detail-source="${recordValue ? "owner" : "unavailable"}" hidden><div class="profile-history-detail-tabs" role="tablist" aria-label="Match details">${buttons}</div><div class="profile-detail-scroll" tabindex="0" aria-label="Scrollable match details">${contents}</div></div>`;
 }
 
-export function profileHistoryRowHTML(entry, index, total, accountId, ownerRecord = null) {
+function historyDetailTabButtons(panels, detailId) {
+  const buttons = panels.map(([key, label], index) => `<button type="button" role="tab" id="${detailId}-tab-${key}" aria-selected="${index === 0}" aria-controls="${detailId}-panel-${key}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-history-detail-tab="${key}">${label}</button>`).join("");
+  return buttons;
+}
+
+function historyDetailTabContents(panels, detailId) {
+  const contents = panels.map(([key, , content], index) => `<section role="tabpanel" id="${detailId}-panel-${key}" aria-labelledby="${detailId}-tab-${key}" tabindex="0"${index ? " hidden" : ""}>${content}</section>`).join("");
+  return contents;
+}
+
+function ownerDetailsPanels(recordValue, accountId, detailId) {
+  const participant = ownParticipantResult(recordValue, accountId);
+  const panels = historyDetailPanels(recordValue, accountId, participant);
+  const buttons = historyDetailTabButtons(panels, detailId);
+  const contents = historyDetailTabContents(panels, detailId);
+  const source = recordValue ? "owner" : "unavailable";
+  return `<div class="profile-history-details" id="${detailId}" data-profile-detail-source="${source}" hidden><div class="profile-history-detail-tabs" role="tablist" aria-label="Match details">${buttons}</div><div class="profile-detail-scroll" tabindex="0" aria-label="Scrollable match details">${contents}</div></div>`;
+}
+
+export function profileHistoryRowHTML(entry, index, total, context = {}) {
+  const { accountId, ownerRecord = null } = context;
   const matchId = typeof entry.matchId === "string" ? entry.matchId : "";
   const date = formatStatDate(entry.completedAt || entry.playedAt);
   const outcome = matchResult(entry, accountId);
@@ -423,7 +498,10 @@ function emptyHistoryPanelHTML(account) {
 
 function historyPanelHTML(history, accountId) {
   const ownerRecords = new Map((Array.isArray(state.account?.account?.matchHistory) ? state.account.account.matchHistory : []).filter((entry) => typeof entry?.matchId === "string").map((entry) => [entry.matchId, entry]));
-  const rows = history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, accountId, ownerRecords.get(entry.matchId) || null)).join("");
+  const rows = history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, {
+    accountId,
+    ownerRecord: ownerRecords.get(entry.matchId) || null,
+  })).join("");
   return `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${rows}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.</p></section>`;
 }
 

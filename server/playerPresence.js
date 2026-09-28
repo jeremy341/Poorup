@@ -3,8 +3,16 @@ export const PLAYER_INACTIVITY_REMOVAL_MS = 180_000;
 
 const validReasons = new Set(['hidden', 'idle']);
 
+function isTrackableHuman(player, stale) {
+  return Boolean(player && !player.isBot && !stale);
+}
+
+function isValidInactiveSignal(reason, now) {
+  return validReasons.has(reason) && Number.isFinite(now);
+}
+
 export function markPlayerInactive(player, { reason, now, stale = false } = {}) {
-  if (!player || player.isBot || stale || !validReasons.has(reason) || !Number.isFinite(now)) return player;
+  if (!isTrackableHuman(player, stale) || !isValidInactiveSignal(reason, now)) return player;
   const current = player.presence;
   if (current?.state === 'inactive') return player;
   return {
@@ -19,7 +27,7 @@ export function markPlayerInactive(player, { reason, now, stale = false } = {}) 
 }
 
 export function markPlayerActive(player) {
-  if (!player || player.isBot || player.presence?.state === 'active') return player;
+  if (!isTrackableHuman(player, false) || player.presence?.state === 'active') return player;
   return {
     ...player,
     presence: { state: 'active', inactiveSince: null, inactiveUntil: null },

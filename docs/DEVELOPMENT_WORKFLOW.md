@@ -1,6 +1,6 @@
 # Poorup Development Workflow
 
-_Last updated: 2026-09-17. This is the contract between contributors (human or
+_Last updated: 2026-09-28. This is the contract between contributors (human or
 AI) and `main`._
 
 ## The rule
@@ -36,13 +36,13 @@ branch → PR → GitHub Actions (lint + tests + coverage + boot)
 Responsibilities, one line each:
 
 - **GitHub Actions** — does the code actually run? `npm run lint`,
-  `npm run lint:client`, the full `npm run test:full` contract/integration
-  suite, and `npm run coverage` (the covered
-  contract suites + persistence characterization, merged under one c8 pass by
-  `server/coverage-runner.js`),
-  a wire-test step (`server/server.test.js`) that boots the real server and
-  proves the socket-handler scaffold, and a boot smoke that syntax-checks every
-  shipped JS module and curls the app shell.
+  `npm run lint:client`, and the unique suites in `scripts/test-manifest.mjs`.
+  CI runs four isolated Node-test shards, merges their c8 V8-coverage data once,
+  shards the six-viewport Playwright suite three ways, and merges the browser
+  reports. The old repeated coverage-runner pass and separate duplicate
+  `server.test.js` invocation are gone; the unique wire test remains in the
+  manifest. A 10-game deterministic bot smoke runs on ordinary PRs, while the
+  1,000-game safety campaign runs nightly and on PRs targeting `main`.
 - **Copilot code review** — logic/bug-oriented AI review of the diff. Cannot
   approve or merge; treats its comments as signals, not orders.
 - **CodeScene** — maintainability: complexity, duplicated logic, temporal
@@ -123,20 +123,29 @@ Hard rules:
 
 ```bash
 npm run dev          # start server on :8080 (or PORT=…)
-npm test             # full gameLogic, persistence, wire, and client contract suites
+npm test             # core contract/integration group from the unique manifest
 npm run test:audit   # focused settlement, lifecycle, privacy, and casino audits
-npm run test:full    # npm test + npm run test:audit
+npm run test:full    # all 150 unique suites from the manifest, once each
+npm run test:bot-smoke     # 10 deterministic no-stall games
+npm run test:bot-campaign  # full 1,000-game campaign by default
 npm run lint         # eslint server/
 npm run lint:client  # eslint public/
-npm run coverage     # c8 → coverage/lcov.info + text table
+npm run coverage     # one c8 pass over the unique full manifest
 ```
+
+CI uses four disjoint suite shards and three Playwright shards. The runner
+records per-suite duration artifacts so shard balance can be adjusted from
+observed timing; sharding does not remove any test file. The bot campaign is
+bounded in the PR smoke path; run the full campaign before promoting to `main`
+and nightly. The CI smoke count is not balance evidence.
 
 ## What is NOT here
 
 - No build step (static assets ship as-is; the `boot` job is the honest
   equivalent of "build").
-- No TypeScript, no test framework migration, no formatter — decisions to
-  revisit only with an explicit proposal.
+- No TypeScript, test framework migration, or formatter was introduced. The
+  existing standalone Node contract tests remain intact; GitHub Actions matrix
+  jobs provide the first parallel pilot without moving tests to a new runner.
 - No auto-merge, no Copilot auto-approval (Copilot cannot approve; that is
   by design).
 

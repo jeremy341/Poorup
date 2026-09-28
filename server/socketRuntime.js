@@ -7,13 +7,8 @@
 // server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
 import { normalizeAvatarGrid, normalizeClientId, buildMatchRecordOptions } from './roomSetup.js';
-import { markPlayerActive, markPlayerInactive, isPlayerPresenceExpired } from './playerPresence.js';
-import {
-  VOTE_KICK_DURATION_MS,
-  VOTE_KICK_COOLDOWN_MS,
-  startRoomVoteKick as createRoomVoteKick,
-  castRoomVoteKick as applyRoomVoteKickBallot,
-} from './roomVoteKick.js';
+import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
+import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
 import {
   selectBotTurnTarget,
   botMayStillAct,
@@ -77,35 +72,60 @@ export function settleAfkPayment(game, player) {
   return false;
 }
 
-function passPendingPurchaseForSeatRemoval(game, player) {
+function preparePendingPurchasePass(game, player) {
   const offer = game?.pendingPurchaseOffer;
-  if (!offer || offer.playerId !== player?.id) return { resolved: false, auctionStarted: false };
-
+  if (!offer || offer.playerId !== player?.id) return { resolved: false, tile: null };
   const tile = game.getTile?.(offer.tileIndex);
   game.cancelSponsoredPurchase?.();
   game.pendingPurchaseOffer = null;
-  if (!tile || tile.ownerId !== null || !game.settings?.auction) {
-    game.feedMessage?.(`${player.nickname} passed on the property before leaving.`);
-    return { resolved: true, auctionStarted: false };
-  }
+  return { resolved: true, tile };
+}
 
+function startAuctionForDepartingPlayer(game, player, tile) {
+  if (!canAuctionPassedPurchase(game, tile)) return false;
   const startingPlayerId = nextAuctionStarter(game, player.id);
-  if (!startingPlayerId) {
-    game.feedMessage?.(`${player.nickname} passed on the property before leaving.`);
-    return { resolved: true, auctionStarted: false };
-  }
+  if (!startingPlayerId) return false;
   game.startAuction?.(tile, startingPlayerId);
   const auction = game.auction;
-  if (!auction?.active) {
-    game.feedMessage?.(`${player.nickname} passed on the property before leaving.`);
-    return { resolved: true, auctionStarted: false };
-  }
+  if (!auction?.active) return false;
+  excludeDepartingAuctionSeat(auction, player, startingPlayerId);
+  return true;
+}
 
+function excludeDepartingAuctionSeat(auction, player, startingPlayerId) {
   auction.participants = [...new Set((auction.participants || []).filter(id => id !== player.id))];
   auction.passedPlayerIds = [...new Set([...(auction.passedPlayerIds || []), player.id])];
   if (auction.startingPlayerId === player.id) auction.startingPlayerId = startingPlayerId;
-  game.feedMessage?.(`${player.nickname} passed on ${tile.name} before leaving.`);
-  return { resolved: true, auctionStarted: true };
+}
+
+function passPendingPurchaseForSeatRemoval(game, player) {
+  const pending = preparePendingPurchasePass(game, player);
+  if (!pending.resolved) return { resolved: false, auctionStarted: false };
+  const auctionStarted = startAuctionForDepartingPlayer(game, player, pending.tile);
+  const propertyName = auctionStarted ? pending.tile.name : null;
+  reportPassedPurchase(game, player, propertyName);
+  return { resolved: true, auctionStarted };
+}
+
+function canAuctionPassedPurchase(game, tile) {
+  if (!tile) return false;
+  if (tile.ownerId !== null) return false;
+  return Boolean(game.settings?.auction);
+}
+
+function reportPassedPurchase(game, player, propertyName = null) {
+  const copy = propertyName
+    ? `${player.nickname} passed on ${propertyName} before leaving.`
+    : `${player.nickname} passed on the property before leaving.`;
+  game.feedMessage?.(copy);
+  return { resolved: true, auctionStarted: false };
+}
+
+function isEligibleAuctionStarter(candidate, departingPlayerId) {
+  if (!candidate) return false;
+  if (candidate.id === departingPlayerId) return false;
+  if (candidate.bankrupt) return false;
+  return !candidate.disconnected;
 }
 
 function nextAuctionStarter(game, departingPlayerId) {
@@ -115,7 +135,7 @@ function nextAuctionStarter(game, departingPlayerId) {
   for (let offset = 1; offset <= order.length; offset += 1) {
     const index = oldIndex < 0 ? offset - 1 : (oldIndex + offset) % order.length;
     const candidate = playersById.get(order[index]);
-    if (candidate && candidate.id !== departingPlayerId && !candidate.bankrupt && !candidate.disconnected) return candidate.id;
+    if (isEligibleAuctionStarter(candidate, departingPlayerId)) return candidate.id;
   }
   return null;
 }
@@ -261,8 +281,6 @@ function createRuntime(deps) {
     : DISCONNECT_GRACE_MS;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
-  const inactivityTimers = new Map();
-  const voteKickTimers = new Map();
   const botTimers = new Map();
   const botDecisionLocks = new Set();
   const auctionBotTimers = new Map();
@@ -326,7 +344,7 @@ function createRuntime(deps) {
       console.error('recordRoomStats failed for room', room.roomCode, error);
     }
     try {
-      synchronizeInactivityTimers(room);
+      roomPresenceRuntime.synchronizeInactivityTimers(room);
       broadcastRoomState(room);
       scheduleBotTurn(room);
       scheduleBotAuction(room);
@@ -464,213 +482,28 @@ function createRuntime(deps) {
     auctionTimers.delete(room.roomCode);
   }
 
-  function inactivityTimerKey(room, playerId) {
-    return `${room.roomCode}:${playerId}`;
+  function resolveSeatObligations(room, player, reason) {
+    if (room.game.pendingPayment?.playerId === player.id) settleAfkPayment(room.game, player);
+    clearPendingObligations(room, room.game, player, reason);
+    revokeAuctionLeadIfLeader(room, player, reason);
+    resolvePendingPurchaseForLeaving(room, player);
   }
 
-  function clearInactivityTimer(room, playerId = null) {
-    if (!room?.roomCode) return;
-    const prefix = `${room.roomCode}:`;
-    for (const [key, watch] of inactivityTimers) {
-      if (watch.room !== room || (playerId && watch.playerId !== playerId)) continue;
-      clearTimeoutFn(watch.handle);
-      if (key.startsWith(prefix)) inactivityTimers.delete(key);
-    }
+  function resolvePendingPurchaseForLeaving(room, player) {
+    if (room.game.pendingPurchaseOffer?.playerId !== player.id) return;
+    const result = passPendingPurchaseForSeatRemoval(room.game, player);
+    if (result.auctionStarted) scheduleAuctionFinish(room);
   }
 
-  function scheduleInactivityTimer(room, player) {
-    const key = inactivityTimerKey(room, player.id);
-    const existing = inactivityTimers.get(key);
-    if (existing && existing.player === player
-      && existing.socketId === player.socketId
-      && existing.deadline === player.presence?.inactiveUntil) return;
-    if (existing) clearTimeoutFn(existing.handle);
-    if (!player.presence || player.presence.state !== 'inactive') {
-      inactivityTimers.delete(key);
-      return;
-    }
-    const watch = {
-      room,
-      roomCode: room.roomCode,
-      player,
-      playerId: player.id,
-      clientId: player.clientId,
-      socketId: player.socketId,
-      deadline: player.presence.inactiveUntil,
-      handle: null,
-    };
-    const run = () => runRoomTimer('player-inactivity-expiry', room.roomCode, () => {
-      if (inactivityTimers.get(key) !== watch) return;
-      const remaining = watch.deadline - now();
-      if (remaining > 0) {
-        watch.handle = setTimeoutFn(run, remaining);
-        return;
-      }
-      expireInactiveSeat(watch);
-    });
-    watch.handle = setTimeoutFn(run, Math.max(0, watch.deadline - now()));
-    inactivityTimers.set(key, watch);
-  }
-
-  function synchronizeInactivityTimers(room) {
-    if (!room) return;
-    const humans = new Set(room.game.players.filter(player => !player.isBot && !player.bankrupt && !player.disconnected).map(player => player.id));
-    for (const [key, watch] of inactivityTimers) {
-      if (watch.room === room && (!humans.has(watch.playerId) || watch.player.presence?.state !== 'inactive')) {
-        clearTimeoutFn(watch.handle);
-        inactivityTimers.delete(key);
-      }
-    }
-    room.game.players.forEach(player => {
-      if (!player.isBot && !player.bankrupt && !player.disconnected) scheduleInactivityTimer(room, player);
-    });
-  }
-
-  function setPlayerPresence(socket, payload = {}) {
-    const room = roomManager.getRoomBySocket(socket?.id);
-    const player = room?.getPlayerBySocket(socket.id);
-    if (!room || !player || player.isBot || player.bankrupt || player.disconnected) {
-      return { success: false, error: 'That room seat is no longer active.' };
-    }
-    if (payload.state === 'active') {
-      player.presence = markPlayerActive(player).presence;
-    } else if (payload.state === 'inactive' && (payload.reason === 'hidden' || payload.reason === 'idle')) {
-      player.presence = markPlayerInactive(player, { reason: payload.reason, now: now() }).presence;
-    } else {
-      return { success: false, error: 'Invalid presence state.' };
-    }
-    synchronizeInactivityTimers(room);
-    emitRoomState(room);
-    return { success: true, presence: player.presence };
-  }
-
-  function publicVoteKick(vote) {
-    if (!vote) return null;
-    const ballots = Object.values(vote.ballots || {});
-    return {
-      voteId: vote.voteId,
-      targetPlayerId: vote.targetPlayerId,
-      openedAt: vote.openedAt,
-      expiresAt: vote.expiresAt,
-      eligibleCount: vote.eligibleCount,
-      yesCount: ballots.filter(choice => choice === 'yes').length,
-      noCount: ballots.filter(choice => choice === 'no').length,
-      requiredYes: vote.requiredYes,
-      status: vote.status,
-    };
-  }
-
-  function emitVoteKickState(room, vote) {
-    const snapshot = publicVoteKick(vote);
-    room.voteKickSnapshot = snapshot;
-    io.in(room.roomCode).emit('room-votekick-update', { vote: snapshot });
-    return snapshot;
-  }
-
-  function voteKickReplay(room, player, requestId, payload, result = null) {
-    if (!room.voteKickReplays) room.voteKickReplays = new Map();
-    const key = `${player.id}:${requestId}`;
-    const previous = room.voteKickReplays.get(key);
-    if (previous) {
-      if (previous.fingerprint !== JSON.stringify(payload)) {
-        return { success: false, error: 'That request ID was already used.' };
-      }
-      return previous.result;
-    }
-    if (result) {
-      room.voteKickReplays.set(key, { fingerprint: JSON.stringify(payload), result });
-      while (room.voteKickReplays.size > 500) room.voteKickReplays.delete(room.voteKickReplays.keys().next().value);
-    }
-    return null;
-  }
-
-  function startRoomVoteKick(socket, payload = {}) {
-    const room = roomManager.getRoomBySocket(socket?.id);
-    const initiator = room?.getPlayerBySocket(socket.id);
-    const requestId = typeof payload.requestId === 'string' ? payload.requestId.trim().slice(0, 100) : '';
-    if (!room || !initiator || !requestId) return { success: false, error: 'A current room seat and request ID are required.' };
-    const replay = voteKickReplay(room, initiator, requestId, payload);
-    if (replay) return replay;
-    const cooldowns = room.voteKickCooldowns || (room.voteKickCooldowns = new Map());
-    const vote = createRoomVoteKick({
-      players: room.game.players,
-      initiatorId: initiator.id,
-      targetPlayerId: typeof payload.targetPlayerId === 'string' ? payload.targetPlayerId : '',
-      now: now(),
-      activeVote: room.voteKick?.status === 'open' ? room.voteKick : null,
-      cooldownUntil: cooldowns.get(initiator.id) || 0,
-    });
-    if (!vote) {
-      const result = { success: false, error: 'A vote cannot be started for that player right now.' };
-      voteKickReplay(room, initiator, requestId, payload, result);
-      return result;
-    }
-    room.voteKickCounter = (room.voteKickCounter || 0) + 1;
-    vote.voteId = `${room.roomCode}-${now().toString(36)}-${room.voteKickCounter.toString(36)}`;
-    room.voteKick = vote;
-    cooldowns.set(initiator.id, now() + VOTE_KICK_COOLDOWN_MS);
-    const snapshot = emitVoteKickState(room, vote);
-    const oldTimer = voteKickTimers.get(room.roomCode);
-    if (oldTimer) clearTimeoutFn(oldTimer);
-    const timer = setTimeoutFn(() => runRoomTimer('room-votekick-expiry', room.roomCode, () => {
-      if (room.voteKick !== vote || vote.status !== 'open') return;
-      vote.status = 'expired';
-      voteKickTimers.delete(room.roomCode);
-      emitVoteKickState(room, vote);
-    }), VOTE_KICK_DURATION_MS);
-    voteKickTimers.set(room.roomCode, timer);
-    const result = { success: true, vote: snapshot };
-    voteKickReplay(room, initiator, requestId, payload, result);
-    return result;
-  }
-
-  function castRoomVoteKick(socket, payload = {}) {
-    const room = roomManager.getRoomBySocket(socket?.id);
-    const voter = room?.getPlayerBySocket(socket.id);
-    const requestId = typeof payload.requestId === 'string' ? payload.requestId.trim().slice(0, 100) : '';
-    const vote = room?.voteKick;
-    if (!room || !voter || !requestId || !vote || payload.voteId !== vote.voteId) {
-      return { success: false, error: 'That vote is no longer active.' };
-    }
-    const result = applyRoomVoteKickBallot({ vote, voterId: voter.id, choice: payload.choice, now: now(), requestId });
-    if (!result.accepted) {
-      if (result.vote !== vote) {
-        room.voteKick = result.vote;
-        emitVoteKickState(room, result.vote);
-      }
-      return { success: false, error: result.reason || 'That ballot was rejected.', vote: publicVoteKick(result.vote) };
-    }
-    room.voteKick = result.vote;
-    const snapshot = emitVoteKickState(room, result.vote);
-    if (result.vote.status !== 'open') {
-      clearTimeoutFn(voteKickTimers.get(room.roomCode));
-      voteKickTimers.delete(room.roomCode);
-    }
-    if (result.vote.status === 'passed') {
-      const target = room.game.getPlayerById(result.vote.targetPlayerId);
-      if (target) {
-        io.in(room.roomCode).emit('system-message', {
-          text: `${target.nickname} was removed after the room vote-kick passed.`,
-        });
-        removeSeatForReason(room, target, 'vote-kick', true);
-      }
-    }
-    return { success: true, vote: snapshot };
+  function seatRemovalMessage(player, reason) {
+    if (reason === 'disconnect') return `${player.nickname} disconnected.`;
+    return `${player.nickname} was removed for ${reason}.`;
   }
 
   function removeSeatForReason(room, player, reason, preventRejoin = false) {
-    const playerId = player.id;
-    if (room.game.pendingPayment?.playerId === playerId) settleAfkPayment(room.game, player);
-    clearPendingObligations(room, room.game, player, reason);
-    revokeAuctionLeadIfLeader(room, player, reason);
-    if (room.game.pendingPurchaseOffer?.playerId === playerId) {
-      const result = passPendingPurchaseForSeatRemoval(room.game, player);
-      if (result.auctionStarted) scheduleAuctionFinish(room);
-    }
+    resolveSeatObligations(room, player, reason);
     const socket = io.sockets?.sockets?.get(player.socketId);
-    const message = reason === 'disconnect'
-      ? `${player.nickname} disconnected.`
-      : `${player.nickname} was removed for ${reason}.`;
+    const message = seatRemovalMessage(player, reason);
     if (reason !== 'vote-kick') socket?.emit('system-message', { text: message });
     const removed = roomManager.removeRoomSeat({
       clientId: player.clientId,
@@ -679,7 +512,7 @@ function createRuntime(deps) {
       preventRejoin,
     });
     if (!removed.success) return false;
-    clearInactivityTimer(room, playerId);
+    roomPresenceRuntime.clearPlayer(room, player.id);
     socket?.leave(room.roomCode);
     emitRoomState(room);
     if (reason !== 'vote-kick') io.in(room.roomCode).emit('system-message', { text: message });
@@ -687,16 +520,25 @@ function createRuntime(deps) {
     return true;
   }
 
-  function expireInactiveSeat(watch) {
-    if (inactivityTimers.get(inactivityTimerKey(watch.room, watch.playerId)) !== watch) return false;
-    const room = roomManager.getRoom(watch.roomCode);
-    const player = room?.game.getPlayerByClient(watch.clientId);
-    if (room !== watch.room || player !== watch.player || player?.socketId !== watch.socketId
-      || player?.disconnected || player?.bankrupt || player?.isBot
-      || !isPlayerPresenceExpired(player, now())) return false;
-    inactivityTimers.delete(inactivityTimerKey(room, player.id));
-    return removeSeatForReason(room, player, 'inactivity', false);
-  }
+  const roomPresenceRuntime = createRoomPresenceRuntime({
+    roomManager,
+    runRoomTimer,
+    setTimeoutFn,
+    clearTimeoutFn,
+    now,
+    emitRoomState,
+    removeSeatForReason,
+  });
+
+  const roomVoteKickRuntime = createRoomVoteKickRuntime({
+    io,
+    roomManager,
+    runRoomTimer,
+    setTimeoutFn,
+    clearTimeoutFn,
+    now,
+    removeSeatForReason,
+  });
 
   function clearDisconnectTimer(clientId) {
     const timer = disconnectTimers.get(clientId);
@@ -722,10 +564,8 @@ function createRuntime(deps) {
     if (room.game?.started && !room.game?.lastWinner) recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
     room.destroyed = true;
     clearAuctionTimer(room);
-    clearInactivityTimer(room);
-    const voteTimer = voteKickTimers.get(roomCode);
-    if (voteTimer) clearTimeoutFn(voteTimer);
-    voteKickTimers.delete(roomCode);
+    roomPresenceRuntime.clearRoom(room);
+    roomVoteKickRuntime.clearRoom(roomCode);
     clearDisconnectTimersForRoom(room);
     clearTimeoutFn(auctionBotTimers.get(roomCode));
     auctionBotTimers.delete(roomCode);
@@ -953,11 +793,19 @@ function createRuntime(deps) {
     auctionTimers.set(roomCode, timer);
   }
 
+  function auctionFinishStatus(room, expectedAuction) {
+    const auction = room?.game.auction;
+    if (!auction?.active) return 'missing';
+    if (expectedAuction && auction !== expectedAuction) return 'replaced';
+    return 'active';
+  }
+
   function finishAuctionIfStillActive(roomCode, expectedAuction) {
     const currentRoom = roomManager.getRoom(roomCode);
-    if (!currentRoom?.game.auction?.active || (expectedAuction && currentRoom.game.auction !== expectedAuction)) {
-      // Do not clear a timer for a newer auction when an older callback fires.
-      if (currentRoom?.game.auction && expectedAuction && currentRoom.game.auction !== expectedAuction) return;
+    const status = auctionFinishStatus(currentRoom, expectedAuction);
+    // Do not clear a timer for a newer auction when an older callback fires.
+    if (status === 'replaced') return;
+    if (status === 'missing') {
       clearAuctionTimer({ roomCode });
       return;
     }
@@ -976,7 +824,7 @@ function createRuntime(deps) {
     const player = disconnectedPlayer || room.getPlayerBySocket(socketId);
     if (!player) return;
     clearDisconnectTimer(player.clientId);
-    clearInactivityTimer(room, player.id);
+    roomPresenceRuntime.clearPlayer(room, player.id);
     const deadline = now() + disconnectGraceMs;
     player.disconnected = true;
     player.socketId = null;
@@ -1242,9 +1090,9 @@ function createRuntime(deps) {
     socialStore,
     emitPendingInteractions,
     emitRoomState,
-    setPlayerPresence,
-    startRoomVoteKick,
-    castRoomVoteKick
+    setPlayerPresence: roomPresenceRuntime.setPlayerPresence,
+    startRoomVoteKick: roomVoteKickRuntime.startRoomVoteKick,
+    castRoomVoteKick: roomVoteKickRuntime.castRoomVoteKick
   };
 
   roomManager.setRoomDestroyer?.(destroyRoom);
