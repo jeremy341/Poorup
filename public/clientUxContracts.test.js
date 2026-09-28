@@ -8,6 +8,7 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
 const { socialGuestGateHTML } = await import("./clientSocialSurfaces.js");
+const { normalizeSettingValue } = await import("./clientLobbyUi.js");
 
 const index = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("./main.js", import.meta.url), "utf8");
@@ -108,6 +109,14 @@ check("spectators can leave through the existing table action", () => {
   assert.match(stateSync, /spectating/);
   assert.match(stateSync, /LEAVE TABLE/);
   assert.match(gameModalsSource, /spectating/);
+});
+
+check("lobby setting values preserve unlimited, numeric, checkbox, and select semantics", () => {
+  assert.deepEqual(normalizeSettingValue({ key: "houseLimit", value: "unlimited" }), { valid: true, value: "unlimited" });
+  assert.deepEqual(normalizeSettingValue({ key: "startingCash", value: "1200" }), { valid: true, value: 1200 });
+  assert.deepEqual(normalizeSettingValue({ key: "startingCash", value: "-1" }), { valid: false });
+  assert.deepEqual(normalizeSettingValue({ key: "auction", value: "on", checked: true, inputType: "checkbox" }), { valid: true, value: true });
+  assert.deepEqual(normalizeSettingValue({ key: "boardVariant", value: "standard-40" }), { valid: true, value: "standard-40" });
 });
 
 console.log(`client UX contract tests: ${passed} passed, ${failed} failed`);

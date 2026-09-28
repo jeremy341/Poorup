@@ -24,6 +24,13 @@ const defaultAiChoice = await defaultAiStub.chooseAction({
 assert.equal(defaultAiChoice.provider, 'ai');
 assert.equal(defaultAiChoice.actionId, 'selected-candidate');
 
+const greedyAdvisor = createDefaultPolicySet().find(policy => policy.policyId === 'score-greedy').advisor;
+const greedyChoice = await greedyAdvisor.chooseAction({ candidates: [{ id: 'low', score: 1 }, { id: 'high', score: 2 }] });
+assert.equal(greedyChoice.actionId, 'high');
+const conservativeAdvisor = createDefaultPolicySet().find(policy => policy.policyId === 'conservative-cash').advisor;
+const conservativeChoice = await conservativeAdvisor.chooseAction({ candidates: [{ id: 'costly', score: 10, cost: 900 }, { id: 'steady', score: 2, cost: 0 }] });
+assert.equal(conservativeChoice.actionId, 'steady');
+
 assert.equal(typeof tournamentApi.createCappedFetch, 'function', 'live campaigns expose a capped provider transport with observable exhaustion');
 
 const cappedTransport = tournamentApi.createCappedFetch({

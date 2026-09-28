@@ -48,6 +48,27 @@ function closeBankOffer() {
   host.closeSurface("#bank-loan-modal");
 }
 
+function restoreConfirmButton(button) {
+  button.disabled = false;
+  button.removeAttribute("aria-busy");
+}
+
+function showBankOfferFailure(button, statusNode, message) {
+  restoreConfirmButton(button);
+  if (statusNode) statusNode.textContent = message;
+  host.announceActionStatus(message, statusNode);
+}
+
+function handleBankOfferResponse(button, statusNode, response) {
+  if (response?.success === false) {
+    const message = response.error || "The bank transaction could not be completed.";
+    showBankOfferFailure(button, statusNode, message);
+    return;
+  }
+  host.refreshEconomySnapshot();
+  closeBankOffer();
+}
+
 function confirmBankOffer(button) {
   if (!button || button.disabled) return;
   const card = button.closest("#bank-loan-card");
@@ -55,24 +76,9 @@ function confirmBankOffer(button) {
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   emitWithTimeout(host.emitServer, "take-bank-loan", { requestId: host.createRequestId("take-bank-loan") }, {
-    onResponse: response => {
-      if (response?.success === false) {
-        button.disabled = false;
-        button.removeAttribute("aria-busy");
-        const message = response.error || "The bank transaction could not be completed.";
-        if (statusNode) statusNode.textContent = message;
-        host.announceActionStatus(message, statusNode);
-        return;
-      }
-      host.refreshEconomySnapshot();
-      closeBankOffer();
-    },
+    onResponse: response => handleBankOfferResponse(button, statusNode, response),
     onTimeout: () => {
-      button.disabled = false;
-      button.removeAttribute("aria-busy");
-      const message = "Bank response timed out. Your wallet will refresh when the connection returns.";
-      if (statusNode) statusNode.textContent = message;
-      host.announceActionStatus(message, statusNode);
+      showBankOfferFailure(button, statusNode, "Bank response timed out. Your wallet will refresh when the connection returns.");
       host.refreshEconomySnapshot();
     },
   });
@@ -90,8 +96,10 @@ export function openBankLoanOffer(trigger) {
 
 export function bindBankLoanUi() {
   const card = document.querySelector("#bank-loan-card");
+  if (!card) return;
   const surface = document.querySelector("#bank-loan-modal");
-  if (!card || !surface || card.dataset.bankLoanUiBound) return;
+  if (!surface) return;
+  if (card.dataset.bankLoanUiBound) return;
   card.dataset.bankLoanUiBound = "true";
   const onClick = event => {
     const cancel = event.target.closest("[data-bank-offer-cancel]");

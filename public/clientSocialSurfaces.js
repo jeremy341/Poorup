@@ -754,8 +754,9 @@ function seasonRewardRows(rewards, claimed, signedIn) {
   }).join("");
 }
 
-export function seasonPanelHTML(surfaceKey = "page", override = null) {
-  const view = override || {
+function seasonPanelView(override) {
+  if (override) return override;
+  return {
     season: state.season.current,
     loading: state.season.loading,
     error: state.season.error,
@@ -765,16 +766,34 @@ export function seasonPanelHTML(surfaceKey = "page", override = null) {
     claimedRewardIds: state.season.claimedRewardIds,
     signedIn: Boolean(state.account?.account),
   };
-  const status = seasonStatusPanelHTML(view);
+}
+
+function emptySeasonPanelHTML(status) {
   if (status) return status;
+  return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
+}
+
+function seasonSignInPrompt(signedIn) {
+  if (signedIn) return "";
+  return `<div class="season-signin-prompt"><span class="t-body ink-2">Sign in to claim earned rewards.</span><button class="btn-dark" type="button" data-season-sign-in><span class="t-label f11">SIGN IN</span></button></div>`;
+}
+
+function populatedSeasonPanelHTML(surfaceKey, view, syncStatus) {
   const season = view.season;
-  if (!season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
-  const syncStatus = seasonSyncStatusHTML(view);
   const rows = seasonPlacementRows((view.rows || []).slice(0, 3));
   const claimed = new Set(view.claimedRewardIds || []);
   const rewards = seasonRewardRows(view.rewards || [], claimed, Boolean(view.signedIn));
-  const signIn = view.signedIn ? "" : `<div class="season-signin-prompt"><span class="t-body ink-2">Sign in to claim earned rewards.</span><button class="btn-dark" type="button" data-season-sign-in><span class="t-label f11">SIGN IN</span></button></div>`;
+  const signIn = seasonSignInPrompt(view.signedIn);
   return `${syncStatus}<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div>${signIn}</div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
+}
+
+export function seasonPanelHTML(surfaceKey = "page", override = null) {
+  const view = seasonPanelView(override);
+  const status = seasonStatusPanelHTML(view);
+  if (status) return emptySeasonPanelHTML(status);
+  if (!view.season) return emptySeasonPanelHTML("");
+  const syncStatus = seasonSyncStatusHTML(view);
+  return populatedSeasonPanelHTML(surfaceKey, view, syncStatus);
 }
 
 export function renderRankingsSurface(target = "#rankings-card") {
@@ -1143,14 +1162,26 @@ function historyRowWon(participant, entry) {
   return entry.result === 'WIN';
 }
 
-function historyRowResult(participant, entry) {
-  if (Number.isInteger(participant?.finalPlacement) && participant.finalPlacement > 0) {
-    return participant.finalPlacement === 1 ? 'WIN' : 'PLACE ' + participant.finalPlacement;
-  }
-  if (participant?.bankrupt === true) return 'BANKRUPT';
-  if (entry.won === true || entry.result === 'WIN') return 'WIN';
-  if (entry.won === false || entry.result === 'LOSS' || entry.result === 'LOST') return 'LOSS';
+function placementHistoryResult(participant) {
+  if (!Number.isInteger(participant?.finalPlacement)) return '';
+  if (participant.finalPlacement <= 0) return '';
+  if (participant.finalPlacement === 1) return 'WIN';
+  return 'PLACE ' + participant.finalPlacement;
+}
+
+function declaredHistoryResult(entry) {
+  if (entry.won === true) return 'WIN';
+  if (entry.result === 'WIN') return 'WIN';
+  if (entry.won === false) return 'LOSS';
+  if (entry.result === 'LOSS' || entry.result === 'LOST') return 'LOSS';
   return 'RESULT NOT RECORDED';
+}
+
+function historyRowResult(participant, entry) {
+  const placement = placementHistoryResult(participant);
+  if (placement) return placement;
+  if (participant?.bankrupt === true) return 'BANKRUPT';
+  return declaredHistoryResult(entry);
 }
 
 function historyRowDate(entry) {
@@ -1276,7 +1307,32 @@ function renderPlayerHistoryView(card, player) {
   card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Recent match records visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
 }
 
-function renderPlayerProfileView(card, player, accountId) {
+function isVoteKickPhase(phase) {
+  return ["lobby", "playing"].includes(phase);
+}
+
+function isEligibleVoteKickTarget(player, localId, targetId) {
+  if (player.bot) return false;
+  if (player.bankrupt) return false;
+  if (player.spectating) return false;
+  return String(targetId) !== String(localId);
+}
+
+function isActiveHumanForVote(player) {
+  return [!player.bot, !player.bankrupt, !player.spectating].every(Boolean);
+}
+
+function playerVoteKickHTML(player, localId, targetId) {
+  if (!isVoteKickPhase(state.phase)) return "";
+  if (!isEligibleVoteKickTarget(player, localId, targetId)) return "";
+  const activeHumans = state.players.filter(isActiveHumanForVote);
+  const voteDisabled = activeHumans.length < 3;
+  const help = voteDisabled ? "A vote needs at least three human seats." : "A passed vote removes this seat from the room.";
+  const disabled = voteDisabled ? 'disabled aria-describedby="player-votekick-help"' : "";
+  return `<div class="player-profile-votekick"><button class="btn-dark" type="button" data-player-action="vote-kick" ${disabled}><span class="t-label f11">START VOTE KICK</span></button><span class="t-micro ink-3" id="player-votekick-help">${help}</span></div>`;
+}
+
+function playerProfileViewModel(player, accountId) {
   const friendStatus = currentFriendStatus(accountId);
   const friendLabel = friendButtonLabel(friendStatus);
   const isSelf = player.id === "p1";
@@ -1286,15 +1342,25 @@ function renderPlayerProfileView(card, player, accountId) {
   const actions = playerActionBits(player, canSocial, friendStatus);
   const localId = state.players[0]?.serverId || state.players[0]?.id;
   const targetId = player.serverId || player.roomPlayerId || player.id;
-  const activeHumans = state.players.filter(candidate => !candidate.bot && !candidate.bankrupt && !candidate.spectating);
-  const eligibleTarget = state.phase === "lobby" || state.phase === "playing"
-    ? !player.bot && !player.bankrupt && !player.spectating && String(targetId) !== String(localId)
-    : false;
-  const voteDisabled = activeHumans.length < 3;
-  const voteAction = eligibleTarget
-    ? `<div class="player-profile-votekick"><button class="btn-dark" type="button" data-player-action="vote-kick" ${voteDisabled ? 'disabled aria-describedby="player-votekick-help"' : ""}><span class="t-label f11">START VOTE KICK</span></button><span class="t-micro ink-3" id="player-votekick-help">${voteDisabled ? "A vote needs at least three human seats." : "A passed vote removes this seat from the room."}</span></div>`
-    : "";
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${bits.name}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${bits.name}</strong><span class="t-micro ink-3">${bits.online}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${facts.games}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${facts.wins}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${facts.achievements}</strong></div><div><span class="t-micro ink-3">MUTUAL FRIENDS</span><strong class="t-label f13 g300">${facts.mutual}</strong></div></div><div class="player-profile-actions">${playerActionPanelHTML(player, canSocial, actions, friendLabel)}</div>${voteAction}`;
+  return {
+    player,
+    bits,
+    facts,
+    canSocial,
+    actions,
+    friendLabel,
+    voteAction: playerVoteKickHTML(player, localId, targetId),
+  };
+}
+
+function playerProfileHTML(view) {
+  const { player, bits, facts, canSocial, actions, friendLabel, voteAction } = view;
+  return `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${bits.name}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${bits.name}</strong><span class="t-micro ink-3">${bits.online}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${facts.games}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${facts.wins}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${facts.achievements}</strong></div><div><span class="t-micro ink-3">MUTUAL FRIENDS</span><strong class="t-label f13 g300">${facts.mutual}</strong></div></div><div class="player-profile-actions">${playerActionPanelHTML(player, canSocial, actions, friendLabel)}</div>${voteAction}`;
+}
+
+function renderPlayerProfileView(card, player, accountId) {
+  const view = playerProfileViewModel(player, accountId);
+  card.innerHTML = playerProfileHTML(view);
   renderRecentMatches(card, player);
 }
 

@@ -107,48 +107,129 @@ function draftContract(game, terms) {
   };
 }
 
-function collateralIndicesForOffer(game, offer) {
+function suppliedCollateralIndices(offer) {
   if (offer.collateralTileIndices != null && !Array.isArray(offer.collateralTileIndices)) return null;
-  const supplied = Array.isArray(offer.collateralTileIndices)
-    ? offer.collateralTileIndices
-    : offer.collateralTileIndex == null ? [] : [offer.collateralTileIndex];
-  const maximum = Math.min(Array.isArray(game.tiles) ? game.tiles.length : 0, 52);
-  if (supplied.length > maximum) return null;
+  if (Array.isArray(offer.collateralTileIndices)) return offer.collateralTileIndices;
+  if (offer.collateralTileIndex == null) return [];
+  return [offer.collateralTileIndex];
+}
+
+function normalizedCollateralIndices(game, supplied) {
   const indices = [];
   for (const value of supplied) {
     const index = Number(value);
     if (!Number.isInteger(index) || !game.getTile(index)) return null;
-    if (!indices.includes(index)) indices.push(index);
+    if (indices.includes(index)) continue;
+    indices.push(index);
   }
   return indices;
 }
 
-function equityTransferContext(game, seller, buyer, sourceContractId, sharePct, price) {
-  if (!isPairOfActivePlayers(seller, buyer)) return { error: 'Choose two active players.' };
-  const source = game.playerContractById(sourceContractId);
-  if (!source || !['equity', 'hybrid'].includes(source.kind) || !equityShareContractLive(source)) return { error: 'That equity share is no longer available.' };
-  if (source.kind === 'equity' && !source.permanent && source.expiresRound && game.roundNumber >= source.expiresRound) {
-    return { error: 'That equity share has expired.' };
-  }
-  const tile = game.getTile(Number(source.propertyIndex));
-  if (!tile || tile.ownerId !== source.toPlayerId || tile.type !== 'property' || tile.mortgaged || Number(tile.houseCount) > 0) {
-    return { error: 'That property cannot transfer equity right now.' };
-  }
+function collateralIndicesForOffer(game, offer) {
+  const supplied = suppliedCollateralIndices(offer);
+  if (!supplied) return null;
+  const maximum = Math.min(Array.isArray(game.tiles) ? game.tiles.length : 0, 52);
+  if (supplied.length > maximum) return null;
+  return normalizedCollateralIndices(game, supplied);
+}
+
+function validateTransferPlayers(context) {
+  if (isPairOfActivePlayers(context.seller, context.buyer)) return null;
+  return { error: 'Choose two active players.' };
+}
+
+function resolveTransferSource(context) {
+  const source = context.game.playerContractById(context.sourceContractId);
+  if (!source) return { error: 'That equity share is no longer available.' };
+  if (!['equity', 'hybrid'].includes(source.kind)) return { error: 'That equity share is no longer available.' };
+  if (!equityShareContractLive(source)) return { error: 'That equity share is no longer available.' };
+  context.source = source;
+  return null;
+}
+
+function transferSourceExpired(context) {
+  const { game, source } = context;
+  if (source.kind !== 'equity') return false;
+  if (source.permanent || !source.expiresRound) return false;
+  return game.roundNumber >= source.expiresRound;
+}
+
+function resolveTransferTile(context) {
+  const tile = context.game.getTile(Number(context.source.propertyIndex));
+  if (!tile) return { error: 'That property cannot transfer equity right now.' };
+  if (tile.ownerId !== context.source.toPlayerId) return { error: 'That property cannot transfer equity right now.' };
+  if (tile.type !== 'property') return { error: 'That property cannot transfer equity right now.' };
+  if (tile.mortgaged) return { error: 'That property cannot transfer equity right now.' };
+  if (Number(tile.houseCount) > 0) return { error: 'That property cannot transfer equity right now.' };
+  context.tile = tile;
+  return null;
+}
+
+function verifiedEquityShareEntry(source, tile, seller) {
+  const sourceShare = Number(source.equityShare || source.conversionShare);
+  const entry = (tile.equityShares || []).find(item => item.contractId === source.id && item.holderId === seller.id);
+  if (!entry) return { error: 'That equity share is no longer available.' };
+  if (!Number.isFinite(sourceShare)) return { error: 'That equity share is no longer available.' };
+  if (Number(entry.share) !== sourceShare) return { error: 'That equity share is no longer available.' };
+  return { sourceShare, entry };
+}
+
+function resolveTransferEntry(context) {
+  const { game, seller, source, tile } = context;
   if (source.fromPlayerId !== seller.id) return { error: 'You do not own that equity share.' };
   const owner = game.getPlayerById(source.toPlayerId);
   if (!activeSeat(owner)) return { error: 'The property owner is no longer available.' };
-  const sourceShare = Number(source.equityShare || source.conversionShare);
-  const entry = (tile.equityShares || []).find(item => item.contractId === source.id && item.holderId === seller.id);
-  if (!entry || !Number.isFinite(sourceShare) || Number(entry.share) !== sourceShare) return { error: 'That equity share is no longer available.' };
-  if (!Number.isInteger(sharePct) || sharePct < 5 || sharePct > sourceShare) return { error: 'Enter a valid share amount.' };
-  if (!Number.isInteger(price) || price < 1) return { error: 'Enter a whole-dollar transfer price.' };
-  const buyerShare = (tile.equityShares || []).filter(item => item.holderId === buyer.id)
+  const verifiedEntry = verifiedEquityShareEntry(source, tile, seller);
+  if (verifiedEntry.error) return verifiedEntry;
+  const { sourceShare, entry } = verifiedEntry;
+  context.sourceShare = sourceShare;
+  context.entry = entry;
+  return null;
+}
+
+function equityTransferCapacityError(context) {
+  const shares = context.tile.equityShares || [];
+  const buyerShare = shares.filter(item => item.holderId === context.buyer.id)
     .reduce((sum, item) => sum + Math.max(0, Number(item.share) || 0), 0);
-  if (buyerShare + sharePct > 100 || (tile.equityShares || []).reduce((sum, item) => sum + Math.max(0, Number(item.share) || 0), 0) > 100) {
-    return { error: 'That property has no remaining equity to transfer.' };
+  const totalShare = shares.reduce((sum, item) => sum + Math.max(0, Number(item.share) || 0), 0);
+  if (buyerShare + context.sharePct > 100) return { error: 'That property has no remaining equity to transfer.' };
+  if (totalShare > 100) return { error: 'That property has no remaining equity to transfer.' };
+  return null;
+}
+
+function equityTransferContext(context) {
+  const validators = [
+    validateTransferPlayers,
+    resolveTransferSource,
+    validateTransferExpiry,
+    resolveTransferTile,
+    resolveTransferEntry,
+    validateTransferAmount,
+    equityTransferCapacityError,
+    validateTransferBuyerCash,
+  ];
+  for (const validate of validators) {
+    const result = validate(context);
+    if (result) return result;
   }
-  if (buyer.cash < price) return { error: 'The buyer does not have enough cash for that transfer.' };
-  return { source, tile, entry };
+  return { source: context.source, tile: context.tile, entry: context.entry };
+}
+
+function validateTransferExpiry(context) {
+  if (transferSourceExpired(context)) return { error: 'That equity share has expired.' };
+  return null;
+}
+
+function validateTransferAmount(context) {
+  if (!Number.isInteger(context.sharePct)) return { error: 'Enter a valid share amount.' };
+  if (context.sharePct < 5 || context.sharePct > context.sourceShare) return { error: 'Enter a valid share amount.' };
+  if (!Number.isInteger(context.price) || context.price < 1) return { error: 'Enter a whole-dollar transfer price.' };
+  return null;
+}
+
+function validateTransferBuyerCash(context) {
+  if (context.buyer.cash < context.price) return { error: 'The buyer does not have enough cash for that transfer.' };
+  return null;
 }
 
 export function proposeEquityShareTransfer(game, socketId, offer = {}) {
@@ -161,7 +242,7 @@ export function proposeEquityShareTransfer(game, socketId, offer = {}) {
   if (tableObligationOpen(game)) return { success: false, error: 'Resolve the current table obligation first.' };
   const sharePct = Math.floor(Number(offer.sharePct));
   const price = Math.floor(Number(offer.price));
-  const ctx = equityTransferContext(game, seller, buyer, offer.contractId, sharePct, price);
+  const ctx = equityTransferContext({ game, seller, buyer, sourceContractId: offer.contractId, sharePct, price });
   if (ctx.error) return { success: false, error: ctx.error };
   const transfer = {
     id: 'contract_' + crypto.randomUUID(), kind: 'equity-transfer',
@@ -181,7 +262,7 @@ function equityTransferOffer(game, current, offer = {}, counteredBy) {
   const buyer = game.getPlayerById(current.toPlayerId);
   const sharePct = Math.floor(Number(offer.sharePct ?? current.transferSharePct));
   const price = Math.floor(Number(offer.price ?? current.transferPrice));
-  const ctx = equityTransferContext(game, seller, buyer, current.sourceContractId, sharePct, price);
+  const ctx = equityTransferContext({ game, seller, buyer, sourceContractId: current.sourceContractId, sharePct, price });
   if (ctx.error) return { success: false, error: ctx.error };
   const next = {
     ...current, transferSharePct: sharePct, equityShare: sharePct,
@@ -193,64 +274,155 @@ function equityTransferOffer(game, current, offer = {}, counteredBy) {
   return { success: true, countered: true, contract: next };
 }
 
+function staleContractOffer(offer, current) {
+  if (!offer.contractId || offer.contractId === current.id) return null;
+  return { success: false, error: 'That contract offer is no longer current.' };
+}
+
+function contractAtNegotiationLimit(current) {
+  return Number(current.counterDepth) >= 2;
+}
+
+function negotiationLimitRejection() {
+  return { success: false, error: 'This contract has reached its negotiation limit.' };
+}
+
+function adjustEquityTransfer(game, current, offer, editor) {
+  if (contractAtNegotiationLimit(current)) return negotiationLimitRejection();
+  const result = equityTransferOffer(game, current, offer, editor.id);
+  if (!result.success) return result;
+  return { ...result, countered: undefined, adjusted: true };
+}
+
+function negotiatedContractTerms({ game, current, offer, actor, negotiationType }) {
+  const lender = game.getPlayerById(current.fromPlayerId);
+  const borrower = game.getPlayerById(current.toPlayerId);
+  const normalized = normalizeContractOffer({ ...current, ...offer });
+  const rejection = contractProposalRejectionWithoutTurn(game, lender, borrower, normalized.amount);
+  if (rejection) return rejection;
+  const contract = draftContract(game, {
+    fromPlayer: lender,
+    toPlayer: borrower,
+    kind: normalized.kind,
+    amount: normalized.amount,
+    premiumRate: normalized.premiumRate,
+    durationRounds: normalized.durationRounds
+  });
+  const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
+  const previousPending = game.pendingPlayerContract;
+  game.pendingPlayerContract = null;
+  const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
+  if (terms) {
+    game.pendingPlayerContract = previousPending;
+    return terms;
+  }
+  contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
+  game.pendingPlayerContract = contract;
+  game.feedMessage(actor.nickname + (negotiationType === 'counter' ? ' negotiated the ' : ' adjusted the ')
+    + normalized.kind + ' contract terms.');
+  if (negotiationType === 'counter') return { success: true, countered: true, contract };
+  return { success: true, adjusted: true, contract };
+}
+
+function equityTransferSourceShareKey(source) {
+  if (source.kind !== 'hybrid') return 'equityShare';
+  if (source.status === 'converted' || source.equityShare == null) return 'conversionShare';
+  return 'equityShare';
+}
+
+function equityTransferSnapshot({ game, seller, buyer, owner, source, tile, entry, sourceShareKey }) {
+  return {
+    sellerCash: seller.cash,
+    buyerCash: buyer.cash,
+    sourceShare: source[sourceShareKey],
+    sourceStatus: source.status,
+    sourceTerminatedRound: source.terminatedRound,
+    sourceEntryShare: entry.share,
+    pending: game.pendingPlayerContract,
+    contracts: [...game.playerContracts],
+    sellerIds: [...seller.playerContractIds],
+    buyerIds: [...buyer.playerContractIds],
+    shares: [...tile.equityShares],
+    ownerIds: [...(owner?.playerContractIds || [])],
+  };
+}
+
+function terminateEmptySourceShare({ game, source, tile, entry, sourceShareKey }) {
+  if (source[sourceShareKey] !== 0) return;
+  source.status = 'terminated';
+  source.terminatedRound = game.roundNumber;
+  tile.equityShares = tile.equityShares.filter(item => item !== entry);
+}
+
+function createTransferredEquityContract({ game, transfer, buyer, source, tile }) {
+  return {
+    id: 'contract_' + crypto.randomUUID(), kind: 'equity',
+    fromPlayerId: buyer.id, toPlayerId: source.toPlayerId, amount: transfer.transferPrice,
+    propertyIndex: tile.index, equityShare: transfer.transferSharePct, equityControl: 'passive',
+    permanent: source.permanent === true, expiresRound: source.expiresRound ?? null,
+    durationRounds: source.durationRounds, createdRound: game.roundNumber,
+    acceptedRound: game.roundNumber, status: 'active', transferredFromContractId: source.id,
+  };
+}
+
+function applyEquityTransferSettlement({ game, transfer, seller, buyer, owner, source, tile, entry }) {
+  const sourceShareKey = equityTransferSourceShareKey(source);
+  buyer.cash -= transfer.transferPrice;
+  seller.cash += transfer.transferPrice;
+  source[sourceShareKey] -= transfer.transferSharePct;
+  entry.share -= transfer.transferSharePct;
+  terminateEmptySourceShare({ game, source, tile, entry, sourceShareKey });
+  const contract = createTransferredEquityContract({ game, transfer, buyer, source, tile });
+  game.playerContracts.push(contract);
+  buyer.playerContractIds.push(contract.id);
+  owner.playerContractIds.push(contract.id);
+  tile.equityShares.push({ holderId: buyer.id, share: transfer.transferSharePct, contractId: contract.id, control: 'passive' });
+  game.pendingPlayerContract = null;
+  game.feedMessage(`${seller.nickname} transferred ${transfer.transferSharePct}% equity to ${buyer.nickname} for $${transfer.transferPrice}.`);
+  return contract;
+}
+
+function restoreSourceTermination(source, before) {
+  source.status = before.sourceStatus;
+  if (before.sourceTerminatedRound === undefined) delete source.terminatedRound;
+  else source.terminatedRound = before.sourceTerminatedRound;
+}
+
+function restoreEquityTransferState({ game, seller, buyer, owner, source, tile, entry, sourceShareKey, before }) {
+  seller.cash = before.sellerCash;
+  buyer.cash = before.buyerCash;
+  source[sourceShareKey] = before.sourceShare;
+  restoreSourceTermination(source, before);
+  entry.share = before.sourceEntryShare;
+  game.pendingPlayerContract = before.pending;
+  game.playerContracts = before.contracts;
+  seller.playerContractIds = before.sellerIds;
+  buyer.playerContractIds = before.buyerIds;
+  if (owner) owner.playerContractIds = before.ownerIds;
+  tile.equityShares = before.shares;
+}
+
 function settleEquityTransfer(game, transfer) {
   const seller = game.getPlayerById(transfer.fromPlayerId);
   const buyer = game.getPlayerById(transfer.toPlayerId);
-  const check = equityTransferContext(game, seller, buyer, transfer.sourceContractId, transfer.transferSharePct, transfer.transferPrice);
+  const check = equityTransferContext({
+    game,
+    seller,
+    buyer,
+    sourceContractId: transfer.sourceContractId,
+    sharePct: transfer.transferSharePct,
+    price: transfer.transferPrice,
+  });
   if (check.error) return { success: false, error: check.error };
   const { source, tile, entry } = check;
-  const propertyOwner = game.getPlayerById(source.toPlayerId);
-  const sourceShareKey = source.kind === 'hybrid'
-    && (source.status === 'converted' || source.equityShare == null)
-    ? 'conversionShare'
-    : 'equityShare';
-  const before = {
-    sellerCash: seller.cash, buyerCash: buyer.cash, sourceShare: source[sourceShareKey],
-    sourceStatus: source.status, sourceTerminatedRound: source.terminatedRound,
-    sourceEntryShare: entry.share, pending: game.pendingPlayerContract,
-    contracts: [...game.playerContracts], sellerIds: [...seller.playerContractIds],
-    buyerIds: [...buyer.playerContractIds], shares: [...tile.equityShares],
-    ownerIds: [...(propertyOwner?.playerContractIds || [])]
-  };
+  const owner = game.getPlayerById(source.toPlayerId);
+  const sourceShareKey = equityTransferSourceShareKey(source);
+  const before = equityTransferSnapshot({ game, seller, buyer, owner, source, tile, entry, sourceShareKey });
   try {
-    buyer.cash -= transfer.transferPrice;
-    seller.cash += transfer.transferPrice;
-    source[sourceShareKey] -= transfer.transferSharePct;
-    entry.share -= transfer.transferSharePct;
-    if (source[sourceShareKey] === 0) {
-      source.status = 'terminated';
-      source.terminatedRound = game.roundNumber;
-      tile.equityShares = tile.equityShares.filter(item => item !== entry);
-    }
-    const contract = {
-      id: 'contract_' + crypto.randomUUID(), kind: 'equity',
-      fromPlayerId: buyer.id, toPlayerId: source.toPlayerId, amount: transfer.transferPrice,
-      propertyIndex: tile.index, equityShare: transfer.transferSharePct, equityControl: 'passive',
-      permanent: source.permanent === true, expiresRound: source.expiresRound ?? null,
-      durationRounds: source.durationRounds, createdRound: game.roundNumber,
-      acceptedRound: game.roundNumber, status: 'active', transferredFromContractId: source.id
-    };
-    game.playerContracts.push(contract);
-    buyer.playerContractIds.push(contract.id);
-    propertyOwner.playerContractIds.push(contract.id);
-    tile.equityShares.push({ holderId: buyer.id, share: transfer.transferSharePct, contractId: contract.id, control: 'passive' });
-    game.pendingPlayerContract = null;
-    game.feedMessage(`${seller.nickname} transferred ${transfer.transferSharePct}% equity to ${buyer.nickname} for $${transfer.transferPrice}.`);
+    const contract = applyEquityTransferSettlement({ game, transfer, seller, buyer, owner, source, tile, entry });
     return { success: true, accepted: true, contract };
   } catch (error) {
-    seller.cash = before.sellerCash;
-    buyer.cash = before.buyerCash;
-    source[sourceShareKey] = before.sourceShare;
-    source.status = before.sourceStatus;
-    if (before.sourceTerminatedRound === undefined) delete source.terminatedRound;
-    else source.terminatedRound = before.sourceTerminatedRound;
-    entry.share = before.sourceEntryShare;
-    game.pendingPlayerContract = before.pending;
-    game.playerContracts = before.contracts;
-    seller.playerContractIds = before.sellerIds;
-    buyer.playerContractIds = before.buyerIds;
-    if (propertyOwner) propertyOwner.playerContractIds = before.ownerIds;
-    tile.equityShares = before.shares;
+    restoreEquityTransferState({ game, seller, buyer, owner, source, tile, entry, sourceShareKey, before });
     return { success: false, error: 'Equity transfer failed; no assets moved.' };
   }
 }
@@ -404,89 +576,27 @@ export function proposeContract(game, socketId, offer = {}) {
 export function counterContract(game, socketId, offer = {}) {
   const responder = game.getPlayerBySocket(socketId);
   const current = game.pendingPlayerContract;
-  if (!responder || !current || contractResponderId(current) !== responder.id) {
+  if (!responseTargetMatches(responder, current)) {
     return { success: false, error: 'Only the receiving player can negotiate this contract.' };
   }
-  if (offer.contractId && offer.contractId !== current.id) {
-    return { success: false, error: 'That contract offer is no longer current.' };
-  }
+  const staleOffer = staleContractOffer(offer, current);
+  if (staleOffer) return staleOffer;
   if (current.kind === 'equity-transfer') return equityTransferOffer(game, current, offer, responder.id);
-  if (Number(current.counterDepth) >= 2) {
-    return { success: false, error: 'This contract has reached its negotiation limit.' };
-  }
-  const lender = game.getPlayerById(current.fromPlayerId);
-  const borrower = game.getPlayerById(current.toPlayerId);
-  const normalized = normalizeContractOffer({ ...current, ...offer });
-  const rejection = contractProposalRejectionWithoutTurn(game, lender, borrower, normalized.amount);
-  if (rejection) return rejection;
-  const contract = draftContract(game, {
-    fromPlayer: lender,
-    toPlayer: borrower,
-    kind: normalized.kind,
-    amount: normalized.amount,
-    premiumRate: normalized.premiumRate,
-    durationRounds: normalized.durationRounds
-  });
-  const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
-  // The cap check reads game.pendingPlayerContract as "other" encumbrance:
-  // clear the offer under negotiation (restored on failure) so a counter
-  // is not double-counted against itself.
-  const previousPending = game.pendingPlayerContract;
-  game.pendingPlayerContract = null;
-  const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
-  if (terms) {
-    game.pendingPlayerContract = previousPending;
-    return terms;
-  }
-  contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
-  game.pendingPlayerContract = contract;
-  game.feedMessage(responder.nickname + ' negotiated the ' + normalized.kind + ' contract terms.');
-  return { success: true, countered: true, contract };
+  if (contractAtNegotiationLimit(current)) return negotiationLimitRejection();
+  return negotiatedContractTerms({ game, current, offer, actor: responder, negotiationType: 'counter' });
 }
 
 export function adjustContract(game, socketId, offer = {}) {
   const editor = game.getPlayerBySocket(socketId);
   const current = game.pendingPlayerContract;
-  if (!editor || !current || contractLastProposerId(current) !== editor.id) {
-    return { success: false, error: 'Only the sending player can adjust this contract.' };
-  }
-  if (offer.contractId && offer.contractId !== current.id) {
-    return { success: false, error: 'That contract offer is no longer current.' };
-  }
-  if (current.kind === 'equity-transfer') {
-    if (Number(current.counterDepth) >= 2) return { success: false, error: 'This contract has reached its negotiation limit.' };
-    const result = equityTransferOffer(game, current, offer, editor.id);
-    if (result.success) return { ...result, countered: undefined, adjusted: true };
-    return result;
-  }
-  if (Number(current.counterDepth) >= 2) {
-    return { success: false, error: 'This contract has reached its negotiation limit.' };
-  }
-  const lender = game.getPlayerById(current.fromPlayerId);
-  const borrower = game.getPlayerById(current.toPlayerId);
-  const normalized = normalizeContractOffer({ ...current, ...offer });
-  const rejection = contractProposalRejectionWithoutTurn(game, lender, borrower, normalized.amount);
-  if (rejection) return rejection;
-  const contract = draftContract(game, {
-    fromPlayer: lender,
-    toPlayer: borrower,
-    kind: normalized.kind,
-    amount: normalized.amount,
-    premiumRate: normalized.premiumRate,
-    durationRounds: normalized.durationRounds
-  });
-  const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
-  const previousPending = game.pendingPlayerContract;
-  game.pendingPlayerContract = null;
-  const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
-  if (terms) {
-    game.pendingPlayerContract = previousPending;
-    return terms;
-  }
-  contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
-  game.pendingPlayerContract = contract;
-  game.feedMessage(editor.nickname + ' adjusted the ' + normalized.kind + ' contract terms.');
-  return { success: true, adjusted: true, contract };
+  if (!editor) return { success: false, error: 'Only the sending player can adjust this contract.' };
+  if (!current) return { success: false, error: 'Only the sending player can adjust this contract.' };
+  if (contractLastProposerId(current) !== editor.id) return { success: false, error: 'Only the sending player can adjust this contract.' };
+  const staleOffer = staleContractOffer(offer, current);
+  if (staleOffer) return staleOffer;
+  if (current.kind === 'equity-transfer') return adjustEquityTransfer(game, current, offer, editor);
+  if (contractAtNegotiationLimit(current)) return negotiationLimitRejection();
+  return negotiatedContractTerms({ game, current, offer, actor: editor, negotiationType: 'adjust' });
 }
 
 function contractProposalRejectionWithoutTurn(game, fromPlayer, toPlayer, amount) {
@@ -673,27 +783,49 @@ function handleDueLoanContract(game, contract) {
 function defaultPlayerLoanWithBasket(game, contract, options = {}) {
   const borrower = game.getPlayerById(contract.toPlayerId);
   const lender = game.getPlayerById(contract.fromPlayerId);
-  const indices = Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length
-    ? contract.collateralTileIndices
-    : contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
+  const indices = defaultCollateralIndices(contract);
+  defaultPlayerLoanBalance(game, contract, options);
+  seizeDefaultCollateral(game, borrower, lender, indices);
+  recordCollateralLoss(borrower, indices);
+  recordDefaultClaimCollateral(game, contract, indices);
+}
+
+function defaultCollateralIndices(contract) {
+  if (Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length) return contract.collateralTileIndices;
+  if (contract.collateralTileIndex == null) return [];
+  return [contract.collateralTileIndex];
+}
+
+function defaultPlayerLoanBalance(game, contract, options) {
   const first = contract.collateralTileIndex;
   contract.collateralTileIndex = null;
   handlePlayerLoanDefault(game, contract, options);
   contract.collateralTileIndex = first;
-  if (borrower && !borrower.bankrupt && lender) {
-    for (const index of indices) {
-      const deed = game.getTile(Number(index));
-      if (deed?.ownerId === borrower.id) game.applyPropertyOwnershipChange(borrower, lender, deed);
-    }
+}
+
+function seizeDefaultCollateral(game, borrower, lender, indices) {
+  if (!borrower) return;
+  if (borrower.bankrupt) return;
+  if (!lender) return;
+  for (const index of indices) {
+    const deed = game.getTile(Number(index));
+    if (deed?.ownerId === borrower.id) game.applyPropertyOwnershipChange(borrower, lender, deed);
   }
+}
+
+function recordCollateralLoss(borrower, indices) {
+  if (!borrower) return;
+  if (!indices.length) return;
+  borrower.collateralLost = true;
+}
+
+function recordDefaultClaimCollateral(game, contract, indices) {
   contract.collateralTileIndices = indices.slice();
   contract.unsecuredDefault = indices.length === 0;
-  if (borrower && indices.length) borrower.collateralLost = true;
   const claim = (game.defaultClaims || []).find(entry => entry.contractId === contract.id);
-  if (claim) {
-    claim.collateralTileIndex = indices[0] ?? null;
-    claim.collateralTileIndices = indices.slice();
-  }
+  if (!claim) return;
+  claim.collateralTileIndex = indices[0] ?? null;
+  claim.collateralTileIndices = indices.slice();
 }
 
 function handleActiveLoanContract(game, contract) {

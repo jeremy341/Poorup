@@ -31,15 +31,28 @@ function escapeText(value) {
   })[character]);
 }
 
-function inactivePlayers(players) {
-  return (Array.isArray(players) ? players : [])
-    .filter(player => !player?.isBot && player?.presence?.state === "inactive" && Number.isFinite(Number(player.presence.inactiveUntil)))
-    .map(player => ({
+function isInactiveHuman(player) {
+  return Boolean(player && !player.isBot && player.presence?.state === "inactive");
+}
+
+function hasFiniteDeadline(player) {
+  return Number.isFinite(Number(player.presence.inactiveUntil));
+}
+
+function inactivePlayerView(player) {
+  return {
       id: String(player.serverId || player.id || player.name || "player"),
       name: String(player.name || "Player"),
       inactiveSince: Number(player.presence.inactiveSince),
       inactiveUntil: Number(player.presence.inactiveUntil),
-    }))
+  };
+}
+
+function inactivePlayers(players) {
+  return (Array.isArray(players) ? players : [])
+    .filter(isInactiveHuman)
+    .filter(hasFiniteDeadline)
+    .map(inactivePlayerView)
     .sort((a, b) => a.inactiveUntil - b.inactiveUntil);
 }
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('./main.js', import.meta.url), 'utf8');
-const chat = source.slice(source.indexOf('function renderChat()'), source.indexOf('function renderStep('));
+const chat = source.slice(source.indexOf('function chatRenderPlan('), source.indexOf('function renderStep('));
 const chatView = await import('./clientChatView.js').catch(() => null);
 function test(name, run) { run(); console.log(`PASS ${name}`); }
 test('preservesReaderOffsetWhenScrolledUp', () => assert.match(chat, /wasNearBottom[\s\S]*scrollTop/));
@@ -14,7 +14,8 @@ test('boundedChatRolloverDefersRenderPreservingAnchor', () => {
   const getChatRenderPlan = chatView?.getChatRenderPlan;
   assert.equal(typeof getChatRenderPlan, 'function', 'chat rendering needs a tested bounded-window decision helper');
   assert.match(chat, /getChatRenderPlan\(/);
-  assert.match(chat, /if \(renderPlan\.updateContent\)[\s\S]*?body\.innerHTML/);
+  assert.match(chat, /if \(renderPlan\.updateContent\) renderChatMessages\(body\)/);
+  assert.match(chat, /function renderChatMessages\(body\)[\s\S]*?body\.innerHTML/);
   let mountedRows = Array.from({ length: 60 }, (_, index) => index + 1);
   let scrollTop = 240;
   const currentRows = Array.from({ length: 61 }, (_, index) => index + 1);

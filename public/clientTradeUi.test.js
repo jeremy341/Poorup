@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
-globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
-globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
+const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+globalThis.localStorage = storage;
+globalThis.sessionStorage = storage;
 
 const { equityTransferControlsHTML, equityTransferPayload } = await import("./clientTradeUi.js");
 const tradeUiSource = await readFile(new URL("./clientTradeUi.js", import.meta.url), "utf8");
@@ -12,16 +13,10 @@ const tradeUiSource = await readFile(new URL("./clientTradeUi.js", import.meta.u
 function functionSource(name) {
   const declaration = tradeUiSource.indexOf(`function ${name}(`);
   assert.notEqual(declaration, -1, `${name} exists`);
-  const open = tradeUiSource.indexOf("{", declaration);
-  let depth = 0;
-  for (let index = open; index < tradeUiSource.length; index += 1) {
-    if (tradeUiSource[index] === "{") depth += 1;
-    if (tradeUiSource[index] === "}") {
-      depth -= 1;
-      if (depth === 0) return tradeUiSource.slice(declaration, index + 1);
-    }
-  }
-  assert.fail(`${name} has a closing brace`);
+  const nextFunction = /\n(?:export )?(?:async )?function \w+\(/g;
+  nextFunction.lastIndex = declaration + 1;
+  const nextDeclaration = nextFunction.exec(tradeUiSource)?.index ?? tradeUiSource.length;
+  return tradeUiSource.slice(declaration, nextDeclaration);
 }
 
 function test(name, run) {
