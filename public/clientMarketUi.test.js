@@ -80,28 +80,22 @@ test('selectedQuoteSummaryUsesTheCurrentSharedQuoteAndPreviousRound', () => {
   });
 });
 
-test('selectedQuoteSummaryDoesNotInventMovementWithoutPriorHistory', () => {
-  assert.deepEqual(marketQuoteSummary({ round: 0, quotes: { ghana: 100 }, quoteHistory: [] }, 'ghana'), {
-    quote: 100,
-    round: 0,
-    change: null,
-    percentChange: null,
-    previousQuote: null,
-    previousRound: null,
-    eventId: null,
-  });
-});
-
-test('selectedQuoteSummaryTreatsNullQuotesAsUnavailableInsteadOfZero', () => {
-  assert.deepEqual(marketQuoteSummary({ round: 1, quotes: { brazil: null }, quoteHistory: [] }, 'brazil'), {
-    quote: null,
-    round: 1,
-    change: null,
-    percentChange: null,
-    previousQuote: null,
-    previousRound: null,
-    eventId: null,
-  });
+test('selectedQuoteSummaryDoesNotInventMovementForMissingHistoryOrNullQuotes', () => {
+  const unavailableMovementCases = [
+    { state: { round: 0, quotes: { ghana: 100 }, quoteHistory: [] }, instrument: 'ghana', quote: 100, round: 0 },
+    { state: { round: 1, quotes: { brazil: null }, quoteHistory: [] }, instrument: 'brazil', quote: null, round: 1 },
+  ];
+  for (const { state, instrument, quote, round } of unavailableMovementCases) {
+    assert.deepEqual(marketQuoteSummary(state, instrument), {
+      quote,
+      round,
+      change: null,
+      percentChange: null,
+      previousQuote: null,
+      previousRound: null,
+      eventId: null,
+    });
+  }
 });
 
 test('selectedQuoteSummaryNamesThePriorRecordedRoundWhenHistoryHasAGap', () => {

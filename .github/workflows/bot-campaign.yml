@@ -1,0 +1,24 @@
+name: Deterministic bot campaign
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  full-bot-campaign:
+    name: 1,000 fixed-seed no-stall games
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run full deterministic safety campaign
+        env:
+          POORUP_BOT_SIMULATION_COUNT: 1000
+        run: npm run test:bot-campaign

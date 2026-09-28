@@ -428,26 +428,30 @@ function announceActionStatus(message, statusNode = null) {
   if (announcer) announcer.textContent = text;
 }
 
+function reusableActionStatusNode(control) {
+  const statusNode = control._actionStatusNode;
+  if (!statusNode?.isConnected) return null;
+  statusNode.textContent = "";
+  statusNode.hidden = true;
+  return statusNode;
+}
+
+function createActionStatusNode(control, host) {
+  const statusNode = document.createElement("p");
+  statusNode.className = "action-status t-micro";
+  statusNode.setAttribute("aria-live", "off");
+  statusNode.setAttribute("aria-atomic", "true");
+  statusNode.hidden = true;
+  host.append(statusNode);
+  control._actionStatusNode = statusNode;
+  return statusNode;
+}
+
 function captureActionStatusNode(control = document.activeElement) {
   if (!control || typeof control.closest !== "function") return null;
   const host = control.closest('[role="dialog"], .modal, .panel') || control.form || control.parentElement;
   if (!host) return null;
-  let statusNode = control._actionStatusNode;
-  if (statusNode?.isConnected) {
-    statusNode.textContent = "";
-    statusNode.hidden = true;
-    return statusNode;
-  }
-  if (!statusNode?.isConnected) {
-    statusNode = document.createElement("p");
-    statusNode.className = "action-status t-micro";
-    statusNode.setAttribute("aria-live", "off");
-    statusNode.setAttribute("aria-atomic", "true");
-    statusNode.hidden = true;
-    host.append(statusNode);
-    control._actionStatusNode = statusNode;
-  }
-  return statusNode;
+  return reusableActionStatusNode(control) || createActionStatusNode(control, host);
 }
 
 function addActivityNotice(text) {
@@ -655,31 +659,33 @@ function hasUnrenderedChatMessages() {
     || state.messages.at(-1) !== lastRenderedChatTail;
 }
 
-function renderChat() {
-  const body = $("#chat-body");
+function chatRenderPlan(body) {
   const wasNearBottom = body.scrollHeight - body.scrollTop - body.clientHeight <= 32;
   const roomChanged = hasRenderedChat && state.roomCode !== lastRenderedChatRoomCode;
-  const renderPlan = getChatRenderPlan({
+  return getChatRenderPlan({
     isFirstRender: !hasRenderedChat,
     isNearBottom: wasNearBottom,
     roomChanged,
     hasNewMessages: hasUnrenderedChatMessages(),
   });
-  if (renderPlan.updateContent) {
-    body.innerHTML = state.messages
-      .slice(-60)
-      .map((m) =>
-        m.system
-          ? `<p class="t-body chat-line"><span class="ink-3">» </span><span class="g-muted">${esc(m.text)}</span></p>`
-          : `<p class="t-body chat-line"><span style="color:${m.color}">${esc(m.who)}:</span> <span class="ink-2">${esc(m.text)}</span></p>`,
-      )
-      .join("");
-    hasRenderedChat = true;
-    lastRenderedChatRoomCode = state.roomCode;
-    lastRenderedChatCount = state.messages.length;
-    lastRenderedChatTail = state.messages.at(-1) || null;
+}
+
+function chatMessageHTML(message) {
+  if (message.system) {
+    return `<p class="t-body chat-line"><span class="ink-3">» </span><span class="g-muted">${esc(message.text)}</span></p>`;
   }
-  const affordance = $("#chat-new-message");
+  return `<p class="t-body chat-line"><span style="color:${message.color}">${esc(message.who)}:</span> <span class="ink-2">${esc(message.text)}</span></p>`;
+}
+
+function renderChatMessages(body) {
+  body.innerHTML = state.messages.slice(-60).map(chatMessageHTML).join("");
+  hasRenderedChat = true;
+  lastRenderedChatRoomCode = state.roomCode;
+  lastRenderedChatCount = state.messages.length;
+  lastRenderedChatTail = state.messages.at(-1) || null;
+}
+
+function syncChatScroll(body, affordance, renderPlan) {
   if (renderPlan.followBottom) {
     body.scrollTop = body.scrollHeight;
   }
@@ -688,11 +694,21 @@ function renderChat() {
   } else {
     affordance?.classList.add("is-hidden");
   }
+}
 
+function syncChatInput() {
   const joined = (state.phase !== "home" && state.players.length > 0);
   $("#chat-input").disabled = !joined;
   $("#chat-send").disabled = !joined;
   $("#chat-input").placeholder = joined ? "Say something…" : "Join the room to chat…";
+}
+
+function renderChat() {
+  const body = $("#chat-body");
+  const renderPlan = chatRenderPlan(body);
+  if (renderPlan.updateContent) renderChatMessages(body);
+  syncChatScroll(body, $("#chat-new-message"), renderPlan);
+  syncChatInput();
 }
 
 
@@ -745,24 +761,39 @@ function stopRoomPresence() {
   syncRoomVoteKickUi(null, [], Date.now());
 }
 
-function syncRoomPresenceUi() {
-  const hasRoomSeat = state.phase !== "home" && Boolean(state.roomCode) && Boolean(state.roomPlayerId);
-  if (!hasRoomSeat) {
-    if (roomPresenceMonitor || roomInactivityUi) stopRoomPresence();
-    return;
-  }
+function hasCurrentRoomSeat() {
+  return state.phase !== "home" && Boolean(state.roomCode) && Boolean(state.roomPlayerId);
+}
+
+function ensureRoomPresenceMonitor() {
   if (!roomPresenceMonitor) {
     roomPresenceMonitor = createPresenceMonitor({
       emit: (eventName, payload) => emitServer(eventName, payload),
     });
   }
+}
+
+function ensureRoomInactivityUi() {
   if (!roomInactivityUi) {
     roomInactivityUi = createInactivityUi({
       timerHost: $("#inactivity-timer-host"),
       sidebarHost: $("#inactive-player-sidebar"),
     });
   }
-  const serverTime = Date.now() + (Number(state.serverTimeOffset) || 0);
+}
+
+function currentServerTime() {
+  return Date.now() + (Number(state.serverTimeOffset) || 0);
+}
+
+function syncRoomPresenceUi() {
+  if (!hasCurrentRoomSeat()) {
+    if (roomPresenceMonitor || roomInactivityUi) stopRoomPresence();
+    return;
+  }
+  ensureRoomPresenceMonitor();
+  ensureRoomInactivityUi();
+  const serverTime = currentServerTime();
   roomInactivityUi.update(state.players, serverTime);
   syncRoomVoteKickUi(state.voteKick || null, state.players, serverTime);
 }
@@ -904,20 +935,32 @@ function buyTile(tile, submittedStatusNode = null, onSuccess = null) {
 /* ============================================================
    9. ROUTING + EVENTS
    ============================================================ */
-function showView(name) {
-  if (name !== "home" && nightShiftState.active) stopNightShift();
-  if (name !== "game") closePanelMenu({ restore: false });
+function syncViewVisibility(name) {
   $("#view-home").classList.toggle("is-hidden", name !== "home");
   $("#view-game").classList.toggle("is-hidden", name !== "game");
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
-  $("#view-rankings")?.classList.toggle("is-hidden", name !== "rankings");
-  $("#view-social")?.classList.toggle("is-hidden", name !== "social");
-  $("#view-rules")?.classList.toggle("is-hidden", name !== "rules");
-  $("#view-admin-analytics")?.classList.toggle("is-hidden", name !== "analytics");
+  const optionalViews = [
+    ["#view-rankings", "rankings"],
+    ["#view-social", "social"],
+    ["#view-rules", "rules"],
+    ["#view-admin-analytics", "analytics"],
+  ];
+  optionalViews.forEach(([selector, view]) => $(selector)?.classList.toggle("is-hidden", name !== view));
+}
+
+function prepareViewExit(name) {
+  if (name !== "home" && nightShiftState.active) stopNightShift();
+  if (name !== "game") closePanelMenu({ restore: false });
+}
+
+function syncViewMetadata(name) {
   syncGlobalNavigation(name);
   setDocumentMeta({ view: name, roomCode: state.roomCode });
   window.scrollTo(0, 0);
   syncSurfaceA11y();
+}
+
+function syncHomeViewLifecycle(name) {
   if (name === "home") {
     startHomeClock();
     scheduleHomeHelicopter();
@@ -927,6 +970,13 @@ function showView(name) {
     stopHomeHelicopter();
     syncHomeMusic();
   }
+}
+
+function showView(name) {
+  prepareViewExit(name);
+  syncViewVisibility(name);
+  syncViewMetadata(name);
+  syncHomeViewLifecycle(name);
   syncRoomPresenceUi();
 }
 
