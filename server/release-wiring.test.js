@@ -37,6 +37,7 @@ const child = spawn(process.execPath, [path.join(process.cwd(), 'server/server.j
     ...process.env,
     PORT: String(port),
     POORUP_DATA_DIR: dataDirectory,
+    POORUP_BACKUP_DIR: '',
     POORUP_PUBLIC_ORIGIN: 'https://play.example',
     POORUP_INDEX_POLICY: 'index,follow',
     POORUP_ADMIN_ACCOUNT_IDS: 'release-admin',
