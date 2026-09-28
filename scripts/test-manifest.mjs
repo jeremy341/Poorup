@@ -74,10 +74,21 @@ export function testSuites(group = 'full') {
   return [...TEST_GROUPS[group]];
 }
 
+function isPositiveShardCount(shardCount) {
+  if (!Number.isInteger(shardCount)) return false;
+  if (shardCount < 1) return false;
+  return true;
+}
+
+function isValidShardIndex(shardIndex, shardCount) {
+  if (!Number.isInteger(shardIndex)) return false;
+  if (shardIndex < 1) return false;
+  if (shardIndex > shardCount) return false;
+  return true;
+}
+
 export function shardedTestSuites(suites, shardIndex, shardCount) {
-  if (!Number.isInteger(shardIndex) || shardIndex < 1 || shardIndex > shardCount) {
-    throw new Error(`Shard index must be between 1 and ${shardCount}.`);
-  }
-  if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Shard count must be a positive integer.');
+  if (!isPositiveShardCount(shardCount)) throw new Error('Shard count must be a positive integer.');
+  if (!isValidShardIndex(shardIndex, shardCount)) throw new Error(`Shard index must be between 1 and ${shardCount}.`);
   return suites.filter((_suite, index) => index % shardCount === shardIndex - 1);
 }
