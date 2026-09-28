@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { shardedTestSuites, testSuites, TEST_GROUPS } from './test-manifest.mjs';
+import { parseRunnerOptions, shardParts } from './test-runner-options.mjs';
 
 const allSuites = testSuites('full');
 assert.equal(new Set(allSuites).size, allSuites.length, 'the full manifest runs each suite only once');
@@ -20,5 +21,17 @@ assert.equal(shardedSuites.length, allSuites.length, 'shards include every suite
 assert.equal(new Set(shardedSuites).size, allSuites.length, 'shards do not repeat suites');
 assert.ok(Math.max(...shards.map(shard => shard.length)) - Math.min(...shards.map(shard => shard.length)) <= 1, 'round-robin sharding balances suite count');
 assert.deepEqual(testSuites('core'), TEST_GROUPS.core, 'focused group commands retain their ordered test scope');
+assert.throws(() => shardedTestSuites([], 1, 0), /Shard count must be a positive integer/);
+assert.throws(() => shardedTestSuites([], 0, 4), /Shard index must be between/);
+assert.throws(() => shardedTestSuites([], 5, 4), /Shard index must be between/);
+assert.deepEqual(shardParts('2/4'), { index: 2, count: 4 });
+assert.equal(shardParts(undefined), null);
+assert.throws(() => shardParts('2/0'), /Invalid shard/);
+assert.deepEqual(parseRunnerOptions(['--group', 'account', '--suite=server/accountExport.test.js']), {
+  group: 'account',
+  singleSuite: 'server/accountExport.test.js',
+  shard: null,
+  timings: null,
+});
 
 console.log(`test manifest: ${totalGroupRuns} prior invocations → ${allSuites.length} unique suites, four disjoint balanced shards`);
