@@ -9,13 +9,32 @@ const stateSync = fs.readFileSync(new URL('./clientStateSync.js', import.meta.ur
 const adapter = fs.readFileSync(new URL('./clientAnalyticsChartAdapter.js', import.meta.url), 'utf8');
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 const marketUiApi = await import('./clientMarketUi.js');
-const { selectedMarketPoints, marketPreview, personalMarketMarkers } = marketUiApi;
+const { selectedMarketPoints, marketPreview, personalMarketMarkers, marketQuoteSummary } = marketUiApi;
+const { MARKET_INSTRUMENTS } = await import('../server/marketLogic.js');
 delete globalThis.window;
 
 function test(name, assertion) {
   try { assertion(); console.log(`PASS ${name}`); }
   catch (error) { console.error(`FAIL ${name}: ${error.message}`); process.exitCode = 1; }
 }
+
+test('marketSectorLabelsReplaceGeographyAndMatchServerInstrumentNames', () => {
+  const expected = {
+    brazil: 'HOUSING MARKET',
+    ghana: 'AGRICULTURE',
+    thailand: 'CONSUMER GOODS',
+    japan: 'TECHNOLOGY',
+    netherlands: 'TRADE & LOGISTICS',
+    canada: 'ENERGY & RESOURCES',
+    switzerland: 'FINANCIAL SERVICES',
+    singapore: 'TOURISM & HOSPITALITY',
+    airports: 'AIR TRANSPORT',
+    utilities: 'PUBLIC UTILITIES',
+    property: 'CONSTRUCTION & MATERIALS',
+  };
+  assert.deepEqual(marketUiApi.MARKET_LABELS, expected);
+  assert.deepEqual(MARKET_INSTRUMENTS.map(({ id, name }) => [id, name]), Object.entries(expected));
+});
 
 test('selectedIndexUsesSharedQuotesAndHistory', () => {
   assert.ok(/quoteHistory/.test(marketUi));
@@ -27,6 +46,81 @@ test('selectedIndexUsesSharedQuotesAndHistory', () => {
     { round: 0, value: 100, eventId: null },
     { round: 1, value: 120, eventId: 'market-shock' },
   ]);
+});
+
+test('tabletChartRangeUsesOnlyTheMostRecentRequestedRounds', () => {
+  const marketState = {
+    quoteHistory: Array.from({ length: 21 }, (_, round) => ({ round, quotes: { brazil: 100 + round } })),
+  };
+  assert.deepEqual(selectedMarketPoints(marketState, 'brazil', 3), [
+    { round: 18, value: 118, eventId: null },
+    { round: 19, value: 119, eventId: null },
+    { round: 20, value: 120, eventId: null },
+  ]);
+});
+
+test('selectedQuoteSummaryUsesTheCurrentSharedQuoteAndPreviousRound', () => {
+  assert.equal(typeof marketQuoteSummary, 'function');
+  assert.deepEqual(marketQuoteSummary({
+    round: 2,
+    quotes: { brazil: 113 },
+    quoteHistory: [
+      { round: 0, quotes: { brazil: 100 } },
+      { round: 1, quotes: { brazil: 104 } },
+      { round: 2, quotes: { brazil: 113 }, eventId: 'market-rush' },
+    ],
+  }, 'brazil'), {
+    quote: 113,
+    round: 2,
+    change: 9,
+    percentChange: 8.7,
+    previousQuote: 104,
+    previousRound: 1,
+    eventId: 'market-rush',
+  });
+});
+
+test('selectedQuoteSummaryDoesNotInventMovementWithoutPriorHistory', () => {
+  assert.deepEqual(marketQuoteSummary({ round: 0, quotes: { ghana: 100 }, quoteHistory: [] }, 'ghana'), {
+    quote: 100,
+    round: 0,
+    change: null,
+    percentChange: null,
+    previousQuote: null,
+    previousRound: null,
+    eventId: null,
+  });
+});
+
+test('selectedQuoteSummaryTreatsNullQuotesAsUnavailableInsteadOfZero', () => {
+  assert.deepEqual(marketQuoteSummary({ round: 1, quotes: { brazil: null }, quoteHistory: [] }, 'brazil'), {
+    quote: null,
+    round: 1,
+    change: null,
+    percentChange: null,
+    previousQuote: null,
+    previousRound: null,
+    eventId: null,
+  });
+});
+
+test('selectedQuoteSummaryNamesThePriorRecordedRoundWhenHistoryHasAGap', () => {
+  assert.deepEqual(marketQuoteSummary({
+    round: 4,
+    quotes: { japan: 125 },
+    quoteHistory: [
+      { round: 0, quotes: { japan: 100 } },
+      { round: 2, quotes: { japan: 120 } },
+    ],
+  }, 'japan'), {
+    quote: 125,
+    round: 4,
+    change: 5,
+    percentChange: 4.2,
+    previousQuote: 120,
+    previousRound: 2,
+    eventId: null,
+  });
 });
 
 test('buyAndSellPreviewMatchesServerFeeRounding', () => {

@@ -272,6 +272,7 @@ check('buy charges gross+fee and averages cost; feed and ledger record it', () =
   assert.deepEqual(result.order, { instrumentId: 'brazil', side: 'buy', quantity: 2, quote, fee, total: gross + fee });
   assert.equal(game.marketLedger[0].instrumentId, 'brazil');
   assert.match(game.feed[0].text, /bought 2 .* index units?\./);
+  assert.match(game.feed[0].text, /bought 2 HOUSING MARKET index units\./);
 });
 
 check('one order per turn; sell math realizes pnl and clears flat position', () => {

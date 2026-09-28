@@ -15,6 +15,7 @@ assert.equal(lineOptions.grid.containLabel, true);
 assert.equal(lineOptions.yAxis.type, 'value');
 assert.equal(lineOptions.yAxis.position, 'left');
 assert.equal(lineOptions.yAxis.name, 'PLAYERS');
+assert.equal(lineOptions.grid.left, 52);
 assert.equal(lineOptions.xAxis.axisLabel.hideOverlap, true);
 
 const mixedOptions = createPoorupChartOptions([
@@ -29,6 +30,11 @@ assert.equal(mixedOptions.xAxis[1].name, 'PERCENT');
 assert.equal(mixedOptions.yAxis[0].name, '');
 assert.equal(mixedOptions.yAxis[0].axisLabel.width, 116);
 assert.equal(mixedOptions.yAxis[0].axisLabel.overflow, 'truncate');
+assert.equal(mixedOptions.grid[0].left, 132);
+for (const mode of ['stacked-bar', 'histogram', 'box', 'scatter']) {
+  const options = createPoorupChartOptions([{ label: 'MATCH', value: 2, values: { human: 2, bot: 1 } }], { mode, unit: 'matches', tokens });
+  assert.equal(options.grid.left, 52, `${mode} keeps the compact numeric Y-axis gutter`);
+}
 const signedBarOptions = createPoorupChartOptions([{ label: 'LOSS', value: -5 }, { label: 'GAIN', value: 10 }], { mode: 'bar', unit: 'dollars', tokens });
 assert.notEqual(signedBarOptions.xAxis[0].min, 0);
 const signedLineOptions = createPoorupChartOptions([{ label: 'BEFORE', value: -3 }, { label: 'AFTER', value: 6 }], { mode: 'line', unit: 'dollars', tokens });

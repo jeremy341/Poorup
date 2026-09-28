@@ -9,6 +9,7 @@ import { TILES } from "./clientBoardData.js";
 import { state } from "./clientState.js";
 import { ownsFullGroup } from "./clientDeedRules.js";
 import { deedCardHTML } from "./clientDeedsRender.js";
+import { MARKET_LABELS } from "./clientMarketCatalog.js";
 
 export function tradePlayerRowHTML(p, seed) {
 const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
@@ -141,9 +142,7 @@ function railCasinoBodyHTML() {
   return `<section class="economy-surface casino-surface" aria-labelledby="casino-heading"><div class="economy-surface-head"><img src="/assets/casino-wheel.svg" alt="" width="32" height="32"><div><span class="t-micro g400">EUROPEAN WHEEL · SERVER SETTLED</span><h3 class="t-section g100" id="casino-heading">Place a bet</h3></div></div><div class="casino-odds" aria-label="Roulette odds"><span><strong>RED</strong><small>18 / 37 · 1:1</small></span><span><strong>BLACK</strong><small>18 / 37 · 1:1</small></span><span><strong class="green">GREEN 0</strong><small>1 / 37 · 35:1</small></span></div><button class="btn-dark casino-desk-open" type="button" data-casino-desk aria-haspopup="dialog" aria-controls="casino-modal"><span class="t-label f11">OPEN CASINO DESK</span></button><div class="economy-result" aria-live="polite">${resultCopy}</div><p class="t-micro ink-3 economy-note">Fictional board money only. Loan-backed cash cannot enter the casino. Bets open in the Casino Desk.</p></section>`;
 }
 
-const MARKET_LABELS = { brazil: "BRAZIL", ghana: "GHANA", thailand: "THAILAND", japan: "JAPAN", netherlands: "NETHERLANDS", canada: "CANADA", switzerland: "SWITZERLAND", singapore: "SINGAPORE", airports: "AIRPORTS", utilities: "UTILITIES", property: "PROPERTY" };
-
-const MARKET_OFF_HTML = '<section class="economy-empty panel noise"><img src="/assets/market-chart.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">MARKET ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable fictional country and infrastructure indexes before the round begins.</p></section>';
+const MARKET_OFF_HTML = '<section class="economy-empty panel noise"><img src="/assets/market-chart.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">MARKET ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable fictional sector indexes before the round begins.</p></section>';
 
 function pnlSign(pnl) {
   if (pnl >= 0) return "+";
@@ -183,7 +182,7 @@ function railMarketBodyHTML() {
   const expansion = complexity === "BASIC"
     ? "No leverage, shorting, or derivatives."
     : `COMPLEXITY ${complexity} · obligations are fully disclosed and collateralized.`;
-  return `<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ${marketRound(market)}</span><h3 class="t-section g100" id="market-heading">Country indexes</h3></div><span class="t-micro g300">${complexity}</span></div>${marketRiskSummaryHTML(market)}<button class="btn-dark market-desk-open" type="button" data-market-desk aria-haspopup="dialog" aria-controls="market-modal"><span class="t-label f11">OPEN MARKET DESK · BUY / SELL</span></button><div class="market-list thin-scroll" aria-label="Shared index quotes">${rows}</div><p class="t-micro ink-3 economy-note">Shared prices move at round boundaries and with global events. Your orders affect only your holdings and P&amp;L. ${expansion} Order controls and previews are in the Market Desk.</p></section>`;
+  return `<section class="economy-surface market-surface" aria-labelledby="market-heading"><div class="economy-surface-head"><img src="/assets/market-chart.svg" alt="" width="32" height="32"><div><span class="t-micro g400">FICTIONAL EXCHANGE · ROUND ${marketRound(market)}</span><h3 class="t-section g100" id="market-heading">Sector indexes</h3></div><span class="t-micro g300">${complexity}</span></div>${marketRiskSummaryHTML(market)}<button class="btn-dark market-desk-open" type="button" data-market-desk aria-haspopup="dialog" aria-controls="market-modal"><span class="t-label f11">OPEN MARKET DESK · 11 INDEXES</span></button><div class="market-list thin-scroll" aria-label="Shared sector index quotes">${rows}</div><p class="t-micro ink-3 economy-note">Sector names are display labels, not deed ownership. Round drift and global events move all shared quotes; your orders affect only your holdings and P&amp;L. ${expansion} Select an index, review its chart, and place orders in the Market Desk.</p></section>`;
 }
 
 function railDeedRowHTML(tile) {

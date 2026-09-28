@@ -7,10 +7,10 @@ import { randomFloat } from './random.js';
 export const MARKET_FEE_RATE = 0.02;
 export const MARKET_SIDES = ['buy', 'sell'];
 export const MARKET_INSTRUMENTS = [
-  ['brazil', 'BRAZIL', 100], ['ghana', 'GHANA', 100], ['thailand', 'THAILAND', 100],
-  ['japan', 'JAPAN', 100], ['netherlands', 'NETHERLANDS', 100], ['canada', 'CANADA', 100],
-  ['switzerland', 'SWITZERLAND', 100], ['singapore', 'SINGAPORE', 100],
-  ['airports', 'AIRPORTS', 100], ['utilities', 'UTILITIES', 100], ['property', 'PROPERTY', 100]
+  ['brazil', 'HOUSING MARKET', 100], ['ghana', 'AGRICULTURE', 100], ['thailand', 'CONSUMER GOODS', 100],
+  ['japan', 'TECHNOLOGY', 100], ['netherlands', 'TRADE & LOGISTICS', 100], ['canada', 'ENERGY & RESOURCES', 100],
+  ['switzerland', 'FINANCIAL SERVICES', 100], ['singapore', 'TOURISM & HOSPITALITY', 100],
+  ['airports', 'AIR TRANSPORT', 100], ['utilities', 'PUBLIC UTILITIES', 100], ['property', 'CONSTRUCTION & MATERIALS', 100]
 ].map(([id, name, price]) => ({ id, name, price }));
 
 // Order gates run in the exact historical check order;
