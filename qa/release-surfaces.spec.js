@@ -106,11 +106,11 @@ test.describe('release surface evidence', () => {
       state.suppressRoomUpdates = true;
       state.economy.market = {
         enabled: true, round: 3, feeRate: 0.02, complexity: 'derivatives',
-        quotes: { brazil: 113, canada: 106, japan: 98 },
+        quotes: { brazil: 113, ghana: 101, thailand: 100, japan: 98, netherlands: 102, canada: 106, switzerland: 99, singapore: 100, airports: 105, utilities: 100, property: 103 },
         quoteHistory: [
-          { round: 0, quotes: { brazil: 100, canada: 100, japan: 100 } },
-          { round: 1, quotes: { brazil: 104, canada: 102, japan: 99 }, eventId: 'market-rush' },
-          { round: 2, quotes: { brazil: 113, canada: 106, japan: 98 } },
+          { round: 0, quotes: { brazil: 100, ghana: 100, thailand: 100, japan: 100, netherlands: 100, canada: 100, switzerland: 100, singapore: 100, airports: 100, utilities: 100, property: 100 } },
+          { round: 1, quotes: { brazil: 104, ghana: 100, thailand: 100, japan: 99, netherlands: 100, canada: 102, switzerland: 100, singapore: 100, airports: 100, utilities: 100, property: 100 }, eventId: 'market-rush' },
+          { round: 2, quotes: { brazil: 113, ghana: 101, thailand: 100, japan: 98, netherlands: 102, canada: 106, switzerland: 99, singapore: 100, airports: 105, utilities: 100, property: 103 } },
         ],
         personalTrades: [{ roundNumber: 1, instrumentId: 'brazil', side: 'buy', quantity: 2, quote: 104, fee: 5 }],
         positions: { brazil: { quantity: 2, averageCost: 106.5, realizedPnl: 0 } },

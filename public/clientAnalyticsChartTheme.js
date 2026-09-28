@@ -34,6 +34,8 @@ const TOKEN_NAMES = Object.freeze({
   focus: '--gold-050'
 });
 
+const NUMERIC_Y_GRID_LEFT = 52;
+
 function readToken(element, name, fallback) {
   const getter = globalThis.getComputedStyle;
   if (typeof getter !== 'function' || !element) return fallback;
@@ -123,7 +125,7 @@ function commonOptions(tokens, title, reducedMotion) {
       textStyle: { color: tokens.text, fontFamily: 'Silkscreen, Courier New, monospace', fontSize: 11 },
       pageTextStyle: { color: tokens.text }
     },
-    grid: { left: 82, right: 20, top: 34, bottom: 40, containLabel: true },
+    grid: { left: NUMERIC_Y_GRID_LEFT, right: 20, top: 34, bottom: 40, containLabel: true },
     title: { show: false, text: title }
   };
 }
@@ -155,7 +157,7 @@ function lineOptions(points, unit, tokens, title, reducedMotion) {
   const groups = groupedPoints(points);
   return {
     ...commonOptions(tokens, title, reducedMotion),
-    grid: { left: 84, right: 24, top: 52, bottom: 48, containLabel: true },
+    grid: { left: NUMERIC_Y_GRID_LEFT, right: 24, top: 52, bottom: 48, containLabel: true },
     xAxis: { ...axis(tokens, '', false), data: labels, boundaryGap: false },
     yAxis: numericAxis(tokens, unit, false, groups.flatMap(group => group.values.map(point => point.value))),
     series: groups.map((group, index) => ({
@@ -226,7 +228,7 @@ function stackedOptions(points, unit, tokens, title, reducedMotion) {
   const paletteValues = palette(tokens);
   return {
     ...commonOptions(tokens, title, reducedMotion),
-    grid: { left: 70, right: 20, top: 40, bottom: 42, containLabel: true },
+    grid: { left: NUMERIC_Y_GRID_LEFT, right: 20, top: 40, bottom: 42, containLabel: true },
     xAxis: { ...axis(tokens, '', false), data: labels },
     yAxis: numericAxis(tokens, unit, false, points.flatMap(point => Object.values(point.values || {}).map(value => finite(value) ?? point.value))),
     series: groups.map((key, index) => ({
