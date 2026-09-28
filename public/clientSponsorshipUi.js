@@ -74,21 +74,39 @@ function contributionsHTML(sponsorship) {
   return rows || `<p class="t-micro ink-3">NO CONTRIBUTIONS YET.</p>`;
 }
 
-function actionsHTML(sponsorship, isBuyer, mine) {
-  if (isBuyer) {
-    const buyerContribution = Math.max(0, Number(sponsorship.price || 0) - Number(sponsorship.totalContributed || 0));
-    const localCash = Number(state.players[0]?.cash || 0);
-    const equityReady = sponsorship.mode === "equity" && buyerContribution <= localCash;
-    const giftReady = Number(sponsorship.totalContributed || 0) > 0 && Number(sponsorship.amountNeeded || 0) <= 0;
-    const enabled = equityReady || giftReady;
-    return `<div class="sponsorship-actions"><button class="cta-red" type="button" data-sponsorship-action="accept" ${enabled ? "" : "disabled"}><span class="cta-text cta-text-sm">ACCEPT &amp; BUY</span></button><button class="btn-dark" type="button" data-sponsorship-action="decline"><span class="t-label f11">CANCEL REQUEST</span></button></div>`;
-  }
-  if (mine) return `<div class="sponsorship-actions"><button class="btn-dark" type="button" data-sponsorship-action="withdraw"><span class="t-label f11">WITHDRAW $${Number(mine.amount || 0).toLocaleString()}</span></button></div>`;
-  if (sponsorship.mode === "equity" && (sponsorship.contributions || []).length) {
-    return `<p class="t-micro ink-3 sponsorship-investor-locked">ONE INVESTOR HAS RESERVED THIS EQUITY OFFER.</p>`;
-  }
+function buyerCanAcceptEquity(sponsorship, buyerContribution, localCash) {
+  return sponsorship.mode === "equity" && buyerContribution <= localCash;
+}
+
+function buyerCanAcceptGift(sponsorship) {
+  return Number(sponsorship.totalContributed || 0) > 0 && Number(sponsorship.amountNeeded || 0) <= 0;
+}
+
+function buyerActionsHTML(sponsorship) {
+  const buyerContribution = Math.max(0, Number(sponsorship.price || 0) - Number(sponsorship.totalContributed || 0));
+  const localCash = Number(state.players[0]?.cash || 0);
+  const enabled = buyerCanAcceptEquity(sponsorship, buyerContribution, localCash) || buyerCanAcceptGift(sponsorship);
+  return `<div class="sponsorship-actions"><button class="cta-red" type="button" data-sponsorship-action="accept" ${enabled ? "" : "disabled"}><span class="cta-text cta-text-sm">ACCEPT &amp; BUY</span></button><button class="btn-dark" type="button" data-sponsorship-action="decline"><span class="t-label f11">CANCEL REQUEST</span></button></div>`;
+}
+
+function contributorWithdrawalHTML(mine) {
+  return `<div class="sponsorship-actions"><button class="btn-dark" type="button" data-sponsorship-action="withdraw"><span class="t-label f11">WITHDRAW $${Number(mine.amount || 0).toLocaleString()}</span></button></div>`;
+}
+
+function investorReservationLocked(sponsorship) {
+  return sponsorship.mode === "equity" && (sponsorship.contributions || []).length > 0;
+}
+
+function contributionFormHTML(sponsorship) {
   const need = Math.max(1, Number(sponsorship.amountNeeded || 0));
   return `<form class="sponsorship-contribute" data-sponsorship-form><label class="t-label f11 g-muted" for="sponsorship-amount">${sponsorship.mode === "equity" ? "INVESTMENT AMOUNT" : "CONTRIBUTE"}</label><div class="sponsorship-contribute-row"><input class="field" id="sponsorship-amount" name="amount" type="number" min="1" max="${need}" step="1" value="${need}" inputmode="numeric"/><button class="cta-red" type="submit"><span class="cta-text cta-text-sm">${sponsorship.mode === "equity" ? "RESERVE INVESTMENT" : "RESERVE"}</span></button></div></form>`;
+}
+
+function actionsHTML(sponsorship, isBuyer, mine) {
+  if (isBuyer) return buyerActionsHTML(sponsorship);
+  if (mine) return contributorWithdrawalHTML(mine);
+  if (investorReservationLocked(sponsorship)) return `<p class="t-micro ink-3 sponsorship-investor-locked">ONE INVESTOR HAS RESERVED THIS EQUITY OFFER.</p>`;
+  return contributionFormHTML(sponsorship);
 }
 
 function renderSponsorshipModal(sponsorship) {
@@ -124,22 +142,23 @@ function updateSponsorshipComposer(event) {
   if (shareField) shareField.hidden = !equity;
 }
 
+function handleSponsorshipActionResponse(response, actionKey, button, statusNode) {
+  if (response?.success !== false) return;
+  sponsorshipActionGate.complete(actionKey);
+  if (button) button.disabled = false;
+  host.announceActionStatus(response.error || "The sponsorship could not be updated.", statusNode);
+}
+
 function sendSponsorshipAction(action, button = null) {
   const events = { accept: "accept-sponsored-purchase", decline: "decline-sponsored-purchase", withdraw: "withdraw-sponsored-purchase" };
-  const event = events[action];
-  if (!event) return;
+  const eventName = events[action];
+  if (!eventName) return;
   const payload = sponsorshipFlowPayload(state.sponsorship);
   const actionKey = payload.requestId || "gift-action";
   if (!sponsorshipActionGate.begin(actionKey)) return;
   const statusNode = host.captureActionStatusNode(button || document.activeElement);
   if (button) button.disabled = true;
-  host.emitServer(event, payload, response => {
-    if (response?.success === false) {
-      sponsorshipActionGate.complete(actionKey);
-      if (button) button.disabled = false;
-      host.announceActionStatus(response.error || "The sponsorship could not be updated.", statusNode);
-    }
-  });
+  host.emitServer(eventName, payload, response => handleSponsorshipActionResponse(response, actionKey, button, statusNode));
 }
 
 function onSponsorshipClick(event) {
@@ -148,33 +167,40 @@ function onSponsorshipClick(event) {
   sendSponsorshipAction(action, event.target.closest("[data-sponsorship-action]"));
 }
 
-function onSponsorshipSubmit(event) {
-  const requestForm = event.target.closest("[data-sponsorship-request-form]");
-  if (requestForm) {
-    event.preventDefault();
-    if (requestPending || !sponsorshipRequestDraft) return;
-    const mode = requestForm.elements.mode.value;
-    const sharePct = Number(requestForm.elements.sharePct.value) || 10;
-    if (mode === "equity" && !sponsorshipRequestDraft.requestId) sponsorshipRequestDraft.requestId = newRequestId();
-    const payload = sponsorshipRequestPayload(sponsorshipRequestDraft.tileIndex, mode, sharePct, sponsorshipRequestDraft.requestId);
-    requestPending = true;
-    const submit = requestForm.querySelector('[type="submit"]');
-    if (submit) submit.disabled = true;
-    const statusNode = host.captureActionStatusNode(submit || requestForm);
-    host.emitServer("request-sponsored-purchase", payload, response => {
-      if (response?.success === false) {
-        requestPending = false;
-        if (submit) submit.disabled = false;
-        host.announceActionStatus(response.error || "Sponsorship is unavailable.", statusNode);
-        return;
-      }
-      sponsorshipRequestDraft = null;
-      closeSponsorshipModal();
-    });
+function handleSponsorshipRequestResponse(response, submit, statusNode) {
+  if (response?.success === false) {
+    requestPending = false;
+    if (submit) submit.disabled = false;
+    host.announceActionStatus(response.error || "Sponsorship is unavailable.", statusNode);
     return;
   }
-  const form = event.target.closest("[data-sponsorship-form]");
-  if (!form) return;
+  sponsorshipRequestDraft = null;
+  closeSponsorshipModal();
+}
+
+function submitSponsorshipRequest(event, requestForm) {
+  event.preventDefault();
+  if (requestPending) return;
+  if (!sponsorshipRequestDraft) return;
+  const mode = requestForm.elements.mode.value;
+  const sharePct = Number(requestForm.elements.sharePct.value) || 10;
+  if (mode === "equity" && !sponsorshipRequestDraft.requestId) sponsorshipRequestDraft.requestId = newRequestId();
+  const payload = sponsorshipRequestPayload(sponsorshipRequestDraft.tileIndex, mode, sharePct, sponsorshipRequestDraft.requestId);
+  requestPending = true;
+  const submit = requestForm.querySelector('[type="submit"]');
+  if (submit) submit.disabled = true;
+  const statusNode = host.captureActionStatusNode(submit || requestForm);
+  host.emitServer("request-sponsored-purchase", payload, response => handleSponsorshipRequestResponse(response, submit, statusNode));
+}
+
+function handleContributionResponse(response, actionKey, submit, statusNode) {
+  if (response?.success !== false) return;
+  sponsorshipActionGate.complete(actionKey);
+  if (submit) submit.disabled = false;
+  host.announceActionStatus(response.error || "The contribution could not be reserved.", statusNode);
+}
+
+function submitSponsorshipContribution(event, form) {
   event.preventDefault();
   const amount = Math.floor(Number(form.amount?.value) || 0);
   const payload = sponsorshipContributionPayload(amount, state.sponsorship);
@@ -183,13 +209,15 @@ function onSponsorshipSubmit(event) {
   const submit = form.querySelector('[type="submit"]');
   if (submit) submit.disabled = true;
   const statusNode = host.captureActionStatusNode(submit || form);
-  host.emitServer("contribute-sponsored-purchase", payload, response => {
-    if (response?.success === false) {
-      sponsorshipActionGate.complete(actionKey);
-      if (submit) submit.disabled = false;
-      host.announceActionStatus(response.error || "The contribution could not be reserved.", statusNode);
-    }
-  });
+  host.emitServer("contribute-sponsored-purchase", payload, response => handleContributionResponse(response, actionKey, submit, statusNode));
+}
+
+function onSponsorshipSubmit(event) {
+  const requestForm = event.target.closest("[data-sponsorship-request-form]");
+  if (requestForm) return submitSponsorshipRequest(event, requestForm);
+  const form = event.target.closest("[data-sponsorship-form]");
+  if (!form) return;
+  submitSponsorshipContribution(event, form);
 }
 
 export function requestSponsorship(tileIndex, trigger = null) {

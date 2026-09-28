@@ -229,6 +229,25 @@ class BoundedReplayMap extends Map {
   }
 }
 
+function activeCollateralContract(contract) {
+  const supportedKind = ['loan', 'hybrid'].includes(contract.kind);
+  const activeStatus = ['active', 'due'].includes(contract.status);
+  return supportedKind && activeStatus;
+}
+
+function contractCollateralIndices(contract) {
+  const indices = contract.collateralTileIndices;
+  if (Array.isArray(indices) && indices.length) return indices;
+  return [contract.collateralTileIndex];
+}
+
+function contractPledgesTile(contract, player, tile) {
+  if (!activeCollateralContract(contract)) return false;
+  if (contract.toPlayerId !== player.id) return false;
+  if (contract.kind === 'hybrid' && Number(contract.propertyIndex) === Number(tile.index)) return true;
+  return contractCollateralIndices(contract).some(index => index != null && Number(index) === Number(tile.index));
+}
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -511,15 +530,8 @@ class GameState {
   }
 
   isPlayerContractCollateral(player, tile) {
-    return Boolean(player && tile && this.playerContracts?.some(contract =>
-      ['loan', 'hybrid'].includes(contract.kind)
-      && ['active', 'due'].includes(contract.status)
-      && contract.toPlayerId === player.id
-      && (contract.kind === 'hybrid' && Number(contract.propertyIndex) === Number(tile.index)
-        || ((Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length)
-          ? contract.collateralTileIndices
-          : [contract.collateralTileIndex]).some(index => index != null && Number(index) === Number(tile.index)))
-    ));
+    if (!player || !tile) return false;
+    return this.playerContracts?.some(contract => contractPledgesTile(contract, player, tile)) || false;
   }
 
   highestCollateralProperty(player) {

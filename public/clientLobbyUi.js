@@ -1003,13 +1003,20 @@ function clampBotsToSeats() {
 const NUMERIC_SETTING_KEYS = ["startingCash"];
 const LIMIT_SETTING_KEYS = ["houseLimit", "hotelLimit"];
 
-function applyNumericSettingField(key, value) {
-  if (value.trim() === "") return false;
+function numericSettingValue(value) {
+  if (typeof value !== "string" || value.trim() === "") return { valid: false };
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return false;
-  if (parsed < 0) return false;
-  state.settings[key] = Math.floor(parsed);
-  return true;
+  if (!Number.isFinite(parsed) || parsed < 0) return { valid: false };
+  return { valid: true, value: Math.floor(parsed) };
+}
+
+export function normalizeSettingValue({ key, value, checked, inputType } = {}) {
+  if (LIMIT_SETTING_KEYS.includes(key)) {
+    if (value === "unlimited") return { valid: true, value };
+    return numericSettingValue(value);
+  }
+  if (NUMERIC_SETTING_KEYS.includes(key)) return numericSettingValue(value);
+  return { valid: true, value: inputType === "checkbox" ? checked : value };
 }
 
 function isSettingField(el) {
@@ -1022,15 +1029,14 @@ const applySettingField = (e) => {
   const sel = e.target.closest("[data-setting]");
   if (!isSettingField(sel)) return;
   const key = sel.dataset.setting;
-  if (LIMIT_SETTING_KEYS.includes(key) && sel.value === "unlimited") {
-    state.settings[key] = "unlimited";
-  } else if (LIMIT_SETTING_KEYS.includes(key)) {
-    if (!applyNumericSettingField(key, sel.value)) return;
-  } else if (NUMERIC_SETTING_KEYS.includes(key)) {
-    if (!applyNumericSettingField(key, sel.value)) return;
-  } else {
-    state.settings[key] = sel.matches("input[type=checkbox]") ? sel.checked : sel.value;
-  }
+  const setting = normalizeSettingValue({
+    key,
+    value: sel.value,
+    checked: sel.checked,
+    inputType: sel.matches("input[type=checkbox]") ? "checkbox" : "value",
+  });
+  if (!setting.valid) return;
+  state.settings[key] = setting.value;
   host.updateServerSetting(key, state.settings[key]);
   renderLobbyRail();
 };
