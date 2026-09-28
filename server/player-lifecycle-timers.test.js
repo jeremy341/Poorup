@@ -153,6 +153,10 @@ function makeFixture({ players = 3, currentIndex = 0, started = true, includeBot
   return { manager, room, seats, sockets, io, clock, runtime, connectionHandlers };
 }
 
+function setPresence(ctx, player, state, reason = 'hidden') {
+  return ctx.runtime.setPlayerPresence(ctx.sockets.get(player.socketId), { state, ...(state === 'inactive' ? { reason } : {}) });
+}
+
 check('disconnect grace retains a seat until exactly 120 seconds, then advances the current turn', () => {
   const ctx = makeFixture();
   const [departing, next] = ctx.seats;
@@ -178,6 +182,33 @@ check('disconnect expiry removes a non-current seat without moving the active tu
   assert.equal(Boolean(ctx.room.game.getPlayerByClient(departing.clientId)), false, 'expired non-current seat should be removed');
   assert.equal(ctx.room.game.turnOrder.includes(departing.id), false, 'expired non-current seat should leave turn order');
   assert.equal(ctx.room.game.currentPlayerId, active.id, 'the current seat should keep the turn');
+});
+
+check('disconnect expiry passes a pending purchase without reviving the seat and excludes it from auction', () => {
+  const ctx = makeFixture();
+  const [departing] = ctx.seats;
+  const property = ctx.room.game.getTile(1);
+  departing.cash = property.price;
+  ctx.room.game.currentPlayerId = departing.id;
+  ctx.room.game.pendingPurchaseOffer = { playerId: departing.id, tileIndex: property.index };
+  ctx.room.game.settings.auction = true;
+  ctx.runtime.handleSocketDisconnect(ctx.sockets.get(departing.socketId));
+  const disconnectTimer = ctx.clock.records.at(-1);
+
+  ctx.clock.advanceBy(119_999);
+  assert.equal(Boolean(ctx.room.game.pendingPurchaseOffer), true, 'the reconnect grace keeps the offer pending');
+  assert.equal(ctx.room.game.auction, null);
+
+  ctx.clock.advanceBy(1);
+  assert.equal(Boolean(ctx.room.game.getPlayerByClient(departing.clientId)), false);
+  assert.equal(departing.disconnected, true);
+  assert.equal(departing.socketId, null);
+  assert.equal(Boolean(ctx.room.game.pendingPurchaseOffer), false);
+  assert.equal(ctx.room.game.auction?.active, true);
+  assert.equal(ctx.room.game.auction.participants.includes(departing.id), false);
+  const auction = ctx.room.game.auction;
+  ctx.clock.invokeEvenIfCancelled(disconnectTimer);
+  assert.equal(ctx.room.game.auction, auction, 'a stale disconnect callback cannot open a duplicate auction');
 });
 
 check('disconnect expiry settles a debtor and clears the removed seat assets and obligations', () => {
@@ -255,8 +286,9 @@ check('a stale inactivity callback cannot evict a reconnected current seat', () 
   const ctx = makeFixture();
   const player = ctx.seats[0];
   const oldSocket = ctx.sockets.get(player.socketId);
+  setPresence(ctx, player, 'inactive');
   ctx.runtime.emitRoomState(ctx.room);
-  const staleInactivityTimer = ctx.clock.records[0];
+  const staleInactivityTimer = ctx.clock.records.find(timer => timer.dueAt === ctx.clock.now() + 180_000);
   ctx.runtime.handleSocketDisconnect(oldSocket);
 
   const reconnectedSocket = new FakeSocket('socket-a-reconnected', ctx.room.roomCode);
@@ -276,6 +308,7 @@ check('reconnecting counts as fresh activity and restores a full inactivity wind
   const ctx = makeFixture();
   const player = ctx.seats[0];
   const oldSocket = ctx.sockets.get(player.socketId);
+  setPresence(ctx, player, 'inactive');
   ctx.runtime.emitRoomState(ctx.room);
   ctx.clock.advanceBy(179_000);
   ctx.runtime.handleSocketDisconnect(oldSocket);
@@ -286,9 +319,11 @@ check('reconnecting counts as fresh activity and restores a full inactivity wind
   ctx.sockets.set(reconnectedSocket.id, reconnectedSocket);
   ctx.connectionHandlers.forEach(connect => connect(reconnectedSocket));
   ctx.runtime.clearDisconnectTimer(player.clientId);
-  ctx.runtime.recordPlayerActivity(reconnectedSocket);
   ctx.runtime.emitRoomState(ctx.room);
 
+  assert.equal(player.presence.state, 'active');
+  assert.equal(ctx.clock.pending.size, 0, 'active reconnect does not keep an inactivity timer');
+  assert.equal(setPresence(ctx, player, 'inactive').success, true);
   ctx.clock.advanceBy(179_999);
   assert.equal(ctx.room.game.getPlayerByClient(player.clientId), player);
   ctx.clock.advanceBy(1);
@@ -314,6 +349,7 @@ check('pruning an expired disconnected seat clears its stale expiry registration
 check('current human inactivity expires after 180 seconds without inbound socket activity', () => {
   const ctx = makeFixture();
   const [departing, next] = ctx.seats;
+  setPresence(ctx, departing, 'inactive');
   ctx.runtime.emitRoomState(ctx.room);
 
   ctx.clock.advanceBy(180_000);
@@ -322,60 +358,71 @@ check('current human inactivity expires after 180 seconds without inbound socket
   assert.equal(ctx.room.game.currentPlayerId, next.id);
 });
 
-check('same-seat synchronization is idempotent and a new game start resets its inactivity deadline', () => {
+check('inactivity expiry passes a pending purchase before removing the seat and excludes it from the auction', () => {
   const ctx = makeFixture();
+  const [departing] = ctx.seats;
+  ctx.room.game.pendingPurchaseOffer = { playerId: departing.id, tileIndex: 1 };
+  ctx.room.game.settings.auction = true;
+  departing.cash = 2_000;
+  setPresence(ctx, departing, 'inactive');
+
+  ctx.clock.advanceBy(180_000);
+
+  assert.equal(Boolean(ctx.room.game.pendingPurchaseOffer), false);
+  assert.equal(ctx.room.game.auction?.active, true);
+  assert.equal(ctx.room.game.auction.participants.includes(departing.id), false);
+  assert.equal(Boolean(ctx.room.game.getPlayerByClient(departing.clientId)), false);
+});
+
+check('same-seat synchronization preserves the server-owned presence deadline', () => {
+  const ctx = makeFixture();
+  setPresence(ctx, ctx.seats[0], 'inactive');
   ctx.runtime.emitRoomState(ctx.room);
   const originalTimer = ctx.clock.records.at(-1);
-  assert.ok(originalTimer, 'the active human should receive an inactivity timer');
+  assert.ok(originalTimer, 'an inactive human should receive a server-owned inactivity timer');
 
   ctx.clock.advanceBy(5_000);
   ctx.runtime.emitRoomState(ctx.room);
   assert.equal(ctx.clock.records.at(-1), originalTimer, 'same-socket sync should preserve the current timer callback');
-  assert.equal(originalTimer.dueAt, 1_180_000, 'same-socket sync should preserve the original deadline');
+  assert.equal(originalTimer.dueAt, 1_180_000, 'same-socket sync should preserve the announced deadline');
 
   ctx.room.game.startedAt += 1;
   ctx.runtime.emitRoomState(ctx.room);
-  const restartedTimer = ctx.clock.records.at(-1);
-  assert.notEqual(restartedTimer, originalTimer, 'a new game must receive a fresh timer callback');
-  assert.equal(originalTimer.cancelled, true, 'the previous game timer must be cleared');
-  assert.equal(restartedTimer.dueAt, ctx.clock.now() + 180_000, 'a new game must receive a full inactivity budget');
+  assert.equal(ctx.clock.records.at(-1), originalTimer, 'game start metadata does not restart an active inactivity episode');
 });
 
-check('any inbound player packet resets the current seat inactivity budget', () => {
+check('explicit active presence resets the deadline and unrelated packets do not', () => {
   const ctx = makeFixture();
   const [current] = ctx.seats;
-  assert.equal(ctx.connectionHandlers.length, 1);
-  assert.equal(ctx.sockets.get(current.socketId).middlewares.length, 1);
+  assert.equal(ctx.connectionHandlers.length, 0);
   ctx.runtime.emitRoomState(ctx.room);
   const socket = ctx.sockets.get(current.socketId);
 
+  assert.equal(setPresence(ctx, current, 'inactive').success, true);
   ctx.clock.advanceBy(179_999);
   socket.receive('send-chat');
+  assert.equal(ctx.room.game.getPlayerByClient(current.clientId), current);
+  assert.equal(setPresence(ctx, current, 'active').success, true);
   ctx.clock.advanceBy(179_999);
   assert.equal(ctx.room.game.getPlayerByClient(current.clientId), current);
-
   ctx.clock.advanceBy(1);
-  assert.equal(Boolean(ctx.room.game.getPlayerByClient(current.clientId)), false);
+  assert.equal(ctx.room.game.getPlayerByClient(current.clientId), current, 'active state cancelled the old deadline');
 });
 
-check('a passive non-current player keeps a full inactivity budget until their turn begins', () => {
+check('each inactive human has an independent inactivity deadline regardless of turn', () => {
   const ctx = makeFixture({ players: 4 });
-  const [current, waiting, next] = ctx.seats;
+  const [current, waiting] = ctx.seats;
   assert.equal(ctx.room.game.connectedNonBankruptPlayers().length, 4);
-  assert.equal(ctx.connectionHandlers.length, 1);
-  assert.equal(ctx.sockets.get(current.socketId).middlewares.length, 1);
+  setPresence(ctx, current, 'inactive');
+  ctx.clock.advanceBy(60_000);
+  setPresence(ctx, waiting, 'inactive');
   ctx.runtime.emitRoomState(ctx.room);
 
-  ctx.clock.advanceBy(180_000);
+  ctx.clock.advanceBy(120_000);
   assert.equal(Boolean(ctx.room.game.getPlayerByClient(current.clientId)), false);
-  assert.equal(ctx.room.game.getPlayerByClient(waiting.clientId), waiting);
-  assert.equal(ctx.room.game.currentPlayerId, waiting.id, `expected ${waiting.nickname} after ${current.nickname} expired; started=${ctx.room.game.started}, winner=${ctx.room.game.lastWinner?.nickname || 'none'}, seats=${ctx.room.game.players.map(player => player.nickname).join(',')}`);
-
-  ctx.clock.advanceBy(179_999);
-  assert.equal(ctx.room.game.getPlayerByClient(waiting.clientId), waiting);
-  ctx.clock.advanceBy(1);
+  assert.equal(Boolean(ctx.room.game.getPlayerByClient(waiting.clientId)), true);
+  ctx.clock.advanceBy(60_000);
   assert.equal(Boolean(ctx.room.game.getPlayerByClient(waiting.clientId)), false);
-  assert.equal(ctx.room.game.currentPlayerId, next.id);
 });
 
 check('an inactive debtor is settled through bankruptcy before seat assets are released', () => {
@@ -404,8 +451,7 @@ check('an inactive debtor is settled through bankruptcy before seat assets are r
     hooks: {},
     turnOptions: {}
   }];
-  assert.equal(ctx.connectionHandlers.length, 1);
-  assert.equal(ctx.sockets.get(debtor.socketId).middlewares.length, 1);
+  setPresence(ctx, debtor, 'inactive');
   ctx.runtime.emitRoomState(ctx.room);
 
   ctx.clock.advanceBy(180_000);
@@ -449,7 +495,7 @@ check('inactivity tracking never schedules a bot seat', () => {
   const ctx = makeFixture({ players: 2, currentIndex: 2, includeBots: true });
   const bot = ctx.seats[2];
   assert.equal(bot.isBot, true);
-  assert.equal(ctx.connectionHandlers.length, 1);
+  assert.equal(ctx.connectionHandlers.length, 0);
   ctx.runtime.emitRoomState(ctx.room);
 
   assert.equal(ctx.clock.records.some(timer => timer.dueAt - ctx.clock.time === 180_000), false);

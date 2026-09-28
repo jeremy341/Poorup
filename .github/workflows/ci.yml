@@ -7,8 +7,8 @@ on:
     branches: [main, development, testing]
 
 jobs:
-  test:
-    name: test
+  lint:
+    name: lint and audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +21,64 @@ jobs:
         run: npm audit --omit=dev --audit-level=moderate
       - run: npm run lint
       - run: npm run lint:client
-      - name: Full contract, integration, and operations suite
-        run: npm run test:full
-      - run: npm run coverage
-      - name: Server wire tests (handler scaffold)
-        run: node server/server.test.js
+      - name: Validate the unique test manifest
+        run: node scripts/test-manifest.test.mjs
+
+  server-tests:
+    name: server and client contracts · shard ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run one deterministic manifest shard with server coverage
+        run: >-
+          npx c8 --temp-directory .nyc_output --include="server/**" --reporter=text
+          node scripts/run-test-manifest.mjs --group=full
+          --shard=${{ matrix.shard }}/4
+          --timings=.test-timings/shard-${{ matrix.shard }}.json
+      - name: Upload raw V8 coverage for merge
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-shard-${{ matrix.shard }}
+          path: .nyc_output
+          include-hidden-files: true
+          if-no-files-found: warn
+      - name: Upload per-suite timing record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-timings-shard-${{ matrix.shard }}
+          path: .test-timings/shard-${{ matrix.shard }}.json
+          if-no-files-found: warn
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    needs: [server-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download all test-shard coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-shard-*
+          path: .nyc_output
+          merge-multiple: true
+      - name: Merge and report coverage
+        run: npx c8 report --temp-directory .nyc_output --include="server/**" --reporter=text --reporter=lcov
       - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@v5
@@ -61,9 +114,13 @@ jobs:
           curl -fsS localhost:8099/readyz | grep -q '"status":"ready"'
           kill $SERVER_PID
 
-  browser:
-    name: browser QA
+  browser-shards:
+    name: browser QA shard ${{ matrix.shard }}/3
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -80,7 +137,66 @@ jobs:
             curl -fsS localhost:8099/ >/dev/null 2>&1 && break
             sleep 0.5
           done
-      - name: Four-viewport UI and accessibility contract
+          curl -fsS localhost:8099/healthz | grep -q '"status":"ok"'
+      - name: Four-viewport UI and accessibility contract shard
+        run: npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/3 --reporter=blob
         env:
           POORUP_QA_BASE_URL: http://127.0.0.1:8099
-        run: npm run test:browser -- --workers=2
+      - name: Upload Playwright blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-blob-shard-${{ matrix.shard }}
+          path: blob-report
+          if-no-files-found: warn
+
+  browser-report:
+    name: merged browser report
+    runs-on: ubuntu-latest
+    needs: [browser-shards]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download Playwright shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-blob-shard-*
+          path: all-blob-reports
+          merge-multiple: true
+      - name: Merge Playwright reports
+        run: npx playwright merge-reports --reporter=html all-blob-reports
+      - name: Upload merged Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report
+          path: playwright-report
+          if-no-files-found: warn
+
+  browser:
+    name: browser QA
+    runs-on: ubuntu-latest
+    needs: [browser-shards, browser-report]
+    if: always()
+    steps:
+      - name: Require every browser shard and report merge
+        run: |
+          test "${{ needs.browser-shards.result }}" = success
+          test "${{ needs.browser-report.result }}" = success
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    needs: [lint, server-tests, coverage]
+    if: always()
+    steps:
+      - name: Require lint, all manifest shards, and merged coverage
+        run: |
+          test "${{ needs.lint.result }}" = success
+          test "${{ needs.server-tests.result }}" = success
+          test "${{ needs.coverage.result }}" = success

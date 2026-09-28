@@ -8,6 +8,27 @@ import { spriteHTML } from "./clientSprites.js";
 
 let isCompact = Boolean(state.globalEventCompact);
 let listenerAttached = false;
+let ribbonTimer = null;
+let ribbonEventKey = "";
+let delayedBannerKey = "";
+
+export function observeGlobalEventAnnouncement(clientState, event, { roomCode = "", gameStarted = false } = {}) {
+  const normalizedRoom = String(roomCode || "");
+  const roomChanged = clientState.globalEventAnnouncementRoomCode !== normalizedRoom;
+  const newGameStarted = gameStarted && !clientState.globalEventAnnouncementGameStarted;
+  if (roomChanged || newGameStarted) clientState.lastAnnouncedGlobalEventKey = "";
+  clientState.globalEventAnnouncementRoomCode = normalizedRoom;
+  clientState.globalEventAnnouncementGameStarted = Boolean(gameStarted);
+
+  if (!event || !["voting", "warning"].includes(event.phase) || !event.id) {
+    return { announce: false, key: "" };
+  }
+  const eventRound = event.startedRound ?? event.voteRound ?? null;
+  const key = JSON.stringify([normalizedRoom, String(event.id), eventRound]);
+  if (clientState.lastAnnouncedGlobalEventKey === key) return { announce: false, key };
+  clientState.lastAnnouncedGlobalEventKey = key;
+  return { announce: true, key };
+}
 
 function eventVisible(event) {
   if (state.phase !== "playing") return false;
@@ -132,6 +153,8 @@ function renderGlobalEventEffects(event) {
 function renderCompactRow(event) {
   const compactTitle = $("#global-event-compact-title");
   if (compactTitle) compactTitle.textContent = String(event.title || "EVENT");
+  const compactRounds = $("#global-event-compact-rounds");
+  if (compactRounds) compactRounds.textContent = globalEventRoundsText(event);
   const compactEffects = $("#global-event-compact-effects");
   if (compactEffects) {
     compactEffects.innerHTML = Object.entries(event.effects || {}).slice(0, 3).map(globalEventCompactEffectHTML).join("");
@@ -140,6 +163,7 @@ function renderCompactRow(event) {
   if (compactVote) {
     if (event.phase === "voting") {
       compactVote.classList.remove("is-hidden");
+      compactVote.setAttribute("aria-expanded", "false");
       compactVote.innerHTML = `<span class="global-event-vote-icon" aria-hidden="true">${spriteHTML("ballot", 2)}</span> VOTE REQUIRED`;
     } else {
       compactVote.classList.add("is-hidden");
@@ -153,6 +177,58 @@ function globalEventRoundsText(event) {
   if (event.phase === "warning") return "ACTIVATES NEXT ROUND";
   if (event.phase === "recovery") return "RECOVERY · EFFECTS TAPERING";
   return `${event.roundsRemaining || 0} ROUNDS LEFT`;
+}
+
+function announcementCue(event) {
+  return event.phase === "voting" ? "VOTE NOW" : "ACTIVATES NEXT ROUND";
+}
+
+function clearEventRibbon() {
+  if (ribbonTimer) clearTimeout(ribbonTimer);
+  ribbonTimer = null;
+  ribbonEventKey = "";
+  delayedBannerKey = "";
+  const ribbon = $("#global-event-ribbon");
+  const banner = $("#global-event-banner");
+  ribbon?.classList.add("is-hidden");
+  ribbon?.classList.remove("is-visible");
+  banner?.classList.remove("is-delayed");
+}
+
+function showEventRibbon(event, key) {
+  const ribbon = $("#global-event-ribbon");
+  const banner = $("#global-event-banner");
+  const announcer = $("#global-event-announcer");
+  if (!ribbon || !banner || !announcer) return;
+  if (ribbonTimer) clearTimeout(ribbonTimer);
+  ribbonTimer = null;
+  ribbonEventKey = key;
+  const title = String(event.title || "GLOBAL EVENT");
+  const cue = announcementCue(event);
+  $("#global-event-ribbon-title").textContent = title;
+  $("#global-event-ribbon-cue").textContent = cue;
+  announcer.textContent = `Global event: ${title}. ${cue === "VOTE NOW" ? "A vote is open." : "Activates next round."}`;
+  ribbon.classList.remove("is-hidden");
+  ribbon.classList.add("is-visible");
+
+  // On a newly opened banner, let the rare announcement land first. If an
+  // existing vote choice owns focus, keep its container rendered in place.
+  const alreadyVisible = !banner.classList.contains("is-hidden");
+  const focusInsideBanner = banner.contains(document.activeElement);
+  delayedBannerKey = alreadyVisible || focusInsideBanner ? "" : key;
+  banner.classList.toggle("is-delayed", Boolean(delayedBannerKey));
+  ribbonTimer = setTimeout(() => {
+    if (ribbonEventKey !== key) return;
+    ribbon?.classList.add("is-hidden");
+    ribbon?.classList.remove("is-visible");
+    if (delayedBannerKey === key) {
+      delayedBannerKey = "";
+      banner?.classList.remove("is-delayed");
+      renderGlobalEvent();
+    }
+    ribbonTimer = null;
+    ribbonEventKey = "";
+  }, 1250);
 }
 
 function voterHasVoted(event) {
@@ -209,6 +285,8 @@ function updateCompactState(banner) {
     toggleBtn.setAttribute("aria-expanded", String(!isCompact));
     toggleBtn.title = isCompact ? "Expand event details [H]" : "Hide event details [H]";
   }
+  const compactVote = $("#global-event-compact-vote");
+  compactVote?.setAttribute("aria-expanded", String(!isCompact));
   if (toggleLabel) toggleLabel.textContent = isCompact ? "SHOW" : "HIDE";
   if (toggleIcon) toggleIcon.innerHTML = spriteHTML(isCompact ? "chevronDown" : "chevronUp", 2);
   if (bodyWrap) bodyWrap.classList.toggle("is-hidden", isCompact);
@@ -234,7 +312,9 @@ function bindGlobalEventControls() {
   const compactVote = $("#global-event-compact-vote");
   if (compactVote) {
     compactVote.addEventListener("click", () => {
-      if (isCompact) toggleCompactMode();
+      if (!isCompact) return;
+      toggleCompactMode();
+      $("#global-event-toggle")?.focus({ preventScroll: true });
     });
   }
   window.addEventListener("keydown", (e) => {
@@ -253,11 +333,17 @@ export function renderGlobalEvent() {
   const banner = $("#global-event-banner");
   if (!banner) return;
   const event = state.globalEvent;
+  const observation = observeGlobalEventAnnouncement(state, event, {
+    roomCode: state.roomCode,
+    gameStarted: state.gameStarted,
+  });
   if (!eventVisible(event)) {
     banner.classList.toggle("is-hidden", true);
+    clearEventRibbon();
     return;
   }
-  banner.classList.toggle("is-hidden", false);
+  if (observation.announce) showEventRibbon(event, observation.key);
+  banner.classList.toggle("is-hidden", Boolean(delayedBannerKey && delayedBannerKey === observation.key));
   bindGlobalEventControls();
   renderGlobalEventHead(event, banner);
   renderGlobalEventTimer();

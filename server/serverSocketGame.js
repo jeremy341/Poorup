@@ -49,7 +49,7 @@ function recordHumanAction(room, socket, result) {
 
 const GAME_VERB_HANDLERS = [
   { event: 'purchase-property', verb: 'purchaseProperty', args: pickArgs(['tileIndex']), message: true },
-  { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted), message: true },
+  { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted) },
   { event: 'auction-bid', verb: 'placeAuctionBid', args: pickArgs(['amount']), auctionRefresh: AUCTION_STILL_OPEN, message: true },
   { event: 'auction-pass', verb: 'passAuction', args: NO_ARGS, auctionRefresh: AUCTION_STILL_OPEN },
   { event: 'end-turn', verb: 'endTurn', args: NO_ARGS },
@@ -81,6 +81,42 @@ const GAME_VERB_HANDLERS = [
   { event: 'declare-bankruptcy', verb: 'declareBankruptcy', args: NO_ARGS }
 ];
 
+const BASE_GAME_EVENTS = new Set([
+  'purchase-property', 'decline-property', 'auction-bid', 'auction-pass', 'end-turn',
+  'manage-property', 'propose-trade', 'counter-trade', 'cancel-trade', 'respond-trade',
+  'pay-jail-fine', 'use-jail-free', 'declare-bankruptcy'
+]);
+const DIRECT_GAME_SOCKET_EVENTS = [
+  'roll-dice', 'cancel-player-contract', 'get-bank-loan-offer', 'get-economy-snapshot',
+  'place-casino-bet', 'request-sponsored-purchase', 'contribute-sponsored-purchase',
+  'withdraw-sponsored-purchase', 'accept-sponsored-purchase', 'decline-sponsored-purchase',
+  'player-presence', 'room-votekick-start', 'room-votekick-cast', 'propose-equity-share-transfer'
+];
+const GAME_ACTION_VARIANTS = Object.freeze({
+  'manage-property': Object.freeze([
+    Object.freeze({ action: 'build-house', candidateKind: 'build' }),
+    Object.freeze({ action: 'sell-house', candidateKind: 'sell' }),
+    Object.freeze({ action: 'mortgage', candidateKind: 'mortgage' }),
+    Object.freeze({ action: 'unmortgage', candidateKind: 'unmortgage' })
+  ])
+});
+
+export const GAME_ACTION_CATALOG = Object.freeze([
+  ...GAME_VERB_HANDLERS.map(definition => Object.freeze({
+    event: definition.event,
+    verb: definition.verb,
+    registration: 'registered-game-verb',
+    surface: BASE_GAME_EVENTS.has(definition.event) ? 'base' : 'extended',
+    ...(GAME_ACTION_VARIANTS[definition.event] ? { variants: GAME_ACTION_VARIANTS[definition.event] } : {})
+  })),
+  ...DIRECT_GAME_SOCKET_EVENTS.map(event => Object.freeze({
+    event,
+    verb: null,
+    registration: 'direct-socket',
+    surface: 'dynamic'
+  }))
+]);
+
 function registerGameSocketHandlers(on, socket, runtime) {
   GAME_VERB_HANDLERS.forEach(definition => {
     on(definition.event, makeRoomVerbHandler(socket, runtime, definition));
@@ -91,11 +127,15 @@ function registerGameSocketHandlers(on, socket, runtime) {
   on('get-bank-loan-offer', handleBankLoanOffer);
   on('get-economy-snapshot', handleEconomySnapshot);
   on('place-casino-bet', handlePlaceCasinoBet);
-  on('request-sponsored-purchase', (_payload, callback) => handleSponsorship('request', {}, callback));
+  on('player-presence', (payload, callback) => reply(callback, runtime.setPlayerPresence(socket, payload || {})));
+  on('room-votekick-start', (payload, callback) => reply(callback, runtime.startRoomVoteKick(socket, payload || {})));
+  on('room-votekick-cast', (payload, callback) => reply(callback, runtime.castRoomVoteKick(socket, payload || {})));
+  on('propose-equity-share-transfer', handleEquityShareTransfer);
+  on('request-sponsored-purchase', (payload, callback) => handleSponsorship('request', payload || {}, callback));
   on('contribute-sponsored-purchase', (payload, callback) => handleSponsorship('contribute', payload || {}, callback));
-  on('withdraw-sponsored-purchase', (_payload, callback) => handleSponsorship('withdraw', {}, callback));
-  on('accept-sponsored-purchase', (_payload, callback) => handleSponsorship('accept', {}, callback));
-  on('decline-sponsored-purchase', (_payload, callback) => handleSponsorship('decline', {}, callback));
+  on('withdraw-sponsored-purchase', (payload, callback) => handleSponsorship('withdraw', payload || {}, callback));
+  on('accept-sponsored-purchase', (payload, callback) => handleSponsorship('accept', payload || {}, callback));
+  on('decline-sponsored-purchase', (payload, callback) => handleSponsorship('decline', payload || {}, callback));
 
   function handleRollDice(_payload, callback) {
     const room = runtime.getRoomForSocket(socket, callback);
@@ -119,6 +159,25 @@ function registerGameSocketHandlers(on, socket, runtime) {
     reply(callback, result);
   }
 
+  function handleEquityShareTransfer(payload = {}, callback) {
+    const room = runtime.getRoomForSocket(socket, callback);
+    if (!room) return;
+    const player = room.getPlayerBySocket(socket.id);
+    if (!player) return reply(callback, { success: false, error: 'Player not found.' });
+    const result = room.game.proposeEquityShareTransfer(socket.id, {
+      ...payload,
+      fromPlayerId: player.id,
+    });
+    if (result?.success !== false) room.game.recordHumanAction?.(player);
+    runtime.emitRoomState(room);
+    const transfer = result?.transfer;
+    const recipient = transfer?.toPlayerId ? room.game.getPlayerById(transfer.toPlayerId) : null;
+    if (transfer && recipient?.socketId) {
+      runtime.io.to(recipient.socketId).emit('player-contract-offer', { contract: transfer });
+    }
+    reply(callback, { success: result?.success ?? false, error: result?.error, contract: transfer });
+  }
+
   function contractCancelRejection(room, payload = {}) {
     const contract = room.game.pendingPlayerContract;
     if (!contract) return NO_PENDING_CONTRACT;
@@ -138,11 +197,9 @@ function registerGameSocketHandlers(on, socket, runtime) {
     room.game.feedMessage(player.nickname + ' canceled the player contract.');
     const result = { success: true };
     runtime.cacheContractCancel(room, socket, payload, result);
-    // The counterparty holds a stale modal otherwise: push the cancel plus
-    // a system message like every other contract transition.
+    // The counterparty holds a stale modal otherwise; push the state update.
     const target = counterpartyId ? room.game.getPlayerById(counterpartyId) : null;
     if (target?.socketId) runtime.io.to(target.socketId).emit('player-contract-update', { contract: null, canceled: true });
-    runtime.io.in(room.roomCode).emit('system-message', { text: `${player.nickname} canceled the player contract.` });
     runtime.emitRoomState(room);
     return result;
   }
@@ -172,7 +229,6 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const result = room.placeCasinoBet(socket.id, payload.color, payload.stake, payload.requestId);
     recordHumanAction(room, socket, result);
     runtime.emitRoomState(room);
-    announceCasinoSpin(runtime, socket, room, result);
     reply(callback, roomVerbAck(result, pickAckFields(['result', 'economy'])));
   }
 
@@ -180,11 +236,11 @@ function registerGameSocketHandlers(on, socket, runtime) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const methods = {
-      request: () => room.game.requestPurchaseSponsorship(socket.id),
+      request: () => room.game.requestPurchaseSponsorship(socket.id, payload),
       contribute: () => room.game.contributeToSponsoredPurchase(socket.id, payload),
-      withdraw: () => room.game.withdrawSponsoredPurchase(socket.id),
-      accept: () => room.game.acceptSponsoredPurchase(socket.id),
-      decline: () => room.game.declineSponsoredPurchase(socket.id)
+      withdraw: () => room.game.withdrawSponsoredPurchase(socket.id, payload),
+      accept: () => room.game.acceptSponsoredPurchase(socket.id, payload),
+      decline: () => room.game.declineSponsoredPurchase(socket.id, payload)
     };
     const result = methods[action]?.() || { success: false, error: 'Unknown sponsorship action.' };
     recordHumanAction(room, socket, result);
@@ -214,18 +270,11 @@ function emitRollPurchaseOffer(socket, room, result) {
 function announceRollAuction(runtime, room, result) {
   if (!result?.auctionStarted) return;
   runtime.scheduleAuctionFinish(room);
-  runtime.io.in(room.roomCode).emit('system-message', { text: 'Auction started.' });
 }
 
 function emitRollCardReveal(socket, result) {
   if (!result?.cardReveal) return;
   socket.emit('card-reveal', result.cardReveal);
-}
-
-function announceCasinoSpin(runtime, socket, room, result) {
-  if (!result?.success) return;
-  const nickname = room.game.getPlayerBySocket(socket.id)?.nickname || 'Player';
-  runtime.io.in(room.roomCode).emit('system-message', { text: `${nickname} settled a casino spin.` });
 }
 
 export { registerGameSocketHandlers };

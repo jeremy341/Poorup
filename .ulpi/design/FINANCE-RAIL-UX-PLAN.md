@@ -31,6 +31,16 @@ entry point, item access, market/casino workspaces, and the modal state model.
 > continues through turn-owned resolution while the server deadline is live
 > (`docs/audit/fix-transaction-ui-batch-2026-09-12.md`).
 
+> **Market Desk update (2026-09-28).** Country/infrastructure labels are now
+> fictional sector names (Housing Market, Agriculture, Consumer Goods,
+> Technology, Trade & Logistics, Energy & Resources, Financial Services,
+> Tourism & Hospitality, Air Transport, Public Utilities, Construction &
+> Materials). These are display labels only: instrument IDs, positions,
+> history, and market rules remain stable. Desktop keeps a wide watchlist,
+> shared quote/chart, portfolio metrics, and order ticket. iPad landscape uses
+> native index and chart-range dropdowns with quote/portfolio/chart widgets
+> beside the ticket. Mobile stacks these inside the modal.
+
 ## Product read and design direction
 
 **Design read:** the board is a shared table, while the right rail is a
@@ -44,6 +54,50 @@ same dark teal terminal panels, gold structural rules, red primary action,
 Pixelify/mono typography, compact square geometry, and pixel-art marks. No
 glassmorphism, gradients, pill-heavy controls, emoji icons, nested card stacks,
 or new component library.
+
+## Direction contract
+
+THESIS: Make the fictional exchange read as a legible sector-market workspace,
+not a geography list or a narrow form.
+
+OWN-WORLD: Continue Ledger Night Market with dark teal surfaces, ruled gold
+structure, pixel/mono typography, square geometry, and the existing Poorup UI
+tokens.
+
+STORY: Choose a sector, understand its shared quote and recorded movement, check
+your own position, then preview and submit a Buy/Sell order.
+
+FIRST VIEWPORT: Desktop retains the three-column watchlist, quote/history, and
+ticket. iPad landscape gets native index/range dropdowns, price/position/chart
+widgets, and a dedicated ticket column. Mobile stacks these inside the modal.
+
+FORM: Index names are display-only sector labels; stable instrument IDs, shared
+price rules, per-player positions, and server settlement remain unchanged.
+
+FINISH: unreviewed and undocumented is unfinished; this build ends with the
+finish review, the verdict, DESIGN.md, and every shipping raster carrying its
+provenance.
+
+## Fictional sector display labels
+
+The UI names the existing instruments as broad fictional sectors. These labels
+do not imply deed ownership, deed values, or sector-specific price fundamentals.
+Every index keeps its existing ID, starts at $100, and continues using the same
+round drift and global-event modifiers.
+
+| Stable instrument ID | Display label |
+| --- | --- |
+| `brazil` | Housing Market |
+| `ghana` | Agriculture |
+| `thailand` | Consumer Goods |
+| `japan` | Technology |
+| `netherlands` | Trade & Logistics |
+| `canada` | Energy & Resources |
+| `switzerland` | Financial Services |
+| `singapore` | Tourism & Hospitality |
+| `airports` | Air Transport |
+| `utilities` | Public Utilities |
+| `property` | Construction & Materials |
 
 The design preserves the existing two side rails, center board, bottom HUD,
 topbar utilities, internal scrolling, live regions, focus restoration, and

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const { createPoorupChartOptions, resolvePoorupChartTokens } = await import('./clientAnalyticsChartTheme.js');
-const { mountAnalyticsChart, disposeAnalyticsChart } = await import('./clientAnalyticsChartAdapter.js');
+const { loadAnalyticsChartEngine, mountAnalyticsChart, disposeAnalyticsChart, resetAnalyticsChartEngineForTests } = await import('./clientAnalyticsChartAdapter.js');
 const { renderAnalyticsChart } = await import('./clientAnalyticsCharts.js');
 
 const tokens = resolvePoorupChartTokens();
@@ -15,6 +15,7 @@ assert.equal(lineOptions.grid.containLabel, true);
 assert.equal(lineOptions.yAxis.type, 'value');
 assert.equal(lineOptions.yAxis.position, 'left');
 assert.equal(lineOptions.yAxis.name, 'PLAYERS');
+assert.equal(lineOptions.grid.left, 52);
 assert.equal(lineOptions.xAxis.axisLabel.hideOverlap, true);
 
 const mixedOptions = createPoorupChartOptions([
@@ -29,6 +30,11 @@ assert.equal(mixedOptions.xAxis[1].name, 'PERCENT');
 assert.equal(mixedOptions.yAxis[0].name, '');
 assert.equal(mixedOptions.yAxis[0].axisLabel.width, 116);
 assert.equal(mixedOptions.yAxis[0].axisLabel.overflow, 'truncate');
+assert.equal(mixedOptions.grid[0].left, 132);
+for (const mode of ['stacked-bar', 'histogram', 'box', 'scatter']) {
+  const options = createPoorupChartOptions([{ label: 'MATCH', value: 2, values: { human: 2, bot: 1 } }], { mode, unit: 'matches', tokens });
+  assert.equal(options.grid.left, 52, `${mode} keeps the compact numeric Y-axis gutter`);
+}
 const signedBarOptions = createPoorupChartOptions([{ label: 'LOSS', value: -5 }, { label: 'GAIN', value: 10 }], { mode: 'bar', unit: 'dollars', tokens });
 assert.notEqual(signedBarOptions.xAxis[0].min, 0);
 const signedLineOptions = createPoorupChartOptions([{ label: 'BEFORE', value: -3 }, { label: 'AFTER', value: 6 }], { mode: 'line', unit: 'dollars', tokens });
@@ -128,6 +134,39 @@ assert.match(renderedMarkup, /data-chart-engine="echarts-svg"/);
 assert.match(renderedMarkup, /class="analytics-chart-table/);
 assert.match(renderedMarkup, /aria-describedby=/);
 delete globalThis.document;
+
+const previousDocumentForEngineRetry = globalThis.document;
+const previousEngineForRetry = globalThis.echarts;
+const failedScripts = [];
+globalThis.document = {
+  querySelector(selector) {
+    return selector === 'script[data-analytics-engine]' ? failedScripts.find(script => !script.removed) || null : null;
+  },
+  createElement(tagName) {
+    const listeners = new Map();
+    return {
+      tagName,
+      dataset: {},
+      addEventListener(type, handler) { listeners.set(type, [...(listeners.get(type) || []), handler]); },
+      fail() { (listeners.get('error') || []).forEach(handler => handler()); },
+      remove() { this.removed = true; },
+    };
+  },
+  head: { appendChild(script) { failedScripts.push(script); } },
+};
+globalThis.echarts = undefined;
+resetAnalyticsChartEngineForTests();
+const firstEngineLoad = loadAnalyticsChartEngine();
+failedScripts[0].fail();
+await assert.rejects(firstEngineLoad, /failed to load/);
+assert.equal(failedScripts[0].removed, true, 'failed engine script must be removed before retry');
+const retryEngineLoad = loadAnalyticsChartEngine();
+assert.equal(failedScripts.length, 2, 'retry must append a fresh script rather than attach to the stale failed node');
+failedScripts[1].fail();
+await assert.rejects(retryEngineLoad, /failed to load/);
+globalThis.document = previousDocumentForEngineRetry;
+globalThis.echarts = previousEngineForRetry;
+resetAnalyticsChartEngineForTests();
 
 let metadataMarkup = '';
 globalThis.document = {};

@@ -151,10 +151,16 @@ const bankruptcyApi = {
   },
 
   settleBankruptHybrid(player, contract) {
+    if (contract.status === 'converted') {
+      this.terminateEquityContract(contract);
+      return;
+    }
     if (contract.toPlayerId === player.id) {
       // The borrower still owes the funded principal; bankruptcy defaults the
-      // loan leg. Only a converted hybrid behaves as an equity claim.
+      // loan leg. The default helper records the claim; the bankruptcy path
+      // then seizes its basket while the general asset sweep handles the rest.
       handlePlayerLoanDefault(this, contract);
+      this.seizeCollateralForLender(player, contract);
       return;
     }
     this.terminateEquityContract(contract);
@@ -172,11 +178,22 @@ const bankruptcyApi = {
 
   seizeCollateralForLender(player, contract) {
     const lender = this.getPlayerById(contract.fromPlayerId);
-    const collateral = this.collateralForContract(contract);
+    const indices = Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length
+      ? contract.collateralTileIndices
+      : contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
     if (lender) {
-      if (collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+      for (const index of indices) {
+        const collateral = this.getTile(Number(index));
+        if (collateral?.ownerId === player.id) this.applyPropertyOwnershipChange(player, lender, collateral);
+      }
     }
-    if (contract.collateralTileIndex != null) player.collateralLost = true;
+    if (indices.length) player.collateralLost = true;
+    contract.unsecuredDefault = indices.length === 0;
+    const claim = (this.defaultClaims || []).find(entry => entry.contractId === contract.id);
+    if (claim) {
+      claim.collateralTileIndex = indices[0] ?? null;
+      claim.collateralTileIndices = indices.slice();
+    }
     contract.status = 'defaulted';
     contract.defaultedRound = this.roundNumber;
   },

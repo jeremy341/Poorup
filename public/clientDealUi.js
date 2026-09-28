@@ -8,7 +8,7 @@ import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { closeSurface, openSurface } from "./clientSurfaces.js";
 
-let host = { emitServer: noop, say: noop, renderChat: noop, renderRightRail: noop, openTradeNegotiation: noop, openFinancingNegotiation: noop, openConfirmModal: noop };
+let host = { emitServer: noop, say: noop, renderChat: noop, renderRightRail: noop, openTradeNegotiation: noop, openFinancingNegotiation: noop, openConfirmModal: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 let activeDealKey = null;
 let activeDealTrigger = null;
 function noop() {}
@@ -41,7 +41,8 @@ function tradeDetailHTML(trade) {
 }
 
 function contractTerms(contract) {
-  const terms = [`$${Number(contract.amount || 0).toLocaleString()} ADVANCE`, `${Number(contract.premiumRate || 0)}% PREMIUM`, `${Number(contract.durationRounds || 0)} ROUNDS`];
+  const terms = [`$${Number(contract.amount || 0).toLocaleString()} ADVANCE`, `${Number(contract.durationRounds || 0)} ROUNDS`];
+  if (["loan", "hybrid"].includes(contract.kind || "loan")) terms.splice(1, 0, `${Number(contract.premiumRate || 0)}% TOTAL INTEREST`);
   const collateral = contract.kind === "loan" && contract.collateralTileIndex != null ? `COLLATERAL · ${TILES[Number(contract.collateralTileIndex)]?.name || "DEED"}` : null;
   const equity = contract.kind === "equity" ? `${Number(contract.equityShare || 0)}% EQUITY` : null;
   const duration = contract.kind === "equity" ? (contract.expiresRound == null ? "FOREVER" : "TERM-LIMITED") : null;
@@ -82,7 +83,7 @@ function renderDealDetails() {
   if (!card || !found?.deal) return false;
   card.innerHTML = found.kind === "trade" ? tradeDetailHTML(found.deal) : contractDetailHTML(found.deal);
   $("#deal-detail-close")?.addEventListener("click", closeDealDetails);
-  card.querySelectorAll("[data-deal-action]").forEach(button => button.addEventListener("click", () => handleDealAction(button.dataset.dealAction, found.kind, found.deal)));
+  card.querySelectorAll("[data-deal-action]").forEach(button => button.addEventListener("click", () => handleDealAction(button.dataset.dealAction, found.kind, found.deal, button)));
   return true;
 }
 
@@ -109,14 +110,13 @@ function dealPayload(kind, action, deal) {
     : { contractId: deal.id, accept: action === "accept", requestId: `${action}-${deal.id}` };
 }
 
-function sendDealAction(kind, action, deal) {
+function sendDealAction(kind, action, deal, statusNode) {
   const event = dealEvent(kind, action);
   if (!event) return;
   const payload = dealPayload(kind, action, deal);
   host.emitServer(event, payload, response => {
     if (response?.success === false) {
-      host.say(response.error || "The deal could not be updated.");
-      host.renderChat();
+      host.announceActionStatus(response.error || "The deal could not be updated.", statusNode);
       return;
     }
     closeDealDetails();
@@ -124,7 +124,8 @@ function sendDealAction(kind, action, deal) {
   });
 }
 
-function handleDealAction(action, kind, deal) {
+function handleDealAction(action, kind, deal, control) {
+  const statusNode = host.captureActionStatusNode(control);
   if (["negotiate", "adjust"].includes(action)) return openDealEditor(kind, deal);
   if (!dealEvent(kind, action)) return;
   if (["decline", "cancel"].includes(action)) {
@@ -134,11 +135,11 @@ function handleDealAction(action, kind, deal) {
         ? "The other player will see that this offer was canceled."
         : "Declining closes the current offer and cannot be undone.",
       confirmLabel: action === "cancel" ? "CANCEL DEAL" : "DECLINE DEAL",
-      onConfirm: () => sendDealAction(kind, action, deal),
+      onConfirm: () => sendDealAction(kind, action, deal, statusNode),
     });
     return;
   }
-  sendDealAction(kind, action, deal);
+  sendDealAction(kind, action, deal, statusNode);
 }
 
 export function openDealDetails(kind, id, trigger = null) {

@@ -129,15 +129,22 @@ check('remainder settlement skips the generic hook for equity debts', () => {
   assert.deepEqual(seen, []);
 });
 
-check('end turn blocked on involving trade or contract only', () => {
+check('pending trade and contract offers remain open when either participant ends their turn', () => {
   const { game, a, b } = startedRoom();
   game.awaitingEndTurn = true;
   game.pendingTrade = { fromPlayerId: a.id, toPlayerId: b.id };
-  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the pending trade before ending the turn.' });
+  game.currentPlayerId = a.id;
+  assert.equal(game.endTurnRejection(a), null);
+  game.currentPlayerId = b.id;
+  assert.equal(game.endTurnRejection(b), null);
   game.pendingTrade = null;
   game.pendingPlayerContract = { fromPlayerId: b.id, toPlayerId: a.id };
-  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the pending contract before ending the turn.' });
+  game.currentPlayerId = a.id;
+  assert.equal(game.endTurnRejection(a), null);
+  game.currentPlayerId = b.id;
+  assert.equal(game.endTurnRejection(b), null);
   game.pendingPlayerContract = { fromPlayerId: 'x', toPlayerId: 'y' };
+  game.currentPlayerId = a.id;
   assert.equal(game.endTurnRejection(a), null);
 });
 
@@ -160,6 +167,17 @@ check('a zero-cash solvent player cannot end the turn without declaring bankrupt
   a.bankrupt = true;
   a.spectating = true;
   assert.equal(game.endTurnRejection(a), null);
+});
+
+check('ending a turn with an unanswered trade preserves the offer without settling it', () => {
+  const { game, a, b } = startedRoom();
+  game.currentPlayerId = a.id;
+  game.awaitingEndTurn = true;
+  game.pendingTrade = { id: 'unanswered-trade', fromPlayerId: a.id, toPlayerId: b.id, giveCash: 100, requestCash: 0 };
+  const cashBefore = [a.cash, b.cash];
+  assert.equal(game.endTurn('socket-a').success, true);
+  assert.equal(game.pendingTrade.id, 'unanswered-trade');
+  assert.deepEqual([a.cash, b.cash], cashBefore, 'cash changes only after explicit acceptance');
 });
 
 check('end-turn rejection guard order preserves debt and insolvency behavior', () => {
@@ -194,9 +212,9 @@ check('end-turn rejection guard order preserves debt and insolvency behavior', (
   game.pendingPayment = null;
   assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the open sponsorship before ending the turn.' });
   game.pendingSponsoredPurchase = null;
-  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the pending trade before ending the turn.' });
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Raise cash or declare bankruptcy before ending the turn.' });
   game.pendingTrade = null;
-  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Resolve the pending contract before ending the turn.' });
+  assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Raise cash or declare bankruptcy before ending the turn.' });
   game.pendingPlayerContract = null;
   assert.deepEqual(game.endTurnRejection(a), { success: false, error: 'Raise cash or declare bankruptcy before ending the turn.' });
 

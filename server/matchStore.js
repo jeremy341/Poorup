@@ -52,11 +52,12 @@ function stringList(value, limit) {
 }
 
 function sanitizeCasinoEntry(entry) {
-  return {
+  const clean = {
     accountId: stringOrNull(entry?.accountId),
     bets: nonNegativeNumber(entry?.bets),
-    net: numberValue(entry?.net),
   };
+  if (Object.prototype.hasOwnProperty.call(entry || {}, 'net')) clean.net = numberValue(entry.net);
+  return clean;
 }
 
 function sanitizeMarketEntry(entry) {
@@ -144,19 +145,27 @@ function sanitizeContractEntry(contract) {
 function sanitizeMatch(record = {}) {
   const match = {
     matchId: clipString(record.matchId, 80),
-    completedAt: stringOr(record.completedAt, new Date().toISOString()),
-    durationSeconds: nonNegativeNumber(record.durationSeconds),
-    roundCount: nonNegativeNumber(record.roundCount),
     roomVisibility: roomVisibility(record.roomVisibility),
-    participants: safeArray(record.participants, 8).map(sanitizeParticipant),
-    globalEvents: stringList(record.globalEvents, 20),
-    eventCombinations: stringList(record.eventCombinations, 10),
-    tradesCompleted: nonNegativeNumber(record.tradesCompleted),
-    auctionsCompleted: nonNegativeNumber(record.auctionsCompleted),
-    casino: safeArray(record.casino, 8).map(sanitizeCasinoEntry),
-    market: safeArray(record.market, 8).map(sanitizeMarketEntry),
-    playerContracts: safeArray(record.playerContracts, 20).map(sanitizeContractEntry),
   };
+  if (Object.prototype.hasOwnProperty.call(record, 'completedAt')) match.completedAt = stringOr(record.completedAt, new Date().toISOString());
+  if (Object.prototype.hasOwnProperty.call(record, 'durationSeconds')) match.durationSeconds = nonNegativeNumber(record.durationSeconds);
+  if (Object.prototype.hasOwnProperty.call(record, 'roundCount')) match.roundCount = nonNegativeNumber(record.roundCount);
+  if (Object.prototype.hasOwnProperty.call(record, 'participants')) {
+    match.participants = safeArray(record.participants, 8).map((participant) => {
+      const clean = sanitizeParticipant(participant);
+      for (const key of ['endingCash', 'propertyCount']) {
+        if (!Object.prototype.hasOwnProperty.call(participant || {}, key)) delete clean[key];
+      }
+      return clean;
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'globalEvents')) match.globalEvents = stringList(record.globalEvents, 20);
+  if (Object.prototype.hasOwnProperty.call(record, 'eventCombinations')) match.eventCombinations = stringList(record.eventCombinations, 10);
+  if (Object.prototype.hasOwnProperty.call(record, 'tradesCompleted')) match.tradesCompleted = nonNegativeNumber(record.tradesCompleted);
+  if (Object.prototype.hasOwnProperty.call(record, 'auctionsCompleted')) match.auctionsCompleted = nonNegativeNumber(record.auctionsCompleted);
+  if (Object.prototype.hasOwnProperty.call(record, 'casino')) match.casino = safeArray(record.casino, 8).map(sanitizeCasinoEntry);
+  if (Object.prototype.hasOwnProperty.call(record, 'market')) match.market = safeArray(record.market, 8).map(sanitizeMarketEntry);
+  if (Object.prototype.hasOwnProperty.call(record, 'playerContracts')) match.playerContracts = safeArray(record.playerContracts, 20).map(sanitizeContractEntry);
   if (Object.prototype.hasOwnProperty.call(record, 'playerCount')) {
     match.playerCount = nonNegativeNumber(record.playerCount);
   }
@@ -229,7 +238,7 @@ export class MatchStore {
   listForAccount(accountId, limit = 50) {
     if (!accountId) return [];
     return [...this.matches.values()]
-      .filter((match) => match.participants.some((participant) => participant.accountId === accountId))
+      .filter((match) => Array.isArray(match.participants) && match.participants.some((participant) => participant.accountId === accountId))
       .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))
       .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   }

@@ -1,9 +1,10 @@
-import { freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
+import { createMarketQuotePoint, freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
 import {
   equityShareContractLive,
   playerContractSummary,
   processContracts,
   proposeContract,
+  proposeEquityShareTransfer,
   counterContract,
   adjustContract,
   repayContract,
@@ -49,6 +50,7 @@ import { botApi } from './botApi.js';
 import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
 import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
+import { appendPublicAction } from './publicActionHistory.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -227,6 +229,25 @@ class BoundedReplayMap extends Map {
   }
 }
 
+function activeCollateralContract(contract) {
+  const supportedKind = ['loan', 'hybrid'].includes(contract.kind);
+  const activeStatus = ['active', 'due'].includes(contract.status);
+  return supportedKind && activeStatus;
+}
+
+function contractCollateralIndices(contract) {
+  const indices = contract.collateralTileIndices;
+  if (Array.isArray(indices) && indices.length) return indices;
+  return [contract.collateralTileIndex];
+}
+
+function contractPledgesTile(contract, player, tile) {
+  if (!activeCollateralContract(contract)) return false;
+  if (contract.toPlayerId !== player.id) return false;
+  if (contract.kind === 'hybrid' && Number(contract.propertyIndex) === Number(tile.index)) return true;
+  return contractCollateralIndices(contract).some(index => index != null && Number(index) === Number(tile.index));
+}
+
 class GameState {
   constructor(settings) {
     this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
@@ -247,7 +268,6 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
@@ -280,6 +300,7 @@ class GameState {
     this.marketLedger = [];
     this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
+    this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
     this.marketOptionReserve = 100_000;
     this.marketShortInventory = {};
     this.marketInstruments = MARKET_INSTRUMENTS;
@@ -287,6 +308,7 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.publicActionHistory = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
@@ -324,6 +346,12 @@ class GameState {
     this.humanActionCount = Math.max(0, Math.floor(Number(this.humanActionCount) || 0)) + 1;
   }
 
+  recordPublicAction(player, actionKind) {
+    const seatIndex = this.players.indexOf(player);
+    if (seatIndex < 0) return false;
+    return appendPublicAction(this.publicActionHistory, actionKind, seatIndex, this.roundNumber);
+  }
+
   resetForNewGame() {
     this.boardVariant = this.settings.boardVariant || this.boardVariant || 'standard-40';
     this.tiles = tilesForVariant(this.boardVariant);
@@ -335,7 +363,6 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
-    this.turnDeadline = 0;
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
@@ -368,6 +395,7 @@ class GameState {
     this.marketLedger = [];
     this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
+    this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
     this.marketOptionReserve = 100_000;
     this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, 50]));
     this.marketInstruments = MARKET_INSTRUMENTS;
@@ -375,6 +403,7 @@ class GameState {
     this.marketModifierEventKey = null;
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
+    this.publicActionHistory = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
@@ -467,6 +496,10 @@ class GameState {
     return proposeContract(this, socketId, offer);
   }
 
+  proposeEquityShareTransfer(socketId, offer = {}) {
+    return proposeEquityShareTransfer(this, socketId, offer);
+  }
+
   counterPlayerContract(socketId, offer = {}) {
     return counterContract(this, socketId, offer);
   }
@@ -497,12 +530,8 @@ class GameState {
   }
 
   isPlayerContractCollateral(player, tile) {
-    return Boolean(player && tile && this.playerContracts?.some(contract =>
-      ['loan', 'hybrid'].includes(contract.kind)
-      && ['active', 'due'].includes(contract.status)
-      && contract.toPlayerId === player.id
-      && Number(contract.kind === 'hybrid' ? contract.propertyIndex : contract.collateralTileIndex) === Number(tile.index)
-    ));
+    if (!player || !tile) return false;
+    return this.playerContracts?.some(contract => contractPledgesTile(contract, player, tile)) || false;
   }
 
   highestCollateralProperty(player) {
@@ -891,6 +920,10 @@ class GameState {
       this.processPlayerContracts();
       this.maybeTriggerGlobalEvent();
       this.advanceMarket();
+      if (this.settings.market) {
+        const activeEventId = this.globalEvent?.phase === 'active' ? this.globalEvent.id : null;
+        this.marketQuoteHistory = [...(Array.isArray(this.marketQuoteHistory) ? this.marketQuoteHistory : []), createMarketQuotePoint(this, this.marketRound, activeEventId)].slice(-128);
+      }
       this.players.forEach(player => {
         player.rentPayersThisRound = new Set();
         player.casinoBetsThisRound = 0;
@@ -1193,26 +1226,6 @@ class GameState {
     return null;
   }
 
-  pendingTradeBlocksEndTurn(player) {
-    const trade = this.pendingTrade;
-    if (!trade) return false;
-    if (trade.fromPlayerId === player.id) return true;
-    return trade.toPlayerId === player.id;
-  }
-
-  pendingContractBlocksEndTurn(player) {
-    const contract = this.pendingPlayerContract;
-    if (!contract) return false;
-    if (contract.fromPlayerId === player.id) return true;
-    return contract.toPlayerId === player.id;
-  }
-
-  pendingDealBlockReason(player) {
-    if (this.pendingTradeBlocksEndTurn(player)) return 'Resolve the pending trade before ending the turn.';
-    if (this.pendingContractBlocksEndTurn(player)) return 'Resolve the pending contract before ending the turn.';
-    return null;
-  }
-
   pendingFlowRejection(player) {
     const error = this.pendingFlowError(player);
     return error ? { success: false, error } : null;
@@ -1221,12 +1234,12 @@ class GameState {
   pendingFlowError(player) {
     const blockers = [
       [Boolean(this.auction?.active), 'Finish the active auction before ending the turn.'],
-      [this.pendingPurchaseOffer?.playerId === player.id, 'Resolve the property offer before ending the turn.'],
-      [this.pendingPayment?.playerId === player.id, 'Settle your debt before ending the turn.'],
+      [this.pendingPurchaseOffer?.playerId === player?.id, 'Resolve the property offer before ending the turn.'],
+      [this.pendingPayment?.playerId === player?.id, 'Settle your debt before ending the turn.'],
       [Boolean(this.pendingSponsoredPurchase), 'Resolve the open sponsorship before ending the turn.']
     ];
     const blocker = blockers.find(([active]) => active);
-    return blocker?.[1] || this.pendingDealBlockReason(player);
+    return blocker?.[1] || null;
   }
 
   skipDisconnectedCurrentPlayer() {

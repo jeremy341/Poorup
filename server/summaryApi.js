@@ -4,7 +4,7 @@
 // produced. server/rooms.test.js and public/clientStateSync.test.js pin the
 // payload shapes.
 import { AUCTION_DURATION_MS } from './auctionApi.js';
-import { MARKET_FEE_RATE } from './marketLogic.js';
+import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 
 function isViewerSeat(player, viewerPlayerId) {
   return Boolean(viewerPlayerId && player.id === viewerPlayerId);
@@ -26,6 +26,11 @@ function playerSummaryFields(game, player, viewerPlayerId) {
     spectating: Boolean(player.spectating),
     inDebt: player.inDebt,
     disconnected: player.disconnected,
+    presence: player.isBot ? null : {
+      state: player.presence?.state === 'inactive' ? 'inactive' : 'active',
+      inactiveSince: Number.isFinite(player.presence?.inactiveSince) ? player.presence.inactiveSince : null,
+      inactiveUntil: Number.isFinite(player.presence?.inactiveUntil) ? player.presence.inactiveUntil : null,
+    },
     isHost: player.isHost,
     properties: player.properties,
     ready: player.ready,
@@ -73,7 +78,6 @@ const summaryApi = {
       players: this.players.map(player => this.summaryPlayerEntry(player, viewerPlayerId)),
       feed: this.feed,
       roundNumber: this.roundNumber,
-      turnDeadline: Number(this.turnDeadline) || 0,
       globalEvent: this.summaryGlobalEvent(),
       globalEventHistory: this.globalEventHistory,
       auction: this.summaryAuction(),
@@ -197,7 +201,8 @@ const summaryApi = {
         round: this.marketRound,
         feeRate: MARKET_FEE_RATE,
         complexity: this.settings.marketComplexity || 'basic',
-        quotes: { ...this.marketQuotes }
+        quotes: { ...this.marketQuotes },
+        quoteHistory: marketQuoteHistorySnapshot(this)
       }
     };
   }

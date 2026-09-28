@@ -7,16 +7,19 @@
 // server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
 import { normalizeAvatarGrid, normalizeClientId, buildMatchRecordOptions } from './roomSetup.js';
+import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
+import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
 import {
   selectBotTurnTarget,
   botMayStillAct,
   runBotTurn,
   resolvePurchaseOffer,
   isAuctionBotParticipant,
-  auctionBidDecision
+  decideBotAuction
 } from './botLogic.js';
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
+import { scheduleBotTimer } from './botTiming.js';
 
 const DEFAULT_RECONNECT_GRACE_MS = 120000;
 const configuredTestReconnectGrace = Number(process.env.POORUP_TEST_RECONNECT_GRACE_MS);
@@ -25,7 +28,6 @@ const DISCONNECT_GRACE_MS = process.env.NODE_ENV === 'test'
   && configuredTestReconnectGrace > 0
   ? Math.min(DEFAULT_RECONNECT_GRACE_MS, Math.floor(configuredTestReconnectGrace))
   : DEFAULT_RECONNECT_GRACE_MS;
-const PLAYER_INACTIVITY_TIMEOUT_MS = 180000;
 const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
 const ROOMS_UPDATED_DEBOUNCE_MS = 750;
@@ -68,6 +70,74 @@ export function settleAfkPayment(game, player) {
     return true;
   }
   return false;
+}
+
+function preparePendingPurchasePass(game, player) {
+  const offer = game?.pendingPurchaseOffer;
+  if (!offer || offer.playerId !== player?.id) return { resolved: false, tile: null };
+  const tile = game.getTile?.(offer.tileIndex);
+  game.cancelSponsoredPurchase?.();
+  game.pendingPurchaseOffer = null;
+  return { resolved: true, tile };
+}
+
+function startAuctionForDepartingPlayer(game, player, tile) {
+  if (!canAuctionPassedPurchase(game, tile)) return false;
+  const startingPlayerId = nextAuctionStarter(game, player.id);
+  if (!startingPlayerId) return false;
+  game.startAuction?.(tile, startingPlayerId);
+  const auction = game.auction;
+  if (!auction?.active) return false;
+  excludeDepartingAuctionSeat(auction, player, startingPlayerId);
+  return true;
+}
+
+function excludeDepartingAuctionSeat(auction, player, startingPlayerId) {
+  auction.participants = [...new Set((auction.participants || []).filter(id => id !== player.id))];
+  auction.passedPlayerIds = [...new Set([...(auction.passedPlayerIds || []), player.id])];
+  if (auction.startingPlayerId === player.id) auction.startingPlayerId = startingPlayerId;
+}
+
+function passPendingPurchaseForSeatRemoval(game, player) {
+  const pending = preparePendingPurchasePass(game, player);
+  if (!pending.resolved) return { resolved: false, auctionStarted: false };
+  const auctionStarted = startAuctionForDepartingPlayer(game, player, pending.tile);
+  const propertyName = auctionStarted ? pending.tile.name : null;
+  reportPassedPurchase(game, player, propertyName);
+  return { resolved: true, auctionStarted };
+}
+
+function canAuctionPassedPurchase(game, tile) {
+  if (!tile) return false;
+  if (tile.ownerId !== null) return false;
+  return Boolean(game.settings?.auction);
+}
+
+function reportPassedPurchase(game, player, propertyName = null) {
+  const copy = propertyName
+    ? `${player.nickname} passed on ${propertyName} before leaving.`
+    : `${player.nickname} passed on the property before leaving.`;
+  game.feedMessage?.(copy);
+  return { resolved: true, auctionStarted: false };
+}
+
+function isEligibleAuctionStarter(candidate, departingPlayerId) {
+  if (!candidate) return false;
+  if (candidate.id === departingPlayerId) return false;
+  if (candidate.bankrupt) return false;
+  return !candidate.disconnected;
+}
+
+function nextAuctionStarter(game, departingPlayerId) {
+  const playersById = new Map((game.players || []).map(player => [player.id, player]));
+  const order = Array.isArray(game.turnOrder) ? game.turnOrder : (game.players || []).map(player => player.id);
+  const oldIndex = order.indexOf(departingPlayerId);
+  for (let offset = 1; offset <= order.length; offset += 1) {
+    const index = oldIndex < 0 ? offset - 1 : (oldIndex + offset) % order.length;
+    const candidate = playersById.get(order[index]);
+    if (isEligibleAuctionStarter(candidate, departingPlayerId)) return candidate.id;
+  }
+  return null;
 }
 
 export function annotateMatchAchievements(matchRecord, candidates = []) {
@@ -211,9 +281,7 @@ function createRuntime(deps) {
     : DISCONNECT_GRACE_MS;
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
-  const inactivityTimers = new Map();
   const botTimers = new Map();
-  const turnTimers = new Map();
   const botDecisionLocks = new Set();
   const auctionBotTimers = new Map();
   const auctionDecisionLocks = new Set();
@@ -276,8 +344,7 @@ function createRuntime(deps) {
       console.error('recordRoomStats failed for room', room.roomCode, error);
     }
     try {
-      synchronizeInactivityTimer(room);
-      scheduleTurnTimer(room);
+      roomPresenceRuntime.synchronizeInactivityTimers(room);
       broadcastRoomState(room);
       scheduleBotTurn(room);
       scheduleBotAuction(room);
@@ -415,204 +482,63 @@ function createRuntime(deps) {
     auctionTimers.delete(room.roomCode);
   }
 
-  function clearTurnTimer(room) {
-    if (!room) return;
-    const timer = turnTimers.get(room.roomCode);
-    if (timer) clearTimeoutFn(timer);
-    turnTimers.delete(room.roomCode);
-    room.turnTimerWatch = null;
-    if (room.game) room.game.turnDeadline = 0;
+  function resolveSeatObligations(room, player, reason) {
+    if (room.game.pendingPayment?.playerId === player.id) settleAfkPayment(room.game, player);
+    clearPendingObligations(room, room.game, player, reason);
+    revokeAuctionLeadIfLeader(room, player, reason);
+    resolvePendingPurchaseForLeaving(room, player);
   }
 
-  function scheduleTurnTimer(room) {
-    if (!room?.game?.started) {
-      clearTurnTimer(room);
-      return;
-    }
-    const seconds = Math.max(0, Math.floor(Number(room.settings?.turnTimer) || 0));
-    const current = afkWatchTarget(room.game);
-    if (!seconds || !current) {
-      clearTurnTimer(room);
-      return;
-    }
-    const key = `${current.id}:${room.game.roundNumber}:${room.game.startedAt || 0}`;
-    if (room.turnTimerWatch?.key === key) return;
-    clearTurnTimer(room);
-    const deadline = now() + seconds * 1000;
-    room.game.turnDeadline = deadline;
-    room.turnTimerWatch = { key, playerId: current.id, deadline };
-    const timer = setTimeoutFn(() => runRoomTimer('turn-timeout', room.roomCode, () => {
-      const watch = room.turnTimerWatch;
-      const active = room.game.getCurrentPlayer();
-      if (!watch || watch.key !== key || active?.id !== current.id || !room.game.started) return;
-      clearTurnTimer(room);
-      expireAfkTurn(room, room.game, active);
-    }), seconds * 1000);
-    turnTimers.set(room.roomCode, timer);
+  function resolvePendingPurchaseForLeaving(room, player) {
+    if (room.game.pendingPurchaseOffer?.playerId !== player.id) return;
+    const result = passPendingPurchaseForSeatRemoval(room.game, player);
+    if (result.auctionStarted) scheduleAuctionFinish(room);
   }
 
-  function inactivityStates(room) {
-    if (!(room.playerInactivityStates instanceof Map)) room.playerInactivityStates = new Map();
-    return room.playerInactivityStates;
+  function seatRemovalMessage(player, reason) {
+    if (reason === 'disconnect') return `${player.nickname} disconnected.`;
+    return `${player.nickname} was removed for ${reason}.`;
   }
 
-  function inactivityStateFor(room, player) {
-    const states = inactivityStates(room);
-    let state = states.get(player.id);
-    if (!state || state.player !== player) {
-      state = { player, remainingMs: PLAYER_INACTIVITY_TIMEOUT_MS };
-      states.set(player.id, state);
-    }
-    return state;
-  }
-
-  function clearInactivityTimer(room, preserveBudget = true) {
-    if (!room?.roomCode) return;
-    const watch = inactivityTimers.get(room.roomCode);
-    if (!watch) return;
-    clearTimeoutFn(watch.handle);
-    if (inactivityTimers.get(room.roomCode) === watch) inactivityTimers.delete(room.roomCode);
-    if (preserveBudget && watch.room === room) {
-      const state = room.playerInactivityStates?.get(watch.playerId);
-      if (state?.player === watch.player) {
-        state.remainingMs = Math.max(0, watch.deadline - now());
-      }
-    }
-  }
-
-  function scheduleInactivityTimer(room, player, state) {
-    clearInactivityTimer(room, false);
-    const watch = {
-      room,
-      roomCode: room.roomCode,
-      player,
-      playerId: player.id,
+  function removeSeatForReason(room, player, reason, preventRejoin = false) {
+    resolveSeatObligations(room, player, reason);
+    const socket = io.sockets?.sockets?.get(player.socketId);
+    const message = seatRemovalMessage(player, reason);
+    if (reason !== 'vote-kick') socket?.emit('system-message', { text: message });
+    const removed = roomManager.removeRoomSeat({
       clientId: player.clientId,
       socketId: player.socketId,
-      gameStartedAt: room.game.startedAt,
-      deadline: now() + Math.max(0, state.remainingMs),
-      handle: null
-    };
-    const run = () => runRoomTimer('player-inactivity-expiry', room.roomCode, () => {
-      if (inactivityTimers.get(room.roomCode) !== watch) return;
-      const remaining = watch.deadline - now();
-      if (remaining > 0) {
-        watch.handle = setTimeoutFn(run, remaining);
-        return;
-      }
-      expireInactiveSeat(room, watch);
+      reason,
+      preventRejoin,
     });
-    watch.handle = setTimeoutFn(run, Math.max(0, state.remainingMs));
-    inactivityTimers.set(room.roomCode, watch);
-  }
-
-  function resetInactivityTracking(room, gameStartedAt) {
-    clearInactivityTimer(room, false);
-    room?.playerInactivityStates?.clear();
-    if (!room) return;
-    room.inactivityGameStartedAt = gameStartedAt;
-  }
-
-  function isStaleInactivityState(game, playerId, state) {
-    if (game.getPlayerById(playerId) !== state.player) return true;
-    if (state.player.isBot) return true;
-    return state.player.bankrupt;
-  }
-
-  function pruneStaleInactivityStates(room, game) {
-    const states = inactivityStates(room);
-    const stalePlayerIds = [...states.entries()]
-      .filter(([playerId, state]) => isStaleInactivityState(game, playerId, state))
-      .map(([playerId]) => playerId);
-    stalePlayerIds.forEach(playerId => states.delete(playerId));
-  }
-
-  function synchronizeInactivityTimer(room) {
-    const game = room?.game;
-    if (!room || !game?.started) {
-      resetInactivityTracking(room, null);
-      return;
-    }
-
-    if (room.inactivityGameStartedAt !== game.startedAt) {
-      resetInactivityTracking(room, game.startedAt);
-    }
-
-    pruneStaleInactivityStates(room, game);
-
-    const current = inactivityWatchTarget(game);
-    if (!current) {
-      clearInactivityTimer(room, true);
-      return;
-    }
-
-    const existing = inactivityTimers.get(room.roomCode);
-    if (existing?.room === room
-      && existing.player === current
-      && existing.socketId === current.socketId
-      && existing.gameStartedAt === game.startedAt) return;
-
-    clearInactivityTimer(room, true);
-    scheduleInactivityTimer(room, current, inactivityStateFor(room, current));
-  }
-
-  function recordPlayerActivity(socket) {
-    const room = roomManager.getRoomBySocket(socket?.id);
-    const player = room?.getPlayerBySocket(socket.id);
-    if (!room || !player || player.isBot || player.bankrupt || player.disconnected) return false;
-    const state = inactivityStateFor(room, player);
-    state.remainingMs = PLAYER_INACTIVITY_TIMEOUT_MS;
-    if (room.game?.currentPlayerId === player.id && inactivityWatchTarget(room.game)?.id === player.id) {
-      scheduleInactivityTimer(room, player, state);
-    }
-    return true;
-  }
-
-  function installSocketActivityTracking(socket) {
-    if (typeof socket?.use !== 'function') return;
-    socket.use((_packet, next) => {
-      try {
-        recordPlayerActivity(socket);
-      } catch (error) {
-        console.error('Socket activity tracking failed:', error);
-      }
-      next();
-    });
-  }
-
-  function expireInactiveSeat(room, watch) {
-    if (inactivityTimers.get(watch.roomCode) !== watch) return false;
-    if (now() < watch.deadline) return false;
-    const currentRoom = roomManager.getRoom(watch.roomCode);
-    if (currentRoom !== room) return false;
-    const player = currentRoom.game.getPlayerByClient(watch.clientId);
-    if (player !== watch.player
-      || player.id !== watch.playerId
-      || player.socketId !== watch.socketId
-      || player.disconnected
-      || player.bankrupt
-      || player.isBot
-      || currentRoom.game.currentPlayerId !== player.id
-      || currentRoom.game.startedAt !== watch.gameStartedAt) return false;
-
-    inactivityTimers.delete(watch.roomCode);
-    currentRoom.playerInactivityStates?.delete(player.id);
-    if (currentRoom.game.pendingPayment?.playerId === player.id) {
-      settleAfkPayment(currentRoom.game, player);
-    }
-    clearPendingObligations(currentRoom, currentRoom.game, player, 'inactivity expiry');
-    revokeAuctionLeadIfLeader(currentRoom, player);
-    const seatSocket = io.sockets?.sockets?.get(watch.socketId);
-    seatSocket?.emit('system-message', { text: `${player.nickname} was removed for inactivity.` });
-    const releasedRoom = roomManager.leaveRoomByClient(player.clientId, watch.socketId);
-    if (!releasedRoom) return false;
-    reassignHostIfNeeded(releasedRoom, player.id);
-    seatSocket?.leave(releasedRoom.roomCode);
-    emitRoomState(releasedRoom);
-    io.in(releasedRoom.roomCode).emit('system-message', { text: `${player.nickname} was removed for inactivity.` });
+    if (!removed.success) return false;
+    roomPresenceRuntime.clearPlayer(room, player.id);
+    socket?.leave(room.roomCode);
+    emitRoomState(room);
+    if (reason !== 'vote-kick') io.in(room.roomCode).emit('system-message', { text: message });
     scheduleRoomsUpdated();
     return true;
   }
+
+  const roomPresenceRuntime = createRoomPresenceRuntime({
+    roomManager,
+    runRoomTimer,
+    setTimeoutFn,
+    clearTimeoutFn,
+    now,
+    emitRoomState,
+    removeSeatForReason,
+  });
+
+  const roomVoteKickRuntime = createRoomVoteKickRuntime({
+    io,
+    roomManager,
+    runRoomTimer,
+    setTimeoutFn,
+    clearTimeoutFn,
+    now,
+    removeSeatForReason,
+  });
 
   function clearDisconnectTimer(clientId) {
     const timer = disconnectTimers.get(clientId);
@@ -638,9 +564,8 @@ function createRuntime(deps) {
     if (room.game?.started && !room.game?.lastWinner) recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
     room.destroyed = true;
     clearAuctionTimer(room);
-    clearTurnTimer(room);
-    clearInactivityTimer(room);
-    room.playerInactivityStates?.clear();
+    roomPresenceRuntime.clearRoom(room);
+    roomVoteKickRuntime.clearRoom(roomCode);
     clearDisconnectTimersForRoom(room);
     clearTimeoutFn(auctionBotTimers.get(roomCode));
     auctionBotTimers.delete(roomCode);
@@ -674,7 +599,11 @@ function createRuntime(deps) {
     if (!bot?.isBot) return;
     if (bot.bankrupt) return;
     if (bot.disconnected) return;
-    const timer = setTimeoutFn(() => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)), 650);
+    const timer = scheduleBotTimer(
+      setTimeoutFn,
+      () => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)),
+      'turn'
+    );
     botTimers.set(room.roomCode, timer);
   }
 
@@ -765,11 +694,15 @@ function createRuntime(deps) {
     if (auctionBotTimers.has(key) || auctionDecisionLocks.has(key)) return;
     const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
     if (!bot) return;
-    const timer = setTimeoutFn(() => runRoomTimer('bot-auction', room.roomCode, () => {
-      beginBotAuctionBid(room, bot, key).catch(error => {
-        console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
-      });
-    }), 450);
+    const timer = scheduleBotTimer(
+      setTimeoutFn,
+      () => runRoomTimer('bot-auction', room.roomCode, () => {
+        beginBotAuctionBid(room, bot, key).catch(error => {
+          console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
+        });
+      }),
+      'auction'
+    );
     auctionBotTimers.set(key, timer);
   }
 
@@ -791,8 +724,6 @@ function createRuntime(deps) {
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
-    const baseline = auctionBidDecision(room.game.auction, bot, room.game.settings.startingCash);
-    const minimum = baseline.minimum;
     const context = {
       botId: bot.id,
       botBrain: room.settings.botBrain || 'auto',
@@ -802,27 +733,26 @@ function createRuntime(deps) {
       ruleVersion: BOT_RULE_VERSION,
       ...buildBotStrategicContext(room.game, bot, 'auction', decisionSequence)
     };
-    const candidates = [
-      { id: 'auction:bid', kind: 'auction', amount: minimum, risk: minimum / Math.max(1, bot.cash), score: baseline.shouldBid ? 12 : 2 },
-      { id: 'auction:pass', kind: 'auction', risk: 0, score: baseline.shouldBid ? 1 : 10 }
-    ];
-    let decision = null;
-    if (botAdvisor.supportsChoicePhases) {
-      decision = await botAdvisor.chooseAction({ ...context, candidates, personality: bot.personality, event: room.game.globalEvent });
-    }
+    const choice = await decideBotAuction({
+      auction: room.game.auction,
+      bot,
+      startingCash: room.game.settings.startingCash,
+      advisor: botAdvisor,
+      context: { ...context, event: room.game.globalEvent }
+    });
     if (room.destroyed || !sameAuction(room.game.auction, auctionVersion)) return;
-    const actionId = decision?.actionId === 'auction:bid' || decision?.actionId === 'auction:pass'
-      ? decision.actionId
-      : baseline.shouldBid ? 'auction:bid' : 'auction:pass';
+    const { candidates, minimum, decision } = choice;
+    const actionId = choice.actionId;
     const shouldBid = actionId === 'auction:bid';
     const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    if (shouldBid && result?.success) scheduleAuctionFinish(room);
     const trace = room.game.recordBotDecisionTrace({
       ...context,
       phase: 'auction',
       ...decision,
       provider: decision?.provider || 'deterministic',
-      fallback: decision?.fallback !== false,
-      fallbackReason: decision?.fallbackReason || 'auction-policy',
+      fallback: choice.actionId !== decision?.actionId || decision?.fallback !== false,
+      fallbackReason: choice.actionId !== decision?.actionId ? 'invalid-auction-action' : decision?.fallbackReason || 'auction-policy',
       actionId,
       confidence: Number.isFinite(Number(decision?.confidence)) ? decision.confidence : 0.55,
       success: result?.success !== false,
@@ -863,17 +793,29 @@ function createRuntime(deps) {
     auctionTimers.set(roomCode, timer);
   }
 
+  function auctionFinishStatus(room, expectedAuction) {
+    const auction = room?.game.auction;
+    if (!auction?.active) return 'missing';
+    if (expectedAuction && auction !== expectedAuction) return 'replaced';
+    return 'active';
+  }
+
   function finishAuctionIfStillActive(roomCode, expectedAuction) {
     const currentRoom = roomManager.getRoom(roomCode);
-    if (!currentRoom?.game.auction?.active || (expectedAuction && currentRoom.game.auction !== expectedAuction)) {
-      // Do not clear a timer for a newer auction when an older callback fires.
-      if (currentRoom?.game.auction && expectedAuction && currentRoom.game.auction !== expectedAuction) return;
+    const status = auctionFinishStatus(currentRoom, expectedAuction);
+    // Do not clear a timer for a newer auction when an older callback fires.
+    if (status === 'replaced') return;
+    if (status === 'missing') {
       clearAuctionTimer({ roomCode });
+      return;
+    }
+    const remaining = Number(expectedAuction?.endsAt) - now();
+    if (Number.isFinite(remaining) && remaining > 0) {
+      scheduleAuctionFinish(currentRoom);
       return;
     }
     currentRoom.game.finishAuction();
     emitRoomState(currentRoom);
-    io.in(roomCode).emit('system-message', { text: 'Auction ended.' });
     clearAuctionTimer(currentRoom);
   }
 
@@ -882,7 +824,7 @@ function createRuntime(deps) {
     const player = disconnectedPlayer || room.getPlayerBySocket(socketId);
     if (!player) return;
     clearDisconnectTimer(player.clientId);
-    clearInactivityTimer(room, true);
+    roomPresenceRuntime.clearPlayer(room, player.id);
     const deadline = now() + disconnectGraceMs;
     player.disconnected = true;
     player.socketId = null;
@@ -918,32 +860,22 @@ function createRuntime(deps) {
     }
 
     disconnectTimers.delete(timer.clientId);
-    currentRoom.playerInactivityStates?.delete(currentPlayer.id);
-    if (currentRoom.game.pendingPayment?.playerId === currentPlayer.id) {
-      settleAfkPayment(currentRoom.game, currentPlayer);
-    }
-    clearPendingObligations(currentRoom, currentRoom.game, currentPlayer, 'disconnect');
-    revokeAuctionLeadIfLeader(currentRoom, currentPlayer);
     if (roomManager.getRoomBySocket(timer.socketId) === currentRoom) {
       roomManager.socketRoom.delete(timer.socketId);
     }
-    const releasedRoom = roomManager.leaveRoomByClient(currentPlayer.clientId);
-    if (!releasedRoom) return false;
-    reassignHostIfNeeded(releasedRoom, currentPlayer.id);
-    emitRoomState(releasedRoom);
-    io.in(releasedRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname} disconnected.` });
-    // A room that just lost its last human may leave the directory.
-    scheduleRoomsUpdated();
-    return true;
+    return removeSeatForReason(currentRoom, currentPlayer, 'disconnect', false);
   }
 
-  function revokeAuctionLeadIfLeader(room, player) {
+  function revokeAuctionLeadIfLeader(room, player, reason = 'disconnect') {
     const auction = room.game.auction;
     if (!auction?.active) return;
     if (auction.highestBidderId !== player.id) return;
     auction.highestBidderId = null;
     auction.highestBid = 0;
-    io.in(room.roomCode).emit('system-message', { text: 'The highest bidder disconnected. The bid is reset.' });
+    const message = reason === 'disconnect'
+      ? 'The highest bidder disconnected. The bid is reset.'
+      : `${player.nickname} left the room. The highest bid is reset.`;
+    io.in(room.roomCode).emit('system-message', { text: message });
     scheduleAuctionFinish(room);
   }
 
@@ -971,24 +903,6 @@ function createRuntime(deps) {
     io.in(context.room.roomCode).emit('system-message', { text });
   }
 
-  // Expire an AFK turn with the same obligation cleanup as disconnect expiry.
-  // An active payment is settled through the bankruptcy path, never forgiven.
-  function expireAfkTurn(room, game, player) {
-    game.afkTurnCount = Math.max(0, Math.floor(Number(game.afkTurnCount) || 0)) + 1;
-    clearPendingObligations(room, game, player, 'turn timeout');
-    game.pendingPurchaseOffer = null;
-    if (settleAfkPayment(game, player)) {
-      game.feedMessage(`${player.nickname} ran out of time and the payment was settled through the debt path.`);
-      io.in(room.roomCode).emit('system-message', { text: `${player.nickname} ran out of time. The payment was settled through the bankruptcy path.` });
-      emitRoomState(room);
-      return;
-    }
-    game.feedMessage(`${player.nickname} ran out of time.`);
-    game.nextTurn();
-    io.in(room.roomCode).emit('system-message', { text: `${player.nickname} ran out of time. Turn skipped.` });
-    emitRoomState(room);
-  }
-
   // --- background intervals --------------------------------------------------
 
   function emptyRoomGcTick() {
@@ -1012,21 +926,6 @@ function createRuntime(deps) {
     console.log(`Garbage collecting empty room: ${roomCode}`);
     destroyRoom(room);
     scheduleRoomsUpdated();
-  }
-
-  function afkWatchTarget(game) {
-    if (!game?.started) return null;
-    if (game.auction?.active) return null;
-    const current = game.getCurrentPlayer();
-    if (!current) return null;
-    if (current.bankrupt) return null;
-    if (current.disconnected) return null;
-    return current;
-  }
-
-  function inactivityWatchTarget(game) {
-    const current = afkWatchTarget(game);
-    return current?.isBot ? null : current;
   }
 
   // --- invite / contract-cancel flows ----------------------------------------
@@ -1184,15 +1083,18 @@ function createRuntime(deps) {
     reassignHostIfNeeded,
     roomManager,
     scheduleAuctionFinish,
+    scheduleBotAuction,
+    scheduleBotTurn,
     scheduleRoomsUpdated,
     social,
     socialStore,
     emitPendingInteractions,
     emitRoomState,
-    recordPlayerActivity
+    setPlayerPresence: roomPresenceRuntime.setPlayerPresence,
+    startRoomVoteKick: roomVoteKickRuntime.startRoomVoteKick,
+    castRoomVoteKick: roomVoteKickRuntime.castRoomVoteKick
   };
 
-  if (typeof io?.on === 'function') io.on('connection', installSocketActivityTracking);
   roomManager.setRoomDestroyer?.(destroyRoom);
   setIntervalFn(() => runRoomTimer('empty-room-gc', '*', emptyRoomGcTick), EMPTY_ROOM_GC_INTERVAL_MS);
 

@@ -503,13 +503,13 @@ function botRoom(personality, cash) {
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', roomCode: 'BOTCAND' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
-  room.addOrReconnectPlayer({ socketId: null, clientId: 'bot-1', nickname: 'BOT', isBot: true, personality });
   room.setRoomSetting('bots', 1);
+  room.setRoomSetting('botPersonality', personality);
   room.setRoomSetting('market', true);
   room.setRoomSetting('casino', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
-  const bot = game.getPlayerByClient('bot-1');
+  const bot = game.players.find(player => player.isBot);
   const a = game.getPlayerByClient('client-a');
   bot.cash = cash;
   own(room, bot, [3, 6, 8, 9]);
@@ -559,6 +559,9 @@ check('sender can adjust or cancel a pending trade without transferring assets',
   const a = playerOf(room, 'client-a');
   const b = playerOf(room, 'client-b');
   const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 30 });
+  assert.equal(first.trade.createdRound, game.roundNumber);
+  assert.deepEqual(game.cancelTrade('socket-a', { tradeId: 'stale-trade-id' }), { success: false, error: 'That trade offer is no longer current.' });
+  assert.equal(game.pendingTrade.id, first.trade.id, 'a stale cancellation cannot remove the current offer');
   const adjusted = game.adjustTrade('socket-a', { tradeId: first.trade.id, giveCash: 75, requestCash: 20 });
   assert.equal(adjusted.success, true);
   assert.equal(adjusted.adjusted, true);
@@ -589,6 +592,44 @@ const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrume
 
 const BUILDS_150 = [build(6, 150, 10), build(8, 150, 10), build(9, 150, 10)];
 const MORTGAGES_150 = [mortgage(3, 30, 8), mortgage(6, 50, 8), mortgage(8, 50, 8), mortgage(9, 60, 8)];
+
+check('bot can revoke its still-live trade offer after giving the table a round to respond', () => {
+  const { game, bot, a } = botRoom('builder', 1500);
+  game.pendingTrade = {
+    id: 'bot-offer-1', fromPlayerId: bot.id, toPlayerId: a.id,
+    giveCash: 100, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [],
+    createdRound: 1
+  };
+  game.roundNumber = 2;
+  const candidate = game.getBotCandidates(bot, { expanded: true, parity: true })
+    .find(entry => entry.kind === 'cancel-trade');
+  assert.deepEqual(candidate, {
+    id: 'cancel-trade:bot-offer-1', kind: 'cancel-trade', tradeId: 'bot-offer-1',
+    risk: 0.05, score: 4
+  });
+});
+
+check('bot does not propose replacement trades while its existing offer is pending', () => {
+  const { room, game, bot, a } = botRoom('builder', 1500);
+  own(room, a, [1]);
+  game.pendingTrade = {
+    id: 'bot-offer-current', fromPlayerId: bot.id, toPlayerId: a.id,
+    giveCash: 100, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [],
+    createdRound: game.roundNumber
+  };
+  const candidates = game.getBotCandidates(bot, { expanded: true, parity: true });
+  assert.equal(candidates.some(entry => entry.kind === 'trade'), false);
+  assert.equal(candidates.some(entry => entry.kind === 'cancel-trade'), false, 'the bot gives the table a full round to respond');
+});
+
+check('bot does not propose a trade while a player contract is pending', () => {
+  const { room, game, bot, a } = botRoom('builder', 1500);
+  own(room, a, [1]);
+  game.pendingPlayerContract = { id: 'contract-current', fromPlayerId: bot.id, toPlayerId: a.id, kind: 'loan', counterDepth: 0 };
+  const candidates = game.getBotCandidates(bot, { expanded: true, parity: true });
+  assert.equal(candidates.some(entry => entry.kind === 'trade'), false);
+  assert.equal(candidates.some(entry => entry.kind === 'contract-propose'), false);
+});
 
 check('non-bots and missing players produce no candidates', () => {
   const { game, a } = botRoom('speculator', 150);

@@ -138,8 +138,13 @@ test.describe('admin analytics full-screen report frame', () => {
   });
 
   test('keeps the verified table when the local chart engine fails to load', async ({ page }) => {
-    await page.route('**/vendor/echarts.min.js', route => route.abort());
+    const blockedEngineRequests = [];
+    await page.route('**/vendor/echarts.min.js', async route => {
+      blockedEngineRequests.push(route.request().url());
+      await route.abort();
+    });
     await openAnalytics(page);
+    await expect.poll(() => blockedEngineRequests.length).toBeGreaterThan(0);
     await expect(page.locator('.analytics-chart-engine-status').first()).toContainText('CHART ENGINE UNAVAILABLE');
     await expect(page.locator('.analytics-chart-table').first()).toBeVisible();
   });
