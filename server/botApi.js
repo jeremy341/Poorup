@@ -30,13 +30,25 @@ function tableTalkFor(game, player) {
 // leave and keep buying.
 export function jailStayBeatsExit(game, player) {
   if (!game || !player) return false;
-  const board = (game.tiles || []).map(tile => ({
-    group: tile?.group || null,
-    ownerSeat: !tile?.ownerId ? 'bank' : tile.ownerId === player.id ? 'self' : 'opponent-1',
-    houseCount: tile?.houseCount || 0,
-  }));
-  const stage = developmentStage(board);
+  const stage = developmentStage(jailBoard(game, player));
   return stage === 'late' || (stage === 'mid' && Number(player.cash || 0) < 500);
+}
+
+function jailBoard(game, player) {
+  return (game.tiles || []).map(tile => jailBoardTile(tile, player.id));
+}
+
+function jailBoardTile(tile, playerId) {
+  return {
+    group: tile?.group || null,
+    ownerSeat: jailBoardSeat(tile, playerId),
+    houseCount: tile?.houseCount || 0
+  };
+}
+
+function jailBoardSeat(tile, playerId) {
+  if (!tile?.ownerId) return 'bank';
+  return tile.ownerId === playerId ? 'self' : 'opponent-1';
 }
 
 // Grudge-gated dealing: ledgers start empty, so normalize missing entries
@@ -129,6 +141,28 @@ function appendPostRollParityCandidates(game, player, options, candidates) {
   candidates.push(...game.botSocialCandidates(player));
 }
 
+function appendParityCandidates(game, player, candidates) {
+  candidates.push(...game.botSellCandidates(player));
+  candidates.push(...game.botUnmortgageCandidates(player));
+  candidates.push(...game.botContractCandidates(player));
+  candidates.push(...game.botRichTradeCandidates(player));
+  candidates.push(...game.botMarketCandidates(player).filter(candidate => candidate.side === 'sell'));
+  candidates.push(...game.botMarketExpansionCandidates(player));
+  candidates.push(...game.botSocialCandidates(player));
+}
+
+function appendPreRollCandidates(game, player, options, candidates) {
+  if (player.inJail && options.parity) {
+    candidates.push(...game.botJailCandidates(player));
+    return;
+  }
+  for (const source of BOT_CANDIDATE_SOURCES) {
+    candidates.push(...source.collect(game, player, options));
+  }
+  candidates.push(...game.botPendingTradeCancelCandidates(player));
+  if (options.parity) appendParityCandidates(game, player, candidates);
+}
+
 function postRollCandidates(game, player, options) {
   const candidates = [];
   candidates.push(...game.botRepaymentCandidates(player));
@@ -145,6 +179,10 @@ function postRollCandidates(game, player, options) {
     if (game.settings.market) candidates.push({ id: 'end-finance-window', kind: 'end-finance-window', risk: 0, score: -49 });
     candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
   }
+  return sortCandidates(candidates);
+}
+
+function sortCandidates(candidates) {
   return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
 }
 
@@ -170,32 +208,465 @@ function finiteOrZero(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+// Trace serialisers split by section so each stays branch-light; together
+// they rebuild the exact field order of the original trace record.
+function traceIdentityFields(entry) {
+  return {
+    botId: entry.botId ? String(entry.botId).slice(0, 80) : null,
+    gameId: entry.gameId ? String(entry.gameId).slice(0, 120) : null,
+    ruleVersion: String(entry.ruleVersion || 'bot-policy-v1').slice(0, 32),
+    sequence: Math.max(0, Math.floor(finiteOrZero(entry.decisionSequence))),
+    phase: String(entry.phase || 'unknown').slice(0, 24),
+    provider: String(entry.provider || 'deterministic').slice(0, 24),
+    fallback: entry.fallback === true,
+    success: entry.success !== false,
+    fallbackReason: entry.fallbackReason ? String(entry.fallbackReason).slice(0, 40) : null
+  };
+}
+
+function tracePolicyFields(entry, settings) {
+  return {
+    brain: String(entry.brain || settings.botBrain || 'ai').slice(0, 12),
+    difficulty: String(entry.difficulty || settings.botDifficulty || 'table').slice(0, 12),
+    planningHorizon: Math.max(0, Math.min(3, Math.floor(finiteOrZero(entry.planningHorizon)))),
+    strategicScore: Number.isFinite(Number(entry.strategicScore)) ? Number(entry.strategicScore) : null
+  };
+}
+
+function traceActionFields(entry) {
+  return {
+    actionId: entry.actionId ? String(entry.actionId).slice(0, 100) : null,
+    confidence: Math.max(0, Math.min(1, finiteOrZero(entry.confidence))),
+    reasonCode: entry.reasonCode ? String(entry.reasonCode).slice(0, 40) : 'unknown',
+    latencyMs: Math.max(0, Math.floor(finiteOrZero(entry.latencyMs)))
+  };
+}
+
+function traceShadowFields(entry) {
+  return {
+    candidateIds: Array.isArray(entry.candidateIds) ? entry.candidateIds.filter(id => typeof id === 'string').slice(0, 24).map(id => id.slice(0, 100)) : [],
+    shadowActionId: entry.shadowActionId ? String(entry.shadowActionId).slice(0, 100) : null,
+    shadowConfidence: entry.shadowConfidence == null ? null : Math.max(0, Math.min(1, finiteOrZero(entry.shadowConfidence))),
+    shadowProvider: entry.shadowProvider ? String(entry.shadowProvider).slice(0, 24) : null,
+    shadowAgreement: entry.shadowAgreement === true,
+    shadowModel: entry.shadowModel ? String(entry.shadowModel).slice(0, 48) : null
+  };
+}
+
+// Shared trade gating: the group and rich trade collectors both refuse the
+// same table states before they start pairing deeds.
+function canOfferTrade(game, player) {
+  if (game.settings.trading === false) return false;
+  if (game.pendingTrade) return false;
+  if (game.pendingPlayerContract) return false;
+  if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return false;
+  return true;
+}
+
+function tradeTiles(game, player) {
+  return (player.properties || [])
+    .map(index => game.getTile(index))
+    .filter(tile => tile && game.isTradeableTile(tile) && tile.group);
+}
+
+// Bots may now deal with bots too (same veto applies); humans exploited
+// isolated bot seats that never cooperated.
+function tradePartners(game, player, table, grudges) {
+  return game.activePlayers().filter(candidate => isTradePartner(player, table, grudges, candidate));
+}
+
+// No feeding a teaming pair, no deals with a grudge >= 3.
+function isTradePartner(player, table, grudges, candidate) {
+  if (candidate.id === player.id) return false;
+  if (candidate.bankrupt) return false;
+  if (candidate.disconnected) return false;
+  if (table.teaming && table.pair.includes(candidate.id)) return false;
+  return !grudgedOut(grudges, candidate.id);
+}
+
+function collectGroupTradeCandidates(ctx, partner, owned, out) {
+  const { game } = ctx;
+  const requested = tradeTiles(game, partner);
+  for (const giveTile of owned) {
+    for (const askTile of requested) {
+      if (askTile.group !== giveTile.group) continue;
+      const candidate = groupTradeCandidate(ctx, partner, giveTile, askTile);
+      if (candidate) out.push(candidate);
+    }
+  }
+}
+
+// Never hand the partner a build-ready monopoly completer. Phase 1:
+// skip the candidate (premium-priced counters arrive in phase 2).
+function groupTradeCandidate(ctx, partner, giveTile, askTile) {
+  const { game, ask } = ctx;
+  const giveaway = monopolyGiveaway(game, [giveTile.index], partner.id);
+  if (giveaway.givesMonopoly && giveaway.buildReady) return null;
+  const state = groupTradeGroupState(ctx, partner, giveTile, askTile);
+  return {
+    id: 'trade:' + partner.id + ':' + askTile.index,
+    kind: 'trade',
+    toPlayerId: partner.id,
+    givePropertyIndexes: [giveTile.index],
+    requestPropertyIndexes: [askTile.index],
+    giveCash: 0,
+    requestCash: groupTradeRequestCash(giveTile, askTile, giveaway.givesMonopoly),
+    risk: 0.2,
+    score: groupTradeScore(ask, state)
+  };
+}
+
+function groupTradeGroupState(ctx, partner, giveTile, askTile) {
+  const { game, player } = ctx;
+  const botOwnedBefore = game.getGroupTiles(giveTile.group).filter(tile => tile.ownerId === player.id).length;
+  const botOwnedAfter = botOwnedBefore - 1 + (askTile.ownerId === partner.id ? 1 : 0);
+  const targetCount = game.getGroupTiles(giveTile.group).length;
+  return {
+    completesGroup: botOwnedAfter >= targetCount,
+    breaksGroup: botOwnedBefore >= targetCount && botOwnedAfter < targetCount
+  };
+}
+
+// Cash-balanced ask: cover the face gap plus a full-face premium
+// when handing over a (non-build-ready) completer. Replaces the
+// flat 40/0 personality asks with priced asks.
+function groupTradeRequestCash(giveTile, askTile, givesMonopoly) {
+  const faceGap = Math.max(0, Math.floor(Number(askTile.price) || 0) - Math.floor(Number(giveTile.price) || 0));
+  const completerPremium = givesMonopoly ? Math.floor(Number(giveTile.price) || 0) : 0;
+  return faceGap + completerPremium;
+}
+
+function groupTradeScore(ask, state) {
+  return ask.score + (state.completesGroup ? 28 : 0) - (state.breaksGroup ? 30 : 0);
+}
+
+function richTradeCandidate(game, partner, owned) {
+  const requested = tradeTiles(game, partner).slice(0, 3);
+  if (requested.length < 2) return [];
+  return [{
+    id: 'trade:rich:' + partner.id,
+    kind: 'trade',
+    rich: true,
+    toPlayerId: partner.id,
+    givePropertyIndexes: owned.slice(0, 2).map(tile => tile.index),
+    requestPropertyIndexes: requested.slice(0, 2).map(tile => tile.index),
+    giveCash: 0,
+    requestCash: Math.max(0, Math.floor((requested[0].price + requested[1].price - owned[0].price - owned[1].price) * 0.2)),
+    risk: 0.3,
+    score: 18
+  }];
+}
+
+function canProposeContracts(game, player) {
+  if (!player) return false;
+  if (player.id !== game.currentPlayerId) return false;
+  if (game.pendingTrade) return false;
+  if (game.pendingPlayerContract) return false;
+  if (player.isBot && Number(player.botDealActionsThisTurn) >= 1) return false;
+  return true;
+}
+
+function contractReserve(game) {
+  return Math.max(180, Number(game.settings.startingCash || 1500) * 0.2);
+}
+
+function contractTargets(game, player, table, grudges) {
+  return game.activePlayers()
+    .filter(target => contractTargetEligible(target, player, table, grudges))
+    .sort((a, b) => Number(a.cash || 0) - Number(b.cash || 0))
+    .slice(0, 2);
+}
+
+function contractTargetEligible(target, player, table, grudges) {
+  if (target.id === player.id) return false;
+  if (target.bankrupt) return false;
+  if (target.disconnected) return false;
+  if (table.teaming && table.pair.includes(target.id)) return false;
+  return !grudgedOut(grudges, target.id);
+}
+
+function collectContractCandidates(ctx, target, out) {
+  const { game, lenderCash, reserve } = ctx;
+  out.push(loanContractCandidate(target, lenderCash, reserve));
+  const property = targetTradeableProperty(game, target);
+  if (!property) return;
+  out.push(equityContractCandidate(target, property, lenderCash, reserve));
+  out.push(hybridContractCandidate(target, property, lenderCash, reserve));
+}
+
+function loanContractCandidate(target, lenderCash, reserve) {
+  const amount = Math.min(300, Math.max(100, Math.floor(Math.max(0, lenderCash - reserve) / 3)));
+  return {
+    id: 'contract:loan:' + target.id,
+    kind: 'contract-propose',
+    offer: { toPlayerId: target.id, kind: 'loan', amount, premiumRate: 35, durationRounds: 3, collateralTileIndex: null },
+    risk: amount / lenderCash,
+    score: 10 + Math.max(0, 300 - Number(target.cash || 0)) / 100
+  };
+}
+
+function equityContractCandidate(target, property, lenderCash, reserve) {
+  const amount = Math.min(200, Math.max(50, Math.floor((lenderCash - reserve) / 5)));
+  return {
+    id: 'contract:equity:' + target.id + ':' + property.index,
+    kind: 'contract-propose',
+    offer: { toPlayerId: target.id, kind: 'equity', amount, premiumRate: 0, durationRounds: 10, propertyIndex: property.index, equityShare: 15, equityControl: 'passive', permanent: false },
+    risk: 0.2,
+    score: 8
+  };
+}
+
+function hybridContractCandidate(target, property, lenderCash, reserve) {
+  const amount = Math.min(200, Math.max(50, Math.floor((lenderCash - reserve) / 5)));
+  return {
+    id: 'contract:hybrid:' + target.id + ':' + property.index,
+    kind: 'contract-propose',
+    offer: { toPlayerId: target.id, kind: 'hybrid', amount, premiumRate: 25, durationRounds: 4, propertyIndex: property.index, conversionShare: 25 },
+    risk: 0.3,
+    score: 7
+  };
+}
+
+function targetTradeableProperty(game, target) {
+  return (target.properties || [])
+    .map(index => game.getTile(index))
+    .find(tile => tile && game.isTradeableTile(tile) && tile.type === 'property' && tile.houseCount === 0 && !tile.mortgaged);
+}
+
+function marketTradingOpen(game) {
+  if (!game.settings.market) return false;
+  if (game.activeEventEffects?.().tradingEnabled === false) return false;
+  return true;
+}
+
+function marketActionAvailable(game, player) {
+  if ((player.marketActionsThisTurn || 0) >= 1) return false;
+  if (Number(game.consecutiveDoubles || 0) >= 2) return false;
+  return true;
+}
+
+// Opening book laps 1-3: deeds only, unless already holding a complete
+// set (ahead: speculation allowed).
+function marketBuyOpeningBook(game, player) {
+  if (Number(game.roundNumber || 99) > 3) return true;
+  return holdsCompleteSet(game, player);
+}
+
+function marketBuyEligible(game, player) {
+  if (!marketTradingOpen(game)) return false;
+  if (!marketActionAvailable(game, player)) return false;
+  return marketBuyOpeningBook(game, player);
+}
+
+function cheapestBuyQuoteId(quotes) {
+  return Object.entries(quotes).sort(([, a], [, b]) => a - b)[0]?.[0];
+}
+
+function cheapestMarketInstrument(quotes) {
+  return Object.entries(quotes || {}).sort(([, a], [, b]) => Number(a) - Number(b))[0]?.[0] || 'brazil';
+}
+
+function shortPositionInstrumentId(player, fallbackId) {
+  return Object.entries(player.shortPositions || {}).find(([, position]) => Number(position?.quantity) > 0)?.[0] || fallbackId;
+}
+
+function openOptionId(player) {
+  return player.optionPositions?.find(option => option.status === 'open')?.id;
+}
+
+const MARKET_EXPANSION_ENRICHERS = new Map([
+  ['open-margin', (candidate, ctx) => ({ ...candidate, instrumentId: ctx.instrumentId, quantity: 1 })],
+  ['reduce-margin', (candidate, ctx) => ({ ...candidate, amount: Math.min(200, Math.floor(ctx.player.cash || 0)) })],
+  ['open-short', (candidate, ctx) => ({ ...candidate, instrumentId: ctx.instrumentId, quantity: 1 })],
+  ['cover-short', (candidate, ctx) => ({ ...candidate, instrumentId: ctx.shortInstrumentId, quantity: 1 })],
+  ['open-option', (candidate, ctx) => ({ ...candidate, instrumentId: ctx.instrumentId, quantity: 1, side: 'call', strike: Number(ctx.marketQuotes?.[ctx.instrumentId]) || 100, premium: 10, expiryRounds: 3 })],
+  ['exercise-option', (candidate, ctx) => ({ ...candidate, optionId: ctx.openOptionId })]
+]);
+
+function enrichMarketExpansion(candidate, ctx) {
+  const enrich = MARKET_EXPANSION_ENRICHERS.get(candidate.kind);
+  if (!enrich) return candidate;
+  return enrich(candidate, ctx);
+}
+
+function marketPositionQuantity(position) {
+  return Math.max(0, Math.floor(Number(position?.quantity) || 0));
+}
+
+function marketSellWanted(game, player, profitable) {
+  if (profitable) return true;
+  const startingCash = Number(game.settings.startingCash || 1500);
+  return Number(player.cash || 0) <= startingCash * 0.35;
+}
+
+function marketSellCandidate(game, player, id, position) {
+  const quantity = marketPositionQuantity(position);
+  if (!quantity) return null;
+  const quote = Number(game.marketQuotes[id]) || 100;
+  const average = Number(position.averageCost) || quote;
+  const profitable = quote > average;
+  if (!marketSellWanted(game, player, profitable)) return null;
+  return { id: 'market:sell:' + id, kind: 'market', instrumentId: id, side: 'sell', quantity, risk: 0.1, score: profitable ? 15 : 8 };
+}
+
+function marketSellCandidates(game, player) {
+  return Object.entries(player.marketPositions || {})
+    .map(([id, position]) => marketSellCandidate(game, player, id, position))
+    .filter(Boolean);
+}
+
+function belowSellThreshold(game, player) {
+  return Number(player.cash || 0) < Number(game.settings.startingCash || 1500) * 0.5;
+}
+
+function sellableHouseTile(game, player, tile) {
+  if (!tile) return false;
+  if (!(tile.houseCount > 0)) return false;
+  return game.canSellFromTile(player, tile);
+}
+
+function houseSellCandidate(game, player, tile, crisis) {
+  const proceeds = Math.max(0, Math.floor(game.getPropertyHouseCost(tile) * game.buildingSaleMultiplier()));
+  return { id: 'sell:' + tile.index, kind: 'sell', tileIndex: tile.index, proceeds, risk: 0.12, score: crisis ? 15 : 10 };
+}
+
+function houseSellCandidates(game, player, crisis) {
+  return (player.properties || [])
+    .map(index => game.getTile(index))
+    .filter(tile => sellableHouseTile(game, player, tile))
+    .map(tile => houseSellCandidate(game, player, tile, crisis));
+}
+
+function casinoStakesAllowed(game, player) {
+  if (!game.settings.casino) return false;
+  if ((player.casinoBetsThisRound || 0) >= 1) return false;
+  if (player.personality !== 'chaos') return false;
+  return true;
+}
+
+// EV-negative tables are chaos-only flavor, and only when cash-strong:
+// broke bots must preserve every dollar for rent survival.
+function casinoCashReady(game, player) {
+  const startingCash = Number(game.settings.startingCash || 1500);
+  if (Number(player.cash || 0) < startingCash * 0.35) return false;
+  // Two doubles already: jail looms, keep cash liquid for the missed turn.
+  if (Number(game.consecutiveDoubles || 0) >= 2) return false;
+  return !game.hasLoanBackedCash?.(player);
+}
+
+function casinoEntryFee(game) {
+  return Number(game.casinoLimits?.().entryFee) || 0;
+}
+
+function payToLeaveJail(game, player) {
+  if (Number(player.jailTurns || 0) >= 2) return true;
+  return !jailStayBeatsExit(game, player);
+}
+
+function jailFineChoice(player) {
+  return { id: 'jail:fine', kind: 'jail-fine', risk: JAIL_FINE / Math.max(1, player.cash), score: player.jailTurns >= 2 ? 14 : 8 };
+}
+
+function jailFreeChoice(player) {
+  return { id: 'jail:free', kind: 'jail-free', risk: 0.05, score: player.jailTurns >= 2 ? 16 : 7 };
+}
+
+function repayableContract(player, contract) {
+  if (!contract) return false;
+  if (!['loan', 'hybrid'].includes(contract.kind)) return false;
+  if (!['active', 'due'].includes(contract.status)) return false;
+  if (contract.toPlayerId !== player.id) return false;
+  return Number(contract.remaining) > 0;
+}
+
+function repaymentPlan(contract, player) {
+  const remaining = Math.max(0, Math.floor(Number(contract.remaining) || 0));
+  const due = contract.status === 'due';
+  const available = Math.max(0, Math.floor(Number(player.cash || 0) - (due ? 0 : 180)));
+  return { remaining, due, amount: Math.min(remaining, available) };
+}
+
+function repaymentCandidate(contract, plan, player) {
+  return {
+    id: 'repay:' + contract.id,
+    kind: 'repay',
+    contractId: contract.id,
+    amount: plan.amount,
+    remaining: plan.remaining,
+    risk: plan.due ? 0.05 : plan.amount / Math.max(1, player.cash),
+    score: plan.due ? 32 : 11
+  };
+}
+
+function collectRepaymentCandidate(player, contract, out) {
+  if (!repayableContract(player, contract)) return;
+  const plan = repaymentPlan(contract, player);
+  if (plan.amount <= 0) return;
+  out.push(repaymentCandidate(contract, plan, player));
+}
+
+function bankLoanRepayment(loan, player) {
+  const remaining = Math.max(0, Math.floor(Number(loan.remaining) || 0));
+  const reserve = loan.status === 'due' ? 0 : 180;
+  const available = Math.max(0, Math.floor(Number(player.cash || 0) - reserve));
+  return { remaining, amount: Math.min(remaining, available) };
+}
+
+function bankLoanRepayCandidate(player, loan, repayment) {
+  const amount = repayment.amount;
+  return {
+    id: 'bank-repay:' + player.id + ':' + (player.bankLoanCount || loan.issuedRound || 0),
+    kind: 'bank-repay',
+    amount,
+    remaining: repayment.remaining,
+    issuedRound: loan.issuedRound || 0,
+    dueRound: loan.dueRound || 0,
+    loanCount: player.bankLoanCount || 0,
+    risk: amount / Math.max(1, player.cash),
+    score: loan.status === 'due' ? 34 : 13
+  };
+}
+
+function activeBankLoan(loan) {
+  if (!loan) return false;
+  return ['active', 'due'].includes(loan.status);
+}
+
+function buildLimitReached(player, buildLimit) {
+  if (!Number.isFinite(buildLimit)) return false;
+  if (buildLimit <= 0) return false;
+  return (player.buildActionsThisTurn || 0) >= buildLimit;
+}
+
+function tradeRoundElapsed(game, trade) {
+  const createdRound = Math.max(0, Math.floor(Number(trade.createdRound) || 0));
+  return Math.max(1, Math.floor(Number(game.roundNumber) || 1)) > createdRound;
+}
+
+function pendingTradeCancelCandidate(trade) {
+  return {
+    id: `cancel-trade:${trade.id}`,
+    kind: 'cancel-trade',
+    tradeId: trade.id,
+    risk: 0.05,
+    score: 4
+  };
+}
+
+function explicitEndTurn(game, player) {
+  if (Number(player.cash) > 0 || player.bankrupt) {
+    return [{ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 }];
+  }
+  return [{ id: 'bankruptcy:zero-cash', kind: 'bankruptcy', risk: 0, score: 2 }];
+}
+
 const botApi = {
   recordBotDecisionTrace(entry = {}) {
     const trace = {
-      botId: entry.botId ? String(entry.botId).slice(0, 80) : null,
-      gameId: entry.gameId ? String(entry.gameId).slice(0, 120) : null,
-      ruleVersion: String(entry.ruleVersion || 'bot-policy-v1').slice(0, 32),
-      sequence: Math.max(0, Math.floor(finiteOrZero(entry.decisionSequence))),
-      phase: String(entry.phase || 'unknown').slice(0, 24),
-      provider: String(entry.provider || 'deterministic').slice(0, 24),
-      fallback: entry.fallback === true,
-      success: entry.success !== false,
-      fallbackReason: entry.fallbackReason ? String(entry.fallbackReason).slice(0, 40) : null,
-      brain: String(entry.brain || this.settings.botBrain || 'ai').slice(0, 12),
-      difficulty: String(entry.difficulty || this.settings.botDifficulty || 'table').slice(0, 12),
-      planningHorizon: Math.max(0, Math.min(3, Math.floor(finiteOrZero(entry.planningHorizon)))),
-      strategicScore: Number.isFinite(Number(entry.strategicScore)) ? Number(entry.strategicScore) : null,
-      actionId: entry.actionId ? String(entry.actionId).slice(0, 100) : null,
-      confidence: Math.max(0, Math.min(1, finiteOrZero(entry.confidence))),
-      reasonCode: entry.reasonCode ? String(entry.reasonCode).slice(0, 40) : 'unknown',
-      latencyMs: Math.max(0, Math.floor(finiteOrZero(entry.latencyMs))),
-      candidateIds: Array.isArray(entry.candidateIds) ? entry.candidateIds.filter(id => typeof id === 'string').slice(0, 24).map(id => id.slice(0, 100)) : [],
-      shadowActionId: entry.shadowActionId ? String(entry.shadowActionId).slice(0, 100) : null,
-      shadowConfidence: entry.shadowConfidence == null ? null : Math.max(0, Math.min(1, finiteOrZero(entry.shadowConfidence))),
-      shadowProvider: entry.shadowProvider ? String(entry.shadowProvider).slice(0, 24) : null,
-      shadowAgreement: entry.shadowAgreement === true,
-      shadowModel: entry.shadowModel ? String(entry.shadowModel).slice(0, 48) : null,
+      ...traceIdentityFields(entry),
+      ...tracePolicyFields(entry, this.settings),
+      ...traceActionFields(entry),
+      ...traceShadowFields(entry),
       recordedAt: new Date().toISOString()
     };
     this.botDecisionTrace = Array.isArray(this.botDecisionTrace) ? this.botDecisionTrace : [];
@@ -239,25 +710,8 @@ const botApi = {
     if (!player?.isBot) return [];
     if (options.postRoll) return this.botPostRollCandidates(player, options);
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
-    if (!this.hasRolled && player.inJail && options.parity) {
-      return candidates.concat(this.botJailCandidates(player)).sort((a, b) => b.score - a.score || a.risk - b.risk);
-    }
-    if (!this.hasRolled) {
-      for (const source of BOT_CANDIDATE_SOURCES) {
-        candidates.push(...source.collect(this, player, options));
-      }
-      candidates.push(...this.botPendingTradeCancelCandidates(player));
-      if (options.parity) {
-        candidates.push(...this.botSellCandidates(player));
-        candidates.push(...this.botUnmortgageCandidates(player));
-        candidates.push(...this.botContractCandidates(player));
-        candidates.push(...this.botRichTradeCandidates(player));
-      candidates.push(...this.botMarketCandidates(player).filter(candidate => candidate.side === 'sell'));
-      candidates.push(...this.botMarketExpansionCandidates(player));
-        candidates.push(...this.botSocialCandidates(player));
-      }
-    }
-    return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+    if (!this.hasRolled) appendPreRollCandidates(this, player, options, candidates);
+    return sortCandidates(candidates);
   },
 
   // Once movement has resolved, humans may still use the finance rail before
@@ -266,63 +720,57 @@ const botApi = {
   // the normal finance actions; otherwise candidates are legal post-roll
   // verbs and a low-priority explicit end-turn sentinel.
   botPostRollCandidates(player, options = {}) {
-    if (!player?.isBot || player.id !== this.currentPlayerId) return [];
+    if (!player?.isBot) return [];
+    if (player.id !== this.currentPlayerId) return [];
     const offer = this.pendingPurchaseOffer;
     const purchase = pendingPurchaseCandidate(this, player, offer);
     if (purchase) return [purchase];
     // Another seat's offer: nothing for me to buy, but the turn still needs
     // an explicit end action instead of a no-op stall.
-    if (offer) return Number(player.cash) > 0 || player.bankrupt
-      ? [{ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 }]
-      : [{ id: 'bankruptcy:zero-cash', kind: 'bankruptcy', risk: 0, score: 2 }];
+    if (offer) return explicitEndTurn(this, player);
     return postRollCandidates(this, player, options);
   },
 
   botPendingTradeCancelCandidates(player) {
     const trade = this.pendingTrade;
-    if (!player?.isBot || player.id !== this.currentPlayerId || trade?.fromPlayerId !== player.id) return [];
-    const createdRound = Math.max(0, Math.floor(Number(trade.createdRound) || 0));
-    if (Math.max(1, Math.floor(Number(this.roundNumber) || 1)) <= createdRound) return [];
-    return [{
-      id: `cancel-trade:${trade.id}`,
-      kind: 'cancel-trade',
-      tradeId: trade.id,
-      risk: 0.05,
-      score: 4
-    }];
+    if (!player?.isBot) return [];
+    if (player.id !== this.currentPlayerId) return [];
+    if (!trade || trade.fromPlayerId !== player.id) return [];
+    if (!tradeRoundElapsed(this, trade)) return [];
+    return [pendingTradeCancelCandidate(trade)];
   },
 
   botJailCandidates(player) {
     if (!player?.inJail) return [];
     // Late-stage sit-out: a developed board makes jail a rent-free shelter
     // that still collects. Roll for doubles instead of paying to leave.
-    if (Number(player.jailTurns || 0) < 2 && jailStayBeatsExit(this, player)) return [];
+    if (!payToLeaveJail(this, player)) return [];
     const choices = [];
-    if (player.cash >= JAIL_FINE) choices.push({ id: 'jail:fine', kind: 'jail-fine', risk: JAIL_FINE / Math.max(1, player.cash), score: player.jailTurns >= 2 ? 14 : 8 });
-    if (player.jailFreeCards > 0) choices.push({ id: 'jail:free', kind: 'jail-free', risk: 0.05, score: player.jailTurns >= 2 ? 16 : 7 });
+    if (player.cash >= JAIL_FINE) choices.push(jailFineChoice(player));
+    if (player.jailFreeCards > 0) choices.push(jailFreeChoice(player));
     return choices;
   },
 
   botSocialCandidates(player) {
     const sequence = Math.max(0, Math.floor(Number(this.botDecisionSequence) || 0));
-    if (!player || sequence === 0 || sequence % 6 !== 0) return [];
+    if (!player) return [];
+    if (sequence === 0) return [];
+    if (sequence % 6 !== 0) return [];
     return [{ id: 'chat:table-talk', kind: 'chat', text: tableTalkFor(this, player), risk: 0, score: 1 }];
   },
 
   botBankLoanRepaymentCandidates(player) {
     const loan = player?.bankLoan;
-    if (!loan || !['active', 'due'].includes(loan.status)) return [];
+    if (!activeBankLoan(loan)) return [];
     if (player.id !== this.currentPlayerId) return [];
-    const remaining = Math.max(0, Math.floor(Number(loan.remaining) || 0));
-    const reserve = loan.status === 'due' ? 0 : 180;
-    const amount = Math.min(remaining, Math.max(0, Math.floor(Number(player.cash || 0) - reserve)));
-    if (amount <= 0) return [];
-    return [{ id: 'bank-repay:' + player.id + ':' + (player.bankLoanCount || loan.issuedRound || 0), kind: 'bank-repay', amount, remaining, issuedRound: loan.issuedRound || 0, dueRound: loan.dueRound || 0, loanCount: player.bankLoanCount || 0, risk: amount / Math.max(1, player.cash), score: loan.status === 'due' ? 34 : 13 }];
+    const repayment = bankLoanRepayment(loan, player);
+    if (repayment.amount <= 0) return [];
+    return [bankLoanRepayCandidate(player, loan, repayment)];
   },
 
   botBuildCandidates(player) {
     const buildLimit = Number(this.activeEventEffects?.().buildingLimitPerTurn);
-    if (Number.isFinite(buildLimit) && buildLimit > 0 && (player.buildActionsThisTurn || 0) >= buildLimit) return [];
+    if (buildLimitReached(player, buildLimit)) return [];
     return this.tiles
       .filter(tile => this.canBuildOnTile(player, tile))
       .map(tile => this.botBuildCandidateFor(tile, player));
@@ -352,16 +800,11 @@ const botApi = {
   },
 
   botSellCandidates(player) {
-    if (!player || player.id !== this.currentPlayerId) return [];
+    if (!player) return [];
+    if (player.id !== this.currentPlayerId) return [];
     const crisis = Boolean(this.globalEventActive?.('housing-bubble'));
-    if (!crisis && Number(player.cash || 0) >= Number(this.settings.startingCash || 1500) * 0.5) return [];
-    return (player.properties || [])
-      .map(index => this.getTile(index))
-      .filter(tile => tile && tile.houseCount > 0 && this.canSellFromTile(player, tile))
-      .map(tile => {
-        const proceeds = Math.max(0, Math.floor(this.getPropertyHouseCost(tile) * this.buildingSaleMultiplier()));
-        return { id: 'sell:' + tile.index, kind: 'sell', tileIndex: tile.index, proceeds, risk: 0.12, score: crisis ? 15 : 10 };
-      });
+    if (!crisis && !belowSellThreshold(this, player)) return [];
+    return houseSellCandidates(this, player, crisis);
   },
 
   botUnmortgageCandidates(player) {
@@ -413,29 +856,9 @@ const botApi = {
   // are paid down only when the remaining balance is comfortably affordable.
   botRepaymentCandidates(player) {
     const contracts = Array.isArray(this.playerContracts) ? this.playerContracts : [];
-    return contracts
-      .filter(contract => contract
-        && ['loan', 'hybrid'].includes(contract.kind)
-        && ['active', 'due'].includes(contract.status)
-        && contract.toPlayerId === player.id
-        && Number(contract.remaining) > 0)
-      .map(contract => {
-        const remaining = Math.max(0, Math.floor(Number(contract.remaining) || 0));
-        const due = contract.status === 'due';
-        const available = Math.max(0, Math.floor(Number(player.cash || 0) - (due ? 0 : 180)));
-        const amount = Math.min(remaining, available);
-        if (amount <= 0) return null;
-        return {
-          id: 'repay:' + contract.id,
-          kind: 'repay',
-          contractId: contract.id,
-          amount,
-          remaining,
-          risk: due ? 0.05 : amount / Math.max(1, player.cash),
-          score: due ? 32 : 11
-        };
-      })
-      .filter(Boolean);
+    const candidates = [];
+    contracts.forEach(contract => collectRepaymentCandidate(player, contract, candidates));
+    return candidates;
   },
 
   botGroupTradeCandidate(player) {
@@ -443,137 +866,66 @@ const botApi = {
   },
 
   botGroupTradeCandidates(player) {
-    if (this.settings.trading === false || this.pendingTrade || this.pendingPlayerContract) return [];
-    if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
-    const ask = BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT;
-    const owned = player.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
-    // Bots may now deal with bots too (same veto applies); humans exploited
-    // isolated bot seats that never cooperated.
-    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.bankrupt && !candidate.disconnected);
+    if (!canOfferTrade(this, player)) return [];
+    const ctx = { game: this, player, ask: BOT_TRADE_ASKS[player.personality] || BOT_TRADE_ASK_DEFAULT };
+    const owned = tradeTiles(this, player);
     const table = coalitionAgainst(this, player.id);
-    const grudges = player.grudge || {};
+    const partners = tradePartners(this, player, table, player.grudge);
     const candidates = [];
-    partners.forEach(partner => {
-      // No feeding a teaming pair, no deals with a grudge >= 3.
-      if (table.teaming && table.pair.includes(partner.id)) return;
-      if (grudgedOut(grudges, partner.id)) return;
-      const requested = partner.properties.map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group);
-      owned.forEach(giveTile => requested.filter(askTile => askTile.group === giveTile.group).forEach(askTile => {
-        // Never hand the partner a build-ready monopoly completer. Phase 1:
-        // skip the candidate (premium-priced counters arrive in phase 2).
-        const giveaway = monopolyGiveaway(this, [giveTile.index], partner.id);
-        if (giveaway.givesMonopoly && giveaway.buildReady) return;
-        const botOwnedBefore = this.getGroupTiles(giveTile.group).filter(tile => tile.ownerId === player.id).length;
-        const botOwnedAfter = botOwnedBefore - 1 + (askTile.ownerId === partner.id ? 1 : 0);
-        const targetCount = this.getGroupTiles(giveTile.group).length;
-        const completesGroup = botOwnedAfter >= targetCount;
-        const breaksGroup = botOwnedBefore >= targetCount && botOwnedAfter < targetCount;
-        // Cash-balanced ask: cover the face gap plus a full-face premium
-        // when handing over a (non-build-ready) completer. Replaces the
-        // flat 40/0 personality asks with priced asks.
-        const faceGap = Math.max(0, Math.floor(Number(askTile.price) || 0) - Math.floor(Number(giveTile.price) || 0));
-        const completerPremium = giveaway.givesMonopoly ? Math.floor(Number(giveTile.price) || 0) : 0;
-        candidates.push({
-          id: 'trade:' + partner.id + ':' + askTile.index,
-          kind: 'trade',
-          toPlayerId: partner.id,
-          givePropertyIndexes: [giveTile.index],
-          requestPropertyIndexes: [askTile.index],
-          giveCash: 0,
-          requestCash: faceGap + completerPremium,
-          risk: 0.2,
-          score: ask.score + (completesGroup ? 28 : 0) - (breaksGroup ? 30 : 0)
-        });
-      }));
-    });
+    partners.forEach(partner => collectGroupTradeCandidates(ctx, partner, owned, candidates));
     return candidates.slice(0, 12);
   },
 
   botRichTradeCandidates(player) {
-    if (this.settings.trading === false || this.pendingTrade || this.pendingPlayerContract) return [];
-    if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
-    const table = coalitionAgainst(this, player.id);
-    const grudges = player.grudge || {};
-    const partners = this.activePlayers().filter(candidate => candidate.id !== player.id && !candidate.bankrupt && !candidate.disconnected
-      && !(table.teaming && table.pair.includes(candidate.id))
-      && !grudgedOut(grudges, candidate.id));
-    const owned = (player.properties || []).map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group).slice(0, 3);
+    if (!canOfferTrade(this, player)) return [];
+    const owned = tradeTiles(this, player).slice(0, 3);
     if (owned.length < 2) return [];
-    return partners.flatMap(partner => {
-      const requested = (partner.properties || []).map(index => this.getTile(index)).filter(tile => tile && this.isTradeableTile(tile) && tile.group).slice(0, 3);
-      if (requested.length < 2) return [];
-      return [{
-        id: 'trade:rich:' + partner.id,
-        kind: 'trade',
-        rich: true,
-        toPlayerId: partner.id,
-        givePropertyIndexes: owned.slice(0, 2).map(tile => tile.index),
-        requestPropertyIndexes: requested.slice(0, 2).map(tile => tile.index),
-        giveCash: 0,
-        requestCash: Math.max(0, Math.floor((requested[0].price + requested[1].price - owned[0].price - owned[1].price) * 0.2)),
-        risk: 0.3,
-        score: 18
-      }];
-    }).slice(0, 4);
+    const table = coalitionAgainst(this, player.id);
+    const partners = tradePartners(this, player, table, player.grudge);
+    return partners.flatMap(partner => richTradeCandidate(this, partner, owned)).slice(0, 4);
   },
 
   botContractCandidates(player) {
-    if (!player || player.id !== this.currentPlayerId) return [];
-    if (this.pendingTrade || this.pendingPlayerContract) return [];
-    if (player.isBot && Number(player.botDealActionsThisTurn) >= 1) return [];
-    const reserve = Math.max(180, Number(this.settings.startingCash || 1500) * 0.2);
+    // The server rejects loan-backed contract cash (contractLogic.js guard),
+    // so a loaned bot proposing contracts burns its deal counter on a
+    // guaranteed rejection every turn; the casino and market collectors
+    // already apply the same guard.
+    if (this.hasLoanBackedCash?.(player)) return [];
+    if (!canProposeContracts(this, player)) return [];
     const lenderCash = Number(player.cash || 0);
+    const reserve = contractReserve(this);
     if (lenderCash <= reserve + 100) return [];
     const table = coalitionAgainst(this, player.id);
-    const grudges = player.grudge || {};
-    const targets = this.activePlayers()
-      .filter(target => target.id !== player.id && !target.bankrupt && !target.disconnected)
-      .filter(target => !(table.teaming && table.pair.includes(target.id)) && !grudgedOut(grudges, target.id))
-      .sort((a, b) => Number(a.cash || 0) - Number(b.cash || 0))
-      .slice(0, 2);
+    const targets = contractTargets(this, player, table, player.grudge);
+    const ctx = { game: this, lenderCash, reserve };
     const result = [];
-    targets.forEach(target => {
-      const amount = Math.min(300, Math.max(100, Math.floor(Math.max(0, lenderCash - reserve) / 3)));
-      result.push({ id: 'contract:loan:' + target.id, kind: 'contract-propose', offer: { toPlayerId: target.id, kind: 'loan', amount, premiumRate: 35, durationRounds: 3, collateralTileIndex: null }, risk: amount / lenderCash, score: 10 + Math.max(0, 300 - Number(target.cash || 0)) / 100 });
-      const property = (target.properties || []).map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile) && tile.houseCount === 0 && !tile.mortgaged);
-      if (!property) return;
-      result.push({ id: 'contract:equity:' + target.id + ':' + property.index, kind: 'contract-propose', offer: { toPlayerId: target.id, kind: 'equity', amount: Math.min(200, Math.max(50, Math.floor((lenderCash - reserve) / 5))), premiumRate: 0, durationRounds: 10, propertyIndex: property.index, equityShare: 15, equityControl: 'passive', permanent: false }, risk: 0.2, score: 8 });
-      result.push({ id: 'contract:hybrid:' + target.id + ':' + property.index, kind: 'contract-propose', offer: { toPlayerId: target.id, kind: 'hybrid', amount: Math.min(200, Math.max(50, Math.floor((lenderCash - reserve) / 5))), premiumRate: 25, durationRounds: 4, propertyIndex: property.index, conversionShare: 25 }, risk: 0.3, score: 7 });
-    });
+    targets.forEach(target => collectContractCandidates(ctx, target, result));
     return result.slice(0, 8);
   },
 
   botMarketCandidates(player) {
     const buy = this.botMarketCandidate(player);
-    if (!this.settings.market || (player.marketActionsThisTurn || 0) >= 1) return buy;
-    const sells = Object.entries(player.marketPositions || {}).map(([id, position]) => {
-      const quantity = Math.max(0, Math.floor(Number(position?.quantity) || 0));
-      if (!quantity) return null;
-      const quote = Number(this.marketQuotes[id]) || 100;
-      const average = Number(position.averageCost) || quote;
-      const profitable = quote > average;
-      if (!profitable && Number(player.cash || 0) > Number(this.settings.startingCash || 1500) * 0.35) return null;
-      return { id: 'market:sell:' + id, kind: 'market', instrumentId: id, side: 'sell', quantity, risk: 0.1, score: profitable ? 15 : 8 };
-    }).filter(Boolean);
+    if (!this.settings.market) return buy;
+    if ((player.marketActionsThisTurn || 0) >= 1) return buy;
+    const sells = marketSellCandidates(this, player);
     return [...buy, ...sells].slice(0, 8);
   },
 
   botMarketExpansionCandidates(player) {
-    if (!this.settings.market || typeof this.marketExpansionCandidates !== 'function') return [];
+    if (!this.settings.market) return [];
+    if (typeof this.marketExpansionCandidates !== 'function') return [];
     const source = this.marketExpansionCandidates(player) || [];
-    const instrumentId = Object.entries(this.marketQuotes || {}).sort(([, a], [, b]) => Number(a) - Number(b))[0]?.[0] || 'brazil';
-    return source.map(candidate => {
-      if (candidate.kind === 'open-margin') return { ...candidate, instrumentId, quantity: 1 };
-      if (candidate.kind === 'reduce-margin') return { ...candidate, amount: Math.min(200, Math.floor(player.cash || 0)) };
-      if (candidate.kind === 'open-short') return { ...candidate, instrumentId, quantity: 1 };
-      if (candidate.kind === 'cover-short') {
-        const id = Object.entries(player.shortPositions || {}).find(([, position]) => Number(position?.quantity) > 0)?.[0] || instrumentId;
-        return { ...candidate, instrumentId: id, quantity: 1 };
-      }
-      if (candidate.kind === 'open-option') return { ...candidate, instrumentId, quantity: 1, side: 'call', strike: Number(this.marketQuotes?.[instrumentId]) || 100, premium: 10, expiryRounds: 3 };
-      if (candidate.kind === 'exercise-option') return { ...candidate, optionId: player.optionPositions?.find(option => option.status === 'open')?.id };
-      return candidate;
-    }).filter(candidate => candidate.kind !== 'exercise-option' || candidate.optionId);
+    const instrumentId = cheapestMarketInstrument(this.marketQuotes);
+    const ctx = {
+      player,
+      marketQuotes: this.marketQuotes,
+      instrumentId,
+      shortInstrumentId: shortPositionInstrumentId(player, instrumentId),
+      openOptionId: openOptionId(player)
+    };
+    return source
+      .map(candidate => enrichMarketExpansion(candidate, ctx))
+      .filter(candidate => candidate.kind !== 'exercise-option' || candidate.optionId);
   },
 
   firstTradeableOwnedTile(player) {
@@ -581,15 +933,8 @@ const botApi = {
   },
 
   botMarketCandidate(player) {
-    if (!this.settings.market) return [];
-    if (this.activeEventEffects?.().tradingEnabled === false) return [];
-    if ((player.marketActionsThisTurn || 0) >= 1) return [];
-    // Two doubles already: keep cash liquid instead of locking it in quotes.
-    if (Number(this.consecutiveDoubles || 0) >= 2) return [];
-    // Opening book laps 1-3: deeds only, unless already holding a complete
-    // set (ahead: speculation allowed).
-    if (Number(this.roundNumber || 99) <= 3 && !holdsCompleteSet(this, player)) return [];
-    const marketId = Object.entries(this.marketQuotes).sort(([, a], [, b]) => a - b)[0]?.[0];
+    if (!marketBuyEligible(this, player)) return [];
+    const marketId = cheapestBuyQuoteId(this.marketQuotes);
     if (!marketId) return [];
     const quote = Number(this.marketQuotes[marketId]) || 100;
     const fee = Math.max(1, Math.ceil(quote * MARKET_FEE_RATE));
@@ -609,17 +954,10 @@ const botApi = {
   },
 
   botCasinoCandidate(player) {
-    if (!this.settings.casino) return [];
-    if ((player.casinoBetsThisRound || 0) >= 1) return [];
-    // EV-negative tables are chaos-only flavor, and only when cash-strong:
-    // broke bots must preserve every dollar for rent survival.
-    if (player.personality !== 'chaos') return [];
-    if (Number(player.cash || 0) < Number(this.settings.startingCash || 1500) * 0.35) return [];
-    // Two doubles already: jail looms, keep cash liquid for the missed turn.
-    if (Number(this.consecutiveDoubles || 0) >= 2) return [];
+    if (!casinoStakesAllowed(this, player)) return [];
+    if (!casinoCashReady(this, player)) return [];
     const spec = BOT_CASINO_SPECS[player.personality] || BOT_CASINO_SPECS.chaos;
-    if (this.hasLoanBackedCash?.(player)) return [];
-    const entryFee = Number(this.casinoLimits?.().entryFee) || 0;
+    const entryFee = casinoEntryFee(this);
     const stake = Math.min(20, Math.max(1, Math.floor(player.cash * spec.stakeRate)));
     if (player.cash < stake + entryFee) return [];
     return [{

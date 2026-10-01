@@ -4,6 +4,7 @@ import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import { loadJson, writeJson } from './storeIO.js';
+import { isNonPublicIpv4, isNonPublicIpv6 } from './ipAllowlist.js';
 
 export const PROVIDER_PROTOCOLS = Object.freeze(['auto', 'chat', 'responses']);
 export const PROVIDER_CONFIG_VERSION = 1;
@@ -38,63 +39,6 @@ function slugFromLabel(label) {
   return providerId(label || 'provider').replace(/^-+|-+$/g, '').slice(0, MAX_ID_LENGTH) || 'provider';
 }
 
-function isNonPublicIpv4(host) {
-  const [a, b, c] = host.split('.').map(Number);
-  return a === 0
-    || a === 10
-    || a === 127
-    || a >= 224
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || (a === 192 && b === 0 && (c === 0 || c === 2))
-    || (a === 192 && b === 88 && c === 99)
-    || (a === 198 && (b === 18 || b === 19))
-    || (a === 198 && b === 51 && c === 100)
-    || (a === 203 && b === 0 && c === 113);
-}
-
-function ipv6Words(host) {
-  let address = host;
-  if (address.includes('.')) {
-    const separator = address.lastIndexOf(':');
-    const ipv4 = address.slice(separator + 1);
-    if (separator < 0 || net.isIP(ipv4) !== 4) return null;
-    const [a, b, c, d] = ipv4.split('.').map(Number);
-    address = `${address.slice(0, separator)}:${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
-  }
-  const halves = address.split('::');
-  if (halves.length > 2) return null;
-  const left = halves[0] ? halves[0].split(':').map(word => Number.parseInt(word, 16)) : [];
-  const right = halves.length === 2 && halves[1] ? halves[1].split(':').map(word => Number.parseInt(word, 16)) : [];
-  const missing = 8 - left.length - right.length;
-  if ((halves.length === 1 && missing !== 0) || (halves.length === 2 && missing < 1)) return null;
-  return [...left, ...Array(missing).fill(0), ...right];
-}
-
-function ipv4FromIpv6(words) {
-  return [words[6] >> 8, words[6] & 0xff, words[7] >> 8, words[7] & 0xff].join('.');
-}
-
-function isNonPublicIpv6(host) {
-  if (host === '::' || host === '::1') return true;
-  const words = ipv6Words(host);
-  if (!words) return true;
-  const ipv4Mapped = words.slice(0, 5).every(word => word === 0) && words[5] === 0xffff;
-  if (ipv4Mapped) return isNonPublicIpv4(ipv4FromIpv6(words));
-  // Deprecated IPv4-compatible addresses are not valid public destinations.
-  if (words.slice(0, 6).every(word => word === 0)) return true;
-  if ((words[0] & 0xfe00) === 0xfc00) return true; // unique-local fc00::/7
-  if ((words[0] & 0xffc0) === 0xfe80) return true; // link-local fe80::/10
-  if ((words[0] & 0xffc0) === 0xfec0) return true; // deprecated site-local fec0::/10
-  if ((words[0] & 0xff00) === 0xff00) return true; // multicast ff00::/8
-  if ((words[0] & 0xe000) !== 0x2000) return true; // only global-unicast 2000::/3 remains
-  if (words[0] === 0x2001 && (words[1] <= 0x01ff || words[1] === 0x0db8)) return true;
-  if ([0x2002, 0x3fff].includes(words[0])) return true; // 6to4 and documentation ranges
-  return false;
-}
-
 function isPrivateHost(hostname) {
   const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
   if (PRIVATE_HOSTS.has(host) || host.endsWith('.localhost')) return true;
@@ -107,23 +51,42 @@ function isPrivateHost(hostname) {
 
 async function validateProviderResolution(value, { resolveHost = dns.lookup, allowPrivateEndpoints = false } = {}) {
   const url = new URL(String(value));
-  const hostname = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
+  const hostname = providerHostname(url.hostname);
   if (!allowPrivateEndpoints && isPrivateHost(hostname)) {
     throw new ProviderConfigError('Private or link-local provider endpoints require explicit opt-in.', 'BASE_URL_PRIVATE_HOST');
   }
   if (net.isIP(hostname)) return { hostname, addresses: [hostname] };
   const records = await resolveHost(hostname, { all: true, verbatim: true });
   if (!Array.isArray(records) || records.length === 0) throw new Error('Provider hostname did not resolve.');
-  const addresses = [];
-  for (const record of records) {
-    const address = typeof record === 'string' ? record : record?.address;
-    const family = net.isIP(address);
-    if (!family || (record?.family && record.family !== family) || (!allowPrivateEndpoints && isPrivateHost(address))) {
-      throw new ProviderConfigError('Provider hostname resolves to a private or invalid address.', 'BASE_URL_PRIVATE_HOST');
-    }
-    addresses.push(address);
-  }
+  const addresses = records.map(record => providerResolvedAddress(record, allowPrivateEndpoints));
   return { hostname, addresses };
+}
+
+function providerHostname(hostname) {
+  return hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
+}
+
+function providerResolvedAddress(record, allowPrivateEndpoints) {
+  const address = typeof record === 'string' ? record : record?.address;
+  const error = resolvedAddressError(address, record, allowPrivateEndpoints);
+  if (error) throw error;
+  return address;
+}
+
+function resolvedAddressError(address, record, allowPrivateEndpoints) {
+  const family = net.isIP(address);
+  if (!family) return invalidResolvedAddressError();
+  if (declaredAddressFamilyMismatch(record, family)) return invalidResolvedAddressError();
+  if (!allowPrivateEndpoints && isPrivateHost(address)) return invalidResolvedAddressError();
+  return null;
+}
+
+function declaredAddressFamilyMismatch(record, family) {
+  return Boolean(record?.family) && record.family !== family;
+}
+
+function invalidResolvedAddressError() {
+  return new ProviderConfigError('Provider hostname resolves to a private or invalid address.', 'BASE_URL_PRIVATE_HOST');
 }
 
 function pinnedLookup(addresses) {
@@ -140,19 +103,14 @@ function pinnedLookup(addresses) {
 
 function pinnedProviderRequest(input, options = {}, destination) {
   const url = new URL(String(input));
-  const transport = url.protocol === 'https:' ? https : url.protocol === 'http:' ? http : null;
-  if (!transport || !destination?.addresses?.length) {
-    return Promise.reject(new ProviderConfigError('Provider request destination is invalid.', 'BASE_URL_INVALID'));
-  }
-  if (typeof options.body === 'function' || (options.body && typeof options.body !== 'string' && !Buffer.isBuffer(options.body) && !(options.body instanceof Uint8Array))) {
-    return Promise.reject(new ProviderConfigError('Provider request body is unsupported.', 'REQUEST_BODY_INVALID'));
-  }
-  const headers = options.headers instanceof Headers
-    ? Object.fromEntries(options.headers.entries())
-    : options.headers;
+  const transport = pinnedTransport(url);
+  const setupError = pinnedRequestError(transport, options, destination);
+  if (setupError) return Promise.reject(setupError);
+  const headers = pinnedRequestHeaders(options.headers);
 
   return new Promise((resolve, reject) => {
     let request;
+    const destroy = reason => request.destroy(reason);
     try {
       request = transport.request(url, {
         method: options.method || 'GET',
@@ -160,33 +118,7 @@ function pinnedProviderRequest(input, options = {}, destination) {
         signal: options.signal,
         lookup: pinnedLookup(destination.addresses),
         maxHeaderSize: 16 * 1024,
-      }, response => {
-        const declaredSize = Number(response.headers['content-length']);
-        if (Number.isFinite(declaredSize) && declaredSize > MAX_PROVIDER_RESPONSE_BYTES) {
-          request.destroy(new Error('Provider response exceeded the size limit.'));
-          return;
-        }
-        const chunks = [];
-        let receivedBytes = 0;
-        response.on('data', chunk => {
-          receivedBytes += chunk.length;
-          if (receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
-            request.destroy(new Error('Provider response exceeded the size limit.'));
-            return;
-          }
-          chunks.push(chunk);
-        });
-        response.on('aborted', () => request.destroy(new Error('Provider response ended prematurely.')));
-        response.on('end', () => {
-          try {
-            const status = Number(response.statusCode);
-            const body = [204, 205, 304].includes(status) ? null : Buffer.concat(chunks);
-            resolve(new Response(body, { status, headers: response.headers }));
-          } catch (error) {
-            reject(error);
-          }
-        });
-      });
+      }, response => consumeProviderResponse(response, resolve, reject, destroy));
     } catch (error) {
       reject(error);
       return;
@@ -195,6 +127,62 @@ function pinnedProviderRequest(input, options = {}, destination) {
     if (options.body !== undefined && options.body !== null) request.write(options.body);
     request.end();
   });
+}
+
+function pinnedTransport(url) {
+  if (url.protocol === 'https:') return https;
+  if (url.protocol === 'http:') return http;
+  return null;
+}
+
+function pinnedRequestError(transport, options, destination) {
+  if (!transport) return new ProviderConfigError('Provider request destination is invalid.', 'BASE_URL_INVALID');
+  if (!destination?.addresses?.length) return new ProviderConfigError('Provider request destination is invalid.', 'BASE_URL_INVALID');
+  if (unsupportedRequestBody(options.body)) return new ProviderConfigError('Provider request body is unsupported.', 'REQUEST_BODY_INVALID');
+  return null;
+}
+
+function unsupportedRequestBody(body) {
+  if (typeof body === 'function') return true;
+  if (!body) return false;
+  if (typeof body === 'string') return false;
+  if (Buffer.isBuffer(body)) return false;
+  return !(body instanceof Uint8Array);
+}
+
+function pinnedRequestHeaders(headers) {
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+  return headers;
+}
+
+function consumeProviderResponse(response, resolve, reject, destroy) {
+  const declaredSize = Number(response.headers['content-length']);
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_PROVIDER_RESPONSE_BYTES) {
+    destroy(new Error('Provider response exceeded the size limit.'));
+    return;
+  }
+  const chunks = [];
+  let receivedBytes = 0;
+  response.on('data', chunk => {
+    receivedBytes += chunk.length;
+    if (receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
+      destroy(new Error('Provider response exceeded the size limit.'));
+      return;
+    }
+    chunks.push(chunk);
+  });
+  response.on('aborted', () => destroy(new Error('Provider response ended prematurely.')));
+  response.on('end', () => finishProviderResponse(response, chunks, resolve, reject));
+}
+
+function finishProviderResponse(response, chunks, resolve, reject) {
+  try {
+    const status = Number(response.statusCode);
+    const body = [204, 205, 304].includes(status) ? null : Buffer.concat(chunks);
+    resolve(new Response(body, { status, headers: response.headers }));
+  } catch (error) {
+    reject(error);
+  }
 }
 
 async function safePinnedProviderFetch(input, options, { resolveHost, allowPrivateEndpoints, requestImpl }) {
@@ -216,15 +204,38 @@ export function detectProtocolFromUrl(value) {
 export function normalizeProviderUrl(value, { production = false, allowPrivateEndpoints = !production } = {}) {
   const raw = text(value, '', MAX_URL_LENGTH);
   if (!raw) throw new ProviderConfigError('A provider base URL is required.', 'BASE_URL_REQUIRED');
-  let url;
-  try { url = new URL(raw); } catch { throw new ProviderConfigError('Enter a valid HTTP or HTTPS provider URL.', 'BASE_URL_INVALID'); }
-  if (!['http:', 'https:'].includes(url.protocol)) throw new ProviderConfigError('Provider URL must use HTTP or HTTPS.', 'BASE_URL_PROTOCOL');
-  if (url.username || url.password) throw new ProviderConfigError('Provider URL must not include embedded credentials.', 'BASE_URL_CREDENTIALS');
-  if (url.search || url.hash) throw new ProviderConfigError('Provider URL must not include a query string or fragment.', 'BASE_URL_QUERY');
-  if (production && url.protocol !== 'https:') throw new ProviderConfigError('HTTPS is required for provider URLs in production.', 'BASE_URL_HTTPS_REQUIRED');
+  const url = parseProviderUrl(raw);
+  assertProviderUrlShape(url, production);
   if (!allowPrivateEndpoints && isPrivateHost(url.hostname)) throw new ProviderConfigError('Private or link-local provider endpoints require explicit opt-in.', 'BASE_URL_PRIVATE_HOST');
   url.pathname = url.pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
   return url.toString().replace(/\/$/, '');
+}
+
+function parseProviderUrl(raw) {
+  try {
+    return new URL(raw);
+  } catch {
+    throw new ProviderConfigError('Enter a valid HTTP or HTTPS provider URL.', 'BASE_URL_INVALID');
+  }
+}
+
+function assertProviderUrlShape(url, production) {
+  assertProviderUrlProtocol(url);
+  assertProviderUrlCredentials(url);
+  assertProviderUrlQuery(url);
+  if (production && url.protocol !== 'https:') throw new ProviderConfigError('HTTPS is required for provider URLs in production.', 'BASE_URL_HTTPS_REQUIRED');
+}
+
+function assertProviderUrlProtocol(url) {
+  if (!['http:', 'https:'].includes(url.protocol)) throw new ProviderConfigError('Provider URL must use HTTP or HTTPS.', 'BASE_URL_PROTOCOL');
+}
+
+function assertProviderUrlCredentials(url) {
+  if (url.username || url.password) throw new ProviderConfigError('Provider URL must not include embedded credentials.', 'BASE_URL_CREDENTIALS');
+}
+
+function assertProviderUrlQuery(url) {
+  if (url.search || url.hash) throw new ProviderConfigError('Provider URL must not include a query string or fragment.', 'BASE_URL_QUERY');
 }
 
 export function deriveProviderEndpoint(baseUrl, protocol = 'chat') {
@@ -369,25 +380,49 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
   function upsert(input = {}) {
     const existing = input.id ? data.profiles[providerId(input.id)] : null;
     const normalized = normalizeProviderConfig({ ...existing, ...input }, { production, allowPrivateEndpoints });
+    const apiKey = resolveUpsertApiKey(input, existing);
+    const changed = profileConnectionChanged(existing, normalized);
+    const record = buildProfileRecord(existing, normalized, apiKey, changed);
+    data.profiles[normalized.id] = record;
+    persist();
+    return redactProviderConfig(record);
+  }
+
+  function resolveUpsertApiKey(input, existing) {
     const suppliedKey = text(input.apiKey, '', 2_000);
     const previous = existing ? internal(existing.id) : null;
     const apiKey = suppliedKey || previous?.apiKey || '';
     if (!apiKey) throw new ProviderConfigError('An API key is required for a provider profile.', 'API_KEY_REQUIRED');
+    return apiKey;
+  }
+
+  function profileConnectionChanged(existing, normalized) {
+    if (!existing) return true;
+    if (existing.baseUrl !== normalized.baseUrl) return true;
+    if (existing.model !== normalized.model) return true;
+    return existing.protocol !== normalized.protocol;
+  }
+
+  function buildProfileRecord(existing, normalized, apiKey, changed) {
     const now = new Date().toISOString();
-    const changed = !existing || existing.baseUrl !== normalized.baseUrl || existing.model !== normalized.model || existing.protocol !== normalized.protocol;
     const record = {
       ...normalized,
       keyCipher: durable ? encryptApiKey(apiKey, masterKey) : null,
       apiKey: durable ? undefined : apiKey,
-      detectedProtocol: changed ? null : existing.detectedProtocol || null,
-      lastTest: changed ? null : safeTestResult(existing.lastTest),
+      ...profileTestState(existing, changed),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
     if (!durable) delete record.keyCipher;
-    data.profiles[normalized.id] = record;
-    persist();
-    return redactProviderConfig(record);
+    return record;
+  }
+
+  function profileTestState(existing, changed) {
+    if (changed) return { detectedProtocol: null, lastTest: null };
+    return {
+      detectedProtocol: existing.detectedProtocol || null,
+      lastTest: safeTestResult(existing.lastTest),
+    };
   }
 
   function activate(id) {
@@ -463,18 +498,41 @@ function probePayload(protocol, model) {
 }
 
 export function extractProviderText(payload, protocol = 'chat') {
-  if (protocol === 'responses') {
-    if (typeof payload?.output_text === 'string') return payload.output_text;
-    const output = Array.isArray(payload?.output) ? payload.output : [];
-    const textParts = output.flatMap(item => Array.isArray(item?.content) ? item.content : [])
-      .map(part => typeof part?.text === 'string' ? part.text : '')
-      .filter(Boolean);
-    return textParts.join('\n');
-  }
-  const content = payload?.choices?.[0]?.message?.content;
+  if (protocol === 'responses') return extractResponsesText(payload);
+  return extractChatText(payload);
+}
+
+function extractResponsesText(payload) {
+  if (typeof payload?.output_text === 'string') return payload.output_text;
+  return responsesTextParts(payload).join('\n');
+}
+
+function responsesTextParts(payload) {
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  return output.flatMap(item => responseContentParts(item))
+    .map(part => responsePartText(part))
+    .filter(Boolean);
+}
+
+function responseContentParts(item) {
+  if (Array.isArray(item?.content)) return item.content;
+  return [];
+}
+
+function responsePartText(part) {
+  if (typeof part?.text !== 'string') return '';
+  return part.text;
+}
+
+function extractChatText(payload) {
+  const content = chatMessageContent(payload);
   if (typeof content === 'string') return content;
-  if (Array.isArray(content)) return content.map(part => typeof part?.text === 'string' ? part.text : '').filter(Boolean).join('\n');
-  return '';
+  if (!Array.isArray(content)) return '';
+  return content.map(part => responsePartText(part)).filter(Boolean).join('\n');
+}
+
+function chatMessageContent(payload) {
+  return payload?.choices?.[0]?.message?.content;
 }
 
 function classifyProbeFailure(status) {
@@ -538,13 +596,32 @@ export async function probeProvider(config, fetchImpl = globalThis.fetch, now = 
   return { ok: false, protocol: null, reason: 'unsupported', latencyMs: Math.max(0, now() - startedAt), testedAt: new Date().toISOString() };
 }
 
+function envProviderApiKey(env) {
+  return text(env.POORUP_AI_API_KEY || env.DEEPSEEK_API_KEY, '', 2_000);
+}
+
+function envProviderBaseUrl(env) {
+  return text(env.POORUP_AI_BASE_URL || env.DEEPSEEK_API_URL || '', '', MAX_URL_LENGTH);
+}
+
+function environmentProviderInput(env, baseUrl, apiKey) {
+  return {
+    id: 'environment',
+    label: 'Environment default',
+    baseUrl,
+    model: env.POORUP_AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+    protocol: env.POORUP_AI_PROTOCOL || env.DEEPSEEK_API_FORMAT || 'auto',
+    apiKey,
+  };
+}
+
 function envProfile(env = process.env, production = false) {
-  const apiKey = text(env.POORUP_AI_API_KEY || env.DEEPSEEK_API_KEY, '', 2_000);
-  const baseUrl = text(env.POORUP_AI_BASE_URL || env.DEEPSEEK_API_URL || '', '', MAX_URL_LENGTH);
+  const apiKey = envProviderApiKey(env);
+  const baseUrl = envProviderBaseUrl(env);
   if (!apiKey || !baseUrl) return null;
   try {
     return {
-      ...normalizeProviderConfig({ id: 'environment', label: 'Environment default', baseUrl, model: env.POORUP_AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-v4-flash', protocol: env.POORUP_AI_PROTOCOL || env.DEEPSEEK_API_FORMAT || 'auto', apiKey }, { production, allowPrivateEndpoints: !production || env.POORUP_AI_ALLOW_PRIVATE === 'true' }),
+      ...normalizeProviderConfig(environmentProviderInput(env, baseUrl, apiKey), { production, allowPrivateEndpoints: !production || env.POORUP_AI_ALLOW_PRIVATE === 'true' }),
       apiKey,
       source: 'environment',
       readOnly: true,
@@ -619,18 +696,25 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
     return profiles;
   }
 
+  function activePublicStatus() {
+    const publicActive = store?.activePublic?.();
+    if (publicActive) return { ...publicActive, source: activeSource };
+    if (environmentProfile) return redactProviderConfig(environmentProfile);
+    return null;
+  }
+
   initialize();
   return Object.freeze({
     activate,
-    active: () => {
-      const publicActive = store?.activePublic?.();
-      if (publicActive) return { ...publicActive, source: activeSource };
-      return environmentProfile ? redactProviderConfig(environmentProfile) : null;
-    },
+    active: activePublicStatus,
     initialize,
     list,
     remove,
-    status: () => ({ active: store?.activePublic?.() ? { ...store.activePublic(), source: activeSource } : environmentProfile ? redactProviderConfig(environmentProfile) : null, provider: typeof advisor?.getHealth === 'function' ? advisor.getHealth() : null, storage: store?.snapshot?.() || null }),
+    status: () => ({
+      active: activePublicStatus(),
+      provider: typeof advisor?.getHealth === 'function' ? advisor.getHealth() : null,
+      storage: store?.snapshot?.() || null,
+    }),
     test,
     upsert,
   });
