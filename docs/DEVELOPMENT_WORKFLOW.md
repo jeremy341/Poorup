@@ -44,17 +44,19 @@ Responsibilities, one line each:
 - **GitHub Actions** — does the code actually run? `npm run lint`,
   `npm run lint:client`, and the unique suites in `scripts/test-manifest.mjs`.
   Which jobs run depends on the PR's target branch (see **CI tiers** below).
-  On the heavy tier CI runs four isolated Node-test shards, merges their c8
-  V8-coverage data once, shards the six-viewport Playwright suite three ways,
-  and merges the browser reports. The old repeated coverage-runner pass and
-  separate duplicate `server.test.js` invocation are gone; the unique wire
-  test remains in the manifest. A 10-game deterministic bot smoke runs whenever
-  the manifest `core` group runs, because `server/bot-simulation.test.js` is in
-  that group and `scripts/run-test-manifest.mjs` forces
-  `POORUP_BOT_SIMULATION_COUNT=10`. The 1,000-game safety campaign runs **only**
-  nightly (`bot-campaign.yml`, `schedule: cron '0 3 * * *'`) and on manual
-  `workflow_dispatch`; there is no PR-triggered campaign job, and the workflow's
-  hardcoded `ref` is `main`.
+  On the heavy tier CI runs four isolated Node-test shards (four suites in
+  parallel inside each shard), merges their c8 V8-coverage data once, and runs
+  the six-viewport Playwright suite **scaled to the diff**: three shards for
+  UI-affecting changes, a single fast `@ui-smoke` shard for server-only
+  changes, then merges the browser reports. The old repeated coverage-runner
+  pass and separate duplicate `server.test.js` invocation are gone; the unique
+  wire test remains in the manifest. A 10-game deterministic bot smoke runs
+  whenever the manifest `core` group runs, split across the shards
+  (`POORUP_BOT_SIMULATION_COUNT=ceil(10/N)` with a per-shard start index), so
+  no single shard pays for all ten games. The 1,000-game safety campaign runs
+  **only** nightly (`bot-campaign.yml`, `schedule: cron '0 3 * * *'`) and on
+  manual `workflow_dispatch`; there is no PR-triggered campaign job, and the
+  workflow's hardcoded `ref` is `main`.
 - **Copilot code review** — logic/bug-oriented AI review of the diff. Cannot
   approve or merge; treats its comments as signals, not orders.
 - **CodeScene** — maintainability: complexity, duplicated logic, temporal
@@ -64,12 +66,13 @@ Responsibilities, one line each:
   `scripts/codescene-delta.ps1` is a **manual local tool** — no workflow invokes
   it. `cs review <file>` (CodeScene CLI) gives the same scores locally before
   you push. See `docs/CODE-HEALTH.md`.
-- **Codecov** — overall coverage trend + per-PR patch coverage. The upload step
-  passes `token: ${{ secrets.CODECOV_TOKEN }}` and runs with
+- **Codecov** — overall coverage trend + per-PR patch coverage. The upload
+  runs without a token (the repository is public) and with
   `fail_ci_if_error: false`, so a failed upload never fails CI. Patch status is
   `informational: true` (never blocks); the project target is `auto` with a
   `threshold: 2%` (see `codecov.yml`). Codecov is **not** a required status
-  check.
+  check. On the light tier the upload runs only when `server/**` changed —
+  client-only PRs would otherwise report unchanged server numbers.
 - **Human review** — final decision. Nothing merges without it.
 - **Sentry** — post-deployment runtime errors, not a review gate.
 
@@ -100,16 +103,18 @@ table as the contract, not the line numbers:
 
 | Tier        | Runs for                                                       | Coverage |
 |-------------|----------------------------------------------------------------|----------|
-| **light**   | PRs targeting `development` that touch code, and pushes to the lane branches | the everyday check set for feature work, including merged coverage and a Codecov upload |
+| **light**   | PRs targeting `development` that touch code, and pushes to the lane branches | the everyday check set for feature work; coverage merge/upload runs only when `server/**` changed |
 | **light-slim** | PRs targeting `development` that touch only docs/markdown   | lint, manifest validation, and `boot smoke` only — no test shards, no coverage, no browser |
-| **heavy**   | PR `development` → `testing`                                   | full 4-shard manifest + merged coverage (Codecov upload) + 3 Playwright browser shards and the merged browser report |
+| **heavy**   | PR `development` → `testing`                                   | full 4-shard manifest + merged coverage (Codecov upload) + Playwright browser QA scaled to the diff: 3 shards for UI-affecting changes, one `@ui-smoke` shard for server-only changes |
 | **fast**    | PR `testing` → `main`                                          | `boot smoke` + lint + a tree-identity check that the promotion PR carries the same tree as the source lane |
 
 Path filtering is done inside the `plan` job (dorny/paths-filter), never with
 `paths-ignore` on the `pull_request` trigger — a skipped trigger would leave
-required checks pending forever. The release tiers deliberately ignore the
-diff: PRs to `testing` always run heavy and PRs to `main` always run fast,
-whatever the PR touches.
+required checks pending forever. The release tiers keep every check name
+reporting: PRs to `testing` always run heavy and PRs to `main` always run
+fast, whatever the PR touches. Only the browser stage scales with the diff —
+the `browser QA` check name reports in both modes, so a server-only
+promotion never reaches `testing` without UI-liveness evidence.
 
 Because `test` and `boot smoke` are the required contexts on `main`, those two
 check names must still be reported by every PR that targets `main`; the fast
@@ -121,11 +126,11 @@ Required status checks today:
   **`boot smoke`**. `browser QA`, `coverage`, `lint and audit`, `codecov/*`,
   and `CodeScene Code Health Review (main)` are **not** required — they are
   signals, not gates.
-- On `testing` and `development`: **no required checks are configured yet**.
-  Adding required-check rulesets for those two lanes — plus a merge queue on
-  `testing` so heavy-tier checks run against the merge result — is planned,
-  not current behavior; until then, merging there is enforced only by the
-  human-review step below.
+- On `development` (ruleset "Lane gates (development)"): **`test`** and
+  **`boot smoke`**, PRs required, direct pushes rejected.
+- On `testing` (classic branch protection): **`test`**, **`boot smoke`**, and
+  **`browser QA`**, with branches required to be up to date, PRs required,
+  and admin enforcement.
 
 ### Gate configuration on the lanes (current state)
 
@@ -140,16 +145,17 @@ side is queue-ready either way:
   date, required checks **`test`**, **`boot smoke`**, and **`browser QA`**;
   PRs required; admin-enforced.
 
-**Merge queue status:** the queue is not available on this account's plan
-(the UI toggle does not appear), so `testing` runs in the documented
-fallback — checks-only mode. The fallback preserves the queue's core
-guarantee: `strict` (require branches up to date) forces every PR head to
-contain the latest `testing` tip before it can merge, so required checks
-always ran on content that includes the base. Operationally that means the
-promotion PR from `development` must be preceded by a lane-sync PR
-(a branch off the `testing` tip merged into `development`; it carries no
-file changes beyond ancestry plus any docs update, so it runs the light or
-light-slim tier).
+**Merge queue status:** the "Require merge queue" section is absent from this
+repository's branch protection page (user-owned repository on this account's
+plan — the setting is not offered, with or without GitHub Pro), so `testing`
+runs in the documented fallback — checks-only mode. The fallback preserves
+the queue's core guarantee: `strict` (require branches up to date) forces
+every PR head to contain the latest `testing` tip before it can merge, so
+required checks always ran on content that includes the base. Operationally
+that means the promotion PR from `development` must be preceded by a
+lane-sync PR (a branch off the `testing` tip merged into `development`; it
+carries no file changes beyond ancestry plus any docs update, so it runs the
+light or light-slim tier).
 
 The workflow already triggers on `merge_group` events and the `plan` job
 maps a merge group targeting `testing` to the heavy tier, so if the queue
@@ -166,14 +172,30 @@ Test shards are **time-balanced**, not count-balanced. `scripts/run-test-manifes
 packs suites into shards with a longest-first, least-loaded split driven by
 `qa/test-timings.json` (the checked-in per-suite duration baseline); when the
 baseline is missing it falls back to the old round-robin split. The manifest
-test asserts that shards finish within 35% of each other and fails loudly if
+test asserts that shards finish within 60% of each other and fails loudly if
 the baseline goes stale or missing.
 
-- Refresh the baseline after dependency or suite changes: `npm run timings:refresh`
-  (runs the full manifest once and merges successful suite timings).
+- The baseline is built from **real CI runner timings**, not local machines:
+  download the `test-timings-shard-*` artifacts from the latest heavy run and
+  run `node scripts/import-ci-timings.mjs <dir>` (values merge with
+  `max(existing, imported)`). Local `npm run timings:refresh` remains the
+  fallback for brand-new suites.
+- `server/bot-simulation.test.js` is the one oversized suite; the runner
+  splits its 10-game smoke window across shards (`COUNT=ceil(10/N)`,
+  `START_INDEX=(shard-1)*count+1`, seeds derive from a linear index so the
+  coverage is identical to the unsplit run). Unsharded local runs keep all
+  10 games; `npm run test:bot-campaign` still runs the full 1,000 directly.
+- Suites run **four at a time inside each shard** (`POORUP_TEST_PARALLELISM=4`
+  in CI). Suites are independent processes with isolated stores and distinct
+  `PORT`s; `POORUP_TEST_PARALLELISM=1` restores the sequential, live-output
+  behavior. Measured locally: full manifest 72s summed -> 20.7s wall with
+  identical pass/fail results. The browser suite keeps `--workers=2` in CI:
+  measured against 4-core runners, four workers oversubscribe the runner and
+  the browser shards regressed from ~3.5 min to ~12 min, while two workers
+  leaves headroom for the Node server.
 - The `shard timing report` job prints per-shard durations, the slowest ten
   suites, and the real CI skew to the run summary; it emits a `::warning::`
-  when real skew exceeds 1.5× — that is the signal to refresh the baseline.
+  when real skew exceeds 1.5× — that is the signal to re-import the baseline.
 - Per-suite wall time is capped (default 300s, override with
   `POORUP_SUITE_TIMEOUT_MS`), so a hung suite fails in minutes instead of
   eating the 25-minute shard budget.

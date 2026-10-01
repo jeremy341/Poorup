@@ -35,6 +35,10 @@ jobs:
       shards: ${{ steps.set.outputs.shards }}
       shard_total: ${{ steps.set.outputs.shard_total }}
       group: ${{ steps.set.outputs.group }}
+      browser_mode: ${{ steps.set.outputs.browser_mode }}
+      browser_shards: ${{ steps.set.outputs.browser_shards }}
+      browser_shard_total: ${{ steps.set.outputs.browser_shard_total }}
+      server_changed: ${{ steps.set.outputs.server_changed }}
     steps:
       - id: changes
         # In-workflow path filtering keeps every check name reporting; a
@@ -57,6 +61,14 @@ jobs:
               - 'package-lock.json'
               - 'eslint.config.js'
               - 'codecov.yml'
+            frontend:
+              - 'public/**'
+              - 'qa/**'
+              - 'index.html'
+              - 'package.json'
+              - 'package-lock.json'
+            server:
+              - 'server/**'
       - id: set
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -64,11 +76,16 @@ jobs:
           MERGE_GROUP_BASE: ${{ github.event.merge_group.base_ref }}
           DOCS_CHANGED: ${{ steps.changes.outputs.docs }}
           CODE_CHANGED: ${{ steps.changes.outputs.code }}
+          FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend }}
+          SERVER_CHANGED: ${{ steps.changes.outputs.server }}
         run: |
           tier=light
           shards='[1, 2]'
           shard_total=2
           group=core
+          browser_mode=none
+          browser_shards='[1]'
+          browser_shard_total=1
           docs_only=false
           if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
             docs_only=true
@@ -83,6 +100,9 @@ jobs:
                 shards='[1, 2, 3, 4]'
                 shard_total=4
                 group=full
+                browser_mode=full
+                browser_shards='[1, 2, 3]'
+                browser_shard_total=3
                 ;;
               main) tier=fast ;;
               *) tier=light ;;
@@ -91,11 +111,22 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             case "$BASE_REF" in
               testing)
-                # Release gates always run in full, whatever the diff touches.
+                # The promotion hop never drops browser coverage entirely:
+                # UI-affecting diffs get the full 3-shard suite, server-only
+                # diffs get a fast UI-liveness smoke shard.
                 tier=heavy
                 shards='[1, 2, 3, 4]'
                 shard_total=4
                 group=full
+                if [ "$FRONTEND_CHANGED" = "true" ]; then
+                  browser_mode=full
+                  browser_shards='[1, 2, 3]'
+                  browser_shard_total=3
+                else
+                  browser_mode=smoke
+                  browser_shards='[1]'
+                  browser_shard_total=1
+                fi
                 ;;
               main)
                 tier=fast
@@ -112,8 +143,12 @@ jobs:
             echo "shards=$shards"
             echo "shard_total=$shard_total"
             echo "group=$group"
+            echo "browser_mode=$browser_mode"
+            echo "browser_shards=$browser_shards"
+            echo "browser_shard_total=$browser_shard_total"
+            echo "server_changed=$SERVER_CHANGED"
           } >> "$GITHUB_OUTPUT"
-          echo "tier=$tier group=$group shards=$shards docs_only=$docs_only"
+          echo "tier=$tier group=$group shards=$shards browser_mode=$browser_mode docs_only=$docs_only server_changed=$SERVER_CHANGED"
 
   lint:
     name: lint and audit
@@ -127,7 +162,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=moderate
       - run: npm run lint
@@ -151,13 +192,24 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Run one deterministic manifest shard with server coverage
+        # Suites are independent processes with isolated stores and distinct
+        # ports, so shards run four at a time; POORUP_TEST_PARALLELISM=1 is
+        # the sequential fallback.
         run: >-
           npx c8 --temp-directory .nyc_output --include="server/**" --reporter=text
           node scripts/run-test-manifest.mjs --group=${{ needs.plan.outputs.group }}
           --shard=${{ matrix.shard }}/${{ needs.plan.outputs.shard_total }}
           --timings=.test-timings/shard-${{ matrix.shard }}.json
+        env:
+          POORUP_TEST_PARALLELISM: '4'
       - name: Upload raw V8 coverage for merge
         if: always()
         uses: actions/upload-artifact@v4
@@ -181,14 +233,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [plan, server-tests]
-    if: needs.plan.outputs.tier == 'light' || needs.plan.outputs.tier == 'heavy'
+    if: needs.plan.outputs.tier == 'heavy' || (needs.plan.outputs.tier == 'light' && needs.plan.outputs.server_changed == 'true')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download all test-shard coverage data
         uses: actions/download-artifact@v4
         with:
@@ -236,7 +294,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
       - name: The shipped package manifest parses
         run: node -e "JSON.parse(require('fs').readFileSync('package.json'))"
       - name: Server boots and serves the app shell
@@ -252,7 +316,7 @@ jobs:
           kill $SERVER_PID
 
   browser-shards:
-    name: browser QA shard ${{ matrix.shard }}/3
+    name: browser QA shard ${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     needs: [plan]
@@ -260,7 +324,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJson(needs.plan.outputs.browser_shards) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -272,7 +336,13 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Install Chromium and its system dependencies
         # Browsers are pinned by package-lock.json, so a cache hit means the
         # binaries and the runner's apt dependencies are already present.
@@ -287,7 +357,17 @@ jobs:
           done
           curl -fsS localhost:8099/ >/dev/null
       - name: Four-viewport UI and accessibility contract shard
-        run: npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/3 --reporter=blob
+        # Full mode: every spec, every viewport project, three shards. Smoke
+        # mode: the @ui-smoke critical checks on the landscape-tablet
+        # project, which is the only one where the live-game desk contract
+        # runs, so a server-only promotion still proves the UI boots and
+        # renders against the new server.
+        run: |
+          if [ "${{ needs.plan.outputs.browser_mode }}" = "smoke" ]; then
+            npm run test:browser -- --grep @ui-smoke --project=ipad-pro-11-landscape --workers=2 --reporter=blob
+          else
+            npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
+          fi
         env:
           POORUP_QA_BASE_URL: http://127.0.0.1:8099
       - name: Upload Playwright blob report
@@ -311,7 +391,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download Playwright shard reports
         uses: actions/download-artifact@v4
         with:
@@ -358,12 +444,15 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [plan, lint, server-tests, coverage, boot, browser, tree-check, ci-report]
+    # ci-report is observability and intentionally outside the gate: a report
+    # hiccup must never block a merge.
+    needs: [plan, lint, server-tests, coverage, boot, browser, tree-check]
     if: always()
     steps:
       - name: Tier-aware gate for the required test check
         run: |
           TIER="${{ needs.plan.outputs.tier }}"
+          SERVER_CHANGED="${{ needs.plan.outputs.server_changed }}"
           FAIL=0
 
           expect() {
@@ -381,16 +470,21 @@ jobs:
           }
 
           case "$TIER" in
-            light)      SERVER=required; COVERAGE=required; BROWSER=skipok; TREE=skipok; REPORT=required ;;
-            heavy)      SERVER=required; COVERAGE=required; BROWSER=required; TREE=skipok; REPORT=required ;;
-            light-slim) SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=skipok; REPORT=skipok ;;
-            fast)       SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=required; REPORT=skipok ;;
+            light)      SERVER=required; COVERAGE=required; BROWSER=skipok; TREE=skipok ;;
+            heavy)      SERVER=required; COVERAGE=required; BROWSER=required; TREE=skipok ;;
+            light-slim) SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=skipok ;;
+            fast)       SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=required ;;
             *)
               echo "::error::unknown or missing tier '$TIER'"
               FAIL=1
-              SERVER=skipok; COVERAGE=skipok; BROWSER=skipok; TREE=skipok; REPORT=skipok
+              SERVER=skipok; COVERAGE=skipok; BROWSER=skipok; TREE=skipok
               ;;
           esac
+          # Client-only PRs change no server code, so the server coverage
+          # merge would report the same numbers; skip it on the light tier.
+          if [ "$TIER" = "light" ] && [ "$SERVER_CHANGED" != "true" ]; then
+            COVERAGE=skipok
+          fi
 
           expect "pipeline tier" "${{ needs.plan.result }}" required
           expect "lint and audit" "${{ needs.lint.result }}" required
@@ -399,7 +493,6 @@ jobs:
           expect "coverage" "${{ needs.coverage.result }}" "$COVERAGE"
           expect "browser QA" "${{ needs.browser.result }}" "$BROWSER"
           expect "tree check" "${{ needs.tree-check.result }}" "$TREE"
-          expect "shard timing report" "${{ needs.ci-report.result }}" "$REPORT"
 
           if [ "$FAIL" -ne 0 ]; then
             echo "Tier gate FAILED for tier=$TIER"
