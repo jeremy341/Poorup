@@ -127,20 +127,38 @@ Required status checks today:
   not current behavior; until then, merging there is enforced only by the
   human-review step below.
 
-### Enabling the planned gates (requires GitHub settings, not code)
+### Gate configuration on the lanes (current state)
 
-Two ruleset changes are prepared for but not enabled by the repository itself:
+The repository rulesets/branch protection are API-configured; the workflow
+side is queue-ready either way:
 
-1. **Required checks on `development`** — add **`test`** and **`boot smoke`**
-   to the `development` ruleset. The light tier already reports both names on
-   every PR to `development`, so no workflow change is needed.
-2. **Merge queue on `testing`** — enable the queue with `test`, `boot smoke`,
-   and `browser QA` as required checks. The heavy tier reports all three on
-   PRs to `testing`, and the tier gate is the one job that decides skip vs.
-   required, so merge-queue groups get the same check names. The queue runs
-   checks against the merge result, which formalizes what the `tree check`
-   job already approximates on `main`. If a queue misbehaves, disable it and
-   fall back to required-checks-only; the workflow works in both modes.
+- **`main`** (ruleset "PR Review"): required checks **`test`** and
+  **`boot smoke`**; PRs required; commits cannot be pushed directly.
+- **`development`** (ruleset "Lane gates (development)"): required checks
+  **`test`** and **`boot smoke`**; PRs required; direct pushes rejected.
+- **`testing`** (classic branch protection): requires branches to be up to
+  date, required checks **`test`**, **`boot smoke`**, and **`browser QA`**;
+  PRs required; admin-enforced.
+
+**Merge queue status:** the queue is not available on this account's plan
+(the UI toggle does not appear), so `testing` runs in the documented
+fallback — checks-only mode. The fallback preserves the queue's core
+guarantee: `strict` (require branches up to date) forces every PR head to
+contain the latest `testing` tip before it can merge, so required checks
+always ran on content that includes the base. Operationally that means the
+promotion PR from `development` must be preceded by a lane-sync PR
+(a branch off the `testing` tip merged into `development`; it carries no
+file changes beyond ancestry plus any docs update, so it runs the light or
+light-slim tier).
+
+The workflow already triggers on `merge_group` events and the `plan` job
+maps a merge group targeting `testing` to the heavy tier, so if the queue
+ever becomes available on this plan, enabling it in the UI needs **zero**
+workflow changes. Fallback escape hatch: set "Require branches to be up to
+date" to false on `testing` to merge without the sync dance — safe only
+while every PR into `testing` comes from a lane whose tree contains
+`testing`'s content (the lane model), and always paired with the `tree
+check` on `main`.
 
 ### Sharding and the timing baseline
 

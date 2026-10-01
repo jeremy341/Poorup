@@ -3,6 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [main, development, testing]
+  # Merge-queue groups: the queue (when enabled on testing) runs checks on
+  # temporary gh-readonly-queue branches; without this trigger the required
+  # checks would never be reported and every queued merge would fail.
+  merge_group:
+    branches: [testing]
   push:
     branches: [main, development]
     # Pushes are never required checks; docs-only pushes do not need CI.
@@ -56,6 +61,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_ref }}
           DOCS_CHANGED: ${{ steps.changes.outputs.docs }}
           CODE_CHANGED: ${{ steps.changes.outputs.code }}
         run: |
@@ -66,6 +72,21 @@ jobs:
           docs_only=false
           if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
             docs_only=true
+          fi
+          if [ "$EVENT_NAME" = "merge_group" ]; then
+            # Merge-queue groups always run the full tier of their base lane;
+            # path filtering does not apply to queued merge results.
+            BASE_BRANCH="${MERGE_GROUP_BASE#refs/heads/}"
+            case "$BASE_BRANCH" in
+              testing)
+                tier=heavy
+                shards='[1, 2, 3, 4]'
+                shard_total=4
+                group=full
+                ;;
+              main) tier=fast ;;
+              *) tier=light ;;
+            esac
           fi
           if [ "$EVENT_NAME" = "pull_request" ]; then
             case "$BASE_REF" in
