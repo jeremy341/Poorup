@@ -219,6 +219,7 @@ function equityTransferContext(context) {
     validateTransferAmount,
     equityTransferCapacityError,
     validateTransferBuyerCash,
+    validateTransferBuyerTaint,
   ];
   for (const validate of validators) {
     const result = validate(context);
@@ -241,6 +242,19 @@ function validateTransferAmount(context) {
 
 function validateTransferBuyerCash(context) {
   if (context.buyer.cash < context.price) return { error: 'The buyer does not have enough cash for that transfer.' };
+  return null;
+}
+
+// Equity transfers are player contracts in every other sense (kind
+// 'equity-transfer', pendingPlayerContract obligation, settlement guards) —
+// the documented loan-taint scope "casino, contract, and market guards"
+// covers them, so loan-backed cash must not fund the purchase. Checked at
+// proposal, counters, and acceptance because settleEquityTransfer re-runs
+// this validator list.
+function validateTransferBuyerTaint(context) {
+  if (context.game.hasLoanBackedCash?.(context.buyer)) {
+    return { error: 'Loan-backed cash cannot fund equity transfers.' };
+  }
   return null;
 }
 

@@ -19,6 +19,7 @@ import { AVATAR_GRID_ERROR, isValidAvatarGrid, resolveFreeAppearanceColor } from
 import { GameState } from './gameLogic.js';
 import {
   boardVariantMeta,
+  OPTIONAL_SYSTEM_KEYS,
   resolveRuleset,
   safeBoardVariant,
   safePreset
@@ -135,6 +136,18 @@ function syncRulesetState(room) {
 
 function applyRulesetSetting(room, key, value) {
   if (RULESET_META_KEYS.includes(key)) {
+    if (!room.rulesetExplicit) {
+      // A legacy room's optional-system toggles live only in raw settings;
+      // the ruleset flow is about to overwrite them with preset defaults.
+      // Carry them forward as explicit overrides so the first meta-key write
+      // (the transition into the ruleset model) cannot silently strip
+      // bankLoans/casino/market/globalEvents the room was created with.
+      const overrides = new Map((room.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
+      OPTIONAL_SYSTEM_KEYS.forEach(optionalKey => {
+        if (room.settings[optionalKey] !== undefined) overrides.set(optionalKey, Boolean(room.settings[optionalKey]));
+      });
+      room.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
+    }
     room.rulesetExplicit = true;
     if (key === 'rulesetBase') room.rulesetBaseExplicit = true;
     if (key === 'rulesetPreset' && value !== 'custom') {
