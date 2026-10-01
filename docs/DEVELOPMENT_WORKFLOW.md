@@ -189,7 +189,10 @@ the baseline goes stale or missing.
   in CI). Suites are independent processes with isolated stores and distinct
   `PORT`s; `POORUP_TEST_PARALLELISM=1` restores the sequential, live-output
   behavior. Measured locally: full manifest 72s summed -> 20.7s wall with
-  identical pass/fail results.
+  identical pass/fail results. The browser suite keeps `--workers=2` in CI:
+  measured against 4-core runners, four workers oversubscribe the runner and
+  the browser shards regressed from ~3.5 min to ~12 min, while two workers
+  leaves headroom for the Node server.
 - The `shard timing report` job prints per-shard durations, the slowest ten
   suites, and the real CI skew to the run summary; it emits a `::warning::`
   when real skew exceeds 1.5× — that is the signal to re-import the baseline.
