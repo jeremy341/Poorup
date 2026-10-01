@@ -37,3 +37,7 @@ skills-lock.json
 *.sln
 *.sw?
 server/backups/
+.nyc_output/
+blob-report/
+playwright-report/
+.test-timings/

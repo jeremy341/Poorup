@@ -123,6 +123,12 @@ function expansionPositionRejection(game, player, operation) {
 }
 
 function expansionGuard(game, player, required, operation = 'open') {
+  // loanLogic.hasLoanBackedCash documents its scope as "casino, contract,
+  // and market guards" — the expansion ladder routes through this one guard,
+  // so a loan-backed borrower cannot fund margin, short, or option exposure.
+  if (player && game.hasLoanBackedCash?.(player)) {
+    return 'Loan-backed cash cannot fund margin, short, or option positions.';
+  }
   return expansionSessionRejection(game, player, required)
     || (player ? expansionTurnRejection(game, player) : null)
     || (player ? expansionPositionRejection(game, player, operation) : null);
@@ -390,7 +396,10 @@ function canOpenShort(game, player, canOpen) {
 }
 
 function canOpenOption(game, player, canOpen) {
-  return canOpen && complexityAllows(game, 'derivatives') && player.cash > 100;
+  // Without a server pricing policy every option order fails closed
+  // (OPTION_TERMS_SERVER_REQUIRED) — never advertise a candidate that
+  // cannot succeed.
+  return canOpen && complexityAllows(game, 'derivatives') && Boolean(game.optionPricingPolicy) && player.cash > 100;
 }
 
 function forceShortBuyIn(game, player, { id, position, quantity, inventory }) {
@@ -400,7 +409,10 @@ function forceShortBuyIn(game, player, { id, position, quantity, inventory }) {
   const quote = Number(game.marketQuotes?.[id]) || Number(position.entryQuote) || 0;
   const gross = quote * quantity;
   const fee = Math.max(1, Math.ceil(gross * 0.02));
-  const total = gross + fee;
+  // The accrued borrow fee must not vanish with the position: charge the
+  // prorated portion exactly as the voluntary cover path does.
+  const feePortion = Math.ceil(Number(position.borrowFee || 0) * (quantity / Math.max(1, Number(position.quantity) || 0)));
+  const total = gross + fee + feePortion;
   const collateral = Math.min(
     nonNegativeNumber(position.collateral),
     nonNegativeNumber(player.reservedCash)

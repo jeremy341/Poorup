@@ -529,20 +529,25 @@ function financingContractPickerHTML() {
   }).join("") + `</div>`;
 }
 
+function contractCollateralIndices(contract) {
+  if (Array.isArray(contract?.collateralTileIndices)) return contract.collateralTileIndices;
+  return contract?.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
+}
+
+function contractKindLabel(contract) {
+  const labels = { equity: "Property equity", hybrid: "Convertible note" };
+  return labels[contract.kind] || "Contract";
+}
+
 function financingContractTitle(contract) {
   const lender = contract.fromPlayerName || "PLAYER";
   const borrower = contract.toPlayerName || "PLAYER";
   if (contract.kind === "loan") {
-    const indices = Array.isArray(contract.collateralTileIndices)
-      ? contract.collateralTileIndices
-      : contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
-    const names = indices.map(index => financingPropertyTile(index)?.name).filter(Boolean);
+    const names = contractCollateralIndices(contract).map(index => financingPropertyTile(index)?.name).filter(Boolean);
     const label = names.length ? `Secured loan · ${names.join(", ")}` : "Unsecured loan";
     return `${label} · ${lender} funds ${borrower}`;
   }
-  const labels = { equity: "Property equity", hybrid: "Convertible note" };
-  const kind = labels[contract.kind] || "Contract";
-  return `${kind} · ${lender} funds ${borrower}`;
+  return `${contractKindLabel(contract)} · ${lender} funds ${borrower}`;
 }
 
 function financingRepayProgress(contract) {
@@ -564,8 +569,7 @@ function financingContractCopy(contract) {
   const kind = contract?.kind || contract;
   if (kind === "equity") return "The investor receives the agreed share of collected rent and sale proceeds.";
   if (kind === "hybrid") return "Repay before the cure turn ends. Past cure, the lender converts the agreed share instead of seizing collateral.";
-  const secured = Array.isArray(contract?.collateralTileIndices) ? contract.collateralTileIndices.length > 0 : contract?.collateralTileIndex != null;
-  if (!secured) return "The borrower repays the agreed total interest without pledging a deed as collateral.";
+  if (!contractCollateralIndices(contract).length) return "The borrower repays the agreed total interest without pledging a deed as collateral.";
   return "Every pledged deed stays with the borrower while payments are current. All selected deeds transfer on uncured default.";
 }
 
@@ -774,6 +778,22 @@ export function equityTransferPayload({ fromPlayerId, toPlayerId, contractId, sh
   };
 }
 
+function equityTransferFormValid(form, sharePct, maxShare, price) {
+  if (!form.reportValidity()) return false;
+  if (sharePct < 5) return false;
+  if (sharePct > maxShare) return false;
+  return price >= 1;
+}
+
+function equityTransferRequestId() {
+  if (typeof host.createRequestId === "function") return host.createRequestId("equity-transfer");
+  return `equity-transfer-${Date.now().toString(36)}`;
+}
+
+function setNodeDisabled(node, disabled) {
+  if (node) node.disabled = disabled;
+}
+
 function onEquityTransferSubmit(event) {
   const form = event.target.closest("[data-equity-transfer-form]");
   if (!form) return;
@@ -781,21 +801,21 @@ function onEquityTransferSubmit(event) {
   const sharePct = Number(form.elements.sharePct.value);
   const maxShare = Number(form.elements.sharePct.max);
   const price = Number(form.elements.price.value);
-  if (!form.reportValidity() || sharePct < 5 || sharePct > maxShare || price < 1) return;
+  if (!equityTransferFormValid(form, sharePct, maxShare, price)) return;
   const payload = equityTransferPayload({
     fromPlayerId: financingMyServerId(),
     toPlayerId: form.elements.toPlayerId.value,
     contractId: form.dataset.contractId,
     sharePct,
     price,
-    requestId: typeof host.createRequestId === "function" ? host.createRequestId("equity-transfer") : `equity-transfer-${Date.now().toString(36)}`,
+    requestId: equityTransferRequestId(),
   });
   const submit = form.querySelector('[type="submit"]');
-  if (submit) submit.disabled = true;
+  setNodeDisabled(submit, true);
   const statusNode = host.captureActionStatusNode(submit || form);
   host.emitServer("propose-equity-share-transfer", payload, response => {
     if (response?.success === false) {
-      if (submit) submit.disabled = false;
+      setNodeDisabled(submit, false);
       host.announceActionStatus(response.error || "The equity transfer offer could not be sent.", statusNode);
       return;
     }
@@ -900,6 +920,17 @@ function updateCollateralPickerLabel(picker) {
   trigger.setAttribute("aria-label", `Choose collateral deeds. ${selectedLabel}`);
 }
 
+function collateralTriggerOpenKey(event, trigger) {
+  if (event.target !== trigger) return false;
+  if (trigger.getAttribute("aria-expanded") === "true") return false;
+  return event.key === "Enter" || event.key === "ArrowDown";
+}
+
+function collateralTriggerCloseKey(event, trigger) {
+  if (event.key !== "Escape") return false;
+  return trigger.getAttribute("aria-expanded") === "true";
+}
+
 function bindCollateralPicker(card) {
   if (card.dataset.collateralPickerBound) return;
   card.addEventListener("click", (event) => {
@@ -917,12 +948,12 @@ function bindCollateralPicker(card) {
     const picker = event.target.closest?.("[data-collateral-root]");
     const trigger = picker?.querySelector("[data-collateral-trigger]");
     if (!trigger) return;
-    if (event.target === trigger && trigger.getAttribute("aria-expanded") !== "true" && ["Enter", "ArrowDown"].includes(event.key)) {
+    if (collateralTriggerOpenKey(event, trigger)) {
       event.preventDefault();
       setCollateralPickerOpen(picker, true);
       return;
     }
-    if (event.key === "Escape" && trigger.getAttribute("aria-expanded") === "true") {
+    if (collateralTriggerCloseKey(event, trigger)) {
       event.preventDefault();
       event.stopPropagation();
       setCollateralPickerOpen(picker, false, { restoreFocus: true });
@@ -944,15 +975,30 @@ function negotiationFieldsHTML(contract) {
   return `${common}<label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="negotiation-premium" data-negotiation-field="negotiation-premium" type="number" min="0" max="100" step="1" value="${financingNegotiationDraft.premiumRate}" /></label>${negotiationCollateralAccordionHTML(contract)}`;
 }
 
+function negotiationCollateralTiles(contract) {
+  if (contract.kind !== "loan") return [];
+  return (financingNegotiationDraft.collateralTileIndices || []).map(financingPropertyTile).filter(Boolean);
+}
+
+function negotiationHeadline(contract, total, collateral) {
+  if (contract.kind === "equity") return `${financingNegotiationDraft.equityShare}% EQUITY · ${financingNegotiationDraft.permanent ? "FOREVER" : `${financingNegotiationDraft.durationRounds} ROUNDS`}`;
+  if (contract.kind === "hybrid") return `${total} MATURITY · ${financingNegotiationDraft.conversionShare}% CONVERSION`;
+  return `${collateral.length ? "SECURED" : "UNSECURED"} LOAN · ${total} TOTAL DUE · ${financingNegotiationDraft.durationRounds} ROUNDS`;
+}
+
+function negotiationCollateralCopy(contract, collateral) {
+  if (contract.kind !== "loan") return "";
+  if (collateral.length) return ` ${collateral.map(deed => deed.name).join(", ")} are at risk as collateral.`;
+  return " No deed is pledged as collateral.";
+}
+
 function negotiationPreviewHTML(contract) {
   const amount = Math.max(1, Math.floor(Number(financingNegotiationDraft.amount) || 0));
   const premium = Math.max(0, Math.min(100, Number(financingNegotiationDraft.premiumRate) || 0));
   const total = amount + Math.ceil(amount * premium / 100);
-  const collateral = contract.kind === "loan" ? (financingNegotiationDraft.collateralTileIndices || []).map(financingPropertyTile).filter(Boolean) : [];
-  const headline = contract.kind === "equity" ? `${financingNegotiationDraft.equityShare}% EQUITY · ${financingNegotiationDraft.permanent ? "FOREVER" : `${financingNegotiationDraft.durationRounds} ROUNDS`}` : contract.kind === "hybrid" ? `${total} MATURITY · ${financingNegotiationDraft.conversionShare}% CONVERSION` : `${collateral.length ? "SECURED" : "UNSECURED"} LOAN · ${total} TOTAL DUE · ${financingNegotiationDraft.durationRounds} ROUNDS`;
-  const collateralCopy = contract.kind === "loan"
-    ? collateral.length ? ` ${collateral.map(deed => deed.name).join(", ")} are at risk as collateral.` : " No deed is pledged as collateral."
-    : "";
+  const collateral = negotiationCollateralTiles(contract);
+  const headline = negotiationHeadline(contract, total, collateral);
+  const collateralCopy = negotiationCollateralCopy(contract, collateral);
   return `<div class="financing-preview-head"><span class="t-micro g400">COUNTER PREVIEW</span><span class="t-label f12 g100">${esc(headline)}</span></div><p class="t-body ink-2 financing-preview-copy">No cash moves until the original proposer accepts these revised terms.${collateralCopy} Negotiation depth is capped at two counters.</p>`;
 }
 
@@ -1032,53 +1078,84 @@ function onFinancingChange(card, event) {
   refreshFinancingPreview();
 }
 
+const NEGOTIATION_NUMBER_FIELDS = {
+  "negotiation-amount": { key: "amount", fallback: 1, min: 1, max: 100000 },
+  "negotiation-duration": { key: "durationRounds", fallback: 3, min: 1, max: 20 },
+  "negotiation-premium": { key: "premiumRate", fallback: 0, min: 0, max: 100 },
+  "negotiation-equity-share": { key: "equityShare", fallback: 10, min: 5, max: 100 },
+  "negotiation-conversion": { key: "conversionShare", fallback: 25, min: 5, max: 100 },
+};
+
+const NEGOTIATION_FIELD_SETTERS = {
+  "negotiation-property": (event, value) => { financingNegotiationDraft.propertyIndex = Number(value); },
+  "negotiation-equity-control": (event, value) => { financingNegotiationDraft.equityControl = String(value); },
+  "negotiation-permanent": (event, value) => { financingNegotiationDraft.permanent = Boolean(value); },
+  "negotiation-collateral": (event) => negotiationCollateralChanged(event),
+};
+
+function boundedInteger(value, fallback, min, max = Number.POSITIVE_INFINITY) {
+  return Math.max(min, Math.min(max, Math.floor(Number(value) || fallback)));
+}
+
+function negotiationCollateralChanged(event) {
+  const index = Number(event.target.value);
+  const selected = new Set(financingNegotiationDraft.collateralTileIndices || []);
+  if (event.target.checked) selected.add(index);
+  else selected.delete(index);
+  financingNegotiationDraft.collateralTileIndices = [...selected].sort((a, b) => a - b);
+  updateCollateralPickerLabel(event.target.closest("[data-collateral-root]"));
+}
+
+function applyNegotiationField(field, event, value) {
+  const numberField = NEGOTIATION_NUMBER_FIELDS[field];
+  if (numberField) {
+    financingNegotiationDraft[numberField.key] = boundedInteger(value, numberField.fallback, numberField.min, numberField.max);
+    return;
+  }
+  const setter = NEGOTIATION_FIELD_SETTERS[field];
+  if (setter) setter(event, value);
+}
+
+function refreshNegotiationPreview() {
+  const contract = state.playerContractOffer;
+  const preview = $("#negotiation-preview");
+  if (preview && contract) preview.innerHTML = negotiationPreviewHTML(contract);
+}
+
 function negotiationFieldChanged(event) {
   const field = event.target?.dataset?.negotiationField;
   if (!field) return false;
   const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
-  const numberValue = (fallback, min, max) => Math.max(min, Math.min(max, Math.floor(Number(value) || fallback)));
-  if (field === "negotiation-amount") financingNegotiationDraft.amount = numberValue(1, 1, 100000);
-  if (field === "negotiation-duration") financingNegotiationDraft.durationRounds = numberValue(3, 1, 20);
-  if (field === "negotiation-premium") financingNegotiationDraft.premiumRate = numberValue(0, 0, 100);
-  if (field === "negotiation-equity-share") financingNegotiationDraft.equityShare = numberValue(10, 5, 100);
-  if (field === "negotiation-conversion") financingNegotiationDraft.conversionShare = numberValue(25, 5, 100);
-  if (field === "negotiation-property") financingNegotiationDraft.propertyIndex = Number(value);
-  if (field === "negotiation-collateral") {
-    const index = Number(event.target.value);
-    const selected = new Set(financingNegotiationDraft.collateralTileIndices || []);
-    if (event.target.checked) selected.add(index);
-    else selected.delete(index);
-    financingNegotiationDraft.collateralTileIndices = [...selected].sort((a, b) => a - b);
-    updateCollateralPickerLabel(event.target.closest("[data-collateral-root]"));
-  }
-  if (field === "negotiation-equity-control") financingNegotiationDraft.equityControl = String(value);
-  if (field === "negotiation-permanent") financingNegotiationDraft.permanent = Boolean(value);
-  const contract = state.playerContractOffer;
-  const preview = $("#negotiation-preview");
-  if (preview && contract) preview.innerHTML = negotiationPreviewHTML(contract);
+  applyNegotiationField(field, event, value);
+  refreshNegotiationPreview();
   return true;
+}
+
+function applyNegotiationTerms(payload, contract) {
+  if (contract.kind === "loan") {
+    payload.collateralTileIndices = financingNegotiationDraft.collateralTileIndices;
+    return;
+  }
+  payload.propertyIndex = financingNegotiationDraft.propertyIndex;
+  if (contract.kind === "equity") {
+    payload.equityShare = boundedInteger(financingNegotiationDraft.equityShare, 10, 5, 100);
+    payload.equityControl = financingNegotiationDraft.equityControl;
+    payload.permanent = financingNegotiationDraft.permanent;
+    return;
+  }
+  if (contract.kind === "hybrid") payload.conversionShare = boundedInteger(financingNegotiationDraft.conversionShare, 25, 5, 100);
 }
 
 function negotiationPayload(contract) {
   const payload = {
     contractId: contract.id,
     kind: contract.kind,
-    amount: Math.max(1, Math.floor(Number(financingNegotiationDraft.amount) || 1)),
-    premiumRate: Math.max(0, Math.min(100, Math.floor(Number(financingNegotiationDraft.premiumRate) || 0))),
-    durationRounds: Math.max(1, Math.min(20, Math.floor(Number(financingNegotiationDraft.durationRounds) || 3))),
-    requestId: host.createRequestId("contract-counter")
+    amount: boundedInteger(financingNegotiationDraft.amount, 1, 1),
+    premiumRate: boundedInteger(financingNegotiationDraft.premiumRate, 0, 0, 100),
+    durationRounds: boundedInteger(financingNegotiationDraft.durationRounds, 3, 1, 20),
+    requestId: host.createRequestId("contract-counter"),
   };
-  if (contract.kind === "loan") {
-    payload.collateralTileIndices = financingNegotiationDraft.collateralTileIndices;
-  } else {
-    payload.propertyIndex = financingNegotiationDraft.propertyIndex;
-  }
-  if (contract.kind === "equity") {
-    payload.equityShare = Math.max(5, Math.min(100, Math.floor(Number(financingNegotiationDraft.equityShare) || 10)));
-    payload.equityControl = financingNegotiationDraft.equityControl;
-    payload.permanent = financingNegotiationDraft.permanent;
-  }
-  if (contract.kind === "hybrid") payload.conversionShare = Math.max(5, Math.min(100, Math.floor(Number(financingNegotiationDraft.conversionShare) || 25)));
+  applyNegotiationTerms(payload, contract);
   return payload;
 }
 
@@ -1101,31 +1178,43 @@ function sendFinancingNegotiation(control = document.activeElement) {
 export function repaymentAmountForContract(contract, rawAmount) {
   const remaining = Math.max(0, Math.floor(Number(contract?.remaining) || 0));
   const requested = Math.floor(Number(rawAmount));
-  if (remaining <= 0 || !Number.isFinite(requested) || requested <= 0) return 0;
+  if (remaining <= 0) return 0;
+  if (!Number.isFinite(requested)) return 0;
+  if (requested <= 0) return 0;
   return Math.min(requested, remaining);
+}
+
+function repayInputValue(contractId) {
+  return $("#financing-repay-" + contractId)?.value;
+}
+
+function contractRemainingAmount(contract) {
+  return Math.max(0, Math.floor(Number(contract.remaining) || 0));
+}
+
+function settledRepayment(response, amount, remainingBefore) {
+  const remainingAfter = Number(response?.contract?.remaining);
+  if (!Number.isFinite(remainingAfter)) return amount;
+  return Math.max(0, Math.min(amount, remainingBefore - remainingAfter));
 }
 
 function sendFinancingRepay(contractId, control = document.activeElement) {
   const statusNode = host.captureActionStatusNode(control);
   const contract = financingActiveContracts().find((c) => c.id === contractId);
   if (!contract) return;
-  const input = $("#financing-repay-" + contractId);
-  const amount = repaymentAmountForContract(contract, input?.value);
+  const amount = repaymentAmountForContract(contract, repayInputValue(contractId));
   if (!amount) {
     host.announceActionStatus("Enter a positive repayment amount.", statusNode);
     return;
   }
-  const remainingBefore = Math.max(0, Math.floor(Number(contract.remaining) || 0));
+  const remainingBefore = contractRemainingAmount(contract);
   const payload = { contractId, amount, requestId: host.createRequestId("contract-repay") };
   host.emitServer("repay-player-contract", payload, (response) => {
     if (response?.success === false) {
       host.announceActionStatus(response.error || "The player loan could not be repaid.", statusNode);
       return;
     }
-    const remainingAfter = Number(response?.contract?.remaining);
-    const settled = Number.isFinite(remainingAfter)
-      ? Math.max(0, Math.min(amount, remainingBefore - remainingAfter))
-      : amount;
+    const settled = settledRepayment(response, amount, remainingBefore);
     const status = `Repaid $${settled.toLocaleString()} on the player loan.`;
     financingRepayStatus = { contractId, text: status };
     host.renderRightRail();
@@ -1290,34 +1379,51 @@ export function openFinancingModal(mode = "loan", propertyIndex = null, trigger 
   if (financingIsBuilderView()) $("#finance-recipient-trigger")?.focus({ preventScroll: true });
 }
 
+function negotiationNumber(value, fallback, min, max = Number.POSITIVE_INFINITY) {
+  return Math.max(min, Math.min(max, Number(value) || fallback));
+}
+
+function negotiationCollateralIndices(contract) {
+  if (Array.isArray(contract.collateralTileIndices)) return contract.collateralTileIndices.map(Number);
+  if (contract.collateralTileIndex == null) return [];
+  return [Number(contract.collateralTileIndex)];
+}
+
 function loadNegotiationDraft(contract) {
   financingNegotiationDraft.kind = contract.kind || "loan";
-  financingNegotiationDraft.amount = Math.max(1, Number(contract.amount) || 1);
-  financingNegotiationDraft.premiumRate = Math.max(0, Math.min(100, Number(contract.premiumRate) || 0));
-  financingNegotiationDraft.durationRounds = Math.max(1, Math.min(20, Number(contract.durationRounds) || 3));
+  financingNegotiationDraft.amount = negotiationNumber(contract.amount, 1, 1);
+  financingNegotiationDraft.premiumRate = negotiationNumber(contract.premiumRate, 0, 0, 100);
+  financingNegotiationDraft.durationRounds = negotiationNumber(contract.durationRounds, 3, 1, 20);
   financingNegotiationDraft.propertyIndex = contract.propertyIndex ?? null;
-  financingNegotiationDraft.collateralTileIndices = Array.isArray(contract.collateralTileIndices)
-    ? contract.collateralTileIndices.map(Number)
-    : contract.collateralTileIndex == null ? [] : [Number(contract.collateralTileIndex)];
-  financingNegotiationDraft.equityShare = Math.max(5, Math.min(100, Number(contract.equityShare) || 10));
+  financingNegotiationDraft.collateralTileIndices = negotiationCollateralIndices(contract);
+  financingNegotiationDraft.equityShare = negotiationNumber(contract.equityShare, 10, 5, 100);
   financingNegotiationDraft.equityControl = contract.equityControl || "passive";
   financingNegotiationDraft.permanent = contract.expiresRound == null;
-  financingNegotiationDraft.conversionShare = Math.max(5, Math.min(100, Number(contract.conversionShare) || 25));
+  financingNegotiationDraft.conversionShare = negotiationNumber(contract.conversionShare, 25, 5, 100);
+}
+
+function findNegotiationContract(contractId) {
+  if (state.playerContractOffer?.id === contractId) return state.playerContractOffer;
+  if (state.playerContracts?.pending?.id === contractId) return state.playerContracts.pending;
+  return null;
+}
+
+function negotiationActionFor(contract) {
+  const depth = Math.max(0, Math.floor(Number(contract.counterDepth) || 0));
+  const lastProposerId = depth % 2 === 0 ? contract.fromPlayerId : contract.toPlayerId;
+  if (lastProposerId === financingMyServerId()) return "adjust";
+  return "counter";
 }
 
 export function openFinancingNegotiation(contractId, trigger = null) {
-  const contract = state.playerContractOffer?.id === contractId
-    ? state.playerContractOffer
-    : state.playerContracts?.pending?.id === contractId ? state.playerContracts.pending : null;
+  const contract = findNegotiationContract(contractId);
   if (!contract || contract.id !== contractId) {
     host.announceActionStatus("That contract offer is no longer live.", host.captureActionStatusNode(trigger || document.activeElement));
     return;
   }
   financingNegotiationContractId = contractId;
   state.negotiationContractId = contractId;
-  const contractDepth = Math.max(0, Math.floor(Number(contract.counterDepth) || 0));
-  const lastProposerId = contractDepth % 2 === 0 ? contract.fromPlayerId : contract.toPlayerId;
-  financingNegotiationAction = lastProposerId === financingMyServerId() ? "adjust" : "counter";
+  financingNegotiationAction = negotiationActionFor(contract);
   loadNegotiationDraft(contract);
   financingPreviewMode = contract.kind || "loan";
   financingView = "negotiate";
@@ -1554,12 +1660,41 @@ function tradeRejected(response) {
   return response?.success === false;
 }
 
-function emitTradeOffer(me, other, myCash, theirCash, statusNode) {
+function tradeIndexes(trade, key) {
+  return trade[key] || [];
+}
+
+function tradeCashOf(trade, key) {
+  return Number(trade[key] || 0);
+}
+
+function tradeCounterpart(trade, sender) {
+  const serverId = sender ? trade.toPlayerId : trade.fromPlayerId;
+  return state.players.find(player => player.serverId === serverId);
+}
+
+function applyNegotiatedTrade(trade, sender, other) {
+  state.tradeWith = other.id;
+  state.tradeCounterId = sender ? null : trade.id;
+  state.tradeAdjustId = sender ? trade.id : null;
+  state.tradeMyDeeds = new Set(sender ? tradeIndexes(trade, "givePropertyIndexes") : tradeIndexes(trade, "requestPropertyIndexes"));
+  state.tradeTheirDeeds = new Set(sender ? tradeIndexes(trade, "requestPropertyIndexes") : tradeIndexes(trade, "givePropertyIndexes"));
+  state.tradeMyCash = sender ? tradeCashOf(trade, "giveCash") : tradeCashOf(trade, "requestCash");
+  state.tradeTheirCash = sender ? tradeCashOf(trade, "requestCash") : tradeCashOf(trade, "giveCash");
+}
+
+function tradeEventName() {
+  if (state.tradeCounterId) return "counter-trade";
+  if (state.tradeAdjustId) return "adjust-trade";
+  return "propose-trade";
+}
+
+function emitTradeOffer(other, myCash, theirCash, statusNode) {
+  const tradeId = state.tradeCounterId || state.tradeAdjustId;
   const giveDeeds = [...state.tradeMyDeeds];
   const wantDeeds = [...state.tradeTheirDeeds];
-  const eventName = state.tradeCounterId ? "counter-trade" : state.tradeAdjustId ? "adjust-trade" : "propose-trade";
-  host.emitServer(eventName, {
-    ...((state.tradeCounterId || state.tradeAdjustId) ? { tradeId: state.tradeCounterId || state.tradeAdjustId } : {}),
+  host.emitServer(tradeEventName(), {
+    ...(tradeId ? { tradeId } : {}),
     requestId: host.createRequestId("trade"),
     toPlayerId: other.serverId || other.id,
     givePropertyIndexes: giveDeeds,
@@ -1579,18 +1714,10 @@ function emitTradeOffer(me, other, myCash, theirCash, statusNode) {
 export function openTradeNegotiation(trade, trigger = null) {
   if (!trade) return;
   state.offers = (state.offers || []).filter(offer => offer.id !== trade.id);
-  const local = financingMyServerId();
-  const sender = trade.fromPlayerId === local;
-  const otherServerId = sender ? trade.toPlayerId : trade.fromPlayerId;
-  const other = state.players.find(player => player.serverId === otherServerId);
+  const sender = trade.fromPlayerId === financingMyServerId();
+  const other = tradeCounterpart(trade, sender);
   if (!other) return;
-  state.tradeWith = other.id;
-  state.tradeCounterId = sender ? null : trade.id;
-  state.tradeAdjustId = sender ? trade.id : null;
-  state.tradeMyDeeds = new Set(sender ? trade.givePropertyIndexes || [] : trade.requestPropertyIndexes || []);
-  state.tradeTheirDeeds = new Set(sender ? trade.requestPropertyIndexes || [] : trade.givePropertyIndexes || []);
-  state.tradeMyCash = sender ? Number(trade.giveCash || 0) : Number(trade.requestCash || 0);
-  state.tradeTheirCash = sender ? Number(trade.requestCash || 0) : Number(trade.giveCash || 0);
+  applyNegotiatedTrade(trade, sender, other);
   renderTradeModal();
   openSurface("#trade-modal", "#trade-close", { trigger });
 }
@@ -1608,5 +1735,5 @@ function sendTrade(event) {
     return;
   }
   if (tradeValidationBlocked()) return;
-  emitTradeOffer(me, other, myCash, theirCash, statusNode);
+  emitTradeOffer(other, myCash, theirCash, statusNode);
 }

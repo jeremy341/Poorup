@@ -245,7 +245,15 @@ const globalEventsApi = {
 
   globalEventVoteWinners(event) {
     const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
-    Object.values(event.votes || {}).forEach(choiceId => { if (counts[choiceId] != null) counts[choiceId] += 1; });
+    // Only active seats may shape the outcome: a vote cast before the voter
+    // went bankrupt or disconnected is validated at cast time but must not
+    // be tallied after the seat leaves, or a departed ballot can flip the
+    // policy the live table decided.
+    const eligibleIds = new Set(this.activePlayers().map(player => player.id));
+    Object.entries(event.votes || {}).forEach(([playerId, choiceId]) => {
+      if (!eligibleIds.has(playerId)) return;
+      if (counts[choiceId] != null) counts[choiceId] += 1;
+    });
     const top = Math.max(...Object.values(counts), 0);
     return Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
   },
