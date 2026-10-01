@@ -44,8 +44,8 @@ export const TEST_GROUPS = Object.freeze({
     'server/season-metrics-audit.test.js', 'server/summary-privacy-audit.test.js', 'public/clientCasinoReel.test.js',
     'server/session-room-regressions.test.js', 'server/game-invariant-regressions.test.js',
     'server/backup-restore-integrity.test.js', 'server/socket-admission.test.js', 'server/runtime-safety.test.js',
-    'server/analyticsRuntime.test.js', 'server/capacity-followup.test.js',     'server/server-followups.test.js',
-    'server/backend-fix-regressions.test.js',
+    'server/analyticsRuntime.test.js', 'server/capacity-followup.test.js', 'server/server-followups.test.js',
+    'server/backend-fix-regressions.test.js', 'public/audioIconAudit.test.js',
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [

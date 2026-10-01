@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Poorup ruleset and social surfaces', () => {
-  test('home keeps the global navigation and audio controls', async ({ page }) => {
+  test('home keeps the global navigation and audio controls @ui-smoke', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#home-nav')).toBeVisible();
     await expect(page.locator('#sound-toggle-btn')).toHaveAttribute('aria-label', /sound effects/i);
@@ -34,7 +34,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('[data-home-signal=sync]')).toHaveAttribute('aria-label', /live room directory/i);
   });
 
-  test('create table keeps board selection in the host lobby', async ({ page }) => {
+  test('create table keeps board selection in the host lobby @ui-smoke', async ({ page }) => {
     await page.goto('/');
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
@@ -245,7 +245,7 @@ test.describe('Landscape iPad desk contract', () => {
     test.skip(!['ipad-mini-landscape', 'ipad-pro-11-landscape'].includes(testInfo.project.name), 'Landscape iPad contract only.');
   }
 
-  test('shared header and first content stay fixed and in view across top-level pages', async ({ page }, testInfo) => {
+  test('shared header and first content stay fixed and in view across top-level pages @ui-smoke', async ({ page }, testInfo) => {
     skipNonTablet(testInfo);
     await page.goto('/');
 
@@ -382,7 +382,7 @@ test.describe('Landscape iPad desk contract', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('live game uses a board-first desk without page scrolling', async ({ page, context }, testInfo) => {
+  test('live game uses a board-first desk without page scrolling @ui-smoke', async ({ page, context }, testInfo) => {
     skipNonTablet(testInfo);
     const guest = await context.newPage();
     const code = testInfo.project.name === 'ipad-mini-landscape' ? 'IPADM2' : 'IPADP2';
