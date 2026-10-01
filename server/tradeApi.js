@@ -185,58 +185,58 @@ const tradeApi = {
     return this.settleTradeOffer(ctx);
   },
 
-  counterTrade(socketId, offer = {}) {
+  renegotiationTrade(socketId, roleField, roleName, verb) {
     const player = this.getPlayerBySocket(socketId);
     const trade = this.pendingTrade;
-    if (!player || !trade || trade.toPlayerId !== player.id) {
-      return { success: false, error: 'Only the receiving player can counter this trade.' };
+    if (!player || !trade || trade[roleField] !== player.id) {
+      return { error: `Only the ${roleName} player can ${verb} this trade.` };
     }
-    if (offer.tradeId && offer.tradeId !== trade.id) {
+    return { player, trade };
+  },
+
+  // Shared body of counter/adjust: both clear the live offer, re-propose with
+  // the negotiation depth bumped, and restore the offer if the re-proposal
+  // fails. A retried renegotiation reusing the original proposal's requestId
+  // replays the memoized result instead of proposing over a cleared table.
+  renegotiateTrade(socketId, offer, { roleField, roleName, verb, verbPast, targetField, marker }) {
+    const found = this.renegotiationTrade(socketId, roleField, roleName, verb);
+    if (found.error) return { success: false, error: found.error };
+    if (offer.tradeId && offer.tradeId !== found.trade.id) {
       return { success: false, error: 'That trade offer is no longer current.' };
     }
-    if (Number(trade.counterDepth) >= 2) {
+    if (Number(found.trade.counterDepth) >= 2) {
       return { success: false, error: 'This trade has reached its negotiation limit.' };
     }
-    const previous = trade;
+    const replayKey = tradeTransactionKey('trade-propose', found.player.id, offer.requestId);
+    const replayed = memoizedTradeResult(this, replayKey);
+    if (replayed) return replayed;
+    const previous = found.trade;
     this.pendingTrade = null;
     const result = this.proposeTrade(socketId, {
       ...offer,
-      toPlayerId: trade.fromPlayerId,
-      counterDepth: Math.min(2, (trade.counterDepth || 0) + 1)
+      toPlayerId: previous[targetField],
+      counterDepth: Math.min(2, (previous.counterDepth || 0) + 1)
     });
     if (result?.success === false && !this.pendingTrade) this.pendingTrade = previous;
     if (result?.success) {
-      this.feedMessage(`${player.nickname} countered the trade offer.`);
-      return { ...result, countered: true };
+      this.feedMessage(`${found.player.nickname} ${verbPast} the trade offer.`);
+      return { ...result, [marker]: true };
     }
     return result;
   },
 
-  adjustTrade(socketId, offer = {}) {
-    const player = this.getPlayerBySocket(socketId);
-    const trade = this.pendingTrade;
-    if (!player || !trade || trade.fromPlayerId !== player.id) {
-      return { success: false, error: 'Only the sending player can adjust this trade.' };
-    }
-    if (offer.tradeId && offer.tradeId !== trade.id) {
-      return { success: false, error: 'That trade offer is no longer current.' };
-    }
-    if (Number(trade.counterDepth) >= 2) {
-      return { success: false, error: 'This trade has reached its negotiation limit.' };
-    }
-    const previous = trade;
-    this.pendingTrade = null;
-    const result = this.proposeTrade(socketId, {
-      ...offer,
-      toPlayerId: trade.toPlayerId,
-      counterDepth: Math.min(2, (trade.counterDepth || 0) + 1)
+  counterTrade(socketId, offer = {}) {
+    return this.renegotiateTrade(socketId, offer, {
+      roleField: 'toPlayerId', roleName: 'receiving', verb: 'counter', verbPast: 'countered',
+      targetField: 'fromPlayerId', marker: 'countered'
     });
-    if (result?.success === false && !this.pendingTrade) this.pendingTrade = previous;
-    if (result?.success) {
-      this.feedMessage(`${player.nickname} adjusted the trade offer.`);
-      return { ...result, adjusted: true };
-    }
-    return result;
+  },
+
+  adjustTrade(socketId, offer = {}) {
+    return this.renegotiateTrade(socketId, offer, {
+      roleField: 'fromPlayerId', roleName: 'sending', verb: 'adjust', verbPast: 'adjusted',
+      targetField: 'toPlayerId', marker: 'adjusted'
+    });
   },
 
   cancelTrade(socketId, payload = {}) {

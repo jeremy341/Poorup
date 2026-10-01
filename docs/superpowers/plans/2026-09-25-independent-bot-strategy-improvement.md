@@ -330,10 +330,10 @@ if (supportsPhase) return runAdvisorChoicePhase(room, bot, advisor, decisionCont
 - Modify: `server/gameLogic.js`
 - Modify: `server/socketHandlerSupport.js`
 - Modify: `server/serverSocketGame.js`
-- Create: `server/bot-search-benchmark.js`
+- Create: `server/bot-search-benchmark.js` _(later removed as dead code — never shipped or imported)_
 - Test: `server/botTableMind.test.js`
 - Test: `server/botStrategicContext.test.js`
-- Test: `server/bot-search-benchmark.test.js`
+- Test: `server/bot-search-benchmark.test.js` _(removed with its subject)_
 - Test: `server/bot-policy-tournament.test.js`
 - Test: `server/gameLogic.test.js`
 - Test: socket-action characterization tests for public action history

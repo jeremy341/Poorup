@@ -4,6 +4,7 @@
 // rules stay testable in isolation and the strings stay pinned by
 // server/contracts-market.test.js.
 import crypto from 'crypto';
+import { contractPledgesTile } from './gameLogic.js';
 import {
   announceLoanDue,
   contractSettlementRejection,
@@ -138,6 +139,16 @@ function validateTransferPlayers(context) {
   return { error: 'Choose two active players.' };
 }
 
+// The deed owner already books 100% of rent on the tile; buying their own
+// deed's equity would pay the seller twice for the same rent and permanently
+// lock the tile against trades and mortgages via its equityShares entry.
+function validateTransferBuyerNotOwner(context) {
+  if (context.buyer.id === context.tile.ownerId) {
+    return { error: 'The property owner cannot buy equity in their own deed.' };
+  }
+  return null;
+}
+
 function resolveTransferSource(context) {
   const source = context.game.playerContractById(context.sourceContractId);
   if (!source) return { error: 'That equity share is no longer available.' };
@@ -204,9 +215,11 @@ function equityTransferContext(context) {
     validateTransferExpiry,
     resolveTransferTile,
     resolveTransferEntry,
+    validateTransferBuyerNotOwner,
     validateTransferAmount,
     equityTransferCapacityError,
     validateTransferBuyerCash,
+    validateTransferBuyerTaint,
   ];
   for (const validate of validators) {
     const result = validate(context);
@@ -229,6 +242,19 @@ function validateTransferAmount(context) {
 
 function validateTransferBuyerCash(context) {
   if (context.buyer.cash < context.price) return { error: 'The buyer does not have enough cash for that transfer.' };
+  return null;
+}
+
+// Equity transfers are player contracts in every other sense (kind
+// 'equity-transfer', pendingPlayerContract obligation, settlement guards) —
+// the documented loan-taint scope "casino, contract, and market guards"
+// covers them, so loan-backed cash must not fund the purchase. Checked at
+// proposal, counters, and acceptance because settleEquityTransfer re-runs
+// this validator list.
+function validateTransferBuyerTaint(context) {
+  if (context.game.hasLoanBackedCash?.(context.buyer)) {
+    return { error: 'Loan-backed cash cannot fund equity transfers.' };
+  }
   return null;
 }
 
@@ -460,11 +486,30 @@ function loanDraftTerms(game, contract, offer, borrower) {
   return null;
 }
 
-function isEquityEligibleProperty(property, ownerId) {
+// A deed pledged as live bank-loan or player-contract collateral is not
+// "unencumbered" even though its raw fields say so; both encumbrance checks
+// are shared with the trade/mortgage surface via propertyRules.tileEncumbered.
+// ignoredContractId excludes a contract's pledge of its own conversion
+// target — a due hybrid by definition encumbers the tile it converts into.
+// An active hybrid has not converted yet, so its conversion target stays
+// open for further equity proposals and is only bounded by the 100%
+// capacity rule (pinned by the hybrid-capacity invariant test).
+function pledgeBlocksEquityEligibility(contract, owner, property) {
+  if (!contractPledgesTile(contract, owner, property)) return false;
+  if (contract.kind === 'hybrid' && contract.status === 'active' && Number(contract.propertyIndex) === Number(property.index)) return false;
+  return true;
+}
+
+function isEquityEligibleProperty(game, property, ownerId, ignoredContractId = null) {
   if (!property) return false;
   if (property.type !== 'property') return false;
   if (property.ownerId !== ownerId) return false;
   if (property.mortgaged) return false;
+  const owner = game.getPlayerById(ownerId);
+  if (game.isLoanCollateral(owner, property)) return false;
+  const pledgedElsewhere = (game.playerContracts || []).some(contract =>
+    contract.id !== ignoredContractId && pledgeBlocksEquityEligibility(contract, owner, property));
+  if (pledgedElsewhere) return false;
   return !(property.houseCount > 0);
 }
 
@@ -494,7 +539,7 @@ function equityCapReached(property, share, game = null, ignoredContractId = null
 function equityDraftTerms(game, contract, offer, recipient) {
   const property = game.getTile(Number(offer.propertyIndex));
   const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
-  if (!isEquityEligibleProperty(property, recipient.id)) {
+  if (!isEquityEligibleProperty(game, property, recipient.id)) {
     return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
   }
   if (equityCapReached(property, share, game)) {
@@ -519,7 +564,7 @@ function equityDraftTerms(game, contract, offer, recipient) {
 function hybridDraftTerms(game, contract, offer, recipient) {
   const property = game.getTile(Number(offer.propertyIndex));
   const conversion = Math.max(5, Math.min(100, Math.floor(Number(offer.conversionShare) || 25)));
-  if (!isEquityEligibleProperty(property, recipient.id)) {
+  if (!isEquityEligibleProperty(game, property, recipient.id)) {
     return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
   }
   if (equityCapReached(property, conversion, game)) {
@@ -581,8 +626,8 @@ export function counterContract(game, socketId, offer = {}) {
   }
   const staleOffer = staleContractOffer(offer, current);
   if (staleOffer) return staleOffer;
-  if (current.kind === 'equity-transfer') return equityTransferOffer(game, current, offer, responder.id);
   if (contractAtNegotiationLimit(current)) return negotiationLimitRejection();
+  if (current.kind === 'equity-transfer') return equityTransferOffer(game, current, offer, responder.id);
   return negotiatedContractTerms({ game, current, offer, actor: responder, negotiationType: 'counter' });
 }
 
@@ -616,13 +661,16 @@ function responseTargetMatches(player, contract) {
   return contractResponderId(contract) === player.id;
 }
 
-function contractLastProposerId(contract) {
+// Authoritative negotiation identity: whoever holds lastProposerId acted
+// last, so the seat awaiting a decision is contractResponderId. Exported for
+// the socket relay layer, which must route offers to the awaiting seat.
+export function contractLastProposerId(contract) {
   if (contract?.lastProposerId) return contract.lastProposerId;
   const depth = Math.max(0, Math.floor(Number(contract?.counterDepth) || 0));
   return depth % 2 === 0 ? contract?.fromPlayerId : contract?.toPlayerId;
 }
 
-function contractResponderId(contract) {
+export function contractResponderId(contract) {
   return contractLastProposerId(contract) === contract?.fromPlayerId ? contract?.toPlayerId : contract?.fromPlayerId;
 }
 
@@ -848,7 +896,7 @@ function hybridConversionEligible(game, contract) {
   const borrower = game.getPlayerById(contract.toPlayerId);
   if (!borrower) return false;
   const property = game.getTile(contract.propertyIndex);
-  if (!isEquityEligibleProperty(property, borrower.id)) return false;
+  if (!isEquityEligibleProperty(game, property, borrower.id, contract.id)) return false;
   return !equityCapReached(property, contract.conversionShare, game, contract.id);
 }
 

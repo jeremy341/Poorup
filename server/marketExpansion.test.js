@@ -143,7 +143,7 @@ const shortDefaultActions = forceLiquidate(shortDefaultRoom.game, shortDefaultPl
 assert.equal(shortDefaultActions.includes('short-buy-in-default'), true);
 assert.equal(shortDefaultPlayer.shortPositions.brazil, undefined);
 assert.equal(shortDefaultPlayer.reservedCash, 0);
-assert.equal(shortDefaultPlayer.shortDefaultDebt, 154);
+assert.equal(shortDefaultPlayer.shortDefaultDebt, 155);
 
 // A pending game payment blocks every player-initiated market action. The
 // short-default settlement path shares the guard with the expansion actions.

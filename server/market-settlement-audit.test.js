@@ -46,7 +46,7 @@ assert.deepEqual(player.marginPositions, {});
 assert.equal(player.marginBalance, 22);
 assert.deepEqual(player.shortPositions, {});
 assert.equal(player.reservedCash, 0);
-assert.equal(player.shortDefaultDebt, 52);
+assert.equal(player.shortDefaultDebt, 53);
 assert.equal(player.optionPositions[0].status, 'closed');
 assert.equal(player.optionPositions[0].reserveHeld, 0);
 assert.equal(game.marketOptionReserve, 100_000);

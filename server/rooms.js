@@ -19,6 +19,7 @@ import { AVATAR_GRID_ERROR, isValidAvatarGrid, resolveFreeAppearanceColor } from
 import { GameState } from './gameLogic.js';
 import {
   boardVariantMeta,
+  OPTIONAL_SYSTEM_KEYS,
   resolveRuleset,
   safeBoardVariant,
   safePreset
@@ -37,6 +38,7 @@ const LOBBY_BOT_NAMES = [
   'Vault Dweller',
   'Chance Sprite'
 ];
+const SEAT_INACTIVE_ERROR = 'That room seat is no longer active.';
 
 function createRoomCode() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -60,6 +62,11 @@ function safeSeatColor(color) {
   if (typeof color !== 'string') return '#35a653';
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return '#35a653';
   return color;
+}
+
+function seatAccountAllowsReconnect(player, accountId) {
+  if (!player.accountId) return true;
+  return player.accountId === accountId;
 }
 
 function seatPersonality(personality) {
@@ -129,6 +136,18 @@ function syncRulesetState(room) {
 
 function applyRulesetSetting(room, key, value) {
   if (RULESET_META_KEYS.includes(key)) {
+    if (!room.rulesetExplicit) {
+      // A legacy room's optional-system toggles live only in raw settings;
+      // the ruleset flow is about to overwrite them with preset defaults.
+      // Carry them forward as explicit overrides so the first meta-key write
+      // (the transition into the ruleset model) cannot silently strip
+      // bankLoans/casino/market/globalEvents the room was created with.
+      const overrides = new Map((room.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
+      OPTIONAL_SYSTEM_KEYS.forEach(optionalKey => {
+        if (room.settings[optionalKey] !== undefined) overrides.set(optionalKey, Boolean(room.settings[optionalKey]));
+      });
+      room.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
+    }
     room.rulesetExplicit = true;
     if (key === 'rulesetBase') room.rulesetBaseExplicit = true;
     if (key === 'rulesetPreset' && value !== 'custom') {
@@ -155,6 +174,24 @@ function applyBoardVariantSetting(room) {
     room.game.settings.maxPlayers = meta.maxPlayers;
     syncBotCapacity(room, 'maxPlayers', meta.maxPlayers);
   }
+}
+
+const RULESET_INPUT_KEYS = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
+
+function roomSettingsSeed(rulesetInput) {
+  const seed = { ...DEFAULT_ROOM_SETTINGS };
+  RULESET_INPUT_KEYS.forEach(key => {
+    if (rulesetInput[key] !== undefined) seed[key] = rulesetInput[key];
+  });
+  return seed;
+}
+
+function hasExplicitRulesetInput(rulesetInput) {
+  return RULESET_INPUT_KEYS.some(key => rulesetInput[key] !== undefined);
+}
+
+function capacityDrivenSetting(key) {
+  return ['bots', 'maxPlayers', 'boardVariant'].includes(key);
 }
 
 class Player {
@@ -257,6 +294,7 @@ class Room {
     boardVariant,
     marketComplexity
   } = {}) {
+    const rulesetInput = { rulesetPreset, rulesetBase, rulesetOverrides, boardVariant, marketComplexity };
     this.roomCode = roomCode || createRoomCode();
     this.publicId = 'room_' + crypto.randomUUID();
     this.roomName = roomName;
@@ -265,18 +303,11 @@ class Room {
     this.hostId = hostPlayer.id;
     this.kickedClientIds = new Set();
     this.kickedAccountIds = new Set();
-    this.settings = {
-      ...DEFAULT_ROOM_SETTINGS,
-      ...(rulesetPreset !== undefined ? { rulesetPreset } : {}),
-      ...(rulesetBase !== undefined ? { rulesetBase } : {}),
-      ...(rulesetOverrides !== undefined ? { rulesetOverrides } : {}),
-      ...(boardVariant !== undefined ? { boardVariant } : {}),
-      ...(marketComplexity !== undefined ? { marketComplexity } : {})
-    };
+    this.settings = roomSettingsSeed(rulesetInput);
     this.settings.rulesetOverrides = Array.isArray(this.settings.rulesetOverrides)
       ? this.settings.rulesetOverrides.map(entry => ({ ...entry }))
       : [];
-    this.rulesetExplicit = rulesetPreset !== undefined || rulesetBase !== undefined || boardVariant !== undefined || rulesetOverrides !== undefined || marketComplexity !== undefined;
+    this.rulesetExplicit = hasExplicitRulesetInput(rulesetInput);
     this.rulesetBaseExplicit = rulesetBase !== undefined;
     if (marketComplexity !== undefined && !this.settings.rulesetOverrides.some(entry => entry.key === 'marketComplexity')) {
       this.settings.rulesetOverrides.push({ key: 'marketComplexity', value: marketComplexity });
@@ -303,12 +334,7 @@ class Room {
       settings: this.settings,
       rulesetRevision: this.settings.rulesetRevision
     });
-    this.settings.rulesetPreset = ruleset.rulesetPreset;
-    this.settings.rulesetBase = ruleset.rulesetBase;
-    this.settings.boardVariant = ruleset.boardVariant;
-    this.settings.rulesetRevision = ruleset.rulesetRevision;
-    this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
-    this.settings.rulesetOverrides = ruleset.rulesetOverrides.map(entry => ({ ...entry }));
+    this.applyResolvedRulesetSettings(ruleset);
     // Rooms created by older tests/clients keep their legacy raw settings;
     // explicit ruleset rooms apply the preset defaults to live legality.
     if (this.rulesetExplicit) {
@@ -318,16 +344,20 @@ class Room {
       });
       this.settings.maxPlayers = Math.max(2, Math.min(boardVariantMeta(boardVariant).maxPlayers, Number(this.settings.maxPlayers) || 4));
       this.settings.bots = Math.min(Math.max(0, Number(this.settings.bots) || 0), this.settings.maxPlayers - 1);
-      this.settings.rulesetPreset = ruleset.rulesetPreset;
-      this.settings.rulesetBase = ruleset.rulesetBase;
-      this.settings.rulesetOverrides = ruleset.rulesetOverrides.map(entry => ({ ...entry }));
-      this.settings.boardVariant = ruleset.boardVariant;
-      this.settings.rulesetRevision = ruleset.rulesetRevision;
-      this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
+      this.applyResolvedRulesetSettings(ruleset);
     }
     this.ruleset = ruleset;
     this.rulesetDigest = ruleset.digest;
     return ruleset;
+  }
+
+  applyResolvedRulesetSettings(ruleset) {
+    this.settings.rulesetPreset = ruleset.rulesetPreset;
+    this.settings.rulesetBase = ruleset.rulesetBase;
+    this.settings.boardVariant = ruleset.boardVariant;
+    this.settings.rulesetRevision = ruleset.rulesetRevision;
+    this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
+    this.settings.rulesetOverrides = ruleset.rulesetOverrides.map(entry => ({ ...entry }));
   }
 
   addOrReconnectPlayer(playerInfo) {
@@ -346,6 +376,10 @@ class Room {
     );
   }
 
+  seatHoldsOtherAccount(player, socketId) {
+    return Boolean(player.accountId) && player.socketId !== socketId;
+  }
+
   reconnectPlayer(existing, playerInfo) {
     // A clientId is a bearer key for guest seats, but it must never let a
     // different signed-in account take over an account-owned seat (or attach
@@ -354,7 +388,7 @@ class Room {
     if (playerInfo.accountId && existing.accountId !== playerInfo.accountId) {
       return { success: false, error: 'That seat is already linked to another account.' };
     }
-    if (!playerInfo.accountId && existing.accountId && existing.socketId !== playerInfo.socketId) {
+    if (!playerInfo.accountId && this.seatHoldsOtherAccount(existing, playerInfo.socketId)) {
       return { success: false, error: 'That seat is already linked to another account.' };
     }
     if (this.reconnectGridIsInvalid(playerInfo.avatarGrid)) {
@@ -527,7 +561,7 @@ class Room {
   }
 
   applyRoomSettingSideEffect(key, value) {
-    if (key === 'bots' || key === 'maxPlayers' || key === 'boardVariant') {
+    if (capacityDrivenSetting(key)) {
       this.ensureBots();
       return;
     }
@@ -563,19 +597,26 @@ class Room {
   pruneExpiredSeats(now = Date.now()) {
     const expired = this.game.players.filter(player => player.disconnected
       && (Number(player.disconnectDeadline) === 0 || Number(player.disconnectDeadline) <= now));
-    expired.forEach(player => {
-      if (typeof this.releaseExpiredSeat === 'function') {
-        this.releaseExpiredSeat(player);
-      } else {
-        this.game.removePlayerByClient(player.clientId);
-      }
-    });
-    if (expired.some(player => player.id === this.hostId)) {
-      const replacement = this.game.players.find(player => !player.isBot && !player.disconnected && !player.bankrupt && !player.inDebt);
-      this.hostId = replacement?.id || null;
-      this.game.players.forEach(player => { player.isHost = player.id === this.hostId; });
-    }
+    expired.forEach(player => this.releaseExpiredSeatOrRemove(player));
+    if (expired.some(player => player.id === this.hostId)) this.replaceHostWithReplacement();
     return expired.length;
+  }
+
+  releaseExpiredSeatOrRemove(player) {
+    if (typeof this.releaseExpiredSeat === 'function') {
+      this.releaseExpiredSeat(player);
+      return;
+    }
+    this.game.removePlayerByClient(player.clientId);
+  }
+
+  replaceHostWithReplacement() {
+    const replacement = this.game.players.find(candidate => !candidate.isBot
+      && !candidate.disconnected
+      && !candidate.bankrupt
+      && !candidate.inDebt);
+    this.hostId = replacement?.id || null;
+    this.game.players.forEach(candidate => { candidate.isHost = candidate.id === this.hostId; });
   }
 
   ensureBots() {
@@ -660,26 +701,42 @@ class Room {
       position: player.position,
       inJail: player.inJail,
       jailTurns: player.jailTurns || 0,
-      bankrupt: player.bankrupt,
-      spectating: Boolean(player.spectating),
-      disconnected: player.disconnected,
-      presence: player.isBot ? null : {
-        state: player.presence?.state === 'inactive' ? 'inactive' : 'active',
-        inactiveSince: Number.isFinite(player.presence?.inactiveSince) ? player.presence.inactiveSince : null,
-        inactiveUntil: Number.isFinite(player.presence?.inactiveUntil) ? player.presence.inactiveUntil : null,
-      },
-      isHost: player.isHost,
-      ready: player.ready,
-      isBot: player.isBot,
-      botBrain: player.isBot ? this.settings.botBrain : null,
-      botDifficulty: player.isBot ? this.settings.botDifficulty : null,
-      accountId: viewerPlayerId && player.id === viewerPlayerId ? (player.accountId || null) : null,
-      accountLinked: Boolean(player.accountId),
+      ...this.summarySeatTableState(player),
+      ...this.summarySeatAccount(player, viewerPlayerId),
       roomPlayerId: player.id,
       avatarGrid: player.avatarGrid || null
     };
     if (viewerPlayerId && player.id === viewerPlayerId) entry.clientId = player.clientId;
     return entry;
+  }
+
+  summarySeatTableState(player) {
+    return {
+      bankrupt: player.bankrupt,
+      spectating: Boolean(player.spectating),
+      disconnected: player.disconnected,
+      presence: player.isBot ? null : this.summarySeatPresence(player),
+      isHost: player.isHost,
+      ready: player.ready,
+      isBot: player.isBot,
+      botBrain: player.isBot ? this.settings.botBrain : null,
+      botDifficulty: player.isBot ? this.settings.botDifficulty : null,
+    };
+  }
+
+  summarySeatPresence(player) {
+    return {
+      state: player.presence?.state === 'inactive' ? 'inactive' : 'active',
+      inactiveSince: Number.isFinite(player.presence?.inactiveSince) ? player.presence.inactiveSince : null,
+      inactiveUntil: Number.isFinite(player.presence?.inactiveUntil) ? player.presence.inactiveUntil : null,
+    };
+  }
+
+  summarySeatAccount(player, viewerPlayerId) {
+    return {
+      accountId: viewerPlayerId && player.id === viewerPlayerId ? (player.accountId || null) : null,
+      accountLinked: Boolean(player.accountId),
+    };
   }
 
   getDirectorySummary() {
@@ -815,31 +872,38 @@ class RoomManager {
   restoreConnection(clientId, socketId, accountId = null, onAccountSeatReclaimed = null) {
     const safeId = safeClientId(clientId);
     if (!safeId) return null;
-    const mappedRoom = this.socketRoom.get(socketId);
     const room = this.findLiveRoomFor(safeId) || this.findRoomFor(safeId);
-    if (room?.isSeatBlocked(safeId, accountId)) return null;
-    if (room) {
-      if (mappedRoom && mappedRoom !== room) return null;
-      const player = room.game.getPlayerByClient(safeId);
-      if (!player) return null;
-      if (accountId && player.accountId !== accountId) return null;
-      if (!player.disconnected) {
-        // Same-socket restores are idempotent; another live socket must never
-        // overwrite the seat's bearer socket or its socket-room index.
-        if (player.socketId !== socketId) return null;
-        this.socketRoom.set(socketId, room);
-        return room;
-      }
-      if (player.accountId && player.accountId !== accountId) return null;
-      if (player.accountId && !accountId) return null;
-      player.socketId = socketId;
-      player.disconnected = false;
-      player.disconnectDeadline = 0;
-      player.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
-      this.socketRoom.set(socketId, room);
-      return room;
-    }
-    return this.restoreAccountSeat(accountId, safeId, socketId, onAccountSeatReclaimed);
+    if (!room) return this.restoreAccountSeat(accountId, safeId, socketId, onAccountSeatReclaimed);
+    return this.restoreRoomSeat(room, safeId, socketId, accountId);
+  }
+
+  restoreRoomSeat(room, safeId, socketId, accountId) {
+    if (room.isSeatBlocked(safeId, accountId)) return null;
+    const mappedRoom = this.socketRoom.get(socketId);
+    if (mappedRoom && mappedRoom !== room) return null;
+    const player = room.game.getPlayerByClient(safeId);
+    if (!player) return null;
+    if (accountId && player.accountId !== accountId) return null;
+    if (player.disconnected) return this.restoreDisconnectedSeat(player, room, socketId, accountId);
+    return this.restoreLiveSeat(player, room, socketId);
+  }
+
+  restoreLiveSeat(player, room, socketId) {
+    // Same-socket restores are idempotent; another live socket must never
+    // overwrite the seat's bearer socket or its socket-room index.
+    if (player.socketId !== socketId) return null;
+    this.socketRoom.set(socketId, room);
+    return room;
+  }
+
+  restoreDisconnectedSeat(player, room, socketId, accountId) {
+    if (!seatAccountAllowsReconnect(player, accountId)) return null;
+    player.socketId = socketId;
+    player.disconnected = false;
+    player.disconnectDeadline = 0;
+    player.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
+    this.socketRoom.set(socketId, room);
+    return room;
   }
 
   // Tab-restart recovery: a reopened tab has a fresh clientId (sessionStorage
@@ -852,17 +916,11 @@ class RoomManager {
     if (!accountId) return null;
     if (!clientId) return null;
     if (this.socketRoom.has(socketId)) return null;
-    if ([...this.rooms.values()].some(room => room.isSeatBlocked(clientId, accountId))) return null;
-    const accountSeats = [...this.rooms.values()].flatMap(roomItem => roomItem.game.players.filter(player => player.accountId === accountId && !player.bankrupt));
-    if (accountSeats.some(player => !player.disconnected)) return null;
-    const room = [...this.rooms.values()].find(roomItem => {
-      const player = roomItem.game.players.find(p => p.accountId === accountId);
-      if (!player) return false;
-      return player.disconnected;
-    });
-    if (!room) return null;
-    const player = room.game.players.find(p => p.accountId === accountId);
-    if (!player) return null;
+    if (this.accountSeatIsBlocked(clientId, accountId)) return null;
+    if (this.accountHasConnectedSeat(accountId)) return null;
+    const seat = this.findDisconnectedAccountSeat(accountId);
+    if (!seat) return null;
+    const { room, player } = seat;
     const previousClientId = player.clientId;
     if (typeof onAccountSeatReclaimed === 'function') onAccountSeatReclaimed(previousClientId);
     player.clientId = clientId;
@@ -872,6 +930,23 @@ class RoomManager {
     player.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
     this.socketRoom.set(socketId, room);
     return room;
+  }
+
+  accountSeatIsBlocked(clientId, accountId) {
+    return [...this.rooms.values()].some(room => room.isSeatBlocked(clientId, accountId));
+  }
+
+  accountHasConnectedSeat(accountId) {
+    return [...this.rooms.values()].some(roomItem => roomItem.game.players
+      .some(player => player.accountId === accountId && !player.bankrupt && !player.disconnected));
+  }
+
+  findDisconnectedAccountSeat(accountId) {
+    for (const room of this.rooms.values()) {
+      const player = room.game.players.find(candidate => candidate.accountId === accountId);
+      if (player?.disconnected) return { room, player };
+    }
+    return null;
   }
 
   findLiveRoomFor(clientId) {
@@ -921,28 +996,33 @@ class RoomManager {
   }
 
   removeRoomSeat({ clientId, socketId, reason = 'leave', preventRejoin = false } = {}) {
-    const room = this.getRoomByClient(clientId);
-    const player = room?.game.getPlayerByClient(clientId);
-    if (!room || !player || (socketId && player.socketId && player.socketId !== socketId)) {
-      return { success: false, error: 'That room seat is no longer active.' };
-    }
-
-    if (preventRejoin) {
-      room.kickedClientIds.add(player.clientId);
-      if (player.accountId) room.kickedAccountIds.add(player.accountId);
-    }
+    const seat = this.roomSeatTarget(clientId, socketId);
+    if (seat.error) return { success: false, error: seat.error };
+    const { room, player } = seat;
+    if (preventRejoin) this.blockSeatRejoin(room, player);
     const wasHost = room.hostId === player.id;
     const releasedRoom = this.leaveRoomByClient(player.clientId, socketId || player.socketId);
-    if (!releasedRoom) return { success: false, error: 'That room seat is no longer active.' };
-    if (wasHost) {
-      const replacement = releasedRoom.game.players.find(candidate => !candidate.isBot
-        && !candidate.disconnected
-        && !candidate.bankrupt
-        && !candidate.inDebt);
-      releasedRoom.hostId = replacement?.id || null;
-      releasedRoom.game.players.forEach(candidate => { candidate.isHost = candidate.id === releasedRoom.hostId; });
-    }
+    if (!releasedRoom) return { success: false, error: SEAT_INACTIVE_ERROR };
+    if (wasHost) releasedRoom.replaceHostWithReplacement();
     return { success: true, room: releasedRoom, player, reason };
+  }
+
+  roomSeatTarget(clientId, socketId) {
+    const room = this.getRoomByClient(clientId);
+    const player = room?.game.getPlayerByClient(clientId);
+    if (!room || !player) return { error: SEAT_INACTIVE_ERROR };
+    if (socketId && !this.seatMatchesSocket(player, socketId)) return { error: SEAT_INACTIVE_ERROR };
+    return { room, player };
+  }
+
+  seatMatchesSocket(player, socketId) {
+    if (!player.socketId) return true;
+    return player.socketId === socketId;
+  }
+
+  blockSeatRejoin(room, player) {
+    room.kickedClientIds.add(player.clientId);
+    if (player.accountId) room.kickedAccountIds.add(player.accountId);
   }
 
   // A real leave releases the seat in the lobby AND mid-game, so the room
@@ -959,11 +1039,19 @@ class RoomManager {
     // A voluntary leave is final. Remove every reference that could otherwise
     // leave orphaned deeds/market holdings or live contracts pointing at a
     // player no longer present in the table.
-    const pending = game.pendingPayment;
-    const creditor = pending?.playerId === player.id && pending.creditorId
-      ? game.getPlayerById(pending.creditorId)
-      : null;
+    const creditor = this.pendingSeatCreditor(game, player);
     this.clearPendingSeatObligations(game, player);
+    this.settleSeatExit(game, player, creditor);
+  }
+
+  pendingSeatCreditor(game, player) {
+    const pending = game.pendingPayment;
+    if (pending?.playerId !== player.id) return null;
+    if (!pending.creditorId) return null;
+    return game.getPlayerById(pending.creditorId);
+  }
+
+  settleSeatExit(game, player, creditor) {
     game.markPlayerBankrupt?.(player);
     game.liquidateMarketPositions?.(player);
     game.sweepCashToCreditor?.(player, creditor);
@@ -984,26 +1072,8 @@ class RoomManager {
     if (wasCurrentTurn) game.consecutiveDoubles = 0;
     // Capture the successor BEFORE filtering: nulling the id and calling
     // nextTurn() restarts at turnOrder[0] and skips the rightful next seat.
-    let successor = null;
-    let wrapped = false;
-    if (wasCurrentTurn && Array.isArray(game.turnOrder)) {
-      const oldIndex = game.turnOrder.indexOf(playerId);
-      if (oldIndex >= 0) {
-        for (let step = 1; step <= game.turnOrder.length; step += 1) {
-          if (oldIndex + step >= game.turnOrder.length) wrapped = true;
-          const candidate = game.getPlayerById(game.turnOrder[(oldIndex + step) % game.turnOrder.length]);
-          if (candidate && !candidate.bankrupt && !candidate.disconnected && candidate.id !== playerId) {
-            successor = candidate;
-            break;
-          }
-        }
-      }
-    }
-    if (typeof game.removePlayerFromTurnOrder === 'function') {
-      game.removePlayerFromTurnOrder(playerId);
-    } else if (Array.isArray(game.turnOrder)) {
-      game.turnOrder = game.turnOrder.filter(id => id !== playerId);
-    }
+    const successor = wasCurrentTurn ? this.findTurnSuccessor(game, playerId) : null;
+    this.removeSeatFromTurnOrder(game, playerId);
     this.clearPendingSeatObligations(game, player);
     const survivors = game.connectedNonBankruptPlayers();
     if (survivors.length <= 1) {
@@ -1012,10 +1082,44 @@ class RoomManager {
       return;
     }
     if (!wasCurrentTurn) return;
+    this.beginSeatExitTurn(game, successor);
+  }
+
+  findTurnSuccessor(game, playerId) {
+    const turnOrder = game.turnOrder;
+    if (!Array.isArray(turnOrder)) return null;
+    const oldIndex = turnOrder.indexOf(playerId);
+    if (oldIndex < 0) return null;
+    const wrapIndex = turnOrder.length - oldIndex - 1;
+    const orderedIds = [...turnOrder.slice(oldIndex + 1), ...turnOrder.slice(0, oldIndex + 1)];
+    const successorIndex = orderedIds.findIndex(id => this.turnCandidateIsActive(game, id, playerId));
+    if (successorIndex < 0) return null;
+    return { player: game.getPlayerById(orderedIds[successorIndex]), wrapped: successorIndex >= wrapIndex };
+  }
+
+  turnCandidateIsActive(game, candidateId, playerId) {
+    const candidate = game.getPlayerById(candidateId);
+    if (!candidate) return false;
+    if (candidate.id === playerId) return false;
+    if (candidate.bankrupt) return false;
+    return !candidate.disconnected;
+  }
+
+  removeSeatFromTurnOrder(game, playerId) {
+    if (typeof game.removePlayerFromTurnOrder === 'function') {
+      game.removePlayerFromTurnOrder(playerId);
+      return;
+    }
+    if (Array.isArray(game.turnOrder)) {
+      game.turnOrder = game.turnOrder.filter(id => id !== playerId);
+    }
+  }
+
+  beginSeatExitTurn(game, successor) {
     if (successor) {
-      if (wrapped) game.advanceRound();
+      if (successor.wrapped) game.advanceRound();
       game.resetTurnState();
-      game.beginSeatTurn(successor);
+      game.beginSeatTurn(successor.player);
       return;
     }
     // nextTurn() treats an unknown current id as "before the first seat"
