@@ -23,81 +23,171 @@ function renderActiveAnalyticsFilters(filters) {
   const chips = Object.entries(ANALYTICS_FILTER_LABELS).filter(([key]) => filters[key] && filters[key] !== 'all').map(([key, label]) => `<span class="analytics-filter-chip">${escapeHtml(label)} · ${escapeHtml(filters[key])}</span>`);
   target.innerHTML = chips.length ? chips.join('') : '<span class="t-micro ink-3">ALL DIMENSIONS</span>';
 }
+const ANALYTICS_STATUS_STATES = Object.freeze([
+  ['LOADING', 'loading'],
+  ['REFRESHING', 'refreshing'],
+  ['STALE', 'stale'],
+  ['SUPPRESSED', 'suppressed'],
+  ['MIN COHORT', 'suppressed'],
+  ['ACCESS REQUIRED', 'unauthorized'],
+  ['RATE LIMITED', 'rate-limited'],
+  ['UNAVAILABLE', 'unavailable'],
+  ['TIMED OUT', 'unavailable'],
+  ['NO VERIFIED', 'empty']
+]);
+const ANALYTICS_ALERTING_STATES = Object.freeze(['stale', 'suppressed', 'unauthorized', 'rate-limited', 'unavailable']);
+
+function analyticsStatusState(normalized) {
+  const match = ANALYTICS_STATUS_STATES.find(([keyword]) => normalized.includes(keyword));
+  return match ? match[1] : 'verified';
+}
+
+function isBusyAnalyticsState(statusState) {
+  if (statusState === 'loading') return true;
+  return statusState === 'refreshing';
+}
+
+function renderAnalyticsAlerts(alerts, statusState, text, tone) {
+  alerts.setAttribute?.('data-analytics-state', statusState);
+  const actionable = tone === 'warning' || ANALYTICS_ALERTING_STATES.includes(statusState);
+  if (actionable) { alerts.textContent = text; return; }
+  if (statusState === 'verified') alerts.textContent = 'NO ACTIONABLE ALERTS';
+}
+
 function renderStatus(message, tone = 'muted') {
   const status = query('#admin-analytics-status');
   if (!status) return;
   const text = String(message || '');
-  const normalized = text.toUpperCase();
-  const state = normalized.includes('LOADING') ? 'loading'
-    : normalized.includes('REFRESHING') ? 'refreshing'
-      : normalized.includes('STALE') ? 'stale'
-        : normalized.includes('SUPPRESSED') || normalized.includes('MIN COHORT') ? 'suppressed'
-          : normalized.includes('ACCESS REQUIRED') ? 'unauthorized'
-            : normalized.includes('RATE LIMITED') ? 'rate-limited'
-              : normalized.includes('UNAVAILABLE') || normalized.includes('TIMED OUT') ? 'unavailable'
-                : normalized.includes('NO VERIFIED') ? 'empty' : 'verified';
+  const statusState = analyticsStatusState(text.toUpperCase());
   status.className = `t-body analytics-status ${tone}`;
   status.textContent = text;
-  status.setAttribute?.('data-analytics-state', state);
-  status.setAttribute?.('aria-busy', String(state === 'loading' || state === 'refreshing'));
+  status.setAttribute?.('data-analytics-state', statusState);
+  status.setAttribute?.('aria-busy', String(isBusyAnalyticsState(statusState)));
   const alerts = query('#admin-analytics-alerts');
-  if (alerts) {
-    alerts.setAttribute?.('data-analytics-state', state);
-    if (tone === 'warning' || ['stale', 'suppressed', 'unauthorized', 'rate-limited', 'unavailable'].includes(state)) alerts.textContent = text;
-    else if (state === 'verified') alerts.textContent = 'NO ACTIONABLE ALERTS';
-  }
+  if (alerts) renderAnalyticsAlerts(alerts, statusState, text, tone);
 }
 
 function finiteAnalyticsNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  if (value && typeof value === 'object') {
-    for (const key of ['value', 'rate', 'count']) {
-      const parsed = finiteAnalyticsNumber(value[key]);
-      if (parsed !== null) return parsed;
-    }
+  if (typeof value === 'string') return parseNumericString(value);
+  if (value && typeof value === 'object') return finiteFromRecord(value);
+  return null;
+}
+
+function parseNumericString(value) {
+  if (value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function finiteFromRecord(value) {
+  for (const key of ['value', 'rate', 'count']) {
+    const parsed = finiteAnalyticsNumber(value[key]);
+    if (parsed !== null) return parsed;
   }
   return null;
+}
+
+function pointSource(value) {
+  if (!value) return {};
+  if (typeof value !== 'object') return {};
+  if (Array.isArray(value)) return {};
+  return value;
+}
+
+function applyPointUnit(point, unit, source) {
+  if (unit) { point.unit = unit; return; }
+  if (typeof source.unit === 'string') point.unit = source.unit.slice(0, 24);
+}
+
+function applyPointMetadata(point, source) {
+  for (const key of ['sampleSize', 'numerator', 'denominator']) {
+    const metadata = finiteAnalyticsNumber(source[key]);
+    if (metadata !== null) point[key] = metadata;
+  }
 }
 
 function panelPoint(label, value, unit = '') {
   const numeric = finiteAnalyticsNumber(value);
   if (numeric === null) return null;
-  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  const point = { label: String(label || 'Observation').slice(0, 80), value: numeric, ...(unit || typeof source.unit === 'string' ? { unit: unit || source.unit.slice(0, 24) } : {}) };
-  for (const key of ['sampleSize', 'numerator', 'denominator']) {
-    const metadata = finiteAnalyticsNumber(source[key]);
-    if (metadata !== null) point[key] = metadata;
-  }
+  const source = pointSource(value);
+  const point = { label: String(label || 'Observation').slice(0, 80), value: numeric };
+  applyPointUnit(point, unit, source);
+  applyPointMetadata(point, source);
   return point;
 }
 
 function panelRows(model) { return Array.isArray(model?.rows) ? model.rows : []; }
+
+function isRecordObject(value) {
+  if (!value) return false;
+  if (typeof value !== 'object') return false;
+  return !Array.isArray(value);
+}
+
 function objectSeries(value, unit = '') {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  if (!isRecordObject(value)) return [];
   return Object.entries(value).slice(0, 24).map(([label, item]) => panelPoint(label, item, unit)).filter(Boolean);
 }
 
+function labeledSeries(pairs) {
+  return pairs.map(([label, value, unit]) => panelPoint(label, value, unit)).filter(Boolean);
+}
+
+function rowPointSeries(snapshot, labelFor, valueFor, unit) {
+  return panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(labelFor(row), valueFor(row), unit)).filter(Boolean);
+}
+
+function overviewSeries(snapshot) { return snapshot.series; }
+
+function matchHealthSeries(snapshot) {
+  const model = snapshot.breakdowns?.[0] || {};
+  return labeledSeries([
+    ['Starts', model.starts, 'matches'],
+    ['Completions', model.completions, 'matches'],
+    ['Stalls', model.stalls, 'matches'],
+    ['Reconnect rate', model.reconnectRate, 'percent'],
+    ['AFK rate', model.afkRate, 'percent'],
+    ['Bankruptcies', model.bankruptcies, 'matches'],
+    ['Comebacks', model.comebacks, 'matches']
+  ]);
+}
+
+function rulesetSeries(snapshot) {
+  return rowPointSeries(snapshot, row => `${row.rulesetPreset || 'ruleset'} / ${row.boardVariant || 'board'}`, row => row.matches, '');
+}
+
+function economySeries(snapshot) {
+  return objectSeries(snapshot.breakdowns?.[0]?.adoption, 'adoption');
+}
+
+function eventSeries(snapshot) {
+  return rowPointSeries(snapshot, row => row.eventId || 'event', row => row.eligibility, 'observations');
+}
+
+function botSeries(snapshot) {
+  return rowPointSeries(snapshot, row => `${row.botMode || 'bot'} / ${row.provider || 'provider'}`, row => row.matches, 'matches');
+}
+
+function qualitySeries(snapshot) {
+  const model = snapshot.breakdowns?.[0] || snapshot.dataQuality || {};
+  return labeledSeries([
+    ['Lag seconds', model.lagSeconds, 'seconds'],
+    ['Queue depth', model.queueDepth, 'observations'],
+    ['Pending writes', model.pendingWrites, 'observations'],
+    ['Rejected events', model.rejectedEvents, 'observations'],
+    ['Suppressed panels', model.suppressionCount, 'observations']
+  ]);
+}
+
 const ANALYTICS_PANEL_DESCRIPTORS = Object.freeze({
-  overview: { title: 'Verified activity', unit: 'observations', mode: 'line', series: snapshot => snapshot.series },
-  'match-health': {
-    title: 'Match reliability', unit: 'matches', mode: 'bar',
-    series: snapshot => {
-      const model = snapshot.breakdowns?.[0] || {};
-      return [['Starts', model.starts, 'matches'], ['Completions', model.completions, 'matches'], ['Stalls', model.stalls, 'matches'], ['Reconnect rate', model.reconnectRate, 'percent'], ['AFK rate', model.afkRate, 'percent'], ['Bankruptcies', model.bankruptcies, 'matches'], ['Comebacks', model.comebacks, 'matches']].map(([label, value, unit]) => panelPoint(label, value, unit)).filter(Boolean);
-    }
-  },
-  rulesets: { title: 'Ruleset and board adoption', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.rulesetPreset || 'ruleset'} / ${row.boardVariant || 'board'}`, row.matches)).filter(Boolean) },
-  economy: { title: 'Economic feature adoption', unit: 'adoption', mode: 'bar', series: snapshot => objectSeries(snapshot.breakdowns?.[0]?.adoption, 'adoption') },
-  events: { title: 'Event eligibility', unit: 'observations', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(row.eventId || 'event', row.eligibility, 'observations')).filter(Boolean) },
-  bots: { title: 'Bot matches by provider', unit: 'matches', mode: 'bar', series: snapshot => panelRows(snapshot.breakdowns?.[0]).map(row => panelPoint(`${row.botMode || 'bot'} / ${row.provider || 'provider'}`, row.matches, 'matches')).filter(Boolean) },
-  quality: { title: 'Snapshot quality signals', unit: 'observations', mode: 'bar', series: snapshot => {
-    const model = snapshot.breakdowns?.[0] || snapshot.dataQuality || {};
-    return [['Lag seconds', model.lagSeconds, 'seconds'], ['Queue depth', model.queueDepth, 'observations'], ['Pending writes', model.pendingWrites, 'observations'], ['Rejected events', model.rejectedEvents, 'observations'], ['Suppressed panels', model.suppressionCount, 'observations']].map(([label, value, unit]) => panelPoint(label, value, unit)).filter(Boolean);
-  } }
+  overview: { title: 'Verified activity', unit: 'observations', mode: 'line', series: overviewSeries },
+  'match-health': { title: 'Match reliability', unit: 'matches', mode: 'bar', series: matchHealthSeries },
+  rulesets: { title: 'Ruleset and board adoption', unit: 'matches', mode: 'bar', series: rulesetSeries },
+  economy: { title: 'Economic feature adoption', unit: 'adoption', mode: 'bar', series: economySeries },
+  events: { title: 'Event eligibility', unit: 'observations', mode: 'bar', series: eventSeries },
+  bots: { title: 'Bot matches by provider', unit: 'matches', mode: 'bar', series: botSeries },
+  quality: { title: 'Snapshot quality signals', unit: 'observations', mode: 'bar', series: qualitySeries }
 });
 
 export { ANALYTICS_PANEL_DESCRIPTORS };
@@ -107,105 +197,257 @@ function renderAnalyticsChartEmpty(container, title) {
   container.innerHTML = `<figure class="analytics-chart analytics-chart-placeholder" data-chart-state="empty"><figcaption>${escapeHtml(title)}</figcaption><p class="t-micro ink-3">NO VERIFIED OBSERVATIONS FOR THIS PANEL</p></figure>`;
 }
 
+function numberFormat(number, maximumFractionDigits = 2) {
+  if (number === null) return 'N/A';
+  return number.toLocaleString(undefined, { maximumFractionDigits });
+}
+
+function matchesAny(text, fragments) {
+  return fragments.some(fragment => text.includes(fragment));
+}
+
+function kpiUnit(item, id) {
+  const rawUnit = String(item.unit || '').toLowerCase();
+  if (rawUnit) return rawUnit;
+  if (matchesAny(id, ['rate', 'adoption'])) return 'percent';
+  if (matchesAny(id, ['latency', 'duration'])) return 'seconds';
+  if (matchesAny(id, ['player', 'room'])) return 'players';
+  if (matchesAny(id, ['match', 'round', 'started'])) return 'matches';
+  return 'value';
+}
+
+function isPercentUnit(unit) {
+  if (unit === 'percent') return true;
+  if (unit === 'adoption') return true;
+  return unit.endsWith('rate');
+}
+
+function scaledPercent(number) {
+  return Math.abs(number) <= 1 ? number * 100 : number;
+}
+
+function kpiDisplayValue(value, unit) {
+  if (value === null) return '·';
+  if (isPercentUnit(unit)) return `${numberFormat(scaledPercent(value), 1)}%`;
+  if (unit === 'seconds') return numberFormat(value);
+  if (unit === 'milliseconds') return numberFormat(value, 0);
+  return numberFormat(value, unit === 'value' ? 2 : 1);
+}
+
+function kpiContextParts(item) {
+  const parts = [];
+  const sampleSize = finiteAnalyticsNumber(item.sampleSize);
+  const numerator = finiteAnalyticsNumber(item.numerator);
+  const denominator = finiteAnalyticsNumber(item.denominator);
+  if (sampleSize !== null) parts.push(`SAMPLE ${numberFormat(sampleSize, 0)}`);
+  if (numerator !== null) parts.push(`NUMERATOR ${numberFormat(numerator, 0)}`);
+  if (denominator !== null) parts.push(`DENOMINATOR ${numberFormat(denominator, 0)}`);
+  return parts;
+}
+
+function comparisonFor(item) {
+  if (!item.comparison) return null;
+  if (typeof item.comparison !== 'object') return null;
+  return item.comparison;
+}
+
+function baselineText(value, percentUnit) {
+  if (value === null) return 'N/A';
+  if (percentUnit) return `${numberFormat(scaledPercent(value), 1)}%`;
+  return numberFormat(value);
+}
+
+function deltaText(delta, percentUnit) {
+  const sign = delta >= 0 ? '+' : '';
+  const body = percentUnit ? `${numberFormat(delta * 100, 1)}pp` : numberFormat(delta);
+  return `${sign}${body}`;
+}
+
+function kpiComparisonParts(item, unit) {
+  const comparison = comparisonFor(item);
+  if (!comparison) return ['COMPARISON UNAVAILABLE'];
+  const percentUnit = isPercentUnit(unit);
+  const comparisonValue = finiteAnalyticsNumber(comparison.value ?? comparison.baseline);
+  const comparisonDelta = finiteAnalyticsNumber(comparison.delta ?? comparison.change);
+  const parts = [`BASELINE ${baselineText(comparisonValue, percentUnit)}`];
+  if (comparisonDelta !== null) parts.push(`DELTA ${deltaText(comparisonDelta, percentUnit)}`);
+  if (comparison.period || comparison.label) parts.push(String(comparison.period || comparison.label).toUpperCase());
+  return parts;
+}
+
+function kpiGeneratedAt(item, snapshot) {
+  if (typeof item.generatedAt === 'string' && item.generatedAt) return item.generatedAt;
+  return snapshot.generatedAt || 'UNKNOWN';
+}
+
+function renderKpi(item, snapshot) {
+  const id = String(item.id || '').toLowerCase();
+  const unit = kpiUnit(item, id);
+  const displayValue = kpiDisplayValue(finiteAnalyticsNumber(item.value), unit);
+  const displayUnit = unit === 'value' ? '' : unit;
+  const contextParts = kpiContextParts(item);
+  const comparisonParts = kpiComparisonParts(item, unit);
+  const generatedAt = kpiGeneratedAt(item, snapshot);
+  return `<article class="analytics-metric panel noise" data-kpi-id="${escapeHtml(item.id || 'metric')}"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${escapeHtml(displayValue)}</strong>${displayUnit ? `<span class="t-micro ink-3 analytics-kpi-unit">${escapeHtml(displayUnit)}</span>` : ''}${contextParts.length ? `<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(contextParts.join(' / '))}</span>` : ''}<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(comparisonParts.join(' · '))}</span><span class="t-micro ink-3 analytics-kpi-definition">${escapeHtml(item.definition || 'DEFINITION NOT PROVIDED')}</span><time class="t-micro ink-3 analytics-kpi-timestamp" datetime="${escapeHtml(generatedAt)}">VERIFIED ${escapeHtml(generatedAt)}</time></article>`;
+}
+
 function renderKpis(snapshot) {
   const kpis = Array.isArray(snapshot.overview?.kpis) ? snapshot.overview.kpis.slice(0, 6) : [];
   if (!kpis.length) return '';
-  return kpis.map(item => {
-    const id = String(item.id || '').toLowerCase();
-    const rawUnit = String(item.unit || '').toLowerCase();
-    const unit = rawUnit || (id.includes('rate') || id.includes('adoption') ? 'percent' : id.includes('latency') || id.includes('duration') ? 'seconds' : id.includes('player') || id.includes('room') ? 'players' : id.includes('match') || id.includes('round') || id.includes('started') ? 'matches' : 'value');
-    const value = finiteAnalyticsNumber(item.value);
-    const numberFormat = (number, maximumFractionDigits = 2) => number === null ? 'N/A' : number.toLocaleString(undefined, { maximumFractionDigits });
-    const percentUnit = unit === 'percent' || unit === 'adoption' || unit.endsWith('rate');
-    const displayValue = value === null ? '·' : percentUnit ? `${numberFormat(Math.abs(value) <= 1 ? value * 100 : value, 1)}%` : unit === 'seconds' ? numberFormat(value) : unit === 'milliseconds' ? numberFormat(value, 0) : numberFormat(value, unit === 'value' ? 2 : 1);
-    const displayUnit = unit === 'value' ? '' : unit;
-    const numerator = finiteAnalyticsNumber(item.numerator);
-    const denominator = finiteAnalyticsNumber(item.denominator);
-    const sampleSize = finiteAnalyticsNumber(item.sampleSize);
-    const denominatorParts = [];
-    if (sampleSize !== null) denominatorParts.push(`SAMPLE ${numberFormat(sampleSize, 0)}`);
-    if (numerator !== null) denominatorParts.push(`NUMERATOR ${numberFormat(numerator, 0)}`);
-    if (denominator !== null) denominatorParts.push(`DENOMINATOR ${numberFormat(denominator, 0)}`);
-    const comparison = item.comparison && typeof item.comparison === 'object' ? item.comparison : null;
-    const comparisonValue = finiteAnalyticsNumber(comparison?.value ?? comparison?.baseline);
-    const comparisonDelta = finiteAnalyticsNumber(comparison?.delta ?? comparison?.change);
-    const comparisonParts = comparison ? [`BASELINE ${comparisonValue === null ? 'N/A' : (percentUnit ? `${numberFormat(Math.abs(comparisonValue) <= 1 ? comparisonValue * 100 : comparisonValue, 1)}%` : numberFormat(comparisonValue))}`] : [];
-    if (comparisonDelta !== null) comparisonParts.push(`DELTA ${comparisonDelta >= 0 ? '+' : ''}${percentUnit ? `${numberFormat(comparisonDelta * 100, 1)}pp` : numberFormat(comparisonDelta)}`);
-    if (comparison?.period || comparison?.label) comparisonParts.push(String(comparison.period || comparison.label).toUpperCase());
-    if (!comparisonParts.length) comparisonParts.push('COMPARISON UNAVAILABLE');
-    const generatedAt = typeof item.generatedAt === 'string' && item.generatedAt ? item.generatedAt : snapshot.generatedAt || 'UNKNOWN';
-    return `<article class="analytics-metric panel noise" data-kpi-id="${escapeHtml(item.id || 'metric')}"><span class="t-micro g400">${escapeHtml(item.label || item.id || 'Metric')}</span><strong class="t-money g100">${escapeHtml(displayValue)}</strong>${displayUnit ? `<span class="t-micro ink-3 analytics-kpi-unit">${escapeHtml(displayUnit)}</span>` : ''}${denominatorParts.length ? `<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(denominatorParts.join(' / '))}</span>` : ''}<span class="t-micro ink-3 analytics-kpi-context">${escapeHtml(comparisonParts.join(' · '))}</span><span class="t-micro ink-3 analytics-kpi-definition">${escapeHtml(item.definition || 'DEFINITION NOT PROVIDED')}</span><time class="t-micro ink-3 analytics-kpi-timestamp" datetime="${escapeHtml(generatedAt)}">VERIFIED ${escapeHtml(generatedAt)}</time></article>`;
-  }).join('');
+  return kpis.map(item => renderKpi(item, snapshot)).join('');
+}
+
+function chartPanelMatches(container, tab) {
+  const panel = container.closest?.('[data-analytics-panel]');
+  if (!panel) return true;
+  return panel.getAttribute('data-analytics-panel') === tab;
+}
+
+function renderChartSeries(container, values, options) {
+  if (!values || !values.length) renderAnalyticsChartEmpty(container, options.title);
+  else renderAnalyticsChart(container, values, options);
+}
+
+function renderChartContainer(container, snapshot) {
+  const tab = container.getAttribute('data-analytics-panel-chart') || snapshot.filters.tab;
+  if (!chartPanelMatches(container, snapshot.filters.tab)) {
+    disposeAnalyticsChart(container);
+    return;
+  }
+  const descriptor = ANALYTICS_PANEL_DESCRIPTORS[tab] || ANALYTICS_PANEL_DESCRIPTORS.overview;
+  const options = {
+    title: container.getAttribute('data-chart-title') || descriptor.title,
+    unit: container.getAttribute('data-chart-unit') || descriptor.unit,
+    mode: container.getAttribute('data-chart-mode') || descriptor.mode
+  };
+  renderChartSeries(container, descriptor.series(snapshot), options);
 }
 
 function renderAnalyticsCharts(snapshot) {
   if (typeof document === 'undefined') return;
-  document.querySelectorAll?.('[data-analytics-chart]').forEach(container => {
-    const tab = container.getAttribute('data-analytics-panel-chart') || snapshot.filters.tab;
-    const panel = container.closest?.('[data-analytics-panel]');
-    if (panel && panel.getAttribute('data-analytics-panel') !== snapshot.filters.tab) {
-      disposeAnalyticsChart(container);
-      return;
-    }
-    const descriptor = ANALYTICS_PANEL_DESCRIPTORS[tab] || ANALYTICS_PANEL_DESCRIPTORS.overview;
-    const title = container.getAttribute('data-chart-title') || descriptor.title;
-    const unit = container.getAttribute('data-chart-unit') || descriptor.unit;
-    const mode = container.getAttribute('data-chart-mode') || descriptor.mode;
-    const values = descriptor.series(snapshot) || [];
-    if (!values.length) renderAnalyticsChartEmpty(container, title);
-    else renderAnalyticsChart(container, values, { title, unit, mode });
-  });
+  document.querySelectorAll?.('[data-analytics-chart]').forEach(container => renderChartContainer(container, snapshot));
+}
+
+const AGGREGATE_METRIC_KEYS = Object.freeze(['value', 'rate', 'count', 'denominator']);
+
+function hasAggregateMetric(value) {
+  return AGGREGATE_METRIC_KEYS.some(key => Object.hasOwn(value, key));
+}
+
+function aggregateDisplay(current, unit) {
+  if (current === null) return 'N/A';
+  if (current === undefined) return 'N/A';
+  const number = finiteAnalyticsNumber(current);
+  if (isPercentUnit(unit.toLowerCase()) && number !== null) {
+    return `${scaledPercent(number).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+  }
+  return String(current);
+}
+
+function pushAggregateCount(parts, label, count) {
+  if (count === null) return;
+  if (count === undefined) return;
+  parts.push(`${label} ${count}`);
+}
+
+function aggregateMetricParts(value) {
+  const current = value.value ?? value.rate ?? value.count;
+  const unit = typeof value.unit === 'string' ? value.unit : '';
+  const parts = [aggregateDisplay(current, unit)];
+  if (unit) parts.push(`UNIT ${unit}`);
+  pushAggregateCount(parts, 'SAMPLE', value.sampleSize);
+  pushAggregateCount(parts, 'NUMERATOR', value.numerator);
+  pushAggregateCount(parts, 'DENOMINATOR', value.denominator);
+  return parts;
+}
+
+function aggregateRecord(value) {
+  const rendered = Object.entries(value).slice(0, 8).map(([key, child]) => `${key}: ${aggregateValue(child)}`).join('; ');
+  return rendered || 'N/A';
 }
 
 function aggregateValue(value) {
-  if (value === null || value === undefined) return 'N/A';
+  if (value === null) return 'N/A';
+  if (value === undefined) return 'N/A';
   if (typeof value !== 'object') return String(value);
-  if (Object.hasOwn(value, 'value') || Object.hasOwn(value, 'rate') || Object.hasOwn(value, 'count') || Object.hasOwn(value, 'denominator')) {
-    const current = value.value ?? value.rate ?? value.count;
-    const unit = typeof value.unit === 'string' ? value.unit : '';
-    const number = finiteAnalyticsNumber(current);
-    const normalizedUnit = unit.toLowerCase();
-    const isPercent = normalizedUnit === 'percent' || normalizedUnit === 'adoption' || normalizedUnit.endsWith('rate');
-    const display = current === null || current === undefined ? 'N/A'
-      : isPercent && number !== null ? `${(Math.abs(number) <= 1 ? number * 100 : number).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`
-        : String(current);
-    const parts = [display];
-    if (unit) parts.push(`UNIT ${unit}`);
-    if (value.sampleSize !== null && value.sampleSize !== undefined) parts.push(`SAMPLE ${value.sampleSize}`);
-    if (value.numerator !== null && value.numerator !== undefined) parts.push(`NUMERATOR ${value.numerator}`);
-    if (value.denominator !== null && value.denominator !== undefined) parts.push(`DENOMINATOR ${value.denominator}`);
-    return parts.join(' · ');
-  }
-  return Object.entries(value).slice(0, 8).map(([key, child]) => `${key}: ${aggregateValue(child)}`).join('; ') || 'N/A';
+  if (hasAggregateMetric(value)) return aggregateMetricParts(value).join(' · ');
+  return aggregateRecord(value);
 }
 
-function renderAnalyticsReadModel(snapshot) {
-  if (typeof document === 'undefined') return;
-  const tab = snapshot.filters.tab;
-  const panel = [...(document.querySelectorAll?.('[data-analytics-panel]') || [])].find(candidate => candidate.getAttribute('data-analytics-panel') === tab);
-  if (!panel) return;
-  panel.querySelector?.('.analytics-read-model')?.remove?.();
+function analyticsPanelFor(tab) {
+  if (typeof document === 'undefined') return null;
+  const panels = [...(document.querySelectorAll?.('[data-analytics-panel]') || [])];
+  return panels.find(candidate => candidate.getAttribute('data-analytics-panel') === tab) || null;
+}
+
+function readModelRows(snapshot) {
   const breakdowns = Array.isArray(snapshot.breakdowns) ? snapshot.breakdowns : [];
-  const rows = breakdowns.flatMap(row => Array.isArray(row?.rows) ? row.rows : [row]);
-  const association = snapshot.association;
-  const hasEvidence = rows.length > 0 || association;
-  let content = '';
-  if (hasEvidence) {
-    const tableRows = rows.map(row => {
-      if (row?.suppressed) return `<tr><td colspan="2">INSUFFICIENT COHORT · MIN COHORT 5</td></tr>`;
-      const values = Object.entries(row || {}).filter(([key]) => key !== 'scope').slice(0, 12).map(([key, value]) => `<span class="analytics-read-field"><b>${escapeHtml(key)}</b> ${escapeHtml(aggregateValue(value))}</span>`).join('');
-      return `<tr><th scope="row">${escapeHtml(row?.pseudonymId || row?.eventId || row?.botMode || row?.rulesetPreset || 'AGGREGATE')}</th><td>${values}</td></tr>`;
-    }).join('');
-    const associationMarkup = association ? `<p class="analytics-association">${escapeHtml(association.label || 'ASSOCIATION, NOT CAUSATION')} · EXPOSED ${escapeHtml(aggregateValue(association.exposed))} · CONTROL ${escapeHtml(aggregateValue(association.control))} · RELATIVE DELTA ${escapeHtml(association.relativeRateDelta)}</p>` : '';
-    content = `${associationMarkup}<table class="analytics-read-table"><caption>${escapeHtml(tab)} verified read model</caption><thead><tr><th scope="col">GROUP</th><th scope="col">MEASURES</th></tr></thead><tbody>${tableRows}</tbody></table>`;
-  } else if (!snapshot.metrics || Object.keys(snapshot.metrics).length === 0 && !(snapshot.overview?.kpis?.length)) {
-    content = '<p class="analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p><button class="btn-dark analytics-reset-filter" type="button" data-analytics-reset>RESET FILTERS</button>';
-  }
+  return breakdowns.flatMap(row => Array.isArray(row?.rows) ? row.rows : [row]);
+}
+
+function readModelRowLabel(row) {
+  if (row?.pseudonymId) return row.pseudonymId;
+  if (row?.eventId) return row.eventId;
+  if (row?.botMode) return row.botMode;
+  if (row?.rulesetPreset) return row.rulesetPreset;
+  return 'AGGREGATE';
+}
+
+function readModelRowFields(row) {
+  return Object.entries(row || {})
+    .filter(([key]) => key !== 'scope')
+    .slice(0, 12)
+    .map(([key, value]) => `<span class="analytics-read-field"><b>${escapeHtml(key)}</b> ${escapeHtml(aggregateValue(value))}</span>`)
+    .join('');
+}
+
+function readModelRowMarkup(row) {
+  if (row?.suppressed) return '<tr><td colspan="2">INSUFFICIENT COHORT · MIN COHORT 5</td></tr>';
+  return `<tr><th scope="row">${escapeHtml(readModelRowLabel(row))}</th><td>${readModelRowFields(row)}</td></tr>`;
+}
+
+function associationMarkup(association) {
+  if (!association) return '';
+  const label = association.label || 'ASSOCIATION, NOT CAUSATION';
+  return `<p class="analytics-association">${escapeHtml(label)} · EXPOSED ${escapeHtml(aggregateValue(association.exposed))} · CONTROL ${escapeHtml(aggregateValue(association.control))} · RELATIVE DELTA ${escapeHtml(association.relativeRateDelta)}</p>`;
+}
+
+function readModelEvidenceMarkup(tab, rows, association) {
+  const tableRows = rows.map(readModelRowMarkup).join('');
+  return `${associationMarkup(association)}<table class="analytics-read-table"><caption>${escapeHtml(tab)} verified read model</caption><thead><tr><th scope="col">GROUP</th><th scope="col">MEASURES</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+}
+
+function isReadModelEmpty(snapshot) {
+  if (!snapshot.metrics) return true;
+  if (Object.keys(snapshot.metrics).length > 0) return false;
+  return !(snapshot.overview?.kpis?.length);
+}
+
+const EMPTY_READ_MODEL = '<p class="analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p><button class="btn-dark analytics-reset-filter" type="button" data-analytics-reset>RESET FILTERS</button>';
+
+function readModelContent(snapshot, tab, rows, association) {
+  if (rows.length > 0 || association) return readModelEvidenceMarkup(tab, rows, association);
+  if (isReadModelEmpty(snapshot)) return EMPTY_READ_MODEL;
+  return '';
+}
+
+function appendReadModel(panel, tab, content) {
   if (!content) return;
   const readModel = `<div class="analytics-read-model" tabindex="0" role="region" aria-label="Scrollable ${escapeHtml(tab)} verified read model">${content}</div>`;
   panel.insertAdjacentHTML?.('beforeend', readModel);
   if (!panel.insertAdjacentHTML) panel.innerHTML += readModel;
   panel.querySelectorAll?.('[data-analytics-reset]')?.forEach(button => listenReset(button));
+}
+
+function renderAnalyticsReadModel(snapshot) {
+  if (typeof document === 'undefined') return;
+  const tab = snapshot.filters.tab;
+  const panel = analyticsPanelFor(tab);
+  if (!panel) return;
+  panel.querySelector?.('.analytics-read-model')?.remove?.();
+  const rows = readModelRows(snapshot);
+  const content = readModelContent(snapshot, tab, rows, snapshot.association);
+  appendReadModel(panel, tab, content);
 }
 
 function listenReset(button) {
@@ -215,30 +457,64 @@ function listenReset(button) {
   button.addEventListener?.('click', event => { event.preventDefault(); globalThis.__poorupAnalyticsReset?.(); });
 }
 
+function metricCardMarkup(name, entry) {
+  const label = METRIC_LABELS[name];
+  const span = entry.type === 'gauge' ? 'CURRENT' : 'RECORDED';
+  return `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(label)}</span><strong class="t-money g100">${escapeHtml(metricValue(entry).toLocaleString())}</strong><span class="t-micro ink-3">${span}</span></article>`;
+}
+
+function overviewGridMarkup(snapshot) {
+  const kpis = renderKpis(snapshot);
+  if (kpis) return kpis;
+  const entries = Object.entries(snapshot.metrics);
+  if (entries.length) return entries.map(([name, entry]) => metricCardMarkup(name, entry)).join('');
+  return '<p class="t-body ink-2 analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p>';
+}
+
+function updateAnalyticsGrid(snapshot) {
+  const grid = query('#admin-analytics-grid');
+  if (!grid) return;
+  const overview = snapshot.filters.tab === 'overview';
+  grid.hidden = !overview;
+  grid.setAttribute?.('aria-hidden', String(!overview));
+  grid.innerHTML = overview ? overviewGridMarkup(snapshot) : '';
+}
+
+function snapshotStatus(snapshot) {
+  if (snapshot.suppression.suppressedPanels > 0) {
+    return { message: 'INSUFFICIENT COHORT · MIN COHORT 5', tone: 'warning' };
+  }
+  const stale = snapshot.dataQuality.stale === true || snapshot.dataQuality.fresh === false;
+  if (stale) return { message: `STALE · LAST VERIFIED ${snapshot.generatedAt || 'UNKNOWN'}`, tone: 'warning' };
+  return { message: `SYNCED ${snapshot.range.toUpperCase()} · ${snapshot.generatedAt || 'NOW'}`, tone: 'green' };
+}
+
 export function renderAnalyticsSnapshot(value) {
   const snapshot = normalizeAnalyticsSnapshot(value);
   const lastVerified = query('[data-analytics-last-verified]');
   if (lastVerified) lastVerified.textContent = `LAST VERIFIED · ${snapshot.generatedAt || 'UNKNOWN'}`;
-  const grid = query('#admin-analytics-grid');
-  if (grid) {
-    const overview = snapshot.filters.tab === 'overview';
-    grid.hidden = !overview;
-    grid.setAttribute?.('aria-hidden', String(!overview));
-    const kpis = overview ? renderKpis(snapshot) : '';
-    const entries = overview ? Object.entries(snapshot.metrics) : [];
-    grid.innerHTML = !overview ? '' : (kpis || (entries.length
-      ? entries.map(([name, entry]) => `<article class="analytics-metric panel noise"><span class="t-micro g400">${escapeHtml(METRIC_LABELS[name])}</span><strong class="t-money g100">${escapeHtml(metricValue(entry).toLocaleString())}</strong><span class="t-micro ink-3">${entry.type === 'gauge' ? 'CURRENT' : 'RECORDED'}</span></article>`).join('')
-      : '<p class="t-body ink-2 analytics-empty">NO VERIFIED OBSERVATIONS FOR THIS FILTER</p>'));
-  }
+  updateAnalyticsGrid(snapshot);
   renderAnalyticsCharts(snapshot);
   renderAnalyticsReadModel(snapshot);
-  if (snapshot.suppression.suppressedPanels > 0) renderStatus('INSUFFICIENT COHORT · MIN COHORT 5', 'warning');
-  else if (snapshot.dataQuality.stale === true || snapshot.dataQuality.fresh === false) renderStatus(`STALE · LAST VERIFIED ${snapshot.generatedAt || 'UNKNOWN'}`, 'warning');
-  else renderStatus(`SYNCED ${snapshot.range.toUpperCase()} · ${snapshot.generatedAt || 'NOW'}`, 'green');
+  const status = snapshotStatus(snapshot);
+  renderStatus(status.message, status.tone);
   return snapshot;
 }
 
-function queryString(filters) { const params = new URLSearchParams(); Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== null && value !== undefined && key !== 'minimumCohort') params.set(key, value); }); return params.toString(); }
+const SKIPPED_FILTER_VALUES = new Set(['', null]);
+
+function shouldSerializeFilter(key, value) {
+  if (key === 'minimumCohort') return false;
+  return !SKIPPED_FILTER_VALUES.has(value) && value !== undefined;
+}
+
+function queryString(filters) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (shouldSerializeFilter(key, value)) params.set(key, value);
+  });
+  return params.toString();
+}
 function readUrlFilters() {
   const location = globalThis.window?.location;
   if (!location || !isAnalyticsPath(location.pathname)) return {};
@@ -248,7 +524,9 @@ function readUrlFilters() {
 function syncUrlFilters(filters) {
   const location = globalThis.window?.location;
   const history = globalThis.window?.history;
-  if (!location || !isAnalyticsPath(location.pathname) || typeof history?.replaceState !== 'function') return;
+  if (!location) return;
+  if (!isAnalyticsPath(location.pathname)) return;
+  if (typeof history?.replaceState !== 'function') return;
   const query = queryString(filters);
   history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash || ''}`);
 }
@@ -274,37 +552,63 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
 
   function tabElements() { return typeof document === 'undefined' ? [] : [...(document.querySelectorAll?.('[data-analytics-tab]') || [])]; }
 
-  function applyTabState({ focus = false } = {}) {
-    const tabs = tabElements();
-    tabs.forEach((element, index) => {
-      const active = element.getAttribute('data-analytics-tab') === filters.tab;
-      const tabId = element.id || `analytics-tab-${index + 1}`;
-      element.id = tabId;
-      element.setAttribute('role', 'tab');
-      element.setAttribute('aria-selected', String(active));
-      element.setAttribute('tabindex', active ? '0' : '-1');
-      element.classList.toggle('is-active', active);
-      if (focus && active) element.focus?.();
-      listenOnce(element, 'click', () => setTab(element.getAttribute('data-analytics-tab')));
-      listenOnce(element, 'keydown', event => {
-        if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(event.key)) return;
-        const current = tabs.indexOf(element);
-        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setTab(element.getAttribute('data-analytics-tab'), { focus: true }); return; }
+  const TAB_NAV_KEYS = Object.freeze(['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End', 'Enter', ' ']);
+
+  function nextTabIndex(key, current, count) {
+    if (key === 'Home') return 0;
+    if (key === 'End') return count - 1;
+    const offset = key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 1;
+    return (current + offset + count) % count;
+  }
+
+  function wireTabKeydown(element, tabs) {
+    listenOnce(element, 'keydown', event => {
+      if (!TAB_NAV_KEYS.includes(event.key)) return;
+      const current = tabs.indexOf(element);
+      if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
-        const offset = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : event.key === 'Home' ? -tabs.length : event.key === 'End' ? tabs.length : 1;
-        const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + offset + tabs.length) % tabs.length;
-        setTab(tabs[next]?.getAttribute('data-analytics-tab'), { focus: true });
-      });
+        setTab(element.getAttribute('data-analytics-tab'), { focus: true });
+        return;
+      }
+      event.preventDefault();
+      const next = nextTabIndex(event.key, current, tabs.length);
+      setTab(tabs[next]?.getAttribute('data-analytics-tab'), { focus: true });
     });
-    if (typeof document !== 'undefined') document.querySelectorAll?.('[data-analytics-panel]')?.forEach(element => {
+  }
+
+  function decorateTab(element, index, tabs, focus) {
+    const active = element.getAttribute('data-analytics-tab') === filters.tab;
+    element.id = element.id || `analytics-tab-${index + 1}`;
+    element.setAttribute('role', 'tab');
+    element.setAttribute('aria-selected', String(active));
+    element.setAttribute('tabindex', active ? '0' : '-1');
+    element.classList.toggle('is-active', active);
+    if (focus && active) element.focus?.();
+    listenOnce(element, 'click', () => setTab(element.getAttribute('data-analytics-tab')));
+    wireTabKeydown(element, tabs);
+  }
+
+  function syncPanels(tabs) {
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll?.('[data-analytics-panel]')?.forEach(element => {
       const active = element.getAttribute('data-analytics-panel') === filters.tab;
       element.classList.toggle('is-hidden', !active);
       element.setAttribute('aria-hidden', String(!active));
       const tab = tabs.find(candidate => candidate.getAttribute('data-analytics-tab') === filters.tab);
       if (tab) element.setAttribute('aria-labelledby', tab.id);
     });
+  }
+
+  function updatePagePosition() {
     const position = query('[data-analytics-page-position]');
     if (position) position.textContent = `${ANALYTICS_TABS.indexOf(filters.tab) + 1} / ${ANALYTICS_TABS.length}`;
+  }
+
+  function applyTabState({ focus = false } = {}) {
+    const tabs = tabElements();
+    tabs.forEach((element, index) => decorateTab(element, index, tabs, focus));
+    syncPanels(tabs);
+    updatePagePosition();
     if (pageController?.page !== filters.tab) pageController?.setPage(filters.tab, { syncUrl: false, announceChange: false });
     renderActiveAnalyticsFilters(filters);
   }
@@ -329,14 +633,35 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     return { ...filters };
   }
 
+  function applyHiddenDialogState(dialog) {
+    dialog.classList?.add('is-hidden');
+    dialog.setAttribute?.('aria-hidden', 'true');
+  }
+
+  function clearFilterInert() {
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.removeAttribute?.('inert'));
+  }
+
+  function setFilterToggleExpanded(expanded) {
+    const opener = query('[data-analytics-more-filters]');
+    if (opener) opener.setAttribute?.('aria-expanded', String(expanded));
+  }
+
   function closeFilterDialog({ restoreFocus = true } = {}) {
     const dialog = query('[data-analytics-filter-dialog]');
-    dialog?.classList?.add('is-hidden');
-    dialog?.setAttribute?.('aria-hidden', 'true');
-    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.removeAttribute?.('inert'));
-    query('[data-analytics-more-filters]')?.setAttribute?.('aria-expanded', 'false');
+    if (dialog) applyHiddenDialogState(dialog);
+    clearFilterInert();
+    setFilterToggleExpanded(false);
     if (restoreFocus) filterOpener?.focus?.();
     filterOpener = null;
+  }
+
+  function showFilterDialog(dialog, opener) {
+    dialog.classList?.remove('is-hidden');
+    dialog.setAttribute?.('aria-hidden', 'false');
+    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.setAttribute?.('inert', ''));
+    opener.setAttribute?.('aria-expanded', 'true');
+    dialog.querySelector?.('[data-analytics-filter]')?.focus?.();
   }
 
   function openFilterDialog() {
@@ -344,11 +669,7 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     const opener = query('[data-analytics-more-filters]');
     if (!dialog || !opener) return;
     filterOpener = opener;
-    dialog.classList?.remove('is-hidden');
-    dialog.setAttribute?.('aria-hidden', 'false');
-    FILTER_BACKGROUND_SELECTORS.forEach(selector => query(selector)?.setAttribute?.('inert', ''));
-    opener.setAttribute?.('aria-expanded', 'true');
-    dialog.querySelector?.('[data-analytics-filter]')?.focus?.();
+    showFilterDialog(dialog, opener);
   }
 
   function readFilterControls() {
@@ -375,26 +696,61 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     return { ...filters };
   }
 
-  function wireControls() {
-    if (typeof document === 'undefined') return;
+  function wireReportPage() {
     const reportPage = query('[data-analytics-report-page]');
-    if (reportPage) {
-      reportPage.setAttribute?.('role', 'region');
-      reportPage.setAttribute?.('aria-label', 'Scrollable analytics report content');
-      if (!reportPage.hasAttribute?.('tabindex')) reportPage.setAttribute?.('tabindex', '0');
-    }
-    applyTabState();
-    renderActiveAnalyticsFilters(filters);
+    if (!reportPage) return;
+    reportPage.setAttribute?.('role', 'region');
+    reportPage.setAttribute?.('aria-label', 'Scrollable analytics report content');
+    if (!reportPage.hasAttribute?.('tabindex')) reportPage.setAttribute?.('tabindex', '0');
+  }
+
+  function wireFilterInputs() {
     if (Object.keys(readUrlFilters()).length) syncFilterControls();
     document.querySelectorAll?.('[data-analytics-filter]')?.forEach(control => listenOnce(control, 'change', () => { filters = normalizeAnalyticsQuery({ ...filters, ...readFilterControls() }); }));
+  }
+
+  function applyFiltersNow() {
+    setFilters(readFilterControls());
+    closeFilterDialog({ restoreFocus: false });
+    void load(filters);
+  }
+
+  function submitFiltersNow() {
+    setFilters(readFilterControls());
+    void load(filters);
+  }
+
+  function resetFiltersNow() {
+    filters = normalizeAnalyticsQuery({});
+    syncFilterControls();
+    setTab('overview');
+    void load(filters);
+  }
+
+  function wireFilterActions() {
     const apply = document.querySelector?.('[data-analytics-apply]');
     const reset = document.querySelector?.('[data-analytics-reset]');
     const refreshButton = document.querySelector?.('[data-analytics-refresh]');
     const form = document.querySelector?.('form.analytics-filters');
-    listenOnce(apply, 'click', () => { setFilters(readFilterControls()); closeFilterDialog({ restoreFocus: false }); void load(filters); });
-    listenOnce(reset, 'click', () => { filters = normalizeAnalyticsQuery({}); syncFilterControls(); setTab('overview'); void load(filters); });
+    listenOnce(apply, 'click', applyFiltersNow);
+    listenOnce(reset, 'click', resetFiltersNow);
     listenOnce(refreshButton, 'click', () => { void refresh(); });
-    listenOnce(form, 'submit', event => { event.preventDefault(); setFilters(readFilterControls()); void load(filters); });
+    listenOnce(form, 'submit', event => { event.preventDefault(); submitFiltersNow(); });
+  }
+
+  function eventInside(element, event) {
+    return Boolean(element.contains?.(event.target));
+  }
+
+  function isBackdropDismiss(filterDialog, moreFilters, event) {
+    if (!filterDialog) return false;
+    if (filterDialog.classList?.contains('is-hidden')) return false;
+    if (eventInside(filterDialog, event)) return false;
+    if (!moreFilters) return true;
+    return !eventInside(moreFilters, event);
+  }
+
+  function wireFilterDialog() {
     const moreFilters = document.querySelector?.('[data-analytics-more-filters]');
     const cancelFilters = document.querySelector?.('[data-analytics-filter-cancel]');
     const filterDialog = document.querySelector?.('[data-analytics-filter-dialog]');
@@ -402,9 +758,11 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     listenOnce(cancelFilters, 'click', () => closeFilterDialog());
     listenOnce(filterDialog, 'keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeFilterDialog(); } });
     listenOnce(document, 'pointerdown', event => {
-      if (!filterDialog || filterDialog.classList?.contains('is-hidden') || filterDialog.contains?.(event.target) || moreFilters?.contains?.(event.target)) return;
-      closeFilterDialog();
+      if (isBackdropDismiss(filterDialog, moreFilters, event)) closeFilterDialog();
     });
+  }
+
+  function wirePageController() {
     pageController = createAnalyticsPageController({
       root: query('#admin-analytics-main'),
       initialPage: filters.tab,
@@ -413,8 +771,95 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
       onPageChange: nextPage => { if (nextPage !== filters.tab) setTab(nextPage, { focus: false }); },
       announce
     });
-    globalThis.__poorupAnalyticsReset = () => { filters = normalizeAnalyticsQuery({}); syncFilterControls(); setTab('overview'); void load(filters); };
-    listen(document, 'visibilitychange', () => { if (document.visibilityState === 'hidden') { requestGeneration += 1; abortController?.abort(); request = null; } });
+  }
+
+  function wireGlobalActions() {
+    globalThis.__poorupAnalyticsReset = () => resetFiltersNow();
+    listen(document, 'visibilitychange', () => {
+      if (document.visibilityState === 'hidden') { requestGeneration += 1; abortController?.abort(); request = null; }
+    });
+  }
+
+  function wireControls() {
+    if (typeof document === 'undefined') return;
+    wireReportPage();
+    applyTabState();
+    renderActiveAnalyticsFilters(filters);
+    wireFilterInputs();
+    wireFilterActions();
+    wireFilterDialog();
+    wirePageController();
+    wireGlobalActions();
+  }
+
+  function loadHeaders() {
+    if (customFetcher) return {};
+    const token = state.account?.sessionToken;
+    if (!token) return {};
+    return { 'x-poorup-session-token': token };
+  }
+
+  function createAbort() {
+    if (typeof AbortController !== 'function') return null;
+    return new AbortController();
+  }
+
+  function parseResponse(response) {
+    if (typeof response?.json === 'function') return response.json();
+    return response;
+  }
+
+  function pushStatus(codes, value) {
+    if (value === undefined) return;
+    if (value === null) return;
+    codes.push(value);
+  }
+
+  function responseCodes(payload, response) {
+    const codes = [];
+    pushStatus(codes, payload?.status);
+    pushStatus(codes, response?.status);
+    return codes;
+  }
+
+  function failureMessage(codes) {
+    if (codes.includes(401)) return { clear: true, text: 'ADMIN ACCOUNT REQUIRED', tone: 'warning' };
+    if (codes.includes(403)) return { clear: true, text: 'ADMIN ACCESS REQUIRED', tone: 'warning' };
+    if (codes.includes(503)) return { clear: false, text: 'ROLLUP UNAVAILABLE · RETRY', tone: 'warning' };
+    if (codes.includes(429)) return { clear: false, text: 'ANALYTICS RATE LIMITED · RETRY', tone: 'warning' };
+    return { clear: false, text: 'ANALYTICS UNAVAILABLE · RETRY', tone: 'warning' };
+  }
+
+  function renderLoadFailure(payload, response) {
+    const message = failureMessage(responseCodes(payload, response));
+    if (message.clear) { snapshot = null; clearAnalyticsOutput(); }
+    renderStatus(message.text, message.tone);
+  }
+
+  function handleResponse(payload, response, generation) {
+    if (generation !== requestGeneration || destroyed) return { success: false, status: 499 };
+    const failed = response?.ok === false || payload?.success === false;
+    if (failed) { renderLoadFailure(payload, response); return payload; }
+    snapshot = renderAnalyticsSnapshot(payload);
+    return snapshot;
+  }
+
+  function loadFailureResult(error) {
+    if (error?.name === 'AbortError') return { success: false, status: 499 };
+    const message = snapshot ? 'ANALYTICS REFRESH TIMED OUT · RETRY' : 'ANALYTICS UNAVAILABLE · RETRY';
+    renderStatus(message, 'warning');
+    return { success: false, status: 503 };
+  }
+
+  function finishRequest(generation) {
+    if (generation !== requestGeneration) return;
+    request = null;
+    abortController = null;
+  }
+
+  function loadingStatus() {
+    if (snapshot) return { text: 'REFRESHING ANALYTICS…', spoken: 'Refreshing analytics' };
+    return { text: 'LOADING ANALYTICS…', spoken: 'Loading analytics' };
   }
 
   async function load(next = {}) {
@@ -423,28 +868,17 @@ export function createAnalyticsController({ fetcher = null, announce = () => {},
     filters = normalizeAnalyticsQuery({ ...filters, ...next });
     if (!requestFetcher) { renderStatus('ROLLUP UNAVAILABLE · RETRY', 'warning'); return { success: false, status: 503 }; }
     const url = `${endpoint}?${queryString(filters)}`;
-    const headers = !customFetcher && state.account?.sessionToken ? { 'x-poorup-session-token': state.account.sessionToken } : {};
-    abortController = typeof AbortController === 'function' ? new AbortController() : null;
-    renderStatus(snapshot ? 'REFRESHING ANALYTICS…' : 'LOADING ANALYTICS…');
-    announce(snapshot ? 'Refreshing analytics' : 'Loading analytics');
+    const headers = loadHeaders();
+    abortController = createAbort();
+    const status = loadingStatus();
+    renderStatus(status.text);
+    announce(status.spoken);
     const generation = ++requestGeneration;
-    request = Promise.resolve().then(() => requestFetcher(url, { headers, credentials: 'include', signal: abortController?.signal }))
-      .then(async response => {
-        const payload = typeof response?.json === 'function' ? await response.json() : response;
-        if (generation !== requestGeneration || destroyed) return { success: false, status: 499 };
-        if (response?.ok === false || payload?.success === false) {
-          if (payload?.status === 401 || response?.status === 401) { snapshot = null; clearAnalyticsOutput(); renderStatus('ADMIN ACCOUNT REQUIRED', 'warning'); }
-          else if (payload?.status === 403 || response?.status === 403) { snapshot = null; clearAnalyticsOutput(); renderStatus('ADMIN ACCESS REQUIRED', 'warning'); }
-          else if (payload?.status === 503 || response?.status === 503) renderStatus('ROLLUP UNAVAILABLE · RETRY', 'warning');
-          else if (payload?.status === 429 || response?.status === 429) renderStatus('ANALYTICS RATE LIMITED · RETRY', 'warning');
-          else renderStatus('ANALYTICS UNAVAILABLE · RETRY', 'warning');
-          return payload;
-        }
-        snapshot = renderAnalyticsSnapshot(payload);
-        return snapshot;
-      })
-      .catch(error => { if (error?.name === 'AbortError') return { success: false, status: 499 }; renderStatus(snapshot ? 'ANALYTICS REFRESH TIMED OUT · RETRY' : 'ANALYTICS UNAVAILABLE · RETRY', 'warning'); return { success: false, status: 503 }; })
-      .finally(() => { if (generation === requestGeneration) { request = null; abortController = null; } });
+    request = Promise.resolve()
+      .then(() => requestFetcher(url, { headers, credentials: 'include', signal: abortController?.signal }))
+      .then(async response => handleResponse(await parseResponse(response), response, generation))
+      .catch(loadFailureResult)
+      .finally(() => finishRequest(generation));
     return request;
   }
   function refresh() { return load(filters); }

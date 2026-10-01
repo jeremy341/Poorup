@@ -7,6 +7,7 @@
 // section by the AI advisor. All money math is integer whole-dollars.
 
 import { rentAtLevel } from './botDevelopmentForecast.js';
+import { TILE_SETS } from './boardRegistry.js';
 
 const GROUP_TRAFFIC_PERCENT = {
   Orange: 130,
@@ -81,15 +82,26 @@ export function standings(game) {
     .sort((a, b) => b.netWorth - a.netWorth || String(a.id).localeCompare(String(b.id)));
 }
 
+// Circuit normalization uses the live board size: threat is rent paid per
+// full circuit, so a Metro-52 perimeter dilutes per-tile threat relative to
+// the Standard-40 board. The canonical tile set is the authority; a real
+// game state's tiles array matches it, while hand-built test fixtures may
+// carry fewer tiles than the modeled board.
+function tileCount(game) {
+  const variant = game?.boardVariant || 'standard-40';
+  const canonical = TILE_SETS[variant === 'metro-52' ? 'metro-52' : 'standard-40'];
+  return Math.max(1, canonical?.length || BotTiles(game).length);
+}
+
 // Expected rent I pay per full circuit, per opponent: sum over their
-// unmortgaged developed deeds of traffic-weighted CURRENT rent / 40 tiles.
+// unmortgaged developed deeds of traffic-weighted CURRENT rent / board size.
 export function threatPerCircuit(game, playerId, opponentId) {
   void playerId;
   let threat = 0;
   for (const tile of BotTiles(game)) {
     if (tile?.ownerId !== opponentId || tile?.mortgaged) continue;
     if (tile.type !== 'property' && tile.type !== 'railroad' && tile.type !== 'utility') continue;
-    threat += Math.floor(rentAtLevel(tile, tile.houseCount) * trafficPercent(tile.group) / 100 / 40);
+    threat += Math.floor(rentAtLevel(tile, tile.houseCount) * trafficPercent(tile.group) / 100 / tileCount(game));
   }
   return threat;
 }
@@ -206,7 +218,7 @@ export function solveEndgame(game, playerId) {
   const finalFoe = foe.netWorth - horizon;
   const win = finalMe > finalFoe;
   const margin = Math.abs(finalMe - finalFoe);
-  const loserDrain = win ? Math.max(0, -netPerCircuit) + Math.max(1, Math.floor(foe.netWorth / 40)) : Math.max(0, netPerCircuit) + Math.max(1, Math.floor(me.netWorth / 40));
+  const loserDrain = win ? Math.max(0, -netPerCircuit) + Math.max(1, Math.floor(foe.netWorth / tileCount(game))) : Math.max(0, netPerCircuit) + Math.max(1, Math.floor(me.netWorth / tileCount(game)));
   return {
     win,
     margin,
