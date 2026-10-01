@@ -248,7 +248,7 @@ jobs:
       - run: npm ci
         if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download all test-shard coverage data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: coverage-data-shard-*
           path: .nyc_output
@@ -274,7 +274,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download per-suite timing records
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: test-timings-shard-*
           path: .test-timings
@@ -399,7 +399,7 @@ jobs:
       - run: npm ci
         if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download Playwright shard reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: playwright-blob-shard-*
           path: all-blob-reports
