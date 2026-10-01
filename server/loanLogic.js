@@ -239,7 +239,7 @@ export function defaultBankLoan(game, player) {
   loan.defaultedRound = game.roundNumber;
 }
 
-function seizeLoanCollateral(game, player, collateral) {
+export function seizeLoanCollateral(game, player, collateral) {
   // Legacy or hand-repaired state may still carry equity entries. Terminate
   // them before the bank takes the deed so no holder can keep collecting from
   // a property that no longer has an owner.

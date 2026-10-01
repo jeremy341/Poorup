@@ -4,7 +4,7 @@
 // server/casino-bankruptcy.test.js pins the exact statement order, including
 // the market liquidation line landing before any deed moves.
 import { MARKET_FEE_RATE } from './marketLogic.js';
-import { LOAN_OUTSTANDING_STATUSES } from './loanLogic.js';
+import { LOAN_OUTSTANDING_STATUSES, seizeLoanCollateral } from './loanLogic.js';
 import { liquidateAllMarketPositions as liquidateExpandedMarketPositions } from './marketExpansion.js';
 import {
   bankruptcyRefusal,
@@ -24,13 +24,13 @@ const bankruptcyApi = {
     const { owes, creditor } = outstandingDebtFor(this, player);
     clearQuitObligations(this, player);
     this.handleBankruptcy(player, creditor);
-    if (player.id === this.currentPlayerId) this.nextTurn();
     return { success: true, voluntary: !owes };
   },
 
   handleBankruptcy(player, creditor = null) {
     this.markPlayerBankrupt(player);
     this.liquidateMarketPositions(player);
+    this.settleBankLoanOnBankruptcy(player);
     this.sweepCashToCreditor(player, creditor);
     this.settleContractsOnBankruptcy(player);
     this.forfeitOrReleaseProperties(player, creditor);
@@ -62,6 +62,14 @@ const bankruptcyApi = {
     if (this.auction) {
       this.auction.participants = (this.auction.participants || []).filter(id => id !== player.id);
       this.auction.passedPlayerIds = (this.auction.passedPlayerIds || []).filter(id => id !== player.id);
+      // A bankrupt high bidder can never raise its own bid again; leaving the
+      // lead in place freezes the bid floor and voids the sale at close
+      // ("Auction ended without a valid winner"). Reset it exactly as the
+      // disconnect path (revokeAuctionLeadIfLeader) already does.
+      if (this.auction.highestBidderId === player.id) {
+        this.auction.highestBidderId = null;
+        this.auction.highestBid = 0;
+      }
     }
   },
 
@@ -253,11 +261,35 @@ const bankruptcyApi = {
     player.properties = player.properties.filter(index => index !== tile.index);
   },
 
-  // A bankrupt player facing a creditor hands over assets; one owing the
-  // bank simply leaves the table.
+  // A bankruptcy must not leave an outstanding bank loan frozen on the dead
+  // seat: the balance could never be paid (advanceBankLoan skips bankrupt
+  // players), the receivable would evaporate, and season scoring would
+  // record the loan as if it had never been serviced. Mirror the live
+  // default path: seize secured collateral (houses liquidated at the
+  // standard half-rate into the borrower's remaining cash) or record the
+  // write-off in the feed for unsecured loans.
+  settleBankLoanOnBankruptcy(player) {
+    const loan = player.bankLoan;
+    if (!loan || !LOAN_OUTSTANDING_STATUSES.includes(loan.status)) return;
+    const collateral = loan.collateralTileIndex == null ? null : this.getTile(loan.collateralTileIndex);
+    if (collateral && collateral.ownerId === player.id) {
+      seizeLoanCollateral(this, player, collateral);
+    } else {
+      this.feedMessage(`${player.nickname} defaulted on an unsecured bank loan.`);
+    }
+    loan.remaining = 0;
+    loan.status = 'defaulted';
+    loan.defaultedRound = this.roundNumber;
+  },
+
+  // A bankrupt player facing a solvent creditor hands over assets; with an
+  // insolvent creditor the deeds already went to the bank, so the feed must
+  // not claim a transfer that never happened.
   announceBankruptcy(player, creditor) {
-    if (creditor) {
+    if (this.creditorCanReceive(creditor)) {
       this.feedMessage(`${player.nickname} is bankrupt. Assets transferred to ${creditor.nickname}.`);
+    } else if (creditor) {
+      this.feedMessage(`${player.nickname} is bankrupt. Assets transferred to the bank.`);
     } else {
       this.feedMessage(`${player.nickname} is bankrupt and removed from the game.`);
     }
