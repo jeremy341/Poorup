@@ -157,7 +157,7 @@ jobs:
     needs: [plan]
     if: contains(fromJson('["light", "heavy", "fast", "light-slim"]'), needs.plan.outputs.tier)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -187,7 +187,7 @@ jobs:
       matrix:
         shard: ${{ fromJson(needs.plan.outputs.shards) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -235,7 +235,7 @@ jobs:
     needs: [plan, server-tests]
     if: needs.plan.outputs.tier == 'heavy' || (needs.plan.outputs.tier == 'light' && needs.plan.outputs.server_changed == 'true')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -272,7 +272,7 @@ jobs:
     needs: [plan, server-tests]
     if: always() && !cancelled() && needs.server-tests.result != 'skipped'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download per-suite timing records
         uses: actions/download-artifact@v4
         with:
@@ -289,7 +289,7 @@ jobs:
     needs: [plan]
     if: contains(fromJson('["light", "heavy", "fast", "light-slim"]'), needs.plan.outputs.tier)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -326,7 +326,7 @@ jobs:
       matrix:
         shard: ${{ fromJson(needs.plan.outputs.browser_shards) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -386,7 +386,7 @@ jobs:
     needs: [plan, browser-shards]
     if: always() && needs.plan.outputs.tier == 'heavy'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -425,7 +425,7 @@ jobs:
     needs: [plan]
     if: needs.plan.outputs.tier == 'fast'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: The merged tree must be byte-identical to testing
