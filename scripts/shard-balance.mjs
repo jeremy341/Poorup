@@ -10,6 +10,22 @@ import { readFileSync } from 'node:fs';
 export const TIMINGS_BASELINE_PATH = 'qa/test-timings.json';
 export const DEFAULT_SUITE_MS = 5000;
 
+// The bot-policy smoke suite is the one oversized suite in the manifest. The
+// runner splits its fixed game window across shards (see
+// scripts/run-test-manifest.mjs), so its balancing estimate scales with the
+// per-shard share instead of pretending one shard pays the whole cost.
+export const BOT_SIMULATION_SUITE = 'server/bot-simulation.test.js';
+export const BOT_SIMULATION_TOTAL_GAMES = 10;
+
+export function estimatedDuration(suite, timings, shardCount = 1) {
+  const full = suiteDuration(suite, timings);
+  if (suite === BOT_SIMULATION_SUITE && shardCount > 1) {
+    const perShard = Math.ceil(BOT_SIMULATION_TOTAL_GAMES / shardCount);
+    return full * perShard / BOT_SIMULATION_TOTAL_GAMES;
+  }
+  return full;
+}
+
 function parseBaselineDocument(document) {
   if (!document || typeof document !== 'object' || Array.isArray(document)) return null;
   const suites = document.suites;
@@ -50,8 +66,8 @@ export function suiteDuration(suite, timings) {
   return DEFAULT_SUITE_MS;
 }
 
-export function shardLoads(shards, timings) {
-  return shards.map(shard => shard.reduce((sum, suite) => sum + suiteDuration(suite, timings), 0));
+export function shardLoads(shards, timings, shardCount = 1) {
+  return shards.map(shard => shard.reduce((sum, suite) => sum + estimatedDuration(suite, timings, shardCount), 0));
 }
 
 // Longest-processing-time packing. Ties break by manifest order and the
@@ -60,7 +76,7 @@ export function balanceShards(suites, timings, shardCount) {
   if (!Number.isInteger(shardCount)) throw new Error('Shard count must be a positive integer.');
   if (shardCount < 1) throw new Error('Shard count must be a positive integer.');
   const ordered = suites
-    .map((suite, index) => ({ suite, index, duration: suiteDuration(suite, timings) }))
+    .map((suite, index) => ({ suite, index, duration: estimatedDuration(suite, timings, shardCount) }))
     .sort((a, b) => b.duration - a.duration || a.index - b.index);
   const shards = Array.from({ length: shardCount }, () => []);
   const loads = Array.from({ length: shardCount }, () => 0);
