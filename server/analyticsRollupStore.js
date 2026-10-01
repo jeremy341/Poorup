@@ -8,7 +8,6 @@ export const ALLOWED_ANALYTICS_DIMENSIONS = Object.freeze([
   'seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'rulesetPreset',
   'marketComplexity', 'eventId', 'actionId', 'botMode', 'provider'
 ]);
-export const ALLOWED_DIMENSIONS = ALLOWED_ANALYTICS_DIMENSIONS;
 
 export const ALLOWED_ROLLUP_KINDS = new Set([
   'match-start', 'match-complete', 'match-stalled', 'event-eligible', 'event-triggered',
@@ -37,6 +36,10 @@ function finite(value, fallback = 0) {
 
 function boundedNumber(value, max = 1_000_000_000) {
   return Math.max(-max, Math.min(max, finite(value)));
+}
+
+function boundedLimit(value, fallback, max) {
+  return Math.max(1, Math.min(max, Math.floor(finite(value, fallback))));
 }
 
 function cleanDimension(value, fallback = '') {
@@ -74,8 +77,16 @@ function cleanData(value, depth = 0) {
   if (depth > 3) return undefined;
   if (value === null || typeof value === 'boolean') return value;
   if (typeof value === 'string') return value.slice(0, 120);
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.slice(0, 100).map(item => cleanData(item, depth + 1)).filter(item => item !== undefined);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (Array.isArray(value)) return cleanArray(value, depth);
+  return cleanRecord(value, depth);
+}
+
+function cleanArray(value, depth) {
+  return value.slice(0, 100).map(item => cleanData(item, depth + 1)).filter(item => item !== undefined);
+}
+
+function cleanRecord(value, depth) {
   if (!value || typeof value !== 'object') return undefined;
   const result = {};
   Object.entries(value).slice(0, 80).forEach(([key, child]) => {
@@ -138,18 +149,25 @@ function blankDuration() {
   return { count: 0, sum: 0, values: [] };
 }
 
-function blankDimension(dimensions) {
+const IDENTITY_TEXT_FIELDS = Object.freeze([
+  ['seasonId', 'unseasoned'], ['eventId', ''], ['actionId', ''], ['botMode', ''], ['provider', '']
+]);
+
+const IDENTITY_LOWER_FIELDS = Object.freeze([
+  ['boardVariant', 'standard-40'], ['rulesetPreset', 'classic'], ['marketComplexity', 'basic']
+]);
+
+function blankIdentity(dimensions) {
+  const identity = {};
+  IDENTITY_TEXT_FIELDS.forEach(([name, fallback]) => { identity[name] = cleanDimension(dimensions?.[name], fallback); });
+  identity.rulesetRevision = integerDimension(dimensions?.rulesetRevision);
+  identity.balanceRevision = integerDimension(dimensions?.balanceRevision);
+  IDENTITY_LOWER_FIELDS.forEach(([name, fallback]) => { identity[name] = cleanDimension(dimensions?.[name], fallback).toLowerCase(); });
+  return identity;
+}
+
+function blankMetrics() {
   return {
-    seasonId: cleanDimension(dimensions?.seasonId, 'unseasoned'),
-    rulesetRevision: integerDimension(dimensions?.rulesetRevision),
-    balanceRevision: integerDimension(dimensions?.balanceRevision),
-    boardVariant: cleanDimension(dimensions?.boardVariant, 'standard-40').toLowerCase(),
-    rulesetPreset: cleanDimension(dimensions?.rulesetPreset, 'classic').toLowerCase(),
-    marketComplexity: cleanDimension(dimensions?.marketComplexity, 'basic').toLowerCase(),
-    eventId: cleanDimension(dimensions?.eventId, ''),
-    actionId: cleanDimension(dimensions?.actionId, ''),
-    botMode: cleanDimension(dimensions?.botMode, ''),
-    provider: cleanDimension(dimensions?.provider, ''),
     started: 0,
     completed: 0,
     stalled: 0,
@@ -172,6 +190,10 @@ function blankDimension(dimensions) {
   };
 }
 
+function blankDimension(dimensions) {
+  return { ...blankIdentity(dimensions), ...blankMetrics() };
+}
+
 function addDuration(target, value) {
   const seconds = Math.max(0, Math.min(86400, finite(value, NaN)));
   if (!Number.isFinite(seconds)) return;
@@ -180,83 +202,230 @@ function addDuration(target, value) {
   if (target.values.length < 2048) target.values.push(seconds);
 }
 
+function featureKey(data) {
+  return cleanDimension(data.feature || data.featureId || data.actionId, '');
+}
+
+function featureCounters(data) {
+  return {
+    eligible: data.eligible !== false ? Math.max(1, integerDimension(data.eligibleCount, 1)) : 0,
+    used: data.used === true || data.adopted === true || data.legalAction === true ? Math.max(1, integerDimension(data.usedCount, 1)) : 0,
+    observations: Math.max(1, integerDimension(data.observations, 1))
+  };
+}
+
 function incrementFeature(target, data, limits) {
-  const feature = cleanDimension(data.feature || data.featureId || data.actionId, '');
+  const feature = featureKey(data);
   if (!feature) return;
-  if (!target.features[feature] && Object.keys(target.features).length >= limits.features) return;
+  const known = Boolean(target.features[feature]);
+  if (!known && Object.keys(target.features).length >= limits.features) return;
   const entry = target.features[feature] || { eligible: 0, used: 0, observations: 0 };
-  const eligible = data.eligible !== false;
-  const used = data.used === true || data.adopted === true || data.legalAction === true;
-  entry.eligible += eligible ? Math.max(1, integerDimension(data.eligibleCount, 1)) : 0;
-  entry.used += used ? Math.max(1, integerDimension(data.usedCount, 1)) : 0;
-  entry.observations += Math.max(1, integerDimension(data.observations, 1));
+  const counters = featureCounters(data);
+  entry.eligible += counters.eligible;
+  entry.used += counters.used;
+  entry.observations += counters.observations;
   target.features[feature] = entry;
 }
 
-function incrementEvent(target, kind, data, eventId, limits) {
-  const id = cleanDimension(eventId || data.eventId, 'unknown-event');
-  if (!target.events[id] && Object.keys(target.events).length >= limits.events) return;
-  const entry = target.events[id] || { eligible: 0, warnings: 0, active: 0, choices: 0, voters: 0, recovered: 0, durationSeconds: blankDuration(), combinations: {} };
-  if (kind === 'event-eligible') entry.eligible += Math.max(1, integerDimension(data.eligibleCount, 1));
-  if (kind === 'event-triggered') { entry.active += 1; if (data.warning === true) entry.warnings += 1; addDuration(entry.durationSeconds, data.durationRounds ?? data.durationSeconds); }
-  if (kind === 'event-choice') { entry.choices += 1; entry.voters += Math.max(0, integerDimension(data.turnout ?? data.voters)); }
-  if (kind === 'event-recovered') entry.recovered += Math.max(1, integerDimension(data.recoveredCount, 1));
+function budgetedIncrement(map, key, max, count = 1) {
+  const known = Boolean(map[key]);
+  if (!known && Object.keys(map).length >= max) return;
+  map[key] = (map[key] || 0) + count;
+}
+
+function blankEventEntry() {
+  return { eligible: 0, warnings: 0, active: 0, choices: 0, voters: 0, recovered: 0, durationSeconds: blankDuration(), combinations: {} };
+}
+
+const EVENT_KIND_COUNTERS = Object.freeze({
+  'event-eligible': (entry, data) => { entry.eligible += Math.max(1, integerDimension(data.eligibleCount, 1)); },
+  'event-triggered': (entry, data) => {
+    entry.active += 1;
+    if (data.warning === true) entry.warnings += 1;
+    addDuration(entry.durationSeconds, data.durationRounds ?? data.durationSeconds);
+  },
+  'event-choice': (entry, data) => {
+    entry.choices += 1;
+    entry.voters += Math.max(0, integerDimension(data.turnout ?? data.voters));
+  },
+  'event-recovered': (entry, data) => { entry.recovered += Math.max(1, integerDimension(data.recoveredCount, 1)); }
+});
+
+function applyEventCombination(entry, data, limits) {
   const combination = cleanDimension(data.combination, '');
-  if (combination && (entry.combinations[combination] || Object.keys(entry.combinations).length < limits.combinations)) entry.combinations[combination] = (entry.combinations[combination] || 0) + 1;
+  if (!combination) return;
+  if (entry.combinations[combination]) { entry.combinations[combination] += 1; return; }
+  budgetedIncrement(entry.combinations, combination, limits.combinations);
+}
+
+function incrementEvent({ target, event, data, dimensions, limits }) {
+  const id = cleanDimension(dimensions.eventId || data.eventId, 'unknown-event');
+  const known = Boolean(target.events[id]);
+  if (!known && Object.keys(target.events).length >= limits.events) return;
+  const entry = target.events[id] || blankEventEntry();
+  const counter = EVENT_KIND_COUNTERS[event.kind];
+  if (counter) counter(entry, data);
+  applyEventCombination(entry, data, limits);
   target.events[id] = entry;
 }
 
-function incrementBot(target, data, dimensions, limits) {
+function botIdentity(data, dimensions) {
   const mode = cleanDimension(data.botMode || dimensions.botMode, data.botOnly ? 'ai' : 'human').toLowerCase();
   const provider = cleanDimension(data.provider || dimensions.provider, 'deterministic').toLowerCase();
-  const key = `${mode}|${provider}`;
-  const entry = target.bots[key] || { botMode: mode, provider, matches: 0, completed: 0, wins: 0, decisions: 0, fallback: 0, placements: [], actions: {} };
+  return { mode, provider, key: `${mode}|${provider}` };
+}
+
+function applyBotMatches(entry, data) {
   if (data.match === true || data.matchCount !== undefined) entry.matches += Math.max(1, integerDimension(data.matchCount, 1));
+}
+
+function applyBotResults(entry, data) {
   if (data.completed === true) entry.completed += 1;
   if (data.win === true) entry.wins += 1;
-  entry.decisions += Math.max(0, integerDimension(data.decisions ?? data.actionCount));
   if (data.fallback === true) entry.fallback += 1;
+}
+
+function applyBotDecisions(entry, data) {
+  entry.decisions += Math.max(0, integerDimension(data.decisions ?? data.actionCount));
+}
+
+function applyBotPlacement(entry, data) {
   const placement = finite(data.placement, NaN);
-  if (Number.isFinite(placement) && entry.placements.length < 2048) entry.placements.push(Math.max(1, Math.floor(placement)));
+  if (!Number.isFinite(placement)) return;
+  if (entry.placements.length >= 2048) return;
+  entry.placements.push(Math.max(1, Math.floor(placement)));
+}
+
+function applyBotAction(entry, data, dimensions, limits) {
   const action = cleanDimension(data.actionId || dimensions.actionId, '');
-  if (action && (entry.actions[action] || Object.keys(entry.actions).length < limits.actions)) entry.actions[action] = (entry.actions[action] || 0) + 1;
-  target.bots[key] = entry;
+  if (!action) return;
+  budgetedIncrement(entry.actions, action, limits.actions);
+}
+
+function incrementBot({ target, data, dimensions, limits }) {
+  const identity = botIdentity(data, dimensions);
+  const entry = target.bots[identity.key] || { botMode: identity.mode, provider: identity.provider, matches: 0, completed: 0, wins: 0, decisions: 0, fallback: 0, placements: [], actions: {} };
+  applyBotMatches(entry, data);
+  applyBotResults(entry, data);
+  applyBotDecisions(entry, data);
+  applyBotPlacement(entry, data);
+  applyBotAction(entry, data, dimensions, limits);
+  target.bots[identity.key] = entry;
+}
+
+function applyOutcome(target, data, limits, count) {
+  const outcome = cleanDimension(data.outcome || data.outcomeBucket, '');
+  if (outcome) budgetedIncrement(target.outcomes, outcome, limits.outcomes, count);
+}
+
+function applyMatchStart({ target, count }) {
+  target.started += count;
+}
+
+function applyMatchStalled({ target, count }) {
+  target.stalled += count;
+}
+
+function applyMatchComplete({ target, data, limits, count }) {
+  target.completed += count;
+  if (data.startedMatches !== undefined) target.started = Math.max(target.started, integerDimension(data.startedMatches));
+  target.competitiveCompleted += data.botOnly === true ? 0 : count;
+  if (data.botOnly === true) target.botOnlyMatches += count;
+  addDuration(target.durationSeconds, data.durationSeconds ?? data.duration);
+  incrementFeature(target, data, limits);
+  applyOutcome(target, data, limits, count);
+}
+
+function applyGovernedEvent(ctx) {
+  incrementEvent(ctx);
+}
+
+function applyMarketVolatility({ target, data }) {
+  addDuration(target.market.volatility, data.volatility ?? data.return ?? data.value);
+  target.market.negativeCashPreventions += Math.max(0, integerDimension(data.negativeCashPreventions));
+}
+
+function applyMarketLiquidation({ target, data }) {
+  target.market.liquidations += Math.max(1, integerDimension(data.count ?? data.actionCount, 1));
+  target.market.marginPositions += Math.max(0, integerDimension(data.marginPositions ?? data.marginOpenPositions));
+}
+
+function applyAchievementUnlocked({ target, data, limits, count }) {
+  const rarity = cleanDimension(data.rarity, 'UNKNOWN').toUpperCase();
+  budgetedIncrement(target.achievements, rarity, limits.achievements, count);
+  if (data.botOnly !== true) budgetedIncrement(target.competitiveAchievements, rarity, limits.achievements, count);
+}
+
+function applyRewardClaimed({ target, data, count }) {
+  target.rewardClaims += count;
+  if (data.botOnly !== true) target.competitiveRewardClaims += count;
+}
+
+function applyBankruptcy({ target, count }) {
+  target.bankruptcies += count;
+}
+
+function applyComeback({ target, count }) {
+  target.comebacks += count;
+}
+
+function applyBotOutcome(ctx) {
+  incrementBot(ctx);
+}
+
+const EVENT_KIND_HANDLERS = Object.freeze({
+  'match-start': applyMatchStart,
+  'match-stalled': applyMatchStalled,
+  'match-complete': applyMatchComplete,
+  'event-eligible': applyGovernedEvent,
+  'event-triggered': applyGovernedEvent,
+  'event-choice': applyGovernedEvent,
+  'event-recovered': applyGovernedEvent,
+  'market-volatility': applyMarketVolatility,
+  'market-liquidation': applyMarketLiquidation,
+  'achievement-unlocked': applyAchievementUnlocked,
+  'reward-claimed': applyRewardClaimed,
+  'bankruptcy': applyBankruptcy,
+  'comeback': applyComeback,
+  'bot-outcome': applyBotOutcome
+});
+
+function applyActivityCounters(target, data) {
+  target.reconnects += Math.max(0, integerDimension(data.reconnects ?? data.reconnectCount));
+  target.afk += Math.max(0, integerDimension(data.afk ?? data.afkCount));
+}
+
+function applyStandaloneFeature({ target, event, data, limits }) {
+  if (event.kind === 'match-complete') return;
+  if (data.feature || data.featureId) incrementFeature(target, data, limits);
 }
 
 function applyEvent(target, event, dimensions, limits) {
   const data = cleanData(event.data) || {};
-  const count = Math.max(1, integerDimension(data.count, 1));
-  if (event.kind === 'match-start') target.started += count;
-  if (event.kind === 'match-complete') {
-    target.completed += count;
-    if (data.startedMatches !== undefined) target.started = Math.max(target.started, integerDimension(data.startedMatches));
-    target.competitiveCompleted += data.botOnly === true ? 0 : count;
-    if (data.botOnly === true) target.botOnlyMatches += count;
-    addDuration(target.durationSeconds, data.durationSeconds ?? data.duration);
-    incrementFeature(target, data, limits);
-    const outcome = cleanDimension(data.outcome || data.outcomeBucket, '');
-    if (outcome && (target.outcomes[outcome] || Object.keys(target.outcomes).length < limits.outcomes)) target.outcomes[outcome] = (target.outcomes[outcome] || 0) + count;
-  }
-  if (event.kind === 'match-stalled') {
-    // A stalled match already counted its start: only the stall increments.
-    target.stalled += count;
-  }
-  if (event.kind === 'event-eligible' || event.kind === 'event-triggered' || event.kind === 'event-choice' || event.kind === 'event-recovered') incrementEvent(target, event.kind, data, dimensions.eventId, limits);
-  if (event.kind === 'market-volatility') { addDuration(target.market.volatility, data.volatility ?? data.return ?? data.value); target.market.negativeCashPreventions += Math.max(0, integerDimension(data.negativeCashPreventions)); }
-  if (event.kind === 'market-liquidation') { target.market.liquidations += Math.max(1, integerDimension(data.count ?? data.actionCount, 1)); target.market.marginPositions += Math.max(0, integerDimension(data.marginPositions ?? data.marginOpenPositions)); }
-  if (event.kind === 'achievement-unlocked') { const rarity = cleanDimension(data.rarity, 'UNKNOWN').toUpperCase(); if (target.achievements[rarity] || Object.keys(target.achievements).length < limits.achievements) target.achievements[rarity] = (target.achievements[rarity] || 0) + count; if (data.botOnly !== true && (target.competitiveAchievements[rarity] || Object.keys(target.competitiveAchievements).length < limits.achievements)) target.competitiveAchievements[rarity] = (target.competitiveAchievements[rarity] || 0) + count; }
-  if (event.kind === 'reward-claimed') { target.rewardClaims += count; if (data.botOnly !== true) target.competitiveRewardClaims += count; }
-  if (event.kind === 'bankruptcy') target.bankruptcies += count;
-  if (event.kind === 'comeback') target.comebacks += count;
-  if (event.kind === 'bot-outcome') incrementBot(target, data, dimensions, limits);
-  target.reconnects += Math.max(0, integerDimension(data.reconnects ?? data.reconnectCount));
-  target.afk += Math.max(0, integerDimension(data.afk ?? data.afkCount));
-  if (event.kind !== 'match-complete' && (data.feature || data.featureId)) incrementFeature(target, data, limits);
+  const handler = EVENT_KIND_HANDLERS[event.kind];
+  if (handler) handler({ target, event, data, dimensions, limits, count: Math.max(1, integerDimension(data.count, 1)) });
+  applyActivityCounters(target, data);
+  applyStandaloneFeature({ target, event, data, limits });
+}
+
+function blankRollup() {
+  return { schemaVersion: ROLLUP_SCHEMA_VERSION, buckets: {} };
+}
+
+function isPlainRecord(value) {
+  if (!value) return false;
+  if (typeof value !== 'object') return false;
+  return !Array.isArray(value);
+}
+
+function isRollupBuckets(value) {
+  if (Number(value.schemaVersion) !== ROLLUP_SCHEMA_VERSION) return false;
+  return isPlainRecord(value.buckets);
 }
 
 function ensureShape(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return { schemaVersion: ROLLUP_SCHEMA_VERSION, buckets: {} };
-  if (Number(value.schemaVersion) !== ROLLUP_SCHEMA_VERSION || !value.buckets || typeof value.buckets !== 'object' || Array.isArray(value.buckets)) return { schemaVersion: ROLLUP_SCHEMA_VERSION, buckets: {} };
+  if (!isPlainRecord(value)) return blankRollup();
+  if (!isRollupBuckets(value)) return blankRollup();
   return value;
 }
 
@@ -275,32 +444,185 @@ function mergeDuration(target, source) {
   if (Array.isArray(source.values)) target.values = [...(target.values || []), ...source.values.filter(value => Number.isFinite(Number(value))).slice(0, Math.max(0, 2048 - (target.values || []).length))];
 }
 
+const MERGE_NUMERIC_KEYS = [
+  'started', 'completed', 'stalled', 'botOnlyMatches', 'competitiveCompleted', 'reconnects',
+  'afk', 'bankruptcies', 'comebacks', 'rewardClaims', 'competitiveRewardClaims'
+];
+
+const MARKET_NUMERIC_KEYS = [
+  'liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises',
+  'collateralizedOptions', 'negativeCashPreventions'
+];
+
+const FEATURE_NUMERIC_KEYS = ['eligible', 'used', 'observations'];
+const EVENT_NUMERIC_KEYS = ['eligible', 'warnings', 'active', 'choices', 'voters', 'recovered'];
+const BOT_NUMERIC_KEYS = ['matches', 'completed', 'wins', 'decisions', 'fallback'];
+
+function mergeCounters(target, source, keys) {
+  keys.forEach(key => mergeNumeric(target, source, key));
+}
+
+function mergeCountMap(target, source) {
+  Object.entries(source || {}).forEach(([key, count]) => {
+    target[key] = boundedNumber((target[key] || 0) + finite(count));
+  });
+}
+
+function mergeFeatureEntries(target, source) {
+  Object.entries(source || {}).forEach(([key, item]) => {
+    const entry = target[key] || { eligible: 0, used: 0, observations: 0 };
+    mergeCounters(entry, item, FEATURE_NUMERIC_KEYS);
+    target[key] = entry;
+  });
+}
+
+function mergeEventEntries(target, source) {
+  Object.entries(source || {}).forEach(([key, item]) => {
+    const entry = target[key] || { eligible: 0, warnings: 0, active: 0, choices: 0, voters: 0, recovered: 0, durationSeconds: blankDuration(), combinations: {} };
+    mergeCounters(entry, item, EVENT_NUMERIC_KEYS);
+    mergeDuration(entry.durationSeconds, item.durationSeconds);
+    mergeCountMap(entry.combinations, item.combinations);
+    target[key] = entry;
+  });
+}
+
+function mergeBotEntries(target, source) {
+  Object.entries(source || {}).forEach(([key, item]) => {
+    const entry = target[key] || { ...item, matches: 0, completed: 0, wins: 0, decisions: 0, fallback: 0, placements: [], actions: {} };
+    mergeCounters(entry, item, BOT_NUMERIC_KEYS);
+    entry.placements = [...(entry.placements || []), ...(item.placements || [])].slice(0, 2048);
+    mergeCountMap(entry.actions, item.actions);
+    target[key] = entry;
+  });
+}
+
 function mergeRecord(target, source) {
-  const numeric = ['started', 'completed', 'stalled', 'botOnlyMatches', 'competitiveCompleted', 'reconnects', 'afk', 'bankruptcies', 'comebacks', 'rewardClaims', 'competitiveRewardClaims'];
-  numeric.forEach(key => mergeNumeric(target, source, key));
+  mergeCounters(target, source, MERGE_NUMERIC_KEYS);
   mergeDuration(target.durationSeconds, source.durationSeconds);
   mergeDuration(target.market.volatility, source.market?.volatility);
-  ['liquidations', 'marginPositions', 'shortDefaults', 'shortPositions', 'optionExercises', 'collateralizedOptions', 'negativeCashPreventions'].forEach(key => mergeNumeric(target.market, source.market, key));
-  Object.entries(source.features || {}).forEach(([key, item]) => { const entry = target.features[key] || { eligible: 0, used: 0, observations: 0 }; ['eligible', 'used', 'observations'].forEach(counter => mergeNumeric(entry, item, counter)); target.features[key] = entry; });
-  Object.entries(source.events || {}).forEach(([key, item]) => { const entry = target.events[key] || { eligible: 0, warnings: 0, active: 0, choices: 0, voters: 0, recovered: 0, durationSeconds: blankDuration(), combinations: {} }; ['eligible', 'warnings', 'active', 'choices', 'voters', 'recovered'].forEach(counter => mergeNumeric(entry, item, counter)); mergeDuration(entry.durationSeconds, item.durationSeconds); Object.entries(item.combinations || {}).forEach(([combo, count]) => { entry.combinations[combo] = boundedNumber((entry.combinations[combo] || 0) + finite(count)); }); target.events[key] = entry; });
-  Object.entries(source.achievements || {}).forEach(([key, count]) => { target.achievements[key] = boundedNumber((target.achievements[key] || 0) + finite(count)); });
-  Object.entries(source.competitiveAchievements || {}).forEach(([key, count]) => { target.competitiveAchievements[key] = boundedNumber((target.competitiveAchievements[key] || 0) + finite(count)); });
-  Object.entries(source.outcomes || {}).forEach(([key, count]) => { target.outcomes[key] = boundedNumber((target.outcomes[key] || 0) + finite(count)); });
-  Object.entries(source.bots || {}).forEach(([key, item]) => { const entry = target.bots[key] || { ...item, matches: 0, completed: 0, wins: 0, decisions: 0, fallback: 0, placements: [], actions: {} }; ['matches', 'completed', 'wins', 'decisions', 'fallback'].forEach(counter => mergeNumeric(entry, item, counter)); entry.placements = [...(entry.placements || []), ...(item.placements || [])].slice(0, 2048); Object.entries(item.actions || {}).forEach(([action, count]) => { entry.actions[action] = boundedNumber((entry.actions[action] || 0) + finite(count)); }); target.bots[key] = entry; });
+  mergeCounters(target.market, source.market, MARKET_NUMERIC_KEYS);
+  mergeFeatureEntries(target.features, source.features);
+  mergeEventEntries(target.events, source.events);
+  mergeCountMap(target.achievements, source.achievements);
+  mergeCountMap(target.competitiveAchievements, source.competitiveAchievements);
+  mergeCountMap(target.outcomes, source.outcomes);
+  mergeBotEntries(target.bots, source.bots);
+}
+
+const RANGE_DURATIONS = Object.freeze({ hour: 3600000, day: 86400000, week: 7 * 86400000 });
+
+const ACTOR_SCOPE_DIMENSIONS = Object.freeze([
+  'boardVariant', 'rulesetPreset', 'marketComplexity', 'eventId', 'actionId', 'botMode', 'provider'
+]);
+
+function revisionFilterSet(value) {
+  return value !== undefined && value !== null && value !== '';
+}
+
+function filterActive(value) {
+  return revisionFilterSet(value) && value !== 'all';
+}
+
+function revisionFilterMatches(filters, scope, name) {
+  return !revisionFilterSet(filters[name]) || integerDimension(filters[name]) === integerDimension(scope[name]);
+}
+
+function stringFilterMatches(filters, scope, name) {
+  return !filterActive(filters[name]) || cleanDimension(filters[name]).toLowerCase() === cleanDimension(scope[name]).toLowerCase();
+}
+
+function dimensionMatches(filters, dimension) {
+  return ALLOWED_ANALYTICS_DIMENSIONS.every(name => {
+    if (!filterActive(filters[name])) return true;
+    const expected = name.endsWith('Revision') ? integerDimension(filters[name]) : cleanDimension(filters[name]).toLowerCase();
+    const actual = name.endsWith('Revision') ? integerDimension(dimension[name]) : cleanDimension(dimension[name]).toLowerCase();
+    return expected === actual;
+  });
+}
+
+function actorMatches(filters, scope) {
+  if (filterActive(filters.seasonId) && String(filters.seasonId) !== String(scope.seasonId)) return false;
+  if (!revisionFilterMatches(filters, scope, 'rulesetRevision')) return false;
+  if (!revisionFilterMatches(filters, scope, 'balanceRevision')) return false;
+  return ACTOR_SCOPE_DIMENSIONS.every(name => stringFilterMatches(filters, scope, name));
+}
+
+function isAllowedKind(event) {
+  if (!event) return false;
+  if (typeof event !== 'object') return false;
+  if (Array.isArray(event)) return false;
+  return ALLOWED_ROLLUP_KINDS.has(String(event.kind));
+}
+
+function hasUnknownDimension(event) {
+  return Object.keys(event).some(key => !EVENT_KEYS.has(key));
+}
+
+function validateEventInput(event) {
+  if (!isAllowedKind(event)) return { error: 'Analytics event kind is not allowed.' };
+  if (hasUnknownDimension(event)) return { error: 'Analytics event dimension is not allowed.' };
+  const dimensions = dimensionsFor(event);
+  if (!validDimensions(dimensions)) return { error: 'Analytics dimension value is not allowed.' };
+  return { dimensions };
+}
+
+function hasDimensionSlot(bucket, key, limit) {
+  return Boolean(bucket.dimensions[key]) || Object.keys(bucket.dimensions).length < limit;
+}
+
+function hasActorSlot(bucket, key, limit) {
+  return Boolean(bucket.actorRollups[key]) || Object.keys(bucket.actorRollups).length < limit;
+}
+
+function actorScope(dimensions) {
+  return {
+    seasonId: dimensions.seasonId,
+    rulesetRevision: dimensions.rulesetRevision,
+    balanceRevision: dimensions.balanceRevision,
+    boardVariant: dimensions.boardVariant,
+    rulesetPreset: dimensions.rulesetPreset,
+    marketComplexity: dimensions.marketComplexity,
+    eventId: dimensions.eventId,
+    actionId: dimensions.actionId,
+    botMode: dimensions.botMode,
+    provider: dimensions.provider
+  };
+}
+
+function mergeActorRollups(actorRollups, key, actor) {
+  if (!actorRollups[key]) {
+    actorRollups[key] = clone(actor);
+    return;
+  }
+  ['observations', 'completed', 'wins'].forEach(counter => {
+    actorRollups[key][counter] = boundedNumber(finite(actorRollups[key][counter]) + finite(actor[counter]));
+  });
+}
+
+function collectBucket(outputDimensions, actorRollups, bucket, filters) {
+  Object.entries(bucket.dimensions || {}).forEach(([key, dimension]) => {
+    if (!dimensionMatches(filters, dimension)) return;
+    if (!outputDimensions[key]) outputDimensions[key] = blankDimension(dimension);
+    mergeRecord(outputDimensions[key], dimension);
+  });
+  Object.entries(bucket.actorRollups || {}).forEach(([key, actor]) => {
+    if (!actorMatches(filters, actor.scope || {})) return;
+    mergeActorRollups(actorRollups, key, actor);
+  });
 }
 
 export function createAnalyticsRollupStore({ filePath = null, now = () => Date.now(), retentionDays = DEFAULT_RETENTION_DAYS, maxBuckets = DEFAULT_MAX_BUCKETS, maxDimensionsPerBucket = 256, maxActorsPerBucket = 512, maxFeaturesPerDimension = 128, maxEventsPerDimension = 128, maxCombinationsPerEvent = 64, maxOutcomesPerDimension = 64, maxAchievementsPerDimension = 64, maxBotActionsPerDimension = 128, persist = null, pseudonymizer = null } = {}) {
-  const retention = Math.max(1, Math.min(3650, Math.floor(finite(retentionDays, DEFAULT_RETENTION_DAYS))));
-  const bucketLimit = Math.max(1, Math.min(10000, Math.floor(finite(maxBuckets, DEFAULT_MAX_BUCKETS))));
-  const dimensionLimit = Math.max(1, Math.min(10000, Math.floor(finite(maxDimensionsPerBucket, 256))));
-  const actorLimit = Math.max(1, Math.min(10000, Math.floor(finite(maxActorsPerBucket, 512))));
+  const retention = boundedLimit(retentionDays, DEFAULT_RETENTION_DAYS, 3650);
+  const bucketLimit = boundedLimit(maxBuckets, DEFAULT_MAX_BUCKETS, 10000);
+  const dimensionLimit = boundedLimit(maxDimensionsPerBucket, 256, 10000);
+  const actorLimit = boundedLimit(maxActorsPerBucket, 512, 10000);
   const nestedLimits = {
-    features: Math.max(1, Math.min(1000, Math.floor(finite(maxFeaturesPerDimension, 128)))),
-    events: Math.max(1, Math.min(1000, Math.floor(finite(maxEventsPerDimension, 128)))),
-    combinations: Math.max(1, Math.min(1000, Math.floor(finite(maxCombinationsPerEvent, 64)))),
-    outcomes: Math.max(1, Math.min(1000, Math.floor(finite(maxOutcomesPerDimension, 64)))),
-    achievements: Math.max(1, Math.min(1000, Math.floor(finite(maxAchievementsPerDimension, 64)))),
-    actions: Math.max(1, Math.min(1000, Math.floor(finite(maxBotActionsPerDimension, 128))))
+    features: boundedLimit(maxFeaturesPerDimension, 128, 1000),
+    events: boundedLimit(maxEventsPerDimension, 128, 1000),
+    combinations: boundedLimit(maxCombinationsPerEvent, 64, 1000),
+    outcomes: boundedLimit(maxOutcomesPerDimension, 64, 1000),
+    achievements: boundedLimit(maxAchievementsPerDimension, 64, 1000),
+    actions: boundedLimit(maxBotActionsPerDimension, 128, 1000)
   };
   let state = { schemaVersion: ROLLUP_SCHEMA_VERSION, buckets: {} };
   let loaded = false;
@@ -318,6 +640,22 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
   latestAt = loadedBuckets.sort((a, b) => bucketTime(b) - bucketTime(a))[0] || null;
   loaded = true;
 
+  function recordActor(bucket, actorKey, { pseudonymId, dimensions, event }) {
+    const actor = bucket.actorRollups[actorKey] || { pseudonymId, pseudonymVersion: pseudonymizer?.version || null, observations: 0, completed: 0, wins: 0, scope: actorScope(dimensions) };
+    actor.observations += 1;
+    if (event.kind === 'match-complete') actor.completed += 1;
+    if (event.data?.win === true) actor.wins += 1;
+    bucket.actorRollups[actorKey] = actor;
+  }
+
+  function queryWindow(filters) {
+    const clock = parseDate(now())?.getTime() || Date.now();
+    const rangeDuration = RANGE_DURATIONS[filters.range] ?? null;
+    const from = parseDate(filters.from)?.getTime() ?? (rangeDuration ? clock - rangeDuration : -Infinity);
+    const to = parseDate(filters.to)?.getTime() ?? clock;
+    return { from, to };
+  }
+
   function prune(options = {}) {
     const nowMs = parseDate(now())?.getTime() || Date.now();
     const cutoff = Number.isFinite(Number(options.olderThan)) ? Number(options.olderThan) : nowMs - retention * 86400000;
@@ -329,31 +667,43 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     return removed;
   }
 
-  function record(event = {}) {
-    if (!event || typeof event !== 'object' || Array.isArray(event) || !ALLOWED_ROLLUP_KINDS.has(String(event.kind))) { rejectedEvents += 1; return { accepted: false, error: 'Analytics event kind is not allowed.' }; }
-    const unknown = Object.keys(event).some(key => !EVENT_KEYS.has(key));
-    if (unknown) { rejectedEvents += 1; return { accepted: false, error: 'Analytics event dimension is not allowed.' }; }
-    const dimensions = dimensionsFor(event);
-    if (!validDimensions(dimensions)) { rejectedEvents += 1; return { accepted: false, error: 'Analytics dimension value is not allowed.' }; }
-    const bucketKey = bucketFor(event.createdAt || now());
-    const bucket = state.buckets[bucketKey] || { dimensions: {}, actorRollups: {} };
-    const key = dimensionKey(dimensions);
-    if (!bucket.dimensions[key] && Object.keys(bucket.dimensions).length >= dimensionLimit) { rejectedEvents += 1; return { accepted: false, error: 'Analytics bucket dimension limit reached.' }; }
-    const pseudonymId = cleanDimension(pseudonymizer?.pseudonymize?.(event.accountId, dimensions), '');
-    if (pseudonymId && !bucket.actorRollups[pseudonymId] && Object.keys(bucket.actorRollups).length >= actorLimit) { rejectedEvents += 1; return { accepted: false, error: 'Analytics actor limit reached.' }; }
+  function existingBucket(bucketKey) {
+    return state.buckets[bucketKey] || { dimensions: {}, actorRollups: {} };
+  }
+
+  function slotDenial(bucket, key, pseudonymId) {
+    if (!hasDimensionSlot(bucket, key, dimensionLimit)) return 'Analytics bucket dimension limit reached.';
+    const actorKey = `${pseudonymId}|${key}`;
+    if (pseudonymId && !hasActorSlot(bucket, actorKey, actorLimit)) return 'Analytics actor limit reached.';
+    return null;
+  }
+
+  function commitEvent(bucket, { dimensions, key, event, pseudonymId }) {
     const aggregate = bucket.dimensions[key] || blankDimension(dimensions);
     applyEvent(aggregate, event, dimensions, nestedLimits);
     bucket.dimensions[key] = aggregate;
-    if (pseudonymId) {
-      const actorKey = `${pseudonymId}|${dimensionKey(dimensions)}`;
-      const actor = bucket.actorRollups[actorKey] || { pseudonymId, pseudonymVersion: pseudonymizer?.version || null, observations: 0, completed: 0, wins: 0, scope: { seasonId: dimensions.seasonId, rulesetRevision: dimensions.rulesetRevision, balanceRevision: dimensions.balanceRevision, boardVariant: dimensions.boardVariant, rulesetPreset: dimensions.rulesetPreset, marketComplexity: dimensions.marketComplexity, eventId: dimensions.eventId, actionId: dimensions.actionId, botMode: dimensions.botMode, provider: dimensions.provider } };
-      actor.observations += 1;
-      if (event.kind === 'match-complete') actor.completed += 1;
-      if (event.data?.win === true) actor.wins += 1;
-      bucket.actorRollups[actorKey] = actor;
-    }
+    if (pseudonymId) recordActor(bucket, `${pseudonymId}|${key}`, { pseudonymId, dimensions, event });
+  }
+
+  function rejectRecord(error) {
+    rejectedEvents += 1;
+    return { accepted: false, error };
+  }
+
+  function record(event = {}) {
+    const validation = validateEventInput(event);
+    if (validation.error) return rejectRecord(validation.error);
+    const dimensions = validation.dimensions;
+    const at = event.createdAt || now();
+    const bucketKey = bucketFor(at);
+    const bucket = existingBucket(bucketKey);
+    const key = dimensionKey(dimensions);
+    const pseudonymId = cleanDimension(pseudonymizer?.pseudonymize?.(event.accountId, dimensions), '');
+    const denial = slotDenial(bucket, key, pseudonymId);
+    if (denial) return rejectRecord(denial);
+    commitEvent(bucket, { dimensions, key, event, pseudonymId });
     state.buckets[bucketKey] = bucket;
-    latestAt = timestamp(now, event.createdAt || now());
+    latestAt = timestamp(now, at);
     prune();
     pendingWrites += 1;
     sequence += 1;
@@ -364,44 +714,21 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     prune();
     const outputDimensions = {};
     const actorRollups = {};
-    const clock = parseDate(now())?.getTime() || Date.now();
-    const rangeDuration = filters.range === 'hour' ? 3600000 : filters.range === 'day' ? 86400000 : filters.range === 'week' ? 7 * 86400000 : null;
-    const from = parseDate(filters.from)?.getTime() ?? (rangeDuration ? clock - rangeDuration : -Infinity);
-    const to = parseDate(filters.to)?.getTime() ?? clock;
-    const matchDimension = (dimension) => ALLOWED_ANALYTICS_DIMENSIONS.every(name => {
-      if (filters[name] === undefined || filters[name] === null || filters[name] === '' || filters[name] === 'all') return true;
-      const expected = name.endsWith('Revision') ? integerDimension(filters[name]) : cleanDimension(filters[name]).toLowerCase();
-      const actual = name.endsWith('Revision') ? integerDimension(dimension[name]) : cleanDimension(dimension[name]).toLowerCase();
-      return expected === actual;
-    });
+    const { from, to } = queryWindow(filters);
     Object.entries(state.buckets).forEach(([bucketKey, bucket]) => {
       const time = bucketTime(bucketKey);
       if (time < from || time > to) return;
-      Object.entries(bucket.dimensions || {}).forEach(([key, dimension]) => {
-        if (!matchDimension(dimension)) return;
-        if (!outputDimensions[key]) outputDimensions[key] = blankDimension(dimension);
-        mergeRecord(outputDimensions[key], dimension);
-      });
-      Object.entries(bucket.actorRollups || {}).forEach(([key, actor]) => {
-        const scope = actor.scope || {};
-        if (filters.seasonId && filters.seasonId !== 'all' && String(filters.seasonId) !== String(scope.seasonId)) return;
-        if (filters.rulesetRevision !== undefined && filters.rulesetRevision !== null && filters.rulesetRevision !== '' && integerDimension(filters.rulesetRevision) !== integerDimension(scope.rulesetRevision)) return;
-        if (filters.balanceRevision !== undefined && filters.balanceRevision !== null && filters.balanceRevision !== '' && integerDimension(filters.balanceRevision) !== integerDimension(scope.balanceRevision)) return;
-        for (const name of ['boardVariant', 'rulesetPreset', 'marketComplexity', 'eventId', 'actionId', 'botMode', 'provider']) {
-          if (filters[name] !== undefined && filters[name] !== null && filters[name] !== '' && filters[name] !== 'all' && cleanDimension(filters[name]).toLowerCase() !== cleanDimension(scope[name]).toLowerCase()) return;
-        }
-        if (!actorRollups[key]) actorRollups[key] = clone(actor);
-        else { ['observations', 'completed', 'wins'].forEach(counter => { actorRollups[key][counter] = boundedNumber(finite(actorRollups[key][counter]) + finite(actor[counter])); }); }
-      });
+      collectBucket(outputDimensions, actorRollups, bucket, filters);
     });
     const generatedAt = timestamp(now);
+    const status = health();
     return {
       schemaVersion: ROLLUP_SCHEMA_VERSION,
       generatedAt,
       sourceWindow: { from: from === -Infinity ? null : new Date(from).toISOString(), to: to === Infinity ? generatedAt : new Date(to).toISOString() },
       dimensions: outputDimensions,
       actorRollups,
-      quality: { loaded, fresh: health().fresh, lagSeconds: health().lagSeconds, queueDepth: pendingWrites, pendingWrites, rejectedEvents, latestAt }
+      quality: { loaded, fresh: status.fresh, lagSeconds: status.lagSeconds, queueDepth: pendingWrites, pendingWrites, rejectedEvents, latestAt }
     };
   }
 
@@ -412,6 +739,35 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     return { loaded, fresh: Boolean(latestMs) && lagSeconds <= 7200, lagSeconds, pendingWrites, rejectedEvents };
   }
 
+  function isThenable(value) {
+    if (!value) return false;
+    return typeof value.then === 'function';
+  }
+
+  function writeSnapshot(snapshot) {
+    if (persist) return persist(snapshot);
+    if (filePath) return writeJson(filePath, snapshot);
+    return undefined;
+  }
+
+  function trackWrite(writeResult, flushedCount) {
+    flushInFlight = Promise.resolve(writeResult).then(() => {
+      pendingWrites = Math.max(0, pendingWrites - flushedCount);
+      flushInFlight = null;
+      return { flushed: true, pendingWrites };
+    }, error => {
+      flushInFlight = null;
+      throw error;
+    });
+    return flushInFlight;
+  }
+
+  function settleWrite(writeResult, flushedCount) {
+    if (isThenable(writeResult)) return trackWrite(writeResult, flushedCount);
+    pendingWrites = Math.max(0, pendingWrites - flushedCount);
+    return { flushed: true, pendingWrites };
+  }
+
   function flush() {
     if (flushInFlight) return flushInFlight;
     if (!pendingWrites) return { flushed: false, pendingWrites: 0 };
@@ -419,23 +775,11 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     const snapshot = clone({ ...state, generatedAt: timestamp(now) });
     let writeResult;
     try {
-      writeResult = persist ? persist(snapshot) : filePath ? writeJson(filePath, snapshot) : undefined;
+      writeResult = writeSnapshot(snapshot);
     } catch (error) {
       return Promise.reject(error);
     }
-    if (writeResult && typeof writeResult.then === 'function') {
-      flushInFlight = Promise.resolve(writeResult).then(() => {
-        pendingWrites = Math.max(0, pendingWrites - flushedCount);
-        flushInFlight = null;
-        return { flushed: true, pendingWrites };
-      }, error => {
-        flushInFlight = null;
-        throw error;
-      });
-      return flushInFlight;
-    }
-    pendingWrites = Math.max(0, pendingWrites - flushedCount);
-    return { flushed: true, pendingWrites };
+    return settleWrite(writeResult, flushedCount);
   }
 
   async function close() {

@@ -8,13 +8,10 @@
     "start": "node server/server.js",
     "test": "node scripts/run-test-manifest.mjs --group=core",
     "test:audit": "node scripts/run-test-manifest.mjs --group=audit",
-    "test:timers": "node scripts/run-test-manifest.mjs --group=timers",
     "test:bot-timing": "node server/botTiming.test.js && node server/socketRuntime.test.js",
-    "test:surfaces": "node scripts/run-test-manifest.mjs --group=surfaces",
     "test:full": "node scripts/run-test-manifest.mjs --group=full",
     "lint": "eslint server",
     "lint:client": "eslint public",
-    "bot:balance": "node server/bot-balance-runner.js",
     "bot:compare": "node server/bot-policy-tournament.js",
     "coverage": "c8 --include=\"server/**\" --reporter=text --reporter=lcov node scripts/run-test-manifest.mjs --group=full",
     "test:browser": "playwright test -c qa/playwright.config.js",
@@ -22,9 +19,8 @@
     "sync:analytics-vendor": "node scripts/sync-admin-analytics-vendor.mjs",
     "test:account": "node scripts/run-test-manifest.mjs --group=account",
     "test:inactivity": "node scripts/run-test-manifest.mjs --group=inactivity",
-    "test:shard": "node scripts/run-test-manifest.mjs --group=full",
-    "test:bot-smoke": "node scripts/run-test-manifest.mjs --suite=server/bot-simulation.test.js",
-    "test:bot-campaign": "node server/bot-simulation.test.js"
+    "test:bot-campaign": "node server/bot-simulation.test.js",
+    "timings:refresh": "node scripts/refresh-test-timings.mjs"
   },
   "dependencies": {
     "echarts": "6.1.0",

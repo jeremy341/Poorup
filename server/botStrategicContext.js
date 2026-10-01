@@ -481,43 +481,66 @@ function eventView(game, bot) {
   };
 }
 
-export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decisionSequence = 0) {
-  const players = Array.isArray(game?.players) ? game.players : [];
-  const safeBot = bot || {};
-  const board = Array.isArray(game?.tiles) && typeof game?.getTile === 'function'
-    ? game.tiles.map(tile => tileView(game, safeBot, tile)).filter(Boolean)
-    : [];
-  const currentTile = typeof game?.getTile === 'function' ? tileView(game, safeBot, game.getTile(safeBot.position)) : null;
-  const opponents = players
+function boardViews(game, safeBot) {
+  if (!Array.isArray(game?.tiles) || typeof game?.getTile !== 'function') return [];
+  return game.tiles.map(tile => tileView(game, safeBot, tile)).filter(Boolean);
+}
+
+function opponentViews(game, safeBot, players) {
+  return players
     .filter(player => player.id !== safeBot.id)
     .slice(0, 6)
     .map((player, index) => opponentView(game, safeBot, player, index));
-  const ownProperties = typeof game?.getTile === 'function' ? ownPropertyView(game, safeBot) : [];
+}
+
+function currentTileView(game, safeBot) {
+  if (typeof game?.getTile !== 'function') return null;
+  return tileView(game, safeBot, game.getTile(safeBot.position));
+}
+
+function ownPropertiesView(game, safeBot) {
+  if (typeof game?.getTile !== 'function') return [];
+  return ownPropertyView(game, safeBot);
+}
+
+function completeGroupView(game, safeBot) {
+  if (typeof game?.playerGroups !== 'function' || typeof game?.hasFullSet !== 'function') return [];
+  return game.playerGroups(safeBot).filter(group => game.hasFullSet(safeBot.id, group));
+}
+
+function botStateView(game, safeBot) {
+  const ownProperties = ownPropertiesView(game, safeBot);
+  return {
+    position: nonNegative(safeBot.position),
+    currentTile: currentTileView(game, safeBot),
+    cash: nonNegative(safeBot.cash),
+    properties: ownProperties,
+    propertyCount: ownProperties.length,
+    completeGroups: completeGroupView(game, safeBot),
+    buildingCount: typeof game?.buildingsForMaintenance === 'function' ? game.buildingsForMaintenance(safeBot) : 0,
+    buildActionsThisTurn: nonNegative(safeBot.buildActionsThisTurn),
+    inJail: safeBot.inJail === true,
+    jailTurns: nonNegative(safeBot.jailTurns),
+    jailFreeCards: nonNegative(safeBot.jailFreeCards),
+    bankLoan: ownLoanView(safeBot),
+    contracts: typeof game?.playerContracts !== 'undefined' ? ownContractView(game, safeBot) : [],
+    marketPositions: ownMarketView(safeBot),
+    marketExpansion: ownMarketExpansionView(safeBot),
+    casino: ownCasinoView(safeBot)
+  };
+}
+
+export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decisionSequence = 0) {
+  const players = Array.isArray(game?.players) ? game.players : [];
+  const safeBot = bot || {};
+  const board = boardViews(game, safeBot);
+  const opponents = opponentViews(game, safeBot, players);
   return {
     contextVersion: BOT_CONTEXT_VERSION,
     phase,
     roundNumber: nonNegative(game?.roundNumber),
     decisionSequence: nonNegative(decisionSequence),
-    botState: {
-      position: nonNegative(safeBot.position),
-      currentTile,
-      cash: nonNegative(safeBot.cash),
-      properties: ownProperties,
-      propertyCount: ownProperties.length,
-      completeGroups: typeof game?.playerGroups === 'function' && typeof game?.hasFullSet === 'function'
-        ? game.playerGroups(safeBot).filter(group => game.hasFullSet(safeBot.id, group))
-        : [],
-      buildingCount: typeof game?.buildingsForMaintenance === 'function' ? game.buildingsForMaintenance(safeBot) : 0,
-      buildActionsThisTurn: nonNegative(safeBot.buildActionsThisTurn),
-      inJail: safeBot.inJail === true,
-      jailTurns: nonNegative(safeBot.jailTurns),
-      jailFreeCards: nonNegative(safeBot.jailFreeCards),
-      bankLoan: ownLoanView(safeBot),
-      contracts: typeof game?.playerContracts !== 'undefined' ? ownContractView(game, safeBot) : [],
-      marketPositions: ownMarketView(safeBot),
-      marketExpansion: ownMarketExpansionView(safeBot),
-      casino: ownCasinoView(safeBot)
-    },
+    botState: botStateView(game, safeBot),
     turn: turnView(game || {}, safeBot),
     recentDecisions: recentBotDecisions(game || {}, safeBot),
     decisionMemory: botDecisionMemory(game || {}, safeBot),
@@ -527,6 +550,10 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
     table: tableSummaryView(game || {}, safeBot, opponents),
     obligations: obligationView(game || {}, safeBot),
     activeEvent: eventView(game || {}, safeBot),
+    // Live instrument quotes are player-visible state (economyApi ships the
+    // same record to humans); the planner's market appliers require them to
+    // project any market candidate at all.
+    marketQuotes: { ...(game?.marketQuotes || {}) },
     rulesDigest: rulesDigest(game || {})
   };
 }
