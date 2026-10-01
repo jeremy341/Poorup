@@ -45,7 +45,7 @@ jobs:
         # native paths-ignore on pull_request would leave required checks
         # pending forever. Empty output is treated as code changes (fail-safe).
         if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             docs:
