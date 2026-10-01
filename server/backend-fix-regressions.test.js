@@ -346,6 +346,86 @@ check('anti-monopoly rent follows the declared leaderRentMultiplier effect (E9)'
   assert.equal(calculateRentFromFacts(facts), Math.floor(Math.floor(tile.rent) * 0.4));
 });
 
+check('an in-flight auction keeps its clock under bank-run (T13, intended)', () => {
+  const room = startedRoom({ rulesetPreset: 'after-hours' });
+  const game = room.game;
+  const [a, b] = game.players;
+  game.globalEvent = { id: 'bank-run', phase: 'active', effects: { bankActionsBlocked: true, auctionBlocked: true, marketPriceMultiplier: 0.75, tradingEnabled: false, casinoMaxBet: 250 } };
+  game.auction = {
+    active: true, participants: [a.id, b.id], passedPlayerIds: [],
+    highestBidderId: null, highestBid: 0, tileIndex: 1, endsAt: Date.now() + 5000
+  };
+  assert.equal(room.placeAuctionBid('b', 60).success, true,
+    'a running auction is not frozen by the event; only new auctions are blocked');
+  assert.equal(game.auction.highestBid, 60);
+  game.auction = null;
+  const newAuction = game.startAuction(game.getTile(3), a.id);
+  assert.equal(newAuction.success, false,
+    'starting a new auction during bank-run is blocked');
+  assert.equal(newAuction.error, 'Auctions are paused by the active Bank Run.');
+});
+
+check('totalCash normalizes by active seats, excluding departed wealth (E4, intended)', () => {
+  const room = startedRoom({ rulesetPreset: 'after-hours' });
+  const game = room.game;
+  const [a, b] = game.players;
+  a.cash = 1000;
+  b.cash = 500;
+  assert.equal(game.totalCash(), 1500);
+  b.bankrupt = true;
+  b.cash = 5000;
+  assert.equal(game.totalCash(), 1000,
+    'a bankrupt whale\'s stranded cash must not inflate the economy used by event thresholds');
+});
+
+check('loan-backed cash cannot fund equity transfers, at proposal or acceptance (T2a)', () => {
+  const room = threeSeatRoom({ rulesetPreset: 'after-hours' });
+  const game = room.game;
+  const [seller, owner, buyer] = game.players;
+  const tile = game.getTile(1);
+  tile.ownerId = owner.id;
+  owner.properties.push(tile.index);
+  tile.equityShares = [{ holderId: seller.id, share: 40, contractId: 'src-t2a', control: 'passive' }];
+  game.playerContracts.push({
+    id: 'src-t2a', kind: 'equity', fromPlayerId: seller.id, toPlayerId: owner.id,
+    propertyIndex: tile.index, equityShare: 40, equityControl: 'passive', permanent: false,
+    expiresRound: game.roundNumber + 4, amount: 100, status: 'active', createdRound: game.roundNumber
+  });
+  buyer.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(game.proposeEquityShareTransfer('a', {
+    fromPlayerId: seller.id, toPlayerId: buyer.id, contractId: 'src-t2a',
+    sharePct: 15, price: 60, requestId: 't2a-1'
+  }), { success: false, error: 'Loan-backed cash cannot fund equity transfers.' });
+  buyer.bankLoan = null;
+  const proposal = game.proposeEquityShareTransfer('a', {
+    fromPlayerId: seller.id, toPlayerId: buyer.id, contractId: 'src-t2a',
+    sharePct: 15, price: 60, requestId: 't2a-2'
+  });
+  assert.equal(proposal.success, true);
+  buyer.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(game.respondPlayerContract('c', true, 't2a-accept', proposal.transfer.id), {
+    success: false, error: 'Loan-backed cash cannot fund equity transfers.'
+  }, 'acceptance revalidates the buyer\'s taint exactly as contract acceptance does');
+  assert.equal(game.pendingPlayerContract, null);
+});
+
+check('a legacy room\'s optional systems survive the first ruleset meta write (T9)', () => {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'a', clientId: 'a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
+  room.settings.bankLoans = true;
+  room.settings.casino = true;
+  room.settings.market = true;
+  room.settings.globalEvents = true;
+  const boardVariantResult = room.setRoomSetting('boardVariant', 'standard-40');
+  assert.equal(boardVariantResult.rejected, false);
+  assert.equal(room.game.settings.bankLoans, true, 'legacy bankLoans toggle must be carried into overrides');
+  assert.equal(room.game.settings.casino, true);
+  assert.equal(room.game.settings.market, true);
+  assert.equal(room.ruleset.effectiveSettings.globalEvents, true,
+    'the ruleset flow must honor captured legacy overrides, not silently strip them');
+});
+
 if (failures.length) {
   console.error(`\nbackend audit regressions: ${failures.length} failed`);
   process.exitCode = 1;
