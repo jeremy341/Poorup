@@ -364,9 +364,9 @@ jobs:
         # renders against the new server.
         run: |
           if [ "${{ needs.plan.outputs.browser_mode }}" = "smoke" ]; then
-            npm run test:browser -- --grep @ui-smoke --project=ipad-pro-11-landscape --workers=4 --reporter=blob
+            npm run test:browser -- --grep @ui-smoke --project=ipad-pro-11-landscape --workers=2 --reporter=blob
           else
-            npm run test:browser -- --workers=4 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
+            npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
           fi
         env:
           POORUP_QA_BASE_URL: http://127.0.0.1:8099
