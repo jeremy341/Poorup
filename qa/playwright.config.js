@@ -5,6 +5,9 @@ export default defineConfig({
   testDir: './',
   timeout: 30_000,
   fullyParallel: true,
+  // CI retries once so a one-off flake does not fail a whole release shard;
+  // locally the default of zero keeps real failures loud.
+  retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : [['list']],
   use: {
     baseURL: process.env.POORUP_QA_BASE_URL || 'http://127.0.0.1:8080',

@@ -241,7 +241,7 @@ function contractCollateralIndices(contract) {
   return [contract.collateralTileIndex];
 }
 
-function contractPledgesTile(contract, player, tile) {
+export function contractPledgesTile(contract, player, tile) {
   if (!activeCollateralContract(contract)) return false;
   if (contract.toPlayerId !== player.id) return false;
   if (contract.kind === 'hybrid' && Number(contract.propertyIndex) === Number(tile.index)) return true;

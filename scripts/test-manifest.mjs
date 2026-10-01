@@ -34,6 +34,9 @@ export const TEST_GROUPS = Object.freeze({
     'public/clientBoardMotion.test.js', 'public/clientSurfaceFocus.test.js', 'public/clientAnalyticsMarkup.test.js',
     'public/clientAnalytics.test.js', 'public/clientAnalyticsPage.test.js', 'public/clientAnalyticsCharts.test.js',
     'public/clientMusicBoxReference.test.js', 'public/clientAccountRights.test.js',
+    'server/bot-policy-tournament.test.js', 'server/socketHandlerSupport.test.js',
+    'server/botCandidateCoverage.test.js', 'server/botTiming.test.js', 'server/socketRuntime.test.js',
+    'public/clientAudioControls.test.js',
   ],
   audit: [
     'server/market-settlement-audit.test.js', 'server/lifecycle-audit.test.js', 'server/card-deck-audit.test.js',
@@ -41,7 +44,8 @@ export const TEST_GROUPS = Object.freeze({
     'server/season-metrics-audit.test.js', 'server/summary-privacy-audit.test.js', 'public/clientCasinoReel.test.js',
     'server/session-room-regressions.test.js', 'server/game-invariant-regressions.test.js',
     'server/backup-restore-integrity.test.js', 'server/socket-admission.test.js', 'server/runtime-safety.test.js',
-    'server/analyticsRuntime.test.js', 'server/capacity-followup.test.js', 'server/server-followups.test.js',
+    'server/analyticsRuntime.test.js', 'server/capacity-followup.test.js',     'server/server-followups.test.js',
+    'server/backend-fix-regressions.test.js',
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [
@@ -87,8 +91,19 @@ function isValidShardIndex(shardIndex, shardCount) {
   return true;
 }
 
+import { balanceShards } from './shard-balance.mjs';
+
 export function shardedTestSuites(suites, shardIndex, shardCount) {
   if (!isPositiveShardCount(shardCount)) throw new Error('Shard count must be a positive integer.');
   if (!isValidShardIndex(shardIndex, shardCount)) throw new Error(`Shard index must be between 1 and ${shardCount}.`);
   return suites.filter((_suite, index) => index % shardCount === shardIndex - 1);
+}
+
+// Time-balanced sharding when a duration baseline is available, with the
+// count-balanced round-robin split as the deterministic fallback.
+export function timeShardedTestSuites(suites, shardIndex, shardCount, timings = null) {
+  if (!isPositiveShardCount(shardCount)) throw new Error('Shard count must be a positive integer.');
+  if (!isValidShardIndex(shardIndex, shardCount)) throw new Error(`Shard index must be between 1 and ${shardCount}.`);
+  if (timings) return balanceShards(suites, timings, shardCount)[shardIndex - 1];
+  return shardedTestSuites(suites, shardIndex, shardCount);
 }

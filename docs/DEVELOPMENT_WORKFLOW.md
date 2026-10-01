@@ -1,13 +1,14 @@
 # Poorup Development Workflow
 
-_Last updated: 2026-09-28. This is the contract between contributors (human or
-AI) and `main`._
+_Last updated: 2026-10-01. This is the contract between contributors (human or
+AI) and the three permanent lanes `development`, `testing`, and `main`._
 
 ## The rule
 
-**Never develop directly on `main`.** All work enters `main` through a pull
-request that has passed the pipeline below. `main` is protected by a GitHub
-ruleset; direct pushes are rejected.
+**Never develop directly on `main` (or on the lane branches).** All work
+enters `development` through a pull request that has passed the pipeline below,
+then promotes `development` → `testing` → `main` by merge PR at each hop. `main`
+is protected by a GitHub ruleset; direct pushes are rejected.
 
 ## Branches
 
@@ -20,39 +21,55 @@ ruleset; direct pushes are rejected.
 | `experiment/*`| spikes; may die unmerged                         |
 | `chore/*`     | infrastructure, dependencies, tooling            |
 
-Branch from `main` (`git checkout -b fix/thing main`), keep each branch to one
-concern.
+Branch from `development` (`git checkout -b fix/thing development`), keep each
+branch to one concern. Never branch from `main`; the lane order is
+`feature` → `development` → `testing` → `main`.
 
 ## The pipeline
 
 ```text
-branch → PR → GitHub Actions (lint + tests + coverage + boot)
-             → Copilot code review (automatic, comments only)
-             → CodeScene (code health on the diff)
-             → Codecov (coverage delta comment)
-             → human review (Jeremy) → merge → deploy → Sentry (runtime)
+feature branch → PR → development → PR → testing → PR → main
+              → GitHub Actions (tiered lint + tests + coverage + boot)
+              → Copilot code review (automatic, comments only)
+              → CodeScene (code health on the diff)
+              → Codecov (coverage delta comment)
+              → human review (Jeremy) → merge → deploy → Sentry (runtime)
 ```
+
+Each hop is one PR: feature → `development`, `development` → `testing`,
+`testing` → `main`. Only the last hop reaches production.
 
 Responsibilities, one line each:
 
 - **GitHub Actions** — does the code actually run? `npm run lint`,
   `npm run lint:client`, and the unique suites in `scripts/test-manifest.mjs`.
-  CI runs four isolated Node-test shards, merges their c8 V8-coverage data once,
-  shards the six-viewport Playwright suite three ways, and merges the browser
-  reports. The old repeated coverage-runner pass and separate duplicate
-  `server.test.js` invocation are gone; the unique wire test remains in the
-  manifest. A 10-game deterministic bot smoke runs on ordinary PRs, while the
-  1,000-game safety campaign runs nightly and on PRs targeting `main`.
+  Which jobs run depends on the PR's target branch (see **CI tiers** below).
+  On the heavy tier CI runs four isolated Node-test shards, merges their c8
+  V8-coverage data once, shards the six-viewport Playwright suite three ways,
+  and merges the browser reports. The old repeated coverage-runner pass and
+  separate duplicate `server.test.js` invocation are gone; the unique wire
+  test remains in the manifest. A 10-game deterministic bot smoke runs whenever
+  the manifest `core` group runs, because `server/bot-simulation.test.js` is in
+  that group and `scripts/run-test-manifest.mjs` forces
+  `POORUP_BOT_SIMULATION_COUNT=10`. The 1,000-game safety campaign runs **only**
+  nightly (`bot-campaign.yml`, `schedule: cron '0 3 * * *'`) and on manual
+  `workflow_dispatch`; there is no PR-triggered campaign job, and the workflow's
+  hardcoded `ref` is `main`.
 - **Copilot code review** — logic/bug-oriented AI review of the diff. Cannot
   approve or merge; treats its comments as signals, not orders.
 - **CodeScene** — maintainability: complexity, duplicated logic, temporal
-  coupling, code-health delta on touched functions. Live as the
-  `CodeScene Code Health Review (main)` check (delta-analysis GitHub App,
-  quality profile "The Bare Minimum"): it fails the build on any new-code
-  decline or hotspot regression. `cs review <file>` (CodeScene CLI) gives the
-  same scores locally before you push.
-- **Codecov** — overall coverage trend + per-PR patch coverage. Blocks only
-  on >2-point project regressions (see `codecov.yml`).
+  coupling, code-health delta on touched functions. The check that appears on
+  PRs is the cloud GitHub App `CodeScene Code Health Review (main)` running the
+  quality profile "The Bare Minimum"; it is not a workflow in this repository.
+  `scripts/codescene-delta.ps1` is a **manual local tool** — no workflow invokes
+  it. `cs review <file>` (CodeScene CLI) gives the same scores locally before
+  you push. See `docs/CODE-HEALTH.md`.
+- **Codecov** — overall coverage trend + per-PR patch coverage. The upload step
+  passes `token: ${{ secrets.CODECOV_TOKEN }}` and runs with
+  `fail_ci_if_error: false`, so a failed upload never fails CI. Patch status is
+  `informational: true` (never blocks); the project target is `auto` with a
+  `threshold: 2%` (see `codecov.yml`). Codecov is **not** a required status
+  check.
 - **Human review** — final decision. Nothing merges without it.
 - **Sentry** — post-deployment runtime errors, not a review gate.
 
@@ -62,14 +79,86 @@ requests a Luna Codex fix. The agent works only on that PR branch, adds a
 regression test, and never merges or deploys by itself.
 
 `main` is the Production branch. `testing` is the Nest staging lane and
-`development` is the integration lane. The Nest deployment workflow runs only
-after the `main` CI workflow succeeds and deploys the exact verified commit
-SHA; it does not poll GitHub from the server.
+`development` is the integration lane. The active production deploy path is a
+host-side systemd timer (`scripts/nest-auto-update.sh`, roughly every 3 min)
+that polls `origin/main` directly; it has **no CI gate** — merging to `main` is
+the gate. The Actions SSH path (`deploy-nest.yml`, `maintenance-drain.yml`,
+`maintenance-undrain.yml`) is parked: the repository has no configured secrets
+or variables, so `vars.NEST_DEPLOY_ENABLED` is never `'true'` and those
+workflows skip. Details: `docs/deployment/nest-live-runbook.md`.
 
 The three lane branches are permanent. Promotion merges must never use a
 provider option that deletes the source branch (for example
 `gh pr merge --delete-branch`); delete only short-lived feature branches after
 their merge.
+
+## CI tiers
+
+CI jobs are gated by the PR's target branch and, on `development` PRs, by the
+changed paths. The conditions live in `.github/workflows/ci.yml`; treat this
+table as the contract, not the line numbers:
+
+| Tier        | Runs for                                                       | Coverage |
+|-------------|----------------------------------------------------------------|----------|
+| **light**   | PRs targeting `development` that touch code, and pushes to the lane branches | the everyday check set for feature work, including merged coverage and a Codecov upload |
+| **light-slim** | PRs targeting `development` that touch only docs/markdown   | lint, manifest validation, and `boot smoke` only — no test shards, no coverage, no browser |
+| **heavy**   | PR `development` → `testing`                                   | full 4-shard manifest + merged coverage (Codecov upload) + 3 Playwright browser shards and the merged browser report |
+| **fast**    | PR `testing` → `main`                                          | `boot smoke` + lint + a tree-identity check that the promotion PR carries the same tree as the source lane |
+
+Path filtering is done inside the `plan` job (dorny/paths-filter), never with
+`paths-ignore` on the `pull_request` trigger — a skipped trigger would leave
+required checks pending forever. The release tiers deliberately ignore the
+diff: PRs to `testing` always run heavy and PRs to `main` always run fast,
+whatever the PR touches.
+
+Because `test` and `boot smoke` are the required contexts on `main`, those two
+check names must still be reported by every PR that targets `main`; the fast
+tier decides what they actually execute.
+
+Required status checks today:
+
+- On `main` (GitHub ruleset "PR Review"): exactly **`test`** and
+  **`boot smoke`**. `browser QA`, `coverage`, `lint and audit`, `codecov/*`,
+  and `CodeScene Code Health Review (main)` are **not** required — they are
+  signals, not gates.
+- On `testing` and `development`: **no required checks are configured yet**.
+  Adding required-check rulesets for those two lanes — plus a merge queue on
+  `testing` so heavy-tier checks run against the merge result — is planned,
+  not current behavior; until then, merging there is enforced only by the
+  human-review step below.
+
+### Enabling the planned gates (requires GitHub settings, not code)
+
+Two ruleset changes are prepared for but not enabled by the repository itself:
+
+1. **Required checks on `development`** — add **`test`** and **`boot smoke`**
+   to the `development` ruleset. The light tier already reports both names on
+   every PR to `development`, so no workflow change is needed.
+2. **Merge queue on `testing`** — enable the queue with `test`, `boot smoke`,
+   and `browser QA` as required checks. The heavy tier reports all three on
+   PRs to `testing`, and the tier gate is the one job that decides skip vs.
+   required, so merge-queue groups get the same check names. The queue runs
+   checks against the merge result, which formalizes what the `tree check`
+   job already approximates on `main`. If a queue misbehaves, disable it and
+   fall back to required-checks-only; the workflow works in both modes.
+
+### Sharding and the timing baseline
+
+Test shards are **time-balanced**, not count-balanced. `scripts/run-test-manifest.mjs`
+packs suites into shards with a longest-first, least-loaded split driven by
+`qa/test-timings.json` (the checked-in per-suite duration baseline); when the
+baseline is missing it falls back to the old round-robin split. The manifest
+test asserts that shards finish within 35% of each other and fails loudly if
+the baseline goes stale or missing.
+
+- Refresh the baseline after dependency or suite changes: `npm run timings:refresh`
+  (runs the full manifest once and merges successful suite timings).
+- The `shard timing report` job prints per-shard durations, the slowest ten
+  suites, and the real CI skew to the run summary; it emits a `::warning::`
+  when real skew exceeds 1.5× — that is the signal to refresh the baseline.
+- Per-suite wall time is capped (default 300s, override with
+  `POORUP_SUITE_TIMEOUT_MS`), so a hung suite fails in minutes instead of
+  eating the 25-minute shard budget.
 
 Account-rights changes use the Profile-only contract in
 `docs/decisions/account-rights-and-auth-2026-09-17.md`. A deletion request is
@@ -80,17 +169,18 @@ facts stay deployment configuration; do not invent them in code or docs.
 
 ## Contributor checklist (per PR)
 
-1. Branch off `main` with the right prefix.
+1. Branch off `development` with the right prefix.
 2. Focused change — no drive-by refactors of unrelated legacy code.
 3. Add or update a contract suite in `server/gameLogic.test.js` when touching
    `gameLogic.js`/stores; new observable behavior gets a new `contract N`.
 4. `npm run lint`, `npm run lint:client`, and `npm run test:full` green locally.
-5. Push, open PR against `main` (never merge from the branch).
+5. Push, open PR against `development` (never merge from the branch). After it
+   merges, promote `development` → `testing` → `main` with one PR per hop.
 6. Read the Copilot review and CodeScene findings; fix legitimate issues,
    reply-and-resolve the disagreements.
 7. Check the Codecov comment: patch coverage on new lines should be respectable
    even though it is informational.
-8. CI checks (`test`, `boot`) must be green.
+8. The required CI checks on `main` — `test` and `boot smoke` — must be green.
 9. Ask Jeremy to review the final diff; he merges.
 
 ## AI-agent loop (mandatory for agents working in this repo)
@@ -122,26 +212,37 @@ Hard rules:
 ## Commands
 
 ```bash
-npm run dev          # start server on :8080 (or PORT=…)
-npm test             # core contract/integration group from the unique manifest
-npm run test:audit   # focused settlement, lifecycle, privacy, and casino audits
-npm run test:full    # all 150 unique suites from the manifest, once each
-npm run test:bot-smoke     # 10 deterministic no-stall games
-npm run test:bot-campaign  # full 1,000-game campaign by default
-npm run lint         # eslint server/
-npm run lint:client  # eslint public/
-npm run coverage     # one c8 pass over the unique full manifest
+npm run dev             # start server on :8080 (or PORT=…)
+npm test                # core contract/integration group from the unique manifest
+npm run test:audit      # audit manifest group (settlement, lifecycle, privacy, casino)
+npm run test:account    # account manifest group
+npm run test:inactivity # inactivity manifest group
+npm run test:full       # all 150 unique suites from the manifest, once each
+npm run test:bot-timing # bot timing + socket runtime suites
+npm run test:bot-campaign  # full 1,000-game campaign (default count when run directly)
+npm run test:browser    # Playwright suite (six viewports)
+npm run bot:compare     # bounded three-policy tournament, stubbed AI advisor
+npm run load:testing    # 1,000-client load harness (testing host only)
+npm run lint            # eslint server/
+npm run lint:client     # eslint public/
+npm run coverage        # one c8 pass over the unique full manifest
 ```
 
-CI uses four disjoint suite shards and three Playwright shards. The runner
-records per-suite duration artifacts so shard balance can be adjusted from
-observed timing; sharding does not remove any test file. The bot campaign is
-bounded in the PR smoke path; run the full campaign before promoting to `main`
-and nightly. The CI smoke count is not balance evidence.
+On the heavy tier, CI uses four disjoint suite shards and three Playwright
+shards. Sharding is **time-balanced**: `scripts/run-test-manifest.mjs` packs
+suites longest-first into the least-loaded shard using the checked-in baseline
+`qa/test-timings.json` (see "Sharding and the timing baseline" above); the
+old round-robin split remains only as the fallback when the baseline is
+absent. Per-suite timing JSON is still written per shard (`test-timings-shard-`
+artifacts) and consumed by the `shard timing report` job. Sharding does not
+remove any test file. When run through the manifest,
+`server/bot-simulation.test.js` is capped at 10 games
+(`POORUP_BOT_SIMULATION_COUNT=10`); `npm run test:bot-campaign` run directly
+uses the full 1,000. The CI smoke count is not balance evidence.
 
 ## What is NOT here
 
-- No build step (static assets ship as-is; the `boot` job is the honest
+- No build step (static assets ship as-is; the `boot smoke` job is the honest
   equivalent of "build").
 - No TypeScript, test framework migration, or formatter was introduced. The
   existing standalone Node contract tests remain intact; GitHub Actions matrix
@@ -151,12 +252,13 @@ and nightly. The CI smoke count is not balance evidence.
 
 ## Secrets & tokens
 
-- Codecov uploads worked with **no token** on this public repo (verified on
-  PR #1: codecov-action v5 via GitHub OIDC). If a private mirror ever appears
-  or uploads start failing, add the repo's Global Upload Token from
-  app.codecov.io as a secret named exactly `CODECOV_TOKEN` under
-  **Settings → Secrets and variables → Actions** — never in a committed file
-  or log.
+- Codecov: the CI upload step already passes
+  `token: ${{ secrets.CODECOV_TOKEN }}` (codecov-action v5) with
+  `fail_ci_if_error: false`, so a missing or rejected token can never fail a
+  build. If uploads ever start failing (for example on a private mirror),
+  populate that secret with the repo's Global Upload Token from
+  app.codecov.io under **Settings → Secrets and variables → Actions** — never
+  in a committed file or log.
 - Sentry DSNs, when introduced: server DSN via environment variable at
   deploy time; browser DSN is publishable by design but still gets its own
   PR with the scrubbing rules from the Sentry plan.
@@ -165,7 +267,11 @@ and nightly. The CI smoke count is not balance evidence.
 
 CodeScene is a release review gate, not an automated code-writing agent. The
 repository never stores a CodeScene token and never starts a background polling
-or refactoring loop.
+or refactoring loop. Both local scripts below are **manual, developer-run
+tools** — no GitHub workflow invokes them. The only automated CodeScene signal
+on a PR is the cloud GitHub App `CodeScene Code Health Review (main)` (quality
+profile "The Bare Minimum"). Threshold tuning and the baseline measurements
+live in `docs/CODE-HEALTH.md`.
 
 ### Run a local delta
 

@@ -19,12 +19,27 @@ function rejectContract(game, error) {
   return { success: false, error };
 }
 
+function loanCollateralIndices(contract) {
+  if (Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length) {
+    return contract.collateralTileIndices;
+  }
+  return contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
+}
+
 function loanCollateralRejection(game, player, contract) {
   if (contract.kind !== 'loan') return null;
-  if (contract.collateralTileIndex == null) return null;
-  const collateral = game.getTile(contract.collateralTileIndex);
-  if (!deedStillHeldBy(collateral, player.id)) return rejectContract(game, 'The loan collateral is no longer available.');
-  if (!game.isTradeableTile(collateral)) return rejectContract(game, 'The loan collateral is no longer available.');
+  const indices = loanCollateralIndices(contract);
+  if (!indices.length) return null;
+  // The proposal validated the whole basket; settlement must re-validate it
+  // the same way. The singular collateralTileIndex is only a legacy alias
+  // for the first index, so checking it alone lets later deeds sail through
+  // acceptance already sold or mortgaged.
+  for (const index of indices) {
+    const collateral = game.getTile(Number(index));
+    if (!deedStillHeldBy(collateral, player.id) || !game.isTradeableTile(collateral)) {
+      return rejectContract(game, 'The loan collateral is no longer available.');
+    }
+  }
   return null;
 }
 

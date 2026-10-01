@@ -4,7 +4,10 @@ const DIRECT_EVENT_RULES = [
   { id: 'housing-bubble', factor: 0.65, matches: ({ tile }) => tile.type === 'property' },
   { id: 'airport-strike', factor: 0, matches: ({ tile }) => tile.type === 'railroad' },
   { id: 'tourism-boom', factor: 1.3, matches: ({ tile }) => tile.group === 'Dark Blue' },
-  { id: 'anti-monopoly', factor: 0.6, matches: antiMonopolyTargetsOwner },
+  // factorKey reads the declared event effect so tuning the effect (e.g.
+  // globalEventData anti-monopoly leaderRentMultiplier) reaches live rent
+  // instead of desyncing a hardcoded duplicate.
+  { id: 'anti-monopoly', factor: 0.6, factorKey: 'leaderRentMultiplier', matches: antiMonopolyTargetsOwner },
   { id: 'energy-crisis', factor: 1.5, matches: ({ tile }) => tile.type === 'utility' },
   { id: 'city-election', factor: 0.75, matches: cityElectionTargetsProperty },
 ];
@@ -22,7 +25,7 @@ function cityElectionTargetsProperty({ tile, event }) {
 function directEventFactors(context) {
   return DIRECT_EVENT_RULES
     .filter(rule => rule.id === context.eventId && rule.matches(context))
-    .map(rule => rule.factor);
+    .map(rule => (rule.factorKey ? Number(context.event?.effects?.[rule.factorKey]) || rule.factor : rule.factor));
 }
 
 function infrastructureEventFactors(tile, eventId, effects) {

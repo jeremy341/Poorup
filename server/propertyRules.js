@@ -176,7 +176,12 @@ export function canMortgageTile(game, player, tile) {
 function unmortgageFrozen(game) {
   if (game.globalEventActive('housing-bubble')) return true;
   if (game.globalEventActive('credit-freeze')) return true;
-  return game.globalEventActive('bank-run');
+  if (game.globalEventActive('bank-run')) return true;
+  // Effects fallback: during a combination event the merged effect set
+  // carries mortgagesBlocked from whichever parent fired into the combo,
+  // while the sibling ID gates above may have gone dark. Mirror the
+  // mortgageBlockedByEvent fallback so both directions stay frozen.
+  return Boolean(game.activeEventEffects().mortgagesBlocked);
 }
 
 function unmortgageOwnershipAllows(player, tile) {

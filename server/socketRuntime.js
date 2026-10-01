@@ -54,14 +54,19 @@ export function runRoomTimer(label, roomCode, callback, onError = console.error)
 
 // AFK payment expiry follows the authoritative bankruptcy/settlement seam;
 // clearing an unpaid payment would silently forgive the obligation.
-export function settleAfkPayment(game, player) {
-  const pending = game?.pendingPayment;
-  if (!pending || pending.playerId !== player?.id) return false;
-  if (Number(player.cash) >= Math.max(0, Number(pending.amountRemaining) || 0)) {
-    return Boolean(game.trySettlePendingPayment?.());
-  }
-  const creditor = pending.creditorId ? game.getPlayerById?.(pending.creditorId) : null;
-  if (game.settings?.bankruptMode === 'debt' && typeof game.handleDebtBankruptcy === 'function') {
+function pendingCreditor(game, pending) {
+  if (!pending.creditorId) return null;
+  return game.getPlayerById?.(pending.creditorId);
+}
+
+function debtModeEnabled(game) {
+  if (game.settings?.bankruptMode !== 'debt') return false;
+  return typeof game.handleDebtBankruptcy === 'function';
+}
+
+function applyPendingBankruptcy(game, player, pending) {
+  const creditor = pendingCreditor(game, pending);
+  if (debtModeEnabled(game)) {
     game.handleDebtBankruptcy(player, creditor);
     return true;
   }
@@ -70,6 +75,15 @@ export function settleAfkPayment(game, player) {
     return true;
   }
   return false;
+}
+
+export function settleAfkPayment(game, player) {
+  const pending = game?.pendingPayment;
+  if (!pending) return false;
+  if (pending.playerId !== player?.id) return false;
+  const covers = Number(player.cash) >= Math.max(0, Number(pending.amountRemaining) || 0);
+  if (covers) return Boolean(game.trySettlePendingPayment?.());
+  return applyPendingBankruptcy(game, player, pending);
 }
 
 function preparePendingPurchasePass(game, player) {
@@ -211,42 +225,60 @@ export function recordMatchStartTelemetry({ telemetryStore, room, telemetryVersi
   return false;
 }
 
-export function recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions = {}, reasonCode = 'room-ended-without-settlement' } = {}) {
-  const marker = room?.game?.startedAt || true;
-  if (!telemetryStore || !room?.game?.started || room.analyticsMatchStalledRecorded === marker) return false;
-  const result = telemetryStore.record('match-stalled', { roundNumber: Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)), reasonCode: String(reasonCode || 'unknown').slice(0, 80) }, telemetryVersions);
+function stalledTelemetryMarker(room) {
+  if (!room?.game?.started) return null;
+  return room.game.startedAt || true;
+}
+
+function recordStalledOnce({ telemetryStore, room, marker, reasonCode, telemetryVersions }) {
+  const payload = {
+    roundNumber: Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)),
+    reasonCode: String(reasonCode || 'unknown').slice(0, 80)
+  };
+  const result = telemetryStore.record('match-stalled', payload, telemetryVersions);
   if (result?.recorded) { room.analyticsMatchStalledRecorded = marker; return true; }
   return false;
 }
 
+export function recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions = {}, reasonCode = 'room-ended-without-settlement' } = {}) {
+  if (!telemetryStore) return false;
+  const marker = stalledTelemetryMarker(room);
+  if (!marker) return false;
+  if (room.analyticsMatchStalledRecorded === marker) return false;
+  return recordStalledOnce({ telemetryStore, room, marker, reasonCode, telemetryVersions });
+}
+
+const ROOM_TELEMETRY_VERSION_READERS = [
+  ['seasonId', room => room?.game?.seasonId || room?.seasonId],
+  ['rulesetRevision', room => room?.ruleset?.rulesetRevision || room?.settings?.rulesetRevision],
+  ['balanceRevision', room => room?.ruleset?.balanceRevision || room?.settings?.balanceRevision],
+  ['boardVariant', room => room?.ruleset?.boardVariant || room?.settings?.boardVariant],
+  ['rulesetPreset', room => room?.ruleset?.rulesetPreset || room?.settings?.rulesetPreset],
+  ['marketComplexity', room => room?.ruleset?.effectiveSettings?.marketComplexity || room?.settings?.marketComplexity]
+];
+
 function roomTelemetryVersions(room) {
+  return Object.fromEntries(ROOM_TELEMETRY_VERSION_READERS.map(([key, read]) => [key, read(room)]));
+}
+
+function seasonTelemetryMatchId(matchRecord, room) {
+  const matchId = String(matchRecord?.matchId || '').trim();
+  if (!matchId) return false;
+  if (room?.analyticsTelemetryMatchId === matchId) return true;
+  if (room) room.analyticsTelemetryMatchId = matchId;
+  return false;
+}
+
+function seasonTelemetryVersions(seasonResult, matchRecord) {
   return {
-    seasonId: room?.game?.seasonId || room?.seasonId,
-    rulesetRevision: room?.ruleset?.rulesetRevision || room?.settings?.rulesetRevision,
-    balanceRevision: room?.ruleset?.balanceRevision || room?.settings?.balanceRevision,
-    boardVariant: room?.ruleset?.boardVariant || room?.settings?.boardVariant,
-    rulesetPreset: room?.ruleset?.rulesetPreset || room?.settings?.rulesetPreset,
-    marketComplexity: room?.ruleset?.effectiveSettings?.marketComplexity || room?.settings?.marketComplexity
+    seasonId: seasonResult?.season?.id || matchRecord.seasonId || 'unseasoned',
+    rulesetRevision: matchRecord.rulesetRevision,
+    balanceRevision: matchRecord.balanceRevision,
+    boardVariant: matchRecord.boardVariant
   };
 }
 
-export function recordSeasonTelemetry(context) {
-  const { telemetryStore, room, matchRecord, candidates, seasonResult } = context;
-  const matchId = String(matchRecord?.matchId || '').trim();
-  if (matchId && room?.analyticsTelemetryMatchId === matchId) return false;
-  if (matchId && room) room.analyticsTelemetryMatchId = matchId;
-  const telemetryContext = {
-    telemetryStore,
-    room,
-    matchRecord,
-    candidates,
-    telemetryVersions: {
-      seasonId: seasonResult?.season?.id || matchRecord.seasonId || 'unseasoned',
-      rulesetRevision: matchRecord.rulesetRevision,
-      balanceRevision: matchRecord.balanceRevision,
-      boardVariant: matchRecord.boardVariant
-    }
-  };
+function recordSeasonTelemetryRows(telemetryContext) {
   recordMatchStartTelemetry(telemetryContext);
   recordMatchTelemetry(telemetryContext);
   recordLoggedTelemetry(telemetryContext);
@@ -254,20 +286,49 @@ export function recordSeasonTelemetry(context) {
   recordBankruptcyTelemetry(telemetryContext);
   recordAchievementTelemetry(telemetryContext);
   recordBotTelemetry(telemetryContext);
+}
+
+export function recordSeasonTelemetry(context) {
+  const { telemetryStore, room, matchRecord, candidates, seasonResult } = context;
+  if (seasonTelemetryMatchId(matchRecord, room)) return false;
+  recordSeasonTelemetryRows({
+    telemetryStore,
+    room,
+    matchRecord,
+    candidates,
+    telemetryVersions: seasonTelemetryVersions(seasonResult, matchRecord)
+  });
   return true;
+}
+
+function hostCandidate(player, departedPlayerId) {
+  if (player.isBot) return false;
+  if (player.disconnected) return false;
+  if (player.bankrupt) return false;
+  if (player.inDebt) return false;
+  return player.id !== departedPlayerId;
 }
 
 export function reassignHostIfNeeded(room, departedPlayerId) {
   if (!room) return;
   if (room.hostId !== departedPlayerId) return;
-  const available = room.game.players.find(player => !player.isBot
-    && !player.disconnected
-    && !player.bankrupt
-    && !player.inDebt
-    && player.id !== departedPlayerId);
+  const available = room.game.players.find(player => hostCandidate(player, departedPlayerId));
   room.hostId = available?.id || null;
   room.game.players.forEach(player => { player.isHost = player.id === room.hostId; });
 }
+
+// Keep provider credentials, billing/quota details, and raw error text out
+// of the room-wide event. The private match trace retains the exact reason.
+const PUBLIC_FALLBACK_REASONS = new Map([
+  ['no-ai-mode', 'no-ai-mode'],
+  ['auction-policy', 'house-policy'],
+  ['phase-resolution', 'house-policy'],
+  ['deterministic-advisor', 'house-policy'],
+  ['quota', 'credits-exhausted'],
+  ['quota-exhausted', 'credits-exhausted'],
+  ['game-budget', 'game-budget'],
+  ['circuit-open', 'provider-cooldown']
+]);
 
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
@@ -296,14 +357,22 @@ function createRuntime(deps) {
     return { state, revision, reason };
   }
 
+  function legacyProviderHealth() {
+    if (typeof botAdvisor?.getHealth !== 'function') return null;
+    return botAdvisor.getHealth();
+  }
+
+  function legacyProviderReason(health) {
+    if (health?.state === 'quota-exhausted') return 'credits-exhausted';
+    if (health?.state === 'unconfigured') return 'missing-credentials';
+    if (health?.state === 'open') return 'provider-cooldown';
+    return null;
+  }
+
   function botProviderStatus() {
     if (typeof botAdvisor?.getPublicStatus === 'function') return safeBotProviderStatus(botAdvisor.getPublicStatus());
-    const health = typeof botAdvisor?.getHealth === 'function' ? botAdvisor.getHealth() : null;
-    return safeBotProviderStatus({
-      state: health?.state,
-      reason: health?.state === 'quota-exhausted' ? 'credits-exhausted' : health?.state === 'unconfigured' ? 'missing-credentials' : health?.state === 'open' ? 'provider-cooldown' : null,
-      revision: 0
-    });
+    const health = legacyProviderHealth();
+    return safeBotProviderStatus({ state: health?.state, reason: legacyProviderReason(health), revision: 0 });
   }
 
   const unsubscribeBotProviderStatus = typeof botAdvisor?.subscribeProviderStatus === 'function'
@@ -328,11 +397,12 @@ function createRuntime(deps) {
     }), ROOMS_UPDATED_DEBOUNCE_MS);
   }
 
-  function emitRoomState(room) {
-    if (!room || room.destroyed) return;
-    if (room.game?.started) recordMatchStartTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
+  function recordRoomActivityMetrics() {
     metrics?.setMetric('active-rooms', roomManager.rooms.size, { scope: 'all' });
     metrics?.setMetric('active-rounds', [...roomManager.rooms.values()].filter(candidate => candidate.game.started && !candidate.destroyed).length, { scope: 'all' });
+  }
+
+  function recordWinnerStatsOnce(room) {
     try {
       if (room.game.lastWinner && !room.statsRecorded) {
         recordRoomStats(room);
@@ -343,6 +413,9 @@ function createRuntime(deps) {
       // settlement while this broadcast path remains available.
       console.error('recordRoomStats failed for room', room.roomCode, error);
     }
+  }
+
+  function broadcastRoomStateSafely(room) {
     try {
       roomPresenceRuntime.synchronizeInactivityTimers(room);
       broadcastRoomState(room);
@@ -351,6 +424,14 @@ function createRuntime(deps) {
     } catch (error) {
       console.error('emitRoomState failed for room', room.roomCode, error);
     }
+  }
+
+  function emitRoomState(room) {
+    if (!room || room.destroyed) return;
+    if (room.game?.started) recordMatchStartTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
+    recordRoomActivityMetrics();
+    recordWinnerStatsOnce(room);
+    broadcastRoomStateSafely(room);
   }
 
   function recordRoomStats(room) {
@@ -588,13 +669,18 @@ function createRuntime(deps) {
 
   // --- bots ----------------------------------------------------------------
 
-  function scheduleBotTurn(room) {
-    if (!room?.game.started || room.destroyed) return;
+  function turnRoomReady(room) {
+    if (!room?.game.started) return false;
+    if (room.destroyed) return false;
     // Auctions have their own participant timer. Keeping the ordinary turn
     // queue out of this phase prevents the current seat from issuing a
     // rejected pass/bid while a different bot is the auction participant.
-    if (room.game.auction?.active) return;
-    if (botTurnPending(room)) return;
+    if (room.game.auction?.active) return false;
+    return !botTurnPending(room);
+  }
+
+  function scheduleBotTurn(room) {
+    if (!turnRoomReady(room)) return;
     const bot = selectBotTurnTarget(room.game);
     if (!bot?.isBot) return;
     if (bot.bankrupt) return;
@@ -625,16 +711,7 @@ function createRuntime(deps) {
       .finally(() => finishBotTurn(room));
   }
 
-  async function runBotDecision(room, bot) {
-    // Re-read live state: seats, pendings, and votes may have changed while
-    // this timer was queued. The decision policy itself lives in
-    // botLogic.js and is covered by server/botLogic.test.js.
-    if (!botMayStillAct(room.game, bot)) return;
-    if (room.destroyed) return;
-    const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
-    emitBotStatus(room, bot, 'thinking', { decisionSequence });
-    const result = await runBotTurn(room, bot, botAdvisor);
-    if (room.destroyed) return;
+  function applyBotDecisionOutcome(room, bot, result) {
     if (result?.botDecision) {
       const trace = room.game.recordBotDecisionTrace(result.botDecision);
       emitBotStatus(room, bot, 'chosen', trace);
@@ -648,10 +725,27 @@ function createRuntime(deps) {
     emitRoomState(room);
   }
 
-  function emitBotStatus(room, bot, state, details = {}) {
+  async function runBotDecision(room, bot) {
+    // Re-read live state: seats, pendings, and votes may have changed while
+    // this timer was queued. The decision policy itself lives in
+    // botLogic.js and is covered by server/botLogic.test.js.
+    if (!botMayStillAct(room.game, bot)) return;
+    if (room.destroyed) return;
+    const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
+    emitBotStatus(room, bot, 'thinking', { decisionSequence });
+    const result = await runBotTurn(room, bot, botAdvisor);
+    if (room.destroyed) return;
+    applyBotDecisionOutcome(room, bot, result);
+  }
+
+  function botStatusHealthState(health) {
+    if (health?.state === 'healthy') return 'ready';
+    return 'fallback';
+  }
+
+  function botStatusPayload(room, bot, state, details) {
     const health = typeof botAdvisor.getHealth === 'function' ? botAdvisor.getHealth() : null;
-    const fallbackReason = publicBotFallbackReason(details.fallbackReason);
-    io.in(room.roomCode).emit('bot-status', {
+    return {
       playerId: bot.id,
       nickname: bot.nickname,
       state,
@@ -659,25 +753,22 @@ function createRuntime(deps) {
       difficulty: details.difficulty || room.settings.botDifficulty || 'table',
       provider: details.provider === 'ai' ? 'ai' : 'deterministic',
       fallback: details.fallback === true,
-      fallbackReason,
+      fallbackReason: publicBotFallbackReason(details.fallbackReason),
       actionId: details.actionId || null,
       decisionSequence: details.sequence || details.decisionSequence || null,
       latencyMs: details.latencyMs || 0,
-      healthState: health?.state === 'healthy' ? 'ready' : 'fallback'
-    });
+      healthState: botStatusHealthState(health)
+    };
   }
 
-  // Keep provider credentials, billing/quota details, and raw error text out
-  // of the room-wide event. The private match trace retains the exact reason.
+  function emitBotStatus(room, bot, state, details = {}) {
+    io.in(room.roomCode).emit('bot-status', botStatusPayload(room, bot, state, details));
+  }
+
   function publicBotFallbackReason(reason) {
     const key = String(reason || '').toLowerCase();
     if (!key) return null;
-    if (key === 'no-ai-mode') return 'no-ai-mode';
-    if (key === 'auction-policy' || key === 'phase-resolution' || key === 'deterministic-advisor') return 'house-policy';
-    if (key === 'quota' || key === 'quota-exhausted') return 'credits-exhausted';
-    if (key === 'game-budget') return 'game-budget';
-    if (key === 'circuit-open') return 'provider-cooldown';
-    return 'provider-unavailable';
+    return PUBLIC_FALLBACK_REASONS.get(key) || 'provider-unavailable';
   }
 
   function finishBotTurn(room) {
@@ -686,10 +777,17 @@ function createRuntime(deps) {
     scheduleBotAuction(room);
   }
 
+  function activeAuction(room) {
+    if (!room) return null;
+    if (room.destroyed) return null;
+    const auction = room.game.auction;
+    if (!auction?.active) return null;
+    return auction;
+  }
+
   function scheduleBotAuction(room) {
-    if (room?.destroyed) return;
-    const auction = room?.game.auction;
-    if (!auction?.active) return;
+    const auction = activeAuction(room);
+    if (!auction) return;
     const key = room.roomCode;
     if (auctionBotTimers.has(key) || auctionDecisionLocks.has(key)) return;
     const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
