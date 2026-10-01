@@ -158,7 +158,7 @@ jobs:
     if: contains(fromJson('["light", "heavy", "fast", "light-slim"]'), needs.plan.outputs.tier)
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -188,7 +188,7 @@ jobs:
         shard: ${{ fromJson(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -236,7 +236,7 @@ jobs:
     if: needs.plan.outputs.tier == 'heavy' || (needs.plan.outputs.tier == 'light' && needs.plan.outputs.server_changed == 'true')
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -290,7 +290,7 @@ jobs:
     if: contains(fromJson('["light", "heavy", "fast", "light-slim"]'), needs.plan.outputs.tier)
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -327,7 +327,7 @@ jobs:
         shard: ${{ fromJson(needs.plan.outputs.browser_shards) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -387,7 +387,7 @@ jobs:
     if: always() && needs.plan.outputs.tier == 'heavy'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
