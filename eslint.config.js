@@ -1,6 +1,7 @@
 // Poorup lint scope: server/ (game logic + stores are the safety-critical,
-// testable code). public/main.js (8k-line legacy SPA) is deliberately excluded
-// for now — a follow-up refactor PR can opt it in as warnings.
+// testable code) and public/ (browser modules, including main.js via the
+// shared browser rule set below). vendor/ and generated assets are ignored;
+// the remaining no-unused-vars warnings are tracked as a cleanup ledger.
 import js from "@eslint/js";
 import globals from "globals";
 

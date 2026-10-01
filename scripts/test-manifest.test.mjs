@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { shardedTestSuites, testSuites, TEST_GROUPS } from './test-manifest.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { shardedTestSuites, testSuites, TEST_GROUPS, timeShardedTestSuites } from './test-manifest.mjs';
 import { parseRunnerOptions, shardParts } from './test-runner-options.mjs';
+import { parseTimings, shardLoads } from './shard-balance.mjs';
 
 const allSuites = testSuites('full');
 assert.equal(new Set(allSuites).size, allSuites.length, 'the full manifest runs each suite only once');
-assert.equal(allSuites.length, 150, 'the full manifest preserves all unique suites from the current script groups');
+assert.equal(allSuites.length, 157, 'the full manifest preserves all unique suites from the current script groups');
 const totalGroupRuns = Object.values(TEST_GROUPS).reduce((total, suites) => total + suites.length, 0);
-assert.equal(totalGroupRuns, 162, 'all pre-refactor script entries remain represented in named groups');
+assert.equal(totalGroupRuns, 169, 'all pre-refactor script entries remain represented in named groups');
 for (const [name, suites] of Object.entries(TEST_GROUPS)) {
   assert.equal(new Set(suites).size, suites.length, `${name} does not repeat an individual suite`);
 }
@@ -20,6 +21,21 @@ const shardedSuites = shards.flat();
 assert.equal(shardedSuites.length, allSuites.length, 'shards include every suite');
 assert.equal(new Set(shardedSuites).size, allSuites.length, 'shards do not repeat suites');
 assert.ok(Math.max(...shards.map(shard => shard.length)) - Math.min(...shards.map(shard => shard.length)) <= 1, 'round-robin sharding balances suite count');
+
+// Time-balanced sharding must cover every suite once and finish within a
+// tight ratio of each other; the checked-in baseline makes this deterministic.
+assert.ok(existsSync('qa/test-timings.json'), 'the shard-duration baseline is checked in');
+const baseline = parseTimings(readFileSync('qa/test-timings.json', 'utf8'));
+assert.ok(baseline, 'the shard-duration baseline parses');
+assert.ok(allSuites.every(suite => Number.isFinite(baseline[suite])), 'the baseline covers every manifest suite');
+for (const shardCount of [2, 4]) {
+  const timeShards = Array.from({ length: shardCount }, (_v, index) => timeShardedTestSuites(allSuites, index + 1, shardCount, baseline));
+  const flat = timeShards.flat();
+  assert.equal(flat.length, allSuites.length, `time-balanced shards (${shardCount}) include every suite`);
+  assert.equal(new Set(flat).size, allSuites.length, `time-balanced shards (${shardCount}) do not repeat suites`);
+  const loads = shardLoads(timeShards, baseline);
+  assert.ok(Math.max(...loads) / Math.min(...loads) <= 1.35, `time-balanced shards (${shardCount}) finish within 35% of each other`);
+}
 assert.deepEqual(testSuites('core'), TEST_GROUPS.core, 'focused group commands retain their ordered test scope');
 assert.throws(() => shardedTestSuites([], 1, 0), /Shard count must be a positive integer/);
 assert.throws(() => shardedTestSuites([], 0, 4), /Shard index must be between/);
@@ -34,4 +50,4 @@ assert.deepEqual(parseRunnerOptions(['--group', 'account', '--suite=server/accou
   timings: null,
 });
 
-console.log(`test manifest: ${totalGroupRuns} prior invocations → ${allSuites.length} unique suites, four disjoint balanced shards`);
+console.log(`test manifest: ${totalGroupRuns} prior invocations → ${allSuites.length} unique suites, time-balanced shards (fallback round-robin)`);

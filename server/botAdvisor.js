@@ -58,7 +58,16 @@ function hasCandidateId(entry, candidateId) {
 
 function shortlistScore(candidate, evaluations) {
   const evaluation = candidateEvaluation(candidate, evaluations);
-  const score = Number(evaluation?.score ?? evaluation?.expectedValue ?? candidate?.futureScore ?? candidate?.score);
+  // An 'unsupported' planner evaluation carries no information — it scores
+  // 0 by construction. Letting that 0 override the curated candidate score
+  // collapsed every auction decision to declaration order (the bid candidate
+  // is declared first), so the stub — and any AI-advised bot — always bid
+  // regardless of affordability and the tournament stalled on rejected bids.
+  // Unplanned ('neutral') and synthetic evaluations keep the original chain.
+  const unsupported = evaluation?.projectionStatus === 'unsupported';
+  const score = Number(unsupported
+    ? (candidate?.futureScore ?? candidate?.score)
+    : (evaluation?.score ?? evaluation?.expectedValue ?? candidate?.futureScore ?? candidate?.score));
   return Number.isFinite(score) ? score : 0;
 }
 
