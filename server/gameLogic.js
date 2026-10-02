@@ -1299,3 +1299,4 @@ Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, p
 
 export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 
+// canary: proves the rewritten history still clears the full release gate
