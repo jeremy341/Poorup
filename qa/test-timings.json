@@ -158,6 +158,11 @@
     "server/sponsorship.test.js": 85,
     "server/summary-privacy-audit.test.js": 81,
     "server/telemetryModule.test.js": 97,
-    "server/trades.test.js": 83
+    "server/trades.test.js": 83,
+    "server/backend-fix-regressions-b.test.js": 140,
+    "server/backend-fix-regressions-c.test.js": 140,
+    "server/backend-fix-regressions-d.test.js": 140,
+    "server/backend-bot-fixes.test.js": 140,
+    "server/backend-bot-context-fixes.test.js": 140
   }
 }
