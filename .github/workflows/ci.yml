@@ -218,7 +218,8 @@ jobs:
           path: .nyc_output
           include-hidden-files: true
           if-no-files-found: warn
-          retention-days: 7
+          # Merged by the coverage job in this same run; a day is enough.
+          retention-days: 1
       - name: Upload per-suite timing record
         if: always()
         uses: actions/upload-artifact@v4
@@ -377,7 +378,8 @@ jobs:
           name: playwright-blob-shard-${{ matrix.shard }}
           path: blob-report
           if-no-files-found: warn
-          retention-days: 7
+          # Consumed by the merge step in this same run; a day is enough.
+          retention-days: 1
 
   browser:
     name: browser QA

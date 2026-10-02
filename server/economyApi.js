@@ -16,6 +16,7 @@ import {
   marketOrderRejection as rejectMarketOrder
 } from './marketLogic.js';
 import { hasLoanBackedCash as cashIsLoanBacked } from './loanLogic.js';
+import { normalizeRequestId } from './requestId.js';
 import {
   coverShort,
   complexityAllows,
@@ -130,7 +131,7 @@ const economyApi = {
   },
 
   transactionKey(playerId, kind, requestId) {
-    const value = String(requestId || '').trim().slice(0, 100);
+    const value = normalizeRequestId(requestId);
     return value ? `${playerId}:${kind}:${value}` : null;
   },
 

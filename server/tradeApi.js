@@ -4,12 +4,13 @@
 // exactly as before — server/trades.test.js pins the full precedence.
 // gameLogic.js assigns this object onto GameState.prototype.
 import crypto from 'crypto';
+import { normalizeRequestId } from './requestId.js';
 
 const MAX_TRADE_PROPERTIES = 40;
 
 function tradeTransactionKey(prefix, playerId, requestId) {
   if (!requestId) return null;
-  return `${playerId}:${prefix}:${String(requestId).slice(0, 100)}`;
+  return `${playerId}:${prefix}:${normalizeRequestId(requestId)}`;
 }
 
 function memoizedTradeResult(game, key) {

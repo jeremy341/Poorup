@@ -4,6 +4,7 @@ import {
   startRoomVoteKick as createRoomVoteKick,
   castRoomVoteKick as applyRoomVoteKickBallot,
 } from './roomVoteKick.js';
+import { normalizeRequestId } from './requestId.js';
 
 function publicVoteKick(vote) {
   if (!vote) return null;
@@ -22,8 +23,8 @@ function publicVoteKick(vote) {
 }
 
 function requestIdFrom(payload) {
-  if (typeof payload.requestId !== 'string') return '';
-  return payload.requestId.trim().slice(0, 100);
+  if (typeof payload?.requestId !== 'string') return '';
+  return normalizeRequestId(payload.requestId);
 }
 
 function replayKeyFor(player, requestId) {

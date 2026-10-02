@@ -3,6 +3,7 @@
 // reserved immediately, then atomically returned or folded into the buyer's
 // purchase; no separate debt or equity relationship is created.
 import crypto from 'crypto';
+import { normalizeRequestId } from './requestId.js';
 import { hasLoanBackedCash } from './loanLogic.js';
 
 function positiveWhole(value) {
@@ -220,7 +221,7 @@ function newSponsorshipRecord({ buyer, tile, terms, payload, roundNumber }) {
     price: tile.price,
     mode: terms.mode,
     sharePct: terms.sharePct,
-    requestId: String(payload.requestId || '').trim().slice(0, 100),
+    requestId: normalizeRequestId(payload.requestId),
     contributions: [],
     createdAt: Date.now(),
     createdRound: roundNumber,
@@ -425,7 +426,7 @@ const sponsorshipApi = {
 
   acceptSponsoredPurchase(socketId, payload = {}) {
     const buyer = this.getPlayerBySocket(socketId);
-    const requestId = String(payload.requestId || '').trim().slice(0, 100);
+    const requestId = normalizeRequestId(payload.requestId);
     const replayKey = sponsoredPurchaseReplayKey(buyer, requestId);
     const cached = cachedSponsoredPurchase(this, replayKey);
     if (cached) return cached;

@@ -11,6 +11,7 @@ import {
   equitySharePayable,
   handlePlayerLoanDefault
 } from './bankruptcyLogic.js';
+import { normalizeRequestId } from './requestId.js';
 
 export const CONTRACT_KINDS = new Set(['loan', 'equity', 'hybrid']);
 export const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
@@ -23,6 +24,8 @@ const TABLE_OBLIGATION_FIELDS = [
   'pendingPlayerContract'
 ];
 const MAX_CONTRACT_REPLAYS = 1_000;
+
+export { normalizeRequestId } from './requestId.js';
 
 function activeSeat(player) {
   if (player.bankrupt) return false;
@@ -61,7 +64,7 @@ function normalizeContractOffer(offer) {
   return {
     kind: CONTRACT_KINDS.has(String(offer.kind)) ? String(offer.kind) : 'loan',
     amount: Math.floor(Number(offer.amount)),
-    requestId: String(offer.requestId || '').trim().slice(0, 100),
+    requestId: normalizeRequestId(offer.requestId),
     durationRounds: Math.max(1, Math.min(20, Math.floor(Number(offer.durationRounds) || 3))),
     premiumRate: Math.max(0, Math.min(100, Number(offer.premiumRate) || 0)),
     conversionShare: Math.max(5, Math.min(100, Math.floor(Number(offer.conversionShare) || 25)))
@@ -262,7 +265,7 @@ export function proposeEquityShareTransfer(game, socketId, offer = {}) {
   const seller = game.getPlayerBySocket(socketId);
   const buyer = game.getPlayerById(offer.toPlayerId);
   if (!seller || seller.id !== offer.fromPlayerId) return { success: false, error: 'Choose a valid equity seller.' };
-  const key = transactionKey('equity-transfer', seller.id, String(offer.requestId || '').trim().slice(0, 100));
+  const key = transactionKey('equity-transfer', seller.id, normalizeRequestId(offer.requestId));
   const cached = memoizedResult(game, key);
   if (cached) return cached;
   if (tableObligationOpen(game)) return { success: false, error: 'Resolve the current table obligation first.' };
@@ -276,7 +279,7 @@ export function proposeEquityShareTransfer(game, socketId, offer = {}) {
     sourceContractId: ctx.source.id, transferSharePct: sharePct, transferPrice: price,
     amount: price, equityShare: sharePct, equityControl: 'passive',
     permanent: ctx.source.permanent === true, expiresRound: ctx.source.expiresRound ?? null,
-    requestId: String(offer.requestId || '').trim().slice(0, 100),
+    requestId: normalizeRequestId(offer.requestId),
     createdRound: game.roundNumber, status: 'pending', counterDepth: 0, lastProposerId: seller.id
   };
   game.pendingPlayerContract = transfer;
@@ -743,7 +746,7 @@ function declineContract(game, player) {
 }
 
 function contractResponseKey(playerId, requestId) {
-  return transactionKey('contract-response', playerId, requestId ? String(requestId).slice(0, 100) : null);
+  return transactionKey('contract-response', playerId, requestId ? normalizeRequestId(requestId) : null);
 }
 
 // A response memo records the contract it settled, because a bare requestId
@@ -815,7 +818,7 @@ function repaymentAmount(contract, amount) {
 export function repayContract(game, socketId, payload = {}) {
   const { contractId, amount, requestId } = payload;
   const borrower = game.getPlayerBySocket(socketId);
-  const key = transactionKey('contract-repay', borrower?.id, requestId ? String(requestId).slice(0, 100) : null);
+  const key = transactionKey('contract-repay', borrower?.id, requestId ? normalizeRequestId(requestId) : null);
   const cached = memoizedResult(game, key);
   if (cached) return cached;
   const contract = game.playerContractById(contractId);

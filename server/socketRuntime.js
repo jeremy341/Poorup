@@ -9,6 +9,7 @@ import { AUCTION_DURATION_MS } from './gameLogic.js';
 import { normalizeAvatarGrid, normalizeClientId, buildMatchRecordOptions } from './roomSetup.js';
 import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
 import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
+import { normalizeRequestId } from './requestId.js';
 import {
   selectBotTurnTarget,
   botMayStillAct,
@@ -1102,7 +1103,7 @@ function createRuntime(deps) {
   }
 
   function contractCancelKey(socket, payload) {
-    const requestId = String(payload?.requestId || '').trim().slice(0, 100);
+    const requestId = normalizeRequestId(payload?.requestId);
     if (!requestId) return null;
     return `${socket.id}:cancel:${requestId}`;
   }
