@@ -5,6 +5,7 @@
 import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX } from './gameData.js';
 import { decksForVariant } from './boardRegistry.js';
 import { MARKET_FEE_RATE } from './marketLogic.js';
+import { COMPLEXITY_RANK, MARGIN_MAINTENANCE_RATE } from './marketExpansion.js';
 import { summarizePublicActionProfile } from './publicActionHistory.js';
 import { PUBLIC_ACTION_PROFILE_PRODUCTION_ENABLED } from './publicActionHistory.js';
 
@@ -29,10 +30,16 @@ function cashBand(cash, startingCash) {
   return 'strong';
 }
 
+// Canonical seat label: 'self' plus one 'opponent-N' per other seat in seating
+// order. The number counts opponents only, so it never depends on where the bot
+// itself sits. Every seat-keyed field (board[], opponents[], obligations,
+// events) resolves through this one function; a second numbering scheme would
+// make the planner's seat lookups (opponentIsJailed) miss every time.
 function seatOf(game, bot, playerId) {
   if (!playerId) return 'bank';
   if (playerId === bot.id) return 'self';
-  const index = (game.players || []).findIndex(player => player.id === playerId);
+  const opponents = (game.players || []).filter(player => player.id !== bot.id);
+  const index = opponents.findIndex(player => player.id === playerId);
   return index < 0 ? 'unknown' : `opponent-${index + 1}`;
 }
 
@@ -152,6 +159,16 @@ function optionPositionView(option) {
   };
 }
 
+// The short book ships the shape the planner resolves by key
+// (botFuturePlanner.js: shorts.positions + shorts.reservedCash). A flat
+// instrument map made every real cover-short project as unsupported.
+function shortBookView(bot) {
+  const positions = shortPositionsView(bot);
+  const reservedCash = Object.values(positions)
+    .reduce((sum, position) => sum + nonNegative(position.collateral), 0);
+  return { reservedCash, positions };
+}
+
 function ownMarketExpansionView(bot) {
   return {
     margin: {
@@ -159,7 +176,7 @@ function ownMarketExpansionView(bot) {
       maintenance: nonNegative(bot.marginMaintenance),
       positions: marginPositionsView(bot)
     },
-    shorts: shortPositionsView(bot),
+    shorts: shortBookView(bot),
     shortDefaultDebt: nonNegative(bot.shortDefaultDebt),
     options: (bot.optionPositions || []).slice(0, 12).map(optionPositionView)
   };
@@ -208,13 +225,13 @@ function publicMovementDistribution(deck, game) {
     || Number(a.tileIndex ?? a.steps ?? a.multiplier ?? 0) - Number(b.tileIndex ?? b.steps ?? b.multiplier ?? 0));
 }
 
-function opponentView(game, bot, player, index) {
+function opponentView(game, bot, player) {
   const seatIndex = Array.isArray(game?.players) ? game.players.indexOf(player) : -1;
   const publicActionProfile = PUBLIC_ACTION_PROFILE_PRODUCTION_ENABLED
     ? summarizePublicActionProfile(game.publicActionHistory, seatIndex, game.roundNumber)
     : { status: 'unknown', effectiveSampleWeight: 0, confidence: 0, actionFrequencies: null };
   return {
-    seat: `opponent-${index + 1}`,
+    seat: seatOf(game, bot, player.id),
     kind: player.isBot ? 'cpu' : 'player',
     position: nonNegative(player.position),
     cashBand: cashBand(player.cash, game.settings?.startingCash),
@@ -405,18 +422,29 @@ function rulesetMetadata(game) {
   };
 }
 
-function marketRulesView(settings) {
-  const complexity = settings.marketComplexity || 'basic';
-  const rank = { basic: 0, margin: 1, shorting: 2, derivatives: 3 }[complexity] || 0;
+// The borrowable pool is room-global state (game.marketShortInventory), not a
+// per-seat allowance: every seat shortens from the same units, and each open
+// short permanently consumes them. Report it as the live per-instrument map so
+// the bot never plans a short the table can no longer fill.
+function shortInventoryView(game) {
+  return Object.fromEntries(Object.entries(game?.marketShortInventory || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, units]) => [String(id).slice(0, 40), nonNegative(units)]));
+}
+
+function marketRulesView(game) {
+  const settings = game.settings || {};
+  const complexity = String(settings.marketComplexity || 'basic').toLowerCase();
+  const rank = COMPLEXITY_RANK[complexity] || 0;
   return {
     enabled: settings.market === true,
     feeRate: MARKET_FEE_RATE,
     complexity,
-    margin: rank >= 1,
-    shorting: rank >= 2,
-    derivatives: rank >= 3,
-    borrowableUnits: 50,
-    maintenanceRate: 0.25
+    margin: rank >= COMPLEXITY_RANK.margin,
+    shorting: rank >= COMPLEXITY_RANK.shorting,
+    derivatives: rank >= COMPLEXITY_RANK.derivatives,
+    borrowableUnits: shortInventoryView(game),
+    maintenanceRate: MARGIN_MAINTENANCE_RATE
   };
 }
 
@@ -447,7 +475,7 @@ function rulesDigest(game) {
     bankLoanSeverity: settings.bankLoanSeverity || 'predatory',
     sponsorship: { enabled: true, giftsOnly: true, forcedPurchase: true, loanOrEquity: false },
     casino: { enabled: settings.casino === true, ...casinoLimits, loanBackedCashAllowed: false },
-    market: marketRulesView(settings),
+    market: marketRulesView(game),
     cards: {
       surpriseCount: decks.surprise.length,
       treasureCount: decks.treasure.length,
@@ -490,7 +518,7 @@ function opponentViews(game, safeBot, players) {
   return players
     .filter(player => player.id !== safeBot.id)
     .slice(0, 6)
-    .map((player, index) => opponentView(game, safeBot, player, index));
+    .map(player => opponentView(game, safeBot, player));
 }
 
 function currentTileView(game, safeBot) {
