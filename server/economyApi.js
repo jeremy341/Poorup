@@ -55,6 +55,17 @@ function casinoSnapshot(game, player, limits) {
   };
 }
 
+// marketLogic mutates position objects IN PLACE (applyMarketBuy writes straight
+// into position.averageCost / position.quantity and economyApi reassigns the same
+// reference back into player.marketPositions[id]), so a shallow {...map} snapshot
+// aliases live state: an already-returned snapshot - including the economy
+// payload every cacheTransaction call site replays verbatim on a duplicate
+// requestId - rewrites itself retroactively. Rebuild each entry so the snapshot
+// never shares a reference with the player's book.
+function clonedPositionMap(map) {
+  return Object.fromEntries(Object.entries(map || {}).map(([id, position]) => [id, { ...position }]));
+}
+
 function marketSnapshot(game, player) {
   const ledger = player ? (game.marketLedger || [])
     .filter(entry => entry?.playerId === player.id
@@ -78,10 +89,10 @@ function marketSnapshot(game, player) {
     quotes: { ...game.marketQuotes },
     quoteHistory: marketQuoteHistorySnapshot(game),
     personalTrades: ledger,
-    positions: { ...(player?.marketPositions || {}) },
+    positions: clonedPositionMap(player?.marketPositions),
     complexity: game.settings.marketComplexity || 'basic',
-    margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, collateral: Number(player.marginCollateral) || 0, positions: { ...(player.marginPositions || {}) } } : null,
-    shorts: player ? { positions: { ...(player.shortPositions || {}) }, borrowable: { ...(game.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0, defaultDebt: Number(player.shortDefaultDebt) || 0 } : null,
+    margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, collateral: Number(player.marginCollateral) || 0, positions: clonedPositionMap(player.marginPositions) } : null,
+    shorts: player ? { positions: clonedPositionMap(player.shortPositions), borrowable: { ...(game.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0, defaultDebt: Number(player.shortDefaultDebt) || 0 } : null,
     optionReserve: Number(game.marketOptionReserve) || 0,
     options: player ? (player.optionPositions || []).map(option => ({ ...option })) : []
   };

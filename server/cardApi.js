@@ -90,15 +90,16 @@ const cardApi = {
   // The cardReveal cash figure: the dynamic-delta actions read the real
   // balance change (minus the pass-Start salary on movement cards); pay and
   // collect actions report their nominal amount under the low-tax discount.
+  // collectStart reads the real delta too: it pays a Start crossing, so its
+  // figure must carry the same salary and catch-up bonus as the feed message.
   cardCashAfterPlay(player, card, cashBefore) {
     const dynamicActions = ['repairs', 'payEach', 'collectFromEach', 'nearestRailroad', 'nearestUtility'];
     if (dynamicActions.includes(card.action)) {
       return this.dynamicCardCash(player, cashBefore);
     }
-    if (['move', 'moveTo', 'moveBack'].includes(card.action)) return player.cash - cashBefore;
+    if (['move', 'moveTo', 'moveBack', 'collectStart'].includes(card.action)) return player.cash - cashBefore;
     if (card.action === 'pay') return player.cash - cashBefore;
     if (card.action === 'collect') return this.collectCardCash(card);
-    if (card.action === 'collectStart') return this.collectCardCash(card);
     return 0;
   },
 
@@ -116,10 +117,29 @@ const cardApi = {
   awardStartSalaryIfPassed(player, destination) {
     if (destination.index < player.position) {
       const landedOnStart = destination.index === START_TILE_INDEX;
-      const reward = landedOnStart && this.settings.doubleGo ? 400 : 200;
-      player.cash += reward;
-      this.feedMessage(`${player.nickname} ${landedOnStart ? 'landed on' : 'passed'} Start and collected $${reward}.`);
+      const { reward, bonus } = this.payStartPass(player, landedOnStart);
+      this.feedMessage(this.startPassFeed(player, landedOnStart, reward + bonus, bonus));
     }
+  },
+
+  // Salary + last-place catch-up bonus for a Start crossing, shared by both
+  // card paths so the ladder and the bonus cannot drift from the canonical
+  // dice path (gameLogic.js awardStartPass): GO must pay the same however it
+  // was crossed.
+  payStartPass(player, exactStart) {
+    const reward = this.startPassReward(exactStart);
+    const bonus = this.startPassCatchUpBonus(player);
+    player.cash += reward + bonus;
+    return { reward, bonus };
+  },
+
+  startPassCatchUpBonus(player) {
+    return this.isLastPlaceByCash(player) ? 100 : 0;
+  },
+
+  startPassFeed(player, exactStart, total, bonus) {
+    return `${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${total}.`
+      + (bonus ? ' Last-place catch-up bonus included.' : '');
   },
 
   airportStrikeGroundsCard() {
@@ -140,12 +160,17 @@ const cardApi = {
     return false;
   },
 
+  // A collectStart card is a direct "advance to Start", so the exact-start
+  // branch of the ladder applies: Double GO yields $400. The card's own
+  // amount and the low-tax discount stay authoritative; only the catch-up
+  // bonus is added on top.
   collectStartCard(player, card) {
     player.position = START_TILE_INDEX;
-    const amount = Number(card.amount) || 200;
+    const amount = Number(card.amount) || this.startPassReward(true);
     const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
-    player.cash += paid;
-    this.feedMessage(`${player.nickname} collected $${paid} from Start.`);
+    const bonus = this.startPassCatchUpBonus(player);
+    player.cash += paid + bonus;
+    this.feedMessage(this.startPassFeed(player, true, paid + bonus, bonus));
     return RESOLVE_TAIL;
   },
 
