@@ -9,7 +9,12 @@ const manifestPath = path.join(repoRoot, "docs", "feature-status.json");
 assert.equal(fs.existsSync(manifestPath), true, "docs/feature-status.json must exist");
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-assert.equal(manifest.sourceCommit, "151b480");
+// Provenance, not a gate. This used to pin one literal SHA, which only ever
+// matched itself - it could not fail on a stale manifest, and after the
+// 2026-10-01 history rewrite the pinned commit was no longer on any branch.
+// Assert the shape so the field cannot go missing or become nonsense; update
+// it by hand when regenerating the manifest.
+assert.match(manifest.sourceCommit, /^[0-9a-f]{7,40}$/, "sourceCommit must be a short git SHA");
 assert.equal(typeof manifest.generatedAt, "string");
 assert.equal(Number.isNaN(Date.parse(manifest.generatedAt)), false);
 assert.equal(Array.isArray(manifest.features), true);

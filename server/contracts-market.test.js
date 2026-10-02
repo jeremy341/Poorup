@@ -352,6 +352,22 @@ check('market event price shock applies once per active event', () => {
   assert.equal(game.marketQuotes.brazil >= 99, true);
 });
 
+check('a padded requestId replays as the same request instead of executing twice', () => {
+  const { game, b } = startedRoom();
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 10, premiumRate: 12, durationRounds: 3, requestId: 'padded-proposal' });
+  assert.equal(first.success, true);
+  // " padded-proposal " names the same logical request. Keying on the raw
+  // string misses the memo, so the second call runs the guard ladder again
+  // and returns a different result object instead of the memoized one.
+  const pendingAfterFirst = game.pendingPlayerContract;
+  game.pendingPlayerContract = null;
+  const padded = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 10, premiumRate: 12, durationRounds: 3, requestId: '  padded-proposal  ' });
+  assert.equal(padded, first, 'a whitespace-padded requestId must replay, not re-execute');
+  assert.equal(game.pendingPlayerContract, null, 'the replay must not install a fresh pending contract');
+  assert.equal(pendingAfterFirst.id, first.contract.id);
+  assert.ok(b.id);
+});
+
 check('requestId replays return the memoized market result', () => {
   const { game, a } = marketRoom();
   a.cash = 10_000;

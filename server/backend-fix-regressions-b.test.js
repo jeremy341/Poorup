@@ -97,6 +97,27 @@ check('a hybrid note re-validates its pledged collateral basket at acceptance (B
   assert.equal(game.playerContracts[0].collateralTileIndices.length, 1);
 });
 
+check('a padded response requestId replays the same settlement (B-22)', () => {
+  const room = startedRoom();
+  const game = room.game;
+  const [a, b] = game.players;
+  const proposed = room.proposePlayerContract('a', {
+    toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 0, durationRounds: 3, requestId: 'b22-offer'
+  });
+  assert.equal(proposed.success, true);
+  const first = room.respondPlayerContract('b', true, 'b22-accept');
+  assert.equal(first.success, true);
+
+  // " b22-accept " is the same logical request. Without trimming before
+  // keying, the bounded replay map misses the memo and runs the settlement
+  // ladder again - and a second acceptance against a cleared pending
+  // contract would surface as a bogus second cash movement.
+  const replay = room.respondPlayerContract('b', true, '  b22-accept  ');
+  assert.equal(replay, first, 'a whitespace-padded response id must replay, not re-execute');
+  assert.equal(a.cash, 1500 - 100, 'the padded replay must not move cash a second time');
+  assert.equal(b.cash, 1500 + 100);
+});
+
 check('an AFK-forced bankruptcy releases the dead seat\'s table obligations (B-04)', () => {
   const room = threeSeatRoom({ rulesetPreset: 'after-hours' });
   const game = room.game;

@@ -172,14 +172,19 @@ Test shards are **time-balanced**, not count-balanced. `scripts/run-test-manifes
 packs suites into shards with a longest-first, least-loaded split driven by
 `qa/test-timings.json` (the checked-in per-suite duration baseline); when the
 baseline is missing it falls back to the old round-robin split. The manifest
-test asserts that shards finish within 60% of each other and fails loudly if
-the baseline goes stale or missing.
+test asserts that shards finish within 60% of each other, and it also asserts
+that every checked-in `*.test.js` is registered in the manifest — a suite
+forgotten there would otherwise never run on any branch. A missing or empty
+baseline entry falls back to an estimate rather than failing.
 
 - The baseline is built from **real CI runner timings**, not local machines:
   download the `test-timings-shard-*` artifacts from the latest heavy run and
   run `node scripts/import-ci-timings.mjs <dir>` (values merge with
-  `max(existing, imported)`). Local `npm run timings:refresh` remains the
-  fallback for brand-new suites.
+  `max(existing, imported)`). Both importers are grow-only: a local machine
+  times suites faster than a CI runner (`bot-simulation` runs roughly twice as
+  slow there), so a lower number never replaces a higher one. `npm run
+  timings:refresh` is safe for seeding a brand-new suite's first entry, but it
+  will not lower an entry a CI runner already measured.
 - `server/bot-simulation.test.js` is the one oversized suite; the runner
   splits its 10-game smoke window across shards (`COUNT=ceil(10/N)`,
   `START_INDEX=(shard-1)*count+1`, seeds derive from a linear index so the
