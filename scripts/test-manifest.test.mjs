@@ -28,9 +28,9 @@ function discoverSuites() {
 
 const allSuites = testSuites('full');
 assert.equal(new Set(allSuites).size, allSuites.length, 'the full manifest runs each suite only once');
-assert.equal(allSuites.length, 163, 'the full manifest preserves all unique suites from the current script groups');
+assert.equal(allSuites.length, 169, 'the full manifest preserves all unique suites from the current script groups');
 const totalGroupRuns = Object.values(TEST_GROUPS).reduce((total, suites) => total + suites.length, 0);
-assert.equal(totalGroupRuns, 175, 'all pre-refactor script entries remain represented in named groups');
+assert.equal(totalGroupRuns, 181, 'all pre-refactor script entries remain represented in named groups');
 for (const [name, suites] of Object.entries(TEST_GROUPS)) {
   assert.equal(new Set(suites).size, suites.length, `${name} does not repeat an individual suite`);
 }

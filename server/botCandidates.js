@@ -8,15 +8,9 @@ import {
   sponsorshipContributionAmount,
   sponsorshipBuyerShouldCancel
 } from './sponsorshipLogic.js';
+import { contractResponderId } from './contractLogic.js';
 
-function contractLastProposerId(contract) {
-  const depth = Math.max(0, Math.floor(Number(contract?.counterDepth) || 0));
-  return depth % 2 === 0 ? contract?.fromPlayerId : contract?.toPlayerId;
-}
-
-export function contractResponderId(contract) {
-  return contractLastProposerId(contract) === contract?.fromPlayerId ? contract?.toPlayerId : contract?.fromPlayerId;
-}
+export { contractResponderId };
 
 function sponsorshipBuyerCounterpart(game, buyer, sponsorship, needed) {
   if (!buyer?.isBot) return null;

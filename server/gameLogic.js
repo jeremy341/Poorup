@@ -520,8 +520,8 @@ class GameState {
     processContracts(this);
   }
 
-  settleEquityShares(tile, owner, amountPaid) {
-    settleEquityShares(this, tile, owner, amountPaid);
+  settleEquityShares(tile, owner, amountPaid, payer = null) {
+    settleEquityShares(this, tile, owner, amountPaid, payer);
   }
 
   isLoanCollateral(player, tile) {
@@ -1188,7 +1188,9 @@ class GameState {
     if (pending.equityTileIndex == null) return;
     const equityTile = this.getTile(pending.equityTileIndex);
     const equityOwner = this.getPlayerById(pending.equityOwnerId);
-    this.settleEquityShares(equityTile, equityOwner, amount);
+    // pendingPayment.playerId is the seat that owes the rent, so the parked
+    // (partial-payment) path books the same rent facts as a direct collection.
+    this.settleEquityShares(equityTile, equityOwner, amount, this.getPlayerById(pending.playerId));
   }
 
   transferMoney(from, to, amount, message) {

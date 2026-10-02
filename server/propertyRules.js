@@ -35,6 +35,11 @@ function ownedUnmortgagedProperty(game, player, tile) {
   if (tile.type !== 'property') return false;
   if (tile.ownerId !== player.id) return false;
   if (tileEncumbered(game, player, tile)) return false;
+  // tileEncumbered deliberately covers only loan + contract collateral, so an
+  // outstanding equity share needs its own explicit test (as trade and
+  // mortgage each have): building on a part-sold deed costs the owner 100% and
+  // books the holder 100% of the rent.
+  if (tile.equityShares?.length) return false;
   return !tile.mortgaged;
 }
 
@@ -104,11 +109,16 @@ function evenBuildAllowsSell(game, player, tile, groupTiles) {
   return (tile.houseCount || 0) > 0;
 }
 
-function ownedPropertyTile(player, tile) {
+function ownedPropertyTile(game, player, tile) {
   if (!player) return false;
   if (!tile) return false;
   if (tile.type !== 'property') return false;
-  return tile.ownerId === player.id;
+  if (tile.ownerId !== player.id) return false;
+  // Selling liquidates the owner's half of a partly-sold deed, so sell needs
+  // the same security parity as mortgage: no loan/contract collateral and no
+  // outstanding equity share.
+  if (tileEncumbered(game, player, tile)) return false;
+  return !tile.equityShares?.length;
 }
 
 function sellGroupTiles(game, player, tile) {
@@ -116,7 +126,7 @@ function sellGroupTiles(game, player, tile) {
 }
 
 export function canSellFromTile(game, player, tile) {
-  if (!ownedPropertyTile(player, tile)) return false;
+  if (!ownedPropertyTile(game, player, tile)) return false;
   const groupTiles = sellGroupTiles(game, player, tile);
   if (!groupTiles.length) return false;
   return evenBuildAllowsSell(game, player, tile, groupTiles);
