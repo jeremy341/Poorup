@@ -176,8 +176,17 @@ check('contract negotiation roles alternate after each counter', () => {
   const adjusted = game.adjustPlayerContract('socket-b', { contractId: counter.contract.id, amount: 95, premiumRate: 8, durationRounds: 4 });
   assert.equal(adjusted.success, true);
   assert.equal(game.pendingPlayerContract.toPlayerId, b.id);
-  assert.equal(game.respondPlayerContract('socket-b', true, 'role-accept', adjusted.contract.id).success, true);
+  // B authored every surviving term, so the decision belongs to A. This line
+  // used to assert the inverted hand-off (B accepting their own counter),
+  // which was the B-01 exploit: the responder fell back to counterDepth
+  // parity once the same seat negotiated twice in a row.
+  assert.deepEqual(game.respondPlayerContract('socket-b', true, 'role-accept', adjusted.contract.id), {
+    success: false, error: 'No matching player contract was found.'
+  });
+  assert.notEqual(game.pendingPlayerContract, null);
+  assert.equal(game.respondPlayerContract('socket-a', true, 'role-accept-lender', adjusted.contract.id).success, true);
   assert.equal(a.cash, 1405);
+  assert.equal(b.cash, 1595);
 });
 
 check('loan collateral must be an unencumbered borrower deed', () => {

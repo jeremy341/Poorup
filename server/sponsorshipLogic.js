@@ -4,6 +4,9 @@
 // phase state machine and candidate plumbing around it. Every gate here is a
 // verbatim move of the original inline chain (anti-farm rounds, one unreciprocated
 // human gift, bots-only immediate cancel), so bot balance is unchanged.
+// The one added gate is the loan-taint check in sponsorshipContributionAmount,
+// which every funder, actor-seat, and counterpart decision reads through.
+import { hasLoanBackedCash } from './loanLogic.js';
 
 // A sponsor keeps this much cash in reserve before gifting.
 export const SPONSORSHIP_RESERVE_CASH = 180;
@@ -45,6 +48,12 @@ export function sponsorshipContributionAmount(game, bot) {
   const buyer = typeof game.getPlayerById === 'function' ? game.getPlayerById(sponsorship.buyerId) : null;
   if (sponsorshipRoundGated(game, bot)) return 0;
   if (sponsorshipGiftGated(bot, buyer)) return 0;
+  // The server rejects loan-backed sponsorship cash (sponsorshipApi.js), so a
+  // loaned bot must never be sized as a funder: it would burn every turn on a
+  // guaranteed rejection, never advance lastSponsorRound, and be counted as a
+  // live funder that can keep a dead request alive forever. The casino,
+  // contract, and market collectors apply this same guard.
+  if (hasLoanBackedCash(bot)) return 0;
   const needed = sponsorshipShortfall(game, sponsorship, sponsorshipBuyerCash(buyer, sponsorship));
   const available = Math.max(0, Math.floor(Number(bot.cash || 0) - SPONSORSHIP_RESERVE_CASH));
   return Math.min(needed, available);
@@ -79,6 +88,8 @@ function sponsorshipFunderCandidate(game, sponsorship, player) {
   if (!player?.isBot) return false;
   if (!isLivePlayer(player)) return false;
   if (alreadyContributed(sponsorship, player.id)) return false;
+  // A loan-tainted seat fails the amount gate above, so it can never be counted
+  // as the live funder that keeps a request alive.
   return sponsorshipContributionAmount(game, player) > 0;
 }
 

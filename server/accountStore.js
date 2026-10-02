@@ -227,10 +227,18 @@ const nonNegative = (value) => Math.max(0, Number(value) || 0);
 
 const clippedList = (value, cap) => (Array.isArray(value) ? value.slice(0, cap) : []);
 
+// Placement has to follow the seat the game crowned, not the richest seat on
+// the table. A disconnected ghost seat keeps its cash after the game ends, and
+// ranking by cash alone handed that seat 1st place (and the winner's season
+// points) while `stats.wins` credited the win to the seat order the game ended
+// on -- the store contradicting itself inside one record. Ghost seats therefore
+// compete for no placement at all and sort behind every contested seat; inside
+// the contested seats the legacy ladder (bankrupt last, then cash) is unchanged.
 function computePlacementById(players) {
   const sortCash = player => Number(player.cash) || 0;
+  const tier = player => (player.disconnected ? 2 : 0) + (player.bankrupt ? 1 : 0);
   return new Map([...players]
-    .sort((a, b) => Number(Boolean(a.bankrupt)) - Number(Boolean(b.bankrupt)) || sortCash(b) - sortCash(a))
+    .sort((a, b) => tier(a) - tier(b) || sortCash(b) - sortCash(a))
     .map((player, index) => [player.id, index + 1]));
 }
 
