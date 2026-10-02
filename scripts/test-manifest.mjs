@@ -46,6 +46,9 @@ export const TEST_GROUPS = Object.freeze({
     'server/backup-restore-integrity.test.js', 'server/socket-admission.test.js', 'server/runtime-safety.test.js',
     'server/analyticsRuntime.test.js', 'server/capacity-followup.test.js', 'server/server-followups.test.js',
     'server/backend-fix-regressions.test.js', 'public/audioIconAudit.test.js',
+    'server/backend-fix-regressions-b.test.js', 'server/backend-fix-regressions-c.test.js',
+    'server/backend-fix-regressions-d.test.js',
+    'server/backend-bot-fixes.test.js', 'server/backend-bot-context-fixes.test.js',
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [

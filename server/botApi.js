@@ -6,9 +6,13 @@
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import { JAIL_FINE } from './gameData.js';
 import { monopolyGiveaway } from './botTradeValuation.js';
-import { developmentStage } from './botDevelopmentForecast.js';
+import { developmentStage, groupGainToThree } from './botDevelopmentForecast.js';
 import { coalitionAgainst } from './botTableMind.js';
 import { tableBrain } from './botTableBrain.js';
+// Loan-contract candidates are scored against the gate that decides them, so
+// the willingness factor has to be the same number the responder applies
+// rather than a second copy that drifts.
+import { CONTRACT_REPAY_FACTOR, DEFAULT_CONTRACT_REPAY_FACTOR } from './botLogic.js';
 
 // Situation-aware table talk shared by both brains: trailing seats apply
 // pressure, spoilers announce kingmaker intent, leaders stay quiet-ish.
@@ -179,11 +183,41 @@ function postRollCandidates(game, player, options) {
     if (game.settings.market) candidates.push({ id: 'end-finance-window', kind: 'end-finance-window', risk: 0, score: -49 });
     candidates.push({ id: 'end-turn', kind: 'end-turn', risk: 0, score: -50 });
   }
-  return sortCandidates(candidates);
+  return sortCandidates(candidates, buildValueIndex(game, player, candidates));
 }
 
-function sortCandidates(candidates) {
-  return candidates.sort((a, b) => b.score - a.score || a.risk - b.risk);
+// Every build candidate shares one score, so the old `risk` tie-break (cost
+// divided by cash) ordered a whole board cheapest-first: a bot holding a $200
+// monopoly and a $50 monopoly spent its budget on the weakest rent stream
+// first and only then started the set that actually threatens the table.
+// Equal-score builds now rank by the traffic-weighted rent their monopoly is
+// worth — the same "concentrate development HERE" measure the planner's
+// concentration bonus uses (botDevelopmentForecast.groupGainToThree) — with
+// cost kept as the final stable tie-break. Non-build kinds carry no value, so
+// their historical score/risk order is untouched.
+function buildValueIndex(game, player, candidates) {
+  const index = new Map();
+  const seats = new Map((game.players || []).map((entry, position) => [
+    entry.id,
+    entry.id === player.id ? 'self' : `opponent-${position}`
+  ]));
+  const groupValue = group => {
+    const board = (game.getGroupTiles(group) || []).map(tile => ({ ...tile, ownerSeat: seats.get(tile.ownerId) || 'bank' }));
+    return groupGainToThree(board, group)?.gainPerCircuit || 0;
+  };
+  candidates.forEach(candidate => {
+    if (candidate.kind !== 'build' || index.has(candidate.id)) return;
+    const group = game.getTile(candidate.tileIndex)?.group;
+    index.set(candidate.id, group ? groupValue(group) : 0);
+  });
+  return index;
+}
+
+function sortCandidates(candidates, buildValues = new Map()) {
+  const developmentValue = candidate => Number(buildValues.get(candidate.id) || 0);
+  return candidates.sort((a, b) => b.score - a.score
+    || developmentValue(b) - developmentValue(a)
+    || a.risk - b.risk);
 }
 
 // Candidate risk against a cash floor of 1, so collectors never divide by
@@ -387,21 +421,57 @@ function contractTargetEligible(target, player, table, grudges) {
 
 function collectContractCandidates(ctx, target, out) {
   const { game, lenderCash, reserve } = ctx;
-  out.push(loanContractCandidate(target, lenderCash, reserve));
+  const loan = loanContractCandidate(target, lenderCash, reserve);
+  if (loan) out.push(loan);
   const property = targetTradeableProperty(game, target);
   if (!property) return;
   out.push(equityContractCandidate(target, property, lenderCash, reserve));
   out.push(hybridContractCandidate(target, property, lenderCash, reserve));
 }
 
+// Scoring the neediest borrower rewarded the one seat that must decline: a
+// $300 loan priced at $405 needs roughly $507 of cash to clear the accept
+// gate, so every candidate scoring above 10 was a guaranteed rejection that
+// still burned the lender's single deal action for the turn. Two changes, one
+// gate and one ranking:
+//   - a loan the borrower cannot service is not offered at all. Deed-backed
+//     equity/hybrid legs still reach that seat, so the target keeps a real
+//     option instead of a doomed cash proposal.
+//   - the survivors rank by acceptance headroom, so a comfortable borrower
+//     outranks a bare-margin one instead of the other way round.
+const LOAN_PREMIUM_RATE = 35;
+const LOAN_CONTRACT_BASE_SCORE = 10;
+const LOAN_CONTRACT_HEADROOM_SCORE = 4;
+
+// contractLogic prices a loan as amount + premium; the responder gate in
+// botLogic.shouldAcceptPlayerContract then clears it only when
+// totalDue <= cash * CONTRACT_REPAY_FACTOR.
+function loanTotalDue(offer) {
+  const amount = Math.max(0, Math.floor(Number(offer?.amount) || 0));
+  return amount + Math.ceil(amount * (Number(offer?.premiumRate) || 0) / 100);
+}
+
+function borrowerRepayCapacity(target) {
+  const factor = CONTRACT_REPAY_FACTOR[target?.personality] || DEFAULT_CONTRACT_REPAY_FACTOR;
+  return Number(target?.cash || 0) * factor;
+}
+
+function loanContractScore(totalDue, capacity) {
+  return LOAN_CONTRACT_BASE_SCORE + LOAN_CONTRACT_HEADROOM_SCORE * (capacity - totalDue) / capacity;
+}
+
 function loanContractCandidate(target, lenderCash, reserve) {
   const amount = Math.min(300, Math.max(100, Math.floor(Math.max(0, lenderCash - reserve) / 3)));
+  const offer = { toPlayerId: target.id, kind: 'loan', amount, premiumRate: LOAN_PREMIUM_RATE, durationRounds: 3, collateralTileIndex: null };
+  const totalDue = loanTotalDue(offer);
+  const capacity = borrowerRepayCapacity(target);
+  if (!(capacity > 0) || totalDue > capacity) return null;
   return {
     id: 'contract:loan:' + target.id,
     kind: 'contract-propose',
-    offer: { toPlayerId: target.id, kind: 'loan', amount, premiumRate: 35, durationRounds: 3, collateralTileIndex: null },
+    offer,
     risk: amount / lenderCash,
-    score: 10 + Math.max(0, 300 - Number(target.cash || 0)) / 100
+    score: loanContractScore(totalDue, capacity)
   };
 }
 
@@ -705,13 +775,13 @@ const botApi = {
 
   // Roll is always available; the pre-roll table appends the remaining
   // candidate sources in their historical order, then the stable sort ranks
-  // them by score desc, risk asc.
+  // them by score desc, development value desc (builds only), risk asc.
   getBotCandidates(player, options = {}) {
     if (!player?.isBot) return [];
     if (options.postRoll) return this.botPostRollCandidates(player, options);
     const candidates = [{ id: 'roll', kind: 'roll', risk: 0, score: 0 }];
     if (!this.hasRolled) appendPreRollCandidates(this, player, options, candidates);
-    return sortCandidates(candidates);
+    return sortCandidates(candidates, buildValueIndex(this, player, candidates));
   },
 
   // Once movement has resolved, humans may still use the finance rail before

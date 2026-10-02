@@ -101,6 +101,32 @@ export function summarizeBalanceCampaign(results = []) {
   const gamesWithBankruptcy = rows.filter(row => Math.floor(nonNegative(row.bankruptcies)) > 0).length;
   const featureKeys = new Set(rows.flatMap(row => Object.keys(row.featureUsage || {})));
   const featureAdoption = Object.fromEntries([...featureKeys].sort().map(key => [key, ratio(rows.filter(row => row.featureUsage?.[key] === true).length, games)]));
+  // Income composition answers "where does a bot's money actually come from",
+  // which feature adoption cannot: a 100%-adopted market can still be a pure
+  // expense. Averaged per seat across every simulated game.
+  const composed = rows.filter(row => row.incomeComposition?.totals);
+  const seatTotals = { rent: 0, market: 0, casino: 0, loans: 0 };
+  let composedSeats = 0;
+  composed.forEach(row => {
+    const totals = row.incomeComposition.totals;
+    const seats = Math.max(1, Object.keys(row.netWorthByPolicy || {}).length);
+    seatTotals.rent += Number(totals.rent) || 0 / seats;
+    seatTotals.market += Number(totals.market) || 0 / seats;
+    seatTotals.casino += Number(totals.casino) || 0 / seats;
+    seatTotals.loans += Number(totals.loans) || 0 / seats;
+    composedSeats += seats;
+  });
+  const incomeComposition = composedSeats > 0
+    ? {
+      measuredGames: composed.length,
+      perSeat: {
+        rent: Math.round(seatTotals.rent / composedSeats),
+        market: Math.round(seatTotals.market / composedSeats),
+        casino: Math.round(seatTotals.casino / composedSeats),
+        loans: Math.round(seatTotals.loans / composedSeats),
+      },
+    }
+    : null;
   return {
     schemaVersion: 1,
     games,
@@ -110,6 +136,7 @@ export function summarizeBalanceCampaign(results = []) {
     winnerShareBySeat,
     bankruptcies: { total: bankruptcies, gamesWithBankruptcy, rate: ratio(gamesWithBankruptcy, games) },
     featureAdoption,
+    incomeComposition,
     duration: {
       rounds: { median: percentile(rounds, 0.5), p95: percentile(rounds, 0.95) },
       steps: { median: percentile(steps, 0.5), p95: percentile(steps, 0.95) }

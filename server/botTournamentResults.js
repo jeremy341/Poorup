@@ -104,6 +104,44 @@ function bankruptciesByPolicy(game, seatsByPolicy) {
   ]));
 }
 
+// Where a seat's money actually came from. rentCollected is the only
+// server-side running total for rent; realized market P&L is the sum of the
+// per-position realizedPnl the settlement path writes (there is no per-player
+// marketNet field). This is a measurement aid for the balance campaign; it
+// never feeds game state.
+function playerMarketRealized(player) {
+  const positions = Object.values(player.marketPositions || {});
+  return positions.reduce((sum, position) => sum + countValue(position?.realizedPnl), 0);
+}
+
+function matchIncomeComposition(game) {
+  const seats = game.players.map(player => ({
+    rent: countValue(player.rentCollected),
+    market: playerMarketRealized(player),
+    casino: countValue(player.casinoNet),
+    loans: countValue(player.bankLoan && player.bankLoan.status !== 'defaulted' ? player.bankLoan.remaining : 0),
+  }));
+  const totals = seats.reduce((sum, seat) => ({
+    rent: sum.rent + seat.rent,
+    market: sum.market + seat.market,
+    casino: sum.casino + seat.casino,
+    loans: sum.loans + seat.loans,
+  }), { rent: 0, market: 0, casino: 0, loans: 0 });
+  const measured = totals.rent + Math.abs(totals.market) + Math.abs(totals.casino);
+  return {
+    totals,
+    shares: {
+      rent: ratio(totals.rent, measured),
+      market: ratio(totals.market, measured),
+      casino: ratio(totals.casino, measured),
+    },
+  };
+}
+
+function ratio(value, total) {
+  return total > 0 ? Number((value / total).toFixed(4)) : 0;
+}
+
 function matchFeatureUsage(game) {
   return {
     auction: Number(game.auctionsCompleted || 0) > 0,
@@ -136,6 +174,7 @@ export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, d
     legalityByPolicy,
     bankruptcies: game.players.filter(player => player.bankrupt).length,
     featureUsage: matchFeatureUsage(game),
+    incomeComposition: matchIncomeComposition(game),
     stalls: 0,
     decisionTrace,
   };

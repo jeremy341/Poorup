@@ -86,10 +86,22 @@ function normalizedRoomSetting(room, key, value) {
   return normalizer ? normalizer(value, room) : room.defaultRoomSettingValue(key, value);
 }
 
+// Capacity-driven settings are refused when they would strand an occupied seat.
+// A boardVariant write counts: its board meta owns maxPlayers, and the clamp in
+// applyBoardVariantSetting used to apply that smaller limit silently, leaving a
+// 4-seat board running a 5-seat turn order. Resolve the incoming board's own
+// limit so the downgrade is refused through the same door as maxPlayers.
+function settingCapacityLimit(room, key, value) {
+  if (key === 'maxPlayers') return value;
+  if (key === 'boardVariant') return boardVariantMeta(safeBoardVariant(value)).maxPlayers;
+  return null;
+}
+
 function capacityAllowsSetting(room, key, value) {
-  if (key !== 'maxPlayers') return true;
+  const limit = settingCapacityLimit(room, key, value);
+  if (limit == null) return true;
   const retainedSeats = room.game.players.filter(player => !player.isBot && !player.bankrupt).length;
-  return value >= retainedSeats;
+  return limit >= retainedSeats;
 }
 
 function syncBotCapacity(room, key, value) {
@@ -1051,9 +1063,16 @@ class RoomManager {
     return game.getPlayerById(pending.creditorId);
   }
 
+  // A voluntary leave runs the same settlement ladder as a declared bankruptcy.
+  // The bank-loan line is part of that ladder, not an optional extra: once the
+  // seat is bankrupt advanceBankLoan skips it forever, so an unsettled loan
+  // would stay active/remaining after the player left, keeping the principal
+  // and premium they could no longer pay. Optional-call syntax because the
+  // method arrives with the bankruptcy mixin on GameState.prototype.
   settleSeatExit(game, player, creditor) {
     game.markPlayerBankrupt?.(player);
     game.liquidateMarketPositions?.(player);
+    game.settleBankLoanOnBankruptcy?.(player);
     game.sweepCashToCreditor?.(player, creditor);
     game.settleContractsOnBankruptcy?.(player);
     game.forfeitOrReleaseProperties?.(player, creditor);

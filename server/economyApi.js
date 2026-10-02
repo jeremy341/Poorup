@@ -18,6 +18,7 @@ import {
 import { hasLoanBackedCash as cashIsLoanBacked } from './loanLogic.js';
 import {
   coverShort,
+  complexityAllows,
   expansionCandidates,
   expansionGuard,
   exerciseOption,
@@ -94,6 +95,27 @@ function shortTradingPause(game) {
 function shortInventory(game) {
   game.marketShortInventory ||= Object.fromEntries(MARKET_INSTRUMENTS.map(entry => [entry.id, 50]));
   return game.marketShortInventory;
+}
+
+// Short buy-in debt is a forced obligation, so this path deliberately keeps
+// the off-turn, quota-exempt reach marketExpansion.settleShortDefault
+// documents ("callers may invoke this path on a later turn or before opening
+// another market position") and does not take the turn gate, the per-turn
+// market quota, or the trading-pause check: paying an obligation is the
+// opposite of trading, and a debt that only its owner can clear must never be
+// unreachable. It does share the rest of the expansion ladder - the same
+// loan-taint guard every other market entry uses, plus the session guards, so
+// the path cannot settle against a market the room does not run. Room market
+// settings are frozen once the game starts (rooms.js roomSettingChange-
+// RejectionReason), so these guards can never strand an outstanding obligation.
+function shortDefaultRejection(game, player) {
+  if (!game.started || !player || player.bankrupt || player.disconnected) return 'Market access is unavailable right now.';
+  if (game.hasLoanBackedCash?.(player)) return 'Loan-backed cash cannot fund margin, short, or option positions.';
+  if (!game.settings.market) return 'Market access is off for this room.';
+  if (!complexityAllows(game, 'shorting')) return 'Market complexity SHORTING is not enabled.';
+  if (game.pendingPayment) return 'Resolve the table obligation before trading.';
+  if (Number(player.shortDefaultDebt) <= 0) return 'There is no short buy-in debt to settle.';
+  return null;
 }
 
 const economyApi = {
@@ -447,9 +469,8 @@ const economyApi = {
     const key = this.transactionKey(player?.id, 'short-default-settle', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
-    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Market access is unavailable right now.' };
-    if (this.pendingPayment) return { success: false, error: 'Resolve the table obligation before trading.' };
-    if (Number(player.shortDefaultDebt) <= 0) return { success: false, error: 'There is no short buy-in debt to settle.' };
+    const rejection = shortDefaultRejection(this, player);
+    if (rejection) return { success: false, error: rejection };
     const result = settleShortDefault(this, player, amount);
     if (result.success) result.economy = this.economySnapshot(player.id);
     return this.cacheTransaction(key, result);

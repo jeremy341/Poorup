@@ -341,18 +341,33 @@ function settleSponsoredPurchaseAtomically({ game, buyer, ctx, contributions, ro
   }
 }
 
-function sponsorRefund(entry, total, excess) {
-  if (total <= 0) return 0;
-  return Math.floor(Number(entry.amount || 0) * excess / total);
+// Pro-rata refunds of the escrow excess on a largest-remainder basis: every
+// sponsor takes the floor of their exact share and the leftover dollars go to
+// the largest fractional parts, so the sponsors absorb the rounding instead of
+// the buyer. Integer arithmetic throughout, and the shares always sum to
+// `excess` - the escrow can neither mint nor destroy a dollar.
+function sponsorRefundShares(contributions, total, excess) {
+  if (!(total > 0) || !(excess > 0)) return contributions.map(() => 0);
+  const shares = contributions.map(entry => Math.floor((Number(entry.amount) || 0) * excess / total));
+  const remainder = excess - shares.reduce((sum, share) => sum + share, 0);
+  if (!(remainder > 0)) return shares;
+  const ranked = contributions
+    .map((entry, index) => ({ index, fraction: (Number(entry.amount) || 0) * excess % total }))
+    .sort((left, right) => right.fraction - left.fraction || left.index - right.index);
+  for (let rank = 0; rank < remainder; rank += 1) shares[ranked[rank].index] += 1;
+  return shares;
 }
 
 function refundSponsoredExcess({ game, buyer, contributions, total, excess }) {
-  const refunded = contributions.reduce((sum, entry) => sum + refundSponsorContribution({ game, entry, total, excess }), 0);
+  const shares = sponsorRefundShares(contributions, total, excess);
+  const refunded = contributions.reduce((sum, entry, index) => sum + refundSponsorContribution({ game, entry, share: shares[index] }), 0);
+  // A share the escrow cannot deliver (departed or bankrupt sponsor) falls to
+  // the buyer, exactly as before; a fully payable escrow refunds every dollar
+  // and leaves the buyer nothing.
   buyer.cash += Math.max(0, excess - refunded);
 }
 
-function refundSponsorContribution({ game, entry, total, excess }) {
-  const share = sponsorRefund(entry, total, excess);
+function refundSponsorContribution({ game, entry, share }) {
   if (share <= 0) return 0;
   const sponsor = game.getPlayerById(entry.sponsorId);
   if (!sponsor) return 0;

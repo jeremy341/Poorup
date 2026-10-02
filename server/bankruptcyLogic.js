@@ -26,14 +26,14 @@ function loanCollateralIndices(contract) {
   return contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
 }
 
-function loanCollateralRejection(game, player, contract) {
-  if (contract.kind !== 'loan') return null;
+// The proposal validated the whole basket; settlement must re-validate it
+// the same way. The singular collateralTileIndex is only a legacy alias
+// for the first index, so checking it alone lets later deeds sail through
+// acceptance already sold or mortgaged. Both a plain loan and the funded leg
+// of a hybrid note are secured by this basket, so both re-validate it.
+function pledgedCollateralRejection(game, player, contract) {
   const indices = loanCollateralIndices(contract);
   if (!indices.length) return null;
-  // The proposal validated the whole basket; settlement must re-validate it
-  // the same way. The singular collateralTileIndex is only a legacy alias
-  // for the first index, so checking it alone lets later deeds sail through
-  // acceptance already sold or mortgaged.
   for (const index of indices) {
     const collateral = game.getTile(Number(index));
     if (!deedStillHeldBy(collateral, player.id) || !game.isTradeableTile(collateral)) {
@@ -41,6 +41,11 @@ function loanCollateralRejection(game, player, contract) {
     }
   }
   return null;
+}
+
+function loanCollateralRejection(game, player, contract) {
+  if (contract.kind !== 'loan') return null;
+  return pledgedCollateralRejection(game, player, contract);
 }
 
 function propertyShareRejection(game, player, contract, share) {
@@ -68,7 +73,11 @@ function equityContractRejection(game, player, contract) {
 }
 
 function hybridContractRejection(game, player, contract) {
-  return propertyShareRejection(game, player, contract, contract.conversionShare);
+  // A hybrid note is a funded loan until it converts: the loan leg is secured
+  // by the pledged basket, the equity leg by the conversion target. Both were
+  // validated at proposal, so both must still stand at acceptance.
+  return pledgedCollateralRejection(game, player, contract)
+    || propertyShareRejection(game, player, contract, contract.conversionShare);
 }
 
 // Re-validate contract security at settlement time: pledged deeds can be
@@ -135,8 +144,12 @@ function canSeizeLoanCollateral(borrower, lender, collateral) {
 }
 
 // A past-due player loan seizes whatever collateral still belongs to the
-// borrower (never from a bankrupt seat), marks the pledge as lost, and
-// closes the contract in the feed.
+// borrower (never from a bankrupt seat), marks the pledge as lost, files the
+// lender's claim, and closes the contract in the feed. It is the seam the
+// contract processor reaches for every default, so it is also where the
+// claim ledger collects what matured on an earlier round: a default is the
+// table's debt beat, and the claim just filed is skipped by that same sweep
+// (it is not collectable until the next round).
 export function handlePlayerLoanDefault(game, contract, { reason = 'loan-default' } = {}) {
   const borrower = game.getPlayerById(contract.toPlayerId);
   const lender = game.getPlayerById(contract.fromPlayerId);
@@ -156,6 +169,7 @@ export function handlePlayerLoanDefault(game, contract, { reason = 'loan-default
   contract.status = 'defaulted';
   contract.defaultedRound = game.roundNumber;
   game.feedMessage((borrower?.nickname || 'PLAYER') + ' defaulted on a player loan.');
+  settleDefaultClaims(game);
 }
 
 // Defaults are retained as a server-owned claim ledger rather than only
@@ -205,6 +219,26 @@ export function settleDefaultClaim(game, contractId, amount = null) {
   }
   game.feedMessage?.(`${borrower.nickname || 'Player'} paid $${payment} toward a default claim.`);
   return { success: true, contractId, paid: payment, remaining: claim.remaining, status: claim.status };
+}
+
+// The deterministic recovery path the ledger promises, and the only production
+// caller of settleDefaultClaim. The two table debt beats sweep it: the
+// contract processor's default path (handlePlayerLoanDefault) and the
+// bankruptcy ladder (bankruptcyApi.handleBankruptcy). Claims are paid oldest
+// first, and only from the round after they were filed, so the defaulting
+// round records the debt instead of charging it. A claim is paid in full or
+// not at all: a seat whose cash cannot cover the whole remaining balance keeps
+// it, so a recorded claim can never push a survivor into bankruptcy, and the
+// transfer moves cash between two seats without minting or destroying any.
+// Claims whose borrower or lender has left the table stay open forever as the
+// write-off record they were filed as.
+export function settleDefaultClaims(game) {
+  const round = Math.max(0, Math.floor(Number(game.roundNumber) || 0));
+  const matured = (game.defaultClaims || []).filter(claim => claim.status === 'open' && Number(claim.createdRound) < round);
+  return matured.reduce((settled, claim) => {
+    const result = settleDefaultClaim(game, claim.contractId);
+    return result.success ? settled + 1 : settled;
+  }, 0);
 }
 
 // Both sides of a maturing player loan hear about it in the feed.
