@@ -50,6 +50,8 @@ export const TEST_GROUPS = Object.freeze({
     'server/backend-fix-regressions-d.test.js',
     'server/backend-bot-fixes.test.js', 'server/backend-bot-context-fixes.test.js',
     'server/regression-b11-b14.test.js', 'server/regression-b12-b13.test.js',
+    'server/regression-b18.test.js', 'server/regression-b27-b29.test.js',
+    'server/regression-b33-b34.test.js', 'server/regression-b35-b36.test.js',
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [

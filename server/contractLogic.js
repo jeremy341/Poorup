@@ -998,12 +998,12 @@ export function processContracts(game) {
   game.playerContracts.forEach(contract => processContract(game, contract));
 }
 
-export function settleEquityShares(game, tile, owner, amountPaid) {
+export function settleEquityShares(game, tile, owner, amountPaid, payer = null) {
   if (!Array.isArray(tile?.equityShares) || !tile.equityShares.length) return;
   if (!owner) return;
   if (owner.bankrupt) return;
   if (amountPaid <= 0) return;
-  tile.equityShares.forEach(share => settleEquityPayout(game, owner, share, amountPaid));
+  tile.equityShares.forEach(share => settleEquityPayout(game, owner, share, amountPaid, payer));
 }
 
 // The owner's cash is the only source of a share payout, so the owner can be
@@ -1012,7 +1012,14 @@ export function settleEquityShares(game, tile, owner, amountPaid) {
 // instead of silently voiding rent the holder already earned. The payout
 // stays clamped to the owner's cash, so no cash is ever minted, and the
 // carry is an integer like every other balance in this module.
-function settleEquityPayout(game, owner, share, amountPaid) {
+//
+// Rent is scored to whoever keeps the money. The owner was already credited the
+// full rent through creditRentTo before this settled, and the holder was only
+// handed raw cash, so a part-sold deed scored its holder at zero rent while
+// scoring the owner for income they gave away - and the holder could never
+// reach the rent-reaper achievement (maxRentPayersInRound, written only by
+// creditRentTo). Both sides now go through the player-level rent facts.
+function settleEquityPayout(game, owner, share, amountPaid, payer) {
   const payable = equitySharePayable(game, share);
   if (!payable) return;
   const carried = Math.max(0, Math.floor(Number(payable.contract.unpaidRentShare) || 0));
@@ -1021,7 +1028,17 @@ function settleEquityPayout(game, owner, share, amountPaid) {
   const payout = Math.min(Math.max(0, owner.cash), owed);
   if (payout > 0) {
     owner.cash -= payout;
-    payable.holder.cash += payout;
+    if (payer && typeof game.creditRentTo === 'function') {
+      game.creditRentTo(payable.holder, payer, payout);
+    } else {
+      // No identified payer (a direct internal settle): still book the rent so
+      // the holder is not scored at zero, just without the payer bookkeeping.
+      payable.holder.cash += payout;
+      payable.holder.rentCollected = (payable.holder.rentCollected || 0) + payout;
+    }
+    // The owner keeps only what the share did not take. Clamped so a carried
+    // payout can never drive the running total negative.
+    owner.rentCollected = Math.max(0, (owner.rentCollected || 0) - payout);
     payable.contract.rentCollected = (payable.contract.rentCollected || 0) + payout;
   }
   const stillOwed = owed - payout;

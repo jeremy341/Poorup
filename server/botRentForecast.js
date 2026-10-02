@@ -1,9 +1,20 @@
 import { PROPERTY_RENT_MULTIPLIERS, RAILROAD_RENT } from './gameData.js';
 
+// The "premium districts" every premium mechanism keys on. Hoisted above the
+// rule table because the two paths used to disagree on membership: the boom
+// hardcoded Dark Blue while premiumEventFactors also listed Metro Silver, and
+// since the boom suppresses the generic path it dropped Metro Silver's surge
+// entirely. Metro Gold is in neither list — a design question, not a bug.
+const PREMIUM_GROUPS = ['Dark Blue', 'Metro Silver'];
+
 const DIRECT_EVENT_RULES = [
   { id: 'housing-bubble', factor: 0.65, matches: ({ tile }) => tile.type === 'property' },
   { id: 'airport-strike', factor: 0, matches: ({ tile }) => tile.type === 'railroad' },
-  { id: 'tourism-boom', factor: 1.3, matches: ({ tile }) => tile.group === 'Dark Blue' },
+  // Deliberately NOT read via factorKey: rent.test.js pins
+  // 'tourism-skips-premium-multiplier' at 45 with premiumRentMultiplier: 2, so
+  // the boom must ignore the effect payload and use its own 1.3. The premium
+  // groups still come from PREMIUM_GROUPS so membership cannot drift.
+  { id: 'tourism-boom', factor: 1.3, matches: ({ tile }) => PREMIUM_GROUPS.includes(tile.group) },
   // factorKey reads the declared event effect so tuning the effect (e.g.
   // globalEventData anti-monopoly leaderRentMultiplier) reaches live rent
   // instead of desyncing a hardcoded duplicate.
@@ -36,9 +47,9 @@ function infrastructureEventFactors(tile, eventId, effects) {
 }
 
 function premiumEventFactors(tile, eventId, effects) {
-  const premiumGroups = ['Dark Blue', 'Metro Silver'];
-  const isPremiumGroup = premiumGroups.includes(tile.group);
-  if (!isPremiumGroup || eventId === 'tourism-boom') return [];
+  // tourism-boom applies its own direct factor above, so it suppresses this
+  // path instead of double-surging the same districts.
+  if (!PREMIUM_GROUPS.includes(tile.group) || eventId === 'tourism-boom') return [];
   return [effects.premiumRentMultiplier];
 }
 

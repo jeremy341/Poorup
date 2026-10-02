@@ -128,8 +128,12 @@ function resetPlayerMarketState(player) {
   player.crisisMarketProfit = false;
 }
 
+// marketComplexity is a preset-owned value, so the write that sets it must
+// record it as an override even on the legacy -> ruleset transition write. The
+// rulesetExplicit gate used to swallow that first write, and the refresh that
+// followed overwrote it with the preset default.
 function settingCapturesOverride(room, key) {
-  return room.rulesetExplicit && (!RULESET_META_KEYS.includes(key) || key === 'marketComplexity');
+  return key === 'marketComplexity' || room.rulesetExplicit;
 }
 
 function captureSettingOverride(room, key, value) {
@@ -149,14 +153,16 @@ function syncRulesetState(room) {
 function applyRulesetSetting(room, key, value) {
   if (RULESET_META_KEYS.includes(key)) {
     if (!room.rulesetExplicit) {
-      // A legacy room's optional-system toggles live only in raw settings;
-      // the ruleset flow is about to overwrite them with preset defaults.
-      // Carry them forward as explicit overrides so the first meta-key write
-      // (the transition into the ruleset model) cannot silently strip
-      // bankLoans/casino/market/globalEvents the room was created with.
+      // A legacy room's preset-owned settings live only in raw settings; the
+      // ruleset flow is about to overwrite them with preset defaults. Carry
+      // every key a preset owns forward as an explicit override, with its raw
+      // value, so the first meta-key write (the transition into the ruleset
+      // model) cannot silently strip what the room was created with. The raw
+      // value goes through normalizeOverrides rather than a Boolean() cast,
+      // because not every preset key is a flag.
       const overrides = new Map((room.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
       OPTIONAL_SYSTEM_KEYS.forEach(optionalKey => {
-        if (room.settings[optionalKey] !== undefined) overrides.set(optionalKey, Boolean(room.settings[optionalKey]));
+        if (room.settings[optionalKey] !== undefined) overrides.set(optionalKey, room.settings[optionalKey]);
       });
       room.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
     }

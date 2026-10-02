@@ -7,22 +7,8 @@
 // section by the AI advisor. All money math is integer whole-dollars.
 
 import { rentAtLevel } from './botDevelopmentForecast.js';
+import { trafficPercent } from './botTradeValuation.js';
 import { TILE_SETS } from './boardRegistry.js';
-
-const GROUP_TRAFFIC_PERCENT = {
-  Orange: 130,
-  'Light Blue': 120,
-  Red: 115,
-  Pink: 110,
-  Yellow: 105,
-  Green: 100,
-  Brown: 95,
-  'Dark Blue': 90,
-};
-
-function trafficPercent(group) {
-  return GROUP_TRAFFIC_PERCENT[group] || 100;
-}
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -242,3 +228,7 @@ export function tableBrain(game, playerId) {
     clock: endgameClock(game),
   };
 }
+
+// Re-exported so every consumer of the shared traffic table exposes the same
+// accessor; regression-b27-b29.test.js compares identity across the modules.
+export { trafficPercent };

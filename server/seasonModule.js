@@ -241,7 +241,15 @@ export function seasonMetricValue(metric, row = {}) {
     wins: row.wins,
     games: row.games,
     rate: row.rate == null ? null : Math.round(row.rate * 100),
+    // `mastery` and `participation` are the canonical keys; `achievements` is
+    // the long-shipped wire alias for the same mastery column and stays put so
+    // the rankings surface (SEASON_METRICS, the snapshot table, the client
+    // label list) keeps resolving. Every key here must exist: the fallback
+    // below answers `row.points`, which reads as a valid answer to the metric
+    // that was actually asked for.
     achievements: row.mastery,
+    mastery: row.mastery,
+    participation: row.participation,
     mythical: row.mythical,
     bankruptcies: row.bankruptcies,
     events: row.eventSurvival,

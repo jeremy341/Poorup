@@ -1,7 +1,18 @@
 // Ruleset and board contracts live in one small registry so rooms, summaries,
 // bots, history, and the client all resolve the same immutable configuration.
 // This is deliberately pure: it has no socket, store, or GameState imports.
-import { boundedInteger } from './roomSettings.js';
+// Room creation and the room-setting setter both decide what a legal value is.
+// The vocabularies live in roomSettings.js and are imported here so the two
+// doors cannot drift into disagreeing about the same payload.
+import {
+  GLOBAL_EVENT_ON_VALUES,
+  ROOM_FLAG_TRUE_VALUES,
+  ROOM_HOTEL_LIMITS,
+  ROOM_HOUSE_LIMITS,
+  SETTING_REJECTED,
+  boundedInteger,
+  floorSettingAtZero
+} from './roomSettings.js';
 
 const RULESET_REVISION = 1;
 const BALANCE_REVISION = 1;
@@ -11,11 +22,6 @@ const BOARD_VARIANTS = ['standard-40', 'metro-52', 'grand-64'];
 const EXPOSED_BOARD_VARIANTS = ['standard-40', 'metro-52'];
 const MARKET_COMPLEXITIES = ['basic', 'margin', 'shorting', 'derivatives'];
 const BANK_LOAN_SEVERITIES = ['fair', 'predatory', 'extreme'];
-
-// These are the optional Poorup systems. Legacy room settings are retained in
-// the underlying room object, while the effective map is the authority for a
-// room created through the ruleset flow.
-const OPTIONAL_SYSTEM_KEYS = ['bankLoans', 'casino', 'market', 'globalEvents'];
 
 const PRESET_DEFAULTS = Object.freeze({
   classic: Object.freeze({
@@ -33,6 +39,17 @@ const PRESET_DEFAULTS = Object.freeze({
     globalEvents: true
   })
 });
+
+// These are the optional Poorup systems plus every other key a preset owns.
+// Legacy room settings are retained in the underlying room object, while the
+// effective map is the authority for a room created through the ruleset flow.
+// The list is derived from the preset defaults themselves: every key a preset
+// writes must also be carry-forwardable across the legacy -> ruleset
+// transition, or the first meta write silently reverts it to the preset.
+const OPTIONAL_SYSTEM_KEYS = Object.keys(PRESET_DEFAULTS.classic);
+// marketComplexity is a preset key too but is not a flag, so the boolean
+// overrides table takes its members from this filtered view.
+const OPTIONAL_BOOLEAN_SYSTEM_KEYS = OPTIONAL_SYSTEM_KEYS.filter(key => typeof PRESET_DEFAULTS.classic[key] === 'boolean');
 
 const BOARD_VARIANT_META = Object.freeze({
   'standard-40': Object.freeze({
@@ -72,7 +89,6 @@ const BOARD_VARIANT_META = Object.freeze({
 
 const KNOWN_OVERRIDE_KEYS = new Set([
   ...OPTIONAL_SYSTEM_KEYS,
-  'marketComplexity',
   'doubleRent',
   'vacationCash',
   'auction',
@@ -95,7 +111,7 @@ const KNOWN_OVERRIDE_KEYS = new Set([
 const HISTORICAL_OVERRIDE_KEYS = new Set([...KNOWN_OVERRIDE_KEYS, 'turnTimer']);
 
 const BOOLEAN_OVERRIDE_KEYS = new Set([
-  ...OPTIONAL_SYSTEM_KEYS,
+  ...OPTIONAL_BOOLEAN_SYSTEM_KEYS,
   'doubleRent',
   'vacationCash',
   'auction',
@@ -106,13 +122,16 @@ const BOOLEAN_OVERRIDE_KEYS = new Set([
   'evenBuild',
   'randomizePlayerOrder'
 ]);
-const NUMERIC_OVERRIDE_KEYS = new Set(['maxPlayers', 'houseLimit', 'hotelLimit', 'startingCash', 'bots']);
+// Building limits are enumerated ladders, not ranges: the setter tests
+// membership of these exact lists, so creation does too instead of accepting
+// the whole 0..100 span (which made `houseLimit: 0` registry-legal).
+const BUILDING_LIMIT_LADDERS = new Map([
+  ['houseLimit', ROOM_HOUSE_LIMITS],
+  ['hotelLimit', ROOM_HOTEL_LIMITS]
+]);
+const NUMERIC_OVERRIDE_KEYS = new Set(['startingCash']);
 const NUMERIC_OVERRIDE_LIMITS = Object.freeze({
-  maxPlayers: [2, 8],
-  houseLimit: [0, 100],
-  hotelLimit: [0, 50],
-  startingCash: [0, 1_000_000],
-  bots: [0, 7]
+  startingCash: [0, 1_000_000]
 });
 
 function safePreset(value, fallback = 'classic') {
@@ -143,6 +162,15 @@ function primitive(value) {
   return String(value);
 }
 
+// Mirrors normalizeBuildingLimit in roomSettings.js: an `unlimited` sentinel
+// passes through, anything else must be a whole number on the curated ladder.
+// Returns null for off-ladder values so normalizeOverrides drops them.
+function normalizeOverrideBuildingLimit(allowedValues, value) {
+  if (typeof value === 'string' && value.trim().toLowerCase() === 'unlimited') return 'unlimited';
+  const parsed = boundedInteger(value, { min: 0, max: 100, fallback: null });
+  return parsed !== null && allowedValues.includes(parsed) ? parsed : null;
+}
+
 function normalizedOverrideValue(key, value) {
   if (key === 'bankruptMode') return 'elim';
   if (key === 'bankLoanSeverity') {
@@ -150,12 +178,22 @@ function normalizedOverrideValue(key, value) {
     return BANK_LOAN_SEVERITIES.includes(normalized) ? normalized : 'predatory';
   }
   if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
-    return value === true || value === 1 || ['true', '1', 'on'].includes(String(value).trim().toLowerCase());
+    // Truthiness is the setter's vocabulary, not a second spelling list: the
+    // extended globalEvents spellings are the one place the two doors used to
+    // invert, turning 'rare' ON through the setter and OFF through creation.
+    const truthyValues = key === 'globalEvents' ? GLOBAL_EVENT_ON_VALUES : ROOM_FLAG_TRUE_VALUES;
+    return truthyValues.includes(value);
   }
   if (key === 'turnTimer') return boundedInteger(value, { min: 0, max: 3_600, fallback: null });
-  if ((key === 'houseLimit' || key === 'hotelLimit')
-    && typeof value === 'string'
-    && value.trim().toLowerCase() === 'unlimited') return 'unlimited';
+  if (BUILDING_LIMIT_LADDERS.has(key)) return normalizeOverrideBuildingLimit(BUILDING_LIMIT_LADDERS.get(key), value);
+  if (key === 'bots') {
+    // The setter clamps bots against the room's live seat count, which a pure
+    // registry cannot see, so creation applies the same zero floor and lets
+    // effectiveSettingsFor clamp against the board's seat ceiling. A range
+    // check here rejected what the setter silently clamps.
+    const floored = floorSettingAtZero(value);
+    return floored === SETTING_REJECTED ? null : floored;
+  }
   if (key === 'marketComplexity') return safeMarketComplexity(value);
   if (NUMERIC_OVERRIDE_KEYS.has(key)) {
     const [min, max] = NUMERIC_OVERRIDE_LIMITS[key];
