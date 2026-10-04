@@ -9,49 +9,45 @@ function safeSegment(value, label) {
   return segment;
 }
 
-export async function captureScreenshot(page, testInfo, {
-  group,
-  surfaceId,
-  label = surfaceId,
-  fixtureId = null,
-  fallbackPath = null,
-  outputDir = process.env.POORUP_VISUAL_CAPTURE_DIR,
-  fullPage = false,
-} = {}) {
-  if (!outputDir) {
-    if (!fallbackPath) throw new Error('Screenshot capture needs a visual output directory or fallbackPath.');
-    const resolvedFallbackPath = path.resolve(fallbackPath);
-    await mkdir(path.dirname(resolvedFallbackPath), { recursive: true });
-    await page.screenshot({ path: resolvedFallbackPath, animations: 'disabled', fullPage });
-    return { relativePath: path.resolve(fallbackPath), status: 'captured' };
-  }
+async function captureFallback(page, fallbackPath, fullPage) {
+  if (!fallbackPath) throw new Error('Screenshot capture needs a visual output directory or fallbackPath.');
+  const resolvedPath = path.resolve(fallbackPath);
+  await mkdir(path.dirname(resolvedPath), { recursive: true });
+  await page.screenshot({ path: resolvedPath, animations: 'disabled', fullPage });
+  return { relativePath: resolvedPath, status: 'captured' };
+}
 
+function isCaptureGroupSkipped(group) {
   const selectedGroup = process.env.POORUP_CAPTURE_GROUP;
-  if (selectedGroup && selectedGroup !== 'all' && selectedGroup !== group) {
-    return { status: 'skipped', group };
-  }
+  return Boolean(selectedGroup && selectedGroup !== 'all' && selectedGroup !== group);
+}
 
+function capturePaths(outputDir, profileId, group, surfaceId) {
   const groupSegment = safeSegment(group, 'capture group');
   const surfaceSegment = safeSegment(surfaceId, 'surface ID');
-  const profileId = safeSegment(testInfo.project.name, 'viewport profile');
-  const relativePath = `${profileId}/${groupSegment}/${surfaceSegment}.png`;
-  const absolutePath = path.join(path.resolve(outputDir), ...relativePath.split('/'));
-  await mkdir(path.dirname(absolutePath), { recursive: true });
+  const safeProfileId = safeSegment(profileId, 'viewport profile');
+  const relativePath = `${safeProfileId}/${groupSegment}/${surfaceSegment}.png`;
+  return { relativePath, absolutePath: path.join(path.resolve(outputDir), ...relativePath.split('/')) };
+}
 
+async function ensureCapturePathIsUnused(absolutePath, relativePath) {
   try {
     await stat(absolutePath);
-    throw new Error(`duplicate capture path: ${relativePath}`);
   } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+    if (error.code === 'ENOENT') return;
+    throw error;
   }
+  throw new Error(`duplicate capture path: ${relativePath}`);
+}
 
-  await page.screenshot({ path: absolutePath, animations: 'disabled', fullPage });
+function captureRecord(capture) {
+  const { page, testInfo, profileId, group, surfaceId, label, relativePath, fixtureId } = capture;
   const use = testInfo.project.use || {};
   const profile = supportedViewports.find(candidate => candidate.id === profileId);
-  const record = {
+  return {
     profileId,
-    group: groupSegment,
-    surfaceId: surfaceSegment,
+    group,
+    surfaceId,
     label: String(label),
     relativePath,
     width: use.viewport?.width || null,
@@ -66,8 +62,41 @@ export async function captureScreenshot(page, testInfo, {
     capturedAt: new Date().toISOString(),
     status: 'captured',
   };
+}
+
+async function appendCaptureRecord(outputDir, profileId, record) {
   const recordDirectory = path.join(path.resolve(outputDir), '.records');
   await mkdir(recordDirectory, { recursive: true });
   await appendFile(path.join(recordDirectory, `${profileId}.jsonl`), `${JSON.stringify(record)}\n`, 'utf8');
+}
+
+export async function captureScreenshot(page, testInfo, {
+  group,
+  surfaceId,
+  label = surfaceId,
+  fixtureId = null,
+  fallbackPath = null,
+  outputDir = process.env.POORUP_VISUAL_CAPTURE_DIR,
+  fullPage = false,
+} = {}) {
+  if (!outputDir) return captureFallback(page, fallbackPath, fullPage);
+  if (isCaptureGroupSkipped(group)) return { status: 'skipped', group };
+
+  const profileId = testInfo.project.name;
+  const { relativePath, absolutePath } = capturePaths(outputDir, profileId, group, surfaceId);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await ensureCapturePathIsUnused(absolutePath, relativePath);
+  await page.screenshot({ path: absolutePath, animations: 'disabled', fullPage });
+  const record = captureRecord({
+    page,
+    testInfo,
+    profileId,
+    group: safeSegment(group, 'capture group'),
+    surfaceId: safeSegment(surfaceId, 'surface ID'),
+    label,
+    relativePath,
+    fixtureId,
+  });
+  await appendCaptureRecord(outputDir, profileId, record);
   return record;
 }
