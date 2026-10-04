@@ -19,6 +19,7 @@ import {
   startPieceWalk,
 } from "./clientBoardRender.js";
 import { renderHud } from "./clientHudRender.js";
+import { showDiceRollTotal } from "./clientDiceRollEffect.js";
 import {
   CONNECTION_COPY,
   renderConnectionStatus,
@@ -368,6 +369,7 @@ const serverSyncHost = {
   hideBankruptcyModal: () => $("#bankruptcy-modal")?.classList.add("is-hidden"),
   placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
   rebuildBoard: () => buildBoard(onTileClick),
+  announceDiceRoll: showDiceRollTotal,
 };
 
 

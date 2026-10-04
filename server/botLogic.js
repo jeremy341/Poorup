@@ -396,9 +396,18 @@ function plannedPurchaseDecision(game, bot, tile) {
   const snapshot = buildBotStrategicContext(game, bot, 'purchase', game.botDecisionSequence || 0);
   const difficulty = game.settings?.botDifficulty || 'table';
   const seed = `${game.startedAt || 'pending'}:purchase`;
-  const buy = evaluateCandidate(snapshot, { id: `buy:${tile.index}`, kind: 'buy', tileIndex: tile.index, price: tile.price, risk: 0, score: 0 }, { difficulty, seed });
-  const pass = evaluateCandidate(snapshot, { id: `pass:${tile.index}`, kind: 'pass', tileIndex: tile.index, risk: 0, score: 0 }, { difficulty, seed });
-  return buy.score >= pass.score;
+  const options = { difficulty, seed };
+  const buy = evaluateCandidate(snapshot, { id: `buy:${tile.index}`, kind: 'buy', tileIndex: tile.index, price: tile.price, risk: 0, score: 0 }, options);
+  // The alternative to buying is doing nothing, so the baseline has to be a
+  // real projection. A `pass` candidate has no applier in the planner, so it
+  // came back 'unsupported' and scored 0 by construction, which reduced the
+  // whole policy to "is buy.score >= 0" — every affordable deed was a buy no
+  // matter how negative the planner's own margin was. `roll` is the planner's
+  // no-op probe (its applier projects without touching the state), so it
+  // returns the honest stand-still score to beat, under the same difficulty
+  // and seed as the buy projection.
+  const standStill = evaluateCandidate(snapshot, { id: `pass:${tile.index}`, kind: 'roll', risk: 0, score: 0 }, options);
+  return buy.score >= standStill.score;
 }
 
 export function shouldBuyWithPlan(game, bot, tile) {

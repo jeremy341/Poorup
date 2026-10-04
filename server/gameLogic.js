@@ -263,6 +263,7 @@ class GameState {
     this.turnOrder = [];
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
+    this.diceRollSequence = 0;
     this.hasRolled = false;
     this.consecutiveDoubles = 0;
     this.extraRollPending = false;
@@ -520,8 +521,8 @@ class GameState {
     processContracts(this);
   }
 
-  settleEquityShares(tile, owner, amountPaid) {
-    settleEquityShares(this, tile, owner, amountPaid);
+  settleEquityShares(tile, owner, amountPaid, payer = null) {
+    settleEquityShares(this, tile, owner, amountPaid, payer);
   }
 
   isLoanCollateral(player, tile) {
@@ -706,6 +707,7 @@ class GameState {
 
   setTurnDice(dice) {
     this.lastDice = dice;
+    this.diceRollSequence += 1;
     this.hasRolled = true;
     this.turnAllowsExtraRoll = dice[0] === dice[1];
     this.extraRollPending = this.turnAllowsExtraRoll;
@@ -735,6 +737,7 @@ class GameState {
     }
     const dice = rollDice();
     this.lastDice = dice;
+    this.diceRollSequence += 1;
     this.hasRolled = true;
     this.turnAllowsExtraRoll = false;
     this.extraRollPending = false;
@@ -1188,7 +1191,9 @@ class GameState {
     if (pending.equityTileIndex == null) return;
     const equityTile = this.getTile(pending.equityTileIndex);
     const equityOwner = this.getPlayerById(pending.equityOwnerId);
-    this.settleEquityShares(equityTile, equityOwner, amount);
+    // pendingPayment.playerId is the seat that owes the rent, so the parked
+    // (partial-payment) path books the same rent facts as a direct collection.
+    this.settleEquityShares(equityTile, equityOwner, amount, this.getPlayerById(pending.playerId));
   }
 
   transferMoney(from, to, amount, message) {

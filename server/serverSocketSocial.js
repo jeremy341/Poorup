@@ -269,7 +269,12 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!account) return reply(callback, { success: false, error: 'Sign in to claim seasonal rewards.' });
     const seasonStore = runtime.seasonStore;
     const cosmeticStore = runtime.cosmeticStore;
-    const claimed = seasonStore?.claimReward(account.id, payload.rewardId);
+    // A reward earned in a closed season is only claimable if the caller names
+    // it: claimReward() otherwise resolves ensureCurrent(), which after a
+    // rollover is a fresh empty season whose standings nobody is on. Forwarding
+    // the id is additive -- an omitted (or unknown) seasonId falls through to
+    // the pre-existing ensureCurrent() path untouched.
+    const claimed = seasonStore?.claimReward(account.id, payload.rewardId, Date.now(), payload.seasonId);
     if (!claimed?.success) return reply(callback, claimed || { success: false, error: 'Season reward is unavailable.' });
     if (cosmeticStore) {
       const grant = applySeasonRewardGrant(cosmeticStore, account.id, claimed);

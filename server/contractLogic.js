@@ -11,6 +11,7 @@ import {
   equitySharePayable,
   handlePlayerLoanDefault
 } from './bankruptcyLogic.js';
+import { normalizeRequestId } from './requestId.js';
 
 export const CONTRACT_KINDS = new Set(['loan', 'equity', 'hybrid']);
 export const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
@@ -23,6 +24,8 @@ const TABLE_OBLIGATION_FIELDS = [
   'pendingPlayerContract'
 ];
 const MAX_CONTRACT_REPLAYS = 1_000;
+
+export { normalizeRequestId } from './requestId.js';
 
 function activeSeat(player) {
   if (player.bankrupt) return false;
@@ -61,7 +64,7 @@ function normalizeContractOffer(offer) {
   return {
     kind: CONTRACT_KINDS.has(String(offer.kind)) ? String(offer.kind) : 'loan',
     amount: Math.floor(Number(offer.amount)),
-    requestId: String(offer.requestId || '').trim().slice(0, 100),
+    requestId: normalizeRequestId(offer.requestId),
     durationRounds: Math.max(1, Math.min(20, Math.floor(Number(offer.durationRounds) || 3))),
     premiumRate: Math.max(0, Math.min(100, Number(offer.premiumRate) || 0)),
     conversionShare: Math.max(5, Math.min(100, Math.floor(Number(offer.conversionShare) || 25)))
@@ -262,7 +265,7 @@ export function proposeEquityShareTransfer(game, socketId, offer = {}) {
   const seller = game.getPlayerBySocket(socketId);
   const buyer = game.getPlayerById(offer.toPlayerId);
   if (!seller || seller.id !== offer.fromPlayerId) return { success: false, error: 'Choose a valid equity seller.' };
-  const key = transactionKey('equity-transfer', seller.id, String(offer.requestId || '').trim().slice(0, 100));
+  const key = transactionKey('equity-transfer', seller.id, normalizeRequestId(offer.requestId));
   const cached = memoizedResult(game, key);
   if (cached) return cached;
   if (tableObligationOpen(game)) return { success: false, error: 'Resolve the current table obligation first.' };
@@ -276,7 +279,7 @@ export function proposeEquityShareTransfer(game, socketId, offer = {}) {
     sourceContractId: ctx.source.id, transferSharePct: sharePct, transferPrice: price,
     amount: price, equityShare: sharePct, equityControl: 'passive',
     permanent: ctx.source.permanent === true, expiresRound: ctx.source.expiresRound ?? null,
-    requestId: String(offer.requestId || '').trim().slice(0, 100),
+    requestId: normalizeRequestId(offer.requestId),
     createdRound: game.roundNumber, status: 'pending', counterDepth: 0, lastProposerId: seller.id
   };
   game.pendingPlayerContract = transfer;
@@ -343,6 +346,11 @@ function negotiatedContractTerms({ game, current, offer, actor, negotiationType 
     return terms;
   }
   contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
+  // Whoever authored the surviving terms is the last proposer, so the decision
+  // hands to the other seat. Without this the responder falls back to
+  // counterDepth parity, which points back at the editor when the same seat
+  // negotiates twice in a row - the author could then accept their own terms.
+  contract.lastProposerId = actor.id;
   game.pendingPlayerContract = contract;
   game.feedMessage(actor.nickname + (negotiationType === 'counter' ? ' negotiated the ' : ' adjusted the ')
     + normalized.kind + ' contract terms.');
@@ -737,22 +745,54 @@ function declineContract(game, player) {
   return { success: true, accepted: false };
 }
 
+function contractResponseKey(playerId, requestId) {
+  return transactionKey('contract-response', playerId, requestId ? normalizeRequestId(requestId) : null);
+}
+
+// A response memo records the contract it settled, because a bare requestId
+// is not an identity: reusing one against a different contract replayed the
+// earlier result, reported success for a table obligation that was still
+// open, and stranded it ("Resolve the current table obligation first.").
+// A memo replays only for the contract it settled - either named by the
+// request or the one pending now - and for a request that names no contract
+// while none is pending, where it is the only answer available.
+function contractResponseMemo(game, playerId, requestId, contractId) {
+  const key = contractResponseKey(playerId, requestId);
+  if (!key) return null;
+  const entry = game.contractTransactions.get(key);
+  if (!entry) return null;
+  const targetContractId = contractId || game.pendingPlayerContract?.id || null;
+  if (targetContractId !== null && targetContractId !== (entry.contractId || null)) return null;
+  return entry.result || null;
+}
+
+function memoizeContractResponse(game, playerId, requestId, contractId, result) {
+  const key = contractResponseKey(playerId, requestId);
+  if (!key) return result;
+  if (!result.success) return result;
+  game.contractTransactions.set(key, { contractId: contractId || null, result });
+  while (game.contractTransactions.size > MAX_CONTRACT_REPLAYS) {
+    game.contractTransactions.delete(game.contractTransactions.keys().next().value);
+  }
+  return result;
+}
+
 export function respondContract(game, socketId, accept, requestId = null, contractId = null) {
   const player = game.getPlayerBySocket(socketId);
-  const key = transactionKey('contract-response', player?.id, requestId ? String(requestId).slice(0, 100) : null);
-  const cached = memoizedResult(game, key);
+  const cached = contractResponseMemo(game, player?.id, requestId, contractId);
   if (cached) return cached;
   const contract = game.pendingPlayerContract;
   if (contractId && contract?.id !== contractId) return { success: false, error: 'No matching player contract was found.' };
   if (!responseTargetMatches(player, contract)) return { success: false, error: 'No matching player contract was found.' };
+  const settledContractId = contract.id;
   const borrower = game.getPlayerById(contract.toPlayerId);
   if (accept && contract.kind === 'equity-transfer') {
     const result = settleEquityTransfer(game, contract);
     if (!result.success && game.pendingPlayerContract === contract) game.pendingPlayerContract = null;
-    return memoizeSuccess(game, key, result);
+    return memoizeContractResponse(game, player?.id, requestId, settledContractId, result);
   }
   const result = accept ? acceptContract(game, borrower, contract) : declineContract(game, player);
-  return memoizeSuccess(game, key, result);
+  return memoizeContractResponse(game, player?.id, requestId, settledContractId, result);
 }
 
 // A hybrid note repays like a loan until it converts; conversion ends the
@@ -778,7 +818,7 @@ function repaymentAmount(contract, amount) {
 export function repayContract(game, socketId, payload = {}) {
   const { contractId, amount, requestId } = payload;
   const borrower = game.getPlayerBySocket(socketId);
-  const key = transactionKey('contract-repay', borrower?.id, requestId ? String(requestId).slice(0, 100) : null);
+  const key = transactionKey('contract-repay', borrower?.id, requestId ? normalizeRequestId(requestId) : null);
   const cached = memoizedResult(game, key);
   if (cached) return cached;
   const contract = game.playerContractById(contractId);
@@ -958,22 +998,52 @@ export function processContracts(game) {
   game.playerContracts.forEach(contract => processContract(game, contract));
 }
 
-export function settleEquityShares(game, tile, owner, amountPaid) {
+export function settleEquityShares(game, tile, owner, amountPaid, payer = null) {
   if (!Array.isArray(tile?.equityShares) || !tile.equityShares.length) return;
   if (!owner) return;
   if (owner.bankrupt) return;
   if (amountPaid <= 0) return;
-  tile.equityShares.forEach(share => settleEquityPayout(game, owner, share, amountPaid));
+  tile.equityShares.forEach(share => settleEquityPayout(game, owner, share, amountPaid, payer));
 }
 
-function settleEquityPayout(game, owner, share, amountPaid) {
+// The owner's cash is the only source of a share payout, so the owner can be
+// short of the share they owe. The unpaid part is carried on the contract as
+// unpaidRentShare and paid out of the next rent that same tile collects,
+// instead of silently voiding rent the holder already earned. The payout
+// stays clamped to the owner's cash, so no cash is ever minted, and the
+// carry is an integer like every other balance in this module.
+//
+// Rent is scored to whoever keeps the money. The owner was already credited the
+// full rent through creditRentTo before this settled, and the holder was only
+// handed raw cash, so a part-sold deed scored its holder at zero rent while
+// scoring the owner for income they gave away - and the holder could never
+// reach the rent-reaper achievement (maxRentPayersInRound, written only by
+// creditRentTo). Both sides now go through the player-level rent facts.
+function settleEquityPayout(game, owner, share, amountPaid, payer) {
   const payable = equitySharePayable(game, share);
   if (!payable) return;
-  const payout = Math.min(owner.cash, Math.floor(amountPaid * (payable.sharePct / 100)));
-  if (payout <= 0) return;
-  owner.cash -= payout;
-  payable.holder.cash += payout;
-  payable.contract.rentCollected = (payable.contract.rentCollected || 0) + payout;
+  const carried = Math.max(0, Math.floor(Number(payable.contract.unpaidRentShare) || 0));
+  const earned = Math.max(0, Math.floor(amountPaid * (payable.sharePct / 100)));
+  const owed = carried + earned;
+  const payout = Math.min(Math.max(0, owner.cash), owed);
+  if (payout > 0) {
+    owner.cash -= payout;
+    if (payer && typeof game.creditRentTo === 'function') {
+      game.creditRentTo(payable.holder, payer, payout);
+    } else {
+      // No identified payer (a direct internal settle): still book the rent so
+      // the holder is not scored at zero, just without the payer bookkeeping.
+      payable.holder.cash += payout;
+      payable.holder.rentCollected = (payable.holder.rentCollected || 0) + payout;
+    }
+    // The owner keeps only what the share did not take. Clamped so a carried
+    // payout can never drive the running total negative.
+    owner.rentCollected = Math.max(0, (owner.rentCollected || 0) - payout);
+    payable.contract.rentCollected = (payable.contract.rentCollected || 0) + payout;
+  }
+  const stillOwed = owed - payout;
+  if (stillOwed > 0) payable.contract.unpaidRentShare = stillOwed;
+  else if (payable.contract.unpaidRentShare) payable.contract.unpaidRentShare = 0;
 }
 
 function contractNames(game, contract) {

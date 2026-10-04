@@ -42,12 +42,13 @@ ${pad.pips}<span class="t-label f11 ${tone}">${label}</span>`;
 function ladderRowHTML(labelInner, rent, isCurrent, pad) {
   const rowClass = isCurrent ? "dd-row is-current" : "dd-row";
   const now = isCurrent ? `<span class="t-micro dd-now">NOW</span>` : "";
+  const rentLabel = typeof rent === "number" ? `$${rent}` : rent;
   return `<div class="${rowClass}">
 ${pad.label}<span class="dd-row-label">
 ${pad.pips}${labelInner}
 ${pad.label}</span>
 ${pad.label}${now}
-${pad.label}<span class="dd-row-rent">$${rent}</span>
+${pad.label}<span class="dd-row-rent">${rentLabel}</span>
 ${pad.close}</div>`;
 }
 
@@ -73,12 +74,15 @@ function propertyLadderHTML(table, level) {
 }
 
 function countOwnedGroup(tile, kind) {
-  return TILES.filter((u) => u.kind === kind && state.owners[u.i] === state.owners[tile.i]).length;
+  const ownerId = state.owners[tile.i];
+  if (!ownerId) return 0;
+  return TILES.filter((u) => u.kind === kind && state.owners[u.i] === ownerId).length;
 }
 
-function railroadLabel(n) {
-  if (n === 1) return "1 RAILROAD";
-  return `${n} RAILROADS`;
+function railroadLabel(n, tile) {
+  const type = tile.name.includes("AIRPORT") ? "AIRPORT" : "RAILROAD";
+  if (n === 1) return `1 ${type}`;
+  return `${n} ${type}S`;
 }
 
 function utilityLabel(n) {
@@ -86,19 +90,21 @@ function utilityLabel(n) {
   return `${n} UTILITIES`;
 }
 
-function groupLadderHTML(cfg, current, rents) {
+function groupLadderHTML(cfg, current, rents, tile) {
   const pad = LADDER_PADS[cfg.kind];
   return cfg.counts
     .map((n) => {
       const isCurrent = n === current;
-      return ladderRowHTML(ladderLabelHTML(spriteHTML(cfg.icon, 2), cfg.labelFor(n), isCurrent, pad), rents[n - 1], isCurrent, pad);
+      const icon = tile.kind === "utility" ? bulbOrFaucetHTML(tile) : airportOrTrainHTML(tile);
+      const rent = cfg.rentFor ? cfg.rentFor(n, rents[n - 1]) : rents[n - 1];
+      return ladderRowHTML(ladderLabelHTML(icon, cfg.labelFor(n, tile), isCurrent, pad), rent, isCurrent, pad);
     })
     .join("");
 }
 
 const LADDER_CONFIGS = {
-  railroad: { counts: [1, 2, 3, 4], icon: "train", labelFor: railroadLabel, kind: "railroad" },
-  utility: { counts: [1, 2], icon: "bulb", labelFor: utilityLabel, kind: "utility" },
+  railroad: { counts: [1, 2, 3, 4], labelFor: railroadLabel, kind: "railroad" },
+  utility: { counts: [1, 2], labelFor: utilityLabel, kind: "utility", rentFor: n => `${n === 1 ? 4 : 10}× DICE` },
 };
 
 /** Rows for the rent ladder, current level highlighted. */
@@ -107,8 +113,28 @@ export function deedLadderHTML(tile) {
   if (!table) return "";
   if (tile.kind === "property") return propertyLadderHTML(table, houseLevel(tile));
   const config = LADDER_CONFIGS[tile.kind];
-  if (config) return groupLadderHTML(config, countOwnedGroup(tile, tile.kind), table.rents);
+  if (config) return groupLadderHTML(config, countOwnedGroup(tile, tile.kind), table.rents, tile);
   return "";
+}
+
+export function tileRentExplanation(tile) {
+  if (tile?.kind === "utility") {
+    const utilitiesOnBoard = TILES.filter(entry => entry.kind === "utility").length;
+    const secondTier = utilitiesOnBoard === 2 ? "both utilities" : "2 or more utilities";
+    return `${tile.name} rent uses 4× the dice roll with 1 utility owned, or 10× when you own ${secondTier}.`;
+  }
+  if (tile?.kind === "railroad" && tile.name?.includes("AIRPORT")) {
+    return "Airport rent increases with the number of airports you own.";
+  }
+  if (tile?.kind === "railroad") return "Railroad rent increases with the number of railroads you own.";
+  return "";
+}
+
+export function deedCurrentRentLabel(tile) {
+  if (tile?.kind === "utility") {
+    return `${countOwnedGroup(tile, "utility") >= 2 ? "10×" : "4×"} DICE ROLL`;
+  }
+  return `$${rentFor(tile)} / TURN`;
 }
 
 function deedRailColor(tile) {
@@ -190,7 +216,7 @@ function deedCardView(tile, opts) {
     clickable,
     interactive: clickable && !opts.action,
     level: houseLevel(tile),
-    rentLabel: isMortgaged ? "MORTGAGED" : `$${rentFor(tile)} / TURN`,
+    rentLabel: isMortgaged ? "MORTGAGED" : deedCurrentRentLabel(tile),
     rail: deedRailColor(tile),
     kindIcon: kindIconHTML(tile),
     statusPill: deedStatusPillHTML(opts, isMortgaged, hasSet),

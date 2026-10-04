@@ -9,22 +9,33 @@
 // premium, flat per-group traffic tiers, build-readiness = 1 house cost.
 
 // Flat traffic tiers as integer percent (Collins-inspired order:
-// Orange > Light Blue > Red > Pink > Yellow > Green > Brown > Dark Blue).
-const GROUP_TRAFFIC_PERCENT = {
+// Orange > Light Blue > Red > Pink > Yellow > Green > Metro Gold > Brown >
+// Dark Blue > Metro Silver). This table is the ONLY copy: botDevelopmentForecast.js
+// and botTableBrain.js import it, so build priority, threat, and trade pricing
+// cannot disagree about which groups matter. Every group boardRegistry.GROUPS
+// declares needs a key here — Metro-52 ships Metro Gold + Metro Silver, and an
+// absent key is invisible at runtime because it inherits the Green-tier default.
+export const GROUP_TRAFFIC_PERCENT = Object.freeze({
   Orange: 130,
   'Light Blue': 120,
   Red: 115,
   Pink: 110,
   Yellow: 105,
   Green: 100,
+  'Metro Gold': 96,
   Brown: 95,
   'Dark Blue': 90,
-};
+  'Metro Silver': 88,
+});
 
 export const MONOPOLY_PREMIUM_NUM = 2;
 export const MONOPOLY_PREMIUM_DEN = 1;
 
-function trafficPercent(group) {
+// Ungrouped tiles (railroads, utilities) legitimately have no tier, so the
+// fall-through stays the flat 100 baseline; regression-b27-b29.test.js asserts
+// every real group resolves to a non-default tier so the fallback cannot hide a
+// missing board group.
+export function trafficPercent(group) {
   return GROUP_TRAFFIC_PERCENT[group] || 100;
 }
 

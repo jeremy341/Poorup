@@ -230,7 +230,7 @@ const tileApi = {
     const rent = this.calculateRent(tile);
     this.recordAirportStrikeRentFacts(tile, owner);
     const message = `${player.nickname} paid $${rent} rent to ${owner.nickname}.`;
-    const hooks = { onPaid: paid => this.settleEquityShares(tile, owner, paid), equityTileIndex: tile.index, equityOwnerId: owner.id };
+    const hooks = { onPaid: paid => this.settleEquityShares(tile, owner, paid, player), equityTileIndex: tile.index, equityOwnerId: owner.id };
     this.chargePlayer({ player, creditor: owner, amount: rent, message, turnOptions: options, hooks });
     return { success: true };
   },

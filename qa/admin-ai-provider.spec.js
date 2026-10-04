@@ -45,7 +45,7 @@ test.describe('admin AI provider control', () => {
     const pageText = await page.locator('#admin-provider-workspace').innerText();
     expect(pageText).not.toContain('secret-key');
     expect(await page.locator('[data-admin-provider-field="apiKey"]').inputValue()).toBe('');
-    if (testInfo.project.name === 'desktop-1920') {
+    if (testInfo.project.name === 'desktop-1920x1080') {
       const artifactRoot = path.resolve('qa-artifacts/admin-ai-provider-1920');
       await fs.promises.mkdir(artifactRoot, { recursive: true });
       await page.screenshot({ path: path.join(artifactRoot, 'provider-roster.png'), animations: 'disabled' });

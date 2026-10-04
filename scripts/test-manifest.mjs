@@ -36,7 +36,8 @@ export const TEST_GROUPS = Object.freeze({
     'public/clientMusicBoxReference.test.js', 'public/clientAccountRights.test.js',
     'server/bot-policy-tournament.test.js', 'server/socketHandlerSupport.test.js',
     'server/botCandidateCoverage.test.js', 'server/botTiming.test.js', 'server/socketRuntime.test.js',
-    'public/clientAudioControls.test.js',
+    'public/clientAudioControls.test.js', 'public/clientInGameUxRegression.test.js',
+    'public/clientTradeOfferDismissal.test.js', 'public/clientDiceRollEffect.test.js',
   ],
   audit: [
     'server/market-settlement-audit.test.js', 'server/lifecycle-audit.test.js', 'server/card-deck-audit.test.js',
@@ -46,6 +47,12 @@ export const TEST_GROUPS = Object.freeze({
     'server/backup-restore-integrity.test.js', 'server/socket-admission.test.js', 'server/runtime-safety.test.js',
     'server/analyticsRuntime.test.js', 'server/capacity-followup.test.js', 'server/server-followups.test.js',
     'server/backend-fix-regressions.test.js', 'public/audioIconAudit.test.js',
+    'server/backend-fix-regressions-b.test.js', 'server/backend-fix-regressions-c.test.js',
+    'server/backend-fix-regressions-d.test.js',
+    'server/backend-bot-fixes.test.js', 'server/backend-bot-context-fixes.test.js',
+    'server/regression-b11-b14.test.js', 'server/regression-b12-b13.test.js',
+    'server/regression-b18.test.js', 'server/regression-b27-b29.test.js',
+    'server/regression-b33-b34.test.js', 'server/regression-b35-b36.test.js',
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [

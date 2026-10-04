@@ -176,8 +176,17 @@ check('contract negotiation roles alternate after each counter', () => {
   const adjusted = game.adjustPlayerContract('socket-b', { contractId: counter.contract.id, amount: 95, premiumRate: 8, durationRounds: 4 });
   assert.equal(adjusted.success, true);
   assert.equal(game.pendingPlayerContract.toPlayerId, b.id);
-  assert.equal(game.respondPlayerContract('socket-b', true, 'role-accept', adjusted.contract.id).success, true);
+  // B authored every surviving term, so the decision belongs to A. This line
+  // used to assert the inverted hand-off (B accepting their own counter),
+  // which was the B-01 exploit: the responder fell back to counterDepth
+  // parity once the same seat negotiated twice in a row.
+  assert.deepEqual(game.respondPlayerContract('socket-b', true, 'role-accept', adjusted.contract.id), {
+    success: false, error: 'No matching player contract was found.'
+  });
+  assert.notEqual(game.pendingPlayerContract, null);
+  assert.equal(game.respondPlayerContract('socket-a', true, 'role-accept-lender', adjusted.contract.id).success, true);
   assert.equal(a.cash, 1405);
+  assert.equal(b.cash, 1595);
 });
 
 check('loan collateral must be an unencumbered borrower deed', () => {
@@ -341,6 +350,22 @@ check('market event price shock applies once per active event', () => {
   game.marketQuotes.brazil = 100;
   game.advanceMarket();
   assert.equal(game.marketQuotes.brazil >= 99, true);
+});
+
+check('a padded requestId replays as the same request instead of executing twice', () => {
+  const { game, b } = startedRoom();
+  const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 10, premiumRate: 12, durationRounds: 3, requestId: 'padded-proposal' });
+  assert.equal(first.success, true);
+  // " padded-proposal " names the same logical request. Keying on the raw
+  // string misses the memo, so the second call runs the guard ladder again
+  // and returns a different result object instead of the memoized one.
+  const pendingAfterFirst = game.pendingPlayerContract;
+  game.pendingPlayerContract = null;
+  const padded = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 10, premiumRate: 12, durationRounds: 3, requestId: '  padded-proposal  ' });
+  assert.equal(padded, first, 'a whitespace-padded requestId must replay, not re-execute');
+  assert.equal(game.pendingPlayerContract, null, 'the replay must not install a fresh pending contract');
+  assert.equal(pendingAfterFirst.id, first.contract.id);
+  assert.ok(b.id);
 });
 
 check('requestId replays return the memoized market result', () => {

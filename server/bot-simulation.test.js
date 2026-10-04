@@ -9,6 +9,10 @@ import { summarizeBalanceCampaign } from './balanceMetrics.js';
 const SIMULATION_COUNT = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_SIMULATION_COUNT) || 1_000));
 const START_INDEX = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_SIMULATION_START_INDEX) || 1));
 const STEP_LIMIT = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_STEP_LIMIT) || 2_000));
+// The campaign must model the economy players actually get. The room default is
+// 1500 (roomSettings.js), so the campaign defaults to it; POORUP_BOT_STARTING_CASH=500
+// runs the low-capital variant that the previous hardcoded 500 approximated.
+const STARTING_CASH = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_STARTING_CASH) || 1_500));
 
 async function assertZeroCashPostRollBotsResolve() {
   const manager = new RoomManager();
@@ -46,6 +50,7 @@ for (let index = START_INDEX; index < START_INDEX + SIMULATION_COUNT; index += 1
   results.push(await simulateBotMatch({
     seed: index * 1009 + 7,
     policyBySeat,
+    settings: { startingCash: STARTING_CASH },
     stepLimit: STEP_LIMIT,
     captureTrace: process.env.POORUP_BOT_CAPTURE_TRACE === '1'
   }));

@@ -16,8 +16,10 @@ import {
   marketOrderRejection as rejectMarketOrder
 } from './marketLogic.js';
 import { hasLoanBackedCash as cashIsLoanBacked } from './loanLogic.js';
+import { normalizeRequestId } from './requestId.js';
 import {
   coverShort,
+  complexityAllows,
   expansionCandidates,
   expansionGuard,
   exerciseOption,
@@ -53,6 +55,17 @@ function casinoSnapshot(game, player, limits) {
   };
 }
 
+// marketLogic mutates position objects IN PLACE (applyMarketBuy writes straight
+// into position.averageCost / position.quantity and economyApi reassigns the same
+// reference back into player.marketPositions[id]), so a shallow {...map} snapshot
+// aliases live state: an already-returned snapshot - including the economy
+// payload every cacheTransaction call site replays verbatim on a duplicate
+// requestId - rewrites itself retroactively. Rebuild each entry so the snapshot
+// never shares a reference with the player's book.
+function clonedPositionMap(map) {
+  return Object.fromEntries(Object.entries(map || {}).map(([id, position]) => [id, { ...position }]));
+}
+
 function marketSnapshot(game, player) {
   const ledger = player ? (game.marketLedger || [])
     .filter(entry => entry?.playerId === player.id
@@ -76,10 +89,10 @@ function marketSnapshot(game, player) {
     quotes: { ...game.marketQuotes },
     quoteHistory: marketQuoteHistorySnapshot(game),
     personalTrades: ledger,
-    positions: { ...(player?.marketPositions || {}) },
+    positions: clonedPositionMap(player?.marketPositions),
     complexity: game.settings.marketComplexity || 'basic',
-    margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, collateral: Number(player.marginCollateral) || 0, positions: { ...(player.marginPositions || {}) } } : null,
-    shorts: player ? { positions: { ...(player.shortPositions || {}) }, borrowable: { ...(game.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0, defaultDebt: Number(player.shortDefaultDebt) || 0 } : null,
+    margin: player ? { balance: Number(player.marginBalance) || 0, maintenance: Number(player.marginMaintenance) || 0, collateral: Number(player.marginCollateral) || 0, positions: clonedPositionMap(player.marginPositions) } : null,
+    shorts: player ? { positions: clonedPositionMap(player.shortPositions), borrowable: { ...(game.marketShortInventory || {}) }, reservedCash: Number(player.reservedCash) || 0, defaultDebt: Number(player.shortDefaultDebt) || 0 } : null,
     optionReserve: Number(game.marketOptionReserve) || 0,
     options: player ? (player.optionPositions || []).map(option => ({ ...option })) : []
   };
@@ -96,6 +109,27 @@ function shortInventory(game) {
   return game.marketShortInventory;
 }
 
+// Short buy-in debt is a forced obligation, so this path deliberately keeps
+// the off-turn, quota-exempt reach marketExpansion.settleShortDefault
+// documents ("callers may invoke this path on a later turn or before opening
+// another market position") and does not take the turn gate, the per-turn
+// market quota, or the trading-pause check: paying an obligation is the
+// opposite of trading, and a debt that only its owner can clear must never be
+// unreachable. It does share the rest of the expansion ladder - the same
+// loan-taint guard every other market entry uses, plus the session guards, so
+// the path cannot settle against a market the room does not run. Room market
+// settings are frozen once the game starts (rooms.js roomSettingChange-
+// RejectionReason), so these guards can never strand an outstanding obligation.
+function shortDefaultRejection(game, player) {
+  if (!game.started || !player || player.bankrupt || player.disconnected) return 'Market access is unavailable right now.';
+  if (game.hasLoanBackedCash?.(player)) return 'Loan-backed cash cannot fund margin, short, or option positions.';
+  if (!game.settings.market) return 'Market access is off for this room.';
+  if (!complexityAllows(game, 'shorting')) return 'Market complexity SHORTING is not enabled.';
+  if (game.pendingPayment) return 'Resolve the table obligation before trading.';
+  if (Number(player.shortDefaultDebt) <= 0) return 'There is no short buy-in debt to settle.';
+  return null;
+}
+
 const economyApi = {
   casinoLimits() {
     const effects = this.activeEventEffects();
@@ -108,7 +142,7 @@ const economyApi = {
   },
 
   transactionKey(playerId, kind, requestId) {
-    const value = String(requestId || '').trim().slice(0, 100);
+    const value = normalizeRequestId(requestId);
     return value ? `${playerId}:${kind}:${value}` : null;
   },
 
@@ -447,9 +481,8 @@ const economyApi = {
     const key = this.transactionKey(player?.id, 'short-default-settle', requestId);
     const cached = this.cachedTransaction(key);
     if (cached) return cached;
-    if (!this.started || !player || player.bankrupt || player.disconnected) return { success: false, error: 'Market access is unavailable right now.' };
-    if (this.pendingPayment) return { success: false, error: 'Resolve the table obligation before trading.' };
-    if (Number(player.shortDefaultDebt) <= 0) return { success: false, error: 'There is no short buy-in debt to settle.' };
+    const rejection = shortDefaultRejection(this, player);
+    if (rejection) return { success: false, error: rejection };
     const result = settleShortDefault(this, player, amount);
     if (result.success) result.economy = this.economySnapshot(player.id);
     return this.cacheTransaction(key, result);

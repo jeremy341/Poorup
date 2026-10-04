@@ -28,6 +28,7 @@ import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
 import { ACCOUNT_SESSION_KEY, clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
 import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 import { reconcileAccountLifecycleEvent } from "./clientAccountRights.js";
+import { isTradeOfferDismissed } from "./clientTradeOfferDismissal.js";
 
 let host = {
   setConnectionStatus: noop,
@@ -350,8 +351,19 @@ function tradeOfferAssets(trade) {
   };
 }
 
-function normalizeTradeOffer(trade) {
-  return { ...trade, ...tradeOfferSides(trade), ...tradeOfferAssets(trade) };
+export function normalizeTradeOffer(trade) {
+  const sides = tradeOfferSides(trade);
+  const assets = tradeOfferAssets(trade);
+  return {
+    ...trade,
+    ...sides,
+    fromPlayerId: sides.from,
+    toPlayerId: sides.to,
+    ...assets,
+    givePropertyIndexes: trade.givePropertyIndexes || assets.giveDeeds,
+    requestPropertyIndexes: trade.requestPropertyIndexes || assets.wantDeeds,
+    requestCash: Number(trade.requestCash ?? assets.wantCash) || 0,
+  };
 }
 
 function onTradeOffer({ trade }) {
@@ -362,7 +374,7 @@ function onTradeOffer({ trade }) {
     ...(state.offers || []).filter(offer => offer?.id !== normalized.id),
   ];
   host.renderAll();
-  host.openOfferModal(normalized);
+  if (!isTradeOfferDismissed(state.roomCode, normalized.id)) host.openOfferModal(normalized);
 }
 
 function attachConnectionListeners(socket) {
