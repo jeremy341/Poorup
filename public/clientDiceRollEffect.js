@@ -14,28 +14,32 @@ function readDiceTotal(dice) {
   return dice[0] + dice[1];
 }
 
+function advanceRollSequence(next, current) {
+  if (current.roomCode !== next.roomCode || current.sequence === null) {
+    current.roomCode = next.roomCode;
+    current.sequence = next.sequence;
+    return false;
+  }
+  if (next.sequence <= current.sequence) return false;
+  current.sequence = next.sequence;
+  return true;
+}
+
+function announceRoll(dice, onRoll) {
+  const total = readDiceTotal(dice);
+  if (total === null) return null;
+  onRoll(total);
+  return total;
+}
+
 export function createDiceRollSequenceTracker(onRoll = () => {}) {
-  let roomCode = null;
-  let sequence = null;
+  const current = { roomCode: null, sequence: null };
 
   return {
     receive(snapshot = {}) {
       const next = readSequence(snapshot);
-      if (!next) return null;
-
-      if (roomCode !== next.roomCode || sequence === null) {
-        roomCode = next.roomCode;
-        sequence = next.sequence;
-        return null;
-      }
-
-      if (next.sequence <= sequence) return null;
-      sequence = next.sequence;
-
-      const total = readDiceTotal(snapshot.dice);
-      if (total === null) return null;
-      onRoll(total);
-      return total;
+      if (!next || !advanceRollSequence(next, current)) return null;
+      return announceRoll(snapshot.dice, onRoll);
     },
   };
 }

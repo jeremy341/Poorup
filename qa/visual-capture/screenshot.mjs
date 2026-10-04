@@ -40,6 +40,24 @@ async function ensureCapturePathIsUnused(absolutePath, relativePath) {
   throw new Error(`duplicate capture path: ${relativePath}`);
 }
 
+function captureProfileMetadata(use, profile) {
+  return {
+    width: use.viewport?.width || null,
+    height: use.viewport?.height || null,
+    deviceScaleFactor: use.deviceScaleFactor || 1,
+    isMobile: Boolean(use.isMobile),
+    hasTouch: Boolean(use.hasTouch),
+    aliases: profile?.aliases || [],
+  };
+}
+
+function captureBrowserMetadata(page, use) {
+  return {
+    browser: use.browserName || 'chromium',
+    browserVersion: page.context?.().browser?.()?.version?.() || null,
+  };
+}
+
 function captureRecord(capture) {
   const { page, testInfo, profileId, group, surfaceId, label, relativePath, fixtureId } = capture;
   const use = testInfo.project.use || {};
@@ -50,14 +68,8 @@ function captureRecord(capture) {
     surfaceId,
     label: String(label),
     relativePath,
-    width: use.viewport?.width || null,
-    height: use.viewport?.height || null,
-    deviceScaleFactor: use.deviceScaleFactor || 1,
-    isMobile: Boolean(use.isMobile),
-    hasTouch: Boolean(use.hasTouch),
-    aliases: profile?.aliases || [],
-    browser: use.browserName || 'chromium',
-    browserVersion: page.context?.().browser?.()?.version?.() || null,
+    ...captureProfileMetadata(use, profile),
+    ...captureBrowserMetadata(page, use),
     fixtureId: fixtureId || testInfo.title,
     capturedAt: new Date().toISOString(),
     status: 'captured',
