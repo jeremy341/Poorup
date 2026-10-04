@@ -54,6 +54,40 @@ function localServerId() {
   return state.players[0]?.serverId || null;
 }
 
+export function sponsorshipAudienceNames(players = state.players, buyerId = localServerId()) {
+  const recipientId = buyerId == null ? null : String(buyerId);
+  return (Array.isArray(players) ? players : [])
+    .filter(player => player
+      && String(player.serverId || player.id || "") !== recipientId
+      && !player.bankrupt
+      && player.online !== false
+      && !player.disconnected
+      && !player.spectating)
+    .map(player => String(player.name || player.nickname || player.displayName || "").trim())
+    .filter(Boolean);
+}
+
+export function sponsorshipFundingSummary(mode, sharePct = 10) {
+  if (mode !== "equity") return "GIFT FUNDING · NO OWNERSHIP OR RENT SHARE";
+  const share = Math.max(5, Math.min(100, Math.floor(Number(sharePct) || 10)));
+  return `EQUITY INVESTMENT · ${share}% OF COLLECTED RENT`;
+}
+
+function sponsorshipAudienceHTML() {
+  const names = sponsorshipAudienceNames();
+  const heading = names.length ? "REQUEST SHARED WITH ALL OTHER ACTIVE PLAYERS" : "NO OTHER ACTIVE PLAYERS CAN RECEIVE THIS REQUEST";
+  const recipients = names.length
+    ? names.map(name => `<span class="sponsorship-audience-player">${esc(name)}</span>`).join("")
+    : `<span class="t-micro ink-3">NO OTHER ACTIVE PLAYERS</span>`;
+  return `<div class="sponsorship-audience" aria-label="Funding request audience"><span class="t-micro g400">${heading}</span><div class="sponsorship-audience-players">${recipients}</div></div>`;
+}
+
+function sponsorshipFundingTypeHTML(sponsorship) {
+  const equity = sponsorship.mode === "equity";
+  const detail = equity ? "ONE INVESTOR · BUYER COVERS ANY REMAINDER" : "CONTRIBUTIONS STAY IN ESCROW UNTIL SETTLEMENT";
+  return `<div class="sponsorship-funding-type${equity ? " is-equity" : " is-gift"}"><span class="t-micro ink-3">FUNDING TYPE</span><strong class="t-label f12 g100">${esc(sponsorshipFundingSummary(sponsorship.mode, sponsorship.sharePct))}</strong><span class="t-micro ink-3">${detail}</span></div>`;
+}
+
 function localContribution(sponsorship) {
   return sponsorship?.contributions?.find(entry => entry.sponsorId === localServerId()) || null;
 }
@@ -116,6 +150,7 @@ function renderSponsorshipModal(sponsorship) {
   const mine = localContribution(sponsorship);
   const tile = TILES[Number(sponsorship.tileIndex)] || TILES[0];
   card.innerHTML = `<div class="sponsorship-body"><div class="sponsorship-head"><div><span class="t-micro g400">${sponsorship.mode === "equity" ? "EQUITY PURCHASE · ESCROWED" : "COMMUNITY FINANCE · ESCROWED"}</span><h2 class="t-section g100" id="sponsorship-card-title">${esc(tile?.name || sponsorship.tileName)}</h2></div><button class="btn-dark" type="button" id="sponsorship-close"><span class="t-label f11">CLOSE</span></button></div><div class="sponsorship-meter"><div><span class="t-micro ink-3">PURCHASE PRICE</span><strong class="t-money g100">$${Number(sponsorship.price || 0).toLocaleString()}</strong></div><div><span class="t-micro ink-3">RESERVED</span><strong class="t-money green">$${Number(sponsorship.totalContributed || 0).toLocaleString()}</strong></div><div><span class="t-micro ink-3">STILL NEEDED</span><strong class="t-money ${sponsorship.amountNeeded ? "red" : "green"}">$${Number(sponsorship.amountNeeded || 0).toLocaleString()}</strong></div></div>${sponsorship.mode === "equity" ? `<div class="sponsorship-equity-terms"><span class="t-micro ink-3">INVESTOR RENT SHARE</span><strong class="t-label f13 g100">${Number(sponsorship.sharePct || 0)}%</strong><span class="t-micro ink-3">BUYER CONTRIBUTION AT ACCEPTANCE</span><strong class="t-label f13 g100">$${Math.max(0, Number(sponsorship.price || 0) - Number(sponsorship.totalContributed || 0)).toLocaleString()}</strong></div>` : ""}<p class="t-body ink-2 sponsorship-copy">${esc(sponsorshipCopy(sponsorship, isBuyer, mine))}</p><div class="sponsorship-list"><span class="t-micro g400">${sponsorship.mode === "equity" ? "INVESTOR RESERVATION" : "RESERVATIONS"}</span>${contributionsHTML(sponsorship)}</div>${actionsHTML(sponsorship, isBuyer, mine)}</div>`;
+  card.querySelector(".sponsorship-head")?.insertAdjacentHTML("afterend", sponsorshipFundingTypeHTML(sponsorship));
   $("#sponsorship-close")?.addEventListener("click", closeSponsorshipModal);
 }
 
@@ -125,11 +160,14 @@ function renderSponsorshipRequestComposer(tileIndex) {
   if (!card || !tile) return;
   sponsorshipRequestDraft = { tileIndex: Number(tileIndex), requestId: null };
   card.innerHTML = `<div class="sponsorship-body"><div class="sponsorship-head"><div><span class="t-micro g400">PURCHASE FUNDING</span><h2 class="t-section g100" id="sponsorship-card-title">${esc(tile.name)}</h2></div><button class="btn-dark" type="button" id="sponsorship-close"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2">Purchase price <strong>$${Number(tile.price || 0).toLocaleString()}</strong>. Choose gift funding or a single investor for this deed.</p><form class="sponsorship-request-form" data-sponsorship-request-form><fieldset class="sponsorship-mode-options"><legend class="t-label f11 g-muted">FUNDING MODE</legend><label><input type="radio" name="mode" value="gift" checked><span><strong class="t-label f11 g100">GIFT</strong><small class="t-micro ink-3">No ownership or rent share.</small></span></label><label><input type="radio" name="mode" value="equity"><span><strong class="t-label f11 g100">EQUITY INVESTMENT</strong><small class="t-micro ink-3">One investor reserves cash for a passive rent share.</small></span></label></fieldset><label class="financing-field sponsorship-share-field" data-equity-share-field hidden><span class="t-label f11 g-muted">Investor share of collected rent <output id="sponsorship-share-output">10%</output></span><input class="field" type="range" name="sharePct" min="5" max="100" step="5" value="10" disabled></label><p class="t-micro ink-3">If accepted, the bank sells this exact deed to you. An investor's cash stays in escrow until settlement. The buyer pays any remaining price from available cash.</p><div class="sponsorship-actions"><button class="cta-red" type="submit"><span class="cta-text cta-text-sm">REQUEST FUNDING</span></button></div></form></div>`;
+  const requestForm = card.querySelector(".sponsorship-request-form");
+  requestForm?.insertAdjacentHTML("afterbegin", `${sponsorshipAudienceHTML()}<div class="sponsorship-mode-preview" aria-live="polite"><span class="t-micro ink-3">FUNDING SUMMARY</span><strong class="t-label f12 g100" data-sponsorship-mode-summary>${esc(sponsorshipFundingSummary("gift"))}</strong></div>`);
   $("#sponsorship-close")?.addEventListener("click", closeSponsorshipModal);
   card.querySelectorAll('[name="mode"]').forEach(input => input.addEventListener("change", updateSponsorshipComposer));
   card.querySelector('[name="sharePct"]')?.addEventListener("input", event => {
     const output = card.querySelector("#sponsorship-share-output");
     if (output) output.textContent = `${event.target.value}%`;
+    updateSponsorshipModePreview(event.currentTarget.closest("form"));
   });
 }
 
@@ -140,6 +178,13 @@ function updateSponsorshipComposer(event) {
   const shareField = form?.querySelector("[data-equity-share-field]");
   if (share) share.disabled = !equity;
   if (shareField) shareField.hidden = !equity;
+  updateSponsorshipModePreview(form);
+}
+
+function updateSponsorshipModePreview(form) {
+  const preview = form?.querySelector("[data-sponsorship-mode-summary]");
+  if (!preview) return;
+  preview.textContent = sponsorshipFundingSummary(form.elements.mode?.value, form.elements.sharePct?.value);
 }
 
 function handleSponsorshipActionResponse(response, actionKey, button, statusNode) {
