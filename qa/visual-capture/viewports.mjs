@@ -6,37 +6,33 @@ const gen7Ipad = devices['iPad (gen 7) landscape'];
 const gen11Ipad = devices['iPad (gen 11) landscape'];
 const proIpad = devices['iPad Pro 11 landscape'];
 
-function desktopProfile(id, width, height, aliases = []) {
+function createProfile(id, width, height, {
+  group = 'desktop',
+  device = desktopDevice,
+  aliases = [],
+  isMobile = false,
+  hasTouch = false,
+  supported = true,
+} = {}) {
   return {
     id,
-    group: 'desktop',
+    group,
     width,
     height,
-    deviceScaleFactor: 1,
-    isMobile: false,
-    hasTouch: false,
+    deviceScaleFactor: device.deviceScaleFactor || 1,
+    isMobile,
+    hasTouch,
     orientation: 'landscape',
     aliases,
-    supported: true,
-    device: desktopDevice,
-  };
-}
-
-function ipadProfile(id, width, height, device, aliases = []) {
-  return {
-    id,
-    group: 'ipad',
-    width,
-    height,
-    deviceScaleFactor: device.deviceScaleFactor,
-    isMobile: true,
-    hasTouch: true,
-    orientation: 'landscape',
-    aliases,
-    supported: true,
+    supported,
     device,
   };
 }
+
+const desktopProfile = (id, width, height, aliases = []) => createProfile(id, width, height, { aliases });
+const ipadProfile = (id, width, height, device, aliases = []) => createProfile(id, width, height, {
+  group: 'ipad', device, aliases, isMobile: true, hasTouch: true,
+});
 
 export const supportedViewports = Object.freeze([
   desktopProfile('desktop-1440x900', 1440, 900),
@@ -67,43 +63,54 @@ function parseCustomViewport(value) {
   if (height > width) throw new Error('Custom capture viewports must be landscape.');
 
   return {
-    ...desktopProfile(`custom-${width}x${height}`, width, height, ['one-off viewport']),
+    ...createProfile(`custom-${width}x${height}`, width, height, { aliases: ['one-off viewport'] }),
     group: 'custom',
     supported: false,
   };
 }
 
+function parseViewportOption(value, options) {
+  const isSupported = supportedViewports.some(profile => profile.id === value || `${profile.width}x${profile.height}` === value);
+  if (!isSupported) parseCustomViewport(value);
+  options.viewport = value;
+}
+
+const optionHandlers = {
+  group(value, options) { options.group = value; },
+  viewport: parseViewportOption,
+  'output-dir'(value, options) { options.outputDir = value; },
+};
+
+function parseNamedOption(argument, options) {
+  const separator = argument.indexOf('=');
+  if (!argument.startsWith('--') || separator < 3) throw new Error(`Unknown option: ${argument}`);
+
+  const name = argument.slice(2, separator);
+  const value = argument.slice(separator + 1).trim();
+  if (!value) throw new Error(`Missing value for --${name}.`);
+
+  const handler = optionHandlers[name];
+  if (!handler) throw new Error(`Unknown option: ${argument}`);
+  handler(value, options);
+}
+
+function parseFlag(argument, options) {
+  if (argument === '--list') {
+    options.list = true;
+    return true;
+  }
+  if (argument === '--help' || argument === '-h') {
+    options.help = true;
+    return true;
+  }
+  return false;
+}
+
 export function parseCaptureArgs(argv) {
   const options = { group: 'all', viewport: null, outputDir: null, list: false };
-
   for (const argument of argv) {
-    if (argument === '--list') {
-      options.list = true;
-      continue;
-    }
-
-    if (argument === '--help' || argument === '-h') {
-      options.help = true;
-      continue;
-    }
-
-    const separator = argument.indexOf('=');
-    if (!argument.startsWith('--') || separator < 3) throw new Error(`Unknown option: ${argument}`);
-    const name = argument.slice(2, separator);
-    const value = argument.slice(separator + 1).trim();
-    if (!value) throw new Error(`Missing value for --${name}.`);
-
-    if (name === 'group') options.group = value;
-    else if (name === 'viewport') {
-      options.viewport = value;
-      if (!supportedViewports.some(profile => profile.id === value || `${profile.width}x${profile.height}` === value)) {
-        parseCustomViewport(value);
-      }
-    }
-    else if (name === 'output-dir') options.outputDir = value;
-    else throw new Error(`Unknown option: ${argument}`);
+    if (!parseFlag(argument, options)) parseNamedOption(argument, options);
   }
-
   return options;
 }
 

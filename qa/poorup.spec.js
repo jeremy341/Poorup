@@ -248,6 +248,44 @@ test.describe('Landscape iPad desk contract', () => {
     test.skip(!process.env.POORUP_VISUAL_CAPTURE_DIR && !iPadProfiles.includes(testInfo.project.name), 'Landscape iPad contract only outside the visual capture matrix.');
   }
 
+  function assertHeaderHeight(geometry, surfaceId, isIpad) {
+    if (isIpad) {
+      expect(Math.abs(geometry.header.height - 64), `${surfaceId} iPad header height`).toBeLessThanOrEqual(1);
+      return;
+    }
+    expect(geometry.header.height, `${surfaceId} wide landscape header minimum`).toBeGreaterThanOrEqual(56);
+    expect(geometry.header.height, `${surfaceId} wide landscape header maximum`).toBeLessThanOrEqual(80);
+  }
+
+  function internalScrollSelector(surfaceId) {
+    if (surfaceId === 'rules') return '#rules-page-content .rules-book-page-scroll';
+    if (surfaceId === 'profile') return '#profile-main';
+    return null;
+  }
+
+  async function assertInternalScroll(page, surfaceId) {
+    const selector = internalScrollSelector(surfaceId);
+    if (!selector) return;
+
+    const scroll = await page.locator(selector).evaluate(element => {
+      const maxScroll = element.scrollHeight - element.clientHeight;
+      element.scrollTop = maxScroll;
+      return { maxScroll, scrollTop: element.scrollTop };
+    });
+    if (scroll.maxScroll > 0) {
+      expect(scroll.scrollTop, `${surfaceId} scrolls internally when content overflows`).toBeGreaterThan(0);
+    } else {
+      expect(scroll.scrollTop, `${surfaceId} stays at rest when content fits`).toBe(0);
+    }
+    expect(await page.evaluate(() => window.scrollY), `${surfaceId} page stays at top`).toBe(0);
+    const rootScroll = await page.evaluate(() => ({
+      documentHeight: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      bodyHeight: document.body.scrollHeight - document.body.clientHeight,
+    }));
+    expect(rootScroll.documentHeight, `${surfaceId} document remains fixed`).toBeLessThanOrEqual(1);
+    expect(rootScroll.bodyHeight, `${surfaceId} body remains fixed`).toBeLessThanOrEqual(1);
+  }
+
   test('shared header and first content stay fixed and in view across top-level pages @ui-smoke', async ({ page }, testInfo) => {
     skipNonTablet(testInfo);
     await page.goto('/');
@@ -299,12 +337,8 @@ test.describe('Landscape iPad desk contract', () => {
       expect(geometry.nav, `${surface.id} nav`).not.toBeNull();
       expect(geometry.first, `${surface.id} first content`).not.toBeNull();
       expect(geometry.header.y, `${surface.id} header top`).toBeLessThanOrEqual(1);
-      if (testInfo.project.name.startsWith('ipad-') && geometry.viewport.width < 1280) {
-        expect(Math.abs(geometry.header.height - 64), `${surface.id} iPad header height`).toBeLessThanOrEqual(1);
-      } else {
-        expect(geometry.header.height, `${surface.id} wide landscape header minimum`).toBeGreaterThanOrEqual(56);
-        expect(geometry.header.height, `${surface.id} wide landscape header maximum`).toBeLessThanOrEqual(80);
-      }
+      const isIpad = testInfo.project.name.startsWith('ipad-') && geometry.viewport.width < 1280;
+      assertHeaderHeight(geometry, surface.id, isIpad);
       expect(geometry.first.top ?? geometry.first.y, `${surface.id} content starts below header`).toBeGreaterThanOrEqual(geometry.header.bottom - 1);
       expect(geometry.first.y, `${surface.id} first content begins in viewport`).toBeLessThan(geometry.viewport.height);
       expect(geometry.first.bottom, `${surface.id} first content bottom`).toBeLessThanOrEqual(geometry.viewport.height + 1);
@@ -322,31 +356,7 @@ test.describe('Landscape iPad desk contract', () => {
           fallbackPath: testInfo.outputPath(`ipad-${surface.id}.png`),
         });
       }
-      const internalScrollSelector = surface.id === 'rules'
-        ? '#rules-page-content .rules-book-page-scroll'
-        : surface.id === 'profile'
-          ? '#profile-main'
-          : null;
-      if (internalScrollSelector) {
-        const scroller = page.locator(internalScrollSelector);
-        const scroll = await scroller.evaluate(element => {
-          const maxScroll = element.scrollHeight - element.clientHeight;
-          element.scrollTop = maxScroll;
-          return { maxScroll, scrollTop: element.scrollTop };
-        });
-        if (scroll.maxScroll > 0) {
-          expect(scroll.scrollTop, `${surface.id} scrolls internally when content overflows`).toBeGreaterThan(0);
-        } else {
-          expect(scroll.scrollTop, `${surface.id} stays at rest when content fits`).toBe(0);
-        }
-        expect(await page.evaluate(() => window.scrollY), `${surface.id} page stays at top`).toBe(0);
-        const rootScroll = await page.evaluate(() => ({
-          documentHeight: document.documentElement.scrollHeight - document.documentElement.clientHeight,
-          bodyHeight: document.body.scrollHeight - document.body.clientHeight,
-        }));
-        expect(rootScroll.documentHeight, `${surface.id} document remains fixed`).toBeLessThanOrEqual(1);
-        expect(rootScroll.bodyHeight, `${surface.id} body remains fixed`).toBeLessThanOrEqual(1);
-      }
+      await assertInternalScroll(page, surface.id);
     }
 
     const baseline = snapshots[0];
