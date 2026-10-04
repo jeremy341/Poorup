@@ -11,6 +11,8 @@ import { GROUP_COLOR, RENT_TABLE, HOTEL_LEVEL } from "./clientBoardData.js";
 import { spriteHTML } from "./clientSprites.js";
 import { renderBoardState } from "./clientBoardRender.js";
 import { openSurface, closeSurface } from "./clientSurfaces.js";
+import { deedCurrentRentLabel, deedLadderHTML, tileRentExplanation } from "./clientDeedsRender.js";
+import { tileSupportsInspection } from "./clientTileInteraction.js";
 
 let host = { buyTile: noop, record: noop };
 
@@ -78,6 +80,8 @@ const POP_ICONS = {
 };
 
 export function kindLabel(tile) {
+  if (tile?.kind === "railroad" && tile.name?.includes("AIRPORT")) return "AIRPORT DEED";
+  if (tile?.kind === "utility" && tile.name) return `${tile.name} DEED`;
   return KIND_LABEL[tile.kind] || "CORNER TILE";
 }
 
@@ -87,6 +91,10 @@ export function accentOf(tile) {
 }
 
 export function effectText(tile) {
+  if (tile?.kind === "railroad" && tile.name?.includes("AIRPORT")) {
+    return "Airport rent increases with the number of airports you own.";
+  }
+  if (tile?.kind === "utility") return tileRentExplanation(tile);
   const entry = EFFECT_COPY[tile.kind] || "Board effect unavailable.";
   return typeof entry === "function" ? entry(tile) : entry;
 }
@@ -100,41 +108,13 @@ export function popRow(label, value, cls = "ink") {
   return `<div class="pop-row"><span class="t-label f12 g-muted">${label}</span><span class="t-label f12 v ${cls}">${value}</span></div>`;
 }
 
-function rentPropertyRows(table) {
-  const rows = [
-    ["BASE", `$${table.rents[0]}`],
-    ["1 HOUSE", `$${table.rents[1]}`],
-    ["2 HOUSES", `$${table.rents[2]}`],
-    ["3 HOUSES", `$${table.rents[3]}`],
-    ["4 HOUSES", `$${table.rents[4]}`],
-    ["HOTEL", `$${table.rents[5]}`],
-  ];
-  return `<div class="rent-grid">${rows.map(([k, v]) => `<div class="rent-grid-row"><span class="t-label f11 g-muted">${k}</span><span class="t-label f11 green">${v}</span></div>`).join("")}</div>`;
-}
-
-function rentRailroadRows(table) {
-  return `<div class="rent-grid">${[1, 2, 3, 4].map((n) => `<div class="rent-grid-row"><span class="t-label f11 g-muted">${n} RAIL${n === 1 ? "" : "S"}</span><span class="t-label f11 green">$${table.rents[n - 1]}</span></div>`).join("")}</div>`;
-}
-
-function rentUtilityRows(table) {
-  return `<div class="rent-grid">${[1, 2].map((n) => `<div class="rent-grid-row"><span class="t-label f11 g-muted">${n} UTIL${n === 1 ? "" : "S"}</span><span class="t-label f11 green">$${table.rents[n - 1]}</span></div>`).join("")}<p class="t-micro ink-3">* Multiplied by dice roll in classic rules</p></div>`;
-}
-
-function rentScheduleHTML(tile) {
-  const table = RENT_TABLE[tile.group || tile.kind];
-  if (!table) return "";
-  if (tile.kind === "property") return rentPropertyRows(table);
-  if (tile.kind === "railroad") return rentRailroadRows(table);
-  if (tile.kind === "utility") return rentUtilityRows(table);
-  return "";
-}
-
 function popPriceLabel(tile) {
   if (tile.kind === "tax") return "—";
   return tile.price != null ? `$${tile.price}` : "—";
 }
 
 function popRentLabel(tile) {
+  if (tile.kind === "utility") return deedCurrentRentLabel(tile);
   if (tile.rent != null) return `$${tile.rent}`;
   if (tile.kind === "tax") return `PAY $${tile.price ?? 200}`;
   return "—";
@@ -160,7 +140,11 @@ function popColorSetRows(tile) {
 
 function popRentSectionHTML(tile, buyable) {
   if (!buyable) return "";
-  return `<div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">RENT SCHEDULE</span></div>${rentScheduleHTML(tile)}`;
+  return `<div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">RENT SCHEDULE</span></div><div class="dd-ladder">${deedLadderHTML(tile)}</div>`;
+}
+
+function popEffectHeading(tile) {
+  return ["railroad", "utility"].includes(tile.kind) ? "RENT RULE" : "SPECIAL EFFECT";
 }
 
 function popOwnerFootHTML(owner) {
@@ -212,23 +196,23 @@ function popupCardHTML({ tile, owner, buyable, unowned, level }) {
   const buildTag = popBuildTag(buyable, level);
   return `
     <div class="pop-rail dd-rail" style="background:${accentOf(tile)}"></div>
-    <div class="pop-body dd-body">
-      <div class="pop-head dd-head">
-        <div class="pop-icon dd-icon">${popIconHTML(tile)}</div>
+    <div class="dd-body">
+      <div class="dd-head">
+        <div class="dd-icon">${popIconHTML(tile)}</div>
         <div class="pop-headtext">
           <div class="t-micro g400">${kindLabel(tile)}</div>
-          <h3 class="t-section pop-title dd-title" id="popup-card-title">${tile.name}${buildTag}</h3>
+          <h3 class="t-section dd-title" id="popup-card-title">${tile.name}${buildTag}</h3>
         </div>
-        <button class="btn-dark pop-close" id="pop-close"><span class="t-label f11">CLOSE</span></button>
+        <button class="btn-dark dd-close" id="pop-close"><span class="t-label f11">CLOSE</span></button>
       </div>
-      <div class="pop-rows dd-stats">
+      <div class="dd-stats">
         ${popRow("PURCHASE", price, "g300")}
-        ${popRow("BASE RENT", rent, "green")}
+        ${popRow(tile.kind === "utility" ? "RENT RULE" : "BASE RENT", rent, "green")}
         ${popRow("OWNER", ownerLabel, owner ? "ink" : "g-muted")}
         ${popColorSetRows(tile)}
       </div>
       ${popRentSectionHTML(tile, buyable)}
-      <div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">SPECIAL EFFECT</span></div>
+      <div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">${popEffectHeading(tile)}</span></div>
       <div class="pop-effect"><p class="t-body ink-2">${effectText(tile)}</p></div>
       ${popBuyRowHTML(tile, unowned)}
       <div class="pop-foot dd-foot">
@@ -260,6 +244,7 @@ export function closePopup() {
 }
 
 export function onTileClick(tile) {
+  if (!tileSupportsInspection(tile)) return;
   state.highlight = tile.i;
   const owner = state.players.find((p) => p.id === state.owners[tile.i]);
   host.record(`INSPECTED ${tile.name}${tile.price ? ` — $${tile.price}` : ""}${owner ? ` — OWNED BY ${owner.name}` : ""}`);

@@ -9,7 +9,7 @@ import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { RENT_TABLE, MAX_HOUSES, HOTEL_LEVEL, TILES, mortgageValue, unmortgageCost } from "./clientBoardData.js";
 import { ownsFullGroup } from "./clientDeedRules.js";
-import { deedLadderHTML } from "./clientDeedsRender.js";
+import { deedCurrentRentLabel, deedLadderHTML, tileRentExplanation } from "./clientDeedsRender.js";
 import { closeSurface, openSurface } from "./clientSurfaces.js";
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 
@@ -135,7 +135,7 @@ function renderDeedDetail() {
         ${reason ? `<p class="dd-build-msg" style="margin-top:10px">${esc(reason)}</p>` : ""}
       </div>`;
   } else if (mine) {
-    buildBlock = `<div class="dd-build"><p class="dd-build-msg">${tile.kind === "railroad" ? "Railroad rent scales with how many railroads you hold." : "Utility rent scales with how many utilities you hold."}</p></div>`;
+    buildBlock = `<div class="dd-build"><p class="dd-build-msg">${esc(tileRentExplanation(tile))}</p></div>`;
   }
 
   const mortgageAction = isMortgaged ? projectedActions?.unmortgage : projectedActions?.mortgage;
@@ -160,6 +160,7 @@ function renderDeedDetail() {
       <div class="dd-stats">
         ${popRow("PRICE", `$${tile.price}`, "g300")}
         ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, "green")}
+        ${!isProperty ? popRow(tile.kind === "utility" ? "RENT MULTIPLIER" : "RENT NOW", deedCurrentRentLabel(tile), "green") : ""}
         ${isProperty ? popRow("COLOR SET", tile.group.toUpperCase(), hasSet ? "green" : "g-muted") : ""}
         ${isProperty ? popRow("HOUSE COST", `$${houseCost}`, "g300") : ""}
       </div>

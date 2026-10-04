@@ -15,6 +15,7 @@ import {
 import { getTheme } from "./clientThemeData.js";
 import { state } from "./clientState.js";
 import { createWalkTimeline, PIECE_WALK_STEP_MS } from "./clientBoardMotion.js";
+import { tileSupportsInspection } from "./clientTileInteraction.js";
 
 export const SKYLINE = [
   [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
@@ -184,11 +185,16 @@ function buildTile(tile, onTileClick) {
   el.className = tileClassName(tile);
   el.dataset.tile = String(tile.i);
   el.setAttribute("aria-label", `${tile.name || "Tile"}${tile.price ? `, price $${tile.price}` : ""}`);
+  el.setAttribute("tabindex", "0");
+  if (!tileSupportsInspection(tile)) el.setAttribute("aria-disabled", "true");
   el.style.gridColumn = String(tile.col);
   el.style.gridRow = String(tile.row);
   applyTileFace(el, tile);
   el.insertAdjacentHTML("beforeend", `<span class="tile-build side-${tile.side}"></span>`);
-  el.addEventListener("click", () => onTileClick(tile));
+  el.addEventListener("click", () => {
+    if (!tileSupportsInspection(tile)) return;
+    onTileClick(tile);
+  });
   $("#board-grid").insertBefore(el, $("#center-field"));
 }
 
