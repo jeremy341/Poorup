@@ -244,7 +244,8 @@ test.describe('Poorup ruleset and social surfaces', () => {
 
 test.describe('Landscape iPad desk contract', () => {
   function skipNonTablet(testInfo) {
-    test.skip(!process.env.POORUP_VISUAL_CAPTURE_DIR && !['ipad-1024x768', 'ipad-1194x834'].includes(testInfo.project.name), 'Landscape iPad contract only outside the visual capture matrix.');
+    const iPadProfiles = ['ipad-944x656', 'ipad-1024x768', 'ipad-1080x810', 'ipad-1180x820', 'ipad-1194x834', 'ipad-1366x1024'];
+    test.skip(!process.env.POORUP_VISUAL_CAPTURE_DIR && !iPadProfiles.includes(testInfo.project.name), 'Landscape iPad contract only outside the visual capture matrix.');
   }
 
   test('shared header and first content stay fixed and in view across top-level pages @ui-smoke', async ({ page }, testInfo) => {
@@ -400,7 +401,7 @@ test.describe('Landscape iPad desk contract', () => {
   test('live game uses a board-first desk without page scrolling @ui-smoke', async ({ page, context }, testInfo) => {
     skipNonTablet(testInfo);
     const guest = await context.newPage();
-    const code = testInfo.project.name === 'ipad-1024x768' ? 'IPADM2' : 'IPADP2';
+    const code = `IP${String(page.viewportSize().width).padStart(4, '0')}`;
     await page.goto('/');
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
@@ -471,18 +472,17 @@ test.describe('Landscape iPad desk contract', () => {
     expect(geometry.vacationBox.width / geometry.moneyBox.width).toBeGreaterThanOrEqual(1.1);
     expect(geometry.cashContents.iconHidden).toBe(true);
     expect(geometry.cashContents.valueInside, JSON.stringify(geometry.cashContents)).toBe(true);
-    const boardHeightRatio = geometry.boardHolder.width / geometry.viewport.height;
-    if (testInfo.project.name === 'ipad-1194x834') {
-      expect(boardHeightRatio).toBeGreaterThanOrEqual(0.70);
-      expect(boardHeightRatio).toBeLessThanOrEqual(0.74);
-      expect(geometry.boardHolder.width / geometry.boardArea.width).toBeGreaterThanOrEqual(0.9);
-    } else {
-      expect(boardHeightRatio).toBeLessThanOrEqual(0.66);
-    }
-    expect(geometry.tileNameFontSize).toBeLessThanOrEqual(7.5);
-    expect(geometry.tilePriceFontSize).toBeLessThanOrEqual(8.5);
-    expect(geometry.tileSvgWidth).toBeLessThanOrEqual(20);
-    expect(geometry.airportIconWidth).toBeLessThanOrEqual(21);
+    expect(Math.abs(geometry.boardHolder.width - geometry.boardHolder.height)).toBeLessThanOrEqual(2);
+    expect(geometry.boardHolder.width).toBeLessThanOrEqual(geometry.boardArea.width + 2);
+    expect(geometry.boardHolder.height).toBeLessThanOrEqual(geometry.boardArea.height + 2);
+    expect(geometry.boardHolder.width / geometry.boardArea.width).toBeGreaterThanOrEqual(0.75);
+    const largerProType = geometry.viewport.width >= 1100;
+    expect(geometry.tileNameFontSize).toBeGreaterThanOrEqual(largerProType ? 8.5 : 7);
+    expect(geometry.tileNameFontSize).toBeLessThanOrEqual(12);
+    expect(geometry.tilePriceFontSize).toBeGreaterThanOrEqual(largerProType ? 9.5 : 8);
+    expect(geometry.tilePriceFontSize).toBeLessThanOrEqual(12);
+    expect(geometry.tileSvgWidth).toBeLessThanOrEqual(28);
+    expect(geometry.airportIconWidth).toBeLessThanOrEqual(30);
     expect(geometry.playerPieceWidth).toBeLessThanOrEqual(22);
     expect(geometry.playerPieceSvgWidth).toBeLessThanOrEqual(18);
     if (process.env.POORUP_CAPTURE_VISUALS) {
