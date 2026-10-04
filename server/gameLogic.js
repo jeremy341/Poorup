@@ -263,6 +263,7 @@ class GameState {
     this.turnOrder = [];
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
+    this.diceRollSequence = 0;
     this.hasRolled = false;
     this.consecutiveDoubles = 0;
     this.extraRollPending = false;
@@ -706,6 +707,7 @@ class GameState {
 
   setTurnDice(dice) {
     this.lastDice = dice;
+    this.diceRollSequence += 1;
     this.hasRolled = true;
     this.turnAllowsExtraRoll = dice[0] === dice[1];
     this.extraRollPending = this.turnAllowsExtraRoll;
@@ -735,6 +737,7 @@ class GameState {
     }
     const dice = rollDice();
     this.lastDice = dice;
+    this.diceRollSequence += 1;
     this.hasRolled = true;
     this.turnAllowsExtraRoll = false;
     this.extraRollPending = false;

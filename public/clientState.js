@@ -183,6 +183,7 @@ const state = {
   players: buildPlayers(0, "MARLOWE"),
   turnIndex: 0,
   dice: [3, 5],
+  diceRollSequence: 0,
   rolling: false,
   busy: false,
   // A local action stays locked until its acknowledgement or timeout. A
