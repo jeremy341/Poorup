@@ -106,11 +106,15 @@ function parseFlag(argument, options) {
   return false;
 }
 
+function parseCaptureArgument(argument, options) {
+  const isFlag = parseFlag(argument, options);
+  if (isFlag) return;
+  parseNamedOption(argument, options);
+}
+
 export function parseCaptureArgs(argv) {
   const options = { group: 'all', viewport: null, outputDir: null, list: false };
-  for (const argument of argv) {
-    if (!parseFlag(argument, options)) parseNamedOption(argument, options);
-  }
+  for (const argument of argv) parseCaptureArgument(argument, options);
   return options;
 }
 
