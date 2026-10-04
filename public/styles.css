@@ -1133,7 +1133,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 }
 @media (max-width: 900px) { .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .theme-popover { top: 48px; right: 8px; width: calc(100vw - 32px); max-height: calc(100dvh - 104px); } .theme-choice-grid { grid-template-columns: 1fr; max-height: calc(100dvh - 210px); } .theme-choice { min-height: 64px; } }
-@media (orientation: landscape) and (min-width: 768px) and (max-width: 1279px) { .theme-popover { width: min(540px, calc(100vw - 28px)); } }
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) { .theme-popover { width: min(540px, calc(100vw - 28px)); } }
 @media (prefers-reduced-motion: reduce) { .theme-scene.is-entering, .theme-prop { animation: none; transform: none; } }
 @media (forced-colors: active) { .theme-page-world, .theme-home-world, .theme-board-world { display: none; } .theme-choice:has(input:checked) { outline: 2px solid Highlight; } }
 .is-hidden { display: none !important; }
@@ -5016,11 +5016,11 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 
 /* ============================================================
    LANDSCAPE TABLET DESK — iPad-first composition
-   The board is the primary surface between 768px and 1279px landscape.
+   The board is the primary surface on landscape iPad touch profiles through 1399px.
    Keep the live round inside the viewport; rails and focused work scroll
    internally instead of turning the game into a long document.
    ============================================================ */
-@media (orientation: landscape) and (min-width: 768px) and (max-width: 1279px) {
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {
   html,
   body { min-height: 100%; overflow-x: hidden; }
 
@@ -5683,7 +5683,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .room-vote-panel, .room-vote-counts > div, .room-vote-progress { border-color: CanvasText; }
   .room-vote-progress > span { background: Highlight; }
 }
-@media (orientation: landscape) and (min-width: 768px) and (max-width: 1279px) {
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {
   #view-game .global-event-banner { width: min(680px, calc(100% - 14px)); gap: 8px; padding: 8px 10px; }
 }
 @media (hover: none) and (pointer: coarse) {

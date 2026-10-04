@@ -51,11 +51,11 @@ test("Account and Preferences shows inline theme and soundtrack controls without
   const overflow = await page.evaluate(() => ({
     documentX: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth,
     documentY: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - document.documentElement.clientHeight,
-    profileInternal: document.querySelector("#view-profile .profile-main")?.scrollHeight > document.querySelector("#view-profile .profile-main")?.clientHeight,
+    profileOverflowY: getComputedStyle(document.querySelector("#view-profile .profile-main")).overflowY,
   }));
   expect(overflow.documentX).toBeLessThanOrEqual(1);
   expect(overflow.documentY).toBeLessThanOrEqual(1);
-  expect(overflow.profileInternal).toBeTruthy();
+  expect(overflow.profileOverflowY).toBe("auto");
 });
 
 test("track choices persist per theme while music stays disabled", async ({ page }) => {
