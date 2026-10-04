@@ -50,6 +50,9 @@ check("offerButtonOpensConfirmationWithCurrentTerms", () => {
   const trigger = {};
   assert.equal(openBankLoanOffer(trigger), true);
   for (const term of ["$300", "$60 · 20%", "$360", "4", "5", "FAIR", "Boardwalk"]) assert.ok(card.innerHTML.includes(term));
+  assert.match(card.innerHTML, /bank-offer-content/);
+  assert.match(card.innerHTML, /class="bank-offer-collateral"/);
+  assert.match(card.innerHTML, /bank-offer-actions/);
   assert.match(card.innerHTML, /pledged deed is seized|seizes Boardwalk/);
   assert.match(bankLoanConfirmationHTML({ ...offer, collateralName: "NONE" }), /collects what it can; any remaining balance enters bank debt settlement/);
   assert.equal(opened[0][0], "#bank-loan-modal");

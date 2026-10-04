@@ -1,0 +1,41 @@
+/* Preserve the Poorup type tokens while giving the iPad Pro board more room. */
+
+#view-game .t-label,
+#view-game .t-body,
+#view-game .tile-name,
+#view-game .t-micro.ink-3,
+#view-game .t-micro.g-muted {
+  font-family: var(--font-ui);
+}
+
+#view-game .numeric,
+#view-game .t-money,
+#view-game .tile-price {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+@media (orientation: landscape) and (min-width: 1100px) and (max-width: 1279px) {
+  /* At Pro width the rails remain open and the full HUD remains visible. */
+  #view-game .game-main {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  #view-game .board-holder,
+  #view-game .board-holder.is-metro {
+    width: min(100cqw, 100cqh, 90dvh);
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  #view-game .tile-name,
+  #view-game .tile-face-special .tile-name {
+    font-size: clamp(8.5px, 1cqw, 12px);
+  }
+
+  #view-game .tile-price {
+    font-size: clamp(9.5px, 1.05cqw, 12px);
+  }
+}
