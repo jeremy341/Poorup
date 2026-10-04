@@ -55,69 +55,63 @@ async function ensureEmptyOutputDirectory(outputDir) {
   await mkdir(outputDir, { recursive: true });
 }
 
-async function main() {
-  let options;
+function readOptions(argv) {
   try {
-    options = parseCaptureArgs(process.argv.slice(2));
+    return { options: parseCaptureArgs(argv) };
   } catch (error) {
     console.error(error.message);
     console.error(usage());
-    return 2;
+    return { exitCode: 2 };
   }
-  if (options.help) {
-    console.log(usage());
-    return 0;
-  }
+}
 
-  let plan;
+function createCapturePlan(options) {
   try {
-    plan = buildCapturePlan(options);
+    return { plan: buildCapturePlan(options) };
   } catch (error) {
     console.error(error.message);
     console.error(usage());
-    return 2;
+    return { exitCode: 2 };
   }
-  if (options.list) {
-    console.log(formatCaptureList(plan));
-    return 0;
-  }
+}
 
-  try {
-    await ensureEmptyOutputDirectory(plan.outputDir);
-  } catch (error) {
-    console.error(error.message);
-    return 2;
-  }
-
+function captureEnvironment(plan, options) {
   const environment = { ...process.env };
-  environment.POORUP_VISUAL_CAPTURE = '1';
-  environment.POORUP_CAPTURE_VISUALS = '1';
-  environment.POORUP_VISUAL_CAPTURE_DIR = plan.outputDir;
-  environment.POORUP_CAPTURE_SEED = plan.runId;
-  environment.POORUP_CAPTURE_GROUP = plan.group;
-  environment.PORT = '8080';
+  Object.assign(environment, {
+    POORUP_VISUAL_CAPTURE: '1',
+    POORUP_CAPTURE_VISUALS: '1',
+    POORUP_VISUAL_CAPTURE_DIR: plan.outputDir,
+    POORUP_CAPTURE_SEED: plan.runId,
+    POORUP_CAPTURE_GROUP: plan.group,
+    PORT: '8080',
+  });
   delete environment.POORUP_QA_BASE_URL;
+
   if (options.viewport) {
     const profile = plan.profiles[0];
     environment.POORUP_CAPTURE_VIEWPORT = profile.supported ? profile.id : `${profile.width}x${profile.height}`;
   } else {
     delete environment.POORUP_CAPTURE_VIEWPORT;
   }
+  return environment;
+}
 
+function runPlaywright(plan, options) {
   const playwrightArgs = [playwrightCli, ...playwrightTestArgs(plan, configPath)];
-  console.log(formatCaptureList(plan));
   const run = spawnSync(process.execPath, playwrightArgs, {
     cwd: repositoryRoot,
-    env: environment,
+    env: captureEnvironment(plan, options),
     stdio: 'inherit',
     windowsHide: true,
   });
-  const playwrightExitCode = run.error || run.status === null ? 1 : run.status;
-  const failures = run.error ? [run.error.message] : playwrightExitCode === 0 ? [] : [`Playwright exited with code ${playwrightExitCode}.`];
+  const exitCode = run.error || run.status === null ? 1 : run.status;
+  const failures = run.error ? [run.error.message] : exitCode === 0 ? [] : [`Playwright exited with code ${exitCode}.`];
+  return { exitCode, failures };
+}
 
-  let manifest;
+async function writeCaptureGallery(plan, failures) {
   try {
-    manifest = await buildGallery({
+    const manifest = await buildGallery({
       outputDir: plan.outputDir,
       profiles: plan.profiles,
       expectedCaptures: plan.expectedCaptures,
@@ -125,15 +119,49 @@ async function main() {
       failures,
       runId: plan.runId,
     });
+    return { manifest };
   } catch (error) {
     console.error(`Could not build capture gallery: ${error.message}`);
-    return 1;
+    return { exitCode: 1 };
   }
+}
+
+async function executeCapture(plan, options) {
+  try {
+    await ensureEmptyOutputDirectory(plan.outputDir);
+  } catch (error) {
+    console.error(error.message);
+    return 2;
+  }
+
+  console.log(formatCaptureList(plan));
+  const result = runPlaywright(plan, options);
+  const gallery = await writeCaptureGallery(plan, result.failures);
+  if (!gallery.manifest) return gallery.exitCode;
 
   console.log(`Gallery: ${path.join(plan.outputDir, 'index.html')}`);
   console.log(`Manifest: ${path.join(plan.outputDir, 'manifest.json')}`);
-  console.log(`Captured ${manifest.summary.captured}/${manifest.summary.expected}; ${manifest.summary.missing} missing, ${manifest.summary.duplicates} duplicates, ${manifest.summary.failed} failures.`);
-  return evaluateCaptureResult(plan, playwrightExitCode, manifest);
+  console.log(`Captured ${gallery.manifest.summary.captured}/${gallery.manifest.summary.expected}; ${gallery.manifest.summary.missing} missing, ${gallery.manifest.summary.duplicates} duplicates, ${gallery.manifest.summary.failed} failures.`);
+  return evaluateCaptureResult(plan, result.exitCode, gallery.manifest);
+}
+
+async function main() {
+  const parsed = readOptions(process.argv.slice(2));
+  if (parsed.exitCode !== undefined) return parsed.exitCode;
+  const { options } = parsed;
+  if (options.help) {
+    console.log(usage());
+    return 0;
+  }
+
+  const prepared = createCapturePlan(options);
+  if (prepared.exitCode !== undefined) return prepared.exitCode;
+  const { plan } = prepared;
+  if (options.list) {
+    console.log(formatCaptureList(plan));
+    return 0;
+  }
+  return executeCapture(plan, options);
 }
 
 main().then(code => {

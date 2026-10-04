@@ -12,29 +12,16 @@ function escapeHtml(value) {
   })[character]);
 }
 
-function expectedEntries(profiles, entries) {
-  const catalog = entries || captureCatalog.flatMap(suite => suite.surfaceIds.map(surfaceId => ({
+function captureEntries(entries) {
+  return entries || captureCatalog.flatMap(suite => suite.surfaceIds.map(surfaceId => ({
     group: suite.group,
     surfaceId,
     label: surfaceId.replaceAll('-', ' '),
   })));
-  if (catalog.some(entry => entry.profileId)) {
-    const profilesById = new Map(profiles.map(profile => [profile.id, profile]));
-    return catalog.map(entry => {
-      const profile = profilesById.get(entry.profileId);
-      if (!profile) throw new Error(`Expected capture references unknown viewport ${entry.profileId}.`);
-      return {
-        ...entry,
-        width: entry.width || profile.width,
-        height: entry.height || profile.height,
-        deviceScaleFactor: entry.deviceScaleFactor || profile.deviceScaleFactor || 1,
-        aliases: entry.aliases || profile.aliases || [],
-        key: `${entry.profileId}/${entry.group}/${entry.surfaceId}`,
-        relativePath: `${entry.profileId}/${entry.group}/${entry.surfaceId}.png`,
-      };
-    });
-  }
-  return profiles.flatMap(profile => catalog.map(entry => ({
+}
+
+function expectedEntryForProfile(profile, entry) {
+  return {
     profileId: profile.id,
     width: profile.width,
     height: profile.height,
@@ -45,7 +32,30 @@ function expectedEntries(profiles, entries) {
     label: entry.label || entry.surfaceId.replaceAll('-', ' '),
     key: `${profile.id}/${entry.group}/${entry.surfaceId}`,
     relativePath: `${profile.id}/${entry.group}/${entry.surfaceId}.png`,
-  })));
+  };
+}
+
+function expectedEntryForExplicitProfile(entry, profilesById) {
+  const profile = profilesById.get(entry.profileId);
+  if (!profile) throw new Error(`Expected capture references unknown viewport ${entry.profileId}.`);
+  return {
+    ...entry,
+    width: entry.width || profile.width,
+    height: entry.height || profile.height,
+    deviceScaleFactor: entry.deviceScaleFactor || profile.deviceScaleFactor || 1,
+    aliases: entry.aliases || profile.aliases || [],
+    key: `${entry.profileId}/${entry.group}/${entry.surfaceId}`,
+    relativePath: `${entry.profileId}/${entry.group}/${entry.surfaceId}.png`,
+  };
+}
+
+function expectedEntries(profiles, requestedEntries) {
+  const entries = captureEntries(requestedEntries);
+  if (entries.some(entry => entry.profileId)) {
+    const profilesById = new Map(profiles.map(profile => [profile.id, profile]));
+    return entries.map(entry => expectedEntryForExplicitProfile(entry, profilesById));
+  }
+  return profiles.flatMap(profile => entries.map(entry => expectedEntryForProfile(profile, entry)));
 }
 
 async function readCaptureRecords(outputDir) {
