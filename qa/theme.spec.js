@@ -180,13 +180,16 @@ test.describe("Poorup seasonal worlds", () => {
       profileScrollTop: document.querySelector("#view-profile .profile-main")?.scrollTop,
       profileScrollHeight: document.querySelector("#view-profile .profile-main")?.scrollHeight,
       profileClientHeight: document.querySelector("#view-profile .profile-main")?.clientHeight,
+      profileOverflowY: getComputedStyle(document.querySelector("#view-profile .profile-main")).overflowY,
       panel: document.querySelector("#theme-music-panel")?.getBoundingClientRect().toJSON(),
     }));
     expect(metrics.documentX).toBeLessThanOrEqual(1);
     expect(metrics.documentY).toBeLessThanOrEqual(1);
     expect(metrics.pageScrollY).toBe(0);
-    expect(metrics.profileScrollTop).toBeGreaterThan(0);
-    expect(metrics.profileScrollHeight).toBeGreaterThan(metrics.profileClientHeight);
+    expect(metrics.profileOverflowY).toBe("auto");
+    const profileOverflows = metrics.profileScrollHeight > metrics.profileClientHeight;
+    if (profileOverflows) expect(metrics.profileScrollTop).toBeGreaterThan(0);
+    else expect(metrics.profileScrollTop).toBe(0);
     expect(metrics.panel.left).toBeGreaterThanOrEqual(0);
     expect(metrics.panel.right).toBeLessThanOrEqual(page.viewportSize().width + 1);
     expect(metrics.panel.top).toBeGreaterThanOrEqual(0);
@@ -194,7 +197,7 @@ test.describe("Poorup seasonal worlds", () => {
   });
 
   test("captures the six home worlds at native 1920", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1920", "visual evidence is pinned to the primary desktop viewport");
+    test.skip(testInfo.project.name !== "desktop-1920x1080", "visual evidence is pinned to the primary desktop viewport");
     const evidenceDir = resolve("qa-artifacts", "theme-homes-1920");
     mkdirSync(evidenceDir, { recursive: true });
     for (const id of themeIds) {

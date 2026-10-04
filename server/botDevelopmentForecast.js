@@ -7,23 +7,9 @@
 // optional opponents list. Everything degrades to safe defaults on thin
 // snapshots so legacy callers keep working.
 import { PROPERTY_RENT_MULTIPLIERS } from './gameData.js';
-
-// Flat traffic tiers mirror botTradeValuation so build priority and trade
-// pricing agree on which groups matter. Percent, whole-dollar math.
-const GROUP_TRAFFIC_PERCENT = {
-  Orange: 130,
-  'Light Blue': 120,
-  Red: 115,
-  Pink: 110,
-  Yellow: 105,
-  Green: 100,
-  Brown: 95,
-  'Dark Blue': 90,
-};
-
-function trafficPercent(group) {
-  return GROUP_TRAFFIC_PERCENT[group] || 100;
-}
+// Flat traffic tiers come from the one canonical table in botTradeValuation so
+// build priority and trade pricing always agree on which groups matter.
+import { trafficPercent } from './botTradeValuation.js';
 
 function number(value, fallback = 0) {
   const parsed = Number(value);

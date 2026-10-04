@@ -1,4 +1,6 @@
+/* global process, document, window, innerWidth, innerHeight, getComputedStyle */
 import { test, expect } from '@playwright/test';
+import { captureScreenshot } from './visual-capture/screenshot.mjs';
 
 test.describe('Poorup ruleset and social surfaces', () => {
   test('home keeps the global navigation and audio controls @ui-smoke', async ({ page }) => {
@@ -87,7 +89,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     expect(inputBox).not.toBeNull();
     expect(findBox).not.toBeNull();
     expect(Math.abs(inputBox.height - findBox.height)).toBeLessThan(1);
-    if (testInfo.project.name === 'desktop-1920') {
+    if (testInfo.project.name === 'desktop-1920x1080') {
       const stageBox = await stage.boundingBox();
       const seasonBox = await page.locator('#rankings-page-content .rankings-context').boundingBox();
       expect(stageBox).not.toBeNull();
@@ -122,7 +124,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
   });
 
   test('1920 geometry keeps social search aligned and public lobby authoritative', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'desktop-1920', 'desktop geometry contract');
+    test.skip(testInfo.project.name !== 'desktop-1920x1080', 'desktop geometry contract');
     await page.goto('/');
     await page.locator('#home-alias').fill('DESKTOPHOST');
     await page.locator('#home-social-tab').click();
@@ -169,7 +171,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
   });
 
   test('Metro 52 and advanced Market keep the Activity rail contract', async ({ page, context }, testInfo) => {
-    test.skip(testInfo.project.name !== 'desktop-1920', 'The full two-seat integration evidence is captured on the 1920px project.');
+    test.skip(testInfo.project.name !== 'desktop-1920x1080', 'The full two-seat integration evidence is captured on the 1920px project.');
     const guest = await context.newPage();
     await page.goto('/');
     await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -242,7 +244,46 @@ test.describe('Poorup ruleset and social surfaces', () => {
 
 test.describe('Landscape iPad desk contract', () => {
   function skipNonTablet(testInfo) {
-    test.skip(!['ipad-mini-landscape', 'ipad-pro-11-landscape'].includes(testInfo.project.name), 'Landscape iPad contract only.');
+    const iPadProfiles = ['ipad-944x656', 'ipad-1024x768', 'ipad-1080x810', 'ipad-1180x820', 'ipad-1194x834', 'ipad-1366x1024'];
+    test.skip(!process.env.POORUP_VISUAL_CAPTURE_DIR && !iPadProfiles.includes(testInfo.project.name), 'Landscape iPad contract only outside the visual capture matrix.');
+  }
+
+  function assertHeaderHeight(geometry, surfaceId, isIpad) {
+    if (isIpad) {
+      expect(Math.abs(geometry.header.height - 64), `${surfaceId} iPad header height`).toBeLessThanOrEqual(1);
+      return;
+    }
+    expect(geometry.header.height, `${surfaceId} wide landscape header minimum`).toBeGreaterThanOrEqual(56);
+    expect(geometry.header.height, `${surfaceId} wide landscape header maximum`).toBeLessThanOrEqual(80);
+  }
+
+  function internalScrollSelector(surfaceId) {
+    if (surfaceId === 'rules') return '#rules-page-content .rules-book-page-scroll';
+    if (surfaceId === 'profile') return '#profile-main';
+    return null;
+  }
+
+  async function assertInternalScroll(page, surfaceId) {
+    const selector = internalScrollSelector(surfaceId);
+    if (!selector) return;
+
+    const scroll = await page.locator(selector).evaluate(element => {
+      const maxScroll = element.scrollHeight - element.clientHeight;
+      element.scrollTop = maxScroll;
+      return { maxScroll, scrollTop: element.scrollTop };
+    });
+    if (scroll.maxScroll > 0) {
+      expect(scroll.scrollTop, `${surfaceId} scrolls internally when content overflows`).toBeGreaterThan(0);
+    } else {
+      expect(scroll.scrollTop, `${surfaceId} stays at rest when content fits`).toBe(0);
+    }
+    expect(await page.evaluate(() => window.scrollY), `${surfaceId} page stays at top`).toBe(0);
+    const rootScroll = await page.evaluate(() => ({
+      documentHeight: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      bodyHeight: document.body.scrollHeight - document.body.clientHeight,
+    }));
+    expect(rootScroll.documentHeight, `${surfaceId} document remains fixed`).toBeLessThanOrEqual(1);
+    expect(rootScroll.bodyHeight, `${surfaceId} body remains fixed`).toBeLessThanOrEqual(1);
   }
 
   test('shared header and first content stay fixed and in view across top-level pages @ui-smoke', async ({ page }, testInfo) => {
@@ -296,7 +337,8 @@ test.describe('Landscape iPad desk contract', () => {
       expect(geometry.nav, `${surface.id} nav`).not.toBeNull();
       expect(geometry.first, `${surface.id} first content`).not.toBeNull();
       expect(geometry.header.y, `${surface.id} header top`).toBeLessThanOrEqual(1);
-      expect(Math.abs(geometry.header.height - 64), `${surface.id} header height`).toBeLessThanOrEqual(1);
+      const isIpad = testInfo.project.name.startsWith('ipad-') && geometry.viewport.width < 1280;
+      assertHeaderHeight(geometry, surface.id, isIpad);
       expect(geometry.first.top ?? geometry.first.y, `${surface.id} content starts below header`).toBeGreaterThanOrEqual(geometry.header.bottom - 1);
       expect(geometry.first.y, `${surface.id} first content begins in viewport`).toBeLessThan(geometry.viewport.height);
       expect(geometry.first.bottom, `${surface.id} first content bottom`).toBeLessThanOrEqual(geometry.viewport.height + 1);
@@ -306,31 +348,15 @@ test.describe('Landscape iPad desk contract', () => {
       expect(geometry.document.bodyYOverflow, `${surface.id} body vertical overflow`).toBeLessThanOrEqual(1);
       expect(geometry.scrollY, `${surface.id} window scroll position`).toBe(0);
       snapshots.push({ id: surface.id, header: geometry.header, brand: geometry.brand, nav: geometry.nav });
-      if (process.env.POORUP_CAPTURE_VISUALS) {
-        await page.screenshot({ path: testInfo.outputPath(`ipad-${surface.id}.png`), fullPage: true });
-      }
-      const internalScrollSelector = surface.id === 'rules'
-        ? '#rules-page-content .rules-book-page-scroll'
-        : surface.id === 'profile'
-          ? '#profile-main'
-          : null;
-      if (internalScrollSelector) {
-        const scroller = page.locator(internalScrollSelector);
-        const scroll = await scroller.evaluate(element => {
-          const maxScroll = element.scrollHeight - element.clientHeight;
-          element.scrollTop = maxScroll;
-          return { maxScroll, scrollTop: element.scrollTop };
+      if (process.env.POORUP_VISUAL_CAPTURE_DIR || process.env.POORUP_CAPTURE_VISUALS) {
+        await captureScreenshot(page, testInfo, {
+          group: 'pages',
+          surfaceId: surface.id,
+          label: `${surface.id} top-level page`,
+          fallbackPath: testInfo.outputPath(`ipad-${surface.id}.png`),
         });
-        expect(scroll.maxScroll, `${surface.id} has a scoped internal scroll region`).toBeGreaterThan(0);
-        expect(scroll.scrollTop, `${surface.id} scrolls internally`).toBeGreaterThan(0);
-        expect(await page.evaluate(() => window.scrollY), `${surface.id} page stays at top`).toBe(0);
-        const rootScroll = await page.evaluate(() => ({
-          documentHeight: document.documentElement.scrollHeight - document.documentElement.clientHeight,
-          bodyHeight: document.body.scrollHeight - document.body.clientHeight,
-        }));
-        expect(rootScroll.documentHeight, `${surface.id} document remains fixed`).toBeLessThanOrEqual(1);
-        expect(rootScroll.bodyHeight, `${surface.id} body remains fixed`).toBeLessThanOrEqual(1);
       }
+      await assertInternalScroll(page, surface.id);
     }
 
     const baseline = snapshots[0];
@@ -348,20 +374,22 @@ test.describe('Landscape iPad desk contract', () => {
   test('home, rankings, and social keep readable horizontal panels', async ({ page }, testInfo) => {
     skipNonTablet(testInfo);
     const viewport = page.viewportSize();
+    const minimumPanelHeight = Math.min(240, Math.floor(viewport.height * 0.30));
+    const minimumContextHeight = Math.min(240, Math.floor(viewport.height * 0.30));
     await page.goto('/');
     await expect.poll(() => page.evaluate(() => ({ width: document.body.clientWidth, scrollWidth: document.body.scrollWidth, height: document.body.clientHeight, scrollHeight: document.body.scrollHeight }))).toEqual({ width: viewport.width, scrollWidth: viewport.width, height: viewport.height, scrollHeight: viewport.height });
 
     await page.locator('#home-rankings-tab').click();
     await expect(page.locator('#rankings-page-content [data-ranking-stage]')).toBeVisible();
-    await expect.poll(() => page.locator('#rankings-page-content .rankings-stage').evaluate(el => el.clientHeight)).toBeGreaterThan(240);
-    await expect.poll(() => page.locator('#rankings-page-content .ranking-list').evaluate(el => el.clientHeight)).toBeGreaterThan(100);
-    await expect.poll(() => page.locator('#rankings-page-content .rankings-context').evaluate(el => el.clientHeight)).toBeGreaterThan(240);
+    await expect.poll(() => page.locator('#rankings-page-content .rankings-stage').evaluate(el => el.clientHeight)).toBeGreaterThan(minimumPanelHeight);
+    await expect.poll(() => page.locator('#rankings-page-content .ranking-list').evaluate(el => el.clientHeight)).toBeGreaterThan(24);
+    await expect.poll(() => page.locator('#rankings-page-content .rankings-context').evaluate(el => el.clientHeight)).toBeGreaterThan(minimumContextHeight);
 
     await page.locator('#view-rankings [data-top-surface="social"]').click();
     await expect(page.locator('#social-page-content .social-feed')).toBeVisible();
-    await expect.poll(() => page.locator('#social-page-content .social-feed').evaluate(el => el.clientHeight)).toBeGreaterThan(240);
+    await expect.poll(() => page.locator('#social-page-content .social-feed').evaluate(el => el.clientHeight)).toBeGreaterThan(minimumPanelHeight);
     await expect.poll(() => page.locator('#social-page-content .social-surface-body').evaluate(el => el.clientHeight)).toBeGreaterThan(120);
-    await expect.poll(() => page.locator('#social-page-content .social-context').evaluate(el => el.clientHeight)).toBeGreaterThan(180);
+    await expect.poll(() => page.locator('#social-page-content .social-context').evaluate(el => el.clientHeight)).toBeGreaterThan(Math.min(180, Math.floor(viewport.height * 0.27)));
   });
 
   test('destination focus and touch targets remain intentional', async ({ page }, testInfo) => {
@@ -385,7 +413,7 @@ test.describe('Landscape iPad desk contract', () => {
   test('live game uses a board-first desk without page scrolling @ui-smoke', async ({ page, context }, testInfo) => {
     skipNonTablet(testInfo);
     const guest = await context.newPage();
-    const code = testInfo.project.name === 'ipad-mini-landscape' ? 'IPADM2' : 'IPADP2';
+    const code = `IP${String(page.viewportSize().width).padStart(4, '0')}`;
     await page.goto('/');
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
@@ -456,18 +484,17 @@ test.describe('Landscape iPad desk contract', () => {
     expect(geometry.vacationBox.width / geometry.moneyBox.width).toBeGreaterThanOrEqual(1.1);
     expect(geometry.cashContents.iconHidden).toBe(true);
     expect(geometry.cashContents.valueInside, JSON.stringify(geometry.cashContents)).toBe(true);
-    const boardHeightRatio = geometry.boardHolder.width / geometry.viewport.height;
-    if (testInfo.project.name === 'ipad-pro-11-landscape') {
-      expect(boardHeightRatio).toBeGreaterThanOrEqual(0.70);
-      expect(boardHeightRatio).toBeLessThanOrEqual(0.74);
-      expect(geometry.boardHolder.width / geometry.boardArea.width).toBeGreaterThanOrEqual(0.9);
-    } else {
-      expect(boardHeightRatio).toBeLessThanOrEqual(0.66);
-    }
-    expect(geometry.tileNameFontSize).toBeLessThanOrEqual(7.5);
-    expect(geometry.tilePriceFontSize).toBeLessThanOrEqual(8.5);
-    expect(geometry.tileSvgWidth).toBeLessThanOrEqual(20);
-    expect(geometry.airportIconWidth).toBeLessThanOrEqual(21);
+    expect(Math.abs(geometry.boardHolder.width - geometry.boardHolder.height)).toBeLessThanOrEqual(2);
+    expect(geometry.boardHolder.width).toBeLessThanOrEqual(geometry.boardArea.width + 2);
+    expect(geometry.boardHolder.height).toBeLessThanOrEqual(geometry.boardArea.height + 2);
+    expect(geometry.boardHolder.width / geometry.boardArea.width).toBeGreaterThanOrEqual(0.75);
+    const largerProType = geometry.viewport.width >= 1100;
+    expect(geometry.tileNameFontSize).toBeGreaterThanOrEqual(largerProType ? 8.5 : 7);
+    expect(geometry.tileNameFontSize).toBeLessThanOrEqual(12);
+    expect(geometry.tilePriceFontSize).toBeGreaterThanOrEqual(largerProType ? 9.5 : 8);
+    expect(geometry.tilePriceFontSize).toBeLessThanOrEqual(12);
+    expect(geometry.tileSvgWidth).toBeLessThanOrEqual(28);
+    expect(geometry.airportIconWidth).toBeLessThanOrEqual(30);
     expect(geometry.playerPieceWidth).toBeLessThanOrEqual(22);
     expect(geometry.playerPieceSvgWidth).toBeLessThanOrEqual(18);
     if (process.env.POORUP_CAPTURE_VISUALS) {

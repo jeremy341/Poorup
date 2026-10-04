@@ -426,6 +426,93 @@ check('a legacy room\'s optional systems survive the first ruleset meta write (T
     'the ruleset flow must honor captured legacy overrides, not silently strip them');
 });
 
+check('a lender cannot accept the contract they adjusted themselves (B-01)', () => {
+  const room = startedRoom({ rulesetPreset: 'after-hours' });
+  const game = room.game;
+  const [lender, borrower] = game.players;
+  const proposed = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 100, premiumRate: 0, durationRounds: 3, requestId: 'b01-propose'
+  });
+  assert.equal(proposed.success, true);
+  const adjusted = room.adjustPlayerContract('a', {
+    contractId: game.pendingPlayerContract.id, kind: 'loan', amount: 800, premiumRate: 100, durationRounds: 1
+  });
+  assert.equal(adjusted.success, true);
+  const pending = game.pendingPlayerContract;
+  assert.equal(pending.amount, 800);
+  assert.equal(pending.lastProposerId, lender.id,
+    'a mutated pending contract records the acting seat as the last proposer');
+  assert.equal(contractResponderId(pending), borrower.id,
+    'the seat that did not act last is the one awaiting the decision');
+  assert.deepEqual(room.respondPlayerContract('a', true, 'b01-self-accept', pending.id), {
+    success: false, error: 'No matching player contract was found.'
+  }, 'the lender of record must not be able to accept their own adjusted terms');
+  assert.equal(game.pendingPlayerContract, pending, 'the rejected self-accept leaves the offer open');
+  const accepted = room.respondPlayerContract('b', true, 'b01-borrower-accept', pending.id);
+  assert.equal(accepted.success, true);
+  assert.equal(accepted.contract.totalDue, 1600);
+  assert.equal(lender.cash, 1500 - 800);
+  assert.equal(borrower.cash, 1500 + 800);
+});
+
+check('a replayed response requestId cannot settle a different contract (B-20)', () => {
+  const room = startedRoom({ rulesetPreset: 'after-hours' });
+  const game = room.game;
+  const [lender, borrower] = game.players;
+  const first = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 100, premiumRate: 0, durationRounds: 2, requestId: 'b20-first'
+  });
+  assert.equal(first.success, true);
+  assert.equal(room.respondPlayerContract('b', true, 'REUSE', first.contract.id).success, true);
+  const second = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 300, premiumRate: 0, durationRounds: 2, requestId: 'b20-second'
+  });
+  assert.equal(second.success, true);
+  const replayed = room.respondPlayerContract('b', true, 'REUSE', second.contract.id);
+  assert.equal(replayed.success, true);
+  assert.equal(replayed.contract?.id, second.contract.id,
+    'the replayed requestId must settle contract 2, not replay contract 1 memo');
+  assert.equal(game.pendingPlayerContract, null, 'the table obligation resolves instead of stranding');
+  assert.equal(lender.cash, 1500 - 400);
+  assert.equal(borrower.cash, 1500 + 400);
+  const third = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 50, premiumRate: 0, durationRounds: 1, requestId: 'b20-third'
+  });
+  assert.equal(third.success, true, 'the table is not stranded after the reused requestId');
+});
+
+check('an equity rent share the owner cannot pay is carried, not destroyed (B-21)', () => {
+  const room = startedRoom({ rulesetPreset: 'after-hours' });
+  const game = room.game;
+  const [holder, owner] = game.players;
+  const tile = game.getTile(1);
+  tile.ownerId = owner.id;
+  owner.properties = [tile.index];
+  const contract = {
+    id: 'b21-equity', kind: 'equity', fromPlayerId: holder.id, toPlayerId: owner.id,
+    propertyIndex: tile.index, equityShare: 70, equityControl: 'passive', permanent: true,
+    expiresRound: null, amount: 100, status: 'active', createdRound: game.roundNumber
+  };
+  game.playerContracts.push(contract);
+  tile.equityShares = [{ holderId: holder.id, share: 70, contractId: contract.id, control: 'passive' }];
+  owner.cash = 0;
+  const holderBefore = holder.cash;
+  game.settleEquityShares(tile, owner, 26);
+  assert.equal(holder.cash, holderBefore, 'a broke owner never mints the share out of nothing');
+  assert.equal(contract.unpaidRentShare, 18, 'the unpaid 70% of $26 stays owed on the contract');
+  owner.cash = 10;
+  game.settleEquityShares(tile, owner, 10);
+  assert.equal(holder.cash, holderBefore + 10, 'the owner cash is the only source of a share payout');
+  assert.equal(owner.cash, 0);
+  assert.equal(contract.unpaidRentShare, 15, 'only the covered part of the carried share is paid');
+  owner.cash = 30;
+  game.settleEquityShares(tile, owner, 10);
+  assert.equal(holder.cash, holderBefore + 32, 'the holder ends up with 70% of every rent collected');
+  assert.equal(owner.cash, 8);
+  assert.equal(contract.unpaidRentShare, 0);
+  assert.equal(contract.rentCollected, 32);
+});
+
 if (failures.length) {
   console.error(`\nbackend audit regressions: ${failures.length} failed`);
   process.exitCode = 1;

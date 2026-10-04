@@ -665,7 +665,18 @@ export function playerContractRailHTML(filter = state.dealsFilter) {
   const ctx = contractContext();
   const dueDebts = financeMyDueDebts(ctx.active, ctx.localServerId);
   const equityEntries = financeEquityEntries(ctx.localServerId);
-  const trade = state.pendingTrade && (state.pendingTrade.fromPlayerId === ctx.localServerId || state.pendingTrade.toPlayerId === ctx.localServerId) ? state.pendingTrade : null;
+  const incomingSocketOffer = (state.offers || []).find(offer =>
+    offer?.id && (offer.toPlayerId === ctx.localServerId || offer.to === ctx.localServerId));
+  const activeTrade = state.pendingTrade || (incomingSocketOffer ? {
+    ...incomingSocketOffer,
+    fromPlayerId: incomingSocketOffer.fromPlayerId || incomingSocketOffer.from,
+    toPlayerId: incomingSocketOffer.toPlayerId || incomingSocketOffer.to,
+    givePropertyIndexes: incomingSocketOffer.givePropertyIndexes || incomingSocketOffer.giveDeeds || [],
+    requestPropertyIndexes: incomingSocketOffer.requestPropertyIndexes || incomingSocketOffer.wantDeeds || [],
+    requestCash: incomingSocketOffer.requestCash ?? incomingSocketOffer.wantCash ?? 0,
+  } : null);
+  const trade = activeTrade && (activeTrade.fromPlayerId === ctx.localServerId || activeTrade.toPlayerId === ctx.localServerId
+    || activeTrade.from === ctx.localServerId || activeTrade.to === ctx.localServerId) ? activeTrade : null;
   let body = financeHeaderHTML(ctx.offer, dueDebts, ctx.active, trade && trade.toPlayerId === ctx.localServerId ? trade : null);
   if (currentFilter === "needs-you") {
     const tradeBlock = trade && trade.toPlayerId === ctx.localServerId ? tradeRailBlockHTML(trade, ctx.localServerId) : "";

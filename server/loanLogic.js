@@ -38,7 +38,6 @@ function electionBankFirst(game) {
 
 function premiumRateAfterEvents(game, rate) {
   let premiumRate = rate;
-  if (game.globalEventActive('inflation-spiral')) premiumRate *= 1.25;
   const loanPremiumMultiplier = Number(game.activeEventEffects().loanPremiumMultiplier);
   if (Number.isFinite(loanPremiumMultiplier)) {
     if (loanPremiumMultiplier > 0) premiumRate *= loanPremiumMultiplier;

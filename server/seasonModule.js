@@ -29,6 +29,25 @@ const REWARD_TRACK = Object.freeze([  { id: 'season-bronze', track: 'placement',
 // Placement tracks need a real population: a lone account must not sweep
 // bronze through top in a one-player season.
 const MIN_PLACEMENT_POPULATION = 10;
+// ...and a real record behind the rank. All four placement bands stack on one
+// rank ladder, so the population floor alone still let ONE match claim bronze
+// through top (480 tokens) -- 105 season points and a single win was enough
+// evidence. Placement is the primary, most-accessible track in an eight-week
+// season, so its floor sits deliberately below the sibling tracks (grinder
+// wants 8 participations, a mastery of 500 wants ~8-12 matches): two recorded
+// matches is the smallest record that cannot come from a single game, and it
+// keeps the wide bronze band open to a player who simply came back. Expressed
+// in the same participation counter the sibling track already uses.
+const MIN_PLACEMENT_PARTICIPATION = 2;
+
+// Standings rows always come out of sortStandings, which normalizes
+// participation, so the floor binds on every claimable row. A projection that
+// carries no participation counter at all (no settled match behind it) is not
+// season evidence and falls back to the legacy rank ladder.
+function placementParticipationAllows(row) {
+  if (!Number.isFinite(Number(row?.participation))) return true;
+  return Math.max(0, Math.floor(Number(row.participation))) >= MIN_PLACEMENT_PARTICIPATION;
+}
 
 function safeAccountId(value) {
   return typeof value === 'string' ? value.trim().slice(0, 120) : '';
@@ -222,7 +241,15 @@ export function seasonMetricValue(metric, row = {}) {
     wins: row.wins,
     games: row.games,
     rate: row.rate == null ? null : Math.round(row.rate * 100),
+    // `mastery` and `participation` are the canonical keys; `achievements` is
+    // the long-shipped wire alias for the same mastery column and stays put so
+    // the rankings surface (SEASON_METRICS, the snapshot table, the client
+    // label list) keeps resolving. Every key here must exist: the fallback
+    // below answers `row.points`, which reads as a valid answer to the metric
+    // that was actually asked for.
     achievements: row.mastery,
+    mastery: row.mastery,
+    participation: row.participation,
     mythical: row.mythical,
     bankruptcies: row.bankruptcies,
     events: row.eventSurvival,
@@ -408,7 +435,8 @@ export class SeasonStore {
     if (size < MIN_PLACEMENT_POPULATION) return false;
     const rank = Number(row.placementRank || row.rank);
     const eligibleRank = Math.max(1, Math.ceil(size * Number(reward.threshold) || 0));
-    return Number.isFinite(rank) && rank >= 1 && rank <= eligibleRank;
+    if (!Number.isFinite(rank) || rank < 1 || rank > eligibleRank) return false;
+    return placementParticipationAllows(row);
   }
 
   purgeAccount(accountId) {

@@ -214,5 +214,6 @@ export {
   ROOM_FLAG_TRUE_VALUES,
   ROOM_SETTING_NORMALIZERS,
   SETTING_REJECTED,
-  boundedInteger
+  boundedInteger,
+  floorSettingAtZero
 };

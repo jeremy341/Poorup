@@ -9,6 +9,8 @@ const {
   sponsorshipRequestPayload,
   sponsorshipFlowPayload,
   sponsorshipContributionPayload,
+  sponsorshipAudienceNames,
+  sponsorshipFundingSummary,
   createSponsorshipActionGate,
 } = await import("./clientSponsorshipUi.js");
 
@@ -31,6 +33,17 @@ assert.deepEqual(sponsorshipContributionPayload(125.8, equity), { amount: 125, r
 assert.deepEqual(sponsorshipFlowPayload(equity), { requestId: "flow-1" });
 assert.deepEqual(sponsorshipContributionPayload(125, { mode: "gift", requestId: "legacy-flow" }), { amount: 125 });
 assert.deepEqual(sponsorshipFlowPayload({ mode: "gift", requestId: "legacy-flow" }), {});
+
+assert.deepEqual(sponsorshipAudienceNames([
+  { id: "p1", serverId: "seat-buyer", name: "BUYER" },
+  { id: "p2", serverId: "seat-beta", name: "BETA" },
+  { id: "p3", serverId: "seat-gamma", name: "GAMMA" },
+  { id: "p4", serverId: "seat-bankrupt", name: "BANKRUPT", bankrupt: true },
+  { id: "p5", serverId: "seat-spectator", name: "SPECTATOR", spectating: true },
+  { id: "p6", serverId: "seat-offline", name: "OFFLINE", online: false },
+], "seat-buyer"), ["BETA", "GAMMA"], "funding requests list every other active player and exclude the buyer");
+assert.equal(sponsorshipFundingSummary("gift", 10), "GIFT FUNDING · NO OWNERSHIP OR RENT SHARE");
+assert.equal(sponsorshipFundingSummary("equity", 25), "EQUITY INVESTMENT · 25% OF COLLECTED RENT");
 
 const gate = createSponsorshipActionGate();
 assert.equal(gate.begin("flow-1"), true, "first accept/cancel/contribute operation may start");

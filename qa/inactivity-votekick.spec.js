@@ -91,7 +91,7 @@ test('countdown ring shows the earliest named deadline and all sidebar clocks', 
   expect(rendered.sidebar).not.toContain('CPU');
   expect(rendered.svg).toContain('shape-rendering="crispEdges"');
   expect(rendered.timerRect.width).toBeGreaterThan(0);
-  if (testInfo.project.name === 'desktop-1920') {
+  if (testInfo.project.name === 'desktop-1920x1080') {
     await page.screenshot({ path: testInfo.outputPath('inactivity-timer-1920.png'), fullPage: false });
   }
   await page.evaluate(() => window.__inactivityUi.destroy());

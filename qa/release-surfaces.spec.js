@@ -1,13 +1,16 @@
+/* global process */
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
+import { visualRoomCode } from './visual-capture/fixtures.mjs';
+import { captureScreenshot } from './visual-capture/screenshot.mjs';
 
 test.describe('release surface evidence', () => {
-  test('captures the 1920px release surfaces', async ({ page, context }, testInfo) => {
-    test.skip(testInfo.project.name !== 'desktop-1920', 'Native release evidence is captured at 1920x1080.');
+  test('captures release surfaces across supported landscape profiles', async ({ page, context }, testInfo) => {
+    test.skip(!process.env.POORUP_VISUAL_CAPTURE_DIR && testInfo.project.name !== 'desktop-1920x1080', 'Native release evidence is captured at 1920x1080 outside the visual capture matrix.');
     const artifactRoot = path.resolve('qa-artifacts', 'release-surfaces-2026-09-27');
     await page.goto('/');
     await expect(page.locator('#view-home')).toBeVisible();
-    await page.screenshot({ path: path.join(artifactRoot, 'home-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-home', label: 'Release home view', fallbackPath: path.join(artifactRoot, 'home-1920.png') });
 
     await page.locator('#home-rankings-tab').click();
     await page.evaluate(async () => {
@@ -37,7 +40,7 @@ test.describe('release surface evidence', () => {
       renderRankingsSurface('#rankings-page-content');
     });
     await expect(page.locator('#rankings-page-content .season-signin-prompt')).toContainText('SIGN IN');
-    await page.screenshot({ path: path.join(artifactRoot, 'rankings-season-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-rankings-season', label: 'Rankings season view', fallbackPath: path.join(artifactRoot, 'rankings-season-1920.png') });
 
     await page.locator('#view-rankings [data-home-tab="profile"]').click();
     await expect(page.locator('#view-profile')).toBeVisible();
@@ -66,11 +69,11 @@ test.describe('release surface evidence', () => {
     await page.locator('#profile-tab-stats').click();
     await expect(page.locator('#profile-tab-stats')).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('#profile-panel-stats')).toBeVisible();
-    await page.screenshot({ path: path.join(artifactRoot, 'profile-statistics-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-profile-statistics', label: 'Profile statistics', fallbackPath: path.join(artifactRoot, 'profile-statistics-1920.png') });
     await page.locator('#profile-tab-history').click();
     await page.locator('[data-profile-history-toggle="release-match-01"]').click();
     await page.locator('[data-profile-history-detail-tab="economy"]').click();
-    await page.screenshot({ path: path.join(artifactRoot, 'profile-match-history-detail-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-profile-history-detail', label: 'Profile match history detail', fallbackPath: path.join(artifactRoot, 'profile-match-history-detail-1920.png') });
     await page.evaluate(async () => {
       const { state } = await import('/clientState.js');
       state.account = { account: null, sessionToken: '' };
@@ -78,10 +81,12 @@ test.describe('release surface evidence', () => {
 
     await page.goto('/?rules=book');
     await expect(page.locator('#view-rules')).toBeVisible();
-    await page.screenshot({ path: path.join(artifactRoot, 'rules-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-rules', label: 'Rules book', fallbackPath: path.join(artifactRoot, 'rules-1920.png') });
 
     const guest = await context.newPage();
-    const roomCode = 'RELZ17';
+    const roomCode = process.env.POORUP_CAPTURE_SEED
+      ? visualRoomCode('REL', process.env.POORUP_CAPTURE_SEED, testInfo.project.name)
+      : `REL${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
     await page.goto('/');
     await page.locator('#home-alias').fill('RELEASEHOST');
     await page.locator('#open-create-btn').click();
@@ -119,20 +124,24 @@ test.describe('release surface evidence', () => {
       openMarketDesk();
     });
     await expect(page.locator('#market-modal')).not.toHaveClass(/is-hidden/);
-    await page.screenshot({ path: path.join(artifactRoot, 'market-desk-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-market-desk', label: 'Market Desk in game', fallbackPath: path.join(artifactRoot, 'market-desk-1920.png') });
+    if (page.viewportSize().width >= 768 && page.viewportSize().width <= 1399) {
+      await page.locator('#market-view-trade').click();
+      await expect(page.locator('.market-trade-ticket')).toBeVisible();
+    }
     await page.locator('#market-card [data-market-preview]').scrollIntoViewIfNeeded();
     const marketCard = await page.locator('#market-card').boundingBox();
     const marketClose = await page.locator('#market-modal-close').boundingBox();
     expect(marketClose).not.toBeNull();
     expect(marketClose.y).toBeGreaterThanOrEqual(marketCard.y);
     expect(marketClose.y).toBeLessThan(marketCard.y + 120);
-    await page.screenshot({ path: path.join(artifactRoot, 'market-order-controls-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-market-order-controls', label: 'Market order controls', fallbackPath: path.join(artifactRoot, 'market-order-controls-1920.png') });
     await page.locator('#market-modal-close').click();
     await page.emulateMedia({ reducedMotion: 'no-preference' });
 
     await page.locator('.tile[data-tile="15"]').click();
     await expect(page.locator('#popup')).not.toHaveClass(/is-hidden/);
-    await page.screenshot({ path: path.join(artifactRoot, 'airport-field-modal-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-airport-field', label: 'Airport tile inspector', fallbackPath: path.join(artifactRoot, 'airport-field-modal-1920.png') });
     await page.keyboard.press('Escape');
 
     await page.evaluate(async () => {
@@ -157,9 +166,9 @@ test.describe('release surface evidence', () => {
       renderGlobalEvent();
     });
     await expect(page.locator('#global-event-ribbon')).toBeVisible();
-    await page.screenshot({ path: path.join(artifactRoot, 'global-event-announcement-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-global-event-announcement', label: 'Global event announcement', fallbackPath: path.join(artifactRoot, 'global-event-announcement-1920.png') });
     await expect(page.locator('#global-event-banner')).toBeVisible();
-    await page.screenshot({ path: path.join(artifactRoot, 'global-event-warning-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-global-event-warning', label: 'Global event warning', fallbackPath: path.join(artifactRoot, 'global-event-warning-1920.png') });
 
     await page.evaluate(async () => {
       const { state } = await import('/clientState.js');
@@ -172,7 +181,7 @@ test.describe('release surface evidence', () => {
       openBankruptcyModal(0, 220, null, 'The bank requires settlement before this turn can end');
     });
     await expect(page.locator('#bankruptcy-modal')).not.toHaveClass(/is-hidden/);
-    await page.screenshot({ path: path.join(artifactRoot, 'bankruptcy-decision-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-bankruptcy-decision', label: 'Bankruptcy decision', fallbackPath: path.join(artifactRoot, 'bankruptcy-decision-1920.png') });
     await page.evaluate(async () => {
       const { closeSurface } = await import('/clientSurfaces.js');
       closeSurface('#bankruptcy-modal', { force: true });
@@ -191,7 +200,7 @@ test.describe('release surface evidence', () => {
       renderRightRail();
     });
     await expect(page.locator('#right-rail-game .spectator-rail')).toBeVisible();
-    await page.screenshot({ path: path.join(artifactRoot, 'human-spectator-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-human-spectator', label: 'Human spectator view', fallbackPath: path.join(artifactRoot, 'human-spectator-1920.png') });
 
     await page.evaluate(async () => {
       const { state } = await import('/clientState.js');
@@ -203,7 +212,7 @@ test.describe('release surface evidence', () => {
       showGameOver('RELEASEGUEST', state.players[1]?.serverId || state.players[1]?.id);
     });
     await expect(page.locator('#gameover-modal')).not.toHaveClass(/is-hidden/);
-    await page.screenshot({ path: path.join(artifactRoot, 'end-game-1920.png') });
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-end-game', label: 'Game over', fallbackPath: path.join(artifactRoot, 'end-game-1920.png') });
 
     await guest.close();
     testInfo.annotations.push({ type: 'screenshots', description: artifactRoot });

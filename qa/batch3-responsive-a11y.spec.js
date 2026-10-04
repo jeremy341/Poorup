@@ -53,8 +53,8 @@ test.describe("Batch 3 responsive and accessibility contracts", () => {
     expect(fontSize).toBeGreaterThanOrEqual(16);
   });
 
-  test("landscape iPad frequent controls meet 44px targets", async ({ page }) => {
-    await page.setViewportSize({ width: 1024, height: 768 });
+  test("landscape iPad frequent controls meet 44px targets", async ({ page }, testInfo) => {
+    test.skip(!testInfo.project.use.isMobile || !testInfo.project.use.hasTouch, "the 44px chrome contract applies to touch iPads");
     await page.goto("/");
     const sizes = await page.evaluate(() => {
       const selectors = ["#home-nav .home-nav-tab", "#sound-toggle-btn", "#music-toggle-btn", "#quick-table-btn", "#chair-edit-btn"];

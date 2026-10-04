@@ -10,7 +10,8 @@ import {
   bankruptcyRefusal,
   clearQuitObligations,
   handlePlayerLoanDefault,
-  outstandingDebtFor
+  outstandingDebtFor,
+  settleDefaultClaims
 } from './bankruptcyLogic.js';
 
 const bankruptcyApi = {
@@ -28,6 +29,18 @@ const bankruptcyApi = {
   },
 
   handleBankruptcy(player, creditor = null) {
+    // The ladder is the table's other debt beat, so it also pays what the
+    // claim ledger has matured. This runs before the seat is marked bankrupt:
+    // a claim whose borrower is the departing seat is a write-off (its estate
+    // is swept below), never a payment out of a dead seat.
+    settleDefaultClaims(this);
+    // Every route into a bankruptcy (declared, AFK-expired, or an unsettled
+    // pending payment) lands here, so the departing seat's table obligations
+    // die here too: a pending trade, contract, or purchase offer it still
+    // holds gates every survivor until someone resolves it, and nobody can
+    // resolve a gate owned by a dead seat. The call is idempotent, so the
+    // declareBankruptcy caller above may keep running it first.
+    clearQuitObligations(this, player);
     this.markPlayerBankrupt(player);
     this.liquidateMarketPositions(player);
     this.settleBankLoanOnBankruptcy(player);
@@ -178,6 +191,10 @@ const bankruptcyApi = {
     // The pending-payment filter guarantees one side is the bankrupt player,
     // so a loan not owed by them is one they issued.
     if (contract.toPlayerId === player.id) {
+      // Same rule as the hybrid leg: the default helper keeps the unpaid
+      // principal as a lender claim. It refuses to seize from a bankrupt
+      // borrower, so the basket walk below stays the single seizure pass.
+      handlePlayerLoanDefault(this, contract);
       this.seizeCollateralForLender(player, contract);
       return;
     }

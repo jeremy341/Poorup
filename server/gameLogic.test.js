@@ -554,6 +554,7 @@ async function testExplicitEndTurn() {
     const a = room.game.players[0];
     const b = room.game.players[1];
     assert.equal(room.game.currentPlayerId, a.id);
+    assert.equal(room.game.getGameSummary().diceRollSequence, 0);
 
     // Ending before rolling is rejected.
     assert.equal(room.endTurn('socket-a').success, false);
@@ -562,6 +563,7 @@ async function testExplicitEndTurn() {
     a.position = 7;
     diceQueue.push(1, 2);
     assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(room.game.getGameSummary().diceRollSequence, 1);
     assert.equal(a.position, 10);
     assert.equal(room.game.awaitingEndTurn, true);
     assert.equal(room.game.currentPlayerId, a.id, 'turn must not auto-advance');
@@ -580,12 +582,14 @@ async function testExplicitEndTurn() {
     b.position = 4;
     diceQueue.push(3, 3); // 4 + 6 = 10 → jail visit with doubles pending
     assert.equal(room.rollDice('socket-b').success, true);
+    assert.equal(room.game.getGameSummary().diceRollSequence, 2);
     assert.equal(room.game.awaitingEndTurn, false);
     assert.equal(room.game.extraRollPending, true);
     assert.equal(room.game.currentPlayerId, b.id);
     assert.equal(room.endTurn('socket-b').success, false, 'doubles force the re-roll');
     diceQueue.push(2, 3); // 10 + 5 = 15 → own railroad → plain landing → hold
     assert.equal(room.rollDice('socket-b').success, true);
+    assert.equal(room.game.getGameSummary().diceRollSequence, 3);
     assert.equal(room.game.awaitingEndTurn, true);
     assert.equal(room.endTurn('socket-b').success, true);
 
@@ -595,10 +599,13 @@ async function testExplicitEndTurn() {
     a.jailTurns = 0;
     diceQueue.push(1, 3);
     assert.equal(room.rollDice('socket-a').success, true);
+    assert.equal(room.game.getGameSummary().diceRollSequence, 4);
     assert.equal(room.game.awaitingEndTurn, true, 'jail stay must hold for an explicit end');
     assert.equal(room.game.currentPlayerId, a.id);
     assert.equal(room.endTurn('socket-a').success, true);
     assert.equal(room.game.currentPlayerId, b.id);
+    room.game.resetForNewGame();
+    assert.equal(room.game.getGameSummary().diceRollSequence, 4, 'the sequence stays monotonic across rematches');
   } finally {
     nodeCrypto.randomInt = original;
   }
