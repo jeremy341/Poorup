@@ -91,7 +91,7 @@ async function expectPickerOpen(page, names) {
 test('builder collateral selector expands into a two-row scrollable, multi-select list', async ({ page }, testInfo) => {
   const fixture = await openCollateralSurface(page, 'builder');
   const picker = await expectPickerOpen(page, fixture.names);
-  if (testInfo.project.name === 'desktop-1920') {
+  if (testInfo.project.name === 'desktop-1920x1080') {
     await picker.trigger.click();
     await expect(picker.panel).toBeVisible();
     await picker.modal.screenshot({ path: testInfo.outputPath('finance-collateral-builder-1920.png') });

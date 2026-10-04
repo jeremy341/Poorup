@@ -15,6 +15,7 @@
     "bot:compare": "node server/bot-policy-tournament.js",
     "coverage": "c8 --include=\"server/**\" --reporter=text --reporter=lcov node scripts/run-test-manifest.mjs --group=full",
     "test:browser": "playwright test -c qa/playwright.config.js",
+    "capture:ui": "node scripts/capture-ui.mjs",
     "load:testing": "node qa/load/poorup-socket-load.mjs",
     "sync:analytics-vendor": "node scripts/sync-admin-analytics-vendor.mjs",
     "test:account": "node scripts/run-test-manifest.mjs --group=account",

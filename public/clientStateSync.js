@@ -5,13 +5,16 @@
    DOM, or owns timers lives behind `host` callbacks in main.js.
    ============================================================ */
 import { state } from "./clientState.js";
+import { reconcileTradeOfferDismissal } from "./clientTradeOfferDismissal.js";
 import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
+import { createDiceRollSequenceTracker } from "./clientDiceRollEffect.js";
 
 export const AUCTION_MS = 5000;
 let movementRevision = 0;
 let movementCompletion = Promise.resolve();
 let debtSurfaceRevision = 0;
 let winnerSurfaceRevision = 0;
+const diceRollSequenceTracker = createDiceRollSequenceTracker();
 
 function num(value) {
   return Number(value) || 0;
@@ -104,6 +107,7 @@ export function syncRoom(room, game = null) {
   if (Object.prototype.hasOwnProperty.call(room, "roomCode")) {
     const roomCode = orDefault(room.roomCode, "");
     if (state.activityRoomCode !== roomCode) {
+      state.offers = [];
       state.activityRoomCode = roomCode;
       state.activityNotices = [];
       state.lastGameFeed = [];
@@ -208,11 +212,15 @@ function syncRoundFlags(game) {
   }
   state.gameStarted = nextGameStarted;
   state.dice = diceOf(game);
+  state.diceRollSequence = Math.max(0, num(game.diceRollSequence));
   state.roundNumber = nextRoundNumber;
   state.globalEvent = orNull(game.globalEvent);
   state.playerContracts = orDefault(game.playerContracts, { pending: null, active: [] });
   state.pendingTrade = orNull(game.pendingTrade);
   const pendingTradeId = state.pendingTrade?.id || null;
+  if (Object.hasOwn(game, "pendingTrade")) {
+    reconcileTradeOfferDismissal(state.roomCode, pendingTradeId);
+  }
   // Race grace: an offer that just arrived via socket may precede the
   // snapshot carrying it. Keep fresh arrivals 15s instead of wiping the
   // inbox (and the open modal) out from under them.
@@ -515,6 +523,12 @@ export function applyServerState(snapshot, host) {
   host.setConnectionStatus("online");
   const { room, game } = snapshot;
   const boardChanged = syncRoom(room, game);
+  const diceTotal = diceRollSequenceTracker.receive({
+    roomCode: state.roomCode,
+    sequence: game.diceRollSequence,
+    dice: game.lastDice,
+  });
+  if (diceTotal !== null) host.announceDiceRoll?.(diceTotal);
   if (boardChanged) {
     setBoardVariant(state.boardVariant);
     host.rebuildBoard?.();

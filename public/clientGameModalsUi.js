@@ -15,6 +15,7 @@ import { closeSurface, openSurface, syncSurfaceA11y } from "./clientSurfaces.js"
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 import { startAuction } from "./clientAuctionUi.js";
 import { goHome } from "./clientLobbyUi.js";
+import { dismissTradeOffer, isTradeOfferDismissed } from "./clientTradeOfferDismissal.js";
 
 let host = {
   emitServer: noop,
@@ -30,6 +31,7 @@ let host = {
   announceActionStatus: noop,
   recordActivity: noop,
 };
+let activeOffer = null;
 
 function noop() {}
 
@@ -166,11 +168,14 @@ function acceptTradeOffer(offer) {
       openOfferModal(offer);
       return;
     }
+    activeOffer = null;
     closeSurface("#offer-modal");
   });
 }
 
 function openOfferModal(offer) {
+  if (!offer?.id || isTradeOfferDismissed(state.roomCode, offer.id)) return;
+  activeOffer = offer;
   const from = state.players.find((p) => p.id === offer.from || p.serverId === offer.from);
   if (!from) return;
   const wantNames = (Array.isArray(offer.wantDeeds) ? offer.wantDeeds : [])
@@ -195,12 +200,15 @@ function openOfferModal(offer) {
         <button class="cta-red offer-btn" id="offer-accept"><span class="cta-text cta-text-sm">Accept</span></button>
         <button class="btn-dark offer-btn" id="offer-counter"><span class="t-label f12">Negotiate</span></button>
         <button class="btn-dark offer-btn" id="offer-decline"><span class="t-label f12">Decline</span></button>
+        <button class="btn-dark offer-btn" id="offer-close" type="button" aria-label="Close offer and keep it pending"><span class="t-label f12">Close</span></button>
       </div>
       <p class="t-micro ink-3 offer-note">Trades only transfer cash or deeds offered here.</p>
     </div>`;
   openSurface("#offer-modal", "#offer-accept");
+  $("#offer-close").addEventListener("click", closeOfferWithoutResponse);
   $("#offer-accept").addEventListener("click", () => acceptTradeOffer(offer));
   $("#offer-counter").addEventListener("click", () => {
+    activeOffer = null;
     closeSurface("#offer-modal");
     host.openTradeNegotiation(offer);
   });
@@ -211,12 +219,15 @@ function openOfferModal(offer) {
         host.announceActionStatus(response.error || "Trade could not be declined.", statusNode);
         return;
       }
+      activeOffer = null;
       closeSurface("#offer-modal");
     });
   });
 }
 
 function closeOfferWithoutResponse() {
+  if (activeOffer?.id) dismissTradeOffer(state.roomCode, activeOffer.id);
+  activeOffer = null;
   closeSurface("#offer-modal");
 }
 
@@ -325,7 +336,7 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
   });
 }
 
-function openVoluntaryExitModal() {
+export function openVoluntaryExitModal() {
   const me = state.players[0];
   if (!me) return;
   const heldDeeds = TILES.filter((tile) => (state.owners || {})[tile.i] === me.id).length;
@@ -435,7 +446,7 @@ function closeCardModalFromScrim() {
 
 export function bindGameModalSurfaces() {
   // trade offer inbox
-  $("#offer-scrim")?.addEventListener("click", () => closeSurface("#offer-modal"));
+  $("#offer-scrim")?.addEventListener("click", closeOfferWithoutResponse);
 
   $("#game-retire-btn")?.addEventListener("click", onRetireClick);
 

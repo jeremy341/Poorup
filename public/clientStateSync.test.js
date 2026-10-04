@@ -78,6 +78,7 @@ let choiceModalOpens = 0;
 let auctionSurfaceOpens = 0;
 let cardRevealOpens = 0;
 let bankruptcyModalOpens = 0;
+const diceRollTotals = [];
 const host = {
   setConnectionStatus() {},
   gameViewVisible: () => true,
@@ -92,7 +93,8 @@ const host = {
   openBankruptcyModal() { bankruptcyModalOpens += 1; },
   showGameOver() {},
   startTurnCountdown() {},
-  placePiecesSoon() {}
+  placePiecesSoon() {},
+  announceDiceRoll(total) { diceRollTotals.push(total); }
 };
 const landingSnapshot = {
   room: { roomCode: "LAND1", visibility: "private", settings: { boardVariant: "standard-40" } },
@@ -101,8 +103,9 @@ const landingSnapshot = {
     currentPlayerId: "server-player",
     roundNumber: 1,
     hasRolled: true,
+    diceRollSequence: 0,
     awaitingEndTurn: true,
-    lastDice: [6, 6],
+    lastDice: [0, 0],
     turnOrder: ["server-player"],
     players: [{ id: "server-player", clientId: "local-client", nickname: "LOCAL", color: "#cfa75f", position: 12 }],
     tiles: [],
@@ -112,6 +115,12 @@ const landingSnapshot = {
   }
 };
 applyServerState(landingSnapshot, host);
+assert.deepEqual(diceRollTotals, [], "the first game snapshot is only a baseline");
+applyServerState({
+  ...landingSnapshot,
+  game: { ...landingSnapshot.game, diceRollSequence: 1, lastDice: [6, 6] },
+}, host);
+assert.deepEqual(diceRollTotals, [12], "a new server roll sequence announces the total once");
 assert.equal(walkResolvers.length, 1, "the landing snapshot schedules the pawn movement");
 const listeners = new Map();
 const fakeSocket = { on: (event, handler) => listeners.set(event, handler) };
@@ -171,6 +180,14 @@ assert.equal(bankruptcyModalOpens, 0, "the debt prompt waits for the pawn to fin
 walkResolvers.shift()();
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(bankruptcyModalOpens, 1, "the debt prompt opens after movement completes");
+
+const nextRollSnapshot = {
+  ...debtSnapshot,
+  game: { ...debtSnapshot.game, pendingPayment: null, diceRollSequence: 2, lastDice: [4, 5] },
+};
+applyServerState(nextRollSnapshot, host);
+applyServerState(nextRollSnapshot, host);
+assert.deepEqual(diceRollTotals, [12, 9], "a new sequence announces once and a replayed snapshot stays quiet");
 
 console.log("client state sync and landing-prompt tests: passed");
 const syncSource = readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");

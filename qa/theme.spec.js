@@ -194,7 +194,7 @@ test.describe("Poorup seasonal worlds", () => {
   });
 
   test("captures the six home worlds at native 1920", async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== "desktop-1920", "visual evidence is pinned to the primary desktop viewport");
+    test.skip(testInfo.project.name !== "desktop-1920x1080", "visual evidence is pinned to the primary desktop viewport");
     const evidenceDir = resolve("qa-artifacts", "theme-homes-1920");
     mkdirSync(evidenceDir, { recursive: true });
     for (const id of themeIds) {

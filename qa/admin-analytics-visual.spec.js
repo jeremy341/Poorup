@@ -1,6 +1,7 @@
-/* global document, localStorage, URL, window */
+/* global document, getComputedStyle, localStorage, process, URL, window */
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
+import { captureScreenshot } from './visual-capture/screenshot.mjs';
 
 const SESSION = {
   sessionToken: 'qa-admin-session',
@@ -78,6 +79,40 @@ test.describe('admin analytics visual contract', () => {
       body: document.body.scrollHeight > document.body.clientHeight
     }));
     expect(overflow.document || overflow.body).toBe(false);
+  });
+
+  test('at 1920x1080 admin reports scroll inside the report stage while the pager stays available', async ({ page }) => {
+    test.skip(page.viewportSize()?.width !== 1920 || page.viewportSize()?.height !== 1080);
+    await openFixture(page);
+    const reportPage = page.locator('[data-analytics-report-page]');
+    const footer = page.locator('.analytics-page-footer');
+    await expect(reportPage).toHaveAttribute('role', 'region');
+    await expect(reportPage).toHaveAttribute('tabindex', '0');
+    await expect(footer).toBeVisible();
+    const initial = await page.evaluate(() => {
+      const report = document.querySelector('[data-analytics-report-page]');
+      const footerRect = document.querySelector('.analytics-page-footer').getBoundingClientRect();
+      return {
+        overflow: getComputedStyle(report).overflowY,
+        reportBottom: report.getBoundingClientRect().bottom,
+        footerTop: footerRect.top,
+        footerBottom: footerRect.bottom,
+        viewportHeight: document.documentElement.clientHeight,
+      };
+    });
+    expect(initial.overflow).toBe('auto');
+    expect(initial.reportBottom).toBeLessThanOrEqual(initial.footerTop + 1);
+    expect(initial.footerBottom).toBeLessThanOrEqual(initial.viewportHeight + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= document.documentElement.clientHeight + 1
+      && document.body.scrollHeight <= document.body.clientHeight + 1)).toBe(true);
+
+    await page.locator('#analytics-panel-overview').evaluate(element => { element.style.minHeight = '1600px'; });
+    const scrollable = await reportPage.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }));
+    expect(scrollable.scrollHeight).toBeGreaterThan(scrollable.clientHeight);
+    await reportPage.focus();
+    await page.keyboard.press('PageDown');
+    await expect.poll(() => reportPage.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    await expect(footer).toBeVisible();
   });
 
   test('renders supplied sanitized fields through each specialized chart and table mount', async ({ page }) => {
@@ -291,11 +326,11 @@ test.describe('admin analytics visual contract', () => {
 
 test.describe('admin analytics visual evidence at native desktop', () => {
   test('captures every tab and major data state for native inspection', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'desktop-1920', 'Evidence is captured only at the required 1920x1080 viewport.');
+    test.skip(!process.env.POORUP_VISUAL_CAPTURE_DIR && testInfo.project.name !== 'desktop-1920x1080', 'Evidence is captured only at 1920x1080 outside the visual capture matrix.');
     await openFixture(page);
     const artifactRoot = path.resolve('qa-artifacts/admin-analytics-1920');
     await expect.poll(() => page.locator('#analytics-panel-overview .analytics-chart-engine svg path').count()).toBeGreaterThan(0);
-    await page.screenshot({ path: path.join(artifactRoot, 'overview-verified.png') });
+    await captureScreenshot(page, testInfo, { group: 'admin', surfaceId: 'admin-overview-initial', label: 'Admin overview', fallbackPath: path.join(artifactRoot, 'overview-verified.png') });
     const tabs = page.locator('[data-analytics-tab]');
     for (let index = 0; index < 7; index += 1) {
       const tab = await tabs.nth(index).getAttribute('data-analytics-tab');
@@ -303,14 +338,14 @@ test.describe('admin analytics visual evidence at native desktop', () => {
         await openFixture(page, { ...FIXTURE, filters: { ...FIXTURE.filters, tab }, series: [], breakdowns: [SPECIALIZED_MODELS[tab]] });
         await expect.poll(() => page.locator(`#analytics-panel-${tab} .analytics-chart-engine svg path`).count()).toBeGreaterThan(0);
       }
-      await page.screenshot({ path: path.join(artifactRoot, `${tab}-verified.png`) });
+      await captureScreenshot(page, testInfo, { group: 'admin', surfaceId: `admin-${tab}`, label: `Admin ${tab}`, fallbackPath: path.join(artifactRoot, `${tab}-verified.png`) });
     }
     await openFixture(page, { ...FIXTURE, dataQuality: { fresh: false, stale: true } });
-    await page.screenshot({ path: path.join(artifactRoot, 'state-stale.png') });
+    await captureScreenshot(page, testInfo, { group: 'admin', surfaceId: 'admin-state-stale', label: 'Admin stale state', fallbackPath: path.join(artifactRoot, 'state-stale.png') });
     await openFixture(page, { ...FIXTURE, overview: { kpis: [] }, series: [], breakdowns: [], metrics: {} });
-    await page.screenshot({ path: path.join(artifactRoot, 'state-empty.png') });
+    await captureScreenshot(page, testInfo, { group: 'admin', surfaceId: 'admin-state-empty', label: 'Admin empty state', fallbackPath: path.join(artifactRoot, 'state-empty.png') });
     await openFixture(page, { ...FIXTURE, suppression: { minimumCohort: 5, suppressedPanels: 1 } });
-    await page.screenshot({ path: path.join(artifactRoot, 'state-suppressed.png') });
+    await captureScreenshot(page, testInfo, { group: 'admin', surfaceId: 'admin-state-suppressed', label: 'Admin suppressed state', fallbackPath: path.join(artifactRoot, 'state-suppressed.png') });
     testInfo.annotations.push({ type: 'screenshots', description: artifactRoot });
   });
 });

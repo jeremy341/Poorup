@@ -36,7 +36,8 @@ export const TEST_GROUPS = Object.freeze({
     'public/clientMusicBoxReference.test.js', 'public/clientAccountRights.test.js',
     'server/bot-policy-tournament.test.js', 'server/socketHandlerSupport.test.js',
     'server/botCandidateCoverage.test.js', 'server/botTiming.test.js', 'server/socketRuntime.test.js',
-    'public/clientAudioControls.test.js',
+    'public/clientAudioControls.test.js', 'public/clientInGameUxRegression.test.js',
+    'public/clientTradeOfferDismissal.test.js', 'public/clientDiceRollEffect.test.js',
   ],
   audit: [
     'server/market-settlement-audit.test.js', 'server/lifecycle-audit.test.js', 'server/card-deck-audit.test.js',
