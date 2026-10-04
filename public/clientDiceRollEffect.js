@@ -1,27 +1,39 @@
+function readSequence(snapshot) {
+  const sequence = Number(snapshot.sequence);
+  return Number.isSafeInteger(sequence) && sequence >= 0
+    ? { roomCode: String(snapshot.roomCode || ''), sequence }
+    : null;
+}
+
+function validDieFace(face) {
+  return Number.isInteger(face) && face >= 1 && face <= 6;
+}
+
+function readDiceTotal(dice) {
+  if (!Array.isArray(dice) || dice.length !== 2 || !dice.every(validDieFace)) return null;
+  return dice[0] + dice[1];
+}
+
 export function createDiceRollSequenceTracker(onRoll = () => {}) {
   let roomCode = null;
   let sequence = null;
 
   return {
     receive(snapshot = {}) {
-      const nextRoom = String(snapshot.roomCode || "");
-      const nextSequence = Number(snapshot.sequence);
-      if (!Number.isSafeInteger(nextSequence) || nextSequence < 0) return null;
+      const next = readSequence(snapshot);
+      if (!next) return null;
 
-      if (roomCode !== nextRoom || sequence === null) {
-        roomCode = nextRoom;
-        sequence = nextSequence;
+      if (roomCode !== next.roomCode || sequence === null) {
+        roomCode = next.roomCode;
+        sequence = next.sequence;
         return null;
       }
 
-      if (nextSequence <= sequence) return null;
-      sequence = nextSequence;
+      if (next.sequence <= sequence) return null;
+      sequence = next.sequence;
 
-      const dice = snapshot.dice;
-      if (!Array.isArray(dice) || dice.length !== 2
-        || !dice.every(face => Number.isInteger(face) && face >= 1 && face <= 6)) return null;
-
-      const total = dice[0] + dice[1];
+      const total = readDiceTotal(snapshot.dice);
+      if (total === null) return null;
       onRoll(total);
       return total;
     },
