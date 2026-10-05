@@ -373,7 +373,7 @@
           </div>
         </section>
 
-        <nav class="profile-tabs" id="profile-tabs" role="tablist" aria-label="Profile sections">
+        <nav class="profile-tabs" id="profile-tabs" role="tablist" aria-label="Profile sections" aria-orientation="horizontal">
           <button class="profile-tab" id="profile-tab-overview" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-overview" data-profile-tab="overview"><span class="t-label f11">OVERVIEW</span></button>
           <button class="profile-tab" id="profile-tab-stats" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-stats" data-profile-tab="stats"><span class="t-label f11">STATISTICS</span></button>
           <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
@@ -448,8 +448,9 @@
               <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="social"><span class="t-label f11">SOCIAL</span></button>
               <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="secret"><span class="t-label f11">SECRETS</span></button>
               <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="minigame"><span class="t-label f11">PATROL</span></button>
+              <button class="btn-dark achievement-filter-toggle" type="button" data-achievement-filter-toggle aria-controls="achievement-filter-controls" aria-expanded="false"><span class="t-label f11">FILTERS</span></button>
             </div>
-            <div class="achievement-filter-controls">
+            <div class="achievement-filter-controls" id="achievement-filter-controls">
               <label class="achievement-filter-field"><span class="t-micro ink-3">WHEN EARNED</span><select class="setting-select achievement-filter-select" id="achievement-date-filter"><option value="all">ALL DATES</option><option value="recent">LAST 7 DAYS</option><option value="month">LAST 30 DAYS</option><option value="newest">NEWEST FIRST</option><option value="oldest">OLDEST FIRST</option></select></label>
               <label class="achievement-filter-field"><span class="t-micro ink-3">RARITY</span><select class="setting-select achievement-filter-select" id="achievement-rarity-filter"><option value="all">ALL RARITIES</option><option value="common">COMMON</option><option value="uncommon">UNCOMMON</option><option value="rare">RARE</option><option value="epic">EPIC</option><option value="legendary">LEGENDARY</option><option value="mythical">MYTHICAL</option></select></label>
             </div>
