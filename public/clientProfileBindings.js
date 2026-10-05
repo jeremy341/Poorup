@@ -42,6 +42,15 @@ export function configureProfileBindings(hooks) {
   host = { ...host, ...hooks };
 }
 
+function keepProfileTabVisible(button) {
+  const tablist = $("#profile-tabs");
+  if (!tablist || !button || tablist.clientWidth <= 0) return;
+  const strip = tablist.getBoundingClientRect();
+  const tab = button.getBoundingClientRect();
+  if (tab.left < strip.left) tablist.scrollLeft -= strip.left - tab.left;
+  else if (tab.right > strip.right) tablist.scrollLeft += tab.right - strip.right;
+}
+
 function setProfileTab(tab = "designs", focus = false) {
   const allowed = ["overview", "stats", "designs", "history", "achievements", "collection", "account"];
   const next = allowed.includes(tab) ? tab : "designs";
@@ -57,6 +66,7 @@ function setProfileTab(tab = "designs", focus = false) {
   document.querySelectorAll("#view-profile .profile-tab-panel").forEach((panel) => {
     panel.classList.toggle("is-hidden", panel.id !== `profile-panel-${next}`);
   });
+  keepProfileTabVisible($(`#profile-tab-${next}`));
   renderProfileSummary();
   if (next === "collection") requestCosmetics();
   if (focus) {
@@ -288,7 +298,8 @@ function onProfileTabsKeydown(e) {
   e.preventDefault();
   const next = tabs[profileTabHomeIndex(current, e.key, tabs.length)];
   setProfileTab(next.dataset.profileTab);
-  next.focus();
+  next.focus({ preventScroll: true });
+  keepProfileTabVisible(next);
 }
 
 function onProfileHeroAccountClick(event) {
@@ -416,6 +427,13 @@ export function bindProfileUi() {
   $("#chair-edit-btn")?.addEventListener("click", onActiveProfileEditClick);
   $("#pl-new-btn")?.addEventListener("click", onPlNewClick);
   $("#achievements-filters")?.addEventListener("click", (e) => {
+    const toggle = e.target.closest("[data-achievement-filter-toggle]");
+    if (toggle) {
+      const panel = $("#profile-panel-achievements .achievements-panel");
+      const expanded = panel?.classList.toggle("is-filters-open") === true;
+      toggle.setAttribute("aria-expanded", String(expanded));
+      return;
+    }
     const button = e.target.closest("[data-achievement-filter]");
     if (button) setAchievementFilter(button.dataset.achievementFilter);
   });
