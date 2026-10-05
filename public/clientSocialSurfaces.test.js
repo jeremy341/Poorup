@@ -8,6 +8,7 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 
 const surfaces = await import("./clientSocialSurfaces.js");
 const source = readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url), "utf8");
+const responsiveSource = readFileSync(new URL("./clientResponsiveSocialSurfaces.js", import.meta.url), "utf8");
 const bindings = readFileSync(new URL("./clientParlorBindings.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
@@ -64,8 +65,8 @@ check("sharedHistoryShowsNotRecordedForSparseLegacyFields", () => {
 
 check("rankingScopesAndSearchRemainAvailable", () => {
   assert.match(source, /\[\["all", "ALL TIME"\], \["season", "THIS SEASON"\], \["month", "30 DAYS"\], \["friends", "FRIENDS"\]\]/);
-  assert.match(source, /data-ranking-search-form/);
-  assert.match(source, /data-ranking-search-input/);
+  assert.match(responsiveSource, /data-ranking-search-form/);
+  assert.match(responsiveSource, /data-ranking-search-input/);
   assert.match(source, /data-ranking-scope=/);
 });
 
