@@ -157,6 +157,12 @@ lane-sync PR (a branch off the `testing` tip merged into `development`; it
 carries no file changes beyond ancestry plus any docs update, so it runs the
 light or light-slim tier).
 
+Build that branch from the latest `testing` tip, then merge the latest
+`development` tip into it. Verify that the testing tip is an ancestor of the
+lane-sync head and that the merge tree matches `development`; if a docs-only
+change is added to trigger checks, verify that it is the only tree difference.
+This preserves both lane histories without promoting a stale or altered tree.
+
 For an ancestry-only lane-sync whose tree is identical to `development`,
 confirm that GitHub Actions reports the required `test` and `boot smoke`
 contexts. If an empty-diff PR produces no workflow run, include a narrowly
