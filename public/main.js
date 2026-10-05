@@ -1056,8 +1056,28 @@ function onHomeSignalClick(event) {
 }
 
 function onRulesSectionClick(event) {
+  const searchToggle = event.target.closest("[data-rules-search-toggle]");
+  if (searchToggle) {
+    state.rulesSearchExpanded = !state.rulesSearchExpanded;
+    renderRulesSurface("#rules-page-content");
+    requestAnimationFrame(() => {
+      const target = state.rulesSearchExpanded ? $("#rules-search") : $("[data-rules-search-toggle]");
+      target?.focus({ preventScroll: true });
+    });
+    return;
+  }
+  const chaptersToggle = event.target.closest("[data-rules-chapters-toggle]");
+  if (chaptersToggle) {
+    state.rulesIndexExpanded = !state.rulesIndexExpanded;
+    renderRulesSurface("#rules-page-content");
+    requestAnimationFrame(() => $("[data-rules-chapters-toggle]")?.focus({ preventScroll: true }));
+    return;
+  }
   const chapter = event.target.closest("[data-rules-section]");
-  if (chapter) openRulesSurface(chapter.dataset.rulesSection);
+  if (chapter) {
+    state.rulesIndexExpanded = false;
+    openRulesSurface(chapter.dataset.rulesSection);
+  }
 }
 
 function restoreRulesFocus(value) {
@@ -1070,6 +1090,7 @@ function onRulesSearchInput(event) {
   if (event.target.id !== "rules-search") return;
   const value = event.target.value;
   state.rulesQuery = value;
+  state.rulesSearchExpanded = true;
   renderRulesSurface("#rules-page-content");
   requestAnimationFrame(() => restoreRulesFocus(value));
 }
