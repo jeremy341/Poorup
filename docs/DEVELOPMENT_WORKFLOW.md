@@ -157,6 +157,12 @@ lane-sync PR (a branch off the `testing` tip merged into `development`; it
 carries no file changes beyond ancestry plus any docs update, so it runs the
 light or light-slim tier).
 
+For an ancestry-only lane-sync whose tree is identical to `development`,
+confirm that GitHub Actions reports the required `test` and `boot smoke`
+contexts. If an empty-diff PR produces no workflow run, include a narrowly
+scoped workflow-documentation update in that lane-sync PR to trigger the
+`light-slim` checks. Never merge it by bypassing the required contexts.
+
 The workflow already triggers on `merge_group` events and the `plan` job
 maps a merge group targeting `testing` to the heavy tier, so if the queue
 ever becomes available on this plan, enabling it in the UI needs **zero**
