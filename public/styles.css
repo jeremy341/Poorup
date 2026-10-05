@@ -5906,3 +5906,127 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #market-modal .market-trade-ticket { gap: 7px; padding: 9px; }
   #market-modal .market-order-breakdown { gap: 6px 8px; min-height: 82px; padding: 9px; }
 }
+
+/* ============================================================
+   TOUCH TABLET EXTERNAL PAGES — iPad-first reading layout
+   Keep the desktop desk intact; use one intentional vertical scroller
+   per active page and progressively disclose secondary controls.
+   ============================================================ */
+.rankings-search-toggle,
+.rankings-view-tabs,
+.rules-search-toggle,
+.rules-chapters-toggle,
+.achievement-filter-toggle { display: none; }
+
+@media (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {
+  #view-rankings,
+  #view-social,
+  #view-rules,
+  #view-profile {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  #view-rankings .social-page-main,
+  #view-social .social-page-main,
+  #view-rules .rules-page-main {
+    height: calc(100vh - 64px);
+    height: calc(100dvh - 64px);
+    min-height: 0;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+
+  /* Lookup stays available without reserving a full toolbar row. */
+  .rankings-search-band.is-search-collapsible { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 4px 10px; }
+  .rankings-search-toggle { display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; }
+  .rankings-search-band.is-search-collapsible .rankings-search { display: none; }
+  .rankings-search-band.is-search-collapsible.is-search-open .rankings-search { display: block; padding: 8px 2px 3px; }
+
+  /* Keep all Profile sections reachable on one horizontal tab rail. */
+  #view-profile .profile-main {
+    max-width: none;
+    padding: 10px max(14px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-bottom));
+  }
+  #view-profile .profile-hero { padding: 12px 14px; }
+  #view-profile .profile-hero-main { gap: 12px; }
+  #view-profile .profile-hero-avatar { width: 68px; height: 68px; }
+  #view-profile .profile-hero-name { font-size: clamp(26px, 2.5vw, 38px); }
+  #view-profile .profile-hero-handle,
+  #view-profile .profile-hero-state { margin-top: 5px; }
+  #view-profile .profile-stat-rail { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+  #view-profile .profile-stat { min-width: 0; min-height: 52px; gap: 4px; padding: 7px 8px; }
+  #view-profile .profile-stat strong { font-size: 16px; }
+  #view-profile .profile-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-wrap: nowrap;
+    gap: 2px;
+    max-width: 100%;
+    margin-top: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 8px;
+    scrollbar-color: var(--line-active) var(--surface-panel-deep);
+    scrollbar-width: thin;
+    white-space: nowrap;
+  }
+  #view-profile .profile-tab { flex: 0 0 auto; min-height: 44px; padding-inline: 12px; white-space: nowrap; }
+  #view-profile .profile-tab-panel { min-width: 0; scroll-margin-top: 54px; }
+  #view-profile .achievements-panel { height: auto; max-height: none; overflow: visible; }
+  #view-profile .achievements-grid { flex: none; min-height: 0; overflow: visible; overscroll-behavior: auto; scrollbar-gutter: auto; }
+  #view-profile .collection-grid { max-height: none; overflow: visible; overscroll-behavior: auto; scrollbar-gutter: auto; }
+  #view-profile .achievements-intro { align-items: center; gap: 12px; }
+  #view-profile .achievements-intro .t-body { margin-top: 6px; }
+  #view-profile .achievements-progress { flex: 0 0 auto; min-width: 70px; padding: 6px 8px; }
+  #view-profile .achievements-progress strong { font-size: 16px; }
+
+  /* Keep categories visible; put secondary time/rarity filters behind one control. */
+  #view-profile .achievements-filter-bar { flex-wrap: nowrap; align-items: center; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-color: var(--line-active) var(--surface-panel-deep); scrollbar-width: thin; }
+  #view-profile .achievement-filter { flex: 0 0 auto; min-height: 44px; padding-inline: 10px; white-space: nowrap; }
+  #view-profile .achievement-filter-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-height: 44px; padding-inline: 10px; }
+  #view-profile .achievement-filter-controls { display: none; }
+  #view-profile .achievements-panel.is-filters-open .achievement-filter-controls { display: flex; }
+  #view-profile .achievement-filter-field { min-width: min(190px, 42vw); }
+
+  /* Search remains one tap away on both Rankings and Rules. */
+  #view-rules .rules-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+  #view-rules .rules-search-toggle { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding-inline: 10px; }
+  #view-rules .rules-search-label { display: none; flex: 1 1 100%; min-width: 0; }
+  #view-rules .rules-toolbar.is-search-open .rules-search-label { display: flex; }
+  #view-rules .rules-search-count { margin-left: auto; }
+  #view-rules .rules-page-main { min-height: 0; }
+  #view-rules .rules-book-page-scroll { scrollbar-color: var(--line-active) var(--surface-panel-deep); scrollbar-width: thin; }
+  #view-rules .rules-index-nav { scrollbar-color: var(--line-active) var(--surface-panel-deep); scrollbar-width: thin; }
+
+  .rules-search-toggle,
+  .rules-chapters-toggle { display: none; }
+}
+
+@media (min-width: 768px) and (max-width: 1100px) and (orientation: portrait) and (hover: none) and (pointer: coarse) {
+  /* Use two readable workspaces rather than squeezing standings and rewards together. */
+  #view-rankings .rankings-view-tabs { display: flex; gap: 6px; min-height: 48px; }
+  #view-rankings .ranking-pane-tab { flex: 1 1 0; min-width: 0; min-height: 44px; }
+  #view-rankings .ranking-pane-tab.is-active { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); }
+  #view-rankings .rankings-main-grid { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; flex: 1; min-height: 0; }
+  #view-rankings .rankings-stage,
+  #view-rankings .rankings-context { width: 100%; min-width: 0; min-height: 0; height: 100%; }
+  #view-rankings .rankings-main-grid[data-active-pane="standings"] .rankings-context,
+  #view-rankings .rankings-main-grid[data-active-pane="season"] .rankings-stage { display: none; }
+  #view-rankings .rankings-main-grid[data-active-pane="season"] .rankings-context { display: flex; max-height: none; overflow: hidden; }
+  #view-rankings .rankings-context .season-panel-grid { scrollbar-gutter: stable; }
+
+  /* Portrait turns the chapter list into a compact disclosure above one reader. */
+  #view-rules .rules-book-spread { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
+  #view-rules .rules-index { flex: 0 0 auto; min-height: 0; max-height: none; overflow: visible; padding: 8px 10px; }
+  #view-rules .rules-index-head { align-items: center; padding: 0; border: 0; }
+  #view-rules .rules-index-head > span { display: none; }
+  #view-rules .rules-chapters-toggle { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding-inline: 10px; }
+  #view-rules .rules-index-nav { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: min(240px, 26dvh); margin-top: 8px; overflow-y: auto; overscroll-behavior: contain; }
+  #view-rules .rules-index.is-index-open .rules-index-nav { display: grid; }
+  #view-rules .rules-book-page { flex: 1 1 0; min-height: 0; }
+  #view-rules .rules-book-page-scroll { padding: 14px; }
+}

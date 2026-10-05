@@ -115,9 +115,27 @@ function closeRankingsFromEvent(event) {
   else closeSurface("#rankings-modal");
 }
 
+function focusRankingControl(surface, selector) {
+  requestAnimationFrame(() => document.querySelector(`${surface} ${selector}`)?.focus({ preventScroll: true }));
+}
+
 function handleRankingClick(event) {
   const inGameModal = event.currentTarget?.id === "rankings-card" && rankingScopeInGame();
   const surface = rankingSearchSurface(event);
+  const searchToggle = event.target.closest("[data-ranking-search-toggle]");
+  if (searchToggle) {
+    state.rankingSearchExpanded = !state.rankingSearchExpanded;
+    renderRankingsSurface(surface);
+    focusRankingControl(surface, state.rankingSearchExpanded ? "[data-ranking-search-input]" : "[data-ranking-search-toggle]");
+    return;
+  }
+  const pane = event.target.closest("[data-ranking-pane]");
+  if (pane) {
+    state.rankingPane = pane.dataset.rankingPane === "season" ? "season" : "standings";
+    renderRankingsSurface(surface);
+    focusRankingControl(surface, `[data-ranking-pane="${state.rankingPane}"]`);
+    return;
+  }
   const step = event.target.closest("[data-ranking-step]");
   if (step) {
     onRankingStep(Number(step.dataset.rankingStep) || 1, inGameModal, surface);
@@ -147,6 +165,15 @@ function handleRankingClick(event) {
 }
 
 function handleRankingKeydown(event) {
+  const pane = event.target.closest("[data-ranking-pane]");
+  if (pane && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    event.preventDefault();
+    state.rankingPane = pane.dataset.rankingPane === "season" ? "standings" : "season";
+    const surface = event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
+    renderRankingsSurface(surface);
+    focusRankingControl(surface, `[data-ranking-pane="${state.rankingPane}"]`);
+    return;
+  }
   if (!event.target.closest("[data-ranking-stage]")) return;
   let step = 0;
   if (event.key === "ArrowLeft") step = -1;
@@ -181,6 +208,7 @@ function handleRankingSubmit(event) {
   state.rankingSearchQuery = String(input?.value || "").trim();
   state.rankingSearchResults = [];
   const surface = rankingSearchSurface(event);
+  if (surface === "#rankings-page-content") state.rankingSearchExpanded = true;
   rankingSearchRequestId += 1;
   const requestId = rankingSearchRequestId;
   state.rankingSearchLoading = false;

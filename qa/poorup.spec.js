@@ -84,6 +84,15 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(stage.locator('[data-ranking-step="-1"]')).toHaveAttribute('aria-label', /previous/i);
     await expect(stage.locator('[data-ranking-step="1"]')).toHaveAttribute('aria-label', /next/i);
     await expect(page.locator('#rankings-page-content .rankings-context-reading')).toHaveCount(0);
+    const searchToggle = page.locator('#rankings-page-content [data-ranking-search-toggle]');
+    const isTablet = testInfo.project.name.startsWith('ipad-');
+    if (isTablet) {
+      await expect(searchToggle).toBeVisible();
+      await expect(page.locator('#rankings-page-content [data-ranking-search-input]')).toBeHidden();
+      await searchToggle.click();
+    } else {
+      await expect(searchToggle).toBeHidden();
+    }
     const inputBox = await page.locator('#rankings-page-content [data-ranking-search-input]').boundingBox();
     const findBox = await page.locator('#rankings-page-content .rankings-search-submit').boundingBox();
     expect(inputBox).not.toBeNull();
