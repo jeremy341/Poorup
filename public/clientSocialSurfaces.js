@@ -8,6 +8,7 @@ import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { openSurface } from "./clientSurfaces.js";
 import { openAccountModal } from "./clientAccountIdentity.js";
+import { mountResponsiveRankingControls } from "./clientResponsiveSocialSurfaces.js";
 
 function noop() {}
 let host = { emitServer: noop, showView: noop };
@@ -796,35 +797,6 @@ export function seasonPanelHTML(surfaceKey = "page", override = null) {
   return populatedSeasonPanelHTML(surfaceKey, view, syncStatus);
 }
 
-function syncSeasonScrollCue(root) {
-  const update = () => {
-    const panel = root.querySelector(".rankings-context .season-panel");
-    const grid = panel?.querySelector(".season-panel-grid");
-    if (!panel || !grid) return;
-    const scrollable = grid.scrollHeight > grid.clientHeight + 1;
-    let cue = panel.querySelector("[data-season-scroll-cue]");
-    if (!cue) {
-      cue = document.createElement("span");
-      cue.className = "t-micro ink-3 season-scroll-cue";
-      cue.dataset.seasonScrollCue = "true";
-      cue.setAttribute("aria-hidden", "true");
-      cue.textContent = "SCROLL INSIDE TO VIEW MORE REWARDS";
-      panel.append(cue);
-    }
-    panel.classList.toggle("is-scrollable", scrollable);
-    grid.setAttribute("aria-label", "Season placements and rewards. Scroll within this panel to see all entries.");
-    cue.hidden = !scrollable;
-    if (scrollable) grid.setAttribute("tabindex", "0");
-    else grid.removeAttribute("tabindex");
-  };
-
-  requestAnimationFrame(update);
-  if (root.dataset.seasonCueResizeBound === "true") return;
-  root.dataset.seasonCueResizeBound = "true";
-  window.addEventListener("resize", () => requestAnimationFrame(update), { passive: true });
-  window.visualViewport?.addEventListener("resize", () => requestAnimationFrame(update), { passive: true });
-}
-
 export function renderRankingsSurface(target = "#rankings-card") {
   const card = surfaceCard(target, "#rankings-card");
   if (!card) return;
@@ -846,14 +818,8 @@ export function renderRankingsSurface(target = "#rankings-card") {
   card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div>${rankingPaneControls}<div class="rankings-main-grid" data-ranking-layout data-active-pane="${activeRankingPane}"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
   const metricCount = card.querySelector(".ranking-stage-count");
   if (metricCount) metricCount.textContent = `${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC`;
-  const rankingResults = rankingSearchResultsHTML();
-  const rankingSearchExpanded = pageSurface && state.rankingSearchExpanded === true;
-  const rankingSearch = document.createElement("section");
-  rankingSearch.className = `rankings-search-band panel noise${pageSurface ? " is-search-collapsible" : ""}${rankingSearchExpanded ? " is-search-open" : ""}`;
-  rankingSearch.innerHTML = `${pageSurface ? `<button class="btn-dark rankings-search-toggle" type="button" data-ranking-search-toggle aria-controls="rankings-${surfaceKey}-search-form" aria-expanded="${rankingSearchExpanded}"><span class="t-label f11">FIND A PLAYER</span><span class="t-micro ink-3">${rankingSearchExpanded ? "CLOSE" : "OPEN"}</span></button>` : ""}<form class="rankings-search" id="rankings-${surfaceKey}-search-form" data-ranking-search-form><div class="rankings-search-field"><label class="rankings-search-label" for="rankings-${surfaceKey}-search"><span class="t-micro g400">FIND A PLAYER</span></label><div class="rankings-search-controls"><input class="field" id="rankings-${surfaceKey}-search" name="ranking-username" data-ranking-search-input autocomplete="off" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" placeholder="EXACT USERNAME…" value="${esc(state.rankingSearchQuery || "")}" aria-describedby="rankings-${surfaceKey}-search-help"><button class="btn-dark rankings-search-submit" type="submit"><span class="t-label f11">FIND</span></button></div><span class="t-micro ink-3" id="rankings-${surfaceKey}-search-help">Exact username lookup · public identity only</span></div><div class="rankings-search-results">${rankingResults}</div></form>`;
-  card.querySelector(".rankings-search-slot")?.replaceWith(rankingSearch);
+  mountResponsiveRankingControls(card, { pageSurface, surfaceKey, expanded: state.rankingSearchExpanded, query: state.rankingSearchQuery, results: rankingSearchResultsHTML() });
   card.querySelector("[data-season-sign-in]")?.addEventListener("click", (event) => openAccountModal("register", event.currentTarget));
-  if (pageSurface) syncSeasonScrollCue(card);
 }
 
 const RULES_SECTIONS = [

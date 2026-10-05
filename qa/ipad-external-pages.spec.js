@@ -24,6 +24,85 @@ async function expectNoDocumentScroll(page) {
   expect(dimensions.scrollY).toBe(0);
 }
 
+const SHORT_VIEWPORTS = [
+  { name: 'ipad-1180x700', width: 1180, height: 700, seasonCue: true },
+  { name: 'ipad-1024x768', width: 1024, height: 768 },
+  { name: 'ipad-944x656', width: 944, height: 656 },
+  { name: 'ipad-portrait-820x1060', width: 820, height: 1060 },
+  { name: 'ipad-zoom-200-landscape', width: 590, height: 410, zoomEquivalent: true },
+  { name: 'ipad-zoom-200-portrait', width: 410, height: 590, zoomEquivalent: true },
+];
+
+const EXTERNAL_ROUTES = [
+  {
+    id: 'rankings',
+    button: '#home-rankings-tab',
+    viewId: '#view-rankings',
+    scrollSelector: '#view-rankings .social-page-main',
+    reachableSelectors: ['#rankings-page-content .rankings-stage', '#rankings-page-content .rankings-context'],
+  },
+  {
+    id: 'rules',
+    button: '#home-rules-tab',
+    viewId: '#view-rules',
+    scrollSelector: '#rules-book-page-scroll',
+    reachableSelectors: ['#rules-book-page-scroll .rules-article-body'],
+  },
+  {
+    id: 'profile',
+    button: '#home-profile-tab',
+    viewId: '#view-profile',
+    scrollSelector: '#view-profile .profile-main',
+    reachableSelectors: ['#view-profile .profile-tab-panel:not(.is-hidden)'],
+  },
+];
+
+const SHORT_VIEWPORT_CASES = SHORT_VIEWPORTS.flatMap((viewport) => EXTERNAL_ROUTES.map((route) => ({ viewport, route })));
+
+async function expectSeasonCueWhenNeeded(page, viewport, route) {
+  if (!viewport.seasonCue || route.id !== 'rankings') return;
+  const seasonGrid = page.locator('#rankings-page-content .season-panel-grid');
+  await expect(seasonGrid).toBeVisible();
+  await expect(seasonGrid).toHaveAttribute('tabindex', '0');
+  await expect(page.locator('#rankings-page-content [data-season-scroll-cue]')).toBeVisible();
+  await expect(page.locator('#rankings-page-content [data-season-scroll-cue]')).toContainText('SCROLL INSIDE');
+}
+
+async function expectZoomContentReachable(page, viewport, route) {
+  if (!viewport.zoomEquivalent) return;
+  const scrollArea = page.locator(route.scrollSelector);
+  const scrollState = await scrollArea.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    return { top: element.scrollTop, max: element.scrollHeight - element.clientHeight };
+  });
+  expect(scrollState.top, `${viewport.name} ${route.id} internal scroll`).toBeGreaterThan(0);
+  expect(scrollState.max, `${viewport.name} ${route.id} internal scroll range`).toBeGreaterThan(0);
+
+  for (const selector of route.reachableSelectors) {
+    const reachableContent = page.locator(selector);
+    await reachableContent.evaluate((element) => element.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    const visibleInViewport = await reachableContent.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    });
+    expect(visibleInViewport, `${viewport.name} ${route.id} ${selector} remains reachable`).toBe(true);
+  }
+}
+
+async function verifyShortViewportRoute(page, testInfo, viewport, route) {
+  await page.goto('/');
+  await page.locator(route.button).click();
+  const bounds = await page.locator(route.viewId).evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    viewport: window.visualViewport?.height ?? window.innerHeight,
+  }));
+  expect(bounds.height, `${viewport.name} ${route.id}`).toBeLessThanOrEqual(bounds.viewport + 1);
+  await expectNoDocumentScroll(page);
+  await expectSeasonCueWhenNeeded(page, viewport, route);
+  await expectZoomContentReachable(page, viewport, route);
+  await captureIfRequested(page, testInfo, `${viewport.name}-${route.id}.png`);
+}
+
 test.describe('iPad external pages', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     test.skip(!ipadProject(testInfo), 'iPad responsive contract');
@@ -221,69 +300,9 @@ test.describe('iPad external pages', () => {
   });
 
   test('short-height shell keeps rankings, rules and profile inside the dynamic viewport', async ({ page }, testInfo) => {
-    const viewports = [
-      { name: 'ipad-1180x700', width: 1180, height: 700 },
-      { name: 'ipad-1024x768', width: 1024, height: 768 },
-      { name: 'ipad-944x656', width: 944, height: 656 },
-      { name: 'ipad-portrait-820x1060', width: 820, height: 1060 },
-      { name: 'ipad-zoom-200-landscape', width: 590, height: 410 },
-      { name: 'ipad-zoom-200-portrait', width: 410, height: 590 },
-    ];
-    for (const viewport of viewports) {
+    for (const { viewport, route } of SHORT_VIEWPORT_CASES) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      for (const [route, button, viewId] of [
-        ['rankings', '#home-rankings-tab', '#view-rankings'],
-        ['rules', '#home-rules-tab', '#view-rules'],
-        ['profile', '#home-profile-tab', '#view-profile'],
-      ]) {
-        await page.goto('/');
-        await page.locator(button).click();
-        const rect = await page.locator(viewId).evaluate((element) => ({
-          height: element.getBoundingClientRect().height,
-          viewport: window.visualViewport?.height ?? window.innerHeight,
-        }));
-        expect(rect.height, `${viewport.name} ${route}`).toBeLessThanOrEqual(rect.viewport + 1);
-        await expectNoDocumentScroll(page);
-        if (route === 'rankings' && viewport.name === 'ipad-1180x700') {
-          const seasonGrid = page.locator('#rankings-page-content .season-panel-grid');
-          await expect(seasonGrid).toBeVisible();
-          const seasonOverflow = await seasonGrid.evaluate((grid) => grid.scrollHeight > grid.clientHeight + 1);
-          if (seasonOverflow) {
-            await expect(seasonGrid).toHaveAttribute('tabindex', '0');
-            await expect(page.locator('#rankings-page-content [data-season-scroll-cue]')).toBeVisible();
-            await expect(page.locator('#rankings-page-content [data-season-scroll-cue]')).toContainText('SCROLL INSIDE');
-          }
-        }
-        if (viewport.name.startsWith('ipad-zoom-200')) {
-          const scrollSelector = route === 'rankings'
-            ? '#view-rankings .social-page-main'
-            : route === 'rules'
-              ? '#rules-book-page-scroll'
-              : '#view-profile .profile-main';
-          const scrollArea = page.locator(scrollSelector);
-          const scrollState = await scrollArea.evaluate((element) => {
-            element.scrollTop = element.scrollHeight;
-            return { top: element.scrollTop, max: element.scrollHeight - element.clientHeight };
-          });
-          expect(scrollState.top, `${viewport.name} ${route} internal scroll`).toBeGreaterThan(0);
-          expect(scrollState.max, `${viewport.name} ${route} internal scroll range`).toBeGreaterThan(0);
-          const reachableSelectors = route === 'rankings'
-            ? ['#rankings-page-content .rankings-stage', '#rankings-page-content .rankings-context']
-            : [route === 'rules'
-              ? '#rules-book-page-scroll .rules-article-body'
-              : '#view-profile .profile-tab-panel:not(.is-hidden)'];
-          for (const selector of reachableSelectors) {
-            const reachableContent = page.locator(selector);
-            await reachableContent.evaluate((element) => element.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
-            const visibleInViewport = await reachableContent.evaluate((element) => {
-              const rect = element.getBoundingClientRect();
-              return rect.bottom > 0 && rect.top < window.innerHeight;
-            });
-            expect(visibleInViewport, `${viewport.name} ${route} ${selector} remains reachable`).toBe(true);
-          }
-        }
-        await captureIfRequested(page, testInfo, `${viewport.name}-${route}.png`);
-      }
+      await verifyShortViewportRoute(page, testInfo, viewport, route);
     }
   });
 });
