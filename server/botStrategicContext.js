@@ -4,12 +4,12 @@
 // simulator and the AI adapter can consume the same snapshot contract.
 import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX } from './gameData.js';
 import { decksForVariant } from './boardRegistry.js';
-import { MARKET_FEE_RATE } from './marketLogic.js';
+import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 import { COMPLEXITY_RANK, MARGIN_MAINTENANCE_RATE } from './marketExpansion.js';
 import { summarizePublicActionProfile } from './publicActionHistory.js';
 import { PUBLIC_ACTION_PROFILE_PRODUCTION_ENABLED } from './publicActionHistory.js';
 
-export const BOT_CONTEXT_VERSION = 'bot-context-v3';
+export const BOT_CONTEXT_VERSION = 'bot-context-v4';
 export const BOT_RULE_VERSION = 'bot-policy-v2';
 
 function integer(value, fallback = 0) {
@@ -496,6 +496,7 @@ function eventView(game, bot) {
     title: event.title,
     category: event.category,
     phase: event.phase,
+    startedRound: nonNegative(event.startedRound),
     roundsRemaining: nonNegative(event.roundsRemaining),
     durationRounds: nonNegative(event.durationRounds),
     effects: { ...(event.effects || {}) },
@@ -582,6 +583,7 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
     // same record to humans); the planner's market appliers require them to
     // project any market candidate at all.
     marketQuotes: { ...(game?.marketQuotes || {}) },
+    marketQuoteHistory: marketQuoteHistorySnapshot(game || {}).slice(-12),
     rulesDigest: rulesDigest(game || {})
   };
 }

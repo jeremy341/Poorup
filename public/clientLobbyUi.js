@@ -441,7 +441,7 @@ function lobbyPlayerRowHTML(p, seed) {
     <div class="lobby-av">${avatarHTML(p, 3, seed)}</div>
       <div class="lobby-player-info">
         <div class="t-label lobby-player-name" style="color:${p.textColor}">${p.bot ? '<img class="lobby-brain-icon" src="/assets/bot-brain.svg" alt="">' : ''}${esc(p.name)}${isHost ? '<span class="lobby-host-badge t-micro g400">HOST</span>' : ''}</div>
-        <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.personality || "survivor").toUpperCase()} · ${(p.botBrain || "ai").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
+        <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
     </div>
     <span class="lobby-ready-dot" style="background:${ready ? "#35a653" : "#3a382a"};box-shadow:${ready ? "0 0 5px rgb(53 166 83/60%)" : "none"}"></span>
   </div>`;
@@ -488,7 +488,7 @@ function bankLoanCopy(settings) {
 
 function botCopy(settings) {
   if (!settings.bots) return "no bots";
-  return `bot ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botPersonality || "survivor").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
+  return `bot ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
 }
 
 function botBrainControl(settings) {
@@ -521,7 +521,6 @@ function lobbyTableRules(s) {
     settingRow("Board Variant", "Standard 40 is the classic board; Metro 52 adds more spaces and seats.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD 40"], ["metro-52", "METRO 52 · 2–6"]])),
     settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
     settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
-    settingRow("Bot Personality", "Choose the table instinct used by every CPU seat.", sel("botPersonality", s.botPersonality, [["survivor","SURVIVOR"],["builder","BUILDER"],["shark","SHARK"],["speculator","SPECULATOR"],["diplomat","DIPLOMAT"],["chaos","CHAOS"]])),
     settingRow("Bot Brain", "Choose AI or the offline house brain. AI falls back automatically when credits or service are unavailable.", botBrainControl(s)),
     settingRow("Bot Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
     settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),

@@ -5,7 +5,7 @@ function matchesForPolicy(matches, policyId) {
 }
 
 function completedMatches(matches) {
-  return matches.filter(match => match.ended);
+  return matches.filter(match => match.completed ?? (match.ended && match.winnerPolicyId != null));
 }
 
 function mean(values) {
@@ -106,15 +106,37 @@ function shadowSummary(matches, outcomes) {
 }
 
 function matchTotals(matches) {
+  const completed = completedMatches(matches).length;
   return {
-    completedCount: matches.filter(match => match.ended).length,
-    incompleteCount: matches.filter(match => !match.ended).length,
+    completedCount: completed,
+    incompleteCount: matches.length - completed,
     liveAiCalls: matches.reduce((sum, match) => sum + match.liveAiCalls, 0),
     liveAiCapExhaustions: matches.reduce((sum, match) => sum + match.liveAiCapExhaustions, 0),
     liveAiFallbacks: matches.reduce((sum, match) => sum + match.liveAiFallbacks, 0),
     liveAiCappedMatches: matches.filter(match => match.liveAiCallCapReached).length,
     liveAiStatus: campaignStatus(matches),
   };
+}
+
+function strategyMetricsByPolicy(matches, policyIds) {
+  const sumFields = ['providerCalls', 'auctionBidCount', 'auctionBidPremiumTotal', 'auctionBidFacePremiumTotal', 'completedTrades', 'completedGroupsLost', 'opponentGroupsBroken'];
+  return Object.fromEntries(policyIds.map(policyId => {
+    const result = Object.fromEntries(sumFields.map(field => [field, 0]));
+    result.maxAuctionBidPremium = 0;
+    result.maxAuctionBidFacePremium = 0;
+    result.marketPnl = 0;
+    result.matches = 0;
+    matches.forEach(match => {
+      const metrics = match.strategyMetricsByPolicy?.[policyId];
+      if (!metrics) return;
+      result.matches += 1;
+      sumFields.forEach(field => { result[field] += Number(metrics[field]) || 0; });
+      result.maxAuctionBidPremium = Math.max(result.maxAuctionBidPremium, Number(metrics.maxAuctionBidPremium) || 0);
+      result.maxAuctionBidFacePremium = Math.max(result.maxAuctionBidFacePremium, Number(metrics.maxAuctionBidFacePremium) || 0);
+      result.marketPnl += Number(match.marketPnlByPolicy?.[policyId] ?? metrics.marketPnl) || 0;
+    });
+    return [policyId, result];
+  }));
 }
 
 function campaignStatus(matches) {
@@ -128,6 +150,7 @@ export function buildTournamentSummary(matches, policyIds) {
     matches,
     ...matchTotals(matches),
     policyOutcomes: outcomes,
+    strategyMetricsByPolicy: strategyMetricsByPolicy(matches, policyIds),
     pairedDifferences: pairedDifferences(matches),
     shadowEvaluationSummary: shadowSummary(matches, outcomes),
   };

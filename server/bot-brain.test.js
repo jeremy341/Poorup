@@ -24,14 +24,16 @@ assert.equal(room.settings.botBrain, 'ai');
 assert.equal(room.settings.botDifficulty, 'table');
 
 room.setRoomSetting('bots', 1);
-room.setRoomSetting('botPersonality', 'builder');
+assert.equal(room.setRoomSetting('botPersonality', 'builder').rejected, true);
 room.ensureBots();
 const bot = room.game.players.find(player => player.isBot);
 assert.ok(bot);
-assert.equal(bot.personality, 'builder');
-room.setRoomSetting('botPersonality', 'shark');
+assert.equal('personality' in bot, false);
+assert.equal('botPersonality' in room.settings, false);
+const botSummary = room.game.getGameSummary().players.find(player => player.isBot);
+assert.equal('personality' in botSummary, false);
+assert.equal(botSummary.botDifficulty, 'table');
 room.setRoomSetting('botDifficulty', 'house');
-assert.equal(bot.personality, 'shark');
 assert.equal(room.settings.botDifficulty, 'house');
 
 const trace = room.game.recordBotDecisionTrace({
@@ -74,9 +76,33 @@ assert.deepEqual(room.runBotAction(bot.id, () => ({ success: true })), { success
 
 assert.deepEqual(BOT_PRESETS.easy, { botBrain: 'no-ai', botDifficulty: 'house' });
 assert.deepEqual(BOT_PRESETS.medium, { botBrain: 'ai', botDifficulty: 'table' });
-assert.deepEqual(BOT_PRESETS.hard, { botBrain: 'all', botDifficulty: 'expert' });
+assert.deepEqual(BOT_PRESETS.hard, { botBrain: 'ai', botDifficulty: 'expert' });
 assert.deepEqual(resolveBotPreset('HARD'), BOT_PRESETS.hard);
 assert.equal(resolveBotPreset('unknown'), null);
 room.setRoomSetting('botBrain', 'all');
-assert.equal(room.settings.botBrain, 'all');
-console.log('bot-brain room settings: 12 passed, 0 failed');
+assert.equal(room.settings.botBrain, 'ai');
+console.log('bot-brain room settings and shared candidate policy passed');
+
+function candidateProfile(brain, difficulty) {
+  const fixture = new RoomManager().createRoom({ socketId: `${brain}-${difficulty}`, clientId: `${brain}-${difficulty}`, nickname: 'COMPARE' });
+  fixture.setRoomSetting('bots', 1);
+  fixture.setRoomSetting('botBrain', brain);
+  fixture.setRoomSetting('botDifficulty', difficulty);
+  fixture.setRoomSetting('market', true);
+  fixture.setRoomSetting('casino', true);
+  assert.equal(fixture.startGame().success, true);
+  const bot = fixture.game.players.find(player => player.isBot);
+  return fixture.game.getBotCandidates(bot).map(candidate => ({
+    kind: candidate.kind,
+    tileIndex: candidate.tileIndex ?? null,
+    instrumentId: candidate.instrumentId ?? null,
+    side: candidate.side ?? null,
+    quantity: candidate.quantity ?? null,
+    score: candidate.score,
+    risk: candidate.risk
+  }));
+}
+
+const legalNoAi = candidateProfile('no-ai', 'house');
+assert.deepEqual(candidateProfile('ai', 'table'), legalNoAi, 'brain selection does not alter the server-issued legal action set');
+assert.deepEqual(candidateProfile('no-ai', 'expert'), legalNoAi, 'difficulty changes reasoning depth, not action legality');

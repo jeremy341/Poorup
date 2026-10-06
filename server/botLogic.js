@@ -5,8 +5,9 @@
 // The server keeps only scheduling and execution; it asks these helpers what
 // a bot should do and runs the answer through room.runBotAction.
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
-import { evaluateCandidate } from './botFuturePlanner.js';
-import { vetoTrade, deedValue, MONOPOLY_PREMIUM_NUM, MONOPOLY_PREMIUM_DEN } from './botTradeValuation.js';
+import { evaluateCandidate, planningHorizon } from './botFuturePlanner.js';
+import { groupBuildPlan } from './botDevelopmentForecast.js';
+import { vetoTrade, deedValue, portfolioDeedValue, MONOPOLY_PREMIUM_NUM, MONOPOLY_PREMIUM_DEN } from './botTradeValuation.js';
 import { tickLedger, coalitionAgainst } from './botTableMind.js';
 import {
   SPONSORSHIP_RESERVE_CASH,
@@ -25,33 +26,11 @@ export { sponsorshipContributionAmount };
 export { debtMortgageCandidates } from './botCandidates.js';
 export { getBotChoiceCandidates, runPaymentChoice } from './advisorLogic.js';
 
-// Global-event voting: personality -> preferred policy id.
-export const EVENT_POLICY_BY_PERSONALITY = {
-  builder: 'public-works',
-  speculator: 'bank-first'
-};
-export const DEFAULT_EVENT_POLICY = 'low-tax';
-
-// Trade acceptance: the bot accepts when the value it receives clears its
-// demand scaled by a personality risk factor.
-export const TRADE_ACCEPT_FACTOR = { shark: 1.1 };
-export const DEFAULT_TRADE_ACCEPT_FACTOR = 0.8;
-
-// Player-contract acceptance: repayment offers are compared against cash
-// times a personality willingness factor.
-export const CONTRACT_REPAY_FACTOR = { speculator: 1.25 };
-export const DEFAULT_CONTRACT_REPAY_FACTOR = 0.8;
-
-// Auction bidding step and cash reserve per personality.
-export const AUCTION_BID_POLICY = {
-  shark: { step: 20, reserve: 60, always: true },
-  builder: { step: 10, reserve: 120, always: true }
-};
-export const DEFAULT_AUCTION_BID_POLICY = { step: 10, reserve: 120, always: false };
+export const EVENT_POLICY = 'low-tax';
+export const TRADE_ACCEPT_RATIO = 0.8;
+export const CONTRACT_REPAY_RATIO = 0.8;
+export const AUCTION_BID_STEP = 10;
 const ADVISOR_CHOICE_PHASES = new Set(['vote', 'trade', 'contract', 'sponsorship', 'payment', 'auction']);
-// A non-always personality only bids while comfortably above starting cash.
-export const AUCTION_COMFORT_RATIO = 0.7;
-
 // Property purchase keeps this much cash in reserve before buying.
 export const PURCHASE_RESERVE_CASH = 120;
 
@@ -69,13 +48,58 @@ export function splitEvaluationTrace(decision = {}) {
   return { botDecision, evaluationTrace: shadowEvaluation || null };
 }
 
-function eventChoiceByIdOrFirst(globalEvent, preferred) {
-  return globalEvent?.choices?.find(choice => choice.id === preferred) || globalEvent?.choices?.[0] || null;
+function eventChoiceHorizon(game) {
+  return Math.max(1, planningHorizon(game?.settings?.botDifficulty || 'table'));
 }
 
-export function selectGlobalEventPolicy(globalEvent, personality) {
-  const preferred = EVENT_POLICY_BY_PERSONALITY[personality] || DEFAULT_EVENT_POLICY;
-  return eventChoiceByIdOrFirst(globalEvent, preferred);
+function cityElectionChoiceUtility(game, bot, choice) {
+  const horizon = eventChoiceHorizon(game);
+  const tiles = Array.isArray(game?.tiles) ? game.tiles : [];
+  const landingRate = 0.08 * horizon;
+  if (choice.id === 'low-tax') {
+    const taxExposure = tiles.filter(tile => tile.type === 'tax')
+      .reduce((sum, tile) => sum + Math.max(0, Number(tile.amount || tile.price) || 0), 0);
+    const cashNeed = Number(bot?.cash || 0) < Number(game.settings?.startingCash || 1500) * 0.5 ? 1.5 : 1;
+    return taxExposure * 0.4 * landingRate * cashNeed;
+  }
+  if (choice.id === 'public-works') {
+    const ownedGroups = [...new Set((bot?.properties || []).map(index => game.getTile?.(index)?.group).filter(Boolean))];
+    const buildSavings = ownedGroups.reduce((sum, group) => {
+      const board = (game.getGroupTiles?.(group) || []).map(tile => ({
+        ...tile,
+        ownerSeat: tile.ownerId === bot.id ? 'self' : 'bank'
+      }));
+      const plan = groupBuildPlan(board, group, tile => game.getPropertyHouseCost?.(tile));
+      return sum + (plan ? plan.cost * 0.35 : 0);
+    }, 0);
+    const ownedRent = (bot?.properties || []).reduce((sum, index) => {
+      const tile = game.getTile?.(index);
+      return sum + Math.max(0, Number(game.calculateRent?.(tile) ?? tile?.rent) || 0);
+    }, 0);
+    return buildSavings - ownedRent * 0.25 * landingRate;
+  }
+  if (choice.id === 'bank-first') {
+    if (game.settings?.bankLoans === false) return -1;
+    const offer = game.getBankLoanOffer?.(bot);
+    const premiumSavings = offer?.available ? Number(offer.premium || 0) * 0.2 : 0;
+    const liquidityNeed = Number(bot?.cash || 0) < Number(game.settings?.startingCash || 1500) * 0.35 ? 25 : 0;
+    return premiumSavings + liquidityNeed;
+  }
+  return 0;
+}
+
+export function globalEventPolicyUtility(globalEvent, choice, game, bot) {
+  if (globalEvent?.id === 'city-election') return cityElectionChoiceUtility(game, bot, choice);
+  return choice?.id === EVENT_POLICY ? 1 : 0;
+}
+
+export function selectGlobalEventPolicy(globalEvent, game = null, bot = null) {
+  const choices = Array.isArray(globalEvent?.choices) ? globalEvent.choices : [];
+  if (!choices.length) return null;
+  if (!game || !bot) return choices.find(choice => choice.id === EVENT_POLICY) || choices[0];
+  return choices.reduce((best, choice) => !best
+    || globalEventPolicyUtility(globalEvent, choice, game, bot) > globalEventPolicyUtility(globalEvent, best, game, bot)
+    ? choice : best, null);
 }
 
 export function tradeLegValue(leg, getTile) {
@@ -118,43 +142,56 @@ function teamingAcceptFactor(game, trade, factor) {
   return colludingProposer(game, trade) ? factor * 1.5 : factor;
 }
 
-export function shouldAcceptTrade(trade, getTile, personality, game = null) {
+export function shouldAcceptTrade(trade, getTile, game = null) {
   if (tradeVetoed(game, trade)) return false;
-  const factor = teamingAcceptFactor(game, trade, TRADE_ACCEPT_FACTOR[personality] || DEFAULT_TRADE_ACCEPT_FACTOR);
+  const factor = teamingAcceptFactor(game, trade, TRADE_ACCEPT_RATIO);
+  const responder = typeof game?.getPlayerById === 'function' ? game.getPlayerById(trade?.toPlayerId) : null;
+  if (responder && Array.isArray(responder.properties)) {
+    const outgoing = (trade.requestPropertyIndexes || []).map(Number);
+    const incoming = (trade.givePropertyIndexes || []).map(Number);
+    const nextProperties = [...new Set([
+      ...responder.properties.filter(index => !outgoing.includes(Number(index))),
+      ...incoming
+    ])];
+    const propertyDelta = portfolioDeedValue(game, responder.id, nextProperties)
+      - portfolioDeedValue(game, responder.id, responder.properties);
+    const cashDelta = Number(trade.giveCash || 0) - Number(trade.requestCash || 0);
+    const askValue = tradeLegValue({ cash: trade.requestCash, propertyIndexes: outgoing }, getTile);
+    return clearsTradeBar(cashDelta + propertyDelta, askValue, factor - 1);
+  }
   const giveValue = tradeLegValue({ cash: trade.giveCash, propertyIndexes: trade.givePropertyIndexes }, getTile);
   const askValue = tradeLegValue({ cash: trade.requestCash, propertyIndexes: trade.requestPropertyIndexes }, getTile);
   return clearsTradeBar(giveValue, askValue, factor);
 }
 
-export function shouldAcceptPlayerContract(offer, bot, lender, personality, game = null) {
+export function shouldAcceptPlayerContract(offer, bot, lender, game = null) {
   if (offer?.kind === 'equity' && game) {
-    return equityTermsAcceptable(game, offer, bot, personality);
+    return equityTermsAcceptable(game, offer, bot);
   }
   const check = CONTRACT_ACCEPTANCE[offer.kind] || CONTRACT_ACCEPTANCE.fallback;
-  return check(offer, bot, { lender, personality });
+  return check(offer, bot, { lender });
 }
 
 // Equity value gate: never pledge rent equity below 2x traffic-adjusted
-// deed value, pro-rated by share. Without game context (legacy unit tests)
-// the pinned personality behavior is preserved.
+// deed value, pro-rated by share, while retaining enough cash to absorb the
+// next projected rent exposure.
 function equityMinimumPrice(game, offer, tile) {
   const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
   return Math.ceil(share / 100 * deedValue(game, tile) * MONOPOLY_PREMIUM_NUM / MONOPOLY_PREMIUM_DEN);
 }
 
-function equityTermsAcceptable(game, offer, bot, personality) {
-  if (personality === 'survivor' && Number(offer.amount) > bot.cash * EQUITY_SURVIVOR_RATIO) return false;
+function equityTermsAcceptable(game, offer, bot) {
+  if (Number(offer.amount) > bot.cash * EQUITY_CASH_RATIO) return false;
   const tile = typeof game.getTile === 'function' ? game.getTile(Number(offer.propertyIndex)) : null;
-  if (!tile) return personality !== 'survivor';
+  if (!tile) return false;
   return Number(offer.amount) >= equityMinimumPrice(game, offer, tile);
 }
 
-const EQUITY_SURVIVOR_RATIO = 0.35;
+const EQUITY_CASH_RATIO = 0.35;
 const CONTRACT_ACCEPTANCE = {
-  equity: (offer, bot, ctx) => ctx.personality !== 'survivor'
-    || Number(offer.amount) <= bot.cash * EQUITY_SURVIVOR_RATIO,
+  equity: (offer, bot) => Number(offer.amount) <= bot.cash * EQUITY_CASH_RATIO,
   fallback: (offer, bot, ctx) => Number(offer.totalDue || offer.amount) <= bot.cash
-    * (CONTRACT_REPAY_FACTOR[ctx.personality] || DEFAULT_CONTRACT_REPAY_FACTOR)
+    * CONTRACT_REPAY_RATIO
     && Boolean(ctx.lender && !ctx.lender.bankrupt)
 };
 
@@ -250,8 +287,7 @@ export function classifyBotTurnPhase(game, bot) {
 }
 
 // Maps the advisor's chosen candidate to the concrete action it implies.
-// Each mapper answers "does this personality take this candidate?"; the
-// first true wins, and anything unmatched (or no candidate) is plain roll.
+// The strategy layer chooses; this seam only maps legal action kinds.
 const CANDIDATE_MAPPERS = [
   { kind: 'jail-fine', takes: () => true, type: 'jail-fine' },
   { kind: 'jail-free', takes: () => true, type: 'jail-free' },
@@ -274,11 +310,11 @@ const CANDIDATE_MAPPERS = [
   { kind: 'casino', takes: () => true, type: 'casino' },
   { kind: 'repay', takes: () => true, type: 'repay' },
   { kind: 'bank-repay', takes: () => true, type: 'bank-repay' },
-  { kind: 'build', takes: (candidate, bot) => bot.cash >= candidate.cost + 200, type: 'build' },
+  { kind: 'build', takes: () => true, type: 'build' },
   { kind: 'sell', takes: () => true, type: 'sell' },
   { kind: 'mortgage', takes: () => true, type: 'mortgage' },
   { kind: 'unmortgage', takes: () => true, type: 'unmortgage' },
-  { kind: 'loan', takes: (candidate, bot) => bot.personality === 'speculator' || Number(candidate.totalDue) <= Number(bot.cash) * 1.5, type: 'loan' }
+  { kind: 'loan', takes: () => true, type: 'loan' }
 ];
 
 export function candidateAction(candidate, bot) {
@@ -287,36 +323,52 @@ export function candidateAction(candidate, bot) {
 }
 
 export function auctionBidDecision(auction, bot, startingCash, game = null) {
-  const policy = AUCTION_BID_POLICY[bot.personality] || DEFAULT_AUCTION_BID_POLICY;
-  const minimum = Math.max(auction.highestBid + 1, auction.highestBid + policy.step);
-  const affordably = bot.cash >= minimum + policy.reserve && isComfortableBidder(policy, bot, startingCash);
-  if (!affordably) return { shouldBid: false, minimum };
-  // Valuation cap with game context: sticker + completion bonus, shill-stop
-  // past willingness. Legacy shapes without game keep pinned behavior.
+  const minimum = Math.max(Number(auction.highestBid || 0) + 1, Number(auction.highestBid || 0) + AUCTION_BID_STEP);
+  void startingCash;
+  const cashCeiling = Math.max(0, Math.floor(Number(bot.cash || 0)));
+  // A real auction always carries its deed; if the deed cannot be priced,
+  // the strategy may use its cash ceiling but never a fabricated property value.
   const ceiling = auctionWillingness(auction, bot, game);
-  if (ceiling != null && minimum > ceiling) return { shouldBid: false, minimum };
-  return { shouldBid: true, minimum };
+  const maximum = Math.min(cashCeiling, Number.isFinite(ceiling) ? Math.floor(ceiling) : cashCeiling);
+  return { shouldBid: minimum <= maximum, minimum, maximum };
 }
 
 function auctionChoiceCandidates(baseline, bot) {
-  return [
-    { id: 'auction:bid', kind: 'auction', amount: baseline.minimum, risk: baseline.minimum / Math.max(1, bot.cash), score: baseline.shouldBid ? 12 : 2 },
-    { id: 'auction:pass', kind: 'auction', risk: 0, score: baseline.shouldBid ? 1 : 10 }
-  ];
+  const candidates = [];
+  if (baseline.shouldBid) candidates.push({
+    id: 'auction:bid',
+    kind: 'auction-bid',
+    amount: baseline.minimum,
+    minimumAmount: baseline.minimum,
+    maximumAmount: baseline.maximum,
+    parameterRanges: { amount: { type: 'integer', minimum: baseline.minimum, maximum: baseline.maximum } },
+    risk: baseline.minimum / Math.max(1, bot.cash),
+    score: 12
+  });
+  candidates.push({ id: 'auction:pass', kind: 'auction-pass', risk: 0, score: baseline.shouldBid ? 1 : 10 });
+  return candidates;
 }
 
-export async function decideBotAuction({ auction, bot, startingCash, advisor, context = {} }) {
-  const baseline = auctionBidDecision(auction, bot, startingCash);
+export async function decideBotAuction({ auction, bot, startingCash, game = null, advisor, context = {} }) {
+  const baseline = auctionBidDecision(auction, bot, startingCash, game);
   const candidates = auctionChoiceCandidates(baseline, bot);
   const supportsAuctionChoice = advisorSupportsChoicePhase(advisor, 'auction');
   const decision = supportsAuctionChoice
-    ? await advisor.chooseAction({ ...context, candidates, personality: bot.personality })
+    ? await advisor.chooseAction({ ...context, candidates })
     : null;
   const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);
   const chosen = candidates.find(candidate => candidate.id === safeDecision?.actionId);
+  const bidCandidate = candidates.find(candidate => candidate.id === 'auction:bid');
+  const requestedAmount = Number(safeDecision?.parameters?.amount);
+  const amount = bidCandidate && Number.isInteger(requestedAmount)
+    && requestedAmount >= bidCandidate.minimumAmount && requestedAmount <= bidCandidate.maximumAmount
+    ? requestedAmount
+    : baseline.minimum;
   return {
     candidates,
     minimum: baseline.minimum,
+    maximum: baseline.maximum,
+    amount,
     actionId: chosen?.id || (baseline.shouldBid ? 'auction:bid' : 'auction:pass'),
     decision: safeDecision,
     ...(evaluationTrace ? { evaluationTrace } : {})
@@ -330,10 +382,6 @@ function legacyChoicePhasesSupported(advisor, phase) {
 function advisorSupportsChoicePhase(advisor, phase) {
   if (typeof advisor?.supportsChoicePhase === 'function') return advisor.supportsChoicePhase(phase) === true;
   return legacyChoicePhasesSupported(advisor, phase);
-}
-
-function isComfortableBidder(policy, bot, startingCash) {
-  return policy.always || bot.cash > startingCash * AUCTION_COMFORT_RATIO;
 }
 
 function auctionSeatActive(auction, player) {
@@ -425,14 +473,13 @@ function nearMissThresholdOk(give, ask, factor) {
   return give * 100 >= Math.round(ask * factor * 60);
 }
 
-// Face-value ratio for rejected offers: >= 0.6 of the personality bar is a
+// Face-value ratio for rejected offers: >= 0.6 of the common acceptance bar is a
 // near-miss worth a premium counter; below that, decline outright.
-export function nearMissTrade(trade, getTile, personality) {
+export function nearMissTrade(trade, getTile) {
   if (!trade) return false;
   const give = tradeLegValue({ cash: trade.giveCash, propertyIndexes: trade.givePropertyIndexes }, getTile);
   const ask = tradeLegValue({ cash: trade.requestCash, propertyIndexes: trade.requestPropertyIndexes }, getTile);
-  const factor = TRADE_ACCEPT_FACTOR[personality] || DEFAULT_TRADE_ACCEPT_FACTOR;
-  return nearMissThresholdOk(give, ask, factor);
+  return nearMissThresholdOk(give, ask, TRADE_ACCEPT_RATIO);
 }
 
 function ownPendingTrade(game, bot) {

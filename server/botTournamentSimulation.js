@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { RoomManager } from './gameLogic.js';
 import { buildBotStrategicContext } from './botStrategicContext.js';
 import { buildMatchResult, safeShadowEvaluationTrace } from './botTournamentResults.js';
 import { stateFingerprint } from './botTournamentState.js';
+import { auctionWillingness } from './botAuctionPolicy.js';
 import {
   decideBotAuction,
   isAuctionBotParticipant,
@@ -95,18 +97,52 @@ function recordActionLegality(counts, result) {
   else counts.unclassifiedActions += 1;
 }
 
-function instrumentBotActions(room, policies) {
+function completedGroupsByPlayer(game) {
+  return new Map((game.players || []).map(player => {
+    const groups = [...new Set((game.tiles || []).map(tile => tile?.group).filter(Boolean))];
+    const complete = groups.filter(group => {
+      const tiles = game.getGroupTiles?.(group) || [];
+      return tiles.length > 0 && tiles.every(tile => tile.ownerId === player.id);
+    });
+    return [player.id, new Set(complete)];
+  }));
+}
+
+function freshPolicyStrategyMetrics() {
+  return { providerCalls: 0, auctionBidCount: 0, auctionBidPremiumTotal: 0, maxAuctionBidPremium: 0, auctionBidFacePremiumTotal: 0, maxAuctionBidFacePremium: 0, completedTrades: 0, completedGroupsLost: 0, opponentGroupsBroken: 0 };
+}
+
+function instrumentBotActions(room, policies, strategyMetricsByPolicy) {
   const policyByPlayer = new Map(room.game.players.map((player, seat) => [player.id, policies[seat].policyId]));
   const counts = createLegalityCounts(policies);
   const runBotAction = room.runBotAction.bind(room);
   room.runBotAction = (playerId, action, ...args) => {
+    const tradesBefore = Number(room.game.tradesCompleted || 0);
+    const groupsBefore = completedGroupsByPlayer(room.game);
     const result = runBotAction(playerId, action, ...args);
     const policyId = policyByPlayer.get(playerId);
     const policyCounts = counts.get(policyId);
     if (policyCounts) recordActionLegality(policyCounts, result);
+    const tradesAfter = Number(room.game.tradesCompleted || 0);
+    if (policyId && tradesAfter > tradesBefore && result?.success !== false) {
+      const metrics = strategyMetricsByPolicy[policyId];
+      if (metrics) metrics.completedTrades += tradesAfter - tradesBefore;
+      const groupsAfter = completedGroupsByPlayer(room.game);
+      groupsBefore.forEach((before, playerId) => {
+        const after = groupsAfter.get(playerId) || new Set();
+        const lost = [...before].filter(group => !after.has(group)).length;
+        if (!lost || !metrics) return;
+        if (playerId === botIdForPolicy(room.game.players, policyByPlayer, policyId)) metrics.completedGroupsLost += lost;
+        else metrics.opponentGroupsBroken += lost;
+      });
+    }
     return result;
   };
   return counts;
+}
+
+function botIdForPolicy(players, policyByPlayer, policyId) {
+  return players.find(player => player.isBot && policyByPlayer.get(player.id) === policyId)?.id || null;
 }
 
 function clearAdvisorDecisionCounts(policies) {
@@ -148,8 +184,8 @@ function createAdvisorFacades(policies, seed) {
 function createSimulationContext(options, advanceTime) {
   const room = createSimulationRoom({ boardVariant: options.boardVariant, settings: { ...options.settings, seatCount: options.policyBySeat.length } });
   const policies = policiesInGameOrder(room, options.policyBySeat, options.boardVariant);
-  const actionLegalityByPolicy = instrumentBotActions(room, policies);
-  room.game.players.forEach((player, seat) => { player.personality = policies[seat].personality || player.personality; });
+  const strategyMetricsByPolicy = Object.fromEntries(policies.map(policy => [policy.policyId, freshPolicyStrategyMetrics()]));
+  const actionLegalityByPolicy = instrumentBotActions(room, policies, strategyMetricsByPolicy);
   clearAdvisorDecisionCounts(options.policyBySeat);
   const trackers = callCapTrackers(options.policyBySeat, options.callCapTracker);
   return {
@@ -157,6 +193,7 @@ function createSimulationContext(options, advanceTime) {
     room,
     policies,
     actionLegalityByPolicy,
+    strategyMetricsByPolicy,
     callCapTrackers: trackers,
     initialCapCounts: initialCallCapCounts(trackers),
     advisorByPolicyId: createAdvisorFacades(policies, options.seed),
@@ -197,6 +234,7 @@ function trackLiveAiFallback(context, reason) {
 async function runAuctionAction(context, bot, policy) {
   const { game } = context.room;
   const auction = game.auction;
+  const projectedValue = auctionWillingness(auction, bot, game);
   const choice = await decideBotAuction({
     auction,
     bot,
@@ -205,9 +243,19 @@ async function runAuctionAction(context, bot, policy) {
     context: buildBotStrategicContext(game, bot, 'auction', game.botDecisionSequence || 0),
   });
   trackLiveAiFallback(context, choice.decision?.fallbackReason);
-  context.room.runBotAction(bot.id, actor => choice.actionId === 'auction:bid'
-    ? context.room.placeAuctionBid(actor, choice.minimum)
+  const result = context.room.runBotAction(bot.id, actor => choice.actionId === 'auction:bid'
+    ? context.room.placeAuctionBid(actor, choice.amount)
     : context.room.passAuction(actor));
+  if (choice.actionId === 'auction:bid' && result?.success) {
+    const premium = Math.max(0, Number(choice.amount || 0) - (Number.isFinite(projectedValue) ? projectedValue : Number(auction.propertyTile?.price || 0)));
+    const facePremium = Math.max(0, Number(choice.amount || 0) - Number(auction.propertyTile?.price || 0));
+    const metrics = context.strategyMetricsByPolicy[policy.policyId];
+    metrics.auctionBidCount += 1;
+    metrics.auctionBidPremiumTotal += premium;
+    metrics.maxAuctionBidPremium = Math.max(metrics.maxAuctionBidPremium, premium);
+    metrics.auctionBidFacePremiumTotal += facePremium;
+    metrics.maxAuctionBidFacePremium = Math.max(metrics.maxAuctionBidFacePremium, facePremium);
+  }
   const trace = { ...choice.decision, phase: 'auction', actionId: choice.actionId };
   const evaluation = safeShadowEvaluationTrace(choice.evaluationTrace, policy.policyId);
   if (evaluation) delete trace.shadowEvaluation;
@@ -235,12 +283,15 @@ async function runActiveBotAction(context, bot, policy) {
   const game = context.room.game;
   const previousBrain = game.settings.botBrain;
   const previousDifficulty = game.settings.botDifficulty;
+  const aiCallsBefore = Number(policy.advisor?.aiCalls || 0);
   game.settings.botBrain = policy.brain || 'no-ai';
   game.settings.botDifficulty = policy.difficulty || 'table';
   try {
     if (game.auction?.active) await runAuctionAction(context, bot, policy);
     else await runOrdinaryAction(context, bot, policy);
   } finally {
+    const metrics = context.strategyMetricsByPolicy[policy.policyId];
+    metrics.providerCalls += Math.max(0, Number(policy.advisor?.aiCalls || 0) - aiCallsBefore);
     game.settings.botBrain = previousBrain;
     game.settings.botDifficulty = previousDifficulty;
   }
@@ -330,6 +381,7 @@ function finalizeMatch(context) {
     stepLimit: context.stepLimit,
     decisionTrace: context.decisionTrace,
     actionLegalityByPolicy: context.actionLegalityByPolicy,
+    strategyMetricsByPolicy: context.strategyMetricsByPolicy,
   });
   if (context.shadowTraces) result.shadowTrace = context.shadowTraces.map(trace => linkedShadowTrace(trace, result, context.seed));
   result.stalls = context.stalls;
@@ -345,9 +397,12 @@ function finalizeMatch(context) {
 
 export async function simulateBotMatch(options) {
   validatePolicyBySeat(options.policyBySeat);
-  return withSeededSimulationGlobals(options.seed, async ({ advanceTime }) => {
+  const startedAt = performance.now();
+  const result = await withSeededSimulationGlobals(options.seed, async ({ advanceTime }) => {
     const context = createSimulationContext(options, advanceTime);
     await runSimulationSteps(context);
     return finalizeMatch(context);
   });
+  result.runtimeMs = Math.max(0, Math.round(performance.now() - startedAt));
+  return result;
 }

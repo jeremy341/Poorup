@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import * as tournamentApi from './bot-policy-tournament.js';
 import { AiAdvisor } from './botAdvisor.js';
 import { buildBotStrategicContext } from './botStrategicContext.js';
+import { buildMatchResult, playerNetWorth } from './botTournamentResults.js';
+import { buildTournamentSummary } from './botTournamentSummary.js';
 import {
   createBotPolicy,
   createDefaultPolicySet,
@@ -12,12 +14,17 @@ import {
   withSeededSimulationGlobals
 } from './bot-policy-tournament.js';
 
-const policies = [
-  createBotPolicy('first'),
-  createBotPolicy('second', { personality: 'builder' })
-];
-
 const defaultAiStub = createDefaultPolicySet().find(policy => policy.policyId === 'ai-stub').advisor;
+const policies = [
+  createBotPolicy('first', { brain: 'no-ai', difficulty: 'table' }),
+  createBotPolicy('second', { brain: 'ai', difficulty: 'expert', advisor: defaultAiStub })
+];
+assert.equal('personality' in policies[0], false);
+assert.equal(policies[0].brain, 'no-ai');
+assert.equal(policies[0].difficulty, 'table');
+assert.equal(policies[1].brain, 'ai');
+assert.equal(policies[1].difficulty, 'expert');
+
 const defaultAiChoice = await defaultAiStub.chooseAction({
   botBrain: 'ai', gameId: 'default-ai-stub', candidates: [{ id: 'selected-candidate', kind: 'roll', score: 1 }]
 });
@@ -113,6 +120,12 @@ assert.equal(firstLegality.legalActions + firstLegality.illegalActions + firstLe
 assert.equal(typeof firstLegality.legalityRate, 'number');
 assert.equal(first.ended, false);
 assert.equal(first.stepLimitReached, true);
+assert.equal(first.completed, false, 'a step-limited match is censored rather than treated as completed');
+assert.ok(Number.isFinite(first.runtimeMs));
+assert.equal(first.strategyMetricsByPolicy.first.providerCalls, 0);
+assert.ok(first.strategyMetricsByPolicy.second.providerCalls > 0, 'AI stub calls are attributed to its policy');
+assert.equal(typeof first.marketPnlByPolicy.first, 'number');
+assert.equal(typeof first.strategyMetricsByPolicy.second.maxAuctionBidPremium, 'number');
 
 const tournament = await runBotTournament({
   seeds: [9],
@@ -252,5 +265,75 @@ for (const [key, control] of [['left:right:vs:control-c', 'control-c'], ['left:r
   assert.deepEqual(rows.map(match => match.seatRotation).sort(), [0, 1, 2]);
   assert.ok(rows.every(match => match.policyBySeat.filter(id => id !== 'left' && id !== 'right').join() === control));
 }
+
+const difficultyPolicy = (brain, difficulty) => createBotPolicy(`${brain}-${difficulty}`, {
+  brain,
+  difficulty,
+  ...(brain === 'ai' ? { advisor: defaultAiStub } : {})
+});
+const mixedDifficultyTournament = await runBotTournament({
+  seeds: [9271],
+  policySets: [
+    [difficultyPolicy('no-ai', 'house'), difficultyPolicy('ai', 'table'), difficultyPolicy('no-ai', 'expert')],
+    [difficultyPolicy('ai', 'house'), difficultyPolicy('no-ai', 'table'), difficultyPolicy('ai', 'expert')]
+  ],
+  seatRotations: [0],
+  stepLimit: 2
+});
+assert.equal(mixedDifficultyTournament.matches.length, 2);
+for (const match of mixedDifficultyTournament.matches) {
+  assert.equal(match.censored, true, 'short matches remain step-limited/censored');
+  for (const policyId of match.policyBySeat) {
+    assert.ok(match.strategyMetricsByPolicy[policyId]);
+    assert.ok(match.policyConfiguration[policyId]);
+  }
+}
+assert.equal(mixedDifficultyTournament.matches[0].policyConfiguration['no-ai-house'].difficulty, 'house');
+assert.equal(mixedDifficultyTournament.matches[0].policyConfiguration['ai-table'].brain, 'ai');
+
+const ledgerRoom = createSimulationRoom({ settings: { seatCount: 2, market: true } });
+const marketPlayer = ledgerRoom.game.players[0];
+marketPlayer.cash = 100;
+marketPlayer.marketPositions = { brazil: { quantity: 1, averageCost: 102, realizedPnl: 15 } };
+ledgerRoom.game.marketQuotes = { ...ledgerRoom.game.marketQuotes, brazil: 120 };
+ledgerRoom.game.marketLedger = [
+  { playerId: marketPlayer.id, instrumentId: 'brazil', side: 'sell', quantity: 1, quote: 120, fee: 3 },
+  { playerId: marketPlayer.id, instrumentId: 'brazil', side: 'buy', quantity: 2, quote: 100, fee: 4 }
+];
+const markedWorth = playerNetWorth(ledgerRoom.game, marketPlayer);
+assert.equal(markedWorth, 220, 'market holdings contribute their current shared quote to match worth');
+const ledgerResult = buildMatchResult(ledgerRoom, {
+  seed: 1001,
+  policyBySeat: [createBotPolicy('market-a'), createBotPolicy('market-b')],
+  steps: 1,
+  stepLimit: 1
+});
+assert.equal(ledgerResult.marketPnlByPolicy['market-a'], 33, 'market P&L includes realized sales, fees, and remaining holdings');
+
+const reportingSummary = buildTournamentSummary([{
+  ended: true,
+  completed: false,
+  censored: false,
+  winnerPolicyId: null,
+  policyBySeat: ['reporting'],
+  placementsByPolicy: { reporting: 1 },
+  netWorthByPolicy: { reporting: 1000 },
+  bankruptciesByPolicy: { reporting: 0 },
+  legalityByPolicy: { reporting: { actionAttempts: 2, legalActions: 2, illegalActions: 0, unclassifiedActions: 0 } },
+  strategyMetricsByPolicy: { reporting: { providerCalls: 2, auctionBidCount: 1, auctionBidPremiumTotal: 0, maxAuctionBidPremium: 0, auctionBidFacePremiumTotal: 40, maxAuctionBidFacePremium: 40, completedTrades: 1, completedGroupsLost: 1, opponentGroupsBroken: 0, marketPnl: 15 } },
+  marketPnlByPolicy: { reporting: 15 },
+  liveAiCalls: 2,
+  liveAiCapExhaustions: 0,
+  liveAiFallbacks: 0,
+  liveAiCallCapReached: false,
+  liveAiStatus: 'within-call-cap'
+}], ['reporting']);
+assert.equal(reportingSummary.completedCount, 0, 'an ended match without a winner is not a completed result');
+assert.equal(reportingSummary.incompleteCount, 1);
+assert.equal(reportingSummary.policyOutcomes.reporting.completed, 0);
+assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.providerCalls, 2);
+assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.auctionBidFacePremiumTotal, 40);
+assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.completedGroupsLost, 1);
+assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.marketPnl, 15);
 
 console.log('bot policy tournament: determinism, rotation, censoring, seeded restoration passed');

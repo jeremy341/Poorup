@@ -109,6 +109,40 @@ check('a human can still outbid the bot during the refreshed five-second respons
   assert.ok(game.auction.endsAt > priorDeadline, 'the human bid also restarts the response window');
 });
 
+check('bot bid cap covers non-group deeds without restricting human auctions', () => {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'cap-host', clientId: 'cap-host-client', nickname: 'Host' });
+  room.addOrReconnectPlayer({ socketId: 'cap-guest', clientId: 'cap-guest-client', nickname: 'Guest' });
+  room.setRoomSetting('bots', 1);
+  assert.equal(room.startGame().success, true);
+  const game = room.game;
+  const bot = game.players.find(player => player.isBot);
+  const human = game.players.find(player => !player.isBot);
+  const tile = game.getTile(5);
+  assert.equal(tile.type, 'railroad');
+  game.auction = {
+    propertyTile: tile,
+    active: true,
+    highestBid: 0,
+    highestBidderId: null,
+    participants: game.players.map(player => player.id),
+    passedPlayerIds: [],
+    startedAt: Date.now(),
+    endsAt: Date.now() + 5_000,
+    cooldownUntil: 0,
+    lastBidAt: 0
+  };
+
+  const rejectedBotBid = room.runBotAction(bot.id, actor => room.placeAuctionBid(actor, 300));
+  assert.equal(rejectedBotBid.success, false);
+  assert.match(rejectedBotBid.error, /valuation/i);
+  assert.equal(game.auction.highestBid, 0);
+
+  const humanBid = game.placeAuctionBid(human.socketId, 300);
+  assert.equal(humanBid.success, true, 'human rules remain unchanged by bot valuation limits');
+  assert.equal(game.auction.highestBid, 300);
+});
+
 function feedHas(game, text) {
   return game.feed.map((entry) => entry.text).includes(text);
 }

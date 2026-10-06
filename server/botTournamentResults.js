@@ -32,7 +32,12 @@ function playerDebt(player) {
 
 export function playerNetWorth(game, player) {
   const deeds = (player.properties || []).reduce((sum, index) => sum + tileAssetValue(game, index), 0);
-  return Number(player.cash || 0) + deeds - playerDebt(player);
+  const market = Object.entries(player.marketPositions || {}).reduce((sum, [instrumentId, position]) => {
+    const quote = Number(game.marketQuotes?.[instrumentId]);
+    const mark = Number.isFinite(quote) && quote > 0 ? quote : Number(position?.averageCost) || 0;
+    return sum + Math.max(0, Number(position?.quantity) || 0) * mark;
+  }, 0);
+  return Number(player.cash || 0) + deeds + market - playerDebt(player);
 }
 
 function policyIdForSeat(policyBySeat, seat) {
@@ -104,20 +109,56 @@ function bankruptciesByPolicy(game, seatsByPolicy) {
   ]));
 }
 
-// Where a seat's money actually came from. rentCollected is the only
-// server-side running total for rent; realized market P&L is the sum of the
-// per-position realizedPnl the settlement path writes (there is no per-player
-// marketNet field). This is a measurement aid for the balance campaign; it
-// never feeds game state.
-function playerMarketRealized(player) {
-  const positions = Object.values(player.marketPositions || {});
-  return positions.reduce((sum, position) => sum + countValue(position?.realizedPnl), 0);
+function marketPnlByPlayer(game) {
+  const positions = new Map();
+  const realized = new Map();
+  [...(game.marketLedger || [])].reverse().forEach(entry => {
+    if (!['buy', 'sell'].includes(entry?.side)) return;
+    const playerId = entry.playerId;
+    const instrumentId = entry.instrumentId;
+    if (!playerId || !instrumentId) return;
+    const key = `${playerId}:${instrumentId}`;
+    const position = positions.get(key) || { playerId, instrumentId, quantity: 0, cost: 0 };
+    const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
+    const quote = Math.max(0, Number(entry.quote) || 0);
+    const fee = Math.max(0, Number(entry.fee) || 0);
+    if (!quantity || !quote) return;
+    if (entry.side === 'buy') {
+      position.cost += quote * quantity + fee;
+      position.quantity += quantity;
+    } else if (position.quantity > 0) {
+      const sold = Math.min(quantity, position.quantity);
+      const averageCost = position.cost / position.quantity;
+      realized.set(playerId, (realized.get(playerId) || 0) + ((quote - averageCost) * sold) - fee);
+      position.cost = Math.max(0, position.cost - averageCost * sold);
+      position.quantity -= sold;
+    }
+    positions.set(key, position);
+  });
+  const total = new Map(realized);
+  positions.forEach(position => {
+    if (!position.quantity) return;
+    const quote = Number(game.marketQuotes?.[position.instrumentId]);
+    if (!Number.isFinite(quote) || quote <= 0) return;
+    const openPnl = quote * position.quantity - position.cost;
+    total.set(position.playerId, (total.get(position.playerId) || 0) + openPnl);
+  });
+  return total;
+}
+
+function policyMarketPnl(game, seatsByPolicy) {
+  const byPlayer = marketPnlByPlayer(game);
+  return Object.fromEntries(Object.entries(seatsByPolicy).map(([policyId, seats]) => [
+    policyId,
+    seats.reduce((sum, seat) => sum + (byPlayer.get(game.players[seat].id) || 0), 0)
+  ]));
 }
 
 function matchIncomeComposition(game) {
+  const marketPnl = marketPnlByPlayer(game);
   const seats = game.players.map(player => ({
     rent: countValue(player.rentCollected),
-    market: playerMarketRealized(player),
+    market: marketPnl.get(player.id) || 0,
     casino: countValue(player.casinoNet),
     loans: countValue(player.bankLoan && player.bankLoan.status !== 'defaulted' ? player.bankLoan.remaining : 0),
   }));
@@ -151,18 +192,25 @@ function matchFeatureUsage(game) {
   };
 }
 
-export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, decisionTrace, actionLegalityByPolicy = new Map() }) {
+export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, decisionTrace, actionLegalityByPolicy = new Map(), strategyMetricsByPolicy = {} }) {
   const game = room.game;
   const { netWorthByPolicy, seatsByPolicy } = collectPolicyWorth(game, policyBySeat);
   const winnerSeat = winnerSeatForGame(game);
   const placementOrder = [...game.players.keys()].sort((left, right) => compareSeatNetWorth(game, winnerSeat, left, right));
   const placementsByPolicy = buildPlacementsByPolicy(seatsByPolicy, placementOrder);
   const legalityByPolicy = buildLegalityByPolicy(seatsByPolicy, actionLegalityByPolicy);
+  const marketPnl = policyMarketPnl(game, seatsByPolicy);
   const hasWinner = winnerSeat != null && winnerSeat >= 0;
   return {
     seed,
     policyBySeat: policyBySeat.map(policy => policy.policyId),
+    policyConfiguration: Object.fromEntries(policyBySeat.map(policy => [policy.policyId, {
+      brain: policy.brain || 'no-ai',
+      difficulty: policy.difficulty || 'table'
+    }])),
     ended: !game.started,
+    completed: !game.started && hasWinner,
+    censored: Boolean(game.started && steps >= stepLimit),
     stepLimitReached: Boolean(game.started && steps >= stepLimit),
     steps,
     round: game.roundNumber,
@@ -172,6 +220,11 @@ export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, d
     netWorthByPolicy,
     bankruptciesByPolicy: bankruptciesByPolicy(game, seatsByPolicy),
     legalityByPolicy,
+    marketPnlByPolicy: marketPnl,
+    strategyMetricsByPolicy: Object.fromEntries(Object.keys(seatsByPolicy).map(policyId => [
+      policyId,
+      { ...(strategyMetricsByPolicy[policyId] || {}), marketPnl: marketPnl[policyId] || 0 }
+    ])),
     bankruptcies: game.players.filter(player => player.bankrupt).length,
     featureUsage: matchFeatureUsage(game),
     incomeComposition: matchIncomeComposition(game),

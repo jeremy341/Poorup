@@ -924,18 +924,12 @@ check('setRoomSetting — globalEvents accepts the extended truthy spellings', (
   }
 });
 
-check('setRoomSetting — botPersonality whitelists case-insensitively', () => {
+check('setRoomSetting rejects legacy botPersonality without restoring it', () => {
   const room = lobby();
-  room.setRoomSetting('botPersonality', 'Builder');
-  assert.equal(room.settings.botPersonality, 'builder');
-  room.setRoomSetting('botPersonality', 'SHARK');
-  assert.equal(room.settings.botPersonality, 'shark');
-  room.setRoomSetting('botPersonality', 'chaos');
-  assert.equal(room.settings.botPersonality, 'chaos');
-  room.setRoomSetting('botPersonality', 'wrong');
-  assert.equal(room.settings.botPersonality, 'survivor');
-  room.setRoomSetting('botPersonality', 7);
-  assert.equal(room.settings.botPersonality, 'survivor');
+  assert.equal(room.setRoomSetting('botPersonality', 'Builder').rejected, true);
+  assert.equal(room.setRoomSetting('botPersonality', 'SHARK').rejected, true);
+  assert.equal('botPersonality' in room.settings, false);
+  assert.equal('personality' in room.game.players[0], false);
 });
 
 check('setRoomSetting — boolean keys parse only true/"true"/1/"1"', () => {
