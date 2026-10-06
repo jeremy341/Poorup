@@ -10,7 +10,6 @@ import { tilesForVariant } from './boardRegistry.js';
 import {
   DEFAULT_ROOM_SETTINGS,
   LEGACY_SCALED_SETTINGS,
-  ROOM_BOT_PERSONALITIES,
   ROOM_FLAG_TRUE_VALUES,
   ROOM_SETTING_NORMALIZERS,
   SETTING_REJECTED
@@ -67,11 +66,6 @@ function safeSeatColor(color) {
 function seatAccountAllowsReconnect(player, accountId) {
   if (!player.accountId) return true;
   return player.accountId === accountId;
-}
-
-function seatPersonality(personality) {
-  if (ROOM_BOT_PERSONALITIES.includes(personality)) return personality;
-  return 'survivor';
 }
 
 function roomSettingChangeRejectionReason(room, key) {
@@ -213,7 +207,7 @@ function capacityDrivenSetting(key) {
 }
 
 class Player {
-  constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false, personality = 'survivor' }) {
+  constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false }) {
     this.id = crypto.randomUUID();
     this.clientId = safeClientId(clientId) || this.id;
     this.socketId = socketId;
@@ -223,7 +217,6 @@ class Player {
     this.accountId = accountId || null;
     this.isHost = isHost;
     this.isBot = isBot;
-    this.personality = seatPersonality(personality);
     this.cash = DEFAULT_ROOM_SETTINGS.startingCash;
     this.position = START_TILE_INDEX;
     this.resetTableState();
@@ -589,11 +582,6 @@ class Room {
       });
       return;
     }
-    if (key === 'botPersonality') {
-      this.game.players.filter(player => player.isBot).forEach(player => {
-        player.personality = value;
-      });
-    }
   }
 
   startGame() {
@@ -658,8 +646,7 @@ class Room {
         clientId: `bot-${this.roomCode}-${index + 1}`,
         nickname: LOBBY_BOT_NAMES[index % LOBBY_BOT_NAMES.length],
         color: colors[index % colors.length],
-        isBot: true,
-        personality: this.settings.botPersonality
+        isBot: true
       });
       // Bots resolve through the same color-plus-face identity as humans
       // (bot grids are null generic faces), so a bot never duplicates a

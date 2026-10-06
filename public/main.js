@@ -288,7 +288,6 @@ const SERVER_SETTING_KEYS = {
   casino: "casino",
   market: "market",
   bots: "bots",
-  botPersonality: "botPersonality",
   botBrain: "botBrain",
   botDifficulty: "botDifficulty",
   rulesetPreset: "rulesetPreset",
@@ -647,7 +646,7 @@ function playerStatusLabel(p) {
   if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
-  if (p.bot) return `CPU · ${(p.personality || "survivor").toUpperCase()}`;
+  if (p.bot) return `CPU · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
   return "ONLINE";
 }
 

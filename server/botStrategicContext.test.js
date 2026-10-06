@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { buildBotStrategicContext, BOT_CONTEXT_VERSION, BOT_RULE_VERSION } from './botStrategicContext.js';
+import { freshMarketQuotes } from './marketLogic.js';
 
 const manager = new RoomManager();
 const room = manager.createRoom({
@@ -62,6 +63,15 @@ assert.equal(context.rulesDigest.boardSize, 40);
 assert.equal(context.rulesDigest.cards.surpriseCount, 16);
 assert.equal(context.rulesDigest.cards.treasureCount, 16);
 assert.equal(context.rulesDigest.globalEvents.activeEffects.constructionBlocked, true);
+game.marketQuotes = { ...freshMarketQuotes(), brazil: 135 };
+game.marketQuoteHistory = [
+  { round: 2, quotes: { ...freshMarketQuotes(), brazil: 100 }, eventId: null },
+  { round: 3, quotes: { ...freshMarketQuotes(), brazil: 135 }, eventId: 'market-rally' }
+];
+const marketContext = buildBotStrategicContext(game, bot, 'pre-roll', 8);
+assert.equal(marketContext.marketQuotes.brazil, 135);
+assert.deepEqual(marketContext.marketQuoteHistory.map(point => point.quotes.brazil), [100, 135]);
+assert.equal(marketContext.marketQuoteHistory[1].eventId, 'market-rally');
 assert.equal(context.opponents.length, 1);
 assert.deepEqual(context.recentDecisions.map(entry => entry.actionId), ['mortgage:1', 'auction:pass']);
 assert.equal(context.recentDecisions[0].fallback, true);
@@ -104,7 +114,7 @@ assert.equal(serialized.includes('context-host'), false);
 assert.equal(serialized.includes('context-human'), false);
 assert.equal(serialized.includes('accountId'), false);
 assert.equal(serialized.includes('socketId'), false);
-console.log('bot strategic context: 18 passed, 0 failed');
+console.log('bot strategic context: provider-safe, market-aware snapshot checks passed');
 
 game.publicActionHistory = [
   ...Array.from({ length: 20 }, (_, index) => ({

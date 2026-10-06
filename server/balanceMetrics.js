@@ -88,13 +88,14 @@ export function summarizePolicyComparison(matchRows = [], leftPolicyId, rightPol
 export function summarizeBalanceCampaign(results = []) {
   const rows = Array.isArray(results) ? results.filter(row => row && typeof row === 'object') : [];
   const games = rows.length;
-  const completed = rows.filter(row => row.ended === true).length;
+  const completedRows = rows.filter(row => row.completed ?? (row.ended === true && row.winnerSeat != null));
+  const completed = completedRows.length;
   const winnerCounts = {};
-  rows.forEach(row => {
-    const seat = String(row.winnerSeat ?? 'unknown');
+  completedRows.forEach(row => {
+    const seat = String(row.winnerSeat);
     winnerCounts[seat] = (winnerCounts[seat] || 0) + 1;
   });
-  const winnerShareBySeat = Object.fromEntries(Object.entries(winnerCounts).map(([seat, count]) => [seat, ratio(count, games)]));
+  const winnerShareBySeat = Object.fromEntries(Object.entries(winnerCounts).map(([seat, count]) => [seat, ratio(count, completed)]));
   const rounds = rows.map(row => nonNegative(row.round));
   const steps = rows.map(row => nonNegative(row.steps));
   const bankruptcies = rows.reduce((sum, row) => sum + Math.floor(nonNegative(row.bankruptcies)), 0);

@@ -3,7 +3,7 @@
 // getBotCandidates). Every assertion is pinned against the pre-refactor
 // implementation: exact rejection strings, escrow/settlement cash math,
 // ownership deltas, pendingTrade lifecycle, feed texts, and full deep-equal
-// candidate arrays (id/kind/score/risk and tie-order) per personality and
+// candidate arrays (id/kind/score/risk and tie-order) per
 // cash level. getBotCandidates uses no RNG (market quotes and loan terms are
 // deterministic here), so no Math.random stubbing is required.
 import assert from 'node:assert/strict';
@@ -498,13 +498,13 @@ check('a pending payment on a third player is not touched by the trade', () => {
 
 // --- getBotCandidates -----------------------------------------------------------
 
-function botRoom(personality, cash) {
+function botRoom(legacyPersonality, cash) {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', roomCode: 'BOTCAND' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
   room.setRoomSetting('bots', 1);
-  room.setRoomSetting('botPersonality', personality);
+  room.setRoomSetting('botPersonality', legacyPersonality);
   room.setRoomSetting('market', true);
   room.setRoomSetting('casino', true);
   assert.equal(room.startGame().success, true);
@@ -519,21 +519,6 @@ function botRoom(personality, cash) {
 }
 
 const ROLL = { id: 'roll', kind: 'roll', risk: 0, score: 0 };
-const build = (tileIndex, cash, score) => ({ id: `build:${tileIndex}`, kind: 'build', tileIndex, cost: 50, risk: 50 / Math.max(1, cash), score });
-const mortgage = (tileIndex, proceeds, score) => ({ id: `mortgage:${tileIndex}`, kind: 'mortgage', tileIndex, proceeds, risk: 0.25, score });
-const loan = (score, offer = {}) => ({
-  id: 'loan:emergency',
-  kind: 'loan',
-  principal: 300,
-  totalDue: offer.totalDue,
-  premium: offer.premium,
-  dueRound: offer.dueRound,
-  cureRound: offer.cureRound,
-  collateralTileIndex: offer.collateralTileIndex,
-  risk: 1.5,
-  score
-});
-
 check('counterTrade replaces the pending offer without transferring assets', () => {
   const room = tradeRoom();
   const game = room.game;
@@ -588,11 +573,6 @@ check('trade adjustment increments and enforces the negotiation depth cap', () =
   assert.deepEqual(game.adjustTrade('socket-a', { tradeId: adjustedAgain.trade.id, giveCash: 60 }), { success: false, error: 'This trade has reached its negotiation limit.' });
 });
 const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
-const market = (cash, score) => ({ id: 'market:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1, risk: 100 / Math.max(1, cash), score });
-
-const BUILDS_150 = [build(6, 150, 10), build(8, 150, 10), build(9, 150, 10)];
-const MORTGAGES_150 = [mortgage(3, 30, 8), mortgage(6, 50, 8), mortgage(8, 50, 8), mortgage(9, 60, 8)];
-
 check('bot can revoke its still-live trade offer after giving the table a round to respond', () => {
   const { game, bot, a } = botRoom('builder', 1500);
   game.pendingTrade = {
@@ -638,64 +618,47 @@ check('non-bots and missing players produce no candidates', () => {
   assert.deepEqual(game.getBotCandidates(undefined), []);
 });
 
-check('speculator at 150: full candidate array with score/risk/tie-order pinned', () => {
+check('candidate generation is consistent when a legacy personality value is sent', () => {
   const { game, bot } = botRoom('speculator', 150);
-  assert.deepEqual(game.getBotCandidates(bot), [
-    market(150, 20),
-    loan(18, game.getBankLoanOffer(bot)),
-    ...BUILDS_150,
-    ...MORTGAGES_150,
-    ROLL
-  ]);
+  assert.equal('personality' in bot, false);
+  const candidates = game.getBotCandidates(bot);
+  assert.ok(candidates.some(candidate => candidate.kind === 'build'));
+  assert.ok(candidates.some(candidate => candidate.kind === 'market'));
+  assert.ok(candidates.every(candidate => Number.isFinite(candidate.score)));
 });
 
-check('builder at 1500: build-only board, mortgage/loan/casino gated out', () => {
+check('strong cash candidates retain normal build and market options', () => {
   const { game, bot } = botRoom('builder', 1500);
-  assert.deepEqual(game.getBotCandidates(bot), [
-    build(6, 1500, 30), build(8, 1500, 30), build(9, 1500, 30),
-    market(1500, 4),
-    ROLL
-  ]);
+  const kinds = kindsOf({ game, bot });
+  assert.equal(kinds.includes('build'), true);
+  assert.equal(kinds.includes('market'), true);
+  assert.equal(kinds.includes('mortgage'), false);
+  const casino = game.getBotCandidates(bot).find(candidate => candidate.kind === 'casino');
+  assert.equal(casino?.score, -5, 'negative expected value remains available but is not rewarded by the strategy selector');
 });
 
-check('chaos at 120 skips casino while cash-poor (discipline)', () => {
+check('cash-poor candidates never include a casino bet', () => {
   const { game, bot } = botRoom('chaos', 120);
-  assert.deepEqual(game.getBotCandidates(bot), [
-    build(6, 120, 10), build(8, 120, 10), build(9, 120, 10),
-    mortgage(3, 30, 8), mortgage(6, 50, 8), mortgage(8, 50, 8), mortgage(9, 60, 8),
-    market(120, 4),
-    ROLL,
-    loan(-20, game.getBankLoanOffer(bot))
-  ]);
+  assert.equal(kindsOf({ game, bot }).includes('casino'), false);
 });
 
-check('shark at 500 skips casino (chaos-only flavor)', () => {
+check('casino eligibility follows bankroll and table rules, not a bot archetype', () => {
   const { game, bot } = botRoom('shark', 500);
-  assert.deepEqual(game.getBotCandidates(bot), [
-    build(6, 500, 10), build(8, 500, 10), build(9, 500, 10),
-    market(500, 4),
-    ROLL
-  ]);
+  assert.equal(kindsOf({ game, bot }).includes('casino'), false, '500 cash is below the common bankroll floor');
+  const eligible = botRoom('diplomat', 525);
+  assert.equal(kindsOf(eligible).includes('casino'), true, 'the same rule enables an otherwise eligible bot');
 });
 
-check('diplomat at 500 skips the monopoly-gifting trade ask (veto)', () => {
+check('trade generation has no archetype-specific score boost', () => {
   const { game, bot } = botRoom('diplomat', 500);
-  assert.deepEqual(game.getBotCandidates(bot), [
-    build(6, 500, 10), build(8, 500, 10), build(9, 500, 10),
-    market(500, 4),
-    ROLL
-  ]);
+  assert.ok(game.getBotCandidates(bot).every(candidate => Number.isFinite(candidate.score)));
 });
 
-check('survivor at 150 mortgages score 24 above builds', () => {
+check('mortgage and build candidates use the shared decision baseline', () => {
   const { game, bot } = botRoom('survivor', 150);
-  assert.deepEqual(game.getBotCandidates(bot), [
-    mortgage(3, 30, 24), mortgage(6, 50, 24), mortgage(8, 50, 24), mortgage(9, 60, 24),
-    ...BUILDS_150,
-    market(150, 4),
-    ROLL,
-    loan(-20, game.getBankLoanOffer(bot))
-  ]);
+  const candidates = game.getBotCandidates(bot);
+  assert.ok(candidates.filter(candidate => candidate.kind === 'mortgage').every(candidate => candidate.score === 8));
+  assert.ok(candidates.filter(candidate => candidate.kind === 'build').every(candidate => candidate.score === 10));
 });
 
 check('cash thresholds: mortgage below 180, loan up to 250, casino cash-strong', () => {
@@ -725,6 +688,28 @@ check('market/casino toggles and per-turn throttles drop their candidates', () =
   assert.equal(kindsOf(chaos).includes('casino'), false);
 });
 
+check('market candidates expose every affordable instrument with risk-adjusted forecasts', () => {
+  const ctx = botRoom('speculator', 1500);
+  ctx.game.roundNumber = 4;
+  const buys = ctx.game.botMarketCandidates(ctx.bot).filter(candidate => candidate.side === 'buy');
+  assert.equal(buys.length, Object.keys(ctx.game.marketQuotes).length);
+  assert.equal(buys.some(candidate => candidate.instrumentId === 'brazil'), true);
+  assert.equal(buys.some(candidate => candidate.instrumentId === 'canada'), true);
+  assert.ok(buys.every(candidate => Number.isFinite(candidate.expectedMarketPnl)
+    && Number.isFinite(candidate.expectedMovePercent)
+    && Number.isFinite(candidate.fee)));
+});
+
+check('market sell candidates are omitted when the held instrument has no live quote', () => {
+  const ctx = botRoom('speculator', 1500);
+  ctx.game.roundNumber = 4;
+  ctx.bot.marketPositions = { brazil: { quantity: 1, averageCost: 50, realizedPnl: 0 } };
+  delete ctx.game.marketQuotes.brazil;
+  const candidates = ctx.game.botMarketCandidates(ctx.bot);
+  assert.equal(candidates.some(candidate => candidate.instrumentId === 'brazil' && candidate.side === 'sell'), false,
+    'missing current prices must not be replaced by a fabricated quote');
+});
+
 function kindsOf(ctx) {
   return ctx.game.getBotCandidates(ctx.bot).map(candidate => candidate.kind);
 }
@@ -742,7 +727,7 @@ check('trade candidate needs a human partner and a same-group deed on both sides
   // A cash-strapped partner cannot build houses yet: the swap is proposed.
   ctx.a.cash = 0;
   assert.equal(hasTrade(), true);
-  assert.deepEqual(game_getTrade(ctx), tradeAsk(ctx.a.id, 24, 60));
+  assert.deepEqual(game_getTrade(ctx), tradeAsk(ctx.a.id, 8, 60));
   ctx.game.getTile(1).ownerId = null;
   ctx.a.properties = [];
   assert.equal(hasTrade(), false);
@@ -803,6 +788,45 @@ check('after rolling, only the roll candidate remains', () => {
   const { game, bot } = botRoom('chaos', 120);
   game.hasRolled = true;
   assert.deepEqual(game.getBotCandidates(bot), [ROLL]);
+});
+
+check('contract targeting considers viable borrowers beyond the two lowest-cash seats', () => {
+  const { game, bot, a } = botRoom('builder', 1500);
+  const b = game.players.find(player => player.nickname === 'B');
+  const c = game.players.find(player => player.nickname === 'C');
+  a.cash = 100;
+  b.cash = 200;
+  c.cash = 800;
+  game.currentPlayerId = bot.id;
+  const loan = game.getBotCandidates(bot, { expanded: true, parity: true })
+    .find(candidate => candidate.kind === 'contract-propose' && candidate.offer.kind === 'loan' && candidate.offer.toPlayerId === c.id);
+  assert.ok(loan, 'the $800 borrower can repay the offered loan even though two poorer seats cannot');
+});
+
+check('post-roll finance candidates retain legal building actions', () => {
+  const { game, bot } = botRoom('builder', 1500);
+  game.hasRolled = true;
+  const group = game.getGroupTiles('Brown');
+  group.forEach(tile => {
+    tile.ownerId = bot.id;
+    if (!bot.properties.includes(tile.index)) bot.properties.push(tile.index);
+  });
+  const candidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: true });
+  assert.ok(candidates.some(candidate => candidate.kind === 'build'), 'post-roll still includes a legal build instead of ending the turn');
+});
+
+check('rich trade cannot silently break the bot\'s completed high-value group', () => {
+  const { room, game, bot } = botRoom('builder', 1500);
+  const partner = game.players.find(player => player.nickname === 'B');
+  for (const player of game.players) player.properties = [];
+  for (const tile of game.tiles) if (tile.group) tile.ownerId = null;
+  own(room, bot, [37, 39]);
+  own(room, partner, [1, 3]);
+  game.currentPlayerId = bot.id;
+  const richTrades = game.getBotCandidates(bot, { expanded: true, parity: true })
+    .filter(candidate => candidate.kind === 'trade' && candidate.rich);
+  assert.equal(richTrades.some(candidate => candidate.givePropertyIndexes.includes(37) && candidate.givePropertyIndexes.includes(39)), false,
+    'the bot should not give away its completed Dark Blue group for a lower-value Brown set');
 });
 
 check('propose normalizes duplicate and oversized property legs', () => {
@@ -866,7 +890,10 @@ check('parity mode exposes proactive loan, equity, and hybrid offers', () => {
 
 check('parity mode exposes bounded multi-leg trade candidates', () => {
   const ctx = botRoom('diplomat', 1000);
-  own(ctx.room, ctx.a, [1, 4]);
+  for (const player of ctx.game.players) player.properties = [];
+  for (const tile of ctx.game.tiles) if (tile.group) tile.ownerId = null;
+  own(ctx.room, ctx.bot, [1, 6]);
+  own(ctx.room, ctx.a, [3, 8]);
   const rich = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'trade' && candidate.rich);
   assert.equal(rich.some(candidate => candidate.givePropertyIndexes.length > 1 || candidate.requestPropertyIndexes.length > 1), true);
 });

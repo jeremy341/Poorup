@@ -1,16 +1,17 @@
-// Pending-counterpart resolution, debt-ladder candidates, auction
-// willingness, and counteroffer construction. Pure policy extracted verbatim
-// from botLogic.js (every gate keeps its original condition and order) so bot
-// balance is unchanged. The turn dispatcher and the advisor decision phases
-// both import from here.
+// Pending-counterpart resolution, debt-ladder candidates, and counteroffer
+// construction shared by deterministic and advisor-selected bots. Auction
+// willingness is also shared with the game API so provider choices cannot
+// bypass the server-enforced bid cap.
 import {
   sponsorshipShortfall,
   sponsorshipContributionAmount,
   sponsorshipBuyerShouldCancel
 } from './sponsorshipLogic.js';
 import { contractResponderId } from './contractLogic.js';
+import { groupTiles, ownedCount } from './botAuctionPolicy.js';
 
 export { contractResponderId };
+export { auctionWillingness } from './botAuctionPolicy.js';
 
 function sponsorshipBuyerCounterpart(game, buyer, sponsorship, needed) {
   if (!buyer?.isBot) return null;
@@ -55,16 +56,6 @@ export function findPendingCounterpart(game) {
   return findSponsorshipCounterpart(game) || pendingOfferCounterpart(game);
 }
 
-function groupTiles(game, tile) {
-  if (!tile?.group) return null;
-  const tiles = typeof game.getGroupTiles === 'function' ? game.getGroupTiles(tile.group) : [];
-  return tiles?.length ? tiles : null;
-}
-
-function ownedCount(tiles, bot) {
-  return tiles.filter(entry => entry?.ownerId === bot?.id).length;
-}
-
 // Decline an affordable deed to force a cheap auction win: only when the
 // deed is not my completer and every live opponent is too broke to contest.
 function activeRivals(game, bot) {
@@ -90,22 +81,6 @@ export function declineForCheapAuction(game, bot, tile) {
   const owned = ownedCount(tiles, bot);
   if (owned + 1 >= tiles.length) return false;
   return rivalsAllBroke(game, bot, tile);
-}
-
-function deedSetCompleter(tiles, owned) {
-  return owned + 1 >= tiles.length && owned < tiles.length;
-}
-
-// Max the bot pays: sticker price, doubled when the deed completes its set
-// (stretch $1 over), halved eagerness past face otherwise. Null without context.
-export function auctionWillingness(auction, bot, game) {
-  const tile = auction?.propertyTile;
-  if (!game || !tile?.price) return null;
-  const tiles = groupTiles(game, tile);
-  if (!tiles) return null;
-  const owned = ownedCount(tiles, bot);
-  const sticker = Math.max(0, Math.floor(Number(tile.price)));
-  return deedSetCompleter(tiles, owned) ? sticker * 2 : sticker;
 }
 
 function mortgageValueMultiplier(game) {

@@ -81,6 +81,7 @@
     "server/balanceMetrics.test.js": 71,
     "server/boardRegistry.test.js": 63,
     "server/bot-brain.test.js": 111,
+    "server/botMarketForecast.test.js": 45,
     "server/bot-policy-tournament.test.js": 319,
     "server/bot-simulation.test.js": 44487,
     "server/botAdvisor.test.js": 144,
