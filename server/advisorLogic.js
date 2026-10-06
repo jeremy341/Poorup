@@ -26,6 +26,7 @@ import {
   attachBotDecision,
   splitEvaluationTrace,
   selectGlobalEventPolicy,
+  globalEventPolicyUtility,
   shouldAcceptTrade,
   shouldAcceptPlayerContract,
   nearMissTrade,
@@ -98,13 +99,17 @@ function choiceCandidate(id, choiceId, score, label) {
 }
 
 function voteChoiceCandidates(game, bot) {
-  const preferred = selectGlobalEventPolicy(game.globalEvent, bot.personality)?.id;
-  return (game.globalEvent?.choices || []).map(choice => choiceCandidate(`vote:${choice.id}`, choice.id, choice.id === preferred ? 12 : 6, choice.label));
+  return (game.globalEvent?.choices || []).map(choice => choiceCandidate(
+    `vote:${choice.id}`,
+    choice.id,
+    globalEventPolicyUtility(game.globalEvent, choice, game, bot),
+    choice.label
+  ));
 }
 
 function tradeChoiceCandidates(game, bot) {
   if (!game.pendingTrade) return [];
-  const accept = shouldAcceptTrade(game.pendingTrade, index => game.getTile(index), bot.personality, game);
+  const accept = shouldAcceptTrade(game.pendingTrade, index => game.getTile(index), game);
   const candidates = [choiceCandidate('trade:accept', 'accept', accept ? 12 : 2, 'ACCEPT'), choiceCandidate('trade:decline', 'decline', accept ? 1 : 8, 'DECLINE')];
   const counter = counterTradeOffer(game, bot);
   if (counter) candidates.splice(1, 0, { ...choiceCandidate('trade:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
@@ -165,7 +170,7 @@ function shouldAcceptContractResponse(game, bot, offer) {
   if (!offer) return false;
   if (offer.toPlayerId === bot.id) {
     const lender = game.getPlayerById(offer.fromPlayerId);
-    return shouldAcceptPlayerContract(offer, bot, lender, bot.personality, game);
+    return shouldAcceptPlayerContract(offer, bot, lender, game);
   }
   // A lender reviewing a counter keeps the same funding guard, and prefers
   // not to accept a zero-return or excessively long revision.
@@ -272,7 +277,7 @@ function tryNearMissCounter(room, bot, game, trade) {
   if (trade?.toPlayerId !== bot.id) return null;
   if (vetoTrade(game, trade, bot.id).vetoed) return null;
   if (tradeCounterBlocked(game)) return null;
-  if (!nearMissTrade(trade, index => game.getTile(index), bot.personality)) return null;
+  if (!nearMissTrade(trade, index => game.getTile(index))) return null;
   const counter = counterTradeOffer(game, bot);
   if (!counter) return null;
   const countered = room.runBotAction(bot.id, actor => room.counterTrade(actor, counter));
@@ -282,7 +287,7 @@ function tryNearMissCounter(room, bot, game, trade) {
 
 function executeTradePhase(room, bot, game) {
   const trade = game.pendingTrade;
-  const accept = shouldAcceptTrade(trade, index => game.getTile(index), bot.personality, game);
+  const accept = shouldAcceptTrade(trade, index => game.getTile(index), game);
   // Near-miss rejections become premium counters instead of flat
   // declines: hopeless offers still decline, vetoed ones never counter.
   // A failed counter (stale legs, new obligation) falls back to decline:
@@ -310,7 +315,7 @@ function runPostRollPhase(room, bot, game) {
 // returns the room action result, exactly as the original branches did.
 export const PHASE_EXECUTORS = {
   vote: (room, bot, game) => {
-    const policy = selectGlobalEventPolicy(game.globalEvent, bot.personality);
+    const policy = selectGlobalEventPolicy(game.globalEvent, game, bot);
     return policy ? room.runBotAction(bot.id, actor => room.voteGlobalEvent(actor, policy.id)) : { success: false };
   },
   trade: executeTradePhase,
@@ -426,7 +431,6 @@ export async function runAdvisorChoicePhase({ room, bot, advisor, decisionContex
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
-    personality: bot.personality,
     event: game.globalEvent
   });
   const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);
@@ -541,7 +545,6 @@ export async function runAdvisorTurn({ room, bot, advisor, decisionContext = {},
   const decision = await advisor.chooseAction({
     ...decisionContext,
     candidates,
-    personality: bot.personality,
     event: game.globalEvent
   });
   const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);

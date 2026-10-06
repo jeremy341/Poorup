@@ -173,7 +173,6 @@ export function serverPlayerView(player) {
     marketPositions: orDefault(player.marketPositions, {}),
     isHost: Boolean(player.isHost),
     avatarGrid: sanitizeAvatarGrid(player.avatarGrid),
-    personality: orNull(player.personality),
     botBrain: orNull(player.botBrain),
     botDifficulty: orNull(player.botDifficulty),
   };
@@ -426,8 +425,9 @@ function scheduleWalks(movementPlans, host) {
     });
     Promise.allSettled(walks).then(completeBatch);
   };
-  if (typeof document !== "undefined" && document.hidden) start();
-  else requestAnimationFrame(start);
+  // Claim the pawn's old position before renderAll places every piece from
+  // the new authoritative snapshot. placePieces leaves an active walk alone.
+  start();
 }
 
 let auctionSnoozeUntil = 0;
@@ -557,8 +557,8 @@ export function applyServerState(snapshot, host) {
   // only re-assert the game view while the player is mid-room-session and
   // the parlor is the surface actually on screen (A4-F1).
   syncView(host);
-  host.renderAll();
   scheduleWalks(movementPlans, host);
+  host.renderAll();
   syncAuctionSurface(host);
   syncDebtModal(game, host);
   syncWinner(game, host);

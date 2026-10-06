@@ -66,6 +66,66 @@ runtime.scheduleBotAuction(room);
 assert.deepEqual(delays, [300, 450]);
 console.log('socket runtime bot scheduling: ordinary turn 300 ms, auction 450 ms');
 
+async function verifyBotMovementGate(botBrain) {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: `motion-host-${botBrain}`, clientId: `motion-host-${botBrain}`, nickname: 'Host' });
+  room.addOrReconnectPlayer({ socketId: `motion-guest-${botBrain}`, clientId: `motion-guest-${botBrain}`, nickname: 'Guest' });
+  room.setRoomSetting('bots', 2);
+  room.setRoomSetting('botBrain', botBrain);
+  assert.equal(room.startGame().success, true);
+  const bots = room.game.players.filter(player => player.isBot);
+  const humans = room.game.players.filter(player => !player.isBot);
+  room.game.turnOrder = [bots[0].id, bots[1].id, ...humans.map(player => player.id)];
+  room.game.currentPlayerId = bots[0].id;
+  room.game.getBotCandidates = (_bot, options = {}) => options.postRoll
+    ? [{ id: 'end-turn', kind: 'end-turn', score: 1 }]
+    : [{ id: 'roll', kind: 'roll', score: 1 }];
+  room.game.rollDice = function rollBotForMotionTest(socketId) {
+    const actor = this.getPlayerBySocket(socketId);
+    actor.position = (actor.position + 5) % this.tiles.length;
+    this.lastDice = [2, 3];
+    this.diceRollSequence += 1;
+    this.hasRolled = true;
+    this.awaitingEndTurn = true;
+    this.turnAllowsExtraRoll = false;
+    this.extraRollPending = false;
+    return { success: true };
+  };
+  const timers = [];
+  const runtime = createRuntime({
+    io: { emit() {}, on() {}, in() { return { emit() {} }; }, to() { return { emit() {} }; }, sockets: { sockets: new Map() } },
+    roomManager: manager,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    botAdvisor: { async chooseAction({ candidates }) { return { actionId: candidates[0]?.id, provider: botBrain === 'ai' ? 'ai' : 'deterministic' }; } },
+    social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; }, accountForSocket() { return null; } },
+    maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
+    setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
+    clearTimeout(timer) { if (timer) timer.cleared = true; },
+    setInterval() { return { unref() {} }; },
+    clearInterval() {}
+  });
+
+  runtime.scheduleBotTurn(room);
+  assert.equal(timers[0].delay, 300);
+  timers[0].callback();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const movementGate = timers.find(timer => timer.delay === 1_500 && !timer.cleared);
+  assert.ok(movementGate, `${botBrain} bot waits for five animated tiles before its next decision`);
+  assert.equal(room.game.currentPlayerId, bots[0].id, 'the moving bot remains the active seat while its next action is held');
+
+  movementGate.callback();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(room.game.currentPlayerId, bots[1].id, 'the next bot becomes active only after the movement gate');
+  const nextBotTurn = timers.at(-1);
+  assert.equal(nextBotTurn.delay, 300, 'the next bot receives the normal inter-action delay after the prior walk settled');
+}
+
+await verifyBotMovementGate('no-ai');
+await verifyBotMovementGate('ai');
+console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for pawn travel');
+
 {
   let currentTime = 50_000;
   const timers = [];
@@ -164,7 +224,56 @@ console.log('socket runtime bot scheduling: ordinary turn 300 ms, auction 450 ms
   assert.ok(timers.some(timer => timer !== initialFinish && timer.delay > 4_900 && !timer.cleared), 'the bot bid schedules a fresh full auction window');
 }
 
-console.log('socket runtime auction deadline checks: 2 passed, 0 failed');
+{
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'stale-bid-host', clientId: 'stale-bid-host', nickname: 'Host', roomCode: 'STALE-BID' });
+  room.addOrReconnectPlayer({ socketId: 'stale-bid-human', clientId: 'stale-bid-human', nickname: 'Human' });
+  room.setRoomSetting('bots', 1);
+  assert.equal(room.startGame().success, true);
+  const bot = room.game.players.find(player => player.isBot);
+  const human = room.game.players.find(player => !player.isBot);
+  room.game.auction = {
+    active: true,
+    propertyTile: room.game.getTile(1),
+    highestBid: 0,
+    highestBidderId: null,
+    participants: [bot.id, human.id],
+    passedPlayerIds: [],
+    startedAt: Date.now(),
+    endsAt: Date.now() + 5_000,
+    cooldownUntil: 0,
+    lastBidAt: 0
+  };
+  const timers = [];
+  const runtime = createRuntime({
+    io: { emit() {}, on() {}, in() { return { emit() {} }; }, to() { return { emit() {} }; }, sockets: { sockets: new Map() } },
+    roomManager: manager,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    botAdvisor: {
+      supportsChoicePhases: true,
+      supportsChoicePhase: phase => phase === 'auction',
+      async chooseAction({ candidates }) {
+        const bid = candidates.find(candidate => candidate.id === 'auction:bid');
+        room.game.auction.highestBid = 100;
+        room.game.auction.highestBidderId = human.id;
+        return { actionId: 'auction:bid', parameters: { amount: bid.minimumAmount }, provider: 'ai', fallback: false };
+      }
+    },
+    social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; }, accountForSocket() { return null; } },
+    maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
+    setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
+    clearTimeout(timer) { if (timer) timer.cleared = true; },
+    setInterval() { return { unref() {} }; }, clearInterval() {}
+  });
+  runtime.scheduleBotAuction(room);
+  timers.find(timer => timer.delay === 450).callback();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(room.game.auction.highestBid, 100, 'the live human bid remains authoritative');
+  assert.equal(room.game.auction.highestBidderId, human.id, 'the stale bot response does not replace the current bidder');
+  assert.notEqual(room.game.auction.highestBidderId, bot.id);
+}
+
+console.log('socket runtime auction deadline checks: 3 passed, 0 failed');
 
 {
   let currentTime = 80_000;

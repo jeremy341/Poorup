@@ -18,13 +18,21 @@ Development-time AI assistance is separate from the bots available in-game: dete
 
 ## Features
 
-- Standard-40 and Metro-52 boards; buying, renting, building, mortgages, auctions, and trading
-- Guest rooms with reconnect support and server-authoritative multiplayer state
-- Deterministic NO-AI and configurable AI-advisor bot modes
-- Player loans and property-equity contracts with collateral and default rules
-- Optional Market, Casino, and Global Events; Market and Casino use fictional game currency
-- Profiles with match history, achievements, seasons, friends, and rankings
-- No database: persistent account and match records use local JSON stores
+- **Two playable boards:** Standard-40 and Metro-52, with room-specific rules and host controls.
+- **Property gameplay:** buy, rent, build, mortgage, trade, go to auction, and compete to be the last solvent player.
+- **Rooms and live play:** public room discovery, private shareable room codes, guest entry, chat, reconnect support, and automatic cleanup when everyone leaves. The server owns game state and settlement; Socket.IO keeps clients synchronized.
+- **Bots:** deterministic NO-AI bots and configurable AI-advisor bots, with difficulty settings. AI decisions use current game context and fall back to the deterministic brain if the configured provider fails.
+- **Player finance:** off-turn player-to-player trade and financing offers, loans, property-equity and hybrid contracts, collateral, default consequences, and sponsored purchases where one player can fund another player's property in return for an agreed share.
+- **Market and events:** an optional fictional-currency stock market with shared quotes, per-index price history, buy/sell orders, holdings, and personal profit/loss. Global events affect the shared market and can also change game rules; player orders change their own position, not the shared quote.
+- **Casino:** an optional fictional-currency casino mode.
+- **Profiles and progression:** completed-match history and statistics, achievements, cosmetics, seasons and rewards, friends, and rankings.
+- **In-game information:** a separate Activity/Log for room and game announcements, plus inactivity monitoring and a vote-kick flow. Turns do not have a fixed time limit.
+- **Visual identity:** custom theme worlds with original Poorup SVG artwork.
+- **Persistence:** no database; account and match records use local JSON stores.
+
+## Known issues
+
+- **Parlor Patrol is currently broken and does not work reliably.** Treat it as unavailable until it is fixed; the rest of the game can be played without it.
 
 ## How to run
 

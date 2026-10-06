@@ -20,7 +20,6 @@ const DEFAULT_ROOM_SETTINGS = {
   hotelLimit: 12,
   bankruptMode: 'elim',
   bots: 0,
-  botPersonality: 'survivor',
   // AI uses the configured advisor and falls back to the deterministic house
   // brain when credits, network, or provider health are unavailable.
   botBrain: 'ai',
@@ -51,8 +50,7 @@ const ROOM_FLAG_TRUE_VALUES = [true, 'true', 1, '1'];
 // Rarity spellings are accepted for globalEvents only; every other boolean
 // key uses ROOM_FLAG_TRUE_VALUES.
 const GLOBAL_EVENT_ON_VALUES = [true, 'true', 'on', 'rare', 'hardcore', 1, '1'];
-const ROOM_BOT_PERSONALITIES = ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos'];
-const ROOM_BOT_BRAINS = ['ai', 'no-ai', 'all'];
+const ROOM_BOT_BRAINS = ['ai', 'no-ai'];
 const ROOM_BOT_DIFFICULTIES = ['house', 'table', 'expert'];
 const ROOM_RULESET_PRESETS = ['classic', 'after-hours', 'custom'];
 const ROOM_RULESET_BASES = ['classic', 'after-hours'];
@@ -106,14 +104,9 @@ function snapFlooredSetting(value, threshold, atOrAbove, below) {
   return floored >= threshold ? atOrAbove : below;
 }
 
-function normalizeBotPersonality(value) {
-  const lowered = String(value).toLowerCase();
-  return ROOM_BOT_PERSONALITIES.includes(lowered) ? lowered : 'survivor';
-}
-
 function normalizeBotBrain(value) {
   const lowered = String(value).trim().toLowerCase().replace('_', '-');
-  if (lowered === 'auto') return 'ai';
+  if (lowered === 'auto' || lowered === 'all') return 'ai';
   return ROOM_BOT_BRAINS.includes(lowered) ? lowered : 'ai';
 }
 
@@ -129,7 +122,7 @@ function normalizeBotDifficulty(value) {
 const BOT_PRESETS = {
   easy: { botBrain: 'no-ai', botDifficulty: 'house' },
   medium: { botBrain: 'ai', botDifficulty: 'table' },
-  hard: { botBrain: 'all', botDifficulty: 'expert' }
+  hard: { botBrain: 'ai', botDifficulty: 'expert' }
 };
 
 function resolveBotPreset(value) {
@@ -185,7 +178,6 @@ const ROOM_SETTING_NORMALIZERS = {
   globalEventDuration: value => snapFlooredSetting(value, 10, 10, 5),
   globalEventMax: value => snapFlooredSetting(value, 2, 2, 1),
   globalEvents: value => GLOBAL_EVENT_ON_VALUES.includes(value),
-  botPersonality: normalizeBotPersonality,
   botBrain: normalizeBotBrain,
   botDifficulty: normalizeBotDifficulty,
   rulesetPreset: normalizeRulesetPreset,
@@ -199,7 +191,6 @@ export {
   DEFAULT_ROOM_SETTINGS,
   GLOBAL_EVENT_ON_VALUES,
   LEGACY_SCALED_SETTINGS,
-  ROOM_BOT_PERSONALITIES,
   ROOM_BOT_BRAINS,
   ROOM_BOT_DIFFICULTIES,
   BOT_PRESETS,
