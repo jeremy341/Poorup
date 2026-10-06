@@ -353,11 +353,6 @@ app.get('*', (req, res, next) => {
 function errorPage(title, message) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Poorup</title><style>body{margin:0;background:#01070a;color:#f0d9ac;font:16px monospace;display:grid;place-items:center;min-height:100vh}main{border:1px solid #c88f2e;padding:32px;max-width:560px}a{color:#f0d9ac}</style></head><body><main><p>POORUP · AFTER-HOURS PARLOR</p><h1>${title}</h1><p>${message}</p><a href="/">Return to the parlor</a></main></body></html>`;
 }
-app.use((_req, res) => res.status(404).type('html').send(errorPage('404 · Table not found', 'That route is not part of this parlor.')));
-app.use((error, _req, res, _next) => {
-  console.error('HTTP request failed:', error?.message || 'unknown error');
-  res.status(500).type('html').send(errorPage('500 · Parlor unavailable', 'The table is temporarily offline. Try again shortly.'));
-});
 
 const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
@@ -432,6 +427,12 @@ const aiProviderStore = createAiProviderStore({
 });
 const aiProviderManager = createAiProviderManager({ store: aiProviderStore, advisor: botAdvisor, env: process.env });
 registerAiProviderRoutes(app, { manager: aiProviderManager, accountStore, accountResolver: requestAccount, adminIds: adminAccountIds, publicOrigin: configuredPublicOrigin });
+
+app.use((_req, res) => res.status(404).type('html').send(errorPage('404 · Table not found', 'That route is not part of this parlor.')));
+app.use((error, _req, res, _next) => {
+  console.error('HTTP request failed:', error?.message || 'unknown error');
+  res.status(500).type('html').send(errorPage('500 · Parlor unavailable', 'The table is temporarily offline. Try again shortly.'));
+});
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore, sessionStore });
 const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter });

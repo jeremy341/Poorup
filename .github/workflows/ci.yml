@@ -359,13 +359,12 @@ jobs:
           curl -fsS localhost:8099/ >/dev/null
       - name: Four-viewport UI and accessibility contract shard
         # Full mode: every spec, every viewport project, three shards. Smoke
-        # mode: the @ui-smoke critical checks on the landscape-tablet
-        # project, which is the only one where the live-game desk contract
-        # runs, so a server-only promotion still proves the UI boots and
-        # renders against the new server.
+        # mode: the @ui-smoke critical checks on the iPad Pro 11 landscape
+        # profile, including the live-game desk contract, so a server-only
+        # promotion still proves the UI boots and renders against the new server.
         run: |
           if [ "${{ needs.plan.outputs.browser_mode }}" = "smoke" ]; then
-            npm run test:browser -- --grep @ui-smoke --project=ipad-pro-11-landscape --workers=2 --reporter=blob
+            npm run test:browser -- --grep @ui-smoke --project=ipad-1194x834 --workers=2 --reporter=blob
           else
             npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
           fi
