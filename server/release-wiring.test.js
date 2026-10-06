@@ -71,6 +71,15 @@ try {
   const analyticsBody = await analytics.json();
   assert.equal(analyticsBody.success, false);
 
+  const providerRoster = await fetch(`${base}/admin/ai/providers`);
+  assert.equal(providerRoster.status, 401);
+  const providerSave = await fetch(`${base}/admin/ai/providers`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}'
+  });
+  assert.equal(providerSave.status, 401);
+
   const metadata = await fetch(`${base}/`);
   assert.equal(metadata.status, 200);
   const metadataBody = await metadata.text();
