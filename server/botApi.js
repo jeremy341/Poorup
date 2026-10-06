@@ -379,14 +379,14 @@ function tradePortfolioValue(game, playerId, propertyIndexes) {
     const count = groupTiles.filter(tile => owned.has(tile.index)).length;
     if (!count) continue;
     value += progressCredit(game, group, 0, count);
-    if (count === groupTiles.length) {
-      const board = groupTiles.map(tile => ({
-        ...tile,
-        ownerSeat: owned.has(tile.index) ? 'self' : 'bank'
-      }));
-      const development = groupGainToThree(board, group);
-      if (development) value += development.gainPerCircuit * 3;
-    }
+    if (count !== groupTiles.length) continue;
+    const board = groupTiles.map(tile => ({
+      ...tile,
+      ownerSeat: owned.has(tile.index) ? 'self' : 'bank'
+    }));
+    const development = groupGainToThree(board, group);
+    if (!development) continue;
+    value += development.gainPerCircuit * 3;
   }
   return value;
 }

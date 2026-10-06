@@ -10,6 +10,13 @@ const quotes = values => values.map((value, index) => ({
 const missing = forecastMarketOrder({ instrumentId: 'brazil', quote: null, quantity: 1 });
 assert.equal(missing.supported, false);
 assert.equal(missing.expectedPnl, null);
+for (const invalidOrder of [
+  { instrumentId: '', quote: 100, quantity: 1 },
+  { instrumentId: 'brazil', quote: 100, quantity: 0 },
+  { instrumentId: 'brazil', quote: 100, quantity: 1, side: 'hold' }
+]) {
+  assert.deepEqual(forecastMarketOrder(invalidOrder), missing, 'invalid orders keep the unsupported result shape');
+}
 
 const noSignal = forecastMarketOrder({ instrumentId: 'brazil', quote: 100, quantity: 1, history: quotes([100]) });
 assert.equal(noSignal.supported, true);
