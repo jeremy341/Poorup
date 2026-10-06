@@ -24,6 +24,10 @@ const defaultPresenceView = serverPlayerView({ id: "remote-2", nickname: "PIP" }
 assert.deepEqual(defaultPresenceView.presence, { state: "active", inactiveSince: null, inactiveUntil: null });
 const botPresenceView = serverPlayerView({ id: "bot-1", isBot: true, presence: { state: "inactive", inactiveSince: 1, inactiveUntil: 2 } });
 assert.equal(botPresenceView.presence, null);
+const difficultyOnlyBotView = serverPlayerView({ id: "bot-2", isBot: true, botBrain: "no-ai", botDifficulty: "expert", personality: "chaos" });
+assert.equal(difficultyOnlyBotView.botBrain, "no-ai");
+assert.equal(difficultyOnlyBotView.botDifficulty, "expert");
+assert.equal("personality" in difficultyOnlyBotView, false);
 
 syncRoom({ voteKick: {
   voteId: "vote-1",
@@ -74,6 +78,9 @@ state.lastTurnDeadline = 0;
 state.pendingAction = null;
 state.players = [{ id: "p1", serverId: "server-player", clientId: "local-client", pos: 0 }];
 const walkResolvers = [];
+const movementVisualTrace = [];
+const activeWalks = new Set();
+let renderedPlayerPosition = 0;
 let choiceModalOpens = 0;
 let auctionSurfaceOpens = 0;
 let cardRevealOpens = 0;
@@ -83,8 +90,20 @@ const host = {
   setConnectionStatus() {},
   gameViewVisible: () => true,
   showView() {},
-  renderAll() {},
-  startPieceWalk: () => new Promise(resolve => walkResolvers.push(resolve)),
+  renderAll() {
+    if (!activeWalks.has("p1")) renderedPlayerPosition = state.players[0]?.pos ?? renderedPlayerPosition;
+    movementVisualTrace.push({ phase: "render", position: renderedPlayerPosition });
+  },
+  startPieceWalk(playerId, from, to) {
+    activeWalks.add(playerId);
+    renderedPlayerPosition = from;
+    movementVisualTrace.push({ phase: "walk-start", position: renderedPlayerPosition });
+    return new Promise(resolve => walkResolvers.push(() => {
+      activeWalks.delete(playerId);
+      renderedPlayerPosition = to;
+      resolve();
+    }));
+  },
   openAuctionSurface: () => { auctionSurfaceOpens += 1; },
   closeAuctionSurface() {},
   retireButton: () => null,
@@ -114,7 +133,12 @@ const landingSnapshot = {
     pendingPayment: null
   }
 };
+movementVisualTrace.length = 0;
 applyServerState(landingSnapshot, host);
+assert.deepEqual(movementVisualTrace, [
+  { phase: "walk-start", position: 0 },
+  { phase: "render", position: 0 },
+], "the normal snapshot render keeps the pawn at its origin until the walk owns its position");
 assert.deepEqual(diceRollTotals, [], "the first game snapshot is only a baseline");
 applyServerState({
   ...landingSnapshot,

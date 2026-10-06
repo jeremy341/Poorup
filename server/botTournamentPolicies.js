@@ -99,9 +99,9 @@ function createScoreAdvisor(scoreCandidate) {
   };
 }
 
-export function createBotPolicy(policyId, { brain = 'no-ai', personality = 'survivor', difficulty = 'table', advisor } = {}) {
+export function createBotPolicy(policyId, { brain = 'no-ai', difficulty = 'table', advisor } = {}) {
   const defaultAdvisor = advisor || new DeterministicAdvisor();
-  return { policyId, brain, difficulty, personality, advisor: defaultAdvisor };
+  return { policyId, brain, difficulty, advisor: defaultAdvisor };
 }
 
 export function createDefaultPolicySet({ fetchImpl } = {}) {

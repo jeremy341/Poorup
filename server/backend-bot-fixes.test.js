@@ -7,7 +7,7 @@
 //         back 'unsupported' and scored 0: the verdict became "is
 //         buy.score >= 0" instead of "is this deed better than doing nothing".
 //   B-24  botApi.loanContractCandidate scored the *neediest* borrower highest
-//         while the responder gate (totalDue <= cash * CONTRACT_REPAY_FACTOR)
+//         while the responder gate (totalDue <= cash * shared repayment ratio)
 //         makes exactly those proposals a guaranteed decline.
 //   B-26  botApi.sortCandidates broke equal-score ties on ascending cost. All
 //         build candidates share one score, so every build was ordered
@@ -32,7 +32,7 @@ function check(name, run) {
 // --- fixtures ---------------------------------------------------------------
 
 let roomSerial = 0;
-function botRoom({ personality = 'builder', cash = 1500, humanSeats = 2 } = {}) {
+function botRoom({ cash = 1500, humanSeats = 2 } = {}) {
   roomSerial += 1;
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'host', clientId: 'host', nickname: 'Host', roomCode: `BOTFIX${roomSerial}` });
@@ -40,7 +40,6 @@ function botRoom({ personality = 'builder', cash = 1500, humanSeats = 2 } = {}) 
     room.addOrReconnectPlayer({ socketId: `seat-${seat}`, clientId: `seat-${seat}`, nickname: `Seat ${seat}` });
   }
   room.setRoomSetting('bots', 1);
-  room.setRoomSetting('botPersonality', personality);
   room.setRoomSetting('botDifficulty', 'table');
   assert.equal(room.startGame().success, true, 'the fixture room starts');
   const game = room.game;
@@ -140,7 +139,7 @@ check('B-23: the planner stops buying deeds it values below doing nothing', () =
 // --- B-24 -------------------------------------------------------------------
 
 check('B-24: loan-contract candidates target a borrower who can service them', () => {
-  const { game, bot, humans } = botRoom({ personality: 'diplomat', cash: 1500 });
+  const { game, bot, humans } = botRoom({ cash: 1500 });
   const [poor, solvent] = humans;
   poor.cash = 80;
   solvent.cash = 900;
@@ -154,7 +153,6 @@ check('B-24: loan-contract candidates target a borrower who can service them', (
       { ...candidate.offer, totalDue: loanTotalDue(candidate.offer) },
       borrower,
       bot,
-      borrower.personality || 'survivor',
       game
     );
   };
@@ -162,29 +160,28 @@ check('B-24: loan-contract candidates target a borrower who can service them', (
   // $80 of cash cannot service a $405 obligation, so no cash loan is aimed at
   // that seat any more — and the top of the list is always closable.
   assert.equal(loans.some(forPoor), false, 'no doomed cash loan is proposed to a broke borrower');
-  assert.equal(loans.length, 1, 'the solvent seat still gets its loan proposal');
-  assert.equal(loans[0].offer.toPlayerId, solvent.id);
-  assert.equal(accepts(loans[0]), true, 'the top-ranked loan proposal is one the borrower will accept');
-  assert.equal(loans[0].offer.amount, 300, 'the lender still sizes the loan off its own balance sheet');
+  assert.ok(loans.length >= 2, 'all viable borrowers are considered instead of truncating to two seats');
+  const solventLoan = loans.find(candidate => candidate.offer.toPlayerId === solvent.id);
+  assert.ok(solventLoan, 'the solvent seat still gets its loan proposal');
+  assert.ok(loans.every(accepts), 'every proposed loan is serviceable by its target');
+  assert.equal(solventLoan.offer.amount, 300, 'the lender still sizes the loan off its own balance sheet');
   // The broke borrower keeps the legs that do not need their cash.
   const poorLegs = proposals.filter(forPoor).map(candidate => candidate.offer.kind);
   assert.deepEqual(poorLegs.sort(), ['equity', 'hybrid'], 'a cash-poor target still gets its deed-backed options');
 });
 
 check('B-24: loan ranking follows acceptance headroom, not borrower need', () => {
-  const { game, bot, humans } = botRoom({ personality: 'diplomat', cash: 1500 });
+  const { game, bot, humans } = botRoom({ cash: 1500 });
   const [mid, roomy] = humans;
   mid.cash = 700;
   roomy.cash = 5000;
   game.currentPlayerId = bot.id;
   const loans = loanProposals(game, bot).filter(candidate => candidate.offer.kind === 'loan');
-  assert.equal(loans.length, 2, 'both borrowers can service these terms');
-  const borrowerOf = candidate => candidate.offer.toPlayerId === mid.id ? mid : roomy;
-  // Both clear the accept gate here, so only headroom separates them: the old
-  // score gave both 10 and the collector's ascending-cash order put the
-  // bare-margin borrower first.
+  assert.equal(loans.length, humans.filter(player => player.cash >= 600).length, 'all borrowers who can service the terms are represented');
+  const borrowerOf = candidate => game.getPlayerById(candidate.offer.toPlayerId);
+  // All clear the accept gate; headroom ranks roomier borrowers first.
   assert.ok(loans[0].score > loans[1].score, 'the borrower with more headroom ranks first');
-  assert.equal(borrowerOf(loans[0]).id, roomy.id, 'the roomier borrower leads the list');
+  assert.equal(borrowerOf(loans[0]).id, roomy.id, 'the roomiest borrower leads the list');
   assert.ok(loans.every(candidate => loanTotalDue(candidate.offer) <= borrowerOf(candidate).cash * 0.8),
     'every proposed loan is serviceable under the responder gate');
 });
@@ -192,7 +189,7 @@ check('B-24: loan ranking follows acceptance headroom, not borrower need', () =>
 // --- B-26 -------------------------------------------------------------------
 
 check('B-26: equal-score builds rank by development value, not by ascending cost', () => {
-  const { game, bot } = botRoom({ personality: 'builder', cash: 2000 });
+  const { game, bot } = botRoom({ cash: 2000 });
   ownGroup(game, bot, 'Brown');          // $50 house, ~$40 rent gain per circuit
   ownGroup(game, bot, 'Dark Blue');      // $200 house, ~$140-200 rent gain per circuit
   const builds = buildIds(game.getBotCandidates(bot));
@@ -208,7 +205,7 @@ check('B-26: equal-score builds rank by development value, not by ascending cost
 });
 
 check('B-26: builds inside one monopoly keep their stable board order', () => {
-  const { game, bot } = botRoom({ personality: 'builder', cash: 2000 });
+  const { game, bot } = botRoom({ cash: 2000 });
   const tiles = ownGroup(game, bot, 'Light Blue');
   assert.deepEqual(buildIds(game.getBotCandidates(bot)), tiles.map(tile => `build:${tile.index}`),
     'equal-value builds in one group keep declaration order instead of shuffling');

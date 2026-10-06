@@ -342,10 +342,10 @@ function runBailoutVoteSmoke() {
 function runBotSmoke() {
   const botRoom = makeRoom();
   botRoom.setRoomSetting('bots', 1);
-  botRoom.setRoomSetting('botPersonality', 'builder');
+  assert.equal(botRoom.setRoomSetting('botPersonality', 'builder').rejected, true);
   assert.equal(botRoom.startGame().success, true);
   assert.equal(botRoom.game.players.filter(player => player.isBot).length, 1);
-  assert.equal(botRoom.game.players.find(player => player.isBot).personality, 'builder');
+  assert.equal('personality' in botRoom.game.players.find(player => player.isBot), false);
   assert.equal(botRoom.game.turnOrder.length, 3);
   const botPlayer = botRoom.game.players.find(player => player.isBot);
   botRoom.game.currentPlayerId = botPlayer.id;
@@ -375,7 +375,7 @@ function runComboEventSmoke() {
 
 async function runAdvisorSmoke() {
   const advisor = new DeterministicAdvisor();
-  const choice = await advisor.chooseAction({ personality: 'builder', candidates: [{ id: 'roll', kind: 'roll', score: 0 }, { id: 'build:1', kind: 'build', score: 1 }] });
+  const choice = await advisor.chooseAction({ candidates: [{ id: 'roll', kind: 'roll', score: 0 }, { id: 'build:1', kind: 'build', score: 1 }] });
   assert.equal(choice.actionId, 'build:1');
   const fallback = new AiAdvisor({ apiKey: 'test', fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '{"actionId":"invented","confidence":2}' } }] }) }) });
   const safeFallback = await fallback.chooseAction({ candidates: [{ id: 'roll', kind: 'roll', score: 0 }] });

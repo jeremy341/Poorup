@@ -14,6 +14,26 @@ test('new room settings and snapshots omit per-turn timers', () => {
   assert.equal('turnDeadline' in room.game.getGameSummary(), false);
 });
 
+test('bot behavior is configured by brain and difficulty; legacy personality is ignored', () => {
+  assert.equal('botPersonality' in DEFAULT_ROOM_SETTINGS, false);
+  const room = new RoomManager().createRoom({
+    socketId: 'bot-settings-host',
+    clientId: 'bot-settings-client',
+    nickname: 'Host',
+  });
+  assert.equal('botPersonality' in room.settings, false);
+  assert.equal(room.setRoomSetting('botPersonality', 'builder').rejected, true);
+  assert.equal('botPersonality' in room.getRoomSummary().settings, false);
+  room.setRoomSetting('bots', 1);
+  room.setRoomSetting('botBrain', 'no-ai');
+  room.setRoomSetting('botDifficulty', 'expert');
+  assert.equal(room.startGame().success, true);
+  const bot = room.game.players.find(player => player.isBot);
+  assert.equal('personality' in bot, false);
+  assert.equal(room.settings.botBrain, 'no-ai');
+  assert.equal(room.settings.botDifficulty, 'expert');
+});
+
 test('historical ruleset timer metadata remains readable without enabling a live setting', () => {
   assert.equal(KNOWN_OVERRIDE_KEYS.has('turnTimer'), false);
   assert.equal(HISTORICAL_OVERRIDE_KEYS.has('turnTimer'), true);

@@ -104,7 +104,6 @@ const KNOWN_OVERRIDE_KEYS = new Set([
   'bankLoanSeverity',
   'startingCash',
   'bots',
-  'botPersonality',
   'botBrain',
   'botDifficulty'
 ]);
@@ -229,7 +228,11 @@ function effectiveSettingsFor({ rulesetPreset = 'classic', rulesetBase, rulesetO
   const base = safeBase(rulesetBase || (requestedPreset === 'after-hours' ? 'after-hours' : 'classic'));
   const overrides = normalizeOverrides(rulesetOverrides);
   const effective = { ...settings };
-  ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'effectiveSettings', 'digest', 'globalEventDuration', 'globalEventMax'].forEach(key => delete effective[key]);
+  ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'effectiveSettings', 'digest', 'globalEventDuration', 'globalEventMax', 'botPersonality'].forEach(key => delete effective[key]);
+  if (Object.hasOwn(effective, 'botBrain')) {
+    const brain = String(effective.botBrain || '').trim().toLowerCase().replace('_', '-');
+    effective.botBrain = brain === 'no-ai' ? 'no-ai' : 'ai';
+  }
   const presetDefaults = PRESET_DEFAULTS[base] || PRESET_DEFAULTS.classic;
   Object.entries(presetDefaults).forEach(([key, value]) => {
     // A Custom room inherits its selected base before applying explicit

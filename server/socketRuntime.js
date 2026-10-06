@@ -20,7 +20,7 @@ import {
 } from './botLogic.js';
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
-import { scheduleBotTimer } from './botTiming.js';
+import { botMovementSettleDelayMs, scheduleBotTimer } from './botTiming.js';
 
 const DEFAULT_RECONNECT_GRACE_MS = 120000;
 const configuredTestReconnectGrace = Number(process.env.POORUP_TEST_RECONNECT_GRACE_MS);
@@ -680,7 +680,7 @@ function createRuntime(deps) {
     return !botTurnPending(room);
   }
 
-  function scheduleBotTurn(room) {
+  function scheduleBotTurn(room, movementDelayMs = 0) {
     if (!turnRoomReady(room)) return;
     const bot = selectBotTurnTarget(room.game);
     if (!bot?.isBot) return;
@@ -689,7 +689,8 @@ function createRuntime(deps) {
     const timer = scheduleBotTimer(
       setTimeoutFn,
       () => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)),
-      'turn'
+      'turn',
+      movementDelayMs
     );
     botTimers.set(room.roomCode, timer);
   }
@@ -702,6 +703,7 @@ function createRuntime(deps) {
   function beginBotTurn(room, bot) {
     botTimers.delete(room.roomCode);
     botDecisionLocks.add(room.roomCode);
+    const previousPositions = new Map(room.game.players.map(player => [player.id, player.position]));
     runBotDecision(room, bot)
       .catch(error => {
         // A failed bot decision must not escape the timer callback: an
@@ -709,7 +711,7 @@ function createRuntime(deps) {
         // stays alive and the watchdog/next action retries naturally.
         console.error(`Bot turn failed in room ${room.roomCode}:`, error);
       })
-      .finally(() => finishBotTurn(room));
+      .finally(() => finishBotTurn(room, botMovementSettleDelayMs(previousPositions, room.game)));
   }
 
   function applyBotDecisionOutcome(room, bot, result) {
@@ -772,9 +774,9 @@ function createRuntime(deps) {
     return PUBLIC_FALLBACK_REASONS.get(key) || 'provider-unavailable';
   }
 
-  function finishBotTurn(room) {
+  function finishBotTurn(room, movementDelayMs = 0) {
     botDecisionLocks.delete(room.roomCode);
-    scheduleBotTurn(room);
+    scheduleBotTurn(room, movementDelayMs);
     scheduleBotAuction(room);
   }
 
@@ -819,7 +821,7 @@ function createRuntime(deps) {
   async function beginBotAuctionBidUnlocked(room, bot, key) {
     auctionBotTimers.delete(key);
     if (!room.game.auction?.active) return;
-    const auctionVersion = auctionIdentity(room.game.auction);
+    const auctionVersion = auctionIdentity(room.game.auction, bot);
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
     emitBotStatus(room, bot, 'thinking', { decisionSequence, phase: 'auction' });
@@ -836,14 +838,15 @@ function createRuntime(deps) {
       auction: room.game.auction,
       bot,
       startingCash: room.game.settings.startingCash,
+      game: room.game,
       advisor: botAdvisor,
       context: { ...context, event: room.game.globalEvent }
     });
-    if (room.destroyed || !sameAuction(room.game.auction, auctionVersion)) return;
-    const { candidates, minimum, decision } = choice;
+    if (room.destroyed || !sameAuction(room.game.auction, auctionVersion, bot)) return;
+    const { candidates, amount, decision } = choice;
     const actionId = choice.actionId;
     const shouldBid = actionId === 'auction:bid';
-    const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, minimum));
+    const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, amount));
     if (shouldBid && result?.success) scheduleAuctionFinish(room);
     const trace = room.game.recordBotDecisionTrace({
       ...context,
@@ -867,13 +870,24 @@ function createRuntime(deps) {
     return room.placeAuctionBid(actor, minimum);
   }
 
-  function auctionIdentity(auction) {
+  function auctionIdentity(auction, bot) {
     if (!auction) return null;
-    return `${auction.startedAt || 0}:${auction.propertyTile?.index ?? 'unknown'}`;
+    return JSON.stringify({
+      startedAt: auction.startedAt || 0,
+      tileIndex: auction.propertyTile?.index ?? null,
+      highestBid: Number(auction.highestBid || 0),
+      highestBidderId: auction.highestBidderId || null,
+      participants: [...(auction.participants || [])],
+      passedPlayerIds: [...(auction.passedPlayerIds || [])],
+      botId: bot?.id || null,
+      botCash: Number(bot?.cash || 0),
+      botBankrupt: bot?.bankrupt === true,
+      botDisconnected: bot?.disconnected === true
+    });
   }
 
-  function sameAuction(auction, identity) {
-    return Boolean(auction?.active && identity && auctionIdentity(auction) === identity);
+  function sameAuction(auction, identity, bot) {
+    return Boolean(auction?.active && identity && auctionIdentity(auction, bot) === identity);
   }
 
   // --- auction/disconnect timers -------------------------------------------
