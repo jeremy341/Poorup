@@ -20,11 +20,11 @@ coverage/
 qa-artifacts/
 test-results/
 .local-ui-baseline/
+/docs/ops/protected/
 
 # Generated tooling state and local agent logs
 skills-lock.json
 .impeccable/
-.superpowers/sdd/
 
 # Editor directories and files
 .vscode/*

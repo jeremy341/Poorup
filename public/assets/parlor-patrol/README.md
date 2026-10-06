@@ -21,15 +21,11 @@ score.
 
 - `helicopter-16-frames.svg`: 16 overlaid 128×64 frames, 100 ms per frame, stepped rotor poses, alternating red/blue beacon, facing right.
 - `helicopter-left-16-frames.svg`: mirrored facing-left wrapper used for right-to-left flights from the right edge.
-- `helicopter-crash-12-frames.svg`: 12 original burning/rotating frames retained for reference; the active Night Shift helicopter hit now uses the Home impact/smoke system at the click location.
 - `drone-8-frames.svg`: compact secondary target introduced in later waves.
 - `drone-explosion-10-frames.svg`: 10 original 112×112 red/orange frames for an immediate drone detonation.
 - `airplane-10-frames.svg`: 10 original 112×64 frames for a fast later-wave aircraft.
 - `airplane-explosion-10-frames.svg`: 10 original 128×112 red/orange frames for an immediate airplane detonation.
 - `beacon-6-frames.svg`: falling signal bonus target.
-- `spiral-trail-8-frames.svg`: original stepped ring frames retained for future experiments; not used by the active hit path.
-- `debris-6-frames.svg`: original impact shard frames.
-- `contrail-6-frames.svg`: original short aircraft trail frames.
 - `heart.svg`: one red pixel life icon used by the Night Shift HUD.
 - `impact-8-frames.svg`: 8 overlaid 64×64 frames, 80 ms per frame, gold flash into teal smoke.
 - `smoke-6-frames.svg`: 6 overlaid 80×64 frames, 120 ms per frame, stepped teal smoke trail.

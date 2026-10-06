@@ -78,4 +78,23 @@ assert.deepEqual({ title: mythical.title, body: mythical.body, playerDisplayName
 });
 assert.equal(ownerEvents.filter(entry => entry.event === 'achievement-unlocked').length, 1);
 assert.equal(notifications.filter(entry => entry.accountId === 'acct_a').length, 2);
+
+// Patrol misses come from the client; the server has no per-target outcome
+// record, so a submitted zero cannot verify the clean-run achievement.
+const patrolCandidates = api.patrolAchievementCandidates({ id: 'acct_a' }, 50, { aceRuns: 0 });
+assert.deepEqual(patrolCandidates.map(candidate => candidate.achievementId), [
+  'patrol-rookie',
+  'patrol-regular'
+]);
+const legacyMissCandidates = api.patrolAchievementCandidates({ id: 'acct_a' }, 50, 0, { aceRuns: 0 });
+assert.deepEqual(legacyMissCandidates.map(candidate => candidate.achievementId), [
+  'patrol-rookie',
+  'patrol-regular'
+]);
+const patrolAceCandidates = api.patrolAchievementCandidates({ id: 'acct_a' }, 50, { aceRuns: 3 });
+assert.deepEqual(patrolAceCandidates.map(candidate => candidate.achievementId), [
+  'patrol-rookie',
+  'patrol-regular',
+  'patrol-ace'
+]);
 console.log('social achievement event contract: 1 passed, 0 failed');
