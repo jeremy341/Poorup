@@ -1,33 +1,30 @@
 # Poorup
 
-Poorup is a multiplayer board game inspired by Monopoly, playable entirely in the browser with no downloads; accounts remain optional, so no account is required to join a room. Players join a shared room using a room code, buy and trade properties, build houses and hotels, and try to bankrupt each other. The game runs in real time using WebSockets.
-
-I built this project to get hands-on experience with real-time web development, server-side game logic and managing shared state across multiple clients.
-
-From an engineering perspective, Poorup is a real-time multiplayer systems project: the game rules, room state, reconnect flow and persistence boundaries are handled on the server.
+Poorup is a browser-based, real-time multiplayer property game inspired by Monopoly. Players can join as guests, create or enter a room, trade and develop properties, and compete to be the last solvent player. The server owns game state and settlement; Socket.IO synchronizes the table.
 
 **Live demo:** https://poorup.jeremy-d.hackclub.app/
 
 To test multiplayer: open two browser tabs (or share the link with a friend), enter different nicknames, and have one player create a room while the other joins with the room code.
 
-## Overview
+## AI use: what was assisted and what I made
 
-- Real-time multiplayer using Socket.IO
-- Standard-40 and Metro-52 board variants with properties, airports, tax squares, and surprise cards
-- Full Monopoly-style rules: buying, renting, building, mortgaging, trading, and going to prison
-- Host-selectable Classic, After Hours, and Custom rulesets
-- Optional server-settled Casino and fictional Market add-ons
-- Server-backed friends, recent players, match history, achievements, seasons, and multi-scope rankings
-- Rare round-scaled Global Events with curated combinations
-- Server-controlled deterministic CPU seats (bots) with selectable personalities
-- Player-to-player loan and property-equity contracts with collateral, repayment, and default rules
-- Auction system for declined properties
-- Room-based lobby with host controls and configurable game settings
-- Reconnect support — disconnected players can rejoin and resume their turn
-- In-game chat and automatic room cleanup when everyone leaves
-- Optional Profile account rights: owner-safe export, verified recovery email,
-  session revocation, and a 30-day deletion grace period
-- Runs on a plain Node.js server with no database
+- **AI-assisted coding:** GPT/Codex helped debug issues and implement backend work, and contributed substantially to development of the in-game bots and House Brain. CodeScene was used for code-health analysis.
+- **CodeScene hotspot refactors:** I wrote many of the original page-specific backends myself. CodeScene flagged some larger or more complex files as hotspots, and I used GPT/Codex to help refactor and split those existing implementations into smaller, focused files. Those modules are often refactorings of my original work, not separate features generated wholesale by AI.
+- **Created by me:** I designed and implemented all of the UI and created all Poorup SVG assets.
+- **Music:** I did not compose the soundtrack. It uses third-party, openly licensed, CC0, or public-domain tracks; sources and license terms are in [the audio credits](public/assets/audio/README.md).
+- **Git history:** I intentionally rewrote the repository history and removed older commits to make the repo cleaner. The current log is not a complete development record.
+
+Development-time AI assistance is separate from the bots available in-game: deterministic NO-AI and configured AI-advisor modes.
+
+## Features
+
+- Standard-40 and Metro-52 boards; buying, renting, building, mortgages, auctions, and trading
+- Guest rooms with reconnect support and server-authoritative multiplayer state
+- Deterministic NO-AI and configurable AI-advisor bot modes
+- Player loans and property-equity contracts with collateral and default rules
+- Optional Market, Casino, and Global Events; Market and Casino use fictional game currency
+- Profiles with match history, achievements, seasons, friends, and rankings
+- No database: persistent account and match records use local JSON stores
 
 ## How to run
 
@@ -42,88 +39,20 @@ Then open `http://localhost:8080` in your browser (two tabs for a local multipla
 
 For how contributions flow (branches, PRs, CI, reviews), see [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md).
 
-For the current source-backed status of live, completed, planned, deferred, and
-reference surfaces, see [docs/feature-status.json](docs/feature-status.json).
-
-Full gameplay rules live in the in-game **Rules** surface. Quick guide:
-
-| Layer | Technology |
-|---|---|
-| Server | Node.js, Express |
-| Real-time | Socket.IO |
-| Frontend | Vanilla HTML, CSS, JavaScript |
-| State | In-memory game state managed server-side |
+Read the complete rules in the in-game **Rules** surface. Poorup uses Node.js,
+Express, Socket.IO, and a vanilla HTML/CSS/JavaScript client.
 
 ## How to play
 
-Guest play is the default: no account is required to create or join a room.
-Optional accounts add a durable identity and server-backed history.
+Guest play requires no account. Roll, resolve the landed space, and complete any
+required purchase, auction, card, or payment before ending your turn. Build
+evenly across a color group, and use trades or mortgages to manage cash.
 
-**Goal:** bankrupt the other players by buying properties, charging rent, trading smartly, and managing cash.
+See [Privacy & Account Data](/privacy) for account, retention, export, and
+deletion details.
 
-**A turn:** roll → move → resolve the space (buy, rent, tax, cards, jail, or other specials) → end turn when every required decision is complete.
-
-**Properties and rent:** owning a full color set strengthens the group; houses and hotels raise rent; mortgaged deeds collect no normal rent until redeemed.
-
-**Trading:** trades can include cash and properties; both players must agree.
-
-**Jail:** roll doubles, pay the fine, or wait out turns when the rules allow.
-
-**Bankruptcy:** low cash is not elimination — mortgage, sell, trade, or declare bankruptcy only when no legal rescue remains.
-
-**Optional systems:** auctions; contracts (player loans and property-equity); Casino and Market (fictional currency, staged complexity); Global Events; bots; social and seasons (friends, match history, achievements, cosmetics, rankings, seasonal rewards where available).
-
-**Setup:** the host configures board variant (Standard-40 up to four seats, Metro-52 up to six), ruleset preset (`CLASSIC`, `AFTER HOURS`, or `CUSTOM`), starting cash, turn timer, CPU seats, auctions, mortgage rules, and other house rules before the round starts.
-
-## Project structure
-
-```
-server/
-  server.js       — HTTP/Socket.IO wiring and route policy
-  rooms.js        — Room lifecycle, seats, settings, and projections
-  gameLogic.js    — Authoritative game state and player actions
-  *Api.js/modules — Focused market, contract, season, social, and maintenance seams
-  sessionStore.js   — server-side cookie sessions and expiry policy
-  accountRecovery.js / accountDeletion.js — recovery and deletion lifecycle
-
-public/
-  index.html      — Single-page app shell
-  styles.css      — Supplied pixel-parlor design system and responsive layout
-  main.js         — Client-side interactions, rendering, and Socket.IO bridge
-  assets/         — Protected SVG references and local fonts
-```
-
-Account data controls live only in Profile. The factual [Privacy & Account
-Data](/privacy) page describes guest play, retention, export, recovery, and
-deletion behavior; no Terms-of-Service route is claimed by the app.
-
-## Game settings
-
-The host can configure the following before starting:
-
-- Board variant: Standard-40 (up to four seats) or Metro-52 (up to six)
-- Ruleset preset, Custom base, and resettable house-rule overrides
-- Starting cash amount
-- CPU seats and selectable bot personality
-- Bot brain and difficulty mode
-- Trading, No Rent In Jail, bankruptcy mode, and loan severity
-- Double rent when owning a full color set
-- Double GO payout and per-turn timer
-- Vacation cash (fines and bank payments accumulate on Vacation)
-- Auction for declined properties
-- Even build rule (houses must be built evenly across a color set)
-- Mortgage toggle
-- House and hotel supply limits
-- Bank loans, fictional-currency casino, market complexity, and global events
-
-## What I learned
-
-- How to design and manage real-time shared game state across multiple clients
-- Handling edge cases in multiplayer: disconnects mid-turn, disconnects during an active auction, host leaving, reconnects
-- Structuring a server-side rules engine that is the single source of truth while keeping the client purely for rendering
-- Memory management on long-running Node.js servers (room garbage collection, clearing timers on disconnect)
-- Building a complete UI  with vanilla CSS including responsive layouts, modals, animations, and accessibility but also need AI for help
-- The importance of separating game logic from networking code to keep things testable and maintainable if not causing many bugs
+Players have unlimited turn time. A separate inactivity-removal clock and
+vote-kick flow operate during a game.
 
 MIT License
 
