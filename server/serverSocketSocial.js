@@ -367,7 +367,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     patrolRuns.delete(runContext.runToken);
     const result = accountStore.recordPatrolResult(account.id, { score, misses });
     if (!result.success) return reply(callback, result);
-    const candidates = patrolAchievementCandidates(account, score, misses, result);
+    const candidates = patrolAchievementCandidates(account, score, result);
     candidates.forEach(candidate => recordVerifiedAchievement(candidate, `patrol_${runContext.runToken}`));
     const snapshot = accountStore.getAccountSnapshot(account.id);
     if (snapshot) socket.emit('account-sync', { account: snapshot });
