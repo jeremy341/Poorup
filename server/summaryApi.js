@@ -35,7 +35,6 @@ function playerSummaryFields(game, player, viewerPlayerId) {
     properties: player.properties,
     ready: player.ready,
     isBot: player.isBot,
-    personality: player.isBot ? player.personality : null,
     botBrain: player.isBot ? game.settings.botBrain : null,
     botDifficulty: player.isBot ? game.settings.botDifficulty : null
   };

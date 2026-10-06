@@ -6,7 +6,6 @@
 import assert from 'assert';
 import { RoomManager } from './gameLogic.js';
 import {
-  EVENT_POLICY_BY_PERSONALITY,
   selectGlobalEventPolicy,
   tradeLegValue,
   shouldAcceptTrade,
@@ -48,29 +47,51 @@ function check(name, fn) {
 }
 
 check('auction selector preserves NO-AI baseline bid and pass decisions', async () => {
-  const bot = { id: 'auction-bot', cash: 500, personality: 'builder' };
-  const bid = await decideBotAuction({ auction: { highestBid: 0, propertyTile: {} }, bot, startingCash: 500 });
-  const pass = await decideBotAuction({ auction: { highestBid: 400, propertyTile: {} }, bot, startingCash: 500 });
+  const bot = { id: 'auction-bot', cash: 300 };
+  const bid = await decideBotAuction({ auction: { highestBid: 0 }, bot, startingCash: 500 });
+  const pass = await decideBotAuction({ auction: { highestBid: 400 }, bot, startingCash: 500 });
   assert.equal(bid.actionId, 'auction:bid');
   assert.equal(pass.actionId, 'auction:pass');
   assert.equal(bid.minimum, 10);
 });
 
 check('auction selector accepts only legal AI overrides and retains minimum bid', async () => {
-  const bot = { id: 'auction-bot', cash: 500, personality: 'builder' };
+  const bot = { id: 'auction-bot', cash: 500 };
   const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:pass' }) };
-  const legal = await decideBotAuction({ auction: { highestBid: 5, propertyTile: {} }, bot, startingCash: 500, advisor, context: {} });
+  const legal = await decideBotAuction({ auction: { highestBid: 5 }, bot, startingCash: 500, advisor, context: {} });
   assert.equal(legal.actionId, 'auction:pass');
   assert.equal(legal.minimum, 15);
-  const invalid = await decideBotAuction({ auction: { highestBid: 5, propertyTile: {} }, bot, startingCash: 500, advisor: { ...advisor, chooseAction: async () => ({ actionId: 'auction:invent' }) }, context: {} });
+  const invalid = await decideBotAuction({ auction: { highestBid: 5 }, bot, startingCash: 500, advisor: { ...advisor, chooseAction: async () => ({ actionId: 'auction:invent' }) }, context: {} });
   assert.equal(invalid.actionId, 'auction:bid');
+});
+
+check('auction AI can choose a whole-dollar bid inside the server-issued utility range', async () => {
+  const bot = { id: 'parameterized-auction-bot', cash: 2000 };
+  let issuedBid = null;
+  const advisor = {
+    supportsChoicePhases: true,
+    chooseAction: async ({ candidates }) => {
+      issuedBid = candidates.find(candidate => candidate.id === 'auction:bid');
+      return { actionId: 'auction:bid', parameters: { amount: 950 }, provider: 'ai', fallback: false };
+    }
+  };
+  const choice = await decideBotAuction({ auction: { highestBid: 100 }, bot, startingCash: 1000, advisor });
+  assert.equal(issuedBid.kind, 'auction-bid');
+  assert.deepEqual(issuedBid.parameterRanges.amount, { type: 'integer', minimum: 110, maximum: 2000 });
+  assert.equal(choice.minimum, 110, 'the next legal minimum remains visible to the server');
+  assert.equal(choice.amount, 950, 'the chosen amount is carried through to the auction action');
+  const outOfRange = await decideBotAuction({
+    auction: { highestBid: 100 }, bot, startingCash: 1000,
+    advisor: { ...advisor, chooseAction: async () => ({ actionId: 'auction:bid', parameters: { amount: 2001 }, provider: 'ai', fallback: false }) }
+  });
+  assert.equal(outOfRange.amount, 110, 'unvalidated parameters fall back to the current legal minimum');
 });
 
 check('auction shadow comparison stays out of persisted decision and reaches evaluation result', async () => {
   const evaluationTrace = { actionKind: 'auction', deterministicActionKind: 'auction', phase: 'auction' };
   const choice = await decideBotAuction({
-    auction: { highestBid: 0, propertyTile: {} },
-    bot: { id: 'auction-bot-shadow', cash: 1000, personality: 'builder' },
+    auction: { highestBid: 0 },
+    bot: { id: 'auction-bot-shadow', cash: 1000 },
     startingCash: 1000,
     advisor: { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:bid', shadowEvaluation: evaluationTrace }) }
   });
@@ -80,59 +101,67 @@ check('auction shadow comparison stays out of persisted decision and reaches eva
 
 const CHOICES = [{ id: 'low-tax' }, { id: 'public-works' }, { id: 'bank-first' }];
 
-check('event policy table matches personality mapping', () => {
-  assert.strictEqual(EVENT_POLICY_BY_PERSONALITY.builder, 'public-works');
-  assert.strictEqual(EVENT_POLICY_BY_PERSONALITY.speculator, 'bank-first');
-  assert.strictEqual(selectGlobalEventPolicy({ choices: CHOICES }, 'builder').id, 'public-works');
-  assert.strictEqual(selectGlobalEventPolicy({ choices: CHOICES }, 'speculator').id, 'bank-first');
-  assert.strictEqual(selectGlobalEventPolicy({ choices: CHOICES }, 'shark').id, 'low-tax');
-  assert.strictEqual(selectGlobalEventPolicy({ choices: CHOICES }, 'chaos').id, 'low-tax');
-  // Preference missing from choices falls back to first choice.
-  assert.strictEqual(selectGlobalEventPolicy({ choices: [{ id: 'z' }, { id: 'a' }] }, 'builder').id, 'z');
-  assert.strictEqual(selectGlobalEventPolicy({ choices: [] }, 'builder'), null);
-  assert.strictEqual(selectGlobalEventPolicy(undefined, 'builder'), null);
+check('event vote uses one policy preference independent of legacy archetypes', () => {
+  assert.strictEqual(selectGlobalEventPolicy({ choices: CHOICES }).id, 'low-tax');
+  assert.strictEqual(selectGlobalEventPolicy({ choices: [{ id: 'z' }, { id: 'a' }] }).id, 'z');
+  assert.strictEqual(selectGlobalEventPolicy({ choices: [] }), null);
+  assert.strictEqual(selectGlobalEventPolicy(undefined), null);
+});
+
+check('city-election votes compare tax, rent, building, and liquidity outcomes', () => {
+  const tiles = [
+    { index: 1, type: 'property', group: 'Brown', ownerId: 'bot', price: 60, rent: 10, houseCount: 0, mortgaged: false },
+    { index: 3, type: 'property', group: 'Brown', ownerId: 'bot', price: 60, rent: 10, houseCount: 0, mortgaged: false },
+    { index: 4, type: 'tax', amount: 200, ownerId: null }
+  ];
+  const game = {
+    settings: { botDifficulty: 'expert', startingCash: 1500, bankLoans: true },
+    tiles,
+    getTile: index => tiles.find(tile => tile.index === index) || null,
+    getGroupTiles: group => tiles.filter(tile => tile.group === group),
+    getPropertyHouseCost: () => 50,
+    calculateRent: tile => tile.rent,
+    getBankLoanOffer: () => ({ available: false })
+  };
+  const event = { id: 'city-election', choices: CHOICES };
+  assert.equal(selectGlobalEventPolicy(event, game, { id: 'bot', cash: 1000, properties: [1, 3] }).id, 'public-works');
+  const taxOnlyGame = { ...game, tiles: [tiles[2]], getGroupTiles: () => [] };
+  assert.equal(selectGlobalEventPolicy(event, taxOnlyGame, { id: 'bot', cash: 0, properties: [] }).id, 'low-tax');
 });
 
 const TILES = { 5: { index: 5, price: 200 }, 6: { index: 6, price: 100 }, 7: { index: 7, price: 400 } };
 const price = index => TILES[index];
 
-check('trade acceptance uses personality factor on leg values', () => {
+check('trade acceptance uses one context-independent financial threshold', () => {
   const trade = { giveCash: 300, givePropertyIndexes: [5], requestCash: 50, requestPropertyIndexes: [7] };
-  // give = 500, ask = 450. Non-shark bar: 450*0.8=360 -> accept. Shark bar: 450*1.1=495 -> accept.
-  assert.strictEqual(shouldAcceptTrade(trade, price, 'builder'), true);
-  assert.strictEqual(shouldAcceptTrade(trade, price, 'shark'), true);
-  // give = 400, ask = 400: non-shark 320 accept; shark 440 is exactly fair.
+  assert.strictEqual(shouldAcceptTrade(trade, price), true);
   const even = { giveCash: 400, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [] };
-  assert.strictEqual(shouldAcceptTrade(even, price, 'survivor'), true);
-  assert.strictEqual(shouldAcceptTrade(even, price, 'shark'), false);
-  // Boundary: give exactly at bar accepts (>=).
+  assert.strictEqual(shouldAcceptTrade(even, price), true);
   const edge = { giveCash: 320, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [] };
-  assert.strictEqual(shouldAcceptTrade(edge, price, 'builder'), true);
-  // Boundary: whole-dollar comparison must accept the exact 1.1x bar rather
-  // than rejecting it because of binary floating-point noise.
+  assert.strictEqual(shouldAcceptTrade(edge, price), true);
   const edgeShark = { giveCash: 440, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [] };
-  assert.strictEqual(shouldAcceptTrade(edgeShark, price, 'shark'), true);
-  assert.strictEqual(shouldAcceptTrade({ ...edgeShark, giveCash: 441 }, price, 'shark'), true);
+  assert.strictEqual(shouldAcceptTrade(edgeShark, price), true);
+  assert.strictEqual(shouldAcceptTrade({ ...edgeShark, giveCash: 319 }, price), false);
   assert.strictEqual(tradeLegValue({ cash: '10', propertyIndexes: [5, 7] }, price), 610);
   assert.strictEqual(tradeLegValue(undefined, price), 0);
 });
 
-check('player-contract acceptance honors kind, personality, lender', () => {
-  const bot = { cash: 1000, personality: 'shark' };
+check('player-contract acceptance uses shared affordability and lender checks', () => {
+  const bot = { cash: 1000 };
   const lender = { bankrupt: false };
   const equity = { kind: 'equity', amount: 350 };
-  assert.strictEqual(shouldAcceptPlayerContract(equity, bot, lender, 'shark'), true);
-  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'equity', amount: 351 }, { cash: 1000 }, lender, 'survivor'), false);
-  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'equity', amount: 350 }, { cash: 1000 }, lender, 'survivor'), true);
+  assert.strictEqual(shouldAcceptPlayerContract(equity, bot, lender), true);
+  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'equity', amount: 351 }, { cash: 1000 }, lender), false);
+  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'equity', amount: 350 }, { cash: 1000 }, lender), true);
   const repayment = { kind: 'repayment', amount: 800 };
-  assert.strictEqual(shouldAcceptPlayerContract(repayment, bot, lender, 'builder'), true);
-  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'repayment', amount: 801 }, bot, lender, 'builder'), false);
-  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'repayment', amount: 1250 }, bot, lender, 'speculator'), true);
-  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'repayment', totalDue: 1251 }, bot, lender, 'speculator'), false);
+  assert.strictEqual(shouldAcceptPlayerContract(repayment, bot, lender), true);
+  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'repayment', amount: 801 }, bot, lender), false);
+  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'repayment', amount: 1250 }, bot, lender), false);
+  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'repayment', totalDue: 801 }, bot, lender), false);
   // Bankrupt or missing lender kills repayment acceptance only.
-  assert.strictEqual(shouldAcceptPlayerContract(repayment, bot, { bankrupt: true }, 'builder'), false);
-  assert.strictEqual(shouldAcceptPlayerContract(repayment, bot, null, 'builder'), false);
-  assert.strictEqual(shouldAcceptPlayerContract(equity, bot, null, 'builder'), true);
+  assert.strictEqual(shouldAcceptPlayerContract(repayment, bot, { bankrupt: true }), false);
+  assert.strictEqual(shouldAcceptPlayerContract(repayment, bot, null), false);
+  assert.strictEqual(shouldAcceptPlayerContract(equity, bot, null), true);
 });
 
 function fakeGame(over = {}) {
@@ -148,7 +177,7 @@ function fakeGame(over = {}) {
 }
 
 check('public choice candidate helper returns the runtime trade candidates', () => {
-  const bot = { id: 'b1', isBot: true, cash: 1000, personality: 'builder' };
+  const bot = { id: 'b1', isBot: true, cash: 1000 };
   const game = fakeGame({
     pendingTrade: { id: 'trade-1', toPlayerId: 'b1', fromPlayerId: 'h1', giveCash: 100, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [], counterDepth: 0 },
     getTile: () => null,
@@ -211,7 +240,7 @@ check('phase classification order matches original if/else chain', () => {
 });
 
 check('candidateAction maps kind to room action or roll fallback', () => {
-  const bot = { cash: 1000, personality: 'speculator' };
+  const bot = { cash: 1000 };
   assert.deepStrictEqual(candidateAction({ kind: 'trade', id: 't1' }, bot), { type: 'trade', candidate: { kind: 'trade', id: 't1' } });
   assert.strictEqual(candidateAction({ kind: 'cancel-trade', tradeId: 't1' }, bot).type, 'cancel-trade');
   assert.strictEqual(candidateAction({ kind: 'market' }, bot).type, 'market');
@@ -228,29 +257,19 @@ check('candidateAction maps kind to room action or roll fallback', () => {
   assert.strictEqual(candidateAction({ kind: 'close-position', optionId: 'opt-1' }, bot).type, 'close-position');
   assert.strictEqual(candidateAction({ kind: 'end-finance-window' }, bot).type, 'end-turn');
   assert.strictEqual(candidateAction({ kind: 'build', cost: 799 }, bot).type, 'build');
-  assert.strictEqual(candidateAction({ kind: 'build', cost: 801 }, bot).type, 'roll');
+  assert.strictEqual(candidateAction({ kind: 'build', cost: 801 }, bot).type, 'build');
   assert.strictEqual(candidateAction({ kind: 'loan' }, bot).type, 'loan');
-  assert.strictEqual(candidateAction({ kind: 'loan' }, { cash: 1000, personality: 'builder' }).type, 'roll');
+  assert.strictEqual(candidateAction({ kind: 'loan' }, { cash: 1000 }).type, 'loan');
   assert.strictEqual(candidateAction({ kind: 'roll' }, bot).type, 'roll');
   assert.strictEqual(candidateAction(null, bot).type, 'roll');
   assert.strictEqual(candidateAction({ kind: 'mystery' }, bot).type, 'roll');
 });
 
-check('auction bid decision honors step, reserve, comfort ratio', () => {
+check('auction bid decision uses a common step and preserves legal cash access', () => {
   const auction = { highestBid: 100 };
-  const shark = { personality: 'shark', cash: 300 };
-  const builder = { personality: 'builder', cash: 231 };
-  const survivor = { personality: 'survivor', cash: 231 };
-  // shark: minimum = max(101, 120) = 120, reserve 60 -> needs 180.
-  assert.deepStrictEqual(auctionBidDecision(auction, shark, 1500), { shouldBid: true, minimum: 120 });
-  // builder: step 10 -> minimum 110, reserve 120 -> needs 230 <= 231.
-  assert.deepStrictEqual(auctionBidDecision(auction, builder, 1500), { shouldBid: true, minimum: 110 });
-  // survivor at 231 >= 110+120 but comfort: cash must EXCEED 1500*0.7=1050.
-  assert.strictEqual(auctionBidDecision(auction, survivor, 1500).shouldBid, false);
-  assert.strictEqual(auctionBidDecision(auction, { personality: 'survivor', cash: 1050 }, 1500).shouldBid, false); // exactly at bar: not >
-  assert.strictEqual(auctionBidDecision(auction, { personality: 'survivor', cash: 1051 }, 1500).shouldBid, true); // clears bar and reserve
-  assert.strictEqual(auctionBidDecision({ highestBid: 100 }, { personality: 'survivor', cash: 1500 }, 1500).shouldBid, true);
-  assert.strictEqual(auctionBidDecision({ highestBid: 0 }, { personality: 'shark', cash: 1000 }, 1000).minimum, 20);
+  assert.deepStrictEqual(auctionBidDecision(auction, { cash: 109 }, 1500), { shouldBid: false, minimum: 110, maximum: 109 });
+  assert.deepStrictEqual(auctionBidDecision(auction, { cash: 110 }, 1500), { shouldBid: true, minimum: 110, maximum: 110 });
+  assert.deepStrictEqual(auctionBidDecision({ highestBid: 0 }, { cash: 1000 }, 1000).minimum, 10);
 });
 
 check('auction participant filter excludes passers, leaders, humans', () => {
@@ -309,7 +328,7 @@ function fakeRoom(log) {
 }
 
 const advisorStub = decision => ({ chooseAction: async () => decision });
-const bot1 = { id: 'b1', isBot: true, cash: 1000, personality: 'builder' };
+const bot1 = { id: 'b1', isBot: true, cash: 1000 };
 
 check('runBotTurn executes the classified phase against the room', async () => {
   const log = [];
@@ -540,7 +559,7 @@ check('NO-AI vote and sponsorship remain on fixed executors', async () => {
   voterRoom.game.settings = { botBrain: 'no-ai' };
   voterRoom.game.globalEvent = { phase: 'voting', choices: [{ id: 'low-tax' }, { id: 'public-works' }], votes: {} };
   const vote = await runBotTurn(voterRoom, bot1, new DeterministicAdvisor());
-  assert.equal(vote.name, 'vote:public-works');
+  assert.equal(vote.name, 'vote:low-tax');
   assert.deepEqual(vote.botDecision.candidateIds, []);
 
   const sponsorRoom = fakeRoom([]);
@@ -989,17 +1008,13 @@ check('monopoly veto declines junk-for-completer despite face-value win', () => 
     giveCash: 0, givePropertyIndexes: [16],
     requestCash: 0, requestPropertyIndexes: [3],
   };
-  // Legacy path without game context keeps pinned face-value behavior.
-  assert.strictEqual(shouldAcceptTrade(giveaway, getTile, 'builder'), true);
-  // With context: build-ready monopoly giveaway vetoes for every personality.
-  for (const personality of ['builder', 'shark', 'survivor', 'speculator', 'diplomat', 'chaos']) {
-    assert.strictEqual(shouldAcceptTrade(giveaway, getTile, personality, game(1500)), false, personality);
-  }
+  assert.strictEqual(shouldAcceptTrade(giveaway, getTile), true);
+  assert.strictEqual(shouldAcceptTrade(giveaway, getTile, game(1500)), false);
   // Cash-strapped proposer cannot build yet: no veto, face value decides.
-  assert.strictEqual(shouldAcceptTrade(giveaway, getTile, 'builder', game(0)), true);
+  assert.strictEqual(shouldAcceptTrade(giveaway, getTile, game(0)), true);
   // Fair swap with no completion on either side still accepts with context.
   const fair = { ...giveaway, requestPropertyIndexes: [16], givePropertyIndexes: [16] };
-  assert.strictEqual(shouldAcceptTrade(fair, getTile, 'builder', game(1500)), true);
+  assert.strictEqual(shouldAcceptTrade(fair, getTile, game(1500)), true);
 });
 
 check('payment choice routes mortgage rescues to mortgage, not bankruptcy', () => {
@@ -1056,19 +1071,19 @@ check('teaming proposers pay a 1.5x acceptance bar', () => {
   const getTile = () => null;
   // Fair 400-for-400 clears the base bar but not the teaming bar.
   const teaming = { fromPlayerId: 'H', toPlayerId: 'BOT', giveCash: 400, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [] };
-  assert.strictEqual(shouldAcceptTrade(teaming, getTile, 'builder'), true);
-  assert.strictEqual(shouldAcceptTrade(teaming, getTile, 'builder', game), false);
+  assert.strictEqual(shouldAcceptTrade(teaming, getTile), true);
+  assert.strictEqual(shouldAcceptTrade(teaming, getTile, game), false);
   // Overpaying 1.5x still clears it.
-  assert.strictEqual(shouldAcceptTrade({ ...teaming, giveCash: 600 }, getTile, 'builder', game), true);
+  assert.strictEqual(shouldAcceptTrade({ ...teaming, giveCash: 600 }, getTile, game), true);
 });
 
 check('near-miss rejections counter with premium instead of declining', async () => {
   // Hopeless offer declines outright.
   const hopeless = { id: 't0', fromPlayerId: 'h', toPlayerId: 'b1', giveCash: 100, givePropertyIndexes: [], requestCash: 400, requestPropertyIndexes: [], counterDepth: 0 };
-  assert.strictEqual(nearMissTrade(hopeless, price, 'builder'), false);
+  assert.strictEqual(nearMissTrade(hopeless, price), false);
   // Near-miss (250 vs 320 bar) counters through the deterministic executor.
   const near = { id: 't1', fromPlayerId: 'h', toPlayerId: 'b1', giveCash: 250, givePropertyIndexes: [], requestCash: 0, requestPropertyIndexes: [7], counterDepth: 0 };
-  assert.strictEqual(nearMissTrade(near, price, 'builder'), true);
+  assert.strictEqual(nearMissTrade(near, price), true);
   const log = [];
   const room = fakeRoom(log);
   room.game.pendingTrade = near;
@@ -1098,18 +1113,38 @@ check('stale own offers free the table before deciding', async () => {
   assert.strictEqual(pruneStaleOwnDeal(live, bot1, live.game), false);
 });
 
-check('equity gate refuses rent pledges below 2x deed value', () => {
+check('equity gate combines common cash safety with deed valuation', () => {
   const tile = { index: 16, price: 180, group: 'Orange' };
   const game = { getTile: () => tile };
   const lender = { bankrupt: false };
   const trap = { kind: 'equity', amount: 1, propertyIndex: 16, equityShare: 100 };
-  for (const personality of ['shark', 'builder', 'speculator', 'diplomat', 'chaos']) {
-    assert.strictEqual(shouldAcceptPlayerContract(trap, { cash: 1000 }, lender, personality, game), false, personality);
-  }
-  // Fair funding at twice traffic-adjusted value clears the gate.
-  assert.strictEqual(shouldAcceptPlayerContract({ ...trap, amount: 500 }, { cash: 1000 }, lender, 'shark', game), true);
-  // Legacy path without game context keeps pinned behavior.
-  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'equity', amount: 350 }, { cash: 1000 }, lender, 'shark'), true);
+  assert.strictEqual(shouldAcceptPlayerContract(trap, { cash: 1000 }, lender, game), false);
+  assert.strictEqual(shouldAcceptPlayerContract({ ...trap, amount: 350 }, { cash: 1000 }, lender, game), false, 'cash floor must remain after the advance');
+  assert.strictEqual(shouldAcceptPlayerContract({ kind: 'equity', amount: 350 }, { cash: 1000 }, lender), true);
+});
+
+check('trade acceptance prices the responders completed group before breaking it', () => {
+  const tiles = {
+    1: { index: 1, price: 60, group: 'A', ownerId: 'BOT' },
+    2: { index: 2, price: 60, group: 'A', ownerId: 'BOT' },
+    3: { index: 3, price: 60, group: 'B', ownerId: 'H' },
+    4: { index: 4, price: 60, group: 'B', ownerId: null }
+  };
+  const bot = { id: 'BOT', cash: 1000, properties: [1, 2] };
+  const game = {
+    players: [bot, { id: 'H', cash: 1000 }],
+    tiles: Object.values(tiles),
+    getTile: index => tiles[index] || null,
+    getGroupTiles: group => Object.values(tiles).filter(tile => tile.group === group),
+    getPlayerById: id => id === 'BOT' ? bot : { id: 'H', cash: 1000 }
+  };
+  const trade = {
+    fromPlayerId: 'H', toPlayerId: 'BOT',
+    giveCash: 0, requestCash: 0,
+    givePropertyIndexes: [3], requestPropertyIndexes: [1]
+  };
+  assert.equal(shouldAcceptTrade(trade, index => tiles[index]), true, 'face-value-only fallback treats the exchange as even');
+  assert.equal(shouldAcceptTrade(trade, index => tiles[index], game), false, 'the portfolio evaluation rejects losing a complete group for an equal face-value deed');
 });
 
 check('sponsorship gates stop repeat farming without reciprocity', () => {
@@ -1133,23 +1168,64 @@ check('sponsorship gates stop repeat farming without reciprocity', () => {
 
 check('auction cap stops bid-traps but stretches for completers', () => {
   const tiles = [
-    { group: 'Brown', ownerId: 'b1' },
-    { group: 'Brown', ownerId: null },
+    { group: 'Brown', price: 60, ownerId: 'b1' },
+    { group: 'Brown', price: 60, ownerId: null },
   ];
   const game = { getGroupTiles: group => tiles.filter(tile => tile.group === group) };
-  const bot = { id: 'b1', personality: 'builder', cash: 5000 };
+  const bot = { id: 'b1', cash: 5000 };
   // Bid-trap: pumped to 500 on a 60 deed with no completion -> pass.
   assert.deepEqual(
     auctionBidDecision({ highestBid: 500, propertyTile: { group: 'Brown', price: 60 } }, bot, 1500, game),
-    { shouldBid: false, minimum: 510 }
+    { shouldBid: false, minimum: 510, maximum: 142 }
   );
-  // Own completer at 50 -> bid (willingness 120).
+  // A completer can bid above face value based on group completion.
   assert.deepEqual(
     auctionBidDecision({ highestBid: 50, propertyTile: { group: 'Brown', price: 60 } }, bot, 1500, game),
-    { shouldBid: true, minimum: 60 }
+    { shouldBid: true, minimum: 60, maximum: 142 }
   );
-  // Legacy path without game keeps pinned behavior.
-  assert.deepEqual(auctionBidDecision({ highestBid: 100 }, { personality: 'shark', cash: 300 }, 1500).shouldBid, true);
+  assert.deepEqual(auctionBidDecision({ highestBid: 100 }, { cash: 500 }, 1500).shouldBid, true);
+});
+
+check('live no-ai and AI auction choices both pass above the deed valuation ceiling', async () => {
+  const tile = { group: 'Brown', price: 200, ownerId: null };
+  const game = { getGroupTiles: () => [tile, { group: 'Brown', price: 200, ownerId: 'human' }] };
+  const bot = { id: 'auction-cap-bot', cash: 2_000 };
+  const auction = { highestBid: 1_300, propertyTile: tile };
+  const noAi = await decideBotAuction({ auction, bot, startingCash: 1_500, game });
+
+  assert.equal(noAi.actionId, 'auction:pass');
+  assert.deepEqual(noAi.candidates.map(candidate => candidate.id), ['auction:pass']);
+
+  const ai = await decideBotAuction({
+    auction,
+    bot,
+    startingCash: 1_500,
+    game,
+    advisor: { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:bid', provider: 'ai', fallback: false }) }
+  });
+  assert.equal(ai.actionId, 'auction:pass');
+  assert.deepEqual(ai.candidates.map(candidate => candidate.id), ['auction:pass']);
+});
+
+check('valuable group completion may justify a premium without a fixed price multiple', () => {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'auction-host', clientId: 'auction-host', nickname: 'Host', roomCode: 'AUCTIONVALUE' });
+  room.addOrReconnectPlayer({ socketId: 'auction-rival', clientId: 'auction-rival', nickname: 'Rival' });
+  room.setRoomSetting('bots', 1);
+  assert.equal(room.startGame().success, true);
+  const game = room.game;
+  const bot = game.players.find(player => player.isBot);
+  bot.cash = 3000;
+  for (const index of [37, 39]) {
+    const tile = game.getTile(index);
+    tile.ownerId = bot.id;
+    if (!bot.properties.includes(index)) bot.properties.push(index);
+  }
+  const completingDeed = game.getTile(37);
+  completingDeed.ownerId = null;
+  bot.properties = bot.properties.filter(index => index !== completingDeed.index);
+  const decision = auctionBidDecision({ highestBid: 850, propertyTile: completingDeed }, bot, 1500, game);
+  assert.equal(decision.shouldBid, true, 'the final high-rent group deed can be worth more than twice face value');
 });
 
 check('jail stay beats exit on developed boards only', () => {
@@ -1177,9 +1253,9 @@ check('early laps waive the reserve; broke tables get declined for auction', () 
   assert.strictEqual(shouldBuyWithPlan(brokeTable, { id: 'b1', cash: 2000 }, tile), false);
 });
 
-check('repayable snipe loans clear for any personality', () => {
+check('a legal bank-loan candidate maps without an archetype gate', () => {
   assert.deepStrictEqual(
-    candidateAction({ kind: 'loan', totalDue: 600 }, { cash: 1000, personality: 'builder' }).type, 'loan');
+    candidateAction({ kind: 'loan', totalDue: 600 }, { cash: 1000 }).type, 'loan');
 });
 
 await Promise.all(pending);

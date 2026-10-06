@@ -52,6 +52,17 @@ const loanWithTerms = evaluateCandidate(snapshot, {
 }, { difficulty: 'table', seed: 'same' });
 const sellSnapshot = { ...snapshot, marketQuotes: { brazil: 180 }, botState: { ...snapshot.botState, marketPositions: { brazil: { quantity: 2, averageCost: 50, realizedPnl: 0 } } } };
 const marketSell = evaluateCandidate(sellSnapshot, { id: 'market:sell:brazil', kind: 'market', instrumentId: 'brazil', side: 'sell', quantity: 2 }, { difficulty: 'table', seed: 'same' });
+const partialMarketSell = evaluateCandidate(sellSnapshot, { id: 'market:sell:brazil:one', kind: 'market', instrumentId: 'brazil', side: 'sell', quantity: 1 }, { difficulty: 'table', seed: 'same' });
+const marketBuySnapshot = { ...snapshot, marketQuotes: { brazil: 180 } };
+const marketBuy = evaluateCandidate(marketBuySnapshot, { id: 'market:buy:brazil', kind: 'market', instrumentId: 'brazil', side: 'buy', quantity: 1 }, { difficulty: 'table', seed: 'same' });
+const emptyPositionSell = evaluateCandidate(marketBuySnapshot, { id: 'market:sell:brazil', kind: 'market', instrumentId: 'brazil', side: 'sell', quantity: 1 }, { difficulty: 'table', seed: 'same' });
+const missingQuoteSell = evaluateCandidate({ ...sellSnapshot, marketQuotes: {} }, { id: 'market:sell:brazil', kind: 'market', instrumentId: 'brazil', side: 'sell', quantity: 2 }, { difficulty: 'table', seed: 'same' });
+const marketDowntrend = {
+  ...sellSnapshot,
+  marketQuotes: { brazil: 90 },
+  marketQuoteHistory: [100, 95, 90].map((quote, index) => ({ round: index + 1, eventId: null, quotes: { brazil: quote } }))
+};
+const sellIntoDowntrend = evaluateCandidate(marketDowntrend, { id: 'market:sell:brazil', kind: 'market', instrumentId: 'brazil', side: 'sell', quantity: 2 }, { difficulty: 'table', seed: 'same' });
 const doubleGoSnapshot = { ...snapshot, rulesDigest: { ...snapshot.rulesDigest, doubleGo: true } };
 const normalFlow = evaluateCandidate(snapshot, { id: 'roll', kind: 'roll' }, { difficulty: 'table', seed: 'same' });
 const boostedFlow = evaluateCandidate(doubleGoSnapshot, { id: 'roll', kind: 'roll' }, { difficulty: 'table', seed: 'same' });
@@ -64,6 +75,12 @@ assert.equal(mortgage.liquidity, 530);
 assert.equal(purchase.liquidity, 400);
 assert.equal(loanWithTerms.score < loanWithoutTerms.score, true);
 assert.equal(marketSell.liquidity, 852);
+assert.equal(partialMarketSell.estimatedNetWorthDelta, -4, 'a partial sale retains the unsold units at the current quote and charges only the order fee');
+assert.equal(emptyPositionSell.projectionStatus, 'unsupported', 'selling an empty position is not fabricated into a legal action');
+assert.equal(missingQuoteSell.projectionStatus, 'unsupported', 'a missing quote never becomes a zero-price order');
+assert.ok(sellIntoDowntrend.expectedMarketEdge > 0, 'downward market history makes reducing exposure more attractive');
+assert.equal(marketBuy.estimatedNetWorthDelta, -4, 'a $180 holding offsets the $180 purchase; only the $4 fee reduces marked-to-market value');
+assert.equal(marketSell.estimatedNetWorthDelta, -8, 'selling $360 of holdings for $352 cash loses only the $8 fee at the current quote');
 assert.equal(JSON.stringify(snapshot), before);
 
 const candidates = [
@@ -88,7 +105,7 @@ const duel = { ...marketValueSnapshot, opponents: [{ seat: 'opponent-1' }] };
 const duelRisky = evaluateCandidate(duel, { id: 'm', kind: 'market', instrumentId: 'brazil', side: 'buy', risk: 0.5 }, { difficulty: 'table', seed: 'same' });
 assert.equal(multi.expectedRent, 0);
 assert.equal(duelRisky.expectedRent, 0);
-assert.equal(multi.score - duelRisky.score, 5);
+assert.ok(Math.abs((multi.score - duelRisky.score) - 5) < 1e-9);
 // Real purchase offers spend cash like buys (were evaluated as free).
 const purchaseEval = evaluateCandidate(snapshot, { id: 'purchase:6', kind: 'purchase', tileIndex: 6, price: 100, risk: 0.2 }, { difficulty: 'table', seed: 'same' });
 assert.equal(purchaseEval.liquidity, 400);

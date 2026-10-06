@@ -3,6 +3,7 @@
 // timed close. gameLogic.js assigns this object onto GameState.prototype and
 // re-exports AUCTION_DURATION_MS for server.js; server/gameLogic.test.js pins
 // every rejection string and precedence.
+import { auctionWillingness } from './botAuctionPolicy.js';
 
 const AUCTION_DURATION_MS = 5000;
 const AUCTION_BID_COOLDOWN_MS = 300;
@@ -69,7 +70,14 @@ const auctionApi = {
   auctionBidValueRejection(player, amount, now) {
     const timing = this.auctionTimingRejection(player, now);
     if (timing) return timing;
-    return this.auctionPriceRejection(player, amount);
+    const price = this.auctionPriceRejection(player, amount);
+    if (price) return price;
+    if (!player.isBot) return null;
+    const ceiling = auctionWillingness(this.auction, player, this);
+    if (!Number.isFinite(ceiling) || amount > ceiling) {
+      return { success: false, error: 'The bot bid exceeds its auction valuation.' };
+    }
+    return null;
   },
 
   auctionTimingRejection(player, now) {

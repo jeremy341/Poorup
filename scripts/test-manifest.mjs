@@ -7,7 +7,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/gameLogic.test.js', 'server/applyCard.test.js', 'server/rent.test.js', 'server/persistence.test.js',
     'server/leaderboard.test.js', 'server/game-results.test.js', 'server/property-actions.test.js',
     'server/contracts-market.test.js', 'server/sponsorship.test.js', 'server/double-go.test.js',
-    'server/botLogic.test.js', 'server/botTradeValuation.test.js', 'server/botAdvisor.test.js',
+    'server/botLogic.test.js', 'server/botTradeValuation.test.js', 'server/botMarketForecast.test.js', 'server/botAdvisor.test.js',
     'server/aiProviderConfig.test.js', 'server/aiProviderRoutes.test.js', 'server/bot-brain.test.js',
     'server/botStrategicContext.test.js', 'server/botFuturePlanner.test.js', 'server/botDevelopmentForecast.test.js',
     'server/botTableBrain.test.js', 'server/botTableMind.test.js', 'server/bot-simulation.test.js',

@@ -26,7 +26,6 @@ async function assertZeroCashPostRollBotsResolve() {
   const bot = room.game.players.find(player => player.isBot);
   bot.cash = 0;
   bot.properties = [];
-  bot.personality = 'builder';
   room.game.currentPlayerId = bot.id;
   room.game.hasRolled = true;
   room.game.awaitingEndTurn = true;

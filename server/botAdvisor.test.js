@@ -2,6 +2,7 @@
 // must return a deterministic decision without delaying the room.
 import assert from 'node:assert/strict';
 import { createBotAdvisor, AiAdvisor, DeepSeekAdvisor, DeterministicAdvisor, shortlistAdvisorCandidates } from './botAdvisor.js';
+import { BOT_CONTEXT_VERSION } from './botStrategicContext.js';
 
 const candidates = [
   { id: 'roll', kind: 'roll', score: 0, risk: 0 },
@@ -20,6 +21,42 @@ const localDecision = await deterministic.chooseAction({ candidates, personality
 assert.equal(localDecision.provider, 'deterministic');
 assert.equal(localDecision.fallback, true);
 assert.equal(localDecision.actionId, 'build:1');
+const unsupportedCannotWin = await deterministic.chooseAction({
+  contextVersion: BOT_CONTEXT_VERSION,
+  botBrain: 'no-ai',
+  botDifficulty: 'table',
+  gameId: 'unsupported-candidate',
+  decisionSequence: 1,
+  board: [{ index: 0, type: 'other', ownerSeat: 'bank', price: 0, rent: 0, houseCount: 0, mortgaged: false }],
+  botState: { position: 0, cash: 500, properties: [], marketPositions: {}, contracts: [], casino: { net: 0 } },
+  rulesDigest: { cards: {}, globalEvents: { activeEffects: {} }, purchaseReserve: 120 },
+  candidates: [
+    { id: 'unsupported-high-static-score', kind: 'unknown-action', score: 10_000 },
+    { id: 'roll', kind: 'roll', score: 0 }
+  ]
+});
+assert.equal(unsupportedCannotWin.actionId, 'roll', 'an unsupported action cannot beat a projected legal pass on a static score');
+
+const intentAdvisor = new AiAdvisor({ apiKey: 'test-key', fetchImpl: async () => ({ ok: false, status: 500 }) });
+const bidIntent = [{
+  actionId: 'act-01',
+  kind: 'auction-bid',
+  parameterRanges: { amount: { type: 'integer', minimum: 120, maximum: 950 } }
+}];
+const advisorPayload = value => ({ choices: [{ message: { content: JSON.stringify(value) } }] });
+assert.deepEqual(intentAdvisor.parseAdvisorPayload(advisorPayload({
+  actionId: 'act-01', parameters: { amount: 740 }, confidence: 0.8
+}), bidIntent, 'chat'), {
+  actionId: 'act-01', parameters: { amount: 740 }, confidence: 0.8, reasonCode: 'advisor', fallback: false
+});
+assert.equal(intentAdvisor.parseAdvisorPayload(advisorPayload({ actionId: 'act-01', confidence: 0.8 }), bidIntent, 'chat'), null,
+  'an intent with a required amount cannot be accepted without its parameter');
+for (const parameters of [{ amount: 740.5 }, { amount: 951 }, { amount: 119 }, { amount: 740, cash: 1 }]) {
+  assert.equal(intentAdvisor.parseAdvisorPayload(advisorPayload({ actionId: 'act-01', parameters, confidence: 0.8 }), bidIntent, 'chat'), null,
+    `invalid advisor parameters are rejected: ${JSON.stringify(parameters)}`);
+}
+assert.equal(intentAdvisor.parseAdvisorPayload(advisorPayload({ actionId: 'act-99', confidence: 0.8 }), bidIntent, 'chat'), null,
+  'unknown action tokens are rejected');
 
 let calls = 0;
 let requestBody = null;
@@ -39,7 +76,7 @@ const aiDecision = await ai.chooseAction({
   botId: 'private-seat-id',
   phase: 'pre-roll',
   roundNumber: 4,
-  contextVersion: 'bot-context-v2',
+  contextVersion: BOT_CONTEXT_VERSION,
   botState: { cash: 1000, propertyCount: 2, bankLoanStatus: null },
   opponentSummaries: [{ seat: 'player', cashBand: 'steady', propertyCount: 1 }],
   turn: { currentSeat: 'self', hasRolled: false },
@@ -47,6 +84,8 @@ const aiDecision = await ai.chooseAction({
   obligations: { payment: null },
   rulesDigest: { version: 'bot-policy-v2', boardSize: 40 },
   activeEvent: null,
+  marketQuotes: { brazil: 120 },
+  marketQuoteHistory: [{ round: 4, eventId: null, quotes: { brazil: 100 } }, { round: 5, eventId: 'market-rally', quotes: { brazil: 120 } }],
   decisionSequence: 1,
   ruleVersion: 'bot-policy-v1'
 });
@@ -59,10 +98,20 @@ const promptContext = JSON.parse(requestBody.messages[1].content);
 assert.equal(promptContext.phase, 'pre-roll');
 assert.equal(promptContext.roundNumber, 4);
 assert.equal(promptContext.botState.cash, 1000);
-assert.equal(promptContext.contextVersion, 'bot-context-v3');
+assert.equal(promptContext.contextVersion, 'bot-context-v4');
 assert.equal(promptContext.rulesDigest.boardSize, 40);
+assert.equal(promptContext.marketQuotes.brazil, 120);
+assert.equal(promptContext.marketQuoteHistory.length, 2);
+assert.equal(promptContext.marketQuoteHistory[1].event, 'market-rally');
 assert.equal(promptContext.turn.currentSeat, 'self');
 assert.equal(promptContext.planningHorizon, 1);
+assert.equal('personality' in promptContext, false, 'the advisor receives no behavioral personality field');
+const intentPrompt = JSON.parse(intentAdvisor.advisorUserPrompt({
+  phase: 'auction',
+  botDifficulty: 'expert',
+  candidates: [{ id: 'auction:bid', kind: 'auction-bid', amount: 120, parameterRanges: { amount: { type: 'integer', minimum: 120, maximum: 950 } } }]
+}));
+assert.deepEqual(intentPrompt.candidates[0].parameterRanges.amount, { type: 'integer', minimum: 120, maximum: 950 });
 assert.match(promptContext.candidates[0].actionId, /^act-\d{2}$/);
 assert.equal(promptContext.candidateCoverage.totalCount, 2);
 assert.equal(promptContext.candidateCoverage.omittedCount, 0);
@@ -382,11 +431,11 @@ assert.equal(responsesDecision.provider, 'ai');
 assert.equal(responsesDecision.actionId, 'roll');
 assert.ok(Array.isArray(responsesBody.input));
 assert.equal(responsesBody.text.format.type, 'json_object');
-const structuredPromptFields = '{"actionId":"...","confidence":0-1,"reasonCode":"..."}';
 const chatSystemPrompt = ai.advisorRequestPayload({ candidates }).messages[0].content;
 const responsesSystemPrompt = responsesProvider.responsesRequestPayload({ candidates }).input[0].content[0].text;
 for (const [protocol, systemPrompt] of [['chat', chatSystemPrompt], ['responses', responsesSystemPrompt]]) {
-  assert.ok(systemPrompt.includes(structuredPromptFields), `${protocol} protocol requests the three structured decision fields`);
+  assert.ok(systemPrompt.includes('actionId') && systemPrompt.includes('confidence') && systemPrompt.includes('reasonCode'), `${protocol} protocol requests the structured decision fields`);
+  assert.ok(systemPrompt.includes('parameterRanges'), `${protocol} protocol restricts optional parameters to declared bounds`);
   assert.equal(/reasoning/i.test(systemPrompt), false, `${protocol} protocol does not request free-form reasoning`);
 }
 const noAiCapabilities = new DeterministicAdvisor();
@@ -460,7 +509,7 @@ const expertContext = {
   rulesDigest: { purchaseReserve: 120, doubleRent: false, globalEvents: { activeEffects: {} } }
 };
 const expertPrompt = JSON.parse(aiCapabilities.advisorUserPrompt(expertContext));
-assert.equal(expertPrompt.candidates[0].rolloutBudget, 16);
+assert.equal(expertPrompt.candidates[0].rolloutBudget, 64);
 assert.equal(expertPrompt.candidates[0].projectionStatus, 'projected');
 assert.equal(expertPrompt.candidates[0].policyVersion, 'no-ai-outcome-v1');
 assert.equal(expertPrompt.candidates[0].estimatedNetWorthDelta, 0);
@@ -472,5 +521,5 @@ const expertDecision = await noiseProbe.chooseAction({
   gameId: 'bounded-scenario-context',
   decisionSequence: 1
 });
-assert.equal(expertDecision.rolloutBudget, 16);
+assert.equal(expertDecision.rolloutBudget, 64);
 console.log('bot advisor modes and fallback: phase capability and projection tests passed');

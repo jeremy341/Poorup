@@ -86,6 +86,9 @@ check("rejected host settings visibly roll back the optimistic client state", ()
 check("bot brain exposes only AI/no-AI and a global exhausted notice", () => {
   assert.match(lobby, /botBrainControl/);
   assert.doesNotMatch(lobby, /AUTO · AI/);
+  assert.doesNotMatch(lobby, /Bot Personality|botPersonality|personality/);
+  assert.doesNotMatch(state, /botPersonality/);
+  assert.doesNotMatch(main, /botPersonality|p\.personality/);
   assert.match(index, /id="bot-provider-banner"[^>]*role="alert"/);
   assert.match(state, /botProviderStatus/);
   assert.match(styles, /\.bot-provider-banner/);

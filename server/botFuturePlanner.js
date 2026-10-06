@@ -3,6 +3,7 @@
 // a live GameState. It is deliberately small: a deterministic horizon is a
 // better first step than an unbounded tree in a real-time table.
 import { MARKET_FEE_RATE } from './marketLogic.js';
+import { forecastMarketOrder } from './botMarketForecast.js';
 import { bestGainGroup, forecastMaxHit } from './botDevelopmentForecast.js';
 import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
 
@@ -72,6 +73,7 @@ function stateClone(snapshot) {
     properties: (bot.properties || []).map(tile => ({ ...tile })),
     board: boardClone(snapshot),
     marketPositions: JSON.parse(JSON.stringify(bot.marketPositions || {})),
+    marketQuotes: { ...(snapshot.marketQuotes || {}) },
     marketExpansion: JSON.parse(JSON.stringify(bot.marketExpansion || {})),
     shortDefaultDebt: nonNegative(bot.marketExpansion?.shortDefaultDebt),
     bankLoan: bot.bankLoan ? { ...bot.bankLoan } : null,
@@ -987,10 +989,38 @@ function bankDebtNetWorth(state) {
 
 function estimatedNetWorth(state) {
   const deedValue = state.board.reduce((sum, tile) => sum + deedNetWorth(tile), 0);
+  const marketValue = Object.entries(state.marketPositions || {}).reduce((sum, [instrumentId, position]) => {
+    const quantity = nonNegative(position?.quantity);
+    const quote = Number(state.marketQuotes?.[instrumentId]);
+    const averageCost = Number(position?.averageCost);
+    const mark = Number.isFinite(quote) && quote > 0
+      ? quote
+      : Number.isFinite(averageCost) && averageCost > 0 ? averageCost : 0;
+    return sum + quantity * mark;
+  }, 0);
   const contractValue = state.contracts.reduce((sum, contract) => sum + contractNetWorth(contract), 0);
   const expansionDebt = nonNegative(state.marketExpansion?.margin?.balance);
   const shortDebt = nonNegative(state.shortDefaultDebt);
-  return state.cash + deedValue + contractValue + bankDebtNetWorth(state) - expansionDebt - shortDebt;
+  return state.cash + deedValue + marketValue + contractValue + bankDebtNetWorth(state) - expansionDebt - shortDebt;
+}
+
+function marketDecisionEdge(snapshot, candidate) {
+  if (candidate?.kind !== 'market') return 0;
+  const forecast = forecastMarketOrder({
+    instrumentId: candidate.instrumentId,
+    quote: snapshot.marketQuotes?.[candidate.instrumentId],
+    quantity: candidate.quantity || 1,
+    side: candidate.side,
+    history: snapshot.marketQuoteHistory,
+    marketVolatility: snapshot.rulesDigest?.globalEvents?.activeEffects?.marketVolatility,
+    activeEventId: snapshot.activeEvent?.phase === 'active' ? snapshot.activeEvent.id : null,
+    activeEventStartedRound: snapshot.activeEvent?.startedRound,
+    eventPriceMultiplier: snapshot.rulesDigest?.globalEvents?.activeEffects?.marketPriceMultiplier
+  });
+  if (!forecast.supported) return 0;
+  // applyMarketCandidate already prices the fee through cash. Only add the
+  // risk-adjusted price movement here so fees are counted exactly once.
+  return forecast.expectedPnl + forecast.fee;
 }
 
 function eventHedgeValue(snapshot, state) {
@@ -1034,6 +1064,7 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
   expectedLandingValue(snapshot, state, horizon, { seed, candidateId: candidate?.id, rolloutBudget: safeRolloutBudget });
   const afterGroups = completeGroupCount(snapshot, state);
   const estimatedNetWorthDelta = estimatedNetWorth(state) - beforeNetWorth;
+  const expectedMarketEdge = marketDecisionEdge(snapshot, candidate);
   // Concentration bonus (bounded +8): develop the single highest-gain
   // group first instead of spreading houses. Needs no cost data; the
   // candidate's own cost gate still applies downstream.
@@ -1064,6 +1095,7 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
     + eventHedgeValue(snapshot, state) * weights.eventExposure
     + debtRisk(state) * weights.debtRisk
     + opportunityCost * weights.opportunityCost
+    + expectedMarketEdge
     + 0;
   return {
     score: strategic,
@@ -1074,6 +1106,7 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
     expectedRisk: state.expectedRisk,
     expectedCardDelta: state.expectedCardDelta,
     expectedCashFlow: state.expectedCashFlow,
+    expectedMarketEdge,
     profileAdjustment: 0,
     liquidity: state.cash,
     completeGroups: afterGroups,

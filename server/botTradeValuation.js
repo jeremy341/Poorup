@@ -86,6 +86,20 @@ export function progressCredit(game, group, before, after) {
   return Math.floor(groupValue * (cappedAfter * cappedAfter - cappedBefore * cappedBefore) / (total * total));
 }
 
+export function portfolioDeedValue(game, playerId, propertyIndexes) {
+  if (!game || !playerId || !Array.isArray(propertyIndexes)) return 0;
+  const owned = new Set(propertyIndexes.map(Number).filter(Number.isInteger));
+  const properties = [...owned].map(index => typeof game.getTile === 'function' ? game.getTile(index) : null).filter(Boolean);
+  let value = properties.reduce((sum, tile) => sum + deedValue(game, tile), 0);
+  const groups = [...new Set((game.tiles || []).map(tile => tile?.group).filter(Boolean))];
+  for (const group of groups) {
+    const tiles = groupTiles(game, group);
+    const count = tiles.filter(tile => owned.has(tile.index)).length;
+    if (count) value += progressCredit(game, group, 0, count);
+  }
+  return value;
+}
+
 // Cheapest house cost for a group (build-readiness threshold = 1 house).
 export function cheapestHouseCost(game, group) {
   const tiles = groupTiles(game, group);

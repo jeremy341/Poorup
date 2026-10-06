@@ -3,11 +3,22 @@ import {
   boardVariantMeta,
   createRulesetDigest,
   effectiveSettingsFor,
+  KNOWN_OVERRIDE_KEYS,
   normalizeOverrides,
   resolveRuleset,
   safeBoardVariant
 } from './rulesetRegistry.js';
 import { RoomManager } from './gameLogic.js';
+
+assert.equal(KNOWN_OVERRIDE_KEYS.has('botPersonality'), false, 'personality is not a ruleset override');
+const personalityFreeRules = resolveRuleset({
+  rulesetPreset: 'custom',
+  rulesetBase: 'after-hours',
+  rulesetOverrides: [{ key: 'botPersonality', value: 'chaos' }, { key: 'market', value: false }],
+  settings: { botPersonality: 'chaos' }
+});
+assert.equal('botPersonality' in personalityFreeRules.effectiveSettings, false);
+assert.deepEqual(personalityFreeRules.rulesetOverrides, [{ key: 'market', value: false }]);
 
 const legacy = { maxPlayers: 4, bots: 0, bankLoans: true, casino: true, market: true, globalEvents: true };
 const classic = resolveRuleset({ rulesetPreset: 'classic', boardVariant: 'standard-40', settings: legacy });

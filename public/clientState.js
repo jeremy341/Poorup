@@ -281,7 +281,6 @@ const state = {
     hotelLimit:      12,      // hotel bank 6 / 12 (unlimited)
     bankruptMode:    "elim",  // legacy snapshot key; bankruptcy always eliminates/spectates
     bots:            0,        // reserved CPU seats; bot turns are added separately
-    botPersonality: "survivor",
     botBrain:        "ai",    // "ai" | "no-ai" (legacy "auto" normalizes to "ai")
     botDifficulty:   "table", // "house" | "table" | "expert"
     bankLoans:       true,
