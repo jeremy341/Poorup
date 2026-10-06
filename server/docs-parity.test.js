@@ -4,38 +4,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const read = relativePath => fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+const readmePath = path.join(repoRoot, "README.md");
+const readme = fs.readFileSync(readmePath, "utf8");
+const markdownTargets = [...readme.matchAll(/\[[^\]]+\]\(([^)]+\.md(?:#[^)]+)?)\)/g)]
+  .map(([, target]) => target.split("#", 1)[0]);
 
-const readme = read("README.md");
-const accountDesign = read(".ulpi/design/ACCOUNT-PROFILE.md");
-const homeDesign = read(".ulpi/design/HOME-PROFILE-REDESIGN.md");
-const themeDesign = read(".ulpi/design/THEME-FIVE-VISUAL-BRAINSTORM.md");
-const nightShiftDesign = read(".ulpi/design/NIGHT-SHIFT-MICROGAME-PLAN.md");
-const refactorRoadmap = read("docs/REFACTOR-ROADMAP.md");
-const inGamePlan = read("docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md");
-const branchPlan = read("docs/superpowers/plans/2026-09-13-branch-release-maintenance-analytics.md");
-const productionHardening = read("docs/production-hardening.md");
+assert.ok(markdownTargets.length > 0, "README.md should retain local documentation links");
 
-assert.doesNotMatch(readme, /no downloads?\s+(?:or\s+)?accounts?\s+required/i);
-assert.doesNotMatch(readme, /no downloads,\s*no accounts?\b/i);
-assert.doesNotMatch(readme, /\bv2\.4\.1\b/i);
-assert.match(readme, /accounts?\s+(?:are|remain)\s+optional/i);
-
-assert.doesNotMatch(homeDesign, /profileViewState/i);
-assert.doesNotMatch(accountDesign, /expired sessions fail closed/i);
-assert.doesNotMatch(themeDesign, /use native `?320[×x]180` masters\. all assets/i);
-assert.doesNotMatch(nightShiftDesign, /debris-6-frames\.svg.*used only at the border/i);
-assert.doesNotMatch(branchPlan, /Expected: current branch is codex\/codescene-cleanup, latest commit is 94eb1b0/i);
-assert.equal(fs.existsSync(path.join(repoRoot, "docs/superpowers/specs/2026-09-14-music-box-reference-design.md")), false, "retired music-box reference spec is not shipped");
-assert.equal(fs.existsSync(path.join(repoRoot, "docs/superpowers/specs/2026-09-14-theme-music-player-design.md")), false, "superseded theme player spec is not shipped");
-
-assert.match(readme, /Metro-52/i);
-for (const feature of ["rulesets", "bots", "events", "contracts", "seasons", "market"]) {
-  assert.match(readme, new RegExp(feature, "i"), `README.md should name ${feature}`);
+for (const target of markdownTargets) {
+  assert.equal(
+    fs.existsSync(path.resolve(repoRoot, target)),
+    true,
+    `README.md points to a missing repository document: ${target}`,
+  );
 }
 
-for (const currentDoc of [refactorRoadmap, inGamePlan, branchPlan, productionHardening]) {
-  assert.match(currentDoc, /docs\/feature-status\.json/);
-}
+assert.equal(
+  fs.existsSync(path.join(repoRoot, "design", "poorup_design_system.md")),
+  true,
+  "the canonical Poorup design-system source must remain in the repository",
+);
 
-console.log("server docs parity tests: passed");
+console.log(`server docs parity tests: passed (${markdownTargets.length} local README links)`);

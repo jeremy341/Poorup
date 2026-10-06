@@ -1571,9 +1571,13 @@ button[id$="-close"],
 .home-patrol-score { right: clamp(32px, 5vw, 88px); text-align: right; }
 .home-patrol-hint {
   position: absolute; top: calc(5% + 52px); right: clamp(32px, 5vw, 88px); z-index: 3; text-align: right;
+  display: inline-flex; align-items: center; justify-content: flex-end; min-height: 44px; padding: 4px 8px;
+  border: 1px solid rgb(196 151 74 / 42%); border-radius: 3px; background: rgb(16 20 22 / 82%);
   font-family: var(--font-numeric); font-size: clamp(10px, 1vw, 13px); letter-spacing: 0.06em;
-  color: var(--gold-muted); text-shadow: 0 2px 0 rgb(0 0 0 / 55%); pointer-events: none;
+  color: var(--gold-muted); text-shadow: 0 2px 0 rgb(0 0 0 / 55%); pointer-events: auto; cursor: pointer; touch-action: manipulation;
 }
+.home-patrol-hint:hover { color: var(--gold-050); border-color: var(--gold-muted); }
+.home-patrol-hint:focus-visible { outline: 2px solid var(--gold-050); outline-offset: 3px; }
 .home-helicopter {
   position: absolute; top: 18%; left: -160px; z-index: 4;
   display: block; width: 128px; height: 64px; padding: 0;
@@ -3809,7 +3813,7 @@ button[id$="-close"],
     grid-template-areas: "time score" "hint hint";
     align-items: center;
     gap: 6px 16px;
-    min-height: 78px;
+    min-height: 110px;
     padding: 12px 16px 8px;
     overflow: visible;
   }
@@ -3828,7 +3832,7 @@ button[id$="-close"],
     grid-template-areas: "time score" "hint hint";
     align-items: center;
     gap: 6px 16px;
-    min-height: 78px;
+    min-height: 110px;
     padding: 12px 16px 8px;
     overflow: visible;
   }

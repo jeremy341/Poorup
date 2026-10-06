@@ -217,12 +217,9 @@ baseline entry falls back to an estimate rather than failing.
   `POORUP_SUITE_TIMEOUT_MS`), so a hung suite fails in minutes instead of
   eating the 25-minute shard budget.
 
-Account-rights changes use the Profile-only contract in
-`docs/decisions/account-rights-and-auth-2026-09-17.md`. A deletion request is
-never a one-click purge: it requires password plus `DELETE ACCOUNT`, blocks
-seated players, enters a 30-day restricted state, and is finalized only by the
-bounded retention job. Mail, canonical origin, cookie, backup, and operator
-facts stay deployment configuration; do not invent them in code or docs.
+Account export, deletion, and recovery behavior must be described from the
+current implementation and deployment configuration. Keep provider secrets,
+canonical origins, backup paths, and operator identities out of source code.
 
 ## Contributor checklist (per PR)
 

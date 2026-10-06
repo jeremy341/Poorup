@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "151b480",
-  "generatedAt": "2026-09-14T00:00:00.000Z",
+  "sourceCommit": "2eaf78882d36a753e8f23babaedeb0ecda6ac6f7",
+  "generatedAt": "2026-10-05T18:29:26.000Z",
   "statusValues": ["active", "complete", "planned", "reference", "deferred"],
   "purpose": "Canonical release-status evidence for current product surfaces. Policy-gated records are not claims that the gated policy or copy is approved.",
   "features": [
@@ -111,31 +111,19 @@
       "id": "wallet-items",
       "status": "planned",
       "ownerSurface": "Wallet and Items projections and mutation policy",
-      "evidence": ["public/clientWalletUi.js", ".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
-    },
-    {
-      "id": "airport-travel",
-      "status": "planned",
-      "ownerSurface": "future airport travel system",
-      "evidence": [".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
+      "evidence": ["public/clientWalletUi.js"]
     },
     {
       "id": "predictions",
       "status": "planned",
       "ownerSurface": "future prediction system and pricing policy",
-      "evidence": [".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
+      "evidence": ["public/clientRailRender.js"]
     },
     {
       "id": "bank-account-upgrades",
       "status": "planned",
       "ownerSurface": "future bank-account mutation and persistence policy",
-      "evidence": [".ulpi/design/NEW-GAME-SYSTEMS-PLAN.md", "docs/plans/IN-GAME-UX-IMPLEMENTATION-PLAN.md"]
-    },
-    {
-      "id": "historical-audits",
-      "status": "reference",
-      "ownerSurface": "dated audit and release evidence",
-      "evidence": ["server/docsFeatureStatus.test.js", "server/docs-parity.test.js"]
+      "evidence": ["public/clientWalletUi.js"]
     }
   ]
 }
