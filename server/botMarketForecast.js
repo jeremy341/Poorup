@@ -46,13 +46,27 @@ function volatilityOf(returns) {
   return Math.sqrt(variance);
 }
 
+function eventWasApplied(history, activeEventId, startRound) {
+  return (Array.isArray(history) ? history : []).some(point => {
+    if (point?.eventId !== activeEventId) return false;
+    if (!Number.isFinite(startRound)) return true;
+    return Number(point?.round) >= startRound;
+  });
+}
+
 function pendingEventMove(history, activeEventId, activeEventStartedRound, eventPriceMultiplier) {
   const multiplier = Number(eventPriceMultiplier);
-  if (typeof activeEventId !== 'string' || !Number.isFinite(multiplier) || multiplier <= 0 || multiplier === 1) return 0;
+  if (typeof activeEventId !== 'string') return 0;
+  if (!Number.isFinite(multiplier)) return 0;
+  if (multiplier <= 0) return 0;
+  if (multiplier === 1) return 0;
   const startRound = Number(activeEventStartedRound);
-  const applied = (Array.isArray(history) ? history : []).some(point => point?.eventId === activeEventId
-    && (!Number.isFinite(startRound) || Number(point?.round) >= startRound));
-  return applied ? 0 : multiplier - 1;
+  if (eventWasApplied(history, activeEventId, startRound)) return 0;
+  return multiplier - 1;
+}
+
+function unsupportedForecast() {
+  return { supported: false, expectedPnl: null, fee: null, expectedMovePercent: null, volatilityPercent: null };
 }
 
 export function forecastMarketOrder({
@@ -69,9 +83,10 @@ export function forecastMarketOrder({
 } = {}) {
   const quote = positiveInteger(rawQuote);
   const quantity = positiveInteger(rawQuantity);
-  if (!instrumentId || !quote || !quantity || !['buy', 'sell'].includes(side)) {
-    return { supported: false, expectedPnl: null, fee: null, expectedMovePercent: null, volatilityPercent: null };
-  }
+  if (!instrumentId) return unsupportedForecast();
+  if (!quote) return unsupportedForecast();
+  if (!quantity) return unsupportedForecast();
+  if (side !== 'buy' && side !== 'sell') return unsupportedForecast();
 
   const series = quoteSeries(history, instrumentId, quote);
   const returns = returnsFor(series);

@@ -15,6 +15,35 @@ function completesSet(tiles, owned) {
   return owned + 1 >= tiles.length && owned < tiles.length;
 }
 
+function buildEffects(game) {
+  if (typeof game?.activeEventEffects !== 'function') return {};
+  return game.activeEventEffects();
+}
+
+function constructionUnavailable(effects) {
+  if (effects.constructionBlocked) return true;
+  return effects.rentMultiplier === 0;
+}
+
+function completionBuildPlan(game, tiles, auctionTile, bot) {
+  const board = tiles.map(tile => ({
+    ...tile,
+    ownerSeat: tile.ownerId === bot?.id || tile.index === auctionTile.index ? 'self' : 'bank'
+  }));
+  return groupBuildPlan(board, auctionTile.group, tile => game.getPropertyHouseCost(tile));
+}
+
+function projectedCompletionRent(game, plan, effects) {
+  const rounds = Math.max(1, Math.min(4, 5 - Math.floor(Number(game.roundNumber || 0) / 10)));
+  const effectMultiplier = Number(effects.rentMultiplier);
+  const rentMultiplier = Number.isFinite(effectMultiplier) ? Math.max(0, effectMultiplier) : 1;
+  return Math.floor(plan.gainPerCircuit * rounds * rentMultiplier);
+}
+
+function developmentAffordability(bot, plan) {
+  return Math.min(1, Math.max(0, Number(bot?.cash || 0) / Math.max(1, plan.cost)));
+}
+
 export function auctionWillingness(auction, bot, game) {
   const tile = auction?.propertyTile;
   const value = Number(tile?.price);
@@ -31,17 +60,11 @@ export function auctionWillingness(auction, bot, game) {
 
 function completionUpside(game, tiles, auctionTile, bot) {
   if (typeof game?.getPropertyHouseCost !== 'function') return 0;
-  const effects = typeof game.activeEventEffects === 'function' ? game.activeEventEffects() : {};
-  if (effects.constructionBlocked || effects.rentMultiplier === 0) return 0;
-  const board = tiles.map(tile => ({
-    ...tile,
-    ownerSeat: tile.ownerId === bot?.id || tile.index === auctionTile.index ? 'self' : 'bank'
-  }));
-  const plan = groupBuildPlan(board, auctionTile.group, tile => game.getPropertyHouseCost(tile));
+  const effects = buildEffects(game);
+  if (constructionUnavailable(effects)) return 0;
+  const plan = completionBuildPlan(game, tiles, auctionTile, bot);
   if (!plan) return 0;
-  const rounds = Math.max(1, Math.min(4, 5 - Math.floor(Number(game.roundNumber || 0) / 10)));
-  const rentMultiplier = Number.isFinite(Number(effects.rentMultiplier)) ? Math.max(0, Number(effects.rentMultiplier)) : 1;
-  const projectedRent = Math.floor(plan.gainPerCircuit * rounds * rentMultiplier);
-  const affordability = Math.min(1, Math.max(0, Number(bot?.cash || 0) / Math.max(1, plan.cost)));
+  const projectedRent = projectedCompletionRent(game, plan, effects);
+  const affordability = developmentAffordability(bot, plan);
   return Math.floor(Math.max(0, projectedRent - plan.cost) * affordability);
 }
