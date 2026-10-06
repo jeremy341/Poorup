@@ -275,11 +275,12 @@ function createSocialApi(deps) {
     return elapsed <= PATROL_RUN_MAX_MS + 30 * 1000;
   }
 
-  function patrolAchievementCandidates(account, score, misses, result) {
+  function patrolAchievementCandidates(account, score, result) {
     const candidates = [];
     if (score >= 10) candidates.push({ accountId: account.id, achievementId: 'patrol-rookie', title: 'PATROL ROOKIE', rarity: 'COMMON', body: 'You scored 10 in Parlor Patrol.' });
     if (score >= 50) candidates.push({ accountId: account.id, achievementId: 'patrol-regular', title: 'PATROL REGULAR', rarity: 'UNCOMMON', body: 'You scored 50 in Parlor Patrol.' });
-    if (score > 0 && misses === 0) candidates.push({ accountId: account.id, achievementId: 'clean-run', title: 'CLEAN RUN', rarity: 'EPIC', body: 'You finished a patrol run without missing a hostile target.' });
+    // Patrol misses are client-reported; without server-side target outcomes,
+    // they cannot verify a clean-run achievement.
     if (result.aceRuns >= 3) candidates.push({ accountId: account.id, achievementId: 'patrol-ace', title: 'PATROL ACE', rarity: 'RARE', body: 'You beat your saved personal best three times.' });
     return candidates;
   }

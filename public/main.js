@@ -1134,6 +1134,7 @@ function bindDrawerAndBoardModes() {
 
 function bindAmbientExits() {
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
+  $("#home-night-shift-start")?.addEventListener("click", startNightShift);
   $("#night-exit")?.addEventListener("click", stopNightShift);
 }
 

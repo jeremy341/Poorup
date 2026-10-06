@@ -1,5 +1,4 @@
-// Regression suite for B-18 (docs/research/ECONOMY-AUDIT-2026-10-01.md):
-// equity rent income scored as zero.
+// Regression suite for B-18: equity rent income scored as zero.
 //
 // settleEquityPayout booked the holder's payout as raw cash and on the
 // per-contract ledger, so a part-sold deed never reached the player-level rent
