@@ -76,11 +76,11 @@ async function captureView(page, viewportName, viewName) {
   return { file, geometry };
 }
 
-async function createRollScenario(browser) {
+async function createRollScenario(browser, reducedMotion = 'no-preference') {
   const context = await browser.newContext({
     ...devices['Desktop Chrome'],
     viewport: { width: 1920, height: 1080 },
-    reducedMotion: 'no-preference',
+    reducedMotion,
     colorScheme: 'dark',
   });
   const page = await context.newPage();
@@ -89,7 +89,7 @@ async function createRollScenario(browser) {
   await page.clock.install({ time: new Date('2026-01-01T12:00:00Z') });
   await page.clock.pauseAt(new Date('2026-01-01T12:00:00Z'));
   await page.goto(process.env.POORUP_QA_BASE_URL || 'http://127.0.0.1:8080');
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.emulateMedia({ reducedMotion });
   const setup = await page.evaluate(async () => {
     const [{ state }, { buildBoard, startPieceWalk, placePieces, tileCenter }, { applyServerState }, { renderHud }, diceEffect] = await Promise.all([
       import('/clientState.js'), import('/clientBoardRender.js'), import('/clientStateSync.js'), import('/clientHudRender.js'),
@@ -225,6 +225,33 @@ test('the pawn follows the recorded route and landing cash settles on arrival', 
   expect(beforeLanding.x).not.toBe('0px');
   expect(atLanding.x).toBe(`${Math.round(atLanding.tile.x)}px`);
   expect(pageErrors, 'the main browser modules must not throw during a recorded roll').toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test('reduced motion reconciles the pawn immediately without unlocking the server timeline', async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1920x1080', 'One deterministic integration run is enough across the viewport matrix.');
+  const { context, page, setup } = await createRollScenario(browser, 'reduce');
+  try {
+    await applyRollRecord(page, setup.roll);
+    await page.clock.runFor(1240);
+    const atSegment = await page.evaluate(() => {
+      const piece = document.querySelector('.piece[data-player="p1"]');
+      return {
+        visualPosition: window.__qaMotion.state.players[0].visualPos,
+        moving: piece.classList.contains('is-moving'),
+        busy: window.__qaMotion.state.presentationBusy,
+        rollDisabled: document.querySelector('#roll-btn').disabled,
+      };
+    });
+    expect(atSegment.visualPosition).toBe(4);
+    expect(atSegment.moving).toBe(false);
+    expect(atSegment.busy).toBe(true);
+    expect(atSegment.rollDisabled).toBe(true);
+
+    await page.clock.runFor(1400);
+    expect(await page.evaluate(() => window.__qaMotion.state.presentationBusy)).toBe(false);
   } finally {
     await context.close();
   }

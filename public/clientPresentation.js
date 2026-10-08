@@ -66,7 +66,12 @@ export function createPresentationQueue({ now = Date.now, setTimer = setTimeout,
     if (!await waitForCurrent(record.startedAt + segment.offsetMs, revision)) return false;
     const segmentEndsAt = record.startedAt + segment.offsetMs + segment.durationMs;
     if (now() < segmentEndsAt) {
-      try { await animateSegment(segment, record); } catch { /* Reconcile the authoritative destination if a visual walk fails. */ }
+      let animationResult;
+      try { animationResult = await animateSegment(segment, record); } catch { /* Reconcile the authoritative destination if a visual walk fails. */ }
+      if (animationResult?.motionSkipped) {
+        positions.set(record.actorId, segment.to);
+        notify();
+      }
     }
     if (!await waitForCurrent(segmentEndsAt, revision)) return false;
     positions.set(record.actorId, segment.to);

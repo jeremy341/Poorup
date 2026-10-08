@@ -382,11 +382,11 @@ function canAnimateWalk(el, path) {
 export function startPieceWalk(playerId, from, to, options = {}) {
   const path = Array.isArray(options.path) ? options.path : pieceWalkPath(Number(from) || 0, Number(to) || 0);
   const el = pieceElement(playerId);
-  if (!canAnimateWalk(el, path)) return Promise.resolve();
+  if (!canAnimateWalk(el, path)) return Promise.resolve({ motionSkipped: true });
   cancelPieceWalk(playerId);
   const player = state.players.find((entry) => entry.id === playerId);
   const start = playerTileCenter(player, Number(from) || 0);
-  if (!start) return Promise.resolve();
+  if (!start) return Promise.resolve({ motionSkipped: true });
   const requestedStart = Number(options.startedAt);
   const startedAt = Number.isFinite(requestedStart) ? requestedStart : motionNow();
   let complete;
