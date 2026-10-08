@@ -51,7 +51,8 @@ import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
 import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
 import { appendPublicAction } from './publicActionHistory.js';
-import { withRollPresentation, recordPresentationMovement, recordPresentationCash } from './gamePresentation.js';
+import { recordPresentationCash } from './gamePresentation.js';
+import { gamePresentationApi } from './gamePresentationApi.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -676,30 +677,6 @@ class GameState {
     return { success: true };
   }
 
-  rollDice(socketId) {
-    const player = this.getPlayerBySocket(socketId);
-    const rejection = this.rollTurnRejection(player);
-    if (rejection) return rejection;
-    return withRollPresentation(this, player, () => this.resolveDiceRoll(player));
-  }
-
-  resolveDiceRoll(player) {
-    if (player.inJail) {
-      return this.handleJailRoll(player);
-    }
-    if (this.hasRolled && !this.extraRollPending) {
-      return { success: false, error: 'You have already rolled this turn.' };
-    }
-    const dice = rollDice();
-    this.setTurnDice(dice);
-    if (this.consecutiveDoubles >= 3) {
-      return this.sendRollerToJail(player);
-    }
-    const move = dice[0] + dice[1];
-    this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
-    return this.movePlayer(player, move);
-  }
-
   rollTurnRejection(player) {
     const playerId = player?.id;
     const blocker = [
@@ -905,10 +882,6 @@ class GameState {
     const tile = this.getTile(player.position);
     this.trackRailroadVisit(player, tile);
     return this.applyTile(player, tile, options);
-  }
-
-  recordPresentationMove(player, destination, options) {
-    recordPresentationMovement(this, player, destination, options);
   }
 
   resolveTurnAfterAction({ allowExtraRoll = true } = {}) {
@@ -1316,7 +1289,7 @@ class GameState {
 
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi, gamePresentationApi);
 
 export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 
