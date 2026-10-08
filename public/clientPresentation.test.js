@@ -7,12 +7,16 @@ let nextTimer = 0;
 const timers = new Map();
 const totals = [];
 const walks = [];
+let motionReduced = false;
 const queue = createPresentationQueue({
   now: () => time,
   setTimer(fn, ms) { const id = ++nextTimer; timers.set(id, { fn, at: time + ms }); return id; },
   clearTimer: id => timers.delete(id),
   announceTotal: total => totals.push(total),
-  animateSegment: segment => { walks.push(segment.path); return Promise.resolve(); },
+  animateSegment: segment => {
+    walks.push(segment.path);
+    return motionReduced ? Promise.resolve({ motionSkipped: true }) : Promise.resolve();
+  },
 });
 async function advance(to) {
   time = to;
@@ -56,5 +60,15 @@ assert.equal(queue.receive('MATCH', { ...record, id: 5, startedAt: 6000, readyAt
 queue.receive('MATCH', null, 2);
 assert.equal(queue.receive('MATCH', { ...record, id: 1, startedAt: 6000, readyAt: 8640 }, 2), true,
   'a same-room rematch accepts its first roll even when the previous game had a higher sequence');
+queue.reset();
+time = 7000;
+motionReduced = true;
+queue.receive('ROOM', null);
+assert.equal(queue.receive('ROOM', { ...record, id: 1, startedAt: 7000, readyAt: 9640 }), true);
+await advance(8240);
+assert.equal(queue.positionFor('me'), 4, 'reduced motion reconciles the pawn to the segment destination immediately');
+assert.equal(queue.busy, true, 'the server presentation deadline still keeps gameplay actions locked');
+await advance(9640);
+assert.equal(queue.busy, false, 'the queue unlocks only when the authoritative presentation deadline is reached');
 queue.reset();
 console.log('client presentation event ordering and cash staging: passed');
