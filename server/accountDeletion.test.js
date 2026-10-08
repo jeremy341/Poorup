@@ -25,6 +25,7 @@ const coordinator = createAccountDeletionCoordinator({
     { purgeAccount: id => removed.push(['matches', id]) },
     { purgeAccount: id => removed.push(['achievements', id]) },
   ],
+  retiredStore: { purgeAccount: id => removed.push(['retired', id]) },
   mailAdapter: { send: async () => ({ success: true }) },
 });
 const blocked = await coordinator.request({ accountId: 'acct-1', currentPassword: 'pw', typedPhrase: 'DELETE ACCOUNT', requestId: 'r1', activeRoom: true });

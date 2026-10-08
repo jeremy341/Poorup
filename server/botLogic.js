@@ -345,7 +345,7 @@ function auctionChoiceCandidates(baseline, bot) {
     risk: baseline.minimum / Math.max(1, bot.cash),
     score: 12
   });
-  candidates.push({ id: 'auction:pass', kind: 'auction-pass', risk: 0, score: baseline.shouldBid ? 1 : 10 });
+  candidates.push({ id: 'auction:wait', kind: 'auction-wait', risk: 0, score: baseline.shouldBid ? 1 : 10 });
   return candidates;
 }
 
@@ -369,7 +369,7 @@ export async function decideBotAuction({ auction, bot, startingCash, game = null
     minimum: baseline.minimum,
     maximum: baseline.maximum,
     amount,
-    actionId: chosen?.id || (baseline.shouldBid ? 'auction:bid' : 'auction:pass'),
+    actionId: chosen?.id || (baseline.shouldBid ? 'auction:bid' : 'auction:wait'),
     decision: safeDecision,
     ...(evaluationTrace ? { evaluationTrace } : {})
   };
@@ -385,9 +385,7 @@ function advisorSupportsChoicePhase(advisor, phase) {
 }
 
 function auctionSeatActive(auction, player) {
-  return auction.participants.includes(player.id)
-    && !auction.passedPlayerIds.includes(player.id)
-    && auction.highestBidderId !== player.id;
+  return auction.participants.includes(player.id) && auction.highestBidderId !== player.id;
 }
 
 export function isAuctionBotParticipant(auction, player) {

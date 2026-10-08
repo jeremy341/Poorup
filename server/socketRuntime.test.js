@@ -36,8 +36,6 @@ const runtime = createRuntime({
   socialStore: {},
   matchStore: {},
   achievementStore: {},
-  seasonStore: {},
-  cosmeticStore: {},
   telemetryStore: null,
   botAdvisor: {},
   social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },
@@ -58,7 +56,6 @@ runtime.scheduleBotTurn(room);
 room.game.auction = {
   active: true,
   participants: [bot.id],
-  passedPlayerIds: [],
   highestBidderId: null
 };
 runtime.scheduleBotAuction(room);
@@ -67,6 +64,7 @@ assert.deepEqual(delays, [300, 450]);
 console.log('socket runtime bot scheduling: ordinary turn 300 ms, auction 450 ms');
 
 async function verifyBotMovementGate(botBrain) {
+  let currentTime = Date.now();
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: `motion-host-${botBrain}`, clientId: `motion-host-${botBrain}`, nickname: 'Host' });
   room.addOrReconnectPlayer({ socketId: `motion-guest-${botBrain}`, clientId: `motion-guest-${botBrain}`, nickname: 'Guest' });
@@ -95,10 +93,11 @@ async function verifyBotMovementGate(botBrain) {
   const runtime = createRuntime({
     io: { emit() {}, on() {}, in() { return { emit() {} }; }, to() { return { emit() {} }; }, sockets: { sockets: new Map() } },
     roomManager: manager,
-    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
     botAdvisor: { async chooseAction({ candidates }) { return { actionId: candidates[0]?.id, provider: botBrain === 'ai' ? 'ai' : 'deterministic' }; } },
     social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; }, accountForSocket() { return null; } },
     maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
+    now: () => currentTime,
     setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
     clearTimeout(timer) { if (timer) timer.cleared = true; },
     setInterval() { return { unref() {} }; },
@@ -107,13 +106,15 @@ async function verifyBotMovementGate(botBrain) {
 
   runtime.scheduleBotTurn(room);
   assert.equal(timers[0].delay, 300);
+  currentTime += timers[0].delay;
   timers[0].callback();
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
-  const movementGate = timers.find(timer => timer.delay === 1_500 && !timer.cleared);
-  assert.ok(movementGate, `${botBrain} bot waits for five animated tiles before its next decision`);
+  const movementGate = timers.find(timer => timer.delay === 2_000 && !timer.cleared);
+  assert.ok(movementGate, `${botBrain} bot waits for five animated tiles at 400 ms per tile`);
   assert.equal(room.game.currentPlayerId, bots[0].id, 'the moving bot remains the active seat while its next action is held');
 
+  currentTime += movementGate.delay;
   movementGate.callback();
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
@@ -148,7 +149,7 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
   const timedRuntime = createRuntime({
     io: { emit() {}, on() {}, in() { return { emit() {} }; }, sockets: { sockets: new Map() } },
     roomManager: timedManager,
-    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
     botAdvisor: {},
     social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },
     maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
@@ -187,7 +188,7 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
   const runtime = createRuntime({
     io: { emit() {}, on() {}, in() { return { emit() {} }; }, to() { return { emit() {} }; }, sockets: { sockets: new Map() } },
     roomManager: manager,
-    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
     botAdvisor: { supportsChoicePhases: false },
     social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; }, accountForSocket() { return null; } },
     maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
@@ -206,7 +207,6 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
     highestBid: 0,
     highestBidderId: null,
     participants: [bot.id],
-    passedPlayerIds: [],
     startedAt: Date.now(),
     endsAt: Date.now() + 5_000,
     cooldownUntil: 0,
@@ -238,7 +238,6 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
     highestBid: 0,
     highestBidderId: null,
     participants: [bot.id, human.id],
-    passedPlayerIds: [],
     startedAt: Date.now(),
     endsAt: Date.now() + 5_000,
     cooldownUntil: 0,
@@ -248,7 +247,7 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
   const runtime = createRuntime({
     io: { emit() {}, on() {}, in() { return { emit() {} }; }, to() { return { emit() {} }; }, sockets: { sockets: new Map() } },
     roomManager: manager,
-    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
     botAdvisor: {
       supportsChoicePhases: true,
       supportsChoicePhase: phase => phase === 'auction',
@@ -273,6 +272,97 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
   assert.notEqual(room.game.auction.highestBidderId, bot.id);
 }
 
+{
+  let currentTime = Date.now();
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'wait-bid-host', clientId: 'wait-bid-host', nickname: 'Host', roomCode: 'WAITBID' });
+  room.addOrReconnectPlayer({ socketId: 'wait-bid-human', clientId: 'wait-bid-human', nickname: 'Human' });
+  room.setRoomSetting('bots', 1);
+  assert.equal(room.startGame().success, true);
+  const bot = room.game.players.find(player => player.isBot);
+  const human = room.game.players.find(player => !player.isBot);
+  bot.cash = 1_500;
+  room.game.auction = {
+    active: true,
+    propertyTile: room.game.getTile(1),
+    highestBid: 0,
+    highestBidderId: null,
+    participants: [bot.id, human.id],
+    startedAt: currentTime,
+    endsAt: currentTime + 5_000,
+    cooldownUntil: 0,
+    lastBidAt: 0
+  };
+  const timers = [];
+  let decisions = 0;
+  const runtime = createRuntime({
+    io: { emit() {}, on() {}, in() { return { emit() {} }; }, to() { return { emit() {} }; }, sockets: { sockets: new Map() } },
+    roomManager: manager,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
+    botAdvisor: {
+      supportsChoicePhase: phase => phase === 'auction',
+      async chooseAction({ candidates }) {
+        decisions += 1;
+        if (decisions === 1) return { actionId: 'auction:wait', provider: 'ai', fallback: false };
+        const bid = candidates.find(candidate => candidate.id === 'auction:bid');
+        return { actionId: bid.id, parameters: { amount: bid.minimumAmount }, provider: 'ai', fallback: false };
+      }
+    },
+    social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; }, accountForSocket() { return null; } },
+    maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
+    now: () => currentTime,
+    setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
+    clearTimeout(timer) { if (timer) timer.cleared = true; },
+    setInterval() { return { unref() {} }; }, clearInterval() {}
+  });
+  async function fireAtDueTime(timer) {
+    currentTime += timer.delay;
+    const realDateNow = Date.now;
+    Date.now = () => currentTime;
+    try {
+      timer.fired = true;
+      timer.callback();
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
+    } finally {
+      Date.now = realDateNow;
+    }
+  }
+
+  runtime.scheduleBotAuction(room);
+  const firstDecision = timers.find(timer => timer.delay === 450);
+  assert.ok(firstDecision);
+  await fireAtDueTime(firstDecision);
+  assert.equal(decisions, 1);
+  assert.equal(room.game.auction.highestBidderId, null, 'wait leaves the auction untouched');
+  assert.equal(timers.filter(timer => timer.delay === 450 && !timer.cleared && !timer.fired).length, 0, 'the same bot is not re-queried for an unchanged auction');
+
+  currentTime = Date.now();
+  assert.equal(room.game.placeAuctionBid(human.socketId, 10).success, true);
+  const humanDeadline = room.game.auction.endsAt;
+  runtime.scheduleAuctionFinish(room);
+  runtime.emitRoomState(room);
+  const reconsideration = timers.filter(timer => timer.delay === 450 && !timer.cleared && !timer.fired).at(-1);
+  assert.ok(reconsideration, 'the human bid schedules a fresh bot decision');
+  const lastEvaluatedAuction = { ...room.game.auction, participants: [...room.game.auction.participants] };
+  await fireAtDueTime(reconsideration);
+  assert.equal(decisions, 2);
+  assert.equal(room.game.auction.highestBidderId, bot.id, 'the bot can reconsider and raise after initially waiting');
+  assert.ok(room.game.auction.endsAt > humanDeadline, 'the reconsidered valid bid resets the deadline');
+
+  runtime.destroyRoom(room);
+  assert.equal(manager.rooms.has(room.roomCode), false, 'destruction removes the old room');
+  const restoredRoom = {
+    roomCode: room.roomCode,
+    destroyed: false,
+    game: { players: room.game.players, auction: lastEvaluatedAuction },
+  };
+  manager.rooms.set(restoredRoom.roomCode, restoredRoom);
+  runtime.scheduleBotAuction(restoredRoom);
+  assert.ok(timers.some(timer => timer.delay === 450 && !timer.cleared && !timer.fired),
+    'a replacement room with reused auction and seat identifiers does not inherit destroyed-room evaluations');
+}
+
 console.log('socket runtime auction deadline checks: 3 passed, 0 failed');
 
 {
@@ -295,7 +385,7 @@ console.log('socket runtime auction deadline checks: 3 passed, 0 failed');
       to(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; },
       sockets: { sockets: new Map() }
     },
-    roomManager: manager, accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    roomManager: manager, accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
     botAdvisor: {}, social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },
     maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {}, now: () => currentTime,
     setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },
@@ -335,7 +425,7 @@ console.log('socket runtime auction deadline checks: 3 passed, 0 failed');
       to(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; },
       sockets: { sockets }
     },
-    roomManager: manager, accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    roomManager: manager, accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
     botAdvisor: {}, social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; }, accountForSocket() { return null; } },
     maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {}, now: () => currentTime,
     setTimeout(callback, delay) { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; },

@@ -25,9 +25,9 @@ Development-time AI assistance is separate from the bots available in-game: dete
 - **Player finance:** off-turn player-to-player trade and financing offers, loans, property-equity and hybrid contracts, collateral, default consequences, and sponsored purchases where one player can fund another player's property in return for an agreed share.
 - **Market and events:** an optional fictional-currency stock market with shared quotes, per-index price history, buy/sell orders, holdings, and personal profit/loss. Global events affect the shared market and can also change game rules; player orders change their own position, not the shared quote.
 - **Casino:** an optional fictional-currency casino mode.
-- **Profiles and progression:** completed-match history and statistics, achievements, cosmetics, seasons and rewards, friends, and rankings.
+- **Profiles and progression:** completed-match history and statistics, achievements, player designs, friends, and all-time, 30-day, and friends rankings.
 - **In-game information:** a separate Activity/Log for room and game announcements, plus inactivity monitoring and a vote-kick flow. Turns do not have a fixed time limit.
-- **Visual identity:** custom theme worlds with original Poorup SVG artwork.
+- **Visual identity:** custom player designs, theme worlds with original Poorup SVG artwork, and an optional music player.
 - **Persistence:** no database; account and match records use local JSON stores.
 
 ## Known issues

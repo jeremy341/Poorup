@@ -55,7 +55,7 @@ check('host reassignment candidates never include bots', () => {
   const runtime = createRuntime({
     io: { emit() {}, in() { return { emit() {} }; }, sockets: { sockets: new Map() } },
     roomManager: manager,
-    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: {},
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: {},
     botAdvisor: {}, social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },
     maintenance: {}, metrics: {}, authoritativeStore: {}, pubsubAdapter: {}
   });

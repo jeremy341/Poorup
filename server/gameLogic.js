@@ -51,6 +51,7 @@ import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
 import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
 import { appendPublicAction } from './publicActionHistory.js';
+import { withRollPresentation, recordPresentationMovement, recordPresentationCash } from './gamePresentation.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -264,6 +265,8 @@ class GameState {
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
     this.diceRollSequence = 0;
+    this.presentation = null;
+    this._activePresentation = null;
     this.hasRolled = false;
     this.consecutiveDoubles = 0;
     this.extraRollPending = false;
@@ -354,6 +357,8 @@ class GameState {
   }
 
   resetForNewGame() {
+    this.presentation = null;
+    this._activePresentation = null;
     this.boardVariant = this.settings.boardVariant || this.boardVariant || 'standard-40';
     this.tiles = tilesForVariant(this.boardVariant);
     this.currentPlayerId = null;
@@ -675,6 +680,10 @@ class GameState {
     const player = this.getPlayerBySocket(socketId);
     const rejection = this.rollTurnRejection(player);
     if (rejection) return rejection;
+    return withRollPresentation(this, player, () => this.resolveDiceRoll(player));
+  }
+
+  resolveDiceRoll(player) {
     if (player.inJail) {
       return this.handleJailRoll(player);
     }
@@ -719,6 +728,7 @@ class GameState {
   }
 
   sendRollerToJail(player) {
+    this.recordPresentationMove(player, this.tiles.find(tile => tile.type === 'jail').index, { cause: 'three-doubles', teleport: true });
     player.position = this.tiles.find(tile => tile.type === 'jail').index;
     player.inJail = true;
     player.jailTurns = 0;
@@ -876,6 +886,7 @@ class GameState {
     const reward = this.startPassReward(exactStart);
     const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
     player.cash += reward + bonus;
+    recordPresentationCash(this, 'go', distanceToStart - 1);
     this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
   }
 
@@ -888,11 +899,16 @@ class GameState {
   movePlayer(player, steps, options = {}) {
     this.handleFortyFirstMove(player);
     const oldPosition = player.position;
+    this.recordPresentationMove(player, (player.position + steps) % this.tiles.length, { cause: 'dice', steps });
     player.position = (player.position + steps) % this.tiles.length;
     this.awardStartPass(player, oldPosition, steps);
     const tile = this.getTile(player.position);
     this.trackRailroadVisit(player, tile);
     return this.applyTile(player, tile, options);
+  }
+
+  recordPresentationMove(player, destination, options) {
+    recordPresentationMovement(this, player, destination, options);
   }
 
   resolveTurnAfterAction({ allowExtraRoll = true } = {}) {

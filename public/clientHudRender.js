@@ -1,6 +1,6 @@
 /* ============================================================
-   HUD RENDERING: turn panel, dice, roll button, stage pill,
-   jail actions, and the per-turn countdown. All reads come from
+   HUD RENDERING: current player, local cash, dice and turn actions.
+   All reads come from
    clientState; end-of-countdown game actions arrive via hooks.
    ============================================================ */
 import { $ } from "./clientDom.js";
@@ -26,16 +26,11 @@ export function dieHTML(value, rolling) {
   return `<div class="die${rolling ? " dice-rolling" : ""}">${cells}</div>`;
 }
 
-function hudStatusLabel(waiting, awaitingEnd) {
-  if (waiting) return "Waiting For Game";
-  if (awaitingEnd) return "Resolve & End";
-  return "Current Turn";
-}
-
-function noteVisible(waiting, awaitingEnd) {
-  if (waiting) return true;
-  if (awaitingEnd) return state.turnIndex === 0;
-  return false;
+function localPlayer() {
+  return (state.clientId && state.players.find(player => player.clientId === state.clientId))
+    || state.players.find(player => player.id === "p1")
+    || state.players[0]
+    || null;
 }
 
 function renderHudLobby() {
@@ -43,37 +38,14 @@ function renderHudLobby() {
   const nameEl = $("#hud-name");
   nameEl.textContent = "Configure";
   nameEl.style.color = "#cfa75f";
-  $("#hud-note").style.display = "block";
-  $("#hud-note").textContent = "Set rules on the right, then press Start Round.";
-  $("#hud-bot-status")?.classList.add("is-hidden");
-  $("#hud-loan-status")?.classList.add("is-hidden");
+  $("#hud-turn-label").removeAttribute("aria-label");
   $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
   if ($("#hud-cash-action")) $("#hud-cash-action").disabled = true;
   $("#hud-pool").textContent = "$0";
   $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
   $("#roll-btn").disabled = true;
   $("#roll-label").textContent = "Set Rules First";
-}
-
-function showLoanStatus(cur, waiting) {
-  if (waiting) return false;
-  const loan = cur?.bankLoan;
-  if (!loan) return false;
-  return ["active", "due"].includes(loan.status);
-}
-
-function loanStatusText(loan) {
-  const remaining = (Number(loan.remaining) || 0).toLocaleString();
-  const dueRound = loan.dueRound || "—";
-  return `BANK DEBT · $${remaining} · DUE R${dueRound}`;
-}
-
-function renderHudLoan(cur, waiting) {
-  const loanStatus = $("#hud-loan-status");
-  if (!loanStatus) return;
-  const showLoan = showLoanStatus(cur, waiting);
-  loanStatus.classList.toggle("is-hidden", !showLoan);
-  if (showLoan) loanStatus.textContent = loanStatusText(cur.bankLoan);
+  renderHudJailButtons(null, true, true);
 }
 
 function renderHudDice(waiting) {
@@ -97,14 +69,14 @@ function humanTurnNow() {
 }
 
 function canRollNow(locked, humanTurn) {
-  if (state.busy) return false;
+  if (state.busy || state.presentationBusy) return false;
   if (locked) return false;
   if (!humanTurn) return false;
   return state.turnStage === "roll";
 }
 
 function canEndNow(locked, humanTurn) {
-  if (state.busy) return false;
+  if (state.busy || state.presentationBusy) return false;
   if (locked) return false;
   if (!humanTurn) return false;
   return state.turnStage === "end";
@@ -129,32 +101,13 @@ function renderHudRollButton(waiting) {
   const btn = $("#roll-btn");
   // A dismissed purchase card reopens from this button: keep it enabled
   // while "Resolve Purchase" is showing, otherwise the turn strands.
-  btn.disabled = state.pendingBuyTile != null ? false : !(canRoll || canEnd);
+  btn.disabled = state.presentationBusy ? true : state.pendingBuyTile != null ? false : !(canRoll || canEnd);
   $("#roll-label").textContent = hudRollLabel(waiting, canRoll, canEnd);
 }
 
 function inJailThisTurn(cur) {
   const turns = state.jail[cur?.id] || 0;
   return turns > 0;
-}
-
-function hudStageKind(cur) {
-  if (state.rolling) return { label: "ROLLING", className: "st-resolve" };
-  if (state.turnStage === "end") return { label: "END TURN", className: "st-end" };
-  if (inJailThisTurn(cur) && humanTurnNow()) return { label: "IN JAIL", className: "st-resolve" };
-  return { label: "ROLL", className: "" };
-}
-
-function renderHudStage(cur, waiting, isLobby) {
-  const stageEl = $("#hud-stage");
-  if (stageEl) {
-    const stage = hudStageKind(cur);
-    const hidden = waiting || isLobby;
-    stageEl.classList.toggle("is-hidden", hidden);
-    stageEl.textContent = stage.label;
-    stageEl.classList.remove("st-end", "st-resolve");
-    if (stage.className) stageEl.classList.add(stage.className);
-  }
 }
 
 function jailPhaseReady(waiting, isLobby) {
@@ -180,12 +133,12 @@ function renderHudJailButtons(cur, waiting, isLobby) {
   const jailBtn = $("#pay-jail-fine");
   if (jailBtn) {
     jailBtn.classList.toggle("is-hidden", !payJailFineAvailable(cur, waiting, isLobby));
-    jailBtn.disabled = state.busy;
+    jailBtn.disabled = state.busy || state.presentationBusy;
   }
   const jailCardBtn = $("#use-jail-free");
   if (jailCardBtn) {
     jailCardBtn.classList.toggle("is-hidden", !useJailFreeAvailable(cur, waiting, isLobby));
-    jailCardBtn.disabled = state.busy;
+    jailCardBtn.disabled = state.busy || state.presentationBusy;
   }
 }
 
@@ -193,32 +146,25 @@ export function renderHud() {
   const waiting = state.phase !== "playing";
   const isLobby = state.phase === "lobby";
   const cur = state.players[state.turnIndex] || null;
+  const me = localPlayer();
 
   if (isLobby) {
     renderHudLobby();
     return;
   }
 
-  const awaitingEnd = state.turnStage === "end";
-  $("#hud-turn-label").textContent = hudStatusLabel(waiting, awaitingEnd);
+  $("#hud-turn-label").textContent = waiting ? "Waiting For Game" : "Current Turn";
+  $("#hud-turn-label").setAttribute("aria-label", waiting ? "Waiting for game" : `Current turn: ${cur?.name || "Syncing"}`);
   const nameEl = $("#hud-name");
   nameEl.textContent = waiting ? "Stand By" : cur?.name || "Syncing…";
   nameEl.style.color = waiting ? "#cfa75f" : cur?.textColor || "#cfa75f";
-  const noteVisibleNow = noteVisible(waiting, awaitingEnd);
-  $("#hud-note").style.display = noteVisibleNow ? "block" : "none";
-  $("#hud-note").textContent = awaitingEnd
-    ? "Buy, build or trade now, then end your turn."
-    : humanTurnNow() && inJailThisTurn(cur) && (cur.cash || 0) < 50 && !(cur.jailFree > 0)
-      ? "In jail: roll doubles to walk free, or end the turn to wait it out."
-      : !waiting && state.turnIndex !== 0 && cur?.name
-        ? `${cur.name} is deciding…`
-        : "Join a room to get started.";
-  renderHudLoan(cur, waiting);
-  $("#hud-cash").textContent = `$${waiting ? "0" : Number(cur?.cash || 0).toLocaleString()}`;
-  if ($("#hud-cash-action")) $("#hud-cash-action").disabled = waiting;
+  $("#hud-cash").textContent = `$${waiting ? "0" : Number(me?.visualCash ?? me?.cash ?? 0).toLocaleString()}`;
+  if ($("#hud-cash-action")) {
+    $("#hud-cash-action").disabled = waiting || !me;
+    $("#hud-cash-action").setAttribute("aria-label", me ? `Open ${me.name}'s wallet and items` : "Open wallet and items");
+  }
   $("#hud-pool").textContent = `$${waiting ? 0 : state.pool}`;
   renderHudDice(waiting);
   renderHudRollButton(waiting);
-  renderHudStage(cur, waiting, isLobby);
   renderHudJailButtons(cur, waiting || !cur, isLobby);
 }

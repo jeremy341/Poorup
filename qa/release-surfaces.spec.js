@@ -27,20 +27,12 @@ test.describe('release surface evidence', () => {
       state.leaderboard.snapshots = { wins: rows };
       state.leaderboard.loading = false;
       state.leaderboard.error = '';
-      state.season.current = { id: 'S-2026-09', status: 'active', startsAt: '2026-09-01', endsAt: '2026-10-27' };
-      state.season.rows = [{ displayName: 'ALPHA', username: 'alpha', games: 8, points: 420 }, { displayName: 'BETA', username: 'beta', games: 6, points: 300 }];
-      state.season.rewards = [
-        { id: 'season-bronze', track: 'placement', threshold: 0.9, tokens: 40 },
-        { id: 'season-silver', track: 'placement', threshold: 0.8, tokens: 80 },
-        { id: 'season-gold', track: 'placement', threshold: 0.7, tokens: 140 },
-      ];
-      state.season.claimedRewardIds = [];
-      state.season.loading = false;
-      state.season.error = '';
       renderRankingsSurface('#rankings-page-content');
     });
-    await expect(page.locator('#rankings-page-content .season-signin-prompt')).toContainText('SIGN IN');
-    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-rankings-season', label: 'Rankings season view', fallbackPath: path.join(artifactRoot, 'rankings-season-1920.png') });
+    await expect(page.locator('#rankings-page-content .ranking-row')).toHaveCount(2);
+    await expect(page.locator('#rankings-page-content .ranking-row').first()).toContainText('ALPHA');
+    await expect(page.locator('#rankings-page-content .season-signin-prompt, #rankings-page-content .season-ledger')).toHaveCount(0);
+    await captureScreenshot(page, testInfo, { group: 'game', surfaceId: 'release-rankings', label: 'Rankings leaderboard', fallbackPath: path.join(artifactRoot, 'rankings-1920.png') });
 
     await page.locator('#view-rankings [data-home-tab="profile"]').click();
     await expect(page.locator('#view-profile')).toBeVisible();

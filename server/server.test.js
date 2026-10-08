@@ -100,8 +100,8 @@ async function checkHappyPath(socket) {
   check('leave-room succeeds', left?.success === true);
   const rooms = await ask(socket, 'list-rooms', undefined);
   check('list-rooms succeeds with no payload', rooms?.success === true);
-  const season = await ask(socket, 'get-leaderboard-snapshot', { scope: 'season' });
-  check('season leaderboard snapshot is available', season?.success === true && season?.scope === 'season');
+  const retiredSeasonScope = await ask(socket, 'get-leaderboard-snapshot', { scope: 'season' });
+  check('retired season scope resolves to all-time rankings', retiredSeasonScope?.success === true && retiredSeasonScope?.scope === 'all' && !Object.hasOwn(retiredSeasonScope, 'season'));
 }
 
 async function checkBotStatusAndReconnect(socket, child) {
@@ -129,6 +129,12 @@ async function checkBotStatusAndReconnect(socket, child) {
     const stateUpdate = nextEvent(socket, 'update-state');
     rolled = await ask(socket, 'roll-dice', {});
     snapshot = await stateUpdate;
+    const readyAt = Number(snapshot?.game?.presentation?.readyAt) || 0;
+    if (readyAt > Date.now()) {
+      const earlyEnd = await ask(socket, 'end-turn', {});
+      check('turn cannot advance before its presentation settles', earlyEnd?.success === false);
+      await wait(Math.max(0, readyAt - Date.now()) + 25);
+    }
     if (snapshot?.game?.pendingPurchaseOffer) {
       const afterDecline = nextEvent(socket, 'update-state');
       await ask(socket, 'decline-property', { tileIndex: snapshot.game.pendingPurchaseOffer.tileIndex });

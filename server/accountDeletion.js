@@ -16,8 +16,8 @@ function seated(roomManager, accountId) {
   return [...(roomManager?.rooms?.values?.() || [])].some(room => [...(room?.game?.players || [])].some(player => player?.accountId === accountId && !player.bankrupt && !player.spectating));
 }
 
-export function createAccountDeletionCoordinator({ accountStore, sessionStore, roomManager, stores = [], socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, backupStore, mailAdapter, now = Date.now, gracePeriodMs = GRACE_PERIOD_MS, onLifecycle = () => {} } = {}) {
-  const linkedStores = [...stores, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, backupStore].filter(Boolean);
+export function createAccountDeletionCoordinator({ accountStore, sessionStore, roomManager, stores = [], socialStore, matchStore, achievementStore, retiredStore, telemetryStore, backupStore, mailAdapter, now = Date.now, gracePeriodMs = GRACE_PERIOD_MS, onLifecycle = () => {} } = {}) {
+  const linkedStores = [...stores, socialStore, matchStore, achievementStore, retiredStore, telemetryStore, backupStore].filter(Boolean);
   const requests = new Map();
   const pendingAccounts = new Map();
 

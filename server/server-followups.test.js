@@ -9,9 +9,7 @@ import * as bankruptcy from './bankruptcyLogic.js';
 import { AccountStore } from './accountStore.js';
 import { registerAccountSocketHandlers } from './serverSocketAccount.js';
 import * as accountSocket from './serverSocketAccount.js';
-import { SeasonStore } from './seasonModule.js';
 import { processContracts } from './contractLogic.js';
-import * as socialSocket from './serverSocketSocial.js';
 import { registerGameSocketHandlers } from './serverSocketGame.js';
 
 const failures = [];
@@ -31,7 +29,7 @@ function runtimeDeps(roomManager, overrides = {}) {
     roomManager,
     accountStore: { sessionAccount() { return null; } },
     socialStore: { respondInvite() { return { success: true, invite: {} }; } },
-    matchStore: {}, achievementStore: {}, seasonStore: {}, cosmeticStore: {}, telemetryStore: null,
+    matchStore: {}, achievementStore: {}, telemetryStore: null,
     botAdvisor: { supportsChoicePhases: false },
     social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },
     maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
@@ -185,28 +183,6 @@ check('hybrid default exposes a collectible server-owned lender claim', () => {
   assert.equal(room.game.defaultClaims[0].remaining, 70);
 });
 
-check('season reward grant retries after a split-write failure without double-granting', () => {
-  assert.equal(typeof socialSocket.applySeasonRewardGrant, 'function');
-  let cosmeticAttempts = 0;
-  let tokenAttempts = 0;
-  const cosmeticStore = {
-    claim() {
-      cosmeticAttempts += 1;
-      if (cosmeticAttempts === 1) throw new Error('cosmetic write failed');
-      return { success: true, created: true };
-    },
-    grantTokens() {
-      tokenAttempts += 1;
-      return { success: true, granted: 80 };
-    }
-  };
-  const claimed = { reward: { id: 'season-gold', cosmeticId: 'frame-gold', tokens: 80 }, season: { id: 'S20260914' } };
-  assert.equal(socialSocket.applySeasonRewardGrant(cosmeticStore, 'acct-1', claimed).success, false);
-  assert.equal(socialSocket.applySeasonRewardGrant(cosmeticStore, 'acct-1', claimed).success, true);
-  assert.equal(cosmeticAttempts, 2);
-  assert.equal(tokenAttempts, 1);
-});
-
 check('short-default repayment is exposed through the authoritative room action with request-id replay', () => {
   const { room } = startedRoom({ rulesetPreset: 'after-hours', marketComplexity: 'shorting' });
   const player = room.game.players[0];
@@ -233,7 +209,7 @@ check('short-default repayment is exposed through the authoritative room action 
 check('auction bids at or after the deadline reject without changing the auction', () => {
   const { room } = startedRoom();
   const player = room.game.players[0];
-  room.game.auction = { active: true, highestBid: 10, highestBidderId: null, participants: [player.id], passedPlayerIds: [], cooldownUntil: 0, endsAt: Date.now() - 1 };
+  room.game.auction = { active: true, highestBid: 10, highestBidderId: null, participants: [player.id], cooldownUntil: 0, endsAt: Date.now() - 1 };
   const before = { highestBid: room.game.auction.highestBid, highestBidderId: room.game.auction.highestBidderId, endsAt: room.game.auction.endsAt };
   const result = room.placeAuctionBid('socket-a', 20);
   assert.deepEqual(result, { success: false, error: 'The auction has ended.' });
@@ -287,17 +263,6 @@ check('replay entries expire by TTL and become terminal rejections', () => {
   assert.deepEqual(room.game.economyTransactions.get('ttl-request'), { success: false, error: 'REQUEST_ID_EXPIRED' });
 });
 
-check('top-1-percent reward boundaries are rank-based with a population floor', () => {
-  const store = new SeasonStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-season-boundary-')), 'seasons.json'));
-  const reward = { track: 'placement', threshold: 0.01 };
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 1), false);
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 2), false);
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 3), false);
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 9), false);
-  assert.equal(store.rewardEligible({ placementRank: 1 }, reward, 10), true);
-  assert.equal(store.rewardEligible({ placementRank: 2 }, reward, 100), false);
-});
-
 check('rematch clears runtime match-start telemetry markers', () => {
   const { room } = startedRoom();
   room.analyticsMatchStartRecorded = 'old-round';
@@ -326,11 +291,11 @@ async function runAsyncChecks() {
   assert.equal(room.startGame().success, true);
   const bot = room.game.players.find(player => player.isBot);
   const human = room.game.players.find(player => !player.isBot);
-  room.game.auction = { active: true, startedAt: Date.now(), propertyTile: { index: 1 }, endsAt: Date.now() + 10_000, participants: [bot.id, human.id], highestBid: 0, highestBidderId: null, passedPlayerIds: [], cooldownUntil: 0 };
+  room.game.auction = { active: true, startedAt: Date.now(), propertyTile: { index: 1 }, endsAt: Date.now() + 10_000, participants: [bot.id, human.id], highestBid: 0, highestBidderId: null, cooldownUntil: 0 };
   let calls = 0;
   let release;
   const gate = new Promise(resolve => { release = resolve; });
-  const runtime = createRuntime(runtimeDeps(manager, { botAdvisor: { supportsChoicePhases: true, async chooseAction() { calls += 1; await gate; return { actionId: 'auction:pass' }; } } }));
+  const runtime = createRuntime(runtimeDeps(manager, { botAdvisor: { supportsChoicePhases: true, async chooseAction() { calls += 1; await gate; return { actionId: 'auction:wait' }; } } }));
   runtime.emitRoomState(room);
   await new Promise(resolve => setTimeout(resolve, 500));
   runtime.emitRoomState(room);

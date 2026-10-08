@@ -1,7 +1,7 @@
 export const TEST_GROUPS = Object.freeze({
   core: [
-    'server/rulesetRegistry.test.js', 'server/boardRegistry.test.js', 'server/seasonModule.test.js',
-    'server/cosmeticCatalog.test.js', 'server/telemetryModule.test.js', 'server/marketExpansion.test.js',
+    'server/rulesetRegistry.test.js', 'server/boardRegistry.test.js', 'server/retiredAccountStore.test.js',
+    'server/turnAuctionRules.test.js', 'server/gamePresentation.test.js', 'public/clientPresentation.test.js', 'server/telemetryModule.test.js', 'server/marketExpansion.test.js',
     'server/backupStore.test.js', 'server/httpRateLimiter.test.js', 'server/persistenceMode.test.js',
     'server/authoritativeStore.test.js', 'server/pubsubAdapter.test.js', 'server/balanceMetrics.test.js',
     'server/gameLogic.test.js', 'server/applyCard.test.js', 'server/rent.test.js', 'server/persistence.test.js',
@@ -41,8 +41,8 @@ export const TEST_GROUPS = Object.freeze({
   ],
   audit: [
     'server/market-settlement-audit.test.js', 'server/lifecycle-audit.test.js', 'server/card-deck-audit.test.js',
-    'server/rooms-directory-audit.test.js', 'server/account-session-audit.test.js', 'server/season-reward-audit.test.js',
-    'server/season-metrics-audit.test.js', 'server/summary-privacy-audit.test.js', 'public/clientCasinoReel.test.js',
+    'server/rooms-directory-audit.test.js', 'server/account-session-audit.test.js',
+    'server/summary-privacy-audit.test.js', 'public/clientCasinoReel.test.js',
     'server/session-room-regressions.test.js', 'server/game-invariant-regressions.test.js',
     'server/backup-restore-integrity.test.js', 'server/socket-admission.test.js', 'server/runtime-safety.test.js',
     'server/analyticsRuntime.test.js', 'server/capacity-followup.test.js', 'server/server-followups.test.js',
@@ -52,7 +52,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/backend-bot-fixes.test.js', 'server/backend-bot-context-fixes.test.js',
     'server/regression-b11-b14.test.js', 'server/regression-b12-b13.test.js',
     'server/regression-b18.test.js', 'server/regression-b27-b29.test.js',
-    'server/regression-b33-b34.test.js', 'server/regression-b35-b36.test.js',
+    'server/regression-b35-b36.test.js',
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [

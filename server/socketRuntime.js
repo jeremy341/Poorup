@@ -21,6 +21,7 @@ import {
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
 import { botMovementSettleDelayMs, scheduleBotTimer } from './botTiming.js';
+import { presentationRemainingMs } from '../public/gamePresentationTiming.js';
 
 const DEFAULT_RECONNECT_GRACE_MS = 120000;
 const configuredTestReconnectGrace = Number(process.env.POORUP_TEST_RECONNECT_GRACE_MS);
@@ -109,7 +110,6 @@ function startAuctionForDepartingPlayer(game, player, tile) {
 
 function excludeDepartingAuctionSeat(auction, player, startingPlayerId) {
   auction.participants = [...new Set((auction.participants || []).filter(id => id !== player.id))];
-  auction.passedPlayerIds = [...new Set([...(auction.passedPlayerIds || []), player.id])];
   if (auction.startingPlayerId === player.id) auction.startingPlayerId = startingPlayerId;
 }
 
@@ -262,7 +262,7 @@ function roomTelemetryVersions(room) {
   return Object.fromEntries(ROOM_TELEMETRY_VERSION_READERS.map(([key, read]) => [key, read(room)]));
 }
 
-function seasonTelemetryMatchId(matchRecord, room) {
+function settlementTelemetryMatchId(matchRecord, room) {
   const matchId = String(matchRecord?.matchId || '').trim();
   if (!matchId) return false;
   if (room?.analyticsTelemetryMatchId === matchId) return true;
@@ -270,16 +270,15 @@ function seasonTelemetryMatchId(matchRecord, room) {
   return false;
 }
 
-function seasonTelemetryVersions(seasonResult, matchRecord) {
+function settlementTelemetryVersions(matchRecord) {
   return {
-    seasonId: seasonResult?.season?.id || matchRecord.seasonId || 'unseasoned',
     rulesetRevision: matchRecord.rulesetRevision,
     balanceRevision: matchRecord.balanceRevision,
     boardVariant: matchRecord.boardVariant
   };
 }
 
-function recordSeasonTelemetryRows(telemetryContext) {
+function recordSettlementTelemetryRows(telemetryContext) {
   recordMatchStartTelemetry(telemetryContext);
   recordMatchTelemetry(telemetryContext);
   recordLoggedTelemetry(telemetryContext);
@@ -289,15 +288,15 @@ function recordSeasonTelemetryRows(telemetryContext) {
   recordBotTelemetry(telemetryContext);
 }
 
-export function recordSeasonTelemetry(context) {
-  const { telemetryStore, room, matchRecord, candidates, seasonResult } = context;
-  if (seasonTelemetryMatchId(matchRecord, room)) return false;
-  recordSeasonTelemetryRows({
+export function recordMatchTelemetryOnce(context) {
+  const { telemetryStore, room, matchRecord, candidates } = context;
+  if (settlementTelemetryMatchId(matchRecord, room)) return false;
+  recordSettlementTelemetryRows({
     telemetryStore,
     room,
     matchRecord,
     candidates,
-    telemetryVersions: seasonTelemetryVersions(seasonResult, matchRecord)
+    telemetryVersions: settlementTelemetryVersions(matchRecord)
   });
   return true;
 }
@@ -332,7 +331,7 @@ const PUBLIC_FALLBACK_REASONS = new Map([
 ]);
 
 function createRuntime(deps) {
-  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
+  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
   const setTimeoutFn = deps.setTimeout || globalThis.setTimeout;
   const clearTimeoutFn = deps.clearTimeout || globalThis.clearTimeout;
   const setIntervalFn = deps.setInterval || globalThis.setInterval;
@@ -347,6 +346,7 @@ function createRuntime(deps) {
   const botDecisionLocks = new Set();
   const auctionBotTimers = new Map();
   const auctionDecisionLocks = new Set();
+  const auctionEvaluations = new Map();
   let roomsUpdatedTimer = null;
 
   function safeBotProviderStatus(status = {}) {
@@ -385,7 +385,9 @@ function createRuntime(deps) {
   }
 
   function getRoomForSocket(socket, callback) {
-    return resolveRoomOrAck(runtime, socket, callback);
+    const room = resolveRoomOrAck(runtime, socket, callback);
+    if (room?.game) room.game.presentationClock = now;
+    return room;
   }
 
   // One debounced push keeps public-room browsers current without emitting per
@@ -440,15 +442,13 @@ function createRuntime(deps) {
     const historyReader = accountId => accountStore.getMatchHistory(accountId);
     const candidates = achievementStore.evaluateMatch(matchRecord, historyReader);
     annotateMatchAchievements(matchRecord, candidates);
-    const seasonResult = seasonStore?.recordMatch(matchRecord);
-    if (seasonResult?.recorded) matchRecord.seasonId = seasonResult.season.id;
-    // The account snapshot was written before achievement/season enrichment;
+    // The account snapshot was written before achievement enrichment;
     // update that same match ID once so a restart sees the authoritative
     // annotated record without replaying match statistics.
     accountStore.updateMatchRecord?.(matchRecord);
     matchStore.record(matchRecord);
     candidates.forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
-    recordSeasonTelemetry({ telemetryStore, room, matchRecord, candidates, seasonResult });
+    recordMatchTelemetryOnce({ telemetryStore, room, matchRecord, candidates });
     // Refresh the owner’s private profile immediately after settlement so
     // completed-game stats, history, and achievement counts are current while
     // the player is still in the game shell.
@@ -655,6 +655,7 @@ function createRuntime(deps) {
     botTimers.delete(roomCode);
     botDecisionLocks.delete(roomCode);
     auctionDecisionLocks.delete(roomCode);
+    auctionEvaluations.delete(roomCode);
     // Drop the socket->room index for everyone still mapped to this room;
     // otherwise connected players keep acting on a zombie room that is gone
     // from the registry (getRoomBySocket would still resolve it).
@@ -690,7 +691,7 @@ function createRuntime(deps) {
       setTimeoutFn,
       () => runRoomTimer('bot-turn', room.roomCode, () => beginBotTurn(room, bot)),
       'turn',
-      movementDelayMs
+      Math.max(movementDelayMs, presentationRemainingMs(room.game, now()))
     );
     botTimers.set(room.roomCode, timer);
   }
@@ -702,6 +703,9 @@ function createRuntime(deps) {
 
   function beginBotTurn(room, bot) {
     botTimers.delete(room.roomCode);
+    const remaining = presentationRemainingMs(room.game, now());
+    if (remaining > 0) return scheduleBotTurn(room, remaining);
+    room.game.presentationClock = now;
     botDecisionLocks.add(room.roomCode);
     const previousPositions = new Map(room.game.players.map(player => [player.id, player.position]));
     runBotDecision(room, bot)
@@ -711,7 +715,7 @@ function createRuntime(deps) {
         // stays alive and the watchdog/next action retries naturally.
         console.error(`Bot turn failed in room ${room.roomCode}:`, error);
       })
-      .finally(() => finishBotTurn(room, botMovementSettleDelayMs(previousPositions, room.game)));
+      .finally(() => finishBotTurn(room, botMovementSettleDelayMs(previousPositions, room.game, now())));
   }
 
   function applyBotDecisionOutcome(room, bot, result) {
@@ -724,7 +728,7 @@ function createRuntime(deps) {
     }
     if (result?.noEmit) return;
     // Tail purchase resolution, second half of the post-roll double-check.
-    resolvePurchaseOffer(room, bot, result);
+    if (presentationRemainingMs(room.game, now()) === 0) resolvePurchaseOffer(room, bot, result);
     emitRoomState(room);
   }
 
@@ -793,7 +797,10 @@ function createRuntime(deps) {
     if (!auction) return;
     const key = room.roomCode;
     if (auctionBotTimers.has(key) || auctionDecisionLocks.has(key)) return;
-    const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player));
+    const evaluated = auctionEvaluations.get(key) || new Map();
+    auctionEvaluations.set(key, evaluated);
+    const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player)
+      && evaluated.get(player.id) !== auctionIdentity(auction, player));
     if (!bot) return;
     const timer = scheduleBotTimer(
       setTimeoutFn,
@@ -843,10 +850,11 @@ function createRuntime(deps) {
       context: { ...context, event: room.game.globalEvent }
     });
     if (room.destroyed || !sameAuction(room.game.auction, auctionVersion, bot)) return;
+    auctionEvaluations.get(key)?.set(bot.id, auctionVersion);
     const { candidates, amount, decision } = choice;
     const actionId = choice.actionId;
     const shouldBid = actionId === 'auction:bid';
-    const result = room.runBotAction(bot.id, actor => bidOrPass(room, actor, shouldBid, amount));
+    const result = shouldBid ? room.runBotAction(bot.id, actor => room.placeAuctionBid(actor, amount)) : { success: true };
     if (shouldBid && result?.success) scheduleAuctionFinish(room);
     const trace = room.game.recordBotDecisionTrace({
       ...context,
@@ -865,11 +873,6 @@ function createRuntime(deps) {
     emitRoomState(room);
   }
 
-  function bidOrPass(room, actor, shouldBid, minimum) {
-    if (!shouldBid) return room.passAuction(actor);
-    return room.placeAuctionBid(actor, minimum);
-  }
-
   function auctionIdentity(auction, bot) {
     if (!auction) return null;
     return JSON.stringify({
@@ -878,7 +881,6 @@ function createRuntime(deps) {
       highestBid: Number(auction.highestBid || 0),
       highestBidderId: auction.highestBidderId || null,
       participants: [...(auction.participants || [])],
-      passedPlayerIds: [...(auction.passedPlayerIds || [])],
       botId: bot?.id || null,
       botCash: Number(bot?.cash || 0),
       botBankrupt: bot?.bankrupt === true,
@@ -928,6 +930,7 @@ function createRuntime(deps) {
       return;
     }
     currentRoom.game.finishAuction();
+    auctionEvaluations.delete(roomCode);
     emitRoomState(currentRoom);
     clearAuctionTimer(currentRoom);
   }
@@ -1190,8 +1193,7 @@ function createRuntime(deps) {
     canStartRound: () => maintenance?.canStartRound?.() ?? true,
     botProviderStatus,
     unsubscribeBotProviderStatus,
-    seasonStore,
-    cosmeticStore,
+    now,
     telemetryStore,
     reassignHostIfNeeded,
     roomManager,

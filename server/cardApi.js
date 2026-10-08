@@ -8,6 +8,7 @@
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
 import { decksForVariant } from './boardRegistry.js';
+import { recordPresentationCash } from './gamePresentation.js';
 
 const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
 
@@ -47,6 +48,7 @@ const CARD_ACTION_HANDLERS = {
 
 const cardApi = {
   handleChanceTile(player, options = {}, deckName = 'surprise') {
+    const sourceTileIndex = player.position;
     const card = this.drawCard(deckName);
     player.cardDraws ||= { surprise: 0, treasure: 0 };
     player.cardDraws[deckName] = (player.cardDraws[deckName] || 0) + 1;
@@ -58,7 +60,7 @@ const cardApi = {
     const cash = this.cardCashAfterPlay(player, card, cashBefore);
     return {
       ...(result || { success: true }),
-      cardReveal: { tileIndex: player.position, text: card.text, action: card.action, cash }
+      cardReveal: { tileIndex: sourceTileIndex, text: card.text, action: card.action, cash }
     };
   },
 
@@ -118,6 +120,7 @@ const cardApi = {
     if (destination.index < player.position) {
       const landedOnStart = destination.index === START_TILE_INDEX;
       const { reward, bonus } = this.payStartPass(player, landedOnStart);
+      recordPresentationCash(this, 'go', this.tiles.length - player.position - 1);
       this.feedMessage(this.startPassFeed(player, landedOnStart, reward + bonus, bonus));
     }
   },
@@ -165,11 +168,13 @@ const cardApi = {
   // amount and the low-tax discount stay authoritative; only the catch-up
   // bonus is added on top.
   collectStartCard(player, card) {
+    this.recordPresentationMove(player, START_TILE_INDEX, { cause: 'collectStart' });
     player.position = START_TILE_INDEX;
     const amount = Number(card.amount) || this.startPassReward(true);
     const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
     const bonus = this.startPassCatchUpBonus(player);
     player.cash += paid + bonus;
+    recordPresentationCash(this, 'go', this._activePresentation?.segments.at(-1)?.path.length - 1);
     this.feedMessage(this.startPassFeed(player, true, paid + bonus, bonus));
     return RESOLVE_TAIL;
   },
@@ -194,6 +199,7 @@ const cardApi = {
   },
 
   moveBackCard(player, card, options) {
+    this.recordPresentationMove(player, (player.position - (card.steps || 3) + this.tiles.length) % this.tiles.length, { cause: 'moveBack', direction: -1, steps: card.steps || 3 });
     player.position = (player.position - (card.steps || 3) + this.tiles.length) % this.tiles.length;
     this.feedMessage(`${player.nickname} moved back ${card.steps || 3} spaces.`);
     return this.applyTile(player, this.getTile(player.position), options);
@@ -205,6 +211,7 @@ const cardApi = {
       : card.tileIndex;
     const destination = this.getTile(Number(destinationIndex));
     if (!destination) return RESOLVE_TAIL;
+    this.recordPresentationMove(player, destination.index, { cause: 'moveTo' });
     this.awardStartSalaryIfPassed(player, destination);
     player.position = destination.index;
     this.feedMessage(`${player.nickname} advanced to ${destination.name}.`);
@@ -217,6 +224,7 @@ const cardApi = {
       : card.tileIndex;
     const destTile = this.getTile(Number(destinationIndex));
     if (!destTile) return RESOLVE_TAIL;
+    this.recordPresentationMove(player, destTile.index, { cause: 'move', teleport: true });
     player.position = destTile.index;
     this.feedMessage(`${player.nickname} moved to ${destTile.name}.`);
     const moveOptions = destTile.type === 'vacation' ? { ...options, skipVacationCollect: true } : options;
@@ -234,6 +242,7 @@ const cardApi = {
     }
     const destination = this.findNextTileOfType(player, wantedType);
     if (!destination) return RESOLVE_TAIL;
+    this.recordPresentationMove(player, destination.index, { cause: card.action });
     this.awardStartSalaryIfPassed(player, destination);
     player.position = destination.index;
     const owner = destination.ownerId ? this.getPlayerById(destination.ownerId) : null;
@@ -344,6 +353,7 @@ const cardApi = {
   },
 
   goToJailCard(player, options) {
+    this.recordPresentationMove(player, this.tiles.find(tile => tile.type === 'jail').index, { cause: 'card-jail', teleport: true });
     player.position = this.tiles.find(tile => tile.type === 'jail').index;
     player.inJail = true;
     player.jailTurns = 0;

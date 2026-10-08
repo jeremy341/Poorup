@@ -17,7 +17,6 @@ function registeredHandlers({ accountStore, socialStore, matchStore, viewer = nu
     io: { in() { return { emit() {} }; }, emit() {} },
     roomManager: { getRoomBySocket() { return null; } },
     getRoomForSocket() { return null; },
-    seasonStore: null,
     social: {
       accountForSocket() { return viewer; },
       allowAnonymousAction() { return true; },

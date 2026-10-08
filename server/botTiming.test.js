@@ -19,11 +19,11 @@ const before = new Map([['bot-one', 0], ['bot-two', 10]]);
 assert.equal(botMovementSettleDelayMs(before, {
   tiles: Array.from({ length: 40 }),
   players: [{ id: 'bot-one', position: 5 }, { id: 'bot-two', position: 20 }]
-}), 3_000, 'the next bot waits for the longest pawn walk in the preceding action');
+}), 4_000, 'the next bot waits for the longest pawn walk at the approved slower bot cadence');
 assert.equal(botMovementSettleDelayMs(new Map([['bot-one', 38]]), {
   tiles: Array.from({ length: 40 }),
   players: [{ id: 'bot-one', position: 2 }]
-}), 1_200, 'forward movement across the board edge still has a bounded walk delay');
+}), 1_600, 'forward movement across the board edge still has a bounded walk delay');
 assert.equal(botMovementSettleDelayMs(new Map([['bot-one', 10]]), {
   tiles: Array.from({ length: 40 }),
   players: [{ id: 'bot-one', position: 10 }]

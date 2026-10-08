@@ -114,9 +114,26 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(heading).toContainText('WINS');
   });
 
-  test('bot status has a live-region anchor and social page is not a modal', async ({ page }) => {
+  test('current turn is named accessibly and social page is not a modal', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('#hud-bot-status')).toHaveAttribute('aria-live', 'polite');
+    await page.evaluate(async () => {
+      const [{ state }, { renderHud }] = await Promise.all([import('/clientState.js'), import('/clientHudRender.js')]);
+      state.phase = 'playing';
+      state.turnIndex = 0;
+      state.turnStage = 'roll';
+      state.players = [{ id: 'p1', clientId: state.clientId, name: 'TURN PLAYER', cash: 500, textColor: '#e8d3ab', online: true }];
+      state.jail = {};
+      state.dice = [1, 2];
+      state.busy = false;
+      state.presentationBusy = false;
+      state.pendingBuyTile = null;
+      state.auction = null;
+      state.sponsorship = null;
+      renderHud();
+    });
+    await expect(page.locator('#hud-name')).toHaveText('TURN PLAYER');
+    await expect(page.locator('#hud-turn-label')).toHaveAttribute('aria-label', 'Current turn: TURN PLAYER');
+    await expect(page.locator('#hud-stage, #hud-bot-status, #hud-note')).toHaveCount(0);
     await page.locator('#home-social-tab').click();
     await expect(page.locator('#social-page-content')).toBeVisible();
     await expect(page.locator('#social-modal')).toHaveClass(/is-hidden/);

@@ -6,9 +6,11 @@
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { focusSurface, syncSurfaceA11y } from "./clientSurfaces.js";
+import { applyPanelVisibility } from "./clientPanelMenu.js";
 
 let drawerFilter = "all";
 let renderedLogSignature = "";
+let drawerEscapeBound = false;
 
 function matchesLogFilter(line, filter) {
   if (filter === "all") return true;
@@ -78,8 +80,10 @@ function flipLogDrawer() {
   const drawer = $("#log-drawer");
   drawer.classList.toggle("is-open");
   const open = drawer.classList.contains("is-open");
+  drawer.inert = !open;
   drawer.setAttribute("aria-hidden", String(!open));
   $("#log-toggle-btn")?.setAttribute("aria-expanded", String(open));
+  applyPanelVisibility();
   syncSurfaceA11y();
   return open;
 }
@@ -88,23 +92,46 @@ export function closeLogDrawer() {
   const drawer = $("#log-drawer");
   const restoreFocus = drawer?.contains(document.activeElement);
   drawer.classList.remove("is-open");
+  drawer.inert = true;
   drawer.setAttribute("aria-hidden", "true");
   $("#log-toggle-btn")?.setAttribute("aria-expanded", "false");
+  applyPanelVisibility();
   syncSurfaceA11y();
   if (restoreFocus) $("#log-toggle-btn")?.focus({ preventScroll: true });
 }
 
 export function toggleLogDrawerFromButton() {
   if (!flipLogDrawer()) return;
+  bindDrawerEscape();
   renderLogDrawer();
+  revealDock();
   focusSurface("#log-drawer");
 }
 
 export function toggleLogDrawerFromKey() {
   if (flipLogDrawer()) {
+    bindDrawerEscape();
     renderLogDrawer();
+    revealDock();
     focusSurface("#log-drawer", "#drawer-close");
   }
+}
+
+function revealDock() {
+  const drawer = $("#log-drawer");
+  const bounds = drawer.getBoundingClientRect?.();
+  if (!bounds) return;
+  if (bounds.top < 0 || bounds.bottom > window.innerHeight) drawer.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function bindDrawerEscape() {
+  if (drawerEscapeBound) return;
+  drawerEscapeBound = true;
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !isLogDrawerOpen()) return;
+    if (!$("#log-drawer")?.contains(document.activeElement)) return;
+    closeLogDrawer();
+  });
 }
 
 export function applyLogDrawerFilter(button) {

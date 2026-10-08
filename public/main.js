@@ -17,9 +17,11 @@ import {
   renderBoardState,
   placePieces,
   startPieceWalk,
+  cancelPieceWalk,
 } from "./clientBoardRender.js";
 import { renderHud } from "./clientHudRender.js";
 import { showDiceRollTotal } from "./clientDiceRollEffect.js";
+import { DICE_SHAKE_CYCLE_MS, MODAL_ENTER_MS } from './gamePresentationTiming.js';
 import {
   CONNECTION_COPY,
   renderConnectionStatus,
@@ -78,7 +80,6 @@ import {
   onRailSubmit,
 } from "./clientRailEvents.js";
 import { configureProfileRender, renderAccountPanel } from "./clientProfileRender.js";
-import { configureCosmetics, renderCollection } from "./clientCosmetics.js";
 import {
   configureNightShift,
   nightShiftState,
@@ -356,7 +357,7 @@ const serverSyncHost = {
   gameViewVisible: () => !$("#view-game").classList.contains("is-hidden"),
   openAuctionSurface: () => {
     renderAuction();
-    openSurface("#auction-modal", "#auction-pass");
+    openSurface("#auction-modal", "#auction-close");
     startAuctionTimer();
   },
   closeAuctionSurface: () => {
@@ -369,6 +370,7 @@ const serverSyncHost = {
   placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
   rebuildBoard: () => buildBoard(onTileClick),
   announceDiceRoll: showDiceRollTotal,
+  cancelPieceMovement: () => state.players.forEach(player => cancelPieceWalk(player.id)),
 };
 
 
@@ -618,7 +620,7 @@ function playerRowHTML(p, i) {
             <span class="t-label pr-name" style="color:${p.textColor}">${esc(p.name)}</span>
           </div>
           ${spectating ? `<span class="t-micro pr-spectating-label">SPECTATING</span>` : ""}
-          <div class="t-label pr-cash">$${Number(p.cash || 0).toLocaleString()}</div>
+          <div class="t-label pr-cash numeric">$${Number(p.visualCash ?? p.cash ?? 0).toLocaleString()}</div>
         </div>
         <div class="pr-right">
           ${playerDotHTML(p)}
@@ -815,7 +817,7 @@ function isLocalPlayerBlocked() {
 
 function canActForStage(idx, expectedStage) {
   if (state.phase !== "playing" || isLocalPlayerBlocked()) return false;
-  if (state.turnIndex !== idx || state.busy) return false;
+  if (state.turnIndex !== idx || state.busy || state.presentationBusy) return false;
   return state.turnStage === expectedStage;
 }
 
@@ -833,7 +835,7 @@ function executeTurnEmit({ kind, requestId, event, errorMessage, timeoutMessage 
     if (state.pendingAction?.requestId !== requestId) return;
     state.pendingAction = null;
     state.busy = false;
-    if (kind === "roll") state.rolling = false;
+    if (kind === "roll" && !state.presentationBusy) state.rolling = false;
   };
   const timeout = setTimeout(() => {
     if (settled) return;
@@ -888,7 +890,7 @@ function mustResolveAcquisition() {
 function canUsePrimaryTurnAction() {
   if (state.phase !== "playing") return false;
   if (isLocalPlayerBlocked()) return false;
-  if (state.busy) return false;
+  if (state.busy || state.presentationBusy) return false;
   return state.turnIndex === 0;
 }
 
@@ -1169,13 +1171,6 @@ function bindGameActions() {
     if (event.currentTarget.disabled) return;
     openWalletModal("account", event.currentTarget);
   });
-  // Debt has a home: the loan pill opens the same wallet surface where
-  // repayments live, instead of hiding behind RETIRE.
-  $("#hud-loan-status")?.addEventListener("click", (event) => {
-    if (event.currentTarget.classList.contains("is-hidden")) return;
-    openWalletModal("account", event.currentTarget);
-  });
-
   $("#global-event-choices")?.addEventListener("click", onGlobalEventVoteClick);
 
   // lobby start round
@@ -1364,6 +1359,8 @@ function bindEvents() {
 /* ============================================================
    10. INIT
    ============================================================ */
+document.documentElement.style.setProperty('--dice-shake-cycle', `${DICE_SHAKE_CYCLE_MS}ms`);
+document.documentElement.style.setProperty('--modal-enter-duration', `${MODAL_ENTER_MS}ms`);
 configureSurfaces({ notice: parlorNotice });
 bindBeforeUnloadGuard();
 configureSocialSurfaces({ emitServer, showView });
@@ -1379,9 +1376,16 @@ configureCasinoUi({ emitServer, renderRightRail, createRequestId, say, recordAct
 configureTradeUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configurePopup({ buyTile, record });
-configureCosmetics({ emitServer, announce: message => parlorNotice("COLLECTION", message) });
-configureProfileRender({ renderAchievements, renderCollection, loadSavedGame, renderHomeSignals });
-configureGameModals({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderAll, buyTile, openHoldings: () => { state.tab = "holdings"; renderRightRail(); }, openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
+configureProfileRender({ renderAchievements, loadSavedGame, renderHomeSignals });
+configureGameModals({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderAll, buyTile,
+  openHoldings: () => { state.tab = "holdings"; renderRightRail(); },
+  openTradeForDebt: () => {
+    const partner = state.players.find(player => player.id !== 'p1' && !player.bankrupt && !player.spectating && player.online !== false);
+    if (partner) openTradeModal(partner.id);
+    else parlorNotice('TRADE', 'No active trade partner is available.');
+  },
+  openFinancingForDebt: () => openFinancingModal('loan'),
+  openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configureDeedDetail({ emitServer, say, captureActionStatusNode, announceActionStatus, renderAll });
 configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });

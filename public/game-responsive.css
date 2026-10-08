@@ -11,7 +11,80 @@
 #view-game .numeric,
 #view-game .t-money,
 #view-game .tile-price {
+  font-family: var(--font-numeric);
   font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* The primary action wrapper is one HUD item, just like the old Roll button. */
+#view-game .hud-jail-actions:not(:has(> button:not(.is-hidden))) { display: none; }
+#view-game .hud-turn-cell .hud-body { margin-top: 0; }
+
+@media (min-width: 992px) and (max-width: 1399px) {
+  #view-game .hud { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(108px, .85fr) minmax(0, 1fr) minmax(0, 1.16fr); gap: 6px; }
+  #view-game .hud-primary-actions { grid-column: span 1; min-width: 0; }
+  #view-game .hud-cell, #view-game .hud-roll { min-height: 96px; padding: 8px; }
+  #view-game .hud-name { font-size: 22px; }
+  #view-game .hud .t-money { font-size: 24px; }
+  #view-game #hud-cash-action [data-sprite="note"] { display: none; }
+  #view-game .hud-dice { gap: 8px; }
+  #view-game .hud .die { width: 40px; height: 40px; padding: 6px; }
+  #view-game .hud-roll .cta-text { font-size: 19px; }
+}
+
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {
+  #view-game .hud { grid-template-columns: minmax(0, .96fr) minmax(0, .9fr) minmax(104px, 1.1fr) minmax(0, 1.04fr) minmax(0, 1.1fr); }
+  #view-game .hud-cell { height: 86px; min-height: 86px; }
+  #view-game .hud-primary-actions { grid-column: span 1; min-width: 0; height: 86px; }
+  #view-game .hud-primary-actions .hud-roll { height: 86px; min-height: 44px; padding: 8px; }
+  #view-game .hud-jail-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  #view-game .hud-jail-actions button { min-width: 0; min-height: 44px; padding: 4px; }
+  #view-game .hud:has(.hud-jail-actions > button:not(.is-hidden)) { height: 138px; min-height: 138px; }
+  #view-game .hud:has(.hud-jail-actions > button:not(.is-hidden)) .hud-primary-actions { height: 138px; }
+  #view-game .hud:has(.hud-jail-actions > button:not(.is-hidden)) .hud-cell { height: 138px; }
+}
+
+@media (orientation: portrait) and (min-width: 768px) and (max-width: 1100px) {
+  #view-game { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  #view-game .topnav { height: auto; min-height: 64px; flex-wrap: wrap; gap: 6px; padding: 6px 10px; }
+  #view-game .tn-lobby { display: none; }
+  #view-game .tn-right { width: 100%; margin-left: 0; gap: 6px; justify-content: flex-end; }
+  #view-game .game-main { flex: 1; height: auto; min-width: 0; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: minmax(0, 1.5fr) minmax(0, 1fr); gap: 8px; padding: 8px; overflow: hidden; }
+  #view-game .rail-center { grid-column: 1 / -1; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; gap: 8px; }
+  #view-game .board-area { min-width: 0; min-height: 0; overflow: hidden; container-type: size; }
+  #view-game .board-holder, #view-game .board-holder.is-metro { width: min(100cqw, 100cqh); height: auto; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; }
+  #view-game .rail-left { grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; gap: 8px; }
+  #view-game .rail-left > .panel:first-child { flex: 0 0 auto; max-height: 120px; overflow-y: auto; }
+  #view-game .chat-panel, #view-game .chat-body { min-height: 0; overflow: hidden; }
+  #view-game .chat-body { overflow-y: auto; }
+  #view-game .right-rail { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
+  #view-game .rr-body { min-height: 0; overflow-y: auto; }
+  #view-game .hud { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  #view-game .hud-primary-actions { grid-column: 1 / -1; min-width: 0; }
+  #view-game .hud-cell, #view-game .hud-roll { min-height: 64px; height: 64px; padding: 6px; }
+  #view-game .hud-name { font-size: 20px; }
+  #view-game .hud .t-money { font-size: 22px; }
+  #view-game .hud .die { width: 36px; height: 36px; padding: 5px; }
+  #view-game .hud-dice { gap: 6px; }
+  #view-game .hud-jail-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* At reflow/phone widths only the game content scrolls; chrome stays fixed. */
+@media (max-width: 767px) {
+  #view-game { height: 100vh; height: 100dvh; min-height: 0; max-width: 100%; overflow: hidden; }
+  #view-game .topnav { height: auto; min-height: 64px; flex-wrap: wrap; gap: 6px; padding: 6px; }
+  #view-game .tn-lobby { display: none; }
+  #view-game .tn-right { width: 100%; margin-left: 0; flex-wrap: wrap; gap: 4px; }
+  #view-game .game-main { flex: 1; display: flex; height: auto; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
+  #view-game .rail-center { display: flex; flex: 0 0 auto; order: -1; min-width: 0; gap: 8px; }
+  #view-game .board-area { flex: 0 0 auto; min-width: 0; min-height: 0; }
+  #view-game .board-holder, #view-game .board-holder.is-metro { width: min(100%, 480px); height: auto; min-width: 0; min-height: 0; max-width: 100%; }
+  #view-game .hud { order: -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  #view-game .hud-primary-actions { grid-column: 1 / -1; min-width: 0; }
+  #view-game .hud-cell, #view-game .hud-roll { min-height: 74px; padding: 8px; }
+  #view-game .hud-name { font-size: 22px; }
+  #view-game .rail-left, #view-game .right-rail { flex: 0 0 auto; min-width: 0; min-height: 0; height: 280px; overflow: hidden; }
+  #view-game .rail-left > .panel:first-child { max-height: 100px; overflow-y: auto; flex: 0 0 auto; }
+  #view-game .chat-panel, #view-game .chat-body, #view-game .rr-body { min-height: 0; }
 }
 
 @media (orientation: landscape) and (min-width: 1100px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {

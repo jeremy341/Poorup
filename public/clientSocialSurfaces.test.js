@@ -64,7 +64,7 @@ check("sharedHistoryShowsNotRecordedForSparseLegacyFields", () => {
 });
 
 check("rankingScopesAndSearchRemainAvailable", () => {
-  assert.match(source, /\[\["all", "ALL TIME"\], \["season", "THIS SEASON"\], \["month", "30 DAYS"\], \["friends", "FRIENDS"\]\]/);
+  assert.match(source, /\[\["all", "ALL TIME"\], \["month", "30 DAYS"\], \["friends", "FRIENDS"\]\]/);
   assert.match(responsiveSource, /data-ranking-search-form/);
   assert.match(responsiveSource, /data-ranking-search-input/);
   assert.match(source, /data-ranking-scope=/);
@@ -79,31 +79,16 @@ check("rankingArrowControlsRemainKeyboardAccessible", () => {
   assert.equal((bindings.match(/focusRankingStep\(surface,/g) || []).length, 3);
 });
 
-check("seasonGuestSeesExactlyOneSignInCta", () => {
-  const season = {
-    id: "2026-08-11",
-    status: "active",
-    startsAt: "2026-08-11",
-    endsAt: "2026-10-12",
-  };
-  const rewards = ["bronze", "silver", "gold"].map((id, index) => ({ id, track: "placement", threshold: (index + 1) / 100, tokens: 40 * (index + 1) }));
-  const html = surfaces.seasonPanelHTML("test", { season, rewards, signedIn: false });
-  assert.equal((html.match(/data-season-sign-in/g) || []).length, 1);
-  assert.equal((html.match(/>SIGN IN</g) || []).length, 1);
-  assert.equal((html.match(/data-season-claim=/g) || []).length, 0);
-  for (const reward of rewards) assert.ok(html.includes(reward.id.toUpperCase()));
+check("retiredSeasonSurfacesAndRequestsAreGone", () => {
+  assert.equal(typeof surfaces.requestSeason, "undefined");
+  assert.equal(typeof surfaces.seasonPanelHTML, "undefined");
+  assert.doesNotMatch(source, /get-season|claim-season-reward|Season Ledger|data-season-claim|THIS SEASON|rankings-pane-tab/);
+  assert.match(source, /\[\["all", "ALL TIME"\], \["month", "30 DAYS"\], \["friends", "FRIENDS"\]\]/);
 });
 
-check("seasonLoadingErrorEmptyAndStaleStatesRemainUseful", () => {
-  const loading = surfaces.seasonPanelHTML("test", { loading: true });
-  assert.match(loading, /LOADING VERIFIED SEASON/);
-  const error = surfaces.seasonPanelHTML("test", { error: "Service unavailable" });
-  assert.match(error, /Service unavailable/);
-  assert.match(error, /data-season-retry/);
-  const empty = surfaces.seasonPanelHTML("test", { season: { id: "S1", status: "active" }, rows: [], rewards: [], signedIn: true });
-  assert.match(empty, /NO VERIFIED PLACEMENTS YET/);
-  assert.match(empty, /REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH/);
-  const stale = surfaces.seasonPanelHTML("test", { season: { id: "S1", status: "active" }, stale: true, error: "Refresh failed", rows: [], rewards: [], signedIn: true });
-  assert.match(stale, /LAST VERIFIED SEASON SHOWN/);
-  assert.match(stale, /data-season-retry/);
+check("rulesExplainAuctionAndPropertyActionTiming", () => {
+  assert.match(source, /Each valid bid resets the five-second timer/);
+  assert.match(source, /There is no pass action during an auction/);
+  assert.match(source, /build or sell houses and hotels before ending your turn/);
+  assert.match(source, /Mortgaging an owned deed may happen on any turn/);
 });

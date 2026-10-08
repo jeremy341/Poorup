@@ -139,8 +139,9 @@ function renderDeedDetail() {
   }
 
   const mortgageAction = isMortgaged ? projectedActions?.unmortgage : projectedActions?.mortgage;
+  const mortgageReason = mine && mortgageAction?.reason;
   const mortgageBtn = mine
-    ? `<button class="btn-dark dd-close" id="dd-mortgage" ${mortgageAction && !mortgageAction.enabled ? "disabled" : ""}>
+    ? `<button class="btn-dark dd-close" id="dd-mortgage" ${mortgageAction && !mortgageAction.enabled ? "disabled" : ""} ${mortgageReason ? 'aria-describedby="dd-mortgage-reason"' : ""}>
         <span class="t-label f11">${isMortgaged ? `UNMORTGAGE $${mortgageAction?.cost ?? unmortgageCost(tile)}` : `MORTGAGE +$${mortgageAction?.cost ?? mortgageValue(tile)}`}</span>
       </button>`
     : "";
@@ -159,7 +160,7 @@ function renderDeedDetail() {
 
       <div class="dd-stats">
         ${popRow("PRICE", `$${tile.price}`, "g300")}
-        ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, "green")}
+        ${popRow("YOUR CASH", `$${Number(me.visualCash ?? me.cash ?? 0).toLocaleString()}`, "green")}
         ${!isProperty ? popRow(tile.kind === "utility" ? "RENT MULTIPLIER" : "RENT NOW", deedCurrentRentLabel(tile), "green") : ""}
         ${isProperty ? popRow("COLOR SET", tile.group.toUpperCase(), hasSet ? "green" : "g-muted") : ""}
         ${isProperty ? popRow("HOUSE COST", `$${houseCost}`, "g300") : ""}
@@ -174,6 +175,7 @@ function renderDeedDetail() {
 
       ${buildBlock}
 
+      ${mortgageReason ? `<p class="t-body ink-2" id="dd-mortgage-reason">${esc(mortgageReason)}</p>` : ""}
       <div class="dd-foot">
         <span class="t-micro ink-3">ESC OR CLICK OUTSIDE TO CLOSE</span>
         ${mortgageBtn}
