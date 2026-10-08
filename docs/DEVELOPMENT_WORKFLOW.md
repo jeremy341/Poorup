@@ -175,6 +175,11 @@ this runbook explaining the sync action. Verify that the resulting PR's only
 tree difference from `development` is that documentation note; keep the
 application tree unchanged and still require the separate heavy promotion PR.
 
+2026-10-08: after the CodeScene refactor promotion, `testing` gained a new
+merge commit not present on `development`. The follow-up lane sync carries
+that testing tip into development before the next heavy promotion; it changes
+no application files.
+
 The workflow already triggers on `merge_group` events and the `plan` job
 maps a merge group targeting `testing` to the heavy tier, so if the queue
 ever becomes available on this plan, enabling it in the UI needs **zero**
