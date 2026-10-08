@@ -25,7 +25,7 @@ async function expectNoDocumentScroll(page) {
 }
 
 const SHORT_VIEWPORTS = [
-  { name: 'ipad-1180x700', width: 1180, height: 700, seasonCue: true },
+  { name: 'ipad-1180x700', width: 1180, height: 700 },
   { name: 'ipad-1024x768', width: 1024, height: 768 },
   { name: 'ipad-944x656', width: 944, height: 656 },
   { name: 'ipad-portrait-820x1060', width: 820, height: 1060 },
@@ -39,7 +39,7 @@ const EXTERNAL_ROUTES = [
     button: '#home-rankings-tab',
     viewId: '#view-rankings',
     scrollSelector: '#view-rankings .social-page-main',
-    reachableSelectors: ['#rankings-page-content .rankings-stage', '#rankings-page-content .rankings-context'],
+    reachableSelectors: ['#rankings-page-content .rankings-stage'],
   },
   {
     id: 'rules',
@@ -58,15 +58,6 @@ const EXTERNAL_ROUTES = [
 ];
 
 const SHORT_VIEWPORT_CASES = SHORT_VIEWPORTS.flatMap((viewport) => EXTERNAL_ROUTES.map((route) => ({ viewport, route })));
-
-async function expectSeasonCueWhenNeeded(page, viewport, route) {
-  if (!viewport.seasonCue || route.id !== 'rankings') return;
-  const seasonGrid = page.locator('#rankings-page-content .season-panel-grid');
-  await expect(seasonGrid).toBeVisible();
-  await expect(seasonGrid).toHaveAttribute('tabindex', '0');
-  await expect(page.locator('#rankings-page-content [data-season-scroll-cue]')).toBeVisible();
-  await expect(page.locator('#rankings-page-content [data-season-scroll-cue]')).toContainText('SCROLL INSIDE');
-}
 
 async function expectZoomContentReachable(page, viewport, route) {
   if (!viewport.zoomEquivalent) return;
@@ -98,7 +89,6 @@ async function verifyShortViewportRoute(page, testInfo, viewport, route) {
   }));
   expect(bounds.height, `${viewport.name} ${route.id}`).toBeLessThanOrEqual(bounds.viewport + 1);
   await expectNoDocumentScroll(page);
-  await expectSeasonCueWhenNeeded(page, viewport, route);
   await expectZoomContentReachable(page, viewport, route);
   await captureIfRequested(page, testInfo, `${viewport.name}-${route.id}.png`);
 }
@@ -152,37 +142,22 @@ test.describe('iPad external pages', () => {
     await expectNoDocumentScroll(page);
   });
 
-  test('portrait rankings switch between standings and season without hiding the metric control', async ({ page }, testInfo) => {
+  test('portrait rankings keep metric controls visible without the retired season pane', async ({ page }) => {
     await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto('/');
     await page.locator('#home-rankings-tab').click();
 
-    const standingsTab = page.locator('#rankings-page-content [data-ranking-pane="standings"]');
-    const seasonTab = page.locator('#rankings-page-content [data-ranking-pane="season"]');
-    await expect(standingsTab).toBeVisible();
-    await expect(seasonTab).toBeVisible();
-    await expect(standingsTab).toHaveAttribute('aria-pressed', 'true');
-    expect(await seasonTab.evaluate((button) => button.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
     await expect(page.locator('#rankings-page-content .rankings-stage')).toBeVisible();
-    await expect(page.locator('#rankings-page-content .rankings-context')).toBeHidden();
+    await expect(page.locator('#rankings-page-content .rankings-context, #rankings-page-content [data-ranking-pane="season"]')).toHaveCount(0);
+    await expect(page.locator('#rankings-page-content [data-ranking-step="-1"]')).toBeVisible();
+    await expect(page.locator('#rankings-page-content [data-ranking-step="1"]')).toBeVisible();
     const metricHeading = page.locator('#rankings-page-content [data-ranking-stage] h3');
     await expect(metricHeading).toContainText('WINS');
     await page.locator('#rankings-page-content [data-ranking-step="1"]').click();
     await expect(metricHeading).toContainText('WIN RATE');
-
-    await seasonTab.click();
-    await expect(seasonTab).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#rankings-page-content .rankings-stage')).toBeHidden();
-    await expect(page.locator('#rankings-page-content .rankings-context')).toBeVisible();
-
-    await standingsTab.click();
-    await expect(page.locator('#rankings-page-content [data-ranking-step="1"]')).toBeVisible();
-    await seasonTab.focus();
-    await page.keyboard.press('ArrowLeft');
-    await expect(standingsTab).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('#rankings-page-content [data-ranking-step="-1"]').click();
+    await expect(metricHeading).toContainText('WINS');
     await expectNoDocumentScroll(page);
-    await seasonTab.click();
-    await captureIfRequested(page, testInfo, 'rankings-portrait-season.png');
   });
 
   test('portrait rules progressively discloses search and chapter navigation', async ({ page }, testInfo) => {
@@ -307,14 +282,14 @@ test.describe('iPad external pages', () => {
   });
 });
 
-test('desktop rankings keeps its inline lookup, paired ledger and metric arrows', async ({ page }, testInfo) => {
+test('desktop rankings keeps its inline lookup and metric arrows without the retired season ledger', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-1920x1080', 'Desktop regression contract');
   await page.goto('/');
   await page.locator('#home-rankings-tab').click();
   await expect(page.locator('#rankings-page-content [data-ranking-search-toggle]')).toBeHidden();
   await expect(page.locator('#rankings-page-content [data-ranking-search-input]')).toBeVisible();
   await expect(page.locator('#rankings-page-content .rankings-stage')).toBeVisible();
-  await expect(page.locator('#rankings-page-content .rankings-context')).toBeVisible();
+  await expect(page.locator('#rankings-page-content .rankings-context')).toHaveCount(0);
   await expect(page.locator('#rankings-page-content [data-ranking-step="1"]')).toBeVisible();
   await captureIfRequested(page, testInfo, 'rankings-desktop-1920.png');
 
