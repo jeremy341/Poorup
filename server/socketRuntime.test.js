@@ -177,6 +177,48 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
 }
 
 {
+  let currentTime = 90_000;
+  const timers = [];
+  let finishes = 0;
+  const auction = { active: true, endsAt: currentTime + 5_000 };
+  const timedRoom = {
+    roomCode: 'MOVING-AUCTION',
+    destroyed: false,
+    game: {
+      auction,
+      presentation: { startedAt: currentTime, readyAt: currentTime + 5_040 },
+      players: [],
+      finishAuction() { finishes += 1; auction.active = false; }
+    }
+  };
+  const timedManager = {
+    rooms: new Map([[timedRoom.roomCode, timedRoom]]),
+    getRoom: code => code === timedRoom.roomCode ? timedRoom : null,
+    setRoomDestroyer() {}
+  };
+  const timedRuntime = createRuntime({
+    io: { emit() {}, on() {}, in() { return { emit() {} }; }, sockets: { sockets: new Map() } },
+    roomManager: timedManager,
+    accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {}, telemetryStore: null,
+    botAdvisor: {},
+    social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },
+    maintenance: {}, metrics: { setMetric() {} }, authoritativeStore: {}, pubsubAdapter: {},
+    now: () => currentTime,
+    setTimeout(callback, delay) { const timer = { callback, delay }; timers.push(timer); return timer; },
+    clearTimeout() {},
+    setInterval() { return { unref() {} }; },
+    clearInterval() {}
+  });
+
+  timedRuntime.scheduleAuctionFinish(timedRoom);
+  assert.equal(auction.endsAt, currentTime + 5_040 + 5_000, 'the full bid window starts after presentation finishes');
+  assert.equal(timers.at(-1).delay, 10_040);
+  currentTime = auction.endsAt;
+  timers.at(-1).callback();
+  assert.equal(finishes, 1, 'the auction settles only after the post-arrival bidding window');
+}
+
+{
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'bid-host', clientId: 'bid-host-client', nickname: 'Host', roomCode: 'BOT-BID-TIMER' });
   room.addOrReconnectPlayer({ socketId: 'bid-guest', clientId: 'bid-guest-client', nickname: 'Guest' });

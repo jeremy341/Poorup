@@ -150,6 +150,7 @@ function registerGameSocketHandlers(on, socket, runtime) {
     }
     const result = room.rollDice(socket.id);
     recordHumanAction(room, socket, result);
+    announceRollAuction(runtime, room, result);
     runtime.emitRoomState(room);
     announceRollOutcomes(runtime, socket, room, result);
     reply(callback, roomVerbAck(result));
@@ -263,7 +264,6 @@ function registerGameSocketHandlers(on, socket, runtime) {
 
 function announceRollOutcomes(runtime, socket, room, result) {
   emitRollPurchaseOffer(socket, room, result);
-  announceRollAuction(runtime, room, result);
   emitResultMessage(runtime.io, room, result);
   emitRollCardReveal(socket, result);
 }

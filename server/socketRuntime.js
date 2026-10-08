@@ -899,7 +899,11 @@ function createRuntime(deps) {
     if (!auction?.active || room.destroyed) return;
     const roomCode = room.roomCode;
     clearAuctionTimer(room);
-    const endsAt = auction.endsAt || (now() + AUCTION_DURATION_MS);
+    const currentTime = now();
+    const presentationDeadline = currentTime + presentationRemainingMs(room.game, currentTime);
+    const minimumVisibleWindowEnd = presentationDeadline + AUCTION_DURATION_MS;
+    const endsAt = Math.max(Number(auction.endsAt) || 0, minimumVisibleWindowEnd);
+    auction.endsAt = endsAt;
     const delay = Math.max(0, endsAt - now());
     // Capture the auction object itself, not just the room code. A stale
     // callback that survives clearTimeout must never finish a newer auction in
