@@ -51,6 +51,8 @@ import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
 import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
 import { appendPublicAction } from './publicActionHistory.js';
+import { recordPresentationCash } from './gamePresentation.js';
+import { gamePresentationApi } from './gamePresentationApi.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -264,6 +266,8 @@ class GameState {
     this.currentPlayerId = null;
     this.lastDice = [0, 0];
     this.diceRollSequence = 0;
+    this.presentation = null;
+    this._activePresentation = null;
     this.hasRolled = false;
     this.consecutiveDoubles = 0;
     this.extraRollPending = false;
@@ -354,6 +358,8 @@ class GameState {
   }
 
   resetForNewGame() {
+    this.presentation = null;
+    this._activePresentation = null;
     this.boardVariant = this.settings.boardVariant || this.boardVariant || 'standard-40';
     this.tiles = tilesForVariant(this.boardVariant);
     this.currentPlayerId = null;
@@ -671,26 +677,6 @@ class GameState {
     return { success: true };
   }
 
-  rollDice(socketId) {
-    const player = this.getPlayerBySocket(socketId);
-    const rejection = this.rollTurnRejection(player);
-    if (rejection) return rejection;
-    if (player.inJail) {
-      return this.handleJailRoll(player);
-    }
-    if (this.hasRolled && !this.extraRollPending) {
-      return { success: false, error: 'You have already rolled this turn.' };
-    }
-    const dice = rollDice();
-    this.setTurnDice(dice);
-    if (this.consecutiveDoubles >= 3) {
-      return this.sendRollerToJail(player);
-    }
-    const move = dice[0] + dice[1];
-    this.feedMessage(`${player.nickname} rolled ${dice[0]} and ${dice[1]} (${move}).`);
-    return this.movePlayer(player, move);
-  }
-
   rollTurnRejection(player) {
     const playerId = player?.id;
     const blocker = [
@@ -719,6 +705,7 @@ class GameState {
   }
 
   sendRollerToJail(player) {
+    this.recordPresentationMove(player, this.tiles.find(tile => tile.type === 'jail').index, { cause: 'three-doubles', teleport: true });
     player.position = this.tiles.find(tile => tile.type === 'jail').index;
     player.inJail = true;
     player.jailTurns = 0;
@@ -876,6 +863,7 @@ class GameState {
     const reward = this.startPassReward(exactStart);
     const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
     player.cash += reward + bonus;
+    recordPresentationCash(this, 'go', distanceToStart - 1);
     this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
   }
 
@@ -888,6 +876,7 @@ class GameState {
   movePlayer(player, steps, options = {}) {
     this.handleFortyFirstMove(player);
     const oldPosition = player.position;
+    this.recordPresentationMove(player, (player.position + steps) % this.tiles.length, { cause: 'dice', steps });
     player.position = (player.position + steps) % this.tiles.length;
     this.awardStartPass(player, oldPosition, steps);
     const tile = this.getTile(player.position);
@@ -1300,7 +1289,7 @@ class GameState {
 
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi, gamePresentationApi);
 
 export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 

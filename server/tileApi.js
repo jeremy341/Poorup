@@ -93,6 +93,7 @@ const tileApi = {
   },
 
   landingGoToVacation(player, tile, options) {
+    this.recordPresentationMove(player, this.tiles.find(tileItem => tileItem.type === 'vacation').index, { cause: 'vacation', teleport: true });
     player.position = this.tiles.find(tileItem => tileItem.type === 'vacation').index;
     player.inJail = false;
     player.jailTurns = 0;
@@ -103,6 +104,7 @@ const tileApi = {
   },
 
   landingGoToJail(player, tile, options) {
+    this.recordPresentationMove(player, this.tiles.find(tileItem => tileItem.type === 'jail').index, { cause: 'jail', teleport: true });
     player.position = this.tiles.find(tileItem => tileItem.type === 'jail').index;
     player.inJail = true;
     player.jailTurns = 0;

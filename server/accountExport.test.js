@@ -10,7 +10,7 @@ const document = buildAccountExport({
     achievements: [{ id: 'first-deed' }], designs: [{ id: 'pf_1', designName: 'ONE' }]
   },
   social: { friends: ['acct-other'], requests: [{ accountId: 'acct-other' }], notifications: [{ body: 'hello' }] },
-  cosmetics: [{ id: 'hat', owned: true }],
+  retiredData: { cosmetics: { tokens: 75, owned: ['frame-copper'], equipped: {} } },
   matches: [{ matchId: 'm2', privateLoanTerms: 'secret', chat: 'raw chat' }],
   now: () => Date.parse('2026-09-17T12:00:00.000Z')
 });
@@ -24,5 +24,6 @@ assert.equal(serialized.includes('sessionToken'), false);
 assert.equal(serialized.includes('acct-secret'), false);
 assert.equal(serialized.includes('privateLoanTerms'), false);
 assert.equal(serialized.includes('raw chat'), false);
+assert.deepEqual(document.retiredData, { cosmetics: { tokens: 75, owned: ['frame-copper'], equipped: {} } });
 assert.ok(document.statistics);
 console.log('account export: 8 passed, 0 failed');

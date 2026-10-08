@@ -60,7 +60,6 @@ function loanRoom() {
   return { room, game, borrower };
 }
 
-const MORTGAGE_TABLE_ERROR = 'Resolve the table obligation before managing property.';
 const PROPERTY_LIVENESS_ERROR = 'Property access is unavailable right now.';
 const BANK_LIVENESS_ERROR = 'Bank credit is unavailable right now.';
 
@@ -106,32 +105,32 @@ check('FIX1 debt owed by another seat does not block a mortgage', () => {
   assert.equal(result.success, true);
 });
 
-check('FIX1 mortgage blocked while auction is open', () => {
+check('FIX1 mortgage remains available while an unrelated auction is open', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.game.auction = { active: true };
-  assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }), { success: false, error: MORTGAGE_TABLE_ERROR });
+  assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
 });
 
-check('FIX1 mortgage blocked while pendingTrade is open', () => {
+check('FIX1 mortgage remains available while an unrelated trade is open', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.game.pendingTrade = { id: 't1' };
-  assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }), { success: false, error: MORTGAGE_TABLE_ERROR });
+  assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
 });
 
-check('FIX1 mortgage blocked while pendingPlayerContract is open', () => {
+check('FIX1 mortgage remains available while an unrelated contract is open', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.game.pendingPlayerContract = { id: 'c1' };
-  assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }), { success: false, error: MORTGAGE_TABLE_ERROR });
+  assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
 });
 
-check('FIX1 mortgage blocked while pendingPurchaseOffer is open', () => {
+check('FIX1 mortgage remains available while another player property offer is open', () => {
   const ctx = ownedRoom();
   ctx.give(6);
   ctx.game.pendingPurchaseOffer = { playerId: ctx.owner.id, tileIndex: 1 };
-  assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 6, action: 'mortgage' }), { success: false, error: MORTGAGE_TABLE_ERROR });
+  assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 6, action: 'mortgage' }).success, true);
 });
 
 check('FIX1 liveness wins over table obligation', () => {

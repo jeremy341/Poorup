@@ -56,7 +56,6 @@ function auctionFocusKey(active) {
   if (!active || !card?.contains(active)) return "";
   const bid = active.closest?.("[data-bid]");
   if (bid) return `bid:${bid.dataset.bid}`;
-  if (active.closest?.("#auction-pass")) return "auction-pass";
   return active.id ? `id:${active.id}` : "";
 }
 
@@ -66,7 +65,7 @@ function restoreAuctionFocus(key) {
   if (!card) return;
   const target = key.startsWith("bid:")
     ? card.querySelector(`[data-bid="${key.slice(4)}"]`)
-    : key === "auction-pass" ? card.querySelector("#auction-pass") : card.querySelector(`#${key.slice(3)}`);
+    : card.querySelector(`#${key.slice(3)}`);
   target?.focus({ preventScroll: true });
 }
 
@@ -95,10 +94,6 @@ function humanBid(inc, control) {
   if (!a) return;
   if (auctionActionPending) return;
   const me = state.players[0];
-  if (a.passed.p1) {
-    host.announceActionStatus("You already passed on this auction.", host.captureActionStatusNode(control));
-    return;
-  }
   if (me.cash < a.bid + inc) {
     host.announceActionStatus(`That raise costs $${(a.bid + inc).toLocaleString()} and you hold $${Number(me.cash || 0).toLocaleString()}.`, host.captureActionStatusNode(control));
     return;
@@ -110,21 +105,6 @@ function humanBid(inc, control) {
     auctionActionPending = false;
     if (response?.success === false) {
       host.announceActionStatus(response.error || "Bid rejected.", auctionActionStatusNode);
-    }
-    updateAuctionLive();
-  });
-}
-
-function humanPassAuction(control) {
-  const a = state.auction;
-  if (!a) return;
-  if (!beginAuctionAction(control)) return;
-  updateAuctionLive();
-  host.emitServer("auction-pass", {}, (response) => {
-    clearAuctionActionTimer();
-    auctionActionPending = false;
-    if (response?.success === false) {
-      host.announceActionStatus(response.error || "You cannot pass this auction.", auctionActionStatusNode);
     }
     updateAuctionLive();
   });
@@ -157,7 +137,7 @@ export function renderAuction() {
     return;
   }
   const focusKey = auctionFocusKey(document.activeElement);
-  const sameAuction = card.dataset.auctionTile === String(a.tileIndex) && card.querySelector("#auction-pass");
+  const sameAuction = card.dataset.auctionTile === String(a.tileIndex) && card.querySelector("#auction-close");
   if (sameAuction) {
     updateAuctionLive();
     restoreAuctionFocus(focusKey);
@@ -203,10 +183,6 @@ export function renderAuction() {
           </button>`).join("")}
       </div>
 
-      <div class="auction-pass">
-        <button class="btn-dark auction-pass-btn" id="auction-pass"><span class="t-label f12">PASS · STAND DOWN</span></button>
-      </div>
-
       <div class="auction-players" id="auction-players"></div>
 
       <p class="sr-only" id="auction-status" aria-live="polite" aria-atomic="true"></p>
@@ -217,7 +193,6 @@ export function renderAuction() {
   card.querySelectorAll("[data-bid]").forEach((btn) => {
     btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid), btn));
   });
-  $("#auction-pass").addEventListener("click", event => humanPassAuction(event.currentTarget));
   $("#auction-close")?.addEventListener("click", () => {
     // Dismissing a live auction snoozes re-rendering instead of fighting it.
     snoozeAuctionSurface();
@@ -286,11 +261,6 @@ function disableAuctionBids(me, a) {
   });
 }
 
-function renderAuctionPass(a) {
-  const passBtn = $("#auction-pass");
-  if (passBtn) passBtn.disabled = auctionActionPending || !!a.passed?.p1;
-}
-
 function auctionPlayerBroke(p, a) {
   if (p.cash < BID_STEPS[0]) return true;
   if (p.id === "p1") return false;
@@ -299,9 +269,8 @@ function auctionPlayerBroke(p, a) {
 
 function auctionPlayerStatus(p, a) {
   if (p.id === a.leaderId) return { status: "LEADING", cls: "g300" };
-  if (a.passed[p.id]) return { status: "PASSED", cls: "ink-3" };
   if (auctionPlayerBroke(p, a)) return { status: "BROKE", cls: "red" };
-  return { status: "BIDDING", cls: "green" };
+  return { status: "CAN BID", cls: "green" };
 }
 
 function auctionPlayerRow(p, a) {
@@ -340,7 +309,6 @@ function updateAuctionLive() {
   renderAuctionLeader(a);
   renderAuctionStatus(a);
   disableAuctionBids(me, a);
-  renderAuctionPass(a);
   renderAuctionPlayers(a);
 }
 

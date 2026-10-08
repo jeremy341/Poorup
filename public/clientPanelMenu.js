@@ -41,8 +41,9 @@ function applyLeftRailClasses(next) {
 }
 
 function applyRightRailClasses(next) {
-  $("#right-rail-game")?.classList.toggle("is-panel-hidden", !next.rightRail);
-  $("#view-game")?.classList.toggle("is-right-rail-hidden", !next.rightRail);
+  const visible = next.rightRail || $("#log-drawer")?.classList.contains("is-open");
+  $("#right-rail-game")?.classList.toggle("is-panel-hidden", !visible);
+  $("#view-game")?.classList.toggle("is-right-rail-hidden", !visible);
 }
 
 function applyRailClasses(next) {

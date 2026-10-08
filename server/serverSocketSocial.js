@@ -8,10 +8,13 @@ import crypto from 'crypto';
 import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
 import { reply } from './socketHandlerSupport.js';
 import { normalizeChatText, matchHistoryPrivacyError, summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
-import { SEASON_METRICS, publicSeasonSummary, seasonMetricValue } from './seasonModule.js';
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
-const LEADERBOARD_METRICS = [...SEASON_METRICS];
+const LEADERBOARD_METRICS = Object.freeze([
+  'wins', 'games', 'rate', 'achievements', 'mythical', 'bankruptcies',
+  'events', 'auctions', 'rent', 'casino', 'market', 'playerloans',
+  'equity', 'loans', 'patrol',
+]);
 
 const PLAYER_NOT_FOUND = { success: false, error: 'Player not found.' };
 const ACCOUNT_DELETION_PENDING = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
@@ -37,31 +40,6 @@ export function projectPlayerCardAccess({ card, canSeePrivateMatches, canSeeRece
     historyFriendsOnly: !canSeeRecent && card.historyFriendsOnly,
     recentMatches: canSeeRecent ? getRecentMatches() : []
   };
-}
-
-// Reward grants are deliberately replay-safe. The season write can commit
-// before a cosmetic/token store write fails, so callers must retry this seam
-// even when the next claim response reports created=false.
-export function applySeasonRewardGrant(cosmeticStore, accountId, claimed) {
-  const reward = claimed?.reward;
-  if (!cosmeticStore || !reward) return { success: true };
-  try {
-    if (reward.cosmeticId) {
-      const result = cosmeticStore.claim(accountId, reward.cosmeticId, {
-        claimKey: `season:${claimed.season?.id || 'unknown'}:${reward.id}`,
-        allowPaid: false,
-        allowSeason: true
-      });
-      if (result?.success === false) return { success: false, error: result.error || 'Cosmetic grant failed.' };
-    }
-    if (reward.tokens) {
-      const result = cosmeticStore.grantTokens(accountId, reward.tokens, `season:${claimed.season?.id || 'unknown'}:${reward.id}:tokens`);
-      if (result?.success === false) return { success: false, error: 'Token grant failed.' };
-    }
-    return { success: true };
-  } catch {
-    return { success: false, error: 'Season reward grant is pending; retry the claim.' };
-  }
 }
 
 function registerSocialSocketHandlers(on, socket, runtime) {
@@ -246,62 +224,6 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   on('get-leaderboard-snapshot', (payload = {}, callback) => {
     leaderboardGuardedQuery(payload, callback, (scope, options) => snapshotAck(callback, scope, options));
-  });
-
-  on('get-season', (payload = {}, callback) => {
-    const seasonStore = runtime.seasonStore;
-    if (!seasonStore) return reply(callback, { success: false, error: 'Season service is unavailable.' });
-    const account = accountForSocket(socket, payload);
-    const metric = ['points', 'wins', 'rate', 'mastery'].includes(payload.metric) ? payload.metric : 'points';
-    const standings = seasonStore.standings({ seasonId: payload.seasonId, metric, accountId: payload.mineOnly && account ? account.id : null });
-    const rows = standings.rows.map(row => {
-      const profile = accountStore.getPublicAccountById(row.accountId);
-      return { ...row, username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null };
-    });
-    const claimedRewardIds = account && standings.season
-      ? (seasonStore.claimedRewards?.(account.id, standings.season.id) || [])
-      : [];
-    reply(callback, { success: true, season: publicSeasonSummary(standings.season), metric, rows, rewards: standings.season?.rewardTrack || [], claimedRewardIds });
-  });
-
-  on('claim-season-reward', (payload = {}, callback) => {
-    const account = accountForSocket(socket, payload);
-    if (!account) return reply(callback, { success: false, error: 'Sign in to claim seasonal rewards.' });
-    const seasonStore = runtime.seasonStore;
-    const cosmeticStore = runtime.cosmeticStore;
-    // A reward earned in a closed season is only claimable if the caller names
-    // it: claimReward() otherwise resolves ensureCurrent(), which after a
-    // rollover is a fresh empty season whose standings nobody is on. Forwarding
-    // the id is additive -- an omitted (or unknown) seasonId falls through to
-    // the pre-existing ensureCurrent() path untouched.
-    const claimed = seasonStore?.claimReward(account.id, payload.rewardId, Date.now(), payload.seasonId);
-    if (!claimed?.success) return reply(callback, claimed || { success: false, error: 'Season reward is unavailable.' });
-    if (cosmeticStore) {
-      const grant = applySeasonRewardGrant(cosmeticStore, account.id, claimed);
-      if (!grant.success) return reply(callback, grant);
-    }
-    runtime.telemetryStore?.record('reward-claimed', { rewardId: claimed.reward.id, created: claimed.created }, { seasonId: claimed.season.id });
-    reply(callback, { ...claimed, season: publicSeasonSummary(claimed.season), cosmetics: cosmeticStore?.snapshot(account.id) || null });
-  });
-
-  on('get-cosmetics', (payload = {}, callback) => {
-    const account = accountForSocket(socket, payload);
-    if (!account) return reply(callback, { success: false, error: 'Sign in to view your collection.' });
-    reply(callback, { success: true, cosmetics: runtime.cosmeticStore?.snapshot(account.id) || null });
-  });
-
-  on('claim-cosmetic', (payload = {}, callback) => {
-    const account = accountForSocket(socket, payload);
-    if (!account) return reply(callback, { success: false, error: 'Sign in to claim cosmetics.' });
-    const result = runtime.cosmeticStore?.claim(account.id, payload.cosmeticId, { claimKey: payload.claimKey || `shop:${payload.cosmeticId}`, allowPaid: true });
-    if (result?.created) runtime.telemetryStore?.record('reward-claimed', { cosmeticId: payload.cosmeticId, source: 'shop' }, { seasonId: runtime.seasonStore?.getCurrent().id });
-    reply(callback, result || { success: false, error: 'Cosmetic service is unavailable.' });
-  });
-
-  on('equip-cosmetic', (payload = {}, callback) => {
-    const account = accountForSocket(socket, payload);
-    if (!account) return reply(callback, { success: false, error: 'Sign in to equip cosmetics.' });
-    reply(callback, runtime.cosmeticStore?.equip(account.id, payload.cosmeticId, payload.slot) || { success: false, error: 'Cosmetic service is unavailable.' });
   });
 
   on('send-room-invite', (payload = {}, callback) => {
@@ -530,16 +452,11 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   }
 
 function leaderboardScope(rawScope) {
-    if (['all', 'season', 'month', 'friends'].includes(rawScope)) return rawScope;
+    if (['all', 'month', 'friends'].includes(rawScope)) return rawScope;
     return 'all';
   }
 
   function leaderboardWindow(scope) {
-    if (scope === 'season') {
-      const season = runtime.seasonStore?.getCurrent?.();
-      const since = season ? Date.parse(season.startsAt) : null;
-      return { since: Number.isFinite(since) ? since : null, seasonId: season?.id || null };
-    }
     if (scope !== 'month') return { since: null };
     return { since: Date.now() - MONTH_MS };
   }
@@ -563,30 +480,10 @@ function leaderboardScope(rawScope) {
   }
 
   function leaderboardAck(callback, metric, scope, options) {
-    if (scope === 'season' && runtime.seasonStore) {
-      const season = runtime.seasonStore.standings({ metric });
-      const rows = season.rows.map(row => {
-        const profile = accountStore.getPublicAccountById(row.accountId);
-        return publicLeaderboardRow({ ...row, value: seasonMetricValue(metric, row), username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null, games: row.games, wins: row.wins });
-      });
-      return reply(callback, { success: true, metric, scope, season: publicSeasonSummary(season.season), rows });
-    }
     reply(callback, { success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options).map(publicLeaderboardRow) });
   }
 
   function snapshotAck(callback, scope, options) {
-    if (scope === 'season' && runtime.seasonStore) {
-      const season = runtime.seasonStore.standings({ metric: 'points' });
-      const metrics = {};
-      ['wins', 'games', 'rate', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'].forEach(metric => {
-        metrics[metric] = season.rows.map(row => {
-          const profile = accountStore.getPublicAccountById(row.accountId);
-          const value = seasonMetricValue(metric, row);
-          return publicLeaderboardRow({ ...row, value, username: profile?.username || 'player', displayName: profile?.displayName || 'PLAYER', color: profile?.color || '#cfa75f', avatarGrid: profile?.avatarGrid || null });
-        });
-      });
-      return reply(callback, { success: true, scope, season: publicSeasonSummary(season.season), metrics, generatedAt: new Date().toISOString() });
-    }
     const primaryMetric = LEADERBOARD_METRICS.includes(options.primaryMetric) ? options.primaryMetric : null;
     const snapshot = accountStore.getLeaderboardSnapshot(undefined, { ...options, primaryMetric });
     reply(callback, {

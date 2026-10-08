@@ -194,6 +194,7 @@ function createSimulationContext(options, advanceTime) {
     policies,
     actionLegalityByPolicy,
     strategyMetricsByPolicy,
+    auctionEvaluations: new Map(),
     callCapTrackers: trackers,
     initialCapCounts: initialCallCapCounts(trackers),
     advisorByPolicyId: createAdvisorFacades(policies, options.seed),
@@ -211,8 +212,24 @@ function currentBot(context) {
   const { game } = context.room;
   const auction = game.auction;
   return auction?.active
-    ? game.players.find(player => isAuctionBotParticipant(auction, player))
+    ? game.players.find(player => isAuctionBotParticipant(auction, player)
+      && context.auctionEvaluations.get(player.id) !== simulationAuctionIdentity(auction, player))
     : selectBotTurnTarget(game);
+}
+
+function simulationAuctionIdentity(auction, bot) {
+  if (!auction) return null;
+  return JSON.stringify({
+    startedAt: auction.startedAt || 0,
+    tileIndex: auction.propertyTile?.index ?? null,
+    highestBid: Number(auction.highestBid || 0),
+    highestBidderId: auction.highestBidderId || null,
+    participants: [...(auction.participants || [])],
+    botId: bot?.id || null,
+    botCash: Number(bot?.cash || 0),
+    botBankrupt: bot?.bankrupt === true,
+    botDisconnected: bot?.disconnected === true
+  });
 }
 
 function decisionTraceEntry(context, policy, phase, actionId) {
@@ -234,6 +251,7 @@ function trackLiveAiFallback(context, reason) {
 async function runAuctionAction(context, bot, policy) {
   const { game } = context.room;
   const auction = game.auction;
+  const auctionVersion = simulationAuctionIdentity(auction, bot);
   const projectedValue = auctionWillingness(auction, bot, game);
   const choice = await decideBotAuction({
     auction,
@@ -243,9 +261,11 @@ async function runAuctionAction(context, bot, policy) {
     context: buildBotStrategicContext(game, bot, 'auction', game.botDecisionSequence || 0),
   });
   trackLiveAiFallback(context, choice.decision?.fallbackReason);
-  const result = context.room.runBotAction(bot.id, actor => choice.actionId === 'auction:bid'
-    ? context.room.placeAuctionBid(actor, choice.amount)
-    : context.room.passAuction(actor));
+  if (simulationAuctionIdentity(game.auction, bot) !== auctionVersion) return;
+  context.auctionEvaluations.set(bot.id, auctionVersion);
+  const result = choice.actionId === 'auction:bid'
+    ? context.room.runBotAction(bot.id, actor => context.room.placeAuctionBid(actor, choice.amount))
+    : { success: true, noEmit: true };
   if (choice.actionId === 'auction:bid' && result?.success) {
     const premium = Math.max(0, Number(choice.amount || 0) - (Number.isFinite(projectedValue) ? projectedValue : Number(auction.propertyTile?.price || 0)));
     const facePremium = Math.max(0, Number(choice.amount || 0) - Number(auction.propertyTile?.price || 0));
@@ -262,6 +282,7 @@ async function runAuctionAction(context, bot, policy) {
   game.recordBotDecisionTrace(trace);
   appendShadowTrace(context, evaluation);
   appendDecisionTrace(context, decisionTraceEntry(context, policy, 'auction', choice.actionId));
+  return { waiting: choice.actionId === 'auction:wait' };
 }
 
 function recordOrdinaryAction(context, bot, policy, result) {
@@ -287,8 +308,8 @@ async function runActiveBotAction(context, bot, policy) {
   game.settings.botBrain = policy.brain || 'no-ai';
   game.settings.botDifficulty = policy.difficulty || 'table';
   try {
-    if (game.auction?.active) await runAuctionAction(context, bot, policy);
-    else await runOrdinaryAction(context, bot, policy);
+    if (game.auction?.active) return await runAuctionAction(context, bot, policy);
+    await runOrdinaryAction(context, bot, policy);
   } finally {
     const metrics = context.strategyMetricsByPolicy[policy.policyId];
     metrics.providerCalls += Math.max(0, Number(policy.advisor?.aiCalls || 0) - aiCallsBefore);
@@ -307,7 +328,6 @@ function stallDiagnostic(context, bot, seat) {
     participants: auction.participants,
     highestBid: auction.highestBid,
     highestBidderId: auction.highestBidderId,
-    passedPlayerIds: auction.passedPlayerIds,
   })}; recent decisions ${JSON.stringify(decisions)}`;
 }
 
@@ -326,7 +346,15 @@ function recordStall(context, before, bot = null, seat = -1) {
 
 function finishNoBotStep(context, before) {
   const game = context.room.game;
-  if (game.auction?.active) game.finishAuction();
+  const auction = game.auction;
+  const endsAt = Number(auction?.endsAt);
+  if (auction?.active && (!Number.isFinite(endsAt) || Date.now() >= endsAt)) game.finishAuction();
+  else if (auction?.active) {
+    context.steps += 1;
+    context.consecutiveStalls = 0;
+    assertHealthyCash(game);
+    return;
+  }
   context.steps += 1;
   recordStall(context, before);
   assertHealthyCash(game);
@@ -336,9 +364,13 @@ async function runBotStep(context, bot, before) {
   const seat = context.room.game.players.indexOf(bot);
   const policy = context.policies[seat];
   if (!policy) throw new Error(`No policy configured for seat ${seat}`);
-  await runActiveBotAction(context, bot, policy);
+  const actionResult = await runActiveBotAction(context, bot, policy);
   context.steps += 1;
   assertHealthyCash(context.room.game);
+  if (actionResult?.waiting) {
+    context.consecutiveStalls = 0;
+    return;
+  }
   recordStall(context, before, bot, seat);
 }
 

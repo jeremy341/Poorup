@@ -321,7 +321,7 @@ check('a bankrupt auction leader no longer holds the bid floor (E5)', () => {
   const game = room.game;
   const [a, b] = game.players;
   game.auction = {
-    active: true, participants: [a.id, b.id], passedPlayerIds: [],
+    active: true, participants: [a.id, b.id],
     highestBidderId: a.id, highestBid: 240, tileIndex: 1, endsAt: Date.now() + 5000
   };
   game.markPlayerBankrupt(a);
@@ -352,7 +352,7 @@ check('an in-flight auction keeps its clock under bank-run (T13, intended)', () 
   const [a, b] = game.players;
   game.globalEvent = { id: 'bank-run', phase: 'active', effects: { bankActionsBlocked: true, auctionBlocked: true, marketPriceMultiplier: 0.75, tradingEnabled: false, casinoMaxBet: 250 } };
   game.auction = {
-    active: true, participants: [a.id, b.id], passedPlayerIds: [],
+    active: true, participants: [a.id, b.id],
     highestBidderId: null, highestBid: 0, tileIndex: 1, endsAt: Date.now() + 5000
   };
   assert.equal(room.placeAuctionBid('b', 60).success, true,

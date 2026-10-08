@@ -235,7 +235,7 @@ function deedCardShellHTML(tile, view, opts) {
     <div class="deed-main">
       <div class="deed-top">
         <span class="t-label deed-name">${tile.name}</span>
-        <span class="t-label deed-price">$${tile.price}</span>
+        <span class="t-label deed-price numeric">$${tile.price}</span>
       </div>
       <div class="deed-rent">
         <span class="t-micro ink-3">RENT NOW</span>

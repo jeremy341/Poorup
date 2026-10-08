@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sourceCommit": "2eaf78882d36a753e8f23babaedeb0ecda6ac6f7",
-  "generatedAt": "2026-10-05T18:29:26.000Z",
+  "generatedAt": "2026-10-07T00:00:00.000Z",
   "statusValues": ["active", "complete", "planned", "reference", "deferred"],
   "purpose": "Canonical release-status evidence for current product surfaces. Policy-gated records are not claims that the gated policy or copy is approved.",
   "features": [
@@ -49,15 +49,15 @@
     },
     {
       "id": "seasons",
-      "status": "active",
-      "ownerSurface": "season and reward services",
-      "evidence": ["server/seasonModule.js", "server/seasonModule.test.js", "server/season-reward-audit.test.js"]
+      "status": "complete",
+      "ownerSurface": "retired; legacy account data is available only through account rights",
+      "evidence": ["server/retiredAccountStore.js", "server/retiredAccountStore.test.js", "server/serverSocketSocial.test.js"]
     },
     {
       "id": "cosmetics",
-      "status": "active",
-      "ownerSurface": "cosmetic catalog and appearance surface",
-      "evidence": ["server/cosmeticCatalog.js", "server/cosmeticCatalog.test.js", "public/clientCosmetics.js"]
+      "status": "complete",
+      "ownerSurface": "retired; legacy account data is available only through account rights",
+      "evidence": ["server/retiredAccountStore.js", "server/retiredAccountStore.test.js", "server/serverSocketSocial.test.js"]
     },
     {
       "id": "global-events",

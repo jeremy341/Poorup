@@ -1,6 +1,5 @@
 export const PUBLIC_ACTION_KINDS = Object.freeze([
   'auction-bid',
-  'auction-pass',
   'purchase',
   'build',
   'trade-accept',

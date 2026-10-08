@@ -326,7 +326,7 @@ export const PHASE_EXECUTORS = {
   },
   sponsorship: runSponsorshipPhase,
   payment: botPaymentAction,
-  auction: (room, bot) => room.runBotAction(bot.id, actor => room.passAuction(actor)),
+  auction: (room, bot) => ({ success: true, noEmit: true, botDecision: { actionId: 'auction:wait', reasonCode: 'awaiting-bids' } }),
   'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
   'post-roll': runPostRollPhase
 };

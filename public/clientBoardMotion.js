@@ -1,6 +1,7 @@
 // Pure timing seam for board-piece walks. The renderer owns DOM placement;
 // this helper only answers which path step should be visible at a given time.
-export const PIECE_WALK_STEP_MS = 300;
+import { HUMAN_MOVEMENT_STEP_MS } from './gamePresentationTiming.js';
+export const PIECE_WALK_STEP_MS = HUMAN_MOVEMENT_STEP_MS;
 
 export function createWalkTimeline({ path = [], stepMs = PIECE_WALK_STEP_MS, startedAt = 0, now = () => Date.now() } = {}) {
   const safePath = Array.isArray(path) ? [...path] : [];

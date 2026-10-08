@@ -59,7 +59,6 @@ function auctionState(game) {
     currentPlayerId: auction.currentPlayerId,
     highestBid: auction.highestBid,
     highestBidderId: auction.highestBidderId,
-    passedPlayerIds: [...(auction.passedPlayerIds || [])].sort(),
   };
 }
 

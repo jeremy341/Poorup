@@ -134,8 +134,6 @@ function makeFixture({ players = 3, currentIndex = 0, started = true, includeBot
     socialStore: {},
     matchStore: {},
     achievementStore: {},
-    seasonStore: {},
-    cosmeticStore: {},
     telemetryStore: { record() {} },
     botAdvisor: {},
     social: { chatLastSent: new Map(), patrolRuns: new Map(), socketsForAccount() { return []; } },

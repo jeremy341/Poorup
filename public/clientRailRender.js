@@ -11,6 +11,10 @@ import { ownsFullGroup } from "./clientDeedRules.js";
 import { deedCardHTML } from "./clientDeedsRender.js";
 import { MARKET_LABELS } from "./clientMarketCatalog.js";
 
+function displayCash(player) {
+  return Number(player?.visualCash ?? player?.cash ?? 0).toLocaleString();
+}
+
 export function tradePlayerRowHTML(p, seed) {
 const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
   const canTrade = state.phase === "playing";
@@ -18,7 +22,7 @@ const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
     <div class="tp-av">${avatarHTML(p, 4, seed)}</div>
     <div class="tp-mid">
       <span class="t-label f13" style="color:${p.textColor}">${esc(p.name)}</span>
-      <span class="t-micro ink-3 tp-sub">$${p.cash.toLocaleString()} · ${deedCount} DEED${deedCount === 1 ? "" : "S"}</span>
+      <span class="t-micro ink-3 tp-sub">$${displayCash(p)} · ${deedCount} DEED${deedCount === 1 ? "" : "S"}</span>
     </div>
     <button class="btn-dark" data-trade="${p.id}" ${canTrade ? "" : "disabled"}><span class="t-label f11">TRADE</span></button>
   </div>`;
@@ -190,9 +194,34 @@ function railDeedRowHTML(tile) {
   return deedCardHTML(tile, { showBuild: true, status: fullSet ? "FULL SET" : "OWNED" });
 }
 
+function groupPropertyTiles(tiles) {
+  const groups = new Map();
+  for (const tile of tiles) {
+    const key = tile.group || "other";
+    const group = groups.get(key);
+    if (group) group.push(tile);
+    else groups.set(key, [tile]);
+  }
+  return [...groups.entries()];
+}
+
+function deedGroupHTML(groupId, label, tiles) {
+  if (!tiles.length) return "";
+  const rows = tiles.map(railDeedRowHTML).join("");
+  return `<section class="deed-group" data-deed-group="${esc(groupId)}" aria-label="${esc(label)}"><h3 class="t-micro g400 deed-group-title">${esc(label.toUpperCase())}</h3>${rows}</section>`;
+}
+
 function railDeedsBodyHTML(owned) {
   if (!owned.length) return `<p class="t-body rr-empty">NO DEEDS YET. LAND ON A VACANT LOT AND BUY IT.</p>`;
-  return owned.map(railDeedRowHTML).join("");
+  const ownedIndices = new Set(owned.map(tile => tile.i));
+  const boardOwned = TILES.filter(tile => ownedIndices.has(tile.i));
+  const properties = groupPropertyTiles(boardOwned.filter(tile => tile.kind === "property"));
+  const airports = boardOwned.filter(tile => tile.kind === "railroad");
+  const utilities = boardOwned.filter(tile => tile.kind === "utility");
+  const sections = properties.map(([group, tiles]) => deedGroupHTML(group, `${group} properties`, tiles));
+  sections.push(deedGroupHTML("airports", "Airports", airports));
+  sections.push(deedGroupHTML("utilities", "Utilities", utilities));
+  return sections.join("");
 }
 
 const LEGACY_RAIL_TABS = {
@@ -234,7 +263,7 @@ function holdingsAccountHTML(player) {
   const accountEnabled = Boolean(player?.bankAccountUpgrade || state.settings.bankAccountUpgrades);
   const status = accountEnabled ? `${tierNames[tier] || `TIER ${tier}`} · ROUND ACCOUNT` : "STANDARD · ACCOUNT TIERS OFF";
   const actionLabel = accountEnabled ? "OPEN WALLET" : "VIEW WALLET";
-  return `<section class="rail-section holdings-account" aria-labelledby="holdings-account-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-account-heading">ACCOUNT</span><span class="t-micro ink-3">${esc(status)}</span></div><div class="holdings-account-row"><div><strong class="t-label f12 g100">$${Number(player?.cash || 0).toLocaleString()} CASH</strong><span class="t-micro ink-3">${player?.bankLoan?.status ? `BANK CREDIT · ${String(player.bankLoan.status).toUpperCase()}` : "NO BANK CREDIT"}</span></div><button class="btn-dark" type="button" data-wallet-open="account" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">${actionLabel}</span></button></div></section>`;
+  return `<section class="rail-section holdings-account" aria-labelledby="holdings-account-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-account-heading">ACCOUNT</span><span class="t-micro ink-3">${esc(status)}</span></div><div class="holdings-account-row"><div><strong class="t-label f12 g100">$${displayCash(player)} CASH</strong><span class="t-micro ink-3">${player?.bankLoan?.status ? `BANK CREDIT · ${String(player.bankLoan.status).toUpperCase()}` : "NO BANK CREDIT"}</span></div><button class="btn-dark" type="button" data-wallet-open="account" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">${actionLabel}</span></button></div></section>`;
 }
 
 function holdingsItemsHTML(player) {

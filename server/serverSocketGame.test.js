@@ -8,6 +8,7 @@ function fakeSocket(id) {
 
 function fakeRuntime(room, delivered) {
   let scheduledAuctions = 0;
+  const rollTimeline = [];
   const emitTo = target => ({
     emit(event, payload) {
       delivered.push({ target, event, payload });
@@ -15,15 +16,24 @@ function fakeRuntime(room, delivered) {
   });
   return {
     getRoomForSocket() { return room; },
-    emitRoomState() {},
-    scheduleAuctionFinish() { scheduledAuctions += 1; },
+    emitRoomState() { rollTimeline.push({ type: 'room-state', auctionEndsAt: room.game.auction?.endsAt }); },
+    scheduleAuctionFinish() {
+      scheduledAuctions += 1;
+      rollTimeline.push({ type: 'auction-scheduled' });
+      const auction = room.game.auction;
+      const presentationReadyAt = room.game.presentation?.readyAt;
+      if (auction?.active && Number.isFinite(presentationReadyAt)) {
+        auction.endsAt = Math.max(auction.endsAt, presentationReadyAt + 5_000);
+      }
+    },
     cachedContractCancel() { return null; },
     cacheContractCancel() {},
     io: {
       to: emitTo,
       in(target) { return { emit(event, payload) { delivered.push({ target, event, payload }); } }; }
     },
-    getScheduledAuctions() { return scheduledAuctions; }
+    getScheduledAuctions() { return scheduledAuctions; },
+    getRollTimeline() { return rollTimeline; }
   };
 }
 
@@ -49,7 +59,7 @@ function relayRoom(hostSocketId, guestSocketId, hostClientId, guestClientId) {
   room.game.currentPlayerId = room.game.players[0].id;
   const delivered = [];
   const runtime = fakeRuntime(room, delivered);
-  return { room, host, guest, delivered, getScheduledAuctions: runtime.getScheduledAuctions, hostHandlers: handlersFor(host, runtime), guestHandlers: handlersFor(guest, runtime) };
+  return { room, host, guest, delivered, getScheduledAuctions: runtime.getScheduledAuctions, getRollTimeline: runtime.getRollTimeline, hostHandlers: handlersFor(host, runtime), guestHandlers: handlersFor(guest, runtime) };
 }
 
 const first = relayRoom('relay-a', 'relay-b', 'relay-a-client', 'relay-b-client');
@@ -129,9 +139,13 @@ const roller = rollAuction.room.game.players[0];
 const auctionTile = rollAuction.room.game.getTile(1);
 rollAuction.room.game.rollDice = () => {
   rollAuction.room.game.startAuction(auctionTile, roller.id);
+  rollAuction.room.game.presentation = { startedAt: Date.now(), readyAt: Date.now() + 5_040 };
   return { success: true, auctionStarted: true };
 };
 assert.equal(invoke(rollAuction.hostHandlers.get('roll-dice'), {}).success, true);
+assert.deepEqual(rollAuction.getRollTimeline().map(event => event.type), ['auction-scheduled', 'room-state']);
+assert.equal(rollAuction.getRollTimeline()[1].auctionEndsAt, rollAuction.room.game.presentation.readyAt + 5_000,
+  'the initial room snapshot publishes the full post-arrival bid deadline');
 assert.ok(rollAuction.room.game.feed.some(entry => entry.text === `Auction started for ${auctionTile.name}. Players may place bids.`));
 assert.equal(rollAuction.delivered.filter(entry => entry.event === 'system-message').length, 0, 'roll auction start is announced by its detailed feed entry only');
 assert.equal(rollAuction.getScheduledAuctions(), 1, 'removing the broadcast preserves the authoritative auction deadline');

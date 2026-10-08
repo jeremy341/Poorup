@@ -61,6 +61,7 @@ const summaryApi = {
   getGameSummary(viewerPlayerId = null) {
     return {
       started: this.started,
+      startedAt: this.startedAt,
       boardVariant: this.boardVariant || this.settings?.boardVariant || 'standard-40',
       rulesetDigest: this.rulesetDigest || this.ruleset?.digest || null,
       currentPlayerId: this.currentPlayerId,
@@ -69,6 +70,7 @@ const summaryApi = {
       extraRollPending: this.extraRollPending,
       awaitingEndTurn: this.awaitingEndTurn,
       diceRollSequence: this.diceRollSequence,
+      presentation: this.presentation || null,
       pendingPurchaseOffer: this.pendingPurchaseOffer,
       pendingSponsoredPurchase: this.summarySponsoredPurchase(),
       pendingPayment: this.pendingPayment,
@@ -184,7 +186,6 @@ const summaryApi = {
       endsAt: auction.endsAt,
       cooldownUntil: auction.cooldownUntil,
       lastBidAt: auction.lastBidAt,
-      passedPlayerIds: auction.passedPlayerIds,
       durationMs: AUCTION_DURATION_MS
     };
   },

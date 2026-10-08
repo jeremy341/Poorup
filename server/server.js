@@ -20,9 +20,7 @@ import { createRuntime } from './socketRuntime.js';
 import { registerAccountSocketHandlers } from './serverSocketAccount.js';
 import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
-import { resolveAuxiliaryStorePaths, resolveStorePaths } from './serverStorePaths.js';
-import { SeasonStore } from './seasonModule.js';
-import { CosmeticStore } from './cosmeticCatalog.js';
+import { resolveAuxiliaryStorePaths, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
 import { TelemetryStore } from './telemetryModule.js';
 import { assertProductionCors, createCorsOrigin, isAllowedSocketOrigin, parseAllowedOrigins, resolveClientAddress } from './serverConfig.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
@@ -45,6 +43,7 @@ import { createMailAdapter } from './mailAdapter.js';
 import { createAccountRecovery } from './accountRecovery.js';
 import { createAccountDeletionCoordinator } from './accountDeletion.js';
 import { buildAccountExport } from './accountExport.js';
+import { RetiredAccountStore } from './retiredAccountStore.js';
 import { createRetentionJob } from './retentionJob.js';
 import { createBackupRetentionAdapter } from './backupStore.js';
 
@@ -356,13 +355,16 @@ function errorPage(title, message) {
 
 const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
-const allStorePaths = { ...storePaths, ...auxiliaryStorePaths };
+const retiredStorePaths = resolveRetiredStorePaths(process.env);
+const allStorePaths = { ...storePaths, ...auxiliaryStorePaths, ...retiredStorePaths };
 const accountStore = new AccountStore(storePaths.accounts);
 const socialStore = new SocialStore(storePaths.social);
 const matchStore = new MatchStore(storePaths.matches);
 const achievementStore = new AchievementStore(storePaths.achievements);
-const seasonStore = new SeasonStore(auxiliaryStorePaths.seasons);
-const cosmeticStore = new CosmeticStore(auxiliaryStorePaths.cosmetics);
+const retiredAccountStore = new RetiredAccountStore({
+  seasonsPath: retiredStorePaths.seasons,
+  cosmeticsPath: retiredStorePaths.cosmetics,
+});
 const telemetryStore = new TelemetryStore(auxiliaryStorePaths.telemetry, { rollupStore: analyticsRollupStore });
 storesLoaded = true;
 const sessionStore = createSessionStore({
@@ -435,7 +437,7 @@ app.use((error, _req, res, _next) => {
 });
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore, sessionStore });
-const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, seasonStore, cosmeticStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter });
+const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter });
 runtime.adminIds = adminAccountIds;
 const accountDeletion = createAccountDeletionCoordinator({
   accountStore,
@@ -444,8 +446,7 @@ const accountDeletion = createAccountDeletionCoordinator({
   socialStore,
   matchStore,
   achievementStore,
-  seasonStore,
-  cosmeticStore,
+  retiredStore: retiredAccountStore,
   telemetryStore,
   backupStore: backupDirectory ? createBackupRetentionAdapter(backupDirectory) : null,
   mailAdapter,
@@ -466,7 +467,7 @@ runtime.accountRights = {
     const document = buildAccountExport({
       account,
       social: socialStore.listFor(account.id),
-      cosmetics: cosmeticStore.snapshot(account.id),
+      retiredData: retiredAccountStore.exportForAccount(account.id),
       matches: matchStore.listForAccount(account.id)
     });
     return { success: true, filename: `poorup-account-export-${account.username}.json`, contentType: 'application/json', document };
