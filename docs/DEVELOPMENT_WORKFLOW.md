@@ -169,6 +169,12 @@ contexts. If an empty-diff PR produces no workflow run, include a narrowly
 scoped workflow-documentation update in that lane-sync PR to trigger the
 `light-slim` checks. Never merge it by bypassing the required contexts.
 
+If GitHub refuses to create the ancestry-only PR with `No commits between`
+because `development` already contains the testing tip, add a concise note to
+this runbook explaining the sync action. Verify that the resulting PR's only
+tree difference from `development` is that documentation note; keep the
+application tree unchanged and still require the separate heavy promotion PR.
+
 The workflow already triggers on `merge_group` events and the `plan` job
 maps a merge group targeting `testing` to the heavy tier, so if the queue
 ever becomes available on this plan, enabling it in the UI needs **zero**
