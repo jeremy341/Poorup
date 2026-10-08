@@ -57,7 +57,7 @@ test('event log is a nonmodal dock and preserves a reader position when new entr
     const [{ state }, drawer, surfaces] = await Promise.all([
       import('/clientState.js'), import('/clientLogDrawer.js'), import('/clientSurfaces.js'),
     ]);
-    state.log = Array.from({ length: 30 }, (_, index) => `ENTRY ${index}`);
+    state.log = Array.from({ length: 160 }, (_, index) => `ENTRY ${index}`);
     document.querySelector('#view-home')?.classList.add('is-hidden');
     document.querySelector('#view-game')?.classList.remove('is-hidden');
     window.__turnUi = { state, drawer, surfaces };

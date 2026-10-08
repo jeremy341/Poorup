@@ -4887,7 +4887,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .drawer-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .drawer-filter { height: 30px; padding: 0 10px; }
 .drawer-filter.is-active { border-color: var(--line-active); color: var(--gold-050); box-shadow: var(--shadow-active); }
-.log-drawer-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.log-drawer-body { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; display: flex; flex-direction: column; gap: 6px; }
 .log-drawer-body .log-line { flex-shrink: 0; }
 .log-drawer-foot { margin-top: 10px; text-align: right; }
 @media (max-width: 640px) {
