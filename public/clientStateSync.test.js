@@ -85,6 +85,8 @@ let choiceModalOpens = 0;
 let auctionSurfaceOpens = 0;
 let cardRevealOpens = 0;
 let bankruptcyModalOpens = 0;
+const retireLabel = { textContent: "" };
+const retireButton = { disabled: true, title: "", querySelector: () => retireLabel };
 const diceRollTotals = [];
 const host = {
   setConnectionStatus() {},
@@ -106,7 +108,7 @@ const host = {
   },
   openAuctionSurface: () => { auctionSurfaceOpens += 1; },
   closeAuctionSurface() {},
-  retireButton: () => null,
+  retireButton: () => retireButton,
   bankruptcyHidden: () => true,
   hideBankruptcyModal() {},
   openBankruptcyModal() { bankruptcyModalOpens += 1; },
@@ -183,7 +185,7 @@ const debtSnapshot = {
   ...landingSnapshot,
   game: {
     ...landingSnapshot.game,
-    players: [{ ...landingSnapshot.game.players[0], position: 18 }],
+    players: [{ ...landingSnapshot.game.players[0], position: 18, inDebt: true }],
     pendingPurchaseOffer: null,
     pendingPayment: { playerId: "server-player", amountRemaining: 50, creditorId: null, reason: "Rent is due." }
   }
@@ -205,13 +207,22 @@ walkResolvers.shift()();
 await new Promise(resolve => setTimeout(resolve, 220));
 assert.equal(bankruptcyModalOpens, 1, "the debt prompt opens after movement completes");
 
+state.debtRescueDismissed = true;
+applyServerState(debtSnapshot, host);
+assert.equal(bankruptcyModalOpens, 1, "snapshots leave rescue tools accessible after dismissal");
+assert.equal(retireButton.disabled, false, "a debtor can return to the debt dialog after dismissing it");
+assert.equal(retireLabel.textContent, "BANKRUPT");
+assert.equal(retireButton.title, "Resolve bankruptcy");
+
 const nextRollSnapshot = {
   ...debtSnapshot,
-  game: { ...debtSnapshot.game, pendingPayment: null, diceRollSequence: 2, lastDice: [4, 5] },
+  game: { ...debtSnapshot.game, players: [{ ...debtSnapshot.game.players[0], inDebt: false }], pendingPayment: null, diceRollSequence: 2, lastDice: [4, 5] },
 };
 applyServerState(nextRollSnapshot, host);
 applyServerState(nextRollSnapshot, host);
 assert.deepEqual(diceRollTotals, [12, 9], "a new sequence announces once and a replayed snapshot stays quiet");
+assert.equal(state.debtRescueDismissed, false, "settlement clears the previous debt dismissal");
+assert.equal(retireLabel.textContent, "RETIRE");
 
 console.log("client state sync and landing-prompt tests: passed");
 const syncSource = readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");

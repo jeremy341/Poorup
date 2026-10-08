@@ -78,6 +78,92 @@ test('event log is a nonmodal dock and preserves a reader position when new entr
   await expect(page.locator('[data-log-new-status]')).toHaveText('NEW ENTRIES AVAILABLE');
 });
 
+test('event log remains reachable when the right rail is hidden, without changing the saved layout', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('poorup-panel-visibility-v1', JSON.stringify({ players: true, chat: true, rightRail: false, hud: 'full' }));
+  });
+  for (let visit = 0; visit < 2; visit += 1) {
+    await page.goto('/');
+    await installTurnFixture(page);
+    await page.evaluate(() => {
+      document.querySelector('#view-home').classList.add('is-hidden');
+      document.querySelector('#view-game').classList.remove('is-hidden');
+      window.__turnUi.state.log = ['LOCAL mortgaged a deed.', 'RIVAL rolled 5.'];
+    });
+    await expect(page.locator('#right-rail-game')).toBeHidden();
+    await page.locator('#log-toggle-btn').click();
+    await expect(page.locator('#log-drawer')).toBeVisible();
+    await expect(page.locator('#log-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#board-frame')).toHaveJSProperty('inert', false);
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('poorup-panel-visibility-v1')).rightRail)).toBe(false);
+    if (visit === 0) await page.screenshot({ path: testInfo.outputPath('log-hidden-rail.png'), animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#log-toggle-btn')).toBeFocused();
+    await expect(page.locator('#log-drawer')).toBeHidden();
+    await expect(page.locator('#right-rail-game')).toBeHidden();
+  }
+});
+
+test('a debtor can reopen a dismissed payment dialog and confirm bankruptcy after trying holdings', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await installTurnFixture(page);
+  await page.evaluate(async () => {
+    const [sync, modals, surfaces] = await Promise.all([
+      import('/clientStateSync.js'), import('/clientGameModalsUi.js'), import('/clientSurfaces.js'),
+    ]);
+    const { state, renderHud } = window.__turnUi;
+    document.querySelector('#view-home').classList.add('is-hidden');
+    document.querySelector('#view-game').classList.remove('is-hidden');
+    state.roomCode = 'DEBT1';
+    state.gameStarted = true;
+    state.debtRescueDismissed = false;
+    const snapshot = {
+      room: { roomCode: 'DEBT1', visibility: 'private', settings: { boardVariant: 'standard-40' } },
+      game: {
+        started: true, currentPlayerId: 'server-local', roundNumber: 1, hasRolled: true, awaitingEndTurn: true,
+        turnOrder: ['server-local', 'server-other'], tiles: [], feed: [], lastDice: [2, 3],
+        players: [
+          { id: 'server-local', clientId: 'local-client', nickname: 'LOCAL', cash: 40, position: 0, inDebt: true },
+          { id: 'server-other', clientId: 'remote-client', nickname: 'RIVAL', cash: 900, position: 0 },
+        ],
+        pendingPayment: { playerId: 'server-local', amountRemaining: 200, creditorId: null, reason: 'Tax is due' },
+      },
+    };
+    const host = {
+      setConnectionStatus() {}, gameViewVisible: () => true, showView() {}, renderAll: renderHud,
+      startPieceWalk: () => Promise.resolve(), openAuctionSurface() {}, closeAuctionSurface() {},
+      retireButton: () => document.querySelector('#game-retire-btn'),
+      bankruptcyHidden: () => document.querySelector('#bankruptcy-modal').classList.contains('is-hidden'),
+      hideBankruptcyModal: () => surfaces.closeSurface('#bankruptcy-modal', { force: true }),
+      openBankruptcyModal: modals.openBankruptcyModal, showGameOver() {}, placePiecesSoon() {},
+    };
+    window.__debtRequests = [];
+    modals.configureGameModals({ emitServer(action, payload, callback) {
+      window.__debtRequests.push(action);
+      callback?.({ success: true });
+    } });
+    window.__refreshDebt = () => sync.applyServerState(snapshot, host);
+    window.__refreshDebt();
+  });
+  await expect(page.locator('#bankruptcy-modal')).toBeVisible();
+  await page.locator('#bank-dismiss').click();
+  await page.evaluate(() => window.__refreshDebt());
+  await expect(page.locator('#bankruptcy-modal')).toBeHidden();
+  await expect(page.locator('#game-retire-btn')).toBeEnabled();
+  await page.locator('#game-retire-btn').click();
+  await expect(page.locator('#bankruptcy-card-title')).toHaveText('$200 due');
+  await page.locator('#bank-liquidate').click();
+  await page.evaluate(() => window.__refreshDebt());
+  await expect(page.locator('#bankruptcy-modal')).toBeHidden();
+  await page.locator('#game-retire-btn').click();
+  await page.screenshot({ path: testInfo.outputPath('debt-return.png'), animations: 'disabled' });
+  await page.locator('#bank-declare').click();
+  await expect.poll(() => page.evaluate(() => window.__debtRequests)).toEqual([]);
+  await page.locator('#bank-declare-confirm').click();
+  await expect.poll(() => page.evaluate(() => window.__debtRequests)).toEqual(['declare-bankruptcy']);
+  await expect(page.locator('#bankruptcy-modal')).toBeHidden();
+});
+
 test('holdings list property groups first, then airports, then utilities in board order', async ({ page }) => {
   await page.goto('/');
   await installTurnFixture(page);

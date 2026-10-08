@@ -18,7 +18,7 @@ const gameUxSurfaceIds = [
 ];
 
 const releaseSurfaceIds = [
-  'release-home', 'release-rankings-season', 'release-profile-statistics', 'release-profile-history-detail',
+  'release-home', 'release-rankings', 'release-profile-statistics', 'release-profile-history-detail',
   'release-rules', 'release-market-desk', 'release-market-order-controls', 'release-airport-field',
   'release-global-event-announcement', 'release-global-event-warning', 'release-bankruptcy-decision',
   'release-human-spectator', 'release-end-game',

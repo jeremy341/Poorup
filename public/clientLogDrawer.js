@@ -6,6 +6,7 @@
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { focusSurface, syncSurfaceA11y } from "./clientSurfaces.js";
+import { applyPanelVisibility } from "./clientPanelMenu.js";
 
 let drawerFilter = "all";
 let renderedLogSignature = "";
@@ -82,6 +83,7 @@ function flipLogDrawer() {
   drawer.inert = !open;
   drawer.setAttribute("aria-hidden", String(!open));
   $("#log-toggle-btn")?.setAttribute("aria-expanded", String(open));
+  applyPanelVisibility();
   syncSurfaceA11y();
   return open;
 }
@@ -93,6 +95,7 @@ export function closeLogDrawer() {
   drawer.inert = true;
   drawer.setAttribute("aria-hidden", "true");
   $("#log-toggle-btn")?.setAttribute("aria-expanded", "false");
+  applyPanelVisibility();
   syncSurfaceA11y();
   if (restoreFocus) $("#log-toggle-btn")?.focus({ preventScroll: true });
 }

@@ -486,7 +486,6 @@ function retireAllowed() {
   if (!me) return false;
   if (me.spectating) return true;
   if (me.bankrupt) return false;
-  if (me.inDebt) return false;
   return me.online !== false;
 }
 
