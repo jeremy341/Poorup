@@ -194,24 +194,33 @@ function railDeedRowHTML(tile) {
   return deedCardHTML(tile, { showBuild: true, status: fullSet ? "FULL SET" : "OWNED" });
 }
 
+function groupPropertyTiles(tiles) {
+  const groups = new Map();
+  for (const tile of tiles) {
+    const key = tile.group || "other";
+    const group = groups.get(key);
+    if (group) group.push(tile);
+    else groups.set(key, [tile]);
+  }
+  return [...groups.entries()];
+}
+
+function deedGroupHTML(groupId, label, tiles) {
+  if (!tiles.length) return "";
+  const rows = tiles.map(railDeedRowHTML).join("");
+  return `<section class="deed-group" data-deed-group="${esc(groupId)}" aria-label="${esc(label)}"><h3 class="t-micro g400 deed-group-title">${esc(label.toUpperCase())}</h3>${rows}</section>`;
+}
+
 function railDeedsBodyHTML(owned) {
   if (!owned.length) return `<p class="t-body rr-empty">NO DEEDS YET. LAND ON A VACANT LOT AND BUY IT.</p>`;
-  const properties = new Map();
-  const airports = [];
-  const utilities = [];
-  for (const tile of TILES) {
-    if (!owned.some(entry => entry.i === tile.i)) continue;
-    if (tile.kind === "property") {
-      const group = tile.group || "other";
-      if (!properties.has(group)) properties.set(group, []);
-      properties.get(group).push(tile);
-    } else if (tile.kind === "railroad") airports.push(tile);
-    else if (tile.kind === "utility") utilities.push(tile);
-  }
-  const sections = [...properties.entries()].map(([group, tiles]) =>
-    `<section class="deed-group" data-deed-group="${esc(group)}" aria-label="${esc(group)} properties"><h3 class="t-micro g400 deed-group-title">${esc(group.toUpperCase())}</h3>${tiles.map(railDeedRowHTML).join("")}</section>`);
-  if (airports.length) sections.push(`<section class="deed-group" data-deed-group="airports" aria-label="Airports"><h3 class="t-micro g400 deed-group-title">AIRPORTS</h3>${airports.map(railDeedRowHTML).join("")}</section>`);
-  if (utilities.length) sections.push(`<section class="deed-group" data-deed-group="utilities" aria-label="Utilities"><h3 class="t-micro g400 deed-group-title">UTILITIES</h3>${utilities.map(railDeedRowHTML).join("")}</section>`);
+  const ownedIndices = new Set(owned.map(tile => tile.i));
+  const boardOwned = TILES.filter(tile => ownedIndices.has(tile.i));
+  const properties = groupPropertyTiles(boardOwned.filter(tile => tile.kind === "property"));
+  const airports = boardOwned.filter(tile => tile.kind === "railroad");
+  const utilities = boardOwned.filter(tile => tile.kind === "utility");
+  const sections = properties.map(([group, tiles]) => deedGroupHTML(group, `${group} properties`, tiles));
+  sections.push(deedGroupHTML("airports", "Airports", airports));
+  sections.push(deedGroupHTML("utilities", "Utilities", utilities));
   return sections.join("");
 }
 
