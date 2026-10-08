@@ -70,11 +70,20 @@ test('event log is a nonmodal dock and preserves a reader position when new entr
   await expect.poll(() => page.evaluate(() => window.__turnUi.surfaces.visibleSurfaces().some(surface => surface.id === 'log-drawer'))).toBe(false);
   const body = page.locator('#drawer-body');
   await body.evaluate(element => { element.scrollTop = 0; });
+  const initialReaderOffset = await page.evaluate(() => {
+    const container = document.querySelector('#drawer-body');
+    const firstLine = container.querySelector('.log-line');
+    return firstLine.getBoundingClientRect().top - container.getBoundingClientRect().top;
+  });
   await page.evaluate(() => {
     window.__turnUi.state.log = [...window.__turnUi.state.log, 'LATEST ENTRY'];
     window.__turnUi.drawer.renderLogDrawer();
   });
-  await expect(body).toHaveJSProperty('scrollTop', 0);
+  await expect.poll(() => page.evaluate((readerOffset) => {
+    const container = document.querySelector('#drawer-body');
+    const firstLine = container.querySelector('.log-line');
+    return Math.abs((firstLine.getBoundingClientRect().top - container.getBoundingClientRect().top) - readerOffset);
+  }, initialReaderOffset)).toBeLessThan(1);
   await expect(page.locator('[data-log-new-status]')).toHaveText('NEW ENTRIES AVAILABLE');
 });
 

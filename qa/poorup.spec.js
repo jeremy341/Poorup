@@ -61,7 +61,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#rules-page-content')).toContainText('GLOBAL EVENTS');
   });
 
-  test('rankings and profile collection stay in their independent pages', async ({ page }) => {
+  test('rankings, social, and profile designs stay in their independent pages', async ({ page }) => {
     await page.goto('/');
     await page.locator('#home-rankings-tab').click();
     await expect(page.locator('#rankings-page-content')).toBeVisible();
@@ -72,8 +72,9 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#profile-panel-designs .profile-editor-actions')).toHaveCount(0);
     await expect(page.locator('#profile-panel-designs #pl-save-btn')).toHaveCount(1);
     await expect(page.locator('#profile-panel-designs #profile-cancel-btn')).toBeVisible();
-    await page.locator('#profile-tab-collection').click();
-    await expect(page.locator('#profile-panel-collection')).toBeVisible();
+    await expect(page.locator('#profile-tab-collection, #profile-panel-collection')).toHaveCount(0);
+    await page.locator('#profile-tab-designs').click();
+    await expect(page.locator('#profile-panel-designs')).toBeVisible();
   });
 
   test('rankings uses one readable stage with keyboard metric navigation', async ({ page }, testInfo) => {
@@ -98,12 +99,10 @@ test.describe('Poorup ruleset and social surfaces', () => {
     expect(inputBox).not.toBeNull();
     expect(findBox).not.toBeNull();
     expect(Math.abs(inputBox.height - findBox.height)).toBeLessThan(1);
+    await expect(page.locator('#rankings-page-content .rankings-context')).toHaveCount(0);
     if (testInfo.project.name === 'desktop-1920x1080') {
       const stageBox = await stage.boundingBox();
-      const seasonBox = await page.locator('#rankings-page-content .rankings-context').boundingBox();
       expect(stageBox).not.toBeNull();
-      expect(seasonBox).not.toBeNull();
-      expect(Math.abs(stageBox.height - seasonBox.height)).toBeLessThan(1);
     }
     const heading = stage.locator('h3');
     await expect(heading).toContainText('WINS');
@@ -134,6 +133,10 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#hud-name')).toHaveText('TURN PLAYER');
     await expect(page.locator('#hud-turn-label')).toHaveAttribute('aria-label', 'Current turn: TURN PLAYER');
     await expect(page.locator('#hud-stage, #hud-bot-status, #hud-note')).toHaveCount(0);
+    await page.evaluate(async () => {
+      const { state } = await import('/clientState.js');
+      state.phase = 'home';
+    });
     await page.locator('#home-social-tab').click();
     await expect(page.locator('#social-page-content')).toBeVisible();
     await expect(page.locator('#social-modal')).toHaveClass(/is-hidden/);
@@ -401,7 +404,6 @@ test.describe('Landscape iPad desk contract', () => {
     skipNonTablet(testInfo);
     const viewport = page.viewportSize();
     const minimumPanelHeight = Math.min(240, Math.floor(viewport.height * 0.30));
-    const minimumContextHeight = Math.min(240, Math.floor(viewport.height * 0.30));
     await page.goto('/');
     await expect.poll(() => page.evaluate(() => ({ width: document.body.clientWidth, scrollWidth: document.body.scrollWidth, height: document.body.clientHeight, scrollHeight: document.body.scrollHeight }))).toEqual({ width: viewport.width, scrollWidth: viewport.width, height: viewport.height, scrollHeight: viewport.height });
 
@@ -409,7 +411,7 @@ test.describe('Landscape iPad desk contract', () => {
     await expect(page.locator('#rankings-page-content [data-ranking-stage]')).toBeVisible();
     await expect.poll(() => page.locator('#rankings-page-content .rankings-stage').evaluate(el => el.clientHeight)).toBeGreaterThan(minimumPanelHeight);
     await expect.poll(() => page.locator('#rankings-page-content .ranking-list').evaluate(el => el.clientHeight)).toBeGreaterThan(24);
-    await expect.poll(() => page.locator('#rankings-page-content .rankings-context').evaluate(el => el.clientHeight)).toBeGreaterThan(minimumContextHeight);
+    await expect(page.locator('#rankings-page-content .rankings-context')).toHaveCount(0);
 
     await page.locator('#view-rankings [data-top-surface="social"]').click();
     await expect(page.locator('#social-page-content .social-feed')).toBeVisible();
