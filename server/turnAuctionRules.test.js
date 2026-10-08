@@ -84,6 +84,56 @@ await check('debt rescue actions do not allow spending cash to unmortgage', () =
   });
 });
 
+await check('the leading auction bid stays funded when its owner unmortgages a deed', () => {
+  const { game, a } = startedRoom();
+  const deed = game.getTile(3);
+  deed.ownerId = a.id;
+  deed.mortgaged = true;
+  a.properties.push(deed.index);
+  a.cash = 150;
+  const auctionDeed = game.getTile(1);
+  game.startAuction(auctionDeed, a.id);
+  assert.equal(game.placeAuctionBid(a.socketId, 130).success, true);
+  const reason = 'Keep enough cash to cover your current auction bid.';
+  assert.deepEqual(game.manageProperty(a.socketId, { tileIndex: deed.index, action: 'unmortgage' }), { success: false, error: reason });
+  assert.equal(a.cash, 150);
+  assert.equal(deed.mortgaged, true);
+  const summary = game.getGameSummary(a.id).tiles.find(tile => tile.index === deed.index);
+  assert.deepEqual(summary.propertyActions.unmortgage, { enabled: false, cost: 33, reason });
+
+  a.cash = 163;
+  assert.equal(game.manageProperty(a.socketId, { tileIndex: deed.index, action: 'unmortgage' }).success, true);
+  assert.equal(a.cash, 130, 'cash exactly covering the outstanding bid remains spendable above the reservation');
+  game.finishAuction();
+  assert.equal(auctionDeed.ownerId, a.id, 'the funded bid still settles to its winner');
+  assert.equal(a.cash, 0);
+});
+
+await check('auction reservations also protect building cash and release when another player outbids', () => {
+  const { game, a, b } = startedRoom();
+  const deed = giveGroup(game, a, 6);
+  a.cash = 150;
+  game.startAuction(game.getTile(1), a.id);
+  assert.equal(game.placeAuctionBid(a.socketId, 120).success, true);
+  assert.deepEqual(game.manageProperty(a.socketId, { tileIndex: deed.index, action: 'build-house' }), {
+    success: false, error: 'Keep enough cash to cover your current auction bid.'
+  });
+  assert.equal(deed.houseCount, 0);
+  const summary = game.getGameSummary(a.id).tiles.find(tile => tile.index === deed.index);
+  assert.equal(summary.propertyActions.buildHouse.enabled, false);
+
+  const mortgageDeed = game.getTile(5);
+  mortgageDeed.ownerId = a.id;
+  a.properties.push(mortgageDeed.index);
+  assert.equal(game.manageProperty(a.socketId, { tileIndex: mortgageDeed.index, action: 'mortgage' }).success, true,
+    'raising cash remains legal while leading the auction');
+  a.cash = 150;
+  game.auction.cooldownUntil = 0;
+  assert.equal(game.placeAuctionBid(b.socketId, 130).success, true);
+  assert.equal(game.manageProperty(a.socketId, { tileIndex: deed.index, action: 'build-house' }).success, true,
+    'the previous bidder can spend its released cash');
+});
+
 await check('mortgage is available off turn during debt and an unrelated trade', () => {
   const { game, a, b } = startedRoom();
   const tile = game.getTile(5);

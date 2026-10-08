@@ -14,18 +14,25 @@ const PROPERTY_ACTION_HANDLERS = {
 
 const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
 
+function propertyCashReason(game, player, cost, insufficientMessage) {
+  if (player.cash < cost) return insufficientMessage;
+  const auction = game.auction;
+  if (auction?.active && auction.highestBidderId === player.id && player.cash - cost < auction.highestBid) {
+    return 'Keep enough cash to cover your current auction bid.';
+  }
+  return null;
+}
+
 function buildActionReason(game, player, tile, houseCost) {
   if (!game.canBuildOnTile(player, tile)) return 'You cannot build on this property right now.';
   const limit = game.buildingLimitRejection(player, Number(game.activeEventEffects().buildingLimitPerTurn));
   if (limit) return limit.error;
-  if (player.cash < houseCost) return 'Insufficient cash to build a house.';
-  return null;
+  return propertyCashReason(game, player, houseCost, 'Insufficient cash to build a house.');
 }
 
 function unmortgageActionReason(game, player, tile, unmortgageCost) {
   if (!game.canUnmortgageTile(player, tile)) return 'You cannot unmortgage this property right now.';
-  if (player.cash < unmortgageCost) return 'Insufficient cash to unmortgage this property.';
-  return null;
+  return propertyCashReason(game, player, unmortgageCost, 'Insufficient cash to unmortgage this property.');
 }
 
 function propertyActionSpecificReason({ game, player, tile, action, costs }) {
@@ -188,8 +195,8 @@ const propertyApi = {
 
   // The shared gates of all four actions, in the historical order: existence,
   // ownership, then the build/sell turn window (relaxed while settling debt).
-  // Mortgage legs skip the turn window but still need a live seat and a free
-  // table, mirroring the casino and market obligation guards.
+  // Mortgage legs skip the turn window; live-seat, property-specific offer,
+  // and cash-reservation checks still apply.
   propertyActionRejection(player, tile, action) {
     if (!player) return { success: false, error: 'Property not found.' };
     if (!tile) return { success: false, error: 'Property not found.' };
@@ -302,9 +309,8 @@ const propertyApi = {
     const limit = this.buildingLimitRejection(player);
     if (limit) return limit;
     const cost = this.getPropertyHouseCost(tile);
-    if (player.cash < cost) {
-      return { success: false, error: 'Insufficient cash to build a house.' };
-    }
+    const cashReason = propertyCashReason(this, player, cost, 'Insufficient cash to build a house.');
+    if (cashReason) return { success: false, error: cashReason };
     player.cash -= cost;
     tile.houseCount = (tile.houseCount || 0) + 1;
     player.buildActionsThisTurn = (player.buildActionsThisTurn || 0) + 1;
@@ -371,9 +377,8 @@ const propertyApi = {
       return { success: false, error: 'You cannot unmortgage this property right now.' };
     }
     const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * this.propertyValueMultiplier());
-    if (player.cash < cost) {
-      return { success: false, error: 'Insufficient cash to unmortgage this property.' };
-    }
+    const cashReason = propertyCashReason(this, player, cost, 'Insufficient cash to unmortgage this property.');
+    if (cashReason) return { success: false, error: cashReason };
     player.cash -= cost;
     tile.mortgaged = false;
     this.feedMessage(`${player.nickname} unmortgaged ${tile.name}.`);

@@ -209,3 +209,22 @@ test('deed cash readout is staged while build affordability stays tied to author
   await expect(page.locator('#deed-card-detail')).toContainText('$0');
   await expect(page.locator('#dd-buy')).toBeEnabled();
 });
+
+test('deed manager explains cash reserved for the current auction bid', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await installTurnFixture(page);
+  await page.evaluate(() => {
+    const { state, openDeedDetail } = window.__turnUi;
+    state.owners = { 3: 'p1' };
+    state.mortgaged = { 3: true };
+    state.serverTiles = [{ index: 3, propertyActions: { unmortgage: {
+      enabled: false, cost: 33, reason: 'Keep enough cash to cover your current auction bid.',
+    } } }];
+    openDeedDetail(3);
+  });
+  await expect(page.locator('#dd-mortgage')).toBeDisabled();
+  await expect(page.locator('#dd-mortgage-reason')).toHaveText('Keep enough cash to cover your current auction bid.');
+  await expect(page.locator('#dd-mortgage')).toHaveAttribute('aria-describedby', 'dd-mortgage-reason');
+  await page.locator('#dd-mortgage-reason').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('auction-reserved-cash.png'), animations: 'disabled' });
+});
