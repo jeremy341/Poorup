@@ -120,5 +120,6 @@ export function renderTopNav() {
   const view = connectionView();
   $("#tn-online").textContent = topNavOnlineText(view);
   $("#tn-turnlabel").textContent = turnTagText();
+  $("#tn-turnlabel").setAttribute('aria-label', `Current turn: ${turnTagText()}`);
   renderConnectionStatus();
 }

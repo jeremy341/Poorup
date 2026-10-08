@@ -7,7 +7,6 @@ import { $, esc } from "./clientDom.js";
 import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { openSurface } from "./clientSurfaces.js";
-import { openAccountModal } from "./clientAccountIdentity.js";
 import { mountResponsiveRankingControls } from "./clientResponsiveSocialSurfaces.js";
 
 function noop() {}
@@ -16,8 +15,6 @@ export const SOCIAL_REQUEST_TIMEOUT_MS = 8000;
 let socialRequestId = 0;
 let socialRequestTimer = null;
 let leaderboardRequestTimer = null;
-let seasonRequestId = 0;
-let seasonRequestTimer = null;
 
 export function configureSocialSurfaces(hooks) {
   host = { ...host, ...hooks };
@@ -451,7 +448,6 @@ export function openInGameSocialSurface(kind) {
     renderRankingsSurface("#rankings-card");
     openSurface("#rankings-modal", "#rankings-close");
     requestLeaderboardSnapshot("#rankings-card");
-    requestSeason("#rankings-card");
   } else if (kind === "social") {
     renderSocialSurface("#social-card");
     openSurface("#social-modal", "#social-close");
@@ -469,7 +465,7 @@ function normalizeRankingMetric(metric) {
 }
 
 function normalizeRankingScope(scope) {
-  const allowed = ["all", "season", "month", "friends"];
+  const allowed = ["all", "month", "friends"];
   if (allowed.includes(scope)) return scope;
   return "all";
 }
@@ -477,61 +473,6 @@ function normalizeRankingScope(scope) {
 function clearLeaderboardSnapshot(snapshot) {
   state.leaderboard.error = snapshot?.error || "Rankings are temporarily unavailable.";
   state.leaderboard.stale = Boolean(state.leaderboard.rows?.length || Object.keys(state.leaderboard.snapshots || {}).length);
-}
-
-function seasonRowsFromResponse(response) {
-  return Array.isArray(response.rows) ? response.rows : [];
-}
-
-function seasonRewardsFromResponse(response) {
-  return Array.isArray(response.rewards) ? response.rewards : (response.season?.rewardTrack || []);
-}
-
-function seasonClaimsFromResponse(response) {
-  return Array.isArray(response.claimedRewardIds) ? response.claimedRewardIds : [];
-}
-
-function seasonStateFromResponse(response) {
-  return {
-    current: response.season || null,
-    metric: response.metric || state.season.metric,
-    rows: seasonRowsFromResponse(response),
-    rewards: seasonRewardsFromResponse(response),
-    claimedRewardIds: seasonClaimsFromResponse(response)
-  };
-}
-
-function applySeasonResponse(response) {
-  if (!response?.success) {
-    state.season.error = response?.error || "Season data is temporarily unavailable.";
-    return;
-  }
-  state.season.error = "";
-  Object.assign(state.season, seasonStateFromResponse(response));
-}
-
-function seasonAck(response, target, requestId) {
-  if (requestId !== seasonRequestId) return;
-  clearTimeout(seasonRequestTimer);
-  seasonRequestTimer = null;
-  state.season.loading = false;
-  applySeasonResponse(response);
-  state.season.stale = !response?.success;
-  renderRankingsSurface(target);
-  if (target === "#rankings-page-content") focusRankingsPage();
-}
-
-export function requestSeason(target = "#rankings-page-content") {
-  seasonRequestId += 1;
-  state.season.requestId = seasonRequestId;
-  state.season.loading = true;
-  state.season.error = "";
-  state.season.stale = Boolean(state.season.current || state.season.rows?.length);
-  clearTimeout(seasonRequestTimer);
-  renderRankingsSurface(target);
-  const requestId = seasonRequestId;
-  seasonRequestTimer = setTimeout(() => seasonAck({ success: false, error: "Season sync timed out. Try again." }, target, requestId), SOCIAL_REQUEST_TIMEOUT_MS);
-  host.emitServer("get-season", { metric: state.season.metric }, (response) => seasonAck(response, target, requestId));
 }
 
 function storeLeaderboardSnapshot(snapshot) {
@@ -555,7 +496,6 @@ export function openRankingsSurface(metric = "wins", scope = state.leaderboard.s
   renderRankingsSurface("#rankings-page-content");
   focusRankingsPage();
   requestLeaderboardSnapshot("#rankings-page-content");
-  requestSeason("#rankings-page-content");
 }
 
 export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
@@ -629,7 +569,6 @@ function rankingSelfStat(selfRow) {
 }
 
 function scopeLabel() {
-  if (state.leaderboard.scope === "season") return "THIS SEASON";
   if (state.leaderboard.scope === "month") return "30 DAYS";
   if (state.leaderboard.scope === "friends") return "FRIENDS";
   return "ALL TIME";
@@ -660,7 +599,7 @@ function rankingsCloseButton(pageSurface) {
 }
 
 function scopesTabs() {
-  return [["all", "ALL TIME"], ["season", "THIS SEASON"], ["month", "30 DAYS"], ["friends", "FRIENDS"]].map(([id, label]) => `<button class="ranking-scope${state.leaderboard.scope === id ? " is-active" : ""}" type="button" data-ranking-scope="${id}" aria-pressed="${state.leaderboard.scope === id}"><span class="t-label f11">${label}</span></button>`).join("");
+  return [["all", "ALL TIME"], ["month", "30 DAYS"], ["friends", "FRIENDS"]].map(([id, label]) => `<button class="ranking-scope${state.leaderboard.scope === id ? " is-active" : ""}" type="button" data-ranking-scope="${id}" aria-pressed="${state.leaderboard.scope === id}"><span class="t-label f11">${label}</span></button>`).join("");
 }
 
 function ledgerEmptyHTML() {
@@ -705,103 +644,10 @@ return Array.isArray(state.rankingSearchResults) && state.rankingSearchResults.l
     : state.rankingSearchQuery ? `<span class="t-micro ink-3">NO EXACT USERNAME MATCH.</span>` : "";
 }
 
-function seasonDateLabel(value) {
-  if (!value) return "NO ACTIVE SEASON";
-  return String(value).slice(0, 10);
-}
-
-function seasonStatusPanelHTML(view) {
-  if (view.loading && !view.season) return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3" aria-live="polite">LOADING VERIFIED SEASON…</p></section>`;
-  if (view.error && !view.season) return `<section class="season-panel panel noise" role="alert"><span class="t-micro red">SEASON LEDGER</span><p class="t-body ink-2">${esc(view.error)}</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></section>`;
-  return "";
-}
-
-function seasonSyncStatusHTML(view) {
-  if (view.loading && view.season) return `<p class="t-micro ink-3" data-season-status aria-live="polite">REFRESHING… LAST VERIFIED SEASON SHOWN.</p>`;
-  if (view.error && view.season) return `<div class="social-empty ranking-error" role="alert" data-season-status><p class="t-body ink-2">${esc(view.error)} LAST VERIFIED SEASON SHOWN.</p><button class="btn-dark" type="button" data-season-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
-  return "";
-}
-
-function seasonPlacementRows(rows) {
-  return rows.map((row, index) => `<div class="season-row"><span class="t-label f12 g300">${String(index + 1).padStart(2, "0")}</span><span class="season-row-name"><strong class="t-label f11 g100">${esc(row.displayName || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(row.username || "player")} · ${row.games || 0} GAMES</span></span><strong class="t-label f12 green">${row.points || 0}</strong></div>`).join("");
-}
-
-function seasonRewardThreshold(reward, track) {
-  return reward.track === "placement" ? `${Math.round(Number(reward.threshold || 0) * 100)}% PLACEMENT` : `${reward.threshold} ${track}`;
-}
-
-function seasonRewardAction(reward, claimed, signedIn) {
-  const rewardId = String(reward.id || "REWARD");
-  const isClaimed = claimed.has(rewardId);
-  return {
-    rewardId,
-    isClaimed,
-    label: isClaimed ? "CLAIMED" : signedIn ? "CLAIM" : "SIGN IN",
-    disabled: !signedIn || isClaimed
-  };
-}
-
-function seasonRewardRows(rewards, claimed, signedIn) {
-  return rewards.map(reward => {
-    const rewardId = String(reward.id || "REWARD");
-    const track = String(reward.track || "mastery").toUpperCase();
-    const action = seasonRewardAction(reward, claimed, signedIn);
-    const threshold = seasonRewardThreshold(reward, track);
-    const tokenCopy = reward.tokens ? ` · ${reward.tokens} TOKENS` : "";
-    const claimControl = signedIn
-      ? `<button class="btn-dark" type="button" data-season-claim="${esc(rewardId)}" ${action.disabled ? "disabled" : ""}><span class="t-label f11">${action.label}</span></button>`
-      : "";
-    return `<div class="season-reward${action.isClaimed ? " is-claimed" : ""}"><div><strong class="t-label f11 g100">${esc(rewardId.replaceAll("-", " ").toUpperCase())}</strong><span class="t-micro ink-3">${threshold}${tokenCopy}</span></div>${claimControl}</div>`;
-  }).join("");
-}
-
-function seasonPanelView(override) {
-  if (override) return override;
-  return {
-    season: state.season.current,
-    loading: state.season.loading,
-    error: state.season.error,
-    stale: state.season.stale,
-    rows: state.season.rows,
-    rewards: state.season.rewards,
-    claimedRewardIds: state.season.claimedRewardIds,
-    signedIn: Boolean(state.account?.account),
-  };
-}
-
-function emptySeasonPanelHTML(status) {
-  if (status) return status;
-  return `<section class="season-panel panel noise"><span class="t-micro g400">SEASON LEDGER</span><p class="t-body ink-3">SIGN IN OR COMPLETE A SERVER MATCH TO SEE SEASON REWARDS.</p></section>`;
-}
-
-function seasonSignInPrompt(signedIn) {
-  if (signedIn) return "";
-  return `<div class="season-signin-prompt"><span class="t-body ink-2">Sign in to claim earned rewards.</span><button class="btn-dark" type="button" data-season-sign-in><span class="t-label f11">SIGN IN</span></button></div>`;
-}
-
-function populatedSeasonPanelHTML(surfaceKey, view, syncStatus) {
-  const season = view.season;
-  const rows = seasonPlacementRows((view.rows || []).slice(0, 3));
-  const claimed = new Set(view.claimedRewardIds || []);
-  const rewards = seasonRewardRows(view.rewards || [], claimed, Boolean(view.signedIn));
-  const signIn = seasonSignInPrompt(view.signedIn);
-  return `${syncStatus}<section class="season-panel panel noise" aria-labelledby="season-panel-${surfaceKey}-title"><div class="season-panel-head"><div><span class="t-micro g400">SEASON LEDGER · 8 WEEKS</span><h3 class="t-section g100" id="season-panel-${surfaceKey}-title">${esc(season.id)}</h3><span class="t-micro ink-3">${seasonDateLabel(season.startsAt)} → ${seasonDateLabel(season.endsAt)}</span></div><span class="rules-status rules-status-live">${String(season.status || "active").toUpperCase()}</span></div><div class="season-panel-grid"><div><span class="t-micro g400">TOP PLACEMENT</span><div class="season-list">${rows || `<span class="t-micro ink-3">NO VERIFIED PLACEMENTS YET.</span>`}</div></div><div><span class="t-micro g400">REWARD TRACK</span><div class="season-rewards">${rewards || `<span class="t-micro ink-3">REWARDS WILL APPEAR AFTER YOUR FIRST ELIGIBLE MATCH.</span>`}</div>${signIn}</div></div><p class="t-micro ink-3 season-panel-note">Completed server matches only · five games for win rate · casino volume never grants rank points.</p></section>`;
-}
-
-export function seasonPanelHTML(surfaceKey = "page", override = null) {
-  const view = seasonPanelView(override);
-  const status = seasonStatusPanelHTML(view);
-  if (status) return emptySeasonPanelHTML(status);
-  if (!view.season) return emptySeasonPanelHTML("");
-  const syncStatus = seasonSyncStatusHTML(view);
-  return populatedSeasonPanelHTML(surfaceKey, view, syncStatus);
-}
-
 export function renderRankingsSurface(target = "#rankings-card") {
   const card = surfaceCard(target, "#rankings-card");
   if (!card) return;
   const pageSurface = card.id === "rankings-page-content";
-  const surfaceKey = pageSurface ? "page" : "modal";
   const snapshots = state.leaderboard.snapshots || {};
   const currentRows = leaderboardCurrentRows(snapshots);
   const self = rankingSelfBits(currentRows);
@@ -813,13 +659,11 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const syncLabel = generatedLabel();
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
-  const activeRankingPane = state.rankingPane === "season" ? "season" : "standings";
-  const rankingPaneControls = pageSurface ? `<div class="rankings-view-tabs" role="group" aria-label="Ranking view"><button class="btn-dark ranking-pane-tab${activeRankingPane === "standings" ? " is-active" : ""}" type="button" data-ranking-pane="standings" aria-pressed="${activeRankingPane === "standings"}"><span class="t-label f11">STANDINGS</span></button><button class="btn-dark ranking-pane-tab${activeRankingPane === "season" ? " is-active" : ""}" type="button" data-ranking-pane="season" aria-pressed="${activeRankingPane === "season"}"><span class="t-label f11">SEASON</span></button></div>` : "";
-  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div>${rankingPaneControls}<div class="rankings-main-grid" data-ranking-layout data-active-pane="${activeRankingPane}"><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section><aside class="rankings-context panel noise" aria-label="Season rewards"><div class="rankings-season-slot">${seasonPanelHTML(surfaceKey)}</div></aside></div></div>`;
+  const surfaceKey = pageSurface ? "page" : "modal";
+  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid" data-ranking-layout><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section></div></div>`;
   const metricCount = card.querySelector(".ranking-stage-count");
   if (metricCount) metricCount.textContent = `${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC`;
   mountResponsiveRankingControls(card, { pageSurface, surfaceKey, expanded: state.rankingSearchExpanded, query: state.rankingSearchQuery, results: rankingSearchResultsHTML() });
-  card.querySelector("[data-season-sign-in]")?.addEventListener("click", (event) => openAccountModal("register", event.currentTarget));
 }
 
 const RULES_SECTIONS = [
@@ -830,7 +674,7 @@ const RULES_SECTIONS = [
     title: "One table. Forty spaces. Last wallet standing.",
     status: "LIVE",
     summary: "Poorup is a real-time property game for two to four players. Roll, move clockwise, make the next legal decision, and keep the table moving.",
-    content: `<div class="rules-callout"><strong class="t-label f13 g100">THE SHORT VERSION</strong><p class="t-body ink-2">Start on GO at space 0. Salvador is space 1. Every player takes a turn in order. Buy useful property, charge rent, manage cash, and survive the table longer than everyone else.</p></div><h3 class="t-section g300">A complete turn</h3><ol class="rules-steps"><li><span class="rules-step-number">01</span><div><strong class="t-label f12 g100">ROLL</strong><p class="t-body ink-2">The active player rolls the dice once. The server moves the token one space at a time.</p></div></li><li><span class="rules-step-number">02</span><div><strong class="t-label f12 g100">RESOLVE</strong><p class="t-body ink-2">Resolve the landed space, card, rent, tax, purchase, auction, or prison rule before ending the turn.</p></div></li><li><span class="rules-step-number">03</span><div><strong class="t-label f12 g100">CHOOSE</strong><p class="t-body ink-2">Buy, build, mortgage, trade, accept a loan, place a legal market action, or pass when the game allows it.</p></div></li><li><span class="rules-step-number">04</span><div><strong class="t-label f12 g100">END</strong><p class="t-body ink-2">Press End Turn only after every required decision is complete. The next player then becomes active.</p></div></li></ol><div class="rules-inline-note"><span class="t-micro g400">SOURCE OF TRUTH</span><span class="t-body ink-2">The server owns balances, movement, ownership, event outcomes, and settlement. The browser renders the latest snapshot.</span></div>`,
+    content: `<div class="rules-callout"><strong class="t-label f13 g100">THE SHORT VERSION</strong><p class="t-body ink-2">Start on GO at space 0. Salvador is space 1. Every player takes a turn in order. Buy useful property, charge rent, manage cash, and survive the table longer than everyone else.</p></div><h3 class="t-section g300">A complete turn</h3><ol class="rules-steps"><li><span class="rules-step-number">01</span><div><strong class="t-label f12 g100">ROLL</strong><p class="t-body ink-2">The active player rolls the dice once. The server moves the token one space at a time.</p></div></li><li><span class="rules-step-number">02</span><div><strong class="t-label f12 g100">RESOLVE</strong><p class="t-body ink-2">Resolve the landed space, card, rent, tax, purchase, auction, or prison rule before ending the turn.</p></div></li><li><span class="rules-step-number">03</span><div><strong class="t-label f12 g100">CHOOSE</strong><p class="t-body ink-2">Buy, trade, accept a loan, or place a legal market action. After rolling, the active player may build or sell buildings until ending the turn. Mortgaging an eligible deed is available on any turn.</p></div></li><li><span class="rules-step-number">04</span><div><strong class="t-label f12 g100">END</strong><p class="t-body ink-2">Press End Turn only after every required decision is complete. The next player then becomes active.</p></div></li></ol><div class="rules-inline-note"><span class="t-micro g400">SOURCE OF TRUTH</span><span class="t-body ink-2">The server owns balances, movement, ownership, event outcomes, and settlement. The browser renders the latest snapshot.</span></div>`,
   },
   {
     id: "board-tiles",
@@ -848,7 +692,7 @@ const RULES_SECTIONS = [
     title: "The next legal action is always the priority",
     status: "LIVE",
     summary: "Poorup uses a small state machine so movement never skips a purchase, card, auction, or payment decision.",
-    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn; only the independent inactivity removal clock applies.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. The server rejects stale or out-of-turn requests.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
+    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn; only the independent inactivity removal clock applies.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. Building and selling are available to that player after rolling and until turn end.</li><li>Mortgaging an owned deed may happen on any turn when collateral and debt rules allow it. The server rejects stale or out-of-turn requests for turn-scoped actions.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
   },
   {
     id: "cash-bank",
@@ -866,7 +710,7 @@ const RULES_SECTIONS = [
     title: "Build a group, then make it work",
     status: "LIVE",
     summary: "Properties are grouped by their color strip. The strip is the association; the name, price, and rotation are presentation only.",
-    content: `<h3 class="t-section g300">Buying</h3><p class="t-body ink-2">When you land on an unowned property, you can buy it at the printed price. If your cash is short, or you want help, open a sponsored purchase request. Other players may reserve gifts; accepting completes the named purchase immediately. If Auction is on and you pass, the deed can go to a server-run auction.</p><h3 class="t-section g300">Rent</h3><ul class="rules-bullets"><li>Rent depends on the deed, group ownership, and building level.</li><li>Owning every deed in a group activates the group's monopoly multiplier.</li><li>Mortgaged deeds do not collect normal rent until redeemed.</li><li>No Rent In Jail prevents an owner in prison from collecting rent during the configured turn.</li></ul><h3 class="t-section g300">Building</h3><p class="t-body ink-2">Build evenly across a complete group. Houses use the shared house bank. Four houses can become a hotel when a hotel is available. House and hotel limits are lobby settings.</p>`,
+    content: `<h3 class="t-section g300">Buying</h3><p class="t-body ink-2">When you land on an unowned property, you can buy it at the printed price. If your cash is short, or you want help, open a sponsored purchase request. Other players may reserve gifts; accepting completes the named purchase immediately. If Auction is on and you pass, the deed can go to a server-run auction.</p><h3 class="t-section g300">Rent</h3><ul class="rules-bullets"><li>Rent depends on the deed, group ownership, and building level.</li><li>Owning every deed in a group activates the group's monopoly multiplier.</li><li>Mortgaged deeds do not collect normal rent until redeemed.</li><li>No Rent In Jail prevents an owner in prison from collecting rent during the configured turn.</li></ul><h3 class="t-section g300">Building</h3><p class="t-body ink-2">After rolling on your own turn, build or sell houses and hotels before ending your turn. Build evenly across a complete group. Houses use the shared house bank. Four houses can become a hotel when a hotel is available. House and hotel limits are lobby settings.</p>`,
   },
   {
     id: "support-spaces",
@@ -893,7 +737,7 @@ const RULES_SECTIONS = [
     title: "Make deals without losing the ledger",
     status: "LIVE",
     summary: "Trading is player-driven, while auctions are server-timed. Both systems lock the assets they are settling before cash changes hands.",
-    content: `<h3 class="t-section g300">Trades</h3><ul class="rules-bullets"><li>Trading must be enabled in the room settings.</li><li>Choose deeds and cash, send the offer, and wait for the recipient's decision.</li><li>Both players must still own the offered deeds and have the offered cash when accepted.</li><li>Houses and hotels must be resolved according to the deed rules before a property can move.</li><li>Close an incoming offer to keep it pending. Open it from Finance to accept, decline, or negotiate; senders can adjust or cancel their own offer.</li></ul><h3 class="t-section g300">Auctions</h3><ul class="rules-bullets"><li>An auction starts when a buyer passes an unowned deed and Auction is enabled.</li><li>Players bid with available cash. The timer and leading bid are visible to the table.</li><li>The winner pays the final bid atomically or the server advances to the next valid bidder.</li><li>Disconnects and late bids cannot create a second winner.</li></ul>`,
+    content: `<h3 class="t-section g300">Trades</h3><ul class="rules-bullets"><li>Trading must be enabled in the room settings.</li><li>Choose deeds and cash, send the offer, and wait for the recipient's decision.</li><li>Both players must still own the offered deeds and have the offered cash when accepted.</li><li>Houses and hotels must be resolved according to the deed rules before a property can move.</li><li>Close an incoming offer to keep it pending. Open it from Finance to accept, decline, or negotiate; senders can adjust or cancel their own offer.</li></ul><h3 class="t-section g300">Auctions</h3><ul class="rules-bullets"><li>An auction starts when a buyer passes an unowned deed and Auction is enabled.</li><li>Players bid with available cash. Each valid bid resets the five-second timer.</li><li>There is no pass action during an auction; a player who does not bid remains eligible until the timer expires.</li><li>The highest valid bid wins and is charged atomically when the timer expires.</li><li>Disconnects and late bids cannot create a second winner.</li></ul>`,
   },
   {
     id: "build-mortgage",
@@ -901,8 +745,8 @@ const RULES_SECTIONS = [
     kicker: "09 · ASSET CONTROL",
     title: "Liquidity has a cost",
     status: "LIVE",
-    summary: "Build when a group is complete and mortgage only when you understand the recovery cost. The deed manager keeps both actions visible.",
-    content: `<h3 class="t-section g300">Houses and hotels</h3><p class="t-body ink-2">Construction is even across a group, limited by the shared bank, and blocked when a global event freezes building. A hotel replaces four houses on the same deed.</p><h3 class="t-section g300">Mortgage</h3><ul class="rules-bullets"><li>Mortgage releases emergency cash but disables normal rent.</li><li>Redeeming a mortgage costs the mortgage value plus the configured interest.</li><li>Bank-loan collateral locks cannot be mortgaged or traded until the loan is settled.</li><li>Bankruptcy settlement liquidates or transfers assets through the server's declared order.</li></ul>`,
+    summary: "Build during your own turn; mortgage an eligible deed on any turn. The deed manager keeps both actions visible.",
+    content: `<h3 class="t-section g300">Houses and hotels</h3><p class="t-body ink-2">After you roll and before you end your own turn, you may build or sell evenly across a complete group. Construction uses the shared bank and is blocked when a global event freezes building. A hotel replaces four houses on the same deed.</p><h3 class="t-section g300">Mortgage</h3><ul class="rules-bullets"><li>You may mortgage a deed you own on any player's turn if it is not otherwise locked.</li><li>Open debt, collateral, and ownership rules can block a mortgage.</li><li>A mortgaged deed does not collect normal rent.</li><li>Redeeming a mortgage is handled through the applicable debt rules, not as a discretionary build action.</li><li>Bank-loan collateral locks cannot be mortgaged or traded until the loan is settled.</li><li>Bankruptcy settlement liquidates or transfers assets through the server's declared order.</li></ul>`,
   },
   {
     id: "prison-vacation",
@@ -990,13 +834,13 @@ const RULES_SECTIONS = [
 // Expansion contract: keeping this chapter data-driven lets the Rules-book
 // explain new presets without adding another top-level navigation surface.
 RULES_SECTIONS.push({
-  id: "rulesets-market-seasons",
+    id: "rulesets-market",
   label: "RULESETS & SEASONS",
   kicker: "19 · EXPANSION",
   title: "Choose the table, then earn the record",
   status: "LIVE",
-  summary: "A single rules engine supports Classic, After Hours, Custom, Metro 52, seasonal standings, and cosmetic rewards.",
-  content: `<h3 class="t-section g300">Presets</h3><ul class="rules-bullets"><li>Classic is the default Standard 40 table with optional Poorup economy systems off. Hosts can still enable any existing setting.</li><li>After Hours uses the same legality guards with bank loans, casino, market, and global events enabled by default.</li><li>Custom starts from a base preset and records every override. The lobby shows the count and offers RESET TO PRESET.</li><li>Metro 52 uses 13 spaces per side, corners at 0, 13, 26, and 39, and supports up to six seats. Grand 64 is reserved until it passes balance and accessibility gates.</li></ul><h3 class="t-section g300">Season rewards</h3><p class="t-body ink-2">Eight-week seasons score verified completed matches. Win rate needs five games; bot-only, preview, abandoned, duplicate, and AFK-only records do not qualify. Rank points never come from casino volume.</p><h3 class="t-section g300">Market complexity</h3><p class="t-body ink-2">Basic enables buy/sell indexes. Margin adds a maintenance obligation, Shorting adds finite borrowable units and deterministic buy-ins, and Derivatives adds fully collateralized calls and puts. Every tier uses the same server candidate list for humans and bots.</p>`
+  summary: "A single rules engine supports Classic, After Hours, Custom, and Metro 52.",
+  content: `<h3 class="t-section g300">Presets</h3><ul class="rules-bullets"><li>Classic is the default Standard 40 table with optional Poorup economy systems off. Hosts can still enable any existing setting.</li><li>After Hours uses the same legality guards with bank loans, casino, market, and global events enabled by default.</li><li>Custom starts from a base preset and records every override. The lobby shows the count and offers RESET TO PRESET.</li><li>Metro 52 uses 13 spaces per side, corners at 0, 13, 26, and 39, and supports up to six seats. Grand 64 is reserved until it passes balance and accessibility gates.</li></ul><h3 class="t-section g300">Market complexity</h3><p class="t-body ink-2">Basic enables buy/sell indexes. Margin adds a maintenance obligation, Shorting adds finite borrowable units and deterministic buy-ins, and Derivatives adds fully collateralized calls and puts. Every tier uses the same server candidate list for humans and bots.</p>`
 });
 const marketRulesChapter = RULES_SECTIONS.find((section) => section.id === "casino-market");
 if (marketRulesChapter) marketRulesChapter.content = marketRulesChapter.content.replace("without margin, shorting, options, or real-world securities.", "with staged margin, shorting, and fully collateralized options when the host enables a higher Market Complexity tier; real-world securities remain excluded.");

@@ -213,7 +213,7 @@ const fingerprintGame = {
   awaitingEndTurn: false,
   extraRollPending: false,
   roundNumber: 1,
-  auction: { active: true, currentPlayerId: 'player-b', highestBid: 10, highestBidderId: 'player-b', passedPlayerIds: [] },
+  auction: { active: true, currentPlayerId: 'player-b', highestBid: 10, highestBidderId: 'player-b' },
   marketQuotes: { ACME: 10 },
   surpriseDeck: ['hidden-a', 'hidden-b'],
   getTile: index => index === 1 ? tile : null,

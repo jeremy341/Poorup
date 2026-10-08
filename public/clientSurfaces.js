@@ -9,7 +9,7 @@ import { hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 
 const SURFACE_SELECTORS = [
-  "#log-drawer", "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#deal-detail-modal", "#choice-modal", "#sponsorship-modal",
+  "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#deal-detail-modal", "#choice-modal", "#sponsorship-modal",
   "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#bankruptcy-modal",
   "#card-modal", "#card-gallery", "#gameover-modal",
 ];
@@ -30,17 +30,12 @@ let beforeUnloadBound = false;
 
 function surfaceVisible(el) {
   if (!el) return false;
-  if (el.id === "log-drawer") return el.classList.contains("is-open");
   return !el.classList.contains("is-hidden");
 }
 
 function setSurfaceHidden(el, hidden) {
   if (!el) return;
-  if (el.id === "log-drawer") {
-    el.classList.toggle("is-open", !hidden);
-  } else {
-    el.classList.toggle("is-hidden", hidden);
-  }
+  el.classList.toggle("is-hidden", hidden);
   el.setAttribute("aria-hidden", String(hidden));
 }
 
@@ -242,6 +237,7 @@ export function closeSurface(selector, options = {}) {
     return false;
   }
   const returnFocus = surfaceReturns.get(selector) || null;
+  if (selector === "#bankruptcy-modal") state.debtRescueDismissed = true;
   surfaceReturns.delete(selector);
   surfaceStack = surfaceStack.filter(entry => entry !== selector);
   setSurfaceHidden(surface, true);
@@ -265,6 +261,10 @@ export function closeAllSurfaces() {
     const surface = $(selector);
     setSurfaceHidden(surface, true);
   });
+  $("#log-drawer")?.classList.remove("is-open");
+  $("#log-drawer")?.setAttribute("aria-hidden", "true");
+  if ($("#log-drawer")) $("#log-drawer").inert = true;
+  $("#log-toggle-btn")?.setAttribute("aria-expanded", "false");
   syncSurfaceA11y();
   surfaceReturnFocus = null;
 }

@@ -362,7 +362,7 @@ function sponsorshipObligation(game, bot) {
 
 function auctionObligation(game, bot) {
   const item = game.auction;
-  return item ? { tileIndex: item.propertyTile?.index ?? null, highestBid: nonNegative(item.highestBid), highestBidderSeat: seatOf(game, bot, item.highestBidderId), participantCount: Array.isArray(item.participants) ? item.participants.length : 0, passedCount: Array.isArray(item.passedPlayerIds) ? item.passedPlayerIds.length : 0 } : null;
+  return item ? { tileIndex: item.propertyTile?.index ?? null, highestBid: nonNegative(item.highestBid), highestBidderSeat: seatOf(game, bot, item.highestBidderId), participantCount: Array.isArray(item.participants) ? item.participants.length : 0 } : null;
 }
 
 function tradeObligation(game, bot) {

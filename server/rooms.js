@@ -779,7 +779,6 @@ const GAME_PASSTHROUGHS = [
   'purchaseProperty',
   'declineProperty',
   'placeAuctionBid',
-  'passAuction',
   'manageProperty',
   'proposeTrade',
   'respondToTrade',

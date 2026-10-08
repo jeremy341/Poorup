@@ -21,7 +21,7 @@ const BOT_ADVISOR_SYSTEM_PROMPT = 'You are a Poorup strategy advisor. Compare im
 const RESCUE_CANDIDATE_KINDS = new Set(['bankruptcy', 'end-turn', 'end-finance-window', 'roll', 'sell', 'mortgage', 'unmortgage', 'bank-repay', 'loan', 'repay']);
 const CANDIDATE_FAMILIES = new Map([
   ['sell', 'liquidation'], ['mortgage', 'liquidation'], ['unmortgage', 'liquidation'], ['bank-repay', 'debt'], ['repay', 'debt'], ['loan', 'debt'],
-  ['build', 'development'], ['trade', 'trade'], ['contract-propose', 'contract'], ['choice', 'choice'], ['auction-bid', 'auction'], ['auction-pass', 'auction'],
+  ['build', 'development'], ['trade', 'trade'], ['contract-propose', 'contract'], ['choice', 'choice'], ['auction-bid', 'auction'], ['auction-wait', 'auction'],
   ['market', 'market'], ['open-margin', 'market'], ['reduce-margin', 'market'], ['open-short', 'market'], ['cover-short', 'market'], ['open-option', 'market'], ['exercise-option', 'market'], ['close-position', 'market'],
   ['casino', 'casino'], ['jail-fine', 'jail'], ['jail-free', 'jail'], ['roll', 'turn'], ['end-turn', 'turn'], ['end-finance-window', 'turn'], ['bankruptcy', 'terminal']
 ]);

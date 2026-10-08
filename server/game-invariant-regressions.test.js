@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { RoomManager } from './gameLogic.js';
 import { processContracts } from './contractLogic.js';
-import { SeasonStore } from './seasonModule.js';
 import * as marketExpansion from './marketExpansion.js';
 import * as socketRuntime from './socketRuntime.js';
 
@@ -124,18 +120,6 @@ check('same-round option exercise fails closed without changing the option', () 
   const result = room.exerciseOption('a', option.id, 'same-round');
   assert.deepEqual(result, { success: false, error: 'OPTION_TERMS_SERVER_REQUIRED' });
   assert.equal(JSON.stringify({ cash: player.cash, option }), before);
-});
-
-check('season placement exposes top-fraction direction so the last player cannot claim top reward', () => {
-  const store = new SeasonStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-season-rank-')), 'seasons.json'));
-  const season = store.seasons.get(store.getCurrent().id);
-  season.standings = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`acct-${index}`, { games: 1, points: 100 - index }]));
-  const rows = store.standings({ seasonId: season.id, metric: 'points' }).rows;
-  const last = rows.at(-1);
-  assert.equal(last.rank, 100);
-  assert.equal(last.placementRank, 100);
-  assert.equal(last.topFraction, 0.99);
-  assert.equal(store.rewardEligible(last, { track: 'placement', threshold: 0.01 }, rows.length), false);
 });
 
 if (failures.length) {

@@ -41,7 +41,7 @@ game.pendingPayment = { playerId: bot.id, amountRemaining: 140, creditorId: huma
 game.botDecisionTrace = [
   { botId: bot.id, sequence: 4, phase: 'pre-roll', actionId: 'mortgage:1', fallback: true, success: false, strategicScore: 3.5, reasonCode: 'cash-buffer' },
   { botId: human.id, sequence: 5, phase: 'pre-roll', actionId: 'roll', fallback: false },
-  { botId: bot.id, sequence: 6, phase: 'auction', actionId: 'auction:pass', fallback: false, strategicScore: -2, reasonCode: 'reserve' }
+  { botId: bot.id, sequence: 6, phase: 'auction', actionId: 'auction:wait', fallback: false, strategicScore: -2, reasonCode: 'reserve' }
 ];
 
 const context = buildBotStrategicContext(game, bot, 'payment', 7);
@@ -73,7 +73,7 @@ assert.equal(marketContext.marketQuotes.brazil, 135);
 assert.deepEqual(marketContext.marketQuoteHistory.map(point => point.quotes.brazil), [100, 135]);
 assert.equal(marketContext.marketQuoteHistory[1].eventId, 'market-rally');
 assert.equal(context.opponents.length, 1);
-assert.deepEqual(context.recentDecisions.map(entry => entry.actionId), ['mortgage:1', 'auction:pass']);
+assert.deepEqual(context.recentDecisions.map(entry => entry.actionId), ['mortgage:1', 'auction:wait']);
 assert.equal(context.recentDecisions[0].fallback, true);
 assert.equal(context.recentDecisions[0].success, false);
 assert.equal(context.decisionMemory.decisions, 2);

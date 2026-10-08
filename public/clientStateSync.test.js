@@ -85,6 +85,8 @@ let choiceModalOpens = 0;
 let auctionSurfaceOpens = 0;
 let cardRevealOpens = 0;
 let bankruptcyModalOpens = 0;
+const retireLabel = { textContent: "" };
+const retireButton = { disabled: true, title: "", querySelector: () => retireLabel };
 const diceRollTotals = [];
 const host = {
   setConnectionStatus() {},
@@ -106,7 +108,7 @@ const host = {
   },
   openAuctionSurface: () => { auctionSurfaceOpens += 1; },
   closeAuctionSurface() {},
-  retireButton: () => null,
+  retireButton: () => retireButton,
   bankruptcyHidden: () => true,
   hideBankruptcyModal() {},
   openBankruptcyModal() { bankruptcyModalOpens += 1; },
@@ -157,7 +159,7 @@ configureSocketListeners(fakeSocket, {
 listeners.get("purchase-offer")({ tileIndex: 12, name: "BOARDWALK", price: 200, canAfford: true });
 assert.equal(choiceModalOpens, 0, "purchase UI stays hidden until the pawn reaches the landing tile");
 walkResolvers.shift()();
-await new Promise(resolve => setTimeout(resolve, 0));
+await new Promise(resolve => setTimeout(resolve, 220));
 assert.equal(choiceModalOpens, 1, "the current purchase prompt opens after movement completes");
 
 const auctionSnapshot = {
@@ -175,7 +177,7 @@ const revealTile = TILES.find(tile => tile.kind === "chance" || tile.kind === "c
 listeners.get("card-reveal")({ tileIndex: revealTile.i, text: "A movement card resolved." });
 assert.equal(cardRevealOpens, 0, "card-reveal UI stays hidden until the pawn reaches the landing tile");
 walkResolvers.shift()();
-await new Promise(resolve => setTimeout(resolve, 0));
+await new Promise(resolve => setTimeout(resolve, 220));
 assert.equal(auctionSurfaceOpens, 1, "the automatic auction remains open while the pawn animation completes");
 assert.equal(cardRevealOpens, 1, "the card reveal opens after movement completes");
 
@@ -183,7 +185,7 @@ const debtSnapshot = {
   ...landingSnapshot,
   game: {
     ...landingSnapshot.game,
-    players: [{ ...landingSnapshot.game.players[0], position: 18 }],
+    players: [{ ...landingSnapshot.game.players[0], position: 18, inDebt: true }],
     pendingPurchaseOffer: null,
     pendingPayment: { playerId: "server-player", amountRemaining: 50, creditorId: null, reason: "Rent is due." }
   }
@@ -202,16 +204,25 @@ assert.deepEqual(state.activityNotices, [], "Activity notices are cleared when t
 applyServerState(debtSnapshot, host);
 assert.equal(bankruptcyModalOpens, 0, "the debt prompt waits for the pawn to finish its landing movement");
 walkResolvers.shift()();
-await new Promise(resolve => setTimeout(resolve, 0));
+await new Promise(resolve => setTimeout(resolve, 220));
 assert.equal(bankruptcyModalOpens, 1, "the debt prompt opens after movement completes");
+
+state.debtRescueDismissed = true;
+applyServerState(debtSnapshot, host);
+assert.equal(bankruptcyModalOpens, 1, "snapshots leave rescue tools accessible after dismissal");
+assert.equal(retireButton.disabled, false, "a debtor can return to the debt dialog after dismissing it");
+assert.equal(retireLabel.textContent, "BANKRUPT");
+assert.equal(retireButton.title, "Resolve bankruptcy");
 
 const nextRollSnapshot = {
   ...debtSnapshot,
-  game: { ...debtSnapshot.game, pendingPayment: null, diceRollSequence: 2, lastDice: [4, 5] },
+  game: { ...debtSnapshot.game, players: [{ ...debtSnapshot.game.players[0], inDebt: false }], pendingPayment: null, diceRollSequence: 2, lastDice: [4, 5] },
 };
 applyServerState(nextRollSnapshot, host);
 applyServerState(nextRollSnapshot, host);
 assert.deepEqual(diceRollTotals, [12, 9], "a new sequence announces once and a replayed snapshot stays quiet");
+assert.equal(state.debtRescueDismissed, false, "settlement clears the previous debt dismissal");
+assert.equal(retireLabel.textContent, "RETIRE");
 
 console.log("client state sync and landing-prompt tests: passed");
 const syncSource = readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");

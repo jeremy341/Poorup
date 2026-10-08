@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { resolveAuxiliaryStorePaths, resolveStorePaths } from './serverStorePaths.js';
+import { fileURLToPath } from 'node:url';
+import { resolveAuxiliaryStorePaths, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
 
 const root = path.resolve('tmp', 'poorup-wire-data');
 const paths = resolveStorePaths({ POORUP_DATA_DIR: `  ${root}  ` });
@@ -26,6 +27,14 @@ assert.deepEqual(resolveAuxiliaryStorePaths({}), {
   telemetry: undefined,
   analyticsRollup: undefined,
   aiProviders: undefined
+});
+assert.deepEqual(resolveRetiredStorePaths({ POORUP_DATA_DIR: `  ${root}  ` }), {
+  seasons: path.join(root, 'seasons.json'),
+  cosmetics: path.join(root, 'cosmetics.json'),
+});
+assert.deepEqual(resolveRetiredStorePaths({}), {
+  seasons: path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'seasons.json'),
+  cosmetics: path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'cosmetics.json'),
 });
 
 console.log('server store paths: 7 passed, 0 failed');

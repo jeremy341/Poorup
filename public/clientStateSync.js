@@ -8,6 +8,8 @@ import { state } from "./clientState.js";
 import { reconcileTradeOfferDismissal } from "./clientTradeOfferDismissal.js";
 import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
 import { createDiceRollSequenceTracker } from "./clientDiceRollEffect.js";
+import { createPresentationQueue } from './clientPresentation.js';
+import { LANDING_DELAY_MS } from './gamePresentationTiming.js';
 
 export const AUCTION_MS = 5000;
 let movementRevision = 0;
@@ -15,6 +17,39 @@ let movementCompletion = Promise.resolve();
 let debtSurfaceRevision = 0;
 let winnerSurfaceRevision = 0;
 const diceRollSequenceTracker = createDiceRollSequenceTracker();
+let presentationHost = null;
+let syncingPresentation = false;
+const presentationQueue = createPresentationQueue({
+  now: () => Date.now() + (state.serverTimeOffset || 0),
+  onChange: () => {
+    applyPresentationProjection();
+    if (!syncingPresentation) presentationHost?.renderAll();
+  },
+  setRolling: value => { state.rolling = value; if (!syncingPresentation) presentationHost?.renderAll(); },
+  announceTotal: (total, dice) => { state.dice = dice; presentationHost?.announceDiceRoll?.(total); },
+  animateSegment: (segment, record) => {
+    const actor = state.players.find(player => player.serverId === record.actorId);
+    if (!actor) return Promise.resolve();
+    const elapsed = Math.max(0, Date.now() + (state.serverTimeOffset || 0) - record.startedAt - segment.offsetMs);
+    const startedAt = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - elapsed;
+    return presentationHost?.startPieceWalk(actor.id, segment.from, segment.to, { ...segment, startedAt });
+  },
+  cancelMovement: () => presentationHost?.cancelPieceMovement?.(),
+});
+
+function applyPresentationProjection() {
+  state.presentationBusy = presentationQueue.busy;
+  for (const player of state.players) {
+    player.visualCash = player.cash - presentationQueue.pendingCashFor(player.serverId);
+    player.visualPos = presentationQueue.positionFor(player.serverId);
+  }
+}
+
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') presentationQueue.reconcile();
+  });
+}
 
 function num(value) {
   return Number(value) || 0;
@@ -363,14 +398,6 @@ function syncRoomSettings(room) {
   };
 }
 
-function passedEntry(serverId) {
-  return [findLocalPlayerId(serverId), true];
-}
-
-function passedEntries(passedPlayerIds) {
-  return arrayOr(passedPlayerIds).map(passedEntry).filter(([id]) => id);
-}
-
 function auctionView(auction) {
   const endsAt = Number(auction.endsAt);
   return {
@@ -381,7 +408,6 @@ function auctionView(auction) {
     // SYNCING instead of counting down a phantom window.
     deadline: Number.isFinite(endsAt) && endsAt > 0 ? endsAt : null,
     caps: {},
-    passed: Object.fromEntries(passedEntries(auction.passedPlayerIds)),
   };
 }
 
@@ -401,8 +427,13 @@ function syncView(host) {
 
 export function afterPieceMovement(callback) {
   const revision = movementRevision;
-  return movementCompletion.then(() => {
+  const roomCode = state.roomCode;
+  const gameStartedAt = state.serverGameStartedAt;
+  return Promise.all([movementCompletion, presentationQueue.whenIdle()]).then(async () => {
+    if (roomCode !== state.roomCode || gameStartedAt !== state.serverGameStartedAt) return;
     if (revision !== movementRevision) return afterPieceMovement(callback);
+    if (!state.hasPresentationRecord) await new Promise(resolve => setTimeout(resolve, LANDING_DELAY_MS));
+    if (roomCode !== state.roomCode || gameStartedAt !== state.serverGameStartedAt) return;
     return callback();
   });
 }
@@ -455,7 +486,6 @@ function retireAllowed() {
   if (!me) return false;
   if (me.spectating) return true;
   if (me.bankrupt) return false;
-  if (me.inDebt) return false;
   return me.online !== false;
 }
 
@@ -475,11 +505,13 @@ function syncDebtModal(game, host) {
   state.pendingDebt = debt || null;
   syncRetireButton(host);
   if (!debt) {
+    state.debtRescueDismissed = false;
     host.hideBankruptcyModal();
     return;
   }
   const meServerId = localServerId();
   if (debt.playerId !== meServerId) return;
+  if (state.debtRescueDismissed) return;
   if (!host.bankruptcyHidden()) return;
   const meIndex = state.players.findIndex((player) => player.serverId === meServerId);
   if (meIndex < 0) return;
@@ -512,7 +544,7 @@ export function syncActionLockFromSnapshot() {
   // roll or end-turn control prematurely.
   if (state.pendingAction) return;
   state.busy = false;
-  state.rolling = false;
+  if (!state.presentationBusy) state.rolling = false;
 }
 
 export function applyServerState(snapshot, host) {
@@ -522,13 +554,15 @@ export function applyServerState(snapshot, host) {
   const previousPositions = previousPositionsOf();
   host.setConnectionStatus("online");
   const { room, game } = snapshot;
+  if (state.roomCode !== room.roomCode) state.debtRescueDismissed = false;
   const boardChanged = syncRoom(room, game);
+  state.serverGameStartedAt = game.startedAt ?? game.presentation?.gameStartedAt ?? 0;
   const diceTotal = diceRollSequenceTracker.receive({
     roomCode: state.roomCode,
     sequence: game.diceRollSequence,
     dice: game.lastDice,
   });
-  if (diceTotal !== null) host.announceDiceRoll?.(diceTotal);
+  if (diceTotal !== null && !game.presentation) host.announceDiceRoll?.(diceTotal);
   if (boardChanged) {
     setBoardVariant(state.boardVariant);
     host.rebuildBoard?.();
@@ -550,16 +584,24 @@ export function applyServerState(snapshot, host) {
   syncActionLockFromSnapshot();
   syncLog(game);
   syncRoomSettings(room);
-  state.pendingBuyTile = nullish(game.pendingPurchaseOffer?.tileIndex, null);
+  state.pendingBuyTile = game.pendingPurchaseOffer?.playerId === localServerId()
+    ? nullish(game.pendingPurchaseOffer?.tileIndex, null) : null;
   state.sponsorship = game.pendingSponsoredPurchase || null;
   syncAuction(game);
+  presentationHost = host;
+  syncingPresentation = true;
+  state.hasPresentationRecord = Boolean(game.presentation);
+  presentationQueue.receive(state.roomCode, game.presentation, game.startedAt ?? game.presentation?.gameStartedAt ?? 0);
+  applyPresentationProjection();
+  syncingPresentation = false;
   // Snapshots update data unconditionally but must not hijack the page —
   // only re-assert the game view while the player is mid-room-session and
   // the parlor is the surface actually on screen (A4-F1).
   syncView(host);
-  scheduleWalks(movementPlans, host);
+  if (!game.presentation) scheduleWalks(movementPlans, host);
   host.renderAll();
-  syncAuctionSurface(host);
+  if (game.presentation && presentationQueue.busy) afterPieceMovement(() => syncAuctionSurface(host));
+  else syncAuctionSurface(host);
   syncDebtModal(game, host);
   syncWinner(game, host);
   host.placePiecesSoon();

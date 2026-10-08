@@ -7,7 +7,6 @@ const coverage = new Map([
   ['purchase-property', { candidateKind: 'purchase' }],
   ['decline-property', { policy: 'decline-to-auction' }],
   ['auction-bid', { policy: 'decideBotAuction' }],
-  ['auction-pass', { policy: 'decideBotAuction' }],
   ['end-turn', { candidateKind: 'end-turn' }],
   ['manage-property:build-house', { candidateKind: 'build' }],
   ['manage-property:sell-house', { candidateKind: 'sell' }],

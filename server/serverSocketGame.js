@@ -7,6 +7,7 @@
 // are wire-identical to the original server.js handlers.
 import { emitResultMessage, makeRoomVerbHandler, reply, roomVerbAck } from './socketHandlerSupport.js';
 import { contractLastProposerId, contractResponderId } from './contractLogic.js';
+import { presentationRemainingMs } from '../public/gamePresentationTiming.js';
 
 const NO_PENDING_CONTRACT = { success: false, error: 'No pending contract to cancel.' };
 
@@ -56,7 +57,6 @@ const GAME_VERB_HANDLERS = [
   { event: 'purchase-property', verb: 'purchaseProperty', args: pickArgs(['tileIndex']), message: true },
   { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted) },
   { event: 'auction-bid', verb: 'placeAuctionBid', args: pickArgs(['amount']), auctionRefresh: AUCTION_STILL_OPEN, message: true },
-  { event: 'auction-pass', verb: 'passAuction', args: NO_ARGS, auctionRefresh: AUCTION_STILL_OPEN },
   { event: 'end-turn', verb: 'endTurn', args: NO_ARGS },
   { event: 'manage-property', verb: 'manageProperty', args: p => [{ tileIndex: p.tileIndex, action: p.action }], message: true },
   { event: 'propose-trade', verb: 'proposeTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade']) },
@@ -87,7 +87,7 @@ const GAME_VERB_HANDLERS = [
 ];
 
 const BASE_GAME_EVENTS = new Set([
-  'purchase-property', 'decline-property', 'auction-bid', 'auction-pass', 'end-turn',
+  'purchase-property', 'decline-property', 'auction-bid', 'end-turn',
   'manage-property', 'propose-trade', 'counter-trade', 'cancel-trade', 'respond-trade',
   'pay-jail-fine', 'use-jail-free', 'declare-bankruptcy'
 ]);
@@ -145,8 +145,12 @@ function registerGameSocketHandlers(on, socket, runtime) {
   function handleRollDice(_payload, callback) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
+    if (presentationRemainingMs(room.game, runtime.now?.() ?? Date.now()) > 0) {
+      return reply(callback, { success: false, error: 'Wait until the current movement finishes.' });
+    }
     const result = room.rollDice(socket.id);
     recordHumanAction(room, socket, result);
+    announceRollAuction(runtime, room, result);
     runtime.emitRoomState(room);
     announceRollOutcomes(runtime, socket, room, result);
     reply(callback, roomVerbAck(result));
@@ -240,6 +244,9 @@ function registerGameSocketHandlers(on, socket, runtime) {
   function handleSponsorship(action, payload, callback) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
+    if (['accept', 'decline'].includes(action) && presentationRemainingMs(room.game, runtime.now?.() ?? Date.now()) > 0) {
+      return reply(callback, { success: false, error: 'Wait until the current movement finishes.' });
+    }
     const methods = {
       request: () => room.game.requestPurchaseSponsorship(socket.id, payload),
       contribute: () => room.game.contributeToSponsoredPurchase(socket.id, payload),
@@ -257,7 +264,6 @@ function registerGameSocketHandlers(on, socket, runtime) {
 
 function announceRollOutcomes(runtime, socket, room, result) {
   emitRollPurchaseOffer(socket, room, result);
-  announceRollAuction(runtime, room, result);
   emitResultMessage(runtime.io, room, result);
   emitRollCardReveal(socket, result);
 }

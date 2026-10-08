@@ -5,7 +5,6 @@ assert.equal(typeof socketHandlerSupport.publicActionHistoryKind, 'function', 's
 const publicActionHistoryKind = socketHandlerSupport.publicActionHistoryKind;
 const successful = { success: true };
 assert.equal(publicActionHistoryKind('auction-bid', {}, successful), 'auction-bid');
-assert.equal(publicActionHistoryKind('auction-pass', {}, successful), 'auction-pass');
 assert.equal(publicActionHistoryKind('purchase-property', {}, successful), 'purchase');
 assert.equal(publicActionHistoryKind('manage-property', { action: 'build-house' }, successful), 'build');
 assert.equal(publicActionHistoryKind('manage-property', { action: 'sell-house' }, successful), null);

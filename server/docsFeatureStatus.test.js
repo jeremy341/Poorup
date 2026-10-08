@@ -22,6 +22,12 @@ assert.ok(manifest.features.length > 0, "manifest must contain at least one feat
 
 const allowedStatuses = new Set(["active", "complete", "planned", "reference", "deferred"]);
 const featureIds = new Set();
+const featureById = new Map(manifest.features.map(feature => [feature.id, feature]));
+
+for (const id of ["seasons", "cosmetics"]) {
+  assert.equal(featureById.get(id)?.status, "complete", `${id} must remain marked retired`);
+  assert.ok(featureById.get(id)?.evidence.includes("server/retiredAccountStore.js"));
+}
 
 for (const feature of manifest.features) {
   assert.equal(typeof feature.id, "string");

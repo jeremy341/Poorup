@@ -24,6 +24,8 @@ let host = {
   renderAll: noop,
   buyTile: noop,
   openHoldings: noop,
+  openTradeForDebt: noop,
+  openFinancingForDebt: noop,
   openTradeNegotiation: noop,
   openSponsorshipRequest: noop,
   startGame: noop,
@@ -295,6 +297,7 @@ function totalAssets(p) {
 }
 
 function openBankruptcyModal(idx, amount, creditorId, label) {
+  state.debtRescueDismissed = false;
   const p = state.players[idx];
   const creditor = creditorId ? state.players.find((x) => x.id === creditorId) : null;
   $("#bankruptcy-card").innerHTML = `
@@ -303,23 +306,34 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
         <span class="bank-icon">!</span>
         <div>
           <div class="t-micro red">CAN'T COVER IT</div>
-          <h3 class="t-section bank-title" id="bankruptcy-card-title">$${amount} due</h3>
+          <h3 class="t-section bank-title" id="bankruptcy-card-title">$<span class="numeric">${Number(amount || 0).toLocaleString()}</span> due</h3>
         </div>
       </div>
-      <p class="t-body ink-2 bank-copy">${esc(label)}. You're $${amount - p.cash} short. Sell houses and mortgage deeds, or hand everything to ${creditor ? esc(creditor.name) : "the bank"} and bow out.</p>
+      <button class="btn-dark bank-dismiss" id="bank-dismiss" type="button" aria-label="Return to the table">CLOSE</button>
+      <p class="t-body ink-2 bank-copy">${esc(label)}. You’re $<span class="numeric">${Math.max(0, amount - Number(p?.cash || 0)).toLocaleString()}</span> short. Review your holdings, trades, and financing before deciding whether to leave the table. Creditor: ${creditor ? esc(creditor.name) : "the bank"}.</p>
       <div class="bank-actions">
-        <button class="btn-dark bank-btn" id="bank-liquidate"><span class="t-label f12">Open Holdings</span></button>
-        <button class="btn-dark bank-btn" id="bank-declare"><span class="t-label f12">Declare Bankruptcy</span></button>
+        <button class="btn-dark bank-btn" id="bank-liquidate" type="button"><span class="t-label f12">Holdings</span></button>
+        <button class="btn-dark bank-btn" id="bank-trade" type="button"><span class="t-label f12">Trade</span></button>
+        <button class="btn-dark bank-btn" id="bank-financing" type="button"><span class="t-label f12">Financing</span></button>
+        <button class="btn-dark bank-btn" id="bank-declare" type="button"><span class="t-label f12">Declare Bankruptcy</span></button>
       </div>
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-liquidate");
+  $("#bank-dismiss").addEventListener("click", dismissBankruptcyModal);
   $("#bank-liquidate").addEventListener("click", () => {
-    closeSurface("#bankruptcy-modal", { force: true });
+      dismissBankruptcyModal();
       host.openHoldings();
       host.recordActivity("Holdings is open. Sell houses or mortgage deeds, then return here to settle the debt.");
-      return;
   });
-  $("#bank-declare").addEventListener("click", () => {
+  $("#bank-trade").addEventListener("click", () => {
+    dismissBankruptcyModal();
+    host.openTradeForDebt();
+  });
+  $("#bank-financing").addEventListener("click", () => {
+    dismissBankruptcyModal();
+    host.openFinancingForDebt();
+  });
+  $("#bank-declare").addEventListener("click", event => {
     // Debt bankruptcy is irreversible: require an explicit second tap,
     // mirroring the voluntary-exit confirm. No accidental eliminations.
     const actions = $("#bankruptcy-modal .bank-actions");
@@ -334,6 +348,13 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
     }
     bankruptPlayer(idx, creditorId, host.captureActionStatusNode(event.currentTarget));
   });
+}
+
+export function dismissBankruptcyModal() {
+  state.debtRescueDismissed = true;
+  const actions = $("#bankruptcy-modal .bank-actions");
+  if (actions) delete actions.dataset.armed;
+  closeSurface("#bankruptcy-modal", { force: true });
 }
 
 export function openVoluntaryExitModal() {

@@ -5,7 +5,6 @@ import path from 'node:path';
 import { SocialStore } from './socialStore.js';
 import { MatchStore } from './matchStore.js';
 import { AchievementStore } from './achievementStore.js';
-import { CosmeticStore } from './cosmeticCatalog.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-account-linked-'));
 const social = new SocialStore(path.join(root, 'social.json'));
@@ -40,10 +39,5 @@ const achievements = new AchievementStore(path.join(root, 'achievements.json'));
 achievements.records.set('acct-1:first', { accountId: 'acct-1', achievementId: 'first' });
 assert.equal(achievements.purgeAccount('acct-1'), 1);
 
-const cosmetics = new CosmeticStore(path.join(root, 'cosmetics.json'));
-cosmetics.accounts.set('acct-1', { tokens: 1, owned: [], equipped: {}, claims: [], tokenClaims: [] });
-assert.equal(cosmetics.purgeAccount('acct-1'), true);
-assert.equal(cosmetics.accounts.has('acct-1'), false);
-
 fs.rmSync(root, { recursive: true, force: true });
-console.log('account-linked stores: 8 passed, 0 failed');
+console.log('account-linked stores: passed');

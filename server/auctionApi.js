@@ -1,5 +1,5 @@
 // Property auctions as a prototype mixin: the open-outcome flow that starts
-// when a deed is declined (or unaffordable), the bid/pass mini-game, and the
+// when a deed is declined (or unaffordable), the bid mini-game, and the
 // timed close. gameLogic.js assigns this object onto GameState.prototype and
 // re-exports AUCTION_DURATION_MS for server.js; server/gameLogic.test.js pins
 // every rejection string and precedence.
@@ -20,7 +20,6 @@ class AuctionState {
     this.endsAt = Date.now() + AUCTION_DURATION_MS;
     this.cooldownUntil = 0;
     this.lastBidAt = 0;
-    this.passedPlayerIds = [];
   }
 }
 
@@ -85,7 +84,6 @@ const auctionApi = {
     if (Number.isFinite(Number(auction.endsAt)) && now >= Number(auction.endsAt)) {
       return { success: false, error: 'The auction has ended.' };
     }
-    if (auction.passedPlayerIds.includes(player.id)) return { success: false, error: 'You have passed on this auction.' };
     if (auction.cooldownUntil && now < auction.cooldownUntil) return { success: false, error: 'Please wait a moment before bidding again.' };
     return null;
   },
@@ -108,39 +106,6 @@ const auctionApi = {
     auction.cooldownUntil = now + AUCTION_BID_COOLDOWN_MS;
     auction.endsAt = now + AUCTION_DURATION_MS;
     this.feedMessage(`${player.nickname} bid $${amount}.`);
-  },
-
-  passAuction(socketId) {
-    const player = this.getPlayerBySocket(socketId);
-    const rejection = this.auctionPassRejection(player);
-    if (rejection) return rejection;
-    return this.recordAuctionPass(player);
-  },
-
-  auctionPassRejection(player) {
-    if (!player) return { success: false, error: 'No auction is active.' };
-    if (!this.auction) return { success: false, error: 'No auction is active.' };
-    if (!this.auction.active) return { success: false, error: 'No auction is active.' };
-    if (player.bankrupt) return { success: false, error: 'You cannot bid right now.' };
-    if (player.disconnected) return { success: false, error: 'You cannot bid right now.' };
-    const auction = this.auction;
-    if (auction.participants.length && !auction.participants.includes(player.id)) return { success: false, error: 'You are not part of this auction.' };
-    if (auction.highestBidderId === player.id) return { success: false, error: 'The current high bidder cannot pass.' };
-    return null;
-  },
-
-  recordAuctionPass(player) {
-    const auction = this.auction;
-    if (!auction.passedPlayerIds.includes(player.id)) {
-      auction.passedPlayerIds.push(player.id);
-      this.feedMessage(`${player.nickname} passed on the auction.`);
-    }
-    const remaining = auction.participants.filter(id => !auction.passedPlayerIds.includes(id));
-    if (auction.highestBidderId && remaining.length <= 1) {
-      this.finishAuction();
-      return { success: true, finished: true };
-    }
-    return { success: true };
   },
 
   finishAuction() {

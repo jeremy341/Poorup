@@ -18,7 +18,6 @@ import {
   openPlayerSurface,
   renderPlayerSurface,
   requestLeaderboardSnapshot,
-  requestSeason,
   requestSocialData,
   RANKING_ORDER,
 } from "./clientSocialSurfaces.js";
@@ -129,13 +128,6 @@ function handleRankingClick(event) {
     focusRankingControl(surface, state.rankingSearchExpanded ? "[data-ranking-search-input]" : "[data-ranking-search-toggle]");
     return;
   }
-  const pane = event.target.closest("[data-ranking-pane]");
-  if (pane) {
-    state.rankingPane = pane.dataset.rankingPane === "season" ? "season" : "standings";
-    renderRankingsSurface(surface);
-    focusRankingControl(surface, `[data-ranking-pane="${state.rankingPane}"]`);
-    return;
-  }
   const step = event.target.closest("[data-ranking-step]");
   if (step) {
     onRankingStep(Number(step.dataset.rankingStep) || 1, inGameModal, surface);
@@ -145,35 +137,14 @@ function handleRankingClick(event) {
     requestLeaderboardSnapshot(surface);
     return;
   }
-  if (event.target.closest("[data-season-retry]")) {
-    requestSeason(surface);
-    return;
-  }
   const scope = event.target.closest("[data-ranking-scope]");
   if (scope) { onRankingScope(scope, inGameModal); return; }
   const player = event.target.closest("[data-ranking-player]");
   if (player) openPlayerSurface(player.dataset.rankingPlayer);
-  const reward = event.target.closest("[data-season-claim]");
-  if (reward) {
-    host.emitServer("claim-season-reward", { rewardId: reward.dataset.seasonClaim }, (response) => {
-      if (response?.success === false) announceSocialNotification({ body: response.error || "Reward could not be claimed." });
-      else { state.cosmetics = response.cosmetics || state.cosmetics; announceSocialNotification({ title: "SEASON REWARD", body: response.created === false ? "Reward already claimed." : "Reward claimed and added to your collection." }); }
-      requestSeason(rankingSearchSurface(event));
-    });
-  }
   if (event.target.closest(".rankings-close, #rankings-close")) closeRankingsFromEvent(event);
 }
 
 function handleRankingKeydown(event) {
-  const pane = event.target.closest("[data-ranking-pane]");
-  if (pane && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-    event.preventDefault();
-    state.rankingPane = pane.dataset.rankingPane === "season" ? "standings" : "season";
-    const surface = event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
-    renderRankingsSurface(surface);
-    focusRankingControl(surface, `[data-ranking-pane="${state.rankingPane}"]`);
-    return;
-  }
   if (!event.target.closest("[data-ranking-stage]")) return;
   let step = 0;
   if (event.key === "ArrowLeft") step = -1;
