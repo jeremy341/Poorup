@@ -75,6 +75,13 @@ check("historyToggleKeepsMatchContextInAccessibleName", () => {
   assert.equal(collapsed, initial);
 });
 
+check("retiredCollectionIsRemovedWhileDesignThemesAndMusicRemain", () => {
+  assert.doesNotMatch(bindings, /clientCosmetics|requestCosmetics|handleCosmeticClick|profile-collection-content|"collection"/);
+  assert.doesNotMatch(render, /renderCollection|profile-collection-content/);
+  assert.match(bindings, /"designs"/);
+  assert.match(render, /profile-music-state/);
+});
+
 check("redactedHistoryCannotRenderPrivateFields", () => {
   const redacted = profileHistoryRowHTML({ matchId: "public-id", result: "ROUND", endingCash: 9123, playerContracts: [{ terms: "secret-term" }] }, 0, 1, { accountId: "self" });
   assert.match(redacted, /data-profile-detail-source="unavailable"/);

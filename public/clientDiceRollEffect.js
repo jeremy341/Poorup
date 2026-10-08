@@ -65,5 +65,5 @@ export function showDiceRollTotal(total) {
   announcement.classList.remove("is-visible");
   void announcement.offsetWidth;
   announcement.classList.add("is-visible");
-  hideTimer = window.setTimeout(() => announcement.classList.remove("is-visible"), 1900);
+  hideTimer = window.setTimeout(() => announcement.classList.remove("is-visible"), 2200);
 }

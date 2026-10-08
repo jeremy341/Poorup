@@ -1349,7 +1349,7 @@ button[id$="-close"],
   75%  { transform: translate(-2px, 2px) rotate(-4deg); }
   100% { transform: translate(0, 0) rotate(0deg); }
 }
-.dice-rolling { animation: shake-dice 160ms steps(3, end) infinite; }
+.dice-rolling { animation: shake-dice var(--dice-shake-cycle, 240ms) steps(3, end) infinite; }
 
 @keyframes blink-dot { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.35; } }
 .blink { animation: blink-dot 1400ms steps(1, end) infinite; }
@@ -2151,10 +2151,10 @@ button[id$="-close"],
   image-rendering: pixelated;
 }
 
-.dice-roll-total.is-visible { animation: dice-total-reveal 1900ms steps(5, end) both; }
+.dice-roll-total.is-visible { animation: dice-total-reveal 2200ms ease-out both; }
 @keyframes dice-total-reveal {
   0% { opacity: 0; transform: translate(-50%, -36%) scale(.72); }
-  10%, 68% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  11%, 82% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -55%) scale(1.08); }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2526,17 +2526,17 @@ button[id$="-close"],
   text-shadow: 0 2px 0 rgb(0 0 0 / 55%);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.hud-note { margin-top: 8px; display: block; }
-.hud-bot-status { display: block; margin-top: 6px; padding: 4px 6px; color: var(--gold-300); background: rgb(217 166 47 / 8%); border: 1px solid rgb(217 166 47 / 45%); font-variant-numeric: tabular-nums; }
-.hud-bot-status.is-thinking { color: var(--blue-player); border-color: rgb(40 110 161 / 70%); animation: bot-status-pulse 900ms ease-in-out infinite alternate; }
-@keyframes bot-status-pulse { from { opacity: .62; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .hud-bot-status.is-thinking { animation: none; } }
 .hud-jail-action { margin-top: 10px; min-height: 32px; padding: 0 10px; }
+.hud-primary-actions { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.hud-jail-actions { display: grid; gap: 6px; }
+.hud-primary-actions .hud-jail-action { width: 100%; margin-top: 0; white-space: normal; }
 .t-money { text-shadow: 0 2px 0 rgb(0 0 0 / 50%); }
 .pool-val { font-size: 30px; }
 .pool-swatches { margin-top: 6px; display: flex; gap: 4px; }
 .pool-swatches span { display: block; width: 11px; height: 11px; }
 .hud-roll { min-height: 132px; padding: 0 18px; }
+.hud-primary-actions .hud-roll { width: 100%; flex: 1 1 auto; }
 .hud-roll .cta-text { font-size: 30px; }
 
 .die {
@@ -2564,7 +2564,7 @@ button[id$="-close"],
 }
 
 /* right rail */
-.right-rail { display: flex; flex-direction: column; min-height: 520px; }
+.right-rail { position: relative; display: flex; flex-direction: column; min-height: 520px; }
 .rr-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 0; }
 .rr-count { margin-left: auto; }
 .tabs { margin-top: 12px; display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line-subtle); }
@@ -2575,6 +2575,8 @@ button[id$="-close"],
 .rr-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .rr-foot { padding: 0 12px 12px; }
 .rr-empty { padding: 24px 4px; text-align: center; color: var(--text-muted); }
+.deed-group { display: grid; gap: 8px; }
+.deed-group-title { margin: 6px 0 0; color: var(--gold-400); }
 .lobby-start-btn { height: 56px; width: 100%; }
 .panel-menu { position: absolute; top: 58px; right: 14px; z-index: 68; width: min(360px, calc(100vw - 28px)); padding: 14px; background: var(--surface-panel); border: 1px solid var(--line-active); box-shadow: var(--shadow-panel); }
 .panel-menu.is-hidden { display: none; }
@@ -2815,6 +2817,9 @@ button[id$="-close"],
 .popup { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .popup-scrim { position: absolute; inset: 0; background: var(--theme-scrim); cursor: pointer; }
 .popup-card { position: relative; z-index: 2; width: 100%; max-width: 440px; overflow: hidden; max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.popup:not(.is-hidden) > .popup-card { animation: parlor-modal-enter var(--modal-enter-duration, 160ms) cubic-bezier(.23, 1, .32, 1) both; }
+@keyframes parlor-modal-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .popup:not(.is-hidden) > .popup-card { animation: none; } }
 .social-surface-card { max-width: min(1080px, calc(100vw - 48px)); max-height: min(88vh, 820px); }
 #player-card {
   width: min(480px, calc(100vw - 32px));
@@ -3013,18 +3018,6 @@ button[id$="-close"],
 .rankings-search-controls .field { width: 100%; min-width: 0; }
 .rankings-search-submit { align-self: stretch; min-width: 84px; min-height: 44px; }
 .rankings-search-results { grid-column: 1 / -1; display: grid; gap: 5px; padding-top: 6px; }
-.season-panel { padding: 14px 16px; border-color: var(--line-board); background: var(--surface-panel); }
-.season-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line-dark); }
-.season-panel-head h3 { margin: 5px 0 4px; color: var(--gold-050); }
-.season-panel-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .95fr); gap: 14px; margin-top: 12px; }
-.season-list, .season-rewards { display: grid; gap: 5px; margin-top: 7px; }
-.season-row, .season-reward { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 35px; padding: 5px 7px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
-.season-row-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.season-reward { grid-template-columns: minmax(0, 1fr) auto; }
-.season-reward.is-claimed { border-color: var(--line-active); background: rgb(53 166 83 / 8%); }
-.season-reward > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.season-reward button { min-height: 28px; padding: 0 8px; }
-.season-panel-note { margin-top: 12px; padding-top: 9px; border-top: 1px dashed var(--line-subtle); }
 .ranking-search-result { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 36px; padding: 5px 8px; text-align: left; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
 .ranking-search-result:hover, .ranking-search-result:focus-visible { border-color: var(--line-active); background: var(--surface-panel-raised); }
 .rankings-hero-copy h2, .social-hero-copy h2 { margin-top: 7px; color: var(--gold-050); }
@@ -3042,8 +3035,6 @@ button[id$="-close"],
 .ranking-step { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; padding: 0; font-family: var(--font-pixel); font-size: 25px; line-height: 1; color: var(--gold-100); }
 .ranking-step:hover, .ranking-step:focus-visible { color: var(--gold-050); border-color: var(--line-active); }
 .ranking-metric-navigation { display: flex; justify-content: flex-end; padding: 4px 14px; background: var(--surface-panel-deep); border-bottom: 1px solid var(--line-dark); }
-.season-signin-prompt { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; padding: 7px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
-.season-signin-prompt button { flex-shrink: 0; min-width: 74px; min-height: 34px; }
 .ranking-position { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 65px; text-align: center; }
 .ranking-position strong { font-variant-numeric: tabular-nums; }
 .rankings-stage-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 47px; padding: 0 14px; border-bottom: 1px solid var(--line-dark); background: var(--surface-panel-deep); }
@@ -3051,19 +3042,13 @@ button[id$="-close"],
 .ranking-stage-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .rankings-stage:focus-visible { outline: 2px solid var(--gold-300); outline-offset: -2px; }
 .rankings-stage .ranking-list { flex: 1; min-height: 0; max-height: none; padding: 12px 14px 16px; overflow-y: auto; overscroll-behavior: contain; }
-.rankings-season-slot { display: flex; flex: 1; min-height: 0; padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
-.rankings-context { align-self: stretch; }
-.rankings-context .season-panel { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0; border: 0; background: transparent; }
-.rankings-context .season-panel-grid { grid-template-columns: 1fr; align-content: start; flex: 1; overflow-y: auto; padding-right: 2px; }
-.rankings-context .season-list, .rankings-context .season-rewards { max-height: none; }
 .ranking-scopes { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 14px 0; }
 .ranking-scope { min-height: 30px; padding: 4px 8px; color: var(--text-muted); background: transparent; border: 1px solid var(--line-subtle); cursor: pointer; }
 .ranking-scope.is-active { color: var(--gold-100); border-color: var(--gold-300); background: rgba(217,166,47,.08); }
-.rankings-main-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(270px, 0.75fr); gap: 14px; flex: 1; min-height: 0; }
-.rankings-context, .social-network-rail, .social-feed, .social-context { min-height: 0; overflow: hidden; }
+.rankings-main-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; flex: 1; min-height: 0; }
+.social-network-rail, .social-feed, .social-context { min-height: 0; overflow: hidden; }
 .social-feed-head, .social-rail-head, .social-context-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-dark); }
 .social-feed-head h3, .social-context-head h3 { margin-top: 6px; color: var(--gold-050); }
-.rankings-context { display: flex; flex-direction: column; gap: 0; padding: 0; align-self: stretch; background: var(--surface-panel); border-color: var(--line-subtle); }
 .social-page-shell.is-page { height: 100%; }
 .social-search-band { flex-shrink: 0; padding: 12px 16px; background: var(--surface-panel-deep); border-color: var(--line-subtle); }
 .social-search-band .social-search { display: flex; flex-direction: column; gap: 8px; padding: 0; }
@@ -3109,7 +3094,6 @@ button[id$="-close"],
   .rankings-hero-stats { grid-column: 1 / -1; }
   .social-hero-stats { grid-column: 1 / -1; }
   .rankings-main-grid { grid-template-columns: 1fr; }
-  .rankings-context { align-self: stretch; max-height: 430px; overflow-y: auto; }
   .social-network-grid { grid-template-columns: minmax(210px, 0.75fr) minmax(0, 1.25fr); }
   .social-context { grid-column: 1 / -1; max-height: 240px; }
 }
@@ -3119,7 +3103,6 @@ button[id$="-close"],
   .rankings-page-shell.is-page, .social-page-shell.is-page { height: auto; min-height: 0; }
   .rankings-main-grid, .social-network-grid { flex: none; min-height: 0; }
   .rankings-stage { min-height: 520px; }
-  .rankings-context { min-height: 360px; max-height: none; overflow: visible; }
   .rankings-stage .ranking-list { min-height: 260px; }
   .social-network-rail { max-height: none; min-height: 180px; }
   .social-feed { min-height: 360px; }
@@ -3144,7 +3127,6 @@ button[id$="-close"],
   .rankings-search-controls { grid-template-columns: 1fr; }
   .rankings-search-submit { width: 100%; }
   .market-derivative-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .season-panel-grid { grid-template-columns: 1fr; }
   .rules-book-spread { display: flex; flex-direction: column; flex: none; min-height: 0; }
   #view-rules .rules-index { flex: 0 0 auto; max-height: 150px; }
   #view-rules .rules-book-page { flex: 0 0 430px; min-height: 430px; }
@@ -3362,9 +3344,6 @@ button[id$="-close"],
 .auction-bar-fill.is-low { background: repeating-linear-gradient(45deg, #d74438 0, #d74438 6px, #87231e 6px, #87231e 12px); }
 
 .auction-bids { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.auction-pass { margin-top: 10px; }
-.auction-pass-btn { height: 38px; width: 100%; }
-.auction-pass-btn .t-label { color: var(--gold-muted); }
 .auction-bid-btn { height: 56px; flex-direction: column; gap: 2px; }
 .auction-bid-btn .t-label { font-size: 18px; color: var(--gold-050); }
 .auction-bid-btn .t-micro { color: rgb(240 217 172 / 55%); }
@@ -3390,6 +3369,7 @@ button[id$="-close"],
   .tn-turn { display: flex; }
   .deck { display: flex; }
   .hud { grid-template-columns: 1fr 1fr; }
+  .hud-primary-actions { grid-column: span 2; }
   .hud-roll { grid-column: span 2; }
   .room-row { grid-template-columns: 1fr auto; }
 }
@@ -3505,6 +3485,7 @@ button[id$="-close"],
     grid-template-columns: minmax(0, 1.08fr) minmax(0, 1.1fr) minmax(108px, .85fr) minmax(0, .92fr) minmax(0, 1.16fr);
     gap: 8px;
   }
+  #view-game .hud-primary-actions { grid-column: span 1; }
   #view-game .hud-cell,
   #view-game .hud-roll {
     min-width: 0;
@@ -3744,7 +3725,6 @@ button[id$="-close"],
   /* 44px touch floors for fast-tap game controls. Scoped to touch so the
      desktop pixel aesthetic keeps its authored sizes. */
   .hud-jail-action { min-height: 44px; }
-  .auction-pass-btn { height: 44px; }
   .theme-open-btn { min-height: 44px; }
   .rules-page-turn { min-height: 44px; }
   /* Crosshair cursors fight affordance on touch/trackpads: default there.
@@ -3966,32 +3946,6 @@ button[id$="-close"],
 .profile-tab:hover { color: var(--gold-100); background: var(--surface-button-dark); }
 .profile-tab.is-active { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); }
 .profile-tab-count { display: inline-block; margin-left: 6px; color: var(--gold-400); font-family: var(--font-numeric); font-size: 9px; }
-.collection-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 14px; padding: 12px 0 14px; border-bottom: 1px solid var(--line-dark); }
-.collection-toolbar > div { display: flex; flex-direction: column; gap: 4px; }
-.collection-toolbar strong { color: var(--gold-050); }
-.collection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 14px; max-height: min(560px, calc(100vh - 420px)); overflow-y: auto; padding: 2px 4px 4px 2px; scrollbar-gutter: stable; }
-.collection-item { display: flex; flex-direction: column; gap: 7px; min-height: 150px; padding: 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
-.collection-item.is-owned { border-color: var(--line-active); }
-.collection-item-head, .collection-item-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.collection-item-foot { margin-top: auto; padding-top: 7px; border-top: 1px dashed var(--line-dark); }
-.collection-item-foot > span { margin-right: auto; }
-.collection-preview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 12px; padding: 12px; border-color: var(--line-active); background: var(--surface-panel-deep); }
-.collection-preview-mark { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line-active); background: var(--surface-panel); }
-.collection-preview-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.collection-preview-copy h3 { color: var(--gold-050); }
-.collection-preview-copy p { max-width: 68ch; }
-.collection-glyph { display: grid; place-items: center; width: 28px; height: 28px; color: var(--gold-300); font-family: var(--font-numeric); font-size: 18px; border: 1px solid var(--line-active); }
-.collection-glyph img { width: 24px; height: 24px; image-rendering: pixelated; }
-.rarity-label { font-family: var(--font-pixel); font-size: 9px; letter-spacing: .08em; color: var(--gold-300); }
-.rarity-common .rarity-label { color: #8db8d8; }
-.rarity-uncommon .rarity-label { color: var(--green-status); }
-.rarity-rare .rarity-label { color: #8aa3ae; }
-.rarity-epic .rarity-label { color: #b983d0; }
-.rarity-legendary .rarity-label { color: #e2a84d; }
-.rarity-mythical .rarity-label { color: #e18d8d; }
-.collection-item-foot button { min-height: 28px; padding: 0 8px; }
-.collection-empty { display: grid; gap: 8px; min-height: 130px; place-items: center; align-content: center; text-align: center; }
-@media (max-width: 640px) { .collection-toolbar { align-items: flex-start; flex-direction: column; } .collection-grid { max-height: none; } .collection-preview { grid-template-columns: auto minmax(0, 1fr); } .collection-preview > button { grid-column: 1 / -1; width: 100%; } }
 .profile-tab-panel { margin-top: 16px; animation: profile-panel-in 160ms ease-out both; }
 @keyframes profile-panel-in { from { opacity: 0.55; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .profile-overview-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 16px; }
@@ -4895,13 +4849,15 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 /* ============================================================
    BANKRUPTCY
    ============================================================ */
-.bank-body { padding: 16px; }
-.bank-head { display: flex; align-items: center; gap: 12px; }
+.bank-body { position: relative; padding: 16px; }
+.bank-dismiss { position: absolute; top: 14px; right: 14px; min-height: 36px; padding: 0 10px; }
+.bank-head { display: flex; align-items: center; gap: 12px; padding-right: 72px; }
 .bank-icon { font-family: var(--font-display); font-size: 34px; color: var(--red-bright); line-height: 1; }
 .bank-title { margin-top: 6px; font-size: 17px; color: var(--gold-100); }
 .bank-copy { margin-top: 14px; }
-.bank-actions { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.bank-actions { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bank-btn { height: 52px; width: 100%; }
+@media (max-width: 480px) { .bank-actions { grid-template-columns: 1fr; } }
 
 /* In-game retire control (topbar): danger tint from the existing red token
    ramp. Press feedback comes from .btn-dark:active; nothing new animates. */
@@ -4914,17 +4870,19 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
    LOG DRAWER
    ============================================================ */
 .log-drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 65;
-  width: min(380px, 92vw);
+  position: absolute; inset: 0; z-index: 4;
+  width: auto;
   display: flex; flex-direction: column;
   padding: 14px;
   background: var(--surface-panel);
-  border-left: 1px solid var(--line-default);
-  box-shadow: -6px 0 16px rgb(0 0 0 / 55%);
+  border: 1px solid var(--line-default);
+  box-shadow: var(--shadow-panel);
   transform: translateX(105%);
   transition: transform 130ms steps(3, end);
+  visibility: hidden; pointer-events: none;
 }
-.log-drawer.is-open { transform: none; }
+.log-drawer.is-open { transform: none; visibility: visible; pointer-events: auto; }
+.log-drawer:not(.is-open) { display: none; }
 .log-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .drawer-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .drawer-filter { height: 30px; padding: 0 10px; }
@@ -4936,7 +4894,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   /* On touch widths (including an effective 200% zoom viewport), keep the
      closed fixed drawer inside the viewport so it cannot create page
      overflow. Opening uses a restrained opacity transition. */
-  .log-drawer { transform: none; opacity: 0; pointer-events: none; }
+  .log-drawer { position: absolute; inset: 0; width: auto; transform: none; opacity: 0; pointer-events: none; }
   .log-drawer.is-open { opacity: 1; pointer-events: auto; }
 }
 @media (max-width: 320px) {
@@ -5120,13 +5078,11 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #view-social .social-page-shell,
   #view-rules .rules-shell { height: 100%; min-height: 0; }
   #view-rankings .rankings-main-grid {
-    grid-template-columns: minmax(0, 1.65fr) minmax(260px, .85fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     min-height: 0;
   }
   #view-rankings .rankings-stage,
-  #view-rankings .rankings-context { height: 100%; min-height: 0; }
-  #view-rankings .rankings-context { max-height: none; overflow: hidden; }
   #view-rankings .rankings-stage .ranking-list { min-height: 0; }
   #view-social .social-network-grid {
     grid-template-columns: minmax(190px, .75fr) minmax(0, 1.8fr) minmax(220px, .9fr);
@@ -5982,7 +5938,6 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #view-profile .profile-tab-panel { min-width: 0; scroll-margin-top: 54px; }
   #view-profile .achievements-panel { height: auto; max-height: none; overflow: visible; }
   #view-profile .achievements-grid { flex: none; min-height: 0; overflow: visible; overscroll-behavior: auto; scrollbar-gutter: auto; }
-  #view-profile .collection-grid { max-height: none; overflow: visible; overscroll-behavior: auto; scrollbar-gutter: auto; }
   #view-profile .achievements-intro { align-items: center; gap: 12px; }
   #view-profile .achievements-intro .t-body { margin-top: 6px; }
   #view-profile .achievements-progress { flex: 0 0 auto; min-width: 70px; padding: 6px 8px; }
@@ -6011,18 +5966,6 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 }
 
 @media (min-width: 768px) and (max-width: 1100px) and (orientation: portrait) and (hover: none) and (pointer: coarse) {
-  /* Use two readable workspaces rather than squeezing standings and rewards together. */
-  #view-rankings .rankings-view-tabs { display: flex; gap: 6px; min-height: 48px; }
-  #view-rankings .ranking-pane-tab { flex: 1 1 0; min-width: 0; min-height: 44px; }
-  #view-rankings .ranking-pane-tab.is-active { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); }
-  #view-rankings .rankings-main-grid { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; flex: 1; min-height: 0; }
-  #view-rankings .rankings-stage,
-  #view-rankings .rankings-context { width: 100%; min-width: 0; min-height: 0; height: 100%; }
-  #view-rankings .rankings-main-grid[data-active-pane="standings"] .rankings-context,
-  #view-rankings .rankings-main-grid[data-active-pane="season"] .rankings-stage { display: none; }
-  #view-rankings .rankings-main-grid[data-active-pane="season"] .rankings-context { display: flex; max-height: none; overflow: hidden; }
-  #view-rankings .rankings-context .season-panel-grid { scrollbar-gutter: stable; }
-
   /* Portrait turns the chapter list into a compact disclosure above one reader. */
   #view-rules .rules-book-spread { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
   #view-rules .rules-index { flex: 0 0 auto; min-height: 0; max-height: none; overflow: visible; padding: 8px 10px; }

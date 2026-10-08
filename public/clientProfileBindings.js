@@ -32,7 +32,6 @@ import {
 } from "./clientAccountIdentity.js";
 import { setActiveAppearance, renderSetup, renderLobbyRail, leaveRoomForHome } from "./clientLobbyUi.js";
 import { closeRoomsModal, renderHome } from "./clientRoomsUi.js";
-import { handleCosmeticClick, requestCosmetics } from "./clientCosmetics.js";
 
 let host = { showView: noop, emitServer: noop, notice: noop };
 
@@ -52,7 +51,7 @@ function keepProfileTabVisible(button) {
 }
 
 function setProfileTab(tab = "designs", focus = false) {
-  const allowed = ["overview", "stats", "designs", "history", "achievements", "collection", "account"];
+  const allowed = ["overview", "stats", "designs", "history", "achievements", "account"];
   const next = allowed.includes(tab) ? tab : "designs";
   state.profileTab = next;
   const root = $("#view-profile");
@@ -68,7 +67,6 @@ function setProfileTab(tab = "designs", focus = false) {
   });
   keepProfileTabVisible($(`#profile-tab-${next}`));
   renderProfileSummary();
-  if (next === "collection") requestCosmetics();
   if (focus) {
     const panel = $(`#profile-panel-${next}`);
     panel?.focus({ preventScroll: true });
@@ -443,7 +441,6 @@ export function bindProfileUi() {
     const card = e.target.closest("[data-achievement-id]");
     if (card) openAchievementModal(card.dataset.achievementId, card);
   });
-  $("#profile-collection-content")?.addEventListener("click", (e) => handleCosmeticClick(e));
   $("#achievement-scrim")?.addEventListener("click", closeAchievementModal);
   $("#pl-save-btn")?.addEventListener("click", () => {
     saveProfileDesign({ asNew: !state.editingProfileId, stay: true });

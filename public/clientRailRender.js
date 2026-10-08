@@ -11,6 +11,10 @@ import { ownsFullGroup } from "./clientDeedRules.js";
 import { deedCardHTML } from "./clientDeedsRender.js";
 import { MARKET_LABELS } from "./clientMarketCatalog.js";
 
+function displayCash(player) {
+  return Number(player?.visualCash ?? player?.cash ?? 0).toLocaleString();
+}
+
 export function tradePlayerRowHTML(p, seed) {
 const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
   const canTrade = state.phase === "playing";
@@ -18,7 +22,7 @@ const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
     <div class="tp-av">${avatarHTML(p, 4, seed)}</div>
     <div class="tp-mid">
       <span class="t-label f13" style="color:${p.textColor}">${esc(p.name)}</span>
-      <span class="t-micro ink-3 tp-sub">$${p.cash.toLocaleString()} · ${deedCount} DEED${deedCount === 1 ? "" : "S"}</span>
+      <span class="t-micro ink-3 tp-sub">$${displayCash(p)} · ${deedCount} DEED${deedCount === 1 ? "" : "S"}</span>
     </div>
     <button class="btn-dark" data-trade="${p.id}" ${canTrade ? "" : "disabled"}><span class="t-label f11">TRADE</span></button>
   </div>`;
@@ -192,7 +196,23 @@ function railDeedRowHTML(tile) {
 
 function railDeedsBodyHTML(owned) {
   if (!owned.length) return `<p class="t-body rr-empty">NO DEEDS YET. LAND ON A VACANT LOT AND BUY IT.</p>`;
-  return owned.map(railDeedRowHTML).join("");
+  const properties = new Map();
+  const airports = [];
+  const utilities = [];
+  for (const tile of TILES) {
+    if (!owned.some(entry => entry.i === tile.i)) continue;
+    if (tile.kind === "property") {
+      const group = tile.group || "other";
+      if (!properties.has(group)) properties.set(group, []);
+      properties.get(group).push(tile);
+    } else if (tile.kind === "railroad") airports.push(tile);
+    else if (tile.kind === "utility") utilities.push(tile);
+  }
+  const sections = [...properties.entries()].map(([group, tiles]) =>
+    `<section class="deed-group" data-deed-group="${esc(group)}" aria-label="${esc(group)} properties"><h3 class="t-micro g400 deed-group-title">${esc(group.toUpperCase())}</h3>${tiles.map(railDeedRowHTML).join("")}</section>`);
+  if (airports.length) sections.push(`<section class="deed-group" data-deed-group="airports" aria-label="Airports"><h3 class="t-micro g400 deed-group-title">AIRPORTS</h3>${airports.map(railDeedRowHTML).join("")}</section>`);
+  if (utilities.length) sections.push(`<section class="deed-group" data-deed-group="utilities" aria-label="Utilities"><h3 class="t-micro g400 deed-group-title">UTILITIES</h3>${utilities.map(railDeedRowHTML).join("")}</section>`);
+  return sections.join("");
 }
 
 const LEGACY_RAIL_TABS = {
@@ -234,7 +254,7 @@ function holdingsAccountHTML(player) {
   const accountEnabled = Boolean(player?.bankAccountUpgrade || state.settings.bankAccountUpgrades);
   const status = accountEnabled ? `${tierNames[tier] || `TIER ${tier}`} · ROUND ACCOUNT` : "STANDARD · ACCOUNT TIERS OFF";
   const actionLabel = accountEnabled ? "OPEN WALLET" : "VIEW WALLET";
-  return `<section class="rail-section holdings-account" aria-labelledby="holdings-account-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-account-heading">ACCOUNT</span><span class="t-micro ink-3">${esc(status)}</span></div><div class="holdings-account-row"><div><strong class="t-label f12 g100">$${Number(player?.cash || 0).toLocaleString()} CASH</strong><span class="t-micro ink-3">${player?.bankLoan?.status ? `BANK CREDIT · ${String(player.bankLoan.status).toUpperCase()}` : "NO BANK CREDIT"}</span></div><button class="btn-dark" type="button" data-wallet-open="account" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">${actionLabel}</span></button></div></section>`;
+  return `<section class="rail-section holdings-account" aria-labelledby="holdings-account-heading"><div class="rail-section-head"><span class="t-micro g400" id="holdings-account-heading">ACCOUNT</span><span class="t-micro ink-3">${esc(status)}</span></div><div class="holdings-account-row"><div><strong class="t-label f12 g100">$${displayCash(player)} CASH</strong><span class="t-micro ink-3">${player?.bankLoan?.status ? `BANK CREDIT · ${String(player.bankLoan.status).toUpperCase()}` : "NO BANK CREDIT"}</span></div><button class="btn-dark" type="button" data-wallet-open="account" aria-haspopup="dialog" aria-controls="wallet-modal"><span class="t-label f11">${actionLabel}</span></button></div></section>`;
 }
 
 function holdingsItemsHTML(player) {

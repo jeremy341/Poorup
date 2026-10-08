@@ -110,12 +110,14 @@ check("open event log refreshes from snapshots without losing reader position", 
   assert.match(main, /renderStep\("Event log", renderLogDrawer\)/);
 });
 
-check("social, rankings, and season requests fail visibly within a bounded window", () => {
+check("social and ranking requests fail visibly within a bounded window", () => {
   assert.match(social, /SOCIAL_REQUEST_TIMEOUT_MS/);
   assert.match(social, /state\.socialLoading/);
   assert.match(social, /data-social-retry/);
-  assert.match(social, /seasonRequestId/);
-  assert.match(parlor, /data-season-retry/);
+  assert.match(social, /leaderboardRequestTimer/);
+  assert.match(social, /data-ranking-retry/);
+  assert.doesNotMatch(social, /requestSeason|seasonRequestId|get-season|claim-season-reward/);
+  assert.doesNotMatch(parlor, /requestSeason|data-season-retry|data-season-claim/);
 });
 
 check("social actions show pending feedback and ignore stale searches", () => {

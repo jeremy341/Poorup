@@ -365,6 +365,8 @@ function reconcilePieceWalk(playerId, walk, el, timestamp = motionNow()) {
 
 function finishPieceWalk(playerId, walk, el) {
   if (pieceWalks.get(playerId) !== walk) return;
+  const player = state.players.find(entry => entry.id === playerId);
+  if (player && player.visualPos != null) player.visualPos = walk.path.at(-1);
   pieceWalks.delete(playerId);
   el.classList.remove("is-moving", "is-hopping");
   walk.complete();
@@ -378,7 +380,7 @@ function canAnimateWalk(el, path) {
 }
 
 export function startPieceWalk(playerId, from, to, options = {}) {
-  const path = pieceWalkPath(Number(from) || 0, Number(to) || 0);
+  const path = Array.isArray(options.path) ? options.path : pieceWalkPath(Number(from) || 0, Number(to) || 0);
   const el = pieceElement(playerId);
   if (!canAnimateWalk(el, path)) return Promise.resolve();
   cancelPieceWalk(playerId);
@@ -396,7 +398,7 @@ export function startPieceWalk(playerId, from, to, options = {}) {
     path,
     start,
     startedAt,
-    timeline: createWalkTimeline({ path, stepMs: PIECE_WALK_STEP_MS, startedAt, now: motionNow }),
+    timeline: createWalkTimeline({ path, stepMs: options.stepMs || PIECE_WALK_STEP_MS, startedAt, now: motionNow }),
   };
   pieceWalks.set(playerId, walk);
   el.classList.add("is-moving");
@@ -496,7 +498,7 @@ function isTurnPlayer(player) {
 function placeOnePiece(player, ctx) {
   const el = ctx.layer.querySelector(`.piece[data-player="${player.id}"]`);
   if (!el) return;
-  const c = playerTileCenter(player);
+  const c = playerTileCenter(player, player.visualPos ?? player.pos);
   if (!c) return;
   const stack = ctx.occupants[player.pos] || [player.id];
   const idx = Math.max(0, stack.indexOf(player.id));

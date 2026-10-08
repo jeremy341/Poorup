@@ -157,7 +157,7 @@ configureSocketListeners(fakeSocket, {
 listeners.get("purchase-offer")({ tileIndex: 12, name: "BOARDWALK", price: 200, canAfford: true });
 assert.equal(choiceModalOpens, 0, "purchase UI stays hidden until the pawn reaches the landing tile");
 walkResolvers.shift()();
-await new Promise(resolve => setTimeout(resolve, 0));
+await new Promise(resolve => setTimeout(resolve, 220));
 assert.equal(choiceModalOpens, 1, "the current purchase prompt opens after movement completes");
 
 const auctionSnapshot = {
@@ -175,7 +175,7 @@ const revealTile = TILES.find(tile => tile.kind === "chance" || tile.kind === "c
 listeners.get("card-reveal")({ tileIndex: revealTile.i, text: "A movement card resolved." });
 assert.equal(cardRevealOpens, 0, "card-reveal UI stays hidden until the pawn reaches the landing tile");
 walkResolvers.shift()();
-await new Promise(resolve => setTimeout(resolve, 0));
+await new Promise(resolve => setTimeout(resolve, 220));
 assert.equal(auctionSurfaceOpens, 1, "the automatic auction remains open while the pawn animation completes");
 assert.equal(cardRevealOpens, 1, "the card reveal opens after movement completes");
 
@@ -202,7 +202,7 @@ assert.deepEqual(state.activityNotices, [], "Activity notices are cleared when t
 applyServerState(debtSnapshot, host);
 assert.equal(bankruptcyModalOpens, 0, "the debt prompt waits for the pawn to finish its landing movement");
 walkResolvers.shift()();
-await new Promise(resolve => setTimeout(resolve, 0));
+await new Promise(resolve => setTimeout(resolve, 220));
 assert.equal(bankruptcyModalOpens, 1, "the debt prompt opens after movement completes");
 
 const nextRollSnapshot = {

@@ -185,6 +185,8 @@ const state = {
   dice: [3, 5],
   diceRollSequence: 0,
   rolling: false,
+  presentationBusy: false,
+  debtRescueDismissed: false,
   busy: false,
   // A local action stays locked until its acknowledgement or timeout. A
   // server snapshot alone is not proof that the request was accepted.
@@ -246,13 +248,9 @@ const state = {
   rulesSearchExpanded: false,
   rulesIndexExpanded: false,
   leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false, error: "", requestId: 0 },
-  season: { current: null, metric: "points", rows: [], rewards: [], claimedRewardIds: [], loading: false, error: "" },
-  cosmetics: { tokens: 0, owned: [], equipped: {}, claims: [], catalog: [], loading: false, error: "" },
-  cosmeticPreviewId: null,
   rankingSearchQuery: "",
   rankingSearchResults: [],
   rankingSearchExpanded: false,
-  rankingPane: "standings",
   economy: { casino: { enabled: false, maxBet: 500, lastResult: null, net: 0 }, market: { enabled: false, round: 0, feeRate: 0.02, quotes: {}, positions: {} } },
   economySnapshotStatus: "unknown", // unknown | fresh | stale
   selectedPlayer: null,

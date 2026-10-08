@@ -18,7 +18,7 @@ const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5
 function noop() {}
 function noopNull() { return null; }
 
-let host = { renderAchievements: noop, renderCollection: noop, loadSavedGame: noopNull, renderHomeSignals: noop };
+let host = { renderAchievements: noop, loadSavedGame: noopNull, renderHomeSignals: noop };
 
 export function configureProfileRender(hooks) {
   host = { ...host, ...hooks };
@@ -158,7 +158,6 @@ export function renderProfileSummary() {
   renderProfileStatistics();
   renderProfileHistory();
   host.renderAchievements();
-  host.renderCollection();
 }
 
 export function formatStatDate(value) {

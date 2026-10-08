@@ -159,7 +159,7 @@ function renderDeedDetail() {
 
       <div class="dd-stats">
         ${popRow("PRICE", `$${tile.price}`, "g300")}
-        ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, "green")}
+        ${popRow("YOUR CASH", `$${Number(me.visualCash ?? me.cash ?? 0).toLocaleString()}`, "green")}
         ${!isProperty ? popRow(tile.kind === "utility" ? "RENT MULTIPLIER" : "RENT NOW", deedCurrentRentLabel(tile), "green") : ""}
         ${isProperty ? popRow("COLOR SET", tile.group.toUpperCase(), hasSet ? "green" : "g-muted") : ""}
         ${isProperty ? popRow("HOUSE COST", `$${houseCost}`, "g300") : ""}
