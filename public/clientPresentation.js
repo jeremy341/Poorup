@@ -12,6 +12,17 @@ export function createPresentationQueue({ now = Date.now, setTimer = setTimeout,
   const waits = new Map();
   let idleResolvers = [];
 
+  function presentationFinished(queue, currentTime) {
+    const lastEntry = queue.at(-1);
+    return Boolean(lastEntry && currentTime >= lastEntry.record.readyAt);
+  }
+
+  function reconcileFinishedPresentation() {
+    if (!presentationFinished(pending, now())) return false;
+    reset();
+    return true;
+  }
+
   function notify() { onChange(); }
   function waitUntil(deadline) {
     const ms = Math.max(0, deadline - now());
@@ -45,35 +56,48 @@ export function createPresentationQueue({ now = Date.now, setTimer = setTimeout,
     entry.shown.add(index);
     notify();
   }
+
+  async function waitForCurrent(deadline, revision) {
+    await waitUntil(deadline);
+    return revision === generation;
+  }
+
+  async function playSegment(segment, record, revision) {
+    if (!await waitForCurrent(record.startedAt + segment.offsetMs, revision)) return false;
+    const segmentEndsAt = record.startedAt + segment.offsetMs + segment.durationMs;
+    if (now() < segmentEndsAt) {
+      try { await animateSegment(segment, record); } catch { /* Reconcile the authoritative destination if a visual walk fails. */ }
+    }
+    if (!await waitForCurrent(segmentEndsAt, revision)) return false;
+    positions.set(record.actorId, segment.to);
+    notify();
+    return true;
+  }
+
+  async function presentEntry(entry, revision) {
+    const record = entry.record;
+    const cashTasks = record.cashEvents.map((_event, index) => showCash(entry, index, revision));
+    setRolling(now() < record.startedAt + DICE_ROLL_MS);
+    if (!await waitForCurrent(record.startedAt + DICE_ROLL_MS, revision)) return false;
+    setRolling(false);
+    if (now() < record.readyAt) announceTotal(record.dice[0] + record.dice[1], record.dice);
+    for (const segment of record.segments) {
+      if (!await playSegment(segment, record, revision)) return false;
+    }
+    if (!await waitForCurrent(record.readyAt, revision)) return false;
+    await Promise.all(cashTasks);
+    return revision === generation;
+  }
+
   async function run() {
     if (running) return;
     running = true;
     const revision = generation;
     while (pending.length && revision === generation) {
       const entry = pending[0];
-      const record = entry.record;
-      const cashTasks = record.cashEvents.map((_event, index) => showCash(entry, index, revision));
-      setRolling(now() < record.startedAt + DICE_ROLL_MS);
-      await waitUntil(record.startedAt + DICE_ROLL_MS);
-      if (revision !== generation) return;
-      setRolling(false);
-      if (now() < record.readyAt) announceTotal(record.dice[0] + record.dice[1], record.dice);
-      for (const segment of record.segments) {
-        await waitUntil(record.startedAt + segment.offsetMs);
-        if (revision !== generation) return;
-        if (now() < record.startedAt + segment.offsetMs + segment.durationMs) {
-          try { await animateSegment(segment, record); } catch { /* Reconcile the authoritative destination if a visual walk fails. */ }
-        }
-        await waitUntil(record.startedAt + segment.offsetMs + segment.durationMs);
-        if (revision !== generation) return;
-        positions.set(record.actorId, segment.to);
-        notify();
-      }
-      await waitUntil(record.readyAt);
-      await Promise.all(cashTasks);
-      if (revision !== generation) return;
+      if (!await presentEntry(entry, revision)) return;
       pending.shift();
-      if (!pending.some(item => item.record.actorId === record.actorId)) positions.delete(record.actorId);
+      if (!pending.some(item => item.record.actorId === entry.record.actorId)) positions.delete(entry.record.actorId);
       notify();
     }
     if (revision !== generation) return;
@@ -81,6 +105,39 @@ export function createPresentationQueue({ now = Date.now, setTimer = setTimeout,
     notify();
     idleResolvers.splice(0).forEach(resolve => resolve());
   }
+
+  function acceptsRecord(record, currentTime) {
+    if (!record || !Number.isSafeInteger(record.id) || record.id <= lastId) return false;
+    if (!Number.isFinite(record.readyAt) || record.readyAt <= currentTime) return false;
+    if (!Number.isFinite(record.startedAt) || record.readyAt - record.startedAt > 120000) return false;
+    return Array.isArray(record.dice) && record.dice.length === 2 && record.dice.every(value => Number.isInteger(value) && value >= 1 && value <= 6);
+  }
+
+  function isValidSegment(segment) {
+    return Array.isArray(segment.path) && segment.path.length <= 208 && segment.path.every(Number.isInteger)
+      && [segment.from, segment.to, segment.offsetMs, segment.durationMs, segment.stepMs].every(Number.isFinite);
+  }
+
+  function normalizeSegments(record) {
+    return (Array.isArray(record.segments) ? record.segments : []).filter(isValidSegment);
+  }
+
+  function isValidCashEvent(event, durationMs) {
+    return Number.isFinite(event.atMs) && event.atMs >= 0 && event.atMs <= durationMs;
+  }
+
+  function normalizeCashDeltas(event) {
+    return (Array.isArray(event.deltas) ? event.deltas : [])
+      .filter(delta => typeof delta.playerId === 'string' && Number.isFinite(delta.amount));
+  }
+
+  function normalizeCashEvents(record) {
+    const durationMs = record.readyAt - record.startedAt;
+    return (Array.isArray(record.cashEvents) ? record.cashEvents : []).slice(0, 64)
+      .filter(event => isValidCashEvent(event, durationMs))
+      .map(event => ({ ...event, deltas: normalizeCashDeltas(event) }));
+  }
+
   function receive(roomCode, record, gameStartedAt = record?.gameStartedAt ?? 0) {
     if (roomCode !== room || gameStartedAt !== gameGeneration) {
       reset();
@@ -89,17 +146,11 @@ export function createPresentationQueue({ now = Date.now, setTimer = setTimeout,
       lastId = Number(record?.id) || 0;
       return false; // Joining/reconnecting establishes a baseline, not a replay.
     }
-    if (pending.length && now() >= pending.at(-1).record.readyAt) reset();
-    if (!record || !Number.isSafeInteger(record.id) || record.id <= lastId) return false;
+    reconcileFinishedPresentation();
+    if (!acceptsRecord(record, now())) return false;
     lastId = record.id;
-    if (!Number.isFinite(record.readyAt) || record.readyAt <= now()) return false;
-    if (!Number.isFinite(record.startedAt) || record.readyAt - record.startedAt > 120000) return false;
-    if (!Array.isArray(record.dice) || record.dice.length !== 2 || !record.dice.every(n => Number.isInteger(n) && n >= 1 && n <= 6)) return false;
-    const segments = (Array.isArray(record.segments) ? record.segments : []).filter(segment =>
-      Array.isArray(segment.path) && segment.path.length <= 208 && segment.path.every(Number.isInteger)
-      && [segment.from, segment.to, segment.offsetMs, segment.durationMs, segment.stepMs].every(Number.isFinite));
-    const cashEvents = (Array.isArray(record.cashEvents) ? record.cashEvents : []).slice(0, 64).filter(event => Number.isFinite(event.atMs) && event.atMs >= 0 && event.atMs <= record.readyAt - record.startedAt)
-      .map(event => ({ ...event, deltas: (Array.isArray(event.deltas) ? event.deltas : []).filter(delta => typeof delta.playerId === 'string' && Number.isFinite(delta.amount)) }));
+    const segments = normalizeSegments(record);
+    const cashEvents = normalizeCashEvents(record);
     const normalized = { ...record, segments, cashEvents };
     pending.push({ record: normalized, shown: new Set() });
     if (!positions.has(record.actorId) && segments.length) positions.set(record.actorId, segments[0].from);
@@ -112,6 +163,6 @@ export function createPresentationQueue({ now = Date.now, setTimer = setTimeout,
     positionFor: playerId => positions.get(playerId),
     get busy() { return running || pending.length > 0; },
     whenIdle: () => running || pending.length ? new Promise(resolve => idleResolvers.push(resolve)) : Promise.resolve(),
-    reconcile() { if (pending.length && now() >= pending.at(-1).record.readyAt) reset(); },
+    reconcile: reconcileFinishedPresentation,
   };
 }

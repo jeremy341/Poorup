@@ -30,6 +30,55 @@ function ownRecord(value, id) {
   return value && Object.prototype.hasOwnProperty.call(value, id) ? value[id] : undefined;
 }
 
+function exportSeasonRecord(season, accountId) {
+  if (!season || typeof season !== 'object' || Array.isArray(season)) return null;
+  const standing = safeStanding(ownRecord(season.standings, accountId));
+  const claims = ownRecord(season.claims, accountId);
+  if (!standing && !Array.isArray(claims)) return null;
+  return {
+    id: typeof season.id === 'string' ? season.id.slice(0, 32) : '',
+    ...(standing ? { standing } : {}),
+    claimedRewardIds: Array.isArray(claims) ? claims.filter(item => typeof item === 'string').slice(0, 64) : [],
+  };
+}
+
+function exportSeasonRecords(seasons, accountId) {
+  return (seasons || []).map(season => exportSeasonRecord(season, accountId)).filter(Boolean);
+}
+
+function purgeCosmeticRecord(filePath, accountId) {
+  const file = readExistingJson(filePath, value => value && typeof value === 'object' && !Array.isArray(value));
+  if (!file.exists || !Object.prototype.hasOwnProperty.call(file.value, accountId)) return false;
+  delete file.value[accountId];
+  writeJson(filePath, file.value);
+  return true;
+}
+
+function purgeAccountSection(section, accountId) {
+  if (!section || !Object.prototype.hasOwnProperty.call(section, accountId)) return false;
+  delete section[accountId];
+  return true;
+}
+
+function purgeSeasonRecord(season, accountId) {
+  if (!season || typeof season !== 'object' || Array.isArray(season)) return false;
+  const standingChanged = purgeAccountSection(season.standings, accountId);
+  const claimsChanged = purgeAccountSection(season.claims, accountId);
+  return standingChanged || claimsChanged;
+}
+
+function purgeSeasonRecords(filePath, accountId) {
+  const file = readExistingJson(filePath, Array.isArray);
+  if (!file.exists) return false;
+  let changed = false;
+  for (const season of file.value) {
+    changed = purgeSeasonRecord(season, accountId) || changed;
+  }
+  if (!changed) return false;
+  writeJson(filePath, file.value);
+  return true;
+}
+
 function safeCosmeticData(account) {
   if (!account || typeof account !== 'object' || Array.isArray(account)) return null;
   const owned = Array.isArray(account.owned) ? account.owned.filter(item => typeof item === 'string').slice(0, 200) : [];
@@ -55,6 +104,16 @@ function safeStanding(standing) {
   return output;
 }
 
+function snapshotFile(filePath) {
+  if (!filePath) return { exists: false, bytes: null };
+  try { return { exists: true, bytes: fs.readFileSync(filePath, 'utf8') }; }
+  catch (error) { if (error?.code === 'ENOENT') return { exists: false, bytes: null }; throw error; }
+}
+
+function restoreFile(filePath, saved) {
+  if (filePath && saved?.exists && typeof saved.bytes === 'string') fs.writeFileSync(filePath, saved.bytes, 'utf8');
+}
+
 export class RetiredAccountStore {
   constructor({ seasonsPath, cosmeticsPath } = {}) {
     this.paths = { seasons: seasonsPath || '', cosmetics: cosmeticsPath || '' };
@@ -63,17 +122,13 @@ export class RetiredAccountStore {
   snapshot() {
     return Object.fromEntries(Object.entries(this.paths).map(([name, filePath]) => [
       name,
-      filePath ? (() => {
-        try { return { exists: true, bytes: fs.readFileSync(filePath, 'utf8') }; }
-        catch (error) { if (error?.code === 'ENOENT') return { exists: false, bytes: null }; throw error; }
-      })() : { exists: false, bytes: null },
+      snapshotFile(filePath),
     ]));
   }
 
   restoreSnapshot(snapshot) {
     for (const [name, saved] of Object.entries(snapshot || {})) {
-      const filePath = this.paths[name];
-      if (filePath && saved?.exists && typeof saved.bytes === 'string') fs.writeFileSync(filePath, saved.bytes, 'utf8');
+      restoreFile(this.paths[name], saved);
     }
   }
 
@@ -85,17 +140,7 @@ export class RetiredAccountStore {
     const output = {};
     const cosmetics = safeCosmeticData(ownRecord(cosmeticsFile.value, id));
     if (cosmetics) output.cosmetics = cosmetics;
-    const seasons = (seasonsFile.value || []).flatMap(season => {
-      if (!season || typeof season !== 'object' || Array.isArray(season)) return [];
-      const standing = safeStanding(ownRecord(season.standings, id));
-      const claims = ownRecord(season.claims, id);
-      if (!standing && !Array.isArray(claims)) return [];
-      return [{
-        id: typeof season.id === 'string' ? season.id.slice(0, 32) : '',
-        ...(standing ? { standing } : {}),
-        claimedRewardIds: Array.isArray(claims) ? claims.filter(item => typeof item === 'string').slice(0, 64) : [],
-      }];
-    });
+    const seasons = exportSeasonRecords(seasonsFile.value, id);
     if (seasons.length) output.seasons = seasons;
     return output;
   }
@@ -103,30 +148,8 @@ export class RetiredAccountStore {
   purgeAccount(accountId) {
     const id = safeId(accountId);
     if (!id) return false;
-    let changed = false;
-    const cosmeticsFile = readExistingJson(this.paths.cosmetics, value => value && typeof value === 'object' && !Array.isArray(value));
-    if (cosmeticsFile.exists && Object.prototype.hasOwnProperty.call(cosmeticsFile.value, id)) {
-      delete cosmeticsFile.value[id];
-      writeJson(this.paths.cosmetics, cosmeticsFile.value);
-      changed = true;
-    }
-    const seasonsFile = readExistingJson(this.paths.seasons, Array.isArray);
-    if (seasonsFile.exists) {
-      let seasonsChanged = false;
-      for (const season of seasonsFile.value) {
-        if (!season || typeof season !== 'object' || Array.isArray(season)) continue;
-        for (const section of ['standings', 'claims']) {
-          if (season[section] && Object.prototype.hasOwnProperty.call(season[section], id)) {
-            delete season[section][id];
-            seasonsChanged = true;
-          }
-        }
-      }
-      if (seasonsChanged) {
-        writeJson(this.paths.seasons, seasonsFile.value);
-        changed = true;
-      }
-    }
-    return changed;
+    const cosmeticsChanged = purgeCosmeticRecord(this.paths.cosmetics, id);
+    const seasonsChanged = purgeSeasonRecords(this.paths.seasons, id);
+    return cosmeticsChanged || seasonsChanged;
   }
 }

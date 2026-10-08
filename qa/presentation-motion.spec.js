@@ -76,8 +76,7 @@ async function captureView(page, viewportName, viewName) {
   return { file, geometry };
 }
 
-test('authoritative roll presents dice, walk, and landing cash in order without a pawn flash', async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-1920x1080', 'One deterministic integration run is enough across the viewport matrix.');
+async function createRollScenario(browser) {
   const context = await browser.newContext({
     ...devices['Desktop Chrome'],
     viewport: { width: 1920, height: 1080 },
@@ -136,26 +135,37 @@ test('authoritative roll presents dice, walk, and landing cash in order without 
     };
     applyServerState(roll, host);
     const snapshot = () => {
-        const piece = document.querySelector('.piece[data-player="p1"]');
-      const rect = piece?.getBoundingClientRect();
+      const piece = document.querySelector('.piece[data-player="p1"]');
       return {
-        total: totals.at(-1) ?? null,
-        moving: piece?.classList.contains('is-moving') ?? false,
-        position: piece ? { x: piece.style.getPropertyValue('--piece-x'), y: piece.style.getPropertyValue('--piece-y') } : null,
-        tile4: tileCenter(4),
-        cash: state.players[0]?.visualCash,
-        rollDisabled: document.querySelector('#roll-btn')?.disabled,
-        pieceBounds: rect ? { x: rect.x, y: rect.y } : null,
+        moving: piece.classList.contains('is-moving'),
+        position: { x: piece.style.getPropertyValue('--piece-x'), y: piece.style.getPropertyValue('--piece-y') },
+        cash: state.players[0].visualCash,
+        rollDisabled: document.querySelector('#roll-btn').disabled,
       };
     };
     window.__qaMotion = { totals, walkStarts, state, host, applyServerState, tileCenter };
     return { snapshot: snapshot(), roll };
   });
+  return { context, page, setup, pageErrors };
+}
+
+async function applyRollRecord(page, roll) {
+  await page.evaluate(record => window.__qaMotion.applyServerState(record, window.__qaMotion.host), roll);
+  return page.evaluate(() => ({
+    busy: window.__qaMotion.state.presentationBusy,
+    totals: window.__qaMotion.totals.length,
+    walkStarts: window.__qaMotion.walkStarts.length,
+  }));
+}
+
+test('dice total appears before the pawn starts moving', async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1920x1080', 'One deterministic integration run is enough across the viewport matrix.');
+  const { context, page, setup } = await createRollScenario(browser);
+  try {
   expect(setup.snapshot.moving).toBe(false);
   expect(setup.snapshot.cash).toBe(1000);
   expect(setup.snapshot.rollDisabled).toBe(true);
-  await page.evaluate(roll => window.__qaMotion.applyServerState(roll, window.__qaMotion.host), setup.roll);
-  expect(await page.evaluate(() => ({ busy: window.__qaMotion.state.presentationBusy, totals: window.__qaMotion.totals.length, walkStarts: window.__qaMotion.walkStarts.length }))).toEqual({ busy: true, totals: 0, walkStarts: 0 });
+    expect(await applyRollRecord(page, setup.roll)).toEqual({ busy: true, totals: 0, walkStarts: 0 });
 
   await page.clock.runFor(799);
   expect(await page.evaluate(() => window.__qaMotion.totals.length)).toBe(0);
@@ -165,9 +175,18 @@ test('authoritative roll presents dice, walk, and landing cash in order without 
   expect(afterDice.rollDisabled).toBe(true);
   expect(afterDice.total).toBe('4');
   expect(afterDice.visible).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
 
-  await page.clock.runFor(439);
-  const beforeWalk = await page.evaluate(() => ({ moving: document.querySelector('.piece[data-player="p1"]')?.classList.contains('is-moving') }));
+test('the pawn follows the recorded route and landing cash settles on arrival', async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1920x1080', 'One deterministic integration run is enough across the viewport matrix.');
+  const { context, page, setup, pageErrors } = await createRollScenario(browser);
+  try {
+    await applyRollRecord(page, setup.roll);
+    await page.clock.runFor(1239);
+    const beforeWalk = await page.evaluate(() => ({ moving: document.querySelector('.piece[data-player="p1"]').classList.contains('is-moving') }));
   expect(beforeWalk.moving).toBe(false);
   expect(await page.evaluate(() => window.__qaMotion.walkStarts.length)).toBe(0);
   await page.clock.runFor(1);
@@ -182,18 +201,22 @@ test('authoritative roll presents dice, walk, and landing cash in order without 
   const expectedWalkX = await page.evaluate(() => [1, 2, 3, 4].map(tile => `${Math.round(window.__qaMotion.tileCenter(tile).x)}px`));
   expect(walkTrace).toEqual(expectedWalkX);
   expect(walkTrace.slice(1).every(position => position !== setup.snapshot.position.x)).toBe(true);
-  const beforeLanding = await page.evaluate(() => ({ cash: window.__qaMotion.state.players[0]?.visualCash, x: document.querySelector('.piece[data-player="p1"]')?.style.getPropertyValue('--piece-x') }));
+    const beforeLanding = await page.evaluate(() => ({ cash: window.__qaMotion.state.players[0].visualCash, x: document.querySelector('.piece[data-player="p1"]').style.getPropertyValue('--piece-x') }));
   expect(beforeLanding.cash).toBe(1000);
   await page.clock.runFor(200);
-  const atLanding = await page.evaluate(() => ({
-    cash: window.__qaMotion.state.players[0]?.visualCash,
-    position: window.__qaMotion.state.players[0]?.pos,
-    moving: document.querySelector('.piece[data-player="p1"]')?.classList.contains('is-moving'),
-    rollDisabled: document.querySelector('#roll-btn')?.disabled,
-    presentationBusy: window.__qaMotion.state.presentationBusy,
-        x: document.querySelector('.piece[data-player="p1"]')?.style.getPropertyValue('--piece-x'),
+    const atLanding = await page.evaluate(() => {
+      const piece = document.querySelector('.piece[data-player="p1"]');
+      const player = window.__qaMotion.state.players[0];
+      return {
+        cash: player.visualCash,
+        position: player.pos,
+        moving: piece.classList.contains('is-moving'),
+        rollDisabled: document.querySelector('#roll-btn').disabled,
+        presentationBusy: window.__qaMotion.state.presentationBusy,
+        x: piece.style.getPropertyValue('--piece-x'),
         tile: window.__qaMotion.tileCenter(4),
-  }));
+      };
+    });
   expect(atLanding.cash).toBe(950);
   expect(atLanding.position).toBe(4);
   expect(atLanding.moving).toBe(false);
@@ -202,7 +225,9 @@ test('authoritative roll presents dice, walk, and landing cash in order without 
   expect(beforeLanding.x).not.toBe('0px');
   expect(atLanding.x).toBe(`${Math.round(atLanding.tile.x)}px`);
   expect(pageErrors, 'the main browser modules must not throw during a recorded roll').toEqual([]);
-  await context.close();
+  } finally {
+    await context.close();
+  }
 });
 
 test('13-inch landscape HUD keeps both jail release actions visible and reachable', async ({ page }, testInfo) => {
@@ -278,13 +303,7 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
     });
     const base = await captureView(capturePage, name, 'hud-holdings');
     readings.push(base.geometry);
-    const bodyOverflow = {
-      documentX: base.geometry.document.scrollWidth - base.geometry.document.clientWidth,
-      documentY: base.geometry.document.scrollHeight - base.geometry.document.clientHeight,
-      bodyX: base.geometry.document.bodyScrollWidth - base.geometry.document.clientWidth,
-      bodyY: base.geometry.document.bodyScrollHeight - base.geometry.document.clientHeight,
-    };
-    if (Object.values(bodyOverflow).some(value => value > 2)) overflowFailures.push({ viewport: name, ...bodyOverflow });
+    recordOverflowFailure(overflowFailures, name, null, base.geometry);
     const groupOrder = await capturePage.locator('#rr-body [data-deed-open]').evaluateAll(nodes => nodes.map(node => node.dataset.deedOpen));
     expect(groupOrder).toEqual(['1', '3', '6', '8', '5', '12']);
 
@@ -294,13 +313,7 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
     });
     const logShot = await captureView(capturePage, name, 'event-log');
     readings.push(logShot.geometry);
-    const logOverflow = {
-      documentX: logShot.geometry.document.scrollWidth - logShot.geometry.document.clientWidth,
-      documentY: logShot.geometry.document.scrollHeight - logShot.geometry.document.clientHeight,
-      bodyX: logShot.geometry.document.bodyScrollWidth - logShot.geometry.document.clientWidth,
-      bodyY: logShot.geometry.document.bodyScrollHeight - logShot.geometry.document.clientHeight,
-    };
-    if (Object.values(logOverflow).some(value => value > 2)) overflowFailures.push({ viewport: name, surface: 'log', ...logOverflow });
+    recordOverflowFailure(overflowFailures, name, 'log', logShot.geometry);
     await capturePage.locator('.tile[data-tile="1"]').focus();
     await capturePage.keyboard.press('Enter');
     await expect(capturePage.locator('#popup')).not.toHaveClass(/is-hidden/);
@@ -323,13 +336,7 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
     }
     const debtShot = await captureView(capturePage, name, 'debt-modal');
     readings.push(debtShot.geometry);
-    const debtOverflow = {
-      documentX: debtShot.geometry.document.scrollWidth - debtShot.geometry.document.clientWidth,
-      documentY: debtShot.geometry.document.scrollHeight - debtShot.geometry.document.clientHeight,
-      bodyX: debtShot.geometry.document.bodyScrollWidth - debtShot.geometry.document.clientWidth,
-      bodyY: debtShot.geometry.document.bodyScrollHeight - debtShot.geometry.document.clientHeight,
-    };
-    if (Object.values(debtOverflow).some(value => value > 2)) overflowFailures.push({ viewport: name, surface: 'debt', ...debtOverflow });
+    recordOverflowFailure(overflowFailures, name, 'debt', debtShot.geometry);
     await capturePage.evaluate(() => document.querySelector('#bankruptcy-modal')?.classList.add('is-hidden'));
     await ipadContext?.close();
   }
@@ -338,3 +345,15 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
   expect(overflowFailures, 'document/body must not scroll in the fixture viewport matrix').toEqual([]);
   expect(numericFontFailures, 'sidebar and debt modal numeric fields should use Silkscreen').toEqual([]);
 });
+
+function recordOverflowFailure(failures, viewport, surface, geometry) {
+  const overflow = {
+    documentX: geometry.document.scrollWidth - geometry.document.clientWidth,
+    documentY: geometry.document.scrollHeight - geometry.document.clientHeight,
+    bodyX: geometry.document.bodyScrollWidth - geometry.document.clientWidth,
+    bodyY: geometry.document.bodyScrollHeight - geometry.document.clientHeight,
+  };
+  if (Object.values(overflow).some(value => value > 2)) {
+    failures.push({ viewport, ...(surface ? { surface } : {}), ...overflow });
+  }
+}
