@@ -82,7 +82,6 @@ registerSocialSocketHandlers((event, handler) => handlers.set(event, handler), s
     socialSummary: () => ({}),
   },
   roomManager: { getRoomBySocket: () => null },
-  seasonStore: null,
   io: { in: () => ({ emit: () => {} }) },
 });
 
@@ -97,6 +96,15 @@ assert.notEqual(response.rows[0].accountId, account.id);
 
 handlers.get("get-leaderboard-snapshot")({ scope: "all" }, value => { response = value; });
 assert.equal(response.metrics.wins[0].accountId, "alice");
+
+handlers.get("get-leaderboard-snapshot")({ scope: "season" }, value => { response = value; });
+assert.equal(response.scope, "all");
+assert.equal(Object.hasOwn(response, "season"), false);
+assert.equal(Object.hasOwn(response, "metrics"), true);
+
+for (const event of ["get-season", "claim-season-reward", "get-cosmetics", "claim-cosmetic", "equip-cosmetic"]) {
+  assert.equal(handlers.has(event), false, `${event} must not be registered`);
+}
 
 handlers.get("get-public-player-card")({ accountId: "alice" }, value => { response = value; });
 assert.equal(response.player.id, "alice");

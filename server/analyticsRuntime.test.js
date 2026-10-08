@@ -6,7 +6,7 @@ import {
   recordBotTelemetry,
   recordMatchStartTelemetry,
   recordMatchStalledTelemetry,
-  recordSeasonTelemetry
+  recordMatchTelemetryOnce
 } from './socketRuntime.js';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -92,11 +92,10 @@ check('settlement telemetry is idempotent for one immutable match', () => {
     telemetryStore: { record: (...args) => { records.push(args); return { recorded: true }; } },
     room: { game: { started: true, startedAt: 10, roundNumber: 1, telemetryLog: [] } },
     matchRecord: { matchId: 'match-once', playerCount: 1, roundCount: 1, participants: [{ accountId: null, marketTrades: 0, bankrupt: false }], market: [], botDecisions: [] },
-    candidates: [],
-    seasonResult: null
+    candidates: []
   };
-  recordSeasonTelemetry(context);
-  recordSeasonTelemetry(context);
+  recordMatchTelemetryOnce(context);
+  recordMatchTelemetryOnce(context);
   assert.equal(records.length, 3);
 });
 

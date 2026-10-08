@@ -51,7 +51,7 @@ function safeDesign(entry = {}) {
   };
 }
 
-export function buildAccountExport({ account, social = {}, cosmetics = [], matches = [], now = Date.now } = {}) {
+export function buildAccountExport({ account, social = {}, retiredData = {}, matches = [], now = Date.now } = {}) {
   if (!account || typeof account !== 'object' || typeof account.username !== 'string') throw new TypeError('An authenticated account is required.');
   const history = Array.isArray(account.history) ? account.history.slice(0, MAX_HISTORY).map(safeHistoryEntry) : [];
   const matchHistory = (Array.isArray(account.matchHistory) ? account.matchHistory : matches).slice(0, MAX_HISTORY).map(safeMatch);
@@ -79,6 +79,7 @@ export function buildAccountExport({ account, social = {}, cosmetics = [], match
     matchHistory,
     achievements,
     social: { friendCount, requestCount, notificationCount },
+    retiredData: retiredData && typeof retiredData === 'object' ? retiredData : {},
     recoveryEmail: { address: text(account.recoveryEmail, 254), verified: account.recoveryEmailVerified === true }
   };
 }
