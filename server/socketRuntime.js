@@ -655,6 +655,7 @@ function createRuntime(deps) {
     botTimers.delete(roomCode);
     botDecisionLocks.delete(roomCode);
     auctionDecisionLocks.delete(roomCode);
+    auctionEvaluations.delete(roomCode);
     // Drop the socket->room index for everyone still mapped to this room;
     // otherwise connected players keep acting on a zombie room that is gone
     // from the registry (getRoomBySocket would still resolve it).

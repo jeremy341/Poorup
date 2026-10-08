@@ -344,10 +344,23 @@ console.log('socket runtime bot movement sequencing: No-AI and AI turns wait for
   runtime.emitRoomState(room);
   const reconsideration = timers.filter(timer => timer.delay === 450 && !timer.cleared && !timer.fired).at(-1);
   assert.ok(reconsideration, 'the human bid schedules a fresh bot decision');
+  const lastEvaluatedAuction = { ...room.game.auction, participants: [...room.game.auction.participants] };
   await fireAtDueTime(reconsideration);
   assert.equal(decisions, 2);
   assert.equal(room.game.auction.highestBidderId, bot.id, 'the bot can reconsider and raise after initially waiting');
   assert.ok(room.game.auction.endsAt > humanDeadline, 'the reconsidered valid bid resets the deadline');
+
+  runtime.destroyRoom(room);
+  assert.equal(manager.rooms.has(room.roomCode), false, 'destruction removes the old room');
+  const restoredRoom = {
+    roomCode: room.roomCode,
+    destroyed: false,
+    game: { players: room.game.players, auction: lastEvaluatedAuction },
+  };
+  manager.rooms.set(restoredRoom.roomCode, restoredRoom);
+  runtime.scheduleBotAuction(restoredRoom);
+  assert.ok(timers.some(timer => timer.delay === 450 && !timer.cleared && !timer.fired),
+    'a replacement room with reused auction and seat identifiers does not inherit destroyed-room evaluations');
 }
 
 console.log('socket runtime auction deadline checks: 3 passed, 0 failed');
