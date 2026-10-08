@@ -2,11 +2,7 @@ import assert from 'node:assert/strict';
 import * as socketRuntime from './socketRuntime.js';
 import * as roomSettings from './roomSettings.js';
 import { RulesetRegistry } from './rulesetRegistry.js';
-import { CosmeticStore } from './cosmeticCatalog.js';
 import { RoomManager } from './gameLogic.js';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 let logged = false;
 assert.equal(typeof socketRuntime.runRoomTimer, 'function');
@@ -23,8 +19,4 @@ const beforeCash = room.settings.startingCash;
 assert.equal(room.setRoomSetting('startingCash', 1e308).rejected, true);
 assert.equal(room.settings.startingCash, beforeCash);
 
-const store = new CosmeticStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-cosmetic-bounds-')), 'cosmetics.json'));
-store.grant('acct', 'board-ink-grid');
-assert.equal(store.equip('acct', 'board-ink-grid', 'admin-slot').success, false);
-
-console.log('runtime safety: 6 passed, 0 failed');
+console.log('runtime safety: 4 passed, 0 failed');

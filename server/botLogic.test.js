@@ -46,20 +46,20 @@ function check(name, fn) {
   console.log(`ok - ${name}`);
 }
 
-check('auction selector preserves NO-AI baseline bid and pass decisions', async () => {
+check('auction selector preserves NO-AI baseline bid and wait decisions', async () => {
   const bot = { id: 'auction-bot', cash: 300 };
   const bid = await decideBotAuction({ auction: { highestBid: 0 }, bot, startingCash: 500 });
   const pass = await decideBotAuction({ auction: { highestBid: 400 }, bot, startingCash: 500 });
   assert.equal(bid.actionId, 'auction:bid');
-  assert.equal(pass.actionId, 'auction:pass');
+  assert.equal(pass.actionId, 'auction:wait');
   assert.equal(bid.minimum, 10);
 });
 
 check('auction selector accepts only legal AI overrides and retains minimum bid', async () => {
   const bot = { id: 'auction-bot', cash: 500 };
-  const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:pass' }) };
+  const advisor = { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:wait' }) };
   const legal = await decideBotAuction({ auction: { highestBid: 5 }, bot, startingCash: 500, advisor, context: {} });
-  assert.equal(legal.actionId, 'auction:pass');
+  assert.equal(legal.actionId, 'auction:wait');
   assert.equal(legal.minimum, 15);
   const invalid = await decideBotAuction({ auction: { highestBid: 5 }, bot, startingCash: 500, advisor: { ...advisor, chooseAction: async () => ({ actionId: 'auction:invent' }) }, context: {} });
   assert.equal(invalid.actionId, 'auction:bid');
@@ -272,10 +272,10 @@ check('auction bid decision uses a common step and preserves legal cash access',
   assert.deepStrictEqual(auctionBidDecision({ highestBid: 0 }, { cash: 1000 }, 1000).minimum, 10);
 });
 
-check('auction participant filter excludes passers, leaders, humans', () => {
-  const auction = { participants: ['b1', 'b2', 'h1'], passedPlayerIds: ['b2'], highestBidderId: 'h1' };
+check('auction participant filter keeps non-leading participants eligible to reconsider', () => {
+  const auction = { participants: ['b1', 'b2', 'h1'], highestBidderId: 'h1' };
   assert.strictEqual(isAuctionBotParticipant(auction, { id: 'b1', isBot: true }), true);
-  assert.strictEqual(isAuctionBotParticipant(auction, { id: 'b2', isBot: true }), false);
+  assert.strictEqual(isAuctionBotParticipant(auction, { id: 'b2', isBot: true }), true);
   assert.strictEqual(isAuctionBotParticipant(auction, { id: 'h1' }), false);
   assert.strictEqual(isAuctionBotParticipant(auction, { id: 'b9', isBot: true }), false);
   assert.strictEqual(isAuctionBotParticipant({ ...auction, participants: ['b1', 'b3'], highestBidderId: 'z' }, { id: 'b3', isBot: true, bankrupt: true }), false);
@@ -308,7 +308,6 @@ function fakeRoom(log) {
     respondPlayerContract: (actor, accept) => ({ name: 'respondContract:' + accept }),
     counterPlayerContract: () => ({ name: 'counterContract', success: true }),
     declareBankruptcy: () => ({ name: 'bankrupt' }),
-    passAuction: () => ({ name: 'pass' }),
     endTurn: () => ({ name: 'endTurn' }),
     rollDice: () => ({ name: 'roll' }),
     proposeTrade: () => ({ name: 'propose', success: true }),
@@ -1186,15 +1185,15 @@ check('auction cap stops bid-traps but stretches for completers', () => {
   assert.deepEqual(auctionBidDecision({ highestBid: 100 }, { cash: 500 }, 1500).shouldBid, true);
 });
 
-check('live no-ai and AI auction choices both pass above the deed valuation ceiling', async () => {
+check('live no-ai and AI auction choices wait above the deed valuation ceiling', async () => {
   const tile = { group: 'Brown', price: 200, ownerId: null };
   const game = { getGroupTiles: () => [tile, { group: 'Brown', price: 200, ownerId: 'human' }] };
   const bot = { id: 'auction-cap-bot', cash: 2_000 };
   const auction = { highestBid: 1_300, propertyTile: tile };
   const noAi = await decideBotAuction({ auction, bot, startingCash: 1_500, game });
 
-  assert.equal(noAi.actionId, 'auction:pass');
-  assert.deepEqual(noAi.candidates.map(candidate => candidate.id), ['auction:pass']);
+  assert.equal(noAi.actionId, 'auction:wait');
+  assert.deepEqual(noAi.candidates.map(candidate => candidate.id), ['auction:wait']);
 
   const ai = await decideBotAuction({
     auction,
@@ -1203,8 +1202,8 @@ check('live no-ai and AI auction choices both pass above the deed valuation ceil
     game,
     advisor: { supportsChoicePhases: true, chooseAction: async () => ({ actionId: 'auction:bid', provider: 'ai', fallback: false }) }
   });
-  assert.equal(ai.actionId, 'auction:pass');
-  assert.deepEqual(ai.candidates.map(candidate => candidate.id), ['auction:pass']);
+  assert.equal(ai.actionId, 'auction:wait');
+  assert.deepEqual(ai.candidates.map(candidate => candidate.id), ['auction:wait']);
 });
 
 check('valuable group completion may justify a premium without a fixed price multiple', () => {

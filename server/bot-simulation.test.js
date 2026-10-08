@@ -40,6 +40,29 @@ async function assertZeroCashPostRollBotsResolve() {
 
 await assertZeroCashPostRollBotsResolve();
 
+async function assertAuctionWaitAdvancesToDeadline() {
+  const advisor = {
+    supportsChoicePhases: true,
+    async chooseAction({ candidates = [] }) {
+      return { actionId: candidates.find(candidate => candidate.id === 'auction:wait')?.id || candidates[0]?.id };
+    }
+  };
+  const policyBySeat = Array.from({ length: 3 }, (_, index) => createBotPolicy(`auction-wait-${index}`, { advisor }));
+  const result = await simulateBotMatch({
+    seed: 77,
+    policyBySeat,
+    settings: { startingCash: 50, auction: true, casino: false, market: false, globalEvents: false },
+    stepLimit: 200,
+    captureTrace: true
+  });
+  assert.equal(result.stalls, 0, 'waiting bots must let simulated auction time reach its deadline');
+  const waitIndex = result.decisionTrace.findIndex(entry => entry.actionId === 'auction:wait');
+  assert.notEqual(waitIndex, -1, 'the scenario reaches a reconsiderable wait decision');
+  assert.ok(result.decisionTrace.slice(waitIndex + 1).some(entry => entry.phase !== 'auction'), 'the match resumes ordinary turns after the auction deadline');
+}
+
+await assertAuctionWaitAdvancesToDeadline();
+
 const results = [];
 for (let index = START_INDEX; index < START_INDEX + SIMULATION_COUNT; index += 1) {
   const policyBySeat = Array.from({ length: 3 }, (_, seat) => createBotPolicy(`safety-no-ai-${seat}`, {

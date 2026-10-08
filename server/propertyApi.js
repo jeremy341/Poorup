@@ -198,8 +198,30 @@ const propertyApi = {
     const seat = this.propertySeatRejection(player);
     if (seat) return seat;
     if (tile.ownerId !== player.id) return { success: false, error: 'You do not own this property.' };
+    const openOffer = this.propertyOpenOfferRejection(tile);
+    if (openOffer) return openOffer;
     if (this.isBuildOrSellAction(action)) return this.buildSellRejection(player, action);
+    if (action === 'unmortgage') return this.unmortgageActionRejection(player);
     return this.mortgageActionRejection(player);
+  },
+
+  propertyOpenOfferRejection(tile) {
+    const trade = this.pendingTrade;
+    const tradeIndices = [
+      ...(Array.isArray(trade?.givePropertyIndexes) ? trade.givePropertyIndexes : []),
+      ...(Array.isArray(trade?.requestPropertyIndexes) ? trade.requestPropertyIndexes : [])
+    ];
+    const contract = this.pendingPlayerContract;
+    const contractIndices = [
+      contract?.propertyIndex,
+      contract?.collateralTileIndex,
+      ...(Array.isArray(contract?.collateralTileIndices) ? contract.collateralTileIndices : [])
+    ];
+    if (tradeIndices.some(index => Number(index) === Number(tile.index))
+      || contractIndices.some(index => index != null && Number(index) === Number(tile.index))) {
+      return { success: false, error: 'Resolve the offer involving this property before managing it.' };
+    }
+    return null;
   },
 
   buildSellRejection(player, action) {
@@ -209,20 +231,13 @@ const propertyApi = {
   },
 
   mortgageActionRejection(player) {
-    const seat = this.propertySeatRejection(player);
-    if (seat) return seat;
-    return this.mortgageTableRejection(player);
+    return this.propertySeatRejection(player);
   },
 
-  mortgageTableRejection(player = null) {
-    const blocked = { success: false, error: 'Resolve the table obligation before managing property.' };
-    // Debt never blocks property management: debt is cured via mortgage/sell,
-    // and only endTurn is gated by debt (server/gameLogic.js:1174).
-    if (this.auction) return blocked;
-    if (this.pendingTrade) return blocked;
-    if (this.pendingPlayerContract) return blocked;
-    if (this.pendingPurchaseOffer) return blocked;
-    if (this.pendingSponsoredPurchase) return blocked;
+  unmortgageActionRejection(player) {
+    const seat = this.propertySeatRejection(player);
+    if (seat) return seat;
+    if (this.pendingDebtFor(player)) return { success: false, error: 'You cannot unmortgage while settling a debt.' };
     return null;
   },
 
@@ -241,7 +256,7 @@ const propertyApi = {
     if (player.id !== this.currentPlayerId) {
       return { success: false, error: 'You can only build or sell during your turn.' };
     }
-    if (this.hasRolled) return this.rolledWindowRejection();
+    if (this.hasRolled && !this.awaitingEndTurn) return this.rolledWindowRejection();
     return null;
   },
 

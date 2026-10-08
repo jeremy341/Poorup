@@ -1,11 +1,13 @@
 export const BOT_TURN_DELAY_MS = 300;
 export const BOT_AUCTION_DELAY_MS = 450;
-// Keep bot turn pacing aligned with the current client walk: 300 ms per tile,
-// with walks of at most 12 tiles animated instead of snapped.
-export const BOT_MOVEMENT_STEP_MS = 300;
+// Prefer the whole shared roll timeline; the positional fallback supports
+// legacy/simulation callers that do not carry presentation metadata.
+export { BOT_MOVEMENT_STEP_MS } from '../public/gamePresentationTiming.js';
+import { BOT_MOVEMENT_STEP_MS, presentationRemainingMs } from '../public/gamePresentationTiming.js';
 const BOT_MOVEMENT_MAX_STEPS = 12;
 
-export function botMovementSettleDelayMs(previousPositions, game) {
+export function botMovementSettleDelayMs(previousPositions, game, now = Date.now()) {
+  if (game?.presentation) return presentationRemainingMs(game, now);
   const players = game?.players;
   const boardSize = Array.isArray(game?.tiles) ? game.tiles.length : 0;
   if (!(previousPositions instanceof Map) || !Array.isArray(players) || boardSize < 1) return 0;

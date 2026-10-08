@@ -74,7 +74,6 @@ const bankruptcyApi = {
     // bankrupt: prune the seat so closes resolve on the timer, not never.
     if (this.auction) {
       this.auction.participants = (this.auction.participants || []).filter(id => id !== player.id);
-      this.auction.passedPlayerIds = (this.auction.passedPlayerIds || []).filter(id => id !== player.id);
       // A bankrupt high bidder can never raise its own bid again; leaving the
       // lead in place freezes the bid floor and voids the sale at close
       // ("Auction ended without a valid winner"). Reset it exactly as the

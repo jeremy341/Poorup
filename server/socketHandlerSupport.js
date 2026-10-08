@@ -75,6 +75,10 @@ function makeRoomVerbHandler(socket, runtime, definition) {
   return function roomVerbHandler(payload = {}, callback) {
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
+    if (['end-turn', 'purchase-property', 'decline-property'].includes(definition.event)
+      && Number(room.game.presentation?.readyAt || 0) > (runtime.now?.() ?? Date.now())) {
+      return reply(callback, { success: false, error: 'Wait until the current movement finishes.' });
+    }
     const result = room[definition.verb](socket.id, ...definition.args(payload));
     const player = room.getPlayerBySocket(socket.id);
     if (result?.success !== false) room.game.recordHumanAction?.(player);
@@ -90,7 +94,6 @@ function makeRoomVerbHandler(socket, runtime, definition) {
 function publicActionHistoryKind(event, payload = {}, result) {
   if (result?.success !== true) return null;
   if (event === 'auction-bid') return 'auction-bid';
-  if (event === 'auction-pass') return 'auction-pass';
   if (event === 'purchase-property') return 'purchase';
   if (event === 'manage-property') return payload.action === 'build-house' ? 'build' : null;
   if (event === 'respond-trade') return payload.accept === true ? 'trade-accept' : null;
