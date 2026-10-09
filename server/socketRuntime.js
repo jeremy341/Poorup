@@ -344,9 +344,27 @@ function createRuntime(deps) {
   const disconnectTimers = new Map();
   const botTimers = new Map();
   const botDecisionLocks = new Set();
+  // Auction decisions belong to a specific bot AND auction instance. A room-wide
+  // lock serialized remote AI calls, letting one 4s request starve other bots
+  // during the 5s bid window.
   const auctionBotTimers = new Map();
   const auctionDecisionLocks = new Set();
   const auctionEvaluations = new Map();
+  const auctionIds = new WeakMap();
+  let nextAuctionId = 0;
+
+  function auctionBotKey(roomCode, auction, botId) {
+    if (!auctionIds.has(auction)) auctionIds.set(auction, ++nextAuctionId);
+    return `${roomCode}:${auctionIds.get(auction)}:${botId}`;
+  }
+
+  function clearBotAuctionTimersForRoom(roomCode) {
+    for (const [botKey, timer] of auctionBotTimers) {
+      if (!botKey.startsWith(`${roomCode}:`)) continue;
+      clearTimeoutFn(timer);
+      auctionBotTimers.delete(botKey);
+    }
+  }
   let roomsUpdatedTimer = null;
 
   function safeBotProviderStatus(status = {}) {
@@ -649,12 +667,13 @@ function createRuntime(deps) {
     roomPresenceRuntime.clearRoom(room);
     roomVoteKickRuntime.clearRoom(roomCode);
     clearDisconnectTimersForRoom(room);
-    clearTimeoutFn(auctionBotTimers.get(roomCode));
-    auctionBotTimers.delete(roomCode);
+    clearBotAuctionTimersForRoom(roomCode);
     clearTimeoutFn(botTimers.get(roomCode));
     botTimers.delete(roomCode);
     botDecisionLocks.delete(roomCode);
-    auctionDecisionLocks.delete(roomCode);
+    for (const botKey of auctionDecisionLocks) {
+      if (botKey.startsWith(`${roomCode}:`)) auctionDecisionLocks.delete(botKey);
+    }
     auctionEvaluations.delete(roomCode);
     // Drop the socket->room index for everyone still mapped to this room;
     // otherwise connected players keep acting on a zombie room that is gone
@@ -795,39 +814,44 @@ function createRuntime(deps) {
   function scheduleBotAuction(room) {
     const auction = activeAuction(room);
     if (!auction) return;
-    const key = room.roomCode;
-    if (auctionBotTimers.has(key) || auctionDecisionLocks.has(key)) return;
-    const evaluated = auctionEvaluations.get(key) || new Map();
-    auctionEvaluations.set(key, evaluated);
-    const bot = room.game.players.find(player => isAuctionBotParticipant(auction, player)
-      && evaluated.get(player.id) !== auctionIdentity(auction, player));
-    if (!bot) return;
-    const timer = scheduleBotTimer(
-      setTimeoutFn,
-      () => runRoomTimer('bot-auction', room.roomCode, () => {
-        beginBotAuctionBid(room, bot, key).catch(error => {
-          console.error(`Bot auction decision failed in room ${room.roomCode}:`, error);
-        });
-      }),
-      'auction'
-    );
-    auctionBotTimers.set(key, timer);
+    const roomCode = room.roomCode;
+    const evaluated = auctionEvaluations.get(roomCode) || new Map();
+    auctionEvaluations.set(roomCode, evaluated);
+
+    // Start every eligible bot's thinking timer independently. In particular,
+    // a slow or waiting AI bot must not prevent a funded rival from bidding.
+    for (const bot of room.game.players) {
+      if (!isAuctionBotParticipant(auction, bot)) continue;
+      if (evaluated.get(bot.id) === auctionIdentity(auction, bot)) continue;
+      const botKey = auctionBotKey(roomCode, auction, bot.id);
+      if (auctionBotTimers.has(botKey) || auctionDecisionLocks.has(botKey)) continue;
+      const timer = scheduleBotTimer(
+        setTimeoutFn,
+        () => runRoomTimer('bot-auction', roomCode, () => {
+          beginBotAuctionBid(room, bot, roomCode, botKey, auction).catch(error => {
+            console.error(`Bot auction decision failed in room ${roomCode}:`, error);
+          });
+        }),
+        'auction'
+      );
+      auctionBotTimers.set(botKey, timer);
+    }
   }
 
-  async function beginBotAuctionBid(room, bot, key) {
-    if (auctionDecisionLocks.has(key)) return;
-    auctionDecisionLocks.add(key);
+  async function beginBotAuctionBid(room, bot, roomCode, botKey, expectedAuction) {
+    auctionBotTimers.delete(botKey);
+    if (auctionDecisionLocks.has(botKey)) return;
+    auctionDecisionLocks.add(botKey);
     try {
-      await beginBotAuctionBidUnlocked(room, bot, key);
+      await beginBotAuctionBidUnlocked(room, bot, roomCode, expectedAuction);
     } finally {
-      auctionDecisionLocks.delete(key);
+      auctionDecisionLocks.delete(botKey);
       if (!room.destroyed) scheduleBotAuction(room);
     }
   }
 
-  async function beginBotAuctionBidUnlocked(room, bot, key) {
-    auctionBotTimers.delete(key);
-    if (!room.game.auction?.active) return;
+  async function beginBotAuctionBidUnlocked(room, bot, key, expectedAuction) {
+    if (room.game.auction !== expectedAuction || !expectedAuction.active) return;
     const auctionVersion = auctionIdentity(room.game.auction, bot);
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
@@ -849,7 +873,7 @@ function createRuntime(deps) {
       advisor: botAdvisor,
       context: { ...context, event: room.game.globalEvent }
     });
-    if (room.destroyed || !sameAuction(room.game.auction, auctionVersion, bot)) return;
+    if (room.destroyed || room.game.auction !== expectedAuction || !sameAuction(room.game.auction, auctionVersion, bot)) return;
     auctionEvaluations.get(key)?.set(bot.id, auctionVersion);
     const { candidates, amount, decision } = choice;
     const actionId = choice.actionId;
@@ -935,6 +959,7 @@ function createRuntime(deps) {
     }
     currentRoom.game.finishAuction();
     auctionEvaluations.delete(roomCode);
+    clearBotAuctionTimersForRoom(roomCode);
     emitRoomState(currentRoom);
     clearAuctionTimer(currentRoom);
   }
