@@ -158,6 +158,28 @@ async function applyRollRecord(page, roll) {
   }));
 }
 
+test('rolling dice cycle through visible faces then settle on authoritative result', async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-1920x1080', 'One deterministic integration run is enough.');
+  const { context, page, setup } = await createRollScenario(browser);
+  try {
+    await applyRollRecord(page, setup.roll);
+    const faces = async () => page.locator('#hud-dice .die').evaluateAll(dice =>
+      dice.map(die => die.querySelectorAll('span.on').length));
+    const samples = [await faces()];
+    for (let i = 0; i < 6; i += 1) {
+      await page.clock.runFor(80);
+      samples.push(await faces());
+    }
+    expect(new Set(samples.map(face => face.join(','))).size).toBeGreaterThan(1);
+    expect(await page.locator('#hud-dice .dice-rolling').count()).toBe(2);
+    await page.clock.runFor(320);
+    expect(await faces()).toEqual([2, 2]);
+    expect(await page.locator('#hud-dice .dice-rolling').count()).toBe(0);
+  } finally {
+    await context.close();
+  }
+});
+
 test('dice total appears before the pawn starts moving', async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-1920x1080', 'One deterministic integration run is enough across the viewport matrix.');
   const { context, page, setup } = await createRollScenario(browser);
