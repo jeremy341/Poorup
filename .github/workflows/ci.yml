@@ -162,7 +162,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: node-modules
         with:
           path: node_modules
@@ -192,7 +192,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: node-modules
         with:
           path: node_modules
@@ -241,7 +241,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: node-modules
         with:
           path: node_modules
@@ -249,7 +249,7 @@ jobs:
       - run: npm ci
         if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download all test-shard coverage data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: coverage-data-shard-*
           path: .nyc_output
@@ -275,7 +275,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download per-suite timing records
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: test-timings-shard-*
           path: .test-timings
@@ -295,7 +295,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: node-modules
         with:
           path: node_modules
@@ -332,12 +332,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: node-modules
         with:
           path: node_modules
@@ -392,7 +392,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: node-modules
         with:
           path: node_modules
@@ -400,7 +400,7 @@ jobs:
       - run: npm ci
         if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download Playwright shard reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: playwright-blob-shard-*
           path: all-blob-reports
