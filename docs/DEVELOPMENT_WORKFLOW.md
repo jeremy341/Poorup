@@ -39,6 +39,12 @@ feature branch → PR → development → PR → testing → PR → main
 Each hop is one PR: feature → `development`, `development` → `testing`,
 `testing` → `main`. Only the last hop reaches production.
 
+Dependabot's `target-branch: development` routes routine version-update PRs
+through the integration lane. GitHub security-update PRs still target the
+repository's default branch, so retarget any Dependabot security PR opened
+against `main` to `development` before merging it. Then use the same
+development → testing → main promotion path; never bypass the main tree check.
+
 Responsibilities, one line each:
 
 - **GitHub Actions** — does the code actually run? `npm run lint`,
