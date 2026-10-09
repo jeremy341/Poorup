@@ -172,6 +172,7 @@
     "server/sponsorship.test.js": 116,
     "server/summary-privacy-audit.test.js": 113,
     "server/telemetryModule.test.js": 97,
-    "server/trades.test.js": 165
+    "server/trades.test.js": 165,
+    "server/auctionBotConcurrency.test.js": 120
   }
 }

@@ -15,6 +15,32 @@ const DIE_PIPS = {
   6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
 };
 
+const DICE_FACE_TICK_MS = 80;
+let diceFaceTimer = null;
+let rollingFaces = [1, 1];
+
+function stopDiceFaceCycle() {
+  if (diceFaceTimer !== null) clearInterval(diceFaceTimer);
+  diceFaceTimer = null;
+}
+
+function nextRollingFace(previous) {
+  // The cosmetic roll must not affect the server-authoritative result.
+  return ((previous - 1 + 1 + Math.floor(Math.random() * 5)) % 6) + 1;
+}
+
+function paintRollingFaces() {
+  const dice = $("#hud-dice")?.querySelectorAll(".die");
+  if (dice?.length !== 2) return;
+  rollingFaces = rollingFaces.map(nextRollingFace);
+  dice.forEach((die, index) => {
+    const pips = DIE_PIPS[rollingFaces[index]];
+    die.querySelectorAll("span").forEach((cell, i) => {
+      cell.classList.toggle("on", pips.some(([x, y]) => x === i % 3 && y === Math.floor(i / 3)));
+    });
+  });
+}
+
 export function dieHTML(value, rolling) {
   const pips = DIE_PIPS[value] || DIE_PIPS[1];
   let cells = "";
@@ -42,6 +68,7 @@ function renderHudLobby() {
   $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
   if ($("#hud-cash-action")) $("#hud-cash-action").disabled = true;
   $("#hud-pool").textContent = "$0";
+  stopDiceFaceCycle();
   $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
   $("#roll-btn").disabled = true;
   $("#roll-label").textContent = "Set Rules First";
@@ -49,11 +76,25 @@ function renderHudLobby() {
 }
 
 function renderHudDice(waiting) {
+  const container = $("#hud-dice");
   if (waiting) {
-    $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
+    stopDiceFaceCycle();
+    container.innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
     return;
   }
-  $("#hud-dice").innerHTML = dieHTML(state.dice[0], state.rolling) + dieHTML(state.dice[1], state.rolling);
+  const animateFaces = state.rolling && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!animateFaces) {
+    stopDiceFaceCycle();
+    container.innerHTML = dieHTML(state.dice[0], false) + dieHTML(state.dice[1], false);
+    return;
+  }
+  if (diceFaceTimer === null || container.querySelectorAll(".die.dice-rolling").length !== 2) {
+    stopDiceFaceCycle();
+    rollingFaces = [1, 1];
+    container.innerHTML = dieHTML(1, true) + dieHTML(1, true);
+    paintRollingFaces();
+    diceFaceTimer = setInterval(paintRollingFaces, DICE_FACE_TICK_MS);
+  }
 }
 
 function hudControlsLocked() {
