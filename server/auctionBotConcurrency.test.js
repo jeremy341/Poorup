@@ -53,6 +53,14 @@ releaseSlow();
 await new Promise(resolve => setImmediate(resolve));
 await new Promise(resolve => setImmediate(resolve));
 assert.equal(room.game.auction.highestBidderId, bots[1].id, 'stale slow decision does not overwrite the accepted bid');
-assert.ok(timers.some(timer => timer.delay === 450 && !timer.cleared && !botTimers.includes(timer)),
-  'slow bot gets an opportunity to reconsider the new auction state');
-console.log('PASS concurrent auction bots and stale-response protection');
+const reconsiderationTimer = timers.find(timer => timer.delay === 450 && !timer.cleared && !botTimers.includes(timer));
+assert.ok(reconsiderationTimer, 'slow bot gets an opportunity to reconsider the new auction state');
+// The clock-based 300 ms bid cooldown is independent of bot scheduling.
+// Clear it here to exercise the actual retry action deterministically.
+room.game.auction.cooldownUntil = 0;
+reconsiderationTimer.callback();
+await new Promise(resolve => setImmediate(resolve));
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(room.game.auction.highestBidderId, bots[0].id, 'the slow bot can bid after refreshing its stale decision');
+assert.equal(room.game.auction.highestBid, 20);
+console.log('PASS concurrent auction bots, stale-response protection and reconsideration');
