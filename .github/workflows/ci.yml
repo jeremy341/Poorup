@@ -260,7 +260,7 @@ jobs:
       # omitting one keeps forked PRs out of the secret path entirely.
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage/lcov.info
           flags: server
