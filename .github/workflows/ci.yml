@@ -212,7 +212,7 @@ jobs:
           POORUP_TEST_PARALLELISM: '4'
       - name: Upload raw V8 coverage for merge
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-data-shard-${{ matrix.shard }}
           path: .nyc_output
@@ -222,7 +222,7 @@ jobs:
           retention-days: 1
       - name: Upload per-suite timing record
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-timings-shard-${{ matrix.shard }}
           path: .test-timings/shard-${{ matrix.shard }}.json
@@ -372,7 +372,7 @@ jobs:
           POORUP_QA_BASE_URL: http://127.0.0.1:8099
       - name: Upload Playwright blob report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-blob-shard-${{ matrix.shard }}
           path: blob-report
@@ -409,7 +409,7 @@ jobs:
         run: npx playwright merge-reports --reporter=html all-blob-reports
       - name: Upload merged Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-html-report
           path: playwright-report
