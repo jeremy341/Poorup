@@ -28,9 +28,9 @@ function discoverSuites() {
 
 const allSuites = testSuites('full');
 assert.equal(new Set(allSuites).size, allSuites.length, 'the full manifest runs each suite only once');
-assert.equal(allSuites.length, 172, 'the manifest replaces five retired-feature suites with four gameplay/account-rights suites');
+assert.equal(allSuites.length, 173, 'the manifest includes the concurrent auction bot regression suite');
 const totalGroupRuns = Object.values(TEST_GROUPS).reduce((total, suites) => total + suites.length, 0);
-assert.equal(totalGroupRuns, 184, 'all active script entries remain represented in named groups');
+assert.equal(totalGroupRuns, 185, 'all active script entries remain represented in named groups');
 for (const [name, suites] of Object.entries(TEST_GROUPS)) {
   assert.equal(new Set(suites).size, suites.length, `${name} does not repeat an individual suite`);
 }
