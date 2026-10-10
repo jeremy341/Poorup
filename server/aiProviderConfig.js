@@ -613,6 +613,7 @@ function environmentProviderInput(env, baseUrl, apiKey) {
     baseUrl,
     model: env.POORUP_AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
     protocol: env.POORUP_AI_PROTOCOL || env.DEEPSEEK_API_FORMAT || 'auto',
+    maxDecisionsPerGame: env.POORUP_AI_DECISIONS || env.POORUP_BOT_AI_DECISIONS || DEFAULT_DECISION_BUDGET,
     apiKey,
   };
 }
