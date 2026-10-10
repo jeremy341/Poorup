@@ -13,7 +13,8 @@ const MAX_LABEL_LENGTH = 80;
 const MAX_MODEL_LENGTH = 120;
 const MAX_URL_LENGTH = 400;
 const DEFAULT_TIMEOUT_MS = 4_000;
-const DEFAULT_DECISION_BUDGET = 120;
+const DEFAULT_DECISION_BUDGET = 240;
+const LEGACY_DEFAULT_DECISION_BUDGET = 120;
 const MAX_PROVIDER_RESPONSE_BYTES = 1_048_576;
 const PRIVATE_HOSTS = new Set(['localhost', 'metadata.google.internal']);
 
@@ -349,6 +350,18 @@ function storedShape(value) {
   return Boolean(value && typeof value === 'object' && value.version === PROVIDER_CONFIG_VERSION && value.profiles && typeof value.profiles === 'object');
 }
 
+function migrateLegacyDecisionBudgets(profiles) {
+  let changed = false;
+  const updatedAt = new Date().toISOString();
+  for (const profile of Object.values(profiles)) {
+    if (Number(profile?.maxDecisionsPerGame) !== LEGACY_DEFAULT_DECISION_BUDGET) continue;
+    profile.maxDecisionsPerGame = DEFAULT_DECISION_BUDGET;
+    profile.updatedAt = updatedAt;
+    changed = true;
+  }
+  return changed;
+}
+
 export function createAiProviderStore({ filePath = '', masterKey = '', production = false, allowPrivateEndpoints = !production } = {}) {
   let data = { version: PROVIDER_CONFIG_VERSION, activeId: null, profiles: {} };
   const cipherKey = deriveCipherKey(masterKey);
@@ -363,7 +376,10 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
 
   if (durable) {
     const loaded = loadJson(filePath, storedShape);
-    if (loaded.value && storedShape(loaded.value)) data = loaded.value;
+    if (loaded.value && storedShape(loaded.value)) {
+      data = loaded.value;
+      if (migrateLegacyDecisionBudgets(data.profiles) && cipherKey) persist();
+    }
   }
 
   function internal(id) {
