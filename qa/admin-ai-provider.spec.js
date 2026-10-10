@@ -37,6 +37,15 @@ async function seedAdmin(page, active = TESTED_PROFILE) {
 }
 
 test.describe('admin AI provider control', () => {
+  test('new provider profiles default to a per-bot decision budget of 240', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1920x1080', 'One deterministic control-form check is enough across the viewport matrix.');
+    await seedAdmin(page, null);
+    await page.locator('[data-admin-provider-new]').click();
+    const budget = page.locator('[data-admin-provider-field="maxDecisionsPerGame"]');
+    await expect(budget).toHaveValue('240');
+    await expect(budget.locator('xpath=ancestor::label')).toContainText('BOT / GAME');
+  });
+
   test('renders a redacted provider roster and keeps the key out of the DOM', async ({ page }, testInfo) => {
     await seedAdmin(page);
     await expect(page.locator('[data-admin-provider-list]')).toContainText('OpenAI main');

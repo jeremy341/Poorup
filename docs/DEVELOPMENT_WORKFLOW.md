@@ -186,6 +186,15 @@ merge commit not present on `development`. The follow-up lane sync carries
 that testing tip into development before the next heavy promotion; it changes
 no application files.
 
+2026-10-10: after the AI decision-budget update, `testing` again had a merge
+commit absent from `development`. This lane sync records that testing ancestry
+before the next heavy promotion; the only tree difference from development is
+this note, and the application tree remains unchanged.
+
+2026-10-10: the environment-cap correction follows that testing promotion and
+requires the current testing merge to be synced before its own heavy promotion.
+This follow-up sync changes no application files.
+
 The workflow already triggers on `merge_group` events and the `plan` job
 maps a merge group targeting `testing` to the heavy tier, so if the queue
 ever becomes available on this plan, enabling it in the UI needs **zero**
