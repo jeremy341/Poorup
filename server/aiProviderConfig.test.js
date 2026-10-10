@@ -42,6 +42,13 @@ check('protocol and endpoint normalization is deterministic', () => {
   assert.equal(deriveProviderEndpoint('https://api.openai.com/v1/chat/completions', 'responses'), 'https://api.openai.com/v1/chat/completions');
 });
 
+check('new provider profiles allow 240 AI decisions per bot in each game by default', () => {
+  const profile = normalizeProviderConfig({ id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test' });
+  assert.equal(profile.maxDecisionsPerGame, 240);
+  assert.equal(normalizeProviderConfig({ id: 'legacy', label: 'Legacy', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test', maxDecisionsPerGame: 120 }).maxDecisionsPerGame, 120,
+    'an explicitly configured profile retains its chosen budget');
+});
+
 check('provider URL validation rejects unsafe inputs', () => {
   assert.throws(() => normalizeProviderConfig({ id: 'bad', label: 'Bad', baseUrl: 'file:///etc/passwd', model: 'x', apiKey: 'key' }), ProviderConfigError);
   assert.throws(() => normalizeProviderConfig({ id: 'bad', label: 'Bad', baseUrl: 'https://user:pass@example.test/v1', model: 'x', apiKey: 'key' }), ProviderConfigError);
@@ -99,6 +106,23 @@ check('encrypted store persists profiles and only returns redacted records', () 
   const second = createAiProviderStore({ filePath, masterKey: 'test-master-key-0123456789012345' });
   assert.equal(second.active().apiKey, 'secret-key');
   assert.equal(second.active().model, 'gpt-test');
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+check('stored provider profiles retain their explicitly configured decision caps', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-ai-budget-persistence-'));
+  const filePath = path.join(directory, 'providers.json');
+  const options = { filePath, masterKey: 'test-master-key-0123456789012345' };
+  const first = createAiProviderStore(options);
+  first.upsert({ id: 'legacy', label: 'Legacy', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test', apiKey: 'legacy-key', maxDecisionsPerGame: 120 });
+  first.upsert({ id: 'custom', label: 'Custom', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test', apiKey: 'custom-key', maxDecisionsPerGame: 80 });
+
+  const reloaded = createAiProviderStore(options);
+  assert.equal(reloaded.get('legacy').maxDecisionsPerGame, 120, 'an explicitly saved 120-decision cap is retained');
+  assert.equal(reloaded.get('custom').maxDecisionsPerGame, 80, 'non-default custom budgets are retained');
+  const persisted = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  assert.equal(persisted.profiles.legacy.maxDecisionsPerGame, 120);
+  assert.equal(persisted.profiles.custom.maxDecisionsPerGame, 80);
   fs.rmSync(directory, { recursive: true, force: true });
 });
 

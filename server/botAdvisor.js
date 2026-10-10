@@ -9,7 +9,7 @@ import { performance } from 'node:perf_hooks';
 // A remote advisor needs enough time to reason about the complete table. The
 // deterministic brain remains the immediate fallback if this budget expires.
 const DEFAULT_TIMEOUT_MS = 4000;
-const DEFAULT_MAX_DECISIONS_PER_GAME = 120;
+const DEFAULT_MAX_DECISIONS_PER_GAME = 240;
 const DEFAULT_CIRCUIT_COOLDOWN_MS = 30_000;
 const CIRCUIT_FAILURE_THRESHOLD = 2;
 export const BOT_ADVISOR_PROMPT_VERSION = 'poorup-advisor-2026-09-25';
@@ -724,21 +724,28 @@ export class AiAdvisor {
     return false;
   }
 
-  consumeGameBudget(gameId) {
+  consumeGameBudget(gameId, botId) {
     if (!gameId) return true;
-    const key = String(gameId).slice(0, 120);
-    const used = this.decisionCounts.get(key) || 0;
+    const gameKey = String(gameId).slice(0, 120);
+    const botKey = String(botId || 'unassigned').slice(0, 120);
+    let botBudgets = this.decisionCounts.get(gameKey);
+    if (!botBudgets) {
+      botBudgets = new Map();
+      this.decisionCounts.set(gameKey, botBudgets);
+    }
+    const used = botBudgets.get(botKey) || 0;
     if (used >= this.maxDecisionsPerGame) return false;
-    this.decisionCounts.set(key, used + 1);
+    botBudgets.set(botKey, used + 1);
     if (this.decisionCounts.size > 1000) this.decisionCounts.delete(this.decisionCounts.keys().next().value);
     return true;
   }
 
-  refundGameBudget(gameId) {
+  refundGameBudget(gameId, botId) {
     if (!gameId) return;
-    const key = String(gameId).slice(0, 120);
-    const used = this.decisionCounts.get(key) || 0;
-    if (used > 0) this.decisionCounts.set(key, used - 1);
+    const botBudgets = this.decisionCounts.get(String(gameId).slice(0, 120));
+    const botKey = String(botId || 'unassigned').slice(0, 120);
+    const used = botBudgets?.get(botKey) || 0;
+    if (used > 0) botBudgets.set(botKey, used - 1);
   }
 
   registerFailure(reason) {
@@ -828,7 +835,7 @@ export class AiAdvisor {
     const response = await this.requestAdvisorAction(context);
     if (response.decision) return this.successfulAdvisorDecision(response, context, mode, startedAt);
     this.registerFailure(response.reason || 'provider');
-    if (isInfrastructureFailure(response.reason)) this.refundGameBudget(context.gameId);
+    if (isInfrastructureFailure(response.reason)) this.refundGameBudget(context.gameId, context.botId);
     return this.fallbackDecision(context, response.reason || 'provider', startedAt);
   }
 
@@ -838,7 +845,7 @@ export class AiAdvisor {
     if (!this.apiKey) return 'missing-credentials';
     if (this.quotaExhausted) return 'quota-exhausted';
     if (this.circuitIsOpen()) return 'circuit-open';
-    if (!this.consumeGameBudget(context.gameId)) return 'game-budget';
+    if (!this.consumeGameBudget(context.gameId, context.botId)) return 'game-budget';
     return '';
   }
 

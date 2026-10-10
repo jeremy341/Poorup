@@ -22,7 +22,7 @@ function normalizeProfile(value) {
     protocol: ['auto', 'chat', 'responses'].includes(value.protocol) ? value.protocol : 'auto',
     detectedProtocol: ['chat', 'responses'].includes(value.detectedProtocol) ? value.detectedProtocol : null,
     timeoutMs: Number(value.timeoutMs) || 4000,
-    maxDecisionsPerGame: Number(value.maxDecisionsPerGame) || 120,
+    maxDecisionsPerGame: Number(value.maxDecisionsPerGame) || 240,
     enabled: value.enabled !== false,
     keyConfigured: value.keyConfigured === true,
     source: value.source === 'environment' ? 'environment' : 'profile',
@@ -51,7 +51,7 @@ function fillForm(profile) {
   setField('protocol', profile?.protocol || 'auto');
   setField('apiKey', '');
   setField('timeoutMs', profile?.timeoutMs || 4000);
-  setField('maxDecisionsPerGame', profile?.maxDecisionsPerGame || 120);
+  setField('maxDecisionsPerGame', profile?.maxDecisionsPerGame || 240);
   const save = query('[data-admin-provider-save]');
   if (save) save.disabled = Boolean(profile?.readOnly);
   const key = field('apiKey');

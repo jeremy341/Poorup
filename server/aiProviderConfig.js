@@ -13,7 +13,7 @@ const MAX_LABEL_LENGTH = 80;
 const MAX_MODEL_LENGTH = 120;
 const MAX_URL_LENGTH = 400;
 const DEFAULT_TIMEOUT_MS = 4_000;
-const DEFAULT_DECISION_BUDGET = 120;
+const DEFAULT_DECISION_BUDGET = 240;
 const MAX_PROVIDER_RESPONSE_BYTES = 1_048_576;
 const PRIVATE_HOSTS = new Set(['localhost', 'metadata.google.internal']);
 
@@ -363,7 +363,9 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
 
   if (durable) {
     const loaded = loadJson(filePath, storedShape);
-    if (loaded.value && storedShape(loaded.value)) data = loaded.value;
+    if (loaded.value && storedShape(loaded.value)) {
+      data = loaded.value;
+    }
   }
 
   function internal(id) {
