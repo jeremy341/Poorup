@@ -49,6 +49,28 @@ check('new provider profiles allow 240 AI decisions per bot in each game by defa
     'an explicitly configured profile retains its chosen budget');
 });
 
+check('environment provider keeps configured caps and uses 240 as its default', () => {
+  for (const [budgetEnv, expected] of [
+    [{ POORUP_AI_DECISIONS: '120' }, 120],
+    [{ POORUP_BOT_AI_DECISIONS: '75' }, 75],
+    [{}, 240],
+  ]) {
+    let applied = null;
+    const advisor = { fetchImpl: async () => {}, configureProvider: config => { applied = config; } };
+    createAiProviderManager({
+      store: { active: () => null },
+      advisor,
+      env: {
+        NODE_ENV: 'production',
+        POORUP_AI_API_KEY: 'environment-key',
+        POORUP_AI_BASE_URL: 'https://provider.example/v1',
+        ...budgetEnv,
+      },
+    });
+    assert.equal(applied.maxDecisionsPerGame, expected);
+  }
+});
+
 check('provider URL validation rejects unsafe inputs', () => {
   assert.throws(() => normalizeProviderConfig({ id: 'bad', label: 'Bad', baseUrl: 'file:///etc/passwd', model: 'x', apiKey: 'key' }), ProviderConfigError);
   assert.throws(() => normalizeProviderConfig({ id: 'bad', label: 'Bad', baseUrl: 'https://user:pass@example.test/v1', model: 'x', apiKey: 'key' }), ProviderConfigError);
