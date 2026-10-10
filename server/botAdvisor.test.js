@@ -387,6 +387,27 @@ const budget = new DeepSeekAdvisor({ apiKey: 'test-key', maxDecisionsPerGame: 1,
 await budget.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-budget', decisionSequence: 1 });
 assert.equal((await budget.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-budget', decisionSequence: 2 })).fallbackReason, 'game-budget');
 
+let separateBotCalls = 0;
+const separateBotBudgets = new DeepSeekAdvisor({
+  apiKey: 'test-key',
+  maxDecisionsPerGame: 1,
+  fetchImpl: async (_url, options) => {
+    separateBotCalls += 1;
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options), confidence: 0.8 }) } }] }) };
+  }
+});
+const chooseForBot = (botId, decisionSequence) => separateBotBudgets.chooseAction({
+  candidates,
+  botBrain: 'ai',
+  botId,
+  gameId: 'g-per-bot-budget',
+  decisionSequence
+});
+assert.equal((await chooseForBot('bot-alpha', 1)).fallback, false);
+assert.equal((await chooseForBot('bot-beta', 1)).fallback, false, 'one bot cannot consume another bot’s per-game allowance');
+assert.equal((await chooseForBot('bot-alpha', 2)).fallbackReason, 'game-budget');
+assert.equal(separateBotCalls, 2);
+
 const flaky = new DeepSeekAdvisor({ apiKey: 'test-key', maxDecisionsPerGame: 1, fetchImpl: async () => { throw new Error('down'); } });
 assert.equal((await flaky.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-refund', decisionSequence: 1 })).fallbackReason, 'network');
 // Infra failure refunds the budget: the retry reaches the provider again
