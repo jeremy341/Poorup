@@ -5,10 +5,12 @@ AI) and the three permanent lanes `development`, `testing`, and `main`._
 
 ## The rule
 
-**Never develop directly on `main` (or on the lane branches).** All work
-enters `development` through a pull request that has passed the pipeline below,
-then promotes `development` → `testing` → `main` by merge PR at each hop. `main`
-is protected by a GitHub ruleset; direct pushes are rejected.
+**Never develop directly on `testing` or `main`.** `development` is the
+integration/work lane: the repository owner may push directly to it, or use a
+short-lived PR when isolated review is useful. Direct pushes trigger light CI
+after the update; those results do not block the push. Promote `development` →
+`testing` → `main` by PR at each hop. `testing` and `main` remain protected;
+direct pushes to them are rejected.
 
 ## Branches
 
@@ -21,14 +23,18 @@ is protected by a GitHub ruleset; direct pushes are rejected.
 | `experiment/*`| spikes; may die unmerged                         |
 | `chore/*`     | infrastructure, dependencies, tooling            |
 
-Branch from `development` (`git checkout -b fix/thing development`), keep each
-branch to one concern. Never branch from `main`; the lane order is
-`feature` → `development` → `testing` → `main`.
+When using a short-lived branch, branch from `development`
+(`git checkout -b fix/thing development`) and keep it to one concern.
+Otherwise, the repository owner may work directly on `development`, committing
+one clean, logical change at a time. Never branch from `main`; the release lane
+order remains `development` → `testing` → `main`.
 
 ## The pipeline
 
 ```text
-feature branch → PR → development → PR → testing → PR → main
+short-lived branch → PR (squash) ─┐
+                                  ├→ development → PR → testing → PR → main
+direct push ──────────────────────┘
               → GitHub Actions (tiered lint + tests + coverage + boot)
               → Copilot code review (automatic, comments only)
               → CodeScene (code health on the diff)
@@ -36,8 +42,10 @@ feature branch → PR → development → PR → testing → PR → main
               → human review (Jeremy) → merge → deploy → Sentry (runtime)
 ```
 
-Each hop is one PR: feature → `development`, `development` → `testing`,
-`testing` → `main`. Only the last hop reaches production.
+The feature → `development` PR is optional for the repository owner. When
+used, squash it; direct pushes should already be one logical commit. The
+`development` → `testing` and `testing` → `main` PRs remain mandatory release
+gates. Only the last hop reaches production.
 
 ## Merge methods and commit history
 
@@ -46,6 +54,9 @@ Each hop is one PR: feature → `development`, `development` → `testing`,
   change and give the squash commit a clear, behavior-focused title. The PR
   retains the review, checks, and discussion; its intermediate work-in-progress
   commits do not need to become permanent commits in the release history.
+- For direct pushes to `development`, make one clean, descriptive commit per
+  logical change. Keep experiments and AI-generated work-in-progress commits
+  local; do not publish a chain of scratch commits if one final commit will do.
 - For testing-lane sync PRs into `development` and the `development` →
   `testing` / `testing` → `main` promotion PRs, use a **merge commit**. These
   PRs carry lane ancestry required by the strict `testing` up-to-date check and
@@ -94,7 +105,8 @@ Responsibilities, one line each:
   `threshold: 2%` (see `codecov.yml`). Codecov is **not** a required status
   check. On the light tier the upload runs only when `server/**` changed —
   client-only PRs would otherwise report unchanged server numbers.
-- **Human review** — final decision. Nothing merges without it.
+- **Human review** — final decision on protected release promotions. Direct
+  development pushes do not receive pre-push review.
 - **Sentry** — post-deployment runtime errors, not a review gate.
 
 The repository does not install an automatic CodeScene refactoring agent.
@@ -119,12 +131,13 @@ their merge.
 ## CI tiers
 
 CI jobs are gated by the PR's target branch and, on `development` PRs, by the
-changed paths. The conditions live in `.github/workflows/ci.yml`; treat this
+changed paths. Direct pushes to `development` run the light tier after the
+commit lands. The conditions live in `.github/workflows/ci.yml`; treat this
 table as the contract, not the line numbers:
 
 | Tier        | Runs for                                                       | Coverage |
 |-------------|----------------------------------------------------------------|----------|
-| **light**   | PRs targeting `development` that touch code, and pushes to the lane branches | the everyday check set for feature work; coverage merge/upload runs only when `server/**` changed |
+| **light**   | Code PRs targeting `development`, pushes to `development`, and pushes to lane branches | the everyday integration checks; development push checks run after landing; coverage merge/upload runs only when `server/**` changed |
 | **light-slim** | PRs targeting `development` that touch only docs/markdown   | lint, manifest validation, and `boot smoke` only — no test shards, no coverage, no browser |
 | **heavy**   | PR `development` → `testing`                                   | full 4-shard manifest + merged coverage (Codecov upload) + Playwright browser QA scaled to the diff: 3 shards for UI-affecting changes, one `@ui-smoke` shard for server-only changes |
 | **fast**    | PR `testing` → `main`                                          | `boot smoke` + lint + a tree-identity check that the promotion PR carries the same tree as the source lane |
@@ -147,8 +160,10 @@ Required status checks today:
   **`boot smoke`**. `browser QA`, `coverage`, `lint and audit`, `codecov/*`,
   and `CodeScene Code Health Review (main)` are **not** required — they are
   signals, not gates.
-- On `development` (ruleset "Lane gates (development)"): **`test`** and
-  **`boot smoke`**, PRs required, direct pushes rejected.
+- On `development` (ruleset "Lane gates (development)"): direct pushes are
+  allowed; force-pushes and branch deletion remain blocked. CI on pushes is
+  post-update feedback, not a pre-push gate. PRs into development still run
+  light checks, but are optional for the repository owner.
 - On `testing` (classic branch protection): **`test`**, **`boot smoke`**, and
   **`browser QA`**, with branches required to be up to date, PRs required,
   and admin enforcement.
@@ -160,8 +175,9 @@ side is queue-ready either way:
 
 - **`main`** (ruleset "PR Review"): required checks **`test`** and
   **`boot smoke`**; PRs required; commits cannot be pushed directly.
-- **`development`** (ruleset "Lane gates (development)"): required checks
-  **`test`** and **`boot smoke`**; PRs required; direct pushes rejected.
+- **`development`** (ruleset "Lane gates (development)"): blocks deletion and
+  non-fast-forward updates; direct pushes are allowed; no required status
+  checks gate the push.
 - **`testing`** (classic branch protection): requires branches to be up to
   date, required checks **`test`**, **`boot smoke`**, and **`browser QA`**;
   PRs required; admin-enforced.

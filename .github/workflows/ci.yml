@@ -10,10 +10,9 @@ on:
     branches: [testing]
   push:
     branches: [main, development]
-    # Pushes are never required checks; docs-only pushes do not need CI.
+    # Development pushes run light CI after landing; keep docs-only updates in
+    # the push workflow too. Only local/generated outputs are ignored.
     paths-ignore:
-      - 'docs/**'
-      - '**.md'
       - 'qa-artifacts/**'
       - '.codescene/**'
   workflow_dispatch:
