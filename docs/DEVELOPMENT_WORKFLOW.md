@@ -39,6 +39,21 @@ feature branch → PR → development → PR → testing → PR → main
 Each hop is one PR: feature → `development`, `development` → `testing`,
 `testing` → `main`. Only the last hop reaches production.
 
+## Merge methods and commit history
+
+- For short-lived feature, fix, refactor, docs, and chore PRs into
+  `development`, use **Squash and merge**. Keep the PR focused on one logical
+  change and give the squash commit a clear, behavior-focused title. The PR
+  retains the review, checks, and discussion; its intermediate work-in-progress
+  commits do not need to become permanent commits in the release history.
+- For testing-lane sync PRs into `development` and the `development` →
+  `testing` / `testing` → `main` promotion PRs, use a **merge commit**. These
+  PRs carry lane ancestry required by the strict `testing` up-to-date check and
+  by the promotion tree check. Do not squash or rebase these lane PRs unless
+  the ancestry and tree gates are deliberately redesigned and verified.
+- This policy applies to future PRs. It does not rewrite existing shared
+  history.
+
 Dependabot's `target-branch: development` routes routine version-update PRs
 through the integration lane. GitHub security-update PRs still target the
 repository's default branch, so retarget any Dependabot security PR opened
