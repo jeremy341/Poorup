@@ -109,19 +109,19 @@ check('encrypted store persists profiles and only returns redacted records', () 
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
-check('stored provider profiles migrate the old 120 decision cap to 240 and preserve custom caps', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-ai-budget-migration-'));
+check('stored provider profiles retain their explicitly configured decision caps', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-ai-budget-persistence-'));
   const filePath = path.join(directory, 'providers.json');
   const options = { filePath, masterKey: 'test-master-key-0123456789012345' };
   const first = createAiProviderStore(options);
   first.upsert({ id: 'legacy', label: 'Legacy', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test', apiKey: 'legacy-key', maxDecisionsPerGame: 120 });
   first.upsert({ id: 'custom', label: 'Custom', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test', apiKey: 'custom-key', maxDecisionsPerGame: 80 });
 
-  const migrated = createAiProviderStore(options);
-  assert.equal(migrated.get('legacy').maxDecisionsPerGame, 240);
-  assert.equal(migrated.get('custom').maxDecisionsPerGame, 80, 'non-default custom budgets are retained');
+  const reloaded = createAiProviderStore(options);
+  assert.equal(reloaded.get('legacy').maxDecisionsPerGame, 120, 'an explicitly saved 120-decision cap is retained');
+  assert.equal(reloaded.get('custom').maxDecisionsPerGame, 80, 'non-default custom budgets are retained');
   const persisted = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  assert.equal(persisted.profiles.legacy.maxDecisionsPerGame, 240);
+  assert.equal(persisted.profiles.legacy.maxDecisionsPerGame, 120);
   assert.equal(persisted.profiles.custom.maxDecisionsPerGame, 80);
   fs.rmSync(directory, { recursive: true, force: true });
 });
