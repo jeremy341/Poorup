@@ -39,13 +39,20 @@ jobs:
       browser_shard_total: ${{ steps.set.outputs.browser_shard_total }}
       server_changed: ${{ steps.set.outputs.server_changed }}
     steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
       - id: changes
         # In-workflow path filtering keeps every check name reporting; a
         # native paths-ignore on pull_request would leave required checks
         # pending forever. Empty output is treated as code changes (fail-safe).
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: dorny/paths-filter@v3
         with:
+          # On direct pushes, compare against the exact previous tip so a
+          # server change still enables the lightweight coverage report.
+          base: ${{ github.event.before }}
           filters: |
             docs:
               - '**/*.md'
@@ -54,6 +61,7 @@ jobs:
               - 'server/**'
               - 'public/**'
               - '!public/assets/**'
+              - '.github/workflows/**'
               - 'scripts/**'
               - 'qa/**'
               - 'package.json'
@@ -77,6 +85,7 @@ jobs:
           CODE_CHANGED: ${{ steps.changes.outputs.code }}
           FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend }}
           SERVER_CHANGED: ${{ steps.changes.outputs.server }}
+          PUSH_BRANCH: ${{ github.ref_name }}
         run: |
           tier=light
           shards='[1, 2]'
@@ -88,6 +97,12 @@ jobs:
           docs_only=false
           if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
             docs_only=true
+          fi
+          # Development pushes are deliberately allowed without a PR. Keep
+          # their server-coverage decision scoped to the pushed server diff;
+          # main's post-merge workflow should not repeat the development report.
+          if [ "$EVENT_NAME" = "push" ] && [ "$PUSH_BRANCH" != "development" ]; then
+            SERVER_CHANGED=false
           fi
           if [ "$EVENT_NAME" = "merge_group" ]; then
             # Merge-queue groups always run the full tier of their base lane;
