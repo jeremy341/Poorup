@@ -76,9 +76,9 @@ Responsibilities, one line each:
 - **GitHub Actions** — does the code actually run? `npm run lint`,
   `npm run lint:client`, and the unique suites in `scripts/test-manifest.mjs`.
   PR jobs depend on the target branch; direct `development` pushes run the
-  light tier after landing. The push path compares the previous and new commit
-  so coverage runs on direct pushes only when `server/**` changed (see **CI
-  tiers** below).
+  light tier after landing. The push path compares `development` with
+  `testing`, so server coverage remains enabled for unpublished server changes
+  even if a later push supersedes an earlier CI run (see **CI tiers** below).
   On the heavy tier CI runs four isolated Node-test shards (four suites in
   parallel inside each shard), merges their c8 V8-coverage data once, and runs
   the six-viewport Playwright suite **scaled to the diff**: three shards for

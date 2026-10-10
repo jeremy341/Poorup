@@ -50,9 +50,11 @@ jobs:
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: dorny/paths-filter@v3
         with:
-          # On direct pushes, compare against the exact previous tip so a
-          # server change still enables the lightweight coverage report.
-          base: ${{ github.event.before }}
+          # On development pushes, compare against testing so server changes
+          # remain visible until a heavy promotion covers them, even if a
+          # newer push replaces a pending CI run. Other pushes use their
+          # previous tip.
+          base: ${{ github.event_name == 'push' && github.ref_name == 'development' && 'testing' || github.event.before }}
           filters: |
             docs:
               - '**/*.md'
