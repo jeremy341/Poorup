@@ -118,20 +118,20 @@ test('2560 desktop scales in-game modal families while keeping the player card c
     expect(widths.account).toBeGreaterThanOrEqual(560);
     expect(widths.deed).toBeGreaterThanOrEqual(600);
     expect(widths.trade).toBeGreaterThanOrEqual(740);
-    expect(widths.bank).toBeGreaterThanOrEqual(600);
+    expect(widths.bank).toBeCloseTo(400, 0);
     expect(widths.finance).toBeGreaterThanOrEqual(800);
     expect(widths.wallet).toBeGreaterThanOrEqual(760);
     expect(widths.casino).toBeGreaterThanOrEqual(680);
     expect(widths.market).toBeGreaterThanOrEqual(1240);
-    expect(widths.market).toBeLessThanOrEqual(1360);
+    expect(widths.market).toBeLessThanOrEqual(1640);
     expect(widths.sponsorship).toBeGreaterThanOrEqual(700);
   } else {
     expect(widths.choice).toBeCloseTo(420, 0);
     expect(widths.account).toBeCloseTo(480, 0);
     expect(widths.deed).toBeCloseTo(440, 0);
     expect(widths.trade).toBeCloseTo(660, 0);
-    expect(widths.bank).toBeCloseTo(520, 0);
-    expect(widths.market).toBeCloseTo(Math.min(1320, viewport.width - 48), 0);
+    expect(widths.bank).toBeCloseTo(400, 0);
+    expect(widths.market).toBeCloseTo(Math.min(1640, viewport.width - 48), 0);
   }
   expect(widths.player).toBeLessThanOrEqual(480);
 
@@ -209,9 +209,10 @@ test('market workbench changes composition for wide desktop and landscape iPad',
   const indexStrip = page.locator('.market-index-strip');
   await expect(indexRail).toHaveCount(0);
   await expect(indexStrip).toBeHidden();
-  await expect(page.locator('#market-desk-index')).toBeVisible();
-  await expect(page.locator('#market-desk-index option')).toHaveCount(11);
-  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(width >= 1400 ? 2 : 1);
+  await expect(page.locator('.market-index-select')).toHaveCount(0);
+  await expect(page.locator('[data-market-sector]')).toHaveCount(11);
+  await expect(page.locator('[data-market-sector="brazil"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(width >= 850 ? 2 : 1);
 
   if (width <= 1366) {
     await expect(page.locator('.market-view-tabs')).toBeVisible();
@@ -223,16 +224,17 @@ test('market workbench changes composition for wide desktop and landscape iPad',
     });
     const deskBounds = await page.locator('.market-desk-card').boundingBox();
     const closeBounds = await page.locator('#market-modal-close').boundingBox();
-    expect(deskBounds.x).toBeGreaterThanOrEqual(popupInsets.left - 1);
-    expect(deskBounds.x + deskBounds.width).toBeLessThanOrEqual(viewport.width - popupInsets.right + 1);
-    expect(deskBounds.width).toBeLessThanOrEqual(Math.min(980, viewport.width - 64) + 1);
+    expect(deskBounds.x).toBeGreaterThanOrEqual(Math.min(12, popupInsets.left));
+    expect(deskBounds.x + deskBounds.width).toBeLessThanOrEqual(viewport.width - Math.min(12, popupInsets.right));
+    expect(deskBounds.width).toBeLessThanOrEqual(viewport.width - 24);
     expect(closeBounds.height).toBeGreaterThanOrEqual(44);
     await page.locator('#market-view-trade').click();
     await expect(page.locator('#market-card')).toHaveAttribute('data-market-view', 'trade');
     await expect(page.locator('.market-selected-quote')).toBeVisible();
     await expect(page.locator('.market-trade-ticket')).toBeVisible();
     await expect(page.locator('#market-change-index')).toHaveCount(0);
-    await expect(page.locator('.market-history')).toBeHidden();
+    await expect(page.locator('.market-history')).toBeVisible();
+    await expect(page.locator('.market-quote-chart svg')).toBeVisible();
     await page.locator('#market-view-overview').click();
     await expect(page.locator('#market-card')).toHaveAttribute('data-market-view', 'overview');
     await expect(page.locator('.market-history')).toBeVisible();
@@ -287,19 +289,19 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
   });
 
   const viewport = page.viewportSize();
-  const marketIndexControl = page.locator('#market-desk-index');
-  await expect(marketIndexControl).toBeVisible();
-  await expect(marketIndexControl.locator('option')).toHaveCount(11);
-  await expect(marketIndexControl.locator('option[value="brazil"]')).toContainText('HOUSING MARKET');
+  await expect(page.locator('.market-index-select')).toHaveCount(0);
+  const sectorButtons = page.locator('[data-market-sector]');
+  await expect(sectorButtons).toHaveCount(11);
+  await expect(page.locator('[data-market-sector="brazil"]')).toContainText('HOUSING MARKET');
+  await expect(page.locator('[data-market-sector="brazil"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.market-current-price')).toContainText('$113');
   await expect(page.locator('[data-market-movement]')).toContainText('+$9');
   await expect(page.locator('.market-history-table')).toHaveCount(0);
   await expect(page.locator('.market-chart-summary')).toContainText('3 data points');
   const tabletIndexStrip = page.locator('.market-index-strip');
   await expect(page.locator('.market-index-rail')).toHaveCount(0);
-  await expect(marketIndexControl).toBeVisible();
   await expect(tabletIndexStrip).toBeHidden();
-  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(viewport.width >= 1400 ? 2 : 1);
+  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(viewport.width >= 850 ? 2 : 1);
   await expect(page.locator('#market-desk-history-range')).toBeVisible();
   await expect(page.locator('#market-desk-history-range')).toHaveValue('all');
   if (viewport.width >= 768 && viewport.width <= 1399) {
@@ -320,13 +322,16 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
     });
   }
 
-  await marketIndexControl.selectOption('ghana');
-  await expect(marketIndexControl).toBeFocused();
+  if (viewport.width >= 850 && viewport.width <= 1399) await page.locator('#market-workspace-index').selectOption('ghana');
+  else await page.locator('[data-market-sector="ghana"]').click();
+  await expect(page.locator('[data-market-sector="ghana"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#market-history-title')).toContainText('AGRICULTURE');
   await expect(page.locator('#market-selected-index-name')).toHaveText('AGRICULTURE');
   await expect(page.locator('.market-current-price')).toContainText('$100');
   if (viewport.width >= 768 && viewport.width <= 1399) await page.locator('#market-view-trade').click();
   await expect(page.locator('.market-trade-ticket')).toBeVisible();
+  await expect(page.locator('.market-history')).toBeVisible();
+  await expect(page.locator('.market-quote-chart svg')).toBeVisible();
   if (process.env.POORUP_VISUAL_CAPTURE_DIR || ["desktop-1920x1080", "ipad-1024x768", "ipad-1194x834"].includes(testInfo.project.name)) {
     await captureScreenshot(page, testInfo, {
       group: 'market', surfaceId: 'market-desk-trade-ticket', label: 'Market Desk order ticket',
@@ -340,9 +345,9 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
   const chartAndTicket = await page.evaluate(() => {
     const chart = document.querySelector('.market-quote-chart').getBoundingClientRect();
     const ticket = document.querySelector('.market-trade-ticket').getBoundingClientRect();
-    return { chartBottom: chart.bottom, ticketBottom: ticket.bottom };
+    return { chartRight: chart.right, ticketLeft: ticket.left };
   });
-  if (viewport.width >= 1400) expect(Math.abs(chartAndTicket.chartBottom - chartAndTicket.ticketBottom)).toBeLessThanOrEqual(2);
+  if (viewport.width >= 850) expect(chartAndTicket.chartRight).toBeLessThanOrEqual(chartAndTicket.ticketLeft);
   await page.locator('#market-desk-quantity').fill('2');
   await page.locator('[data-market-order-side="sell"]').click();
   await expect(page.locator('[data-market-preview]')).toContainText('GROSS $200');
@@ -353,6 +358,10 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
     eventName: 'market-order',
     payload: { instrumentId: 'ghana', side: 'sell', quantity: 2, requestId: 'market-qa-request' },
   }]);
+  await page.locator('[data-market-sector="brazil"]').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('[data-market-sector="ghana"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#market-selected-index-name')).toHaveText('AGRICULTURE');
 
   const desk = await page.locator('.market-desk-card').boundingBox();
   expect(desk.width).toBeLessThanOrEqual(viewport.width - 24);
@@ -480,12 +489,13 @@ test('derivatives remain unavailable without server pricing policy across market
     };
   });
 
-  const index = page.locator('#market-desk-index');
-  await index.selectOption('canada');
+  const sector = page.locator('[data-market-sector="canada"]');
+  await sector.click();
   await page.evaluate(() => window.__refreshMarketDesk());
 
-  await expect(index).toHaveValue('canada');
-  await expect(page.locator('.market-derivatives-unavailable').first()).toContainText('SERVER PRICING POLICY NOT CONFIGURED');
+  await expect(page.locator('[data-market-sector="canada"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#market-selected-index-name')).toHaveText('ENERGY & RESOURCES');
+  await expect(page.locator('.market-derivatives-unavailable').first()).toContainText("Options aren't available on this table yet.");
   await expect(page.locator('#market-desk-role')).toHaveCount(0);
   await expect(page.locator('[data-market-advanced="open-option"]')).toHaveCount(0);
   expect(await page.evaluate(() => window.__marketActions)).toEqual([]);

@@ -26,7 +26,7 @@ async function installTurnFixture(page) {
       pendingBuyTile: null,
       auction: null,
       sponsorship: null,
-      settings: { startingCash: 1500, houseLimit: 32, hotelLimit: 12 },
+      settings: { startingCash: 1500 },
     });
     window.__turnUi = { state, renderHud, renderRightRail: rail.renderRightRail, tradePlayerRowHTML: rail.tradePlayerRowHTML, openDeedDetail: deeds.openDeedDetail };
     renderHud();
@@ -173,7 +173,7 @@ test('a debtor can reopen a dismissed payment dialog and confirm bankruptcy afte
   await expect(page.locator('#bankruptcy-modal')).toBeHidden();
 });
 
-test('holdings list property groups first, then airports, then utilities in board order', async ({ page }) => {
+test('holdings list shows owned properties as one flat list in board order', async ({ page }) => {
   await page.goto('/');
   await installTurnFixture(page);
   await page.evaluate(() => {
@@ -181,7 +181,7 @@ test('holdings list property groups first, then airports, then utilities in boar
     state.owners = { 1: 'p1', 3: 'p1', 5: 'p1', 6: 'p1', 8: 'p1', 12: 'p1' };
     renderRightRail();
   });
-  await expect.poll(() => page.locator('#rr-body [data-deed-open]').evaluateAll(elements => elements.map(element => element.dataset.deedOpen))).toEqual(['1', '3', '6', '8', '5', '12']);
+  await expect.poll(() => page.locator('#rr-body [data-deed-open]').evaluateAll(elements => elements.map(element => element.dataset.deedOpen))).toEqual(['1', '3', '5', '6', '8', '12']);
 });
 
 test('sidebar cash follows presentation cash when the local player is not taking a turn', async ({ page }) => {
@@ -196,7 +196,7 @@ test('sidebar cash follows presentation cash when the local player is not taking
     renderRightRail();
     document.querySelector('#rr-body').insertAdjacentHTML('beforeend', tradePlayerRowHTML(state.players[1], 2));
   });
-  await expect(page.locator('.holdings-account strong')).toContainText('$95');
+  await expect(page.locator('.rail-wallet-cash strong')).toContainText('$95');
   await expect(page.locator('.trade-player-row .tp-sub')).toContainText('$775');
   await expect(page.locator('#roll-btn')).toBeDisabled();
 });

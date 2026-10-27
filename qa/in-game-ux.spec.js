@@ -27,7 +27,7 @@ async function createTwoPlayerGame(page, context, code) {
   await guest.locator('#join-nickname').fill('UXGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.locator('#su-start').click();
-  await expect(page.locator('#lobby-settings-body')).toContainText('UXGUEST');
+  await expect(page.locator('#player-list')).toContainText('UXGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();
   return guest;
@@ -172,7 +172,8 @@ async function verifyTradeOfferLifecycle(context) {
   const outputPath = name => visualOutput({ ...context, name });
   await page.evaluate(() => window.__poorupUxFixture.makeOffer(`visual-offer-${window.innerWidth}`));
   await expect(page.locator('#offer-modal')).not.toHaveClass(/is-hidden/);
-  await expect(page.locator('#offer-close')).toHaveText('Close');
+  await expect(page.locator('#offer-close')).toHaveAttribute('aria-label', 'Close offer and keep it pending');
+  await expect(page.locator('#offer-close svg')).toBeVisible();
   await captureScreenshot(page, testInfo, {
     group: 'game', surfaceId: 'trade-offer', label: 'Trade offer inbox',
     fallbackPath: outputPath('trade-offer'),

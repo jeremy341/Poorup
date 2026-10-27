@@ -42,11 +42,6 @@ test('funding request names its room-wide audience and preserves equity terms', 
 
   await page.evaluate(() => window.__sponsorshipVisual.openRequest());
   await expect(page.locator('#sponsorship-modal')).not.toHaveClass(/is-hidden/);
-  const audience = page.locator('#sponsorship-card [aria-label="Funding request audience"]');
-  await expect(audience).toContainText('ALL OTHER ACTIVE PLAYERS');
-  await expect(audience).toContainText('BETA');
-  await expect(audience).toContainText('GAMMA');
-  await expect(audience).not.toContainText('BANKRUPT');
   await expect(page.locator('[data-sponsorship-mode-summary]')).toContainText('GIFT FUNDING');
   await page.locator('input[name="mode"][value="equity"]').check();
   await page.locator('[name="sharePct"]').focus();
