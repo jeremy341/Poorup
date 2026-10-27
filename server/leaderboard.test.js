@@ -6,7 +6,7 @@ import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { AccountStore } from './accountStore.js';
+import { AccountStore, PARLOR_PATROL_ENABLED } from './accountStore.js';
 
 // username:value rows in leaderboard order, captured from the current build.
 const GOLDEN = {
@@ -23,9 +23,11 @@ const GOLDEN = {
   market: ['alice:80', 'carol:20', 'bob:10'],
   playerloans: ['alice:4', 'carol:0', 'bob:0'],
   equity: ['alice:3', 'carol:1', 'bob:0'],
-  loans: ['alice:5', 'carol:2', 'bob:0'],
-  patrol: ['alice:900', 'bob:100', 'carol:50']
+  loans: ['alice:5', 'carol:2', 'bob:0']
 };
+// Parlor Patrol is switched off (F-059): 'patrol' is no longer a ranked metric,
+// but the stored patrolBest stays on the account.
+const DISABLED_PATROL_RANKING = [];
 
 function buildStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-lb-'));
@@ -63,6 +65,14 @@ const store = buildStore();
 for (const metric of Object.keys(GOLDEN)) {
   check(`leaderboard metric ${metric}`, () => assert.deepStrictEqual(rank(store, metric), GOLDEN[metric]));
 }
+check('patrol is not ranked while Parlor Patrol is disabled', () => {
+  assert.strictEqual(PARLOR_PATROL_ENABLED, false);
+  assert.deepStrictEqual(rank(store, 'patrol'), DISABLED_PATROL_RANKING);
+  assert.strictEqual(store.accounts.get('alice').stats.patrolBest, 900, 'stored patrolBest stays readable');
+  assert.ok(!('patrol' in store.getLeaderboardSnapshot(['patrol', 'wins']).metrics));
+  assert.strictEqual(store.recordPatrolResult(store.accounts.get('alice').id, { score: 5000 }).success, false);
+  assert.strictEqual(store.accounts.get('alice').stats.patrolBest, 900, 'no score is recorded while disabled');
+});
 check('snapshot exposes the full metric set', () => {
   assert.deepStrictEqual(Object.keys(store.getLeaderboardSnapshot().metrics), Object.keys(GOLDEN));
 });

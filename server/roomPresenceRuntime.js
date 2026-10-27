@@ -1,4 +1,7 @@
-import { isPlayerPresenceExpired, markPlayerActive, markPlayerInactive } from './playerPresence.js';
+import { isPlayerPresenceExpired, markPlayerActive, markPlayerInactive, PLAYER_INACTIVITY_REMOVAL_MS } from './playerPresence.js';
+import { contractResponderId } from './contractLogic.js';
+
+const SERVER_IDLE_SOURCE = 'server-idle';
 
 function inactivityTimerKey(room, playerId) {
   return `${room.roomCode}:${playerId}`;
@@ -72,6 +75,10 @@ export function createRoomPresenceRuntime({
   removeSeatForReason,
 }) {
   const timers = new Map();
+  // Server-side idle clock (F-091), independent of client presence reports:
+  // when each seat last sent a socket event, and when it began to block the table.
+  const lastEventAt = new Map();
+  const blockingSince = new Map();
 
   function clearInactivityTimer(room, playerId = null) {
     if (!room?.roomCode) return;
@@ -91,8 +98,18 @@ export function createRoomPresenceRuntime({
     if (!isWatchedSeat(room, watch, player)) return false;
     if (!playerMayExpire(player)) return false;
     if (!playerDeadlineExpired(player, now())) return false;
-    timers.delete(inactivityTimerKey(room, player.id));
-    return removeSeatForReason(room, player, 'inactivity', false);
+    if (!room.game.started) {
+      // Nobody times out while the lobby is being set up: the clock restarts
+      // instead, so the seat only becomes removable once the game is running.
+      player.presence = { ...player.presence, inactiveUntil: now() + PLAYER_INACTIVITY_REMOVAL_MS };
+      synchronizeInactivityTimers(room);
+      emitRoomState(room);
+      return false;
+    }
+    const removed = removeSeatForReason(room, player, 'inactivity', false);
+    if (removed) timers.delete(inactivityTimerKey(room, player.id));
+    else watch.retryRemoval = true;
+    return removed;
   }
 
   function scheduleInactivityTimer(room, player) {
@@ -112,7 +129,11 @@ export function createRoomPresenceRuntime({
         watch.handle = setTimeoutFn(run, remaining);
         return;
       }
+      delete watch.retryRemoval;
       expireInactiveSeat(watch, key);
+      // Failed secured settlement retains the same watched identity and
+      // presence deadline; retry without a zero-delay expiry loop.
+      if (watch.retryRemoval && timers.get(key) === watch) watch.handle = setTimeoutFn(run, 1_000);
     });
     watch.handle = setTimeoutFn(run, Math.max(0, watch.deadline - now()));
     timers.set(key, watch);
@@ -147,13 +168,106 @@ export function createRoomPresenceRuntime({
     return { success: true, presence: player.presence };
   }
 
+  // The seats a table is waiting on: the turn holder, and a recipient who still
+  // has to answer a pending trade or player contract. The contract's responder
+  // is not always its addressee: after a counter-offer the seat that made the
+  // surviving offer is the one that has to decide.
+  function blockingSeatIds(room) {
+    if (!room.game?.started) return new Set();
+    return new Set([
+      room.game.getCurrentPlayer?.()?.id,
+      room.game.pendingTrade?.toPlayerId,
+      contractResponderId(room.game.pendingPlayerContract),
+    ].filter(Boolean));
+  }
+
+  function idleClockStart(player) {
+    const since = blockingSince.get(player.id);
+    return Math.max(since, lastEventAt.get(player.id) ?? since);
+  }
+
+  // Returns true when any seat was idled, so the caller can broadcast the change.
+  function idleSilentBlockingSeats(room, at) {
+    const waiting = blockingSeatIds(room);
+    let idled = false;
+    room.game.players.forEach(player => {
+      if (!waiting.has(player.id) || !isActiveHuman(player)) {
+        blockingSince.delete(player.id);
+        return;
+      }
+      if (!blockingSince.has(player.id)) blockingSince.set(player.id, at);
+      if (hasInactivePresence(player) || at - idleClockStart(player) < PLAYER_INACTIVITY_REMOVAL_MS) return;
+      // Tagged so a later socket event can tell a server-originated idle from a
+      // presence the client reported itself (the tag never leaves the server).
+      player.presence = { ...markPlayerInactive(player, { reason: 'idle', now: at }).presence, source: SERVER_IDLE_SOURCE };
+      idled = true;
+    });
+    return idled;
+  }
+
+  // Any socket event from a seated human counts as input for the idle clock. A
+  // seat the server idled that is plainly still playing goes back to active, or
+  // its removal deadline would evict a live player.
+  function noteSocketEvent(socketId) {
+    const room = roomManager.getRoomBySocket(socketId);
+    const player = room?.getPlayerBySocket(socketId);
+    if (!player) return;
+    lastEventAt.set(player.id, now());
+    if (player.presence?.source !== SERVER_IDLE_SOURCE) return;
+    player.presence = markPlayerActive(player).presence;
+    synchronizeInactivityTimers(room);
+    emitRoomState(room);
+  }
+
+  // Idled seats enter the existing inactivity flow: emitting the room state
+  // re-synchronises the removal timers.
+  function sweepIdleSeats() {
+    const at = now();
+    for (const room of roomManager.rooms.values()) {
+      if (idleSilentBlockingSeats(room, at)) emitRoomState(room);
+    }
+    forgetUnseatedPlayers();
+  }
+
+  // A voluntary leave never reaches clearPlayer, so the sweep drops the idle
+  // bookkeeping of any seat id that is no longer seated in a live room.
+  function forgetUnseatedPlayers() {
+    const seated = new Set();
+    for (const room of roomManager.rooms.values()) room.game.players.forEach(player => seated.add(player.id));
+    for (const playerId of [...lastEventAt.keys(), ...blockingSince.keys()]) {
+      if (seated.has(playerId)) continue;
+      lastEventAt.delete(playerId);
+      blockingSince.delete(playerId);
+    }
+  }
+
   function clearRoom(room) {
     clearInactivityTimer(room);
+    room?.game?.players?.forEach(player => {
+      lastEventAt.delete(player.id);
+      blockingSince.delete(player.id);
+    });
   }
 
   function clearPlayer(room, playerId) {
     clearInactivityTimer(room, playerId);
+    lastEventAt.delete(playerId);
+    blockingSince.delete(playerId);
   }
 
-  return { clearRoom, clearPlayer, scheduleInactivityTimer, synchronizeInactivityTimers, setPlayerPresence };
+  // Seats the idle clock currently holds state for (diagnostics and tests).
+  function trackedSeatCount() {
+    return new Set([...lastEventAt.keys(), ...blockingSince.keys()]).size;
+  }
+
+  return {
+    clearRoom,
+    clearPlayer,
+    trackedSeatCount,
+    noteSocketEvent,
+    scheduleInactivityTimer,
+    sweepIdleSeats,
+    synchronizeInactivityTimers,
+    setPlayerPresence,
+  };
 }

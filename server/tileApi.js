@@ -209,6 +209,7 @@ const tileApi = {
       return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
     }
     const auction = this.startAuction(tile, player.id);
+    if (auction?.auctionPaused) return { success: true, message: auction.error };
     if (auction && auction.success === false) return auction;
     return { success: true, auctionStarted: true };
   },
@@ -238,7 +239,9 @@ const tileApi = {
   },
 
   recordAirportStrikeRentFacts(tile, owner) {
-    if (!this.globalEventActive('airport-strike')) return;
+    // The rule belongs to the headline, so it also runs when the airport
+    // strike was fused into a combination (travel-chaos).
+    if (!this.globalEventIncludes('airport-strike')) return;
     if (owner.properties.some(index => { const deed = this.getTile(index); return deed?.type === 'railroad' && !deed.mortgaged; })) owner.airportOwnedDuringStrike = true;
     if (tile.type !== 'railroad') owner.nonAirportRentDuringStrike = true;
   }

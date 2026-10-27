@@ -5,6 +5,8 @@ function startedRoom() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   const [lender, borrower] = game.players;
@@ -29,6 +31,26 @@ function offer(game, borrower, collateralTileIndices, more = {}) {
     collateralTileIndices,
     ...more
   });
+}
+
+function legacyAcceptedContract(ctx, terms) {
+  const indices = terms.collateralTileIndices || (terms.collateralTileIndex == null ? [] : [terms.collateralTileIndex]);
+  const contract = {
+    id: `legacy-${terms.kind}-${ctx.game.playerContracts.length}`,
+    fromPlayerId: ctx.lender.id, toPlayerId: ctx.borrower.id,
+    premiumRate: 0, equityShare: 0, ...terms,
+    collateralTileIndices: indices.slice(), collateralTileIndex: indices[0] ?? null,
+    totalDue: terms.amount, remaining: terms.amount,
+    dueRound: ctx.game.roundNumber + terms.durationRounds,
+    cureRound: ctx.game.roundNumber + terms.durationRounds + 1,
+    status: 'active'
+  };
+  ctx.game.playerContracts.push(contract);
+  ctx.lender.playerContractIds.push(contract.id);
+  ctx.borrower.playerContractIds.push(contract.id);
+  ctx.lender.cash -= contract.amount;
+  ctx.borrower.cash += contract.amount;
+  return { success: true, contract };
 }
 
 const validBasket = startedRoom();
@@ -113,9 +135,76 @@ assert.equal(defaultContract.status, 'defaulted');
 assert.equal(defaulted.game.getTile(1).ownerId, defaulted.lender.id);
 assert.equal(defaulted.game.getTile(3).ownerId, defaulted.lender.id);
 
+// A full ledger of open claims cannot take a new one. The round processor must
+// then leave the due loan untouched (no seizure, no default flag, no claim) so a
+// later round retries it once a slot frees up, instead of defaulting the loan
+// with no recovery record.
+function fullLedger(game, lender, borrower) {
+  game.defaultClaims = Array.from({ length: 200 }, (_, index) => ({
+    id: `open_${index}`,
+    contractId: `contract-open_${index}`,
+    lenderId: lender.id,
+    borrowerId: borrower.id,
+    principal: 10,
+    remaining: 10,
+    reason: 'loan-default',
+    status: 'open',
+    createdRound: 0
+  }));
+  return game.defaultClaims.map(claim => ({ ...claim }));
+}
+
+const fullLedgerLoan = startedRoom();
+ownDeeds(fullLedgerLoan.game, fullLedgerLoan.borrower, [1, 3]);
+const fullLedgerOffer = offer(fullLedgerLoan.game, fullLedgerLoan.borrower, [1, 3], { amount: 300 });
+fullLedgerLoan.game.respondPlayerContract('socket-b', true, 'accept-full-ledger', fullLedgerOffer.contract.id);
+const fullLedgerContract = fullLedgerLoan.game.playerContractById(fullLedgerOffer.contract.id);
+const ledgerBefore = fullLedger(fullLedgerLoan.game, fullLedgerLoan.lender, fullLedgerLoan.borrower);
+fullLedgerLoan.game.roundNumber = fullLedgerContract.cureRound + 1;
+fullLedgerLoan.game.processPlayerContracts();
+fullLedgerLoan.game.processPlayerContracts();
+const contractBefore = JSON.stringify(fullLedgerContract);
+const cashBefore = [fullLedgerLoan.lender.cash, fullLedgerLoan.borrower.cash];
+fullLedgerLoan.game.processPlayerContracts();
+assert.equal(fullLedgerContract.status, 'due', 'a loan that cannot file its claim stays due');
+assert.equal(JSON.stringify(fullLedgerContract), contractBefore, 'the due contract is not modified by a failed default');
+assert.equal(fullLedgerLoan.game.getTile(1).ownerId, fullLedgerLoan.borrower.id, 'collateral is not seized without a claim');
+assert.equal(fullLedgerLoan.game.getTile(3).ownerId, fullLedgerLoan.borrower.id);
+assert.notEqual(fullLedgerLoan.borrower.collateralLost, true);
+assert.deepEqual([fullLedgerLoan.lender.cash, fullLedgerLoan.borrower.cash], cashBefore);
+assert.deepEqual(fullLedgerLoan.game.defaultClaims, ledgerBefore, 'the open claims are neither evicted nor changed');
+fullLedgerLoan.game.defaultClaims[0].status = 'settled';
+fullLedgerLoan.game.processPlayerContracts();
+assert.equal(fullLedgerContract.status, 'defaulted', 'the next round retries once a slot is free');
+assert.equal(fullLedgerLoan.game.getTile(1).ownerId, fullLedgerLoan.lender.id);
+assert.equal(fullLedgerLoan.game.defaultClaims.some(claim => claim.contractId === fullLedgerContract.id), true);
+
+const fullLedgerHybrid = startedRoom();
+ownDeeds(fullLedgerHybrid.game, fullLedgerHybrid.borrower, [1, 3]);
+const fullLedgerHybridOffer = legacyAcceptedContract(fullLedgerHybrid, {
+  toPlayerId: fullLedgerHybrid.borrower.id,
+  kind: 'hybrid',
+  amount: 100,
+  durationRounds: 1,
+  propertyIndex: 1,
+  conversionShare: 25,
+  collateralTileIndices: [1, 3]
+});
+const fullLedgerHybridContract = fullLedgerHybrid.game.playerContractById(fullLedgerHybridOffer.contract.id);
+fullLedgerHybrid.game.getTile(1).mortgaged = true; // the conversion target is gone: fall back to the default path
+const hybridLedgerBefore = fullLedger(fullLedgerHybrid.game, fullLedgerHybrid.lender, fullLedgerHybrid.borrower);
+fullLedgerHybrid.game.roundNumber = fullLedgerHybridContract.cureRound + 1;
+fullLedgerHybrid.game.processPlayerContracts();
+fullLedgerHybrid.game.processPlayerContracts();
+assert.equal(fullLedgerHybridContract.status, 'due', 'a hybrid whose fallback default cannot file a claim stays due');
+assert.equal(fullLedgerHybrid.game.getTile(1).ownerId, fullLedgerHybrid.borrower.id);
+assert.equal(fullLedgerHybrid.game.getTile(3).ownerId, fullLedgerHybrid.borrower.id);
+assert.equal(fullLedgerHybridContract.defaultReason, undefined);
+assert.deepEqual(fullLedgerHybrid.game.defaultClaims, hybridLedgerBefore);
+
 const bankruptHybrid = startedRoom();
 ownDeeds(bankruptHybrid.game, bankruptHybrid.borrower, [1, 3]);
-const hybridOffer = bankruptHybrid.game.proposePlayerContract('socket-a', {
+const hybridOffer = legacyAcceptedContract(bankruptHybrid, {
   toPlayerId: bankruptHybrid.borrower.id,
   kind: 'hybrid',
   amount: 100,
@@ -125,7 +214,6 @@ const hybridOffer = bankruptHybrid.game.proposePlayerContract('socket-a', {
   collateralTileIndices: [1, 3]
 });
 assert.equal(hybridOffer.success, true);
-assert.equal(bankruptHybrid.game.respondPlayerContract('socket-b', true, 'accept-bankrupt-hybrid', hybridOffer.contract.id).success, true);
 const hybridContract = bankruptHybrid.game.playerContractById(hybridOffer.contract.id);
 hybridContract.remaining = 70;
 bankruptHybrid.game.handleBankruptcy(bankruptHybrid.borrower, bankruptHybrid.lender);
@@ -143,9 +231,38 @@ assert.equal(bankruptHybrid.game.defaultClaims[0].principal, 70);
 assert.equal(bankruptHybrid.game.defaultClaims[0].remaining, 70);
 assert.equal(bankruptHybrid.game.defaultClaims[0].status, 'open');
 
+// Bankruptcy has no later round to retry, so a borrower leaving with a full
+// ledger still defaults the loan and the lender still seizes the collateral;
+// the lost recovery record is flagged and announced instead of silent.
+for (const kind of ['loan', 'hybrid']) {
+  const ctx = startedRoom();
+  ownDeeds(ctx.game, ctx.borrower, [1, 3]);
+  const proposal = legacyAcceptedContract(ctx, {
+    toPlayerId: ctx.borrower.id,
+    kind,
+    amount: 100,
+    durationRounds: 2,
+    collateralTileIndices: [1, 3],
+    ...(kind === 'hybrid' ? { propertyIndex: 1, conversionShare: 25 } : {})
+  });
+  assert.equal(proposal.success, true);
+  const contract = ctx.game.playerContractById(proposal.contract.id);
+  contract.remaining = 70;
+  const before = fullLedger(ctx.game, ctx.lender, ctx.borrower);
+  ctx.game.handleBankruptcy(ctx.borrower, ctx.lender);
+  assert.equal(contract.status, 'defaulted', kind + ' still defaults');
+  assert.equal(ctx.game.getTile(1).ownerId, ctx.lender.id, kind + ' collateral is still seized');
+  assert.equal(ctx.game.getTile(3).ownerId, ctx.lender.id);
+  assert.equal(contract.defaultedPrincipal, 70);
+  assert.equal(contract.unrecordedDefault, true, kind + ' flags the missing claim');
+  assert.deepEqual(ctx.game.defaultClaims, before, 'open claims are neither evicted nor changed');
+  assert.ok(ctx.game.feed.some(entry => entry.text === `${ctx.lender.nickname} could not record a recovery claim against ${ctx.borrower.nickname}: $70 written off.`), kind + ' announces the write-off');
+}
+assert.notEqual(bankruptHybrid.game.playerContractById(hybridOffer.contract.id).unrecordedDefault, true, 'a recorded claim is not flagged');
+
 const convertedHybrid = startedRoom();
 ownDeeds(convertedHybrid.game, convertedHybrid.borrower, [1, 3]);
-const convertedOffer = convertedHybrid.game.proposePlayerContract('socket-a', {
+const convertedOffer = legacyAcceptedContract(convertedHybrid, {
   toPlayerId: convertedHybrid.borrower.id,
   kind: 'hybrid',
   amount: 100,
@@ -155,7 +272,6 @@ const convertedOffer = convertedHybrid.game.proposePlayerContract('socket-a', {
   collateralTileIndices: [1, 3]
 });
 assert.equal(convertedOffer.success, true);
-assert.equal(convertedHybrid.game.respondPlayerContract('socket-b', true, 'accept-converted-hybrid', convertedOffer.contract.id).success, true);
 const convertedContract = convertedHybrid.game.playerContractById(convertedOffer.contract.id);
 convertedHybrid.game.roundNumber = convertedContract.cureRound + 1;
 convertedHybrid.game.processPlayerContracts();
@@ -171,7 +287,7 @@ assert.equal(convertedHybrid.game.defaultClaims.some(claim => claim.contractId =
 
 const legacyHybrid = startedRoom();
 ownDeeds(legacyHybrid.game, legacyHybrid.borrower, [1]);
-const legacyHybridOffer = legacyHybrid.game.proposePlayerContract('socket-a', {
+const legacyHybridOffer = legacyAcceptedContract(legacyHybrid, {
   toPlayerId: legacyHybrid.borrower.id,
   kind: 'hybrid',
   amount: 100,
@@ -181,7 +297,6 @@ const legacyHybridOffer = legacyHybrid.game.proposePlayerContract('socket-a', {
   collateralTileIndex: 1
 });
 assert.equal(legacyHybridOffer.success, true);
-assert.equal(legacyHybrid.game.respondPlayerContract('socket-b', true, 'accept-legacy-hybrid', legacyHybridOffer.contract.id).success, true);
 const legacyHybridContract = legacyHybrid.game.playerContractById(legacyHybridOffer.contract.id);
 delete legacyHybridContract.collateralTileIndices;
 legacyHybrid.game.handleBankruptcy(legacyHybrid.borrower, legacyHybrid.lender);
@@ -190,7 +305,7 @@ assert.deepEqual(legacyHybrid.game.defaultClaims[0].collateralTileIndices, [1]);
 
 const missingHybridLender = startedRoom();
 ownDeeds(missingHybridLender.game, missingHybridLender.borrower, [1, 3]);
-const missingLenderOffer = missingHybridLender.game.proposePlayerContract('socket-a', {
+const missingLenderOffer = legacyAcceptedContract(missingHybridLender, {
   toPlayerId: missingHybridLender.borrower.id,
   kind: 'hybrid',
   amount: 100,
@@ -200,7 +315,6 @@ const missingLenderOffer = missingHybridLender.game.proposePlayerContract('socke
   collateralTileIndices: [1, 3]
 });
 assert.equal(missingLenderOffer.success, true);
-assert.equal(missingHybridLender.game.respondPlayerContract('socket-b', true, 'accept-missing-lender', missingLenderOffer.contract.id).success, true);
 const missingLenderContract = missingHybridLender.game.playerContractById(missingLenderOffer.contract.id);
 missingLenderContract.fromPlayerId = 'missing-lender';
 missingHybridLender.game.handleBankruptcy(missingHybridLender.borrower, null);

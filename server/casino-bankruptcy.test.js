@@ -35,7 +35,7 @@ function withPocketRolls(pockets, fn) {
 
 function makeStartedRoom(casinoOn = true) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   if (casinoOn) room.setRoomSetting('casino', true);
   room.startGame();
@@ -44,7 +44,7 @@ function makeStartedRoom(casinoOn = true) {
 
 function trioRoom() {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
   room.startGame();
@@ -85,7 +85,7 @@ check('casino — rejects unknown socket and unstarted rooms as unavailable', ()
   const room = makeStartedRoom();
   assert.deepEqual(room.placeCasinoBet('socket-zz', 'red', 10, 'c1'), { success: false, error: 'Casino access is unavailable right now.' });
   const manager = new RoomManager();
-  const lobby = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  const lobby = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   lobby.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   lobby.setRoomSetting('casino', true);
   assert.deepEqual(lobby.placeCasinoBet('socket-a', 'red', 10, 'c1'), { success: false, error: 'Casino access is unavailable right now.' });
@@ -390,7 +390,7 @@ check('declareBankruptcy — guards, then voluntary retirement (behavior change)
   const room = makeStartedRoom(false);
   assert.deepEqual(room.declareBankruptcy('socket-zz'), { success: false, error: 'Player not found.' });
   const lobbyManager = new RoomManager();
-  const lobby = lobbyManager.createRoom({ socketId: 'socket-l', clientId: 'client-l', nickname: 'L' });
+  const lobby = lobbyManager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-l', clientId: 'client-l', nickname: 'L' });
   assert.deepEqual(lobby.declareBankruptcy('socket-l'), { success: false, error: 'The game has not started.' });
   // Debt is no longer required: a solvent player can walk away. This block
   // previously pinned "You have no outstanding debt to settle."; the
@@ -452,6 +452,23 @@ check('unsecured bank loan default files a bank claim instead of auto-eliminatin
   assert.equal(room.declareBankruptcy('socket-b').success, true);
   assert.equal(b.bankrupt, true);
   assert.equal(game.pendingPayment, null);
+});
+
+check('a defaulted bank loan whose claim is written off clears the balance on the departed seat', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
+  b.cash = 40;
+  b.bankLoan = { status: 'due', remaining: 300, dueRound: game.roundNumber, cureRound: game.roundNumber };
+  game.roundNumber += 1;
+  game.processBankLoans();
+  assert.equal(b.bankLoan.status, 'defaulted');
+  assert.ok(b.bankLoan.remaining > 0, 'the queued bank claim keeps a balance while the seat stays');
+  const owed = b.bankLoan.remaining;
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
+  assert.equal(b.bankLoan.status, 'defaulted');
+  assert.equal(b.bankLoan.remaining, 0, 'nothing collectable: the departed seat keeps no loan balance');
+  assert.ok(feedTexts(room).includes(`B's $${owed} bank loan balance was written off.`));
 });
 
 check('a solvent player repays an unsecured default in full without a claim', () => {
@@ -620,9 +637,11 @@ check('bankruptcy — partial, liquidation, sweep, and deed transfer reach the c
   assert.equal(b.marketPositions.ghost.realizedPnl, 0);
   assert.equal(b.bankrupt, true);
   assert.equal(b.bubbleSurvivor, false);
-  assert.equal(game.extraRollPending, false);
-  assert.equal(game.turnAllowsExtraRoll, false);
-  assert.equal(game.consecutiveDoubles, 0);
+  // The roller (A) is not the departing seat: its doubles streak and pending
+  // extra roll belong to A and must survive B's bankruptcy.
+  assert.equal(game.extraRollPending, true);
+  assert.equal(game.turnAllowsExtraRoll, true);
+  assert.equal(game.consecutiveDoubles, 2);
   assert.equal(game.pendingPayment, null);
   assert.equal(game.pendingPaymentTurnOptions, null);
   assert.deepEqual(a.properties, [1, 3]);
@@ -638,6 +657,23 @@ check('bankruptcy — partial, liquidation, sweep, and deed transfer reach the c
   assert.equal(game.currentPlayerId, a.id);
 });
 
+check('bankruptcy — the departing roller clears its own doubles streak and the turn advances', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
+  const c = game.getPlayerBySocket('socket-c');
+  game.currentPlayerId = b.id;
+  game.hasRolled = true;
+  game.extraRollPending = true;
+  game.turnAllowsExtraRoll = true;
+  game.consecutiveDoubles = 2;
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
+  assert.equal(game.extraRollPending, false);
+  assert.equal(game.turnAllowsExtraRoll, false);
+  assert.equal(game.consecutiveDoubles, 0);
+  assert.equal(game.currentPlayerId, c.id);
+});
+
 check('bankruptcy — liquidation floors the fee and ignores unquoted positions', () => {
   const room = trioRoom();
   const game = room.game;
@@ -646,11 +682,13 @@ check('bankruptcy — liquidation floors the fee and ignores unquoted positions'
   b.marketPositions = { brazil: { quantity: 1 }, retiredIndex: { quantity: 9, averageCost: 40, realizedPnl: 2 } };
   game.chargePlayer({ player: b, amount: 500, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
-  // 100 - ceil(2) = 98 into a debtless-but-bankrupt... creditor-less player:
-  // cash stays with the bankrupt player (no creditor to sweep).
-  assert.equal(b.cash, 98);
+  // 100 - ceil(2) = 98 of liquidation proceeds. With no creditor to sweep to,
+  // the proceeds forfeit to the bank (F-031): the seat is left with nothing
+  // and the forfeit is announced between the liquidation and the bankruptcy.
+  assert.equal(b.cash, 0);
   assert.equal(feedTexts(room)[0], "B is bankrupt and removed from the game.");
-  assert.equal(feedTexts(room)[1], "B's market positions were liquidated for $98.");
+  assert.equal(feedTexts(room)[1], "B forfeits $98 to the bank.");
+  assert.equal(feedTexts(room)[2], "B's market positions were liquidated for $98.");
   assert.equal(b.marketPositions.retiredIndex.quantity, 0);
   assert.equal(b.marketPositions.retiredIndex.averageCost, 0);
 });
@@ -671,6 +709,74 @@ check('bankruptcy — no creditor releases deeds (mortgage and houses cleared)',
   assert.equal(game.tiles[5].houseCount, 0);
   assert.deepEqual(b.properties, []);
   assert.equal(game.currentPlayerId, game.getPlayerBySocket('socket-a').id);
+});
+
+// A7-08 (owner decision: keep). A bankruptcy hands every deed over unbuilt and
+// unmortgaged, whichever way it goes: to a solvent creditor, to a bankrupt
+// creditor, or to no creditor at all. Houses return to the supply (the count
+// drops to zero) and nothing is paid for the wiped houses or the cleared
+// mortgage. A bank seizure is different and is pinned separately: it
+// liquidates houses at the half rate. Changing this needs a new owner decision.
+check('A7-08 pin: a solvent creditor takes a built, mortgaged deed unbuilt and unmortgaged, paying nothing for either', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  deed.mortgaged = true;
+  deed.houseCount = 3;
+  b.properties = [deed.index];
+  b.cash = 0;
+  game.chargePlayer({ player: b, creditor: a, amount: 500, message: 'debt', turnOptions: {} });
+  const creditorCash = a.cash;
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
+  assert.equal(deed.ownerId, a.id);
+  assert.equal(deed.houseCount, 0);
+  assert.equal(deed.mortgaged, false);
+  assert.equal(a.cash, creditorCash, 'the creditor is paid nothing for the houses or the mortgage');
+  assert.equal(feedTexts(room).some(text => text.includes('forfeits')), false);
+});
+
+check('A7-08 pin: a bankruptcy with no creditor returns built, mortgaged deeds to the market unbuilt and unmortgaged', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const c = game.getPlayerBySocket('socket-c');
+  const deed = game.getTile(5);
+  deed.ownerId = c.id;
+  deed.mortgaged = true;
+  deed.houseCount = 4;
+  c.properties = [deed.index];
+  c.cash = 0;
+  assert.deepEqual(room.declareBankruptcy('socket-c'), { success: true, voluntary: true });
+  assert.equal(deed.ownerId, null);
+  assert.equal(deed.houseCount, 0);
+  assert.equal(deed.mortgaged, false);
+  assert.deepEqual(c.properties, []);
+  assert.equal(c.cash, 0, 'no cash is paid for the wiped houses or the cleared mortgage');
+});
+
+check('A7-08 pin: a bankrupt creditor gets nothing, so the deed is released like a no-creditor bankruptcy', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
+  const c = game.getPlayerBySocket('socket-c');
+  const deed = game.getTile(1);
+  deed.ownerId = b.id;
+  deed.mortgaged = true;
+  deed.houseCount = 2;
+  b.properties = [deed.index];
+  b.cash = 0;
+  c.bankrupt = true;
+  game.chargePlayer({ player: b, creditor: c, amount: 500, message: 'debt', turnOptions: {} });
+  const creditorCash = c.cash;
+  assert.equal(room.declareBankruptcy('socket-b').success, true);
+  assert.equal(deed.ownerId, null);
+  assert.equal(deed.houseCount, 0);
+  assert.equal(deed.mortgaged, false);
+  assert.equal(c.cash, creditorCash);
+  assert.equal(a.bankrupt, false);
 });
 
 check('bankruptcy — releasing a deed also terminates its equity holders', () => {
@@ -802,7 +908,7 @@ check('bankruptcy — last player standing ends the game', () => {
 
 function lobby() {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   return room;
 }
@@ -825,9 +931,7 @@ check('setRoomSetting — locked after start and for unknown/inherited keys', ()
     reason: null,
     key: 'maxPlayers',
     value: 3,
-    preset: 'classic',
-    base: 'classic',
-    effectiveSettings: { ...fresh.settings }
+    effectiveSettings: { ...fresh.ruleset.effectiveSettings }
   });
 });
 
@@ -880,15 +984,12 @@ check('setRoomSetting — lowering capacity never strands human seats or excess 
   assert.equal(botRoom.settings.bots, 1);
 });
 
-check('setRoomSetting — integer bounds reject invalid values without mutation', () => {
-  for (const [key, valid] of [['houseLimit', 64], ['hotelLimit', 32]]) {
+check('setRoomSetting — retired building supply settings are unknown and leave no stored value', () => {
+  for (const key of ['houseLimit', 'hotelLimit']) {
     const room = lobby();
-    room.setRoomSetting(key, `${valid}.9`);
-    assert.equal(room.settings[key], valid, key);
-    assert.equal(room.setRoomSetting(key, '-5').rejected, true, key);
-    assert.equal(room.settings[key], valid, key);
-    assert.equal(room.setRoomSetting(key, 'abc').rejected, true, key);
-    assert.equal(room.settings[key], valid, key);
+    assert.equal(room.setRoomSetting(key, 64).rejected, true, key);
+    assert.equal(Object.hasOwn(room.settings, key), false, key);
+    assert.equal(Object.hasOwn(room.game.settings, key), false, key);
   }
   const room = lobby();
   assert.equal(room.setRoomSetting('turnTimer', 100).rejected, true);
@@ -996,7 +1097,10 @@ check('bankruptcy — legacy debt mode still clears the debtor gate and liquidat
   assert.equal(room.declareBankruptcy('socket-a').success, true);
   assert.equal(player.inDebt, false);
   assert.equal(player.bankrupt, true);
-  assert.equal(player.cash, 196);
+  // No creditor: the 196 of liquidation proceeds forfeit to the bank (F-031),
+  // so the departed seat no longer strands them.
+  assert.equal(player.cash, 0);
+  assert.ok(feedTexts(room).includes('A forfeits $196 to the bank.'));
   assert.equal(player.marketPositions.brazil.quantity, 0);
   assert.equal(player.marketPositions.brazil.realizedPnl, -44);
   assert.equal(game.pendingPayment, null);
@@ -1078,8 +1182,14 @@ check('round debt processing queues independent unsecured defaults', () => {
   assert.equal(game.pendingPaymentQueue.length, 0);
 });
 
-check('leaving a queued debtor removes its orphaned payment claim', () => {
-  const room = trioRoom();
+check('leaving a queued debtor settles its claim instead of orphaning it', () => {
+  // Exit settlement (F-018): the queued claim is settled through the seat's
+  // exit, so it leaves the queue with the estate instead of being deleted.
+  const manager = new RoomManager();
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
+  room.startGame();
   const game = room.game;
   game.roundNumber = 10;
   game.players.forEach(player => {
@@ -1089,7 +1199,8 @@ check('leaving a queued debtor removes its orphaned payment claim', () => {
   game.processBankLoans();
   const queued = game.pendingPaymentQueue.map(entry => entry.payment.playerId);
   const leavingId = queued[0];
-  game.removeQueuedPaymentsForPlayer(leavingId);
+  const leaving = game.getPlayerById(leavingId);
+  manager.leaveRoomByClient(leaving.clientId, leaving.socketId);
   assert.equal(game.pendingPaymentQueue.some(entry => entry.payment.playerId === leavingId), false);
 });
 

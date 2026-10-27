@@ -7,6 +7,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'matches.json');
 const MAX_MATCHES = 500;
+// Telemetry reads the in-memory record at settlement; only a short tail of the
+// bot-decision trace needs to survive on disk (it was ~93% of a bot match record).
+export const MAX_PERSISTED_BOT_DECISIONS = 40;
 
 function safeArray(value, limit) {
   return Array.isArray(value) ? value.slice(0, limit) : [];
@@ -142,6 +145,14 @@ function sanitizeContractEntry(contract) {
   };
 }
 
+// Worth values are non-negative whole numbers or null for a seat that had left; rows stay in round order.
+function sanitizeNetWorthTimeline(rows) {
+  return safeArray(rows, 40).map(row => ({
+    round: Math.floor(nonNegativeNumber(row?.round)),
+    worth: safeArray(row?.worth, 8).map(value => (value === null || value === undefined ? null : Math.floor(nonNegativeNumber(value)))),
+  }));
+}
+
 function sanitizeMatch(record = {}) {
   const match = {
     matchId: clipString(record.matchId, 80),
@@ -169,21 +180,20 @@ function sanitizeMatch(record = {}) {
   if (Object.prototype.hasOwnProperty.call(record, 'playerCount')) {
     match.playerCount = nonNegativeNumber(record.playerCount);
   }
+  if (Object.prototype.hasOwnProperty.call(record, 'netWorthTimeline')) match.netWorthTimeline = sanitizeNetWorthTimeline(record.netWorthTimeline);
   if (Object.prototype.hasOwnProperty.call(record, 'botOnly')) match.botOnly = record.botOnly === true;
   if (Object.prototype.hasOwnProperty.call(record, 'afkOnly')) match.afkOnly = record.afkOnly === true;
   // Versioned ruleset metadata lets history and rewards distinguish a
-  // Standard Classic match from a Metro or After Hours match without leaking
-  // private terms. Older records simply omit these optional fields.
+  // Standard match from a Metro match without leaking private terms. Older
+  // records simply omit these optional fields.
   if (Object.prototype.hasOwnProperty.call(record, 'seasonId')) match.seasonId = stringOr(record.seasonId, '');
-  if (Object.prototype.hasOwnProperty.call(record, 'rulesetPreset')) match.rulesetPreset = stringOr(record.rulesetPreset, 'classic');
-  if (Object.prototype.hasOwnProperty.call(record, 'rulesetBase')) match.rulesetBase = stringOr(record.rulesetBase, 'classic');
   if (Object.prototype.hasOwnProperty.call(record, 'boardVariant')) match.boardVariant = stringOr(record.boardVariant, 'standard-40');
   if (Object.prototype.hasOwnProperty.call(record, 'rulesetRevision')) match.rulesetRevision = nonNegativeNumber(record.rulesetRevision);
   if (Object.prototype.hasOwnProperty.call(record, 'balanceRevision')) match.balanceRevision = nonNegativeNumber(record.balanceRevision);
   if (Object.prototype.hasOwnProperty.call(record, 'rulesetDigest')) match.rulesetDigest = clipString(record.rulesetDigest, 200);
   if (Object.prototype.hasOwnProperty.call(record, 'rulesetOverrides')) match.rulesetOverrides = safeArray(record.rulesetOverrides, 32).map(entry => ({ key: clipString(entry?.key, 60), value: primitiveValue(entry?.value) }));
   if (Object.prototype.hasOwnProperty.call(record, 'botDecisions')) {
-    match.botDecisions = safeArray(record.botDecisions, 200).map(sanitizeBotDecision);
+    match.botDecisions = (Array.isArray(record.botDecisions) ? record.botDecisions.slice(-MAX_PERSISTED_BOT_DECISIONS) : []).map(sanitizeBotDecision);
   }
   return match;
 }
@@ -212,7 +222,7 @@ export class MatchStore {
 
   persist() {
     const records = [...this.matches.values()]
-      .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))
+      .sort((a, b) => String(b.completedAt ?? '').localeCompare(String(a.completedAt ?? '')))
       .slice(0, MAX_MATCHES);
     writeJson(this.filePath, records);
     // Keep the in-memory index bounded as well as the serialized file. A
@@ -226,26 +236,64 @@ export class MatchStore {
     if (!match.matchId) return { created: false, match: null };
     const existing = this.matches.get(match.matchId);
     if (existing) return { created: false, match: existing };
+    const before = new Map(this.matches);
     this.matches.set(match.matchId, match);
-    this.persist();
-    return { created: true, match };
+    this.persistOrRollback(before);
+    // The newest 500 are kept, so a match older than all of them is dropped by persist.
+    const kept = this.matches.get(match.matchId) || null;
+    return { created: Boolean(kept), match: kept };
+  }
+
+  // A persist that throws must not leave the change in memory: a retry would
+  // see nothing to do and the disk would never catch up.
+  persistOrRollback(before) {
+    try {
+      this.persist();
+    } catch (error) {
+      this.matches = before;
+      throw error;
+    }
   }
 
   get(matchId) {
     return this.matches.get(matchId) || null;
   }
 
+  // A restorable copy of the store, so a purge that fails in a later store can
+  // put the erased matches back (F4). The records themselves are replaced, not
+  // mutated, by the erasure, so a shallow copy is enough. Matches recorded
+  // while the purge runs are kept, so the rollback never drops a result.
+  snapshot() {
+    return new Map(this.matches);
+  }
+
+  restoreSnapshot(snapshot) {
+    if (!snapshot) return false;
+    const before = new Map(this.matches);
+    const restored = new Map(this.matches);
+    snapshot.forEach((record, matchId) => restored.set(matchId, record));
+    this.matches = restored;
+    try {
+      this.persist();
+    } catch (error) {
+      this.matches = before;
+      throw error;
+    }
+    return true;
+  }
+
   listForAccount(accountId, limit = 50) {
     if (!accountId) return [];
     return [...this.matches.values()]
       .filter((match) => Array.isArray(match.participants) && match.participants.some((participant) => participant.accountId === accountId))
-      .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))
+      .sort((a, b) => String(b.completedAt ?? '').localeCompare(String(a.completedAt ?? '')))
       .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   }
 
   anonymizeAccount(accountId) {
     if (typeof accountId !== 'string' || !accountId) return 0;
     let changed = 0;
+    const before = new Map(this.matches);
     this.matches.forEach((match) => {
       if (!Array.isArray(match.participants)) return;
       let touched = false;
@@ -274,7 +322,7 @@ export class MatchStore {
       this.matches.set(match.matchId, scrubbed);
       changed += 1;
     });
-    if (changed) this.persist();
+    if (changed) this.persistOrRollback(before);
     return changed;
   }
 

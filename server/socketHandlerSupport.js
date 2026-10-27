@@ -124,8 +124,10 @@ function announceVerbResult(io, room, result, definition) {
 function createSafeEmitter(socket, options = {}) {
   return function on(event, handler) {
     socket.on(event, (rawPayload, rawCallback) => {
-      const payload = normalizeWirePayload(rawPayload);
-      const callback = normalizeWireCallback(rawCallback);
+      // socket.emit(event, callback) has no payload, so the ack arrives first.
+      const noPayload = typeof rawPayload === 'function';
+      const payload = normalizeWirePayload(noPayload ? undefined : rawPayload);
+      const callback = normalizeWireCallback(noPayload ? rawPayload : rawCallback);
       if (typeof options.allow === 'function' && !options.allow(socket.id)) {
         callback({ success: false, error: 'Too many requests. Try again shortly.' });
         return;

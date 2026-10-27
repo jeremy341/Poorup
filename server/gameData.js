@@ -17,10 +17,18 @@ const PROPERTY_HOUSE_COST_BY_GROUP = {
   'Metro Silver': 200
 };
 const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
-const RAILROAD_RENT = [25, 50, 100, 200];
+// Indexed by airports owned (1..n). Standard-40 has four airports; Metro-52 has
+// six, so the ladder continues the doubling to 300 and 400.
+const RAILROAD_RENT = [25, 50, 100, 200, 300, 400];
+// Utility rent is this multiple of the dice total, indexed by utilities owned.
+// Metro-52 has four utilities; standard-40 has two.
+const UTILITY_DICE_MULTIPLIERS = [4, 10, 14, 18];
 const JAIL_FINE = 50;
 const JAIL_MAX_TURNS = 3;
 const START_TILE_INDEX = 0;
+// A table still running after this many rounds ends with the richest solvent
+// seat as the winner (F-081). Warnings are fed at ROUND_LIMIT - 50 and - 10.
+const ROUND_LIMIT = 300;
 
 const DEFAULT_TILES = [
   { index: 0, name: 'Start', type: 'start' },
@@ -116,7 +124,7 @@ function shuffleArray(array) {
 }
 
 function cloneTiles() {
-  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0, equityShares: [] }));
+  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0, equityShares: [], purchasePricePaid: null }));
 }
 
 export {
@@ -125,10 +133,12 @@ export {
   JAIL_MAX_TURNS,
   PROPERTY_HOUSE_COST_BY_GROUP,
   PROPERTY_RENT_MULTIPLIERS,
+  ROUND_LIMIT,
   RAILROAD_RENT,
   START_TILE_INDEX,
   SURPRISE_DECK,
   TREASURE_DECK,
+  UTILITY_DICE_MULTIPLIERS,
   cloneTiles,
   rollDice,
   shuffleArray

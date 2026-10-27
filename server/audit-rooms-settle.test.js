@@ -285,6 +285,20 @@ check('FIX4 reconnect accepts valid grid', () => {
   assert.deepEqual(room.game.getPlayerByClient('client-b').avatarGrid, custom);
 });
 
+check('S08-03 a face with no color cannot duplicate another seat icon', () => {
+  const ctx = startedWith([SEAT_B]);
+  const a = ctx.game.getPlayerBySocket('socket-a');
+  const b = ctx.game.getPlayerBySocket('socket-b');
+  a.color = '#286ea1';
+  b.color = '#286ea1';
+  a.avatarGrid = validGrid('#ffffff');
+  b.avatarGrid = validGrid('#000000');
+  assert.deepEqual(ctx.game.setPlayerAppearance('socket-a', { avatarGrid: validGrid('#000000') }), { success: false, error: TAKEN_ERROR });
+  assert.deepEqual(a.avatarGrid, validGrid('#ffffff'), 'a rejected look changes nothing');
+  assert.equal(ctx.game.setPlayerAppearance('socket-a', { avatarGrid: validGrid('#123456') }).success, true);
+  assert.equal(ctx.game.setPlayerAppearance('socket-a', { nickname: 'Renamed' }).success, true, 'a request that does not touch the look is not checked');
+});
+
 const failed = results.filter(r => !r).length;
 console.log(`\naudit-rooms-settle tests: ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

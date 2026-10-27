@@ -11,46 +11,42 @@ import { RoomManager } from './gameLogic.js';
 import {
   DEFAULT_ROOM_SETTINGS,
   GLOBAL_EVENT_ON_VALUES,
-  ROOM_HOTEL_LIMITS,
-  ROOM_HOUSE_LIMITS
 } from './roomSettings.js';
 import {
   HISTORICAL_OVERRIDE_KEYS,
   KNOWN_OVERRIDE_KEYS,
+  ADD_ON_DEFAULTS,
   OPTIONAL_SYSTEM_KEYS,
-  PRESET_DEFAULTS,
+  createRulesetDigest,
   normalizeOverrides,
   resolveRuleset
 } from './rulesetRegistry.js';
 
 let roomSeq = 0;
 
-// A room created with no ruleset input stays on the legacy path, so
-// setRoomSetting is exercised as the pure setter door.
+// Optional-rule validation uses an explicitly Advanced table.
 function newRoom(options = {}) {
   roomSeq += 1;
   const socketId = `b35-socket-${roomSeq}`;
-  return new RoomManager().createRoom({ socketId, clientId: socketId, nickname: `Host ${roomSeq}`, ...options });
+  return new RoomManager().createRoom({ rulesProfile: 'advanced', socketId, clientId: socketId, nickname: `Host ${roomSeq}`, ...options });
 }
 
-function legacyRoomWithOptionalSystems() {
+function advancedRoomWithOptionalSystems() {
   const room = newRoom();
   room.addOrReconnectPlayer({ socketId: `${roomSeq}-guest`, clientId: `${roomSeq}-guest`, nickname: 'Guest' });
-  room.settings.bankLoans = true;
-  room.settings.casino = true;
-  room.settings.market = true;
-  room.settings.globalEvents = true;
+  room.setRoomSetting('bankLoans', true);
+  room.setRoomSetting('casino', true);
+  room.setRoomSetting('market', true);
+  room.setRoomSetting('globalEvents', true);
   return room;
 }
 
 // The creation door: a Custom ruleset whose override list carries one value.
 function creationDoor(key, value, overrides = [{ key, value }]) {
   const resolved = resolveRuleset({
-    rulesetPreset: 'custom',
-    rulesetBase: 'classic',
     boardVariant: 'standard-40',
     rulesetOverrides: overrides,
-    settings: DEFAULT_ROOM_SETTINGS
+    settings: { ...DEFAULT_ROOM_SETTINGS, rulesProfile: 'advanced', playerFinance: true }
   });
   return {
     accepted: resolved.rulesetOverrides.some(entry => entry.key === key),
@@ -93,48 +89,39 @@ function assertDoorsAgree(key, value) {
   return { creation, setter };
 }
 
-const BUILDING_LIMIT_VALUES = key => [
-  ...(key === 'houseLimit' ? ROOM_HOUSE_LIMITS : ROOM_HOTEL_LIMITS),
-  'unlimited',
-  'UNLIMITED',
-  0,
-  1,
-  7,
-  31,
-  33,
-  64.9,
-  -5,
-  101,
-  'abc',
-  null
-];
-
-test('B-35 house/hotel limits agree across creation and the setter', () => {
+test('house/hotel supply limits cannot be set or enabled through ruleset creation', () => {
   for (const key of ['houseLimit', 'hotelLimit']) {
-    for (const value of BUILDING_LIMIT_VALUES(key)) assertDoorsAgree(key, value);
-  }
-});
-
-test('B-35 off-ladder building limits are rejected by both doors', () => {
-  // houseLimit 0 and hotelLimit 1 used to be registry-legal (a 0..100 range
-  // test) while the setter refused them; 0 houses strips essentially all rent.
-  for (const [key, value] of [['houseLimit', 0], ['houseLimit', 7], ['hotelLimit', 0], ['hotelLimit', 1]]) {
-    const { creation, setter } = assertDoorsAgree(key, value);
-    assert.equal(creation.accepted, false, `${key}=${value} must not be a creation override`);
-    assert.equal(creation.value, DEFAULT_ROOM_SETTINGS[key], `${key}=${value} must not reach the effective map`);
-    assert.equal(setter.rejected, true, `${key}=${value} must be rejected by the setter`);
-    assert.deepEqual(normalizeOverrides([{ key, value }]), {}, `${key}=${value} must be dropped by normalizeOverrides`);
-  }
-});
-
-test('B-35 the curated ladders are shared, not re-derived', () => {
-  for (const [key, ladder] of [['houseLimit', ROOM_HOUSE_LIMITS], ['hotelLimit', ROOM_HOTEL_LIMITS]]) {
-    for (const value of ladder) {
-      assert.deepEqual(normalizeOverrides([{ key, value }]), { [key]: value }, `${key}=${value} stays legal`);
+    assert.equal(Object.hasOwn(DEFAULT_ROOM_SETTINGS, key), false);
+    assert.equal(KNOWN_OVERRIDE_KEYS.has(key), false);
+    assert.equal(HISTORICAL_OVERRIDE_KEYS.has(key), false);
+    for (const value of [0, 32, 64, 'unlimited', null]) {
+      const setter = setterDoor(key, value);
+      const creation = creationDoor(key, value);
+      assert.equal(setter.rejected, true, `${key} setter must reject ${describeValue(value)}`);
+      assert.equal(creation.accepted, false, `${key} creation must discard ${describeValue(value)}`);
+      assert.deepEqual(normalizeOverrides([{ key, value }]), {}, `${key} override list is discarded`);
+      assert.deepEqual(normalizeOverrides({ [key]: value }), {}, `${key} override map is discarded`);
     }
   }
-  assert.deepEqual(normalizeOverrides([{ key: 'houseLimit', value: 'unlimited' }]), { houseLimit: 'unlimited' });
-  assert.deepEqual(normalizeOverrides([{ key: 'hotelLimit', value: 'unlimited' }]), { hotelLimit: 'unlimited' });
+});
+
+test('legacy raw supply-limit settings are stripped from ruleset projections and canonical digests', () => {
+  const legacy = resolveRuleset({
+    boardVariant: 'standard-40',
+    rulesetOverrides: [{ key: 'houseLimit', value: 64 }, { key: 'hotelLimit', value: 'unlimited' }],
+    settings: { ...DEFAULT_ROOM_SETTINGS, houseLimit: 64, hotelLimit: 'unlimited', casino: true }
+  });
+  assert.equal(Object.hasOwn(legacy.effectiveSettings, 'houseLimit'), false);
+  assert.equal(Object.hasOwn(legacy.effectiveSettings, 'hotelLimit'), false);
+  assert.equal(Object.hasOwn(legacy.effectiveSettings, 'casino'), true);
+  assert.deepEqual(legacy.rulesetOverrides, []);
+
+  const clean = resolveRuleset({ settings: { ...DEFAULT_ROOM_SETTINGS, casino: true } });
+  assert.equal(createRulesetDigest({ ...legacy, rulesetOverrides: [], effectiveSettings: legacy.effectiveSettings }), clean.digest);
+  assert.equal(createRulesetDigest({
+    rulesetOverrides: [{ key: 'houseLimit', value: 64 }, { key: 'hotelLimit', value: 'unlimited' }],
+    settings: { ...DEFAULT_ROOM_SETTINGS, casino: true, houseLimit: 64, hotelLimit: 'unlimited' }
+  }), clean.digest);
 });
 
 test('B-35 globalEvents resolves identically through both doors', () => {
@@ -163,8 +150,6 @@ test('B-35 every other shared key agrees across creation and the setter', () => 
 
 test('B-35 accepted values still work through both doors (no over-tightening)', () => {
   const accepted = {
-    houseLimit: [...ROOM_HOUSE_LIMITS, 'unlimited'],
-    hotelLimit: [...ROOM_HOTEL_LIMITS, 'unlimited'],
     globalEvents: [...GLOBAL_EVENT_ON_VALUES],
     startingCash: [0, 1500, 1_000_000],
     bots: [0, 1, 2, 3]
@@ -199,20 +184,18 @@ test('B-35 maxPlayers is not a creation override and its dead range config is go
   assert.equal(creationDoor('maxPlayers', 6).value, 4);
 });
 
-test('B-36b every preset-owned key is carry-forwardable', () => {
+test('B-36b every add-on key is carry-forwardable', () => {
   // OPTIONAL_SYSTEM_KEYS drives the legacy -> ruleset carry-forward. It is
-  // derived from PRESET_DEFAULTS so a new preset key cannot silently be
+  // derived from ADD_ON_DEFAULTS so a new add-on key cannot silently be
   // reverted by the first meta write.
-  for (const [preset, defaults] of Object.entries(PRESET_DEFAULTS)) {
-    for (const key of Object.keys(defaults)) {
-      assert.equal(OPTIONAL_SYSTEM_KEYS.includes(key), true, `${preset} preset key ${key} must be carry-forwardable`);
-    }
+  for (const key of Object.keys(ADD_ON_DEFAULTS)) {
+    assert.equal(OPTIONAL_SYSTEM_KEYS.includes(key), true, `add-on key ${key} must be carry-forwardable`);
   }
 });
 
-test("B-36b a legacy room's first marketComplexity write sticks", () => {
-  const room = legacyRoomWithOptionalSystems();
-  assert.equal(room.rulesetExplicit, false, 'fixture starts on the legacy path');
+test("B-36b an Advanced room's first marketComplexity write sticks", () => {
+  const room = advancedRoomWithOptionalSystems();
+  assert.equal(room.rulesetExplicit, true, 'fixture uses explicit Advanced rules');
   assert.equal(room.settings.marketComplexity, 'basic');
 
   const result = room.setRoomSetting('marketComplexity', 'margin');
@@ -220,8 +203,8 @@ test("B-36b a legacy room's first marketComplexity write sticks", () => {
   assert.equal(result.reason, null);
   assert.equal(result.changed, true, 'the write must not be a silent no-op');
   assert.equal(result.value, 'margin', 'the reported value is the stored value');
-  assert.equal(room.settings.marketComplexity, 'margin', 'the room must not revert to the preset default');
-  assert.equal(room.game.settings.marketComplexity, 'margin', 'the game must not revert to the preset default');
+  assert.equal(room.settings.marketComplexity, 'margin', 'the room must not revert to the add-on default');
+  assert.equal(room.game.settings.marketComplexity, 'margin', 'the game must not revert to the add-on default');
   assert.equal(result.effectiveSettings.marketComplexity, 'margin');
   assert.equal(room.ruleset.effectiveSettings.marketComplexity, 'margin');
   assert.equal(
@@ -229,7 +212,7 @@ test("B-36b a legacy room's first marketComplexity write sticks", () => {
     true,
     'the override is recorded on the transition write'
   );
-  // The same transition must still carry the legacy toggles forward.
+  // The same write must preserve every explicit optional toggle.
   assert.equal(room.game.settings.bankLoans, true);
   assert.equal(room.game.settings.casino, true);
   assert.equal(room.game.settings.market, true);
@@ -237,11 +220,11 @@ test("B-36b a legacy room's first marketComplexity write sticks", () => {
 });
 
 test('B-36b marketComplexity survives refreshRuleset and later writes', () => {
-  const room = legacyRoomWithOptionalSystems();
+  const room = advancedRoomWithOptionalSystems();
   room.setRoomSetting('marketComplexity', 'shorting');
 
   room.refreshRuleset();
-  assert.equal(room.settings.marketComplexity, 'shorting', 'refreshRuleset must not re-apply PRESET_DEFAULTS');
+  assert.equal(room.settings.marketComplexity, 'shorting', 'refreshRuleset must not re-apply ADD_ON_DEFAULTS');
   assert.equal(room.ruleset.effectiveSettings.marketComplexity, 'shorting');
 
   room.setRoomSetting('boardVariant', 'metro-52');
@@ -249,8 +232,6 @@ test('B-36b marketComplexity survives refreshRuleset and later writes', () => {
   assert.equal(room.game.settings.marketComplexity, 'shorting');
 
   const resolved = resolveRuleset({
-    rulesetPreset: 'classic',
-    rulesetBase: 'classic',
     boardVariant: 'metro-52',
     rulesetOverrides: room.settings.rulesetOverrides,
     settings: room.settings
@@ -261,36 +242,24 @@ test('B-36b marketComplexity survives refreshRuleset and later writes', () => {
   assert.equal(room.game.settings.marketComplexity, 'shorting');
 });
 
-test("B-36b a legacy room's optional systems survive the first ruleset meta write (T9)", () => {
-  const room = legacyRoomWithOptionalSystems();
+test("B-36b an Advanced room's optional systems survive the first ruleset meta write (T9)", () => {
+  const room = advancedRoomWithOptionalSystems();
   const result = room.setRoomSetting('boardVariant', 'standard-40');
   assert.equal(result.rejected, false);
-  assert.equal(room.game.settings.bankLoans, true, 'legacy bankLoans toggle must be carried into overrides');
+  assert.equal(room.game.settings.bankLoans, true, 'explicit bankLoans override must survive metadata writes');
   assert.equal(room.game.settings.casino, true);
   assert.equal(room.game.settings.market, true);
   assert.equal(room.ruleset.effectiveSettings.globalEvents, true,
-    'the ruleset flow must honor captured legacy overrides, not silently strip them');
+    'the ruleset flow must preserve the explicit optional overrides');
 });
 
-test('B-36a is unchanged: a named preset still owns its base and clears overrides', () => {
-  // Pinned by rulesetRegistry.test.js too; asserted here so a future fix to
-  // B-36a has to be deliberate.
-  const custom = newRoom({ rulesetPreset: 'custom', rulesetBase: 'after-hours' });
-  custom.setRoomSetting('casino', false);
-  assert.deepEqual(custom.settings.rulesetOverrides, [{ key: 'casino', value: false }]);
-
-  const toClassic = custom.setRoomSetting('rulesetPreset', 'classic');
-  assert.equal(toClassic.changed, true);
-  assert.equal(toClassic.rejected, false);
-  assert.equal(toClassic.preset, 'classic');
-  assert.equal(toClassic.base, 'classic');
-  assert.deepEqual(custom.settings.rulesetOverrides, [], 'a named preset clears Custom-era overrides');
-  assert.equal(toClassic.effectiveSettings.casino, false);
-  assert.equal(toClassic.effectiveSettings.bankLoans, false);
-
-  const afterHours = custom.setRoomSetting('rulesetPreset', 'after-hours');
-  assert.equal(afterHours.preset, 'after-hours');
-  assert.deepEqual(custom.settings.rulesetOverrides, []);
-  assert.equal(afterHours.effectiveSettings.bankLoans, true);
-  assert.equal(afterHours.effectiveSettings.globalEvents, true);
+test('B-36a: add-on overrides accumulate and a later toggle keeps the earlier ones', () => {
+  // Presets used to clear overrides on a switch. With no presets, every
+  // add-on choice stays on the table until the host changes it.
+  const room = newRoom({ rulesetOverrides: [{ key: 'bankLoans', value: true }] });
+  room.setRoomSetting('casino', false);
+  assert.deepEqual(room.settings.rulesetOverrides, [{ key: 'bankLoans', value: true }, { key: 'casino', value: false }]);
+  assert.equal(room.ruleset.effectiveSettings.bankLoans, true);
+  assert.equal(room.ruleset.effectiveSettings.casino, false);
+  assert.equal(room.ruleset.effectiveSettings.market, false);
 });

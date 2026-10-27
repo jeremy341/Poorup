@@ -53,7 +53,7 @@ function relayRoom(hostSocketId, guestSocketId, hostClientId, guestClientId) {
   const manager = new RoomManager();
   const host = fakeSocket(hostSocketId);
   const guest = fakeSocket(guestSocketId);
-  const room = manager.createRoom({ socketId: hostSocketId, clientId: hostClientId, nickname: 'Host', visibility: 'private', roomCode: hostClientId.toUpperCase() });
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: hostSocketId, clientId: hostClientId, nickname: 'Host', visibility: 'private', roomCode: hostClientId.toUpperCase() });
   room.addOrReconnectPlayer({ socketId: guestSocketId, clientId: guestClientId, nickname: 'Guest' });
   assert.equal(room.startGame().success, true);
   room.game.currentPlayerId = room.game.players[0].id;
@@ -86,6 +86,28 @@ const borrowerResponse = invoke(first.guestHandlers.get('respond-player-contract
 });
 assert.equal(borrowerResponse.success, true);
 assert.deepEqual(first.delivered.filter(entry => entry.event === 'player-contract-update').map(entry => entry.target), [lender.socketId]);
+
+// A pre-v2 pending loan can be rebuilt over the actual socket handler. Its
+// author cannot accept the newly negotiated terms; the other seat receives
+// and approves the fresh offer before any cash moves.
+const legacyRelay = relayRoom('legacy-a', 'legacy-b', 'legacy-a-client', 'legacy-b-client');
+const [legacyLender, legacyBorrower] = legacyRelay.room.game.players;
+legacyRelay.room.game.pendingPlayerContract = {
+  id: 'old-loan', kind: 'loan', status: 'pending', fromPlayerId: legacyLender.id,
+  toPlayerId: legacyBorrower.id, amount: 50, premiumRate: 10, durationRounds: 3,
+  collateralTileIndex: null, counterDepth: 0
+};
+const originalBalances = [legacyLender.cash, legacyBorrower.cash];
+assert.equal(invoke(legacyRelay.guestHandlers.get('respond-player-contract'), { accept: true, contractId: 'old-loan' }).success, false);
+const rebuilt = invoke(legacyRelay.guestHandlers.get('counter-player-contract'), { contractId: 'old-loan', amount: 65 });
+assert.equal(rebuilt.success, true);
+assert.equal(rebuilt.contract.rulesVersion, 2);
+assert.notEqual(rebuilt.contract.id, 'old-loan');
+assert.deepEqual([legacyLender.cash, legacyBorrower.cash], originalBalances);
+assert.deepEqual(legacyRelay.delivered.filter(entry => entry.event === 'player-contract-offer').map(entry => [entry.target, entry.payload.contract.id]), [[legacyLender.socketId, rebuilt.contract.id]]);
+assert.equal(invoke(legacyRelay.guestHandlers.get('respond-player-contract'), { accept: true, contractId: rebuilt.contract.id }).success, false);
+assert.equal(invoke(legacyRelay.hostHandlers.get('respond-player-contract'), { accept: true, contractId: rebuilt.contract.id }).success, true);
+assert.deepEqual([legacyLender.cash, legacyBorrower.cash], [originalBalances[0] - 65, originalBalances[1] + 65]);
 
 const second = relayRoom('relay-c', 'relay-d', 'relay-c-client', 'relay-d-client');
 const [, secondBorrower] = second.room.game.players;
@@ -168,4 +190,46 @@ assert.equal(invoke(declinedAuction.hostHandlers.get('decline-property'), { tile
 assert.ok(declinedAuction.room.game.feed.some(entry => entry.text === `Auction started for ${declinedTile.name}. Players may place bids.`));
 assert.equal(declinedAuction.delivered.filter(entry => entry.event === 'system-message').length, 0, 'declining into auction uses the detailed feed instead of result.message');
 console.log('PASS declinedAuctionStartUsesFeedOnly');
-console.log('server socket game relay and activity deduplication: 7 scenarios passed, 0 failed');
+// S09-1: the author of the latest offer may withdraw it. After a counter that is
+// the borrower, who is not the contract's stable `fromPlayerId`.
+const counterCancel = relayRoom('relay-ccancel-a', 'relay-ccancel-b', 'relay-ccancel-a-client', 'relay-ccancel-b-client');
+const [counterLender, counterBorrower] = counterCancel.room.game.players;
+const counterOffer = invoke(counterCancel.hostHandlers.get('propose-player-contract'), {
+  toPlayerId: counterBorrower.id, kind: 'loan', amount: 50, requestId: 'ccancel-propose'
+});
+assert.equal(counterOffer.success, true);
+const counterCountered = invoke(counterCancel.guestHandlers.get('counter-player-contract'), {
+  contractId: counterOffer.contract.id, amount: 60, requestId: 'ccancel-counter'
+});
+assert.equal(counterCountered.success, true);
+assert.deepEqual(
+  invoke(counterCancel.hostHandlers.get('cancel-player-contract'), { contractId: counterCountered.contract.id }),
+  { success: false, error: 'No pending contract to cancel.' },
+  'the responder to a counter answers it instead of cancelling the borrower\'s offer'
+);
+assert.ok(counterCancel.room.game.pendingPlayerContract, 'the refused cancel leaves the offer open');
+const borrowerCancel = invoke(counterCancel.guestHandlers.get('cancel-player-contract'), { contractId: counterCountered.contract.id });
+assert.equal(borrowerCancel.success, true, 'the author of the counter can withdraw it');
+assert.equal(counterCancel.room.game.pendingPlayerContract, null);
+assert.deepEqual(counterCancel.delivered.filter(entry => entry.event === 'player-contract-update').map(entry => entry.target), [counterLender.socketId],
+  'the lender, who was awaiting the counter, gets the clearing update');
+console.log('PASS counterProposerCanCancelOwnOffer');
+
+// S06-08: a flight that lands on an unaffordable airport opens an auction, and
+// the handler must arm its finish like every other auction-opening verb.
+const flightAuction = relayRoom('relay-fly-a', 'relay-fly-b', 'relay-fly-a-client', 'relay-fly-b-client');
+flightAuction.room.flyToAirport = () => ({ success: true, auctionStarted: true, fare: 0, basis: 'test' });
+assert.equal(invoke(flightAuction.hostHandlers.get('fly-to-airport'), { tileIndex: 5 }).success, true);
+assert.equal(flightAuction.getScheduledAuctions(), 1, 'fly-to-airport arms the auction finish');
+console.log('PASS flightIntoAuctionArmsFinish');
+
+// s06 S06-05: a bankrupt leader's lead is revoked with a restored bid window,
+// so the handler re-arms the finish for the auction that is still open.
+const bankruptAuction = relayRoom('relay-bk-a', 'relay-bk-b', 'relay-bk-a-client', 'relay-bk-b-client');
+bankruptAuction.room.game.startAuction(bankruptAuction.room.game.getTile(1), bankruptAuction.room.game.players[1].id);
+bankruptAuction.room.declareBankruptcy = () => ({ success: true });
+assert.equal(invoke(bankruptAuction.hostHandlers.get('declare-bankruptcy'), {}).success, true);
+assert.equal(bankruptAuction.getScheduledAuctions(), 1, 'declare-bankruptcy re-arms the finish of an auction that stays open');
+console.log('PASS bankruptcyDuringAuctionRearmsFinish');
+
+console.log('server socket game relay and activity deduplication: 10 scenarios passed, 0 failed');

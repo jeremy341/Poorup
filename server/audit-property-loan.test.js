@@ -21,6 +21,9 @@ function ownedRoom() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
+  room.setRoomSetting('bankLoans', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   const owner = game.players[0];
@@ -40,6 +43,9 @@ function offerRoom() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
+  room.setRoomSetting('bankLoans', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   const buyer = game.players[0];
@@ -52,6 +58,9 @@ function loanRoom() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
+  room.setRoomSetting('bankLoans', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   const borrower = game.players[0];
@@ -292,6 +301,126 @@ check('FIX4 bank collateral excludes deeds that already carry equity shares', ()
   assert.equal(result.success, true);
   assert.equal(result.loan.collateralTileIndex, null);
   assert.equal(result.loan.collateralName, 'NONE');
+});
+
+// --- FIX5 bank-loan default, replay cache and collateral sale rate ----------
+
+// A borrower whose bank loan is past the cure round, with the seat's cash and
+// the debt it already owes left to the test.
+function defaultingLoanRoom({ cash = 500, parked = 0 } = {}) {
+  const ctx = loanRoom();
+  const { game, borrower } = ctx;
+  borrower.cash = cash;
+  borrower.bankLoan = {
+    status: 'due',
+    remaining: 300,
+    collateralTileIndex: null,
+    issuedRound: 1,
+    dueRound: 1,
+    cureRound: 1
+  };
+  if (parked > 0) {
+    game.pendingPayment = { playerId: borrower.id, creditorId: null, amountRemaining: parked, reason: 'rent' };
+  }
+  game.hasRolled = false;
+  game.roundNumber = 3;
+  return ctx;
+}
+
+check('FIX5 a bank default waits behind the debt the seat already owes', () => {
+  const ctx = defaultingLoanRoom({ cash: 500, parked: 100 });
+  ctx.game.processBankLoans();
+  assert.equal(ctx.borrower.bankLoan.status, 'defaulted');
+  assert.equal(ctx.game.pendingPayment.amountRemaining, 100, 'the earlier claim keeps the head of the queue');
+  assert.equal(ctx.game.pendingPaymentQueue.length, 1, 'the bank claim waits behind it');
+  assert.equal(ctx.game.pendingPaymentQueue[0].payment.playerId, ctx.borrower.id);
+  assert.equal(ctx.game.pendingPaymentQueue[0].payment.amountRemaining, 300);
+  assert.equal(ctx.borrower.cash, 500, 'the cash is not spent behind the queue');
+  assert.equal(ctx.borrower.bankLoan.remaining, 300, 'the balance is cleared only after settlement');
+});
+
+check('FIX5 the queued bank claim clears the loan balance once it is paid', () => {
+  const ctx = defaultingLoanRoom({ cash: 500, parked: 100 });
+  ctx.game.processBankLoans();
+  assert.equal(ctx.game.pendingPaymentQueue.length, 1, 'the bank claim is queued');
+  assert.equal(ctx.borrower.bankLoan.remaining, 300, 'the balance is open until the bank is paid');
+  assert.equal(ctx.game.trySettlePendingPayment(), true);
+  assert.equal(ctx.borrower.bankLoan.remaining, 0, 'the balance closes when the bank is paid');
+  assert.equal(ctx.borrower.cash, 100, 'the earlier claim and the bank claim are both paid');
+  assert.equal(ctx.game.pendingPayment, null);
+  assert.equal(ctx.game.pendingPaymentQueue.length, 0);
+});
+
+check('FIX5 an unsettled bank claim keeps the loan balance open', () => {
+  const ctx = defaultingLoanRoom({ cash: 40 });
+  ctx.game.processBankLoans();
+  assert.equal(ctx.game.pendingPayment.amountRemaining, 260);
+  assert.equal(ctx.borrower.bankLoan.remaining, 260, 'the balance follows the unpaid claim');
+  ctx.borrower.cash = 260;
+  assert.equal(ctx.game.trySettlePendingPayment(), true);
+  assert.equal(ctx.borrower.bankLoan.remaining, 0);
+});
+
+check('FIX5 a solvent default with no claim ahead is still paid outright', () => {
+  const ctx = defaultingLoanRoom({ cash: 500 });
+  ctx.game.processBankLoans();
+  assert.equal(ctx.borrower.bankLoan.status, 'defaulted');
+  assert.equal(ctx.borrower.bankLoan.remaining, 0);
+  assert.equal(ctx.borrower.cash, 200);
+  assert.equal(ctx.game.pendingPayment, null);
+  assert.equal(ctx.game.pendingPaymentQueue.length, 0);
+});
+
+check('FIX5 a replayed loan answer is the state the loan was given in', () => {
+  const ctx = loanRoom();
+  const taken = ctx.game.takeBankLoan('socket-a', 'replay-take');
+  assert.equal(taken.success, true);
+  const totalDue = taken.loan.totalDue;
+  ctx.borrower.cash = 1000;
+  const repaid = ctx.game.repayBankLoan('socket-a', { amount: totalDue, requestId: 'replay-repay' });
+  assert.equal(repaid.success, true);
+  assert.equal(repaid.loan.remaining, 0);
+  assert.equal(repaid.loan.status, 'paid');
+  const replayed = ctx.game.takeBankLoan('socket-a', 'replay-take');
+  assert.equal(replayed.loan.remaining, totalDue, 'the replayed issue keeps the balance it was issued with');
+  assert.equal(replayed.loan.status, 'active');
+  const replayedRepay = ctx.game.repayBankLoan('socket-a', { amount: totalDue, requestId: 'replay-repay' });
+  assert.equal(replayedRepay.loan.remaining, 0);
+  assert.equal(replayedRepay.loan.status, 'paid');
+});
+
+check('FIX5 a repayment request id is scoped to the loan it paid', () => {
+  const ctx = loanRoom();
+  const first = ctx.game.takeBankLoan('socket-a', 'scope-take');
+  ctx.borrower.cash = 1000;
+  const paid = ctx.game.repayBankLoan('socket-a', { amount: first.loan.totalDue, requestId: 'scope-repay' });
+  assert.equal(paid.success, true);
+  assert.equal(ctx.borrower.bankLoan.status, 'paid');
+  ctx.borrower.cash = 100;
+  const second = ctx.game.takeBankLoan('socket-a', 'scope-take-2');
+  assert.equal(second.success, true);
+  assert.notEqual(second.loan.loanId, first.loan.loanId, 'the two loans are different instances');
+  ctx.borrower.cash = 1000;
+  const again = ctx.game.repayBankLoan('socket-a', { amount: second.loan.totalDue, requestId: 'scope-repay' });
+  assert.equal(again.success, true);
+  assert.equal(ctx.borrower.bankLoan.status, 'paid');
+  assert.equal(ctx.borrower.cash, 1000 - second.loan.totalDue, 'the second repayment really ran');
+});
+
+check('FIX5 a seized house is liquidated at the table sale rate', () => {
+  const ctx = loanRoom();
+  const tile = ctx.game.getTile(1);
+  tile.ownerId = ctx.borrower.id;
+  tile.houseCount = 2;
+  ctx.borrower.properties.push(tile.index);
+  ctx.borrower.cash = 0;
+  ctx.borrower.bankLoan = { status: 'due', remaining: 300, collateralTileIndex: tile.index, dueRound: 1, cureRound: 1 };
+  ctx.game.roundNumber = 3;
+  ctx.game.globalEvent = { id: 'housing-bubble', phase: 'active', effects: { buildingSaleMultiplier: 0.25 } };
+  const houseCost = ctx.game.getPropertyHouseCost(tile);
+  ctx.game.processBankLoans();
+  assert.equal(ctx.borrower.bankLoan.status, 'defaulted');
+  assert.equal(ctx.borrower.cash, Math.floor(2 * houseCost * 0.25), 'the houses liquidate at the sale rate');
 });
 
 const failed = results.filter((entry) => entry !== true).length;

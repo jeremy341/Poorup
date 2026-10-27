@@ -197,7 +197,7 @@ test('B-12 low-tax election still applies the x0.8 discount, bonus on top', () =
 
 function equityFixture() {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'b13-owner', clientId: 'b13-owner', nickname: 'Owner' });
+  const room = manager.createRoom({ socketId: 'b13-owner', clientId: 'b13-owner', nickname: 'Owner', rulesProfile: 'advanced' });
   room.addOrReconnectPlayer({ socketId: 'b13-investor', clientId: 'b13-investor', nickname: 'Investor' });
   assert.equal(room.startGame().success, true);
   const game = room.game;
@@ -219,18 +219,19 @@ function ownBrownGroup(ctx) {
   return ctx;
 }
 
-// Real production path: a sponsored purchase that leaves the investor holding
-// an equity share, which is the state that used to leave build and sell open.
-// Ownership is granted by the acceptance, so the group is completed after it.
+// Saved legacy equity preserves its construction restrictions. Newly issued
+// temporary rent shares permit owner construction and have their own suite.
 function withEquityShare() {
   const ctx = equityFixture();
-  ctx.game.pendingPurchaseOffer = { playerId: ctx.owner.id, tileIndex: ctx.tile.index };
-  ctx.owner.cash = 20;
-  assert.equal(ctx.game.requestPurchaseSponsorship('b13-owner', { mode: 'equity', sharePct: 100 }).success, true);
-  assert.equal(ctx.game.contributeToSponsoredPurchase('b13-investor', { amount: ctx.tile.price - 20 }).success, true);
-  assert.equal(ctx.game.acceptSponsoredPurchase('b13-owner').success, true);
-  assert.equal(ctx.tile.ownerId, ctx.owner.id);
-  assert.equal(ctx.tile.equityShares.length, 1, 'the fixture really is a part-sold deed');
+  const contract = {
+    id: 'legacy-b13-equity', kind: 'equity', status: 'active',
+    fromPlayerId: ctx.investor.id, toPlayerId: ctx.owner.id,
+    propertyIndex: ctx.tile.index, equityShare: 100, permanent: true,
+    expiresRound: null, amount: ctx.tile.price - 20, rentCollected: 0
+  };
+  ctx.game.playerContracts.push(contract);
+  ctx.tile.equityShares = [{ contractId: contract.id, holderId: ctx.investor.id, share: 100 }];
+  assert.equal(ctx.tile.equityShares.length, 1, 'the fixture carries saved legacy equity');
   ownBrownGroup(ctx);
   ctx.owner.cash = 5000;
   return ctx;

@@ -293,7 +293,7 @@ const economyApi = {
       const forced = forceLiquidate(this, player, this.marketShortInventory || (this.marketShortInventory = {}));
       if (forced.length) {
         this.feedMessage(`${player.nickname} faced ${forced.join(' and ')}.`);
-        this.recordTelemetryEvent?.('market-liquidation', { actionCount: forced.length, actions: forced });
+        this.recordTelemetryEvent?.('market-liquidation', { actionCount: forced.length });
       }
     });
   },
@@ -347,6 +347,7 @@ const economyApi = {
     player.marketTrades = (player.marketTrades || 0) + 1;
     player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
     this.recordMarketLedger(ctx, plan);
+    this.creditBankCashback(player, plan.fee, 'MARKET FEE');
     this.recordTelemetryEvent?.('market-volatility', { action: ctx.direction, instrumentId: ctx.id, quantity: ctx.amount });
     this.feedMessage(this.marketFeedLine(ctx));
     const result = { success: true, order: this.marketOrderReceipt(ctx, plan), economy: this.economySnapshot(player.id) };
@@ -414,7 +415,7 @@ const economyApi = {
       player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       this.marketLedger = [{ transactionId: key || crypto.randomUUID(), ...result, playerId: player.id, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
       result.economy = this.economySnapshot(player.id);
-      this.recordTelemetryEvent?.('market-volatility', { action: 'open-margin', instrumentId, quantity: amount });
+      this.recordTelemetryEvent?.('market-volatility', { action: 'open-margin', instrumentId: instrument.id, quantity: amount });
       return this.cacheTransaction(key, result);
     }
     return result;
@@ -427,7 +428,9 @@ const economyApi = {
     if (cached) return cached;
     const rejection = expansionGuard(this, player, 'margin', 'manage');
     if (rejection) return { success: false, error: rejection };
-    const result = reduceMargin(player, integerAmount(amount, 1_000_000));
+    const repayment = integerAmount(amount, 1_000_000);
+    if (!repayment) return { success: false, error: 'Enter a whole amount to repay.' };
+    const result = reduceMargin(player, repayment);
     if (result.success) {
       player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       result.economy = this.economySnapshot(player.id);
@@ -450,7 +453,7 @@ const economyApi = {
     if (pause) return { success: false, error: pause };
     if (!instrument || !amount) return { success: false, error: 'Choose a valid short order.' };
     const result = openShort(this, player, { instrument, amount, inventory: shortInventory(this) });
-    if (result.success) { player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1; player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
+    if (result.success) { player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1; player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId: instrument.id, quantity: amount }); return this.cacheTransaction(key, result); }
     return result;
   },
 
@@ -470,7 +473,7 @@ const economyApi = {
       player.marketTrades = (player.marketTrades || 0) + 1;
       player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       result.economy = this.economySnapshot(player.id);
-      this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId, quantity: amount });
+      this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId: instrument.id, quantity: amount });
       return this.cacheTransaction(key, result);
     }
     return result;
@@ -484,7 +487,8 @@ const economyApi = {
     const rejection = shortDefaultRejection(this, player);
     if (rejection) return { success: false, error: rejection };
     const result = settleShortDefault(this, player, amount);
-    if (result.success) result.economy = this.economySnapshot(player.id);
+    if (!result.success) return result;
+    result.economy = this.economySnapshot(player.id);
     return this.cacheTransaction(key, result);
   },
 

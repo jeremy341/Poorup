@@ -19,7 +19,7 @@ function check(name, fn) {
 
 function startedRoom(settings = {}) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', rulesProfile: 'advanced' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   for (const [key, value] of Object.entries(settings)) room.setRoomSetting(key, value);
   assert.equal(room.startGame().success, true);
@@ -121,7 +121,7 @@ check('bot bid cap covers non-group deeds without restricting human auctions', (
   game.auction = {
     propertyTile: tile,
     active: true,
-    highestBid: 0,
+    highestBid: 200,
     highestBidderId: null,
     participants: game.players.map(player => player.id),
     startedAt: Date.now(),
@@ -133,11 +133,61 @@ check('bot bid cap covers non-group deeds without restricting human auctions', (
   const rejectedBotBid = room.runBotAction(bot.id, actor => room.placeAuctionBid(actor, 300));
   assert.equal(rejectedBotBid.success, false);
   assert.match(rejectedBotBid.error, /valuation/i);
-  assert.equal(game.auction.highestBid, 0);
+  assert.equal(game.auction.highestBid, 200);
 
   const humanBid = game.placeAuctionBid(human.socketId, 300);
   assert.equal(humanBid.success, true, 'human rules remain unchanged by bot valuation limits');
   assert.equal(game.auction.highestBid, 300);
+});
+
+check('a bot raises with the same +1, +20 and +100 buttons as a player and nothing else', () => {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'step-host', clientId: 'step-host-client', nickname: 'Host' });
+  room.addOrReconnectPlayer({ socketId: 'step-guest', clientId: 'step-guest-client', nickname: 'Guest' });
+  room.setRoomSetting('bots', 1);
+  assert.equal(room.startGame().success, true);
+  const game = room.game;
+  const bot = game.players.find(player => player.isBot);
+  const human = game.players.find(player => !player.isBot);
+  bot.cash = 1500;
+  human.cash = 1500;
+  game.auction = {
+    propertyTile: game.getTile(1),
+    active: true,
+    highestBid: 0,
+    highestBidderId: null,
+    participants: game.players.map(player => player.id),
+    startedAt: Date.now(),
+    endsAt: Date.now() + 5_000,
+    cooldownUntil: 0,
+    lastBidAt: 0
+  };
+  const botBid = amount => {
+    game.auction.cooldownUntil = 0;
+    return room.runBotAction(bot.id, actor => room.placeAuctionBid(actor, amount));
+  };
+
+  const ladderError = '$1, $20, $100';
+  const offLadder = botBid(10);
+  assert.equal(offLadder.success, false, 'a +10 opening is not a button a player has');
+  assert.ok(offLadder.error.includes(ladderError), offLadder.error);
+  assert.equal(game.auction.highestBid, 0);
+  assert.equal(botBid(1).success, true, 'the +1 button is a legal bot opening');
+
+  game.auction.cooldownUntil = 0;
+  assert.equal(game.placeAuctionBid(human.socketId, 21).success, true, 'a human +20 raise stays legal');
+  const smallRaise = botBid(31);
+  assert.equal(smallRaise.success, false, 'a bot cannot answer with a +10');
+  assert.ok(smallRaise.error.includes(ladderError), smallRaise.error);
+  assert.equal(game.auction.highestBid, 21);
+  assert.equal(botBid(40).success, false, '+19 is not a button');
+  assert.equal(botBid(41).success, true, '+20 over the standing bid is accepted');
+  game.auction.cooldownUntil = 0;
+  assert.equal(game.placeAuctionBid(human.socketId, 42).success, true, 'a human +1 raise stays legal');
+  game.auction.propertyTile = game.getTile(39);
+  assert.ok(game.auction.propertyTile.price >= 300, 'a dear deed leaves room for a +100 raise');
+  assert.equal(botBid(142).success, true, 'a bot may answer with the +100 button');
+  assert.equal(game.auction.highestBidderId, bot.id);
 });
 
 function feedHas(game, text) {
@@ -212,14 +262,15 @@ check('trade proposal respects the room trading toggle', () => {
 check('trade proposal blocked during auction', () => {
   const { game, b } = startedRoom();
   game.auction = { active: true };
-  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Another trade is already pending.' });
+  // F-090: the message names the open auction, not a second trade.
+  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Resolve the open auction before proposing a trade.' });
   assert.equal(game.pendingTrade, null);
 });
 
 check('trade proposal blocked during pendingPurchaseOffer', () => {
   const { game, b } = startedRoom();
   game.pendingPurchaseOffer = { playerId: 'x', tileIndex: 1 };
-  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Another trade is already pending.' });
+  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Resolve the pending purchase offer before proposing a trade.' });
   assert.equal(game.pendingTrade, null);
 });
 

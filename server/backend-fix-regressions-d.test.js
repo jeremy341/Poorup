@@ -38,7 +38,7 @@ check('a voluntary leave settles the bank loan on the dead seat (B-05)', () => {
   // advanceBankLoan skips bankrupt players, so a leave that only ran the old
   // ladder froze the loan at active/remaining forever: the departed seat kept
   // the principal and never paid (or lost) the premium.
-  const { manager, room } = startedThreeSeatRoom({ rulesetPreset: 'after-hours' });
+  const { manager, room } = startedThreeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const game = room.game;
   const leaver = game.players[0];
   const tile = game.getTile(1);
@@ -55,7 +55,7 @@ check('a voluntary leave settles the bank loan on the dead seat (B-05)', () => {
 });
 
 check('an unsecured loan the leaver cannot pledge is written off, not frozen (B-05)', () => {
-  const { manager, room } = startedThreeSeatRoom({ rulesetPreset: 'after-hours' });
+  const { manager, room } = startedThreeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const leaver = room.game.players[0];
   leaver.bankLoan = { status: 'due', remaining: 500, collateralTileIndex: null };
   assert.equal(manager.removeRoomSeat({ clientId: 'a', reason: 'leave' }).success, true);
@@ -112,7 +112,7 @@ check('bankrupt seats still rank after solvent ones once ghosts are excluded (B-
 check('a board downgrade that would strand a seat is refused (B-09)', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({
-    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetPreset: 'after-hours'
+    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }
   });
   assert.equal(room.setRoomSetting('maxPlayers', 6).rejected, false);
   ['b', 'c', 'd', 'e'].forEach(id => {
@@ -137,7 +137,7 @@ check('a board downgrade that would strand a seat is refused (B-09)', () => {
 check('a board downgrade that still fits the table is allowed (B-09)', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({
-    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetPreset: 'after-hours'
+    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }
   });
   assert.equal(room.setRoomSetting('maxPlayers', 6).rejected, false);
   ['b', 'c', 'd'].forEach(id => {

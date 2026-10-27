@@ -8,6 +8,8 @@ function fixture() {
   const room = manager.createRoom({ socketId: 's-buyer', clientId: 'c-buyer', nickname: 'Buyer' });
   room.addOrReconnectPlayer({ socketId: 's-sponsor', clientId: 'c-sponsor', nickname: 'Sponsor' });
   room.addOrReconnectPlayer({ socketId: 's-sponsor-2', clientId: 'c-sponsor-2', nickname: 'Second' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   const buyer = game.getPlayerBySocket('s-buyer');
@@ -113,4 +115,105 @@ assert.equal(excessCtx.sponsor.cash, 500 - 20 + 15);
 assert.equal(excessCtx.second.cash, 500 - 20 + 15);
 assert.equal(excessCtx.buyer.cash, 0);
 
-console.log('sponsored purchase: 23 passed, 0 failed');
+// F-023: an open escrow pins the buyer's cash. A mortgage, unmortgage, sale or
+// build on a deed mid-request would move the cash the escrow was sized
+// against, so sponsors could be refunded while the equity stake still forms.
+const deedCtx = fixture();
+const deed = deedCtx.game.getTile(6);
+deed.ownerId = deedCtx.buyer.id;
+deedCtx.buyer.properties.push(deed.index);
+assert.equal(deedCtx.game.requestPurchaseSponsorship('s-buyer', { mode: 'equity', sharePct: 25 }).success, true);
+const frozenError = 'Resolve the open sponsorship before managing this property.';
+for (const action of ['mortgage', 'unmortgage', 'sell-house', 'build-house']) {
+  assert.deepEqual(deedCtx.game.manageProperty('s-buyer', { tileIndex: deed.index, action }), { success: false, error: frozenError }, action);
+}
+assert.equal(deed.mortgaged, false);
+assert.equal(deedCtx.buyer.cash, 20);
+assert.equal(deedCtx.game.declineSponsoredPurchase('s-buyer').success, true);
+assert.equal(deedCtx.game.manageProperty('s-buyer', { tileIndex: deed.index, action: 'mortgage' }).success, true);
+assert.equal(deed.mortgaged, true);
+
+// T18: a retried contribution replays its memo instead of reserving the cash
+// twice. The memo is keyed by sponsor, sponsorship and request id.
+const replayCtx = fixture();
+assert.equal(replayCtx.game.requestPurchaseSponsorship('s-buyer', { requestId: 'req-replay' }).success, true);
+const firstContribution = replayCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 20, requestId: 'contrib-replay' });
+assert.equal(firstContribution.success, true);
+assert.equal(replayCtx.sponsor.cash, 480);
+const retriedContribution = replayCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 20, requestId: 'contrib-replay' });
+assert.equal(retriedContribution.success, true);
+assert.equal(retriedContribution.sponsorship.totalContributed, 20);
+assert.equal(replayCtx.sponsor.cash, 480, 'a retried contribution must not reserve the cash twice');
+assert.equal(replayCtx.game.summarySponsoredPurchase().amountNeeded, replayCtx.tile.price - 40);
+
+// T19: a sponsor with a head debt or a queued claim cannot fund a sponsorship.
+const headDebtCtx = fixture();
+assert.equal(headDebtCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+headDebtCtx.game.pendingPayment = { playerId: headDebtCtx.sponsor.id, creditorId: headDebtCtx.buyer.id, amountRemaining: 40 };
+assert.deepEqual(headDebtCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 10 }), { success: false, error: 'Settle your debt before sponsoring.' });
+assert.equal(headDebtCtx.sponsor.cash, 500);
+headDebtCtx.game.pendingPayment = null;
+headDebtCtx.game.pendingPaymentQueue = [{ payment: { playerId: headDebtCtx.sponsor.id, amountRemaining: 25 } }];
+assert.deepEqual(headDebtCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: 10 }), { success: false, error: 'Settle your debt before sponsoring.' });
+assert.equal(headDebtCtx.sponsor.cash, 500);
+headDebtCtx.game.pendingPaymentQueue = [];
+
+// T19: a buyer with a pending debt cannot accept the sponsored purchase.
+const buyerDebtCtx = fixture();
+assert.equal(buyerDebtCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+assert.equal(buyerDebtCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: buyerDebtCtx.tile.price - 20 }).success, true);
+buyerDebtCtx.game.pendingPayment = { playerId: buyerDebtCtx.buyer.id, creditorId: null, amountRemaining: 30 };
+assert.deepEqual(buyerDebtCtx.game.acceptSponsoredPurchase('s-buyer'), { success: false, error: 'Settle your debt before accepting this sponsorship.' });
+assert.equal(buyerDebtCtx.tile.ownerId, null);
+assert.equal(buyerDebtCtx.sponsor.cash, 500 - (buyerDebtCtx.tile.price - 20));
+assert.ok(buyerDebtCtx.game.pendingSponsoredPurchase);
+
+// T20: a sponsorship with no remaining need is refused: it cannot be funded
+// and it would still hold the table at the end-turn gate.
+const zeroNeedCtx = fixture();
+zeroNeedCtx.buyer.cash = zeroNeedCtx.tile.price;
+assert.equal(zeroNeedCtx.game.requestPurchaseSponsorship('s-buyer').success, false);
+assert.equal(zeroNeedCtx.game.pendingSponsoredPurchase, null);
+assert.equal(zeroNeedCtx.game.pendingPurchaseOffer.playerId, zeroNeedCtx.buyer.id);
+
+// T21: the rollback restores the non-cash state the settlement touched.
+const stateCtx = fixture();
+assert.equal(stateCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+assert.equal(stateCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: stateCtx.tile.price - 20 }).success, true);
+stateCtx.buyer.fullGroups = new Set(['brown']);
+stateCtx.game.refreshPlayerGroups = (player) => {
+  player.fullGroups.add('red');
+  player.boughtDuringHousingBubble = true;
+  throw new Error('boom');
+};
+assert.deepEqual(stateCtx.game.acceptSponsoredPurchase('s-buyer'), { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' });
+assert.deepEqual([...stateCtx.buyer.fullGroups], ['brown'], 'the rollback restores the group set');
+assert.equal(stateCtx.buyer.boughtDuringHousingBubble, false);
+assert.equal(stateCtx.game.awaitingEndTurn, false);
+assert.equal(stateCtx.game.hasRolled, true);
+
+// T21: the null-player flag a failed settlement set on the buyer is rolled back.
+const zeroFlagCtx = fixture();
+assert.equal(zeroFlagCtx.game.requestPurchaseSponsorship('s-buyer').success, true);
+assert.equal(zeroFlagCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: zeroFlagCtx.tile.price - 20 }).success, true);
+zeroFlagCtx.buyer.zeroCashReached = false;
+zeroFlagCtx.game.refreshPlayerGroups = () => { throw new Error('boom'); };
+assert.deepEqual(zeroFlagCtx.game.acceptSponsoredPurchase('s-buyer'), { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' });
+assert.equal(zeroFlagCtx.buyer.cash, 20);
+assert.equal(zeroFlagCtx.buyer.zeroCashReached, false, 'a failed settlement leaves no bogus zero-cash flag');
+
+// T21: an equity settlement that fails after the purchase resolved the turn
+// leaves the turn open and the escrow intact.
+const turnCtx = fixture();
+assert.equal(turnCtx.game.requestPurchaseSponsorship('s-buyer', { mode: 'equity', sharePct: 20 }).success, true);
+assert.equal(turnCtx.game.contributeToSponsoredPurchase('s-sponsor', { amount: turnCtx.tile.price - 20 }).success, true);
+Object.freeze(turnCtx.sponsor.playerContractIds);
+assert.deepEqual(turnCtx.game.acceptSponsoredPurchase('s-buyer'), { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' });
+assert.equal(turnCtx.game.awaitingEndTurn, false, 'a failed settlement leaves the turn open');
+assert.equal(turnCtx.tile.ownerId, null);
+assert.equal(turnCtx.buyer.cash, 20);
+assert.ok(turnCtx.game.pendingSponsoredPurchase);
+assert.deepEqual(turnCtx.game.playerContracts, []);
+
+console.log('sponsored purchase: 30 passed, 0 failed');
+console.log('sponsorship regressions: 36 passed, 0 failed');

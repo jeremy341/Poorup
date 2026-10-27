@@ -5,10 +5,11 @@
 // pinned by server/rooms.test.js and the shapes themselves by
 // server/roomSetup.test.js.
 import { sanitizeParticipant } from './participantFields.js';
+import { cleanDisplayText, cleanPlayerName, isReservedName, sliceCodePoints } from './nicknamePolicy.js';
 
 export function normalizeNickname(value) {
   if (typeof value !== 'string') return '';
-  return value.trim().slice(0, 24);
+  return cleanPlayerName(value, 24);
 }
 
 // Tab session identifiers are opaque bearer values, not arbitrary JSON. Keep
@@ -68,7 +69,7 @@ export function normalizeAvatarGrid(value) {
 
 export function normalizeChatText(value) {
   if (typeof value !== 'string') return '';
-  return value.trim().slice(0, 250);
+  return sliceCodePoints(cleanDisplayText(value).trim(), 250);
 }
 
 function resolveNickname(account, payload) {
@@ -107,17 +108,20 @@ export function buildCreateRoomRequest(payload, account) {
     roomName: normalizeRoomName(payload?.roomName),
     requestedRoomCode: visibility === 'private' ? normalizeRoomCode(payload?.roomCode) : ''
   };
-  ['boardVariant', 'marketComplexity'].forEach(key => {
+  ['boardVariant', 'marketComplexity', 'rulesProfile', 'playerFinance'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(payload || {}, key)) request[key] = payload[key];
   });
   return request;
 }
 
 // Returns the exact rejection message for the first failing check, or null.
-// Check order must stay: nickname, then private-code length.
+// Check order must stay: nickname (required, then reserved), then private-code length.
 export function validateCreateRoomRequest(request) {
   if (!request.nickname) {
     return 'Nickname is required.';
+  }
+  if (isReservedName(request.nickname)) {
+    return 'That nickname is reserved.';
   }
   if (request.visibility === 'private' && request.requestedRoomCode.length !== 6) {
     return 'Private rooms need a unique 6-character invite code.';
@@ -126,13 +130,16 @@ export function validateCreateRoomRequest(request) {
 }
 
 // Returns the exact rejection message for the first failing check, or null.
-// Check order must stay: room code, then nickname.
+// Check order must stay: room code, then nickname (required, then reserved).
 export function validateJoinRoomRequest({ roomCode, roomId, nickname }) {
   if (!roomCode && !roomId) {
     return 'Room code is required.';
   }
   if (!nickname) {
     return 'Nickname is required.';
+  }
+  if (isReservedName(nickname)) {
+    return 'That nickname is reserved.';
   }
   return null;
 }
@@ -149,7 +156,7 @@ export function toRoomCreationOptions(request, clientId, socketId) {
     visibility: request.visibility,
     roomCode: request.requestedRoomCode || undefined
   };
-  ['boardVariant', 'marketComplexity'].forEach(key => {
+  ['boardVariant', 'marketComplexity', 'rulesProfile', 'playerFinance'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(request || {}, key)) options[key] = request[key];
   });
   return options;
@@ -222,7 +229,7 @@ export function summarizeMatchHistoryRecordForViewer(record, viewerId, targetId)
   ['globalEvents', 'eventCombinations', 'tradesCompleted', 'auctionsCompleted'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(record, key)) summary[key] = record[key];
   });
-  ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
+  ['boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(record, key)) summary[key] = record[key];
   });
   return summary;
@@ -313,6 +320,26 @@ function matchRecordPlayerContracts(game) {
 
 // Builds the exact matchMeta object emitRoomState passed to
 // accountStore.recordGameResults when a finished room settles its stats.
+const NET_WORTH_ROWS_STORED = 40;
+
+// Rows hold worth keyed by player id; the stored record lines worth up with the participants
+// (game.players order, which recordGameResults also uses). A seat that left reads null.
+// Long games keep an even stride plus the first and last row, so the chart still spans the match.
+export function matchRecordNetWorthTimeline(game) {
+  const rows = Array.isArray(game?.netWorthTimeline) ? game.netWorthTimeline : [];
+  if (!rows.length) return [];
+  const stride = Math.max(1, Math.ceil(rows.length / NET_WORTH_ROWS_STORED));
+  const kept = rows.filter((_, index) => index % stride === 0 || index === rows.length - 1);
+  while (kept.length > NET_WORTH_ROWS_STORED) kept.splice(kept.length - 2, 1);
+  return kept.map(row => ({
+    round: Math.max(0, Math.floor(Number(row.round) || 0)),
+    worth: (game.players || []).map(player => {
+      const value = row.worth?.[player.id];
+      return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+    }),
+  }));
+}
+
 export function buildMatchRecordOptions(room) {
   const game = room.game;
   const accountPlayers = game.players.filter(player => !player.isBot && player.accountId);
@@ -320,12 +347,12 @@ export function buildMatchRecordOptions(room) {
     && game.afkTurnCount > 0
     && game.humanActionCount === 0;
   return {
-    gameId: `match_${room.roomCode}_${game.startedAt || Date.now()}`,
+    // Never the room code: the id reaches match-history views, and a private
+    // room's code is a working invite. publicId is the room's stable random id.
+    gameId: `match_${room.publicId}_${game.startedAt || Date.now()}`,
     durationSeconds: game.startedAt ? (Date.now() - game.startedAt) / 1000 : 0,
     roundCount: game.roundNumber,
     roomVisibility: room.visibility,
-    rulesetPreset: room.ruleset?.rulesetPreset || room.settings?.rulesetPreset || 'classic',
-    rulesetBase: room.ruleset?.rulesetBase || room.settings?.rulesetBase || 'classic',
     rulesetOverrides: room.ruleset?.rulesetOverrides || room.settings?.rulesetOverrides || [],
     boardVariant: room.ruleset?.boardVariant || room.settings?.boardVariant || 'standard-40',
     rulesetRevision: room.ruleset?.rulesetRevision || room.settings?.rulesetRevision || 1,
@@ -340,6 +367,7 @@ export function buildMatchRecordOptions(room) {
     eventCombinations: matchRecordEventCombinations(game),
     tradesCompleted: game.tradesCompleted || 0,
     auctionsCompleted: game.auctionsCompleted || 0,
+    netWorthTimeline: matchRecordNetWorthTimeline(game),
     casino: matchRecordCasinoRows(game.players),
     market: matchRecordMarketRows(game.players),
     playerContracts: matchRecordPlayerContracts(game)
