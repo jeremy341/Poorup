@@ -6,10 +6,16 @@
 // human gift, bots-only immediate cancel), so bot balance is unchanged.
 // The one added gate is the loan-taint check in sponsorshipContributionAmount,
 // which every funder, actor-seat, and counterpart decision reads through.
+import { playerFinanceEnabled } from './financeRules.js';
 import { hasLoanBackedCash } from './loanLogic.js';
 
 // A sponsor keeps this much cash in reserve before gifting.
 export const SPONSORSHIP_RESERVE_CASH = 180;
+
+// A bot buyer waits this long (wall clock) for a human to fund an open request
+// that no bot can fund. The round cannot advance while a request is open, so the
+// round-based death rule alone would never fire.
+export const SPONSORSHIP_HUMAN_WINDOW_MS = 30_000;
 
 export function sponsorshipContributed(sponsorship) {
   return (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
@@ -41,9 +47,21 @@ function sponsorshipBuyerCash(buyer, sponsorship) {
   return buyer ? Number(buyer.cash || 0) : Number(sponsorship.buyerCash || 0);
 }
 
-export function sponsorshipContributionAmount(game, bot) {
-  const sponsorship = game?.pendingSponsoredPurchase;
+// The server refuses sponsor contributions while any of these is open
+// (sponsorshipApi.js hasTableObligation), so a bot may not size or claim one.
+function tableObligationOpen(game) {
+  return Boolean(game?.auction || game?.pendingTrade || game?.pendingPlayerContract);
+}
+
+// What a seat could give to this request. Request-independent gates live here,
+// so the funder liveness checks below do not see a transient table obligation.
+function sponsorshipFundingAmount(game, sponsorship, bot) {
+  if (!playerFinanceEnabled(game)) return 0;
   if (!sponsorship || !bot || bot.id === sponsorship.buyerId) return 0;
+  // An equity request is an investment, not a gift: funding it buys the investor
+  // a temporary rent share of the tile at a price the buyer chose. The gift sizing
+  // below knows nothing about that price, so bots never fund these.
+  if (sponsorship.mode === 'equity') return 0;
   if (alreadyContributed(sponsorship, bot.id)) return 0;
   const buyer = typeof game.getPlayerById === 'function' ? game.getPlayerById(sponsorship.buyerId) : null;
   if (sponsorshipRoundGated(game, bot)) return 0;
@@ -59,6 +77,23 @@ export function sponsorshipContributionAmount(game, bot) {
   return Math.min(needed, available);
 }
 
+export function sponsorshipContributionAmount(game, bot) {
+  if (tableObligationOpen(game)) return 0;
+  return sponsorshipFundingAmount(game, game?.pendingSponsoredPurchase, bot);
+}
+
+// Would this bot fund a request from `buyer` right now? Used before a request
+// exists, so only the request-independent gates apply (identity, round and gift
+// throttles, loan-backed cash, and the reserve).
+export function sponsorCanFundBuyer(game, sponsor, buyer) {
+  if (!playerFinanceEnabled(game)) return false;
+  if (!sponsor?.isBot || !buyer || sponsor.id === buyer.id) return false;
+  if (sponsorshipRoundGated(game, sponsor)) return false;
+  if (sponsorshipGiftGated(sponsor, buyer)) return false;
+  if (hasLoanBackedCash(sponsor)) return false;
+  return Number(sponsor.cash || 0) - SPONSORSHIP_RESERVE_CASH > 0;
+}
+
 function sponsorshipAgedOneRound(game, sponsorship) {
   const createdRound = Number(sponsorship.createdRound);
   return Number.isFinite(createdRound) && Number(game?.roundNumber) > createdRound + 1;
@@ -72,6 +107,12 @@ export function sponsorshipDead(game, bot, sponsorship) {
   if (sponsorshipShortfall(game, sponsorship, bot.cash) <= 0) return false;
   if (!sponsorshipAgedOneRound(game, sponsorship)) return false;
   return sponsorshipFunders(game, sponsorship).length === 0;
+}
+
+function sponsorshipHumanWindowElapsed(sponsorship) {
+  const createdAt = Number(sponsorship.createdAt);
+  if (!Number.isFinite(createdAt)) return false;
+  return Date.now() - createdAt >= SPONSORSHIP_HUMAN_WINDOW_MS;
 }
 
 function isLivePlayer(player) {
@@ -90,7 +131,14 @@ function sponsorshipFunderCandidate(game, sponsorship, player) {
   if (alreadyContributed(sponsorship, player.id)) return false;
   // A loan-tainted seat fails the amount gate above, so it can never be counted
   // as the live funder that keeps a request alive.
-  return sponsorshipContributionAmount(game, player) > 0;
+  return sponsorshipFundingAmount(game, sponsorship, player) > 0;
+}
+
+// A human can give while they hold cash, have not already given, and are not
+// loan-backed (sponsorshipApi.js contribution checks).
+function humanCanFundSponsorship(sponsorship, bot, live) {
+  return live.some(player => !player.isBot && player.id !== bot.id
+    && Number(player.cash || 0) > 0 && !hasLoanBackedCash(player) && !alreadyContributed(sponsorship, player.id));
 }
 
 function sponsorshipFunders(game, sponsorship) {
@@ -102,17 +150,21 @@ function botCanFundSponsorship(game, sponsorship, bot, live) {
 }
 
 // Buyer-side cancel policy shared by dispatch, actor gating, and both
-// executors: covered requests accept; dead or funderless ones are declined
-// so the purchase resolves. Humans always get a full round to fund first;
-// bots-only tables cancel immediately since waiting is pointless.
+// executors: covered requests accept; dead or unfundable ones are declined
+// so the purchase resolves. Humans with cash get a full round to fund first.
+// When nobody can contribute at all, the request is cancelled at once: the
+// round cannot advance while a request is open, so aging alone would park the
+// table forever (F-033).
 export function sponsorshipBuyerShouldCancel(game, bot, sponsorship, needed = null) {
   if (!sponsorship || sponsorship.buyerId !== bot?.id) return false;
   const shortfall = needed ?? sponsorshipShortfall(game, sponsorship, bot.cash);
   if (shortfall <= 0) return false;
   if (sponsorshipDead(game, bot, sponsorship)) return true;
   const live = livePlayers(game);
-  if (live.some(player => !player.isBot)) return false;
-  return !botCanFundSponsorship(game, sponsorship, bot, live);
+  if (botCanFundSponsorship(game, sponsorship, bot, live)) return false;
+  // No bot can fund it: cancel at once when no human can either, otherwise once
+  // the humans have had their window.
+  return !humanCanFundSponsorship(sponsorship, bot, live) || sponsorshipHumanWindowElapsed(sponsorship);
 }
 
 function sponsorshipBuyerActor(game, bot, sponsorship) {

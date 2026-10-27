@@ -2,6 +2,8 @@
 // use when seating humans and bots. gameLogic.js assigns the object onto
 // GameState.prototype and re-exports APPEARANCE_PRESET_COLORS.
 
+import { cleanPlayerName, nicknameRejection } from './nicknamePolicy.js';
+
 // The four default appearance presets, in server assignment order.
 const APPEARANCE_PRESET_COLORS = ['#d74438', '#286ea1', '#d9a62f', '#35a653'];
 
@@ -101,6 +103,23 @@ function takenRejectionFor(api, player, seatColor, seatGrid) {
   return { success: false, error: 'That icon is already taken at this table.' };
 }
 
+// An omitted nickname keeps the seat's name; any other non-string is a
+// malformed request and must not be acknowledged as a silent no-op.
+function nicknameTypeRejectionFor(nickname) {
+  if (nickname === undefined || typeof nickname === 'string') return null;
+  return { success: false, error: 'Nickname must be text.' };
+}
+
+// Once the game has started the nickname is not applied at all, so it is not
+// checked either (applyNickname keeps its silent no-op).
+function nicknameTakenRejectionFor(api, player, nickname) {
+  if (typeof nickname !== 'string' || api.started) return null;
+  const safeNickname = cleanPlayerName(nickname, 24);
+  if (!safeNickname) return null;
+  const error = nicknameRejection(api.players, safeNickname, player);
+  return error ? { success: false, error } : null;
+}
+
 const appearanceApi = {
   setPlayerAppearance(socketId, { color, nickname, avatarGrid } = {}) {
     const player = this.getPlayerBySocket(socketId);
@@ -109,14 +128,21 @@ const appearanceApi = {
     }
     const gridRejection = gridRejectionFor(avatarGrid);
     if (gridRejection) return gridRejection;
+    const nicknameTypeRejection = nicknameTypeRejectionFor(nickname);
+    if (nicknameTypeRejection) return nicknameTypeRejection;
     const seatColor = this.parseSeatColor(color);
     // Identity is color plus face: another connected non-bankrupt seat
     // wearing the same icon means it is taken; the same color with a
     // different face is a different icon. An omitted grid keeps the
     // seat's current face, so the check uses the resulting look.
     const seatGrid = this.effectiveSeatGrid(player, avatarGrid);
-    const takenRejection = takenRejectionFor(this, player, seatColor, seatGrid);
+    // A face sent without a color is still a new look: check it with the
+    // seat's current color, or it could copy another seat's icon.
+    const lookChanges = Boolean(seatColor) || avatarGrid !== undefined;
+    const takenRejection = takenRejectionFor(this, player, lookChanges ? seatColor || player.color : null, seatGrid);
     if (takenRejection) return takenRejection;
+    const nameRejection = nicknameTakenRejectionFor(this, player, nickname);
+    if (nameRejection) return nameRejection;
     if (seatColor) player.color = seatColor;
     this.applyNickname(player, nickname);
     this.applyAvatarGrid(player, avatarGrid);
@@ -145,7 +171,7 @@ const appearanceApi = {
   applyNickname(player, nickname) {
     if (typeof nickname !== 'string') return;
     if (this.started) return;
-    const safeNickname = nickname.trim().slice(0, 24);
+    const safeNickname = cleanPlayerName(nickname, 24);
     if (safeNickname) player.nickname = safeNickname;
   },
 

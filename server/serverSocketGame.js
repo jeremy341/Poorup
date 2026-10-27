@@ -8,6 +8,7 @@
 import { emitResultMessage, makeRoomVerbHandler, reply, roomVerbAck } from './socketHandlerSupport.js';
 import { contractLastProposerId, contractResponderId } from './contractLogic.js';
 import { presentationRemainingMs } from '../public/gamePresentationTiming.js';
+import { playerFinanceEnabled } from './financeRules.js';
 
 const NO_PENDING_CONTRACT = { success: false, error: 'No pending contract to cancel.' };
 
@@ -55,10 +56,13 @@ function recordHumanAction(room, socket, result) {
 
 const GAME_VERB_HANDLERS = [
   { event: 'purchase-property', verb: 'purchaseProperty', args: pickArgs(['tileIndex']), message: true },
+  { event: 'upgrade-bank-account', verb: 'upgradeBankAccount', args: pickArgs(['requestId']), ackExtras: pickAckFields(['tier']) },
+  { event: 'fly-to-airport', verb: 'flyToAirport', args: pickArgs(['tileIndex']), message: true, auctionRefresh: r => Boolean(r?.auctionStarted), ackExtras: pickAckFields(['fare', 'basis']) },
+  { event: 'set-airport-fees', verb: 'setAirportFees', args: p => [p.tileIndex, { departure: p.departure, arrival: p.arrival }], message: true, ackExtras: pickAckFields(['departureFee', 'arrivalFee']) },
   { event: 'decline-property', verb: 'declineProperty', args: pickArgs(['tileIndex']), auctionRefresh: r => Boolean(r?.auctionStarted) },
   { event: 'auction-bid', verb: 'placeAuctionBid', args: pickArgs(['amount']), auctionRefresh: AUCTION_STILL_OPEN, message: true },
   { event: 'end-turn', verb: 'endTurn', args: NO_ARGS },
-  { event: 'manage-property', verb: 'manageProperty', args: p => [{ tileIndex: p.tileIndex, action: p.action }], message: true },
+  { event: 'manage-property', verb: 'manageProperty', args: p => [{ tileIndex: p.tileIndex, action: p.action, requestId: p.requestId }], message: true },
   { event: 'propose-trade', verb: 'proposeTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade']) },
   { event: 'counter-trade', verb: 'counterTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade', 'countered']) },
   { event: 'adjust-trade', verb: 'adjustTrade', args: WHOLE_PAYLOAD, relay: { event: 'trade-offer', field: 'trade', recipient: 'toPlayerId' }, ackExtras: pickAckFields(['trade', 'adjusted']) },
@@ -71,6 +75,8 @@ const GAME_VERB_HANDLERS = [
   { event: 'repay-player-contract', verb: 'repayPlayerContract', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['contract']) },
   { event: 'pay-jail-fine', verb: 'payJailFine', args: NO_ARGS, message: true },
   { event: 'use-jail-free', verb: 'useJailFree', args: NO_ARGS, message: true },
+  { event: 'use-item', verb: 'useItem', args: p => [{ itemId: p.itemId, requestId: p.requestId }], message: true, ackExtras: pickAckFields(['action', 'itemId', 'cashReceived']) },
+  { event: 'sell-item', verb: 'sellItem', args: p => [{ itemId: p.itemId, requestId: p.requestId }], message: true, ackExtras: pickAckFields(['action', 'itemId', 'cashReceived']) },
   { event: 'take-bank-loan', verb: 'takeBankLoan', args: pickArgs(['requestId']), message: true, ackExtras: pickAckFields(['loan']) },
   { event: 'repay-bank-loan', verb: 'repayBankLoan', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['loan']) },
   { event: 'market-order', verb: 'tradeMarket', args: pickArgs(['instrumentId', 'side', 'quantity', 'requestId']), ackExtras: pickAckFields(['order', 'economy']) },
@@ -82,8 +88,13 @@ const GAME_VERB_HANDLERS = [
   { event: 'open-option', verb: 'openOption', args: WHOLE_PAYLOAD, ackExtras: pickAckFields(['option', 'economy']) },
   { event: 'exercise-option', verb: 'exerciseOption', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },
   { event: 'close-position', verb: 'closePosition', args: pickArgs(['optionId', 'requestId']), ackExtras: pickAckFields(['optionId', 'payout', 'economy']) },
-  { event: 'vote-global-event', verb: 'voteGlobalEvent', args: pickArgs(['choiceId']) },
-  { event: 'declare-bankruptcy', verb: 'declareBankruptcy', args: NO_ARGS }
+  { event: 'vote-global-event', verb: 'voteGlobalEvent', args: p => [p.choiceId, {
+    eventId: p.eventId ?? null,
+    voteRound: p.voteRound ?? null,
+    voteNonce: p.voteNonce ?? null,
+    requestId: p.requestId ?? null
+  }] },
+  { event: 'declare-bankruptcy', verb: 'declareBankruptcy', args: NO_ARGS, auctionRefresh: AUCTION_STILL_OPEN }
 ];
 
 const BASE_GAME_EVENTS = new Set([
@@ -192,7 +203,9 @@ function registerGameSocketHandlers(on, socket, runtime) {
     if (!contract) return NO_PENDING_CONTRACT;
     const player = room.getPlayerBySocket(socket.id);
     if (!player) return NO_PENDING_CONTRACT;
-    if (contract.fromPlayerId !== player.id) return NO_PENDING_CONTRACT;
+    // The author of the latest offer may withdraw it. fromPlayerId is the
+    // stable lender, so after a borrower's counter it is not the author.
+    if (contractLastProposerId(contract) !== player.id) return NO_PENDING_CONTRACT;
     if (payload.contractId && payload.contractId !== contract.id) {
       return { success: false, error: 'That contract offer is no longer current.' };
     }
@@ -201,11 +214,12 @@ function registerGameSocketHandlers(on, socket, runtime) {
 
   function finalizeContractCancel(room, payload) {
     const player = room.getPlayerBySocket(socket.id);
-    const counterpartyId = room.game.pendingPlayerContract?.toPlayerId;
+    const cancelled = room.game.pendingPlayerContract;
+    const counterpartyId = cancelled ? contractResponderId(cancelled) : null;
     room.game.pendingPlayerContract = null;
     room.game.feedMessage(player.nickname + ' canceled the player contract.');
     const result = { success: true };
-    runtime.cacheContractCancel(room, socket, payload, result);
+    runtime.cacheContractCancel(room, socket, payload, result, cancelled?.id);
     // The counterparty holds a stale modal otherwise; push the state update.
     const target = counterpartyId ? room.game.getPlayerById(counterpartyId) : null;
     if (target?.socketId) runtime.io.to(target.socketId).emit('player-contract-update', { contract: null, canceled: true });
@@ -274,7 +288,7 @@ function emitRollPurchaseOffer(socket, room, result) {
   socket.emit('purchase-offer', {
     ...result.purchaseOffer,
     canAfford: Boolean(player && player.cash >= result.purchaseOffer.price),
-    canSeekSponsorship: true
+    canSeekSponsorship: playerFinanceEnabled(room.game)
   });
 }
 

@@ -30,24 +30,27 @@ function normalizeEventName(event) {
 function isNegativeGlobalEvent(event) {
   if (NEGATIVE_GLOBAL_EVENTS.has(event)) return true;
   const normalized = normalizeEventName(event);
+  if (!normalized) return false;
   if (NEGATIVE_GLOBAL_EVENTS.has(normalized)) return true;
   // Titles carry id prefixes with suffixes ("HOUSING BUBBLE" vs
   // "HOUSING BUBBLE POP"): match either direction on word boundary.
   for (const entry of NEGATIVE_GLOBAL_EVENTS) {
     const normEntry = normalizeEventName(entry);
-    if (normEntry.startsWith(normalized) || normalized.startsWith(normEntry)) return true;
+    if (normEntry === normalized || normEntry.startsWith(`${normalized} `) || normalized.startsWith(`${normEntry} `)) return true;
   }
   return false;
 }
 
 function sanitize(record = {}) {
+  // A store file can hold a null or a non-object entry; it carries no fields.
+  const source = record && typeof record === 'object' ? record : {};
   return {
-    accountId: typeof record.accountId === 'string' ? record.accountId : null,
-    achievementId: typeof record.achievementId === 'string' ? record.achievementId.slice(0, 80) : null,
-    gameId: typeof record.gameId === 'string' ? record.gameId.slice(0, 80) : null,
-    eventSequence: typeof record.eventSequence === 'string' ? record.eventSequence.slice(0, 180) : null,
-    unlockedAt: typeof record.unlockedAt === 'string' ? record.unlockedAt : new Date().toISOString(),
-    evidenceHash: typeof record.evidenceHash === 'string' ? record.evidenceHash.slice(0, 128) : null,
+    accountId: typeof source.accountId === 'string' ? source.accountId : null,
+    achievementId: typeof source.achievementId === 'string' ? source.achievementId.slice(0, 80) : null,
+    gameId: typeof source.gameId === 'string' ? source.gameId.slice(0, 80) : null,
+    eventSequence: typeof source.eventSequence === 'string' ? source.eventSequence.slice(0, 180) : null,
+    unlockedAt: typeof source.unlockedAt === 'string' ? source.unlockedAt : new Date().toISOString(),
+    evidenceHash: typeof source.evidenceHash === 'string' ? source.evidenceHash.slice(0, 128) : null,
   };
 }
 
@@ -175,6 +178,8 @@ export class AchievementStore {
     if (!value) return;
     const records = Array.isArray(value) ? value : [];
     records.forEach((entry) => {
+      // A malformed entry is skipped, not fatal: the rest of the unlocks load.
+      if (!entry || typeof entry !== 'object') return;
       const record = sanitize(entry);
       if (record.accountId && record.achievementId) this.records.set(this.key(record.accountId, record.achievementId), record);
     });
@@ -190,16 +195,30 @@ export class AchievementStore {
     const key = this.key(next.accountId, next.achievementId);
     const existing = this.records.get(key);
     if (existing) return { created: false, record: existing };
+    const before = [...this.records];
     this.records.set(key, next);
-    this.persist();
+    this.persistOrRollback(before);
     return { created: true, record: next };
+  }
+
+  // A persist that throws must not leave the change in memory: a retry would
+  // see nothing to do and the disk would never catch up.
+  persistOrRollback(before) {
+    try {
+      this.persist();
+    } catch (error) {
+      this.records.clear();
+      before.forEach(([key, record]) => this.records.set(key, record));
+      throw error;
+    }
   }
 
   remove(accountId, achievementId) {
     const key = this.key(accountId, achievementId);
     if (!this.records.has(key)) return false;
+    const before = [...this.records];
     this.records.delete(key);
-    this.persist();
+    this.persistOrRollback(before);
     return true;
   }
 
@@ -208,13 +227,14 @@ export class AchievementStore {
   }
 
   purgeAccount(accountId) {
+    const before = [...this.records];
     let removed = 0;
-    for (const [key, record] of this.records) {
+    for (const [key, record] of before) {
       if (record.accountId !== accountId) continue;
       this.records.delete(key);
       removed += 1;
     }
-    if (removed) this.persist();
+    if (removed) this.persistOrRollback(before);
     return removed;
   }
 

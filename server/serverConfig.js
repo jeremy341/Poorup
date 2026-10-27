@@ -1,5 +1,33 @@
+import crypto from 'node:crypto';
+import { rateLimitAddressKey } from './ipAllowlist.js';
+
 // Deployment-only server configuration. Runtime defaults stay permissive for
 // local play, while a hosted instance can restrict browser origins explicitly.
+
+// Operator tokens (maintenance, retention) are compared in constant time. Both
+// sides are digested first so the comparison length does not depend on input.
+export function tokensMatch(provided, expected) {
+  if (typeof expected !== 'string' || !expected) return false;
+  if (typeof provided !== 'string' || !provided) return false;
+  const digest = value => crypto.createHash('sha256').update(value).digest();
+  return crypto.timingSafeEqual(digest(provided), digest(expected));
+}
+
+let retentionFallbackWarned = false;
+
+// The retention job has its own token. Falling back to the maintenance token
+// lets one leaked secret run both operations, so the fallback warns once.
+export function resolveRetentionToken(env = process.env, warn = console.warn) {
+  const dedicated = String(env?.POORUP_RETENTION_TOKEN || '').trim();
+  if (dedicated) return dedicated;
+  const fallback = String(env?.POORUP_MAINTENANCE_TOKEN || '').trim();
+  if (fallback && !retentionFallbackWarned) {
+    retentionFallbackWarned = true;
+    warn('POORUP_RETENTION_TOKEN is unset; POORUP_MAINTENANCE_TOKEN also authorizes retention runs. Set a dedicated retention token.');
+  }
+  return fallback;
+}
+
 export function parseAllowedOrigins(env = process.env) {
   return String(env?.POORUP_ALLOWED_ORIGINS || '')
     .split(',')
@@ -43,8 +71,25 @@ export function isAllowedSocketOrigin(origin, allowedOrigins = []) {
 
 // Resolve a socket peer only through an explicitly trusted proxy hop count;
 // otherwise attacker-controlled forwarding headers cannot mint fresh limiter
-// identities on every reconnect.
+// identities on every reconnect. The result is the limiter key: an IPv6 /64 is
+// one peer (see rateLimitAddressKey).
 export function resolveClientAddress(handshake = {}, trustedProxyHops = 0) {
+  return rateLimitAddressKey(resolveRawClientAddress(handshake, trustedProxyHops));
+}
+
+// A handshake middleware must never throw: socket.io runs it from an async
+// path nobody catches, so a failed session-file write would surface as an
+// unhandledRejection and exit the process. Deny cleanly instead (anonymous).
+export function resolveHandshakeSession(resolve, cookieValue) {
+  try {
+    return resolve(cookieValue) || null;
+  } catch (error) {
+    console.error('Socket session resolution failed:', error?.message || 'unknown error');
+    return null;
+  }
+}
+
+function resolveRawClientAddress(handshake, trustedProxyHops) {
   const direct = String(handshake.address || handshake.request?.socket?.remoteAddress || handshake.socket?.remoteAddress || 'unknown').trim();
   const hops = Math.max(0, Math.floor(Number(trustedProxyHops) || 0));
   if (!hops) return direct.slice(0, 80);
@@ -53,7 +98,9 @@ export function resolveClientAddress(handshake = {}, trustedProxyHops = 0) {
     || handshake.request?.headers?.['X-Forwarded-For'];
   const chain = String(forwarded || '').split(',').map(value => value.trim()).filter(Boolean);
   if (!chain.length) return direct.slice(0, 80);
-  const index = Math.max(0, chain.length - hops - 1);
+  // Match Express/proxy-addr: with N trusted hops the client is the Nth entry
+  // from the right (the one the nearest trusted proxy appended).
+  const index = Math.max(0, chain.length - hops);
   return String(chain[index] || direct).slice(0, 80);
 }
 

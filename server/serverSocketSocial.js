@@ -6,17 +6,28 @@
 // the propertyApi.js style.
 import crypto from 'crypto';
 import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
+import { PARLOR_PATROL_ENABLED, PARLOR_PATROL_OFF_MESSAGE } from './accountStore.js';
 import { reply } from './socketHandlerSupport.js';
+import { authAttemptKey } from './serverSocketAccount.js';
 import { normalizeChatText, matchHistoryPrivacyError, summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const LEADERBOARD_METRICS = Object.freeze([
   'wins', 'games', 'rate', 'achievements', 'mythical', 'bankruptcies',
   'events', 'auctions', 'rent', 'casino', 'market', 'playerloans',
-  'equity', 'loans', 'patrol',
+  'equity', 'loans',
+  ...(PARLOR_PATROL_ENABLED ? ['patrol'] : []),
 ]);
 
-const PLAYER_NOT_FOUND = { success: false, error: 'Player not found.' };
+// Rankings walk every account's match history, so a computed board is reused for
+// a short while and only a bounded number of recomputes is allowed per client.
+const LEADERBOARD_CACHE_TTL_MS = 30_000;
+const LEADERBOARD_CACHE_MAX = 128;
+const TOO_MANY_REQUESTS = { success: false, error: 'Too many requests. Try again in a minute.' };
+const LEADERBOARD_BUSY ={ success: false, error: 'Rankings are busy. Try again shortly.' };
+const leaderboardCaches = new WeakMap();
+
+const PLAYER_NOT_FOUND ={ success: false, error: 'Player not found.' };
 const ACCOUNT_DELETION_PENDING = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
 
 // Public social references use the already-public username rather than the
@@ -28,7 +39,8 @@ export function publicSearchProfile(account) {
 
 export function publicLeaderboardRow(row) {
   if (!row || typeof row !== 'object') return row;
-  return { ...row, accountId: row.username };
+  const fields = ['displayName', 'username', 'color', 'avatarGrid', 'value', 'games', 'wins', 'achievements', 'achievementScore', 'mythical', 'bankLoanRepayments', 'bankLoanDefaults', 'trend'];
+  return { ...Object.fromEntries(fields.filter(field => Object.hasOwn(row, field)).map(field => [field, row[field]])), accountId: row.username };
 }
 
 export function projectPlayerCardAccess({ card, canSeePrivateMatches, canSeeRecent, getRecentMatches = () => [] } = {}) {
@@ -48,6 +60,11 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   function restricted(account) {
     return account?.accountDeactivated === true;
+  }
+
+  // The public account view does not say whether the account asked for deletion.
+  function accountDeactivated(accountId) {
+    return accountStore.getAccountById(accountId)?.accountDeactivated === true;
   }
 
   on('send-chat', (payload = {}, callback) => {
@@ -116,7 +133,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     if (!allowSocialAction(account.id, 'friend-request')) return reply(callback, { success: false, error: 'Too many requests. Try again in a minute.' });
     const target = lookupTarget(payload.targetAccountId, payload.username);
-    if (!target) return reply(callback, PLAYER_NOT_FOUND);
+    if (!target || accountDeactivated(target.id)) return reply(callback, PLAYER_NOT_FOUND);
     const rejected = friendRequestRejection(account, target);
     if (rejected) return reply(callback, { success: false, error: rejected });
     sendFriendRequest(account, target, callback);
@@ -131,21 +148,37 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     reply(callback, result);
   });
 
-  on('remove-friend', socialMutationHandler((id, p) => socialStore.removeFriend(id, p.otherAccountId), 'Sign in to manage friends.', true));
+  on('remove-friend', socialMutationHandler((id, p) => socialStore.removeFriend(id, p.otherAccountId), 'Sign in to manage friends.', true, 'remove-friend'));
 
-  on('block-player', socialMutationHandler((id, p) => socialStore.blockPlayer(id, p.otherAccountId), 'Sign in to manage blocks.', true));
+  on('block-player', socialMutationHandler((id, p) => socialStore.blockPlayer(id, p.otherAccountId), 'Sign in to manage blocks.', true, 'block-player'));
 
-  on('cancel-friend-request', socialMutationHandler((id, p) => socialStore.cancelFriendRequest(id, p.friendshipId), 'Sign in to manage friend requests.'));
+  on('cancel-friend-request', socialMutationHandler((id, p) => socialStore.cancelFriendRequest(id, p.friendshipId), 'Sign in to manage friend requests.', false, 'cancel-friend-request'));
 
-  on('mark-notification-read', socialMutationHandler((id, p) => socialStore.markNotificationRead(id, p.notificationId), 'Sign in to manage notifications.'));
+  on('mark-notification-read', (payload = {}, callback) => {
+    const account = accountForSocket(socket, payload);
+    if (!account) return reply(callback, { success: false, error: 'Sign in to manage notifications.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
+    const notificationId = String(payload.notificationId || '').trim();
+    const notification = notificationId
+      ? (socialStore.listFor?.(account.id)?.notifications || []).find(entry => entry?.id === notificationId)
+      : null;
+    // An already-read notification is not rewritten: the store write is skipped.
+    if (notification?.readAt) return reply(callback, { success: true });
+    if (!allowSocialAction(account.id, 'notification-read')) return reply(callback, TOO_MANY_REQUESTS);
+    const result = socialStore.markNotificationRead(account.id, notificationId);
+    if (!result.success) return reply(callback, result);
+    emitSocialUpdate(account.id);
+    reply(callback, result);
+  });
 
   // Shared skeleton of the "store mutation then refresh the social summary"
   // handlers (remove/block/cancel/mark-read): sign-in guard, verb, refresh, ack.
-  function socialMutationHandler(verb, signInError, alsoOther) {
+  function socialMutationHandler(verb, signInError, alsoOther, budgetAction = null) {
     return function socialMutation(payload = {}, callback) {
       const account = accountForSocket(socket, payload);
       if (!account) return reply(callback, { success: false, error: signInError });
       if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
+      if (budgetAction && !allowSocialAction(account.id, budgetAction)) return reply(callback, TOO_MANY_REQUESTS);
       const otherId = payload.otherAccountId ? resolveAccountId(payload.otherAccountId) : null;
       if (payload.otherAccountId && !otherId) return reply(callback, PLAYER_NOT_FOUND);
       const normalizedPayload = otherId ? { ...payload, otherAccountId: otherId } : payload;
@@ -161,6 +194,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to report a player.' });
     if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
+    if (!allowSocialAction(account.id, 'report-player')) return reply(callback, TOO_MANY_REQUESTS);
     const otherId = resolveAccountId(payload.otherAccountId);
     if (!otherId) return reply(callback, PLAYER_NOT_FOUND);
     const result = socialStore.reportPlayer(account.id, otherId, payload.reason);
@@ -193,7 +227,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const viewer = accountForSocket(socket, payload);
     if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const target = lookupAccountTarget(payload.accountId, viewer);
-    if (!target) return reply(callback, PLAYER_NOT_FOUND);
+    if (!target || (target.accountDeactivated === true && target.id !== viewer?.id)) return reply(callback, PLAYER_NOT_FOUND);
     const friendship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
     const { canSeePrivateHistory, error: privacyError } = matchHistoryPrivacyError(viewer, target, friendship);
     if (privacyError) return reply(callback, { success: false, error: privacyError });
@@ -219,16 +253,17 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   on('get-leaderboard', (payload = {}, callback) => {
     const metric = LEADERBOARD_METRICS.includes(payload.metric) ? payload.metric : 'wins';
-    leaderboardGuardedQuery(payload, callback, (scope, options) => leaderboardAck(callback, metric, scope, options));
+    leaderboardGuardedQuery(payload, callback, (scope, options, viewer) => leaderboardAck(callback, metric, scope, options, viewer));
   });
 
   on('get-leaderboard-snapshot', (payload = {}, callback) => {
-    leaderboardGuardedQuery(payload, callback, (scope, options) => snapshotAck(callback, scope, options));
+    leaderboardGuardedQuery(payload, callback, (scope, options, viewer) => snapshotAck(callback, scope, options, viewer));
   });
 
   on('send-room-invite', (payload = {}, callback) => {
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to send room invites.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const seated = room.getPlayerBySocket(socket.id);
@@ -238,7 +273,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!allowSocialAction(account.id, 'room-invite')) return reply(callback, { success: false, error: 'Too many invites. Try again in a minute.' });
     const targetId = resolveAccountId(payload.targetAccountId);
     const target = targetId ? accountStore.getPublicAccountById(targetId) : null;
-    if (!target) return reply(callback, PLAYER_NOT_FOUND);
+    if (!target || accountDeactivated(target.id)) return reply(callback, PLAYER_NOT_FOUND);
     const rejected = roomInviteRejection(account, target);
     if (rejected) return reply(callback, rejected);
     sendRoomInvite(account, target, room, callback);
@@ -249,6 +284,8 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!account) return reply(callback, { success: false, error: 'Sign in to manage room invites.' });
     const invite = socialStore.getInvite(account.id, payload.inviteId);
     if (payload.accept === true) {
+      // A pending deletion never takes a seat (declining stays allowed).
+      if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
       return reply(callback, runtime.acceptRoomInvite(socket, account, invite, payload));
     }
     const result = socialStore.respondInvite(account.id, payload.inviteId, payload.accept === true);
@@ -257,6 +294,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   });
 
   on('start-patrol-run', (payload = {}, callback) => {
+    if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to sync Parlor Patrol achievements.' });
     if (!allowSocialAction(account.id, 'patrol-run')) return reply(callback, { success: false, error: 'Too many patrol runs. Try again in a minute.' });
@@ -267,6 +305,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   });
 
   on('finish-patrol-run', (payload = {}, callback) => {
+    if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
     const account = accountForSocket(socket, payload);
     const runToken = String(payload.runToken || '').trim();
     const invalid = patrolRunError(socket.id, account, runToken);
@@ -290,7 +329,14 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const result = accountStore.recordPatrolResult(account.id, { score, misses });
     if (!result.success) return reply(callback, result);
     const candidates = patrolAchievementCandidates(account, score, result);
-    candidates.forEach(candidate => recordVerifiedAchievement(candidate, `patrol_${runContext.runToken}`));
+    // One candidate that fails must not cost the others their unlocks.
+    candidates.forEach(candidate => {
+      try {
+        recordVerifiedAchievement(candidate, `patrol_${runContext.runToken}`);
+      } catch (error) {
+        console.error('Patrol achievement settlement failed:', error?.message || 'unknown error');
+      }
+    });
     const snapshot = accountStore.getAccountSnapshot(account.id);
     if (snapshot) socket.emit('account-sync', { account: snapshot });
     reply(callback, { success: true, score, misses, best: result.best, aceRuns: result.aceRuns });
@@ -369,9 +415,12 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   }
 
   function playerCardRateError(viewer) {
-    if (viewer) return null;
-    const key = socket.handshake?.address || socket.request?.socket?.remoteAddress || socket.id;
-    return allowAnonymousAction(key, 'player-card') ? null : 'Too many player card requests. Try again in a minute.';
+    // A signed-in card read costs the account bucket as well: the card walks
+    // the target's account and match history.
+    const allowed = viewer
+      ? allowSocialAction(viewer.id, 'player-card')
+      : allowAnonymousAction(authAttemptKey(socket), 'player-card');
+    return allowed ? null : 'Too many player card requests. Try again in a minute.';
   }
 
   function roomPlayerTarget(payload) {
@@ -383,14 +432,16 @@ function registerSocialSocketHandlers(on, socket, runtime) {
   }
 
   function searchRateAllowed(viewer) {
-    const rateKey = viewer?.id || socket.handshake?.address || socket.request?.socket?.remoteAddress || socket.id;
-    return viewer ? allowSocialAction(viewer.id, 'player-search') : allowAnonymousAction(rateKey, 'player-search');
+    return viewer ? allowSocialAction(viewer.id, 'player-search') : allowAnonymousAction(authAttemptKey(socket), 'player-search');
   }
 
   function publicPlayerCardAck(viewer, target, relationship) {
     const canSeePrivateMatches = canSeePrivateHistory(viewer, target, relationship);
     const context = { card: publicPlayerCard(target.id, viewer?.id || null), target, canSeePrivateMatches };
-    context.canSeeRecent = context.canSeePrivateMatches || target.privacy?.history === 'public';
+    // The card follows the same gates as get-match-history: a private history is
+    // the owner's alone, and a deactivated account (masked) shows no matches.
+    const masked = context.card?.accountDeactivated === true && viewer?.id !== target.id;
+    context.canSeeRecent = !masked && !matchHistoryPrivacyError(viewer, target, relationship).error;
     return {
       success: true,
       player: projectCardAccess(context),
@@ -472,26 +523,79 @@ function leaderboardScope(rawScope) {
     if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const scope = leaderboardScope(payload.scope);
     const options = { ...leaderboardWindow(scope), primaryMetric: payload.metric };
-    if (scope !== 'friends') return buildAck(scope, options);
+    if (scope !== 'friends') return buildAck(scope, options, viewer);
     const accountIds = friendScopeAccountIds(viewer);
     if (!accountIds) return reply(callback, { success: false, error: 'Sign in to view friend rankings.' });
     options.accountIds = accountIds;
-    buildAck(scope, options);
+    buildAck(scope, options, viewer);
   }
 
-  function leaderboardAck(callback, metric, scope, options) {
-    reply(callback, { success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options).map(publicLeaderboardRow) });
+  function leaderboardCache() {
+    if (!leaderboardCaches.has(accountStore)) leaderboardCaches.set(accountStore, new Map());
+    return leaderboardCaches.get(accountStore);
   }
 
-  function snapshotAck(callback, scope, options) {
-    const primaryMetric = LEADERBOARD_METRICS.includes(options.primaryMetric) ? options.primaryMetric : null;
-    const snapshot = accountStore.getLeaderboardSnapshot(undefined, { ...options, primaryMetric });
-    reply(callback, {
-      success: true,
-      scope,
-      ...snapshot,
-      metrics: Object.fromEntries(Object.entries(snapshot.metrics || {}).map(([name, rows]) => [name, rows.map(publicLeaderboardRow)]))
+  // Global and month boards are the same for every viewer, so one computed board
+  // serves everyone for a while. A recompute spends the caller's budget; when it
+  // is spent the last board is served, or the request is refused if there is none.
+  function cachedLeaderboard(key, viewer, compute) {
+    const cache = leaderboardCache();
+    const at = typeof runtime.now === 'function' ? runtime.now() : Date.now();
+    const hit = cache.get(key);
+    if (hit && at - hit.at < LEADERBOARD_CACHE_TTL_MS) return compute.serve(hit.ack);
+    const allowed = viewer ? allowSocialAction(viewer.id, 'leaderboard') : allowAnonymousAction(authAttemptKey(socket), 'leaderboard');
+    if (!allowed) return hit ? compute.serve(hit.ack) : LEADERBOARD_BUSY;
+    const ack = compute();
+    cache.delete(key);
+    cache.set(key, { at, ack });
+    while (cache.size > LEADERBOARD_CACHE_MAX) cache.delete(cache.keys().next().value);
+    return compute.serve(ack);
+  }
+
+  // An account that keeps its achievements private is not ranked by them, and
+  // its achievement figures are not published on any other board.
+  function withAchievementPrivacy(metric, rows) {
+    const ranksAchievements = metric === 'achievements' || metric === 'mythical';
+    return rows.flatMap(row => {
+      const owner = accountStore.getAccountById(row?.accountId);
+      if (!owner || accountDeactivated(row.accountId)) return [];
+      if (owner?.privacy?.achievements !== 'private') return [row];
+      if (ranksAchievements) return [];
+      const rest = { ...row };
+      ['achievements', 'achievementScore', 'mythical'].forEach(field => delete rest[field]);
+      return [rest];
     });
+  }
+
+  function leaderboardAck(callback, metric, scope, options, viewer) {
+    const compute = () => ({ success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options) });
+    compute.serve = ack => ({ ...ack, rows: withAchievementPrivacy(metric, ack.rows || []).map(publicLeaderboardRow) });
+    if (scope === 'friends') {
+      // A friends board is per viewer and never cached, so every recompute
+      // costs the caller's budget.
+      if (!viewer || !allowSocialAction(viewer.id, 'leaderboard')) return reply(callback, LEADERBOARD_BUSY);
+      return reply(callback, compute.serve(compute()));
+    }
+    reply(callback, cachedLeaderboard(`board|${scope}|${metric}`, viewer, compute));
+  }
+
+  function snapshotAck(callback, scope, options, viewer) {
+    const primaryMetric = LEADERBOARD_METRICS.includes(options.primaryMetric) ? options.primaryMetric : null;
+    const compute = () => {
+      const snapshot = accountStore.getLeaderboardSnapshot(undefined, { ...options, primaryMetric });
+      return {
+        success: true,
+        scope,
+        ...snapshot,
+        metrics: snapshot.metrics || {}
+      };
+    };
+    compute.serve = ack => ({ ...ack, metrics: Object.fromEntries(Object.entries(ack.metrics || {}).map(([name, rows]) => [name, withAchievementPrivacy(name, rows).map(publicLeaderboardRow)])) });
+    if (scope === 'friends') {
+      if (!viewer || !allowSocialAction(viewer.id, 'leaderboard')) return reply(callback, LEADERBOARD_BUSY);
+      return reply(callback, compute.serve(compute()));
+    }
+    reply(callback, cachedLeaderboard(`snapshot|${scope}|${primaryMetric || ''}`, viewer, compute));
   }
 
   function roomInviteRejection(account, target) {

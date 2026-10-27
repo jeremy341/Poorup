@@ -127,6 +127,31 @@ check('fix2 payEach sufficient cash feeds total', () => {
   assert.match(game.feed[0].text, /\$20/);
 });
 
+// F-016 (owner decision: keep the forgiveness; pinned here so it cannot drift).
+// A collect-from-each card takes what a short payer has and forgives the rest:
+// no debt is parked and no shortfall is announced. A pay-each card that is
+// short parks the same kind of shortfall as a debt instead. The asymmetry is
+// deliberate.
+check('F-016 pin: collect-from-each forgives a short payer, while pay-each parks the same shortfall', () => {
+  const collect = startedRoom();
+  collect.a.cash = 100;
+  collect.b.cash = 10;
+  collect.game.applyCard(collect.a, { action: 'collectFromEach', amount: 50 }, {});
+  assert.equal(collect.a.cash, 110, 'the collector takes only what the short payer has');
+  assert.equal(collect.b.cash, 0);
+  assert.equal(collect.game.pendingPayment, null, 'the forgiven shortfall is not parked as a debt');
+  assert.equal(collect.game.feed.some(entry => /owes/.test(entry.text)), false, 'no shortfall is announced');
+
+  const pay = startedRoom();
+  pay.a.cash = 100;
+  pay.b.cash = 10;
+  pay.game.currentPlayerId = pay.b.id;
+  pay.game.hasRolled = true;
+  pay.game.applyCard(pay.b, { action: 'payEach', amount: 50 }, {});
+  assert.equal(pay.game.pendingPayment?.creditorId, pay.a.id);
+  assert.equal(pay.game.pendingPayment?.amountRemaining, 40, 'the unpaid $40 is parked against the payer');
+});
+
 function tempStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-audit-'));
   const file = path.join(dir, 'matches.json');

@@ -21,6 +21,9 @@ function validPassword(value) {
 export function createAccountRecovery({ accountStore, mailAdapter, sessionStore = null, now = Date.now, publicOrigin = '', filePath = '' } = {}) {
   const tokens = new Map();
   const knownAccounts = new Map();
+  // Every token carries a generation. It orders the requests of one account, so
+  // a slow older delivery can tell that a newer request already took over.
+  let generation = 0;
 
   function persistTokens() {
     if (!filePath) return;
@@ -30,21 +33,82 @@ export function createAccountRecovery({ accountStore, mailAdapter, sessionStore 
   function loadTokens() {
     if (!filePath || !fs.existsSync(filePath)) return;
     const loaded = loadJson(filePath, value => Array.isArray(value)).value || [];
+    generation = Math.max(generation, accountGenerationFloor());
+    let removedConsumedReset = false;
     loaded.filter(entry => entry && typeof entry.tokenHash === 'string' && typeof entry.accountId === 'string' && typeof entry.kind === 'string')
-      .slice(0, 5000).forEach(entry => tokens.set(entry.tokenHash, { ...entry }));
+      .slice(0, 5000).forEach((entry) => {
+        const candidate = Number(entry.generation);
+        // Entries written before generation tracking remain usable until the
+        // account has a durable watermark. Thereafter they fail closed because
+        // their position relative to a successful reset cannot be established.
+        const entryGeneration = Number.isSafeInteger(candidate) && candidate >= 0 ? candidate : 0;
+        const account = getAccount(entry.accountId);
+        const watermark = Number(account?.consumedPasswordResetGeneration) || 0;
+        if (entry.kind === 'password-reset' && watermark > 0 && entryGeneration <= watermark) {
+          removedConsumedReset = true;
+          return;
+        }
+        tokens.set(entry.tokenHash, { ...entry, generation: entryGeneration });
+        generation = Math.max(generation, entryGeneration);
+      });
+    if (removedConsumedReset) {
+      try { persistTokens(); } catch { /* the account watermark still rejects these entries on every restart */ }
+    }
   }
 
   function issue(accountId, kind, metadata = {}) {
     const raw = crypto.randomBytes(32).toString('base64url');
     const issuedAt = Number(now()) || Date.now();
-    const entry = { tokenHash: hashToken(raw), accountId, kind, issuedAt, expiresAt: issuedAt + TOKEN_TTL_MS, ...metadata };
+    const accountWatermark = Number(getAccount(accountId)?.consumedPasswordResetGeneration);
+    generation = Math.max(generation, accountGenerationFloor(), Number.isSafeInteger(accountWatermark) && accountWatermark >= 0 ? accountWatermark : 0);
+    const entry = { tokenHash: hashToken(raw), accountId, kind, issuedAt, expiresAt: issuedAt + TOKEN_TTL_MS, ...metadata, generation: ++generation };
     tokens.set(entry.tokenHash, entry);
-    persistTokens();
-    return { token: raw, expiresAt: entry.expiresAt };
+    // A token that was not saved is not kept: nobody has received it yet, and
+    // after a restart it would not exist anyway.
+    try {
+      persistTokens();
+    } catch (error) {
+      tokens.delete(entry.tokenHash);
+      throw error;
+    }
+    return { token: raw, tokenHash: entry.tokenHash, expiresAt: entry.expiresAt, generation: entry.generation };
+  }
+
+  // The generation that owns the pending recovery state of an account: the
+  // request whose token the pending address was issued with.
+  function pendingGeneration(account) {
+    const hash = account?.pendingRecoveryEmailTokenHash;
+    const entry = hash ? tokens.get(hash) : null;
+    return Number.isFinite(entry?.generation) ? entry.generation : -1;
+  }
+
+  // Drops the older tokens of one kind for an account. The removed entries are
+  // returned, so a failed write can put them back.
+  function supersede(accountId, kind, keepGeneration) {
+    const removed = [];
+    for (const [hash, entry] of [...tokens]) {
+      if (entry?.kind !== kind || entry?.accountId !== accountId) continue;
+      if (!(Number(entry.generation) < keepGeneration)) continue;
+      tokens.delete(hash);
+      removed.push([hash, entry]);
+    }
+    return removed;
   }
 
   function getAccount(accountId) {
     return accountStore?.getAccountById?.(accountId) || null;
+  }
+
+  function accountGenerationFloor() {
+    const accounts = typeof accountStore?.listAccounts === 'function'
+      ? accountStore.listAccounts()
+      : accountStore?.accounts instanceof Map
+        ? [...accountStore.accounts.values()]
+        : [...knownAccounts.values()];
+    return accounts.reduce((floor, account) => {
+      const value = Number(account?.consumedPasswordResetGeneration);
+      return Number.isSafeInteger(value) && value >= 0 ? Math.max(floor, value) : floor;
+    }, 0);
   }
 
   function findAccount(username) {
@@ -54,28 +118,75 @@ export function createAccountRecovery({ accountStore, mailAdapter, sessionStore 
     return knownAccounts.get(normalized) || null;
   }
 
+  // Links are built only from the configured public origin. A link with no
+  // origin is never sent, so no token is issued without one.
+  function actionLink(route, token) {
+    return `${String(publicOrigin).replace(/\/$/, '')}${route}?token=${encodeURIComponent(token)}`;
+  }
+
+  async function deliver(message) {
+    try {
+      const result = await mailAdapter?.send?.(message);
+      return result?.success === true;
+    } catch {
+      return false;
+    }
+  }
+
   async function requestEmailVerification({ accountId, currentPassword, email } = {}) {
     const account = getAccount(accountId);
+    // A pending deletion is final for the account's contact details (E24-09).
+    if (account?.accountDeactivated === true) return { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
     const address = validEmail(email);
     if (!account || !address || !accountStore?.verifyPassword?.(account, currentPassword)) return { success: false, code: 'RECOVERY_REQUEST_INVALID' };
-    const issued = issue(account.id, 'email-verification', { email: address });
+    if (!publicOrigin) return { success: false, code: 'RECOVERY_LINK_UNAVAILABLE', error: 'Recovery email is not available on this server.' };
+    let issued;
+    try {
+      issued = issue(account.id, 'email-verification', { email: address });
+    } catch {
+      return { success: false, code: 'RECOVERY_MAIL_UNAVAILABLE', error: 'The verification email could not be sent. Try again shortly.' };
+    }
+    const delivered = await deliver({ to: address, subject: 'Verify your Poorup recovery email', template: 'recovery-email-verification', variables: { actionUrl: actionLink('/account/recovery/verify', issued.token), username: account.username } });
+    if (!delivered) {
+      // A failed send must not leave a live token nobody received.
+      tokens.delete(issued.tokenHash);
+      persistTokens();
+      return { success: false, code: 'RECOVERY_MAIL_UNAVAILABLE', error: 'The verification email could not be sent. Try again shortly.' };
+    }
+    // The pending state belongs to the newest request: a slow older delivery
+    // must not take it back (X4a).
+    if (pendingGeneration(account) >= issued.generation) {
+      tokens.delete(issued.tokenHash);
+      try { persistTokens(); } catch { /* the newer pending state still stands */ }
+      return { success: true, expiresAt: issued.expiresAt };
+    }
     knownAccounts.set(account.username, account);
     account.pendingRecoveryEmail = address;
     account.pendingRecoveryEmailTokenHash = hashToken(issued.token);
     account.pendingRecoveryEmailExpiresAt = issued.expiresAt;
+    // The older links of this account are dead once the newest one is stored.
+    if (supersede(account.id, 'email-verification', issued.generation).length) {
+      try { persistTokens(); } catch { /* the pending state is already stored */ }
+    }
     accountStore.persist?.();
-    const actionUrl = publicOrigin ? `${String(publicOrigin).replace(/\/$/, '')}/profile/recovery?token=${encodeURIComponent(issued.token)}` : '';
-    try { await mailAdapter?.send?.({ to: address, subject: 'Verify your Poorup recovery email', template: 'recovery-email-verification', variables: { actionUrl, username: account.username } }); } catch { /* mail is best effort; token remains valid for retry */ }
-    return { success: true, expiresAt: issued.expiresAt, token: issued.token };
+    return { success: true, expiresAt: issued.expiresAt };
   }
 
-  async function consumeEmailVerification(token) {
+  // An owner-bound caller (the signed-in socket) must match the requesting
+  // account. The mail link has no session, so the token itself proves the
+  // mailbox and is checked without an account binding.
+  async function consumeEmailVerification(token, { accountId = null } = {}) {
     const entry = tokens.get(hashToken(token));
     if (!entry || entry.kind !== 'email-verification' || entry.expiresAt <= (Number(now()) || Date.now())) return false;
+    if (accountId && entry.accountId !== accountId) return false;
     const account = getAccount(entry.accountId);
+    if (account?.accountDeactivated === true) return false;
     tokens.delete(entry.tokenHash);
     persistTokens();
     if (!account || account.pendingRecoveryEmail !== entry.email) return false;
+    // Only the request that owns the pending state may confirm it: an older
+    // link of the same address must not (X4a).
+    if (account.pendingRecoveryEmailTokenHash && account.pendingRecoveryEmailTokenHash !== entry.tokenHash) return false;
     account.recoveryEmail = entry.email;
     account.recoveryEmailVerified = true;
     account.pendingRecoveryEmail = null;
@@ -90,14 +201,41 @@ export function createAccountRecovery({ accountStore, mailAdapter, sessionStore 
     const account = findAccount(username);
     const address = validEmail(email);
     const matches = account && address && account.recoveryEmailVerified === true && account.recoveryEmail === address;
-    if (!matches) return { success: true, sent: false };
-    // Single live reset per account: concurrent tokens must not both work.
-    for (const [hash, entry] of [...tokens]) {
-      if (entry?.kind === 'password-reset' && entry?.accountId === account.id && hash) tokens.delete(hash);
+    if (!matches || !publicOrigin) {
+      // A match pays for a synchronous token-file write; an unmatched pair does
+      // the same write (of the unchanged set), so latency does not tell them apart.
+      try { persistTokens(); } catch { /* the response must not depend on the disk */ }
+      return { success: true, sent: false };
     }
-    const issued = issue(account.id, 'password-reset');
-    try { await mailAdapter?.send?.({ to: address, subject: 'Reset your Poorup password', template: 'password-reset', variables: { username: account.username } }); } catch { /* enumeration-safe response remains unchanged */ }
-    return { success: true, sent: true, expiresAt: issued.expiresAt, token: issued.token };
+    // The link delivered earlier stays usable until its replacement arrives:
+    // a failed mail must not leave the owner without a way in (X4b).
+    let issued;
+    try {
+      issued = issue(account.id, 'password-reset');
+    } catch {
+      // Nothing was saved or mailed, so the previous reset token stays valid.
+      return { success: true, sent: false };
+    }
+    // Delivery is not awaited: a matched address would otherwise answer slower
+    // than an unmatched one by the mail round trip (E24-10).
+    void deliver({ to: address, subject: 'Reset your Poorup password', template: 'password-reset', variables: { actionUrl: actionLink('/account/recovery/reset', issued.token), username: account.username } }).then((delivered) => {
+      if (!delivered) {
+        // The replacement never arrived: drop its token, keep the old link.
+        tokens.delete(issued.tokenHash);
+        try { persistTokens(); } catch { /* the in-memory revocation still stands */ }
+        return;
+      }
+      // The replacement is delivered, so the older links are dead from now on.
+      const removed = supersede(account.id, 'password-reset', issued.generation);
+      if (!removed.length) return;
+      try {
+        persistTokens();
+      } catch {
+        // The file still lists the older links: keep them alive in memory too.
+        for (const [hash, entry] of removed) tokens.set(hash, entry);
+      }
+    });
+    return { success: true, sent: true, expiresAt: issued.expiresAt };
   }
 
   async function consumePasswordReset(token, newPassword) {
@@ -105,17 +243,29 @@ export function createAccountRecovery({ accountStore, mailAdapter, sessionStore 
     if (!entry || entry.kind !== 'password-reset' || entry.expiresAt <= (Number(now()) || Date.now()) || !validPassword(newPassword)) return false;
     const account = getAccount(entry.accountId);
     if (!account) return false;
-    // Canonical path only: updatePassword hashes with the store's key
-    // length. The legacy 32-byte fallback is removed — a failed update
-    // must fail closed, never brick the credential.
-    if (typeof accountStore.updatePassword !== 'function') return false;
-    if (accountStore.updatePassword(account.id, newPassword) !== true) return false;
+    if (typeof accountStore.updatePasswordForRecovery !== 'function') return false;
+    const marker = Number(account.consumedPasswordResetGeneration) || 0;
+    const entryGeneration = Number(entry.generation) || 0;
+    if (entryGeneration > 0 && entryGeneration <= marker) return false;
+    // A legacy token without a generation consumes the next durable value;
+    // this also invalidates every reset token issued before the completion.
+    const consumedGeneration = Math.max(generation, accountGenerationFloor(), marker, entryGeneration) + (entryGeneration === 0 ? 1 : 0);
+    try {
+      if (sessionStore) {
+        if (typeof sessionStore.revokeAllForAccount !== 'function') return false;
+        // Revocation is persisted before the credential changes. If it fails,
+        // the password and token remain untouched so the user can retry.
+        sessionStore.revokeAllForAccount(account.id);
+      }
+      if (accountStore.updatePasswordForRecovery(account.id, newPassword, consumedGeneration) !== true) return false;
+    } catch {
+      return false;
+    }
+    generation = Math.max(generation, consumedGeneration);
     tokens.delete(entry.tokenHash);
-    persistTokens();
-    accountStore.revokeSessionsForAccount?.(account.id);
-    // Cookie sessions live in a separate store: without this, a stolen
-    // cookie survives the reset it was supposed to invalidate.
-    try { sessionStore?.revokeAllForAccount?.(account.id); } catch { /* revocation is best effort after the credential rotated */ }
+    // The account write is the durable consumed-token marker. This cleanup
+    // removes the token hash when available, but cannot make it replayable.
+    try { persistTokens(); } catch { /* the account watermark remains authoritative */ }
     return true;
   }
 
@@ -127,8 +277,17 @@ export function createAccountRecovery({ accountStore, mailAdapter, sessionStore 
     return removed;
   }
 
+  // Erasure: a verification token holds the account's address, so it goes with
+  // the account instead of waiting for expiry.
+  function purgeAccount(accountId) {
+    let removed = 0;
+    for (const [key, entry] of tokens) if (entry.accountId === accountId) { tokens.delete(key); removed += 1; }
+    if (removed) persistTokens();
+    return removed;
+  }
+
   loadTokens();
-  return { requestEmailVerification, consumeEmailVerification, requestPasswordReset, consumePasswordReset, prune, tokenCount: () => tokens.size };
+  return { requestEmailVerification, consumeEmailVerification, requestPasswordReset, consumePasswordReset, prune, purgeAccount, tokenCount: () => tokens.size };
 }
 
 export { TOKEN_TTL_MS, hashToken };

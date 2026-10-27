@@ -2,8 +2,10 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { participantFromPlayer } from './participantFields.js';
+import { cleanPlayerName, isReservedName } from './nicknamePolicy.js';
 import { sanitizeMatch } from './matchStore.js';
 import { loadJson, writeJson } from './storeIO.js';
+import { computePlacementById } from './gamePlacement.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +13,12 @@ const DEFAULT_FILE = path.join(__dirname, 'data', 'accounts.json');
 // Absolute lifetime for legacy (non-cookie) session tokens, mirroring the
 // cookie store's absolute window. Cutover: no sliding refresh, no rehydrate.
 const LEGACY_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// Per-account password failure budget. It follows the account rather than the
+// address, so rotating peers cannot keep guessing one username. A successful
+// password check (login or confirmation) clears only that account's count.
+const PASSWORD_FAILURE_LIMIT = 10;
+const PASSWORD_FAILURE_WINDOW_MS = 15 * 60_000;
+const ACCOUNT_LOCKED_ERROR = 'Too many failed sign-in attempts. Try again later.';
 const USERNAME_RE = /^[a-z0-9_]{3,16}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const FACE_SIZE = 8;
@@ -54,7 +62,7 @@ function applyProfilePatch(account, patch) {
   if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);
   if (patch.color != null) account.color = normalizeColor(patch.color, account.color);
   if (patch.avatarGrid != null) account.avatarGrid = sanitizeAvatarGrid(patch.avatarGrid);
-  if (patch.privacy && typeof patch.privacy === 'object') account.privacy = sanitizePrivacy(patch.privacy);
+  if (patch.privacy && typeof patch.privacy === 'object') account.privacy = sanitizePrivacy({ ...account.privacy, ...patch.privacy });
 }
 
 function hasCredentialShape(account, password) {
@@ -70,6 +78,18 @@ const num = (value) => Number(value) || 0;
 // the two achievement-derived figures. Replaces a 15-deep nested ternary chain
 // so adding a rank type is one row here, not another ternary arm. The default
 // (unknown metric) is wins, matching the previous final `: Number(wins) || 0`.
+// Parlor Patrol / Night Shift is switched off (audit F-059): the code stays so
+// it can return, but no run starts, no score is recorded and 'patrol' is not a
+// ranked metric. Stored patrolBest / achievements stay readable.
+export const PARLOR_PATROL_ENABLED = false;
+export const PARLOR_PATROL_OFF_MESSAGE = 'Parlor Patrol is resting for now. Your saved scores are safe.';
+
+const RANKED_LEADERBOARD_METRICS = Object.freeze([
+  'wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events',
+  'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans',
+  ...(PARLOR_PATROL_ENABLED ? ['patrol'] : [])
+]);
+
 const METRIC_RESOLVERS = {
   wins: (stats) => num(stats.wins),
   games: (stats) => num(stats.gamesPlayed),
@@ -116,28 +136,41 @@ function normalizeUsername(value) {
 }
 
 function normalizeDisplayName(value, fallback = 'PLAYER') {
-  const name = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, 18) : '';
-  return name || fallback;
+  const name = cleanPlayerName(value, 18);
+  if (name && !isReservedName(name)) return name;
+  // The fallback is the username, which grandfathered accounts may have chosen
+  // as a reserved label; it must not become the worn name either.
+  return isReservedName(String(fallback)) ? `${fallback}_1` : fallback;
 }
 
 function normalizeColor(value, fallback = '#d74438') {
   return COLOR_RE.test(String(value || '')) ? String(value).toLowerCase() : fallback;
 }
 
+// Issuance stamps share the lifetime of the session entry they describe, so a
+// revoked bearer token does not linger as a map key.
 function revokeLiveSessions(store, username) {
   for (const [token, owner] of store.sessions) {
-    if (owner === username) store.sessions.delete(token);
+    if (owner !== username) continue;
+    store.sessions.delete(token);
+    store.sessionIssuedAt.delete(token);
   }
 }
 
 function revokePersistedSessionHashes(store, username) {
   for (const [tokenHash, owner] of store.sessionHashes) {
-    if (owner === username) store.sessionHashes.delete(tokenHash);
+    if (owner !== username) continue;
+    store.sessionHashes.delete(tokenHash);
+    store.sessionIssuedAt.delete(tokenHash);
   }
 }
 
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function quarantineStamp() {
+  return `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function snapshotStore(store) {
@@ -168,11 +201,11 @@ function restoreStore(store, snapshot) {
   (snapshot.sessionIssuedAt || new Map()).forEach((ts, key) => store.sessionIssuedAt.set(key, ts));
 }
 
-function commitMutation(store, mutate) {
+function commitMutation(store, mutate, persistOptions = {}) {
   const snapshot = snapshotStore(store);
   try {
     const result = mutate();
-    store.persist();
+    store.persist(persistOptions);
     return result;
   } catch (error) {
     restoreStore(store, snapshot);
@@ -215,12 +248,15 @@ function sanitizeHistory(value) {
 // Match history is intentionally capped for profile payloads, but settlement
 // idempotency cannot share that display window: an old match may be replayed
 // long after it falls out of the visible list. Keep a durable, private ledger
-// of every match id that has already contributed account stats.
+// of recent match ids that have already contributed account stats.
+const RECORDED_MATCH_ID_LIMIT = 500;
 function sanitizeRecordedMatchIds(value, legacyHistory = []) {
   const source = Array.isArray(value) ? value : legacyHistory.map(entry => entry?.matchId);
+  // The ledger is copied into every accounts.json rewrite, so it keeps only the
+  // newest ids (E37-14). A replay older than that window is not recognised.
   return [...new Set(source
     .filter(entry => typeof entry === 'string' && entry.trim())
-    .map(entry => entry.trim().slice(0, 80)))];
+    .map(entry => entry.trim().slice(0, 80)))].slice(-RECORDED_MATCH_ID_LIMIT);
 }
 
 const nonNegative = (value) => Math.max(0, Number(value) || 0);
@@ -234,19 +270,15 @@ const clippedList = (value, cap) => (Array.isArray(value) ? value.slice(0, cap) 
 // on -- the store contradicting itself inside one record. Ghost seats therefore
 // compete for no placement at all and sort behind every contested seat; inside
 // the contested seats the legacy ladder (bankrupt last, then cash) is unchanged.
-function computePlacementById(players) {
-  const sortCash = player => Number(player.cash) || 0;
-  const tier = player => (player.disconnected ? 2 : 0) + (player.bankrupt ? 1 : 0);
-  return new Map([...players]
-    .sort((a, b) => tier(a) - tier(b) || sortCash(b) - sortCash(a))
-    .map((player, index) => [player.id, index + 1]));
-}
-
+// The seat the game crowned owns 1st place even when the round limit was
+// decided on net worth and another seat still holds more cash, so the crown
+// outranks the cash ladder; the ghost/bankrupt tiers keep their own order.
 function matchDetailFields(matchMeta, participants) {
   if (!matchMeta.includeMatchDetails) return {};
   const fields = {
     playerCount: Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length)),
     botDecisions: clippedList(matchMeta.botDecisions, 200),
+    netWorthTimeline: clippedList(matchMeta.netWorthTimeline, 40),
     botOnly: matchMeta.botOnly === true
   };
   if (matchMeta.afkOnly === true) fields.afkOnly = true;
@@ -259,7 +291,7 @@ function rulesetFieldValue(value) {
 
 function rulesetFields(matchMeta) {
   const fields = {};
-  ['rulesetPreset', 'rulesetBase', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
+  ['boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(matchMeta, key)) fields[key] = rulesetFieldValue(matchMeta[key]);
   });
   if (Object.prototype.hasOwnProperty.call(matchMeta, 'rulesetOverrides')) {
@@ -337,8 +369,7 @@ function applyMatchResult(account, player, result) {
   });
   account.history = [matchHistoryEntry(player, result.matchRecord.matchId, result.winnerId), ...sanitizeHistory(account.history)].slice(0, 50);
   account.matchHistory = [ownerMatchRecord(result.matchRecord), ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
-  account.recordedMatchIds = sanitizeRecordedMatchIds(account.recordedMatchIds);
-  if (!account.recordedMatchIds.includes(result.matchRecord.matchId)) account.recordedMatchIds.push(result.matchRecord.matchId);
+  account.recordedMatchIds = sanitizeRecordedMatchIds([...sanitizeRecordedMatchIds(account.recordedMatchIds), result.matchRecord.matchId]);
 }
 
 function ownerMatchRecord(matchRecord) {
@@ -346,6 +377,45 @@ function ownerMatchRecord(matchRecord) {
   const ownerProjection = { ...matchRecord };
   delete ownerProjection.botDecisions;
   return ownerProjection;
+}
+
+function anonymizeAccountInMatchRecord(record, accountId) {
+  if (!record || typeof record !== 'object') return { record, changed: false };
+  let changed = false;
+  const next = { ...record };
+  if (Array.isArray(record.participants)) {
+    let participantsChanged = false;
+    next.participants = record.participants.map((participant) => {
+      if (participant?.accountId !== accountId) return participant;
+      participantsChanged = true;
+      return { ...participant, accountId: null, displayNameAtMatch: 'ACCOUNT DEACTIVATED' };
+    });
+    changed ||= participantsChanged;
+  }
+  for (const key of ['casino', 'market']) {
+    if (!Array.isArray(record[key])) continue;
+    let rowsChanged = false;
+    next[key] = record[key].map((row) => {
+      if (row?.accountId !== accountId) return row;
+      rowsChanged = true;
+      return { ...row, accountId: null };
+    });
+    changed ||= rowsChanged;
+  }
+  if (Array.isArray(record.playerContracts)) {
+    let contractsChanged = false;
+    next.playerContracts = record.playerContracts.map((contract) => {
+      if (contract?.fromAccountId !== accountId && contract?.toAccountId !== accountId) return contract;
+      contractsChanged = true;
+      return {
+        ...contract,
+        ...(contract.fromAccountId === accountId ? { fromAccountId: null } : {}),
+        ...(contract.toAccountId === accountId ? { toAccountId: null } : {})
+      };
+    });
+    changed ||= contractsChanged;
+  }
+  return { record: changed ? next : record, changed };
 }
 
 function accountAlreadyRecordedMatch(account, matchId) {
@@ -492,6 +562,10 @@ function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
 
+// Salt for the scrypt that stands in for an unknown username's verifier. It
+// is never stored or matched against anything.
+const DUMMY_PASSWORD_SALT = crypto.randomBytes(16).toString('hex');
+
 function createSessionToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
@@ -533,6 +607,8 @@ function applyRecoveryFields(normalized, account) {
   if (typeof account.pendingRecoveryEmail === 'string') normalized.pendingRecoveryEmail = account.pendingRecoveryEmail.trim().toLowerCase().slice(0, 254);
   if (typeof account.pendingRecoveryEmailTokenHash === 'string') normalized.pendingRecoveryEmailTokenHash = account.pendingRecoveryEmailTokenHash.slice(0, 128);
   if (typeof account.pendingRecoveryEmailExpiresAt === 'string') normalized.pendingRecoveryEmailExpiresAt = account.pendingRecoveryEmailExpiresAt;
+  const consumedGeneration = Number(account.consumedPasswordResetGeneration);
+  normalized.consumedPasswordResetGeneration = Number.isSafeInteger(consumedGeneration) && consumedGeneration >= 0 ? consumedGeneration : 0;
 }
 
 function applyOptionalAccountFields(normalized, account) {
@@ -567,11 +643,20 @@ export class AccountStore {
   constructor(filePath = DEFAULT_FILE) {
     this.filePath = filePath;
     this.accounts = new Map();
+    this.idIndex = new Map();
     this.sessions = new Map();
     this.sessionHashes = new Map();
     // Legacy token issuance timestamps (token and hash -> ms). Memory-only
     // like sessions itself; absolute TTL enforced in sessionAccount.
     this.sessionIssuedAt = new Map();
+    // Account id -> { startedAt, count }. Bounded by the account count.
+    this.passwordFailures = new Map();
+    // Record accounting for persist(): records on disk at load, records that
+    // failed validation and are not yet moved aside, and the count of records
+    // still represented on disk only by those rejects.
+    this.onDiskCount = 0;
+    this.rejectedCount = 0;
+    this.rejectedAtLoad = [];
     this.load();
   }
 
@@ -580,21 +665,42 @@ export class AccountStore {
     if (!value) return;
     const entries = value;
     if (!Array.isArray(entries)) return;
+    const rejected = [];
     entries.forEach((account) => {
       const handle = normalizeUsername(account?.username);
       // Normalize legacy records as they load and keep the Map invariant
       // case-insensitive. If a malformed file contains duplicate handles,
       // the first valid record remains the owner of that username.
-      if (!loadableAccount(handle, account, this.accounts)) return;
+      if (!loadableAccount(handle, account, this.accounts)) {
+        rejected.push(account);
+        return;
+      }
       this.accounts.set(handle, normalizeLoadedAccount(handle, account));
       // Cutover: persisted session hashes are no longer rehydrated. Cookie
       // sessions (sessionStore records) survive restarts with their own
       // expiry; legacy tokens require a fresh login after a restart.
     });
+    this.onDiskCount = entries.length;
+    this.rejectedCount = rejected.length;
+    this.rejectedAtLoad = rejected;
+    if (rejected.length) console.error(`Account store: ${rejected.length} record(s) failed validation and will be moved to a sidecar before the next write.`);
   }
 
-  persist() {
-    writeJson(this.filePath, [...this.accounts.values()]);
+  // The rejected records are moved aside before the store is rewritten, so the
+  // rewrite cannot erase them (E37-07). A rewrite that would drop records other
+  // than the rejected ones and the purged accounts is refused.
+  persist({ removed = 0 } = {}) {
+    if (this.rejectedAtLoad.length) {
+      writeJson(`${this.filePath}.rejected-${quarantineStamp()}.json`, this.rejectedAtLoad);
+      this.rejectedAtLoad = [];
+    }
+    const records = [...this.accounts.values()];
+    if (this.onDiskCount - records.length > this.rejectedCount + removed) {
+      throw new Error('Account record count dropped unexpectedly; the store was not written.');
+    }
+    writeJson(this.filePath, records);
+    this.onDiskCount = records.length;
+    this.rejectedCount = 0;
   }
 
   resolveSessionUsername(sessionToken) {
@@ -622,7 +728,12 @@ export class AccountStore {
   expireLegacySessionIfNeeded(sessionToken, key, now, issuedAt) {
     if (now - issuedAt < LEGACY_SESSION_TTL_MS) return false;
     this.sessions.delete(sessionToken);
-    try { this.sessionHashes.delete(hashSessionToken(sessionToken)); } catch { /* unhashable */ }
+    this.sessionIssuedAt.delete(sessionToken);
+    try {
+      const tokenHash = hashSessionToken(sessionToken);
+      this.sessionHashes.delete(tokenHash);
+      this.sessionIssuedAt.delete(tokenHash);
+    } catch { /* unhashable */ }
     this.sessionIssuedAt.delete(key);
     return true;
   }
@@ -648,6 +759,15 @@ export class AccountStore {
     const account = username ? this.accounts.get(username) || null : null;
     if (!account) return null;
     if (expectedAccountId && account.id !== expectedAccountId) return null;
+    // Cookie sessions are bearer tokens too, so they are bounded by the same
+    // absolute TTL the legacy token path enforces. A hash that is past its
+    // lifetime authenticates nobody and is dropped from both indexes.
+    const { now, issuedAt } = this.ensureLegacyIssuedAt(tokenHash);
+    if (now - issuedAt >= LEGACY_SESSION_TTL_MS) {
+      this.sessionHashes.delete(tokenHash);
+      this.sessionIssuedAt.delete(tokenHash);
+      return null;
+    }
     return account;
   }
 
@@ -691,6 +811,7 @@ export class AccountStore {
         achievements: [],
         matchHistory: [],
         recordedMatchIds: [],
+        consumedPasswordResetGeneration: 0,
         privacy: sanitizePrivacy(null),
         recentClearedAt: null,
         createdAt: new Date().toISOString(),
@@ -712,6 +833,15 @@ export class AccountStore {
         message: 'Username must be 3–16 characters: letters, numbers, or underscores.',
       };
     }
+    if (isReservedName(handle)) {
+      return {
+        success: true,
+        available: false,
+        reason: 'reserved',
+        username: handle,
+        message: 'That username is reserved.',
+      };
+    }
     const existing = this.accounts.get(handle);
     const available = !existing || (Boolean(currentAccountId) && existing.id === currentAccountId);
     return {
@@ -723,15 +853,45 @@ export class AccountStore {
     };
   }
 
+  passwordLocked(account) {
+    const entry = account?.id ? this.passwordFailures.get(account.id) : null;
+    if (!entry) return false;
+    if (Date.now() - entry.startedAt >= PASSWORD_FAILURE_WINDOW_MS) {
+      this.passwordFailures.delete(account.id);
+      return false;
+    }
+    return entry.count >= PASSWORD_FAILURE_LIMIT;
+  }
+
+  recordPasswordResult(account, matched) {
+    if (!account?.id) return;
+    if (matched) {
+      this.passwordFailures.delete(account.id);
+      return;
+    }
+    const now = Date.now();
+    const current = this.passwordFailures.get(account.id);
+    const entry = current && now - current.startedAt < PASSWORD_FAILURE_WINDOW_MS ? current : { startedAt: now, count: 0 };
+    entry.count += 1;
+    this.passwordFailures.set(account.id, entry);
+  }
+
   login({ username, password } = {}) {
     const handle = normalizeUsername(username);
     const account = this.accounts.get(handle);
     if (!hasCredentialShape(account, password) || !validPasswordShape(password)) {
+      // An unknown username pays the same scrypt as a known one, so the
+      // response time cannot tell registered names from unregistered ones.
+      if (!account && validPasswordShape(password)) hashPassword(password, DUMMY_PASSWORD_SALT);
       return { success: false, error: 'Username or password is incorrect.' };
     }
+    // Cheap state first: a locked account never pays for a scrypt derivation.
+    if (this.passwordLocked(account)) return { success: false, code: 'ACCOUNT_LOCKED', error: ACCOUNT_LOCKED_ERROR };
     const expected = Buffer.from(account.passwordHash, 'hex');
     const actual = Buffer.from(hashPassword(password, account.passwordSalt), 'hex');
-    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+    const matched = expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    this.recordPasswordResult(account, matched);
+    if (!matched) {
       return { success: false, error: 'Username or password is incorrect.' };
     }
     return commitMutation(this, () => {
@@ -764,11 +924,17 @@ export class AccountStore {
   logout(sessionToken) {
     const account = this.sessionAccount(sessionToken);
     if (!account) {
-      if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
+      if (typeof sessionToken === 'string') {
+        this.sessions.delete(sessionToken);
+        this.sessionIssuedAt.delete(sessionToken);
+      }
       return { success: true };
     }
     return commitMutation(this, () => {
-      if (typeof sessionToken === 'string') this.sessions.delete(sessionToken);
+      if (typeof sessionToken === 'string') {
+        this.sessions.delete(sessionToken);
+        this.sessionIssuedAt.delete(sessionToken);
+      }
       revokePersistedSessionHashes(this, account.username);
       account.sessionTokenHash = null;
       return { success: true };
@@ -777,9 +943,12 @@ export class AccountStore {
 
   verifyPassword(account, password) {
     if (!hasCredentialShape(account, password) || !validPasswordShape(password)) return false;
+    if (this.passwordLocked(account)) return false;
     const expected = Buffer.from(account.passwordHash, 'hex');
     const actual = Buffer.from(hashPassword(password, account.passwordSalt), 'hex');
-    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    const matched = expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    this.recordPasswordResult(account, matched);
+    return matched;
   }
 
   listAccounts() {
@@ -795,13 +964,35 @@ export class AccountStore {
   updatePassword(accountId, password) {
     const account = this.getAccountById(accountId);
     if (!account || !validPasswordShape(password)) return false;
-    return commitMutation(this, () => {
+    const updated = commitMutation(this, () => {
       const salt = crypto.randomBytes(16).toString('hex');
       account.passwordSalt = salt;
       account.passwordHash = hashPassword(password, salt);
       this.revokeSessionsForAccount(account.id, false);
       return true;
     });
+    // Resetting the password is the remedy for a locked account, so the failure
+    // window must not outlive it (the mutation above throws if it did not land).
+    this.passwordFailures.delete(account.id);
+    return updated;
+  }
+
+  // Store the reset watermark with the credential in the same atomic write.
+  // Recovery uses it to reject stale reset tokens if token-file cleanup fails.
+  updatePasswordForRecovery(accountId, password, consumedGeneration) {
+    const account = this.getAccountById(accountId);
+    const generation = Number(consumedGeneration);
+    if (!account || !validPasswordShape(password) || !Number.isSafeInteger(generation) || generation < 1) return false;
+    const updated = commitMutation(this, () => {
+      const salt = crypto.randomBytes(16).toString('hex');
+      account.passwordSalt = salt;
+      account.passwordHash = hashPassword(password, salt);
+      account.consumedPasswordResetGeneration = Math.max(Number(account.consumedPasswordResetGeneration) || 0, generation);
+      this.revokeSessionsForAccount(account.id, false);
+      return true;
+    });
+    this.passwordFailures.delete(account.id);
+    return updated;
   }
 
   shouldRevokeLiveSession(owner, accountUsername, keepToken, token) {
@@ -825,6 +1016,7 @@ export class AccountStore {
     for (const [token, owner] of [...this.sessions]) {
       if (!this.shouldRevokeLiveSession(owner, accountUsername, keepToken, token)) continue;
       this.sessions.delete(token);
+      this.sessionIssuedAt.delete(token);
       revoked += 1;
     }
     return revoked;
@@ -834,6 +1026,7 @@ export class AccountStore {
     for (const [hash, owner] of [...this.sessionHashes]) {
       if (!this.shouldRevokeHash(owner, accountUsername, keepToken, hash)) continue;
       this.sessionHashes.delete(hash);
+      this.sessionIssuedAt.delete(hash);
     }
   }
 
@@ -850,11 +1043,23 @@ export class AccountStore {
   purgeAccount(accountId) {
     const account = this.getAccountById(accountId);
     if (!account) return false;
-    return commitMutation(this, () => {
+    const purged = commitMutation(this, () => {
       this.revokeSessionsForAccount(account.id, false);
+      this.accounts.forEach((remaining) => {
+        if (remaining.id === account.id || !Array.isArray(remaining.matchHistory)) return;
+        let changed = false;
+        const next = remaining.matchHistory.map((record) => {
+          const scrubbed = anonymizeAccountInMatchRecord(record, account.id);
+          changed ||= scrubbed.changed;
+          return scrubbed.record;
+        });
+        if (changed) remaining.matchHistory = next;
+      });
       this.accounts.delete(account.username);
       return true;
-    });
+    }, { removed: 1 });
+    this.passwordFailures.delete(account.id);
+    return purged;
   }
 
   snapshot() {
@@ -884,24 +1089,42 @@ export class AccountStore {
   recordGameResults(players = [], winnerId = null, matchMeta = {}) {
     const matchId = matchMeta.gameId || `match_${crypto.randomUUID()}`;
     const activePlayers = players.filter(player => player);
-    const placementById = computePlacementById(activePlayers);
+    const placementById = computePlacementById(activePlayers, winnerId);
     const participants = activePlayers.map(player => participantFromPlayer(player, {
       placementById,
       winnerId,
       includeMatchDetails: matchMeta.includeMatchDetails === true
     }));
     const matchRecord = buildMatchRecord(matchId, matchMeta, participants);
-    let changed = false;
-    activePlayers.forEach((player) => {
-      if (!player.accountId) return;
+    // The stats, the history and the settlement ledger are written to memory
+    // first and to disk second. A failed write must not leave the memory
+    // believing the match was settled: the ledger would refuse the retry and
+    // the durable state would never catch up. Snapshot first, restore on
+    // failure -- the same invariant commitMutation enforces for the other
+    // mutating entry points.
+    const pending = activePlayers.some((player) => {
+      if (!player.accountId) return false;
       const account = this.getAccountById(player.accountId);
-      if (!account) return;
-      if (accountAlreadyRecordedMatch(account, matchId)) return;
-      applyMatchResult(account, player, { matchRecord, matchMeta, winnerId });
-      changed = true;
+      return Boolean(account) && !accountAlreadyRecordedMatch(account, matchId);
     });
-    if (changed) this.persist();
-    return matchRecord;
+    if (!pending) return matchRecord;
+    const snapshot = snapshotStore(this);
+    try {
+      let changed = false;
+      activePlayers.forEach((player) => {
+        if (!player.accountId) return;
+        const account = this.getAccountById(player.accountId);
+        if (!account) return;
+        if (accountAlreadyRecordedMatch(account, matchId)) return;
+        applyMatchResult(account, player, { matchRecord, matchMeta, winnerId });
+        changed = true;
+      });
+      if (changed) this.persist();
+      return matchRecord;
+    } catch (error) {
+      restoreStore(this, snapshot);
+      throw error;
+    }
   }
 
   // Achievement evaluation and seasonal assignment enrich a completed match
@@ -913,24 +1136,37 @@ export class AccountStore {
     const participantAccountIds = new Set(
       sanitized.participants.map(participant => participant.accountId).filter(Boolean)
     );
-    let updated = false;
-    this.accounts.forEach(account => {
-      if (!participantAccountIds.has(account.id)) return;
-      const entries = Array.isArray(account.matchHistory) ? account.matchHistory : [];
-      const index = entries.findIndex(entry => entry?.matchId === sanitized.matchId);
-      if (index < 0) return;
-      const projected = ownerMatchRecord(sanitized);
-      if (JSON.stringify(entries[index]) === JSON.stringify(projected)) return;
-      account.matchHistory = [...entries];
-      account.matchHistory[index] = projected;
-      updated = true;
-    });
-    if (updated) this.persist();
-    return { updated, match: sanitized };
+    // Same invariant as recordGameResults: the replaced record only counts as
+    // applied once it reached the disk.
+    const owners = [...this.accounts.values()].filter(account => (
+      participantAccountIds.has(account.id)
+      && (account.matchHistory || []).some(entry => entry?.matchId === sanitized.matchId)
+    ));
+    if (!owners.length) return { updated: false, match: sanitized };
+    const snapshot = snapshotStore(this);
+    try {
+      let updated = false;
+      this.accounts.forEach(account => {
+        if (!participantAccountIds.has(account.id)) return;
+        const entries = Array.isArray(account.matchHistory) ? account.matchHistory : [];
+        const index = entries.findIndex(entry => entry?.matchId === sanitized.matchId);
+        if (index < 0) return;
+        const projected = ownerMatchRecord(sanitized);
+        if (JSON.stringify(entries[index]) === JSON.stringify(projected)) return;
+        account.matchHistory = [...entries];
+        account.matchHistory[index] = projected;
+        updated = true;
+      });
+      if (updated) this.persist();
+      return { updated, match: sanitized };
+    } catch (error) {
+      restoreStore(this, snapshot);
+      throw error;
+    }
   }
 
   recordAchievement(accountId, achievement = {}) {
-    const account = [...this.accounts.values()].find((candidate) => candidate.id === accountId);
+    const account = this.getAccountById(accountId);
     const achievementId = typeof achievement.id === 'string' ? achievement.id.trim().slice(0, 80) : '';
     if (!account || !achievementId) return { success: false, created: false, error: 'Account or achievement not found.' };
     const entries = Array.isArray(account.achievements) ? account.achievements : [];
@@ -944,7 +1180,7 @@ export class AccountStore {
   }
 
   removeAchievement(accountId, achievementId) {
-    const account = [...this.accounts.values()].find((candidate) => candidate.id === accountId);
+    const account = this.getAccountById(accountId);
     if (!account || typeof achievementId !== 'string') return false;
     const entries = Array.isArray(account.achievements) ? account.achievements : [];
     const next = entries.filter(entry => entry?.id !== achievementId);
@@ -955,6 +1191,7 @@ export class AccountStore {
   }
 
   recordPatrolResult(accountId, { score = 0, misses = 0 } = {}) {
+    if (!PARLOR_PATROL_ENABLED) return { success: false, error: PARLOR_PATROL_OFF_MESSAGE };
     const account = this.getAccountById(accountId);
     if (!account) return { success: false, error: 'Account not found.' };
     const safeScore = clampInt(score, 100000);
@@ -969,12 +1206,12 @@ export class AccountStore {
   }
 
   getPublicAccountById(accountId) {
-    const account = [...this.accounts.values()].find(candidate => candidate.id === accountId);
+    const account = this.getAccountById(accountId);
     return account ? publicAccount(account, false) : null;
   }
 
   getAccountSnapshot(accountId) {
-    const account = [...this.accounts.values()].find(candidate => candidate.id === accountId);
+    const account = this.getAccountById(accountId);
     return account ? publicAccount(account, true) : null;
   }
 
@@ -1006,8 +1243,17 @@ export class AccountStore {
     };
   }
 
+  // id -> live account. Every hit is re-checked against the map, so a purge,
+  // rollback or replaced record can never be served from a stale entry; a miss
+  // rebuilds the index in one pass, which is what the old scan cost per call.
   getAccountById(accountId) {
-    return [...this.accounts.values()].find(candidate => candidate.id === accountId) || null;
+    const hit = this.idIndex.get(accountId);
+    if (hit && hit.id === accountId && this.accounts.get(hit.username) === hit) return hit;
+    this.idIndex.clear();
+    for (const candidate of this.accounts.values()) {
+      if (!this.idIndex.has(candidate.id)) this.idIndex.set(candidate.id, candidate);
+    }
+    return this.idIndex.get(accountId) || null;
   }
 
   getMatchHistory(accountId) {
@@ -1073,6 +1319,7 @@ export class AccountStore {
   }
 
   getLeaderboard(metric = 'wins', options = {}) {
+    if (metric === 'patrol' && !PARLOR_PATROL_ENABLED) return [];
     const accounts = [...this.accounts.values()].filter(account => account.accountDeactivated !== true)
       .filter(account => !Array.isArray(options.accountIds) || options.accountIds.includes(account.id));
     const rows = accounts.map(account => leaderboardRow(this, account, metric, options)).filter(Boolean);
@@ -1081,9 +1328,9 @@ export class AccountStore {
     return rows.slice(0, limit);
   }
 
-  getLeaderboardSnapshot(metrics = ['wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'], options = {}) {
-    const allowed = metrics.filter(metric => ['wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'].includes(metric));
-    const selected = allowed.length ? [...new Set(allowed)] : ['wins', 'rate', 'games', 'achievements', 'mythical', 'bankruptcies', 'events', 'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans', 'patrol'];
+  getLeaderboardSnapshot(metrics = RANKED_LEADERBOARD_METRICS, options = {}) {
+    const allowed = metrics.filter(metric => RANKED_LEADERBOARD_METRICS.includes(metric));
+    const selected = allowed.length ? [...new Set(allowed)] : RANKED_LEADERBOARD_METRICS;
     return {
       generatedAt: new Date().toISOString(),
       metrics: Object.fromEntries(selected.map(metric => [metric, this.getLeaderboard(metric, { ...options, limit: options.primaryMetric === metric ? 100 : 3 })])),

@@ -4,7 +4,7 @@ import { freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
 
 function startedRoom({ market = true } = {}) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'a', clientId: 'a', nickname: 'A' });
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.setRoomSetting('market', market);
   assert.equal(room.startGame().success, true);
@@ -14,7 +14,7 @@ function startedRoom({ market = true } = {}) {
 
 const cases = [
   ['seedsSharedRoundZeroBaseline', () => {
-    const freshGame = new GameState({ market: true });
+    const freshGame = new GameState({ rulesProfile: 'advanced', rulesetOverrides: { market: true } });
     assert.deepEqual(freshGame.marketQuoteHistory[0], { round: 0, quotes: freshMarketQuotes(), eventId: null });
     const { game } = startedRoom();
     assert.equal(game.marketQuoteHistory.length, 1);

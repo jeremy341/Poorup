@@ -3,6 +3,8 @@
 // reserved immediately, then atomically returned or folded into the buyer's
 // purchase; no separate debt or equity relationship is created.
 import crypto from 'crypto';
+import { playerFinanceEnabled } from './financeRules.js';
+import { CONTRACT_RULES_VERSION, RENT_SHARE_VERSION, DEFAULT_RENT_SHARE_ROUNDS, FINANCE_DISABLED_ERROR, LEGACY_PENDING_ERROR, rentShareDeedType, newContractTermsError, deedHasShareInterest } from './rentShareRules.js';
 import { normalizeRequestId } from './requestId.js';
 import { hasLoanBackedCash } from './loanLogic.js';
 
@@ -32,6 +34,9 @@ function sponsorshipRequestCheck(game, buyer, offer) {
   const tile = game.getTile(Number(offer.tileIndex));
   const tileError = purchaseTileError(tile);
   if (tileError) return { error: tileError };
+  // A sponsorship with no remaining need cannot be funded and would still
+  // hold the table at the end-turn gate, so it is never opened.
+  if (remainingSponsorshipNeed(tile.price, buyer.cash, 0) <= 0) return { error: 'You can already afford this purchase.' };
   return { tile };
 }
 
@@ -85,7 +90,7 @@ function equityShareTotal(game, tile) {
 function normalizedEquityShare(game, tile, rawShare) {
   const sharePct = Number(rawShare);
   if (!isValidEquityShare(sharePct)) return null;
-  if (equityShareTotal(game, tile) + sharePct > 100) return null;
+  if (deedHasShareInterest(game, tile) || equityShareTotal(game, tile) > 0) return null;
   return sharePct;
 }
 
@@ -112,9 +117,12 @@ function contributionAccessError(game, sponsor, ctx) {
   if (!livePlayer(sponsor)) return { error: 'Sponsorship is unavailable.' };
   if (hasLoanBackedCash(sponsor)) return { error: 'Loan-backed cash cannot fund sponsorships.' };
   if (hasTableObligation(game)) return { error: 'Resolve the table obligation before sponsoring.' };
+  if (playerHasPendingDebt(game, sponsor.id)) return { error: 'Settle your debt before sponsoring.' };
+  if (playerHasPendingDebt(game, ctx.buyer.id)) return { error: 'The buyer must settle their debt before sponsoring.' };
   if (sponsor.id === ctx.buyer.id) return { error: 'The buyer cannot sponsor their own purchase.' };
-  if (equitySponsorLimitReached(ctx.sponsorship)) return { error: 'Equity purchases allow one investor.' };
-  if (alreadyContributed(ctx.sponsorship, sponsor.id)) return { error: 'You already contributed to this sponsorship.' };
+  if (equitySponsorLimitReached(ctx.sponsorship, sponsor.id)) return { error: 'Rent-share purchases allow one investor.' };
+  // The lone equity investor may top up a partial contribution; gifts stay one-shot.
+  if (ctx.sponsorship.mode !== 'equity' && alreadyContributed(ctx.sponsorship, sponsor.id)) return { error: 'You already contributed to this sponsorship.' };
   return null;
 }
 
@@ -131,9 +139,18 @@ function hasTableObligation(game) {
   return Boolean(game.auction || game.pendingTrade || game.pendingPlayerContract);
 }
 
-function equitySponsorLimitReached(sponsorship) {
+// The head claim plus everything queued behind it: a seat that owes money
+// cannot fund or settle a sponsorship.
+function playerHasPendingDebt(game, playerId) {
+  if (!playerId) return false;
+  if (typeof game.hasPendingDebt === 'function') return game.hasPendingDebt(playerId);
+  if (typeof game.pendingDebtAmountFor === 'function') return game.pendingDebtAmountFor(playerId) > 0;
+  return false;
+}
+
+function equitySponsorLimitReached(sponsorship, sponsorId) {
   if (sponsorship.mode !== 'equity') return false;
-  return sponsorship.contributions.length > 0;
+  return sponsorship.contributions.some(entry => entry.sponsorId !== sponsorId);
 }
 
 function alreadyContributed(sponsorship, sponsorId) {
@@ -154,6 +171,7 @@ function acceptanceOfferError(game, buyer, ctx) {
   const identityError = acceptanceBuyerError(buyer, ctx.sponsorship);
   if (identityError) return identityError;
   if (!livePlayer(buyer)) return { error: 'The sponsored purchase is no longer available.', stale: true };
+  if (playerHasPendingDebt(game, buyer.id)) return { error: 'Settle your debt before accepting this sponsorship.' };
   const offerError = matchingPurchaseOfferError(game, buyer, ctx.tile);
   if (offerError) return offerError;
   if (invalidSponsorshipPrice(ctx.tile, ctx.sponsorship)) {
@@ -195,25 +213,30 @@ function equityAcceptanceError(game, tile, sponsorship, contributions) {
   if (contributions.length !== 1) return { error: 'Wait for one investor.' };
   const investor = game.getPlayerById(contributions[0].sponsorId);
   if (!livePlayer(investor)) return { error: 'The investor is no longer available; the request was canceled.', stale: true };
-  if (!normalizedEquityShare(game, tile, sponsorship.sharePct)) return { error: 'That property has no remaining equity to sell.' };
+  if (!normalizedEquityShare(game, tile, sponsorship.sharePct)) return { error: 'Choose an unshared deed and a rent share from 5% to 100%.' };
   return null;
 }
 
 function requestedSponsorshipTerms(game, tile, payload) {
+  const error = newContractTermsError({ ...payload, kind: payload.mode === 'equity' ? 'equity' : 'loan' });
+  if (error) return { error };
   if (payload.mode != null && !['gift', 'equity'].includes(payload.mode)) {
     return { error: 'Choose a supported sponsorship mode.' };
   }
   const mode = payload.mode === 'equity' ? 'equity' : 'gift';
   if (mode !== 'equity') return { mode, sharePct: null };
-  if (tile.type !== 'property') return { error: 'Equity investment is available for properties only.' };
+  if (!rentShareDeedType(tile)) return { error: 'Rent share funding needs a buyable deed.' };
   const sharePct = normalizedEquityShare(game, tile, payload.sharePct);
-  if (sharePct == null) return { error: 'That property has no remaining equity to sell.' };
-  return { mode, sharePct };
+  if (sharePct == null) return { error: 'Choose an unshared deed and a rent share from 5% to 100%.' };
+  return { mode, sharePct, durationRounds: payload.durationRounds == null ? DEFAULT_RENT_SHARE_ROUNDS : Number(payload.durationRounds) };
 }
 
 function newSponsorshipRecord({ buyer, tile, terms, payload, roundNumber }) {
   return {
     id: crypto.randomUUID(),
+    rulesVersion: CONTRACT_RULES_VERSION,
+    rentShareVersion: terms.mode === 'equity' ? RENT_SHARE_VERSION : undefined,
+    durationRounds: terms.durationRounds,
     buyerId: buyer.id,
     buyerName: buyer.nickname,
     tileIndex: tile.index,
@@ -229,11 +252,19 @@ function newSponsorshipRecord({ buyer, tile, terms, payload, roundNumber }) {
 }
 
 function acceptanceCheck(game, buyer, ctx) {
+  if (ctx.sponsorship && ctx.sponsorship.rulesVersion !== CONTRACT_RULES_VERSION) return { error: LEGACY_PENDING_ERROR };
+  if (ctx.sponsorship?.mode === 'equity') {
+    const error = newContractTermsError({ ...ctx.sponsorship, kind: 'equity' });
+    if (error || ctx.sponsorship.rentShareVersion !== RENT_SHARE_VERSION) return { error: error || LEGACY_PENDING_ERROR };
+  }
   const offerError = acceptanceOfferError(game, buyer, ctx);
   if (offerError) return offerError;
   const contributions = ctx.sponsorship.contributions.slice();
   const contributionError = availableContributionsError(game, contributions);
   if (contributionError) return contributionError;
+  if (contributions.some(entry => playerHasPendingDebt(game, entry.sponsorId))) {
+    return { error: 'A sponsor must settle their debt before this sponsorship can be accepted.' };
+  }
   const total = contributions.reduce((sum, entry) => sum + entry.amount, 0);
   if (buyer.cash + total < ctx.tile.price) return { error: 'The sponsorship is still short of the purchase price.' };
   if (ctx.sponsorship.mode === 'equity') {
@@ -248,9 +279,47 @@ function sponsoredPurchaseReplayKey(buyer, requestId) {
   return `${buyer.id}:sponsored-purchase:${requestId}`;
 }
 
-function cachedSponsoredPurchase(game, replayKey) {
+// The memo is bound to the sponsorship it settled: the same request id on a
+// later offer has to settle that offer instead of replaying the old success.
+function cachedSponsoredPurchase(game, replayKey, sponsorshipId) {
   if (!replayKey) return null;
-  return game.contractTransactions?.get(replayKey) || null;
+  const memo = game.contractTransactions?.get(replayKey);
+  if (!memo || typeof memo !== 'object') return null;
+  if (memo.result === undefined) return memo.error ? memo : null;
+  if (sponsorshipId && memo.sponsorshipId && memo.sponsorshipId !== sponsorshipId) return null;
+  return memo.result;
+}
+
+// Contributions are memoized per sponsor, per sponsorship and per attempt, so a
+// retried top-up reserves the cash once. A client sends a fresh contributionId
+// for every contribution attempt and reuses it only when it resends that same
+// attempt, so a second top-up of the same amount is a new reservation. A legacy
+// client sends only the sponsorship-level requestId, which it reuses for the
+// whole flow: that key keeps today's behaviour, where the memo also records the
+// settled amounts (the same amount is a retry, a different amount a new top-up).
+function sponsoredContributionReplayKey(sponsor, sponsorship, { requestId, contributionId }) {
+  if (!sponsor || !sponsorship) return null;
+  const base = `${sponsor.id}:sponsored-contribution:${sponsorship.id}`;
+  if (contributionId) return `${base}:attempt:${contributionId}`;
+  return requestId ? `${base}:${requestId}` : null;
+}
+
+function cachedSponsoredContribution(game, replayKey, amount) {
+  if (!replayKey) return null;
+  const memo = game.contractTransactions?.get(replayKey);
+  if (!memo || typeof memo !== 'object') return null;
+  if (memo.sponsorshipId === undefined || memo.error) return null;
+  if (!Array.isArray(memo.amounts) || !memo.amounts.includes(amount)) return null;
+  return memo;
+}
+
+function rememberSponsoredContribution(game, replayKey, sponsorship, sponsor, amount) {
+  if (!replayKey || !sponsorship || !sponsor) return;
+  if (!(game.contractTransactions instanceof Map)) return;
+  const memo = game.contractTransactions.get(replayKey);
+  const amounts = memo && memo.sponsorshipId === sponsorship.id && Array.isArray(memo.amounts) ? [...memo.amounts] : [];
+  amounts.push(amount);
+  game.contractTransactions.set(replayKey, { sponsorshipId: sponsorship.id, sponsorId: sponsor.id, amounts });
 }
 
 function prepareSponsoredAcceptance(game, buyer) {
@@ -278,6 +347,7 @@ function captureSponsoredRollback(game, buyer, tile, contributions) {
     pending: game.pendingSponsoredPurchase,
     purchaseOffer: game.pendingPurchaseOffer,
     ownerId: tile.ownerId,
+    purchasePricePaid: tile.purchasePricePaid ?? null,
     mortgaged: tile.mortgaged,
     houseCount: tile.houseCount,
     properties: [...(buyer.properties || [])],
@@ -285,6 +355,13 @@ function captureSponsoredRollback(game, buyer, tile, contributions) {
     playerContracts: [...(game.playerContracts || [])],
     buyerContractIds: [...(buyer.playerContractIds || [])],
     investorContractIds: contributions.map(entry => [...(game.getPlayerById(entry.sponsorId)?.playerContractIds || [])]),
+    boughtDuringHousingBubble: buyer.boughtDuringHousingBubble,
+    zeroCashReached: buyer.zeroCashReached,
+    fullGroups: [...(buyer.fullGroups || [])],
+    awaitingEndTurn: game.awaitingEndTurn,
+    hasRolled: game.hasRolled,
+    extraRollPending: game.extraRollPending,
+    turnAllowsExtraRoll: game.turnAllowsExtraRoll,
   };
 }
 
@@ -293,12 +370,22 @@ function restoreSponsoredRollback({ game, buyer, tile, contributions, rollback }
   game.pendingSponsoredPurchase = rollback.pending;
   game.pendingPurchaseOffer = rollback.purchaseOffer;
   tile.ownerId = rollback.ownerId;
+  tile.purchasePricePaid = rollback.purchasePricePaid;
   tile.mortgaged = rollback.mortgaged;
   tile.houseCount = rollback.houseCount;
   buyer.properties = rollback.properties;
   tile.equityShares = rollback.equityShares;
   game.playerContracts = rollback.playerContracts;
   buyer.playerContractIds = rollback.buyerContractIds;
+  // The settlement also touched the portfolio flags and the turn: a failed
+  // purchase must leave both exactly as they were.
+  buyer.boughtDuringHousingBubble = rollback.boughtDuringHousingBubble;
+  buyer.zeroCashReached = rollback.zeroCashReached;
+  buyer.fullGroups = new Set(rollback.fullGroups);
+  game.awaitingEndTurn = rollback.awaitingEndTurn;
+  game.hasRolled = rollback.hasRolled;
+  game.extraRollPending = rollback.extraRollPending;
+  game.turnAllowsExtraRoll = rollback.turnAllowsExtraRoll;
   contributions.forEach((entry, index) => restoreInvestorContractIds({ game, contribution: entry, contractIds: rollback.investorContractIds[index] }));
 }
 
@@ -307,29 +394,39 @@ function restoreInvestorContractIds({ game, contribution, contractIds }) {
   if (investor) investor.playerContractIds = contractIds;
 }
 
-function createSponsoredEquityContract({ game, buyer, tile, rollback, contributions }) {
+// The equity terms are settled before the purchase, so a late failure cannot
+// leave the deed and the turn out of step with the escrow.
+function equitySettlementTerms(game, tile, sponsorship, contributions) {
   const investor = game.getPlayerById(contributions[0].sponsorId);
-  const sharePct = normalizedEquityShare(game, tile, rollback.pending.sharePct);
-  if (!investor || !sharePct) throw new Error('Equity terms changed before settlement.');
+  const sharePct = normalizedEquityShare(game, tile, sponsorship.sharePct);
+  if (!investor || !sharePct) throw new Error('Rent-share terms changed before settlement.');
+  return { investor, sharePct, durationRounds: sponsorship.durationRounds };
+}
+
+function createSponsoredEquityContract({ game, buyer, tile, equityTerms, contributions }) {
+  const { investor, sharePct, durationRounds } = equityTerms;
   const contract = {
-    id: crypto.randomUUID(), kind: 'equity', fromPlayerId: investor.id, toPlayerId: buyer.id,
+    id: crypto.randomUUID(), kind: 'equity', rulesVersion: CONTRACT_RULES_VERSION, rentShareVersion: RENT_SHARE_VERSION, fromPlayerId: investor.id, toPlayerId: buyer.id,
     amount: contributions[0].amount, propertyIndex: tile.index, equityShare: sharePct,
-    equityControl: 'passive', permanent: true, expiresRound: null,
-    durationRounds: 0, createdRound: game.roundNumber, acceptedRound: game.roundNumber, status: 'active'
+    equityControl: 'passive', permanent: false, expiresRound: game.roundNumber + durationRounds,
+    durationRounds, createdRound: game.roundNumber, acceptedRound: game.roundNumber, status: 'active'
   };
   game.playerContracts.push(contract);
   investor.playerContractIds.push(contract.id);
   buyer.playerContractIds.push(contract.id);
   tile.equityShares = [...(tile.equityShares || []), {
-    holderId: investor.id, share: sharePct, contractId: contract.id, control: 'passive'
+    holderId: investor.id, share: sharePct, contractId: contract.id, control: 'passive', rentShareVersion: RENT_SHARE_VERSION
   }];
 }
 
 function settleSponsoredPurchase({ game, buyer, ctx, contributions, rollback }) {
-  game.acceptPurchaseOffer(buyer, ctx.tile);
-  const pendingIsEquity = game.pendingSponsoredPurchase?.mode === 'equity';
+  const pendingIsEquity = ctx.sponsorship?.mode === 'equity';
   const savedIsEquity = rollback.pending?.mode === 'equity';
-  if (pendingIsEquity || savedIsEquity) createSponsoredEquityContract({ game, buyer, tile: ctx.tile, rollback, contributions });
+  const equityTerms = (pendingIsEquity || savedIsEquity)
+    ? equitySettlementTerms(game, ctx.tile, ctx.sponsorship, contributions)
+    : null;
+  game.acceptPurchaseOffer(buyer, ctx.tile);
+  if (equityTerms) createSponsoredEquityContract({ game, buyer, tile: ctx.tile, equityTerms, contributions });
 }
 
 function settleSponsoredPurchaseAtomically({ game, buyer, ctx, contributions, rollback }) {
@@ -377,9 +474,9 @@ function refundSponsorContribution({ game, entry, share }) {
   return share;
 }
 
-function rememberSponsoredResult(game, replayKey, result) {
+function rememberSponsoredResult(game, replayKey, sponsorshipId, result) {
   if (!replayKey || !(game.contractTransactions instanceof Map)) return;
-  game.contractTransactions.set(replayKey, result);
+  game.contractTransactions.set(replayKey, { sponsorshipId, result });
   while (game.contractTransactions.size > 1_000) {
     game.contractTransactions.delete(game.contractTransactions.keys().next().value);
   }
@@ -387,6 +484,8 @@ function rememberSponsoredResult(game, replayKey, result) {
 
 const sponsorshipApi = {
   requestPurchaseSponsorship(socketId, payload = {}) {
+    if (!this.started) return { success: false, error: 'The game is not running.' };
+    if (!playerFinanceEnabled(this)) return { success: false, error: FINANCE_DISABLED_ERROR };
     const buyer = this.getPlayerBySocket(socketId);
     const offer = this.pendingPurchaseOffer;
     const check = sponsorshipRequestCheck(this, buyer, offer);
@@ -400,14 +499,28 @@ const sponsorshipApi = {
   },
 
   contributeToSponsoredPurchase(socketId, payload = {}) {
+    if (!this.started) return { success: false, error: 'The game is not running.' };
+    if (!playerFinanceEnabled(this)) return { success: false, error: FINANCE_DISABLED_ERROR };
     const sponsor = this.getPlayerBySocket(socketId);
     const ctx = sponsorshipApiContext(this);
+    if (ctx.sponsorship && ctx.sponsorship.rulesVersion !== CONTRACT_RULES_VERSION) return { success: false, error: LEGACY_PENDING_ERROR };
+    const replayKey = sponsoredContributionReplayKey(sponsor, ctx.sponsorship, {
+      requestId: normalizeRequestId(payload.requestId),
+      contributionId: normalizeRequestId(payload.contributionId)
+    });
+    const amount = positiveWhole(payload.amount);
+    // A retried contribution replays its memo: the cash was already reserved.
+    if (amount && !contributionContextError(ctx) && cachedSponsoredContribution(this, replayKey, amount)) {
+      return { success: true, sponsorship: this.summarySponsoredPurchase() };
+    }
     const check = contributionCheck(this, sponsor, ctx, payload);
     if (check.stale) this.cancelSponsoredPurchase();
     if (check.error) return { success: false, error: check.error };
-    const { amount } = check;
     sponsor.cash -= amount;
-    ctx.sponsorship.contributions.push({ sponsorId: sponsor.id, sponsorName: sponsor.nickname, amount });
+    const existing = ctx.sponsorship.contributions.find(entry => entry.sponsorId === sponsor.id);
+    if (existing) existing.amount += amount;
+    else ctx.sponsorship.contributions.push({ sponsorId: sponsor.id, sponsorName: sponsor.nickname, amount });
+    rememberSponsoredContribution(this, replayKey, ctx.sponsorship, sponsor, amount);
     this.feedMessage(`${sponsor.nickname} reserved $${amount} toward ${ctx.tile.name}.`);
     return { success: true, sponsorship: this.summarySponsoredPurchase() };
   },
@@ -425,11 +538,15 @@ const sponsorshipApi = {
   },
 
   acceptSponsoredPurchase(socketId, payload = {}) {
+    if (!this.started) return { success: false, error: 'The game is not running.' };
+    if (!playerFinanceEnabled(this)) return { success: false, error: FINANCE_DISABLED_ERROR };
     const buyer = this.getPlayerBySocket(socketId);
     const requestId = normalizeRequestId(payload.requestId);
     const replayKey = sponsoredPurchaseReplayKey(buyer, requestId);
-    const cached = cachedSponsoredPurchase(this, replayKey);
-    if (cached) return cached;
+    if (this.pendingSponsoredPurchase && this.pendingSponsoredPurchase.rulesVersion !== CONTRACT_RULES_VERSION) return { success: false, error: LEGACY_PENDING_ERROR };
+    const sponsorshipId = this.pendingSponsoredPurchase?.id || null;
+    const cached = cachedSponsoredPurchase(this, replayKey, sponsorshipId);
+    if (cached) return cached.rulesVersion === CONTRACT_RULES_VERSION ? cached : { success: false, error: LEGACY_PENDING_ERROR };
     const setup = prepareSponsoredAcceptance(this, buyer);
     if (setup.error) return { success: false, error: setup.error };
     const { ctx, check } = setup;
@@ -445,8 +562,8 @@ const sponsorshipApi = {
     }
     refundSponsoredExcess({ game: this, buyer, contributions, total, excess });
     this.feedMessage(`${buyer.nickname} completed a sponsored purchase of ${ctx.tile.name}.`);
-    const result = { success: true, purchased: true, contributionTotal: total };
-    rememberSponsoredResult(this, replayKey, result);
+    const result = { success: true, purchased: true, contributionTotal: total, rulesVersion: CONTRACT_RULES_VERSION };
+    rememberSponsoredResult(this, replayKey, sponsorshipId, result);
     return result;
   },
 
@@ -503,7 +620,11 @@ function sponsorshipSummary(game, ctx) {
   return {
     id: sponsorship.id,
     mode: sponsorship.mode || 'gift',
+    rulesVersion: sponsorship.rulesVersion,
+    rentShareVersion: sponsorship.rentShareVersion,
+    durationRounds: sponsorship.durationRounds,
     sharePct: sponsorshipSharePct(sponsorship),
+    requestId: sponsorship.requestId || null,
     buyerId: buyer.id,
     buyerName: buyer.nickname,
     tileIndex: tile.index,

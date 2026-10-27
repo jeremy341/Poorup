@@ -5,6 +5,7 @@
 // gameLogic.js assigns this object onto GameState.prototype.
 import crypto from 'crypto';
 import { normalizeRequestId } from './requestId.js';
+import { AUCTION_COMMITTED_CASH_ERROR } from './auctionApi.js';
 
 const MAX_TRADE_PROPERTIES = 40;
 
@@ -25,9 +26,98 @@ function memoizeTradeSuccess(game, key, result) {
   return result;
 }
 
+// A leading auction bid is reserved cash (see auctionApi spendableCash).
+function committedCashShort(game, player, amount) {
+  return amount > 0 && game.spendableCash(player) < amount;
+}
+
 function normalizePropertyIndexes(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.slice(0, MAX_TRADE_PROPERTIES).map(Number))];
+}
+
+// A trade moves cash, deeds, achievement flags, counters and feed entries in
+// one step. A throw in any of those steps used to leave the table holding half
+// a trade (the cash of one seat moved, the deed did not), so everything the
+// settlement touches is captured first and restored when it fails.
+function tradeSettlementSnapshot(game, ctx) {
+  const { fromPlayer, toPlayer, giveTiles, requestTiles } = ctx;
+  const tiles = [...giveTiles, ...requestTiles].filter(Boolean).map(tile => ({
+    tile,
+    ownerId: tile.ownerId,
+    purchasePricePaid: tile.purchasePricePaid,
+    mortgaged: tile.mortgaged,
+    houseCount: tile.houseCount,
+    equityShares: Array.isArray(tile.equityShares) ? tile.equityShares.slice() : tile.equityShares
+  }));
+  const contracts = (Array.isArray(game.playerContracts) ? game.playerContracts : []).map(contract => ({
+    contract,
+    status: contract.status,
+    terminatedRound: contract.terminatedRound
+  }));
+  return {
+    fromCash: fromPlayer.cash,
+    toCash: toPlayer.cash,
+    fromProperties: Array.isArray(fromPlayer.properties) ? fromPlayer.properties.slice() : [],
+    toProperties: Array.isArray(toPlayer.properties) ? toPlayer.properties.slice() : [],
+    fromGroups: new Set(fromPlayer.fullGroups || []),
+    toGroups: new Set(toPlayer.fullGroups || []),
+    fromBubbleSurvivor: fromPlayer.bubbleSurvivor,
+    toBubbleSurvivor: toPlayer.bubbleSurvivor,
+    fromTradesCompleted: fromPlayer.tradesCompleted,
+    toTradesCompleted: toPlayer.tradesCompleted,
+    fromGroupTherapy: fromPlayer.groupTherapyTrade,
+    toGroupTherapy: toPlayer.groupTherapyTrade,
+    fromCoalition: fromPlayer.coalitionTrade,
+    toCoalition: toPlayer.coalitionTrade,
+    fromCombo: fromPlayer.tradesDuringCombo,
+    toCombo: toPlayer.tradesDuringCombo,
+    fromContractIds: Array.isArray(fromPlayer.playerContractIds) ? fromPlayer.playerContractIds.slice() : [],
+    toContractIds: Array.isArray(toPlayer.playerContractIds) ? toPlayer.playerContractIds.slice() : [],
+    contracts: Array.isArray(game.playerContracts) ? game.playerContracts.slice() : [],
+    tradesCompleted: game.tradesCompleted,
+    pendingTrade: game.pendingTrade,
+    tiles,
+    contractStates: contracts
+  };
+}
+
+function restoreTradeSettlement(game, ctx, before) {
+  const { fromPlayer, toPlayer } = ctx;
+  fromPlayer.cash = before.fromCash;
+  toPlayer.cash = before.toCash;
+  fromPlayer.properties = before.fromProperties.slice();
+  toPlayer.properties = before.toProperties.slice();
+  fromPlayer.fullGroups = new Set(before.fromGroups);
+  toPlayer.fullGroups = new Set(before.toGroups);
+  fromPlayer.bubbleSurvivor = before.fromBubbleSurvivor;
+  toPlayer.bubbleSurvivor = before.toBubbleSurvivor;
+  fromPlayer.tradesCompleted = before.fromTradesCompleted;
+  toPlayer.tradesCompleted = before.toTradesCompleted;
+  fromPlayer.groupTherapyTrade = before.fromGroupTherapy;
+  toPlayer.groupTherapyTrade = before.toGroupTherapy;
+  fromPlayer.coalitionTrade = before.fromCoalition;
+  toPlayer.coalitionTrade = before.toCoalition;
+  fromPlayer.tradesDuringCombo = before.fromCombo;
+  toPlayer.tradesDuringCombo = before.toCombo;
+  fromPlayer.playerContractIds = before.fromContractIds.slice();
+  toPlayer.playerContractIds = before.toContractIds.slice();
+  game.playerContracts = before.contracts.slice();
+  game.tradesCompleted = before.tradesCompleted;
+  game.pendingTrade = before.pendingTrade;
+  before.tiles.forEach(entry => {
+    entry.tile.ownerId = entry.ownerId;
+    if (entry.purchasePricePaid === undefined) delete entry.tile.purchasePricePaid;
+    else entry.tile.purchasePricePaid = entry.purchasePricePaid;
+    entry.tile.mortgaged = entry.mortgaged;
+    entry.tile.houseCount = entry.houseCount;
+    entry.tile.equityShares = Array.isArray(entry.equityShares) ? entry.equityShares.slice() : entry.equityShares;
+  });
+  before.contractStates.forEach(entry => {
+    entry.contract.status = entry.status;
+    if (entry.terminatedRound === undefined) delete entry.contract.terminatedRound;
+    else entry.contract.terminatedRound = entry.terminatedRound;
+  });
 }
 
 // Trade proposal rejection rules as data: one entry per original if-clause of
@@ -42,6 +132,10 @@ function normalizePropertyIndexes(value) {
 // contracts still block a second trade.
 const TRADE_PROPOSAL_GUARDS = [
   {
+    error: 'The game is not running.',
+    rejects: game => !game.started
+  },
+  {
     error: 'Choose a valid trade partner.',
     rejects: (game, ctx) => !ctx.fromPlayer || !ctx.toPlayer || ctx.fromPlayer.id === ctx.toPlayer.id
   },
@@ -53,9 +147,27 @@ const TRADE_PROPOSAL_GUARDS = [
     error: 'Trading is disabled for this room.',
     rejects: game => game.settings.trading === false
   },
+  // One guard per blocker, in the original order, so the message names the
+  // open obligation instead of always reporting a second trade (F-090).
+  {
+    error: 'Resolve the open auction before proposing a trade.',
+    rejects: game => Boolean(game.auction)
+  },
+  {
+    error: 'Resolve the pending purchase offer before proposing a trade.',
+    rejects: game => Boolean(game.pendingPurchaseOffer)
+  },
+  {
+    error: 'Resolve the pending sponsored purchase before proposing a trade.',
+    rejects: game => Boolean(game.pendingSponsoredPurchase)
+  },
   {
     error: 'Another trade is already pending.',
-    rejects: game => Boolean(game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract)
+    rejects: game => Boolean(game.pendingTrade)
+  },
+  {
+    error: 'Resolve the pending player contract before proposing a trade.',
+    rejects: game => Boolean(game.pendingPlayerContract)
   },
   {
     error: 'Cash values must be valid numbers.',
@@ -66,7 +178,7 @@ const TRADE_PROPOSAL_GUARDS = [
     rejects: (game, ctx) => !ctx.giveCash && !ctx.requestCash && !ctx.givePropertyIndexes.length && !ctx.requestPropertyIndexes.length
   },
   {
-    error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.',
+    error: 'You can only offer properties that you own and that have no buildings, collateral, or equity shares.',
     rejects: (game, ctx) => ctx.giveTiles.some(tile => game.tradeLegTileUnavailable(tile, ctx.fromPlayer.id))
   },
   {
@@ -109,13 +221,16 @@ const TRADE_SETTLEMENT_GUARDS = [
 const tradeApi = {
   proposeTrade(socketId, offer = {}) {
     const ctx = this.tradeProposalContext(socketId, offer);
+    // Idempotent retry: a double-click with the same requestId replays the
+    // original offer instead of stacking a duplicate on the table. It is looked
+    // up before the guards (the live offer would trip "already pending") and
+    // only while that offer is still the pending one: a declined, cancelled or
+    // settled offer must never be handed back as live.
+    const replayKey = ctx.fromPlayer ? tradeTransactionKey('trade-propose', ctx.fromPlayer.id, offer.requestId) : null;
+    const replayed = memoizedTradeResult(this, replayKey);
+    if (replayed?.trade && this.started && replayed.trade.id === this.pendingTrade?.id) return replayed;
     const guard = TRADE_PROPOSAL_GUARDS.find(entry => entry.rejects(this, ctx));
     if (guard) return { success: false, error: guard.error };
-    // Idempotent retry: a double-click with the same requestId replays the
-    // original offer instead of stacking a duplicate on the table.
-    const replayKey = tradeTransactionKey('trade-propose', ctx.fromPlayer.id, offer.requestId);
-    const replayed = memoizedTradeResult(this, replayKey);
-    if (replayed) return replayed;
     const trade = {
       id: crypto.randomUUID(),
       fromPlayerId: ctx.fromPlayer.id,
@@ -162,11 +277,29 @@ const tradeApi = {
     return !this.isTradeableTile(tile);
   },
 
+  tradeDeedActionRejection(player, tile) {
+    if (!this.started) return 'The game is not running.';
+    if (!player || player.bankrupt || player.disconnected) return 'Both players must be active to trade.';
+    if (this.settings.trading === false) return 'Trading is disabled for this room.';
+    if (this.auction) return 'Resolve the open auction before proposing a trade.';
+    if (this.pendingPurchaseOffer) return 'Resolve the pending purchase offer before proposing a trade.';
+    if (this.pendingSponsoredPurchase) return 'Resolve the pending sponsored purchase before proposing a trade.';
+    if (this.pendingTrade) return 'Another trade is already pending.';
+    if (this.pendingPlayerContract) return 'Resolve the pending player contract before proposing a trade.';
+    if (!tile || tile.ownerId !== player.id) return 'You do not own this property.';
+    if (tile.type === 'property' && tile.group && this.getGroupTiles(tile.group).some(entry => (entry.houseCount || 0) > 0)) {
+      return 'Sell every house and hotel in this color set before trading its deeds.';
+    }
+    if (!this.isTradeableTile(tile)) return 'This deed cannot be traded while it has collateral or equity shares.';
+    return null;
+  },
+
   respondToTrade(socketId, { tradeId, accept } = {}) {
     const player = this.getPlayerBySocket(socketId);
     if (!player) {
       return { success: false, error: 'No matching trade offer was found.' };
     }
+    if (!this.started) return { success: false, error: 'The game is not running.' };
     const trade = this.pendingTrade;
     if (!trade || trade.id !== tradeId) {
       return { success: false, error: 'No matching trade offer was found.' };
@@ -174,7 +307,8 @@ const tradeApi = {
     if (trade.toPlayerId !== player.id) {
       return { success: false, error: 'Only the receiving player can respond to this trade.' };
     }
-    if (!accept) {
+    // Only a literal true accepts; 'false' or 1 from a sloppy client declines.
+    if (accept !== true) {
       return this.declineTradeOffer(player);
     }
     const ctx = this.tradeSettlementContext(trade);
@@ -182,6 +316,11 @@ const tradeApi = {
     if (guard) {
       this.pendingTrade = null;
       return { success: false, error: guard.error };
+    }
+    // Unlike the guards above, a reserve refusal keeps the offer open so it can
+    // be answered once the auction closes.
+    if (committedCashShort(this, ctx.fromPlayer, trade.giveCash) || committedCashShort(this, ctx.toPlayer, trade.requestCash)) {
+      return { success: false, error: AUCTION_COMMITTED_CASH_ERROR };
     }
     return this.settleTradeOffer(ctx);
   },
@@ -240,6 +379,19 @@ const tradeApi = {
     });
   },
 
+  // An unanswered offer blocks every other trade at the table, so it lapses
+  // after a fixed window. Returns true when it expired.
+  expireStaleTrade(nowMs, ttlMs) {
+    const trade = this.pendingTrade;
+    if (!trade) return false;
+    const created = Number(trade.createdAt);
+    if (!Number.isFinite(created)) return false;
+    if (nowMs - created < ttlMs) return false;
+    this.pendingTrade = null;
+    this.feedMessage(`The trade offer from ${trade.fromPlayerName} to ${trade.toPlayerName} expired.`);
+    return true;
+  },
+
   cancelTrade(socketId, payload = {}) {
     const player = this.getPlayerBySocket(socketId);
     const trade = this.pendingTrade;
@@ -274,23 +426,31 @@ const tradeApi = {
 
   settleTradeOffer(ctx) {
     const { trade, fromPlayer, toPlayer, giveTiles, requestTiles } = ctx;
-    fromPlayer.cash -= trade.giveCash;
-    toPlayer.cash += trade.giveCash;
-    toPlayer.cash -= trade.requestCash;
-    fromPlayer.cash += trade.requestCash;
-    giveTiles.forEach(tile => this.applyPropertyOwnershipChange(fromPlayer, toPlayer, tile));
-    requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile));
-    this.pendingTrade = null;
-    this.tradesCompleted += 1;
-    // Keep a participant-level count for season/analytics projections. The
-    // table counter remains the canonical total; each participant receives
-    // exactly one increment for a completed trade.
-    fromPlayer.tradesCompleted = (fromPlayer.tradesCompleted || 0) + 1;
-    toPlayer.tradesCompleted = (toPlayer.tradesCompleted || 0) + 1;
-    this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
-    this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
-    this.settleTradeLinkedPayments(fromPlayer, toPlayer);
-    return { success: true, accepted: true };
+    const before = tradeSettlementSnapshot(this, ctx);
+    try {
+      fromPlayer.cash -= trade.giveCash;
+      toPlayer.cash += trade.giveCash;
+      toPlayer.cash -= trade.requestCash;
+      fromPlayer.cash += trade.requestCash;
+      giveTiles.forEach(tile => this.applyPropertyOwnershipChange(fromPlayer, toPlayer, tile, { preserveMortgage: true }));
+      requestTiles.forEach(tile => this.applyPropertyOwnershipChange(toPlayer, fromPlayer, tile, { preserveMortgage: true }));
+      this.tradesCompleted += 1;
+      // Keep a participant-level count for season/analytics projections. The
+      // table counter remains the canonical total; each participant receives
+      // exactly one increment for a completed trade.
+      fromPlayer.tradesCompleted = (fromPlayer.tradesCompleted || 0) + 1;
+      toPlayer.tradesCompleted = (toPlayer.tradesCompleted || 0) + 1;
+      this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
+      this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
+      this.settleTradeLinkedPayments(fromPlayer, toPlayer);
+      // The offer is cleared only after the whole settlement committed, so a
+      // failed trade leaves the offer on the table instead of half-applied.
+      this.pendingTrade = null;
+      return { success: true, accepted: true };
+    } catch (error) {
+      restoreTradeSettlement(this, ctx, before);
+      return { success: false, error: 'The trade could not be completed; no assets moved.' };
+    }
   },
 
   markCompletedTradeFlags(fromPlayer, toPlayer, tradedPropertyCount) {
