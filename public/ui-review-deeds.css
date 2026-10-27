@@ -1,0 +1,76 @@
+/* Compact contextual controls for the deed manager. */
+.dd-primary-build { margin-top: 12px; }
+.dd-primary-build > .dd-build-btn { width: 100%; min-height: 48px; }
+.dd-primary-build .dd-build-msg { margin: 7px 0 0; padding: 7px 9px; }
+#deed-modal .deed-detail-card { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.dd-body > .dd-ladder { margin-top: 12px; }
+.dd-airport-details { margin-top: 10px; border: 1px solid var(--line-dark); background: var(--surface-panel-deep); }
+.dd-airport-details > summary { padding: 9px 11px; color: var(--gold-300); cursor: pointer; font: 600 11px var(--font-body); letter-spacing: .08em; text-transform: uppercase; }
+.dd-airport-details[open] > summary { border-bottom: 1px solid var(--line-dark); }
+.dd-airport-details .fee-block { margin: 0; padding: 10px; }
+#deed-modal .dd-stats { grid-template-columns: minmax(0, 1fr); }
+#deed-modal .dd-stats > .pop-row { min-height: 24px; padding: 0; border: 0; background: transparent; }
+
+.dd-deed-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 12px;
+}
+.dd-deed-actions > #dd-mortgage,
+.dd-deed-actions > .dd-context-sell {
+  width: 100%; min-width: 0; min-height: 46px; height: 100%; margin: 0; padding: 8px 11px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left;
+}
+.dd-deed-actions > #dd-mortgage { white-space: normal; }
+.dd-context-sell { border: 1px solid var(--line-default); }
+.dd-context-sell .t-micro { color: var(--green-status); }
+.dd-deed-actions .dd-context-note { grid-column: 1 / -1; margin: 0; }
+.dd-context-sell:focus-visible { outline: 2px solid var(--gold-300); outline-offset: 2px; }
+.dd-context-sell:disabled { opacity: .55; cursor: not-allowed; }
+.dd-context-note { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.dd-context-sell .t-micro { color: var(--green-status); font-size: 9px; white-space: nowrap; }
+/* Sell is destructive; redemption restores the deed's earning state. */
+#deed-modal #dd-sell:not(:disabled),
+#deed-modal .dd-is-mortgaged #dd-trade-deed:not(:disabled) { border-color: var(--red-bright); color: var(--red-bright); background: var(--surface-panel-deep); }
+#deed-modal #dd-sell:not(:disabled):hover,
+#deed-modal .dd-is-mortgaged #dd-trade-deed:not(:disabled):hover { background: var(--red-dark); color: var(--text-primary); }
+#deed-modal .dd-redeem:not(:disabled) { border-color: var(--green-status); color: var(--green-status); }
+#deed-modal .dd-redeem:not(:disabled):hover { background: var(--surface-panel-deep); color: var(--text-primary); }
+.dd-mortgage-status { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px; border: 1px dashed var(--gold-300); color: var(--gold-300); }
+.dd-is-mortgaged .dd-icon { border-style: dashed; }
+
+/* Request actions stay beside their sender, in either social surface. */
+#social-card .social-surface-body:has(> .social-request-row),
+#view-social .social-surface-body:has(> .social-request-row) { align-content: start; grid-auto-rows: max-content; }
+#social-card .social-request-row,
+#view-social .social-request-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; align-content: center; width: 100%; max-width: 680px; min-width: 0; min-height: 72px; height: auto; box-sizing: border-box; }
+#social-card .social-request-row > .social-player-row,
+#view-social .social-request-row > .social-player-row { height: auto; min-height: 44px; padding: 0; border: 0; background: transparent; }
+#social-card .social-request-row .social-player-main,
+#view-social .social-request-row .social-player-main { min-width: 0; overflow-wrap: anywhere; }
+.social-request-row .social-player-open { flex-shrink: 0; }
+#social-card .social-request-row > .social-request-actions,
+#view-social .social-request-row > .social-request-actions { align-items: center; flex-wrap: wrap; justify-content: flex-end; align-content: center; max-width: 170px; gap: 6px; }
+#social-card .social-request-row .social-request-actions > button,
+#view-social .social-request-row .social-request-actions > button { flex: 0 0 auto; width: auto; min-width: 72px; min-height: 38px; height: 38px; max-height: 38px; padding: 0 9px; }
+#social-card .social-request-row .social-request-accept,
+#view-social .social-request-row .social-request-accept { color: var(--green-status); border-color: var(--green-status); }
+.social-request-row [aria-busy="true"] { opacity: .55; cursor: wait; }
+#trade-modal .trade-body { width: 100%; min-width: 0; }
+#trade-modal .trade-cols { min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#trade-modal .trade-side { width: 100%; min-width: 0; }
+#trade-modal .trade-side-head { min-width: 0; }
+#trade-modal .trade-deed-list { width: 100%; min-width: 0; }
+#trade-modal .trade-deed { width: 100%; max-width: 100%; min-width: 0; }
+#trade-modal .trade-deed-name { flex: 1 1 0; min-width: 0; }
+#trade-modal .trade-deed-mortgage-badge { flex-shrink: 0; white-space: nowrap; color: var(--red-bright); font-size: 9px; }
+#trade-modal .trade-deed.is-mortgaged .trade-deed-name::after { content: none; }
+.trade-deed.is-mortgaged { opacity: 1; cursor: pointer; }
+.trade-deed.is-mortgaged:disabled { cursor: not-allowed; }
+.trade-deed-block-reason { display: block; margin-top: 3px; color: var(--red-bright); font-size: 9px; line-height: 1.2; white-space: normal; }
+
+@media (max-height: 620px) {
+  #deed-modal .deed-detail-card { max-height: calc(100dvh - 24px); overflow-y: auto; }
+}

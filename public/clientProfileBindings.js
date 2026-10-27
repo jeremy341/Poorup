@@ -9,6 +9,7 @@ import { $ } from "./clientDom.js";
 import { state, getProfileById, upsertProfile, deleteProfile } from "./clientState.js";
 import { MAX_PROFILES, profileDesignName } from "./clientSanitize.js";
 import { emptyFaceGrid, faceGridFromPreset, cloneFaceGrid } from "./clientSprites.js";
+import { saveFaceToAccount } from "./clientAccountAppearance.js";
 import {
   renderProfileSummary,
   renderProfileLibrary,
@@ -16,7 +17,10 @@ import {
   updateProfilePreview,
   paintFaceCell,
   renderAccountPanel,
-  profileHistoryToggleAccessibleName,
+  setProfileHistoryExpanded,
+  selectProfileHistoryDetailTab,
+  setProfileHistoryFilter,
+  setAllProfileHistoryRowsExpanded,
 } from "./clientProfileRender.js";
 import { openConfirmModal } from "./clientSurfaces.js";
 import {
@@ -104,34 +108,30 @@ function onProfileStatsClick(event) {
 }
 
 function onProfileHistoryClick(event) {
+  const filter = event.target.closest("[data-profile-history-filter]");
+  if (filter && filter.tagName !== "SELECT") {
+    setProfileHistoryFilter(filter.getAttribute("data-profile-history-filter"));
+    return;
+  }
+  const bulk = event.target.closest("[data-profile-history-bulk]");
+  if (bulk) {
+    setAllProfileHistoryRowsExpanded(bulk.getAttribute("data-profile-history-bulk") === "expand");
+    return;
+  }
   const toggle = event.target.closest("[data-profile-history-toggle]");
   if (toggle) {
-    const details = document.getElementById(toggle.getAttribute("aria-controls"));
-    if (!details) return;
     const scrollContainer = toggle.closest("#view-profile")?.querySelector(".profile-main");
     const scrollTop = scrollContainer?.scrollTop ?? 0;
     const expanded = toggle.getAttribute("aria-expanded") !== "true";
-    toggle.setAttribute("aria-expanded", String(expanded));
-    toggle.setAttribute("aria-label", profileHistoryToggleAccessibleName(toggle.getAttribute("aria-label"), expanded));
-    toggle.querySelector("[aria-hidden='true']")?.replaceChildren(document.createTextNode(expanded ? "DETAILS −" : "DETAILS +"));
-    details.hidden = !expanded;
+    if (!setProfileHistoryExpanded(toggle, expanded)) return;
     toggle.focus({ preventScroll: true });
     if (scrollContainer) scrollContainer.scrollTop = scrollTop;
     return;
   }
 
   const tab = event.target.closest("[data-profile-history-detail-tab]");
-  if (!tab) return;
-  const details = tab.closest(".profile-history-details");
-  const selected = tab.getAttribute("aria-controls");
-  details.querySelectorAll("[data-profile-history-detail-tab]").forEach((button) => {
-    const active = button === tab;
-    button.setAttribute("aria-selected", String(active));
-    button.tabIndex = active ? 0 : -1;
-  });
-  details.querySelectorAll("[role='tabpanel']").forEach((panel) => {
-    panel.hidden = panel.id !== selected;
-  });
+  if (!tab || !tab.closest(".profile-history-details")) return;
+  selectProfileHistoryDetailTab(tab);
   tab.focus({ preventScroll: true });
 }
 
@@ -139,7 +139,24 @@ function onProfileHistoryKeydown(event) {
   const statsTablist = event.target.closest(".profile-stat-tabs");
   if (statsTablist && focusTabWithKey(event, statsTablist, "[data-profile-stat-tab]")) return;
   const detailTablist = event.target.closest(".profile-history-detail-tabs");
-  if (detailTablist) focusTabWithKey(event, detailTablist, "[data-profile-history-detail-tab]");
+  if (detailTablist) {
+    focusTabWithKey(event, detailTablist, "[data-profile-history-detail-tab]");
+    return;
+  }
+  const row = event.target.closest(".profile-history-toggle");
+  if (!row) return;
+  // Up/Down walk the round list; Home/End jump to its ends. Past either end the key keeps its normal scroll.
+  const toggles = [...event.currentTarget.querySelectorAll(".profile-history-toggle")];
+  const at = toggles.indexOf(row);
+  const target = { ArrowDown: toggles[at + 1], ArrowUp: toggles[at - 1], Home: toggles[0], End: toggles[toggles.length - 1] }[event.key];
+  if (!target) return;
+  event.preventDefault();
+  target.focus();
+}
+
+function onProfileHistoryChange(event) {
+  const select = event.target.closest?.("select[data-profile-history-filter]");
+  if (select) setProfileHistoryFilter(`${select.getAttribute("data-profile-history-filter")}:${select.value}`);
 }
 
 /** Open editor. Pass a profile id to edit, or nothing to create a new one. */
@@ -191,26 +208,18 @@ function draftProfilePayload(d, asNew) {
   };
 }
 
-function accountUpdateAck(response) {
-  if (response?.success) {
-    updateAccountFromResponse(response);
-    return;
-  }
-  const error = response?.error;
-  if (!error) return;
-  const announcer = $("#error-announcer");
-  if (announcer) announcer.textContent = error;
-}
-
 function syncSavedDesignToAccount(saved) {
-  if (!state.account?.sessionToken) return;
-  host.emitServer("account-update", {
-    sessionToken: state.account.sessionToken,
-    color: saved.color,
-    avatarGrid: saved.avatarGrid,
-  }, accountUpdateAck);
+  if (!state.account) return;
+  saveFaceToAccount({ color: saved.color, avatarGrid: saved.avatarGrid }).then((result) => {
+    if (result.success) {
+      renderAccountPanel();
+      return;
+    }
+    if (result.skipped) return;
+    const announcer = $("#error-announcer");
+    if (announcer) announcer.textContent = result.error;
+  });
 }
-
 function stayAfterSave(saved) {
   state.editingProfileId = saved.id;
   state.profileDraft = draftFromSource(saved);
@@ -408,6 +417,7 @@ export function bindProfileUi() {
   $("#profile-statistics-content")?.addEventListener("keydown", onProfileHistoryKeydown);
   $("#profile-history-content")?.addEventListener("click", onProfileHistoryClick);
   $("#profile-history-content")?.addEventListener("keydown", onProfileHistoryKeydown);
+  $("#profile-history-content")?.addEventListener("change", onProfileHistoryChange);
   // profile editor — entry points
   document.querySelectorAll("[data-global-profile-trigger]").forEach((button) => {
     button.addEventListener("click", onActiveProfileEditClick);

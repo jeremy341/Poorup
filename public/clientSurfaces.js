@@ -7,17 +7,18 @@
 import { $, esc } from "./clientDom.js";
 import { hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
+import { snoozeAuctionSurface } from "./clientStateSync.js";
 
 const SURFACE_SELECTORS = [
   "#rooms-modal", "#account-modal", "#confirm-modal", "#achievement-modal", "#rankings-modal", "#social-modal", "#player-modal", "#setup-wrap", "#popup", "#trade-modal", "#deal-detail-modal", "#choice-modal", "#sponsorship-modal",
-  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#bankruptcy-modal",
+  "#auction-modal", "#offer-modal", "#deed-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#flight-modal", "#market-modal", "#casino-modal", "#bankruptcy-modal",
   "#card-modal", "#card-gallery", "#gameover-modal",
 ];
 
 /* Table popups belong only to a live game — blocked while parked at parlor home. */
 const GAME_POPUP = new Set([
   "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal", "#deal-detail-modal",
-  "#auction-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#market-modal", "#casino-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
+  "#auction-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#flight-modal", "#market-modal", "#casino-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
 ]);
 let nextTableNoticeAt = 0;
 let surfaceReturnFocus = null;
@@ -183,9 +184,28 @@ function blockedAsGamePopup(selector) {
   return true;
 }
 
+function usableFocusTarget(el) {
+  if (!el || el === document.body) return false;
+  if (el.disabled) return false;
+  if (!document.contains(el)) return false;
+  // A remembered invoker can have been hidden meanwhile (view switch, closed
+  // card); focusing it would silently drop focus to <body>.
+  return typeof el.getClientRects !== "function" || el.getClientRects().length > 0;
+}
+
 function rememberReturnFocus() {
   if (visibleSurfaces().length) return;
-  if (document.activeElement instanceof HTMLElement) surfaceReturnFocus = document.activeElement;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active !== document.body) surfaceReturnFocus = active;
+}
+
+/** No invoker to return to: land on the HUD primary action so keyboard users
+ *  keep their place at the table instead of dropping to <body>. */
+function focusHudPrimaryAction() {
+  if ($("#view-game")?.classList.contains("is-hidden")) return;
+  const hud = $("#roll-btn");
+  if (!hud || hud.disabled) return;
+  hud.focus({ preventScroll: true });
 }
 
 function preferredFocusable(surface, preferred) {
@@ -222,10 +242,13 @@ export function openSurface(selector, focusSelector, options = {}) {
 }
 
 function restoreReturnFocus() {
-  if (!surfaceReturnFocus) return;
-  if (!document.contains(surfaceReturnFocus)) return;
-  surfaceReturnFocus.focus({ preventScroll: true });
+  const target = surfaceReturnFocus;
   surfaceReturnFocus = null;
+  if (usableFocusTarget(target)) {
+    target.focus({ preventScroll: true });
+    return;
+  }
+  focusHudPrimaryAction();
 }
 
 export function closeSurface(selector, options = {}) {
@@ -237,7 +260,10 @@ export function closeSurface(selector, options = {}) {
     return false;
   }
   const returnFocus = surfaceReturns.get(selector) || null;
-  if (selector === "#bankruptcy-modal") state.debtRescueDismissed = true;
+  if (selector === "#bankruptcy-modal" && !options.resolved) state.debtRescueDismissed = true;
+  // An actually-dismissed auction card stays closed for this auction: the next
+  // snapshot must not reopen it and steal focus. The HUD button reopens it.
+  if (selector === "#auction-modal") snoozeAuctionSurface();
   surfaceReturns.delete(selector);
   surfaceStack = surfaceStack.filter(entry => entry !== selector);
   setSurfaceHidden(surface, true);
@@ -246,11 +272,20 @@ export function closeSurface(selector, options = {}) {
     surfaceFocusable(active)[0]?.focus({ preventScroll: true });
     return;
   }
-  if (returnFocus && document.contains(returnFocus)) {
+  if (usableFocusTarget(returnFocus)) {
     returnFocus.focus({ preventScroll: true });
     return;
   }
   restoreReturnFocus();
+}
+
+/** The server cleared the reason this surface existed (e.g. a paid-off debt):
+ *  hide it through the shared controller so inert, aria and the surface stack
+ *  are re-applied, without recording it as a player dismissal. */
+export function hideSurfaceResolved(selector) {
+  const surface = $(selector);
+  if (!surface || !surfaceVisible(surface)) return;
+  closeSurface(selector, { force: true, resolved: true });
 }
 
 export function closeAllSurfaces() {

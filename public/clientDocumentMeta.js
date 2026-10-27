@@ -7,7 +7,7 @@ const PREVIEW_PATH = "/assets/social/poorup-og-1200x630.png";
 const PREVIEW_WIDTH = 1200;
 const PREVIEW_HEIGHT = 630;
 const PREVIEW_TYPE = "image/png";
-const PRIVATE_PATH = /^(?:\/admin(?:\/|$)|\/game(?:\/|$)|\/play(?:\/|$)|\/rooms(?:\/|$)|\/profile(?:\/|$)|\/rankings(?:\/|$)|\/social(?:\/|$)|\/rules(?:\/|$))/i;
+const PRIVATE_PATH = /^(?:\/admin(?:\/|$)|\/game(?:\/|$)|\/play(?:\/|$)|\/rooms(?:\/|$)|\/profile(?:\/|$)|\/rankings(?:\/|$)|\/social(?:\/|$))/i;
 
 function cleanText(value, fallback = "") {
   return String(value ?? fallback).replace(/[<>]/g, "").trim();
@@ -74,7 +74,7 @@ export function metadataConfig(options = {}) {
     description,
     title,
     canonicalUrl: origin ? `${origin}${path}` : "",
-    previewUrl: origin ? `${origin}${previewPath}` : "",
+    previewUrl: origin && previewPath ? `${origin}${previewPath}` : "",
   };
 }
 
@@ -96,7 +96,7 @@ export function renderDocumentMeta(options = {}) {
     `<meta property="og:title" content="${escapeAttribute(meta.title || "Poorup")}">`,
     `<meta property="og:description" content="${escapeAttribute(meta.description || "")}">`,
     `<meta property="og:type" content="website">`,
-    `<meta name="twitter:card" content="summary_large_image">`,
+    `<meta name="twitter:card" content="${meta.previewUrl ? "summary_large_image" : "summary"}">`,
   ];
   if (meta.canonicalUrl && meta.origin) {
     tags.push(`<link rel="canonical" href="${escapeAttribute(meta.canonicalUrl)}">`);
@@ -121,6 +121,7 @@ const VIEW_TITLES = Object.freeze({
   rankings: "Poorup | Rankings",
   social: "Poorup | Parlor social",
   rules: "Poorup | Rules",
+  about: "Poorup | About",
   admin: "Poorup | Operator console",
   analytics: "Poorup | Analytics",
 });

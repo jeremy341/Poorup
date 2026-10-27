@@ -9,9 +9,12 @@
 }
 
 #view-game .numeric,
-#view-game .t-money,
 #view-game .tile-price {
   font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+#view-game .t-money {
+  font-family: var(--font-numeric-display);
   font-variant-numeric: tabular-nums lining-nums;
 }
 
