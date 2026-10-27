@@ -1,3 +1,5 @@
+import { playerFinanceEnabled } from './financeRules.js';
+import { rentShareConstructionAllowed } from './rentShareRules.js';
 // Versioned, provider-safe bot projection. This module only reshapes the
 // authoritative GameState; it never executes an action or exposes stable
 // account/socket identifiers. Keep it separate from bot execution so a future
@@ -9,8 +11,8 @@ import { COMPLEXITY_RANK, MARGIN_MAINTENANCE_RATE } from './marketExpansion.js';
 import { summarizePublicActionProfile } from './publicActionHistory.js';
 import { PUBLIC_ACTION_PROFILE_PRODUCTION_ENABLED } from './publicActionHistory.js';
 
-export const BOT_CONTEXT_VERSION = 'bot-context-v4';
-export const BOT_RULE_VERSION = 'bot-policy-v2';
+export const BOT_CONTEXT_VERSION = 'bot-context-v6';
+export const BOT_RULE_VERSION = 'bot-policy-v3';
 
 function integer(value, fallback = 0) {
   const number = Number(value);
@@ -35,7 +37,7 @@ function cashBand(cash, startingCash) {
 // itself sits. Every seat-keyed field (board[], opponents[], obligations,
 // events) resolves through this one function; a second numbering scheme would
 // make the planner's seat lookups (opponentIsJailed) miss every time.
-function seatOf(game, bot, playerId) {
+export function seatOf(game, bot, playerId) {
   if (!playerId) return 'bank';
   if (playerId === bot.id) return 'self';
   const opponents = (game.players || []).filter(player => player.id !== bot.id);
@@ -53,9 +55,12 @@ function tileView(game, bot, tile) {
     group: tile.group || null,
     ownerSeat: seatOf(game, bot, tile.ownerId),
     price: nonNegative(tile.price),
+    // Tax tiles carry their bill in `amount`; without it the planner priced them at $0.
+    ...(tile.type === 'tax' ? { amount: nonNegative(tile.amount) } : {}),
     rent: nonNegative(tile.rent),
     houseCount: Math.max(0, Math.min(5, integer(tile.houseCount))),
     mortgaged: tile.mortgaged === true,
+    constructionBlocked: !rentShareConstructionAllowed(game, tile),
     equityShares: Array.isArray(tile.equityShares) && tile.equityShares.length > 0
   };
 }
@@ -71,6 +76,9 @@ function contractView(contract, bot) {
   return {
     id: String(contract.id || '').slice(0, 80),
     kind: contract.kind,
+    rulesVersion: contract.rulesVersion ?? null,
+    rentShareVersion: contract.rentShareVersion ?? null,
+    expiresRound: contract.expiresRound ?? null,
     role: borrower ? 'borrower' : 'lender',
     status: contract.status,
     amount: nonNegative(contract.amount),
@@ -137,7 +145,8 @@ function shortPositionsView(bot) {
     {
       quantity: nonNegative(position?.quantity),
       entryQuote: Math.max(0, Number(position?.entryQuote) || 0),
-      collateral: nonNegative(position?.collateral)
+      collateral: nonNegative(position?.collateral),
+      borrowFee: nonNegative(position?.borrowFee)
     }
   ]));
 }
@@ -174,6 +183,7 @@ function ownMarketExpansionView(bot) {
     margin: {
       balance: nonNegative(bot.marginBalance),
       maintenance: nonNegative(bot.marginMaintenance),
+      collateral: nonNegative(bot.marginCollateral),
       positions: marginPositionsView(bot)
     },
     shorts: shortBookView(bot),
@@ -381,9 +391,17 @@ function tradeObligation(game, bot) {
 
 function contractObligation(game, bot) {
   const item = game.pendingPlayerContract;
-  return item ? {
-    role: participantRole(item, bot),
+  if (!item) return null;
+  const role = participantRole(item, bot);
+  // Other seats can see that a contract is pending, but its negotiated terms
+  // are private to the participants, matching playerContractSummary.
+  if (role === 'other') return { role, kind: item.kind, status: item.status };
+  return {
+    role,
     kind: item.kind,
+    rulesVersion: item.rulesVersion ?? null,
+    rentShareVersion: item.rentShareVersion ?? null,
+    expiresRound: item.expiresRound ?? null,
     amount: nonNegative(item.amount),
     premiumRate: Math.max(0, Number(item.premiumRate) || 0),
     durationRounds: nonNegative(item.durationRounds),
@@ -392,8 +410,8 @@ function contractObligation(game, bot) {
     equityShare: Math.max(0, Number(item.equityShare) || 0),
     equityControl: item.equityControl || null,
     conversionShare: Math.max(0, Number(item.conversionShare) || 0),
-    permanent: item.expiresRound == null
-  } : null;
+    permanent: item.kind === 'equity' && item.rentShareVersion !== 1 && item.expiresRound == null
+  };
 }
 
 function obligationView(game, bot) {
@@ -415,8 +433,9 @@ function rulesetMetadata(game) {
   const settings = game.settings || {};
   const rules = game.ruleset || {};
   return {
+    rulesProfile: settings.rulesProfile === 'advanced' ? 'advanced' : 'standard',
+    playerFinance: playerFinanceEnabled(game),
     boardVariant: firstTruthyOr([game.boardVariant, settings.boardVariant], 'standard-40'),
-    rulesetPreset: firstTruthyOr([rules.rulesetPreset, settings.rulesetPreset], 'classic'),
     rulesetRevision: firstTruthyOr([rules.rulesetRevision, settings.rulesetRevision], 1),
     rulesetDigest: typeof game.rulesetDigest === 'string' ? game.rulesetDigest.slice(0, 200) : null
   };
@@ -466,14 +485,12 @@ function rulesDigest(game) {
     jailTileIndex: Array.isArray(game.tiles) ? game.tiles.find(tile => tile.type === 'jail')?.index ?? null : null,
     purchaseReserve: 120,
     evenBuild: settings.evenBuild !== false,
-    houseLimit: nonNegative(settings.houseLimit),
-    hotelLimit: nonNegative(settings.hotelLimit),
     noRentWhileInPrison: settings.noRentWhileInPrison === true,
     auction: settings.auction === true,
     trading: settings.trading !== false && effects.tradingEnabled !== false,
     bankLoans: settings.bankLoans !== false,
     bankLoanSeverity: settings.bankLoanSeverity || 'predatory',
-    sponsorship: { enabled: true, giftsOnly: true, forcedPurchase: true, loanOrEquity: false },
+    sponsorship: { enabled: playerFinanceEnabled(game), giftsOnly: true, forcedPurchase: true, loanOrEquity: false },
     casino: { enabled: settings.casino === true, ...casinoLimits, loanBackedCashAllowed: false },
     market: marketRulesView(game),
     cards: {
@@ -590,10 +607,16 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
 
 // Anonymized whole-table brief for the advisor: standings, threats,
 // alliances, and the win path — seats only, never stable identifiers.
+// A seat that is bankrupt or disconnected is out of the game: it is not a
+// rival, so it never counts in the seats, the rank, the leader gap, the
+// threats, the alliances, or the endgame. Its liveness stays on the
+// opponent views, and the seats that left are reported apart from the table.
 function tableSummaryView(game, bot, opponents) {
-  const seats = ['self', ...(opponents || []).map(entry => entry.seat)];
+  const all = opponents || [];
+  const live = all.filter(entry => !entry.bankrupt && !entry.disconnected);
+  const seats = ['self', ...live.map(entry => entry.seat)];
   const bySeatCash = { self: nonNegative(bot?.cash) };
-  (opponents || []).forEach(entry => { bySeatCash[entry.seat] = nonNegative(entry.cashExactBucket); });
+  live.forEach(entry => { bySeatCash[entry.seat] = nonNegative(entry.cashExactBucket); });
   const myStance = typeof bot?.lastVoteChoice === 'string' ? bot.lastVoteChoice.slice(0, 40) : null;
   const ranked = [...seats].sort((a, b) => bySeatCash[b] - bySeatCash[a]);
   const myRank = Math.max(1, ranked.indexOf('self') + 1);
@@ -601,14 +624,17 @@ function tableSummaryView(game, bot, opponents) {
     rank: myRank,
     seats: seats.length,
     leaderGap: Math.max(0, bySeatCash[ranked[0]] - bySeatCash.self),
-    threats: (opponents || []).map(entry => ({
+    threats: live.map(entry => ({
       seat: entry.seat,
       nearGroups: entry.nearGroups || [],
       desire: entry.desire || 'drifter',
     })),
-    alliances: (opponents || [])
+    alliances: live
       .filter(entry => entry.stance && myStance && entry.stance === myStance)
       .map(entry => entry.seat),
     endgame: seats.length <= 2,
+    outOfPlaySeats: all
+      .filter(entry => entry.bankrupt || entry.disconnected)
+      .map(entry => entry.seat),
   };
 }

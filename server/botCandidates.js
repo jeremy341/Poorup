@@ -7,8 +7,21 @@ import {
   sponsorshipContributionAmount,
   sponsorshipBuyerShouldCancel
 } from './sponsorshipLogic.js';
+import { playerFinanceEnabled } from './financeRules.js';
 import { contractResponderId } from './contractLogic.js';
 import { groupTiles, ownedCount } from './botAuctionPolicy.js';
+import { vetoTrade, tradeSetChanges } from './botTradeValuation.js';
+import {
+  BORROW_MAX_PREMIUM_PERCENT,
+  BORROW_MIN_ROUNDS,
+  LEND_MAX_PRINCIPAL,
+  LEND_MAX_ROUNDS,
+  LEND_MIN_PREMIUM_PERCENT,
+  borrowerAcceptsContract,
+  contractReserve,
+  lenderAcceptsCounter,
+  tableObligationOpen
+} from './botContractPolicy.js';
 
 export { contractResponderId };
 export { auctionWillingness } from './botAuctionPolicy.js';
@@ -74,8 +87,17 @@ function rivalsAllBroke(game, bot, tile) {
   return rivals.every(player => Number(player.cash || 0) < price);
 }
 
+// Declining only makes sense when an auction will actually follow; with auctions
+// off or paused a declined deed simply stays unowned.
+function auctionWillFollow(game) {
+  if (game?.settings?.auction === false) return false;
+  if (typeof game?.globalEventActive === 'function' && game.globalEventActive('bank-run')) return false;
+  return !game?.activeEventEffects?.().auctionBlocked;
+}
+
 export function declineForCheapAuction(game, bot, tile) {
   if (!tile?.group || !Array.isArray(game?.players)) return false;
+  if (!auctionWillFollow(game)) return false;
   const tiles = groupTiles(game, tile);
   if (!tiles) return false;
   const owned = ownedCount(tiles, bot);
@@ -101,6 +123,13 @@ function mortgageCandidateOrder(a, b) {
   return a.rentLoss - b.rentLoss || b.proceeds - a.proceeds || a.tile.index - b.tile.index;
 }
 
+// A deed named by an open trade or contract is refused by the server
+// (propertyOpenOfferRejection), so it can never be offered as a rescue.
+function openOfferFree(game, tile) {
+  if (typeof game.propertyOpenOfferRejection !== 'function') return true;
+  return !game.propertyOpenOfferRejection(tile);
+}
+
 // Mortgage ladder for debt: bare deeds at 10% interest before houses at
 // 50% loss. Sorted by income preserved (lowest rent first), then proceeds.
 // Exported for unit tests; pure besides the game rules lookups.
@@ -109,7 +138,7 @@ export function debtMortgageCandidates(game, bot) {
   const valueMultiplier = mortgageValueMultiplier(game);
   return (bot?.properties || [])
     .map(index => game.getTile(index))
-    .filter(tile => tile && game.canMortgageTile(bot, tile))
+    .filter(tile => tile && game.canMortgageTile(bot, tile) && openOfferFree(game, tile))
     .map(tile => mortgageCandidateEntry(game, tile, valueMultiplier))
     .sort(mortgageCandidateOrder);
 }
@@ -139,18 +168,20 @@ export function debtSellCandidates(game, bot) {
   if (typeof game.getTile !== 'function' || typeof game.canSellFromTile !== 'function') return [];
   return (bot.properties || [])
     .map(index => game.getTile(index))
-    .filter(tile => tile && tile.houseCount > 0 && game.canSellFromTile(bot, tile))
+    .filter(tile => tile && tile.houseCount > 0 && game.canSellFromTile(bot, tile) && openOfferFree(game, tile))
     .map(tile => saleCandidateEntry(game, tile))
     .sort(saleCandidateOrder);
 }
 
 const COUNTER_BLOCKING_STATES = Object.freeze([
-  'pendingPayment', 'auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingPlayerContract'
+  'auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingPlayerContract'
 ]);
 
 // Countering opens a replacement offer, which the table-obligation gate
-// forbids while a payment, auction, purchase, sponsorship, or contract is
-// pending. Countering into a blocked table restores the same offer.
+// forbids while an auction, purchase, sponsorship, or contract is pending.
+// A pending payment is NOT one of them: the engine settles a parked debt with
+// the money and keeps debt-rescue deals legal (tradeApi.js). Countering into
+// a blocked table restores the same offer.
 export function tradeCounterBlocked(game) {
   if (!game) return false;
   return COUNTER_BLOCKING_STATES.some(key => Boolean(game[key]));
@@ -164,13 +195,13 @@ function counterableTrade(game, bot) {
   return trade;
 }
 
-function tradeCounterOfferBody(trade, bot) {
+function tradeCounterOfferBody(trade, bot, extraCash = null) {
   const givePropertyIndexes = (trade.requestPropertyIndexes || [])
     .map(Number)
     .filter(index => (bot.properties || []).includes(index));
   const requestPropertyIndexes = (trade.givePropertyIndexes || []).map(Number);
   const requestedCash = Math.max(0, Math.floor(Number(trade.giveCash) || 0));
-  const premium = Math.max(10, Math.ceil(requestedCash * 0.1));
+  const premium = extraCash == null ? Math.max(10, Math.ceil(requestedCash * 0.1)) : Math.max(1, Math.floor(Number(extraCash)));
   return {
     givePropertyIndexes,
     requestPropertyIndexes,
@@ -180,21 +211,64 @@ function tradeCounterOfferBody(trade, bot) {
   };
 }
 
-export function counterTradeOffer(game, bot) {
-  const trade = counterableTrade(game, bot);
-  if (!trade) return null;
-  return { toPlayerId: trade.fromPlayerId, ...tradeCounterOfferBody(trade, bot) };
+// The server refuses a counter when either side lacks the cash it names
+// (tradeApi 'no longer has enough cash'), so a counter the proposer cannot pay
+// is never built: it would only burn the bot's action and decline instead.
+function counterIsAffordable(game, bot, trade, body) {
+  const proposer = typeof game.getPlayerById === 'function' ? game.getPlayerById(trade.fromPlayerId) : null;
+  const lacks = (seat, amount) => Number.isFinite(Number(seat?.cash)) && Number(seat.cash) < amount;
+  return !lacks(proposer, body.requestCash) && !lacks(bot, body.giveCash);
 }
 
+// The counter is priced at face value plus a premium, so it must not be the
+// way a bot gives up its own set or finishes the proposer's set cheaply: the
+// deeds it would hand over are checked against both rules.
+function counterKeepsBotSets(game, bot, trade, body) {
+  const sets = tradeSetChanges(game, bot.id, body.givePropertyIndexes, body.requestPropertyIndexes);
+  if (sets.breaks.length > sets.completes.length) return false;
+  const asProposal = { fromPlayerId: bot.id, toPlayerId: trade.fromPlayerId, ...body };
+  return !vetoTrade(game, asProposal, bot.id).vetoed;
+}
+
+// Why a counter could not be built, so the advisor can decide whether a
+// higher premium is worth trying: 'no-trade' (nothing to counter) never is,
+// 'unaffordable' is the cash the proposer or the bot does not have, and
+// 'set-veto' is a counter that breaks the bot's own set or underprices the
+// proposer's completion - which a bigger premium can clear.
+export function counterTradeOfferOutcome(game, bot, extraCash = null) {
+  const trade = counterableTrade(game, bot);
+  if (!trade) return { offer: null, reason: 'no-trade' };
+  const body = tradeCounterOfferBody(trade, bot, extraCash);
+  if (!counterIsAffordable(game, bot, trade, body)) return { offer: null, reason: 'unaffordable' };
+  if (!counterKeepsBotSets(game, bot, trade, body)) return { offer: null, reason: 'set-veto' };
+  return { offer: { toPlayerId: trade.fromPlayerId, ...body }, reason: null };
+}
+
+export function counterTradeOffer(game, bot, extraCash = null) {
+  return counterTradeOfferOutcome(game, bot, extraCash).offer;
+}
+
+// A counter is a proposal the other seat can simply accept, so it carries only
+// terms the bot would stand behind. As a borrower it asks for the terms its own
+// gate signs (interest-free, long enough to schedule); as a lender it asks for
+// a priced, short, bounded loan.
 function counterContractPremium(contract, lenderResponding) {
-  const bump = lenderResponding ? 10 : -10;
-  return Math.max(0, Math.min(100, Math.floor(Number(contract.premiumRate || 0) + bump)));
+  if (!lenderResponding) return BORROW_MAX_PREMIUM_PERCENT;
+  const raised = Math.floor(Number(contract.premiumRate || 0) + 10);
+  return Math.max(LEND_MIN_PREMIUM_PERCENT, Math.min(100, raised));
 }
 
 function counterContractDuration(contract, lenderResponding) {
   const rounds = Math.floor(Number(contract.durationRounds) || 3);
-  if (lenderResponding) return Math.max(1, rounds - 1);
-  return Math.min(20, Math.max(1, rounds + 1));
+  if (lenderResponding) return Math.min(LEND_MAX_ROUNDS, Math.max(1, rounds - 1));
+  return Math.min(20, Math.max(BORROW_MIN_ROUNDS, rounds + 1));
+}
+
+function counterContractAmount(game, bot, contract, lenderResponding) {
+  const asked = Math.max(1, Math.floor(Number(contract.amount) || 1));
+  if (!lenderResponding) return asked;
+  const fundable = Math.floor(Number(bot.cash || 0) - contractReserve(game));
+  return Math.min(asked, LEND_MAX_PRINCIPAL, fundable);
 }
 
 function counterContractTerms(contract, lenderResponding) {
@@ -211,21 +285,42 @@ function contractCollateralFields(contract) {
     equityShare: contract.equityShare || 0,
     equityControl: contract.equityControl || 'passive',
     conversionShare: contract.conversionShare || 25,
-    permanent: contract.expiresRound == null
+    permanent: false
   };
 }
 
+function counterIsSound(game, bot, contract, counter, lenderResponding) {
+  const totalDue = counter.amount + Math.ceil(counter.amount * counter.premiumRate / 100);
+  const terms = { ...contract, ...counter, totalDue };
+  if (lenderResponding) return lenderAcceptsCounter(game, bot, terms);
+  const lender = typeof game.getPlayerById === 'function' ? game.getPlayerById(contract.fromPlayerId) : null;
+  return borrowerAcceptsContract(terms, bot, { lender, game });
+}
+
+// A contract counter replaces the offer on the table, so the engine refuses it
+// while another obligation is open (contractLogic.js: 'Resolve the current
+// table obligation first.'). The contract being answered and a pending
+// payment are both allowed: a payment never blocks a deal.
+export function contractCounterBlocked(game) {
+  return tableObligationOpen(game);
+}
+
 export function counterContractOffer(game, bot) {
+  if (!playerFinanceEnabled(game)) return null;
   const contract = game.pendingPlayerContract;
   if (!contract) return null;
+  if (contractCounterBlocked(game)) return null;
+  if (contract.kind !== 'loan' || contract.rulesVersion !== 2) return null;
   if (contractResponderId(contract) !== bot.id) return null;
   if (Number(contract.counterDepth) >= 2) return null;
   const lenderResponding = contract.fromPlayerId === bot.id;
-  return {
+  const counter = {
     contractId: contract.id,
     kind: contract.kind,
-    amount: Math.max(1, Math.floor(Number(contract.amount) || 1)),
+    amount: counterContractAmount(game, bot, contract, lenderResponding),
     ...counterContractTerms(contract, lenderResponding),
     ...contractCollateralFields(contract)
   };
+  if (!(counter.amount > 0)) return null;
+  return counterIsSound(game, bot, contract, counter, lenderResponding) ? counter : null;
 }
