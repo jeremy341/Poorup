@@ -51,7 +51,8 @@ check('build payback ranks Orange above Brown', () => {
 
 check('group plan prices the road to 3 houses', () => {
   const plan = groupBuildPlan(BOARD, 'Brown', costOf);
-  assert.deepEqual(plan, { group: 'Brown', cost: 600, gainPerCircuit: 836, paybackRounds: 1 });
+  // buildRounds: each Brown deed needs three houses, one per round (even build).
+  assert.deepEqual(plan, { group: 'Brown', cost: 600, gainPerCircuit: 836, paybackRounds: 1, buildRounds: 3 });
   assert.equal(groupBuildPlan(BOARD, 'Dark Blue', costOf), null); // not ours
 });
 
@@ -84,6 +85,27 @@ check('dynamic reserve covers the gauntlet within bounds', () => {
   assert.equal(dynamicReserve([], 100), 120);
   assert.equal(dynamicReserve(BOARD, 100), 1000);
   assert.ok(dynamicReserve(BOARD, 100) >= 120);
+});
+
+check('the reserve covers the rent the engine would actually charge', () => {
+  // Two Dark Blue deeds at two houses: 50 * 15 = 750 of rent, 90% of it on
+  // the traffic tier. A rent cap lowers what the engine collects, so the
+  // reserve has to fall with it.
+  const hitBoard = [
+    { index: 37, type: 'property', group: 'Dark Blue', ownerSeat: 'opponent-1', rent: 50, houseCount: 2, mortgaged: false },
+    { index: 39, type: 'property', group: 'Dark Blue', ownerSeat: 'opponent-1', rent: 50, houseCount: 2, mortgaged: false },
+  ];
+  const uncapped = { board: hitBoard, rulesDigest: { globalEvents: { activeEffects: {} } } };
+  assert.equal(forecastMaxHit(hitBoard, uncapped), 675);
+  const capped = { board: hitBoard, rulesDigest: { globalEvents: { activeEffects: { rentCap: 300 } } } };
+  assert.equal(forecastMaxHit(hitBoard, capped), 270, 'the rent cap lowers the covered hit');
+  const boosted = {
+    board: hitBoard,
+    activeEvent: { id: 'custom', phase: 'active', effects: { rentMultiplier: 1.5 } },
+    rulesDigest: { globalEvents: { activeEffects: { rentMultiplier: 1.5 } } },
+  };
+  assert.equal(forecastMaxHit(hitBoard, boosted), 1012, 'the event rent modifier raises the covered hit');
+  assert.equal(dynamicReserve(hitBoard, 100, capped), 370);
 });
 
 console.log(`botDevelopmentForecast tests: ${passed} passed, 0 failed`);

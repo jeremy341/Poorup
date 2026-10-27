@@ -39,12 +39,42 @@ function requestPrompt(request) {
   return messagePrompt(request.messages) || inputPrompt(request.input) || '{}';
 }
 
+// An auction-bid candidate declares parameterRanges, so a reply without
+// parameters.amount is rejected by the advisor's response validation. The
+// advisor then trips its own circuit breaker and every later decision falls back
+// to the deterministic planner, which made AI-vs-no-AI results meaningless.
+// Bots may only raise by the offered steps (highestBid + 1 / + 20 / + 100); the
+// stub picks the standard +20 raise when offered, else the smallest legal one.
+export function stubBidAmount(candidate) {
+  const options = Array.isArray(candidate?.amountOptions) ? candidate.amountOptions.filter(Number.isInteger) : [];
+  if (!options.length) return null;
+  return options[Math.min(1, options.length - 1)];
+}
+
+// The stub plays the planner's best option, as it did when the first option shown WAS the
+// planner's best. The advisor now shuffles the order (option-ID bias), so "first" is a
+// random option: pick on the planner score the prompt carries (futureScore when the
+// planner projected the candidates, else the static score), lower risk breaking ties.
+export function stubPickCandidate(candidates) {
+  const projected = candidates.filter(candidate => Number.isFinite(candidate?.futureScore));
+  const pool = projected.length ? projected : candidates;
+  const value = candidate => (projected.length ? candidate.futureScore : Number(candidate?.score) || 0);
+  const risk = candidate => Number(candidate?.risk) || 0;
+  return pool.reduce((best, candidate) => {
+    if (value(candidate) !== value(best)) return value(candidate) > value(best) ? candidate : best;
+    return risk(candidate) < risk(best) ? candidate : best;
+  }, pool[0]);
+}
+
 function stubChoiceOutput(context) {
   const candidates = Array.isArray(context.candidates) ? context.candidates : [];
+  const picked = stubPickCandidate(candidates);
+  const amount = stubBidAmount(picked);
   return JSON.stringify({
-    actionId: candidates[0]?.actionId,
+    actionId: picked?.actionId,
     confidence: 0.55,
     reasonCode: 'evaluation-stub',
+    ...(amount == null ? {} : { parameters: { amount } }),
   });
 }
 
@@ -66,16 +96,19 @@ function stubFetch() {
   });
 }
 
-function configuredValue(primary, secondary, fallback = undefined) {
-  return process.env[primary] || process.env[secondary] || fallback;
+// The advisor reads the environment it is handed, not the ambient
+// process.env: the CLI validates an injected environment, so the advisor that
+// runs the campaign has to see the same one.
+function configuredValue(env, primary, secondary, fallback = undefined) {
+  return env?.[primary] || env?.[secondary] || fallback;
 }
 
-function aiAdvisorOptions(fetchImpl) {
+function aiAdvisorOptions(fetchImpl, env = process.env) {
   return {
-    apiKey: configuredValue('POORUP_AI_API_KEY', 'DEEPSEEK_API_KEY', 'simulation-stub'),
-    endpoint: configuredValue('POORUP_AI_BASE_URL', 'DEEPSEEK_API_URL'),
-    model: configuredValue('POORUP_AI_MODEL', 'DEEPSEEK_MODEL', 'deepseek-v4-flash'),
-    protocol: configuredValue('POORUP_AI_PROTOCOL', 'DEEPSEEK_API_FORMAT', 'auto'),
+    apiKey: configuredValue(env, 'POORUP_AI_API_KEY', 'DEEPSEEK_API_KEY', 'simulation-stub'),
+    endpoint: configuredValue(env, 'POORUP_AI_BASE_URL', 'DEEPSEEK_API_URL'),
+    model: configuredValue(env, 'POORUP_AI_MODEL', 'DEEPSEEK_MODEL', 'deepseek-v4-flash'),
+    protocol: configuredValue(env, 'POORUP_AI_PROTOCOL', 'DEEPSEEK_API_FORMAT', 'auto'),
     fetchImpl: fetchImpl || stubFetch(),
   };
 }
@@ -99,18 +132,20 @@ function createScoreAdvisor(scoreCandidate) {
   };
 }
 
-export function createBotPolicy(policyId, { brain = 'no-ai', difficulty = 'table', advisor } = {}) {
-  const defaultAdvisor = advisor || new DeterministicAdvisor();
-  return { policyId, brain, difficulty, advisor: defaultAdvisor };
+// `createAdvisor` builds a fresh advisor for each simulated match, so stateful
+// advisors (call timestamps, circuit breaker, per-game budgets) do not leak
+// between matches. `advisor` stays available for direct use and as the fallback.
+export function createBotPolicy(policyId, { brain = 'no-ai', difficulty = 'table', advisor, createAdvisor } = {}) {
+  const defaultAdvisor = advisor || (typeof createAdvisor === 'function' ? createAdvisor() : new DeterministicAdvisor());
+  return { policyId, brain, difficulty, advisor: defaultAdvisor, ...(typeof createAdvisor === 'function' ? { createAdvisor } : {}) };
 }
 
-export function createDefaultPolicySet({ fetchImpl } = {}) {
-  const aiAdvisor = new AiAdvisor(aiAdvisorOptions(fetchImpl));
+export function createDefaultPolicySet({ fetchImpl, env = process.env } = {}) {
   const greedy = createScoreAdvisor(scoreFor);
   const conservative = createScoreAdvisor(conservativeScoreFor);
   return [
     createBotPolicy('no-ai', { brain: 'no-ai', advisor: new DeterministicAdvisor() }),
-    createBotPolicy('ai-stub', { brain: 'ai', advisor: aiAdvisor }),
+    createBotPolicy('ai-stub', { brain: 'ai', createAdvisor: () => new AiAdvisor(aiAdvisorOptions(fetchImpl, env)) }),
     createBotPolicy('score-greedy', { advisor: greedy }),
     createBotPolicy('conservative-cash', { advisor: conservative }),
     createBotPolicy('random-legal', { advisor: createRandomLegalAdvisor() }),

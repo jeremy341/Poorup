@@ -1,4 +1,21 @@
 import { MARKET_FEE_RATE } from './marketLogic.js';
+import { SHORT_BORROW_FEE_RATE } from './marketExpansion.js';
+
+// Bot-side pricing of the staged-complexity orders (margin long, short). These
+// are planner and candidate-gate constants, not market rules: the rules (fees,
+// collateral, borrow fee, forced buy-in) live in marketExpansion.js.
+// A short's loss is unbounded and ends in a forced buy-in at +50%; reserve a
+// slice of the notional for that tail.
+export const SHORT_TAIL_RESERVE_RATE = 0.02;
+// An open short borrows from a pool shared by the whole table and pays no
+// yield, so holding one is charged this share of its notional until it is
+// covered. Without it a flat short is never worth the cover fee and the pool
+// drains.
+export const SHORT_HOLD_CHARGE_RATE = 0.04;
+// "Clearly positive": expected value after every cost must also clear this share
+// of the notional (and at least LEVERAGED_MIN_EDGE dollars) before a bot opens.
+export const LEVERAGED_EDGE_HURDLE_RATE = 0.01;
+export const LEVERAGED_MIN_EDGE = 3;
 
 function positiveInteger(value) {
   const number = Number(value);
@@ -50,7 +67,9 @@ function eventWasApplied(history, activeEventId, startRound) {
   return (Array.isArray(history) ? history : []).some(point => {
     if (point?.eventId !== activeEventId) return false;
     if (!Number.isFinite(startRound)) return true;
-    return Number(point?.round) >= startRound;
+    // A history point is labelled with marketRound, which trails the event's
+    // startedRound (roundNumber) by one, so the activation point sits at startRound - 1.
+    return Number(point?.round) >= startRound - 1;
   });
 }
 
@@ -66,7 +85,29 @@ function pendingEventMove(history, activeEventId, activeEventStartedRound, event
 }
 
 function unsupportedForecast() {
-  return { supported: false, expectedPnl: null, fee: null, expectedMovePercent: null, volatilityPercent: null };
+  return { supported: false, expectedPnl: null, expectedMove: null, fee: null, expectedMovePercent: null, volatilityPercent: null };
+}
+
+function orderFee(gross) {
+  return Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
+}
+
+// Expected value of opening a margin long ('open-margin') or a short
+// ('open-short') and later closing it, after the opening fee, the closing fee,
+// a short's borrow fee and tail reserve, and the volatility reserve. clear is
+// true only when that value beats the hurdle, so a bot never opens a position
+// whose edge is the fee schedule's loss.
+export function forecastLeveragedOpen({ kind, quote: rawQuote, quantity: rawQuantity = 1, ...rest } = {}) {
+  const short = kind === 'open-short';
+  if (!short && kind !== 'open-margin') return { supported: false, expectedValue: null, clear: false };
+  const forecast = forecastMarketOrder({ ...rest, quote: rawQuote, quantity: rawQuantity, side: short ? 'sell' : 'buy' });
+  if (!forecast.supported) return { supported: false, expectedValue: null, clear: false };
+  const gross = Number(rawQuote) * Number(rawQuantity);
+  const fees = orderFee(gross) * 2 + (short ? Math.max(1, Math.ceil(gross * SHORT_BORROW_FEE_RATE)) : 0);
+  const tail = short ? Math.ceil(gross * SHORT_TAIL_RESERVE_RATE) : 0;
+  const expectedValue = forecast.expectedMove - forecast.riskReserve - tail - fees;
+  const hurdle = Math.max(LEVERAGED_MIN_EDGE, Math.ceil(gross * LEVERAGED_EDGE_HURDLE_RATE));
+  return { supported: true, expectedValue, hurdle, fees, clear: expectedValue >= hurdle, forecast };
 }
 
 export function forecastMarketOrder({
@@ -105,6 +146,9 @@ export function forecastMarketOrder({
     volatilityPercent,
     fee,
     riskReserve,
-    expectedPnl: Math.floor(expectedMove - riskReserve) - fee
+    expectedMove: Math.floor(expectedMove),
+    // A buy adds exposure and pays its reserve; a sale sheds exposure, so it is
+    // not charged one (the planner charges every held unit in the baseline).
+    expectedPnl: Math.floor(expectedMove - (side === 'buy' ? riskReserve : 0)) - fee
   };
 }
