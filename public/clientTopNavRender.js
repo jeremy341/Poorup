@@ -2,7 +2,7 @@
    TOP NAV + CONNECTION STATUS RENDERING: the browser chrome that
    mirrors state.connectionStatus / room identity. Pure DOM output.
    ============================================================ */
-import { $ } from "./clientDom.js";
+import { $, setText } from "./clientDom.js";
 import { state } from "./clientState.js";
 
 export const CONNECTION_COPY = {
@@ -26,9 +26,9 @@ function setDotMode(dot, online) {
 
 function renderGlobalConnectionLabels(view) {
   const homeLabel = $("#home-connection-label");
-  if (homeLabel) homeLabel.textContent = view.copy;
+  if (homeLabel) setText(homeLabel, view.copy);
   document.querySelectorAll("[data-global-connection-label]").forEach((label) => {
-    label.textContent = view.copy;
+    setText(label, view.copy);
   });
 }
 
@@ -40,7 +40,7 @@ function topNavOnlineText(view) {
 
 function renderTopNavConnection(view) {
   const gameLabel = $("#tn-online");
-  if (gameLabel) gameLabel.textContent = topNavOnlineText(view);
+  if (gameLabel) setText(gameLabel, topNavOnlineText(view));
 }
 
 function renderConnectionDots(view) {
@@ -55,7 +55,7 @@ function renderConnectionNote(view) {
   if (!note) return;
   note.dataset.connection = view.status;
   const text = note.querySelector(".t-micro");
-  if (text) text.textContent = view.copy;
+  if (text) setText(text, view.copy);
   const dot = note.querySelector(".dot");
   if (dot) setDotMode(dot, view.status === "online");
 }
@@ -70,7 +70,7 @@ function renderHomeConnectionNote(view) {
   if (!homeNote) return;
   homeNote.dataset.connection = view.status;
   const text = homeNote.querySelector(".t-micro");
-  if (text) text.textContent = homeConnectionText(view);
+  if (text) setText(text, homeConnectionText(view));
 }
 
 export function renderConnectionStatus() {
@@ -99,10 +99,9 @@ function renderRoomCopy(code, isPublic) {
 }
 
 function lobbyTagText(code, isPublic) {
-  const preset = String(state.ruleset?.preset || state.settings?.rulesetPreset || "classic").toUpperCase();
   const board = String(state.boardVariant || state.settings?.boardVariant || "standard-40").toUpperCase();
-  if (isPublic) return `${preset} · ${board} · PUBLIC`;
-  return `${preset} · ${board} · ${code}`;
+  if (isPublic) return `${board} · PUBLIC`;
+  return `${board} · ${code}`;
 }
 
 export function turnTagText() {
@@ -114,12 +113,12 @@ export function turnTagText() {
 export function renderTopNav() {
   const code = state.roomCode || "----";
   const isPublic = state.roomVisibility === "public";
-  $("#tn-room").textContent = isPublic ? "PUBLIC" : code;
+  setText($("#tn-room"), isPublic ? "PUBLIC" : code);
   renderRoomCopy(code, isPublic);
-  $("#tn-lobby").textContent = lobbyTagText(code, isPublic);
+  setText($("#tn-lobby"), lobbyTagText(code, isPublic));
   const view = connectionView();
-  $("#tn-online").textContent = topNavOnlineText(view);
-  $("#tn-turnlabel").textContent = turnTagText();
+  setText($("#tn-online"), topNavOnlineText(view));
+  setText($("#tn-turnlabel"), turnTagText());
   $("#tn-turnlabel").setAttribute('aria-label', `Current turn: ${turnTagText()}`);
   renderConnectionStatus();
 }

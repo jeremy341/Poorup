@@ -1,12 +1,15 @@
 /* ============================================================
-   TRADE & FINANCING: the deal builder (loan/equity/hybrid financing
+   TRADE & FINANCING: the deal builder (loan/temporary rent-share financing
    modal), the trade proposer modal, and the shared parlor dropdown
    widget they both use. Templates are the exact old main.js markup;
    game-bound calls (emitServer, say, renderChat, record) arrive via
    configureTradeUi hooks.
    ============================================================ */
 import { $, esc, clamp } from "./clientDom.js";
+import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";
+import { playerFinanceEnabled, isRentShare, contractLabel, rentShareDisclosure, collateralCreditSummary } from "./clientFinanceRules.js";
+import { emitIntent } from "./clientRequestController.js";
 import { TILES, GROUP_COLOR, RENT_TABLE } from "./clientBoardData.js";
 import { spriteHTML, avatarHTML } from "./clientSprites.js";
 import { openSurface, closeSurface } from "./clientSurfaces.js";
@@ -26,6 +29,7 @@ let financingSurfaceTileIndex = null;
 let financingNegotiationContractId = null;
 let financingNegotiationAction = "counter";
 let financingRepayStatus = null;
+let tradeInitialDeedIndex = null;
 const financingNegotiationDraft = {
   kind: "loan",
   amount: 100,
@@ -34,9 +38,6 @@ const financingNegotiationDraft = {
   propertyIndex: null,
   collateralTileIndices: [],
   equityShare: 10,
-  equityControl: "passive",
-  permanent: false,
-  conversionShare: 25,
 };
 const financingPreviewDraft = {
   recipientId: null,
@@ -46,11 +47,7 @@ const financingPreviewDraft = {
   loanRate: 20,
   loanDuration: 20,
   equityShare: 10,
-  equityDuration: "permanent",
-  equityControl: "passive",
-  hybridRate: 10,
-  hybridDuration: 20,
-  hybridConversion: 25,
+  equityDuration: 3,
 };
 
 function dropdownHTML({ id, label, value, options, className = "" }) {
@@ -67,6 +64,17 @@ function dropdownFocusIndex(options, key, current) {
   return (current + step + options.length) % options.length;
 }
 
+function focusDropdownOption(menu, option) {
+  if (!option) return;
+  option.focus({ preventScroll: true });
+  const bounds = menu.getBoundingClientRect();
+  const focused = option.getBoundingClientRect();
+  const top = bounds.top + menu.clientTop;
+  const bottom = top + menu.clientHeight;
+  if (focused.top < top) menu.scrollTop -= top - focused.top;
+  else if (focused.bottom > bottom) menu.scrollTop += focused.bottom - bottom;
+}
+
 function onDropdownMenuKey(event, menu, trigger, close) {
   const options = [...menu.querySelectorAll("[data-dropdown-value-option]")];
   if (event.key === "Escape") {
@@ -78,12 +86,25 @@ function onDropdownMenuKey(event, menu, trigger, close) {
   if (DROPDOWN_ARROWS.includes(event.key)) {
     event.preventDefault();
     const index = dropdownFocusIndex(options, event.key, options.indexOf(document.activeElement));
-    options[index]?.focus({ preventScroll: true });
+    focusDropdownOption(menu, options[index]);
   }
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
     document.activeElement?.click();
   }
+}
+
+function fitFinancingDropdownMenu(dropdown, trigger, menu) {
+  const form = dropdown.closest(".financing-form");
+  if (!form) return;
+  const bounds = form.getBoundingClientRect();
+  const anchor = trigger.getBoundingClientRect();
+  const below = Math.max(0, bounds.bottom - anchor.bottom - 8);
+  const above = Math.max(0, anchor.top - bounds.top - 8);
+  const upward = below < Math.min(menu.scrollHeight, 240) && above > below;
+  menu.style.top = upward ? "auto" : "calc(100% + 4px)";
+  menu.style.bottom = upward ? `${dropdown.getBoundingClientRect().bottom - anchor.top + 4}px` : "auto";
+  menu.style.maxHeight = `${Math.floor(upward ? above : below)}px`;
 }
 
 function bindDropdowns(root, onSelect) {
@@ -104,8 +125,9 @@ function bindDropdowns(root, onSelect) {
     const open = () => {
       closeMenus(dropdown);
       menu.hidden = false;
+      fitFinancingDropdownMenu(dropdown, trigger, menu);
       trigger.setAttribute("aria-expanded", "true");
-      menu.querySelector("[aria-selected=true]")?.focus({ preventScroll: true });
+      focusDropdownOption(menu, menu.querySelector("[aria-selected=true]"));
     };
     const close = () => {
       menu.hidden = true;
@@ -162,7 +184,34 @@ function financingRecipients() {
 function financingRecipientDeeds() {
   const recipientId = financingRecipientId();
   if (!recipientId) return [];
-  return TILES.filter((tile) => tile.kind === "property" && state.owners[tile.i] === recipientId);
+  return TILES.filter((tile) => ["property", "railroad", "utility"].includes(tile.kind) && state.owners[tile.i] === recipientId && !state.mortgaged[tile.i] && !financingTileShares(tile.i).length);
+}
+
+// Trade-only room locks are broader than the asset eligibility used for a pledge.
+const COLLATERAL_TRADE_ONLY_REASONS = new Set([
+  "Trading is disabled for this room.",
+  "Resolve the open auction before proposing a trade.",
+  "Resolve the pending purchase offer before proposing a trade.",
+  "Resolve the pending sponsored purchase before proposing a trade.",
+  "Another trade is already pending.",
+  "Resolve the pending player contract before proposing a trade.",
+]);
+
+function financingCollateralDeedEligible(tile) {
+  if (tradeBuildingLevel(tile.i) > 0 || tradeBuildingBlockReason(tile)) return false;
+  const serverTile = state.serverTiles.find(entry => Number(entry.index) === Number(tile.i));
+  const authority = serverTile?.propertyActions?.tradeDeed;
+  if (authority?.enabled === false && !COLLATERAL_TRADE_ONLY_REASONS.has(authority.reason)) return false;
+  const owner = state.players.find(player => player.id === state.owners[tile.i]);
+  const bankLoan = owner?.bankLoan;
+  if (["active", "due"].includes(bankLoan?.status) && contractCollateralIndices(bankLoan).map(Number).includes(tile.i)) return false;
+  return !financingActiveContracts().some(contract => ["active", "due"].includes(contract.status)
+    && [owner?.id, owner?.serverId].includes(contract.toPlayerId)
+    && (contractCollateralIndices(contract).map(Number).includes(tile.i) || (contract.kind === "equity" && Number(contract.propertyIndex) === tile.i)));
+}
+
+function financingRecipientCollateralDeeds() {
+  return financingRecipientDeeds().filter(financingCollateralDeedEligible);
 }
 
 function financingPropertyOptions() {
@@ -191,7 +240,7 @@ function clampPropertyToRecipient() {
 }
 
 function clampCollateralToRecipient() {
-  const eligible = new Set(financingRecipientDeeds().map(tile => tile.i));
+  const eligible = new Set(financingRecipientCollateralDeeds().map(tile => tile.i));
   const selected = Array.isArray(financingPreviewDraft.collateralTileIndices)
     ? financingPreviewDraft.collateralTileIndices
     : financingPreviewDraft.collateralTileIndex == null ? [] : [financingPreviewDraft.collateralTileIndex];
@@ -210,7 +259,7 @@ function onFinancingRecipientSet(value) {
 
 function onFinancingCollateralChange(input) {
   const index = Number(input.value);
-  const eligible = financingRecipientDeeds().some(tile => tile.i === index);
+  const eligible = financingRecipientCollateralDeeds().some(tile => tile.i === index);
   if (!Number.isInteger(index) || !eligible) return;
   const selected = new Set(financingPreviewDraft.collateralTileIndices);
   if (input.checked) selected.add(index);
@@ -225,7 +274,7 @@ function financingEligiblePropertyIndex() {
 }
 
 function financingEligibleCollateralIndices() {
-  const eligible = new Set(financingRecipientDeeds().map(tile => tile.i));
+  const eligible = new Set(financingRecipientCollateralDeeds().map(tile => tile.i));
   return [...new Set(financingPreviewDraft.collateralTileIndices.map(Number))].filter(index => eligible.has(index));
 }
 
@@ -233,11 +282,20 @@ function financingEligibleCollateralIndex() {
   return financingEligibleCollateralIndices()[0] ?? null;
 }
 
+function financingAmount(value = financingPreviewDraft.amount) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
+}
+
 function financingAmountValid() {
-  const amount = Math.floor(Number(financingPreviewDraft.amount) || 0);
+  const amount = financingAmount();
   if (amount < 1) return false;
   const me = state.players[0];
   return (me?.cash || 0) >= amount;
+}
+
+function financingAmountError() {
+  return financingAmountValid() ? "" : "Enter an amount you can fund.";
 }
 
 function financingPropertyRequired() {
@@ -250,8 +308,10 @@ function financingPropertyMissing() {
 }
 
 function financingSendBlocked() {
+  if (!playerFinanceEnabled(state.settings)) return "Player Finance is disabled for this table.";
+  if (!["loan", "equity"].includes(financingPreviewMode)) return "Choose a loan or rent share.";
   if (!recipientPlayer()) return "Choose a player to deal with.";
-  if (!financingAmountValid()) return "Enter an amount you can fund.";
+  if (!financingAmountValid()) return financingAmountError();
   if (financingPropertyMissing()) return "The counterparty owns no eligible deeds.";
   return null;
 }
@@ -266,8 +326,7 @@ function financingLoanTerms() {
 }
 
 function financingEquityDurationRounds() {
-  if (financingPreviewDraft.equityDuration === "permanent") return 20;
-  return Math.max(1, Math.min(20, Number(financingPreviewDraft.equityDuration) || 20));
+  return Math.max(1, Math.min(20, Math.floor(Number(financingPreviewDraft.equityDuration) || 3)));
 }
 
 function financingEquityTerms() {
@@ -277,35 +336,19 @@ function financingEquityTerms() {
     propertyIndex: financingEligiblePropertyIndex(),
     collateralTileIndex: null,
     equityShare: Math.max(5, Math.min(100, Number(financingPreviewDraft.equityShare) || 10)),
-    equityControl: financingPreviewDraft.equityControl,
-    permanent: financingPreviewDraft.equityDuration === "permanent",
+    equityControl: "passive",
+    permanent: false,
   };
 }
-
-function financingHybridTerms() {
-  return {
-    premiumRate: Math.max(0, Math.min(100, Number(financingPreviewDraft.hybridRate) || 0)),
-    durationRounds: Math.max(1, Math.min(20, Number(financingPreviewDraft.hybridDuration) || 20)),
-    propertyIndex: financingEligiblePropertyIndex(),
-    collateralTileIndex: null,
-    conversionShare: Math.max(5, Math.min(100, Number(financingPreviewDraft.hybridConversion) || 25)),
-  };
-}
-
-const FINANCING_SEND_TERMS = {
-  loan: financingLoanTerms,
-  equity: financingEquityTerms,
-  hybrid: financingHybridTerms,
-};
 
 function financingSendPayload(recipient) {
   const base = {
     toPlayerId: recipient.serverId || recipient.id,
     kind: financingPreviewMode,
-    amount: Math.floor(Number(financingPreviewDraft.amount) || 0),
+    amount: financingAmount(),
     requestId: host.createRequestId("contract-proposal"),
   };
-  const terms = (FINANCING_SEND_TERMS[financingPreviewMode] || financingLoanTerms)();
+  const terms = financingPreviewMode === "equity" ? financingEquityTerms() : financingLoanTerms();
   return { ...base, ...terms };
 }
 
@@ -346,7 +389,7 @@ function financingPreviewTile() {
     return collateralIndex == null ? null : financingPropertyTile(collateralIndex);
   }
   const tile = TILES[Number(financingPreviewDraft.propertyIndex)];
-  if (tile && tile.kind === "property") return tile;
+  if (tile && ["property", "railroad", "utility"].includes(tile.kind)) return tile;
   return financingRecipientDeeds()[0] || TILES[21];
 }
 
@@ -372,87 +415,70 @@ function financingSendDisabled() {
 
 function financingPreviewBase() {
   const tile = financingPreviewTile();
-  const requested = Number(financingPreviewDraft.amount) || 0;
-  if (!tile) return { tile: null, amount: Math.max(1, requested), rent: 0 };
-  const cap = Number(tile.price) || 1;
-  const amount = Math.max(1, Math.min(requested, cap));
-  const rent = baseRentOf(tile);
+  const amount = financingAmount();
+  const rent = tile ? baseRentOf(tile) : 0;
   return { tile, amount, rent };
 }
 
 function previewEquityDuration() {
-  if (financingPreviewDraft.equityDuration === "permanent") return "FOREVER";
-  return `${financingPreviewDraft.equityDuration} TURNS`;
+  return `${financingEquityDurationRounds()} ROUNDS`;
 }
 
 function equityPreviewCopy(tile, amount, rent) {
   const share = Math.max(5, Math.min(100, Number(financingPreviewDraft.equityShare) || 10));
   const lenderRent = Math.floor((rent * share) / 100);
   const duration = previewEquityDuration();
-  const control = String(financingPreviewDraft.equityControl || "passive").toUpperCase();
   return {
-    title: `${share}% OF ${tile.name}`,
+    title: `${share}% RENT SHARE · ${tile.name}`,
+    focal: ["BASE RENT SHARE", `$${lenderRent} OF $${rent}`],
     metrics: [
       ["CONTRIBUTION", `$${amount}`],
-      ["RENT SHARE", `${share}%`],
-      ["BASE RENT", `$${lenderRent} OF $${rent}`],
+      ["SHARE", `${share}%`],
       ["DURATION", duration],
     ],
-    copy: `${share}% economic share in ${tile.name}. The investor receives ${share}% of collected rent and sale proceeds. Control: ${control}.`,
-    note: share === 100 ? "100% becomes a direct transfer or buyout. No hidden loan remains." : "Passive equity does not block building. Shared control requires the group consent rules.",
-  };
-}
-
-function hybridPreviewCopy(tile, amount) {
-  const rate = Math.max(0, Math.min(100, Number(financingPreviewDraft.hybridRate) || 0));
-  const duration = Number(financingPreviewDraft.hybridDuration) || 20;
-  const conversion = Math.max(5, Math.min(100, Number(financingPreviewDraft.hybridConversion) || 25));
-  const maturity = amount + Math.round((amount * rate) / 100);
-  return {
-    title: `CONVERTIBLE NOTE · ${tile.name}`,
-    metrics: [
-      ["ADVANCE", `$${amount}`],
-      ["TOTAL INTEREST", `${rate}%`],
-      ["MATURITY", `$${maturity}`],
-      ["CONVERSION", `${conversion}%`],
-    ],
-    copy: `$${amount} with ${rate}% total interest for ${duration} turns. If the note defaults after its cure turn, the lender may convert the outstanding balance into ${conversion}% of ${tile.name}.`,
-    note: "Repayment and conversion are mutually exclusive. Interest stops when conversion happens.",
+    copy: "",
+    note: rentShareDisclosure({ durationRounds: financingEquityDurationRounds() }),
   };
 }
 
 function loanPreviewCopy(tile, amount) {
   const rate = Math.max(0, Math.min(100, Number(financingPreviewDraft.loanRate) || 0));
-  const duration = Number(financingPreviewDraft.loanDuration) || 20;
-  const premium = Math.round((amount * rate) / 100);
+  const premium = Math.ceil((amount * rate) / 100);
   const total = amount + premium;
+  const duration = Number(financingPreviewDraft.loanDuration) || 20;
   const collateral = financingEligibleCollateralIndices().map(index => financingPropertyTile(index)).filter(Boolean);
   const secured = collateral.length > 0;
-  const collateralNames = collateral.map(deed => deed.name).join(", ");
   return {
     title: secured ? `SECURED LOAN · ${tile.name}` : "UNSECURED LOAN",
+    focal: ["TOTAL DUE", `$${total}`],
     metrics: [
       ["ADVANCE", `$${amount}`],
-      ["TOTAL INTEREST", `${rate}%`],
-      ["TOTAL DUE", `$${total}`],
-      ["TERM", `${duration} TURNS`],
+      ["INTEREST", `$${premium} · ${rate}%`],
+      ["TERM", `${duration} ROUNDS`],
     ],
     copy: secured
-      ? `$${amount} advanced with ${rate}% total interest for ${duration} turns. ${collateralNames} ${collateral.length === 1 ? "is" : "are"} at risk if the loan defaults.`
-      : `$${amount} advanced with ${rate}% total interest for ${duration} turns. No deed is pledged as collateral.`,
-    note: "",
+      ? "Default transfers pledged deeds."
+      : "No deed is pledged.",
+    note: secured ? financingCollateralCreditCopy(collateral, total) : "",
   };
+}
+
+function financingCollateralCreditCopy(deeds, totalDue) {
+  return collateralCreditSummary({
+    collateralCreditVersion: 1,
+    collateralCreditQuotes: deeds.map(deed => ({ name: deed.name, value: state.serverTiles.find(entry => Number(entry.index) === deed.i)?.price ?? deed.price })),
+    totalDue,
+  });
 }
 
 function financingCollateralAccordionHTML() {
   const selected = new Set(financingEligibleCollateralIndices());
-  const deeds = financingRecipientDeeds();
+  const deeds = financingRecipientCollateralDeeds();
   return collateralPickerHTML({ id: "finance-collateral", deeds, selected, checkboxAttribute: "data-finance-collateral" });
 }
 
 const FINANCE_PREVIEW_BUILDERS = {
   equity: equityPreviewCopy,
-  hybrid: hybridPreviewCopy,
   loan: loanPreviewCopy,
 };
 
@@ -470,22 +496,18 @@ function financingPreviewHTML() {
   if (financingPropertyMissing()) return financingPreviewEmptyHTML();
   const preview = financingPreviewCopy();
   return `<div class="financing-preview-head"><span class="t-micro g400">${esc(financingPreviewKicker())}</span><span class="t-label f12 g100">${esc(preview.title)}</span></div>
+    ${preview.focal ? `<div class="financing-focal"><span class="t-micro ink-3">${preview.focal[0]}</span><strong class="slip-amount g050">${esc(preview.focal[1])}</strong></div>` : ""}
     <div class="financing-metrics">${preview.metrics.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f13 g100">${esc(value)}</strong></div>`).join("")}</div>
-    <p class="t-body ink-2 financing-preview-copy">${esc(preview.copy)}</p>
+    ${preview.copy ? `<p class="t-body ink-2 financing-preview-copy">${esc(preview.copy)}</p>` : ""}
     ${preview.note ? `<p class="t-micro ink-3 financing-preview-note">${esc(preview.note)}</p>` : ""}`;
 }
 
 function financingModeFieldsHTML() {
   if (financingPreviewMode === "equity") {
-    const permanent = financingPreviewDraft.equityDuration === "permanent";
-    const equityTurns = permanent ? 20 : Math.max(1, Number(financingPreviewDraft.equityDuration) || 20);
-    return `<div class="financing-field"><label class="t-label f11 g-muted" for="finance-equity-share">Economic share <output id="finance-equity-share-output">${financingPreviewDraft.equityShare}%</output></label><div class="financing-range"><input id="finance-equity-share" type="range" min="5" max="100" step="5" value="${financingPreviewDraft.equityShare}" /></div></div>
-      <div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-equity-duration" type="number" min="1" max="100" step="1" value="${equityTurns}" ${permanent ? "disabled" : ""} /><span aria-hidden="true">TURNS</span></div></label>${dropdownHTML({ id: "finance-equity-control", label: "Control", value: financingPreviewDraft.equityControl, options: [{ value: "passive", label: "PASSIVE" }, { value: "shared", label: "SHARED" }, { value: "controlling", label: "CONTROLLING" }] })}</div><label class="financing-check"><input id="finance-equity-permanent" type="checkbox" ${permanent ? "checked" : ""} /><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label>`;
+    return `<div class="financing-field"><label class="t-label f11 g-muted" for="finance-equity-share">Share of collected rent <output id="finance-equity-share-output">${financingPreviewDraft.equityShare}%</output></label><div class="financing-range"><input id="finance-equity-share" type="range" min="5" max="100" step="5" value="${financingPreviewDraft.equityShare}" /></div></div><label class="financing-field"><span class="t-label f11 g-muted">Duration in rounds</span><div class="financing-number"><input class="field" id="finance-equity-duration" type="number" min="1" max="20" step="1" value="${financingEquityDurationRounds()}" /><span aria-hidden="true">ROUNDS</span></div></label>`;
   }
-  if (financingPreviewMode === "hybrid") {
-    return `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="finance-hybrid-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.hybridRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in turns</span><div class="financing-number"><input class="field" id="finance-hybrid-duration" type="number" min="1" max="100" step="1" value="${financingPreviewDraft.hybridDuration}" /><span aria-hidden="true">TURNS</span></div></label></div><div class="financing-field"><label class="t-label f11 g-muted" for="finance-hybrid-conversion">Default conversion share <output id="finance-hybrid-conversion-output">${financingPreviewDraft.hybridConversion}%</output></label><div class="financing-range"><input id="finance-hybrid-conversion" type="range" min="5" max="100" step="5" value="${financingPreviewDraft.hybridConversion}" /></div></div>`;
-  }
-  return `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="finance-loan-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.loanRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Due turn</span><div class="financing-number"><input class="field" id="finance-loan-duration" type="number" min="1" max="100" step="1" value="${financingPreviewDraft.loanDuration}" /><span aria-hidden="true">TURNS</span></div></label></div>${financingCollateralAccordionHTML()}`;
+
+  return `<div class="financing-field-grid"><div class="financing-field"><label class="t-label f11 g-muted" for="finance-loan-rate">Total interest %</label><input class="field" id="finance-loan-rate" type="number" min="0" max="100" step="1" value="${financingPreviewDraft.loanRate}" /></div><div class="financing-field"><label class="t-label f11 g-muted" for="finance-loan-duration">Duration in rounds</label><div class="financing-number"><input class="field" id="finance-loan-duration" type="number" min="1" max="20" step="1" value="${financingPreviewDraft.loanDuration}" /><span aria-hidden="true">ROUNDS</span></div></div></div>${financingCollateralAccordionHTML()}`;
 }
 
 function financingActiveContracts() {
@@ -524,7 +546,7 @@ function financingContractPickerHTML() {
   const active = financingActiveContracts();
   if (!active.length) return `<p class="t-micro ink-3">NO LIVE CONTRACTS.</p>`;
   return `<div class="financing-surface-actions">` + active.map((contract) => {
-    const label = `${String(contract.kind || "loan").toUpperCase()} · ${contract.fromPlayerName || "PLAYER"} → ${contract.toPlayerName || "PLAYER"}`;
+    const label = `${contractLabel(contract).toUpperCase()} · ${contract.fromPlayerName || "PLAYER"} → ${contract.toPlayerName || "PLAYER"}`;
     return `<button class="btn-dark" type="button" data-financing-pick="${esc(contract.id)}"><span class="t-label f11">${esc(label)}</span></button>`;
   }).join("") + `</div>`;
 }
@@ -535,8 +557,7 @@ function contractCollateralIndices(contract) {
 }
 
 function contractKindLabel(contract) {
-  const labels = { equity: "Property equity", hybrid: "Convertible note" };
-  return labels[contract.kind] || "Contract";
+  return contractLabel(contract);
 }
 
 function financingContractTitle(contract) {
@@ -562,10 +583,13 @@ function financingCureLine(contract) {
   if (contract.status !== "due") return `DUE ROUND R${Number(contract.dueRound || 0)}`;
   const left = Number(contract.cureRound || 0) - Number(state.roundNumber || 0);
   if (left < 0) return "CURE EXPIRED";
-  return `CURE IN ${left} TURNS`;
+  return `CURE IN ${left} ROUNDS`;
 }
 
 function financingContractCopy(contract) {
+  if (isRentShare(contract)) return rentShareDisclosure(contract);
+  const credit = collateralCreditSummary(contract);
+  if (credit) return credit;
   const kind = contract?.kind || contract;
   if (kind === "equity") return "The investor receives the agreed share of collected rent and sale proceeds.";
   if (kind === "hybrid") return "Repay before the cure turn ends. Past cure, the lender converts the agreed share instead of seizing collateral.";
@@ -577,7 +601,7 @@ function financingContractRepayHTML(contract) {
   if (!financingRepayableContract(contract)) return "";
   const remaining = Math.max(1, Math.floor(Number(contract.remaining) || 1));
   const status = financingRepayStatus?.contractId === contract.id ? `<p class="t-micro green" role="status" aria-live="polite">${esc(financingRepayStatus.text)}</p>` : "";
-  return `<div class="contract-repay-controls"><label class="t-micro ink-3" for="financing-repay-${esc(contract.id)}">AMOUNT</label><input class="field contract-repay-input" id="financing-repay-${esc(contract.id)}" data-contract-repay-amount type="number" min="1" max="${remaining}" step="1" value="${remaining}" inputmode="numeric" aria-label="Amount to repay on player contract"><button class="btn-dark" type="button" data-financing-repay="${esc(contract.id)}"><span class="t-label f11">REPAY</span></button>${status}</div>`;
+  return `<div class="contract-repay-panel"><div class="contract-repay-heading"><span class="t-micro g400">MAKE A PAYMENT</span><span class="t-micro ink-3">UP TO $${remaining.toLocaleString()}</span></div><div class="contract-repay-controls"><label class="t-label f11 g-muted" for="financing-repay-${esc(contract.id)}">Payment amount</label><input class="field contract-repay-input" id="financing-repay-${esc(contract.id)}" data-contract-repay-amount type="number" min="1" max="${remaining}" step="1" value="${remaining}" inputmode="numeric"><button class="cta-red" type="button" data-financing-repay="${esc(contract.id)}"><span class="cta-text cta-text-sm">REPAY CONTRACT</span></button>${status}</div></div>`;
 }
 
 function financingTileShares(index) {
@@ -593,7 +617,7 @@ function financingSharedDeeds() {
 function financingPropertyTile(index) {
   const tile = TILES[Number(index)];
   if (!tile) return null;
-  if (tile.kind !== "property") return null;
+  if (!["property", "railroad", "utility"].includes(tile.kind)) return null;
   return tile;
 }
 
@@ -667,7 +691,7 @@ function financingDeedPickerHTML() {
 }
 
 function financingMissingContractHTML() {
-  return `<section class="financing-surface-body" aria-labelledby="financing-missing-heading"><div class="financing-surface-kicker"><span class="t-micro g400">NOT AVAILABLE</span></div><h3 class="t-section g100" id="financing-missing-heading">No live contract selected</h3><p class="t-body ink-2 financing-surface-copy">Pick a live deal below, or shape a new one on the offer surface.</p>${financingContractPickerHTML()}<div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-view="builder"><span class="t-label f11">SHAPE NEW DEAL</span></button></div></section>`;
+  return `<section class="financing-surface-body" aria-labelledby="financing-missing-heading"><div class="financing-surface-kicker"><span class="t-micro g400">NOT AVAILABLE</span></div><h3 class="t-section g100" id="financing-missing-heading">No live contract selected</h3><p class="t-body ink-2 financing-surface-copy">Pick a live deal below, or shape a new one on the offer surface.</p>${financingContractPickerHTML()}${financingDealShapeHTML()}</section>`;
 }
 
 function financingDealStatusTone(contract) {
@@ -683,12 +707,12 @@ function financingDealHeaderHTML(contract) {
 
 function financingDealDebtKeyHTML(contract) {
   const remaining = Number(contract.remaining || 0);
-  return `<div class="financing-default-amount"><span class="t-micro ink-3">OUTSTANDING BALANCE</span><strong class="t-money red">$${remaining.toLocaleString()}</strong></div>`;
+  return `<div class="financing-default-amount"><span class="t-micro ink-3">BALANCE LEFT</span><strong class="t-money red">$${remaining.toLocaleString()}</strong></div>`;
 }
 
 function financingDealEquityKeyHTML(contract) {
   const share = Number(contract.equityShare || 0);
-  return `<div class="financing-default-amount"><span class="t-micro ink-3">EQUITY SHARE</span><strong class="t-money green">${share}%</strong></div>`;
+  return `<div class="financing-default-amount"><span class="t-micro ink-3">${isRentShare(contract) ? "RENT SHARE" : "LEGACY EQUITY SHARE"}</span><strong class="t-money green">${share}%</strong></div>`;
 }
 
 function financingDealKeyFigureHTML(contract) {
@@ -704,13 +728,24 @@ function financingDealShowsProgress(contract) {
 }
 
 function financingDealProgressBarHTML(progress) {
-  return `<div class="financing-ownership-bar"><span class="financing-ownership-primary" style="width:${progress.pct}%"></span><span class="financing-ownership-secondary" style="width:${100 - progress.pct}%"></span></div>`;
+  return `<div class="financing-ownership-bar financing-repayment-track" role="progressbar" aria-label="Contract repayment progress" aria-valuemin="0" aria-valuemax="${progress.total}" aria-valuenow="${progress.paid}"><span class="financing-ownership-primary" style="width:${progress.pct}%"></span></div>`;
 }
 
 function financingDealProgressHTML(contract) {
   if (!financingDealShowsProgress(contract)) return "";
   const progress = financingRepayProgress(contract);
-  return `${financingDealProgressBarHTML(progress)}<p class="t-body ink-2 financing-surface-copy">$${progress.paid.toLocaleString()} paid of $${progress.total.toLocaleString()}.</p>`;
+  return `<div class="financing-repayment-progress"><div class="financing-repayment-labels"><span class="t-micro ink-3">REPAID</span><strong class="t-label f12 g100">$${progress.paid.toLocaleString()} <span class="ink-3">of $${progress.total.toLocaleString()}</span></strong></div>${financingDealProgressBarHTML(progress)}<p class="t-micro ink-3">${progress.pct}% paid</p></div>`;
+}
+
+function financingDealTermsHTML(contract) {
+  const principal = Number(contract.amount || contract.principal || 0);
+  const total = Number(contract.totalDue || principal);
+  const interest = Math.max(0, total - principal);
+  const collateral = contractCollateralIndices(contract).map(index => financingPropertyTile(index)?.name).filter(Boolean);
+  const terms = contract.kind === "equity"
+    ? [["Property", financingPropertyTile(contract.propertyIndex)?.name || "—"], ["Term", contract.expiresRound == null ? "Ongoing" : `Through round ${Number(contract.expiresRound)}`]]
+    : [["Advanced", `$${principal.toLocaleString()}`], ["Total interest", `$${interest.toLocaleString()} (${Number(contract.premiumRate || 0)}%)`], ["Agreed total", `$${total.toLocaleString()}`], ["Due", `Round ${Number(contract.dueRound || contract.durationRounds || 0)}`], [contract.kind === "hybrid" ? "Default conversion" : "Collateral", contract.kind === "hybrid" ? `${Number(contract.conversionShare || 0)}% · ${financingPropertyTile(contract.propertyIndex)?.name || "property not set"}` : collateral.length ? collateral.join(", ") : "None"]];
+  return `<dl class="financing-contract-terms">${terms.map(([label, value]) => `<div><dt class="t-micro ink-3">${esc(label)}</dt><dd class="t-label f12 g100">${esc(value)}</dd></div>`).join("")}</dl>`;
 }
 
 function financingDealIsDue(contract) {
@@ -749,6 +784,8 @@ function financingDealCapTableHTML() {
 }
 
 function financingTransferComposerHTML(tile, shares) {
+  if (!playerFinanceEnabled(state.settings)) return "";
+  shares = shares.filter(entry => !isRentShare(financingActiveContracts().find(contract => contract.id === entry.contractId)) && Number(entry.rentShareVersion) !== 1);
   const localId = financingMyServerId();
   const buyers = otherPlayers();
   if (!localId || !buyers.length) return "";
@@ -795,6 +832,7 @@ function setNodeDisabled(node, disabled) {
 }
 
 function onEquityTransferSubmit(event) {
+  if (!playerFinanceEnabled(state.settings)) return;
   const form = event.target.closest("[data-equity-transfer-form]");
   if (!form) return;
   event.preventDefault();
@@ -826,7 +864,7 @@ function onEquityTransferSubmit(event) {
 }
 
 function financingDealCopyHTML(contract) {
-  return `<p class="t-body ink-2 financing-surface-copy">${esc(financingContractCopy(contract))}</p>`;
+  return `<p class="t-body ink-2 financing-surface-copy" id="financing-card-description">${esc(financingContractCopy(contract))}</p>`;
 }
 
 function financingDealReasonHTML() {
@@ -840,11 +878,63 @@ function financingDealActionHTML(contract) {
 }
 
 function financingDealShapeHTML() {
+  if (!playerFinanceEnabled(state.settings)) return "";
   return `<div class="financing-surface-actions"><button class="btn-dark" type="button" data-financing-view="builder"><span class="t-label f11">SHAPE NEW DEAL</span></button></div>`;
 }
 
+function financingContractPartyName(contract, side) {
+  const id = contract[`${side}PlayerId`];
+  const player = state.players.find(player => player.serverId === id || player.id === id);
+  return contract[`${side}PlayerName`] || player?.name || "PLAYER";
+}
+
+function financingLedgerRowsHTML(rows) {
+  return `<dl class="financing-ledger-rows">${rows.map(([label, value]) => `<div><dt class="t-micro ink-3">${esc(label)}</dt><dd class="t-label f12 g100">${esc(value)}</dd></div>`).join("")}</dl>`;
+}
+
+function financingActiveTermsHTML(contract) {
+  const principal = Number(contract.amount || contract.principal || 0);
+  const property = financingPropertyTile(contract.propertyIndex)?.name || "Not recorded";
+  if (isRentShare(contract)) return financingLedgerRowsHTML([["Investment", `$${principal.toLocaleString()}`], ["Property", property], ["Collected rent", `${Number(contract.equityShare || 0)}%`], ["Expiry", `Start of round ${Number(contract.expiresRound)}`]]);
+  if (contract.kind === "equity") {
+    return financingLedgerRowsHTML([["Investment", `$${principal.toLocaleString()}`], ["Property", property], ["Control", String(contract.equityControl || "passive").toUpperCase()], ["Term", contract.expiresRound == null ? "Permanent" : `Through round ${Number(contract.expiresRound)}`]]);
+  }
+  const total = Number(contract.totalDue || principal);
+  const collateral = contractCollateralIndices(contract).map(index => financingPropertyTile(index)?.name).filter(Boolean);
+  const rows = [["Cash advanced", `$${principal.toLocaleString()}`], ["Total interest", `$${Math.max(0, total - principal).toLocaleString()} (${Number(contract.premiumRate || 0)}%)`], ["Agreed total", `$${total.toLocaleString()}`], ["Due round", `Round ${Number(contract.dueRound || 0)}`]];
+  rows.push(contract.kind === "hybrid" ? ["Conversion property", property] : ["Collateral", collateral.length ? collateral.join(", ") : "None · unsecured"]);
+  return financingLedgerRowsHTML(rows);
+}
+
+function financingActiveRightsHTML(contract) {
+  if (isRentShare(contract)) return `<h4 class="t-label f12 g100">Temporary rent share</h4><p class="t-body ink-2">${esc(rentShareDisclosure(contract))}</p>`;
+  const credit = collateralCreditSummary(contract);
+  if (credit) return `<h4 class="t-label f12 g100">Collateral credit at default</h4><p class="t-body ink-2">${esc(credit)}</p>`;
+  if (contract.kind === "equity") return `<h4 class="t-label f12 g100">Ownership & returns</h4><p class="t-body ink-2">${Number(contract.equityShare || 0)}% of collected rent and sale proceeds goes to ${esc(financingContractPartyName(contract, "from"))}.</p>`;
+  if (contract.kind === "hybrid") return `<h4 class="t-label f12 g100">Uncured default</h4><p class="t-body ink-2">The lender converts ${Number(contract.conversionShare || 0)}% of the linked property's economic share after cure. No collateral is seized.</p>`;
+  return `<h4 class="t-label f12 g100">Ownership & default</h4><p class="t-body ink-2">${contractCollateralIndices(contract).length ? "The borrower keeps every pledged deed while payments are current. Uncured default transfers all pledged deeds to the lender." : "No deed is pledged. The borrower owes the agreed total interest."}</p>`;
+}
+
+function financingActiveOwnershipHTML(contract) {
+  if (contract.kind !== "equity" || isRentShare(contract)) return "";
+  const tile = financingContractDeed(contract);
+  const shares = financingDealCapShares(tile);
+  if (!tile || !shares.length) return "";
+  const owner = financingOwnerMeta(tile);
+  const ownerPct = Math.max(0, 100 - shares.reduce((sum, entry) => sum + Number(entry.share || 0), 0));
+  return `<div class="financing-ledger-ownership"><h4 class="t-label f12 g100">Current ownership</h4>${financingOwnershipBarHTML(shares, ownerPct, owner.color)}${financingOwnerRowsHTML(shares, ownerPct, owner.name, owner.color)}${financingTransferComposerHTML(tile, shares)}</div>`;
+}
+
+export function financingActiveContractDetailHTML(contract) {
+  const equity = contract.kind === "equity";
+  const figure = equity ? `${Number(contract.equityShare || 0)}%` : `$${Number(contract.remaining || 0).toLocaleString()}`;
+  const repayment = equity ? "" : financingContractRepayHTML(contract);
+  return `<section class="financing-surface-body financing-contract-detail financing-active-ledger financing-contract-${esc(contract.kind || "loan")}" aria-labelledby="financing-deal-heading"><div class="financing-ledger-parties" id="financing-deal-heading"><div><span class="t-micro ink-3">${equity ? "INVESTOR" : "LENDER"}</span><strong class="t-label f13 g100">${esc(financingContractPartyName(contract, "from"))}</strong></div><div><span class="t-micro ink-3">${equity ? "PROPERTY OWNER" : "BORROWER"}</span><strong class="t-label f13 g100">${esc(financingContractPartyName(contract, "to"))}</strong></div><span class="t-micro green">ACTIVE</span></div><div class="financing-ledger-main"><div class="financing-ledger-account"><div class="financing-ledger-balance"><span class="t-label f11 g-muted">${equity ? (isRentShare(contract) ? "Rent share" : "Legacy economic share") : "Balance remaining"}</span><strong class="t-money g100">${figure}</strong></div>${financingActiveTermsHTML(contract)}${equity ? "" : financingDealProgressHTML(contract)}</div><aside class="financing-ledger-action">${financingActiveRightsHTML(contract)}${repayment || (equity ? "" : `<p class="t-micro ink-3">${esc(financingContractPartyName(contract, "to"))} makes payments on this contract.</p>`)}</aside></div>${financingActiveOwnershipHTML(contract)}${financingDealShapeHTML()}</section>`;
+}
+
 function financingDealSelectedHTML(contract) {
-  return `<section class="financing-surface-body" aria-labelledby="financing-deal-heading"><div id="financing-deal-heading">${financingDealHeaderHTML(contract)}</div>${financingDealKeyFigureHTML(contract)}${financingDealProgressHTML(contract)}${financingDealCureHTML(contract)}${financingDealCapTableHTML()}${financingDealCopyHTML(contract)}${financingDealActionHTML(contract)}${financingDealShapeHTML()}</section>`;
+  if (contract.status === "active") return financingActiveContractDetailHTML(contract);
+  return `<section class="financing-surface-body financing-contract-detail financing-contract-${esc(contract.kind || "loan")}" aria-labelledby="financing-deal-heading"><div id="financing-deal-heading">${financingDealHeaderHTML(contract)}</div>${financingDealKeyFigureHTML(contract)}${financingDealTermsHTML(contract)}${financingDealProgressHTML(contract)}${financingDealCureHTML(contract)}${financingDealCapTableHTML()}${financingDealCopyHTML(contract)}${financingDealActionHTML(contract)}${financingDealShapeHTML()}</section>`;
 }
 
 function financingDealViewHTML() {
@@ -856,7 +946,7 @@ function financingDealViewHTML() {
 
 function financingBuilderHTML() {
   const sendDisabled = financingSendDisabled();
-  return `<section class="financing-surface-body" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">EQUITY</span><span class="t-micro">RENT + SALE SHARE</span></button><button class="financing-mode-tab${financingPreviewMode === "hybrid" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "hybrid"}" data-financing-mode="hybrid"><span class="t-label f11">HYBRID</span><span class="t-micro">CONVERT ON DEFAULT</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form">${dropdownHTML({ id: "finance-recipient", label: "Counterparty", value: financingRecipientId(), options: financingRecipients() })}${financingPropertyPickerHTML()}<label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" /></label><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions is-solo"><button class="cta-red${sendDisabled ? " financing-disabled-action" : ""}" id="financing-send" type="button" ${sendDisabled ? "disabled" : ""}><span class="cta-text cta-text-sm">SEND CONTRACT</span></button></div></section>`;
+  return `<section class="financing-surface-body financing-builder" aria-labelledby="financing-offer-heading"><div class="financing-mode-tabs" id="financing-mode-tabs" role="tablist" aria-label="Financing mode"><button class="financing-mode-tab${financingPreviewMode === "loan" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "loan"}" data-financing-mode="loan"><span class="t-label f11">LOAN</span><span class="t-micro">FIXED RETURN</span></button><button class="financing-mode-tab${financingPreviewMode === "equity" ? " is-active" : ""}" type="button" role="tab" aria-selected="${financingPreviewMode === "equity"}" data-financing-mode="equity"><span class="t-label f11">RENT SHARE</span><span class="t-micro">TEMPORARY · PASSIVE</span></button></div><h3 class="sr-only" id="financing-offer-heading">Financing offer builder</h3><div class="financing-form" tabindex="0" role="region" aria-label="Financing terms">${dropdownHTML({ id: "finance-recipient", label: "Counterparty", value: financingRecipientId(), options: financingRecipients() })}${financingPropertyPickerHTML()}<div class="financing-field"><label class="t-label f11 g-muted" for="finance-amount">Cash advanced / contributed</label><input class="field" id="finance-amount" type="number" min="1" step="1" value="${financingPreviewDraft.amount}" aria-invalid="${Boolean(financingAmountError())}"${financingAmountError() ? ' aria-describedby="finance-amount-error"' : ""} /><p class="t-micro red financing-amount-error" id="finance-amount-error" role="status">${financingAmountError()}</p></div><div id="financing-mode-fields">${financingModeFieldsHTML()}</div></div><section class="financing-preview" id="financing-preview" tabindex="0" aria-label="Contract preview" aria-live="polite">${financingPreviewHTML()}</section><div class="financing-actions is-solo"><button class="cta-red${sendDisabled ? " financing-disabled-action" : ""}" id="financing-send" type="button" ${sendDisabled ? "disabled" : ""}><span class="cta-text cta-text-sm">SEND CONTRACT</span></button></div></section>`;
 }
 
 function negotiationOwnedPropertyOptions(contract) {
@@ -864,7 +954,7 @@ function negotiationOwnedPropertyOptions(contract) {
   if (!borrowerId) return [];
   const borrower = state.players.find((player) => player.serverId === borrowerId || player.id === borrowerId);
   if (!borrower) return [];
-  return TILES.filter((tile) => tile.kind === "property" && state.owners[tile.i] === borrower.id);
+  return TILES.filter((tile) => ["property", "railroad", "utility"].includes(tile.kind) && state.owners[tile.i] === borrower.id && !state.mortgaged[tile.i] && !financingTileShares(tile.i).length);
 }
 
 function negotiationSelectHTML(id, label, value, options) {
@@ -877,7 +967,7 @@ function negotiationPropertySelectHTML(id, label, value, options) {
 }
 
 function negotiationCollateralAccordionHTML(contract) {
-  const deeds = negotiationOwnedPropertyOptions(contract);
+  const deeds = negotiationOwnedPropertyOptions(contract).filter(financingCollateralDeedEligible);
   const selected = new Set(financingNegotiationDraft.collateralTileIndices || []);
   return collateralPickerHTML({
     id: "negotiation-collateral",
@@ -895,7 +985,7 @@ function collateralPickerHTML({ id, deeds, selected, checkboxAttribute }) {
   const options = deeds.length
     ? deeds.map((tile) => `<label class="financing-collateral-option" data-collateral-option><input type="checkbox" ${checkboxAttribute} value="${tile.i}" ${selected.has(tile.i) ? "checked" : ""}><span class="t-label f11 g100" data-collateral-name>${esc(tile.name)}</span><span class="t-micro ink-3">$${Number(tile.price || 0).toLocaleString()}</span></label>`).join("")
     : '<span class="t-micro ink-3">NO ELIGIBLE DEEDS</span>';
-  return `<div class="financing-collateral-picker" data-collateral-root><label class="t-label f11 g-muted" for="${id}-trigger">COLLATERAL</label><input class="field financing-collateral-trigger" type="text" id="${id}-trigger" data-collateral-trigger readonly aria-readonly="true" aria-label="Choose collateral deeds. ${esc(selectedLabel)}" aria-expanded="false" aria-controls="${id}-panel" placeholder="${esc(selectedLabel)}"><div class="financing-collateral-panel" id="${id}-panel" data-collateral-panel hidden><fieldset class="financing-collateral-options" id="${id}-options"><legend class="t-micro g400">ELIGIBLE DEEDS · SELECT ANY</legend>${options}</fieldset></div></div>`;
+  return `<div class="financing-collateral-picker" data-collateral-root><label class="t-label f11 g-muted" for="${id}-trigger">COLLATERAL · OPTIONAL</label><input class="field financing-collateral-trigger" type="text" id="${id}-trigger" data-collateral-trigger readonly aria-readonly="true" aria-label="Choose collateral deeds. ${esc(selectedLabel)}" aria-expanded="false" aria-controls="${id}-panel" placeholder="${esc(selectedLabel)}"><div class="financing-collateral-panel" id="${id}-panel" data-collateral-panel hidden><fieldset class="financing-collateral-options" id="${id}-options"><legend class="t-micro g400">ELIGIBLE DEEDS · SELECT ANY</legend>${options}</fieldset></div></div>`;
 }
 
 function setCollateralPickerOpen(picker, open, { restoreFocus = false } = {}) {
@@ -965,47 +1055,52 @@ function bindCollateralPicker(card) {
 function negotiationFieldsHTML(contract) {
   const kind = contract.kind;
   const deeds = negotiationOwnedPropertyOptions(contract);
-  const common = `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Advance / contribution</span><input class="field" id="negotiation-amount" data-negotiation-field="negotiation-amount" type="number" min="1" step="1" value="${financingNegotiationDraft.amount}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in rounds</span><input class="field" id="negotiation-duration" data-negotiation-field="negotiation-duration" type="number" min="1" max="20" step="1" value="${financingNegotiationDraft.durationRounds}" /></label></div>`;
+  const common = `<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Cash advanced / contributed</span><input class="field" id="negotiation-amount" data-negotiation-field="negotiation-amount" type="number" min="1" step="1" value="${financingNegotiationDraft.amount}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Duration in rounds</span><input class="field" id="negotiation-duration" data-negotiation-field="negotiation-duration" type="number" min="1" max="20" step="1" value="${financingNegotiationDraft.durationRounds}" /></label></div>`;
   if (kind === "equity") {
-    return `${common}<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Economic share %</span><input class="field" id="negotiation-equity-share" data-negotiation-field="negotiation-equity-share" type="number" min="5" max="100" step="5" value="${financingNegotiationDraft.equityShare}" /></label>${negotiationSelectHTML("negotiation-equity-control", "Control", financingNegotiationDraft.equityControl, [{ value: "passive", label: "PASSIVE" }, { value: "shared", label: "SHARED" }, { value: "controlling", label: "CONTROLLING" }])}</div>${negotiationPropertySelectHTML("negotiation-property", "Recipient property", financingNegotiationDraft.propertyIndex, deeds)}<label class="financing-check"><input id="negotiation-permanent" data-negotiation-field="negotiation-permanent" type="checkbox" ${financingNegotiationDraft.permanent ? "checked" : ""} /><span class="t-label f11 g-muted">PERMANENT EQUITY</span></label>`;
+    return `${common}<label class="financing-field"><span class="t-label f11 g-muted">Share of collected rent %</span><input class="field" id="negotiation-equity-share" data-negotiation-field="negotiation-equity-share" type="number" min="5" max="100" step="5" value="${financingNegotiationDraft.equityShare}" /></label>${negotiationPropertySelectHTML("negotiation-property", "Recipient deed", financingNegotiationDraft.propertyIndex, deeds)}<p class="t-micro ink-3">${esc(rentShareDisclosure(financingNegotiationDraft))}</p>`;
   }
-  if (kind === "hybrid") {
-    return `${common}<div class="financing-field-grid"><label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="negotiation-premium" data-negotiation-field="negotiation-premium" type="number" min="0" max="100" step="1" value="${financingNegotiationDraft.premiumRate}" /></label><label class="financing-field"><span class="t-label f11 g-muted">Conversion share %</span><input class="field" id="negotiation-conversion" data-negotiation-field="negotiation-conversion" type="number" min="5" max="100" step="5" value="${financingNegotiationDraft.conversionShare}" /></label></div>${negotiationPropertySelectHTML("negotiation-property", "Conversion property", financingNegotiationDraft.propertyIndex, deeds)}`;
-  }
+
   return `${common}<label class="financing-field"><span class="t-label f11 g-muted">Total interest %</span><input class="field" id="negotiation-premium" data-negotiation-field="negotiation-premium" type="number" min="0" max="100" step="1" value="${financingNegotiationDraft.premiumRate}" /></label>${negotiationCollateralAccordionHTML(contract)}`;
 }
 
 function negotiationCollateralTiles(contract) {
   if (contract.kind !== "loan") return [];
-  return (financingNegotiationDraft.collateralTileIndices || []).map(financingPropertyTile).filter(Boolean);
+  const eligible = new Set(negotiationOwnedPropertyOptions(contract).filter(financingCollateralDeedEligible).map(tile => tile.i));
+  return (financingNegotiationDraft.collateralTileIndices || []).filter(index => eligible.has(Number(index))).map(financingPropertyTile).filter(Boolean);
 }
 
-function negotiationHeadline(contract, total, collateral) {
-  if (contract.kind === "equity") return `${financingNegotiationDraft.equityShare}% EQUITY · ${financingNegotiationDraft.permanent ? "FOREVER" : `${financingNegotiationDraft.durationRounds} ROUNDS`}`;
-  if (contract.kind === "hybrid") return `${total} MATURITY · ${financingNegotiationDraft.conversionShare}% CONVERSION`;
-  return `${collateral.length ? "SECURED" : "UNSECURED"} LOAN · ${total} TOTAL DUE · ${financingNegotiationDraft.durationRounds} ROUNDS`;
-}
+function negotiationSlip(contract, amount, premium, total) {
+  const d = financingNegotiationDraft;
+  const rounds = `${d.durationRounds} ROUNDS`;
+  if (contract.kind === "equity") {
+    return {
+      title: "RENT SHARE COUNTER",
+      focal: ["SHARE", `${d.equityShare}%`],
+      rows: [["CONTRIBUTION", `$${amount}`], ["DURATION", rounds]],
+    };
+  }
 
-function negotiationCollateralCopy(contract, collateral) {
-  if (contract.kind !== "loan") return "";
-  if (collateral.length) return ` ${collateral.map(deed => deed.name).join(", ")} are at risk as collateral.`;
-  return " No deed is pledged as collateral.";
+  const collateral = negotiationCollateralTiles(contract);
+  return {
+    title: collateral.length ? "SECURED LOAN COUNTER" : "UNSECURED LOAN COUNTER",
+    focal: ["TOTAL DUE", `$${total}`],
+    rows: [["ADVANCE", `$${amount}`], ["INTEREST", `$${total - amount} · ${premium}%`], ["TERM", rounds]],
+    risk: collateral.length ? `Default transfers pledged deeds. ${financingCollateralCreditCopy(collateral, total)}` : "No deed is pledged.",
+  };
 }
 
 function negotiationPreviewHTML(contract) {
   const amount = Math.max(1, Math.floor(Number(financingNegotiationDraft.amount) || 0));
   const premium = Math.max(0, Math.min(100, Number(financingNegotiationDraft.premiumRate) || 0));
-  const total = amount + Math.ceil(amount * premium / 100);
-  const collateral = negotiationCollateralTiles(contract);
-  const headline = negotiationHeadline(contract, total, collateral);
-  const collateralCopy = negotiationCollateralCopy(contract, collateral);
-  return `<div class="financing-preview-head"><span class="t-micro g400">COUNTER PREVIEW</span><span class="t-label f12 g100">${esc(headline)}</span></div><p class="t-body ink-2 financing-preview-copy">No cash moves until the original proposer accepts these revised terms.${collateralCopy} Negotiation depth is capped at two counters.</p>`;
+  const total = amount + Math.ceil((amount * premium) / 100);
+  const slip = negotiationSlip(contract, amount, premium, total);
+  const rows = slip.rows.map(([label, value]) => `<div><span class="t-micro ink-3">${label}</span><strong class="t-label f13 g100">${esc(value)}</strong></div>`).join("");
+  return `<div class="financing-preview-head"><span class="t-micro g400">COUNTER PREVIEW · TO ${esc((financingNegotiationAction === "adjust" ? contract.toPlayerName : contract.fromPlayerName) || "PLAYER")}</span><span class="t-label f12 g100">${slip.title}</span></div><div class="financing-focal"><span class="t-micro ink-3">${slip.focal[0]}</span><strong class="slip-amount g050">${esc(slip.focal[1])}</strong></div><div class="financing-metrics">${rows}</div><p class="t-body ink-2 financing-preview-copy">${slip.risk ? `${esc(slip.risk)} ` : ""}No cash moves until they accept.</p><p class="t-micro ink-3 financing-preview-note">Negotiation is capped at two counters.</p>`;
 }
 
 function financingNegotiationHTML(contract) {
-  const proposer = contract.fromPlayerName || "PLAYER";
   const adjusting = financingNegotiationAction === "adjust";
-  return `<section class="financing-surface-body" aria-labelledby="financing-negotiate-heading"><div class="financing-surface-kicker"><span class="t-micro g400">${adjusting ? "ADJUSTMENT" : "NEGOTIATION"} · ${esc(String(contract.kind || "loan").toUpperCase())}</span><span class="t-label f11 g100">${adjusting ? "TO" : "FROM"} ${esc(adjusting ? contract.toPlayerName || "PLAYER" : proposer)}</span></div><h3 class="t-section g100" id="financing-negotiate-heading">Adjust the deal terms</h3><p class="t-body ink-2 financing-surface-copy">Tune every parameter for this ${esc(contract.kind || "loan")} deal. No cash moves until the other player accepts the revised terms.</p><div class="financing-form">${negotiationFieldsHTML(contract)}</div><section class="financing-preview" id="negotiation-preview" aria-live="polite">${negotiationPreviewHTML(contract)}</section><div class="financing-actions is-solo"><button class="cta-red" id="financing-negotiate-send" type="button"><span class="cta-text cta-text-sm">${adjusting ? "SEND ADJUSTMENT" : "SEND COUNTER"}</span></button></div></section>`;
+  return `<section class="financing-surface-body financing-builder" aria-labelledby="financing-negotiate-heading"><h3 class="sr-only" id="financing-negotiate-heading">${adjusting ? "Adjust" : "Counter"} the ${esc(contractLabel(contract))} deal</h3><div class="financing-form" tabindex="0" role="region" aria-label="Financing terms">${negotiationFieldsHTML(contract)}</div><section class="financing-preview" id="negotiation-preview" tabindex="0" aria-label="Counteroffer preview" aria-live="polite">${negotiationPreviewHTML(contract)}</section><div class="financing-actions is-solo"><button class="cta-red" id="financing-negotiate-send" type="button"><span class="cta-text cta-text-sm">${adjusting ? "SEND ADJUSTMENT" : "SEND COUNTER"}</span></button></div></section>`;
 }
 
 function currentNegotiationContract() {
@@ -1038,20 +1133,31 @@ function syncFinancingRanges(root = $("#financing-card")) {
 function refreshFinancingPreview() {
   const preview = $("#financing-preview");
   if (preview) preview.innerHTML = financingPreviewHTML();
+  const amountError = financingAmountError();
+  const amount = $("#finance-amount");
+  if (amount) {
+    amount.setAttribute("aria-invalid", String(Boolean(amountError)));
+    if (amountError) amount.setAttribute("aria-describedby", "finance-amount-error");
+    else amount.removeAttribute("aria-describedby");
+  }
+  const error = $("#finance-amount-error");
+  if (error) error.textContent = amountError;
+  const send = $("#financing-send");
+  if (send) {
+    send.disabled = financingSendDisabled();
+    send.classList.toggle("financing-disabled-action", send.disabled);
+  }
 }
 
 const FINANCE_INPUT_FIELDS = {
-  "finance-amount": (value) => { financingPreviewDraft.amount = Number(value) || 0; },
+  "finance-amount": (value) => { financingPreviewDraft.amount = financingAmount(value); },
   "finance-loan-rate": (value) => { financingPreviewDraft.loanRate = Number(value) || 0; },
   "finance-loan-duration": (value) => { financingPreviewDraft.loanDuration = Number(value) || 20; },
-  "finance-equity-duration": (value) => { financingPreviewDraft.equityDuration = value; },
-  "finance-hybrid-rate": (value) => { financingPreviewDraft.hybridRate = Number(value) || 0; },
-  "finance-hybrid-duration": (value) => { financingPreviewDraft.hybridDuration = Number(value) || 20; },
+  "finance-equity-duration": (value) => { financingPreviewDraft.equityDuration = boundedInteger(value, 3, 1, 20); },
 };
 
 const FINANCE_RANGE_OUTPUTS = {
   "finance-equity-share": { key: "equityShare", fallback: 10, outputId: "#finance-equity-share-output" },
-  "finance-hybrid-conversion": { key: "hybridConversion", fallback: 25, outputId: "#finance-hybrid-conversion-output" },
 };
 
 function applyFinanceRangeField(id, value) {
@@ -1065,6 +1171,8 @@ function onFinancingInput(card, event) {
   const { id, value } = event.target;
   const setter = FINANCE_INPUT_FIELDS[id];
   if (setter) setter(value);
+  if (id === "finance-amount") event.target.value = financingPreviewDraft.amount;
+  if (id === "finance-equity-duration") event.target.value = financingPreviewDraft.equityDuration;
   applyFinanceRangeField(id, value);
   if (event.target.matches("input[type=range]")) syncFinancingRanges(card);
   refreshFinancingPreview();
@@ -1083,13 +1191,10 @@ const NEGOTIATION_NUMBER_FIELDS = {
   "negotiation-duration": { key: "durationRounds", fallback: 3, min: 1, max: 20 },
   "negotiation-premium": { key: "premiumRate", fallback: 0, min: 0, max: 100 },
   "negotiation-equity-share": { key: "equityShare", fallback: 10, min: 5, max: 100 },
-  "negotiation-conversion": { key: "conversionShare", fallback: 25, min: 5, max: 100 },
 };
 
 const NEGOTIATION_FIELD_SETTERS = {
   "negotiation-property": (event, value) => { financingNegotiationDraft.propertyIndex = Number(value); },
-  "negotiation-equity-control": (event, value) => { financingNegotiationDraft.equityControl = String(value); },
-  "negotiation-permanent": (event, value) => { financingNegotiationDraft.permanent = Boolean(value); },
   "negotiation-collateral": (event) => negotiationCollateralChanged(event),
 };
 
@@ -1099,6 +1204,8 @@ function boundedInteger(value, fallback, min, max = Number.POSITIVE_INFINITY) {
 
 function negotiationCollateralChanged(event) {
   const index = Number(event.target.value);
+  const contract = currentNegotiationContract();
+  if (!contract || !negotiationOwnedPropertyOptions(contract).filter(financingCollateralDeedEligible).some(tile => tile.i === index)) return;
   const selected = new Set(financingNegotiationDraft.collateralTileIndices || []);
   if (event.target.checked) selected.add(index);
   else selected.delete(index);
@@ -1133,17 +1240,16 @@ function negotiationFieldChanged(event) {
 
 function applyNegotiationTerms(payload, contract) {
   if (contract.kind === "loan") {
-    payload.collateralTileIndices = financingNegotiationDraft.collateralTileIndices;
+    payload.collateralTileIndices = negotiationCollateralTiles(contract).map(tile => tile.i);
     return;
   }
   payload.propertyIndex = financingNegotiationDraft.propertyIndex;
   if (contract.kind === "equity") {
     payload.equityShare = boundedInteger(financingNegotiationDraft.equityShare, 10, 5, 100);
-    payload.equityControl = financingNegotiationDraft.equityControl;
-    payload.permanent = financingNegotiationDraft.permanent;
+    payload.equityControl = "passive";
+    payload.permanent = false;
     return;
   }
-  if (contract.kind === "hybrid") payload.conversionShare = boundedInteger(financingNegotiationDraft.conversionShare, 25, 5, 100);
 }
 
 function negotiationPayload(contract) {
@@ -1162,7 +1268,7 @@ function negotiationPayload(contract) {
 function sendFinancingNegotiation(control = document.activeElement) {
   const statusNode = host.captureActionStatusNode(control);
   const contract = currentNegotiationContract();
-  if (!contract || contract.id !== financingNegotiationContractId) return;
+  if (!canNegotiateContract(contract) || contract.id !== financingNegotiationContractId || negotiationActionFor(contract) !== financingNegotiationAction) return;
   host.emitServer(financingNegotiationAction === "adjust" ? "adjust-player-contract" : "counter-player-contract", negotiationPayload(contract), (response) => {
     if (response?.success === false) {
       host.announceActionStatus(response.error || "The contract counteroffer could not be sent.", statusNode);
@@ -1208,17 +1314,22 @@ function sendFinancingRepay(contractId, control = document.activeElement) {
     return;
   }
   const remainingBefore = contractRemainingAmount(contract);
+  // One request (one requestId) per repay intent: a double click before the
+  // acknowledgement must not repay the same amount twice.
   const payload = { contractId, amount, requestId: host.createRequestId("contract-repay") };
-  host.emitServer("repay-player-contract", payload, (response) => {
-    if (response?.success === false) {
-      host.announceActionStatus(response.error || "The player loan could not be repaid.", statusNode);
-      return;
-    }
-    const settled = settledRepayment(response, amount, remainingBefore);
-    const status = `Repaid $${settled.toLocaleString()} on the player loan.`;
-    financingRepayStatus = { contractId, text: status };
-    host.renderRightRail();
-    renderFinancingModal();
+  emitIntent(host.emitServer, `repay-player-contract:${contractId}`, "repay-player-contract", payload, {
+    onResponse: (response) => {
+      if (response?.success === false) {
+        host.announceActionStatus(response.error || "The player loan could not be repaid.", statusNode);
+        return;
+      }
+      const settled = settledRepayment(response, amount, remainingBefore);
+      const status = `Repaid $${settled.toLocaleString()} on the player loan.`;
+      financingRepayStatus = { contractId, text: status };
+      host.renderRightRail();
+      renderFinancingModal();
+    },
+    onTimeout: () => host.announceActionStatus("The repayment could not be confirmed. Check the loan before retrying.", statusNode),
   });
 }
 
@@ -1252,7 +1363,7 @@ function financingViewRequested(value) {
 }
 
 function onFinancingViewNode(event) {
-  const button = event.target.closest("[data-financing-view]");
+  const button = event.target.closest("button[data-financing-view]");
   if (!button) return false;
   financingView = financingViewRequested(button.dataset.financingView);
   renderFinancingModal();
@@ -1268,8 +1379,10 @@ function onFinancingSurfaceClick(event) {
 
 function onFinancingModeTab(event) {
   const button = event.target.closest("[data-financing-mode]");
-  if (!button) return;
+  if (!button || !["loan", "equity"].includes(button.dataset.financingMode)) return;
   financingPreviewMode = button.dataset.financingMode;
+  clampPropertyToRecipient();
+  clampCollateralToRecipient();
   renderFinancingModal();
 }
 
@@ -1279,14 +1392,7 @@ function onFinancingDropdownSelect(id, value) {
     return;
   }
   if (id === "finance-property") financingPreviewDraft.propertyIndex = Number(value);
-  if (id === "finance-equity-control") financingPreviewDraft.equityControl = value;
   refreshFinancingPreview();
-}
-
-function onFinancingPermanentChange(event) {
-  const turnsInput = $("#finance-equity-duration");
-  financingPreviewDraft.equityDuration = event.target.checked ? "permanent" : Math.max(1, Number(turnsInput?.value) || 20);
-  renderFinancingModal();
 }
 
 function bindFinancingOfferSurface(card) {
@@ -1304,7 +1410,6 @@ function wireFinancingChrome() {
   $("#financing-close")?.addEventListener("click", closeFinancingModal);
   $("#financing-send")?.addEventListener("click", event => sendFinancingContract(event.currentTarget));
   $("#financing-negotiate-send")?.addEventListener("click", event => sendFinancingNegotiation(event.currentTarget));
-  $("#finance-equity-permanent")?.addEventListener("change", onFinancingPermanentChange);
   const card = $("#financing-card");
   if (card) bindCollateralPicker(card);
   if (card && !card.dataset.negotiationInputBound) {
@@ -1321,10 +1426,22 @@ function financingIsBuilderView() {
 function renderFinancingModal() {
   const card = $("#financing-card");
   if (!card) return;
-  const modeLabels = { loan: "LOAN", equity: "EQUITY", hybrid: "HYBRID" };
+  const modeLabels = { loan: "LOAN", equity: "RENT SHARE", hybrid: "LEGACY CONVERTIBLE NOTE" };
   const negotiating = financingView === "negotiate";
-  const header = `<div class="financing-head"><div><div class="t-micro g400">${negotiating ? "DEAL NEGOTIATION · COUNTER TERMS" : "PARLOR DEAL BUILDER · LIVE TERMS"}</div><h2 class="t-section g100" id="financing-card-title">${negotiating ? `Negotiate a ${modeLabels[financingPreviewMode] || "CONTRACT"} deal` : `Shape a ${modeLabels[financingPreviewMode]} deal`}</h2></div><span class="t-micro financing-badge">${negotiating ? "COUNTEROFFER" : "LIVE FINANCE RAIL"}</span><button class="btn-dark financing-close" id="financing-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2 financing-description" id="financing-card-description">${negotiating ? "No cash moves until the original proposer accepts your revised terms." : "Pick a counterparty, shape the terms, and send. Every accepted term settles through the server ledger."}</p>`;
-  card.innerHTML = `<div class="financing-body">${header}${financingViewBodyHTML()}</div>`;
+  const viewingContract = financingView === "deal";
+  const activeContract = viewingContract ? financingSelectedContract() : null;
+  card.dataset.financingView = financingView;
+  card.dataset.financingMode = financingPreviewMode;
+  const activeMode = activeContract ? contractLabel(activeContract).toUpperCase() : "CONTRACT";
+  const headerKicker = negotiating ? "DEAL NEGOTIATION · COUNTER TERMS" : "PARLOR DEAL BUILDER · LIVE TERMS";
+  const headerTitle = negotiating
+    ? `Negotiate a ${modeLabels[financingPreviewMode] || "CONTRACT"} deal`
+    : viewingContract ? `${activeMode} contract` : `Shape a ${modeLabels[financingPreviewMode] || "LOAN"} deal`;
+  const headerDescription = negotiating
+    ? "No cash moves until the original proposer accepts your revised terms."
+    : "";
+  const header = `<div class="financing-head${viewingContract ? " financing-head-contract" : ""}">${viewingContract ? `<h2 class="t-section g100" id="financing-card-title">${activeMode} contract</h2>` : `<div class="slip-head"><span class="slip-icon" aria-hidden="true">${spriteHTML("note", 5)}</span><div><div class="t-micro g400">${headerKicker}</div><h2 class="t-section g100" id="financing-card-title">${headerTitle}</h2></div></div>`}${negotiating ? '<span class="t-micro financing-badge">COUNTEROFFER</span>' : ""}${closeButtonHTML({ id: "financing-close", label: "Close financing dialog", className: "financing-close" })}</div>${headerDescription ? `<p class="t-body ink-2 financing-description" id="financing-card-description">${headerDescription}</p>` : ""}`;
+  card.innerHTML = `<div class="slip-rail slip-rail-gold"></div><div class="financing-body${viewingContract ? " financing-body-contract" : ""}"${viewingContract ? ' tabindex="0" role="region" aria-label="Active contract terms and repayment"' : ""}>${header}${financingViewBodyHTML()}</div>`;
   syncFinancingRanges(card);
   wireFinancingChrome();
   if (!card.dataset.financingSurfaceBound) {
@@ -1362,11 +1479,15 @@ export function openFinancingContract(contractId, trigger = null) {
 
 function financingPreviewModeFor(mode) {
   if (mode === "equity") return "equity";
-  if (mode === "hybrid") return "hybrid";
+  // Convertible notes are no longer offered; existing ones still display.
   return "loan";
 }
 
 export function openFinancingModal(mode = "loan", propertyIndex = null, trigger = null) {
+  if (!playerFinanceEnabled(state.settings)) {
+    host.announceActionStatus("Player Finance is disabled for this table.", host.captureActionStatusNode(trigger || document.activeElement));
+    return;
+  }
   if (!otherPlayers().length) {
     host.announceActionStatus("No other players at the table.", host.captureActionStatusNode(trigger || document.activeElement));
     return;
@@ -1397,9 +1518,6 @@ function loadNegotiationDraft(contract) {
   financingNegotiationDraft.propertyIndex = contract.propertyIndex ?? null;
   financingNegotiationDraft.collateralTileIndices = negotiationCollateralIndices(contract);
   financingNegotiationDraft.equityShare = negotiationNumber(contract.equityShare, 10, 5, 100);
-  financingNegotiationDraft.equityControl = contract.equityControl || "passive";
-  financingNegotiationDraft.permanent = contract.expiresRound == null;
-  financingNegotiationDraft.conversionShare = negotiationNumber(contract.conversionShare, 25, 5, 100);
 }
 
 function findNegotiationContract(contractId) {
@@ -1410,13 +1528,25 @@ function findNegotiationContract(contractId) {
 
 function negotiationActionFor(contract) {
   const depth = Math.max(0, Math.floor(Number(contract.counterDepth) || 0));
-  const lastProposerId = depth % 2 === 0 ? contract.fromPlayerId : contract.toPlayerId;
+  const lastProposerId = contract.lastProposerId || (depth % 2 === 0 ? contract.fromPlayerId : contract.toPlayerId);
   if (lastProposerId === financingMyServerId()) return "adjust";
   return "counter";
 }
 
+function canNegotiateContract(contract) {
+  const self = financingMyServerId();
+  return Boolean(contract && playerFinanceEnabled(state.settings)
+    && (self === contract.fromPlayerId || self === contract.toPlayerId)
+    && Number(contract.counterDepth || 0) < 2
+    && (Number(contract.rulesVersion) === 2 ? contract.kind !== "hybrid" : contract.kind === "loan"));
+}
+
 export function openFinancingNegotiation(contractId, trigger = null) {
   const contract = findNegotiationContract(contractId);
+  if (!canNegotiateContract(contract)) {
+    host.announceActionStatus("Enable Player Finance and rebuild this offer with the current contract terms.", host.captureActionStatusNode(trigger || document.activeElement));
+    return;
+  }
   if (!contract || contract.id !== contractId) {
     host.announceActionStatus("That contract offer is no longer live.", host.captureActionStatusNode(trigger || document.activeElement));
     return;
@@ -1438,26 +1568,56 @@ export function closeFinancingModal() {
   closeSurface("#financing-modal");
 }
 
-function tradeDeedRowHTML(tile, side, selected) {
+function tradeBuildingLevel(tileIndex) {
+  const serverTile = state.serverTiles.find(entry => Number(entry.index) === Number(tileIndex));
+  const serverLevel = Number(serverTile?.houseCount);
+  return Number.isInteger(serverLevel) && serverLevel >= 0 ? serverLevel : (Number(state.houses[tileIndex]) || 0);
+}
+
+function tradeBuildingBlockReason(tile) {
+  if (!tile.group) return "";
+  const hasBuildings = TILES.some(candidate => candidate.group === tile.group && tradeBuildingLevel(candidate.i) > 0);
+  return hasBuildings ? "Sell all buildings in this color set before trading a deed." : "";
+}
+
+export function tradeDeedRowHTML(tile, side, selected, readOnly = false) {
   const rail = tile.group ? GROUP_COLOR[tile.group] : tile.kind === "railroad" ? "#5c5033" : "#3e7d7b";
   const mortgaged = !!state.mortgaged[tile.i];
-  return `<button type="button" class="trade-deed${selected ? " is-selected" : ""}${mortgaged ? " is-mortgaged" : ""}" data-side="${side}" data-deed="${tile.i}" ${mortgaged ? "disabled" : ""}>
+  if (readOnly) {
+    const value = Number.isFinite(tile.price) ? `$${tile.price.toLocaleString()}` : "—";
+    return `<li class="trade-deed offer-deed"><span class="trade-deed-rail" style="background:${rail}"></span><span class="trade-deed-name">${esc(tile.name)}${mortgaged ? '<span class="t-micro red"> · MORTGAGED</span>' : ""}</span><span class="trade-deed-price">${value}</span></li>`;
+  }
+  const buildingReason = tradeBuildingBlockReason(tile);
+  const authority = side === "me" ? state.serverTiles.find(entry => Number(entry.index) === Number(tile.i))?.propertyActions?.tradeDeed : null;
+  const authorityReason = authority?.enabled === false ? (authority.reason || "This deed cannot be traded right now.") : "";
+  const blockedReason = buildingReason || authorityReason;
+  return `<button type="button" class="trade-deed${selected ? " is-selected" : ""}${mortgaged ? " is-mortgaged" : ""}" data-side="${side}" data-deed="${tile.i}" ${blockedReason ? `disabled aria-label="${esc(tile.name)}. ${esc(blockedReason)}" title="${esc(blockedReason)}"` : ""}>
     <span class="trade-deed-rail" style="background:${rail}"></span>
-    <span class="trade-deed-name">${tile.name}</span>
+    <span class="trade-deed-name">${esc(tile.name)}${blockedReason ? `<span class="trade-deed-block-reason">${esc(blockedReason)}</span>` : ""}</span>
+    ${mortgaged ? '<span class="t-micro red trade-deed-mortgage-badge">MORTGAGED</span>' : ""}
     <span class="trade-deed-price">$${tile.price}</span>
     <span class="trade-deed-check"></span>
   </button>`;
 }
 
+export function tradeReviewSideHTML({ player, seed, heading, cash, deedIndexes }) {
+  const indexes = [...new Set(Array.isArray(deedIndexes) ? deedIndexes : [])];
+  const deeds = indexes.map(index => TILES[Number(index)] || { i: index, name: `Deed ${index}` });
+  const rows = deeds.length
+    ? `<ul class="trade-deed-list thin-scroll" tabindex="0" aria-label="${esc(heading)} deeds">${deeds.map(tile => tradeDeedRowHTML(tile, "", false, true)).join("")}</ul>`
+    : '<p class="t-body trade-empty">No deeds</p>';
+  return `<section class="trade-side offer-side" aria-label="${esc(heading)}"><div class="trade-side-head"><div class="tp-av">${avatarHTML(player, 4, seed)}</div><div><h3 class="t-label f13 g100">${esc(heading)}</h3><span class="t-micro ink-2">${esc(player.name)}</span></div></div><div class="offer-cash"><span class="t-label f11 ink-2">CASH</span><strong class="t-label f20 g100">$${Math.max(0, Number(cash) || 0).toLocaleString()}</strong></div><div class="offer-deeds"><span class="t-label f11 ink-2">DEEDS · ${deeds.length}</span>${rows}</div></section>`;
+}
+
 function tradeSummaryText(deedSet, cash) {
-  return `${deedSet.size} deed${deedSet.size === 1 ? "" : "s"} + $${cash}`;
+  return `<span class="num">${deedSet.size}</span> deed${deedSet.size === 1 ? "" : "s"} + <span class="num">$${cash.toLocaleString()}</span>`;
 }
 
 function updateTradeSummary() {
   const sendEl = $("#trade-send-summary");
   const receiveEl = $("#trade-receive-summary");
-  if (sendEl) sendEl.textContent = tradeSummaryText(state.tradeMyDeeds, state.tradeMyCash);
-  if (receiveEl) receiveEl.textContent = tradeSummaryText(state.tradeTheirDeeds, state.tradeTheirCash);
+  if (sendEl) sendEl.innerHTML = tradeSummaryText(state.tradeMyDeeds, state.tradeMyCash);
+  if (receiveEl) receiveEl.innerHTML = tradeSummaryText(state.tradeTheirDeeds, state.tradeTheirCash);
 }
 
 function tradeSideHTML({ player, seed, side, deeds, selectedSet, cashValue, cashMax, inputId, cashLabel, emptyText }) {
@@ -1470,16 +1630,17 @@ function tradeSideHTML({ player, seed, side, deeds, selectedSet, cashValue, cash
             <div class="tp-av">${avatarHTML(player, 4, seed)}</div>
             <div>
               <span class="t-label f13" style="color:${player.textColor}">${esc(player.name)}</span>
-              <span class="t-micro ink-3 trade-cash-label">CASH ON HAND $${player.cash.toLocaleString()}</span>
+              <span class="t-micro ink-3 trade-cash-label">CASH ON HAND <span class="num">$${player.cash.toLocaleString()}</span>
             </div>
           </div>
-          <div class="trade-deed-list thin-scroll">
+          <div class="trade-deed-list thin-scroll" role="group" tabindex="0" aria-label="${side === "me" ? "Deeds to offer" : "Deeds to request"}">
             ${rows}
           </div>
           <label class="trade-cash-field">
-            <span class="t-label f11 g-muted" id="${inputId}-label">${cashLabel} (max $${Number(cashMax) || 0})</span>
+            <span class="t-label f11 g-muted" id="${inputId}-label">${cashLabel} (max <span class="num">$${Number(cashMax) || 0}</span>)</span>
             <input type="number" min="0" max="${cashMax}" step="10" class="field" id="${inputId}" value="${cashValue}" aria-labelledby="${inputId}-label" />
           </label>
+          <input type="range" class="trade-range" id="${inputId}-range" min="0" max="${Number(cashMax) || 0}" step="10" value="${cashValue}" aria-label="${cashLabel} slider" />
         </div>`;
 }
 
@@ -1496,10 +1657,9 @@ function tradeModalHTML({ me, other, otherSeed, myDeeds, theirDeeds }) {
           ${spriteHTML("diamond", 3)}
           <h2 class="t-section g300" id="trade-card-title">${adjustment ? "Adjust Trade" : negotiating ? "Negotiate Trade" : "Propose Trade"}</h2>
         </div>
-        <button class="btn-dark" id="trade-close"><span class="t-label f11">CLOSE</span></button>
+        ${closeButtonHTML({ id: "trade-close", label: "Close trade dialog" })}
       </div>
-      <p class="t-body ink-2 trade-copy">${negotiating ? "Review the existing terms, adjust the exchange, and send it back for approval." : "Select who should receive the offer, then choose deeds from each side and set a cash amount to include."}</p>
-      ${negotiating ? `<div class="trade-fixed-recipient"><span class="t-micro g400">${adjustment ? "ADJUSTING FOR" : "NEGOTIATING WITH"}</span><span class="t-label f12 g100">${esc(other.name)}</span></div>` : dropdownHTML({ id: "trade-recipient", label: "Send trade to", value: state.tradeWith, className: "trade-recipient-dropdown", options: recipientOptions })}
+      ${negotiating ? `<div class="trade-fixed-recipient"><span class="t-micro g400">${adjustment ? "ADJUSTING FOR" : "NEGOTIATING WITH"}</span><span class="t-label f12 g100">${esc(other.name)}</span></div>` : recipientOptions.length > 1 ? dropdownHTML({ id: "trade-recipient", label: "Send trade to", value: state.tradeWith, className: "trade-recipient-dropdown", options: recipientOptions }) : ""}
 
       <div class="trade-cols">
         ${mySide}
@@ -1522,7 +1682,7 @@ function tradeModalHTML({ me, other, otherSeed, myDeeds, theirDeeds }) {
     </div>`;
 }
 
-function resetTradeSelection(playerId) {
+function resetTradeSelection(playerId, initialDeedIndex = null) {
   state.tradeWith = playerId;
   state.tradeCounterId = null;
   state.tradeAdjustId = null;
@@ -1530,6 +1690,9 @@ function resetTradeSelection(playerId) {
   state.tradeTheirDeeds = new Set();
   state.tradeMyCash = 0;
   state.tradeTheirCash = 0;
+  if (initialDeedIndex != null && Number.isInteger(Number(initialDeedIndex)) && state.owners[initialDeedIndex] === "p1") {
+    state.tradeMyDeeds.add(Number(initialDeedIndex));
+  }
 }
 
 function tradeRecipientValid(value) {
@@ -1539,7 +1702,7 @@ function tradeRecipientValid(value) {
 function onTradeRecipientSelect(id, value) {
   if (id !== "trade-recipient") return;
   if (!tradeRecipientValid(value)) return;
-  resetTradeSelection(value);
+  resetTradeSelection(value, tradeInitialDeedIndex);
   renderTradeModal();
   $("#trade-recipient-trigger")?.focus({ preventScroll: true });
 }
@@ -1549,6 +1712,11 @@ function tradeCashInput(player, key) {
     let v = Math.round(Number(e.target.value) || 0);
     v = clamp(v, 0, player.cash);
     if (String(v) !== e.target.value) e.target.value = String(v);
+    const slider = document.getElementById(`${e.target.id}-range`);
+    if (slider) {
+      slider.value = String(v);
+      paintSlider(slider);
+    }
     state[key] = v;
     updateTradeSummary();
   };
@@ -1564,6 +1732,24 @@ function toggleTradeDeed(event) {
   updateTradeSummary();
 }
 
+/* The slider drives the number field, which owns clamping and the summary. */
+function paintSlider(slider) {
+  const max = Number(slider.max) || 0;
+  const share = max > 0 ? Math.min(100, Math.max(0, (Number(slider.value) / max) * 100)) : 0;
+  slider.style.setProperty("--fill", `${share}%`);
+}
+
+function bindCashSlider(inputId) {
+  const number = document.getElementById(inputId);
+  const slider = document.getElementById(`${inputId}-range`);
+  if (!number || !slider) return;
+  paintSlider(slider);
+  slider.addEventListener("input", () => {
+    number.value = slider.value;
+    paintSlider(slider);
+    number.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 function wireTradeModal(me, other) {
   $("#trade-close").addEventListener("click", closeTradeModal);
   $("#trade-cancel").addEventListener("click", closeTradeModal);
@@ -1571,6 +1757,7 @@ function wireTradeModal(me, other) {
   bindDropdowns($("#trade-card"), onTradeRecipientSelect);
   $("#trade-my-cash").addEventListener("input", tradeCashInput(me, "tradeMyCash"));
   $("#trade-their-cash").addEventListener("input", tradeCashInput(other, "tradeTheirCash"));
+  for (const id of ["trade-my-cash", "trade-their-cash"]) bindCashSlider(id);
   $("#trade-card").querySelectorAll(".trade-deed").forEach((btn) => btn.addEventListener("click", toggleTradeDeed));
 }
 
@@ -1594,7 +1781,32 @@ export function openTradeModal(playerId, trigger = null) {
   }
   const other = state.players.find((p) => p.id === playerId);
   if (!other) return;
+  tradeInitialDeedIndex = null;
   resetTradeSelection(playerId);
+  renderTradeModal();
+  openSurface("#trade-modal", "#trade-close", { trigger });
+}
+
+export function beginTradeFromDeed(tileIndex) {
+  const recipient = state.players.find(player => player.id !== "p1");
+  const index = Number(tileIndex);
+  if (!recipient || !Number.isInteger(index) || state.owners[index] !== "p1") return false;
+  const tile = TILES[index];
+  const authority = state.serverTiles.find(entry => Number(entry.index) === index)?.propertyActions?.tradeDeed;
+  if (!tile || tradeBuildingBlockReason(tile) || authority?.enabled === false) return false;
+  tradeInitialDeedIndex = index;
+  resetTradeSelection(recipient.id, index);
+  return recipient;
+}
+
+export function openTradeModalForDeed(tileIndex, trigger = null) {
+  if (state.phase !== "playing") return;
+  if (!state.settings.trading) {
+    host.announceActionStatus("Trading is disabled for this round.", host.captureActionStatusNode(trigger || document.activeElement));
+    return;
+  }
+  const recipient = beginTradeFromDeed(tileIndex);
+  if (!recipient) return;
   renderTradeModal();
   openSurface("#trade-modal", "#trade-close", { trigger });
 }
@@ -1603,6 +1815,7 @@ export function closeTradeModal() {
   state.tradeWith = null;
   state.tradeCounterId = null;
   state.tradeAdjustId = null;
+  tradeInitialDeedIndex = null;
   closeSurface("#trade-modal");
 }
 
@@ -1618,23 +1831,26 @@ function tradeIsBlank(myCash, theirCash) {
 }
 
 function tradeMyDeedBlocked(i) {
-  if ((state.houses[i] || 0) > 0) {
-    blockTrade("You must sell all houses on a property before trading it.");
+  const tile = TILES[i];
+  const buildingReason = tile && tradeBuildingBlockReason(tile);
+  if (buildingReason) {
+    blockTrade(buildingReason);
     return true;
   }
-  if (state.mortgaged[i]) {
-    blockTrade("You must unmortgage a property before trading it.");
+  const authority = state.serverTiles.find(entry => Number(entry.index) === Number(i))?.propertyActions?.tradeDeed;
+  if (authority?.enabled === false) {
+    blockTrade(authority.reason || "This deed cannot be traded right now.");
     return true;
   }
   return false;
 }
 
 function tradeTheirDeedBlocked(i) {
-  if (state.mortgaged[i]) {
-    blockTrade("That property is mortgaged and can't be traded yet.");
-    return true;
-  }
-  return false;
+  const tile = TILES[i];
+  const reason = tile && tradeBuildingBlockReason(tile);
+  if (!reason) return false;
+  blockTrade(reason);
+  return true;
 }
 
 function myDeedsValidationBlocked() {

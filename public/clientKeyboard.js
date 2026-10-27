@@ -7,6 +7,8 @@
    ============================================================ */
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
+import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
+import { shortcutsEnabled } from "./clientShortcutPrefs.js";
 import {
   syncSurfaceA11y,
   surfaceFocusable,
@@ -60,6 +62,8 @@ function preventEscape(event) {
 }
 
 function handleCtrlNightShift(event, homeVisible) {
+  // Off: Ctrl+P stays the browser's print shortcut.
+  if (!PARLOR_PATROL_ENABLED) return false;
   if (!homeVisible) return false;
   if (state.phase !== "home") return false;
   if (!keyChord(event, "p", "c")) return false;
@@ -71,6 +75,7 @@ function handleCtrlNightShift(event, homeVisible) {
 }
 
 function handleShiftNightShift(event, homeVisible) {
+  if (!PARLOR_PATROL_ENABLED) return false;
   if (state.phase !== "home") return false;
   if (host.isNightShiftActive()) return false;
   if (!keyChord(event, "p", "s")) return false;
@@ -141,12 +146,14 @@ const ESCAPE_GATES = [
   { visible: () => modalOpen("#player-modal"), escape: () => closeSurface("#player-modal") },
   { visible: () => modalOpen("#financing-modal"), escape: () => host.closeFinancingModal() },
   { visible: () => modalOpen("#wallet-modal"), escape: () => host.closeWalletModal() },
+  { visible: () => modalOpen("#flight-modal"), escape: () => host.closeFlightDesk() },
   { visible: () => modalOpen("#market-modal"), escape: () => host.closeMarketDesk() },
   { visible: () => modalOpen("#casino-modal"), escape: () => host.closeCasinoDesk() },
   { visible: () => modalOpen("#sponsorship-modal"), escape: () => host.closeSponsorshipModal() },
   { visible: () => modalOpen("#deal-detail-modal"), escape: () => host.closeDealDetails() },
   { visible: () => modalOpen("#card-gallery"), escape: () => host.closeCardGallery() },
-  { visible: () => Boolean(state.auction), escape: preventEscape },
+  { visible: () => modalOpen("#auction-modal"), escape: preventEscape },
+  { visible: () => modalOpen("#bank-loan-modal"), escape: () => closeSurface("#bank-loan-modal") },
 ];
 
 const LATER_GATES = [
@@ -168,7 +175,9 @@ const TOP_SURFACE_ESCAPE = {
   "social-modal": () => closeSurface("#social-modal"),
   "player-modal": () => closeSurface("#player-modal"),
   "financing-modal": () => host.closeFinancingModal(),
+  "bank-loan-modal": () => closeSurface("#bank-loan-modal"),
   "wallet-modal": () => host.closeWalletModal(),
+  "flight-modal": () => host.closeFlightDesk(),
   "market-modal": () => host.closeMarketDesk(),
   "casino-modal": () => host.closeCasinoDesk(),
   "sponsorship-modal": () => host.closeSponsorshipModal(),
@@ -294,6 +303,12 @@ function handleTurnKey(event) {
 
 function handleGameShortcuts(event, target) {
   if (typingTag(target)) return;
+  // Browser chords (Ctrl/Cmd/Alt + key: print, copy, find...) are never ours.
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  // Single-key shortcuts never act behind an open blocking surface.
+  if (visibleSurfaces().length) return;
+  // WCAG 2.1.4: the viewer can switch every single-key shortcut off.
+  if (!shortcutsEnabled()) return;
   if (handleHomeKeys(event)) return;
   if (pressedKey(event) === "l") {
     event.preventDefault();
@@ -319,7 +334,18 @@ function onKeyDown(event) {
   handleGameShortcuts(event, target);
 }
 
+/* Skip link target: jump past the header, rails and ~40 board tiles to the
+   HUD primary action (Roll / End Turn / Resolve). Falls back to the table
+   region while that action is disabled (not your turn). */
+export function skipToGameAction(event) {
+  event?.preventDefault?.();
+  const action = $("#roll-btn");
+  const target = action && !action.disabled ? action : $("#game-main");
+  target?.focus({ preventScroll: true });
+}
+
 export function bindKeyboard(hooks) {
   host = hooks;
   window.addEventListener("keydown", onKeyDown);
+  $("#skip-to-action")?.addEventListener("click", skipToGameAction);
 }

@@ -23,13 +23,31 @@ function check(name, assertion) {
 }
 
 check("rankingArrowNavigationPreservesExistingMetricSnapshots", () => {
-  assert.equal(surfaces.RANKING_ORDER.length, 15);
+  assert.equal(surfaces.RANKING_ORDER.length, 14);
+  assert.ok(!surfaces.RANKING_ORDER.includes("patrol"), "Parlor Patrol is switched off, so patrol is not a ranking metric");
   for (const metric of surfaces.RANKING_ORDER) assert.ok(surfaces.RANKING_LABELS[metric]);
   const html = surfaces.rankingMetricNavigationHTML("market");
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"/);
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"/);
-  assert.match(html, /<strong class="t-label f12 g100">11 \/ 15<\/strong>/);
+  assert.match(html, /<strong class="t-label f12 g100">11 \/ 14<\/strong>/);
   assert.doesNotMatch(source, /RANKING_METRIC_FAMILIES|ranking-family-control/);
+});
+
+check("rankingsShowTenRowsPerPageWithoutDroppingTheFullSnapshot", () => {
+  const allRows = Array.from({ length: 23 }, (_, index) => ({ index }));
+  assert.equal(surfaces.RANKING_PAGE_SIZE, 10);
+  assert.deepEqual(surfaces.rankingsPageSlice(allRows, 0), {
+    rows: allRows.slice(0, 10), total: 23, page: 0, pageCount: 3, start: 0,
+  });
+  assert.deepEqual(surfaces.rankingsPageSlice(allRows, 1), {
+    rows: allRows.slice(10, 20), total: 23, page: 1, pageCount: 3, start: 10,
+  });
+  assert.deepEqual(surfaces.rankingsPageSlice(allRows, 99), {
+    rows: allRows.slice(20), total: 23, page: 2, pageCount: 3, start: 20,
+  });
+  assert.match(source, /data-ranking-page="-1"/);
+  assert.match(source, /data-ranking-page="1"/);
+  assert.match(bindings, /data-ranking-page/);
 });
 
 check("sharedHistoryShowsNotRecordedForSparseLegacyFields", () => {
@@ -89,6 +107,74 @@ check("retiredSeasonSurfacesAndRequestsAreGone", () => {
 check("rulesExplainAuctionAndPropertyActionTiming", () => {
   assert.match(source, /Each valid bid resets the five-second timer/);
   assert.match(source, /There is no pass action during an auction/);
-  assert.match(source, /build or sell houses and hotels before ending your turn/);
+  assert.match(source, /build houses and hotels before ending your turn/);
+  assert.match(source, /sell buildings evenly for half their cost on any turn/);
   assert.match(source, /Mortgaging an owned deed may happen on any turn/);
+});
+
+check("sharedHistoryReadsBankruptLikeOwnHistoryAndKeepsMatchNumbers", () => {
+  const history = [
+    { completedAt: "2026-10-19T12:00:00.000Z", participants: [{ isViewedPlayer: true, finalPlacement: 1 }], globalEvents: [] },
+    { completedAt: "2026-10-18T12:00:00.000Z", participants: [{ isViewedPlayer: true, finalPlacement: 4, bankrupt: true }] },
+  ];
+  const html = surfaces.playerHistoryHTML(history, { accountId: "target" });
+  assert.match(html, /is-bankrupt/);
+  assert.match(html, /red">BANKRUPT</);
+  assert.doesNotMatch(html, /PLACE 4/);
+  assert.match(html, /MATCH 02/);
+  assert.match(html, /MATCH 01/);
+  assert.match(html, /OCT 19, 2026/);
+  assert.doesNotMatch(html, /2026-10-19/);
+});
+
+check("sharedHistoryLayoutRulesExist", () => {
+  assert.match(styles, /\.player-history-main\s*\{[^}]*display:\s*flex/);
+  assert.match(styles, /\.player-history-meta\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(styles, /\.player-history-row\.is-bankrupt/);
+});
+
+function renderInto(id, render) {
+  globalThis.requestAnimationFrame = () => 0;
+  globalThis.window.addEventListener = () => {};
+  const card = { id, innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
+  const previous = globalThis.document.querySelector;
+  globalThis.document.querySelector = (selector) => (selector === `#${id}` ? card : null);
+  try {
+    render(`#${id}`);
+  } finally {
+    globalThis.document.querySelector = previous;
+  }
+  return card.innerHTML;
+}
+
+const { state } = await import("./clientState.js");
+
+check("inGameRankingsAndSocialShareThePageContentAndReturnToTheTable", () => {
+  state.roomCode = "UXCAP1";
+  const pageRankings = renderInto("rankings-page-content", surfaces.renderRankingsSurface);
+  const modalRankings = renderInto("rankings-card", surfaces.renderRankingsSurface);
+  const pageSocial = renderInto("social-page-content", surfaces.renderSocialSurface);
+  const modalSocial = renderInto("social-card", surfaces.renderSocialSurface);
+  // Rankings share their ledger; table Social shares actions in a compact shell.
+  for (const marker of ["PARLOR RECORDS", "Global Rankings", "data-ranking-stage", "data-ranking-scope=\"all\"", "data-ranking-step=\"1\""]) {
+    assert.ok(pageRankings.includes(marker) && modalRankings.includes(marker), marker);
+  }
+  for (const marker of ["social-network-grid", "data-social-tab=\"friends\"", "data-social-search-form"]) {
+    assert.ok(pageSocial.includes(marker) && modalSocial.includes(marker), marker);
+  }
+  for (const [html, id] of [[modalRankings, "rankings-close"], [modalSocial, "social-close"]]) {
+    assert.match(html, new RegExp(`class="table-return-bar"><button class="btn-dark social-close table-return-btn" id="${id}"`));
+    assert.match(html, /BACK TO TABLE/);
+    assert.match(html, /TABLE STAYS LIVE · ROOM UXCAP1/);
+    assert.doesNotMatch(html, />CLOSE</);
+  }
+  for (const html of [pageRankings, pageSocial]) assert.doesNotMatch(html, /table-return-bar|BACK TO TABLE/);
+});
+
+check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
+  const ux = readFileSync(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+  assert.match(ux, /#rankings-modal \.social-surface-card,\s*#social-modal \.social-surface-card\s*\{[^}]*height:\s*min\(860px/);
+  assert.match(ux, /\.table-return-bar\s*\{[^}]*flex-shrink:\s*0/);
+  assert.match(ux, /\.table-return-btn\s*\{[^}]*min-height:\s*44px/);
+  assert.match(ux, /position:\s*sticky/);
 });

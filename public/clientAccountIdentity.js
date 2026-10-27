@@ -5,23 +5,397 @@
    ============================================================ */
 import { $, esc } from "./clientDom.js";
 import { ACHIEVEMENTS, achievementIconHTML } from "./clientAchievements.js";
+import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
 import { state, saveAccountSession, saveUnlockedAchievements, activeAppearance, buildPlayers } from "./clientState.js";
 import { clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
 import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 import { openSurface, closeSurface, focusSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
+import { adoptAccountAppearance } from "./clientAccountAppearance.js";
 import { renderAccountPanel, applyProfileToHomeUI, renderProfileEditor, renderProfileLibrary, formatStatDate } from "./clientProfileRender.js";
+import { closeButtonHTML } from "./clientCloseButton.js";
 
 function noop() {}
-let host = { emitServer: noop, say: noop, notice: noop, announceActionStatus: noop, syncAudioButtons: noop, syncHomeMusic: noop };
+let host = { emitServer: noop, say: noop, notice: noop, announceActionStatus: noop, syncAudioButtons: noop, syncHomeMusic: noop, reconcileSignedOutState: noop };
+let accountAuthGeneration = 0;
+let socialStateGeneration = -1;
+const ACCOUNT_ACK_TIMEOUT_MS = 8_000;
+const ACCOUNT_SESSION_TIMEOUT_MS = 8_000;
+const ACCOUNT_LOGOUT_TIMEOUT_MS = 8_000;
+export const ACCOUNT_SESSION_READY_KEY = "poorup.account.session.ready.v1";
+let pendingAccountLogout = Promise.resolve(true);
+let pendingCookieMutation = Promise.resolve();
+let pendingSessionExchange = null;
+let cookieMutationSequence = 0;
+const COOKIE_MUTATION_LOCK_NAME = "poorup.account.cookie-session.v1";
+const COOKIE_MUTATION_WAIT_MS = 20_000;
+const COOKIE_MUTATION_TTL_MS = 90_000;
+const COOKIE_MUTATION_PREFIX = "poorup.account.cookie-mutation.v1:";
+const LOGOUT_BARRIER_PREFIX = "poorup.account.logout-pending.v1:";
+const COOKIE_MUTATION_OWNER = `${String(state.clientId || "tab")}:${Math.random().toString(36).slice(2)}`;
 
 export function configureAccountIdentity(hooks) {
   host = { ...host, ...hooks };
+}
+
+export function getAccountAuthGeneration() {
+  return accountAuthGeneration;
+}
+
+export function isAccountAuthGenerationCurrent(generation) {
+  return generation === accountAuthGeneration;
+}
+
+export function guardAccountAuthCallback(callback, generation = accountAuthGeneration) {
+  return (...args) => {
+    if (!isAccountAuthGenerationCurrent(generation)) return undefined;
+    return callback(...args);
+  };
+}
+
+export function beginAccountAuthTransition() {
+  accountAuthGeneration += 1;
+  return accountAuthGeneration;
+}
+
+export function markAccountSocialStateFresh(generation) {
+  if (isAccountAuthGenerationCurrent(generation) && state.account?.account?.id) {
+    socialStateGeneration = generation;
+  }
+}
+
+export function canApplyAccountSocialUpdate() {
+  return Boolean(state.account?.account?.id) && socialStateGeneration === accountAuthGeneration;
+}
+
+export function resetAccountScopedClientState() {
+  beginAccountAuthTransition();
+  socialStateGeneration = -1;
+  state.social = { friends: [], requests: [], outgoing: [], invites: [], notifications: [], recentPlayers: [] };
+  state.socialSearchResults = [];
+  state.socialSearchQuery = "";
+  state.socialSearchLoading = false;
+  state.socialSearchError = "";
+  state.socialLoading = false;
+  state.socialError = "";
+  state.socialStale = false;
+  state.selectedPlayer = null;
+  state.selectedPlayerRelationship = "none";
+  state.selectedPlayerView = "profile";
+  state.selectedPlayerHistory = null;
+  state.selectedPlayerHistoryScope = "all";
+  state.rankingSearchQuery = "";
+  state.rankingSearchResults = [];
+  state.rankingSearchExpanded = false;
+  state.rankingSearchLoading = false;
+  state.rankingSearchError = "";
+  state.leaderboard = {
+    ...state.leaderboard,
+    rows: [],
+    snapshots: {},
+    generatedAt: null,
+    loading: false,
+    error: "",
+    stale: false,
+    requestId: (state.leaderboard?.requestId || 0) + 1,
+  };
+  return accountAuthGeneration;
+}
+
+function emitAccountRequest(eventName, payload, callback, generation = null, onStaleResponse = null) {
+  let settled = false;
+  const finish = (response) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    if (generation !== null && !isAccountAuthGenerationCurrent(generation)) {
+      onStaleResponse?.(response);
+      return;
+    }
+    callback(response && typeof response === "object" ? response : { success: false, error: "Account request failed." });
+  };
+  const timeout = setTimeout(() => finish({
+    success: false,
+    code: "ACK_TIMEOUT",
+    error: "Account request timed out. Please try again.",
+  }), ACCOUNT_ACK_TIMEOUT_MS);
+  try {
+    host.emitServer(eventName, payload, finish);
+  } catch {
+    finish({ success: false, error: "Account request failed. Please try again." });
+  }
+}
+
+function postAccountLogout(token) {
+  if (typeof fetch !== "function") return Promise.resolve(false);
+  const options = { method: "POST", credentials: "include" };
+  if (token) options.headers = { "x-poorup-session-token": token };
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  if (controller) options.signal = controller.signal;
+  const timeout = controller ? setTimeout(() => controller.abort(), ACCOUNT_LOGOUT_TIMEOUT_MS) : null;
+  return fetch("/account/logout", options)
+    .then((response) => response?.ok === true)
+    .catch(() => false)
+    .finally(() => { if (timeout !== null) clearTimeout(timeout); });
+}
+
+function removeStorageMarker(key) {
+  if (!key) return;
+  try { localStorage.removeItem(key); } catch { /* cross-tab coordination is best effort */ }
+}
+
+function addStorageMarker(prefix, value) {
+  const key = `${prefix}${COOKIE_MUTATION_OWNER}:${++cookieMutationSequence}`;
+  try {
+    localStorage.setItem(key, JSON.stringify({ ...value, expiresAt: Date.now() + COOKIE_MUTATION_TTL_MS }));
+    return key;
+  } catch { return ""; }
+}
+
+function readActiveStorageMarkers(prefix) {
+  const active = [];
+  try {
+    const now = Date.now();
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index);
+      if (typeof key !== "string" || !key.startsWith(prefix)) continue;
+      let marker = null;
+      try { marker = JSON.parse(localStorage.getItem(key) || "null"); } catch { /* a malformed marker is removed */ }
+      if (!Number.isFinite(Number(marker?.expiresAt)) || Number(marker.expiresAt) <= now) {
+        removeStorageMarker(key);
+        continue;
+      }
+      active.push({ key, startedAt: Number(marker.startedAt) || 0 });
+    }
+  } catch { return null; }
+  return active;
+}
+
+function beginAccountLogoutBarrier() {
+  return addStorageMarker(LOGOUT_BARRIER_PREFIX, { startedAt: Date.now() });
+}
+
+async function waitForCrossTabLogoutBarrier() {
+  const deadline = Date.now() + COOKIE_MUTATION_WAIT_MS;
+  while (true) {
+    const markers = readActiveStorageMarkers(LOGOUT_BARRIER_PREFIX);
+    if (markers === null || markers.length === 0) return true;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    await new Promise(resolve => setTimeout(resolve, Math.min(50, remaining)));
+  }
+}
+
+async function acquireFallbackCookieMutation() {
+  const startedAt = Date.now();
+  const key = `${COOKIE_MUTATION_PREFIX}${COOKIE_MUTATION_OWNER}:${++cookieMutationSequence}`;
+  try {
+    localStorage.setItem(key, JSON.stringify({ startedAt, expiresAt: startedAt + COOKIE_MUTATION_TTL_MS }));
+  } catch { return null; }
+  const deadline = startedAt + COOKIE_MUTATION_WAIT_MS;
+  while (Date.now() < deadline) {
+    const active = readActiveStorageMarkers(COOKIE_MUTATION_PREFIX);
+    if (active === null) {
+      removeStorageMarker(key);
+      return null;
+    }
+    active.sort((left, right) => left.startedAt - right.startedAt || left.key.localeCompare(right.key));
+    if (active[0]?.key === key) return () => removeStorageMarker(key);
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  removeStorageMarker(key);
+  return null;
+}
+
+function withAccountCookieMutation(operation) {
+  const run = async () => {
+    const locks = globalThis.navigator?.locks;
+    if (typeof locks?.request === "function" && typeof AbortController === "function") {
+      const controller = new AbortController();
+      let acquired = false;
+      const timeout = setTimeout(() => controller.abort(), COOKIE_MUTATION_WAIT_MS);
+      try {
+        return await locks.request(COOKIE_MUTATION_LOCK_NAME, { mode: "exclusive", signal: controller.signal }, async () => {
+          acquired = true;
+          clearTimeout(timeout);
+          return operation();
+        });
+      } catch (error) {
+        if (!acquired && controller.signal.aborted) return null;
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    const release = await acquireFallbackCookieMutation();
+    if (!release) return null;
+    try { return await operation(); } finally { release(); }
+  };
+  const queued = pendingCookieMutation.then(run, run);
+  pendingCookieMutation = queued.then(() => undefined, () => undefined);
+  return queued;
+}
+
+function queueAccountLogout(token) {
+  const clearBarrier = beginAccountLogoutBarrier();
+  const request = () => withAccountCookieMutation(() => postAccountLogout(token)).then(result => result === true);
+  const queued = pendingAccountLogout.then(request, request)
+    .then(confirmed => confirmed ? true : request())
+    .catch(() => false)
+    .finally(() => removeStorageMarker(clearBarrier));
+  pendingAccountLogout = queued;
+  return queued;
+}
+
+export function afterPendingAccountLogout(operation) {
+  const run = async () => {
+    if (!await waitForCrossTabLogoutBarrier()) return null;
+    return operation();
+  };
+  return pendingAccountLogout.then(run, run);
+}
+
+function isCurrentAccountExchange(token, accountId, generation) {
+  return isAccountAuthGenerationCurrent(generation)
+    && state.account?.account?.id === accountId
+    && (state.account?.sessionToken === token || state.account?.logoutToken === token);
+}
+
+function saveCookieSessionCredential(token, account = state.account?.account) {
+  if (!account) return;
+  saveAccountSession({ sessionToken: "", logoutToken: token, account });
+}
+
+function publishAccountSessionReady(accountId) {
+  if (!accountId) return;
+  try {
+    localStorage.setItem(ACCOUNT_SESSION_READY_KEY, JSON.stringify({ accountId, revision: `${Date.now()}-${Math.random().toString(36).slice(2)}` }));
+  } catch { /* a tab without storage can still use its cookie session */ }
+}
+
+function sessionRequest(token = "") {
+  if (typeof fetch !== "function" || typeof AbortController !== "function") return Promise.reject(new Error("Account session requests are unavailable."));
+  const controller = new AbortController();
+  const options = { credentials: "include", signal: controller.signal };
+  if (token) options.headers = { "x-poorup-session-token": token };
+  const request = fetch("/account/session", options).then(async response => {
+    let payload = null;
+    if (response?.ok) {
+      try { payload = await response.json(); } catch { /* invalid payload is treated as an auth failure */ }
+    }
+    return { response, payload };
+  });
+  let timeout = null;
+  const deadline = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      const error = new Error("Account session request timed out.");
+      error.name = "TimeoutError";
+      reject(error);
+    }, ACCOUNT_SESSION_TIMEOUT_MS);
+  });
+  return Promise.race([request, deadline]).finally(() => clearTimeout(timeout));
+}
+function acceptCookieAccount(account, token, accountId, generation) {
+  if (!account || account.id !== accountId || !isCurrentAccountExchange(token, accountId, generation)) return false;
+  updateAccountFromResponse({ account, sessionToken: "", logoutToken: token });
+  publishAccountSessionReady(accountId);
+  host.reconnectSocket?.();
+  return true;
+}
+
+async function exchangeCookieSession(token, accountId, generation, previousAccountId = null, previousLogoutToken = "") {
+  if (!isCurrentAccountExchange(token, accountId, generation) || typeof fetch !== "function") return null;
+  saveCookieSessionCredential(token);
+  let result;
+  try { result = await sessionRequest(token); } catch { return false; }
+  if (!isCurrentAccountExchange(token, accountId, generation)) return null;
+  if (result?.response?.ok && result.payload?.success && result.payload.account?.id === accountId) {
+    return acceptCookieAccount(result.payload.account, token, accountId, generation);
+  }
+  if (result?.response?.ok && result.payload?.success && result.payload.account?.id && result.payload.account.id !== accountId) {
+    // A still-valid cookie wins over the legacy header on /account/session.
+    // Clear that cookie before retrying the new account's unconsumed bearer.
+    saveAccountSession({ sessionToken: token, logoutToken: token, account: state.account.account });
+    const oldProof = previousAccountId && previousAccountId !== accountId ? previousLogoutToken : "";
+    if (!await postAccountLogout(oldProof) || !isCurrentAccountExchange(token, accountId, generation)) return false;
+    saveCookieSessionCredential(token);
+    try { result = await sessionRequest(token); } catch { return false; }
+    if (!isCurrentAccountExchange(token, accountId, generation)) return null;
+    if (result?.response?.ok && result.payload?.success && result.payload.account?.id === accountId) {
+      return acceptCookieAccount(result.payload.account, token, accountId, generation);
+    }
+    return false;
+  }
+  if (result?.response?.status === 401 && isCurrentAccountExchange(token, accountId, generation)) {
+    // The token may already have been consumed by a request whose response was
+    // lost. The cookie is the authoritative credential after an exchange.
+    let cookieResult;
+    try { cookieResult = await sessionRequest(); } catch { return false; }
+    if (!isCurrentAccountExchange(token, accountId, generation)) return null;
+    if (cookieResult?.response?.ok && cookieResult.payload?.success && cookieResult.payload.account?.id === accountId) {
+      return acceptCookieAccount(cookieResult.payload.account, token, accountId, generation);
+    }
+  }
+  return false;
+}
+
+function startCookieSessionExchange(token, accountId, generation, transitionLogout = null, previousAccountId = null, previousLogoutToken = "") {
+  if (!token || typeof fetch !== "function") return Promise.resolve(null);
+  if (pendingSessionExchange?.token === token && pendingSessionExchange.accountId === accountId && pendingSessionExchange.generation === generation) {
+    return pendingSessionExchange.promise;
+  }
+  const promise = afterPendingAccountLogout(async () => {
+    if (!isCurrentAccountExchange(token, accountId, generation)) return null;
+    if (transitionLogout && !await transitionLogout) {
+      host.notice("ACCOUNT", "The previous account session could not be cleared. Reconnect and try again.");
+      return false;
+    }
+    return withAccountCookieMutation(() => exchangeCookieSession(token, accountId, generation, previousAccountId, previousLogoutToken));
+  }).finally(() => {
+    if (pendingSessionExchange?.promise === promise) pendingSessionExchange = null;
+  });
+  pendingSessionExchange = { token, accountId, generation, promise };
+  return promise;
+}
+
+export function bootstrapAccountCookieSession() {
+  const session = state.account;
+  const accountId = session?.account?.id || null;
+  if (!session || !accountId || typeof fetch !== "function") return Promise.resolve(null);
+  const generation = getAccountAuthGeneration();
+  if (session.sessionToken) return startCookieSessionExchange(session.sessionToken, accountId, generation);
+  if (pendingSessionExchange?.accountId === accountId && pendingSessionExchange.generation === generation) return pendingSessionExchange.promise;
+  const logoutToken = session.logoutToken || "";
+  return afterPendingAccountLogout(() => withAccountCookieMutation(async () => {
+    const current = () => isAccountAuthGenerationCurrent(generation) && state.account?.account?.id === accountId && !state.account?.sessionToken;
+    if (!current()) return null;
+    let result;
+    try { result = await sessionRequest(); } catch { return false; }
+    if (!current()) return null;
+    if (result?.response?.ok && result.payload?.success && result.payload.account?.id === accountId) {
+      updateAccountFromResponse({ account: result.payload.account, sessionToken: "", logoutToken });
+      return true;
+    }
+    if (result?.response?.ok && result.payload?.success && result.payload.account?.id && result.payload.account.id !== accountId) {
+      await postAccountLogout("");
+      if (current()) host.reconcileSignedOutState("This account session changed in another tab.", { persistSession: false });
+      return false;
+    }
+    if (result?.response?.status === 401 && current()) host.reconcileSignedOutState("Account session expired. Sign in again.");
+    return false;
+  }));
 }
 
 let accountModalMode = "register";
 
 function unlockedSet() {
   return state.unlockedAchievements || new Set();
+}
+
+/* Parlor Patrol is switched off: its badges can no longer be earned, so they
+   are listed only for players who already hold them (stored data stays readable). */
+function listedAchievements(unlocked) {
+  return ACHIEVEMENTS.filter((achievement) => PARLOR_PATROL_ENABLED || achievement.category !== "minigame" || unlocked.has(achievement.id));
 }
 
 function unlockedCount(unlocked) {
@@ -96,7 +470,7 @@ function dateFiltered(visible, dateFilter, now) {
 }
 
 function visibleAchievements() {
-  let visible = ACHIEVEMENTS.filter((achievement) => categoryMatches(achievement, state.achievementFilter));
+  let visible = listedAchievements(unlockedSet()).filter((achievement) => categoryMatches(achievement, state.achievementFilter));
   visible = visible.filter((achievement) => rarityMatches(achievement, state.achievementRarityFilter));
   return dateFiltered(visible, state.achievementDateFilter, Date.now());
 }
@@ -123,7 +497,7 @@ export function renderAchievements() {
   const root = $("#achievements-grid");
   if (!root) return;
   const unlocked = unlockedSet();
-  const total = ACHIEVEMENTS.length;
+  const total = listedAchievements(unlocked).length;
   root.setAttribute("aria-label", "Achievement collection, " + total + " items");
   const count = `${unlockedCount(unlocked)}/${total}`;
   setCountText("#profile-achievement-count", count);
@@ -226,12 +600,30 @@ function applyAccountAchievements(account) {
 
 export function updateAccountFromResponse(response) {
   if (!response?.account) return;
-  const token = response.sessionToken || state.account?.sessionToken || "";
-  saveAccountSession({ sessionToken: token, account: response.account });
-  if (token && typeof fetch === "function") {
-    fetch("/account/session", { credentials: "include", headers: { "x-poorup-session-token": token } }).catch(() => {});
-  }
+  const previousSession = state.account;
+  const previousAccountId = previousSession?.account?.id || null;
+  const nextAccountId = response.account.id || null;
+  const accountChanged = previousAccountId !== nextAccountId;
+  if (accountChanged) resetAccountScopedClientState();
+  const hasResponseToken = typeof response.sessionToken === "string";
+  const token = hasResponseToken
+    ? response.sessionToken
+    : accountChanged ? "" : previousSession?.sessionToken || "";
+  const previousProof = previousSession?.logoutToken || previousSession?.sessionToken || "";
+  const logoutToken = typeof response.logoutToken === "string"
+    ? response.logoutToken
+    : accountChanged
+      ? token
+      : token && token !== previousSession?.sessionToken
+        ? token
+        : previousSession?.logoutToken || token;
+  const transitionLogout = accountChanged && previousSession && token
+    ? queueAccountLogout(previousProof)
+    : null;
+  saveAccountSession({ sessionToken: token, logoutToken, account: response.account });
+  if (token) startCookieSessionExchange(token, nextAccountId, getAccountAuthGeneration(), transitionLogout, previousAccountId, previousProof);
   state.alias = response.account.displayName;
+  adoptAccountAppearance(response.account);
   state.unlockedAchievements = new Set();
   state.achievementRecords = new Map();
   applyAccountAchievements(response.account);
@@ -239,6 +631,10 @@ export function updateAccountFromResponse(response) {
   renderAccountPanel();
   renderAchievements();
   applyProfileToHomeUI();
+  if (accountChanged) {
+    host.renderSocialSurfaces?.();
+    host.closePlayerSurface?.();
+  }
 }
 
 const ACCOUNT_USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
@@ -299,7 +695,7 @@ function accountModalHTML(mode) {
           <div class="t-micro g400">POORUP IDENTITY</div>
           <h2 class="t-section g100" id="account-modal-title">${title}</h2>
         </div>
-        <button class="btn-dark" id="account-modal-close" type="button"><span class="t-label f11">CLOSE</span></button>
+        ${closeButtonHTML({ id: "account-modal-close", label: "Close account dialog" })}
       </div>
       <p class="t-body ink-2" id="account-modal-description">${description}</p>
       ${accountTabsHTML(edit, register)}
@@ -413,7 +809,7 @@ function createUsernameGate(mode) {
     setUsernameStatus("checking", "[·] Checking username availability…");
     syncSubmit();
     checkTimer = window.setTimeout(() => {
-      host.emitServer("check-username", { username: value }, (response) => checkAck(response, value, version));
+      emitAccountRequest("check-username", { username: value }, (response) => checkAck(response, value, version));
     }, 180);
   };
   return {
@@ -485,7 +881,10 @@ function accountFormSubmit(event, gate) {
   }
   const eventName = accountSubmitEventName();
   gate.setSubmitDisabled(true);
-  host.emitServer(eventName, payload, (response) => accountSubmitAck(response, gate));
+  const generation = eventName === "account-login" || eventName === "account-register"
+    ? beginAccountAuthTransition()
+    : getAccountAuthGeneration();
+  emitAccountRequest(eventName, payload, (response) => accountSubmitAck(response, gate), generation, () => gate.restoreSubmitDisabled());
 }
 
 export function openAccountModal(mode = "register", trigger = null) {
@@ -509,9 +908,10 @@ export function closeAccountModal() {
 }
 
 export function logoutAccount() {
-  const token = state.account?.sessionToken;
+  const token = state.account?.logoutToken || state.account?.sessionToken || "";
+  const logoutGeneration = resetAccountScopedClientState();
   if (token) host.emitServer("account-logout", { sessionToken: token }, noop);
-  if (typeof fetch === "function") fetch("/account/logout", { method: "POST", credentials: "include" }).catch(() => {});
+  const serverLogout = queueAccountLogout(token);
   clearLocalPlayerData();
   saveAccountSession(null);
   state.profiles = [];
@@ -521,6 +921,8 @@ export function logoutAccount() {
   state.music = false;
   state.unlockedAchievements = new Set();
   state.achievementRecords = new Map();
+  state.profileDraft = null;
+  state.editingProfileId = null;
   state.tableAppearanceOverride = null;
   state.alias = loadGuestAlias();
   state.players = buildPlayers(activeAppearance(), state.alias);
@@ -528,7 +930,13 @@ export function logoutAccount() {
   applyProfileToHomeUI();
   renderProfileLibrary();
   renderProfileEditor();
+  host.renderSocialSurfaces?.();
+  host.closePlayerSurface?.();
   host.syncAudioButtons();
   host.syncHomeMusic();
-  host.notice("ACCOUNT", "Signed out. Guest mode is active.");
+  return serverLogout.then((confirmed) => {
+    if (!confirmed) host.notice("ACCOUNT", "Sign out could not be confirmed. Reconnect and try again.");
+    else if (isAccountAuthGenerationCurrent(logoutGeneration)) host.notice("ACCOUNT", "Signed out. Guest mode is active.");
+    return confirmed;
+  });
 }

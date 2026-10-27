@@ -1,0 +1,496 @@
+/* Game layout: board-first. The turn controls (dice, roll, cash, pool) live in the
+   board centre; side rails are slim so the board fills the viewport height.
+   Selectors carry #view-game so they win over the older per-breakpoint HUD rules. */
+
+/* ---- board centre: controls replace the wordmark ---- */
+#view-game .center-field .cf-inner,
+#view-game .center-field .deck { display: none; }
+#view-game .center-field .center-skyline { opacity: 0.32; }
+#view-game .center-field > .hud {
+  position: relative; z-index: 3;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  width: min(86%, 460px); height: auto; min-height: 0; order: 0;
+}
+#view-game .center-field .hud-cell {
+  min-height: 0; height: auto; padding: 0; overflow: visible;
+  background: none; border: 0; box-shadow: none;
+  align-items: center; justify-content: center;
+}
+#view-game .center-field .hud-cell > .t-label { display: none; }
+#view-game .center-field .hud-turn-cell { order: 1; grid-column: 1 / -1; }
+#view-game .center-field .hud-dice-cell { order: 2; grid-column: 1 / -1; }
+#view-game .center-field .hud-primary-actions { order: 3; grid-column: 1 / -1; width: 100%; }
+#view-game .center-field .hud-chip-cell { order: 4; }
+#view-game .center-field .hud-body { justify-content: center; }
+#view-game .center-field .hud-name { font-size: clamp(16px, 3.4cqw, 26px); text-align: center; }
+#view-game .center-field .hud-dice { gap: 14px; justify-content: center; }
+#view-game .center-field .hud-roll { grid-column: auto; min-height: 56px; height: auto; width: 100%; padding: 0 18px; }
+#view-game .center-field .hud-roll .cta-text { font-size: 16px; }
+#view-game .center-field .hud-cash-action { background: none; border: 0; padding: 0; min-height: 0; }
+#view-game .center-field .hud .t-money { font-size: 22px; }
+#view-game .center-field .hud-pool { gap: 8px; }
+#view-game .center-field .pool-swatches { display: none; }
+
+/* ---- menu: secondary actions live in the popover, not the top bar ---- */
+#view-game .panel-menu-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 12px; }
+#view-game .panel-menu-actions .hdr-rules { flex: 1 1 auto; }
+
+/* ---- menu: secondary actions live in the popover, not the top bar ---- */
+#view-game .panel-menu-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 12px; }
+#view-game .panel-menu-actions .hdr-rules { flex: 1 1 auto; }
+
+
+/* ---- on-board activity feed: newest line on top, older lines fade ---- */
+#view-game .board-feed {
+  position: relative; z-index: 3; order: 1;
+  width: min(86%, 460px); margin-top: 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+#view-game .board-feed[hidden] { display: none; }
+#view-game .board-feed-lines {
+  display: flex; flex-direction: column; gap: 3px; width: 100%;
+  max-height: clamp(70px, 22cqw, 150px); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--line-default, #3a3426) transparent;
+  padding-inline: 6px;
+}
+#view-game .board-feed-line {
+  margin: 0; text-align: center; font-size: 12px; line-height: 1.3;
+  color: var(--text-primary, #e8d3ab);
+  }
+#view-game .board-feed-line[data-age="0"] { opacity: 1; font-weight: 700; }
+#view-game .board-feed-line[data-age="1"] { opacity: .75; }
+#view-game .board-feed-line[data-age="2"] { opacity: .55; }
+#view-game .board-feed-line[data-age="3"] { opacity: .5; }
+#view-game .board-feed-line[data-age="4"] { opacity: .45; }
+#view-game .board-feed-line:not([data-age="0"]):not([data-age="1"]):not([data-age="2"]):not([data-age="3"]):not([data-age="4"]) { opacity: .4; }
+
+/* ---- log numbers use the small-number face (--font-numeric) ---- */
+.log-num { font-family: var(--font-numeric); font-variant-numeric: tabular-nums lining-nums; font-weight: 600; letter-spacing: 0; }
+
+/* ---- inline purchase choice: BUY | AUCTION/PASS in the board centre ---- */
+#view-game .hud-choice-row { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+#view-game .hud-choice-row[hidden], #view-game #roll-btn[hidden] { display: none; }
+#view-game .hud-choice-title { margin: 0; color: var(--gold-300, #e8c46a); text-align: center; }
+#view-game .hud-choice-buttons { display: flex; gap: 10px; width: 100%; }
+#view-game .hud-choice-btn { flex: 1 1 0; min-height: 56px; padding: 0 14px; }
+#view-game .hud-choice-btn .t-label { font-size: 16px; }
+
+/* ---- jail: pay / card buttons share the roll row ---- */
+#view-game .center-field .hud-primary-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+#view-game .center-field .hud-primary-actions .hud-roll { order: 0; flex: 2 1 160px; width: auto; }
+#view-game .center-field .hud-jail-actions { display: contents; }
+#view-game .center-field .hud-jail-actions .hud-jail-action { order: 1; flex: 1 1 110px; width: auto; min-height: 56px; margin: 0; padding: 0 10px; }
+#view-game .center-field .hud-jail-actions .hud-jail-action .t-label { font-size: 12px; line-height: 1.2; white-space: normal; }
+#view-game .center-field .hud-choice-row { flex: 1 1 100%; order: 0; }
+#view-game .center-field .hud-primary-actions { align-content: flex-start; align-items: stretch; align-self: start; height: auto; }
+#view-game .center-field .hud-primary-actions .hud-roll { height: auto; min-height: 56px; }
+#view-game .center-field .hud-primary-actions { flex-direction: row; }
+
+/* ---- compact controls: sized from the board so short screens stay tidy ---- */
+#view-game .center-field > .hud { width: min(70%, 340px); gap: clamp(6px, 1.5cqw, 12px); }
+#view-game .center-field .hud-roll,
+#view-game .center-field .hud-choice-btn,
+#view-game .center-field .hud-jail-actions .hud-jail-action { min-height: clamp(34px, 5.8cqw, 48px); }
+#view-game .center-field .hud-roll { padding: 0 12px; }
+#view-game .center-field .hud-roll .cta-text { font-size: clamp(10px, 2.1cqw, 14px); white-space: nowrap; }
+#view-game .hud-choice-btn .t-label { font-size: clamp(13px, 2.4cqw, 16px); }
+#view-game .center-field .hud-jail-actions .hud-jail-action .t-label { font-size: clamp(9px, 1.7cqw, 12px); }
+#view-game .center-field .hud .die { width: clamp(30px, 5.6cqw, 46px); height: clamp(30px, 5.6cqw, 46px); padding: clamp(4px, .9cqw, 7px); }
+#view-game .center-field .hud .t-money { font-size: clamp(15px, 3.1cqw, 22px); }
+#view-game .center-field .hud-name { font-size: clamp(14px, 3cqw, 24px); }
+#view-game .board-feed { width: min(70%, 340px); margin-top: clamp(6px, 1.6cqw, 14px); }
+#view-game .board-feed-lines { max-height: clamp(48px, 14cqw, 120px); }
+
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {
+  #view-game .board-area,
+  #view-game .board-area:has(.board-holder.is-metro) { overflow: hidden; align-items: center; padding: 0; }
+  #view-game .board-area .board-holder,
+  #view-game .board-area .board-holder.is-metro {
+    width: min(100cqw, 100cqh);
+    height: auto; min-width: 0; min-height: 0;
+    max-width: 100%; max-height: 100%;
+  }
+  #view-game .center-field .hud-roll,
+  #view-game .center-field .hud-choice-btn,
+  #view-game .center-field .hud-jail-actions .hud-jail-action { min-height: 44px; }
+}
+#view-game .board-feed-line { font-size: clamp(10px, 1.8cqw, 12px); }
+
+/* ---- short landscape screens: slimmer top bar, more height for the board ---- */
+@media (min-width: 768px) and (max-height: 820px) {
+  #view-game .topnav { min-height: 0; height: 52px; padding-block: 4px; }
+  #view-game .topnav .hdr-sub, #view-game .topnav .tn-lobby { display: none; }
+  #view-game .topnav .tn-word { font-size: 26px; }
+  #view-game .topnav .hdr-rules, #view-game .topnav .audio-toggle, #view-game .topnav .room-badge { min-height: 34px; height: 34px; }
+  #view-game .topnav .audio-toggle { width: 34px; }
+}
+@media (min-width: 1280px) and (max-height: 820px) {
+  #view-game .game-main { height: calc(100vh - 52px); padding-top: 6px; padding-bottom: 8px; gap: 12px; }
+}
+#view-game .hud-choice-buttons { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+#view-game .hud-choice-btn { width: auto; min-width: 0; }
+
+/* ---- inactivity countdown on the player row (pixel chip, next to the status dot) ---- */
+.pr-timer {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 6px 2px 5px; min-width: 44px; justify-content: center;
+  background: var(--surface-panel-deep, #061416);
+  border: 1px solid var(--gold-400, #b78327);
+  box-shadow: 0 0 0 1px #01090b, inset 0 0 0 1px rgb(229 165 45 / 14%);
+  color: var(--gold-300, #e5a52d);
+  font: 700 10px/1 var(--font-numeric-display); font-variant-numeric: tabular-nums; letter-spacing: .04em;
+}
+.pr-timer::before { content: ""; width: 5px; height: 5px; background: currentColor; box-shadow: 0 0 4px currentColor; }
+.pr-timer[data-urgent="true"] { color: var(--red-bright, #ff6a55); border-color: var(--red-bright, #ff6a55); }
+.pr-timer[data-urgent="true"]::before { animation: pr-timer-blink 1s steps(2, end) infinite; }
+@keyframes pr-timer-blink { 50% { opacity: .15; } }
+@media (prefers-reduced-motion: reduce) { .pr-timer[data-urgent="true"]::before { animation: none; } }
+#view-game .pr-nameline .pr-timer { margin-left: auto; flex: 0 0 auto; }
+
+/* ---- seat tags in the left rail (host / cpu) ---- */
+.pr-tag { padding: 1px 5px; color: var(--gold-300); border: 1px solid color-mix(in srgb, var(--gold-300) 50%, transparent); border-radius: 2px; letter-spacing: 0.14em; font-size: 8px; line-height: 1.4; }
+.pr-tag-host { color: var(--gold-050); background: color-mix(in srgb, var(--gold-300) 22%, transparent); }
+
+/* ---- right rail: one flat column (wallet line, trade chips, property list) ---- */
+.rail-wallet { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--surface-panel-deep, #061416); border: 1px solid var(--line-default); }
+.rail-wallet-cash { display: grid; gap: 2px; }
+.rail-wallet-actions { display: flex; gap: 6px; }
+.rail-mini-btn { min-height: 28px; padding: 0 10px; }
+.rail-trade { margin-bottom: 10px; }
+.trade-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.trade-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 3px 10px 3px 6px; background: var(--surface-button-dark, #0a1d20); border: 1px solid var(--line-default); border-radius: 2px; cursor: pointer; }
+.trade-chip:hover:not(:disabled), .trade-chip:focus-visible { border-color: var(--gold-300, #e5a52d); }
+.trade-chip-av { display: inline-flex; width: 20px; height: 20px; }
+.prop-list { display: grid; gap: 2px; margin-top: 8px; }
+.prop-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 4px 10px 4px 8px; text-align: left; background: transparent; border: 1px solid transparent; border-bottom-color: var(--line-dark, #0d2a2c); cursor: pointer; color: var(--gold-100); }
+.prop-row:hover, .prop-row:focus-visible { background: color-mix(in srgb, var(--gold-300) 8%, transparent); border-color: var(--line-default); }
+.prop-dot { width: 10px; height: 18px; border-radius: 1px; box-shadow: 0 0 0 1px rgb(1 7 10 / 70%); }
+.prop-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.prop-meta { font: 700 9px/1 var(--font-pixel); letter-spacing: 0.1em; padding: 2px 5px; border: 1px solid currentColor; border-radius: 2px; white-space: nowrap; }
+.prop-meta-good { color: var(--green-status); }
+.prop-meta-bad { color: var(--red-bright); }
+.prop-rent { font-size: 11px; color: var(--gold-300); min-width: 36px; text-align: right; }
+.prop-row.is-mortgaged .prop-name { text-decoration: line-through; opacity: .6; }
+
+/* ---- chat dock: a closed bar until opened, pinned to the foot of the left rail ---- */
+.rail-left > .chat-panel { flex: 0 0 auto; min-height: 0; margin-top: auto; }
+.chat-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; background: none; border: 0; color: inherit; text-align: left; cursor: pointer; }
+.chat-head:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 4px; }
+.chat-head .hair { flex: 1; }
+.chat-title { margin: 0; }
+.chat-unread { min-width: 18px; padding: 2px 5px; text-align: center; color: #01090b; background: var(--gold-300, #e5a52d); font: 700 9px/1.2 var(--font-pixel); border-radius: 2px; }
+.chat-unread[hidden] { display: none; }
+.chat-caret::before { content: "\25B4"; color: var(--gold-300, #e5a52d); font-size: 12px; }
+.chat-panel.is-collapsed .chat-caret::before { content: "\25BE"; }
+.chat-dock { display: flex; flex-direction: column; height: clamp(180px, 34vh, 320px); margin-top: 12px; min-height: 0; }
+.chat-dock .chat-body { flex: 1; min-height: 0; }
+.chat-panel.is-collapsed .chat-dock { display: none; }
+
+/* In the lobby, open chat fills the space left below the growing player list. */
+@media (max-width: 767px), (min-width: 768px) and (orientation: landscape) {
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .rail-left > .chat-panel:not(.is-collapsed) {
+    flex: 1 1 0;
+    margin-top: 0;
+  }
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .chat-panel:not(.is-collapsed) > .chat-dock {
+    flex: 1 1 0;
+    height: auto;
+  }
+}
+
+/* ---- owned tiles carry their owner's colour (frame + soft inner wash), like richup ---- */
+#board-grid .tile.is-owned { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tile-owner) 85%, transparent), inset 0 0 16px color-mix(in srgb, var(--tile-owner) 26%, transparent); }
+
+
+/* ---- tile popup: manage button for your own deeds ---- */
+.pop-manage { width: 100%; min-height: 44px; }
+
+/* ---- shared dialog entrance: every popup rises and settles instead of snapping in ---- */
+@keyframes parlor-modal-enter {
+  from { opacity: 0; transform: translateY(18px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+.popup:not(.is-hidden) > .popup-card { animation-duration: var(--modal-enter-duration, 240ms); }
+.popup:not(.is-hidden) > .popup-scrim { animation: cr-scrim-in 200ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { .popup:not(.is-hidden) > .popup-scrim { animation: none; } }
+
+/* ---- toasts sit in the bottom-right corner, out of the way of the board and top bar ---- */
+.toast-stack { top: auto; bottom: 18px; right: 18px; flex-direction: column-reverse; }
+
+/* ---- numbers: a clear numeric face wherever a value sits among words or in a field ---- */
+.num, .trade-cash-field .field, .trade-deed-price { font-family: var(--font-numeric); font-variant-numeric: tabular-nums lining-nums; letter-spacing: 0; }
+.trade-cash-field .field { font-size: 20px; font-weight: 600; }
+
+/* ---- trade modal: pixel-parlor cash slider (square thumb, stepped gold fill) ---- */
+.trade-range {
+  --fill: 0%;
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 22px; margin: 10px 0 2px; padding: 0;
+  background: transparent; cursor: pointer;
+}
+.trade-range::-webkit-slider-runnable-track {
+  height: 10px; border: 1px solid var(--line-default);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, rgb(1 9 11 / 55%) 7px 8px),
+    linear-gradient(90deg, var(--gold-300, #e5a52d) var(--fill), var(--surface-panel-deep, #061416) var(--fill));
+  box-shadow: inset 0 0 0 1px #01090b;
+}
+.trade-range::-moz-range-track {
+  height: 10px; border: 1px solid var(--line-default);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, rgb(1 9 11 / 55%) 7px 8px),
+    linear-gradient(90deg, var(--gold-300, #e5a52d) var(--fill), var(--surface-panel-deep, #061416) var(--fill));
+  box-shadow: inset 0 0 0 1px #01090b;
+}
+.trade-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 22px; margin-top: -7px; border-radius: 0;
+  background: var(--gold-050, #f6e7c7); border: 2px solid #01090b;
+  box-shadow: 0 0 0 1px var(--gold-300, #e5a52d), 0 2px 0 #01090b;
+}
+.trade-range::-moz-range-thumb {
+  width: 10px; height: 18px; border-radius: 0;
+  background: var(--gold-050, #f6e7c7); border: 2px solid #01090b;
+  box-shadow: 0 0 0 1px var(--gold-300, #e5a52d), 0 2px 0 #01090b;
+}
+.trade-range:hover::-webkit-slider-thumb, .trade-range:focus-visible::-webkit-slider-thumb { background: var(--gold-300, #e5a52d); }
+.trade-range:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 3px; }
+
+/* ---- one pixel face for every number ----
+   "PoorupDigits" is Silkscreen limited to 0-9, $, % and +, so the letters keep
+   their own face. Silkscreen keeps 3 and 5 distinct at small sizes ($1,450, $35),
+   which Pixelify Sans did not. It sits first in the UI, body, label, numeric and
+   display stacks, so every number on the page uses it. */
+@font-face {
+  font-family: "PoorupDigits";
+  src: url("/assets/fonts/silkscreen-regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0030-0039, U+0024, U+0025, U+002B;
+}
+:root {
+  --font-ui: "PoorupDigits", "Pixelify Sans", "Courier New", monospace;
+  --font-body: "PoorupDigits", "Pixelify Sans", "Courier New", monospace;
+  --font-pixel: "PoorupDigits", "Silkscreen", "Courier New", monospace;
+  --font-numeric: "PoorupDigits", "Silkscreen", monospace;
+  --font-numeric-display: "PoorupDigits", "Silkscreen", monospace;
+}
+
+/* ---- crawlable home links and the no-JavaScript note ---- */
+.tk-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.tk-link:hover, .tk-link:focus-visible { color: var(--gold-300, #e5a52d); }
+.noscript-note { padding: 24px; max-width: 640px; margin: 40px auto; color: var(--gold-100, #e8d3ab); font: 16px/1.6 var(--font-body); }
+.noscript-note h1 { color: var(--gold-300, #e5a52d); font-size: 24px; margin: 0 0 12px; }
+
+/* ---- rules page: one slim header, a short contents list, no status pills ---- */
+.rules-intro { padding: 14px 18px; gap: 14px; flex-wrap: wrap; }
+.rules-intro-icon { width: 46px; height: 46px; }
+.rules-intro-copy h1 { margin: 0; }
+.rules-intro-copy p { margin-top: 4px; }
+.rules-intro .rules-toolbar { flex: 1 1 320px; max-width: 520px; margin-left: auto; padding: 0; background: none; border: 0; align-items: center; }
+.rules-more { margin-top: 8px; border-top: 1px solid var(--line-dark); padding-top: 8px; }
+.rules-more > summary { cursor: pointer; padding: 8px 12px; color: var(--gold-300, #e5a52d); letter-spacing: 0.12em; list-style-position: inside; }
+.rules-more > summary:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 2px; }
+.rules-index-link { grid-template-columns: 28px minmax(0, 1fr); }
+@media (max-width: 640px) {
+  .rules-intro-copy { flex: 1 1 160px; }
+  .rules-intro .rules-toolbar { flex-basis: 100%; max-width: none; margin-left: 0; }
+}
+
+/* ---- home entry desk: name, one big Play, two quiet secondary buttons (richup-style) ---- */
+#view-home .home-entry-desk { display: flex; flex-direction: column; gap: 18px; padding: 26px; }
+#view-home .home-alias-form { margin: 0; max-width: none; gap: 8px; }
+#view-home .home-alias-row { display: flex; align-items: stretch; gap: 10px; }
+#view-home .chair-av-btn { width: 52px; min-height: 52px; padding: 0; cursor: pointer; background: var(--surface-inset); border: 1px solid var(--line-active); }
+#view-home .chair-av-btn:hover, #view-home .chair-av-btn:focus-visible { border-color: var(--gold-300, #e5a52d); }
+#view-home #home-alias { flex: 1; min-height: 52px; font-size: 18px; }
+#view-home .home-entry-desk .ts-actions { margin: 0; gap: 12px; }
+#view-home .home-entry-desk .ts-play { min-height: 84px; }
+#view-home .home-entry-desk .ts-play .cta-text { font-size: 20px; }
+#view-home .home-entry-desk .ts-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#view-home .home-entry-desk .ts-secondary .ts-quick { min-height: 48px; width: 100%; }
+#view-home .chair-name[hidden] { display: none; }
+#view-home .home-alias-error:empty { display: none; }
+#view-home .ts-kicker { display: none; }
+
+/* Create / Join keep the chunky red pixel look, one step below Play */
+#view-home .home-entry-desk .ts-secondary .ts-cta-sm { min-height: 60px; padding: 0 14px; width: 100%; gap: 10px; }
+#view-home .home-entry-desk .ts-secondary .ts-cta-sm .cta-text { font-size: 12px; }
+@media (max-width: 640px) {
+  #view-rules .rules-intro { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  #view-rules .rules-intro-copy { flex: 1 1 180px; min-width: 180px; }
+}
+
+/* ---- home settings menu: one quiet icon, the shortcut switch lives inside ---- */
+.home-menu-wrap { position: relative; display: inline-flex; }
+.home-menu-icon { display: block; width: 22px; height: 22px; background:
+  linear-gradient(currentColor, currentColor) 3px 5px / 16px 3px no-repeat,
+  linear-gradient(currentColor, currentColor) 3px 10px / 16px 3px no-repeat,
+  linear-gradient(currentColor, currentColor) 3px 15px / 16px 3px no-repeat; color: var(--gold-300, #e5a52d); }
+.home-menu { position: absolute; z-index: 60; top: calc(100% + 8px); right: 0; width: 260px; display: grid; gap: 10px; padding: 14px; background: var(--surface-panel, #061416); border: 1px solid var(--line-board, #b78327); box-shadow: 0 14px 40px rgb(0 0 0 / 55%); }
+.home-menu.is-hidden { display: none; }
+.home-menu-item { width: 100%; justify-content: center; min-height: 40px; }
+.home-menu-note { margin: 0; line-height: 1.5; }
+
+/* ---- rooms modal: search by table name ---- */
+.rooms-search { display: block; margin: 0 0 10px; }
+.rooms-search .field { width: 100%; min-height: 44px; }
+
+/* ---- airport flights: flight desk, Fly button, owner fee steppers ---- */
+.flight-card { width: min(520px, 100%); max-height: min(640px, calc(100vh - 32px)); overflow: hidden; }
+.flight-body { display: flex; flex-direction: column; gap: 14px; max-height: inherit; padding: 20px; }
+.flight-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.flight-head h2 { margin-top: 7px; color: var(--gold-100); }
+.flight-head > button { flex-shrink: 0; min-height: 34px; padding: 0 9px; }
+.flight-list { display: grid; gap: 8px; min-height: 0; overflow-y: auto; }
+.flight-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 14px; text-align: left; color: inherit; cursor: pointer; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.flight-row:hover:not(:disabled) { border-color: var(--gold-400); }
+.flight-row.is-selected { border-color: var(--gold-300); box-shadow: inset 0 0 0 1px var(--gold-300); }
+.flight-row:disabled { opacity: 0.55; cursor: not-allowed; }
+.flight-row:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 2px; }
+.flight-row-main { display: grid; gap: 4px; min-width: 0; }
+.flight-row-price { display: grid; justify-items: end; gap: 3px; flex-shrink: 0; }
+.flight-go { width: 100%; }
+.flight-empty { padding: 8px 0; }
+.fee-block { display: grid; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line-subtle); }
+.fee-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fee-stepper { display: inline-flex; align-items: center; gap: 8px; }
+.fee-step { min-width: 40px; min-height: 40px; padding: 0; }
+.fee-value { min-width: 64px; text-align: center; }
+@media (max-width: 520px) {
+  .flight-body { padding: 16px; }
+}
+
+
+/* ============================================================
+   PARLOR LEDGER SLIP: the shared look of the money dialogs.
+   An accent rail, a pixel icon tile, one big focal number, and a slip
+   of dotted-leader rows (label ········ value).
+   ============================================================ */
+.slip-rail { width: 100%; height: 10px; background: var(--gold-400, #b78327); box-shadow: inset 0 -2px 0 rgb(0 0 0 / 35%); }
+.slip-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.slip-head h2 { margin: 4px 0 0; color: var(--gold-100); }
+.sponsorship-head .slip-head { flex: 1 1 auto; }
+.slip-icon { width: 64px; height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: center; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
+.slip-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 14px 16px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); border-bottom: 0; }
+.slip-amount { font-family: var(--font-numeric-display); font-size: 44px; line-height: 1; letter-spacing: 0.02em; }
+
+/* dotted-leader rows: the same row shape on the loan slip and the financing preview */
+.bank-offer-terms.slip { grid-template-columns: 1fr; gap: 0; margin: 0 0 12px; padding: 2px 16px 8px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); border-top: 1px dashed var(--line-default); }
+.bank-offer-terms.slip > div,
+.financing-metrics > div { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; background: none; border: 0; }
+.bank-offer-terms.slip > div::before,
+.financing-metrics > div::before { content: ""; order: 1; flex: 1 1 auto; min-width: 16px; border-bottom: 2px dotted var(--line-default); transform: translateY(-3px); }
+.bank-offer-terms.slip dt, .financing-metrics > div > span { order: 0; margin: 0; }
+.bank-offer-terms.slip dd, .financing-metrics > div > strong { order: 2; margin: 0; text-align: right; }
+.bank-offer-terms.slip dd { font-size: 14px; }
+.financing-metrics { grid-template-columns: 1fr; gap: 0; margin-top: 8px; }
+.financing-metrics > div > strong { overflow: visible; font-size: 18px; }
+.bank-offer-content { padding-bottom: 16px; }
+
+/* funding: a segmented meter, two-up mode tiles, one clear action */
+.sponsorship-bar { height: 16px; margin-top: 16px; padding: 2px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
+.sponsorship-bar > span { display: block; width: var(--fill, 0%); height: 100%; background: repeating-linear-gradient(90deg, var(--green-status) 0 10px, transparent 10px 12px); }
+.sponsorship-meter { margin-top: 10px; }
+.sponsorship-mode-options { grid-template-columns: 1fr 1fr; gap: 8px; }
+.sponsorship-mode-options legend { grid-column: 1 / -1; }
+.sponsorship-mode-options label { flex-direction: column; align-items: flex-start; justify-content: flex-start; min-height: 96px; padding: 12px; }
+.sponsorship-mode-options label:has(input:checked) { border-color: var(--gold-300); box-shadow: inset 0 0 0 1px var(--gold-300); }
+#sponsorship-share-output { font-family: var(--font-numeric-display); font-size: 22px; color: var(--gold-100); }
+.sponsorship-mode-preview { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sponsorship-request-form .sponsorship-actions { grid-template-columns: 1fr; }
+@media (max-width: 480px) { .sponsorship-mode-options { grid-template-columns: 1fr; } }
+.financing-metrics > div, .bank-offer-terms.slip > div { flex-direction: row; }
+.slip-head + p, .sponsorship-head + p, #bank-loan-description { margin-top: 12px; }
+
+/* ============================================================
+   FINANCING BUILDER: terms on the left, the contract slip on the right.
+   The slip carries the focal number and the send button, so what you are
+   about to send sits next to the button that sends it.
+   ============================================================ */
+#financing-modal .financing-card { max-width: min(900px, calc(100vw - 32px)); }
+.financing-head .slip-head h2 { margin-top: 4px; }
+.financing-surface-body.financing-builder { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); grid-template-areas: "tabs tabs" "form preview" "form actions"; gap: 14px 24px; align-items: start; margin-top: 14px; }
+.financing-builder > .financing-mode-tabs { grid-area: tabs; margin-top: 0; }
+.financing-builder > .financing-form { grid-area: form; margin-top: 0; gap: 14px; }
+.financing-builder > .financing-preview { grid-area: preview; margin-top: 0; padding: 14px 16px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); box-shadow: none; }
+.financing-builder > .financing-actions { grid-area: actions; margin-top: 0; }
+.financing-focal { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 8px 0 10px; border-bottom: 1px dashed var(--line-default); }
+.financing-focal .slip-amount { font-size: 34px; }
+.financing-preview .financing-metrics { margin-top: 4px; }
+.financing-preview-copy { margin-top: 10px; }
+.financing-mode-tab .t-micro { font-size: 8px; }
+
+@media (max-width: 760px) {
+  .financing-surface-body.financing-builder { grid-template-columns: minmax(0, 1fr); grid-template-areas: "tabs" "form" "preview" "actions"; }
+}
+
+/* builder polish: the slip grows down to the send button; ledger values are all one pixel face */
+.financing-surface-body.financing-builder { grid-template-rows: auto 1fr auto; }
+.financing-builder > .financing-preview { align-self: stretch; }
+.financing-builder .financing-mode-tab { min-height: 44px; }
+.financing-builder .financing-field-grid { margin-bottom: 4px; }
+.financing-metrics > div > strong, .bank-offer-terms.slip dd, .financing-focal .slip-amount { font-family: var(--font-numeric-display); letter-spacing: 0.03em; }
+.financing-form [data-collateral-root] { margin-top: 8px; }
+
+/* two ways to fund a deal: loan or equity */
+.financing-mode-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* ============================================================
+   WALLET: the bank account card and the upgrade row
+   ============================================================ */
+.slip-meter { height: 16px; padding: 2px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
+.slip-meter > span { display: block; width: var(--fill, 0%); height: 100%; background: repeating-linear-gradient(90deg, var(--gold-300) 0 10px, transparent 10px 12px); }
+.wallet-account-card { display: grid; gap: 10px; margin-top: 12px; padding: 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); }
+.wallet-account-card.is-off { border-color: var(--line-subtle); }
+.wallet-account-card .slip-icon { width: 52px; height: 52px; flex-basis: 52px; }
+.wallet-account-card h3 { margin: 4px 0 0; }
+.wallet-account-rows { display: grid; margin: 0; }
+.wallet-account-rows > div { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; }
+.wallet-account-rows > div::before { content: ""; order: 1; flex: 1 1 auto; min-width: 16px; border-bottom: 2px dotted var(--line-default); transform: translateY(-3px); }
+.wallet-account-rows dt { order: 0; margin: 0; }
+.wallet-account-rows dd { order: 2; margin: 0; font-family: var(--font-numeric-display); letter-spacing: 0.03em; }
+.wallet-upgrade-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; padding: 12px 14px; background: var(--surface-panel); border: 1px solid var(--line-default); }
+.wallet-upgrade-copy { display: grid; gap: 4px; min-width: 0; }
+.wallet-upgrade-row .wallet-primary { flex: 0 0 auto; min-width: 160px; }
+.wallet-upgrade-reason, .wallet-upgrade-done { margin-top: 8px; }
+@media (max-width: 480px) { .wallet-upgrade-row { flex-direction: column; align-items: stretch; } }
+
+/* counter-offers share the builder's two-column layout (they have no mode tabs) */
+.financing-surface-body.financing-builder:not(:has(> .financing-mode-tabs)) { grid-template-areas: "form preview" "form actions"; grid-template-rows: 1fr auto; }
+
+/* ---- red buttons inside dialogs: the pixel face, not the faux-bold display face ---- */
+.popup-card .cta-text { font-size: 18px; }
+.popup-card .cta-text-sm { font-size: 17px; }
+
+/* counter-offers: the send button sits under the inputs, the slip fills the right column */
+.financing-surface-body.financing-builder:not(:has(> .financing-mode-tabs)) { grid-template-areas: "form preview" "actions preview"; grid-template-rows: auto 1fr; }
+.financing-surface-body.financing-builder:not(:has(> .financing-mode-tabs)) > .financing-preview { align-self: stretch; }
+.financing-surface-body.financing-builder:not(:has(> .financing-mode-tabs)) > .financing-actions { align-self: start; }
+@media (max-width: 760px) {
+  .financing-surface-body.financing-builder:not(:has(> .financing-mode-tabs)) { grid-template-areas: "form" "actions" "preview"; grid-template-rows: auto; }
+}
+
+/* ============================================================
+   MARKET DESK: one meta line, a labelled index picker, leader-row stats and
+   a red order button (the primary action of the ticket).
+   ============================================================ */
+.market-desk-summary { display: grid; gap: 10px; min-height: 0; padding: 10px 12px; }
+.market-desk-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.market-desk-summary .market-index-select { margin: 0; padding: 0; background: none; border: 0; }
+.market-position-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; padding: 4px 14px 6px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.market-position-strip > div { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; background: none; border: 0; }
+.market-position-strip > div::before { content: ""; order: 1; flex: 1 1 auto; min-width: 12px; border-bottom: 2px dotted var(--line-default); transform: translateY(-3px); }
+.market-position-strip > div > span { order: 0; }
+.market-position-strip > div > strong { order: 2; font-family: var(--font-numeric-display); font-size: 12px; letter-spacing: 0.03em; }
+.market-order-submit { min-height: 46px; background: var(--red-action); border: 1px solid var(--theme-action-edge); border-radius: 2px; color: var(--cta-label); box-shadow: 0 3px 0 var(--theme-action-shadow), 0 5px 10px rgb(0 0 0 / 35%), inset 0 1px 0 rgb(240 217 172 / 18%); }
+.market-order-submit:hover:not(:disabled) { background: var(--red-action-hover); }
+.market-order-submit .t-label { font-family: var(--font-pixel); font-size: 13px; letter-spacing: 0.06em; text-shadow: 0 2px 0 rgb(0 0 0 / 40%); }
+.market-order-submit:disabled { opacity: 0.5; }
+@media (max-width: 720px) { .market-position-strip { grid-template-columns: minmax(0, 1fr); } }
+#market-modal .market-desk-summary { display: grid; gap: 10px; min-height: 0; margin-top: 10px; padding: 10px 12px; }
+#market-modal .market-desk-summary .market-index-select { display: grid; grid-template-columns: auto minmax(0, 1fr); margin: 0; padding: 0; background: none; border: 0; }
+#market-modal .market-position-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+#market-modal .market-position-strip > div { gap: 8px; padding: 8px 0; }
+@media (max-width: 720px) { #market-modal .market-position-strip { grid-template-columns: minmax(0, 1fr); } }
+#market-modal .market-desk-summary { grid-template-columns: minmax(0, 1fr); }

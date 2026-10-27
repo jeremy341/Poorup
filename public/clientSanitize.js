@@ -11,7 +11,6 @@ const GUEST_ALIAS_KEY = "poorup.guest.alias.v1";
 const ACTIVE_DESIGN_KEY = "poorup.active-design.v1";
 const SOUND_KEY = "poorup.sound.enabled.v1";
 const MUSIC_KEY = "poorup.music.enabled.v1";
-const RULESET_PRESET_KEY = "poorup.ruleset.preset.v1";
 const POORUP_STORAGE_PREFIX = "poorup.";
 
 const APPEARANCES = [
@@ -49,8 +48,11 @@ function buildFaceGrid(rows) {
   );
 }
 
+// Profile ids are written into markup attributes, so only the shape this
+// client mints (pf_ plus a short base-36 suffix) is kept; anything else gets a fresh id.
+const PROFILE_ID_RE = /^pf_[a-z0-9]{1,24}$/;
 function cleanProfileId(id) {
-  if (typeof id === "string") return id;
+  if (typeof id === "string" && PROFILE_ID_RE.test(id)) return id;
   return `pf_${Math.random().toString(36).slice(2, 9)}`;
 }
 
@@ -131,23 +133,6 @@ function loadMusicPreference() {
 
 function saveMusicPreference(enabled) {
   try { localStorage.setItem(MUSIC_KEY, enabled ? "1" : "0"); } catch { /* storage unavailable */ }
-}
-
-function loadRulesetPreset() {
-  try {
-    const value = String(localStorage.getItem(RULESET_PRESET_KEY) || "").trim().toLowerCase();
-    return ["classic", "after-hours"].includes(value) ? value : "classic";
-  } catch {
-    return "classic";
-  }
-}
-
-function saveRulesetPreset(value) {
-  const preset = ["classic", "after-hours"].includes(String(value || "").trim().toLowerCase())
-    ? String(value).trim().toLowerCase()
-    : "classic";
-  try { localStorage.setItem(RULESET_PRESET_KEY, preset); } catch { /* storage unavailable */ }
-  return preset;
 }
 
 function loadGuestAlias() {
@@ -291,7 +276,8 @@ function cleanAccountPrivacy(privacy) {
 
 function accountDisplayName(account) {
   const raw = account.displayName || account.username;
-  return String(raw).slice(0, 18);
+  // Counted by code point so a cut never leaves half of a surrogate pair.
+  return Array.from(String(raw)).slice(0, 18).join("");
 }
 
 function cleanCreatedAt(value) {
@@ -398,7 +384,6 @@ export {
   ACTIVE_DESIGN_KEY,
   SOUND_KEY,
   MUSIC_KEY,
-  RULESET_PRESET_KEY,
   sanitizeProfile,
   profileDesignName,
   loadProfiles,
@@ -409,8 +394,6 @@ export {
   saveSoundPreference,
   loadMusicPreference,
   saveMusicPreference,
-  loadRulesetPreset,
-  saveRulesetPreset,
   loadGuestAlias,
   saveGuestAlias,
   sanitizeAccountSession,

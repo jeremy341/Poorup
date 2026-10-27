@@ -342,6 +342,7 @@ export function renderGlobalEvent() {
     clearEventRibbon();
     return;
   }
+  banner.dataset.phase = String(event.phase || "");
   if (observation.announce) showEventRibbon(event, observation.key);
   banner.classList.toggle("is-hidden", Boolean(delayedBannerKey && delayedBannerKey === observation.key));
   bindGlobalEventControls();
@@ -352,4 +353,5 @@ export function renderGlobalEvent() {
   $("#global-event-rounds").textContent = globalEventRoundsText(event);
   renderGlobalEventChoices(event);
   updateCompactState(banner);
+  banner.tabIndex = event.phase === "warning" && banner.scrollHeight > banner.clientHeight ? 0 : -1;
 }
