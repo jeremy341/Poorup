@@ -164,10 +164,12 @@ const state = {
   themePopoverOpen: false,
   maintenance: {
     mode: "normal",
+    lockout: false,
     message: "",
     releaseId: "",
     drainDeadline: null,
     activeRounds: 0,
+    bypass: false,
   },
   profileTab: "designs",    // overview | stats | designs | history | account
   setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
@@ -209,6 +211,7 @@ const state = {
     hud: "full",
   },
   walletView: "account",
+  flights: { enabled: false, defaultFare: 100, maxFee: 200, options: [] }, // priced flight options for the local player, from the server
   walletItemId: null,
   tradeWith: null,
   tradeCounterId: null,
@@ -244,10 +247,8 @@ const state = {
   socialSearchQuery: "",
   socialTab: "friends",
   rulesSection: "start-here",
-  rulesQuery: "",
-  rulesSearchExpanded: false,
   rulesIndexExpanded: false,
-  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false, error: "", requestId: 0 },
+  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false, error: "", requestId: 0, page: 0 },
   rankingSearchQuery: "",
   rankingSearchResults: [],
   rankingSearchExpanded: false,
@@ -262,12 +263,15 @@ const state = {
   botProviderStatus: null,
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
+  finalPlacements: null,
   sound: loadSoundPreference(), // global effects toggle
   // Canonical global soundtrack preference. The hidden theme-music runtime
   // mirrors this value but never owns or replaces it (including across tabs).
   music: loadMusicPreference(),
   quickJoin: false,     // "quick table" uses all-default rules
   settings: {
+    rulesProfile:    "standard",
+    playerFinance:   false,
     maxPlayers:      4,       // 2 – 4
     startingCash:    1500,    // 1000 / 1500 / 2000 / 3000
     vacationPool:    true,    // free-parking jackpot on/off
@@ -275,22 +279,20 @@ const state = {
     auction:         false,   // auction unowned deeds on/off
     doubleGo:        false,   // $400 for landing exactly on GO
     noRentInJail:    true,    // owner can't collect while visiting
-    houseLimit:      32,      // house bank 10 / 20 / 32 (unlimited)
-    hotelLimit:      12,      // hotel bank 6 / 12 (unlimited)
     bankruptMode:    "elim",  // legacy snapshot key; bankruptcy always eliminates/spectates
     bots:            0,        // reserved CPU seats; bot turns are added separately
     botBrain:        "ai",    // "ai" | "no-ai" (legacy "auto" normalizes to "ai")
     botDifficulty:   "table", // "house" | "table" | "expert"
-    bankLoans:       true,
+    bankLoans:       false,
     bankLoanSeverity: "predatory",
     items:           false,
+    itemRewards:     false,
     bankAccountUpgrades: false,
     predictionMarket: false,
     globalEvents:    false,
     casino:          false,
+    flights:         false,
     market:          false,
-    rulesetPreset:   "classic",
-    rulesetBase:     "classic",
     rulesetOverrides: [],
     boardVariant:    "standard-40",
     rulesetRevision: 1,

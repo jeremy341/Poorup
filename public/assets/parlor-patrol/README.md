@@ -3,7 +3,15 @@
 All visual SVGs in this directory are original Poorup artwork. No external
 aircraft or explosion sprites are imported.
 
-These assets now power the optional Home-screen Parlor Patrol microgame. They
+**Status: switched off.** The Parlor Patrol / Night Shift microgame is disabled
+(audit F-059). The client constant `PARLOR_PATROL_ENABLED` in
+`public/clientParlorPatrolFlag.js` and the server constant of the same name in
+`server/accountStore.js` are both `false`: no fly-bys, no `Shift+P` / `Ctrl+P`
+chords, no patrol runs, no new patrol scores or achievements, and `patrol` is not
+a ranked leaderboard metric. Stored scores and earned achievements stay readable.
+The notes below describe the feature as it behaves when the constants are `true`.
+
+These assets power the optional Home-screen Parlor Patrol microgame. They
 remain isolated from the Socket.IO game state and are only active on Home. A
 fly-by starts after about 4 seconds, then short cooldowns keep later passes
 active without turning the skyline into a constant stream.

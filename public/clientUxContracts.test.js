@@ -7,7 +7,7 @@ globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
-const { socialGuestGateHTML } = await import("./clientSocialSurfaces.js");
+const { socialGuestGateHTML, renderRulesSurface } = await import("./clientSocialSurfaces.js");
 const { normalizeSettingValue } = await import("./clientLobbyUi.js");
 
 const index = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
@@ -48,7 +48,8 @@ check("lobby player preview does not manufacture bot rows", () => {
   assert.equal(lobby.includes("bot-preview-"), false);
   assert.match(lobby, /state\.players\s*=\s*buildPlayers\(activeAppearance\(\), state\.alias\)\.slice\(0, 1\)/);
   assert.match(stateSync, /isHost:\s*Boolean\(player\.isHost\)/);
-  assert.match(lobby, /lobby-host-badge/);
+  assert.equal(lobby.includes("Players At Table"), false, "the settings rail no longer lists players");
+  assert.match(main, /pr-tag-host/);
 });
 
 check("guest social gate gives a clear account message and inert content contract", () => {
@@ -68,6 +69,8 @@ check("board variant is selected only after entering the lobby", () => {
   assert.equal(roomsUi.includes('id === "rc-board-variant"'), false);
   assert.equal(roomsUi.includes("#rc-board-variant"), false);
   assert.match(lobby, /settingRow\("Board Variant"/);
+  assert.match(lobby, /Standard is the classic 40-space board/);
+  assert.match(lobby, /\[\["standard-40", "STANDARD · 40"\], \["metro-52", "METRO · 52 \/ 6 SEATS"\]\]/);
 });
 
 check("room creation carries a bounded idempotency key", () => {
@@ -89,7 +92,10 @@ check("bot brain exposes only AI/no-AI and a global exhausted notice", () => {
   assert.doesNotMatch(lobby, /Bot Personality|botPersonality|personality/);
   assert.doesNotMatch(state, /botPersonality/);
   assert.doesNotMatch(main, /botPersonality|p\.personality/);
-  assert.match(index, /id="bot-provider-banner"[^>]*role="alert"/);
+  // F789-11: the visible banner is not a live region; the polite #status-announcer speaks the notice once.
+  assert.match(index, /id="bot-provider-banner"[^>]*aria-hidden="true" hidden/);
+  assert.doesNotMatch(index, /id="bot-provider-banner"[^>]*role="alert"/);
+  assert.match(index, /id="status-announcer" role="status" aria-live="polite"/);
   assert.match(state, /botProviderStatus/);
   assert.match(styles, /\.bot-provider-banner/);
 });
@@ -108,14 +114,47 @@ check("rules describe the single bankruptcy and spectator lifecycle", () => {
   assert.doesNotMatch(rules, /Debt Deal mode can transfer assets and keep the player/i);
 });
 
+check("rules render chapter navigation without search and describe the active board variant", () => {
+  const previousSection = liveState.rulesSection;
+  const previousVariant = liveState.boardVariant;
+  const previousRuleset = liveState.ruleset;
+  const originalQuerySelector = document.querySelector;
+  const root = {
+    innerHTML: "",
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+  document.querySelector = (selector) => selector === "#rules-page-content" ? root : null;
+  try {
+    liveState.rulesSection = "board-tiles";
+    liveState.boardVariant = "metro-52";
+    liveState.ruleset = null;
+    renderRulesSurface();
+    assert.match(root.innerHTML, /class="rules-toolbar"/);
+    assert.match(root.innerHTML, /\d+ CHAPTERS/);
+    assert.doesNotMatch(root.innerHTML, /rules-search|Search the rules|role="search"/);
+    assert.match(root.innerHTML, /METRO-52 · 52 SPACES · 13 PER SIDE · CORNERS 0\/13\/26\/39 · UP TO 6 PLAYERS/);
+    assert.match(root.innerHTML, /Standard 40 supports two to four players/);
+    assert.doesNotMatch(root.innerHTML, /The board has forty spaces\./);
+  } finally {
+    document.querySelector = originalQuerySelector;
+    Object.assign(liveState, {
+      rulesSection: previousSection,
+      boardVariant: previousVariant,
+      ruleset: previousRuleset,
+    });
+  }
+});
+
 check("spectators can leave through the existing table action", () => {
   assert.match(stateSync, /spectating/);
   assert.match(stateSync, /LEAVE TABLE/);
   assert.match(gameModalsSource, /spectating/);
 });
 
-check("lobby setting values preserve unlimited, numeric, checkbox, and select semantics", () => {
-  assert.deepEqual(normalizeSettingValue({ key: "houseLimit", value: "unlimited" }), { valid: true, value: "unlimited" });
+check("retired building caps are rejected while active setting types keep their semantics", () => {
+  assert.deepEqual(normalizeSettingValue({ key: "houseLimit", value: "unlimited" }), { valid: false });
+  assert.deepEqual(normalizeSettingValue({ key: "hotelLimit", value: "12" }), { valid: false });
   assert.deepEqual(normalizeSettingValue({ key: "startingCash", value: "1200" }), { valid: true, value: 1200 });
   assert.deepEqual(normalizeSettingValue({ key: "startingCash", value: "-1" }), { valid: false });
   assert.deepEqual(normalizeSettingValue({ key: "auction", value: "on", checked: true, inputType: "checkbox" }), { valid: true, value: true });

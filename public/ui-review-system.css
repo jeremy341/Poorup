@@ -1,0 +1,236 @@
+/* Admin, maintenance, and standalone system-page refinements. */
+
+/* The bots workspace grows into the available desktop height. Dense lists retain
+   their own scrollbars so the panel does not push the document. */
+@media (min-width: 900px) and (min-height: 760px) {
+  .admin-workspace:has([data-admin-section-panel="bots"]:not(.is-hidden)) {
+    flex: 1 1 0;
+  }
+
+  .admin-surface[data-admin-section-panel="bots"] {
+    flex: 1 1 0;
+  }
+
+  .admin-surface[data-admin-section-panel="bots"] > [data-section="roster"],
+  .admin-surface[data-admin-section-panel="bots"] > [data-section="roster"] > .admin-section-body,
+  .admin-surface[data-admin-section-panel="bots"] .admin-provider-layout,
+  .admin-surface[data-admin-section-panel="bots"] .admin-provider-active,
+  .admin-surface[data-admin-section-panel="bots"] .admin-provider-editor {
+    min-height: 0;
+  }
+
+  .admin-surface[data-admin-section-panel="bots"] .admin-roster-list {
+    max-height: clamp(220px, 28vh, 340px);
+  }
+
+  .admin-surface[data-admin-section-panel="bots"] .admin-log-list {
+    max-height: clamp(150px, 22vh, 270px);
+  }
+}
+
+/* The economy plot has two widely separated categories. Keep its drawable
+   region comfortable and centered instead of stretching those marks edge to edge. */
+.admin-panel[data-analytics-panel="economy"] .analytics-chart-plot {
+  width: min(100%, 1040px);
+  align-self: center;
+}
+
+/* Maintenance stays a public status first; operator access is a quiet,
+   progressive disclosure with the existing form and status contracts. */
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: min(100%, 680px);
+  gap: 18px;
+  padding: clamp(20px, 3vw, 34px);
+  border: 1px solid var(--line-board);
+  border-block-start: 4px solid var(--line-active);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-info {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 10px;
+}
+
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-kicker {
+  color: var(--gold-300);
+  letter-spacing: .12em;
+}
+
+.maintenance-home[data-maintenance-kind="lockout"] [data-maintenance-title] {
+  margin: 0;
+  color: var(--gold-050);
+  font-size: clamp(25px, 4vw, 36px);
+  line-height: 1.12;
+}
+
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-message {
+  max-width: 52ch;
+  color: var(--gold-050);
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-note {
+  max-width: 62ch;
+  line-height: 1.5;
+}
+
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-facts {
+  display: none;
+}
+
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-note { display: none; }
+.maintenance-brand { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 8px; color: var(--gold-300); font: 30px/1 var(--font-pixel); }
+.maintenance-brand img { image-rendering: pixelated; }
+.maintenance-home[data-maintenance-kind="lockout"] [data-maintenance-title]:focus { outline: none; }
+
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-retry {
+  justify-self: center;
+  min-width: 230px;
+  min-height: 48px;
+  margin-top: 10px;
+  background: var(--red-deep, #a72921);
+  border-color: var(--red-bright);
+  color: var(--gold-050);
+}
+
+.maintenance-access {
+  border-top: 1px solid var(--line-subtle);
+}
+
+.maintenance-access > summary {
+  width: fit-content;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  color: var(--text-muted);
+  font: 11px/1.2 var(--font-pixel);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.maintenance-access > summary::-webkit-details-marker { display: none; }
+.maintenance-access > summary::before { content: "+"; color: var(--gold-300); font-size: 18px; }
+.maintenance-access[open] > summary::before { content: "−"; }
+.maintenance-access > summary:hover,
+.maintenance-access > summary:focus-visible { color: var(--gold-050); }
+.maintenance-access > summary:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 2px; }
+
+.maintenance-access .maintenance-signin {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  margin: 8px 0 0;
+  padding: 0;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+}
+
+.maintenance-access .maintenance-signin > label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.maintenance-access .maintenance-signin-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.maintenance-access .maintenance-signin-row .input-dark { min-height: 48px; }
+.maintenance-access .maintenance-signin-row [data-operator-reveal] { min-width: 88px; min-height: 48px; }
+.maintenance-access .maintenance-signin-submit {
+  min-height: 48px;
+  margin-top: 2px;
+  border-color: var(--red-bright);
+  background: var(--red-deep, #a72921);
+  color: var(--gold-050);
+  font-size: 13px;
+  letter-spacing: .04em;
+}
+.maintenance-access .maintenance-signin-submit:hover:not(:disabled) {
+  border-color: var(--red-bright);
+  background: var(--red-bright);
+  color: var(--gold-050);
+}
+.maintenance-access .maintenance-signin-status { min-height: 0; }
+.maintenance-access .maintenance-signin-status:empty { display: none; }
+
+@media (max-width: 640px) {
+  .maintenance-home[data-maintenance-kind="lockout"] .maintenance-card { padding: 18px; }
+  .maintenance-access .maintenance-signin-row { grid-template-columns: minmax(0, 1fr) 84px; }
+}
+
+/* Standalone recovery and not-found pages use the same pixel-parlor palette
+   and self-hosted typefaces as the app. */
+.ui-error-page {
+  box-sizing: border-box;
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  color: var(--text-primary, #f0d9ac);
+  background: var(--page-background, #01070a);
+  font: 16px/1.5 var(--font-body, "IBM Plex Sans", sans-serif);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.ui-error-card {
+  width: min(100%, 680px);
+  padding: clamp(22px, 4vw, 38px);
+  border: 1px solid var(--line-board, #8f6927);
+  border-block-start: 4px solid var(--line-active, #d9a62f);
+  background: var(--surface-panel, #071314);
+  box-shadow: var(--shadow-panel, 0 8px 24px rgb(0 0 0 / 40%));
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  text-align: center;
+}
+
+.ui-error-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+  color: var(--gold-300, #d9a62f);
+  font: 11px/1.3 var(--font-pixel, "Silkscreen", monospace);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  justify-content: center;
+  text-align: left;
+}
+
+.ui-error-brand > span { color: var(--gold-300); font-size: 24px; line-height: 1.15; letter-spacing: 0; }
+.ui-error-tagline { display: block; margin-top: 4px; font-size: 9px; color: var(--text-muted); letter-spacing: .05em; }
+.ui-error-code { margin: 20px 0 12px; color: var(--gold-300); font: clamp(88px, 12vw, 144px)/1 var(--font-pixel); }
+.ui-error-card .ui-error-message { margin-inline: auto; }
+.ui-error-card form { text-align: left; }
+.ui-error-card form button { width: 100%; background: var(--red-deep, #a72921); border-color: var(--red-bright); color: var(--gold-050); }
+.ui-error-card .ui-error-return { justify-content: center; min-width: 230px; min-height: 48px; padding: 0 16px; text-decoration: none; border: 1px solid var(--red-bright); background: var(--red-deep, #a72921); color: var(--gold-050); font: 13px var(--font-pixel); }
+.ui-error-card.has-form .ui-error-return { min-width: 0; background: none; border-color: transparent; font-size: 11px; color: var(--text-secondary); }
+
+.ui-error-brand img { width: 34px; height: 34px; image-rendering: pixelated; }
+.ui-error-card h1 { margin: 0; color: var(--gold-050, #f0d9ac); font: 24px/1.2 var(--font-pixel, "Silkscreen", monospace); }
+.ui-error-message { max-width: 62ch; margin: 12px 0 20px; color: var(--text-secondary, #c1b08e); }
+.ui-error-card form { display: grid; gap: 12px; margin: 18px 0; }
+.ui-error-card form label { display: grid; gap: 7px; color: var(--gold-100, #e7c77f); font: 11px/1.3 var(--font-pixel, "Silkscreen", monospace); text-transform: uppercase; }
+.ui-error-card input { box-sizing: border-box; width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line-control, #57431f); border-radius: 2px; background: var(--surface-input, #030c10); color: var(--text-primary, #f0d9ac); font: 16px/1.3 var(--font-body, "IBM Plex Sans", sans-serif); }
+.ui-error-card button { width: fit-content; min-width: 210px; min-height: 46px; padding: 0 18px; border: 1px solid var(--line-active, #d9a62f); border-radius: 2px; background: var(--surface-button-dark, #030c10); color: var(--gold-050, #f0d9ac); font: 11px var(--font-pixel, "Silkscreen", monospace); letter-spacing: .06em; cursor: pointer; }
+.ui-error-card a { display: inline-flex; min-height: 40px; align-items: center; color: var(--gold-100, #e7c77f); text-underline-offset: 4px; }
+.ui-error-card :is(input, button, a):focus-visible { outline: 2px solid var(--theme-focus, #f0d9ac); outline-offset: 3px; }
+
+@media (max-width: 480px) {
+  .ui-error-page { padding: 16px; }
+  .ui-error-card { padding: 20px; }
+  .ui-error-card h1 { font-size: 20px; }
+  .ui-error-card button { width: 100%; }
+}

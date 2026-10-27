@@ -8,6 +8,7 @@
 import { $, REDUCED_MOTION } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { hydrateSprites } from "./clientSprites.js";
+import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
 
 const NIGHT_SHIFT_WAVE_MS = 60000;
 const NIGHT_SHIFT_START_HEARTS = 3;
@@ -30,7 +31,7 @@ export function configureNightShift(hooks) {
   host = hooks;
 }
 
-export { nightShiftState };
+export { nightShiftState, PARLOR_PATROL_ENABLED };
 
 function formatNightCountdown(ms) {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
@@ -618,6 +619,7 @@ function openNightShiftSurface() {
 }
 
 export function startNightShift() {
+  if (!PARLOR_PATROL_ENABLED) return;
   if (state.phase !== "home") return;
   if (nightShiftState.active) return;
   // A stale room session may still emit snapshots while the player is Home.

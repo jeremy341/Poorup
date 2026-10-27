@@ -1,5 +1,6 @@
 import { $, esc } from './clientDom.js';
 import { closeSurface, openSurface } from './clientSurfaces.js';
+import { closeButtonHTML } from './clientCloseButton.js';
 
 const ACCOUNT_STORAGE_KEYS = [
   'poorup.account.session.v1', 'poorup.profiles.v1', 'poorup.active-design.v1',
@@ -199,7 +200,7 @@ function rightsFormFields(kind) {
 }
 
 function rightsFormMarkup(copy, fields) {
-  return `<div class="account-modal-body account-rights-dialog"><div class="account-modal-head"><div><div class="t-micro ${copy.badge}">ACCOUNT DATA DESK</div><h2 class="t-section g100" id="account-rights-dialog-title">${esc(copy.title)}</h2></div><button class="btn-dark" id="account-rights-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2" id="account-rights-dialog-description">${esc(copy.description)}</p><form id="account-rights-form">${fields}<p class="account-form-error" id="account-rights-form-error" role="alert" aria-live="assertive"></p><button class="${copy.submitClass}" type="submit"><span class="${copy.submitTextClass}">${esc(copy.submitLabel)}</span></button></form></div>`;
+  return `<div class="account-modal-body account-rights-dialog"><div class="account-modal-head"><div><div class="t-micro ${copy.badge}">ACCOUNT DATA DESK</div><h2 class="t-section g100" id="account-rights-dialog-title">${esc(copy.title)}</h2></div>${closeButtonHTML({ id: "account-rights-close", label: "Close account data dialog" })}</div><p class="t-body ink-2" id="account-rights-dialog-description">${esc(copy.description)}</p><form id="account-rights-form">${fields}<p class="account-form-error" id="account-rights-form-error" role="alert" aria-live="assertive"></p><button class="${copy.submitClass}" type="submit"><span class="${copy.submitTextClass}">${esc(copy.submitLabel)}</span></button></form></div>`;
 }
 
 function openRightsForm(kind, trigger) {

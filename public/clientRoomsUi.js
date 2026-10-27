@@ -5,7 +5,7 @@
    rebind it). emitServer, say, renderChat and enterParlor are
    injected by the entry module.
    ============================================================ */
-import { $, esc } from "./clientDom.js";
+import { $, esc, setText } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { hydrateSprites, spriteHTML } from "./clientSprites.js";
 import { paintSkyline } from "./clientBoardRender.js";
@@ -15,7 +15,6 @@ import { applyProfileToHomeUI, renderAccountPanel, requireGuestAlias } from "./c
 import { closeSurface, openSurface } from "./clientSurfaces.js";
 import { parlorNotice } from "./clientSocialSurfaces.js";
 import { renderHomeLocalTime, renderPatrolHud } from "./clientHomeAmbient.js";
-import { saveRulesetPreset } from "./clientSanitize.js";
 
 export const lobbyState = {
   roomsDirectory: [],
@@ -25,12 +24,12 @@ export const lobbyState = {
   roomsDirectoryRequestId: 0,
   roomsDirectoryTimeout: null,
   roomsFilter: "all",
+  roomsQuery: "",
   roomModalTab: "browse", // "browse" | "create" | "join"
   createRoomSettings: {
     name: "",
     visibility: "public", // "public" | "private"
     code: "",
-    rulesetPreset: "classic",
   },
 };
 
@@ -49,15 +48,22 @@ function roomStateColor(stateName) {
   return "#3a382a";
 }
 
+// The search matches a table's name (and a private table's code), ignoring case.
+function roomMatchesQuery(room, query) {
+  if (!query) return true;
+  return `${room.name || ""} ${room.visibility === "private" ? room.code || "" : ""}`.toLowerCase().includes(query);
+}
+
 function filteredRooms() {
-  if (lobbyState.roomsFilter === "open") return lobbyState.roomsDirectory.filter((r) => r.seats < r.cap);
-  if (lobbyState.roomsFilter === "live") return lobbyState.roomsDirectory.filter((r) => r.state === "live");
-  return lobbyState.roomsDirectory;
+  const query = String(lobbyState.roomsQuery || "").trim().toLowerCase();
+  let rooms = lobbyState.roomsDirectory;
+  if (lobbyState.roomsFilter === "open") rooms = rooms.filter((r) => r.seats < r.cap);
+  else if (lobbyState.roomsFilter === "live") rooms = rooms.filter((r) => r.state === "live");
+  return query ? rooms.filter((room) => roomMatchesQuery(room, query)) : rooms;
 }
 
 function roomRowHTML(r) {
   const full = r.seats >= r.cap;
-  const open = r.cap - r.seats;
   const isPrivate = r.visibility === "private";
   const visLabel = isPrivate ? "PRIVATE" : "PUBLIC · DIRECT JOIN";
   return `<div class="room-row">
@@ -70,11 +76,9 @@ function roomRowHTML(r) {
       </div>
       <div class="room-meta">
         <span class="t-micro ink-3 room-meta-item">SEATS ${esc(r.seats)}/${esc(r.cap)}</span>
-        <span class="t-micro ink-3 room-meta-item">OPEN ${esc(open)}</span>
         <span class="t-micro ink-3 room-meta-item">BANK ${esc(r.bank)}</span>
-        <span class="t-micro g400 room-meta-item">${esc(String(r.rulesetPreset || "classic").toUpperCase())}</span>
         <span class="t-micro g400 room-meta-item">${esc(String(r.boardVariant || "standard-40").toUpperCase())}</span>
-        <span class="t-micro ink-3 room-meta-item">${Array.isArray(r.addOns) && r.addOns.length ? esc(r.addOns.join(" · ")) : "NO ADD-ONS"}</span>
+        ${Array.isArray(r.addOns) && r.addOns.length ? `<span class="t-micro ink-3 room-meta-item">${esc(r.addOns.join(" · "))}</span>` : ""}
         <span class="t-micro g-muted room-meta-item">${esc(r.note)}</span>
       </div>
     </div>
@@ -95,7 +99,7 @@ function renderRoomsList() {
     ? `<div class="rooms-empty t-body">CHECKING PUBLIC TABLES…</div>`
     : rooms.length
     ? rooms.map(roomRowHTML).join("")
-    : `<div class="rooms-empty t-body">NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE.</div>`;
+    : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : "NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE."}</div>`;
 
   document.querySelectorAll(".rooms-filter").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.filter === lobbyState.roomsFilter);
@@ -118,8 +122,6 @@ function updateCreateRoomUI() {
   document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.vis === lobbyState.createRoomSettings.visibility);
   });
-  const preset = $("#rc-ruleset-preset");
-  if (preset && preset.value !== lobbyState.createRoomSettings.rulesetPreset) preset.value = lobbyState.createRoomSettings.rulesetPreset;
 }
 
 function syncCreateRoomCode(codeInput, settings) {
@@ -260,6 +262,9 @@ export function applyRoomsUpdated(payload) {
 
 export function openRoomsModal(tab = "browse") {
   lobbyState.roomsFilter = "all";
+  lobbyState.roomsQuery = "";
+  const search = $("#rooms-search");
+  if (search) search.value = "";
   switchRoomModalTab(tab);
   openSurface("#rooms-modal", tab === "join" ? "#room-join" : "#rooms-close");
   if (tab === "browse") requestRoomsDirectory();
@@ -478,9 +483,6 @@ function createRoomMeta(name, vis, code) {
   const meta = {
     roomName: name,
     visibility: vis,
-    // Room creation defaults to the documented Classic baseline. The richer
-    // preset controls live in the existing in-room settings rail.
-    rulesetPreset: lobbyState.createRoomSettings.rulesetPreset || "classic",
     // Board variants are deliberately chosen after entering the host lobby;
     // every newly created room starts from the compatible Standard-40 board.
     boardVariant: "standard-40",
@@ -506,7 +508,7 @@ function renderEntrySignal(entry, account) {
 }
 
 function setSignalText(node, value) {
-  if (node) node.textContent = value;
+  if (node) setText(node, value);
 }
 
 function entrySignalDetails(account) {
@@ -550,7 +552,7 @@ function renderLobbiesSignal(lobbies) {
   const loaded = lobbyState.roomsDirectoryLoaded;
   const copy = lobbyState.roomsLoading && !loaded ? "SYNCING…" : loaded ? `${lobbyState.roomsDirectory.length} LOBBIES` : "— LOBBIES";
   const value = lobbies.querySelector("#home-signal-lobbies-value");
-  if (value) value.textContent = copy;
+  if (value) setText(value, copy);
   lobbies.dataset.loaded = String(loaded);
   lobbies.setAttribute("aria-label", loaded ? `Browse ${lobbyState.roomsDirectory.length} public lobbies` : "Browse public lobbies");
 }
@@ -561,13 +563,6 @@ export function renderHomeSignals() {
   renderEntrySignal($("[data-home-signal=entry]"), account);
   renderSyncSignal($("[data-home-signal=sync]"));
   renderLobbiesSignal($("[data-home-signal=lobbies]"));
-}
-
-function onRulesetInput(e) {
-  if (e.target.id === "rc-ruleset-preset") {
-    lobbyState.createRoomSettings.rulesetPreset = e.target.value;
-    saveRulesetPreset(e.target.value);
-  }
 }
 
 function bindRoomsOpeners() {
@@ -587,11 +582,14 @@ function bindRoomsModal() {
   document.querySelectorAll(".rooms-filter").forEach((btn) => {
     btn.addEventListener("click", () => onRoomsFilterClick(btn));
   });
+  $("#rooms-search")?.addEventListener("input", (event) => {
+    lobbyState.roomsQuery = event.target.value;
+    renderRoomsList();
+  });
 
   // room creation form interactions
   $("#rc-vis-selector")?.addEventListener("click", onVisibilityPick);
   $("#rc-room-code")?.addEventListener("input", onRoomCodeInput);
-  $("#rc-ruleset-preset")?.addEventListener("change", onRulesetInput);
   $("#rc-create-btn")?.addEventListener("click", onCreateRoomClick);
 }
 

@@ -13,6 +13,7 @@ import {
   HOTEL_LEVEL,
 } from "./clientBoardData.js";
 import { state } from "./clientState.js";
+import { isRentShare } from "./clientFinanceRules.js";
 import { rentFor, ownsFullGroup, serverTileFor } from "./clientDeedRules.js";
 
 export function houseDisplay(level) {
@@ -108,10 +109,10 @@ const LADDER_CONFIGS = {
 };
 
 /** Rows for the rent ladder, current level highlighted. */
-export function deedLadderHTML(tile) {
+export function deedLadderHTML(tile, currentLevel = houseLevel(tile)) {
   const table = RENT_TABLE[tile.group || tile.kind];
   if (!table) return "";
-  if (tile.kind === "property") return propertyLadderHTML(table, houseLevel(tile));
+  if (tile.kind === "property") return propertyLadderHTML(table, currentLevel);
   const config = LADDER_CONFIGS[tile.kind];
   if (config) return groupLadderHTML(config, countOwnedGroup(tile, tile.kind), table.rents, tile);
   return "";
@@ -121,7 +122,8 @@ export function tileRentExplanation(tile) {
   if (tile?.kind === "utility") {
     const utilitiesOnBoard = TILES.filter(entry => entry.kind === "utility").length;
     const secondTier = utilitiesOnBoard === 2 ? "both utilities" : "2 or more utilities";
-    return `${tile.name} rent uses 4× the dice roll with 1 utility owned, or 10× when you own ${secondTier}.`;
+    const higherTiers = utilitiesOnBoard > 2 ? ", rising to 14× with 3 and 18× with 4" : "";
+    return `${tile.name} rent uses 4× the dice roll with 1 utility owned, or 10× when you own ${secondTier}${higherTiers}.`;
   }
   if (tile?.kind === "railroad" && tile.name?.includes("AIRPORT")) {
     return "Airport rent increases with the number of airports you own.";
@@ -130,9 +132,16 @@ export function tileRentExplanation(tile) {
   return "";
 }
 
-export function deedCurrentRentLabel(tile) {
+export function deedCurrentRentLabel(tile, currentLevel = houseLevel(tile)) {
+  const currentRent = serverTileFor(tile.i)?.currentRent;
+  if (typeof currentRent === "number" && Number.isFinite(currentRent)) return `$${currentRent.toLocaleString()} / TURN`;
   if (tile?.kind === "utility") {
-    return `${countOwnedGroup(tile, "utility") >= 2 ? "10×" : "4×"} DICE ROLL`;
+    const UTILITY_DICE_MULTIPLIERS = [4, 10, 14, 18];
+    const owned = Math.min(Math.max(countOwnedGroup(tile, "utility"), 1), UTILITY_DICE_MULTIPLIERS.length);
+    return `${UTILITY_DICE_MULTIPLIERS[owned - 1]}× DICE ROLL`;
+  }
+  if (tile?.kind === "property") {
+    return `$${RENT_TABLE[tile.group].rents[Math.min(currentLevel, RENT_TABLE[tile.group].rents.length - 1)]} / TURN`;
   }
   return `$${rentFor(tile)} / TURN`;
 }
@@ -171,7 +180,8 @@ function deedStatusPillHTML(opts, isMortgaged, hasSet) {
 function equityLineHTML(equityShares) {
   if (!equityShares.length) return "";
   const total = equityShares.reduce((sum, share) => sum + Number(share.share || 0), 0);
-  return `<span class="t-micro g300">EQUITY ${total}%</span>`;
+  const rentShare = equityShares.every(share => Number(share.rentShareVersion) === 1 || isRentShare(state.playerContracts?.active?.find(contract => contract.id === share.contractId)));
+  return `<span class="t-micro g300">${rentShare ? "RENT SHARE" : "LEGACY EQUITY"} ${total}%</span>`;
 }
 
 function equitySharesOf(tile) {
@@ -250,6 +260,26 @@ function deedCardShellHTML(tile, view, opts) {
       </div>
     </div>
   </${wrapper}>`;
+}
+
+/* One flat line per owned property: colour dot, name, buildings, rent. The
+   whole row opens the deed manager (build / sell / mortgage). */
+export function propertyRowHTML(tile, { showRent = true } = {}) {
+  const isMortgaged = !!state.mortgaged[tile.i];
+  const level = houseLevel(tile);
+  const isProperty = tile.kind === "property";
+  const fullSet = isProperty && ownsFullGroup("p1", tile.group);
+  let meta = "";
+  if (isMortgaged) meta = `<span class="prop-meta prop-meta-bad">MORTGAGED</span>`;
+  else if (isProperty && level >= 5) meta = `<span class="prop-meta prop-meta-good">HOTEL</span>`;
+  else if (isProperty && level > 0) meta = `<span class="prop-meta prop-meta-good">${level} HOUSE${level === 1 ? "" : "S"}</span>`;
+  else if (fullSet) meta = `<span class="prop-meta prop-meta-good">FULL SET</span>`;
+  return `<button class="prop-row${isMortgaged ? " is-mortgaged" : ""}" type="button" data-deed="${tile.i}" data-deed-open="${tile.i}" aria-label="Manage ${esc(tile.name)}">
+    <span class="prop-dot" style="background:${deedRailColor(tile)}"></span>
+    <span class="prop-name t-label">${esc(tile.name)}</span>
+    ${meta}
+    ${showRent ? `<span class="prop-rent numeric">${isMortgaged ? "" : deedCurrentRentLabel(tile)}</span>` : ""}
+  </button>`;
 }
 
 export function deedCardHTML(tile, opts = {}) {

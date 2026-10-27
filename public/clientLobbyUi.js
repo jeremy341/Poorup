@@ -19,9 +19,9 @@ import {
   MAX_PROFILES,
   profileDesignName,
   saveActiveDesignId,
-  loadRulesetPreset,
 } from "./clientSanitize.js";
 import { avatarHTML } from "./clientSprites.js";
+import { accountAppearancePayload, saveFaceToAccount } from "./clientAccountAppearance.js";
 import { placePieces } from "./clientBoardRender.js";
 import { setBoardVariant } from "./clientBoardData.js";
 import { renderTopNav } from "./clientTopNavRender.js";
@@ -177,6 +177,13 @@ export function configureLobbyUi(hooks) {
   host = { ...host, ...hooks };
 }
 
+// A signed-in player's chosen face lives on the account, so every browser they sign in on shows it.
+function syncAppearanceToAccount(choice) {
+  if (!state.account) return;
+  saveFaceToAccount(accountAppearancePayload(choice)).then((result) => {
+    if (result.success === false && !result.skipped) console.warn("Could not save your face to the account:", result.error);
+  });
+}
 function setActiveAppearance(choice) {
   state.appearance = choice;
   state.tableAppearanceOverride = null;
@@ -185,6 +192,7 @@ function setActiveAppearance(choice) {
   applyProfileToHomeUI();
   renderAccountPanel();
   renderProfileLibrary();
+  syncAppearanceToAccount(choice);
 }
 
 function setTableAppearanceOverride(choice) {
@@ -356,7 +364,7 @@ function tableOrActiveDesign() {
 
 function customDesignCardHTML(p, active, i) {
   const status = customStatusText(active, p.id);
-  return `<button type="button" class="su-opt su-opt-profile${active ? " is-active" : ""}" data-app="${p.id}">
+  return `<button type="button" class="su-opt su-opt-profile${active ? " is-active" : ""}" data-app="${esc(p.id)}">
               <div class="su-av">${avatarHTML(p, 5, i)}</div>
               <div>
               <div class="t-label f13" style="color:${p.color}">${esc(profileDesignName(p))}</div>
@@ -397,7 +405,8 @@ function stepper(id, value, min, max) {
 }
 
 function sel(id, value, options) {
-  return `<select class="setting-select" data-setting="${id}">
+  const label = id === "rulesProfile" ? "Starting Preset" : id.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
+  return `<select class="setting-select" data-setting="${id}" aria-label="${esc(label)}">
     ${options.map(([v, l]) => `<option value="${v}" ${String(v) === String(value) ? "selected" : ""}>${l}</option>`).join("")}
   </select>`;
 }
@@ -431,22 +440,6 @@ function lobbySection(title, rows) {
   </div>`;
 }
 
-function lobbyPlayerRowHTML(p, seed) {
-  const isYou = p.id === "p1" || p.id === "preview";
-  const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
-  // deterministic per-player "ready" flag instead of Math.random(), so the
-  // dot doesn't flicker on every unrelated re-render (typing, toggling, etc.)
-  const ready = isYou || !!p.online;
-  return `<div class="lobby-player-row${isYou ? " lobby-player-you" : ""}">
-    <div class="lobby-av">${avatarHTML(p, 3, seed)}</div>
-      <div class="lobby-player-info">
-        <div class="t-label lobby-player-name" style="color:${p.textColor}">${p.bot ? '<img class="lobby-brain-icon" src="/assets/bot-brain.svg" alt="">' : ''}${esc(p.name)}${isHost ? '<span class="lobby-host-badge t-micro g400">HOST</span>' : ''}</div>
-        <div class="lobby-player-sub">${isYou ? "you" : p.bot ? `cpu · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}` : "player"} · $${p.cash.toLocaleString()}</div>
-    </div>
-    <span class="lobby-ready-dot" style="background:${ready ? "#35a653" : "#3a382a"};box-shadow:${ready ? "0 0 5px rgb(53 166 83/60%)" : "none"}"></span>
-  </div>`;
-}
-
 function lobbySetupNotice(locked, hostLocked) {
   if (locked) {
     return `<div class="settings-rule lobby-lock-note">
@@ -466,13 +459,16 @@ function lobbyRulesSnapshot(settings) {
   return `<div class="settings-rule">
       <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
       ${board}<br>
-      ${players} · ${toggleCopy(settings.vacationPool, "pool on", "no pool")} ·
+      ${String(settings.rulesProfile || "standard").toUpperCase()} · ${players} · ${toggleCopy(settings.vacationPool, "pool on", "no pool")} ·
       ${toggleCopy(settings.trading, "trading on", "no trades")} ·
       ${toggleCopy(settings.auction, "auction on", "no auction")} ·
-      ${bankLoanCopy(settings)} ·
+      ${toggleCopy(settings.playerFinance, "player finance on", "player finance off")} · ${bankLoanCopy(settings)} ·
       ${toggleCopy(settings.globalEvents, "global events on", "global events off")} ·
       ${toggleCopy(settings.casino, "casino on", "casino off")} ·
       ${toggleCopy(settings.market, "market on", "market off")} ·
+      ${toggleCopy(settings.flights, "flights on", "flights off")} ·
+      ${toggleCopy(settings.bankAccountUpgrades, "bank accounts on", "bank accounts off")} ·
+      ${toggleCopy(settings.itemRewards, "item rewards on", "item rewards off")} ·
       ${botCopy(settings)} ·
       eliminate busted players when no legal rescue remains
     </div>`;
@@ -518,7 +514,8 @@ function renderLobbyRail() {
 
 function lobbyTableRules(s) {
   return lobbySection("Table Rules", [
-    settingRow("Board Variant", "Standard 40 is the classic board; Metro 52 adds more spaces and seats.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD 40"], ["metro-52", "METRO 52 · 2–6"]])),
+    settingRow("Starting Preset", "Choose a starting point, then customize every rule below.", sel("rulesProfile", s.rulesProfile || "standard", [["standard", "STANDARD"], ["advanced", "ADVANCED"]])),
+    settingRow("Board Variant", "Standard is the classic 40-space board. Metro adds 12 spaces and supports up to six seats.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD · 40"], ["metro-52", "METRO · 52 / 6 SEATS"]])),
     settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
     settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
     settingRow("Bot Brain", "Choose AI or the offline house brain. AI falls back automatically when credits or service are unavailable.", botBrainControl(s)),
@@ -534,9 +531,13 @@ function lobbyEconomy(s) {
     settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
     settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
     settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
+    settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
     settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
     settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
     settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
+    settingRow("Airport Flights", "Fly airport to airport. Airport owners set the departure and arrival fees.", tog("flights", s.flights)),
+    settingRow("Bank Accounts", "Buy a tier in the wallet. Higher tiers rebate fees on market orders and flights.", tog("bankAccountUpgrades", s.bankAccountUpgrades)),
+    settingRow("Item Rewards", "Surprise and Treasure can award bonds and keepsakes. Manage them in Wallet & Items.", tog("itemRewards", s.itemRewards)),
     settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
     settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
   ]);
@@ -545,14 +546,12 @@ function lobbyEconomy(s) {
 function lobbyOptionalSections(s) {
   return [
     lobbySection("Global Events", [settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents)))]),
-    lobbySection("Building", [settingRowNum("House Limit", "Total houses in the bank.", sel("houseLimit", s.houseLimit, [["10","10 HOUSES"],["20","20 HOUSES"],["32","32 HOUSES"],["40","40 HOUSES"],["50","50 HOUSES"],["64","64 HOUSES"],["unlimited","UNLIMITED"]])), settingRowNum("Hotel Limit", "Total hotels in the bank.", sel("hotelLimit", s.hotelLimit, [["6","6 HOTELS"],["12","12 HOTELS"],["16","16 HOTELS"],["24","24 HOTELS"],["32","32 HOTELS"],["unlimited","UNLIMITED"]]))]),
   ];
 }
 
-function lobbySectionsMarkup(s, locked, hostLocked, previewPlayers) {
+function lobbySectionsMarkup(s, locked, hostLocked) {
   return [
     lobbySetupNotice(locked, hostLocked),
-    lobbySection("Players At Table", previewPlayers.map((p, i) => lobbyPlayerRowHTML(p, i))),
     lobbyTableRules(s),
     lobbyEconomy(s),
     ...lobbyOptionalSections(s),
@@ -566,27 +565,13 @@ function applyLobbyLockState(locked, hostLocked) {
   startBtn.querySelector(".cta-text").textContent = locked ? "Finish Setup First" : hostLocked ? "Host Starts Round" : "Start Round";
   $("#lobby-settings-body").querySelectorAll("[data-setting], [data-step]").forEach((control) => {
     control.disabled = locked || hostLocked;
-    if (locked || hostLocked) control.setAttribute("aria-disabled", "true");
+    if (control.disabled) control.setAttribute("aria-disabled", "true");
   });
 }
 
 function renderLobbyRailContent(s, locked, hostLocked) {
-  const seated = locked ? [buildPreviewSelf()] : state.players.slice(0, s.maxPlayers);
-  $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked, seated);
+  $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked);
   applyLobbyLockState(locked, hostLocked);
-}
-
-function buildPreviewSelf() {
-  const a = getAppearanceMeta(activeAppearance());
-  return {
-    id: "preview",
-    name: (state.alias.trim() || a.baseName).toUpperCase(),
-    color: a.color,
-    textColor: a.textColor,
-    cash: Number(state.settings.startingCash),
-    bot: false,
-    avatarGrid: a.avatarGrid || undefined,
-  };
 }
 
 function syncServerAppearance() {
@@ -669,12 +654,10 @@ function clearQuickTableDirectoryTimer() {
 
 function quickTableFallbackCreate() {
   clearQuickTableDirectoryTimer();
-  const preset = loadRulesetPreset();
   state.quickJoin = true;
   state.pendingRoomMeta = {
     roomName: "QUICK TABLE",
     visibility: "public",
-    rulesetPreset: preset,
     boardVariant: "standard-40"
   };
   state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
@@ -1000,7 +983,6 @@ function clampBotsToSeats() {
 }
 
 const NUMERIC_SETTING_KEYS = ["startingCash"];
-const LIMIT_SETTING_KEYS = ["houseLimit", "hotelLimit"];
 
 function numericSettingValue(value) {
   if (typeof value !== "string" || value.trim() === "") return { valid: false };
@@ -1010,10 +992,7 @@ function numericSettingValue(value) {
 }
 
 export function normalizeSettingValue({ key, value, checked, inputType } = {}) {
-  if (LIMIT_SETTING_KEYS.includes(key)) {
-    if (value === "unlimited") return { valid: true, value };
-    return numericSettingValue(value);
-  }
+  if (key === "houseLimit" || key === "hotelLimit") return { valid: false };
   if (NUMERIC_SETTING_KEYS.includes(key)) return numericSettingValue(value);
   return { valid: true, value: inputType === "checkbox" ? checked : value };
 }
@@ -1026,7 +1005,7 @@ function isSettingField(el) {
 
 const applySettingField = (e) => {
   const sel = e.target.closest("[data-setting]");
-  if (!isSettingField(sel)) return;
+  if (!isSettingField(sel) || sel.disabled) return;
   const key = sel.dataset.setting;
   const setting = normalizeSettingValue({
     key,

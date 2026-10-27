@@ -7,9 +7,9 @@ import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 import { emitWithTimeout } from "./clientRequestController.js";
-import { hydrateAnalyticsChart, disposeAnalyticsChart } from "./clientAnalyticsChartAdapter.js";
-import { createPoorupChartOptions, resolvePoorupChartTokens } from "./clientAnalyticsChartTheme.js";
+import { mountChart, disposeChart } from "./clientChartMount.js";
 import { MARKET_LABELS } from "./clientMarketCatalog.js";
+import { closeButtonHTML } from "./clientCloseButton.js";
 
 export { MARKET_LABELS };
 
@@ -33,7 +33,7 @@ function marketQuantity(card) {
 
 export function selectedMarketPoints(marketState, id = selectedIndex, limit = null) {
   const points = (Array.isArray(marketState.quoteHistory) ? marketState.quoteHistory : [])
-    .filter(point => Number.isFinite(Number(point?.round)) && Number.isFinite(Number(point?.quotes?.[id])))
+    .filter(point => point?.round != null && point?.quotes?.[id] != null && point.quotes[id] !== "" && Number.isFinite(Number(point.round)) && Number.isFinite(Number(point.quotes[id])))
     .map(point => ({ round: Number(point.round), value: Number(point.quotes[id]), eventId: point.eventId || null }));
   const count = Number(limit);
   return Number.isInteger(count) && count > 0 ? points.slice(-count) : points;
@@ -156,7 +156,7 @@ function advancedActionsHTML(id, marketState, position) {
       actions.push(marketActionButton("close-position", id, `CLOSE${suffix}`, optionId));
     });
   }
-  if (rank >= 3) actions.push(policy?.serverOwned === true ? marketActionButton("open-option", id, "OPTION") : '<span class="market-derivatives-unavailable" role="status">DERIVATIVES UNAVAILABLE · SERVER PRICING POLICY NOT CONFIGURED</span>');
+  if (rank >= 3) actions.push(policy?.serverOwned === true ? marketActionButton("open-option", id, "OPTION") : `<span class="market-derivatives-unavailable" role="status">Options aren't available on this table yet.</span>`);
   if (policy?.serverOwned !== true) return actions.join("");
   return actions.join("");
 }
@@ -179,15 +179,6 @@ function marketChartSummary(points, label) {
   return `${label} shared quote history: ${points.length} data points from round ${first.round} at $${first.value} to round ${last.round} at $${last.value}. Low $${low.value} in round ${low.round}; high $${high.value} in round ${high.round}.`;
 }
 
-function marketIndexSelectHTML(marketState) {
-  const options = Object.entries(MARKET_LABELS).map(([id, label]) => {
-    const summary = marketQuoteSummary(marketState, id);
-    const quote = summary.quote == null ? "PRICE UNAVAILABLE" : `$${summary.quote.toLocaleString()}`;
-    return `<option value="${id}"${id === selectedIndex ? " selected" : ""}>${label} · ${quote}</option>`;
-  }).join("");
-  return `<label class="market-index-select"><span class="t-micro g400">CHOOSE INDEX</span><select class="field" id="market-desk-index" aria-label="Choose a market index">${options}</select></label>`;
-}
-
 function marketViewButtonHTML(view, label) {
   const selected = selectedMarketView === view;
   return `<button class="market-view-button${selected ? " is-active" : ""}" type="button" id="market-view-${view}" data-market-view-select="${view}" aria-pressed="${selected}"><span class="t-label f11">${label}</span></button>`;
@@ -201,6 +192,8 @@ function setMarketView(card, view) {
     button.setAttribute("aria-pressed", String(selected));
     button.classList.toggle("is-active", selected);
   });
+  // Both work areas remain visible; the compact controls move keyboard focus.
+  card.querySelector(selectedMarketView === "trade" ? "#market-desk-quantity" : "[data-market-quote-chart]")?.focus({ preventScroll: true });
 }
 
 function captureDeskDraft(card) {
@@ -228,6 +221,13 @@ function marketOptionFieldsHTML(isDerivatives) {
   return '<div class="market-desk-option-fields"><label><span class="t-micro ink-3">STRIKE</span><input class="field" id="market-desk-strike" type="number" min="10" value="100" inputmode="numeric"></label><label><span class="t-micro ink-3">PREMIUM</span><input class="field" id="market-desk-premium" type="number" min="1" value="10" inputmode="numeric"></label><label><span class="t-micro ink-3">EXPIRY ROUNDS</span><input class="field" id="market-desk-expiry" type="number" min="1" max="20" value="3" inputmode="numeric"></label><label><span class="t-micro ink-3">OPTION SIDE</span><select class="field" id="market-desk-option-side"><option value="call">CALL</option><option value="put">PUT</option></select></label><label><span class="t-micro ink-3">POSITION</span><select class="field" id="market-desk-role"><option value="writer">WRITE · COLLATERALIZED</option><option value="buyer">BUY · PREMIUM</option></select></label></div>';
 }
 
+function marketSectorListHTML(marketState) {
+  return `<nav class="market-sector-list" aria-label="Market sectors">${Object.entries(MARKET_LABELS).map(([id, label]) => {
+    const quote = marketQuoteSummary(marketState, id).quote;
+    return `<button class="market-sector-button${id === selectedIndex ? " is-selected" : ""}" type="button" data-market-sector="${esc(id)}" aria-pressed="${id === selectedIndex}"><span>${esc(label)}</span><span class="market-sector-price">${quote == null ? "—" : `$${quote.toLocaleString()}`}</span></button>`;
+  }).join("")}</nav>`;
+}
+
 function marketDeskHTML(marketState) {
   const complexity = String(marketState.complexity || "basic").toUpperCase();
   const hasAdvanced = marketComplexityRank(complexity) >= 1;
@@ -243,7 +243,7 @@ function marketDeskHTML(marketState) {
   const markers = personalMarketMarkers(marketState, selectedIndex).filter(entry => chartRounds.has(Number(entry.roundNumber)));
   const historyRangeCaption = historyLimit ? `LAST ${historyLimit} ROUNDS` : "ALL AVAILABLE ROUNDS";
   const advancedActions = advancedActionsHTML(selectedIndex, marketState, marketState.shorts?.positions?.[selectedIndex]);
-  const advancedTools = hasAdvanced ? `<details class="market-advanced-settings"><summary>ADVANCED · MARGIN / SHORT / DERIVATIVES</summary>${marketToolsHTML(true)}<div class="market-desk-actions">${advancedActions || '<span class="t-micro ink-3">No advanced actions available for this index.</span>'}</div>${marketOptionFieldsHTML(complexity === "DERIVATIVES" && marketState.pricingPolicy?.serverOwned === true)}</details>` : "";
+  const advancedTools = hasAdvanced ? `<details class="market-advanced-settings"><summary>ADVANCED · MARGIN / SHORT / DERIVATIVES</summary>${marketToolsHTML(true)}${marketOptionFieldsHTML(complexity === "DERIVATIVES" && marketState.pricingPolicy?.serverOwned === true)}<div class="market-desk-actions">${advancedActions || '<span class="t-micro ink-3">No advanced actions available for this index.</span>'}</div></details>` : "";
   const accessibleChartSummary = esc(marketChartSummary(points, MARKET_LABELS[selectedIndex]));
   const ledgerCopy = markers.map(entry => `<li>Round ${Number(entry.roundNumber) || "?"}: ${String(entry.side).toUpperCase()} ${Number(entry.quantity) || 0} at $${Number(entry.quote) || 0}</li>`).join("");
   const signedPnl = position.unrealizedPnl > 0
@@ -253,21 +253,21 @@ function marketDeskHTML(marketState) {
   const cashCopy = Number.isFinite(cashValue) ? `$${Math.max(0, Math.floor(cashValue)).toLocaleString()} CASH ON HAND` : "CASH STATUS UNAVAILABLE";
   const selectedEvent = quoteSummary.eventId ? `GLOBAL EVENT · ${esc(quoteSummary.eventId)}` : "NO ACTIVE EVENT MARKER";
   return `<div class="market-desk-body">
-    <div class="market-desk-head"><div><span class="t-micro g400">FICTIONAL EXCHANGE · MARKET DESK</span><h2 class="t-section g100" id="market-modal-title">Market Desk</h2><p class="t-body ink-2" id="market-modal-description">Track shared sector prices, your positions, and server-settled orders.</p></div><button class="btn-dark" type="button" id="market-modal-close"><span class="t-label f11">CLOSE</span></button></div>
-    <div class="market-desk-summary"><span class="t-micro ink-3">MODE</span><strong class="t-label f12 g300">${complexity}</strong><span class="market-round-chip t-micro ink-3">ROUND ${Math.max(0, Number(marketState.round) || 0)}</span><span class="market-fee-chip t-micro ink-3">FEE 2% · MINIMUM $1</span>${marketIndexSelectHTML(marketState)}</div>
-    <div class="market-view-tabs" role="group" aria-label="Market Desk view">${marketViewButtonHTML("overview", "OVERVIEW")}${marketViewButtonHTML("trade", "TRADE")}</div>
+    <div class="market-desk-head"><div><h2 class="t-section g100" id="market-modal-title">Market Desk</h2><p class="t-body ink-2" id="market-modal-description">Shared sector prices and server-settled orders.</p></div>${closeButtonHTML({ id: "market-modal-close", label: "Close market desk" })}</div>
+    <div class="market-desk-summary"><div class="market-desk-meta"><span class="t-micro ink-3">MODE</span><strong class="t-label f12 g300">${complexity}</strong><span class="market-round-chip t-micro ink-3">ROUND ${Math.max(0, Number(marketState.round) || 0)}</span><span class="market-fee-chip t-micro ink-3">FEE 2% · MINIMUM $1</span></div></div>
+    <div class="market-workspace-toolbar"><label class="market-workspace-index"><span class="t-micro ink-3">SELECT INDEX</span><select class="field" id="market-workspace-index">${Object.entries(MARKET_LABELS).map(([id, label]) => `<option value="${id}"${id === selectedIndex ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label><div class="market-view-tabs" role="group" aria-label="Market Desk view">${marketViewButtonHTML("overview", "OVERVIEW")}${marketViewButtonHTML("trade", "TRADE")}</div></div>
     <div class="market-desk-layout">
       <section class="market-desk-center" aria-label="Selected index and price history">
-        <section class="market-selected-quote" aria-live="polite" aria-atomic="true"><div><span class="t-micro g400">SELECTED INDEX · ROUND ${quoteSummary.round}</span><h3 class="t-section g100" id="market-selected-index-name">${MARKET_LABELS[selectedIndex]}</h3><span class="t-micro ink-3">SHARED GAME QUOTE · ${selectedEvent}</span></div><div class="market-current-price"><span class="t-micro ink-3">CURRENT PRICE</span><strong class="market-current-price-value">${currentQuote}</strong><span class="t-label f11 g300" data-market-movement>${movement}</span></div></section>
+        ${marketSectorListHTML(marketState)}
+        <section class="market-selected-quote" aria-live="polite" aria-atomic="true"><div><h3 class="t-section g100" id="market-selected-index-name">${MARKET_LABELS[selectedIndex]}</h3><span class="t-micro ink-3">SHARED GAME QUOTE · ROUND ${quoteSummary.round} · ${selectedEvent}</span></div><div class="market-current-price"><span class="t-micro ink-3">CURRENT PRICE</span><strong class="market-current-price-value">${currentQuote}</strong><span class="t-label f11 g300" data-market-movement>${movement}</span></div></section>
         <div class="market-position-strip" aria-label="Your position in ${MARKET_LABELS[selectedIndex]}"><div><span class="t-micro ink-3">HELD</span><strong>${position.quantity} UNITS</strong></div><div><span class="t-micro ink-3">AVERAGE COST PER UNIT</span><strong>$${position.averageCostPerUnit.toLocaleString()}</strong></div><div><span class="t-micro ink-3">UNREALIZED P&amp;L</span><strong>${signedPnl}</strong></div><div><span class="t-micro ink-3">REALIZED P&amp;L</span><strong>$${position.realizedPnl.toLocaleString()}</strong></div></div>
         <section class="market-history" aria-labelledby="market-history-title"><div class="market-history-head"><h3 id="market-history-title" class="t-label f11 g100">${MARKET_LABELS[selectedIndex]} · SHARED PRICE HISTORY</h3><label class="market-history-range"><span class="t-micro ink-3">CHART RANGE</span><select class="field" id="market-desk-history-range"><option value="all"${selectedHistoryRange === "all" ? " selected" : ""}>ALL AVAILABLE</option><option value="8"${selectedHistoryRange === "8" ? " selected" : ""}>LAST 8 ROUNDS</option><option value="16"${selectedHistoryRange === "16" ? " selected" : ""}>LAST 16 ROUNDS</option><option value="32"${selectedHistoryRange === "32" ? " selected" : ""}>LAST 32 ROUNDS</option></select></label></div><div class="market-history-range-note t-micro ink-3">${historyRangeCaption} · ${points.length} DATA POINTS</div><p class="market-chart-summary sr-only" id="market-chart-summary">${accessibleChartSummary}</p><div class="market-quote-chart" data-market-quote-chart role="img" aria-label="${MARKET_LABELS[selectedIndex]} shared quote history" aria-describedby="market-chart-summary"></div>${points.length ? "" : '<p class="market-history-empty" role="status">No quote history is available yet. The current shared quote is shown above.</p>'}</section>
       </section>
       <aside class="market-trade-ticket" aria-labelledby="market-trade-ticket-title">
         <div class="market-ticket-head"><h3 class="t-label f11 g100" id="market-trade-ticket-title">TRADE TICKET</h3><span class="t-micro g300">SERVER SETTLED</span></div>
         <p class="market-ticket-instrument t-micro ink-2">${MARKET_LABELS[selectedIndex]} · ${currentQuote} PER UNIT</p>
-        <span class="market-ticket-cash t-micro ink-3">${cashCopy}</span>
         <div class="market-order-fields"><fieldset class="market-order-side"><legend class="t-micro ink-3">ACTION</legend><div role="group" aria-label="Order action"><button class="market-order-side-button${(deskDraft?.side || "buy") === "buy" ? " is-active" : ""}" type="button" data-market-order-side="buy" aria-pressed="${(deskDraft?.side || "buy") === "buy"}">BUY</button><button class="market-order-side-button${deskDraft?.side === "sell" ? " is-active" : ""}" type="button" data-market-order-side="sell" aria-pressed="${deskDraft?.side === "sell"}">SELL</button></div></fieldset><label><span class="t-micro ink-3">UNITS</span><input class="field" id="market-desk-quantity" type="number" min="1" max="1000" value="${quantity}" inputmode="numeric"></label></div>
-        <div class="market-order-breakdown" data-market-preview aria-live="polite"><span data-market-quote>QUOTE $${preview.quote.toLocaleString()} / UNIT</span><span data-market-gross>GROSS $${preview.gross.toLocaleString()}</span><span data-market-fee>FEE $${preview.fee.toLocaleString()}</span><strong data-market-total>${deskDraft?.side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} $${preview.net.toLocaleString()}</strong></div>
+        <div class="market-order-breakdown" data-market-preview aria-live="polite"><span data-market-quote>QUOTE $${preview.quote.toLocaleString()} / UNIT</span><span data-market-gross>GROSS $${preview.gross.toLocaleString()}</span><span data-market-fee>FEE $${preview.fee.toLocaleString()}</span><span class="market-breakdown-cash" data-market-cash>${cashCopy}</span><strong data-market-total>${deskDraft?.side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} $${preview.net.toLocaleString()}</strong></div>
         ${advancedTools}<p class="t-micro ink-3 economy-note">Existing obligations can block an order before any cash moves.</p>
         <button class="btn-dark market-order-submit" type="button" id="market-order-submit" data-market-basic-order data-market-id="${selectedIndex}" data-market-side="${deskDraft?.side || "buy"}"${quoteSummary.quote == null ? " disabled" : ""}><span class="t-label f11">${(deskDraft?.side || "buy").toUpperCase()} ${MARKET_LABELS[selectedIndex]}</span></button>
       </aside>
@@ -295,11 +295,25 @@ function restoreDeskDraft(card) {
 
 function bindMarketDesk(card) {
   card.querySelector("#market-modal-close")?.addEventListener("click", closeMarketDesk);
-  card.querySelectorAll("[data-market-view-select]").forEach(button => button.addEventListener("click", () => setMarketView(card, button.dataset.marketViewSelect)));
-  card.querySelector("#market-desk-index")?.addEventListener("change", event => {
+  card.querySelector("#market-workspace-index")?.addEventListener("change", event => {
+    if (!Object.hasOwn(MARKET_LABELS, event.currentTarget.value)) return;
     selectedIndex = event.currentTarget.value;
-    renderMarketDesk({ focusId: "market-desk-index" });
+    renderMarketDesk({ focusId: "market-workspace-index" });
   });
+  card.querySelectorAll("[data-market-sector]").forEach((button, index, buttons) => {
+    button.addEventListener("click", () => {
+      selectedIndex = button.dataset.marketSector;
+      renderMarketDesk({ focusId: `market-sector-${selectedIndex}` });
+    });
+    button.id = `market-sector-${button.dataset.marketSector}`;
+    button.addEventListener("keydown", event => {
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next].click();
+    });
+  });
+  card.querySelectorAll("[data-market-view-select]").forEach(button => button.addEventListener("click", () => setMarketView(card, button.dataset.marketViewSelect)));
   card.querySelectorAll("[data-market-order-side]").forEach(button => button.addEventListener("click", () => {
     deskDraft = { ...(captureDeskDraft(card) || {}), side: button.dataset.marketOrderSide };
     updateMarketPreview(card);
@@ -340,33 +354,34 @@ function updateMarketPreview(card) {
   }
 }
 
+export function marketChartMarkers(points, marketState, id = selectedIndex) {
+  const indexByRound = new Map(points.map((point, index) => [point.round, index]));
+  const events = points.flatMap((point, index) => (point.eventId ? [{ index, kind: "event", label: `EVENT · ${point.eventId}` }] : []));
+  const orders = personalMarketMarkers(marketState, id).flatMap(entry => {
+    const index = indexByRound.get(Number(entry.roundNumber));
+    if (index === undefined) return [];
+    const side = String(entry.side).toLowerCase() === "sell" ? "sell" : "buy";
+    return [{ index, kind: side, label: `YOUR ${side.toUpperCase()}` }];
+  });
+  return [...events, ...orders];
+}
+
 function renderMarketQuoteChart(card, marketState) {
   const container = card.querySelector("[data-market-quote-chart]");
   const points = selectedMarketPoints(marketState, selectedIndex, selectedHistoryLimit());
   if (!container || !points.length) return;
-  const chartPoints = points.map(point => ({ label: `R${point.round}`, value: point.value }));
-  const pointAtRound = round => points.find(point => point.round === round);
-  const eventMarkers = points.filter(point => point.eventId).map(point => ({ name: `EVENT · ${point.eventId}`, coord: [`R${point.round}`, point.value], value: "EVENT" }));
-  const orderMarkers = personalMarketMarkers(marketState, selectedIndex).flatMap(entry => {
-    const point = pointAtRound(Number(entry.roundNumber));
-    return point ? [{ name: `YOUR ${String(entry.side).toUpperCase()}`, coord: [`R${point.round}`, point.value], value: String(entry.side).toUpperCase() }] : [];
-  });
+  const title = `${MARKET_LABELS[selectedIndex]} shared quote history`;
   if (!chartContainer) chartContainer = container;
-  const options = createPoorupChartOptions(chartPoints, { mode: "line", title: `${MARKET_LABELS[selectedIndex]} shared quote history`, unit: "dollars", tokens: resolvePoorupChartTokens() });
-  options.series[0].markPoint = {
-    symbol: "rect", symbolSize: 12,
-    data: [...eventMarkers, ...orderMarkers],
-    itemStyle: { color: "var(--analytics-warning)", borderColor: "var(--theme-focus)", borderWidth: 1 },
-    label: { show: false },
-  };
-  void hydrateAnalyticsChart(container, chartPoints, { mode: "line", title: `${MARKET_LABELS[selectedIndex]} shared quote history`, unit: "dollars", tokens: resolvePoorupChartTokens() })
-    .then(chart => {
-      if (!container.isConnected || !card.isConnected || !card.closest("#market-modal") || card.closest("#market-modal").classList.contains("is-hidden")) {
-        chart?.dispose?.();
-        return;
-      }
-      chart?.instance?.setOption?.(options, { notMerge: true, lazyUpdate: false });
-  }).catch(() => { container.textContent = `Chart unavailable. ${marketChartSummary(points, MARKET_LABELS[selectedIndex])}`; });
+  try {
+    mountChart(container, {
+      kind: "area", unit: "dollars", title, baseline: "auto",
+      labels: points.map(point => `R${point.round}`),
+      series: [{ id: "quote", name: "Quote", values: points.map(point => point.value) }],
+      markers: marketChartMarkers(points, marketState),
+    }, { label: title });
+  } catch {
+    container.textContent = `Chart unavailable. ${marketChartSummary(points, MARKET_LABELS[selectedIndex])}`;
+  }
 }
 
 function onMarketBasicOrder(button, card) {
@@ -387,7 +402,7 @@ function onMarketBasicOrder(button, card) {
 function renderMarketDesk({ focusId = null } = {}) {
   const card = $("#market-card");
   if (!card) return;
-  if (chartContainer) disposeAnalyticsChart(chartContainer);
+  if (chartContainer) disposeChart(chartContainer);
   chartContainer = null;
   const activeElement = card.contains(document.activeElement) ? document.activeElement : null;
   const activeId = focusId || activeElement?.id || "";
@@ -496,7 +511,7 @@ export function closeMarketDesk() {
 }
 
 function disposeMarketChart() {
-  if (chartContainer) disposeAnalyticsChart(chartContainer);
+  if (chartContainer) disposeChart(chartContainer);
   chartContainer = null;
 }
 

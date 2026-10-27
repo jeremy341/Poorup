@@ -10,9 +10,10 @@ import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { avatarHTML } from "./clientSprites.js";
-import { AUCTION_MS, snoozeAuctionSurface } from "./clientStateSync.js";
+import { AUCTION_MS } from "./clientStateSync.js";
 import { accentOf, popIconHTML, kindLabel } from "./clientPopupUi.js";
 import { closeSurface } from "./clientSurfaces.js";
+import { emitIntent } from "./clientRequestController.js";
 
 let host = { emitServer: noop, say: noop, renderChat: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 
@@ -81,11 +82,17 @@ export function stopAuctionTimer() {
 
 export function startAuction(tile, control = document.activeElement, onFailure = noop) {
   const statusNode = host.captureActionStatusNode(control);
-  host.emitServer("decline-property", { tileIndex: tile.i }, (response) => {
-    if (response?.success === false) {
+  emitIntent(host.emitServer, `decline-property:${tile.i}`, "decline-property", { tileIndex: tile.i }, {
+    onResponse: (response) => {
+      if (response?.success === false) {
+        const retryStatusNode = onFailure();
+        host.announceActionStatus(response.error || "The auction could not be opened.", retryStatusNode || statusNode);
+      }
+    },
+    onTimeout: () => {
       const retryStatusNode = onFailure();
-      host.announceActionStatus(response.error || "The auction could not be opened.", retryStatusNode || statusNode);
-    }
+      host.announceActionStatus("The auction could not be confirmed. Try again.", retryStatusNode || statusNode);
+    },
   });
 }
 
@@ -193,11 +200,8 @@ export function renderAuction() {
   card.querySelectorAll("[data-bid]").forEach((btn) => {
     btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid), btn));
   });
-  $("#auction-close")?.addEventListener("click", () => {
-    // Dismissing a live auction snoozes re-rendering instead of fighting it.
-    snoozeAuctionSurface();
-    closeSurface("#auction-modal");
-  });
+  // closeSurface confirms, then snoozes this auction (Esc takes the same path).
+  $("#auction-close")?.addEventListener("click", () => closeSurface("#auction-modal"));
   updateAuctionLive();
   restoreAuctionFocus(focusKey);
 }
@@ -256,7 +260,9 @@ function renderAuctionStatus(a) {
 function disableAuctionBids(me, a) {
   $("#auction-card")?.querySelectorAll("[data-bid]").forEach((btn) => {
     const inc = Number(btn.dataset.bid);
-    btn.disabled = auctionActionPending || me.cash < a.bid + inc;
+    // aria-disabled (not disabled) keeps keyboard focus on the pressed bid
+    // button while its request is pending; clicks are ignored in humanBid.
+    btn.setAttribute("aria-disabled", String(auctionActionPending || me.cash < a.bid + inc));
     btn.title = `Raise to $${(a.bid + inc).toLocaleString()} · you hold $${Number(me.cash || 0).toLocaleString()}`;
   });
 }
@@ -283,10 +289,16 @@ function auctionPlayerRow(p, a) {
       </div>`;
 }
 
+const renderedPlayerLists = new WeakMap();
+
 function renderAuctionPlayers(a) {
   const listEl = $("#auction-players");
   if (!listEl) return;
-  listEl.innerHTML = state.players.map((p) => auctionPlayerRow(p, a)).join("");
+  // The countdown ticks ~16x/s; only rebuild (and re-hydrate avatars) on change.
+  const html = state.players.map((p) => auctionPlayerRow(p, a)).join("");
+  if (renderedPlayerLists.get(listEl) === html) return;
+  renderedPlayerLists.set(listEl, html);
+  listEl.innerHTML = html;
 }
 
 function updateAuctionLive() {

@@ -10,6 +10,7 @@ import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
 import { createDiceRollSequenceTracker } from "./clientDiceRollEffect.js";
 import { createPresentationQueue } from './clientPresentation.js';
 import { LANDING_DELAY_MS } from './gamePresentationTiming.js';
+import { normalizeFinalPlacements } from './clientGameResults.js';
 
 export const AUCTION_MS = 5000;
 let movementRevision = 0;
@@ -115,7 +116,7 @@ function syncClock(snapshot) {
 
 function voteKickView(vote) {
   if (!vote || typeof vote !== "object") return null;
-  const status = ["open", "active", "passed", "failed", "expired"].includes(vote.status) ? vote.status : null;
+  const status = ["open", "active", "passed", "failed", "expired", "closed"].includes(vote.status) ? vote.status : null;
   if (!status || typeof vote.voteId !== "string" || typeof vote.targetPlayerId !== "string") return null;
   const count = value => Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
   const timestamp = value => Number.isFinite(value) && value >= 0 ? value : null;
@@ -129,6 +130,7 @@ function voteKickView(vote) {
     noCount: count(vote.noCount),
     requiredYes: count(vote.requiredYes),
     status,
+    summary: typeof vote.summary === "string" ? vote.summary.slice(0, 200) : "",
   };
 }
 
@@ -185,6 +187,7 @@ export function serverPlayerView(player) {
     color: hexColor(player.color, "#cfa75f"),
     textColor: hexColor(player.textColor ?? player.color, "#e8d3ab"),
     cash: num(player.cash),
+    finalNetWorth: Number.isFinite(player.finalNetWorth) ? player.finalNetWorth : null,
     pos: num(player.position),
     online: !player.disconnected,
     presence: player.isBot ? null : {
@@ -244,6 +247,7 @@ function syncRoundFlags(game) {
   if (nextRoundNumber !== state.roundNumber || startedTransition) {
     state.gameOver = null;
   }
+  state.finalPlacements = normalizeFinalPlacements(game);
   state.gameStarted = nextGameStarted;
   state.dice = diceOf(game);
   state.diceRollSequence = Math.max(0, num(game.diceRollSequence));
@@ -269,19 +273,56 @@ function diceOf(game) {
   return [0, 0];
 }
 
-function syncContractOffer() {
+let announcedContractOfferKey = "";
+
+function contractOfferKey(offer) {
+  return `${offer?.id ?? ""}:${Math.max(0, Math.floor(Number(offer?.counterDepth) || 0))}`;
+}
+
+// The socket event and the snapshot can both carry the same offer; whichever
+// arrives first announces it and the other stays quiet.
+export function markContractOfferAnnounced(offer) {
+  announcedContractOfferKey = offer?.id ? contractOfferKey(offer) : "";
+}
+
+function syncContractOffer(host) {
   const pending = state.playerContracts.pending;
   if (!pending) {
     state.playerContractOffer = null;
+    announcedContractOfferKey = "";
     return;
   }
   const contractDepth = Math.max(0, Math.floor(Number(pending.counterDepth) || 0));
   const responderId = contractDepth % 2 === 0 ? pending.toPlayerId : pending.fromPlayerId;
   if (responderId === localServerId()) {
     state.playerContractOffer = pending;
+    // Bot-created offers send no socket event, so the snapshot raises the notice.
+    const key = contractOfferKey(pending);
+    if (key !== announcedContractOfferKey) {
+      announcedContractOfferKey = key;
+      const proposerId = responderId === pending.toPlayerId ? pending.fromPlayerId : pending.toPlayerId;
+      const proposer = state.players.find(player => player.serverId === proposerId);
+      host?.noticeContractOffer?.(pending, proposer?.name || "A player");
+    }
     return;
   }
   state.playerContractOffer = null;
+}
+
+function syncFlights(game) {
+  const incoming = game.flights || {};
+  state.flights = {
+    enabled: incoming.enabled === true,
+    defaultFare: num(incoming.defaultFare) || 100,
+    maxFee: num(incoming.maxFee) || 200,
+    options: arrayOr(incoming.options).map(option => ({
+      tileIndex: num(option.tileIndex),
+      fare: Math.max(0, num(option.fare)),
+      basis: ["arrival", "departure"].includes(option.basis) ? option.basis : "default",
+      payeeId: orNull(option.payeeId),
+      affordable: option.affordable === true,
+    })),
+  };
 }
 
 function syncEconomy(game) {
@@ -335,18 +376,26 @@ function wrapsWithinTwelve(from, to) {
   return (to - from + TILE_COUNT) % TILE_COUNT <= 12;
 }
 
-function movementPlanFor(player, previousPositions) {
+function isFlight(plan, lastFlight) {
+  return Boolean(lastFlight) && plan.player.serverId === lastFlight.playerId
+    && plan.from === lastFlight.from && plan.to === lastFlight.to;
+}
+
+// A flight teleports: the token snaps to the new airport instead of walking
+// (and visually crossing Start on the way round the board).
+function movementPlanFor(player, previousPositions, lastFlight = null) {
   const plan = { player, from: previousPositions.get(player.id), to: num(player.pos) };
   if (plan.from == null) return null;
   if (plan.from === plan.to) return null;
+  if (isFlight(plan, lastFlight)) return null;
   if (!wrapsWithinTwelve(plan.from, plan.to)) return null;
   return plan;
 }
 
-function movementPlansFrom(previousPositions) {
+function movementPlansFrom(previousPositions, lastFlight = null) {
   if (state.phase !== "playing") return [];
   return state.players
-    .map((player) => movementPlanFor(player, previousPositions))
+    .map((player) => movementPlanFor(player, previousPositions, lastFlight))
     .filter((plan) => plan);
 }
 
@@ -381,6 +430,19 @@ export function syncLog(game = {}) {
     .map(entry => entry.text);
 }
 
+function withoutBuildingSupplySettings(settings) {
+  const active = { ...settings };
+  delete active.houseLimit;
+  delete active.hotelLimit;
+  return active;
+}
+
+function withoutBuildingSupplyOverrides(entries) {
+  const source = Array.isArray(entries) ? entries
+    : entries && typeof entries === 'object' ? Object.entries(entries).map(([key, value]) => ({ key, value })) : [];
+  return source.filter(entry => entry?.key !== 'houseLimit' && entry?.key !== 'hotelLimit');
+}
+
 function syncRoomSettings(room) {
   const incoming = room.settings || {};
   const effective = room.ruleset?.effectiveSettings || {};
@@ -390,18 +452,30 @@ function syncRoomSettings(room) {
     ...effective,
     vacationPool: nullish(effective.vacationCash, nullish(incoming.vacationCash, state.settings.vacationPool)),
     noRentInJail: nullish(effective.noRentWhileInPrison, nullish(incoming.noRentWhileInPrison, state.settings.noRentInJail)),
-    rulesetPreset: room.ruleset?.preset || incoming.rulesetPreset || state.settings.rulesetPreset,
-    rulesetBase: room.ruleset?.base || incoming.rulesetBase || state.settings.rulesetBase,
     rulesetOverrides: room.ruleset?.overrides || incoming.rulesetOverrides || state.settings.rulesetOverrides,
     boardVariant: room.ruleset?.boardVariant || incoming.boardVariant || state.settings.boardVariant,
     marketComplexity: effective.marketComplexity || incoming.marketComplexity || state.settings.marketComplexity,
   };
+  state.settings = withoutBuildingSupplySettings(state.settings);
+  state.settings.rulesetOverrides = withoutBuildingSupplyOverrides(state.settings.rulesetOverrides);
+  if (state.ruleset) {
+    state.ruleset = { ...state.ruleset, effectiveSettings: withoutBuildingSupplySettings(state.ruleset.effectiveSettings) };
+    for (const key of ['overrides', 'rulesetOverrides']) {
+      if (state.ruleset[key] && typeof state.ruleset[key] === 'object') state.ruleset[key] = withoutBuildingSupplyOverrides(state.ruleset[key]);
+    }
+  }
 }
 
 function auctionView(auction) {
   const endsAt = Number(auction.endsAt);
+  const tileIndex = Number(auction.tileIndex);
   return {
-    tileIndex: Number(auction.tileIndex),
+    // Stable per-auction identity (the server stamps startedAt once) so a
+    // dismissal snoozes this auction only, never the next one on the tile.
+    id: `${tileIndex}:${num(auction.startedAt)}`,
+    // The server serialises a finished auction as active:false until cleared.
+    active: auction.active !== false,
+    tileIndex,
     bid: num(auction.highestBid),
     leaderId: findLocalPlayerId(auction.highestBidderId),
     // Never fabricate a deadline: without a server endsAt the UI shows
@@ -461,22 +535,24 @@ function scheduleWalks(movementPlans, host) {
   start();
 }
 
-let auctionSnoozeUntil = 0;
+let snoozedAuctionId = null;
 
-export function snoozeAuctionSurface(durationMs = 8000) {
-  auctionSnoozeUntil = Date.now() + Math.max(0, durationMs);
+/** Remember that the player dismissed the auction surface. The snooze is keyed
+ *  to the auction id: it holds for that auction's whole life (no timer that
+ *  reopens the card mid-bidding and steals focus) and never hides the next one. */
+export function snoozeAuctionSurface(auctionId = state.auction?.id) {
+  if (auctionId == null) return;
+  snoozedAuctionId = auctionId;
 }
 
 function syncAuctionSurface(host) {
   if (state.auction) {
-    // A manual close snoozes re-rendering so the surface stops fighting
-    // the player; a new auction tile still breaks through immediately.
-    if (Date.now() < auctionSnoozeUntil && state.auctionSnoozedTile === state.auction.tileIndex) return;
-    state.auctionSnoozedTile = state.auction.tileIndex;
+    if (snoozedAuctionId === state.auction.id) return;
+    snoozedAuctionId = null;
     host.openAuctionSurface();
     return;
   }
-  state.auctionSnoozedTile = null;
+  snoozedAuctionId = null;
   host.closeAuctionSurface();
 }
 
@@ -528,7 +604,7 @@ function syncWinner(game, host) {
   const winnerId = game.lastWinner.id;
   afterPieceMovement(() => {
     if (revision !== winnerSurfaceRevision || state.gameOver || game.lastWinner?.id !== winnerId) return;
-    host.showGameOver(orDefault(game.lastWinner.nickname, "The winner"), winnerId);
+    host.showGameOver(orDefault(game.lastWinner.nickname, "The winner"), winnerId, game.lastEndReason || null);
   });
 }
 
@@ -573,13 +649,14 @@ export function applyServerState(snapshot, host) {
   syncPlayers(remotePlayers, turnOrder);
   syncTurnPointer(game);
   syncRoundFlags(game);
-  syncContractOffer();
+  syncContractOffer(host);
   syncEconomy(game);
+  syncFlights(game);
   state.pool = num(game.vacationPool);
   syncDeedLayers();
   syncJail(remotePlayers);
   state.phase = phaseOf(game);
-  const movementPlans = movementPlansFrom(previousPositions);
+  const movementPlans = movementPlansFrom(previousPositions, game.lastFlight || null);
   state.turnStage = turnStageOf(game);
   syncActionLockFromSnapshot();
   syncLog(game);
@@ -600,6 +677,7 @@ export function applyServerState(snapshot, host) {
   syncView(host);
   if (!game.presentation) scheduleWalks(movementPlans, host);
   host.renderAll();
+  host.syncOfferSurface?.();
   if (game.presentation && presentationQueue.busy) afterPieceMovement(() => syncAuctionSurface(host));
   else syncAuctionSurface(host);
   syncDebtModal(game, host);

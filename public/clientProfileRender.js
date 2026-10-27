@@ -11,6 +11,10 @@ import { spriteFromGrid, avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { CONNECTION_COPY } from "./clientTopNavRender.js";
 import { MAX_PROFILES, profileDesignName } from "./clientSanitize.js";
 import { renderAccountRights } from "./clientAccountRights.js";
+import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
+import { formatHistoryDate, formatHistoryDateTime, formatHistoryMoney, formatSignedMoney } from "./clientHistoryFormat.js";
+import { sparklineSVG } from "./clientChartRender.js";
+import { mountChart, disposeChart, isChartMounted } from "./clientChartMount.js";
 
 const PROFILE_SWATCHES = ["#d74438", "#286ea1", "#d9a62f", "#35a653", "#a04e6f", "#3e7d7b", "#7b5029", "#cfa75f"];
 const FACE_PALETTE = ["#f0d9ac", "#e8d3ab", "#cfa75f", "#c88f2e", "#9b783d", "#5c5033", "#01070a", "#ffffff", "#d74438", "#35a653", "#286ea1", "#d9a62f"];
@@ -276,7 +280,7 @@ function profilePersonalRecordsHTML(ctx) {
 const ECONOMY_STAT_FIELDS = [
   ["CASINO NET", "casinoNet", (value) => `$${value.toLocaleString()}`],
   ["MARKET P/L", "marketProfit", (value) => `$${value.toLocaleString()}`],
-  ["PATROL BEST", "patrolBest"],
+  ...(PARLOR_PATROL_ENABLED ? [["PATROL BEST", "patrolBest"]] : []),
   ["BANK LOANS REPAID", "bankLoanRepayments"],
 ];
 
@@ -366,8 +370,8 @@ function recordedText(recordValue, key, format = (value) => String(value)) {
   return format(recordValue[key]);
 }
 
-function detailField(label, value) {
-  return `<div class="profile-history-detail-field"><dt class="t-micro ink-3">${label}</dt><dd class="t-label f12 g100">${value}</dd></div>`;
+function detailField(label, value, tone = "g100") {
+  return `<div class="profile-history-detail-field"><dt class="t-micro ink-3">${label}</dt><dd class="t-label f12 ${tone}">${value}</dd></div>`;
 }
 
 function ownParticipantResult(recordValue, accountId) {
@@ -385,33 +389,86 @@ function formatDuration(value) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function historySummaryFields(recordValue, participant, result) {
+function resultTone(result) {
+  if (result === "WIN") return "green";
+  if (result === "BANKRUPT") return "red";
+  return "g100";
+}
+
+function placementLabel(recordValue, participant) {
   const placement = participant?.finalPlacement ?? recordValue?.finalPlacement;
-  const board = recordValue?.boardVariant ?? recordValue?.rulesetPreset ?? recordValue?.rulesetBase;
+  if (placement == null) return "NOT RECORDED";
+  const field = Array.isArray(recordValue?.participants) && recordValue.participants.length ? ` OF ${recordValue.participants.length}` : "";
+  return `#${esc(placement)}${field}`;
+}
+
+function rulesLabel(recordValue) {
+  const overrides = recordValue?.rulesetOverrides;
+  if (!Array.isArray(overrides)) return "NOT RECORDED";
+  return overrides.length ? `${overrides.length} HOUSE RULE${overrides.length === 1 ? "" : "S"}` : "STANDARD RULES";
+}
+
+function historySummaryFields(recordValue, participant, result) {
+  const board = recordValue?.boardVariant;
   return [
-    detailField("MATCH", esc(recordedText(recordValue, "matchId"))),
-    detailField("RESULT", esc(result)),
+    detailField("RESULT", esc(result), resultTone(result)),
+    detailField("PLACEMENT", placementLabel(recordValue, participant)),
+    detailField("COMPLETED", esc(formatHistoryDateTime(recordValue?.completedAt))),
     detailField("DURATION", esc(recordedText(recordValue, "durationSeconds", formatDuration))),
     detailField("ROUNDS", esc(recordedText(recordValue, "roundCount"))),
-    detailField("BOARD / RULES", board == null ? "NOT RECORDED" : esc(String(board).toUpperCase())),
-    detailField("PLACEMENT", placement == null ? "NOT RECORDED" : `#${esc(placement)}`),
+    detailField("BOARD", board == null ? "NOT RECORDED" : esc(String(board).toUpperCase())),
+    detailField("RULES", esc(rulesLabel(recordValue)), hasHouseRules(recordValue) ? "g300" : "g100"),
+    detailField("MATCH", esc(recordedText(recordValue, "matchId")), "g-muted"),
   ].join("");
 }
 
-function historyPlayerRows(recordValue) {
+function placementRank(player) {
+  const placement = Number(player?.finalPlacement);
+  return Number.isInteger(placement) && placement > 0 ? placement : Infinity;
+}
+
+function byPlacement(a, b) {
+  const left = placementRank(a);
+  const right = placementRank(b);
+  return left === right ? 0 : left - right;
+}
+
+function historyPlayerTags(player, you) {
+  const youTag = you ? '<em class="profile-history-tag is-you">YOU</em>' : "";
+  const bankruptTag = player.bankrupt === true ? '<em class="profile-history-tag is-bankrupt">BANKRUPT</em>' : "";
+  return youTag + bankruptTag;
+}
+
+function historyPlayerRow(player, accountId) {
+  const you = accountId != null && player.accountId === accountId;
+  const rank = player.finalPlacement == null ? "NOT RECORDED" : `#${esc(player.finalPlacement)}`;
+  const cash = player.endingCash == null ? "—" : esc(formatHistoryMoney(player.endingCash, "—"));
+  const deeds = player.propertyCount == null ? "—" : `${esc(player.propertyCount)} ${Number(player.propertyCount) === 1 ? "DEED" : "DEEDS"}`;
+  return `<li class="profile-history-player${you ? " is-you" : ""}"><strong class="profile-history-player-rank t-label f12">${rank}</strong><span class="profile-history-player-name t-label f12">${esc(player.displayNameAtMatch || "PLAYER")}${historyPlayerTags(player, you)}</span><span class="profile-history-player-cash t-label f12">${cash}</span><span class="profile-history-player-deeds t-micro ink-3">${deeds}</span></li>`;
+}
+
+function historyPlayerRows(recordValue, accountId) {
   const participants = recordValue?.participants;
   if (!Array.isArray(participants) || !participants.length) return "<li>NOT RECORDED</li>";
-  return participants.map((player) => `<li><span>${esc(player.displayNameAtMatch || "PLAYER")}</span><strong>${player.finalPlacement == null ? "NOT RECORDED" : `#${esc(player.finalPlacement)}`}</strong></li>`).join("");
+  return [...participants].sort(byPlacement).map((player) => historyPlayerRow(player, accountId)).join("");
+}
+
+function netField(label, list, accountId) {
+  const entry = (Array.isArray(list) ? list : []).find((item) => item?.accountId === accountId);
+  const net = Number(entry?.net);
+  if (!entry || entry.net == null || !Number.isFinite(net)) return detailField(label, "NOT RECORDED");
+  return detailField(label, esc(formatSignedMoney(net)), net > 0 ? "green" : net < 0 ? "red" : "g100");
 }
 
 function historyEconomyFields(recordValue, participant, accountId) {
   return [
-    detailField("ENDING CASH", recordedText(participant, "endingCash", (value) => `$${Number(value).toLocaleString()}`)),
+    detailField("ENDING CASH", esc(recordedText(participant, "endingCash", (value) => formatHistoryMoney(value)))),
     detailField("PROPERTIES", historyPropertyCount(participant)),
-    detailField("CASINO NET", recordedText((recordValue?.casino || []).find((item) => item.accountId === accountId), "net", (value) => `$${Number(value).toLocaleString()}`)),
-    detailField("MARKET NET", recordedText((recordValue?.market || []).find((item) => item.accountId === accountId), "net", (value) => `$${Number(value).toLocaleString()}`)),
-    detailField("TRADES", recordedText(recordValue, "tradesCompleted")),
-    detailField("CONTRACTS", recordedText(recordValue, "playerContracts", (items) => Array.isArray(items) ? String(items.length) : "NOT RECORDED")),
+    netField("CASINO NET", recordValue?.casino, accountId),
+    netField("MARKET NET", recordValue?.market, accountId),
+    detailField("TRADES", esc(recordedText(recordValue, "tradesCompleted"))),
+    detailField("AUCTIONS", esc(recordedText(recordValue, "auctionsCompleted"))),
+    detailField("CONTRACTS", esc(recordedText(recordValue, "playerContracts", (items) => Array.isArray(items) ? String(items.length) : "NOT RECORDED"))),
   ].join("");
 }
 
@@ -422,10 +479,10 @@ function historyPropertyCount(participant) {
 }
 
 function historyEventList(recordValue) {
-  const events = Array.isArray(recordValue?.globalEvents) && recordValue.globalEvents.length
-    ? `<ul>${recordValue.globalEvents.map((event) => `<li>${esc(historyEventName(event))}</li>`).join("")}</ul>`
-    : "<p>NOT RECORDED</p>";
-  return events;
+  const events = recordValue?.globalEvents;
+  if (!Array.isArray(events)) return "<p>NOT RECORDED</p>";
+  if (!events.length) return "<p>NO GLOBAL EVENTS THIS ROUND</p>";
+  return `<ul>${events.map((event) => `<li>${esc(historyEventName(event))}</li>`).join("")}</ul>`;
 }
 
 function historyEventName(event) {
@@ -435,15 +492,49 @@ function historyEventName(event) {
   return "EVENT";
 }
 
+/** Net worth per round as a multi-line chart spec: you first (solid, primary), then the other seats. */
+export function historyNetWorthChartSpec(record, accountId) {
+  const rows = Array.isArray(record?.netWorthTimeline) ? record.netWorthTimeline : [];
+  const participants = Array.isArray(record?.participants) ? record.participants : [];
+  if (rows.length < 2 || !participants.length) return null;
+  const seats = participants.slice(0, 6).map((participant, index) => ({ participant, index })).sort((a, b) => Number(b.participant?.accountId === accountId) - Number(a.participant?.accountId === accountId));
+  return {
+    kind: "line",
+    unit: "dollars",
+    title: "Net worth by round",
+    labels: rows.map((row) => `R${Math.max(0, Math.floor(Number(row?.round) || 0))}`),
+    series: seats.map(({ participant, index }) => ({
+      id: participant?.accountId || `seat-${index}`,
+      name: `${participant?.displayNameAtMatch || "PLAYER"}${participant?.accountId === accountId ? " (you)" : ""}`,
+      values: rows.map((row) => (Array.isArray(row?.worth) ? row.worth[index] : null)),
+    })),
+  };
+}
+
+function historyWorthPanel(recordValue, accountId) {
+  const rows = recordValue?.netWorthTimeline;
+  if (!Array.isArray(rows)) return '<p class="profile-history-worth-empty">NOT RECORDED</p>';
+  const spec = historyNetWorthChartSpec(recordValue, accountId);
+  if (!spec) return '<p class="profile-history-worth-empty">NOT ENOUGH ROUNDS TO CHART</p>';
+  const last = rows[rows.length - 1];
+  const final = spec.series.map((series) => {
+    const seat = recordValue.participants.findIndex((participant, index) => index < 6 && (participant?.accountId || `seat-${index}`) === series.id);
+    const worth = Array.isArray(last?.worth) ? last.worth[seat] : null;
+    return `${esc(series.name)} ${worth == null ? "—" : esc(formatHistoryMoney(worth))}`;
+  }).join(" · ");
+  return `<div class="profile-history-chart" data-profile-history-chart="${esc(recordValue.matchId)}"></div><p class="t-micro ink-3 profile-history-chart-note">FINAL NET WORTH · ${final}</p><p class="t-micro ink-3 profile-history-chart-note">NET WORTH = CASH + DEEDS + BUILDINGS − DEBTS · ONE POINT PER ROUND</p>`;
+}
+
 function historyDetailPanels(recordValue, accountId, participant) {
   const result = matchResult(recordValue, accountId);
   const summaryFields = historySummaryFields(recordValue, participant, result);
-  const playerRows = historyPlayerRows(recordValue);
+  const playerRows = historyPlayerRows(recordValue, accountId);
   const economyFields = historyEconomyFields(recordValue, participant, accountId);
   const events = historyEventList(recordValue);
   return [
     ["summary", "SUMMARY", `<dl class="profile-history-detail-grid">${summaryFields}</dl>`],
     ["players", "PLAYERS", `<ul class="profile-history-player-list">${playerRows}</ul>`],
+    ["worth", "NET WORTH", historyWorthPanel(recordValue, accountId)],
     ["economy", "ECONOMY &amp; DEALS", `<dl class="profile-history-detail-grid">${economyFields}</dl>`],
     ["events", "EVENTS", `<div class="profile-history-event-list">${events}</div>`],
   ];
@@ -468,24 +559,129 @@ function ownerDetailsPanels(recordValue, accountId, detailId) {
   return `<div class="profile-history-details" id="${detailId}" data-profile-detail-source="${source}" hidden><div class="profile-history-detail-tabs" role="tablist" aria-label="Match details">${buttons}</div><div class="profile-detail-scroll" tabindex="0" aria-label="Scrollable match details">${contents}</div></div>`;
 }
 
+/** One labelled column of the collapsed row; a missing value reads as a dash but stays announced. */
+function historyStat(label, value) {
+  const shown = value == null ? '—<span class="sr-only">NOT RECORDED</span>' : esc(value);
+  return `<span class="profile-history-stat"><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${shown}</strong></span>`;
+}
+
+/** Ending cash only comes from the owner's private record, never from the public summary row. */
+function ownerCashValue(ownerRecord, accountId) {
+  const cash = ownParticipant(ownerRecord || {}, accountId)?.endingCash;
+  const number = cash == null ? null : Number(cash);
+  return number !== null && Number.isFinite(number) ? number : null;
+}
+
+function ownerEndingCash(ownerRecord, accountId) {
+  const value = ownerCashValue(ownerRecord, accountId);
+  return value === null ? null : formatHistoryMoney(value);
+}
+
+const STANDARD_BOARD = "standard-40";
+
+function boardOf(entry) {
+  return typeof entry?.boardVariant === "string" ? entry.boardVariant : "";
+}
+
+function hasHouseRules(entry) {
+  return Array.isArray(entry?.rulesetOverrides) && entry.rulesetOverrides.length > 0;
+}
+
+/** Small tags under the date: only what differs from a plain standard round, plus the best-cash round. */
+function historyChips(entry, best) {
+  const chips = [];
+  if (best) chips.push('<span class="profile-history-chip is-best">BEST CASH</span>');
+  if (hasHouseRules(entry)) chips.push('<span class="profile-history-chip">HOUSE RULES</span>');
+  const board = boardOf(entry);
+  if (board && board !== STANDARD_BOARD) chips.push(`<span class="profile-history-chip">${esc(board.toUpperCase())}</span>`);
+  return chips.join("");
+}
+
 export function profileHistoryRowHTML(entry, index, total, context = {}) {
-  const { accountId, ownerRecord = null } = context;
+  const { accountId, ownerRecord = null, best = false } = context;
   const matchId = typeof entry.matchId === "string" ? entry.matchId : "";
-  const date = formatStatDate(entry.completedAt || entry.playedAt);
+  const date = formatHistoryDate(entry.completedAt || entry.playedAt);
   const outcome = matchResult(entry, accountId);
   const won = outcome === "WIN";
-  const resultTone = won ? "green" : outcome === "BANKRUPT" ? "red" : "g100";
+  const bankrupt = outcome === "BANKRUPT";
   const deeds = deedCount(ownParticipant(entry, accountId), entry);
-  const playerCount = listSize(entry.participants, "NOT RECORDED");
   const lead = String(total - index).padStart(2, "0");
   const detailId = `profile-history-details-${safeId(matchId)}`;
-  const deedLabel = deeds == null ? "NOT RECORDED" : esc(deeds);
-  const eventCount = listSize(entry.globalEvents, "NOT RECORDED");
-  const rowContent = `<span class="profile-history-index t-micro ink-3">${lead}</span><span class="profile-history-main"><strong class="t-label f12 ${resultTone}">${esc(outcome)}</strong><span class="t-micro ink-3">${esc(date)} · ${esc(playerCount)} PLAYERS</span></span><span class="profile-history-meta"><span class="t-micro ink-3">DEEDS ${deedLabel}</span><span class="t-micro ink-3">${esc(eventCount)} EVENTS</span></span>`;
+  const stats = [
+    historyStat("PLAYERS", listSize(entry.participants, null)),
+    historyStat("DEEDS", deeds),
+    historyStat("ENDING CASH", ownerEndingCash(ownerRecord, accountId)),
+    historyStat("EVENTS", listSize(entry.globalEvents, null)),
+  ].join("");
+  const rowContent = `<span class="profile-history-index t-micro ink-3">${lead}</span><span class="profile-history-main"><strong class="t-label f12 ${resultTone(outcome)}">${esc(outcome)}</strong><span class="profile-history-subline"><span class="t-micro ink-3">${esc(date)}</span>${historyChips(entry, best)}</span></span><span class="profile-history-meta">${stats}</span>`;
   const summary = matchId
-    ? `<button type="button" class="profile-history-toggle" aria-label="Show details for ${esc(date)}: ${esc(outcome)}" aria-expanded="false" aria-controls="${detailId}" data-profile-history-toggle="${esc(matchId)}">${rowContent}<span class="t-micro g400" aria-hidden="true">DETAILS +</span></button>`
-    : `<div class="profile-history-summary">${rowContent}<span class="t-micro ink-3">DETAILS NOT RECORDED</span></div>`;
-  return `<article class="profile-history-row${won ? " is-win" : ""}" data-profile-history-row="${esc(matchId)}">${summary}${matchId ? ownerDetailsPanels(ownerRecord, accountId, detailId) : ""}</article>`;
+    ? `<button type="button" class="profile-history-toggle" aria-label="Show details for ${esc(date)}: ${esc(outcome)}" aria-expanded="false" aria-controls="${detailId}" data-profile-history-toggle="${esc(matchId)}">${rowContent}<span class="profile-history-toggle-label t-micro g400" aria-hidden="true">DETAILS +</span></button>`
+    : `<div class="profile-history-summary">${rowContent}<span class="profile-history-toggle-label is-static t-micro ink-3">DETAILS NOT RECORDED</span></div>`;
+  return `<article class="profile-history-row${won ? " is-win" : ""}${bankrupt ? " is-bankrupt" : ""}" data-profile-history-row="${esc(matchId)}">${summary}${matchId ? ownerDetailsPanels(ownerRecord, accountId, detailId) : ""}</article>`;
+}
+
+/* Which rows are open (and on which detail tab) outlives a re-render, so a sound
+   toggle or an account sync never folds the round the player is reading. */
+const openHistoryRows = new Map();
+
+/** Charts exist only while their tab is showing: hidden panels have no width, and each mount owns an observer. */
+function syncHistoryChart(row) {
+  const host = row?.querySelector(".profile-history-chart");
+  if (!host) return;
+  if (host.closest("[hidden]")) {
+    disposeChart(host);
+    return;
+  }
+  if (isChartMounted(host)) return;
+  const account = state.account?.account;
+  const record = (Array.isArray(account?.matchHistory) ? account.matchHistory : []).find((entry) => entry?.matchId === host.dataset.profileHistoryChart);
+  const spec = historyNetWorthChartSpec(record, account?.id);
+  if (spec) mountChart(host, spec, { label: spec.title });
+}
+
+export function setProfileHistoryExpanded(toggle, expanded) {
+  const details = document.getElementById(toggle.getAttribute("aria-controls"));
+  if (!details) return false;
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.setAttribute("aria-label", profileHistoryToggleAccessibleName(toggle.getAttribute("aria-label"), expanded));
+  toggle.querySelector("[aria-hidden='true']")?.replaceChildren(document.createTextNode(expanded ? "DETAILS −" : "DETAILS +"));
+  details.hidden = !expanded;
+  const matchId = toggle.dataset.profileHistoryToggle;
+  if (!expanded) openHistoryRows.delete(matchId);
+  else if (!openHistoryRows.has(matchId)) openHistoryRows.set(matchId, "summary");
+  syncHistoryChart(toggle.closest("[data-profile-history-row]"));
+  return true;
+}
+
+export function selectProfileHistoryDetailTab(tab) {
+  const details = tab.closest(".profile-history-details");
+  if (!details) return;
+  const selected = tab.getAttribute("aria-controls");
+  details.querySelectorAll("[data-profile-history-detail-tab]").forEach((button) => {
+    const active = button === tab;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  details.querySelectorAll("[role='tabpanel']").forEach((panel) => {
+    panel.hidden = panel.id !== selected;
+  });
+  const row = tab.closest("[data-profile-history-row]");
+  if (row) openHistoryRows.set(row.dataset.profileHistoryRow, tab.dataset.profileHistoryDetailTab);
+  syncHistoryChart(row);
+}
+
+function restoreOpenHistoryRows(root) {
+  const rows = [...root.querySelectorAll("[data-profile-history-row]")];
+  for (const [matchId, tabKey] of [...openHistoryRows]) {
+    const row = rows.find((candidate) => candidate.dataset.profileHistoryRow === matchId);
+    const toggle = row?.querySelector("[data-profile-history-toggle]");
+    if (!toggle || !setProfileHistoryExpanded(toggle, true)) {
+      openHistoryRows.delete(matchId);
+      continue;
+    }
+    const tab = [...row.querySelectorAll("[data-profile-history-detail-tab]")].find((button) => button.dataset.profileHistoryDetailTab === tabKey);
+    if (tab) selectProfileHistoryDetailTab(tab);
+  }
 }
 
 function emptyHistoryPanelHTML(account) {
@@ -495,13 +691,150 @@ function emptyHistoryPanelHTML(account) {
   return `<section class="panel noise pad16 profile-empty-panel"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2></div><p class="t-body ink-2">${message}</p><p class="t-micro ink-3">Only completed server rounds appear here. Guest play remains available without an account.</p></section>`;
 }
 
-function historyPanelHTML(history, accountId) {
-  const ownerRecords = new Map((Array.isArray(state.account?.account?.matchHistory) ? state.account.account.matchHistory : []).filter((entry) => typeof entry?.matchId === "string").map((entry) => [entry.matchId, entry]));
-  const rows = history.map((entry, index) => profileHistoryRowHTML(entry, index, history.length, {
-    accountId,
-    ownerRecord: ownerRecords.get(entry.matchId) || null,
-  })).join("");
-  return `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3">${history.length} SAVED</span></div><div class="profile-history-list">${rows}</div><p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.</p></section>`;
+/* ---------- summary strip, filters, count ---------- */
+
+function placementNumber(entry, accountId) {
+  const placement = Number(ownParticipant(entry, accountId)?.finalPlacement ?? entry.finalPlacement);
+  return Number.isInteger(placement) && placement > 0 ? placement : null;
+}
+
+/** Record-level numbers for the strip above the list. `cashTrend` runs oldest to newest. */
+export function profileHistorySummary(history, accountId, ownerRecords = new Map()) {
+  const outcomes = history.map((entry) => matchResult(entry, accountId));
+  const known = outcomes.filter((outcome) => outcome === "WIN" || outcome === "BANKRUPT" || outcome.startsWith("PLACED #"));
+  const wins = outcomes.filter((outcome) => outcome === "WIN").length;
+  const placements = history.map((entry) => placementNumber(entry, accountId)).filter((placement) => placement !== null);
+  let winStreak = 0;
+  for (const outcome of outcomes) {
+    if (outcome !== "WIN") break;
+    winStreak += 1;
+  }
+  const cashes = history.map((entry) => ownerCashValue(ownerRecords.get(entry.matchId) || null, accountId));
+  const present = cashes.filter((cash) => cash !== null);
+  const bestCash = present.length ? Math.max(...present) : null;
+  return {
+    rounds: history.length,
+    wins,
+    known: known.length,
+    winRate: known.length ? Math.round((wins / known.length) * 100) : null,
+    averagePlacement: placements.length ? placements.reduce((sum, placement) => sum + placement, 0) / placements.length : null,
+    winStreak,
+    cashTrend: [...cashes].reverse(),
+    bestCash,
+    bestIndex: bestCash === null ? -1 : cashes.indexOf(bestCash),
+  };
+}
+
+function summaryStripHTML(summary) {
+  const cells = [
+    ["ROUNDS", String(summary.rounds), "g100"],
+    ["WINS", summary.known ? `${summary.wins} · ${summary.winRate}%` : "—", summary.wins ? "green" : "g100"],
+    ["AVG PLACE", summary.averagePlacement === null ? "—" : `#${summary.averagePlacement.toFixed(1)}`, "g100"],
+    ["WIN STREAK", summary.winStreak ? String(summary.winStreak) : "—", summary.winStreak ? "green" : "g100"],
+    ["BEST CASH", summary.bestCash === null ? "—" : formatHistoryMoney(summary.bestCash), "g100"],
+  ];
+  const points = summary.cashTrend.filter((cash) => cash !== null).length;
+  const trend = points >= 2
+    ? `<div class="profile-history-trend"><span class="t-micro ink-3">ENDING CASH TREND</span>${sparklineSVG(summary.cashTrend, { width: 168, height: 28, label: `Ending cash across your last ${points} recorded rounds, oldest to newest` })}</div>`
+    : "";
+  return `<div class="profile-history-strip" role="group" aria-label="Round history summary">${cells.map(([label, value, tone]) => `<div class="profile-history-strip-cell"><span class="t-micro ink-3">${label}</span><strong class="t-label f14 ${tone}">${value}</strong></div>`).join("")}${trend}</div>`;
+}
+
+const RESULT_FILTERS = [["all", "ALL"], ["win", "WINS"], ["placed", "PLACED"], ["bankrupt", "BANKRUPT"]];
+const historyFilters = { result: "all", board: "all", houseRules: false };
+
+function resultKind(outcome) {
+  if (outcome === "WIN") return "win";
+  if (outcome === "BANKRUPT") return "bankrupt";
+  return outcome.startsWith("PLACED #") ? "placed" : "other";
+}
+
+export function filterProfileHistory(history, accountId, filters = historyFilters) {
+  return history.filter((entry) => {
+    if (filters.result !== "all" && resultKind(matchResult(entry, accountId)) !== filters.result) return false;
+    if (filters.board !== "all" && boardOf(entry) !== filters.board) return false;
+    return !filters.houseRules || hasHouseRules(entry);
+  });
+}
+
+export function profileHistoryCountLabel({ shown, saved, total, filtered }) {
+  if (filtered) return `SHOWING ${shown} OF ${saved}`;
+  return total > saved ? `${saved} OF ${total} ROUNDS LISTED` : `${saved} SAVED`;
+}
+
+function historyToolbarHTML(history, hasRows) {
+  const boards = [...new Set(history.map(boardOf).filter(Boolean))];
+  const houseRuleRounds = history.filter(hasHouseRules).length;
+  const pressed = (key) => String(historyFilters.result === key);
+  const results = RESULT_FILTERS.map(([key, label]) => `<button type="button" class="profile-history-filter${historyFilters.result === key ? " is-active" : ""}" aria-pressed="${pressed(key)}" data-profile-history-filter="result:${key}">${label}</button>`).join("");
+  const board = boards.length > 1
+    ? `<label class="profile-history-select"><span class="t-micro ink-3">BOARD</span><select data-profile-history-filter="board"><option value="all">ALL BOARDS</option>${boards.map((value) => `<option value="${esc(value)}"${historyFilters.board === value ? " selected" : ""}>${esc(value.toUpperCase())}</option>`).join("")}</select></label>`
+    : "";
+  const rules = houseRuleRounds
+    ? `<button type="button" class="profile-history-filter${historyFilters.houseRules ? " is-active" : ""}" aria-pressed="${historyFilters.houseRules}" data-profile-history-filter="houseRules">HOUSE RULES · ${houseRuleRounds}</button>`
+    : "";
+  const bulk = hasRows
+    ? '<div class="profile-history-bulk"><button type="button" class="profile-history-filter" data-profile-history-bulk="expand">EXPAND ALL</button><button type="button" class="profile-history-filter" data-profile-history-bulk="collapse">COLLAPSE ALL</button></div>'
+    : "";
+  return `<div class="profile-history-toolbar"><div class="profile-history-filters" role="group" aria-label="Filter completed rounds">${results}${board}${rules}</div>${bulk}</div>`;
+}
+
+export function historyPanelHTML(history, account) {
+  const accountId = account.id;
+  const ownerRecords = new Map((Array.isArray(account.matchHistory) ? account.matchHistory : []).filter((entry) => typeof entry?.matchId === "string").map((entry) => [entry.matchId, entry]));
+  if (historyFilters.board !== "all" && !history.some((entry) => boardOf(entry) === historyFilters.board)) historyFilters.board = "all";
+  const summary = profileHistorySummary(history, accountId, ownerRecords);
+  const shown = filterProfileHistory(history, accountId);
+  const filtered = shown.length !== history.length;
+  const total = Math.max(history.length, Math.floor(Number(account.stats?.gamesPlayed) || 0));
+  const rows = shown.map((entry) => {
+    const index = history.indexOf(entry);
+    return profileHistoryRowHTML(entry, index, history.length, { accountId, ownerRecord: ownerRecords.get(entry.matchId) || null, best: index === summary.bestIndex });
+  }).join("");
+  const list = shown.length
+    ? `<div class="profile-history-list">${rows}</div>`
+    : '<div class="profile-history-empty" role="status"><p class="t-body ink-2">NO ROUNDS MATCH THESE FILTERS.</p><button type="button" class="btn-dark" data-profile-history-filter="clear"><span class="t-label f11">CLEAR FILTERS</span></button></div>';
+  const count = profileHistoryCountLabel({ shown: shown.length, saved: history.length, total, filtered });
+  const older = total > history.length ? " Older rounds still count toward your statistics but are no longer listed." : "";
+  return `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3" role="status" aria-live="polite">${count}</span></div>${summaryStripHTML(summary)}${historyToolbarHTML(history, shown.length > 0)}${list}<p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.${older}</p></section>`;
+}
+
+/** Filters live outside the markup so they survive every re-render, like the open rows. */
+export function setProfileHistoryFilter(spec) {
+  const text = String(spec);
+  const split = text.indexOf(":");
+  const key = split === -1 ? text : text.slice(0, split);
+  const value = split === -1 ? "" : text.slice(split + 1);
+  if (key === "result" && RESULT_FILTERS.some(([name]) => name === value)) historyFilters.result = value;
+  else if (key === "board") historyFilters.board = value || "all";
+  else if (key === "houseRules") historyFilters.houseRules = !historyFilters.houseRules;
+  else if (key === "clear") Object.assign(historyFilters, { result: "all", board: "all", houseRules: false });
+  else return false;
+  renderProfileHistory();
+  return true;
+}
+
+export function setAllProfileHistoryRowsExpanded(expanded) {
+  $("#profile-history-content")?.querySelectorAll("[data-profile-history-toggle]").forEach((toggle) => {
+    if ((toggle.getAttribute("aria-expanded") === "true") !== expanded) setProfileHistoryExpanded(toggle, expanded);
+  });
+}
+
+const FOCUS_ATTRIBUTES = ["data-profile-history-filter", "data-profile-history-bulk", "data-profile-history-toggle"];
+
+function historyFocusTarget(root) {
+  const active = globalThis.document?.activeElement;
+  if (!active || !root.contains(active)) return null;
+  for (const attribute of FOCUS_ATTRIBUTES) {
+    const value = active.getAttribute?.(attribute);
+    if (value !== null && value !== undefined) return { attribute, value };
+  }
+  return null;
+}
+
+function restoreHistoryFocus(root, target) {
+  if (!target) return;
+  [...root.querySelectorAll(`[${target.attribute}]`)].find((candidate) => candidate.getAttribute(target.attribute) === target.value)?.focus({ preventScroll: true });
 }
 
 export function renderProfileHistory() {
@@ -510,12 +843,18 @@ export function renderProfileHistory() {
   const account = state.account?.account || null;
   const history = accountHistoryList(account);
   if (!account || !history.length) {
+    openHistoryRows.clear();
+    root.querySelectorAll(".profile-history-chart").forEach(disposeChart);
     root.innerHTML = emptyHistoryPanelHTML(account);
     hydrateSprites(root);
     return;
   }
-  root.innerHTML = historyPanelHTML(history, account.id);
+  const focus = historyFocusTarget(root);
+  root.querySelectorAll(".profile-history-chart").forEach(disposeChart);
+  root.innerHTML = historyPanelHTML(history, account);
+  restoreOpenHistoryRows(root);
   hydrateSprites(root);
+  restoreHistoryFocus(root, focus);
 }
 
 function accountAvatarMarkup(visual) {
@@ -643,14 +982,14 @@ function tileSelectHTML(p, i, selected) {
     return `<div class="pl-tile-select pl-tile-draft" aria-label="Unsaved design preview">${av}<span class="pl-tile-info">${name}<span class="t-micro g400">UNSAVED DRAFT · LIVE PREVIEW</span></span></div>`;
   }
   const status = tileStateLabel(selected, Boolean(p.isEditing));
-  return `<button class="pl-tile-select" type="button" data-profile-select="${p.id}" aria-pressed="${selected}">${av}<span class="pl-tile-info">${name}${status}</span></button>`;
+  return `<button class="pl-tile-select" type="button" data-profile-select="${esc(p.id)}" aria-pressed="${selected}">${av}<span class="pl-tile-info">${name}${status}</span></button>`;
 }
 
 function tileActionsHTML(p) {
   if (p.isDraft) {
     return `<div class="pl-tile-actions"><span class="t-micro g400 pl-draft-badge">DRAFT</span></div>`;
   }
-  return `<div class="pl-tile-actions"><button class="btn-dark" type="button" data-profile-edit="${p.id}"><span class="t-label">EDIT</span></button><button class="btn-dark pl-delete" type="button" data-profile-delete="${p.id}"><span class="t-label">DELETE</span></button></div>`;
+  return `<div class="pl-tile-actions"><button class="btn-dark" type="button" data-profile-edit="${esc(p.id)}"><span class="t-label">EDIT</span></button><button class="btn-dark pl-delete" type="button" data-profile-delete="${esc(p.id)}"><span class="t-label">DELETE</span></button></div>`;
 }
 
 function libraryTileHTML(p, i, activeId) {
