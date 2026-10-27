@@ -33,7 +33,7 @@ async function installRenderedFixture(page, pageErrors = []) {
     state.pendingBuyTile = null;
     state.auction = null;
     state.sponsorship = null;
-    state.settings = { startingCash: 1500, houseLimit: 32, hotelLimit: 12 };
+    state.settings = { startingCash: 1500 };
     state.log = ['Fixture rent posted', 'Fixture roll recorded', 'Fixture turn started'];
     state.lastGameFeed = state.log.slice();
     state.tab = 'holdings';
@@ -354,7 +354,9 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
     readings.push(base.geometry);
     recordOverflowFailure(overflowFailures, name, null, base.geometry);
     const groupOrder = await capturePage.locator('#rr-body [data-deed-open]').evaluateAll(nodes => nodes.map(node => node.dataset.deedOpen));
-    expect(groupOrder).toEqual(['1', '3', '6', '8', '5', '12']);
+    expect(groupOrder).toEqual(['5', '12', '6', '8', '1', '3']);
+    await expect(capturePage.locator('#rr-body .holdings-deeds .prop-rent')).toHaveCount(0);
+    await expect(capturePage.locator('#rr-body .prop-meta').first()).toBeVisible();
 
     await capturePage.evaluate(async () => {
       const { toggleLogDrawerFromButton } = await import('/clientLogDrawer.js');
@@ -365,10 +367,12 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
     recordOverflowFailure(overflowFailures, name, 'log', logShot.geometry);
     await capturePage.locator('.tile[data-tile="1"]').focus();
     await capturePage.keyboard.press('Enter');
-    await expect(capturePage.locator('#popup')).not.toHaveClass(/is-hidden/);
-    await expect(capturePage.locator('#log-drawer')).toHaveClass(/is-open/);
-    await capturePage.locator('#pop-close').click();
+    await expect(capturePage.locator('#deed-modal')).not.toHaveClass(/is-hidden/);
     await expect(capturePage.locator('#popup')).toHaveClass(/is-hidden/);
+    await expect(capturePage.locator('#log-drawer')).toHaveClass(/is-open/);
+    await capturePage.locator('#dd-close').click();
+    await expect(capturePage.locator('#deed-modal')).toHaveClass(/is-hidden/);
+    await expect(capturePage.locator('.tile[data-tile="1"]')).toBeFocused();
     await expect(capturePage.locator('#log-drawer')).toHaveClass(/is-open/);
     await capturePage.evaluate(() => document.querySelector('#log-drawer')?.classList.remove('is-open'));
 
@@ -376,11 +380,11 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
       window.__qaFixture.modals.openBankruptcyModal(0, 1450, 'Fixture Bank', 'Fixture rent is due.');
     });
     const numericFonts = await capturePage.evaluate(() => ({
-      sidebarPrice: getComputedStyle(document.querySelector('#rr-body .deed-price')).fontFamily,
+      sidebarPrice: getComputedStyle(document.querySelector('#rr-body .prop-meta')).fontFamily,
       debtAmounts: [...document.querySelectorAll('#bankruptcy-card .numeric')].map(element => getComputedStyle(element).fontFamily),
     }));
     console.log(`NUMERIC FONTS ${name} ${JSON.stringify(numericFonts)}`);
-    if (!numericFonts.sidebarPrice.includes('Silkscreen') || numericFonts.debtAmounts.some(family => !family.includes('Silkscreen'))) {
+    if (!/Silkscreen|PoorupDigits/.test(numericFonts.sidebarPrice) || numericFonts.debtAmounts.some(family => !/Silkscreen|PoorupDigits/.test(family))) {
       numericFontFailures.push({ viewport: name, ...numericFonts });
     }
     const debtShot = await captureView(capturePage, name, 'debt-modal');

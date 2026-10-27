@@ -30,7 +30,7 @@ test('in-game player card stays compact at desktop and iPad sizes', async ({ pag
   await guest.locator('#join-nickname').fill('UXGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.locator('#su-start').click();
-  await expect(page.locator('#lobby-settings-body')).toContainText('UXGUEST');
+  await expect(page.locator('#player-list')).toContainText('UXGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();
 

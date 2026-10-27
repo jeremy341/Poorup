@@ -13,22 +13,22 @@ test.describe("Batch 3 responsive and accessibility contracts", () => {
     expect(size.height).toBeGreaterThanOrEqual(40);
   });
 
-  test("mobile Rules intro keeps copy and reference metadata readable", async ({ page }) => {
+  test("mobile Rules intro keeps its copy and search readable", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto("/?rules=book");
     await expect(page.locator(".rules-intro")).toBeVisible();
     const metrics = await page.evaluate(() => {
       const intro = document.querySelector(".rules-intro");
       const copy = document.querySelector(".rules-intro-copy");
-      const meta = document.querySelector(".rules-intro-meta");
+      const search = document.querySelector(".rules-intro .rules-toolbar");
       const introBox = intro.getBoundingClientRect();
       const copyBox = copy.getBoundingClientRect();
-      const metaBox = meta.getBoundingClientRect();
-      return { introWidth: introBox.width, copyWidth: copyBox.width, metaWidth: metaBox.width };
+      const searchBox = search.getBoundingClientRect();
+      return { introWidth: introBox.width, copyWidth: copyBox.width, searchWidth: searchBox.width };
     });
     expect(metrics).not.toBeNull();
     expect(metrics.copyWidth).toBeGreaterThanOrEqual(180);
-    expect(metrics.metaWidth).toBeGreaterThanOrEqual(300);
+    expect(metrics.searchWidth).toBeGreaterThanOrEqual(300);
   });
 
   test("mobile Home patrol readouts do not overlap the wordmark", async ({ page }) => {
@@ -38,7 +38,7 @@ test.describe("Batch 3 responsive and accessibility contracts", () => {
       const title = document.querySelector("#view-home .wm-hero")?.getBoundingClientRect();
       const readouts = [".home-local-time", ".home-patrol-score", ".home-patrol-hint"]
         .map((selector) => document.querySelector(`#view-home ${selector}`)?.getBoundingClientRect())
-        .filter(Boolean);
+        .filter((box) => box && box.width > 0 && box.height > 0);
       return { title, readouts, overlap: readouts.some((box) => {
         return box.left < title.right && box.right > title.left && box.top < title.bottom && box.bottom > title.top;
       }) };
