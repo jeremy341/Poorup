@@ -106,6 +106,12 @@ jobs:
           if [ "$EVENT_NAME" = "push" ] && [ "$PUSH_BRANCH" != "development" ]; then
             SERVER_CHANGED=false
           fi
+          # A push to main is the post-merge check of a promotion that already
+          # passed the heavy testing tier. The fast tier's tree check proves main
+          # carries exactly the tested testing tree; a light run did not (G12-04).
+          if [ "$EVENT_NAME" = "push" ] && [ "$PUSH_BRANCH" = "main" ]; then
+            tier=fast
+          fi
           if [ "$EVENT_NAME" = "merge_group" ]; then
             # Merge-queue groups always run the full tier of their base lane;
             # path filtering does not apply to queued merge results.
@@ -191,6 +197,13 @@ jobs:
       - run: npm run lint:client
       - name: Validate the unique test manifest
         run: node scripts/test-manifest.test.mjs
+      - name: Docs contract suites (run on every tier, including docs-only pull requests)
+        # Docs-only changes select the light-slim tier, which runs no server
+        # suites. These two suites are what keep README and feature-status claims
+        # honest, so they run here unconditionally (G12-05).
+        run: |
+          node server/docs-parity.test.js
+          node server/docsFeatureStatus.test.js
 
   server-tests:
     name: server and client contracts · shard ${{ matrix.shard }}
@@ -271,7 +284,10 @@ jobs:
           path: .nyc_output
           merge-multiple: true
       - name: Merge and report coverage
-        run: npx c8 report --temp-directory .nyc_output --include="server/**" --reporter=text --reporter=lcov
+        # Floors sit one point under the measured core-group baseline (lines and
+        # statements 89.6, functions 88.1, branches 77.7 on the server tree). A
+        # drop below a floor fails the job; raise the floors when coverage rises.
+        run: npx c8 report --temp-directory .nyc_output --include="server/**" --reporter=text --reporter=lcov --check-coverage --lines 88 --functions 87 --branches 76 --statements 88
       # The repository is public; Codecov uploads work without a token, and
       # omitting one keeps forked PRs out of the secret path entirely.
       - name: Upload coverage to Codecov
@@ -320,8 +336,16 @@ jobs:
         if: steps.node-modules.outputs.cache-hit != 'true'
       - name: The shipped package manifest parses
         run: node -e "JSON.parse(require('fs').readFileSync('package.json'))"
-      - name: Server boots and serves the app shell
+      - name: Server boots and serves the app shell in production mode
+        # Production turns on the origin allow-list, the absolute storage-path
+        # guard and the backup readiness gate. The default boot exercised none of
+        # them (G12-10). The directories live under the runner temp dir, outside
+        # the checkout, as the production guard requires.
         run: |
+          BOOT_DIR="$RUNNER_TEMP/poorup-boot"
+          mkdir -p "$BOOT_DIR/data" "$BOOT_DIR/backups"
+          NODE_ENV=production POORUP_ALLOWED_ORIGINS=http://localhost:8099 POORUP_DATA_DIR="$BOOT_DIR/data" POORUP_BACKUP_DIR="$BOOT_DIR/backups" \
+          POORUP_HTTP_RATE_LIMIT=240 POORUP_HTTP_RATE_WINDOW_MS=60000 POORUP_SOCKET_RATE_LIMIT=120 POORUP_SOCKET_RATE_WINDOW_MS=60000 \
           PORT=8099 node server/server.js & SERVER_PID=$!
           for i in $(seq 1 30); do
             curl -fsS localhost:8099/ >/dev/null 2>&1 && break
@@ -331,6 +355,31 @@ jobs:
           curl -fsS localhost:8099/healthz | grep -q '"status":"ok"'
           curl -fsS localhost:8099/readyz | grep -q '"status":"ready"'
           kill $SERVER_PID
+
+  docker:
+    name: container image smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [plan]
+    if: contains(fromJson('["light", "heavy", "fast"]'), needs.plan.outputs.tier)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t poorup:ci .
+      - name: The image boots in production mode and reports ready
+        # The image runs as the node user and keeps its stores in the declared
+        # volume (G12-11, E37-06). The origin allow-list is required in production.
+        run: |
+          docker run -d --name poorup-ci -p 8080:8080 -e POORUP_ALLOWED_ORIGINS=http://localhost:8080 poorup:ci
+          for i in $(seq 1 60); do
+            curl -fsS localhost:8080/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS localhost:8080/healthz | grep -q '"status":"ok"'
+          curl -fsS localhost:8080/readyz | grep -q '"status":"ready"'
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs poorup-ci
 
   browser-shards:
     name: browser QA shard ${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }}
@@ -373,7 +422,7 @@ jobs:
             sleep 0.5
           done
           curl -fsS localhost:8099/ >/dev/null
-      - name: Four-viewport UI and accessibility contract shard
+      - name: UI and accessibility contract shard (every viewport project in full mode)
         # Full mode: every spec, every viewport project, three shards. Smoke
         # mode: the @ui-smoke critical checks on the iPad Pro 11 landscape
         # profile, including the live-game desk contract, so a server-only
@@ -463,7 +512,7 @@ jobs:
     timeout-minutes: 10
     # ci-report is observability and intentionally outside the gate: a report
     # hiccup must never block a merge.
-    needs: [plan, lint, server-tests, coverage, boot, browser, tree-check]
+    needs: [plan, lint, server-tests, coverage, boot, docker, browser, tree-check]
     if: always()
     steps:
       - name: Tier-aware gate for the required test check
@@ -487,14 +536,14 @@ jobs:
           }
 
           case "$TIER" in
-            light)      SERVER=required; COVERAGE=required; BROWSER=skipok; TREE=skipok ;;
-            heavy)      SERVER=required; COVERAGE=required; BROWSER=required; TREE=skipok ;;
-            light-slim) SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=skipok ;;
-            fast)       SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=required ;;
+            light)      SERVER=required; COVERAGE=required; BROWSER=skipok; TREE=skipok; DOCKER=required ;;
+            heavy)      SERVER=required; COVERAGE=required; BROWSER=required; TREE=skipok; DOCKER=required ;;
+            light-slim) SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=skipok; DOCKER=skipok ;;
+            fast)       SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=required; DOCKER=required ;;
             *)
               echo "::error::unknown or missing tier '$TIER'"
               FAIL=1
-              SERVER=skipok; COVERAGE=skipok; BROWSER=skipok; TREE=skipok
+              SERVER=skipok; COVERAGE=skipok; BROWSER=skipok; TREE=skipok; DOCKER=skipok
               ;;
           esac
           # Client-only PRs change no server code, so the server coverage
@@ -506,6 +555,7 @@ jobs:
           expect "pipeline tier" "${{ needs.plan.result }}" required
           expect "lint and audit" "${{ needs.lint.result }}" required
           expect "boot smoke" "${{ needs.boot.result }}" required
+          expect "container image smoke" "${{ needs.docker.result }}" "$DOCKER"
           expect "server tests" "${{ needs.server-tests.result }}" "$SERVER"
           expect "coverage" "${{ needs.coverage.result }}" "$COVERAGE"
           expect "browser QA" "${{ needs.browser.result }}" "$BROWSER"

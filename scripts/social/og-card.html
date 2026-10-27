@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:"Pix";src:url("../../public/assets/fonts/pixelify-sans-700.woff2");font-weight:700}
+@font-face{font-family:"Silk";src:url("../../public/assets/fonts/silkscreen-regular.ttf")}
+@font-face{font-family:"Jersey";src:url("../../public/assets/fonts/jersey15-regular.woff2")}
+*{box-sizing:border-box;margin:0}
+body{width:1200px;height:630px;background:#01070a;position:relative;overflow:hidden;color:#f6e7c7}
+.glow{position:absolute;inset:0;background:radial-gradient(760px 620px at 82% 55%,#0f3a3b 0%,#01070a 72%)}
+.board{position:absolute;left:560px;top:-70px;width:760px;height:760px;transform:rotate(-7deg);transform-origin:50% 50%;border:5px solid #b78327;box-shadow:0 0 0 5px #01070a,0 40px 90px rgba(0,0,0,.75),0 0 120px rgba(229,165,45,.18)}
+.board img{display:block;width:100%;height:100%;image-rendering:pixelated}
+.fade{position:absolute;inset:0;background:linear-gradient(90deg,#01070a 0%,#01070a 33%,rgba(1,7,10,.86) 46%,rgba(1,7,10,0) 62%)}
+.scan{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 2px,transparent 2px 5px);pointer-events:none}
+.copy{position:absolute;left:64px;top:0;bottom:0;width:560px;display:flex;flex-direction:column;justify-content:center}
+.kick{font:20px "Silk";letter-spacing:.2em;color:#e5a52d}
+h1{font:700 164px/0.95 "Pix";letter-spacing:.02em;color:#e5a52d;margin-top:18px;text-shadow:0 7px 0 #7a5214,0 14px 0 #3d2a0a,0 24px 36px rgba(0,0,0,.65)}
+.line{font:44px/1.12 "Jersey";letter-spacing:.03em;color:#f6e7c7;margin-top:34px}
+.line b{font-weight:400;color:#e5a52d}
+.sub{font:17px "Silk";letter-spacing:.16em;color:#9aa89b;margin-top:26px}
+.corner{position:absolute;width:44px;height:44px;border:4px solid #b78327}
+.tl{left:26px;top:26px;border-right:0;border-bottom:0}.bl{left:26px;bottom:26px;border-right:0;border-top:0}
+</style></head><body><div class="glow"></div>
+<div class="board"><img src="og-board.png"></div>
+<div class="fade"></div><div class="scan"></div>
+<div class="corner tl"></div><div class="corner bl"></div>
+<div class="copy"><div class="kick">FREE · IN YOUR BROWSER</div><h1>POORUP</h1>
+<div class="line">Roll. Buy. Trade.<br><b>Bankrupt your friends.</b></div>
+<div class="sub">THE ONLINE MONOPOLY-STYLE BOARD GAME</div></div>
+</body></html>

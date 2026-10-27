@@ -46,8 +46,10 @@ esac
 # Self-hygiene every tick (under the timer's flock, so no concurrent run can
 # be mid-download): drop stale download artifacts and orphaned release dirs
 # left by past failed attempts. Current, previous, and latest targets are
-# always spared, so the live app and its rollback can never be pruned.
-rm -f /tmp/poorup-*.tgz
+# always spared, so the live app and its rollback can never be pruned. Only
+# archives older than a day are removed: a deploy archive uploaded by CI a
+# moment ago must survive until the deploy that consumes it has run.
+find /tmp -maxdepth 1 -name 'poorup-*.tgz' -mmin +1440 -delete 2>/dev/null || true
 PREVIOUS_LINK="$APP_ROOT/previous"
 current_target=""
 if [ -L "$CURRENT_LINK" ]; then current_target="$(readlink "$CURRENT_LINK")"; fi
@@ -63,6 +65,14 @@ done
 
 if [ "$latest_sha" = "$current_sha" ]; then
   echo "Up to date at $current_sha"
+  exit 0
+fi
+
+# deploy-nest.sh records a SHA whose health gate failed and was rolled back.
+# Without this marker every 3-minute tick would drain, redeploy and roll back
+# the same commit again.
+if [ -e "$APP_ROOT/shared/failed-releases/$latest_sha" ]; then
+  echo "Skipping $latest_sha: its deploy failed health checks and was rolled back. Push a new commit, or remove the marker to retry."
   exit 0
 fi
 
@@ -85,7 +95,9 @@ if [ ! -f "$RELEASE_DIR/package.json" ] || [ ! -f "$RELEASE_DIR/server/server.js
   exit 2
 fi
 
-npm ci --omit=dev --prefix "$RELEASE_DIR" --no-audit --no-fund >/dev/null 2>&1
+# Output stays on the unit's journal: a failed install must say why it failed
+# (the set -e exit used to hide npm's message completely).
+npm ci --omit=dev --prefix "$RELEASE_DIR" --no-audit --no-fund
 
 # Hand off to the drain-gated deploy from the NEW release so deploy logic
 # itself is versioned with the code it ships.

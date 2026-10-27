@@ -1,27 +1,13 @@
-const fs = require('fs');
-
 // Host-provided runtime secrets and paths live outside releases so a fresh
 // checkout never needs credentials in git. Deploys source the same file the
 // SSH command exports; the ecosystem merges it so `pm2 startOrReload` also
 // works from a bare shell (a bare env would boot without POORUP_DATA_DIR and
-// fail assertProductionCors, crashing the release loop).
-const SHARED_ENV_FILE = (typeof process !== 'undefined' && process.env.POORUP_SHARED_ENV_FILE) || '/srv/poorup/shared/poorup.env';
+// fail assertProductionCors, crashing the release loop). The shared parser
+// reads the file exactly as the bash deploy scripts do, and it throws on a
+// line bash would read differently, so a bad env file stops the reload.
+const { loadEnvFile } = require('./scripts/loadEnvFile.cjs');
 
-function loadSharedEnv(filePath) {
-  try {
-    const out = {};
-    for (const line of fs.readFileSync(filePath, 'utf8').split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq < 1) continue;
-      out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
+const SHARED_ENV_FILE = (typeof process !== 'undefined' && process.env.POORUP_SHARED_ENV_FILE) || '/srv/poorup/shared/poorup.env';
 
 module.exports = {
   apps: [{
@@ -41,7 +27,7 @@ module.exports = {
     shutdown_with_message: true,
     env: {
       NODE_ENV: 'production',
-      ...loadSharedEnv(SHARED_ENV_FILE)
+      ...loadEnvFile(SHARED_ENV_FILE)
     }
   }]
 };
