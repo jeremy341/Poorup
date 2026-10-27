@@ -16,6 +16,25 @@ const DEFAULT_TIMEOUT_MS = 4_000;
 const DEFAULT_DECISION_BUDGET = 240;
 const MAX_PROVIDER_RESPONSE_BYTES = 1_048_576;
 const PRIVATE_HOSTS = new Set(['localhost', 'metadata.google.internal']);
+export const DEFAULT_PROVIDER_ENDPOINT = 'https://api.deepseek.com/chat/completions';
+// The private-endpoint opt-in has one name, POORUP_AI_ALLOW_PRIVATE (F-025).
+// The former name still counts, and logs one deprecation warning.
+const LEGACY_ALLOW_PRIVATE_ENV = 'POORUP_AI_ALLOW_PRIVATE_ENDPOINTS';
+let legacyAllowPrivateWarned = false;
+
+function envFlag(value) {
+  return String(value ?? '').trim().toLowerCase() === 'true';
+}
+
+export function allowPrivateEndpointsFromEnv(env = process.env) {
+  if (envFlag(env?.POORUP_AI_ALLOW_PRIVATE)) return true;
+  if (!String(env?.[LEGACY_ALLOW_PRIVATE_ENV] ?? '').trim()) return false;
+  if (!legacyAllowPrivateWarned) {
+    legacyAllowPrivateWarned = true;
+    console.warn(`${LEGACY_ALLOW_PRIVATE_ENV} is deprecated; set POORUP_AI_ALLOW_PRIVATE instead.`);
+  }
+  return envFlag(env[LEGACY_ALLOW_PRIVATE_ENV]);
+}
 
 export class ProviderConfigError extends Error {
   constructor(message, code = 'INVALID_PROVIDER_CONFIG') {
@@ -60,6 +79,29 @@ async function validateProviderResolution(value, { resolveHost = dns.lookup, all
   if (!Array.isArray(records) || records.length === 0) throw new Error('Provider hostname did not resolve.');
   const addresses = records.map(record => providerResolvedAddress(record, allowPrivateEndpoints));
   return { hostname, addresses };
+}
+
+function providerAbortError() {
+  const error = new Error('The provider request was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function raceProviderResolutionWithAbort(resolution, signal) {
+  if (!signal) return resolution;
+  if (signal.aborted) {
+    Promise.resolve(resolution).catch(() => {});
+    throw providerAbortError();
+  }
+  let onAbort;
+  const aborted = new Promise((_resolve, reject) => {
+    onAbort = () => reject(providerAbortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+  return Promise.race([resolution, aborted]).finally(() => {
+    signal.removeEventListener('abort', onAbort);
+  });
 }
 
 function providerHostname(hostname) {
@@ -186,7 +228,13 @@ function finishProviderResponse(response, chunks, resolve, reject) {
 }
 
 async function safePinnedProviderFetch(input, options, { resolveHost, allowPrivateEndpoints, requestImpl }) {
-  const destination = await validateProviderResolution(input, { resolveHost, allowPrivateEndpoints });
+  const signal = options?.signal;
+  if (signal?.aborted) throw providerAbortError();
+  const destination = await raceProviderResolutionWithAbort(
+    validateProviderResolution(input, { resolveHost, allowPrivateEndpoints }),
+    signal
+  );
+  if (signal?.aborted) throw providerAbortError();
   return requestImpl(input, { ...options, redirect: 'error' }, destination);
 }
 
@@ -324,6 +372,14 @@ function safeTestResult(value) {
   };
 }
 
+// The connection a probe described: the endpoint, the model, the protocol and
+// the key. A probe that finished after any of them changed no longer speaks
+// for the profile it is about to mark as tested (W27/X3a).
+function connectionFingerprint(record) {
+  if (!record || typeof record !== 'object') return null;
+  return JSON.stringify([record.baseUrl || '', record.model || '', record.protocol || '', record.keyCipher || record.apiKey || '']);
+}
+
 export function redactProviderConfig(config = {}) {
   const test = safeTestResult(config.lastTest);
   return {
@@ -361,6 +417,15 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
     }
   }
 
+  function persistOrRollback(rollback) {
+    try {
+      persist();
+    } catch (error) {
+      rollback();
+      throw error;
+    }
+  }
+
   if (durable) {
     const loaded = loadJson(filePath, storedShape);
     if (loaded.value && storedShape(loaded.value)) {
@@ -368,8 +433,15 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
     }
   }
 
+  // Own keys only: an id such as "constructor" must not resolve to an
+  // Object.prototype member and have profile data written onto it.
+  function stored(id) {
+    const key = providerId(id);
+    return Object.hasOwn(data.profiles, key) ? data.profiles[key] : undefined;
+  }
+
   function internal(id) {
-    const record = data.profiles[providerId(id)];
+    const record = stored(id);
     if (!record) return null;
     const apiKey = record.keyCipher ? decryptApiKey(record.keyCipher, masterKey) : text(record.apiKey, '', 2_000);
     return { ...record, apiKey };
@@ -380,22 +452,37 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
   }
 
   function upsert(input = {}) {
-    const existing = input.id ? data.profiles[providerId(input.id)] : null;
+    const existing = input.id ? stored(input.id) : null;
     const normalized = normalizeProviderConfig({ ...existing, ...input }, { production, allowPrivateEndpoints });
-    const apiKey = resolveUpsertApiKey(input, existing);
-    const changed = profileConnectionChanged(existing, normalized);
+    const { apiKey, rotated } = resolveUpsertApiKey(input, existing, normalized);
+    // A rotated key is a new connection: the earlier test no longer describes it (F-026).
+    const changed = rotated || profileConnectionChanged(existing, normalized);
     const record = buildProfileRecord(existing, normalized, apiKey, changed);
+    const previous = data.profiles[normalized.id];
     data.profiles[normalized.id] = record;
-    persist();
+    persistOrRollback(() => {
+      if (previous) data.profiles[normalized.id] = previous;
+      else delete data.profiles[normalized.id];
+    });
     return redactProviderConfig(record);
   }
 
-  function resolveUpsertApiKey(input, existing) {
+  function resolveUpsertApiKey(input, existing, normalized) {
     const suppliedKey = text(input.apiKey, '', 2_000);
     const previous = existing ? internal(existing.id) : null;
+    // A stored key never follows the profile to a different host: editing the
+    // endpoint without re-entering the key would otherwise send it to whoever
+    // the new URL points at.
+    if (!suppliedKey && previous && hostChanged(existing.baseUrl, normalized?.baseUrl)) {
+      throw new ProviderConfigError('Re-enter the API key when changing the provider endpoint.', 'API_KEY_REQUIRED');
+    }
     const apiKey = suppliedKey || previous?.apiKey || '';
     if (!apiKey) throw new ProviderConfigError('An API key is required for a provider profile.', 'API_KEY_REQUIRED');
-    return apiKey;
+    return { apiKey, rotated: Boolean(previous) && apiKey !== previous.apiKey };
+  }
+
+  function hostChanged(before, after) {
+    try { return new URL(before).origin !== new URL(after).origin; } catch { return before !== after; }
   }
 
   function profileConnectionChanged(existing, normalized) {
@@ -428,31 +515,47 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
   }
 
   function activate(id) {
-    const record = data.profiles[providerId(id)];
+    const record = stored(id);
     if (!record) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
     if (record.lastTest?.ok !== true) throw new ProviderConfigError('Test the provider successfully before activating it.', 'PROFILE_NOT_TESTED');
+    const previousActiveId = data.activeId;
     data.activeId = record.id;
-    persist();
+    persistOrRollback(() => { data.activeId = previousActiveId; });
     return redactProviderConfig(record);
   }
 
-  function markTest(id, result) {
-    const record = data.profiles[providerId(id)];
+  function markTest(id, result, options = {}) {
+    const record = stored(id);
     if (!record) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
+    // A probe that finished after the profile was edited describes an older
+    // connection: it must not mark the edited profile as tested (W27/X3a).
+    // The caller is told the write was skipped, so it can say so instead of
+    // reporting a probe that was never stored as a success.
+    if (!markTestMatches(record, options)) return { ...redactProviderConfig(record), stale: true };
     const safe = safeTestResult({ ...result, testedAt: result?.testedAt || new Date().toISOString() });
+    const previous = { lastTest: record.lastTest, detectedProtocol: record.detectedProtocol, updatedAt: record.updatedAt };
     record.lastTest = safe;
     record.detectedProtocol = safe.ok ? safe.protocol : null;
     record.updatedAt = new Date().toISOString();
-    persist();
+    persistOrRollback(() => Object.assign(record, previous));
     return redactProviderConfig(record);
+  }
+
+  function markTestMatches(record, options = {}) {
+    const expectedUpdatedAt = options.expectedUpdatedAt;
+    if (expectedUpdatedAt && record.updatedAt !== expectedUpdatedAt) return false;
+    const expectedFingerprint = options.expectedFingerprint;
+    if (expectedFingerprint && connectionFingerprint(record) !== expectedFingerprint) return false;
+    return true;
   }
 
   function remove(id) {
     const safeId = providerId(id);
     if (safeId === data.activeId) throw new ProviderConfigError('Deactivate the active provider before deleting it.', 'ACTIVE_PROFILE');
-    if (!data.profiles[safeId]) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
+    const previous = stored(safeId);
+    if (!previous) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
     delete data.profiles[safeId];
-    persist();
+    persistOrRollback(() => { data.profiles[safeId] = previous; });
     return true;
   }
 
@@ -569,7 +672,11 @@ export async function probeProvider(config, fetchImpl = globalThis.fetch, now = 
       const response = typeof requestImpl === 'function'
         ? await safePinnedProviderFetch(requestUrl, requestOptions, { resolveHost, allowPrivateEndpoints, requestImpl })
         : await (async () => {
-          await validateProviderResolution(requestUrl, { resolveHost, allowPrivateEndpoints });
+          await raceProviderResolutionWithAbort(
+            validateProviderResolution(requestUrl, { resolveHost, allowPrivateEndpoints }),
+            requestOptions.signal
+          );
+          if (requestOptions.signal?.aborted) throw providerAbortError();
           return fetchImpl(requestUrl, requestOptions);
         })();
       if (!response?.ok) {
@@ -603,7 +710,7 @@ function envProviderApiKey(env) {
 }
 
 function envProviderBaseUrl(env) {
-  return text(env.POORUP_AI_BASE_URL || env.DEEPSEEK_API_URL || '', '', MAX_URL_LENGTH);
+  return text(env.POORUP_AI_BASE_URL || env.DEEPSEEK_API_URL || DEFAULT_PROVIDER_ENDPOINT, '', MAX_URL_LENGTH);
 }
 
 function environmentProviderInput(env, baseUrl, apiKey) {
@@ -613,6 +720,7 @@ function environmentProviderInput(env, baseUrl, apiKey) {
     baseUrl,
     model: env.POORUP_AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
     protocol: env.POORUP_AI_PROTOCOL || env.DEEPSEEK_API_FORMAT || 'auto',
+    timeoutMs: env.POORUP_AI_TIMEOUT_MS || env.DEEPSEEK_TIMEOUT_MS,
     maxDecisionsPerGame: env.POORUP_AI_DECISIONS || env.POORUP_BOT_AI_DECISIONS || DEFAULT_DECISION_BUDGET,
     apiKey,
   };
@@ -624,7 +732,7 @@ function envProfile(env = process.env, production = false) {
   if (!apiKey || !baseUrl) return null;
   try {
     return {
-      ...normalizeProviderConfig(environmentProviderInput(env, baseUrl, apiKey), { production, allowPrivateEndpoints: !production || env.POORUP_AI_ALLOW_PRIVATE === 'true' }),
+      ...normalizeProviderConfig(environmentProviderInput(env, baseUrl, apiKey), { production, allowPrivateEndpoints: !production || allowPrivateEndpointsFromEnv(env) }),
       apiKey,
       source: 'environment',
       readOnly: true,
@@ -632,6 +740,12 @@ function envProfile(env = process.env, production = false) {
   } catch {
     return null;
   }
+}
+
+// The environment provider exactly as the manager would apply it, or null when
+// it does not validate. The advisor is seeded only from this (F-025).
+export function environmentProviderProfile(env = process.env) {
+  return envProfile(env, String(env?.NODE_ENV || '').trim().toLowerCase() === 'production');
 }
 
 export function createAiProviderManager({ store, advisor, env = process.env, fetchImpl = globalThis.fetch, resolveHost = dns.lookup, requestImpl = pinnedProviderRequest } = {}) {
@@ -674,12 +788,17 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
   async function test(id) {
     const config = store?.get?.(id);
     if (!config) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
+    // The profile the probe is about: if it is edited or replaced while the
+    // probe is in flight, the answer no longer describes it (W27/X3a).
+    const expectedUpdatedAt = config.updatedAt || null;
+    const expectedFingerprint = connectionFingerprint(config);
     const result = await probeProvider(config, fetchImpl, () => Date.now(), {
       resolveHost,
       allowPrivateEndpoints: !production && config.allowPrivateEndpoints === true,
       requestImpl,
     });
-    store.markTest(id, result);
+    const marked = store.markTest(id, result, { expectedUpdatedAt, expectedFingerprint });
+    if (marked?.stale === true) return { ok: false, stale: true, protocol: null, reason: 'stale', latencyMs: result.latencyMs, testedAt: result.testedAt };
     return result;
   }
 
@@ -691,7 +810,13 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
     return result;
   }
 
-  function upsert(input) { return store.upsert(input); }
+  // Editing the active profile (rotated key, new endpoint) reaches the advisor
+  // now, not at the next activation or restart: the old key stops being used (F-026).
+  function upsert(input) {
+    const saved = store.upsert(input);
+    if (saved?.id && store.activePublic?.()?.id === saved.id) apply(store.active());
+    return saved;
+  }
   function remove(id) { return store.remove(id); }
   function list() {
     const profiles = store?.list?.() || [];

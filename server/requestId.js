@@ -13,5 +13,8 @@
 // create-room ack key in roomSetup.js, which is a different thing (an opaque
 // double-click dedupe token, capped at 120) and must not be shared.
 export function normalizeRequestId(value) {
-  return String(value ?? '').trim().slice(0, 100);
+  // Objects and arrays stringify to one shared value ('[object Object]'), which
+  // would make unrelated requests replay each other's result.
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  return String(value).trim().slice(0, 100);
 }
