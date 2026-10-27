@@ -2,7 +2,7 @@
 
 Poorup is a browser-based, real-time multiplayer property game inspired by Monopoly. Players can join as guests, create or enter a room, trade and develop properties, and compete to be the last solvent player. The server owns game state and settlement; Socket.IO synchronizes the table.
 
-**Live demo:** https://poorup.jeremy-d.hackclub.app/
+**Live demo:** https://poorup.tech
 
 To test multiplayer: open two browser tabs (or share the link with a friend), enter different nicknames, and have one player create a room while the other joins with the room code.
 

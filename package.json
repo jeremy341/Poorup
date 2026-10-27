@@ -10,24 +10,21 @@
     "test:audit": "node scripts/run-test-manifest.mjs --group=audit",
     "test:bot-timing": "node server/botTiming.test.js && node server/socketRuntime.test.js",
     "test:full": "node scripts/run-test-manifest.mjs --group=full",
-    "lint": "eslint server",
+    "lint": "eslint server scripts qa --max-warnings 3",
     "lint:client": "eslint public",
     "bot:compare": "node server/bot-policy-tournament.js",
     "coverage": "c8 --include=\"server/**\" --reporter=text --reporter=lcov node scripts/run-test-manifest.mjs --group=full",
     "test:browser": "playwright test -c qa/playwright.config.js",
     "capture:ui": "node scripts/capture-ui.mjs",
     "load:testing": "node qa/load/poorup-socket-load.mjs",
-    "sync:analytics-vendor": "node scripts/sync-admin-analytics-vendor.mjs",
     "test:account": "node scripts/run-test-manifest.mjs --group=account",
     "test:inactivity": "node scripts/run-test-manifest.mjs --group=inactivity",
     "test:bot-campaign": "node server/bot-simulation.test.js",
     "timings:refresh": "node scripts/refresh-test-timings.mjs"
   },
   "dependencies": {
-    "echarts": "6.1.0",
     "express": "^4.21.0",
-    "socket.io": "^4.8.4",
-    "@typesafe-ai/sdk": "^0.6.0"
+    "socket.io": "^4.8.4"
   },
   "overrides": {
     "qs": "6.16.0"
