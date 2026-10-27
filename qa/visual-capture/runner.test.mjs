@@ -3,6 +3,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { captureCatalog } from './catalog.mjs';
 import { buildCapturePlan, evaluateCaptureResult, playwrightTestArgs } from './runner.mjs';
+import { supportedViewports } from './viewports.mjs';
 
 test('capture plan filters a single group and viewport without changing supported defaults', () => {
   const plan = buildCapturePlan({ group: 'pages', viewport: 'ipad-1194x834', outputDir: 'qa-artifacts/test-run' }, new Date('2026-10-03T10:00:00.000Z'));
@@ -20,7 +21,7 @@ test('default capture plan covers the complete catalog across supported profiles
   const plan = buildCapturePlan({}, new Date('2026-10-03T10:00:00.000Z'));
   const catalogSize = captureCatalog.reduce((count, entry) => count + entry.surfaceIds.length, 0);
 
-  assert.equal(plan.expectedCaptures.length, catalogSize * 12);
+  assert.equal(plan.expectedCaptures.length, catalogSize * supportedViewports.length);
   assert.equal(plan.profiles.some(profile => profile.width === 1366 && profile.height === 768), false);
   assert.equal(plan.profiles.some(profile => profile.width === 1280 && profile.height === 720), false);
   assert.equal(plan.profiles.some(profile => profile.group === 'phone' || profile.orientation === 'portrait'), false);
