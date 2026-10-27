@@ -4,6 +4,8 @@ Poorup is a browser-based, real-time multiplayer property game inspired by Monop
 
 **Live demo:** https://poorup.tech
 
+**Portfolio:** https://jeremydarko.me
+
 To test multiplayer: open two browser tabs (or share the link with a friend), enter different nicknames, and have one player create a room while the other joins with the room code.
 
 ## AI use: what was assisted and what I made
@@ -25,14 +27,11 @@ Development-time AI assistance is separate from the bots available in-game: dete
 - **Player finance:** off-turn player-to-player trade and financing offers, loans, property-equity and hybrid contracts, collateral, default consequences, and sponsored purchases where one player can fund another player's property in return for an agreed share.
 - **Market and events:** an optional fictional-currency stock market with shared quotes, per-index price history, buy/sell orders, holdings, and personal profit/loss. Global events affect the shared market and can also change game rules; player orders change their own position, not the shared quote.
 - **Casino:** an optional fictional-currency casino mode.
+- **Parlor Patrol:** a Home mini-game playable locally as a guest. Signed-in runs use server-controlled targets and scoring for achievements and rankings. Existing legacy records remain visible on profiles, while the Patrol leaderboard uses only scores earned under the new server-controlled system.
 - **Profiles and progression:** completed-match history and statistics, achievements, player designs, friends, and all-time, 30-day, and friends rankings.
 - **In-game information:** a separate Activity/Log for room and game announcements, plus inactivity monitoring and a vote-kick flow. Turns do not have a fixed time limit.
 - **Visual identity:** custom player designs, theme worlds with original Poorup SVG artwork, and an optional music player.
 - **Persistence:** no database; account and match records use local JSON stores.
-
-## Known issues
-
-- **Parlor Patrol is currently broken and does not work reliably.** Treat it as unavailable until it is fixed; the rest of the game can be played without it.
 
 ## How to run
 
