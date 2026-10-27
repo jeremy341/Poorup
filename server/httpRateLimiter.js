@@ -1,15 +1,27 @@
 // Small in-process IP limiter used as the second line behind an edge/WAF.
 // Configure POORUP_HTTP_RATE_LIMIT and POORUP_HTTP_RATE_WINDOW_MS in hosted
 // environments; local development remains unlimited by default.
+import { MAX_TRACKED_BUCKETS, windowBucket } from './rateBuckets.js';
+import { rateLimitAddressKey } from './ipAllowlist.js';
+
+// Where new keys count once the table is full of live buckets. Evicting a live
+// bucket would hand its owner a fresh budget, so this fails closed instead.
+const OVERFLOW_KEY = 'overflow';
+
 function normalizedLimit(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.min(100_000, Math.max(0, Math.floor(parsed)));
 }
 
+// A blank or zero window is unset, not a 1 s floor: Number('') is 0, and a
+// collapsed window lets a client through far more often than configured.
 function normalizedWindow(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 60_000;
+  if (value === undefined || value === null) return 60_000;
+  const text = String(value).trim();
+  if (!text) return 60_000;
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 60_000;
   return Math.min(86_400_000, Math.max(1_000, Math.floor(parsed)));
 }
 
@@ -25,23 +37,18 @@ export function assertRateLimitConfig(env = process.env) {
 
 function requestIp(req, trustProxy) {
   const forwardedIp = trustProxy ? req.ip : null;
-  return String(forwardedIp || req.socket?.remoteAddress || 'unknown').trim().slice(0, 80);
+  return rateLimitAddressKey(String(forwardedIp || req.socket?.remoteAddress || 'unknown').trim().slice(0, 80));
 }
 
-function bucketFor(buckets, ip, now, window) {
-  const current = buckets.get(ip);
-  const active = current && now - current.startedAt < window;
-  const bucket = active ? current : { startedAt: now, count: 0 };
-  bucket.count += 1;
-  buckets.set(ip, bucket);
-  return bucket;
-}
-
-function pruneBuckets(buckets, now, window) {
-  if (buckets.size <= 10_000) return;
-  for (const [key, entry] of buckets) {
-    if (now - entry.startedAt >= window) buckets.delete(key);
+// Buckets sit in the map in the order their windows started, so expired ones
+// are all at the front. Only those are dropped; a live bucket is never evicted.
+function bucketKey(buckets, key, now, window) {
+  if (buckets.has(key) || buckets.size < MAX_TRACKED_BUCKETS) return key;
+  for (const [candidate, entry] of buckets) {
+    if (now - entry.startedAt < window) break;
+    buckets.delete(candidate);
   }
+  return buckets.size < MAX_TRACKED_BUCKETS ? key : OVERFLOW_KEY;
 }
 
 function rejectLimitedRequest({ res, bucket, limit, window, now }) {
@@ -56,8 +63,8 @@ function consumeRequest({ req, res, limit, window, buckets, trustProxy }) {
   // req.ip. Never trust a raw client-supplied X-Forwarded-For value: it
   // lets an attacker mint a fresh bucket for every request.
   const now = Date.now();
-  const bucket = bucketFor(buckets, requestIp(req, trustProxy), now, window);
-  pruneBuckets(buckets, now, window);
+  const bucket = windowBucket(buckets, bucketKey(buckets, requestIp(req, trustProxy), now, window), now, window);
+  bucket.count += 1;
   return rejectLimitedRequest({ res, bucket, limit, window, now });
 }
 
