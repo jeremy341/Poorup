@@ -81,7 +81,7 @@ Responsibilities, one line each:
   even if a later push supersedes an earlier CI run (see **CI tiers** below).
   On the heavy tier CI runs four isolated Node-test shards (four suites in
   parallel inside each shard), merges their c8 V8-coverage data once, and runs
-  the six-viewport Playwright suite **scaled to the diff**: three shards for
+  the Playwright UI suite (every viewport project) **scaled to the diff**: three shards for
   UI-affecting changes, a single fast `@ui-smoke` shard for server-only
   changes, then merges the browser reports. The old repeated coverage-runner
   pass and separate duplicate `server.test.js` invocation are gone; the unique
@@ -90,8 +90,9 @@ Responsibilities, one line each:
   (`POORUP_BOT_SIMULATION_COUNT=ceil(10/N)` with a per-shard start index), so
   no single shard pays for all ten games. The 1,000-game safety campaign runs
   **only** nightly (`bot-campaign.yml`, `schedule: cron '0 3 * * *'`) and on
-  manual `workflow_dispatch`; there is no PR-triggered campaign job, and the
-  workflow's hardcoded `ref` is `main`.
+  manual `workflow_dispatch`; there is no PR-triggered campaign job. The
+  workflow runs the campaign on both `main` and `development`, uploads each
+  log as an artifact, and writes a summary to the run page.
 - **Copilot code review** — logic/bug-oriented AI review of the diff. Cannot
   approve or merge; treats its comments as signals, not orders.
 - **CodeScene** — maintainability: complexity, duplicated logic, temporal
@@ -135,15 +136,18 @@ their merge.
 
 CI jobs are gated by the PR's target branch and, on `development` PRs, by the
 changed paths. Direct pushes to `development` run the light tier after the
-commit lands. The conditions live in `.github/workflows/ci.yml`; treat this
-table as the contract, not the line numbers:
+commit lands, and pushes to `main` run the fast tier, whose tree check requires
+`main` to match `testing`. CI triggers on pushes to `main` and `development`
+only; a lane-branch push runs no CI. The conditions live in
+`.github/workflows/ci.yml`; treat this table as the contract, not the line
+numbers:
 
 | Tier        | Runs for                                                       | Coverage |
 |-------------|----------------------------------------------------------------|----------|
-| **light**   | Code PRs targeting `development`, pushes to `development`, and pushes to lane branches | the everyday integration checks; development push checks run after landing; coverage merge/upload runs only when `server/**` changed |
-| **light-slim** | PRs targeting `development` that touch only docs/markdown   | lint, manifest validation, and `boot smoke` only — no test shards, no coverage, no browser |
+| **light**   | Code PRs targeting `development` and pushes to `development`   | the everyday integration checks; development push checks run after landing; coverage merge/upload runs only when `server/**` changed |
+| **light-slim** | PRs targeting `development` that touch only docs/markdown   | lint (including the docs parity and feature-status suites), manifest validation, and `boot smoke` only — no test shards, no coverage, no browser |
 | **heavy**   | PR `development` → `testing`                                   | full 4-shard manifest + merged coverage (Codecov upload) + Playwright browser QA scaled to the diff: 3 shards for UI-affecting changes, one `@ui-smoke` shard for server-only changes |
-| **fast**    | PR `testing` → `main`                                          | `boot smoke` + lint + a tree-identity check that the promotion PR carries the same tree as the source lane |
+| **fast**    | PR `testing` → `main`, and pushes to `main`                    | `boot smoke` + lint + the container image smoke + a tree-identity check that `main` carries the same tree as `testing` |
 
 Path filtering is done inside the `plan` job (dorny/paths-filter), never with
 `paths-ignore` on the `pull_request` trigger — a skipped trigger would leave
@@ -331,10 +335,10 @@ npm test                # core contract/integration group from the unique manife
 npm run test:audit      # audit manifest group (settlement, lifecycle, privacy, casino)
 npm run test:account    # account manifest group
 npm run test:inactivity # inactivity manifest group
-npm run test:full       # all 150 unique suites from the manifest, once each
+npm run test:full       # every unique suite in the manifest, once each
 npm run test:bot-timing # bot timing + socket runtime suites
 npm run test:bot-campaign  # full 1,000-game campaign (default count when run directly)
-npm run test:browser    # Playwright suite (six viewports)
+npm run test:browser    # Playwright suite (every viewport project in qa/playwright.config.js)
 npm run bot:compare     # bounded three-policy tournament, stubbed AI advisor
 npm run load:testing    # 1,000-client load harness (testing host only)
 npm run lint            # eslint server/
@@ -366,13 +370,12 @@ uses the full 1,000. The CI smoke count is not balance evidence.
 
 ## Secrets & tokens
 
-- Codecov: the CI upload step already passes
-  `token: ${{ secrets.CODECOV_TOKEN }}` (codecov-action v5) with
-  `fail_ci_if_error: false`, so a missing or rejected token can never fail a
-  build. If uploads ever start failing (for example on a private mirror),
-  populate that secret with the repo's Global Upload Token from
-  app.codecov.io under **Settings → Secrets and variables → Actions** — never
-  in a committed file or log.
+- Codecov: the CI upload step passes no token (codecov-action v7; the
+  repository is public) and sets `fail_ci_if_error: false`, so a failed upload
+  can never fail a build. If uploads ever start failing (for example on a
+  private mirror), add a `CODECOV_TOKEN` secret from app.codecov.io under
+  **Settings → Secrets and variables → Actions**, pass it as `token:` in the
+  upload step, and never write it into a committed file or log.
 - Sentry DSNs, when introduced: server DSN via environment variable at
   deploy time; browser DSN is publishable by design but still gets its own
   PR with the scrubbing rules from the Sentry plan.
