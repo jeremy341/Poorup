@@ -40,4 +40,65 @@ try {
 } finally {
   fs.rmSync(cookieFilePath, { force: true });
 }
+
+// S11-02: reserved labels cannot be registered or worn through the username fallback.
+{
+  const reservedPath = path.join(os.tmpdir(), `poorup-reserved-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  const reservedStore = new AccountStore(reservedPath);
+  try {
+    ['system', 'admin', 'server', 'SYSTEM'].forEach((name) => {
+      const check = reservedStore.checkUsername(name);
+      assert.equal(check.available, false, `${name} is not an available username`);
+      assert.equal(check.reason, 'reserved');
+      assert.equal(reservedStore.register({ username: name, displayName: 'Fine Name', password: 'long-enough-password' }).success, false);
+    });
+    const plain = reservedStore.register({ username: 'plainuser', displayName: 'ADMIN', password: 'long-enough-password' });
+    assert.equal(plain.account.displayName, 'plainuser', 'a reserved display name falls back to the username');
+    // Records stored before the rule keep loading, but never wear the reserved label.
+    fs.writeFileSync(reservedPath, JSON.stringify([{ ...reservedStore.getAccountById(plain.account.id), id: 'acct_legacy', username: 'system', displayName: 'system' }]));
+    const reloaded = new AccountStore(reservedPath);
+    assert.notEqual(reloaded.getAccountById('acct_legacy').displayName.toLowerCase(), 'system', 'a stored reserved display name is replaced at load');
+  } finally {
+    fs.rmSync(reservedPath, { force: true });
+  }
+}
+
+// S11-04 / S17-06 / S17-03: password reset lifts the login lock; purge and
+// revocation leave no per-account or per-token bookkeeping behind.
+{
+  const lockPath = path.join(os.tmpdir(), `poorup-lock-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  const lockStore = new AccountStore(lockPath);
+  try {
+    const lockRegistered = lockStore.register({ username: 'lockeduser', displayName: 'Locked', password: 'long-enough-password' });
+    let locked = null;
+    for (let attempt = 0; attempt < 12 && !locked; attempt += 1) {
+      const result = lockStore.login({ username: 'lockeduser', password: 'wrong-password' });
+      if (result.code === 'ACCOUNT_LOCKED') locked = result;
+    }
+    assert.ok(locked, 'repeated failures lock the account');
+    assert.equal(lockStore.updatePassword(lockRegistered.account.id, 'brand-new-password'), true);
+    assert.equal(lockStore.login({ username: 'lockeduser', password: 'brand-new-password' }).success, true, 'a password reset lifts the login lock');
+
+    const first = lockStore.login({ username: 'lockeduser', password: 'brand-new-password' });
+    const second = lockStore.login({ username: 'lockeduser', password: 'brand-new-password' });
+    assert.equal(lockStore.sessionIssuedAt.has(first.sessionToken), false, 'a replaced session token is not kept');
+    assert.equal(lockStore.sessionIssuedAt.size, 2, 'only the live session is stamped');
+    lockStore.logout(second.sessionToken);
+    assert.equal(lockStore.sessionIssuedAt.size, 0, 'logout forgets the session stamps');
+    const third = lockStore.login({ username: 'lockeduser', password: 'brand-new-password' });
+    lockStore.updatePassword(lockRegistered.account.id, 'another-new-password');
+    assert.equal(lockStore.sessionIssuedAt.has(third.sessionToken), false, 'a password change forgets revoked session stamps');
+    assert.equal(lockStore.sessionIssuedAt.size, 0);
+
+    lockStore.login({ username: 'lockeduser', password: 'wrong-password' });
+    assert.equal(lockStore.passwordFailures.size, 1);
+    lockStore.login({ username: 'lockeduser', password: 'another-new-password' });
+    lockStore.login({ username: 'lockeduser', password: 'wrong-password' });
+    assert.equal(lockStore.purgeAccount(lockRegistered.account.id), true);
+    assert.equal(lockStore.passwordFailures.size, 0, 'purge forgets the erased account\'s failure counters');
+    assert.equal(lockStore.sessionIssuedAt.size, 0, 'purge forgets session stamps');
+  } finally {
+    fs.rmSync(lockPath, { force: true });
+  }
+}
 console.log('account rights store: 10 passed, 0 failed');

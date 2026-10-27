@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
 const manager = new RoomManager();
-const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
 room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
 room.setRoomSetting('market', true);
 assert.equal(room.startGame().success, true);

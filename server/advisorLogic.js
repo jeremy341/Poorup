@@ -5,6 +5,7 @@
 // never as an import. Every gate is a verbatim move of the original
 // scheduleBotTurn inline chain, so bot balance is unchanged.
 import { vetoTrade } from './botTradeValuation.js';
+import { lenderAcceptsCounter } from './botContractPolicy.js';
 import { addGratitude } from './botTableMind.js';
 import {
   sponsorshipShortfall,
@@ -17,7 +18,7 @@ import {
 import {
   contractResponderId,
   counterContractOffer,
-  counterTradeOffer,
+  counterTradeOfferOutcome,
   tradeCounterBlocked,
   debtMortgageCandidates,
   debtSellCandidates
@@ -107,22 +108,76 @@ function voteChoiceCandidates(game, bot) {
   ));
 }
 
+// A rejected offer that nearly clears the bar is worth a premium counter, so
+// it outranks a flat decline. Hopeless or vetoed offers still decline, and a
+// table with another pending obligation cannot take a replacement offer.
+function counterScore(game, bot, trade, accept) {
+  if (accept) return 2;
+  const getTile = index => game.getTile(index);
+  const nearMiss = !vetoTrade(game, trade, bot.id).vetoed && nearMissTrade(trade, getTile);
+  return nearMiss ? 9 : 7;
+}
+
+// Cash added on top of the original ask, smallest first. A counter is a proposal,
+// so it must clear the same bar the bot applies to an offer made to it; a flat
+// +10% on a set-completing deed used to give a counter the bot itself would refuse.
+const COUNTER_EXTRA_CASH = [10, 20, 40, 80, 160, 320, 640];
+
+function counterClearsOwnBar(game, bot, counter) {
+  const mirrored = {
+    id: 'counter-check',
+    fromPlayerId: counter.toPlayerId,
+    toPlayerId: bot.id,
+    givePropertyIndexes: counter.requestPropertyIndexes,
+    giveCash: counter.requestCash,
+    requestPropertyIndexes: counter.givePropertyIndexes,
+    requestCash: counter.giveCash,
+    counterDepth: counter.counterDepth
+  };
+  return shouldAcceptTrade(mirrored, index => game.getTile(index), game);
+}
+
+export function clearingTradeCounter(game, bot) {
+  for (const extraCash of COUNTER_EXTRA_CASH) {
+    const outcome = counterTradeOfferOutcome(game, bot, extraCash);
+    if (!outcome.offer) {
+      // Nothing to counter: stop. Otherwise keep walking the premium ladder:
+      // a set-premium refusal at +10 is cleared by the +20 or +40 counter, and
+      // an unaffordable counter stays unaffordable.
+      if (outcome.reason === 'no-trade') return null;
+      continue;
+    }
+    if (counterClearsOwnBar(game, bot, outcome.offer)) return outcome.offer;
+  }
+  return null;
+}
+
 function tradeChoiceCandidates(game, bot) {
   if (!game.pendingTrade) return [];
-  const accept = shouldAcceptTrade(game.pendingTrade, index => game.getTile(index), game);
-  const candidates = [choiceCandidate('trade:accept', 'accept', accept ? 12 : 2, 'ACCEPT'), choiceCandidate('trade:decline', 'decline', accept ? 1 : 8, 'DECLINE')];
-  const counter = counterTradeOffer(game, bot);
-  if (counter) candidates.splice(1, 0, { ...choiceCandidate('trade:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
+  const trade = game.pendingTrade;
+  // A vetoed trade would finish an opponent's buildable set. That is a safety rule,
+  // not a preference, so the advisor is never offered 'accept' (or a counter) for it.
+  const vetoed = vetoTrade(game, trade, bot.id).vetoed;
+  const accept = !vetoed && shouldAcceptTrade(trade, index => game.getTile(index), game);
+  const candidates = vetoed
+    ? [choiceCandidate('trade:decline', 'decline', 8, 'DECLINE')]
+    : [choiceCandidate('trade:accept', 'accept', accept ? 12 : 2, 'ACCEPT'), choiceCandidate('trade:decline', 'decline', accept ? 1 : 8, 'DECLINE')];
+  const counter = vetoed || tradeCounterBlocked(game) ? null : clearingTradeCounter(game, bot);
+  if (counter) candidates.splice(1, 0, { ...choiceCandidate('trade:counter', 'counter', counterScore(game, bot, trade, accept), 'COUNTER'), offer: counter });
   return candidates;
 }
 
 function contractChoiceCandidates(game, bot) {
   if (!game.pendingPlayerContract) return [];
   const offer = game.pendingPlayerContract;
+  // The terms gate (botContractPolicy.js) is a safety rule: terms it refuses are
+  // not offered to the advisor as an option, so a model cannot sign them.
   const accept = shouldAcceptContractResponse(game, bot, offer);
-  const candidates = [choiceCandidate('contract:accept', 'accept', accept ? 12 : 2, 'ACCEPT'), choiceCandidate('contract:decline', 'decline', accept ? 1 : 8, 'DECLINE')];
+  const candidates = accept
+    ? [choiceCandidate('contract:accept', 'accept', 12, 'ACCEPT'), choiceCandidate('contract:decline', 'decline', 1, 'DECLINE')]
+    : [choiceCandidate('contract:decline', 'decline', 8, 'DECLINE')];
   const counter = counterContractOffer(game, bot);
-  if (counter) candidates.splice(1, 0, { ...choiceCandidate('contract:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
+  if (counter) candidates.splice(accept ? 1 : 0, 0, { ...choiceCandidate('contract:counter', 'counter', accept ? 2 : 7, 'COUNTER'), offer: counter });
   return candidates;
 }
 
@@ -137,11 +192,26 @@ function sponsorshipChoiceCandidates(game, bot) {
   return amount > 0 ? [choiceCandidate('sponsorship:contribute', 'contribute', 8, `RESERVE $${amount}`)] : [];
 }
 
+// Below the lowest sale score (1): a loan dearer than selling a house gives away is
+// the last rescue before bankruptcy, whatever its size.
+const LAST_RESORT_LOAN_SCORE = 0.5;
+
+// Selling a built house returns only buildingSaleMultiplier of its cost, so a sale
+// costs (1 - multiplier) per dollar raised. A loan whose premium rate reaches that
+// is no cheaper than the sale it would postpone, and it adds a repayment deadline.
+function loanDearerThanSale(game, offer) {
+  const multiplier = typeof game.buildingSaleMultiplier === 'function' ? Number(game.buildingSaleMultiplier()) : 0.5;
+  const principal = Number(offer.principal) || 0;
+  const premiumRate = principal > 0 ? Number(offer.premium || 0) / principal : 0;
+  return premiumRate >= 1 - (Number.isFinite(multiplier) ? multiplier : 0.5);
+}
+
 function bankLoanChoice(game, bot) {
   const offer = typeof game.getBankLoanOffer === 'function' ? game.getBankLoanOffer(bot) : null;
   if (!offer?.available) return null;
   if (bot.id !== game.currentPlayerId) return null;
-  return choiceCandidate('debt:loan', 'loan', 10 - Math.min(8, Number(offer.totalDue || 0) / 100), 'TAKE BANK LOAN');
+  const score = 10 - Math.min(8, Number(offer.totalDue || 0) / 100);
+  return choiceCandidate('debt:loan', 'loan', loanDearerThanSale(game, offer) ? Math.min(score, LAST_RESORT_LOAN_SCORE) : score, 'TAKE BANK LOAN');
 }
 
 function paymentChoiceCandidates(game, bot) {
@@ -151,7 +221,21 @@ function paymentChoiceCandidates(game, bot) {
   const mortgageCandidates = debtMortgageCandidates(game, bot).slice(0, 3).map(entry => choiceCandidate(`debt:mortgage:${entry.tile.index}`, `mortgage:${entry.tile.index}`, 26, `MORTGAGE ${entry.tile.name}`));
   const sellCandidates = debtSellCandidates(game, bot).slice(0, 12).map(entry => choiceCandidate(`debt:sell:${entry.tile.index}`, `sell:${entry.tile.index}`, Math.max(1, Math.min(24, entry.score / 10)), `SELL ${entry.tile.name}`));
   const loanCandidate = bankLoanChoice(game, bot);
-  return [...mortgageCandidates, ...sellCandidates, ...(loanCandidate ? [loanCandidate] : []), choiceCandidate('debt:bankruptcy', 'bankruptcy', -20, 'DECLARE BANKRUPTCY')];
+  return [...itemPaymentCandidates(game, bot), ...mortgageCandidates, ...sellCandidates, ...(loanCandidate ? [loanCandidate] : []), choiceCandidate('debt:bankruptcy', 'bankruptcy', -20, 'DECLARE BANKRUPTCY')];
+}
+
+function itemPaymentCandidates(game, bot) {
+  return (game.summaryItems?.(bot, bot.id) || []).flatMap(item => {
+    const redeem = item.catalogId === 'parlor-bond' && item.canUse;
+    if (!redeem && !item.canSell) return [];
+    const action = redeem ? 'use' : 'sell';
+    return [{ ...choiceCandidate(`debt:item:${action}:${item.itemId}`, `item:${action}:${item.itemId}`, 40, `${redeem ? 'REDEEM' : 'SELL'} ${item.name}`), itemId: item.itemId, itemAction: action }];
+  });
+}
+
+function runItemPaymentChoice(room, bot, candidate) {
+  const method = candidate.itemAction === 'use' ? 'useItem' : 'sellItem';
+  return room.runBotAction(bot.id, actor => room[method](actor, { itemId: candidate.itemId, requestId: `bot-${candidate.itemAction}:${candidate.itemId}` }));
 }
 
 const PHASE_CANDIDATE_BUILDERS = { vote: voteChoiceCandidates, trade: tradeChoiceCandidates, contract: contractChoiceCandidates, sponsorship: sponsorshipChoiceCandidates, payment: paymentChoiceCandidates };
@@ -160,21 +244,15 @@ export function getBotChoiceCandidates(game, bot, phase) {
   return PHASE_CANDIDATE_BUILDERS[phase]?.(game, bot) || [];
 }
 
-function lenderAcceptsCounter(bot, offer) {
-  const premium = Number(offer.premiumRate) || 0;
-  const duration = Number(offer.durationRounds) || 0;
-  return premium >= 0 && duration >= 1 && duration <= 20 && bot.cash >= Number(offer.amount || 0);
-}
-
 function shouldAcceptContractResponse(game, bot, offer) {
   if (!offer) return false;
   if (offer.toPlayerId === bot.id) {
     const lender = game.getPlayerById(offer.fromPlayerId);
     return shouldAcceptPlayerContract(offer, bot, lender, game);
   }
-  // A lender reviewing a counter keeps the same funding guard, and prefers
-  // not to accept a zero-return or excessively long revision.
-  if (offer.fromPlayerId === bot.id) return lenderAcceptsCounter(bot, offer);
+  // A lender reviewing a counter takes it only while it is still a loan the bot
+  // would have offered (priced, short, bounded, lending reserve kept).
+  if (offer.fromPlayerId === bot.id) return lenderAcceptsCounter(game, bot, offer);
   return false;
 }
 
@@ -222,6 +300,7 @@ function runLoanChoice(room, bot, game) {
 }
 
 export function runPaymentChoice(room, bot, game, candidate) {
+  if (candidate.id.startsWith('debt:item:')) return runItemPaymentChoice(room, bot, candidate);
   if (candidate.id.startsWith('debt:mortgage:')) return runMortgageChoice(room, bot, game, candidate);
   if (candidate.id.startsWith('debt:sell:')) return runSellChoice(room, bot, candidate);
   if (candidate.id === 'debt:loan') return runLoanChoice(room, bot, game);
@@ -267,6 +346,8 @@ function tryEmergencyLoan(room, bot, game) {
 }
 
 function botPaymentAction(room, bot, game) {
+  const item = itemPaymentCandidates(game, bot)[0];
+  if (item) return paymentTrace(runItemPaymentChoice(room, bot, item), 'item-rescue', item.id, [item.id]);
   return tryDebtMortgage(room, bot, game)
     || tryDebtSale(room, bot, game)
     || tryEmergencyLoan(room, bot, game)
@@ -278,7 +359,7 @@ function tryNearMissCounter(room, bot, game, trade) {
   if (vetoTrade(game, trade, bot.id).vetoed) return null;
   if (tradeCounterBlocked(game)) return null;
   if (!nearMissTrade(trade, index => game.getTile(index))) return null;
-  const counter = counterTradeOffer(game, bot);
+  const counter = clearingTradeCounter(game, bot);
   if (!counter) return null;
   const countered = room.runBotAction(bot.id, actor => room.counterTrade(actor, counter));
   if (countered?.success === false) return null;
@@ -334,6 +415,10 @@ export const PHASE_EXECUTORS = {
 function choiceSnapshot(game, bot, phase) {
   return {
     actingBotId: bot.id,
+    // The game generation: a rematch (a new game in the same room) restarts
+    // the table with the same seats, so an answer produced for the previous
+    // game must never be applied to the new one.
+    gameStartedAt: game.startedAt ?? null,
     offerIdentity: choiceOfferIdentity(game, phase),
     paymentIdentity: phase === 'payment' ? choicePaymentIdentity(game) : null,
     voteEvent: phase === 'vote' ? game.globalEvent : null,
@@ -379,6 +464,7 @@ function postOfferChoiceStaleness(game, bot, phase, snapshot) {
 // async provider call; a stale answer must never be bound to newer state.
 function choiceStaleness(game, bot, phase, snapshot) {
   if (!botSeatStillLive(game, bot) || bot.id !== snapshot.actingBotId) return 'seat-changed';
+  if ((game.startedAt ?? null) !== snapshot.gameStartedAt) return 'game-changed';
   if (phase === 'vote' && voteChoiceStale(game, bot, snapshot)) return 'vote-event-changed';
   if (OFFER_CHOICE_PHASES.has(phase) && offerChoiceStale(game, bot, phase, snapshot)) return 'offer-changed';
   return postOfferChoiceStaleness(game, bot, phase, snapshot);
@@ -393,12 +479,19 @@ function noChoiceEmit(parts) {
   };
 }
 
+// The choice list is not sorted: for a trade it starts with 'accept'. A missing,
+// unknown or stale answer must therefore fall to the best-scored option, never to
+// whatever happens to be listed first.
+function topScoredCandidate(candidates) {
+  return candidates.reduce((best, candidate) => (!best || Number(candidate.score) > Number(best.score) ? candidate : best), null);
+}
+
 function resolveChoiceSelection(parts) {
   const { game, bot, phase, decision, candidates } = parts;
   const requested = candidates.find(candidate => candidate.id === decision?.actionId);
   const currentCandidates = getBotChoiceCandidates(game, bot, phase);
   const currentSelection = requested && currentCandidates.find(candidate => candidate.id === requested.id && sameCandidateTerms(candidate, requested));
-  return { currentCandidates, selected: currentSelection || currentCandidates[0], usedFallback: !currentSelection };
+  return { currentCandidates, selected: currentSelection || topScoredCandidate(currentCandidates), usedFallback: !currentSelection };
 }
 
 function choicePhaseTrace(parts) {
@@ -446,6 +539,12 @@ export async function runAdvisorChoicePhase({ room, bot, advisor, decisionContex
   const trace = choicePhaseTrace({ decisionContext, safeDecision, decision, phase, selection });
   const runner = PHASE_CHOICE_RUNNERS[phase];
   const result = runner ? runner(room, bot, game, selected) : { success: false, error: 'No bot choice is available.' };
+  // A rescue the server refuses must not leave the debt unresolved: the
+  // deterministic ladder tries the remaining rescues and ends in bankruptcy.
+  if (phase === 'payment' && result?.success === false) {
+    const fallback = PHASE_EXECUTORS.payment(room, bot, game);
+    return attachBotDecision(fallback, { ...trace, ...fallback?.botDecision, fallbackReason: 'candidate-rejected' }, evaluationTrace);
+  }
   return attachBotDecision(result, trace, evaluationTrace);
 }
 
@@ -463,6 +562,9 @@ function pendingPaymentKey(game) {
 
 function advisorTableSnapshot(game) {
   return {
+    // The game generation: a rematch restarts the table, so the pre-roll
+    // candidates of the previous game must never be played in the new one.
+    gameStartedAt: game.startedAt ?? null,
     pendingTradeId: game.pendingTrade?.id || null,
     pendingContractId: game.pendingPlayerContract?.id || null,
     pendingPaymentId: pendingPaymentKey(game),
@@ -471,7 +573,8 @@ function advisorTableSnapshot(game) {
 }
 
 function advisorTableChanged(game, snapshot) {
-  return (game.pendingTrade?.id || null) !== snapshot.pendingTradeId
+  return (game.startedAt ?? null) !== snapshot.gameStartedAt
+    || (game.pendingTrade?.id || null) !== snapshot.pendingTradeId
     || (game.pendingPlayerContract?.id || null) !== snapshot.pendingContractId
     || pendingPaymentKey(game) !== snapshot.pendingPaymentId
     || Boolean(game.auction?.active) !== snapshot.auctionActive;
@@ -504,6 +607,44 @@ function advisorFallbackCandidate(phase, bot) {
   return { id: 'bankruptcy:zero-cash', kind: 'bankruptcy' };
 }
 
+// Kinds that end or pass the turn, or only talk: a refused action hands over
+// to the next ranked action first and reaches these only through the terminal
+// fallback, never by ending the turn on a refused build.
+const NON_ADVANCING_KINDS = new Set(['chat', 'end-turn', 'end-finance-window', 'bankruptcy', 'roll']);
+
+// A refused deal, market order or bet is never swapped for a different one: the
+// next entry in static-score order was never ranked by the planner against standing
+// still, and the walk used to buy index units the planner rated negative or send an
+// unrelated loan offer. Only the cash-raising kinds may stand in for each other.
+const NO_RETRY_KINDS = new Set(['trade', 'contract-propose', 'market', 'open-margin', 'reduce-margin', 'open-short', 'cover-short', 'settle-short-default', 'open-option', 'exercise-option', 'close-position', 'casino']);
+const LIQUIDATION_KINDS = new Set(['sell', 'mortgage']);
+
+function mayStandIn(rejected, next) {
+  if (NO_RETRY_KINDS.has(next.kind)) return false;
+  return !LIQUIDATION_KINDS.has(next.kind) || LIQUIDATION_KINDS.has(rejected.kind);
+}
+
+// A stale or unknown answer ends the decision on the turn rail; the next tick
+// decides again from fresh state. Falling to the top static score ran proposals.
+function staleAnswerFallback(candidates) {
+  return candidates.find(candidate => ['roll', 'end-turn', 'end-finance-window'].includes(candidate.kind)) || candidates[0];
+}
+
+function runNextLegalCandidate({ room, bot, candidates, rejected, trace, evaluationTrace }) {
+  if (NO_RETRY_KINDS.has(rejected.kind)) return null;
+  const start = candidates.indexOf(rejected);
+  for (const next of candidates.slice(start + 1)) {
+    if (NON_ADVANCING_KINDS.has(next.kind)) break;
+    if (!mayStandIn(rejected, next)) continue;
+    const nextAction = candidateAction(next, bot);
+    const attempt = CANDIDATE_RUNNERS[nextAction.type](room, bot, nextAction.candidate);
+    if (attempt?.success !== false) {
+      return attachBotDecision(attempt, { ...trace, actionId: next.id, fallbackReason: 'candidate-rejected', fallback: true }, evaluationTrace);
+    }
+  }
+  return null;
+}
+
 function runAdvisorCandidate(parts) {
   const { room, bot, phase, decision, candidates, trace, evaluationTrace } = parts;
   const game = room.game;
@@ -518,7 +659,7 @@ function runAdvisorCandidate(parts) {
       fallbackReason: 'trade-changed'
     }, evaluationTrace);
   }
-  const candidate = currentSelection || currentCandidates[0];
+  const candidate = currentSelection || staleAnswerFallback(currentCandidates);
   if (!candidate) {
     return attachBotDecision({ success: true, noEmit: true }, { ...trace, reasonCode: 'no-legal-action' }, evaluationTrace);
   }
@@ -530,14 +671,37 @@ function runAdvisorCandidate(parts) {
   const action = candidateAction(candidate, bot);
   const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
   if (result?.success !== false || action.type === 'roll') return attachBotDecision(result, trace, evaluationTrace);
+  const nextLegal = runNextLegalCandidate({ room, bot, candidates: currentCandidates, rejected: candidate, trace, evaluationTrace });
+  if (nextLegal) return nextLegal;
   const fallbackCandidate = advisorFallbackCandidate(phase, bot);
   const fallback = CANDIDATE_RUNNERS[fallbackCandidate.kind](room, bot, fallbackCandidate);
   return attachBotDecision(fallback, { ...trace, actionId: fallbackCandidate.id, fallbackReason: 'candidate-rejected' }, evaluationTrace);
 }
 
+// A debt that is due and can be cured in full is paid before anything else, with
+// no advisor call (no planner score, no paid LLM request): letting a model or a
+// net-worth-neutral score choose `roll` instead costs the whole pledged basket.
+function runMandatoryObligation({ room, bot, phase, decisionContext, candidates }) {
+  const mandatory = candidates.find(candidate => candidate.mandatory === true);
+  if (!mandatory) return null;
+  const action = candidateAction(mandatory, bot);
+  const result = CANDIDATE_RUNNERS[action.type](room, bot, action.candidate);
+  if (result?.success === false) return null;
+  const trace = advisorTurnTrace({
+    decisionContext,
+    safeDecision: { actionId: mandatory.id, confidence: 1, reasonCode: 'obligation-due' },
+    decision: { provider: 'deterministic', fallback: false, fallbackReason: 'obligation-due' },
+    phase,
+    candidates
+  });
+  return attachBotDecision(result, trace, null);
+}
+
 export async function runAdvisorTurn({ room, bot, advisor, decisionContext = {}, phase = 'pre-roll' }) {
   const game = room.game;
   const candidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: phase === 'post-roll' });
+  const obligation = runMandatoryObligation({ room, bot, phase, decisionContext, candidates });
+  if (obligation) return obligation;
   // Snapshot table obligations before the async advisor call: a trade,
   // contract, payment, or auction arriving mid-thought must not be acted
   // on with a stale pre-roll candidate list (mirrors the choice phases).

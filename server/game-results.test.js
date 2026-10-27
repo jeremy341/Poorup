@@ -97,6 +97,23 @@ check('placement ladder: solvent by cash, bankrupt last', () => {
   );
 });
 
+check('placement ranks the crowned winner first among contested seats', () => {
+  // A round-limit win can be decided on net worth while another seat still
+  // holds more cash. The game-crowned seat owns 1st; ghosts and bankruptcies
+  // keep their existing tier order.
+  const crowned = store.recordGameResults([
+    { id: 'w', nickname: 'WINNER', cash: 100, bankrupt: false, properties: [] },
+    { id: 'r', nickname: 'RICHER', cash: 900, bankrupt: false, properties: [] },
+    { id: 'c', nickname: 'THIRD', cash: 50, bankrupt: false, properties: [] },
+    { id: 'b', nickname: 'BANKRUPT', cash: 4000, bankrupt: true, properties: [] },
+    { id: 'g', nickname: 'GHOST', cash: 5000, disconnected: true, properties: [] }
+  ], 'w', { gameId: 'match-crowned-winner' });
+  assert.deepStrictEqual(
+    crowned.participants.map(p => `${p.displayNameAtMatch}:${p.finalPlacement}`),
+    ['WINNER:1', 'RICHER:2', 'THIRD:3', 'BANKRUPT:4', 'GHOST:5']
+  );
+});
+
 check('matchRecord clamps, slices, and honors fixed meta', () => {
   assert.strictEqual(record.durationSeconds, GOLDEN_RECORD.durationSeconds);
   assert.strictEqual(record.roundCount, GOLDEN_RECORD.roundCount);
@@ -134,8 +151,16 @@ check('re-recording the same match is idempotent for account history and stats',
 });
 
 check('null players do not crash placement', () => {
-  store.recordGameResults([null, ...fixturePlayers()], 'p1', { ...fixtureMeta(), gameId: 'match-null' });
-  assert.ok(true);
+  const withNull = store.recordGameResults([null, ...fixturePlayers()], 'p1', { ...fixtureMeta(), gameId: 'match-null' });
+  // recordGameResults drops falsy seats before ranking: the null entry leaves
+  // no participant behind and does not shift anyone's placement or stats.
+  assert.equal(withNull.matchId, 'match-null');
+  assert.equal(withNull.participants.length, GOLDEN_PARTICIPANTS.length);
+  assert.deepStrictEqual(
+    withNull.participants.map(p => `${p.finalPlacement}:${p.endingCash}:${p.propertyCount}:${p.bankrupt}`),
+    GOLDEN_PARTICIPANTS
+  );
+  assert.ok(byName('alice').matchHistory.some(entry => entry.matchId === 'match-null'));
 });
 
 check('old match replays stay idempotent after the visible history window rolls over', () => {
@@ -146,6 +171,22 @@ check('old match replays stay idempotent after the visible history window rolls 
   assert.equal(byName('alice').matchHistory.some(entry => entry.matchId === 'match-fixed'), false);
   store.recordGameResults(fixturePlayers(), 'p1', fixtureMeta());
   assert.equal(byName('alice').stats.gamesPlayed, before);
+});
+
+// E37-14: the settlement ledger is bounded, so a long-lived account does not
+// grow its record (and every accounts.json rewrite) without limit, while a
+// replay of a recent match is still refused.
+check('recorded match ids are capped and the newest replay is still refused', () => {
+  const alice = byName('alice');
+  const before = alice.stats.gamesPlayed;
+  for (let index = 0; index < 600; index += 1) {
+    store.recordGameResults([{ id: 'p1', accountId: alice.id, cash: 100, bankrupt: false, properties: [] }], 'p1', { gameId: `ledger-${index}` });
+  }
+  assert.equal(alice.stats.gamesPlayed - before, 600);
+  assert.ok(alice.recordedMatchIds.length <= 500, `ledger is bounded (${alice.recordedMatchIds.length})`);
+  assert.ok(alice.recordedMatchIds.includes('ledger-599'), 'the newest match stays in the ledger');
+  store.recordGameResults([{ id: 'p1', accountId: alice.id, cash: 100, bankrupt: false, properties: [] }], 'p1', { gameId: 'ledger-599' });
+  assert.equal(alice.stats.gamesPlayed - before, 600, 'a replay of a recent match does not count twice');
 });
 
 const failed = results.filter(r => !r).length;

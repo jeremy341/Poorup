@@ -6,10 +6,12 @@
 // feed text, ack shapes) is pinned by server/rooms.test.js and
 // server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
-import { normalizeAvatarGrid, normalizeClientId, buildMatchRecordOptions } from './roomSetup.js';
+import { ensureRoomHost } from './rooms.js';
+import { normalizeAvatarGrid, normalizeClientId, normalizeChatText, buildMatchRecordOptions } from './roomSetup.js';
 import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
 import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
 import { normalizeRequestId } from './requestId.js';
+import { isAdminAccount } from './analyticsApi.js';
 import {
   selectBotTurnTarget,
   botMayStillAct,
@@ -19,6 +21,9 @@ import {
   decideBotAuction
 } from './botLogic.js';
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
+import { contractResponderId } from './contractLogic.js';
+import { SPONSORSHIP_HUMAN_WINDOW_MS } from './sponsorshipLogic.js';
+import { playerFinanceEnabled } from './financeRules.js';
 import { getRoomForSocket as resolveRoomOrAck } from './socketHandlerSupport.js';
 import { botMovementSettleDelayMs, scheduleBotTimer } from './botTiming.js';
 import { presentationRemainingMs } from '../public/gamePresentationTiming.js';
@@ -31,8 +36,24 @@ const DISCONNECT_GRACE_MS = process.env.NODE_ENV === 'test'
   ? Math.min(DEFAULT_RECONNECT_GRACE_MS, Math.floor(configuredTestReconnectGrace))
   : DEFAULT_RECONNECT_GRACE_MS;
 const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
+const TRADE_OFFER_TTL_MS = 120 * 1000;
+const TRADE_EXPIRY_SWEEP_INTERVAL_MS = 5 * 1000;
+const AUCTION_WATCHDOG_INTERVAL_MS = 1000;
+// How often silent turn holders are checked for idleness (F-091). The idle
+// threshold itself is PLAYER_INACTIVITY_REMOVAL_MS.
+const IDLE_SEAT_SWEEP_INTERVAL_MS = 5000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
 const ROOMS_UPDATED_DEBOUNCE_MS = 750;
+// Outer bound on one bot decision. The advisor's own timeout covers its request
+// and body; this watchdog only frees the turn lock if a decision never settles.
+const BOT_DECISION_WATCHDOG_MS = 15 * 1000;
+const BOT_DECISION_WATCHDOG_MARGIN_MS = 5 * 1000;
+
+// Grace timers belong to one room's seat. The same clientId may hold a seat in
+// another room, so the registry key must name the room too.
+function disconnectTimerKey(roomCode, clientId) {
+  return `${roomCode}\u0000${clientId}`;
+}
 
 // Obligations that gate the whole table must die with a departing or
 // AFK seat, or the remaining players wait forever on a ghost.
@@ -40,6 +61,19 @@ const CANCELLED_OBLIGATIONS = [
   { key: 'pendingTrade', label: 'trade' },
   { key: 'pendingPlayerContract', label: 'player contract' }
 ];
+
+// Table talk from a bot is player text, so it takes the same cleaning as a
+// human message before it reaches the room. Text that is empty after cleaning
+// is not sent.
+export function botChatPayload(bot, botChat) {
+  const text = normalizeChatText(botChat);
+  if (!text) return null;
+  return { text, nickname: bot.nickname, senderId: bot.id, bot: true };
+}
+
+// Thrown by the guarded advisor when its answer arrives after the decision lost
+// its lock or its room; the turn ends quietly.
+class StaleBotDecision extends Error {}
 
 // Room-local timer failures must not escape into the process-level exception
 // path. Keep the wrapper dependency-free so each timer callback remains easy
@@ -69,12 +103,10 @@ function debtModeEnabled(game) {
 function applyPendingBankruptcy(game, player, pending) {
   const creditor = pendingCreditor(game, pending);
   if (debtModeEnabled(game)) {
-    game.handleDebtBankruptcy(player, creditor);
-    return true;
+    return game.handleDebtBankruptcy(player, creditor)?.success !== false;
   }
   if (typeof game.handleBankruptcy === 'function') {
-    game.handleBankruptcy(player, creditor);
-    return true;
+    return game.handleBankruptcy(player, creditor)?.success !== false;
   }
   return false;
 }
@@ -84,7 +116,9 @@ export function settleAfkPayment(game, player) {
   if (!pending) return false;
   if (pending.playerId !== player?.id) return false;
   const covers = Number(player.cash) >= Math.max(0, Number(pending.amountRemaining) || 0);
-  if (covers) return Boolean(game.trySettlePendingPayment?.());
+  // A debtor that can cover pays the debt and is then removed; only a debtor
+  // that cannot cover goes through bankruptcy and hands over its estate.
+  if (covers) return Boolean(game.collectPendingPayment?.(player));
   return applyPendingBankruptcy(game, player, pending);
 }
 
@@ -173,6 +207,7 @@ export function recordMatchTelemetry(context) {
   telemetryStore?.record('match-complete', {
     playerCount: matchRecord.playerCount,
     roundCount: matchRecord.roundCount,
+    ...(Number.isFinite(Number(matchRecord.durationSeconds)) ? { durationSeconds: Math.max(0, Math.floor(Number(matchRecord.durationSeconds))) } : {}),
     botOnly: matchRecord.participants.every(participant => !participant.accountId)
   }, telemetryVersions);
 }
@@ -204,18 +239,63 @@ function recordAchievementTelemetry(context) {
   candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId, botOnly }, telemetryVersions));
 }
 
+// A deterministic answer is flagged `fallback` even when the room chose house
+// policy on purpose (no-AI rooms, auction/phase rules). Those are not failures
+// of the model, so they never count toward the fallback rate.
+const BY_DESIGN_HOUSE_REASONS = new Set(['no-ai-mode', 'auction-policy', 'phase-resolution', 'deterministic-advisor', 'shadow-mode', 'deterministic']);
+
+// Which engine a bot decision belongs to, from the room's brain setting:
+//   aiRouted   the room asked for AI (botMode 'ai', provider 'ai') or not
+//              (botMode 'no-ai', provider 'deterministic'). One match therefore
+//              lands in exactly one bot group, so per-group match counts add up.
+//   counted    adds to `decisions`: every house decision in a no-AI room, and
+//              only the decisions the model was actually asked in an AI room.
+//   failed     the model was asked and the house engine answered instead.
+export function classifyBotDecision(decision = {}) {
+  const brain = decision.brain === 'no-ai' || decision.brain === 'ai' ? decision.brain : null;
+  const botMode = decision.botMode || brain || (decision.provider === 'ai' ? 'ai' : 'no-ai');
+  const aiRouted = botMode === 'ai';
+  const answeredByModel = decision.provider === 'ai';
+  const askedModel = aiRouted && (answeredByModel || (decision.fallback === true && !BY_DESIGN_HOUSE_REASONS.has(String(decision.fallbackReason || ''))));
+  return {
+    botMode,
+    provider: aiRouted ? 'ai' : 'deterministic',
+    counted: aiRouted ? askedModel : true,
+    failed: askedModel && !answeredByModel
+  };
+}
+
+// The live counterpart of the rollup's fallback rate: one increment per decision
+// the model was asked and the house engine answered instead, using the same
+// classification as the rollup so deliberate house policy never counts. Called
+// once per recorded decision trace; metrics must never affect a bot's turn.
+export function noteBotFallback(metrics, decision) {
+  if (!classifyBotDecision(decision).failed) return false;
+  try { metrics?.incrementMetric?.('bot-fallbacks', { scope: 'ai' }); } catch { /* best effort */ }
+  return true;
+}
+
 export function recordBotTelemetry(context) {
   const { telemetryStore, matchRecord, telemetryVersions } = context;
   const botOnly = matchRecord.botOnly === true || (Array.isArray(matchRecord.participants) && matchRecord.participants.length > 0 && matchRecord.participants.every(participant => !participant.accountId));
-  (matchRecord.botDecisions || []).slice(-200).forEach(decision => telemetryStore?.record('bot-outcome', {
-    provider: decision.provider,
-    botMode: decision.botMode || (decision.provider === 'ai' ? 'ai' : 'no-ai'),
-    botOnly,
-    fallback: decision.fallback,
-    success: decision.success,
-    phase: decision.phase,
-    actionId: decision.actionId
-  }, telemetryVersions));
+  const seenGroups = new Set();
+  (matchRecord.botDecisions || []).slice(-200).forEach(decision => {
+    const routing = classifyBotDecision(decision);
+    const group = `${routing.botMode}|${routing.provider}`;
+    const firstOfMatch = !seenGroups.has(group);
+    seenGroups.add(group);
+    telemetryStore?.record('bot-outcome', {
+      provider: routing.provider,
+      botMode: routing.botMode,
+      botOnly,
+      fallback: routing.failed,
+      success: decision.success,
+      phase: decision.phase,
+      actionId: decision.actionId,
+      decisions: routing.counted ? 1 : 0,
+      ...(firstOfMatch ? { match: true } : {})
+    }, telemetryVersions);
+  });
 }
 
 export function recordMatchStartTelemetry({ telemetryStore, room, telemetryVersions = {} } = {}) {
@@ -254,9 +334,12 @@ const ROOM_TELEMETRY_VERSION_READERS = [
   ['rulesetRevision', room => room?.ruleset?.rulesetRevision || room?.settings?.rulesetRevision],
   ['balanceRevision', room => room?.ruleset?.balanceRevision || room?.settings?.balanceRevision],
   ['boardVariant', room => room?.ruleset?.boardVariant || room?.settings?.boardVariant],
-  ['rulesetPreset', room => room?.ruleset?.rulesetPreset || room?.settings?.rulesetPreset],
-  ['marketComplexity', room => room?.ruleset?.effectiveSettings?.marketComplexity || room?.settings?.marketComplexity]
+  ['marketComplexity', readRoomMarketComplexity]
 ];
+
+function readRoomMarketComplexity(room) {
+  return room?.ruleset?.effectiveSettings?.marketComplexity || room?.settings?.marketComplexity;
+}
 
 function roomTelemetryVersions(room) {
   return Object.fromEntries(ROOM_TELEMETRY_VERSION_READERS.map(([key, read]) => [key, read(room)]));
@@ -270,11 +353,15 @@ function settlementTelemetryMatchId(matchRecord, room) {
   return false;
 }
 
-function settlementTelemetryVersions(matchRecord) {
+function settlementTelemetryVersions(matchRecord, room) {
   return {
     rulesetRevision: matchRecord.rulesetRevision,
     balanceRevision: matchRecord.balanceRevision,
-    boardVariant: matchRecord.boardVariant
+    boardVariant: matchRecord.boardVariant,
+    // The match-start row of the same match carries the market complexity, so
+    // the settlement rows carry it too: without it a non-basic match is split
+    // over two rollup rows.
+    marketComplexity: matchRecord.marketComplexity || readRoomMarketComplexity(room)
   };
 }
 
@@ -296,25 +383,15 @@ export function recordMatchTelemetryOnce(context) {
     room,
     matchRecord,
     candidates,
-    telemetryVersions: settlementTelemetryVersions(matchRecord)
+    telemetryVersions: settlementTelemetryVersions(matchRecord, room)
   });
   return true;
-}
-
-function hostCandidate(player, departedPlayerId) {
-  if (player.isBot) return false;
-  if (player.disconnected) return false;
-  if (player.bankrupt) return false;
-  if (player.inDebt) return false;
-  return player.id !== departedPlayerId;
 }
 
 export function reassignHostIfNeeded(room, departedPlayerId) {
   if (!room) return;
   if (room.hostId !== departedPlayerId) return;
-  const available = room.game.players.find(player => hostCandidate(player, departedPlayerId));
-  room.hostId = available?.id || null;
-  room.game.players.forEach(player => { player.isHost = player.id === room.hostId; });
+  ensureRoomHost(room, departedPlayerId);
 }
 
 // Keep provider credentials, billing/quota details, and raw error text out
@@ -327,14 +404,17 @@ const PUBLIC_FALLBACK_REASONS = new Map([
   ['quota', 'credits-exhausted'],
   ['quota-exhausted', 'credits-exhausted'],
   ['game-budget', 'game-budget'],
-  ['circuit-open', 'provider-cooldown']
+  ['process-budget', 'process-budget'],
+  ['circuit-open', 'provider-cooldown'],
+  ['rate-limit', 'provider-cooldown']
 ]);
 
 function createRuntime(deps) {
-  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, telemetryStore, botAdvisor, social, maintenance, metrics, authoritativeStore, pubsubAdapter } = deps;
+  const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, telemetryStore, botAdvisor, social, maintenance, maintenanceAccess, metrics, authoritativeStore, pubsubAdapter } = deps;
   const setTimeoutFn = deps.setTimeout || globalThis.setTimeout;
   const clearTimeoutFn = deps.clearTimeout || globalThis.clearTimeout;
   const setIntervalFn = deps.setInterval || globalThis.setInterval;
+  const clearIntervalFn = deps.clearInterval || globalThis.clearInterval;
   const now = deps.now || (() => Date.now());
   const configuredDisconnectGrace = Number(deps.disconnectGraceMs);
   const disconnectGraceMs = Number.isFinite(configuredDisconnectGrace) && configuredDisconnectGrace > 0
@@ -343,7 +423,13 @@ function createRuntime(deps) {
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
-  const botDecisionLocks = new Set();
+  // Room code -> the token of the decision that owns the lock (F-022).
+  const botDecisionLocks = new Map();
+  // Room code -> the watchdog timer of the decision that holds the lock, so a
+  // room teardown can stop it.
+  const botDecisionWatchdogs = new Map();
+  // Room code -> the one-shot re-check of a bot buyer's open sponsorship.
+  const sponsorshipRechecks = new Map();
   // Auction decisions belong to a specific bot AND auction instance. A room-wide
   // lock serialized remote AI calls, letting one 4s request starve other bots
   // during the 5s bid window.
@@ -439,12 +525,45 @@ function createRuntime(deps) {
   function broadcastRoomStateSafely(room) {
     try {
       roomPresenceRuntime.synchronizeInactivityTimers(room);
+      // Eliminations and departures reach the vote here, before the room
+      // summary carries it to the table.
+      roomVoteKickRuntime.reconcileRoomVoteKick(room);
       broadcastRoomState(room);
       scheduleBotTurn(room);
       scheduleBotAuction(room);
+      armSponsorshipRecheck(room);
     } catch (error) {
       console.error('emitRoomState failed for room', room.roomCode, error);
     }
+  }
+
+  // The 30 s human window of a bot buyer's sponsorship request is judged against
+  // the wall clock, but nothing wakes the table when it ends, and the open
+  // request keeps the round from advancing: re-emit once it has elapsed so the
+  // buyer bot can cancel or accept.
+  function armSponsorshipRecheck(room) {
+    const roomCode = room.roomCode;
+    const sponsorship = room.game.pendingSponsoredPurchase;
+    const existing = sponsorshipRechecks.get(roomCode);
+    if (existing && existing.sponsorship === sponsorship) return;
+    if (existing) {
+      clearTimeoutFn(existing.handle);
+      sponsorshipRechecks.delete(roomCode);
+    }
+    if (!sponsorship || !room.game.getPlayerById?.(sponsorship.buyerId)?.isBot) return;
+    const createdAt = Number(sponsorship.createdAt);
+    if (!Number.isFinite(createdAt)) return;
+    const remaining = createdAt + SPONSORSHIP_HUMAN_WINDOW_MS - Date.now();
+    // Once the window has passed, a still-open request is checked at a slow pace.
+    const delay = remaining > 0 ? remaining + 250 : 5_000;
+    const entry = { sponsorship, handle: null };
+    entry.handle = setTimeoutFn(() => runRoomTimer('sponsorship-recheck', roomCode, () => {
+      if (sponsorshipRechecks.get(roomCode) !== entry) return;
+      sponsorshipRechecks.delete(roomCode);
+      if (room.destroyed || room.game.pendingSponsoredPurchase !== sponsorship) return;
+      emitRoomState(room);
+    }), delay);
+    sponsorshipRechecks.set(roomCode, entry);
   }
 
   function emitRoomState(room) {
@@ -452,7 +571,46 @@ function createRuntime(deps) {
     if (room.game?.started) recordMatchStartTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
     recordRoomActivityMetrics();
     recordWinnerStatsOnce(room);
+    deliverBorrowerNotices(room);
     broadcastRoomStateSafely(room);
+  }
+
+  // Private notices the engine queues for a seat (a lender's exit cancelling
+  // the loan it funded). Each one goes to the seat's own socket once; a bot
+  // has no socket and reads the room feed instead. A seat that is not
+  // connected yet keeps its notice: the queue is only emptied for the notices
+  // that really reached their seat, so a borrower that dropped does not lose
+  // the notice for good.
+  function deliverBorrowerNotices(room) {
+    const game = room.game;
+    if (!game) return;
+    if (!Array.isArray(game.borrowerNotices)) {
+      (game.takeBorrowerNotices?.() || []).forEach(notice => { emitBorrowerNotice(game, notice); });
+      return;
+    }
+    const pending = [];
+    game.borrowerNotices.forEach(notice => {
+      if (!emitBorrowerNotice(game, notice)) pending.push(notice);
+    });
+    game.borrowerNotices = pending;
+  }
+
+  // A notice is delivered when its seat has a live socket. A seat that is
+  // still away keeps the notice in the queue; a seat that is gone (or a bot,
+  // which reads the room feed) does not hold it.
+  function emitBorrowerNotice(game, notice) {
+    const seat = game.getPlayerById?.(notice.playerId);
+    if (!seat) return true;
+    if (seat.isBot) return true;
+    const socket = io.sockets?.sockets?.get(seat.socketId);
+    if (!socket) return false;
+    try {
+      socket.emit('system-message', { text: notice.text });
+    } catch (error) {
+      console.error('borrower notice failed for seat', notice.playerId, error);
+      return false;
+    }
+    return true;
   }
 
   function recordRoomStats(room) {
@@ -465,7 +623,15 @@ function createRuntime(deps) {
     // annotated record without replaying match statistics.
     accountStore.updateMatchRecord?.(matchRecord);
     matchStore.record(matchRecord);
-    candidates.forEach(candidate => social.recordVerifiedAchievement(candidate, matchRecord.matchId));
+    // One candidate that fails must not cost the others their unlocks, the
+    // match telemetry or the account sync.
+    candidates.forEach(candidate => {
+      try {
+        social.recordVerifiedAchievement(candidate, matchRecord.matchId);
+      } catch (error) {
+        console.error('Achievement settlement failed:', error?.message || 'unknown error');
+      }
+    });
     recordMatchTelemetryOnce({ telemetryStore, room, matchRecord, candidates });
     // Refresh the owner’s private profile immediately after settlement so
     // completed-game stats, history, and achievement counts are current while
@@ -521,7 +687,7 @@ function createRuntime(deps) {
       name: tile.name,
       price: tile.price,
       canAfford: player.cash >= tile.price,
-      canSeekSponsorship: true
+      canSeekSponsorship: playerFinanceEnabled(room.game)
     });
   }
 
@@ -535,7 +701,8 @@ function createRuntime(deps) {
   function emitPendingContract(room, socket, player) {
     const contract = room.game.pendingPlayerContract;
     if (!contract) return;
-    if (contract.toPlayerId !== player.id) return;
+    // The seat awaiting an answer, which after a counter is the lender.
+    if (contractResponderId(contract) !== player.id) return;
     socket.emit('player-contract-offer', { contract });
   }
 
@@ -562,14 +729,35 @@ function createRuntime(deps) {
       detachStartedSeat(oldRoom, oldPlayer);
       return;
     }
-    oldRoom.game.removePlayerBySocket(socket.id);
+    releaseLobbySeat(oldRoom, oldPlayer, socket.id);
+  }
+
+  function releaseLobbySeat(oldRoom, oldPlayer, socketId) {
+    oldRoom.game.removePlayerBySocket(socketId);
     // Lobby hosts that leave must hand the room over, or Start stays dead.
     reassignHostIfNeeded(oldRoom, oldPlayer.id);
+    // A lobby nobody is left in has no one to come back to it.
+    if (typeof oldRoom.hasHumanSeats === 'function' && !oldRoom.hasHumanSeats()) {
+      destroyRoom(oldRoom);
+      scheduleRoomsUpdated();
+      return;
+    }
     emitRoomState(oldRoom);
+  }
+
+  // Every live seat this socket holds, whichever room it is mapped to: lobby
+  // seats are removed, started-game seats enter their grace window. Used when
+  // the socket creates a new room.
+  function releaseSocketSeats(socket) {
+    roomManager.liveSeatsOnSocket(socket.id).forEach(({ room, player }) => {
+      if (room.game.started) detachStartedSeat(room, player);
+      else releaseLobbySeat(room, player, socket.id);
+    });
   }
 
   function detachStartedSeat(oldRoom, oldPlayer) {
     scheduleDisconnect(oldRoom, oldPlayer.socketId, oldPlayer);
+    revokeAuctionLeadIfLeader(oldRoom, oldPlayer, 'disconnect');
     reassignHostIfNeeded(oldRoom, oldPlayer.id);
     emitRoomState(oldRoom);
   }
@@ -583,10 +771,23 @@ function createRuntime(deps) {
   }
 
   function resolveSeatObligations(room, player, reason) {
-    if (room.game.pendingPayment?.playerId === player.id) settleAfkPayment(room.game, player);
+    const prepared = room.game.prepareCollateralForExit?.(player);
+    if (prepared?.success === false) return prepared;
+    if (room.game.pendingPayment?.playerId === player.id && !settleAfkPayment(room.game, player)) return { success: false };
+    return resolveSeatExitObligations(room, player, reason);
+  }
+
+  // Shared by expiry and voluntary leave: a seat that leaves the table cancels
+  // the trade, contract, and sponsorship it owns with the same announcement,
+  // and auctions its pending purchase offer. Payment settlement stays with
+  // resolveSeatObligations, which only the expiry path runs.
+  function resolveSeatExitObligations(room, player, reason) {
+    const prepared = room.game.prepareCollateralForExit?.(player);
+    if (prepared?.success === false) return prepared;
     clearPendingObligations(room, room.game, player, reason);
     revokeAuctionLeadIfLeader(room, player, reason);
     resolvePendingPurchaseForLeaving(room, player);
+    return { success: true };
   }
 
   function resolvePendingPurchaseForLeaving(room, player) {
@@ -597,21 +798,24 @@ function createRuntime(deps) {
 
   function seatRemovalMessage(player, reason) {
     if (reason === 'disconnect') return `${player.nickname} disconnected.`;
+    if (reason === 'vote-kick') return `${player.nickname} was removed after the room vote-kick passed.`;
     return `${player.nickname} was removed for ${reason}.`;
   }
 
   function removeSeatForReason(room, player, reason, preventRejoin = false) {
-    resolveSeatObligations(room, player, reason);
+    const prepared = resolveSeatObligations(room, player, reason);
+    if (prepared?.success === false) return false;
     const socket = io.sockets?.sockets?.get(player.socketId);
     const message = seatRemovalMessage(player, reason);
-    if (reason !== 'vote-kick') socket?.emit('system-message', { text: message });
     const removed = roomManager.removeRoomSeat({
       clientId: player.clientId,
       socketId: player.socketId,
       reason,
       preventRejoin,
+      room,
     });
     if (!removed.success) return false;
+    socket?.emit('system-message', { text: message });
     roomPresenceRuntime.clearPlayer(room, player.id);
     socket?.leave(room.roomCode);
     emitRoomState(room);
@@ -640,18 +844,38 @@ function createRuntime(deps) {
     removeSeatForReason,
   });
 
-  function clearDisconnectTimer(clientId) {
-    const timer = disconnectTimers.get(clientId);
-    if (timer) {
-      clearTimeoutFn(timer.handle);
-      disconnectTimers.delete(clientId);
+  function dropDisconnectTimer(clientId, room) {
+    if (!room) return null;
+    const key = disconnectTimerKey(room.roomCode, clientId);
+    const timer = disconnectTimers.get(key);
+    if (!timer) return null;
+    clearTimeoutFn(timer.handle);
+    disconnectTimers.delete(key);
+    return timer;
+  }
+
+  // The reconnect seam. A seat that lost its socket holds exactly one disconnect
+  // timer, and every way back to the table (restore-session, rejoin by code or
+  // room id, the create-room replay, an accepted invite) clears it once the seat
+  // is live again. So a cleared timer on a live seat is one successful seat
+  // reconnect, counted once: the timer is gone for the next call. Callers that
+  // clear it before the seat is attached (the account-seat reclaim, which swaps
+  // the clientId first) say so with `reconnected`. Leaving, rescheduling and
+  // room teardown go through dropDisconnectTimer and never count.
+  function clearDisconnectTimer(clientId, room, { reconnected = false } = {}) {
+    const timer = dropDisconnectTimer(clientId, room);
+    if (!timer) return;
+    const seat = timer.player;
+    if (seat && !seat.disconnected && seat.socketId) seat.disconnectedAt = 0;
+    if (reconnected || (seat && !seat.disconnected && seat.socketId)) {
+      try { metrics?.incrementMetric?.('room-reconnects', { scope: 'seat' }); } catch { /* best effort */ }
     }
   }
 
   function clearDisconnectTimersForRoom(room) {
     if (!room) return;
     room.game.players.forEach(player => {
-      clearDisconnectTimer(player.clientId);
+      dropDisconnectTimer(player.clientId, room);
     });
   }
 
@@ -662,6 +886,9 @@ function createRuntime(deps) {
     if (!room) return;
     const roomCode = room.roomCode;
     if (room.game?.started && !room.game?.lastWinner) recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions: roomTelemetryVersions(room) });
+    // A match that ended but was never settled (the room was torn down before
+    // its last broadcast) still owes the table a settlement.
+    settleCompletedRoom(room);
     room.destroyed = true;
     clearAuctionTimer(room);
     roomPresenceRuntime.clearRoom(room);
@@ -671,6 +898,10 @@ function createRuntime(deps) {
     clearTimeoutFn(botTimers.get(roomCode));
     botTimers.delete(roomCode);
     botDecisionLocks.delete(roomCode);
+    clearTimeoutFn(botDecisionWatchdogs.get(roomCode));
+    botDecisionWatchdogs.delete(roomCode);
+    clearTimeoutFn(sponsorshipRechecks.get(roomCode)?.handle);
+    sponsorshipRechecks.delete(roomCode);
     for (const botKey of auctionDecisionLocks) {
       if (botKey.startsWith(`${roomCode}:`)) auctionDecisionLocks.delete(botKey);
     }
@@ -680,6 +911,7 @@ function createRuntime(deps) {
     // from the registry (getRoomBySocket would still resolve it).
     forgetSocketMappings(room);
     roomManager.rooms.delete(roomCode);
+    recordRoomActivityMetrics();
   }
 
   function forgetSocketMappings(room) {
@@ -688,16 +920,36 @@ function createRuntime(deps) {
     }
   }
 
+  // A finished match that was never settled is settled now, once. A store
+  // outage must not stop the room from being torn down.
+  function settleCompletedRoom(room) {
+    if (!room?.game?.lastWinner || room.statsRecorded) return false;
+    try {
+      recordRoomStats(room);
+    } catch (error) {
+      console.error('settlement failed for room', room.roomCode, error);
+    }
+    return true;
+  }
+
   // --- bots ----------------------------------------------------------------
 
   function turnRoomReady(room) {
     if (!room?.game.started) return false;
     if (room.destroyed) return false;
+    if (humanlessTable(room)) return false;
     // Auctions have their own participant timer. Keeping the ordinary turn
     // queue out of this phase prevents the current seat from issuing a
     // rejected pass/bid while a different bot is the auction participant.
     if (room.game.auction?.active) return false;
     return !botTurnPending(room);
+  }
+
+  // A started table whose last human seat is gone is dead: bots playing on, and
+  // calling the paid advisor, would only burn budget until the empty-room GC
+  // collects the room. (Room-shaped test doubles without the method are left alone.)
+  function humanlessTable(room) {
+    return typeof room.hasHumanSeats === 'function' && !room.hasHumanSeats();
   }
 
   function scheduleBotTurn(room, movementDelayMs = 0) {
@@ -725,33 +977,97 @@ function createRuntime(deps) {
     const remaining = presentationRemainingMs(room.game, now());
     if (remaining > 0) return scheduleBotTurn(room, remaining);
     room.game.presentationClock = now;
-    botDecisionLocks.add(room.roomCode);
+    // The decision owns the lock through its token. The watchdog frees a lock
+    // whose decision never settles (a stalled provider the advisor could not
+    // abort); a stale completion then cannot free the lock a newer one holds (F-022).
+    const token = {};
+    botDecisionLocks.set(room.roomCode, token);
+    const watchdog = setTimeoutFn(
+      () => runRoomTimer('bot-decision-watchdog', room.roomCode, () => finishBotTurn(room, token)),
+      botDecisionWatchdogMs()
+    );
+    botDecisionWatchdogs.set(room.roomCode, watchdog);
     const previousPositions = new Map(room.game.players.map(player => [player.id, player.position]));
-    runBotDecision(room, bot)
+    runBotDecision(room, bot, () => botDecisionLocks.get(room.roomCode) !== token)
       .catch(error => {
+        if (error instanceof StaleBotDecision) return;
         // A failed bot decision must not escape the timer callback: an
         // uncaught error here used to take the whole process down. The room
         // stays alive and the watchdog/next action retries naturally.
         console.error(`Bot turn failed in room ${room.roomCode}:`, error);
       })
-      .finally(() => finishBotTurn(room, botMovementSettleDelayMs(previousPositions, room.game, now())));
+      .finally(() => {
+        clearTimeoutFn(watchdog);
+        if (botDecisionWatchdogs.get(room.roomCode) === watchdog) botDecisionWatchdogs.delete(room.roomCode);
+        finishBotTurn(room, token, botMovementSettleDelayMs(previousPositions, room.game, now()));
+      });
+  }
+
+  function botDecisionWatchdogMs() {
+    return Math.max(BOT_DECISION_WATCHDOG_MS, (Number(botAdvisor?.timeoutMs) || 0) + BOT_DECISION_WATCHDOG_MARGIN_MS);
   }
 
   function applyBotDecisionOutcome(room, bot, result) {
     if (result?.botDecision) {
       const trace = room.game.recordBotDecisionTrace(result.botDecision);
+      noteBotFallback(metrics, trace);
       emitBotStatus(room, bot, 'chosen', trace);
     }
     if (result?.botChat) {
-      io.in(room.roomCode).emit('chat-message', { text: result.botChat, nickname: bot.nickname, senderId: bot.id, bot: true });
+      const chat = botChatPayload(bot, result.botChat);
+      if (chat) io.in(room.roomCode).emit('chat-message', chat);
     }
     if (result?.noEmit) return;
     // Tail purchase resolution, second half of the post-roll double-check.
-    if (presentationRemainingMs(room.game, now()) === 0) resolvePurchaseOffer(room, bot, result);
+    const outcome = presentationRemainingMs(room.game, now()) === 0 ? resolvePurchaseOffer(room, bot, result) : result;
+    // A bot's declined or unaffordable landing opens an auction that nothing
+    // else arms a finish timer for; with no bids it would never close.
+    if (outcome?.auctionStarted) scheduleAuctionFinish(room);
     emitRoomState(room);
   }
 
-  async function runBotDecision(room, bot) {
+  // A contract the bot just created (or countered) is pushed to its human
+  // recipient, as a human's proposal is, so the offer is not silent (F-089).
+  function notifyBotContractOffer(room, priorContract) {
+    const contract = room.game.pendingPlayerContract;
+    if (!contract || contract === priorContract) return;
+    const recipient = room.game.getPlayerById(contractResponderId(contract));
+    if (!recipient || recipient.isBot || !recipient.socketId) return;
+    io.to(recipient.socketId).emit('player-contract-offer', { contract });
+  }
+
+  // A decision that went stale must not act on its late answer: the advisor
+  // call throws as it returns, which ends the turn before any action runs.
+  function abortableAdvisor(isStale) {
+    if (!botAdvisor || typeof botAdvisor.chooseAction !== 'function') return botAdvisor;
+    return new Proxy(botAdvisor, {
+      get(target, property) {
+        if (property === 'chooseAction') {
+          return async (...args) => {
+            const decision = await target.chooseAction(...args);
+            if (isStale()) throw new StaleBotDecision();
+            return decision;
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+    });
+  }
+
+  // A decision whose lock was released by the watchdog, whose room is gone, or
+  // whose match has already ended must not act on its late answer: the
+  // advisor call throws as it returns, which ends the turn before any action
+  // runs. endGame leaves the room alive, so the finished match is judged by
+  // the game itself.
+  function botDecisionIsStale(room, lockLost) {
+    return () => room.destroyed
+      || lockLost()
+      || !room.game?.started
+      || Boolean(room.game?.lastWinner);
+  }
+
+  async function runBotDecision(room, bot, lockLost = () => false) {
     // Re-read live state: seats, pendings, and votes may have changed while
     // this timer was queued. The decision policy itself lives in
     // botLogic.js and is covered by server/botLogic.test.js.
@@ -759,8 +1075,11 @@ function createRuntime(deps) {
     if (room.destroyed) return;
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     emitBotStatus(room, bot, 'thinking', { decisionSequence });
-    const result = await runBotTurn(room, bot, botAdvisor);
-    if (room.destroyed) return;
+    const priorContract = room.game.pendingPlayerContract;
+    const isStale = botDecisionIsStale(room, lockLost);
+    const result = await runBotTurn(room, bot, abortableAdvisor(isStale));
+    if (isStale()) return;
+    notifyBotContractOffer(room, priorContract);
     applyBotDecisionOutcome(room, bot, result);
   }
 
@@ -797,7 +1116,9 @@ function createRuntime(deps) {
     return PUBLIC_FALLBACK_REASONS.get(key) || 'provider-unavailable';
   }
 
-  function finishBotTurn(room, movementDelayMs = 0) {
+  function finishBotTurn(room, token, movementDelayMs = 0) {
+    // Only the decision holding the lock may release it (F-022).
+    if (botDecisionLocks.get(room.roomCode) !== token) return;
     botDecisionLocks.delete(room.roomCode);
     scheduleBotTurn(room, movementDelayMs);
     scheduleBotAuction(room);
@@ -814,6 +1135,7 @@ function createRuntime(deps) {
   function scheduleBotAuction(room) {
     const auction = activeAuction(room);
     if (!auction) return;
+    if (humanlessTable(room)) return;
     const roomCode = room.roomCode;
     const evaluated = auctionEvaluations.get(roomCode) || new Map();
     auctionEvaluations.set(roomCode, evaluated);
@@ -874,11 +1196,15 @@ function createRuntime(deps) {
       context: { ...context, event: room.game.globalEvent }
     });
     if (room.destroyed || room.game.auction !== expectedAuction || !sameAuction(room.game.auction, auctionVersion, bot)) return;
-    auctionEvaluations.get(key)?.set(bot.id, auctionVersion);
     const { candidates, amount, decision } = choice;
     const actionId = choice.actionId;
     const shouldBid = actionId === 'auction:bid';
     const result = shouldBid ? room.runBotAction(bot.id, actor => room.placeAuctionBid(actor, amount)) : { success: true };
+    // A bid that only collided with the bid cooldown was not a decision against
+    // this state: leave the identity unevaluated so the re-arm in the caller
+    // tries again once the cooldown has passed, and record nothing for it.
+    if (shouldBid && result?.success === false && Number(room.game.auction?.cooldownUntil) > Date.now()) return;
+    auctionEvaluations.get(key)?.set(bot.id, auctionVersion);
     if (shouldBid && result?.success) scheduleAuctionFinish(room);
     const trace = room.game.recordBotDecisionTrace({
       ...context,
@@ -893,6 +1219,7 @@ function createRuntime(deps) {
       reasonCode: result?.success === false ? 'auction-rejected' : decision?.reasonCode || 'auction-policy',
       candidateIds: candidates.map(candidate => candidate.id)
     });
+    noteBotFallback(metrics, trace);
     emitBotStatus(room, bot, 'chosen', trace);
     emitRoomState(room);
   }
@@ -932,7 +1259,13 @@ function createRuntime(deps) {
     // Capture the auction object itself, not just the room code. A stale
     // callback that survives clearTimeout must never finish a newer auction in
     // the same room.
-    const timer = setTimeoutFn(() => runRoomTimer('auction-finish', roomCode, () => finishAuctionIfStillActive(roomCode, auction)), delay);
+    const timer = setTimeoutFn(() => {
+      // The handle has fired, so it no longer arms anything. Left registered it
+      // would make the watchdog skip the room even if this callback returns
+      // early or throws before it clears the entry.
+      if (auctionTimers.get(roomCode) === timer) auctionTimers.delete(roomCode);
+      runRoomTimer('auction-finish', roomCode, () => finishAuctionIfStillActive(roomCode, auction));
+    }, delay);
     auctionTimers.set(roomCode, timer);
   }
 
@@ -964,18 +1297,34 @@ function createRuntime(deps) {
     clearAuctionTimer(currentRoom);
   }
 
+  // Safety net for any path that leaves an auction open with no finish armed:
+  // once its window has passed, close it exactly as the timer would.
+  function auctionWatchdogTick() {
+    for (const [roomCode, room] of roomManager.rooms.entries()) {
+      const auction = activeAuction(room);
+      if (!auction || auctionTimers.has(roomCode)) continue;
+      if (Number(auction.endsAt) > now()) continue;
+      finishAuctionIfStillActive(roomCode, auction);
+    }
+  }
+
   function scheduleDisconnect(room, socketId, disconnectedPlayer = null) {
     if (!room) return;
     const player = disconnectedPlayer || room.getPlayerBySocket(socketId);
     if (!player) return;
-    clearDisconnectTimer(player.clientId);
+    dropDisconnectTimer(player.clientId, room);
     roomPresenceRuntime.clearPlayer(room, player.id);
-    const deadline = now() + disconnectGraceMs;
+    const droppedAt = now();
+    const deadline = droppedAt + disconnectGraceMs;
     player.disconnected = true;
     player.socketId = null;
     player.disconnectDeadline = deadline;
-    const timer = { room, player, clientId: player.clientId, socketId, deadline, handle: null };
-    disconnectTimers.set(player.clientId, timer);
+    // A lobby seat's grace restarts for ever, so the deadline cannot tell a
+    // fresh drop from a ghost; the first drop time can.
+    player.disconnectedAt = droppedAt;
+    const key = disconnectTimerKey(room.roomCode, player.clientId);
+    const timer = { room, player, clientId: player.clientId, key, socketId, deadline, handle: null };
+    disconnectTimers.set(key, timer);
     scheduleDisconnectExpiry(timer);
   }
 
@@ -984,7 +1333,7 @@ function createRuntime(deps) {
   }
 
   function expireDisconnectedSeat(timer) {
-    if (disconnectTimers.get(timer.clientId) !== timer) return false;
+    if (disconnectTimers.get(timer.key) !== timer) return false;
     const currentRoom = roomManager.getRoom(timer.room.roomCode);
     const currentPlayer = currentRoom === timer.room ? currentRoom.game.getPlayerByClient(timer.clientId) : null;
     if (currentRoom !== timer.room
@@ -995,7 +1344,7 @@ function createRuntime(deps) {
       // The seat may have been pruned synchronously before this callback ran.
       // Remove only this exact timer registration; a newer reconnect/disconnect
       // cycle for the same client id owns a different timer object.
-      disconnectTimers.delete(timer.clientId);
+      disconnectTimers.delete(timer.key);
       return false;
     }
     const remaining = timer.deadline - now();
@@ -1004,11 +1353,39 @@ function createRuntime(deps) {
       return false;
     }
 
-    disconnectTimers.delete(timer.clientId);
-    if (roomManager.getRoomBySocket(timer.socketId) === currentRoom) {
-      roomManager.socketRoom.delete(timer.socketId);
+    if (!currentRoom.game.started) {
+      // A lobby seat never times out on a dropped connection: the grace window
+      // restarts, and the empty-room GC still reclaims a lobby nobody returns to.
+      timer.deadline = now() + disconnectGraceMs;
+      currentPlayer.disconnectDeadline = timer.deadline;
+      scheduleDisconnectExpiry(timer);
+      return false;
     }
-    return removeSeatForReason(currentRoom, currentPlayer, 'disconnect', false);
+    const removed = crownLoneSolventSeat(currentRoom, currentPlayer)
+      || removeSeatForReason(currentRoom, currentPlayer, 'disconnect', false);
+    if (!removed) {
+      // A transactional settlement failure keeps the original seat/deadline
+      // eligible for a bounded retry, rather than abandoning its expiry.
+      timer.handle = setTimeoutFn(() => runRoomTimer('disconnect-expiry', timer.room.roomCode, () => expireDisconnectedSeat(timer)), 1_000);
+      return false;
+    }
+    disconnectTimers.delete(timer.key);
+    if (roomManager.getRoomBySocket(timer.socketId) === currentRoom) roomManager.socketRoom.delete(timer.socketId);
+    return true;
+  }
+
+  // The last solvent seat keeps the table when its grace runs out: it is
+  // crowned, not removed, so the winner stays on the seat list for the match
+  // record. A seat that still owes a parked debt is removed as usual.
+  function crownLoneSolventSeat(room, player) {
+    const game = room.game;
+    if (!game.started || player.bankrupt) return false;
+    if (game.pendingPayment?.playerId === player.id) return false;
+    if (game.nonBankruptPlayers().some(other => other !== player)) return false;
+    game.endGame(player);
+    ensureRoomHost(room);
+    emitRoomState(room);
+    return true;
   }
 
   function revokeAuctionLeadIfLeader(room, player, reason = 'disconnect') {
@@ -1021,6 +1398,8 @@ function createRuntime(deps) {
       ? 'The highest bidder disconnected. The bid is reset.'
       : `${player.nickname} left the room. The highest bid is reset.`;
     io.in(room.roomCode).emit('system-message', { text: message });
+    // Rivals bid against a lead that no longer exists, so they get a fresh window.
+    auction.endsAt = Math.max(Number(auction.endsAt) || 0, now() + AUCTION_DURATION_MS);
     scheduleAuctionFinish(room);
   }
 
@@ -1050,24 +1429,36 @@ function createRuntime(deps) {
 
   // --- background intervals --------------------------------------------------
 
-  function emptyRoomGcTick() {
-    const now = Date.now();
-    for (const [roomCode, room] of roomManager.rooms.entries()) {
-      garbageCollectRoom(room, roomCode, now);
+  // createdAt is stamped with the wall clock in proposeTrade, so compare with it.
+  function tradeExpirySweepTick() {
+    const at = Date.now();
+    for (const room of roomManager.rooms.values()) {
+      if (!room.game?.started) continue;
+      // An unanswered trade or player contract gates the whole table, so both lapse.
+      const staleTrade = room.game.expireStaleTrade?.(at, TRADE_OFFER_TTL_MS);
+      const staleContract = room.game.expireStaleContract?.(at, TRADE_OFFER_TTL_MS);
+      if (staleTrade || staleContract) emitRoomState(room);
     }
   }
 
-  function garbageCollectRoom(room, roomCode, now) {
+  function emptyRoomGcTick() {
+    const current = now();
+    for (const [roomCode, room] of roomManager.rooms.entries()) {
+      garbageCollectRoom(room, roomCode, current);
+    }
+  }
+
+  function garbageCollectRoom(room, roomCode, current) {
     // Bots and ghost seats must not keep a room alive (audit finding 14).
     if (room.hasConnectedHumans()) {
       room.emptySince = null;
       return;
     }
     if (!room.emptySince) {
-      room.emptySince = now;
+      room.emptySince = current;
       return;
     }
-    if (now - room.emptySince <= EMPTY_ROOM_GRACE_PERIOD_MS) return;
+    if (current - room.emptySince <= EMPTY_ROOM_GRACE_PERIOD_MS) return;
     console.log(`Garbage collecting empty room: ${roomCode}`);
     destroyRoom(room);
     scheduleRoomsUpdated();
@@ -1097,7 +1488,9 @@ function createRuntime(deps) {
     if (room.game.started) return { success: false, error: 'That round has already started.' };
     const clientId = normalizeClientId(payload.clientId);
     if (!clientId) return { success: false, error: 'A client session is required to join.' };
-    if (!room.game.canJoin()) return { success: false, error: 'That room is full.' };
+    if (!canJoinRoom(socket, account, { reconnecting: Boolean(room.game.getPlayerByClient(clientId)) })) return lockoutRefusal(socket);
+    // The same capacity rule join-room uses: every retained lobby seat counts.
+    if (!room.lobbyHasFreeSeat()) return { success: false, error: 'That room is full.' };
     return joinRoomViaInvite(socket, account, room, payload);
   }
 
@@ -1107,45 +1500,84 @@ function createRuntime(deps) {
     if (existing?.socketId && existing.socketId !== socket.id && !existing.disconnected) {
       return { success: false, error: 'That seat is already in use.' };
     }
-    const addedNewSeat = !existing;
-    const previousSeat = existing ? {
-      clientId: existing.clientId,
-      socketId: existing.socketId,
-      disconnected: existing.disconnected,
-      disconnectDeadline: existing.disconnectDeadline,
-      nickname: existing.nickname,
-      color: existing.color,
-      avatarGrid: existing.avatarGrid,
-      accountId: existing.accountId
-    } : null;
-    const joined = room.addOrReconnectPlayer({
-      clientId,
-      socketId: socket.id,
-      nickname: account.displayName,
-      color: account.color,
-      avatarGrid: normalizeAvatarGrid(account.avatarGrid),
-      accountId: account.id
-    });
-    if (!joined.success) return { success: false, error: joined.error };
-    // Validate and consume the invite while the source room is still intact.
-    // If the record was concurrently declined/expired, roll back only the
-    // staged target seat and leave the source socket untouched.
-    const result = socialStore.respondInvite(account.id, payload.inviteId, true);
-    if (!result.success) {
-      if (addedNewSeat) room.game.removePlayerByClient(clientId);
-      else Object.assign(existing, previousSeat);
-      return result;
+    const seatConflict = roomManager.identitySeatElsewhere(room, { clientId, accountId: account.id, socketId: socket.id });
+    if (seatConflict) return { success: false, error: seatConflict };
+    // The lobby as it is before the seat is staged: the seat that is about to
+    // be added, the host seat it may take over and the bot roster it may
+    // change. A refused invite gives all of it back.
+    const rosterBefore = snapshotLobbyRoster(room);
+    const socketRoomBefore = roomManager.socketRoom.get(socket.id) || null;
+    let joined;
+    try {
+      joined = room.addOrReconnectPlayer({
+        clientId,
+        socketId: socket.id,
+        nickname: account.displayName,
+        color: account.color,
+        avatarGrid: normalizeAvatarGrid(account.avatarGrid),
+        accountId: account.id
+      });
+    } catch (error) {
+      console.error('Invite seating failed for room', room.roomCode, error);
+      restoreLobbyRoster(room, rosterBefore);
+      return { success: false, error: 'That seat could not be prepared. Please try again.' };
     }
-    detachSocketFromOtherRoom(socket, room);
-    leaveAllGameRooms(socket);
-    clearDisconnectTimer(clientId);
-    roomManager.socketRoom.set(socket.id, room);
-    socket.join(room.roomCode);
+    if (!joined.success) {
+      restoreLobbyRoster(room, rosterBefore);
+      return { success: false, error: joined.error };
+    }
+    // Validate and consume the invite while the source room is still intact.
+    // If the record was concurrently declined/expired, or the store failed
+    // outright, the staged target seat is rolled back and the source socket
+    // is left untouched: a failed invite never leaves a live seat behind.
+    let result;
+    try {
+      result = socialStore.respondInvite(account.id, payload.inviteId, true);
+      if (!result.success) {
+        restoreLobbyRoster(room, rosterBefore);
+        return result;
+      }
+      detachSocketFromOtherRoom(socket, room);
+      leaveAllGameRooms(socket);
+      clearDisconnectTimer(clientId, room);
+      roomManager.socketRoom.set(socket.id, room);
+      socket.join(room.roomCode);
+    } catch (error) {
+      console.error('Invite acceptance failed for room', room.roomCode, error);
+      restoreLobbyRoster(room, rosterBefore);
+      if (socketRoomBefore) roomManager.socketRoom.set(socket.id, socketRoomBefore);
+      else roomManager.socketRoom.delete(socket.id);
+      return { success: false, error: 'That room invite could not be accepted. Please try again.' };
+    }
     social.emitSocialUpdate(account.id);
     emitRoomState(room);
     io.in(room.roomCode).emit('system-message', { text: account.displayName + ' joined from a room invite.' });
     emitPendingInteractions(room, socket, joined.player);
     return { ...result, roomId: room.publicId, roomCode: room.visibility === 'private' ? room.roomCode : null, visibility: room.visibility };
+  }
+
+  // The lobby roster as it is right now: every seat with the fields a seat
+  // carries, plus the host seat. An invite that fails gives all of it back.
+  function snapshotLobbyRoster(room) {
+    return {
+      players: room.game.players.map(player => ({ player, props: { ...player } })),
+      hostId: room.hostId
+    };
+  }
+
+  function restoreLobbyRoster(room, snapshot) {
+    const roster = room.game.players;
+    roster.length = 0;
+    snapshot.players.forEach(entry => {
+      const player = entry.player;
+      Object.keys(player).forEach(key => {
+        if (!(key in entry.props)) delete player[key];
+      });
+      Object.assign(player, entry.props);
+      roster.push(player);
+    });
+    room.hostId = snapshot.hostId;
+    roster.forEach(player => { player.isHost = player.id === snapshot.hostId; });
   }
 
   function contractCancelKey(socket, payload) {
@@ -1154,21 +1586,31 @@ function createRuntime(deps) {
     return `${socket.id}:cancel:${requestId}`;
   }
 
+  // The memo records which contract the cancel settled, as the contract
+  // response memo does: a reused request id must not report a cancel for a
+  // different contract that is still pending.
   function cachedContractCancel(room, socket, payload) {
     const key = contractCancelKey(socket, payload);
     if (!key) return null;
     if (!room.game.contractTransactions?.has(key)) return null;
-    return room.game.contractTransactions.get(key);
+    const memo = room.game.contractTransactions.get(key);
+    // An evicted id answers with the map's terminal rejection, as before.
+    if (memo && memo.result === undefined && memo.error) return memo;
+    const pendingId = room.game.pendingPlayerContract?.id || null;
+    const named = payload?.contractId ? String(payload.contractId) : null;
+    if (named ? named !== memo?.contractId : pendingId) return null;
+    return memo?.result ?? null;
   }
 
-  function cacheContractCancel(room, socket, payload, result) {
+  function cacheContractCancel(room, socket, payload, result, contractId = null) {
     const key = contractCancelKey(socket, payload);
-    if (key) room.game.contractTransactions.set(key, result);
+    if (key) room.game.contractTransactions.set(key, { contractId: contractId ? String(contractId) : null, result });
   }
 
   function maintenanceSnapshot() {
     return maintenance?.snapshot?.() || {
       mode: 'normal',
+      lockout: false,
       message: '',
       releaseId: '',
       drainDeadline: null,
@@ -1176,19 +1618,72 @@ function createRuntime(deps) {
     };
   }
 
+  // --- maintenance lockout: who may pass it --------------------------------
+
+  // A socket passes the lockout with a live operator cookie grant (read at the
+  // handshake, see server.js) or as an admin account. account undefined means
+  // "resolve it from the socket"; null means "known anonymous".
+  function maintenanceBypass(socket, account) {
+    if (maintenanceAccess?.isGrantActive?.(socket?.data?.maintenanceAccess)) return true;
+    let resolved = account;
+    if (resolved === undefined) {
+      try { resolved = social?.accountForSocket?.(socket, {}) || null; } catch { resolved = null; }
+    }
+    return isAdminAccount(resolved?.id, runtime.adminIds);
+  }
+
+  // The bypass is only worked out when the plain gate says no, so normal play
+  // never pays for the account lookup.
+  function gate(check, socket, account, options = {}) {
+    if (typeof maintenance?.[check] !== 'function') return true;
+    if (maintenance[check](options)) return true;
+    return maintenance[check]({ ...options, bypass: maintenanceBypass(socket, account) });
+  }
+
+  const canCreateRoom = (socket, account) => gate('canCreateRoom', socket, account);
+  const canStartRound = (socket, account) => gate('canStartRound', socket, account);
+  const canJoinRoom = (socket, account, { reconnecting = false } = {}) => gate('canJoinRoom', socket, account, { reconnecting });
+
+  // Per-socket copy of the state: bypass tells this client whether to hide the
+  // lockout panel. It is never broadcast as one shared value.
+  function maintenanceStateFor(socket, snapshot = maintenanceSnapshot()) {
+    return { ...snapshot, bypass: maintenanceBypass(socket) };
+  }
+
+  function emitMaintenanceState(socket, snapshot) {
+    socket?.emit?.('maintenance-state', maintenanceStateFor(socket, snapshot));
+  }
+
+  function broadcastMaintenanceState(snapshot = maintenanceSnapshot()) {
+    io?.sockets?.sockets?.forEach?.(socket => emitMaintenanceState(socket, snapshot));
+  }
+
+  // Refusal for a lockout gate, or for the older drain/maintenance pause.
+  function lockoutRefusal(socket, pausedError = 'New rooms are paused for maintenance.') {
+    const snapshot = maintenanceSnapshot();
+    return snapshot.lockout
+      ? { success: false, error: 'The site is closed for maintenance.', code: 'MAINTENANCE_LOCKOUT', maintenance: maintenanceStateFor(socket, snapshot) }
+      : { success: false, error: pausedError, code: 'MAINTENANCE_DRAINING', maintenance: maintenanceStateFor(socket, snapshot) };
+  }
+
   // --- socket disconnect (registered per socket by the connection wiring) ----
 
   function handleSocketDisconnect(socket) {
     social.chatLastSent.delete(socket.id);
     forgetPatrolRuns(socket.id);
-    const room = roomManager.getRoomBySocket(socket.id);
-    const player = room?.getPlayerBySocket(socket.id) || null;
+    // Every live seat bound to this socket enters grace, including one left in
+    // a room the socket is no longer mapped to; it must not stay live forever.
+    const seats = roomManager.liveSeatsOnSocket(socket.id);
     roomManager.disconnectPlayer(socket.id);
-    if (room && player) {
+    seats.forEach(({ room, player }) => {
       scheduleDisconnect(room, socket.id, player);
+      // A disconnected leader cannot be paid out, and its frozen bid would keep
+      // every rival from winning below it: the lead is released now, not at
+      // grace expiry, which is long after the auction closes.
+      if (room.game.started) revokeAuctionLeadIfLeader(room, player, 'disconnect');
       reassignHostIfNeeded(room, player.id);
       emitRoomState(room);
-    }
+    });
     console.log('Socket disconnected:', socket.id);
   }
 
@@ -1209,8 +1704,10 @@ function createRuntime(deps) {
     clearDisconnectTimer,
     destroyRoom,
     detachSocketFromOtherRoom,
+    releaseSocketSeats,
     getRoomForSocket,
     handleSocketDisconnect,
+    resolveSeatExitObligations,
     io,
     leaveAllGameRooms,
     matchStore,
@@ -1218,10 +1715,20 @@ function createRuntime(deps) {
     maintenance,
     pubsubAdapter,
     maintenanceSnapshot,
-    canCreateRoom: () => maintenance?.canCreateRoom?.() ?? true,
-    canStartRound: () => maintenance?.canStartRound?.() ?? true,
+    maintenanceBypass,
+    maintenanceStateFor,
+    emitMaintenanceState,
+    broadcastMaintenanceState,
+    lockoutRefusal,
+    canCreateRoom,
+    canStartRound,
+    canJoinRoom,
     botProviderStatus,
     unsubscribeBotProviderStatus,
+    // Shutdown hook (server.js calls it by this name): stops every background
+    // interval, not only the auction watchdog it is named for.
+    stopAuctionWatchdog: stopBackgroundTimers,
+    dispose: stopBackgroundTimers,
     now,
     telemetryStore,
     reassignHostIfNeeded,
@@ -1235,12 +1742,25 @@ function createRuntime(deps) {
     emitPendingInteractions,
     emitRoomState,
     setPlayerPresence: roomPresenceRuntime.setPlayerPresence,
+    noteSocketEvent: roomPresenceRuntime.noteSocketEvent,
+    sweepIdleSeats: roomPresenceRuntime.sweepIdleSeats,
     startRoomVoteKick: roomVoteKickRuntime.startRoomVoteKick,
     castRoomVoteKick: roomVoteKickRuntime.castRoomVoteKick
   };
 
   roomManager.setRoomDestroyer?.(destroyRoom);
-  setIntervalFn(() => runRoomTimer('empty-room-gc', '*', emptyRoomGcTick), EMPTY_ROOM_GC_INTERVAL_MS);
+  const emptyRoomGcTimer = setIntervalFn(() => runRoomTimer('empty-room-gc', '*', emptyRoomGcTick), EMPTY_ROOM_GC_INTERVAL_MS);
+  emptyRoomGcTimer?.unref?.();
+  const auctionWatchdogTimer = setIntervalFn(() => runRoomTimer('auction-watchdog', '*', auctionWatchdogTick), AUCTION_WATCHDOG_INTERVAL_MS);
+  auctionWatchdogTimer?.unref?.();
+  const idleSeatSweepTimer = setIntervalFn(() => runRoomTimer('idle-seat-sweep', '*', () => roomPresenceRuntime.sweepIdleSeats()), IDLE_SEAT_SWEEP_INTERVAL_MS);
+  idleSeatSweepTimer?.unref?.();
+  const tradeExpirySweepTimer = setIntervalFn(() => runRoomTimer('trade-expiry-sweep', '*', tradeExpirySweepTick), TRADE_EXPIRY_SWEEP_INTERVAL_MS);
+  tradeExpirySweepTimer?.unref?.();
+
+  function stopBackgroundTimers() {
+    [emptyRoomGcTimer, auctionWatchdogTimer, idleSeatSweepTimer, tradeExpirySweepTimer].forEach(timer => clearIntervalFn(timer));
+  }
 
   return runtime;
 }

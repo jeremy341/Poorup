@@ -7,6 +7,7 @@ import {
   proposeEquityShareTransfer,
   counterContract,
   adjustContract,
+  expireStaleContract,
   repayContract,
   respondContract,
   settleEquityShares
@@ -27,18 +28,24 @@ import {
   canUnmortgageTile,
   isTradeableTile
 } from './propertyRules.js';
-import { DEFAULT_ROOM_SETTINGS } from './roomSettings.js';
+import { DEFAULT_ROOM_SETTINGS, stripRetiredRoomSettings } from './roomSettings.js';
+import { resolveRuleset } from './rulesetRegistry.js';
 import {
   JAIL_FINE,
   JAIL_MAX_TURNS,
+  ROUND_LIMIT,
   START_TILE_INDEX,
   rollDice,
   shuffleArray
 } from './gameData.js';
+import { netWorth, netWorthBreakdown } from './netWorth.js';
 import { globalEventsApi } from './globalEventsApi.js';
 import { rentApi } from './rentApi.js';
 import { tileApi } from './tileApi.js';
+import { airportApi } from './airportApi.js';
+import { bankAccountApi } from './bankAccountApi.js';
 import { cardApi } from './cardApi.js';
+import { itemApi } from './itemApi.js';
 import { propertyApi } from './propertyApi.js';
 import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
 import { economyApi } from './economyApi.js';
@@ -54,6 +61,9 @@ import { appendPublicAction } from './publicActionHistory.js';
 import { recordPresentationCash } from './gamePresentation.js';
 import { gamePresentationApi } from './gamePresentationApi.js';
 
+// Net-worth rows kept per game; the stored match record keeps a downsampled copy of at most 40.
+const NET_WORTH_TIMELINE_LIMIT = 400;
+
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
   ['position', () => START_TILE_INDEX],
@@ -61,6 +71,8 @@ const PLAYER_STATE_DEFAULTS = [
   ['inJail', false],
   ['jailTurns', 0],
   ['jailFreeCards', 0],
+  ['jailFreeOrigins', () => []],
+  ['items', () => []],
   ['bankLoan', null],
   ['casinoNet', 0],
   ['casinoLedger', () => []],
@@ -78,6 +90,7 @@ const PLAYER_STATE_DEFAULTS = [
   ['shortDefaultDebt', 0],
   ['optionPositions', () => []],
   ['reservedCash', 0],
+  ['bankAccount', () => ({ tier: 1, cashbackEarned: 0, ledger: [], requests: [] })],
   ['marketTrades', 0],
   ['marketActionsThisTurn', 0],
   ['crisisMarketBuys', () => ({})],
@@ -88,6 +101,7 @@ const PLAYER_STATE_DEFAULTS = [
   // normal human finance flow to remain unrestricted.
   ['botDealActionsThisTurn', 0],
   ['auctionWins', 0],
+  ['tradesCompleted', 0],
   ['rentCollected', 0],
   ['globalEventsExperienced', 0],
   ['globalEventsSurvived', 0],
@@ -252,10 +266,17 @@ export function contractPledgesTile(contract, player, tile) {
 
 class GameState {
   constructor(settings) {
-    this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
-    this.boardVariant = this.settings.boardVariant || 'standard-40';
-    this.ruleset = null;
-    this.rulesetDigest = null;
+    const suppliedSettings = stripRetiredRoomSettings(settings);
+    // An omitted Advanced finance switch defaults on; the Standard default
+    // must not turn an explicitly selected Advanced game off.
+    const seed = { ...DEFAULT_ROOM_SETTINGS, ...suppliedSettings };
+    if (suppliedSettings.rulesProfile === 'advanced' && suppliedSettings.playerFinance === undefined) delete seed.playerFinance;
+    this.ruleset = resolveRuleset({ settings: seed, rulesetOverrides: seed.rulesetOverrides, boardVariant: seed.boardVariant });
+    this.settings = { ...seed, ...this.ruleset.effectiveSettings, rulesetOverrides: this.ruleset.rulesetOverrides.map(entry => ({ ...entry })) };
+    this.settings.boardVariant = this.ruleset.boardVariant;
+    this.settings.rulesetRevision = this.ruleset.rulesetRevision;
+    this.boardVariant = this.ruleset.boardVariant;
+    this.rulesetDigest = this.ruleset.digest;
     this.reset();
   }
 
@@ -291,7 +312,10 @@ class GameState {
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
     this.defaultClaims = [];
+    this.borrowerNotices = [];
     this.lastWinner = null;
+    this.lastEndReason = null;
+    this.finalNetWorthById = null;
     this.vacationPool = 0;
     this.roundNumber = 0;
     this.globalEvent = null;
@@ -314,10 +338,12 @@ class GameState {
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.publicActionHistory = [];
+    this.netWorthTimeline = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
-    const decks = decksForVariant(this.boardVariant);
+    this.itemTransactions = new Map();
+    const decks = decksForVariant(this.boardVariant, this.settings);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
   }
@@ -387,8 +413,12 @@ class GameState {
     this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
+    this.syncDebtFlags();
     this.defaultClaims = [];
+    this.borrowerNotices = [];
     this.lastWinner = null;
+    this.lastEndReason = null;
+    this.finalNetWorthById = null;
     this.vacationPool = 0;
     this.roundNumber = 1;
     this.globalEvent = null;
@@ -400,6 +430,7 @@ class GameState {
     this.casinoLastResult = null;
     this.casinoLedger = [];
     this.marketLedger = [];
+    this.globalEventVoteTransactions = null;
     this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
     this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
@@ -411,13 +442,23 @@ class GameState {
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.publicActionHistory = [];
+    this.netWorthTimeline = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
-    const decks = decksForVariant(this.boardVariant);
+    this.itemTransactions = new Map();
+    const decks = decksForVariant(this.boardVariant, this.settings);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
-    this.players.forEach(player => this.resetPlayerState(player));
+    this.players.forEach(player => {
+      // A seat still inside its reconnect grace stays disconnected across a
+      // rematch: its expiry timer is still armed, and clearing the flag here
+      // would leave a connected ghost that the timer can no longer release.
+      const { disconnected, disconnectDeadline } = player;
+      this.resetPlayerState(player);
+      player.disconnected = disconnected;
+      player.disconnectDeadline = disconnectDeadline;
+    });
   }
 
   removePlayerBySocket(socketId) {
@@ -519,6 +560,10 @@ class GameState {
     return respondContract(this, socketId, accept, requestId, contractId);
   }
 
+  expireStaleContract(nowMs, ttlMs) {
+    return expireStaleContract(this, nowMs, ttlMs);
+  }
+
   repayPlayerContract(socketId, payload = {}) {
     return repayContract(this, socketId, payload);
   }
@@ -578,9 +623,16 @@ class GameState {
     return canUnmortgageTile(this, player, tile);
   }
 
-  applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
+  applyPropertyOwnershipChange(fromPlayer, toPlayer, tile, { preserveMortgage = false } = {}) {
     this.terminateTileEquityShares(tile);
-    this.resetDeedTile(tile, toPlayer);
+    this.resetDeedTile(tile, toPlayer, { preserveMortgage });
+    // A trade or claim has no reliably attributable per-deed cash price, so
+    // the last bank/auction acquisition basis follows the deed unchanged.
+    // Legacy deeds first transferred without a basis use their printed price.
+    if (toPlayer && !(tile.purchasePricePaid != null && Number.isFinite(Number(tile.purchasePricePaid)) && Number(tile.purchasePricePaid) >= 0)) {
+      tile.purchasePricePaid = Math.max(0, Math.floor(Number(tile.price) || 0));
+    }
+    if (!toPlayer) tile.purchasePricePaid = null;
     this.detachDeedFromOwner(fromPlayer, tile);
     this.attachDeedToOwner(toPlayer, tile);
   }
@@ -595,9 +647,9 @@ class GameState {
     });
   }
 
-  resetDeedTile(tile, toPlayer) {
+  resetDeedTile(tile, toPlayer, { preserveMortgage = false } = {}) {
     tile.ownerId = toPlayer ? toPlayer.id : null;
-    tile.mortgaged = false;
+    if (!preserveMortgage) tile.mortgaged = false;
     tile.houseCount = 0;
     tile.equityShares = [];
   }
@@ -631,8 +683,9 @@ class GameState {
     }
     // Every retained seat consumes capacity, including bots. A room that
     // counts only active humans can exceed its advertised seat limit after a
-    // round ends or when bots are retained for a rematch.
-    return this.players.filter(player => !player.bankrupt).length < this.settings.maxPlayers;
+    // round ends or when bots are retained for a rematch. Eliminated seats are
+    // revived by resetForNewGame, so before a match they hold capacity too.
+    return this.players.length < this.settings.maxPlayers;
   }
 
   activePlayers() {
@@ -648,12 +701,15 @@ class GameState {
   }
 
   configureStartOrder() {
-    const active = [...this.players].filter(p => !p.bankrupt && !p.disconnected);
+    // Seats still in reconnect grace keep their turn-order slot: their turns
+    // are skipped while they are away, exactly as mid-game, and resume if they
+    // reconnect. The first turn goes to a connected seat.
+    const active = [...this.players].filter(p => !p.bankrupt);
     if (this.settings.randomizePlayerOrder) {
       shuffleArray(active);
     }
     this.turnOrder = active.map(p => p.id);
-    this.currentPlayerId = this.turnOrder[0] || null;
+    this.currentPlayerId = active.find(p => !p.disconnected)?.id || null;
     this.hasRolled = false;
     this.awaitingEndTurn = false;
   }
@@ -683,7 +739,7 @@ class GameState {
       [!playerId, 'Player not found.'],
       [!this.started, 'Game has not started.'],
       [playerId !== this.currentPlayerId, 'It is not your turn.'],
-      [this.pendingPayment?.playerId === playerId, 'Settle your debt before rolling.'],
+      [this.hasPendingDebt(playerId), 'Settle your debt before rolling.'],
       [this.pendingPurchaseOffer?.playerId === playerId, 'Resolve the property offer before rolling.'],
       [this.pendingSponsoredPurchase?.buyerId === playerId, 'Resolve the sponsorship before rolling.'],
       [Boolean(this.auction?.active), 'Finish the active auction before rolling.'],
@@ -769,6 +825,9 @@ class GameState {
     if (this.hasRolled) {
       return { success: false, error: 'You have already rolled this turn.' };
     }
+    if (this.hasPendingDebt(player.id)) {
+      return { success: false, error: 'Settle your debt before paying the jail fine.' };
+    }
     if (player.cash < JAIL_FINE) {
       return { success: false, error: `You need $${JAIL_FINE} to pay the jail fine.` };
     }
@@ -779,11 +838,11 @@ class GameState {
     return { success: true, message: 'You left jail. Roll the dice to move.' };
   }
 
-  useJailFree(socketId) {
+  useJailFree(socketId, itemId = null) {
     const player = this.getPlayerBySocket(socketId);
     const rejection = this.jailFreeRejection(player);
     if (rejection) return rejection;
-    player.jailFreeCards -= 1;
+    if (!this.consumePrisonItem(player, itemId)) return { success: false, error: 'You do not own this prison card.' };
     player.prisonBreak = true;
     player.inJail = false;
     player.jailTurns = 0;
@@ -900,10 +959,23 @@ class GameState {
     return { retainedTurn: false };
   }
 
+  // One row per finished round, keyed by player id because seats can leave mid-game. The final row
+  // is taken after market positions are liquidated; a repeated round number replaces its row.
+  recordNetWorthSnapshot() {
+    const worth = {};
+    this.players.forEach(player => { worth[player.id] = netWorth(this, player); });
+    const timeline = Array.isArray(this.netWorthTimeline) ? this.netWorthTimeline : (this.netWorthTimeline = []);
+    if (timeline.length && timeline[timeline.length - 1].round === this.roundNumber) timeline.pop();
+    timeline.push({ round: this.roundNumber, worth });
+    if (timeline.length > NET_WORTH_TIMELINE_LIMIT) timeline.splice(0, timeline.length - NET_WORTH_TIMELINE_LIMIT);
+  }
+
   advanceRound() {
     if (this._advancingRound) return;
     this._advancingRound = true;
     try {
+      // The round that just finished is the one the snapshot is labelled with.
+      this.recordNetWorthSnapshot();
       this.roundNumber += 1;
       if (this.globalEventCooldown > 0) this.globalEventCooldown -= 1;
       this.markMidpointFacts();
@@ -920,9 +992,85 @@ class GameState {
         player.rentPayersThisRound = new Set();
         player.casinoBetsThisRound = 0;
       });
+      this.warnRoundLimit();
+      // Ending here is safe for the turn callers: nextTurn and the seat-exit
+      // path both check `started` before they seat the next player.
+      this.endForRoundLimit();
     } finally {
       this._advancingRound = false;
     }
+  }
+
+  // The round limit (F-081) is announced twice before it lands.
+  warnRoundLimit() {
+    if (this.roundNumber !== ROUND_LIMIT - 50 && this.roundNumber !== ROUND_LIMIT - 10) return;
+    this.feedMessage(`The game ends after round ${ROUND_LIMIT}; richest player wins.`);
+  }
+
+  // Passing ROUND_LIMIT ends a running table through endGame when at least
+  // two solvent seats remain. A lone solvent seat is left to the normal
+  // bankruptcy path.
+  endForRoundLimit() {
+    if (!this.started || this.roundNumber <= ROUND_LIMIT) return false;
+    const solvent = this.players.filter(player => this.isSolventSeat(player));
+    if (solvent.length < 2) return false;
+    // Rank on settled worth: endGame liquidates margin and shorts at a haircut,
+    // so crowning on the pre-settlement quote could pick a seat that ends behind.
+    // The liquidation is idempotent, so the pass inside endGame stays harmless.
+    this.players.forEach(player => this.liquidateAllMarketPositions(player));
+    this.endGame(this.richestSolventSeat(), { reason: 'round-limit' });
+    return true;
+  }
+
+  // Every claim a seat still owes: the head plus anything queued behind it.
+  // Named apart from propertyApi.pendingDebtFor(player): that helper is mixed
+  // onto GameState.prototype and would shadow a same-named method here.
+  pendingDebtAmountFor(playerId) {
+    if (!playerId) return 0;
+    let owed = this.pendingPayment?.playerId === playerId
+      ? Math.max(0, Number(this.pendingPayment.amountRemaining) || 0)
+      : 0;
+    (Array.isArray(this.pendingPaymentQueue) ? this.pendingPaymentQueue : []).forEach(entry => {
+      if (entry?.payment?.playerId === playerId) owed += Math.max(0, Number(entry.payment.amountRemaining) || 0);
+    });
+    return owed;
+  }
+
+  hasPendingDebt(playerId) {
+    return this.pendingDebtAmountFor(playerId) > 0;
+  }
+
+  // inDebt mirrors the head and queued claims so subsystems that read the
+  // player flag stay in lockstep with the claim ledger.
+  syncDebtFlags() {
+    this.players.forEach(player => {
+      player.inDebt = !player.bankrupt && this.pendingDebtAmountFor(player.id) > 0;
+    });
+  }
+
+  isSolventSeat(player) {
+    return Boolean(player) && !player.bankrupt && !player.inDebt && !this.hasPendingDebt(player.id);
+  }
+
+  // Richest connected solvent seat by netWorth (netWorth.js: cash, deeds,
+  // buildings, market units, margin, shorts, options, loans and contracts, all
+  // marked to the current quote, less open debt). A tie goes to the seat earlier
+  // in turn order.
+  richestSolventSeat() {
+    const orderedIds = [...new Set([...(this.turnOrder || []), ...this.players.map(player => player.id)])];
+    let richest = null;
+    let richestWorth = -Infinity;
+    orderedIds.map(id => this.getPlayerById(id)).forEach(player => {
+      if (!this.isSolventSeat(player) || player.disconnected) return;
+      // Rank on the unclamped total: two negative seats both clamp to 0 on the
+      // display value, which would hand the tie to turn order.
+      const worth = netWorthBreakdown(this, player)?.total ?? 0;
+      if (worth > richestWorth) {
+        richest = player;
+        richestWorth = worth;
+      }
+    });
+    return richest;
   }
 
   resetTurnState() {
@@ -931,13 +1079,19 @@ class GameState {
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
+    this.lastFlight = null;
+  }
+
+  // A non-bankrupt seat still inside its reconnect grace: the table waits on it.
+  waitingSeat() {
+    return this.players.find(player => player.disconnected
+      && Number(player.disconnectDeadline) > Date.now()
+      && !player.bankrupt) || null;
   }
 
   finishIfNoConnectedPlayers(connected) {
     if (connected.length > 1) return false;
-    const waiting = this.players.find(player => player.disconnected
-      && Number(player.disconnectDeadline) > Date.now()
-      && !player.bankrupt);
+    const waiting = this.waitingSeat();
     if (waiting) {
       this.announceWaitingForSeat(waiting);
       return true;
@@ -950,9 +1104,41 @@ class GameState {
     if (this.turnOrderWrapped(next)) this.advanceRound();
   }
 
+  // The first seat after the current one that is inside its reconnect grace; the
+  // table waits on it, so it is the seat the clock must rest on.
+  nextWaitingSeat() {
+    const order = this.turnOrder;
+    const start = order.indexOf(this.currentPlayerId);
+    for (let step = 1; step <= order.length; step += 1) {
+      const player = this.getPlayerById(order[(start + step + order.length) % order.length]);
+      if (player && player.disconnected && !player.bankrupt && Number(player.disconnectDeadline) > Date.now()) return player;
+    }
+    return this.waitingSeat();
+  }
+
+  // With nobody else able to play, a turn that ends while a seat is in its reconnect
+  // grace hands that seat the clock with a fresh turn. Leaving it on the seat that
+  // just finished wedged the table for good: that seat had already rolled, the
+  // returning seat was "not on turn", and nothing re-advanced the clock on return.
+  // Moving the clock around the end of the order still completes the round.
+  parkTurnOnWaitingSeat(waiting) {
+    const currentIndex = this.turnOrder.indexOf(this.currentPlayerId);
+    const waitingIndex = this.turnOrder.indexOf(waiting.id);
+    const wrapped = waiting.id !== this.currentPlayerId && currentIndex >= 0 && waitingIndex >= 0 && waitingIndex <= currentIndex;
+    if (wrapped) this.advanceRound();
+    if (!this.started) return;
+    this.beginSeatTurn(waiting);
+    this.announceWaitingForSeat(waiting);
+  }
+
   nextTurn() {
     this.resetTurnState();
     const connected = this.connectedNonBankruptPlayers();
+    const waiting = connected.length <= 1 ? this.nextWaitingSeat() : null;
+    if (waiting) {
+      this.parkTurnOnWaitingSeat(waiting);
+      return;
+    }
     if (this.finishIfNoConnectedPlayers(connected)) return;
     const next = this.findNextTurnSeat();
     if (!this.nextSeatIsPlayable(next)) {
@@ -1003,6 +1189,10 @@ class GameState {
   beginSeatTurn(player) {
     this.currentPlayerId = player.id;
     this.hasRolled = false;
+    // The doubles streak belongs to the seated roller. A turn that ended on
+    // doubles without an extra roll (Go to Prison, a jail card, a disconnect
+    // skip) must not hand its count to the successor.
+    this.consecutiveDoubles = 0;
     player.botDealActionsThisTurn = 0;
     player.buildActionsThisTurn = 0;
     player.marketActionsThisTurn = 0;
@@ -1065,13 +1255,31 @@ class GameState {
       // the existing table gate and queue later claims instead of silently
       // overwriting the first debtor.
       this.pendingPaymentQueue ||= [];
+      // The active roller must never wait behind another seat's claim: the
+      // settle flow reads the head, so promote the roller's claim and requeue
+      // the one it displaces.
+      if (pending.playerId === this.currentPlayerId && this.pendingPayment.playerId !== pending.playerId) {
+        this.pendingPaymentQueue.unshift({
+          payment: this.pendingPayment,
+          hooks: this.pendingPaymentHooks,
+          turnOptions: this.pendingPaymentTurnOptions
+        });
+        this.pendingPayment = pending;
+        this.pendingPaymentHooks = hooks;
+        this.pendingPaymentTurnOptions = turnOptions;
+        this.syncDebtFlags();
+        this.feedMessage(`${player.nickname} owes $${remaining}; the payment takes priority over the queued debt.`);
+        return;
+      }
       this.pendingPaymentQueue.push({ payment: pending, hooks, turnOptions });
+      this.syncDebtFlags();
       this.feedMessage(`${player.nickname} owes $${remaining}; the payment is queued behind the current debt.`);
       return;
     }
     this.pendingPayment = pending;
     this.pendingPaymentHooks = hooks;
     this.pendingPaymentTurnOptions = turnOptions;
+    this.syncDebtFlags();
     this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
   }
 
@@ -1098,33 +1306,90 @@ class GameState {
     creditor.rentPayersThisRound ||= new Set();
     creditor.rentPayersThisRound.add(payer.id);
     creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
+    if (this.pendingPayment?.playerId === creditor.id
+      && creditor.cash >= this.pendingPayment.amountRemaining
+      && !this.collectingPendingPayment
+      && !this.collectingOwnedDebts) {
+      this.trySettlePendingPayment();
+    }
   }
 
   trySettlePendingPayment() {
+    if (this.collectingPendingPayment || this.collectingOwnedDebts) return false;
     if (!this.pendingPayment) return false;
     const player = this.getPlayerById(this.pendingPayment.playerId);
+    // A debtor inside its reconnect grace that can cover the debt pays only the
+    // debt; another seat's action must not hand over its whole estate.
+    if (player?.disconnected && !player.bankrupt && player.cash >= this.pendingPayment.amountRemaining) {
+      return this.collectOwnedDebts(player);
+    }
     if (!this.pendingPayerCanSettle(player)) {
       // Debts never evaporate: a present-but-unsettleable debtor goes
       // through bankruptcy (assets to creditor); a removed seat simply
       // clears like before, its deeds already forfeited on the way out.
       const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
       const debtor = player;
-      this.clearPendingPayment();
-      if (debtor && !debtor.bankrupt) this.handleBankruptcy(debtor, creditor);
+      if (debtor && !debtor.bankrupt) {
+        const result = this.handleBankruptcy(debtor, creditor);
+        if (result?.success === false) return false;
+      } else this.clearPendingPayment();
       return false;
     }
+    return this.collectOwnedDebts(player);
+  }
+
+  // Pays the head debt, then drains any promoted head already covered by its
+  // payer's cash. Each pass removes one claim, so queue order is preserved and
+  // the pass terminates. The outer guard keeps credit hooks from re-entering.
+  collectOwnedDebts(player) {
+    if (this.collectingOwnedDebts) return false;
+    this.collectingOwnedDebts = true;
+    try {
+      if (!this.collectPendingPayment(player)) return false;
+      while (this.pendingPayment) {
+        const nextPayer = this.getPlayerById(this.pendingPayment.playerId);
+        if (!nextPayer || nextPayer.bankrupt || nextPayer.cash < this.pendingPayment.amountRemaining) break;
+        if (!this.collectPendingPayment(nextPayer)) break;
+      }
+      return true;
+    } finally {
+      this.collectingOwnedDebts = false;
+    }
+  }
+
+  // Pays the parked debt in full from the debtor's cash. The live settle path
+  // reaches it through trySettlePendingPayment; the AFK/expiry path calls it
+  // directly, because a seat still inside its reconnect grace can cover its
+  // debt, and that payment must not turn into a whole-estate bankruptcy.
+  collectPendingPayment(player) {
+    if (!this.pendingPayment || !player || player.bankrupt) return false;
+    // Re-entrancy guard: collecting the head claim can credit a recipient
+    // (an equity rent share paid to the seat that owes the very rent), and
+    // that inflow retries the claim that is being collected right now. The
+    // retry must not collect the same rent a second time, and it must not
+    // clear the claim under the collection that is still running.
+    if (this.collectingPendingPayment) return false;
     if (player.cash < this.pendingPayment.amountRemaining) {
       return false;
     }
     const amount = this.pendingPayment.amountRemaining;
-    player.cash -= amount;
-    this.creditSettledDebt(amount, player);
-    this.settlePendingEquityShares(amount);
-    this.settlePendingHooks(amount);
+    this.collectingPendingPayment = true;
+    try {
+      player.cash -= amount;
+      this.creditSettledDebt(amount, player);
+      this.settlePendingEquityShares(amount);
+      this.settlePendingHooks(amount);
+    } finally {
+      this.collectingPendingPayment = false;
+    }
     this.feedMessage(`${player.nickname} paid the remaining $${amount}.`);
     const turnOptions = this.pendingPaymentTurnOptions || {};
+    // Only the seat that landed on the debt resolves its roll. An off-turn
+    // debtor (a bank-loan default during round processing) or a seat that has
+    // not rolled yet settles without marking the current roll as landed.
+    const resolvesRoll = this.hasRolled && player.id === this.currentPlayerId;
     this.clearPendingPayment();
-    this.resolveTurnAfterAction(turnOptions);
+    if (resolvesRoll) this.resolveTurnAfterAction(turnOptions);
     return true;
   }
 
@@ -1140,19 +1405,28 @@ class GameState {
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
     const next = shouldActivateNext ? this.pendingPaymentQueue?.shift() : null;
-    if (!next) return false;
-    this.pendingPayment = next.payment;
-    this.pendingPaymentHooks = next.hooks;
-    this.pendingPaymentTurnOptions = next.turnOptions;
-    return true;
+    if (next) {
+      this.pendingPayment = next.payment;
+      this.pendingPaymentHooks = next.hooks;
+      this.pendingPaymentTurnOptions = next.turnOptions;
+    }
+    this.syncDebtFlags();
+    if (next && !this.collectingOwnedDebts && this.pendingPayment) {
+      const nextPayer = this.getPlayerById(this.pendingPayment.playerId);
+      if (nextPayer && !nextPayer.bankrupt && nextPayer.cash >= this.pendingPayment.amountRemaining) {
+        this.trySettlePendingPayment();
+      }
+    }
+    return Boolean(next);
   }
 
+  // Forgiveness only: a claim owed TO a departing seat ends with it. The
+  // claims the seat owes settle against its estate (settleQueuedDebtsOf), so
+  // they are never dropped here.
   removeQueuedPaymentsForPlayer(playerId) {
     if (!playerId || !Array.isArray(this.pendingPaymentQueue)) return;
-    this.pendingPaymentQueue = this.pendingPaymentQueue.filter(entry => {
-      const payment = entry?.payment;
-      return payment?.playerId !== playerId && payment?.creditorId !== playerId;
-    });
+    this.pendingPaymentQueue = this.pendingPaymentQueue.filter(entry => entry?.payment?.creditorId !== playerId);
+    this.syncDebtFlags();
   }
 
   // Remainder path replays the debt hooks exactly once. Equity debts replay
@@ -1229,7 +1503,7 @@ class GameState {
     const blockers = [
       [Boolean(this.auction?.active), 'Finish the active auction before ending the turn.'],
       [this.pendingPurchaseOffer?.playerId === player?.id, 'Resolve the property offer before ending the turn.'],
-      [this.pendingPayment?.playerId === player?.id, 'Settle your debt before ending the turn.'],
+      [this.hasPendingDebt(player?.id), 'Settle your debt before ending the turn.'],
       [Boolean(this.pendingSponsoredPurchase), 'Resolve the open sponsorship before ending the turn.']
     ];
     const blocker = blockers.find(([active]) => active);
@@ -1241,32 +1515,55 @@ class GameState {
     if (!current) return;
     if (!current.disconnected) return;
     if (current.bankrupt) return;
-    this.pendingPurchaseOffer = null;
     // A parked debt travels with the seat: route it through bankruptcy
     // instead of orphaning the creditor's claim until reconnect.
     if (this.pendingPayment?.playerId === current.id && !current.bankrupt) {
       const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
-      this.clearPendingPayment();
-      this.handleBankruptcy(current, creditor);
-      return;
+      return this.handleBankruptcy(current, creditor);
     }
+    this.pendingPurchaseOffer = null;
     this.feedMessage(`${current.nickname} was skipped due to disconnect.`);
     this.nextTurn();
   }
 
-  endGame() {
+  endGame(crowned = null, { reason = null } = {}) {
     // A disconnected seat is not an eligible winner. If every solvent seat
     // has gone offline, finish without crowning a ghost; a supervisor can
-    // still retain the match record for diagnostics.
-    const winner = this.connectedNonBankruptPlayers().find(player => !player.inDebt) || null;
+    // still retain the match record for diagnostics. The one exception is
+    // the last solvent seat whose reconnect grace ran out, which the runtime
+    // crowns explicitly (socketRuntime crownLoneSolventSeat).
+    const winner = crowned || this.connectedNonBankruptPlayers().find(player => this.isSolventSeat(player)) || null;
+    // Keep the score basis from the moment the winner is selected. In
+    // particular, round-limit winners are chosen on net worth before the
+    // end-of-game liquidation settles market positions.
+    this.finalNetWorthById = Object.fromEntries(this.players.map(player => [
+      player.id,
+      netWorthBreakdown(this, player)?.total ?? 0
+    ]));
     if (this.globalEvent) {
       const event = this.globalEvent;
       if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
         this.globalEventHistory.unshift({ id: event.id, title: event.title, comboId: event.comboId || null, startedRound: event.startedRound, endedRound: this.roundNumber });
       }
     }
+    // Close the table's open obligations before the final snapshot: a cancelled
+    // sponsorship refunds cash and a cleared claim no longer subtracts a debt
+    // the ending table will never collect.
+    this.cancelSponsoredPurchase();
+    this.pendingPaymentQueue = [];
+    this.clearPendingPayment(false);
+    // Margin, short and option equity is settled here so that no debt or
+    // collateral is left open on a table that no longer runs.
+    this.players.forEach(player => {
+      this.liquidateAllMarketPositions(player);
+      this.liquidateItems(player);
+    });
+    this.recordNetWorthSnapshot();
     this.lastWinner = winner ? { id: winner.id, nickname: winner.nickname } : null;
-    if (winner) {
+    this.lastEndReason = reason;
+    if (reason === 'round-limit') {
+      this.feedMessage(winner ? 'Round limit reached - the richest player wins.' : 'Round limit reached - the game has ended.');
+    } else if (winner) {
       this.feedMessage(`${winner.nickname} is the last player remaining and wins the game!`);
     } else {
       this.feedMessage('The game has ended.');
@@ -1275,21 +1572,20 @@ class GameState {
     this.currentPlayerId = null;
     this.hasRolled = false;
     this.pendingPurchaseOffer = null;
-    this.cancelSponsoredPurchase();
     this.auction = null;
     this.pendingTrade = null;
     this.pendingPlayerContract = null;
-    this.clearPendingPayment();
-    this.pendingPaymentQueue = [];
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
     this.consecutiveDoubles = 0;
+    // The room owns the vote-kick, so it learns that the match is over here.
+    this.onGameEnded?.();
   }
 
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi, gamePresentationApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, airportApi, bankAccountApi, cardApi, itemApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi, gamePresentationApi);
 
 export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
 

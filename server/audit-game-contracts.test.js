@@ -20,6 +20,8 @@ function startedRoom() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   game.currentPlayerId = game.players[0].id;
@@ -31,13 +33,20 @@ function hybridAccepted() {
   const property = ctx.game.getTile(1);
   property.ownerId = ctx.b.id;
   ctx.b.properties.push(1);
-  const result = ctx.game.proposePlayerContract('socket-a', {
-    toPlayerId: ctx.b.id, kind: 'hybrid', amount: 100, premiumRate: 10,
-    durationRounds: 2, propertyIndex: 1, conversionShare: 30
-  });
-  assert.equal(result.success, true);
-  assert.equal(ctx.game.respondPlayerContract('socket-b', true).success, true);
-  return { ...ctx, property, contract: ctx.game.playerContracts[0] };
+  // Imported accepted pre-upgrade data: new hybrid offers cannot be created.
+  const contract = {
+    id: 'legacy-audit-hybrid', kind: 'hybrid', fromPlayerId: ctx.a.id, toPlayerId: ctx.b.id,
+    amount: 100, premiumRate: 10, durationRounds: 2, totalDue: 110, remaining: 110,
+    dueRound: ctx.game.roundNumber + 2, cureRound: ctx.game.roundNumber + 3,
+    propertyIndex: 1, conversionShare: 30, equityShare: 0,
+    collateralTileIndex: null, collateralTileIndices: [], status: 'active'
+  };
+  ctx.game.playerContracts.push(contract);
+  ctx.a.playerContractIds.push(contract.id);
+  ctx.b.playerContractIds.push(contract.id);
+  ctx.a.cash -= contract.amount;
+  ctx.b.cash += contract.amount;
+  return { ...ctx, property, contract };
 }
 
 check('hybrid conversion with lender gone falls back to loan default', () => {
@@ -272,12 +281,17 @@ check('game summary exposes authoritative spectator status for eliminated humans
   assert.equal(summary.spectating, true);
 });
 
-check('disconnected payer cannot settle and clears the debt', () => {
+check('disconnected payer who can cover pays the debt in grace instead of going bankrupt', () => {
+  // Exit settlement (F-030): another seat's action settles the debt for the
+  // amount owed only; the grace seat is not bankrupted by it.
   const { game, b } = startedRoom();
   game.pendingPayment = { playerId: b.id, creditorId: null, amountRemaining: 10, reason: 'r' };
   b.disconnected = true;
+  const cashBefore = b.cash;
   assert.equal(game.pendingPayerCanSettle(b), false);
-  assert.equal(game.trySettlePendingPayment(), false);
+  assert.equal(game.trySettlePendingPayment(), true);
+  assert.equal(b.cash, cashBefore - 10);
+  assert.equal(b.bankrupt, false);
   assert.equal(game.pendingPayment, null);
 });
 

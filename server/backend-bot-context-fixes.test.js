@@ -23,8 +23,9 @@ function check(name, run) {
 function marketRoom(complexity) {
   const manager = new RoomManager();
   const room = manager.createRoom({
+    rulesProfile: 'advanced',
     socketId: 'a', clientId: 'a', nickname: 'A',
-    rulesetPreset: 'after-hours', marketComplexity: complexity
+    rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: complexity
   });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.setRoomSetting('market', true);
@@ -121,17 +122,17 @@ check('a real cover-short candidate projects instead of scoring unsupported (B-3
   bot.marketActionsThisTurn = 0; // the next turn re-advertises the manage book
   const snapshot = buildBotStrategicContext(game, bot, 'pre-roll', 1);
   const candidates = game.botMarketExpansionCandidates(bot);
-  const project = (kind) => evaluateCandidate(
-    snapshot,
-    candidates.find(candidate => candidate.kind === kind),
-    { difficulty: 'table', seed: 'b30b' }
-  );
-  const cover = project('cover-short');
+  const project = (candidate) => evaluateCandidate(snapshot, candidate, { difficulty: 'table', seed: 'b30b' });
+  const cover = project(candidates.find(candidate => candidate.kind === 'cover-short'));
   assert.equal(cover.projectionStatus, 'projected',
     'a held short must be projectable, otherwise the bot can never score a cover');
   assert.notEqual(cover.score, 0);
-  assert.equal(project('open-short').projectionStatus, 'projected');
-  assert.equal(project('open-margin').projectionStatus, 'projected');
+  // A flat market gives a new short or margin long no edge over its fees, so the bot is
+  // not offered them (botMarketCandidates.js); the planner still projects them when asked.
+  assert.equal(candidates.some(candidate => candidate.kind === 'open-short' || candidate.kind === 'open-margin'), false,
+    'no opening order is offered without a clearly positive expected value');
+  assert.equal(project({ id: 'short:brazil', kind: 'open-short', instrumentId: 'brazil', quantity: 1 }).projectionStatus, 'projected');
+  assert.equal(project({ id: 'margin:brazil', kind: 'open-margin', instrumentId: 'brazil', quantity: 1 }).projectionStatus, 'projected');
 });
 
 check('every opponent seat resolves to one canonical label (B-32)', () => {
@@ -177,10 +178,17 @@ check('a jailed opponent owner is charged no rent risk from any seat (B-32)', ()
     rollCandidate(),
     { difficulty: 'table', seed: 'b32' }
   );
-  assert.equal(projection(1).expectedRisk, 0,
+  // Tax tiles carry their bill now, so the floor is the tax risk, not zero.
+  const jailedRisk = projection(1).expectedRisk;
+  tile.ownerId = null;
+  rival.properties = [];
+  const taxOnlyRisk = projection(3).expectedRisk;
+  assert.equal(jailedRisk, taxOnlyRisk,
     'a jailed owner collects nothing, so full rent risk is fiction');
+  tile.ownerId = rival.id;
+  rival.properties = [tile.index];
   rival.inJail = false;
-  assert.equal(projection(2).expectedRisk > 0, true, 'a free owner is still a live rent risk');
+  assert.equal(projection(2).expectedRisk > taxOnlyRisk, true, 'a free owner is still a live rent risk');
 });
 
 check('the market rate and complexity gates track the live expansion module', () => {

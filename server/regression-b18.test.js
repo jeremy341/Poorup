@@ -18,6 +18,8 @@ function makeRoom() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
   assert.equal(room.startGame().success, true);
   return room;
 }
@@ -33,7 +35,7 @@ function equityRoom(sharePct) {
   owner.properties.push(tile.index);
   game.currentPlayerId = lender.id;
   const proposal = room.proposePlayerContract('socket-a', {
-    toPlayerId: owner.id, kind: 'equity', amount: 100, equityShare: sharePct, propertyIndex: tile.index, permanent: true
+    toPlayerId: owner.id, kind: 'equity', amount: 100, equityShare: sharePct, propertyIndex: tile.index, durationRounds: 3
   });
   assert.equal(proposal.success, true, `equity proposal for ${sharePct}% must succeed`);
   assert.equal(room.respondPlayerContract('socket-b', true).success, true);

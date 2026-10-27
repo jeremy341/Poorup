@@ -14,11 +14,21 @@ const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
 
 // Refills exclude Get-Out-of-Prison cards currently held by players: a held
 // card stays out of circulation until used, so the deck can never mint a
-// duplicate copy of it.
-function refillExcludingHeld(source, players) {
+// duplicate copy of it. Each deck owns one such card, so only the cards drawn
+// from THIS deck count (player.jailFreeOrigins); a held card with no recorded
+// origin counts against whichever deck refills. Bankrupt seats cannot use
+// their card and hold nothing back.
+function heldFromDeck(player, deckName) {
+  if (player?.bankrupt) return 0;
+  const count = Math.max(0, Math.floor(Number(player?.jailFreeCards) || 0));
+  // Uses only decrement the counter, so the newest origins are the ones still held.
+  const origins = count && Array.isArray(player.jailFreeOrigins) ? player.jailFreeOrigins.slice(-count) : [];
+  return origins.filter(origin => origin === deckName || !['surprise', 'treasure'].includes(origin)).length + (count - origins.length);
+}
+
+function refillExcludingHeld(source, players, deckName) {
   const refilled = [...source];
-  const held = (Array.isArray(players) ? players : []).reduce(
-    (sum, player) => sum + Math.max(0, Math.floor(Number(player?.jailFreeCards) || 0)), 0);
+  const held = (Array.isArray(players) ? players : []).reduce((sum, player) => sum + heldFromDeck(player, deckName), 0);
   for (let n = 0; n < held; n += 1) {
     const at = refilled.findIndex(card => card?.action === 'jailFree');
     if (at < 0) break;
@@ -35,6 +45,7 @@ const CARD_ACTION_HANDLERS = {
   pay: 'payCard',
   collect: 'collectCard',
   jailFree: 'jailFreeCard',
+  itemReward: 'itemRewardCard',
   moveBack: 'moveBackCard',
   moveTo: 'moveToCard',
   nearestRailroad: 'nearestTileCard',
@@ -56,6 +67,7 @@ const cardApi = {
     this.feedMessage(`${player.nickname} drew a card: ${card.text}`);
     const cashBefore = player.cash;
     const result = this.applyCard(player, card, options);
+    if (card.action === 'jailFree') player.jailFreeOrigins = [...(player.jailFreeOrigins || []), deckName].slice(-Math.max(1, player.jailFreeCards || 0));
     if (deckName === 'surprise') this.maybeTriggerGlobalEvent('surprise');
     const cash = this.cardCashAfterPlay(player, card, cashBefore);
     return {
@@ -71,9 +83,9 @@ const cardApi = {
 
   drawCard(deckName = 'surprise') {
     const key = deckName === 'treasure' ? 'treasureDeck' : 'surpriseDeck';
-    const variantDecks = decksForVariant(this.boardVariant || 'standard-40');
+    const variantDecks = decksForVariant(this.boardVariant || 'standard-40', this.settings);
     const source = deckName === 'treasure' ? variantDecks.treasure : variantDecks.surprise;
-    if (this[key].length === 0) this[key] = refillExcludingHeld(source, this.players);
+    if (this[key].length === 0) this[key] = refillExcludingHeld(source, this.players, deckName === 'treasure' ? 'treasure' : 'surprise');
     const index = randomInt(0, this[key].length - 1);
     return this[key].splice(index, 1)[0];
   },
@@ -109,9 +121,17 @@ const cardApi = {
     return player.cash - cashBefore;
   },
 
-  collectCardCash(card) {
-    const amount = Number(card.amount) || 200;
+  // The low-tax election cuts every card reward ("taxes fall, but card
+  // rewards are reduced"). One shared helper keeps the discount identical
+  // across the collect handlers, so a card can never pay the raw amount in
+  // one branch and the discounted amount in another.
+  cardRewardAmount(card, fallback = 0) {
+    const amount = Number(card?.amount) || fallback;
     return this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
+  },
+
+  collectCardCash(card) {
+    return this.cardRewardAmount(card, 200);
   },
 
   // Shared movement-card pieces: the pass-Start salary, the airport-strike
@@ -170,8 +190,7 @@ const cardApi = {
   collectStartCard(player, card) {
     this.recordPresentationMove(player, START_TILE_INDEX, { cause: 'collectStart' });
     player.position = START_TILE_INDEX;
-    const amount = Number(card.amount) || this.startPassReward(true);
-    const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
+    const paid = this.cardRewardAmount(card, this.startPassReward(true));
     const bonus = this.startPassCatchUpBonus(player);
     player.cash += paid + bonus;
     recordPresentationCash(this, 'go', this._activePresentation?.segments.at(-1)?.path.length - 1);
@@ -180,8 +199,7 @@ const cardApi = {
   },
 
   collectCard(player, card) {
-    const amount = Number(card.amount) || 200;
-    const paid = this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
+    const paid = this.cardRewardAmount(card, 200);
     player.cash += paid;
     this.feedMessage(`${player.nickname} collected $${paid}.`);
     return RESOLVE_TAIL;
@@ -193,8 +211,15 @@ const cardApi = {
   },
 
   jailFreeCard(player) {
-    player.jailFreeCards = (player.jailFreeCards || 0) + 1;
+    this.ensurePrisonItems(player);
+    this.grantItem(player, 'prison-key', 'card');
     this.feedMessage(`${player.nickname} received a Get Out of Prison card.`);
+    return RESOLVE_TAIL;
+  },
+
+  itemRewardCard(player, card) {
+    const item = this.grantItem(player, card.catalogId, 'card');
+    if (item) this.feedMessage(`${player.nickname} received ${card.itemName || 'an item'}.`);
     return RESOLVE_TAIL;
   },
 
@@ -247,6 +272,9 @@ const cardApi = {
     player.position = destination.index;
     const owner = destination.ownerId ? this.getPlayerById(destination.ownerId) : null;
     if (this.cardRentPayable(player, owner, destination)) {
+      // Card rent is a landing too: record what applyTile would have recorded.
+      this.recordLandingFacts(player, destination);
+      this.recordAirportStrikeRentFacts(destination, owner);
       const amount = this.cardRentAmount(destination, card, wantedType);
       this.chargePlayer({ player, creditor: owner, amount, message: `${player.nickname} paid $${amount} card rent to ${owner.nickname}.`, turnOptions: options });
       return { success: true };
@@ -260,12 +288,14 @@ const cardApi = {
       .find(tile => tile?.type === wantedType);
   },
 
+  // Both card types stack their multiplier before the one event-and-cap step,
+  // so the rent cap limits the amount charged, never the table rent it doubles.
   cardRentAmount(destination, card, wantedType) {
     if (wantedType === 'utility') {
       const base = this.diceTotal() * (card.multiplier || 10);
       return this.applyEventRentModifiers(base, destination);
     }
-    return this.calculateRent(destination) * (card.multiplier || 2);
+    return this.applyEventRentModifiers(this.baseTableRent(destination) * (card.multiplier || 2), destination);
   },
 
   repairsCard(player, card, options) {
@@ -331,20 +361,52 @@ const cardApi = {
         message: `${player.nickname} paid $${amount} to other players from the card.`,
         turnOptions: {}
       });
+      this.settleCardRecipientDebt(other);
       return Math.max(0, cashBefore - player.cash);
     }
     const paid = Math.min(player.cash, amount);
     player.cash -= paid;
     other.cash += paid;
+    // A card transfer that empties the payer is the same achievement as a
+    // debt payment that empties it: the flag is set in both paths.
+    if (player.cash === 0) player.zeroCashReached = true;
+    this.settleCardRecipientDebt(other);
     return paid;
   },
 
+  // Cash arriving from a card must rescue a parked debt the way the
+  // property, loan and trade credits do: only the seat that owns the pending
+  // head settles it. The guard keeps a settling debt from re-entering the
+  // card path that triggered it.
+  settleCardRecipientDebt(player) {
+    if (!player) return;
+    if (typeof this.trySettlePendingPayment !== 'function') return;
+    const pending = this.pendingPayment;
+    if (!pending || pending.playerId !== player.id) return;
+    if (this._settlingCardDebt) return;
+    this._settlingCardDebt = true;
+    try {
+      this.trySettlePendingPayment();
+    } finally {
+      this._settlingCardDebt = false;
+    }
+  },
+
+  // F-016 (owner decision: keep the forgiveness; pinned by the "F-016 pin"
+  // check in audit-cards-match.test.js). Each payer hands over
+  // min(cash, amount) and the shortfall is forgiven: no debt is parked and no
+  // shortfall is announced. This is deliberately not the pay-each rule, which
+  // parks an unpaid share as a debt (payEachShare -> chargePlayer).
   collectFromEachCard(player, card) {
+    const amount = this.cardRewardAmount(card);
     const alive = this.activePlayers();
     alive.forEach(other => {
       if (other.id !== player.id) {
-        const paid = Math.min(other.cash, card.amount || 0);
+        const paid = Math.min(other.cash, amount);
         other.cash -= paid;
+        // A payer emptied by the card reached zero cash: same flag as the
+        // debt paths.
+        if (other.cash === 0) other.zeroCashReached = true;
         player.cash += paid;
       }
     });

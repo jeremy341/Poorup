@@ -22,7 +22,7 @@ const MARGIN_POSITION_KEYS = ['averageCost', 'quantity'];
 const SHORT_POSITION_KEYS = ['borrowFee', 'collateral', 'entryQuote', 'quantity'];
 
 function marketRoom(complexity) {
-  const room = new RoomManager().createRoom({ socketId: 'a', clientId: 'a', nickname: 'A', marketComplexity: complexity });
+  const room = new RoomManager().createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', marketComplexity: complexity });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.setRoomSetting('market', true);
   room.setRoomSetting('marketComplexity', complexity);
@@ -32,7 +32,7 @@ function marketRoom(complexity) {
 }
 
 function loanRoom() {
-  const room = new RoomManager().createRoom({ socketId: 'a', clientId: 'a', nickname: 'A' });
+  const room = new RoomManager().createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', rulesetOverrides: { bankLoans: true } });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.setRoomSetting('globalEvents', true);
   assert.equal(room.startGame().success, true);
@@ -210,7 +210,7 @@ test('B-11 a replayed requestId returns the original positions, not the live one
 });
 
 test('B-11 a cached casino replay freezes balanceAfter and positions together', () => {
-  const room = new RoomManager().createRoom({ socketId: 'a', clientId: 'a', nickname: 'A' });
+  const room = new RoomManager().createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', rulesetOverrides: { bankLoans: true } });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.setRoomSetting('market', true);
   room.setRoomSetting('casino', true);

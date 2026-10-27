@@ -253,7 +253,7 @@ check('a reconnect makes the previous disconnect callback harmless', () => {
   assert.ok(staleTimer, 'disconnect should schedule an expiry callback');
 
   assert.equal(ctx.manager.restoreConnection(player.clientId, 'socket-a-new'), ctx.room);
-  ctx.runtime.clearDisconnectTimer(player.clientId);
+  ctx.runtime.clearDisconnectTimer(player.clientId, ctx.room);
   ctx.clock.invokeEvenIfCancelled(staleTimer);
 
   assert.equal(ctx.room.game.getPlayerByClient(player.clientId), player);
@@ -262,11 +262,16 @@ check('a reconnect makes the previous disconnect callback harmless', () => {
 });
 
 check('an old disconnect callback cannot remove a new seat with the same client id', () => {
-  const ctx = makeFixture({ started: false, players: 2 });
+  // Only a started game expires a dropped seat (a lobby seat's grace window
+  // restarts instead), so the original seat must really be removed here.
+  const ctx = makeFixture({ started: true, players: 2 });
   const original = ctx.seats[0];
   ctx.runtime.handleSocketDisconnect(ctx.sockets.get(original.socketId));
   const staleTimer = ctx.clock.records[0];
   ctx.clock.advanceBy(120_000);
+  assert.equal(ctx.room.game.getPlayerByClient(original.clientId), undefined, 'the original seat expired');
+  // The table is back in the lobby, where the same client id may take a new seat.
+  ctx.room.game.started = false;
 
   const replacement = ctx.room.addOrReconnectPlayer({
     socketId: 'socket-a-replacement',
@@ -293,7 +298,7 @@ check('a stale inactivity callback cannot evict a reconnected current seat', () 
   assert.equal(ctx.manager.restoreConnection(player.clientId, reconnectedSocket.id), ctx.room);
   ctx.sockets.set(reconnectedSocket.id, reconnectedSocket);
   ctx.connectionHandlers.forEach(connect => connect(reconnectedSocket));
-  ctx.runtime.clearDisconnectTimer(player.clientId);
+  ctx.runtime.clearDisconnectTimer(player.clientId, ctx.room);
   ctx.runtime.emitRoomState(ctx.room);
   ctx.clock.invokeEvenIfCancelled(staleInactivityTimer);
 
@@ -316,7 +321,7 @@ check('reconnecting counts as fresh activity and restores a full inactivity wind
   assert.equal(ctx.manager.restoreConnection(player.clientId, reconnectedSocket.id), ctx.room);
   ctx.sockets.set(reconnectedSocket.id, reconnectedSocket);
   ctx.connectionHandlers.forEach(connect => connect(reconnectedSocket));
-  ctx.runtime.clearDisconnectTimer(player.clientId);
+  ctx.runtime.clearDisconnectTimer(player.clientId, ctx.room);
   ctx.runtime.emitRoomState(ctx.room);
 
   assert.equal(player.presence.state, 'active');
@@ -339,7 +344,7 @@ check('pruning an expired disconnected seat clears its stale expiry registration
   assert.equal(Boolean(ctx.room.game.getPlayerByClient(player.clientId)), false);
   ctx.clock.invokeEvenIfCancelled(expiry);
   const clearCountAfterCallback = ctx.clock.clearCalls.length;
-  ctx.runtime.clearDisconnectTimer(player.clientId);
+  ctx.runtime.clearDisconnectTimer(player.clientId, ctx.room);
 
   assert.equal(ctx.clock.clearCalls.length, clearCountAfterCallback);
 });
@@ -444,9 +449,10 @@ check('an inactive debtor is settled through bankruptcy before seat assets are r
   ctx.room.game.pendingPaymentTurnOptions = {};
   ctx.room.game.settings.bankruptMode = 'debt';
   const [,, queuedDebtor] = ctx.seats;
+  const queuedPaymentHooks = [];
   ctx.room.game.pendingPaymentQueue = [{
     payment: { playerId: queuedDebtor.id, creditorId: null, amountRemaining: 80, reason: 'bank debt' },
-    hooks: {},
+    hooks: { onPaid: amount => queuedPaymentHooks.push(amount) },
     turnOptions: {}
   }];
   setPresence(ctx, debtor, 'inactive');
@@ -462,12 +468,10 @@ check('an inactive debtor is settled through bankruptcy before seat assets are r
   assert.equal(ctx.room.game.pendingTrade, null);
   assert.equal(ctx.room.game.pendingPlayerContract, null);
   assert.equal(creditor.cash, 1_569);
-  assert.deepEqual(ctx.room.game.pendingPayment, {
-    playerId: queuedDebtor.id,
-    creditorId: null,
-    amountRemaining: 80,
-    reason: 'bank debt'
-  });
+  assert.equal(queuedDebtor.cash, 1_420, 'the funded promoted claim is collected exactly once');
+  assert.deepEqual(queuedPaymentHooks, [80], 'the promoted claim hook runs once');
+  assert.equal(ctx.room.game.pendingPayment, null);
+  assert.equal(ctx.room.game.pendingPaymentQueue.length, 0);
   assert.equal(ctx.room.game.turnOrder.includes(debtor.id), false);
 });
 
@@ -499,9 +503,7 @@ check('inactivity tracking never schedules a bot seat', () => {
   assert.equal(ctx.clock.records.some(timer => timer.dueAt - ctx.clock.time === 180_000), false);
 });
 
-if (failures.length) {
-  console.log(`\nplayer lifecycle timer tests: ${failures.length} failed`);
-  process.exit(1);
-}
-console.log('\nplayer lifecycle timer tests: all passed');
-process.exit(0);
+// The exit code is evaluated at the exit call from every recorded failure, so
+// a trailing exit(0) can never mask a failure that check() has recorded.
+console.log(failures.length ? `\nplayer lifecycle timer tests: ${failures.length} failed` : '\nplayer lifecycle timer tests: all passed');
+process.exit(failures.length ? 1 : 0);

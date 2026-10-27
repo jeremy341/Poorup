@@ -1,3 +1,4 @@
+import { collateralCreditPlan, usesCollateralCredit, settleCollateralAtomically, recordCollateralCredit } from './collateralSettlement.js';
 // Settlement rules for bankruptcy, debt claims, and the obligations a
 // quitting or eliminated seat must not leave behind. Pure module: it only
 // mutates the GameState it is handed, so the rules stay testable in isolation.
@@ -36,7 +37,7 @@ function pledgedCollateralRejection(game, player, contract) {
   if (!indices.length) return null;
   for (const index of indices) {
     const collateral = game.getTile(Number(index));
-    if (!deedStillHeldBy(collateral, player.id) || !game.isTradeableTile(collateral)) {
+    if (!deedStillHeldBy(collateral, player.id) || collateral.mortgaged || !game.isTradeableTile(collateral)) {
       return rejectContract(game, 'The loan collateral is no longer available.');
     }
   }
@@ -99,13 +100,49 @@ export function bankruptcyRefusal(game, player) {
   return null;
 }
 
+// Every claim a seat owes, in table order: the head first, then the queue.
+function debtsOwedBy(game, playerId) {
+  const debts = [];
+  if (game.pendingPayment?.playerId === playerId) debts.push(game.pendingPayment);
+  (game.pendingPaymentQueue || []).forEach(entry => {
+    if (entry?.payment?.playerId === playerId) debts.push(entry.payment);
+  });
+  return debts;
+}
+
 // Who is owed the settlement debt (creditor null = the bank), and whether
-// the seat owes anything at all (no debt = a voluntary retirement).
+// the seat owes anything at all (no debt = a voluntary retirement). A queued
+// claim settles exactly like the head: its creditor is the one the estate
+// passes to.
 export function outstandingDebtFor(game, player) {
-  const debt = game.pendingPayment;
-  if (debt?.playerId !== player.id) return { owes: false, creditor: null };
+  const [debt] = debtsOwedBy(game, player.id);
+  if (!debt) return { owes: false, creditor: null };
   const creditor = debt.creditorId ? game.getPlayerById(debt.creditorId) : null;
   return { owes: true, creditor };
+}
+
+// A departing debtor's queued claims leave the queue with its estate. The first
+// queued claim owed to the estate's creditor (the creditor outstandingDebtFor
+// reports) is paid by the estate; every other claim the seat owes is written
+// off in the feed, so none leaves the queue unannounced. The head claim is the
+// caller's to clear, since each exit path settles it differently.
+export function settleQueuedDebtsOf(game, player, estateCreditor = null) {
+  const queue = Array.isArray(game.pendingPaymentQueue) ? game.pendingPaymentQueue : [];
+  const owed = queue.filter(entry => entry?.payment?.playerId === player.id);
+  if (!owed.length) return;
+  const estateId = estateCreditor ? estateCreditor.id : null;
+  // When the seat also owns the head, the estate's claim is the head, not a
+  // queued one.
+  const estateClaim = game.pendingPayment?.playerId === player.id
+    ? -1
+    : owed.findIndex(entry => (entry.payment.creditorId ?? null) === estateId);
+  game.pendingPaymentQueue = queue.filter(entry => entry?.payment?.playerId !== player.id);
+  owed.forEach((entry, index) => {
+    if (index === estateClaim) return;
+    const { amountRemaining, creditorId } = entry.payment;
+    const creditor = creditorId ? game.getPlayerById(creditorId) : null;
+    game.feedMessage(`${player.nickname}'s $${amountRemaining} debt to ${creditor ? creditor.nickname : 'the bank'} was written off.`);
+  });
 }
 
 // A quitting seat must not leave obligations held by it blocking the rest
@@ -115,8 +152,13 @@ const QUIT_OBLIGATIONS = [
   { key: 'pendingPlayerContract', suffix: 'A pending contract was cancelled.' }
 ];
 
-export function clearQuitObligations(game, player) {
+// `estateCreditor` is the creditor the seat's estate settles to (null = the
+// bank or no debt), as reported by outstandingDebtFor.
+export function clearQuitObligations(game, player, estateCreditor = null) {
   game.clearSponsoredPurchaseForPlayer?.(player.id);
+  // The seat's own claims settle before the head is touched: clearing the
+  // head promotes the next queued claim, which must never be this seat's.
+  settleQueuedDebtsOf(game, player, estateCreditor);
   game.removeQueuedPaymentsForPlayer?.(player.id);
   if (game.pendingPurchaseOffer?.playerId === player.id) game.pendingPurchaseOffer = null;
   // A pending payment cannot keep running after either side exits. The
@@ -125,7 +167,14 @@ export function clearQuitObligations(game, player) {
   // existing bankruptcy announcement remains the first user-facing result.
   const pendingPayment = game.pendingPayment;
   if (pendingPayment && (pendingPayment.playerId === player.id || pendingPayment.creditorId === player.id)) {
+    // A staying debtor who rolled onto this debt resumes its roll when the debt
+    // goes (mirrors collectPendingPayment): the continuation only ever ran from
+    // the payment, so without it the turn stays wedged at "Resolve your roll".
+    const turnOptions = game.pendingPaymentTurnOptions || {};
+    const resumesRoll = pendingPayment.playerId !== player.id
+      && game.hasRolled && pendingPayment.playerId === game.currentPlayerId;
     game.clearPendingPayment();
+    if (resumesRoll) game.resolveTurnAfterAction(turnOptions);
   }
   QUIT_OBLIGATIONS.forEach(({ key, suffix }) => {
     const obligation = game[key];
@@ -150,7 +199,9 @@ function canSeizeLoanCollateral(borrower, lender, collateral) {
 // claim ledger collects what matured on an earlier round: a default is the
 // table's debt beat, and the claim just filed is skipped by that same sweep
 // (it is not collectable until the next round).
-export function handlePlayerLoanDefault(game, contract, { reason = 'loan-default' } = {}) {
+export function handlePlayerLoanDefault(game, contract, options = {}) {
+  if (usesCollateralCredit(contract)) return defaultPlayerLoanWithCredit(game, contract, options);
+  const { reason = 'loan-default' } = options;
   const borrower = game.getPlayerById(contract.toPlayerId);
   const lender = game.getPlayerById(contract.fromPlayerId);
   const collateral = contract.collateralTileIndex == null ? null : game.getTile(contract.collateralTileIndex);
@@ -172,10 +223,73 @@ export function handlePlayerLoanDefault(game, contract, { reason = 'loan-default
   settleDefaultClaims(game);
 }
 
+function defaultPlayerLoanWithCredit(game, contract, { reason = 'loan-default', allowBankruptCollateral = false } = {}) {
+  if (!['active', 'due'].includes(contract.status)) return false;
+  const borrower = game.getPlayerById(contract.toPlayerId);
+  const lender = game.getPlayerById(contract.fromPlayerId);
+  if (borrower?.bankrupt && !allowBankruptCollateral) return false;
+  const outstanding = Math.max(0, Math.floor(Number(contract.remaining ?? contract.totalDue ?? contract.amount) || 0));
+  const plan = collateralCreditPlan(game, lender && !lender.bankrupt ? borrower : null, contract, outstanding, { allowBankruptCollateral });
+  // A live debtor can retry next round. A legally departing seat cannot, so
+  // its residual is retained as an explicit write-off even without ledger room.
+  if (plan.remaining > 0 && !allowBankruptCollateral && !canRecordDefaultClaim(game, contract)) return false;
+  return settleCollateralAtomically(game, contract, () => {
+    for (const index of plan.seizedTileIndices) game.applyPropertyOwnershipChange(borrower, lender, game.getTile(index));
+    if (plan.seizedTileIndices.length) borrower.collateralLost = true;
+    recordCollateralCredit(contract, plan, game.roundNumber);
+    contract.defaultReason = reason;
+    if (plan.remaining > 0) {
+      const claim = recordDefaultClaim(game, contract, plan.remaining);
+      if (!claim && !allowBankruptCollateral) throw new Error('The residual claim could not be recorded.');
+      if (claim) {
+        claim.collateralTileIndex = plan.seizedTileIndices[0] ?? null;
+        claim.collateralTileIndices = plan.seizedTileIndices.slice();
+        claim.collateralCreditApplied = plan.credit;
+        claim.defaultedPrincipal = plan.outstanding;
+        if (allowBankruptCollateral) {
+          claim.status = 'written-off';
+          claim.writtenOffRound = game.roundNumber;
+        }
+      }
+      if (allowBankruptCollateral) {
+        contract.residualWrittenOff = plan.remaining;
+        if (!claim) contract.unrecordedDefault = true;
+      }
+    }
+    game.feedMessage(`${borrower?.nickname || 'PLAYER'} defaulted on a player loan. Collateral credit: $${plan.credit}; residual debt: $${plan.remaining}.`);
+    if (allowBankruptCollateral && plan.remaining > 0) game.feedMessage(`The $${plan.remaining} residual player-loan debt was written off on exit.`);
+    if (!allowBankruptCollateral) settleDefaultClaims(game);
+  });
+}
+
+const DEFAULT_CLAIM_LIMIT = 200;
+
+// The ledger cap keeps saved games bounded, but an open claim is a lender's
+// live recovery record. Only terminal history may be evicted to make room.
+function trimTerminalDefaultClaims(claims, limit) {
+  for (let index = 0; index < claims.length && claims.length > limit;) {
+    if (claims[index].status === 'open') {
+      index += 1;
+      continue;
+    }
+    claims.splice(index, 1);
+  }
+}
+
 // Defaults are retained as a server-owned claim ledger rather than only
 // descriptive fields on a terminal contract. This gives unsecured hybrids a
 // deterministic recovery path without minting cash or exposing claims in
 // public room projections.
+// True when recordDefaultClaim would succeed for this contract right now,
+// without touching the ledger: the contract already has a claim, a slot is
+// free, or a terminal claim could be trimmed to make room.
+export function canRecordDefaultClaim(game, contract) {
+  const claims = game.defaultClaims || [];
+  if (claims.some(claim => claim.contractId === contract.id)) return true;
+  if (claims.length < DEFAULT_CLAIM_LIMIT) return true;
+  return claims.some(claim => claim.status !== 'open');
+}
+
 export function recordDefaultClaim(game, contract, principal = 0) {
   game.defaultClaims ||= [];
   const existing = game.defaultClaims.find(claim => claim.contractId === contract.id);
@@ -192,8 +306,13 @@ export function recordDefaultClaim(game, contract, principal = 0) {
     status: 'open',
     createdRound: Math.max(0, Math.floor(Number(game.roundNumber) || 0))
   };
+  if (game.defaultClaims.length >= DEFAULT_CLAIM_LIMIT) {
+    trimTerminalDefaultClaims(game.defaultClaims, DEFAULT_CLAIM_LIMIT - 1);
+  }
+  // Every retained entry is still open: reject the new claim rather than
+  // erasing a lender's live recovery record.
+  if (game.defaultClaims.length >= DEFAULT_CLAIM_LIMIT) return null;
   game.defaultClaims.push(claim);
-  if (game.defaultClaims.length > 200) game.defaultClaims.splice(0, game.defaultClaims.length - 200);
   contract.defaultClaimId = claim.id;
   return claim;
 }
@@ -208,10 +327,19 @@ export function settleDefaultClaim(game, contractId, amount = null) {
   const requested = hasRequestedAmount ? Number(amount) : claim.remaining;
   if (!Number.isFinite(requested) || requested <= 0) return { success: false, error: 'Default-claim repayment must be a positive whole amount.' };
   const payment = Math.min(claim.remaining, Math.floor(requested));
-  if (!payment || Number(borrower.cash) < payment) return { success: false, error: 'You do not have enough cash to settle the default claim.' };
+  // Only free cash pays a claim: the leading bid of an open auction is
+  // reserved, and a seat that still owes a parked debt needs every dollar for it.
+  const free = typeof game.spendableCash === 'function' ? Number(game.spendableCash(borrower)) : Number(borrower.cash);
+  if (!payment || free < payment) return { success: false, error: 'You do not have enough cash to settle the default claim.' };
+  if (debtsOwedBy(game, borrower.id).length) return { success: false, error: 'Settle your pending payment before a default claim.' };
   borrower.cash -= payment;
   lender.cash += payment;
   claim.remaining -= payment;
+  const contract = (game.playerContracts || []).find(candidate => candidate.id === contractId);
+  if (usesCollateralCredit(contract)) {
+    contract.remaining = claim.remaining;
+    contract.residualDebt = claim.remaining;
+  }
   if (claim.remaining <= 0) {
     claim.remaining = 0;
     claim.status = 'settled';

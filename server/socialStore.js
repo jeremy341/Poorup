@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { loadJson, writeJson } from './storeIO.js';
+import { cleanDisplayText, sliceCodePoints } from './nicknamePolicy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,7 +13,7 @@ function id(prefix) {
 }
 
 function clipText(value, maxLength) {
-  return String(value || '').slice(0, maxLength);
+  return sliceCodePoints(cleanDisplayText(String(value || '')), maxLength);
 }
 
 function boundedIdentifier(value, max = 120) {
@@ -42,11 +43,32 @@ function arrayOrEmpty(value) {
 }
 
 const MAX_SOCIAL_RECORDS = 10_000;
+// Blocks, friendships and reports are never truncated globally (that silently
+// unblocked people and dropped evidence). Each account is capped instead and
+// the mutation is refused at the cap.
+const MAX_BLOCKS_PER_ACCOUNT = 500;
+const MAX_FRIENDSHIPS_PER_ACCOUNT = 1_000;
+const MAX_PENDING_INBOUND_REQUESTS_PER_ACCOUNT = 100;
+// Declined (closed) requests are history, not live evidence. They are bounded
+// per account and the most recent rows are kept so a decline cooldown still
+// applies after a restart.
+const MAX_CLOSED_FRIENDSHIPS_PER_ACCOUNT = 50;
+const MAX_OPEN_REPORTS_PER_REPORTER = 50;
+// Closed report history is bounded by age and per-reporter count; open reports
+// are never deleted by load/housekeeping because they are live evidence.
+const REPORT_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
+const MAX_ARCHIVED_REPORTS_PER_REPORTER = 200;
+// How long a sender waits before asking the same player again after a cancel
+// or a decline. The cancel cooldown is kept in memory, bounded below.
+const CANCELLED_REQUEST_COOLDOWN_MS = 60 * 60 * 1000;
+const DECLINED_REQUEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const MAX_COOLDOWN_ENTRIES = 10_000;
+const COOLDOWN_ERROR = 'Please wait before sending that friend request again.';
 
-function objectArray(value) {
+function objectArray(value, limit = Infinity) {
   return arrayOrEmpty(value)
     .filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry))
-    .slice(0, MAX_SOCIAL_RECORDS);
+    .slice(0, limit);
 }
 
 // True when (first, second) is the unordered pair (x, y). Encapsulates the
@@ -102,6 +124,30 @@ function findPendingInvite(invites, roomId, roomCode, senderId, recipientId) {
     && invite.senderId === senderId && invite.recipientId === recipientId && invite.status === 'pending');
 }
 
+const DELETED_PLAYER_LABEL = 'A deleted player';
+
+// A notification that names the deleted account by id, or belongs to one of
+// its removed invites, is dropped from the other player's list.
+function referencesDeletedAccount(notification, accountId, removedInviteIds) {
+  const metadata = notification.metadata || {};
+  return metadata.accountId === accountId || metadata.playerId === accountId || removedInviteIds.has(metadata.inviteId);
+}
+
+// Any whole-word copy of the display name left in a notification's text is
+// replaced. Matching is bounded to name tokens so an unrelated word that merely
+// contains the name as a substring is never corrupted.
+function redactDisplayName(text, displayName) {
+  if (!displayName || typeof text !== 'string') return text;
+  const escaped = displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}(?=[^\\p{L}\\p{N}_]|$)`, 'giu'), `$1${DELETED_PLAYER_LABEL}`);
+}
+
+function scrubNotificationList(list, accountId, removedInviteIds, displayName) {
+  return list
+    .filter(item => !referencesDeletedAccount(item, accountId, removedInviteIds))
+    .map(item => ({ ...item, title: redactDisplayName(item.title, displayName), body: redactDisplayName(item.body, displayName) }));
+}
+
 function isOpenReport(report, accountId, otherId) {
   if (report.reporterId !== accountId) return false;
   if (report.reportedId !== otherId) return false;
@@ -112,6 +158,134 @@ function hasOpenReport(reports, accountId, otherId) {
   return reports.some(report => isOpenReport(report, accountId, otherId));
 }
 
+// Load-time normalization: persisted rows may predate validation. Friendship
+// rows are unordered pairs, so the key is canonical even though the stored
+// direction (who asked whom) is preserved.
+function friendshipKey(entry) {
+  return entry.requesterId < entry.addresseeId
+    ? `${entry.requesterId}\u0000${entry.addresseeId}`
+    : `${entry.addresseeId}\u0000${entry.requesterId}`;
+}
+
+function adjustFriendshipCounts(accountCounts, inboundCounts, entry, delta) {
+  if (entry.status === 'accepted') {
+    for (const accountId of [entry.requesterId, entry.addresseeId]) {
+      accountCounts.set(accountId, (accountCounts.get(accountId) || 0) + delta);
+    }
+    return;
+  }
+  if (entry.status !== 'requested') return;
+  accountCounts.set(entry.requesterId, (accountCounts.get(entry.requesterId) || 0) + delta);
+  inboundCounts.set(entry.addresseeId, (inboundCounts.get(entry.addresseeId) || 0) + delta);
+}
+
+function recordTimestamp(entry) {
+  const value = Date.parse(entry.updatedAt || entry.createdAt || '');
+  return Number.isFinite(value) ? value : 0;
+}
+
+// Closed rows (declined or unknown status) are history: they are bounded per
+// account and the most recent ones are kept, so a decline cooldown is not lost
+// by the bound.
+function boundClosedFriendships(friendships) {
+  const closedIndexes = [];
+  friendships.forEach((entry, index) => {
+    if (entry.status !== 'accepted' && entry.status !== 'requested') closedIndexes.push(index);
+  });
+  if (!closedIndexes.length) return friendships;
+  const counts = new Map();
+  const kept = new Set();
+  const byRecency = closedIndexes.slice().sort((a, b) => recordTimestamp(friendships[b]) - recordTimestamp(friendships[a]));
+  for (const index of byRecency) {
+    const entry = friendships[index];
+    if ((counts.get(entry.requesterId) || 0) >= MAX_CLOSED_FRIENDSHIPS_PER_ACCOUNT) continue;
+    if ((counts.get(entry.addresseeId) || 0) >= MAX_CLOSED_FRIENDSHIPS_PER_ACCOUNT) continue;
+    counts.set(entry.requesterId, (counts.get(entry.requesterId) || 0) + 1);
+    counts.set(entry.addresseeId, (counts.get(entry.addresseeId) || 0) + 1);
+    kept.add(index);
+  }
+  const dropped = new Set(closedIndexes.filter(index => !kept.has(index)));
+  return friendships.filter((entry, index) => !dropped.has(index));
+}
+
+function normalizeFriendships(entries) {
+  const result = [];
+  const byPair = new Map();
+  const accountCounts = new Map();
+  const inboundCounts = new Map();
+  const statusRank = { accepted: 3, requested: 2, declined: 1 };
+  for (const entry of objectArray(entries)) {
+    const requesterId = boundedIdentifier(entry.requesterId);
+    const addresseeId = boundedIdentifier(entry.addresseeId);
+    if (!requesterId || !addresseeId || requesterId === addresseeId) continue;
+    const normalized = { ...entry, requesterId, addresseeId };
+    const key = friendshipKey(normalized);
+    const existingIndex = byPair.get(key);
+    if (existingIndex !== undefined) {
+      const current = result[existingIndex];
+      if ((statusRank[normalized.status] || 0) <= (statusRank[current.status] || 0)) continue;
+      adjustFriendshipCounts(accountCounts, inboundCounts, current, -1);
+      result[existingIndex] = normalized;
+      adjustFriendshipCounts(accountCounts, inboundCounts, normalized, 1);
+      continue;
+    }
+    if (normalized.status === 'accepted') {
+      if ((accountCounts.get(requesterId) || 0) >= MAX_FRIENDSHIPS_PER_ACCOUNT) continue;
+      if ((accountCounts.get(addresseeId) || 0) >= MAX_FRIENDSHIPS_PER_ACCOUNT) continue;
+    } else if (normalized.status === 'requested') {
+      if ((accountCounts.get(requesterId) || 0) >= MAX_FRIENDSHIPS_PER_ACCOUNT) continue;
+      if ((inboundCounts.get(addresseeId) || 0) >= MAX_PENDING_INBOUND_REQUESTS_PER_ACCOUNT) continue;
+    }
+    byPair.set(key, result.length);
+    result.push(normalized);
+    adjustFriendshipCounts(accountCounts, inboundCounts, normalized, 1);
+  }
+  return boundClosedFriendships(result);
+}
+
+function normalizeBlocks(entries) {
+  const result = [];
+  const seen = new Set();
+  const counts = new Map();
+  for (const entry of objectArray(entries)) {
+    const blockerId = boundedIdentifier(entry.blockerId);
+    const blockedId = boundedIdentifier(entry.blockedId);
+    if (!blockerId || !blockedId || blockerId === blockedId) continue;
+    const key = `${blockerId}\u0000${blockedId}`;
+    if (seen.has(key)) continue;
+    if ((counts.get(blockerId) || 0) >= MAX_BLOCKS_PER_ACCOUNT) continue;
+    seen.add(key);
+    counts.set(blockerId, (counts.get(blockerId) || 0) + 1);
+    result.push({ ...entry, blockerId, blockedId });
+  }
+  return result;
+}
+
+function normalizeReports(entries, now = Date.now()) {
+  const result = [];
+  const openPairs = new Set();
+  const archivedCounts = new Map();
+  for (const entry of objectArray(entries)) {
+    const reporterId = boundedIdentifier(entry.reporterId);
+    const reportedId = boundedIdentifier(entry.reportedId);
+    if (!reporterId || !reportedId || reporterId === reportedId) continue;
+    const normalized = { ...entry, reporterId, reportedId };
+    if (normalized.status === 'open') {
+      const key = `${reporterId}\u0000${reportedId}`;
+      if (openPairs.has(key)) continue;
+      openPairs.add(key);
+      result.push(normalized);
+      continue;
+    }
+    const createdAt = Date.parse(normalized.createdAt || '');
+    if (Number.isFinite(createdAt) && now - createdAt > REPORT_RETENTION_MS) continue;
+    if ((archivedCounts.get(reporterId) || 0) >= MAX_ARCHIVED_REPORTS_PER_REPORTER) continue;
+    archivedCounts.set(reporterId, (archivedCounts.get(reporterId) || 0) + 1);
+    result.push(normalized);
+  }
+  return result;
+}
+
 export class SocialStore {
   constructor(filePath = DEFAULT_FILE) {
     this.filePath = filePath;
@@ -120,28 +294,100 @@ export class SocialStore {
     this.invites = [];
     this.reports = [];
     this.notifications = new Map();
+    this.requestCooldowns = new Map();
     this.load();
   }
 
+  // Memory is the live copy and the file follows it. A mutation that cannot be
+  // persisted is rolled back and rethrown, so an ack never reports success for
+  // state the next restart would lose (mirrors AccountStore.commitMutation).
+  snapshot() {
+    return structuredClone({
+      friendships: this.friendships,
+      blocks: this.blocks,
+      invites: this.invites,
+      reports: this.reports,
+      notifications: [...this.notifications],
+      requestCooldowns: [...this.requestCooldowns]
+    });
+  }
+
+  persistOrRestore(snapshot) {
+    try {
+      this.persist();
+    } catch (error) {
+      this.friendships = snapshot.friendships;
+      this.blocks = snapshot.blocks;
+      this.invites = snapshot.invites;
+      this.reports = snapshot.reports;
+      this.notifications.clear();
+      snapshot.notifications.forEach(([owner, list]) => this.notifications.set(owner, list));
+      this.requestCooldowns = new Map(snapshot.requestCooldowns);
+      throw error;
+    }
+  }
+
+  friendshipCount(accountId) {
+    return this.friendships.filter(entry => (entry.status === 'accepted'
+      ? involvesAccount(entry, accountId)
+      : isOutgoingRequest(entry, accountId))).length;
+  }
+
+  // Incoming requests never spend the recipient's friendship budget, so they
+  // are bounded separately.
+  pendingInboundCount(accountId) {
+    return this.friendships.filter(entry => isIncomingRequest(entry, accountId)).length;
+  }
+
+  requestCooldownError(fromId, toId, existing, now = Date.now()) {
+    const key = `${fromId}>${toId}`;
+    const until = this.requestCooldowns.get(key)?.until;
+    if (until && until > now) return COOLDOWN_ERROR;
+    if (until) this.requestCooldowns.delete(key);
+    if (existing?.status === 'declined' && existing.requesterId === fromId) {
+      const declinedAt = Date.parse(existing.updatedAt || '');
+      if (Number.isFinite(declinedAt) && now - declinedAt < DECLINED_REQUEST_COOLDOWN_MS) return COOLDOWN_ERROR;
+    }
+    return null;
+  }
+
+  startRequestCooldown(fromId, toId, now = Date.now(), durationMs = CANCELLED_REQUEST_COOLDOWN_MS) {
+    if (this.requestCooldowns.size >= MAX_COOLDOWN_ENTRIES) {
+      for (const [key, entry] of this.requestCooldowns) if (entry.until <= now) this.requestCooldowns.delete(key);
+      if (this.requestCooldowns.size >= MAX_COOLDOWN_ENTRIES) this.requestCooldowns.delete(this.requestCooldowns.keys().next().value);
+    }
+    this.requestCooldowns.set(`${fromId}>${toId}`, { fromId, toId, until: now + durationMs });
+  }
+
+  // Housekeeping is best-effort: an expired invite is only dropped from memory
+  // once the prune is durable, otherwise the in-memory list is restored.
   pruneExpiredInvites(now = Date.now()) {
     const before = this.invites.length;
-    this.invites = this.invites.filter(invite => {
+    const remaining = this.invites.filter(invite => {
       if (invite.status !== 'pending') return true;
       const expiresAt = Date.parse(invite.expiresAt || '');
       return Number.isFinite(expiresAt) && expiresAt > now;
     });
-    if (this.invites.length !== before) this.persist();
-    return before - this.invites.length;
+    if (remaining.length === before) return 0;
+    const snapshot = this.snapshot();
+    this.invites = remaining;
+    try {
+      this.persistOrRestore(snapshot);
+    } catch {
+      return 0;
+    }
+    return before - remaining.length;
   }
 
   load() {
     const { value } = loadJson(this.filePath, loaded => loaded && typeof loaded === 'object' && !Array.isArray(loaded));
     if (!value) return;
     const raw = value;
-    this.friendships = objectArray(raw.friendships);
-    this.blocks = objectArray(raw.blocks);
-    this.invites = objectArray(raw.invites);
-    this.reports = objectArray(raw.reports);
+    this.friendships = normalizeFriendships(raw.friendships);
+    this.blocks = normalizeBlocks(raw.blocks);
+    this.invites = objectArray(raw.invites, MAX_SOCIAL_RECORDS);
+    this.reports = normalizeReports(raw.reports);
+    this.loadCooldowns(raw.requestCooldowns);
     const notifications = raw.notifications && typeof raw.notifications === 'object' && !Array.isArray(raw.notifications)
       ? raw.notifications
       : {};
@@ -150,11 +396,28 @@ export class SocialStore {
     });
   }
 
+  // Only unexpired cooldowns are written, so the persisted list stays bounded
+  // by MAX_COOLDOWN_ENTRIES and by the 24 hour decline window.
+  liveCooldownRecords(now = Date.now()) {
+    const live = [];
+    for (const entry of this.requestCooldowns.values()) {
+      if (entry.until > now) live.push({ fromId: entry.fromId, toId: entry.toId, until: entry.until });
+    }
+    return live.slice(-MAX_COOLDOWN_ENTRIES);
+  }
+
+  loadCooldowns(entries, now = Date.now()) {
+    for (const entry of objectArray(entries, MAX_COOLDOWN_ENTRIES)) {
+      const fromId = boundedIdentifier(entry.fromId);
+      const toId = boundedIdentifier(entry.toId);
+      const until = Number(entry.until);
+      if (!fromId || !toId || !Number.isFinite(until) || until <= now) continue;
+      this.requestCooldowns.set(`${fromId}>${toId}`, { fromId, toId, until });
+    }
+  }
+
   persist() {
-    this.friendships = this.friendships.slice(-MAX_SOCIAL_RECORDS);
-    this.blocks = this.blocks.slice(-MAX_SOCIAL_RECORDS);
     this.invites = this.invites.slice(-MAX_SOCIAL_RECORDS);
-    this.reports = this.reports.slice(-MAX_SOCIAL_RECORDS);
     while (this.notifications.size > MAX_SOCIAL_RECORDS) {
       this.notifications.delete(this.notifications.keys().next().value);
     }
@@ -163,7 +426,8 @@ export class SocialStore {
       blocks: this.blocks,
       invites: this.invites,
       reports: this.reports,
-      notifications: Object.fromEntries(this.notifications)
+      notifications: Object.fromEntries(this.notifications),
+      requestCooldowns: this.liveCooldownRecords()
     });
   }
 
@@ -184,10 +448,15 @@ export class SocialStore {
     const existing = this.friendshipBetween(fromId, toId);
     const conflict = existingFriendshipError(existing);
     if (conflict) return { success: false, error: conflict };
+    const cooldown = this.requestCooldownError(fromId, toId, existing);
+    if (cooldown) return { success: false, error: cooldown };
+    if (this.friendshipCount(fromId) >= MAX_FRIENDSHIPS_PER_ACCOUNT) return { success: false, error: 'Your friend list is full.' };
+    if (this.pendingInboundCount(toId) >= MAX_PENDING_INBOUND_REQUESTS_PER_ACCOUNT) return { success: false, error: 'This player has too many pending friend requests.' };
+    const snapshot = this.snapshot();
     if (existing) this.friendships = this.friendships.filter(entry => entry.id !== existing.id);
     const friendship = { id: id('friend'), requesterId: fromId, addresseeId: toId, status: 'requested', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     this.friendships.push(friendship);
-    this.persist();
+    this.persistOrRestore(snapshot);
     return { success: true, friendship };
   }
 
@@ -196,9 +465,11 @@ export class SocialStore {
     friendshipId = boundedIdentifier(friendshipId);
     const friendship = this.friendships.find(entry => entry.id === friendshipId && entry.addresseeId === accountId && entry.status === 'requested');
     if (!friendship) return { success: false, error: 'That friend request is no longer available.' };
+    if (accept && this.friendshipCount(accountId) >= MAX_FRIENDSHIPS_PER_ACCOUNT) return { success: false, error: 'Your friend list is full.' };
+    const snapshot = this.snapshot();
     friendship.status = accept ? 'accepted' : 'declined';
     friendship.updatedAt = new Date().toISOString();
-    this.persist();
+    this.persistOrRestore(snapshot);
     return { success: true, friendship };
   }
 
@@ -207,18 +478,46 @@ export class SocialStore {
     friendshipId = boundedIdentifier(friendshipId);
     const index = this.friendships.findIndex(entry => entry.id === friendshipId && entry.requesterId === accountId && entry.status === 'requested');
     if (index < 0) return { success: false, error: 'That friend request is no longer pending.' };
-    this.friendships.splice(index, 1);
-    this.persist();
+    const snapshot = this.snapshot();
+    const [cancelled] = this.friendships.splice(index, 1);
+    // The target's notification for a withdrawn request would only dangle.
+    const list = this.notifications.get(cancelled.addresseeId);
+    if (list) this.notifications.set(cancelled.addresseeId, list.filter(item => item.metadata?.friendshipId !== cancelled.id));
+    this.startRequestCooldown(cancelled.requesterId, cancelled.addresseeId);
+    this.persistOrRestore(snapshot);
     return { success: true, canceled: true };
   }
 
   removeFriend(accountId, otherId) {
     accountId = boundedIdentifier(accountId);
     otherId = boundedIdentifier(otherId);
-    const before = this.friendships.length;
-    this.friendships = this.friendships.filter(entry => !matchesPair(entry.requesterId, entry.addresseeId, accountId, otherId));
-    if (this.friendships.length === before) return { success: false, error: 'Friendship not found.' };
-    this.persist();
+    if (invalidPairError(accountId, otherId, 'Friendship not found.')) return { success: false, error: 'Friendship not found.' };
+    const existing = this.friendshipBetween(accountId, otherId);
+    if (!existing) return { success: false, error: 'Friendship not found.' };
+    const snapshot = this.snapshot();
+    // Only an accepted friendship is deleted outright. A pending or declined
+    // record is the caller cancelling or declining it, and keeps its cooldown.
+    this.friendships = this.friendships.filter(entry => (existing.status === 'accepted'
+      ? !matchesPair(entry.requesterId, entry.addresseeId, accountId, otherId)
+      : entry.id !== existing.id));
+    if (existing.status === 'accepted') {
+      // A former friend's pending room invites (either direction) die with the friendship.
+      this.invites = this.invites.filter(invite => invite.status !== 'pending' || !matchesPair(invite.senderId, invite.recipientId, accountId, otherId));
+    }
+    if (existing.status === 'requested') {
+      if (existing.requesterId === accountId) {
+        this.startRequestCooldown(existing.requesterId, existing.addresseeId);
+      } else {
+        this.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), DECLINED_REQUEST_COOLDOWN_MS);
+      }
+    } else if (existing.status === 'declined') {
+      const declinedAt = Date.parse(existing.updatedAt || '');
+      const remaining = Number.isFinite(declinedAt)
+        ? Math.max(0, DECLINED_REQUEST_COOLDOWN_MS - Math.max(0, Date.now() - declinedAt))
+        : DECLINED_REQUEST_COOLDOWN_MS;
+      if (remaining > 0) this.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), remaining);
+    }
+    this.persistOrRestore(snapshot);
     return { success: true };
   }
 
@@ -227,10 +526,15 @@ export class SocialStore {
     otherId = boundedIdentifier(otherId);
     const pairError = invalidPairError(accountId, otherId, 'Choose another player.');
     if (pairError) return { success: false, error: pairError };
+    const alreadyBlocked = this.blocks.some(block => block.blockerId === accountId && block.blockedId === otherId);
+    if (!alreadyBlocked && this.blocks.filter(block => block.blockerId === accountId).length >= MAX_BLOCKS_PER_ACCOUNT) {
+      return { success: false, error: 'Your block list is full.' };
+    }
+    const snapshot = this.snapshot();
     this.friendships = this.friendships.filter(entry => !matchesPair(entry.requesterId, entry.addresseeId, accountId, otherId));
     if (!this.areBlocked(accountId, otherId)) this.blocks.push({ blockerId: accountId, blockedId: otherId, createdAt: new Date().toISOString() });
     this.invites = this.invites.filter(invite => !matchesPair(invite.senderId, invite.recipientId, accountId, otherId));
-    this.persist();
+    this.persistOrRestore(snapshot);
     return { success: true };
   }
 
@@ -240,9 +544,36 @@ export class SocialStore {
     const pairError = invalidPairError(accountId, otherId, 'Choose another player.');
     if (pairError) return { success: false, error: pairError };
     if (hasOpenReport(this.reports, accountId, otherId)) return { success: true };
+    if (this.reports.filter(report => report.reporterId === accountId && report.status === 'open').length >= MAX_OPEN_REPORTS_PER_REPORTER) {
+      return { success: false, error: 'You have too many open reports.' };
+    }
+    const snapshot = this.snapshot();
     this.reports.push({ id: id('report'), reporterId: accountId, reportedId: otherId, reason: String(reason).slice(0, 80), status: 'open', createdAt: new Date().toISOString() });
-    this.persist();
+    this.persistOrRestore(snapshot);
     return { success: true };
+  }
+
+  // One pass over friendships for a whole summary: accepted-friend sets per
+  // account and a pair lookup that matches friendshipBetween (first row wins).
+  friendshipIndex() {
+    const friends = new Map();
+    const pairs = new Map();
+    const link = (owner, other) => {
+      const set = friends.get(owner);
+      if (set) set.add(other); else friends.set(owner, new Set([other]));
+    };
+    for (const entry of this.friendships) {
+      const key = friendshipKey(entry);
+      if (!pairs.has(key)) pairs.set(key, entry);
+      if (entry.status !== 'accepted') continue;
+      link(entry.requesterId, entry.addresseeId);
+      link(entry.addresseeId, entry.requesterId);
+    }
+    const none = new Set();
+    return {
+      friendIdsOf: accountId => friends.get(accountId) || none,
+      friendshipBetween: (firstId, secondId) => pairs.get(friendshipKey({ requesterId: firstId, addresseeId: secondId })) || null
+    };
   }
 
   listFor(accountId) {
@@ -269,8 +600,9 @@ export class SocialStore {
     const existing = findPendingInvite(this.invites, roomId, roomCode, senderId, recipientId);
     if (existing) return { success: false, error: 'This room invite is already pending.' };
     const invite = { id: id('invite'), roomId: roomId || null, roomCode: roomCode || null, roomName: clipText(roomName, 120), visibility: visibility === 'private' ? 'private' : 'public', senderId, recipientId, status: 'pending', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+    const snapshot = this.snapshot();
     this.invites.push(invite);
-    this.persist();
+    this.persistOrRestore(snapshot);
     return { success: true, invite };
   }
 
@@ -280,9 +612,10 @@ export class SocialStore {
     this.pruneExpiredInvites();
     const invite = this.invites.find(entry => entry.id === inviteId && entry.recipientId === accountId && entry.status === 'pending');
     if (!invite) return { success: false, error: 'That room invite has expired.' };
+    const snapshot = this.snapshot();
     invite.status = accept ? 'accepted' : 'declined';
     invite.updatedAt = new Date().toISOString();
-    this.persist();
+    this.persistOrRestore(snapshot);
     return { success: true, invite };
   }
 
@@ -296,10 +629,11 @@ export class SocialStore {
   addNotification(accountId, notification) {
     accountId = boundedIdentifier(accountId);
     if (!accountId) return;
+    const snapshot = this.snapshot();
     const list = notificationsFor(this.notifications, accountId);
     list.unshift(cleanNotification({ id: id('notice'), ...notification, createdAt: notification.createdAt || new Date().toISOString() }));
     this.notifications.set(accountId, list.slice(0, 100));
-    this.persist();
+    this.persistOrRestore(snapshot);
   }
 
   markNotificationRead(accountId, notificationId) {
@@ -307,23 +641,34 @@ export class SocialStore {
     notificationId = boundedIdentifier(notificationId);
     const notification = notificationsFor(this.notifications, accountId).find(entry => entry.id === notificationId);
     if (!notification) return { success: false, error: 'Notification not found.' };
+    const snapshot = this.snapshot();
     notification.readAt = new Date().toISOString();
-    this.persist();
+    this.persistOrRestore(snapshot);
     return { success: true };
   }
 
-  purgeAccount(accountId) {
+  purgeAccount(accountId, { displayName = '' } = {}) {
     const id = boundedIdentifier(accountId);
     if (!id) return false;
+    const removedInviteIds = new Set(this.invites.filter(entry => entry.senderId === id || entry.recipientId === id).map(entry => entry.id));
     const before = { friendships: this.friendships.length, blocks: this.blocks.length, invites: this.invites.length, reports: this.reports.length, notification: this.notifications.has(id) };
+    const notificationsBefore = JSON.stringify([...this.notifications]);
+    const snapshot = this.snapshot();
     this.friendships = this.friendships.filter(entry => !involvesAccount(entry, id));
     this.blocks = this.blocks.filter(entry => entry.blockerId !== id && entry.blockedId !== id);
     this.invites = this.invites.filter(entry => entry.senderId !== id && entry.recipientId !== id);
     this.reports = this.reports.filter(entry => entry.reporterId !== id && entry.reportedId !== id);
     this.notifications.delete(id);
+    const cooldownsBefore = this.requestCooldowns.size;
+    for (const [key, entry] of this.requestCooldowns) if (entry.fromId === id || entry.toId === id) this.requestCooldowns.delete(key);
+    // Other players' notifications about this account are part of its data too (E24-08).
+    for (const [owner, list] of this.notifications) {
+      this.notifications.set(owner, scrubNotificationList(list, id, removedInviteIds, String(displayName || '')));
+    }
     const after = { friendships: this.friendships.length, blocks: this.blocks.length, invites: this.invites.length, reports: this.reports.length, notification: this.notifications.has(id) };
-    if (before.friendships === after.friendships && before.blocks === after.blocks && before.invites === after.invites && before.reports === after.reports && before.notification === after.notification) return false;
-    this.persist();
+    const notificationsChanged = JSON.stringify([...this.notifications]) !== notificationsBefore;
+    if (before.friendships === after.friendships && before.blocks === after.blocks && before.invites === after.invites && before.reports === after.reports && before.notification === after.notification && !notificationsChanged && cooldownsBefore === this.requestCooldowns.size) return false;
+    this.persistOrRestore(snapshot);
     return true;
   }
 }

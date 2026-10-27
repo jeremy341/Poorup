@@ -9,6 +9,9 @@
 
 const GLOBAL_EVENT_COOLDOWN_ROUNDS = 3;
 const GLOBAL_EVENT_MIN_ROUND = 3;
+// Distress is cash under this share of starting cash. The bank run triggers on
+// it and the emergency bailout pays only players below it (F-035).
+const BANK_RUN_DISTRESS_CASH_RATIO = 0.35;
 // The spellings that turn headlines on (the '1' string is legacy-only and
 // stays in ROOM_FLAG_TRUE_VALUES for the other boolean settings).
 const GLOBAL_EVENTS_ENABLED_VALUES = [true, 1, 'true', 'on', 'rare', 'hardcore'];
@@ -182,9 +185,9 @@ const GLOBAL_EVENT_DEFINITIONS = [
     category: 'ECONOMIC',
     summary: 'Bank actions slow down while liquidity is counted.',
     weight: 1,
-    eligible: game => game.players.filter(player => player.cash < game.settings.startingCash * 0.35 && !player.bankrupt).length >= 2,
+    eligible: game => game.players.filter(player => player.cash < game.settings.startingCash * BANK_RUN_DISTRESS_CASH_RATIO && !player.bankrupt).length >= 2,
     choices: [
-      { id: 'emergency-bailout', label: 'EMERGENCY BAILOUT', description: 'The bank advances a small rescue payment to distressed players, but active loans gain a surcharge.' },
+      { id: 'emergency-bailout', label: 'EMERGENCY BAILOUT', description: 'The bank advances a small rescue payment to distressed players: those below 35% of starting cash. Loans are unchanged.' },
       { id: 'let-the-ledger-run', label: 'LET THE LEDGER RUN', description: 'No rescue payment. The bank keeps the queue closed until liquidity returns.' }
     ],
     effects: { bankActionsBlocked: true, auctionBlocked: true, marketPriceMultiplier: 0.75, tradingEnabled: false, casinoMaxBet: 250 }
@@ -210,7 +213,7 @@ const GLOBAL_EVENT_COMBINATIONS = [
   ], effects: { taxMultiplier: 1.35, rentCap: 90, tradingEnabled: false }, duration: 7 },
   { id: 'construction-shutdown', required: ['supply-chain', 'energy-crisis'], title: 'CONSTRUCTION SHUTDOWN', summary: 'No materials, no power, no new buildings.', effects: { constructionBlocked: true, buildingCostMultiplier: 1.75, utilityRentMultiplier: 1.75 }, duration: 8 },
   { id: 'moral-hazard', required: ['bank-run', 'debt-amnesty'], title: 'TOO BIG TO FAIL', summary: 'The bailout arrives, but the ledger keeps the premium.', choices: [
-    { id: 'emergency-bailout', label: 'EMERGENCY BAILOUT', description: 'Rescue distressed borrowers and carry a visible future premium.' },
+    { id: 'emergency-bailout', label: 'EMERGENCY BAILOUT', description: 'Rescue distressed players and carry a visible future premium.' },
     { id: 'let-the-ledger-run', label: 'LET THE LEDGER RUN', description: 'Refuse the rescue and keep the bank queue closed.' }
   ], effects: { bankActionsBlocked: true, loanPremiumMultiplier: 1.6 }, duration: 7 }
 ];
@@ -263,6 +266,7 @@ const GLOBAL_EVENT_SETTLEMENT_STEPS = [
 ];
 
 export {
+  BANK_RUN_DISTRESS_CASH_RATIO,
   GLOBAL_EVENT_ACTIVATION_HOOKS,
   GLOBAL_EVENT_COOLDOWN_ROUNDS,
   GLOBAL_EVENT_COMBINATIONS,

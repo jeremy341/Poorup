@@ -8,7 +8,7 @@ import fs from 'node:fs';
 
 function makeRoom() {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', rulesProfile: 'advanced', rulesetOverrides: { bankLoans: true } });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   return room;
 }
@@ -407,7 +407,7 @@ function runPlayerContractSmoke(ctx) {
   borrower.properties.push(equityTile.index);
   financeRoom.game.currentPlayerId = lender.id;
   const equityProposal = financeRoom.proposePlayerContract('socket-a', {
-    toPlayerId: borrower.id, kind: 'equity', amount: 100, equityShare: 20, propertyIndex: equityTile.index, permanent: true
+    toPlayerId: borrower.id, kind: 'equity', amount: 100, equityShare: 20, propertyIndex: equityTile.index, durationRounds: 3
   });
   assert.equal(equityProposal.success, true);
   assert.equal(financeRoom.respondPlayerContract('socket-b', true).success, true);
@@ -866,6 +866,9 @@ for (let index = GOLDEN_ACH.length - 1; index >= 0; index -= 1) {
 }
 const GOLDEN_REC1 = {"matchId":"game-1","completedAt":"<iso>","durationSeconds":900,"roundCount":5,"roomVisibility":"private","participants":[{"accountId":"<acct>","displayNameAtMatch":"FN","colorAtMatch":"#fff","finalPlacement":1,"endingCash":1234,"propertyCount":3,"bankrupt":false,"disconnected":false,"auctionWins":2,"rentCollected":300,"globalEventsExperienced":2,"globalEventsSurvived":1,"casinoNet":0,"casinoBets":3,"casinoMaxStake":90,"casinoTotalStaked":240,"casinoAllIn":true,"casinoOneDollar":true,"marketTrades":11,"crisisMarketProfit":true,"bankLoanStatus":"paid","bankLoanDefaulted":false,"bankLoanCount":2,"airportVisits":4,"taxTilesVisited":1,"maxRentPayersInRound":3,"auctionUnderListWins":1,"loanWarningSeen":true,"badIdeaLoan":true,"prisonBreak":true,"fullGroups":1,"evenBuilds":3,"councilWins":1,"publicWorksBuilds":2,"cardDraws":{"surprise":1,"treasure":2},"zeroCashReached":true,"collateralLost":true,"comboExperienced":true,"bubbleSurvivor":true,"rebuiltAfterHousingBubble":true,"foreclosureNoSecondLoan":true,"housingBubbleEnded":true,"soldBuildingsDuringHousingBubble":4,"boughtDuringHousingBubble":true,"airportOwnedDuringStrike":true,"nonAirportRentDuringStrike":true,"tradesDuringCombo":2,"groupTherapyTrade":true,"unanimousVote":true,"publicEnemy":true,"compromisedCouncil":true,"coalitionTrade":true,"bailoutReceived":true,"moralHazard":true,"treasureCardsSeen":2,"treasureCardsSeenList":["t1","t2"],"underdogAtHalfway":true,"oneMoreTurn":true,"moveCount":30,"hiddenMovementSequence":true},{"accountId":"<acct>","finalPlacement":2,"endingCash":2.9,"propertyCount":0,"bankrupt":false,"disconnected":false,"auctionWins":0,"rentCollected":0,"globalEventsExperienced":0,"globalEventsSurvived":0,"casinoNet":0,"casinoBets":0,"casinoMaxStake":0,"casinoTotalStaked":0,"casinoAllIn":false,"casinoOneDollar":false,"marketTrades":0,"crisisMarketProfit":false,"bankLoanStatus":"defaulted","bankLoanDefaulted":true,"bankLoanCount":0,"airportVisits":0,"taxTilesVisited":0,"maxRentPayersInRound":0,"auctionUnderListWins":0,"loanWarningSeen":false,"badIdeaLoan":false,"prisonBreak":false,"fullGroups":0,"evenBuilds":0,"councilWins":0,"publicWorksBuilds":0,"cardDraws":{"surprise":0,"treasure":0},"zeroCashReached":false,"collateralLost":false,"comboExperienced":false,"bubbleSurvivor":false,"rebuiltAfterHousingBubble":false,"foreclosureNoSecondLoan":false,"housingBubbleEnded":false,"soldBuildingsDuringHousingBubble":0,"boughtDuringHousingBubble":false,"airportOwnedDuringStrike":false,"nonAirportRentDuringStrike":false,"tradesDuringCombo":0,"groupTherapyTrade":false,"unanimousVote":false,"publicEnemy":false,"compromisedCouncil":false,"coalitionTrade":false,"bailoutReceived":false,"moralHazard":false,"treasureCardsSeen":0,"treasureCardsSeenList":[],"underdogAtHalfway":false,"oneMoreTurn":false,"moveCount":0,"hiddenMovementSequence":false}],"globalEvents":["e0","e1","e2","e3","e4","e5","e6","e7","e8","e9","e10","e11","e12","e13","e14","e15","e16","e17","e18","e19"],"eventCombinations":["a"],"tradesCompleted":3,"auctionsCompleted":4,"casino":[{"accountId":"<acct>","bets":3,"net":-10}],"market":[{"accountId":"<acct>","positions":{"A":{"realizedPnl":"5"},"B":{"realizedPnl":"junk"}}}],"playerContracts":[{"kind":"loan","status":"paid","fromAccountId":"<acct>","toAccountId":"other"},{"kind":"loan","status":"defaulted","fromAccountId":"other","toAccountId":"<acct>"},{"kind":"loan","status":"active","fromAccountId":"<acct>","toAccountId":"other"},{"kind":"equity","status":"paid","fromAccountId":"other","toAccountId":"<acct>"}]};
 const GOLDEN_ACCT = {"id":"<acct>","username":"goldone","displayName":"G","color":"#d74438","avatarGrid":null,"stats":{"gamesPlayed":2,"wins":1,"bankruptcies":0,"auctionWins":2,"rentCollected":300,"eventSurvival":1,"casinoNet":-20,"marketProfit":10,"playerLoansGiven":4,"playerLoansRepaid":0,"playerLoanDefaults":2,"equityDeals":2,"bankLoansTaken":2,"bankLoanRepayments":1,"bankLoanDefaults":1,"patrolBest":0,"patrolAceRuns":0},"history":[{"matchId":"game-1","playedAt":"<iso>","result":"ROUND","won":false,"endingCash":2.9,"properties":0},{"matchId":"game-1","playedAt":"<iso>","result":"WIN","won":true,"endingCash":1234,"properties":3}],"achievements":[],"matchHistory":[{"matchId":"game-1"}],"recordedMatchIds":["game-1"],"privacy":{"history":"friends","achievements":"friends","friendRequests":"everyone","roomInvites":"friends"},"recentClearedAt":null,"createdAt":"<iso>"};
+// The reset-generation watermark is part of the persisted internal account,
+// while public account and export projections intentionally omit it.
+GOLDEN_ACCT.consumedPasswordResetGeneration = 0;
 GOLDEN_ACCT.stats.gamesPlayed = 1;
 GOLDEN_ACCT.stats.casinoNet = -10;
 GOLDEN_ACCT.stats.marketProfit = 5;
@@ -943,6 +946,43 @@ function testStoresCharacterization() {
   fs.rmSync(goldAchFile, { force: true });
 }
 
+// The jail fine spends cash, so it sits behind the same debt gate as roll,
+// end-turn and build: a seat that owes a head or queued claim cannot pay the
+// fine ahead of its creditor. The Get Out of Prison card spends nothing and
+// leaves rolling (gated separately) untouched, so it stays available.
+function testJailFineRespectsDebtGate() {
+  const room = makeRoom();
+  assert.equal(room.startGame().success, true);
+  const game = room.game;
+  const seat = game.getPlayerById(game.currentPlayerId);
+  const socketId = seat.socketId;
+  const jail = () => { seat.inJail = true; seat.jailTurns = 0; seat.cash = 1000; game.hasRolled = false; };
+  const debtError = { success: false, error: 'Settle your debt before paying the jail fine.' };
+
+  jail();
+  game.pendingPayment = { playerId: seat.id, creditorId: null, amountRemaining: 100, reason: 'rent' };
+  assert.deepEqual(game.payJailFine(socketId), debtError, 'head claim blocks the fine');
+  assert.equal(seat.inJail, true);
+  assert.equal(seat.cash, 1000, 'no cash leaves a seat that owes a claim');
+
+  game.pendingPayment = null;
+  game.pendingPaymentQueue = [{ payment: { playerId: seat.id, creditorId: null, amountRemaining: 50, reason: 'rent' }, hooks: {}, turnOptions: {} }];
+  assert.deepEqual(game.payJailFine(socketId), debtError, 'queued claim blocks the fine');
+  assert.equal(seat.cash, 1000);
+
+  game.pendingPaymentQueue = [];
+  const paid = game.payJailFine(socketId);
+  assert.equal(paid.success, true, 'no debt: the fine is paid as before');
+  assert.equal(seat.inJail, false);
+  assert.equal(seat.cash < 1000, true);
+
+  jail();
+  seat.jailFreeCards = 1;
+  game.pendingPayment = { playerId: seat.id, creditorId: null, amountRemaining: 100, reason: 'rent' };
+  assert.equal(game.useJailFree(socketId).success, true, 'the card spends no cash and stays allowed');
+  game.pendingPayment = null;
+}
+
 const CONTRACT_SUITES = [
   ['public action history stores only seat/round/kind and resets per game', testGamePublicActionHistoryUsesSeatAndRoundOnly],
   ['turn timer removal — no turnDeadline state', testGameStateDoesNotCreateTurnDeadlineState],
@@ -957,6 +997,7 @@ const CONTRACT_SUITES = [
   ['contract 9 — leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame],
   ['contract 10 — explicit end-turn hold after landing', testExplicitEndTurn],
   ['contract 10b — third doubles jail and auto-advance', testThirdDoubleAutoAdvancesWithoutEndTurn],
+  ['jail fine — refused while the seat owes a claim', testJailFineRespectsDebtGate],
   ['stores — participant schema + achievement characterization', testStoresCharacterization]
 ];
 
