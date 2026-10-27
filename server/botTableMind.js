@@ -138,6 +138,32 @@ export function tickLedger(bot, roundNumber) {
       if (ledger[id] <= 0) delete ledger[id];
     }
   }
+  const cooldowns = bot.tradeCooldowns;
+  if (cooldowns && typeof cooldowns === 'object') {
+    for (const key of Object.keys(cooldowns)) {
+      if (number(cooldowns[key]) <= number(roundNumber)) delete cooldowns[key];
+    }
+  }
+}
+
+// Per-offer cool-off after a decline. The grudge ledger only blocks a whole partner
+// and decays after a turn, so an identical offer used to come straight back; this
+// key (partner + the exact deeds on each side, cash ignored) keeps that one offer
+// off the table for several rounds while other deals with the same partner stay open.
+export function tradePairKey(partnerId, giveIndexes, requestIndexes) {
+  const side = list => [...new Set((Array.isArray(list) ? list : []).map(Number).filter(Number.isInteger))]
+    .sort((a, b) => a - b).join(',');
+  return String(partnerId) + '|' + side(giveIndexes) + '|' + side(requestIndexes);
+}
+
+export function coolOffTradePair(bot, key, untilRound) {
+  if (!bot || !key) return;
+  bot.tradeCooldowns = bot.tradeCooldowns || {};
+  bot.tradeCooldowns[key] = Math.max(number(bot.tradeCooldowns[key]), Math.floor(number(untilRound)));
+}
+
+export function tradePairCoolingOff(bot, key, roundNumber) {
+  return number(bot?.tradeCooldowns?.[key]) > number(roundNumber);
 }
 
 export function addGrudge(bot, opponentId, amount = 1) {

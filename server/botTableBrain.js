@@ -9,6 +9,12 @@
 import { rentAtLevel } from './botDevelopmentForecast.js';
 import { trafficPercent } from './botTradeValuation.js';
 import { TILE_SETS } from './boardRegistry.js';
+import { netWorth } from './netWorth.js';
+
+// Net worth has one definition (netWorth.js: cash, deeds, houses at resale,
+// spot units, margin, shorts, options, loans and contracts). Re-exported here
+// because the bot brain and its callers have always imported it from this module.
+export { netWorth };
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -23,42 +29,6 @@ function livePlayers(game) {
   return (Array.isArray(game?.players) ? game.players : []).filter(
     player => player && !player.bankrupt && !player.disconnected
   );
-}
-
-// Net worth: cash + deed face + houses at half build cost - open debts.
-// Mortgaged deeds count at half face (locked value).
-export function netWorth(game, player) {
-  if (!player) return 0;
-  let worth = Math.max(0, Math.floor(number(player.cash)));
-  for (const index of player.properties || []) {
-    const tile = typeof game?.getTile === 'function' ? game.getTile(index) : null;
-    if (!tile) continue;
-    const face = Math.max(0, Math.floor(number(tile.price)));
-    const houses = Math.max(0, Math.min(5, Math.floor(number(tile.houseCount))));
-    if (tile.mortgaged) {
-      worth += Math.floor(face / 2);
-      continue;
-    }
-    worth += face;
-    if (houses > 0) {
-      const unit = typeof game?.getPropertyHouseCost === 'function'
-        ? Math.max(0, Math.floor(number(safeHouseCost(game, tile))))
-        : 100;
-      worth += Math.floor(houses * unit * 0.5);
-    }
-  }
-  worth -= Math.max(0, Math.floor(number(player.bankLoan?.remaining)));
-  worth -= Math.max(0, Math.floor(number(player.shortDefaultDebt)));
-  worth -= Math.max(0, Math.floor(number(player.marginBalance)));
-  return Math.max(0, worth);
-}
-
-function safeHouseCost(game, tile) {
-  try {
-    return game.getPropertyHouseCost(tile);
-  } catch {
-    return 100;
-  }
 }
 
 // Standings across live seats, richest first.

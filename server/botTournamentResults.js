@@ -1,3 +1,5 @@
+import { netWorth, netWorthBreakdown } from './netWorth.js';
+
 function nonNegativeNumber(value) {
   return Math.max(0, Number(value) || 0);
 }
@@ -10,34 +12,22 @@ function textOrDefault(value, fallback) {
   return String(value || fallback);
 }
 
-function fieldNumber(object, key) {
-  const value = object ? object[key] : undefined;
-  return Number(value || 0);
-}
-
-function tileAssetValue(game, index) {
-  const tile = gameTile(game, index);
-  const improvements = fieldNumber(tile, 'houseCount') + fieldNumber(tile, 'hotelCount') * 5;
-  return fieldNumber(tile, 'price') + improvements * fieldNumber(tile, 'houseCost') / 2;
-}
-
-function gameTile(game, index) {
-  if (typeof game.getTile === 'function') return game.getTile(index);
-  return Array.isArray(game.tiles) ? game.tiles.find(entry => entry.index === index) : undefined;
-}
-
-function playerDebt(player) {
-  return Number(player.bankLoan?.remaining ?? player.bankLoan?.totalDue ?? player.bankLoan?.principal ?? 0);
-}
-
+// One net-worth definition for the whole server (netWorth.js): cash, deeds,
+// houses at resale, spot/margin/short/option exposure, bank loan, short
+// default debt, pending payments, loan and hybrid contracts, and default
+// claims. The tournament used to add up its own partial total, so a seat with
+// a contract, a short-default debt or a paid-off loan was worth more here
+// than in the engine that ranks the same seats (botTableBrain, gameLogic).
 export function playerNetWorth(game, player) {
-  const deeds = (player.properties || []).reduce((sum, index) => sum + tileAssetValue(game, index), 0);
-  const market = Object.entries(player.marketPositions || {}).reduce((sum, [instrumentId, position]) => {
-    const quote = Number(game.marketQuotes?.[instrumentId]);
-    const mark = Number.isFinite(quote) && quote > 0 ? quote : Number(position?.averageCost) || 0;
-    return sum + Math.max(0, Number(position?.quantity) || 0) * mark;
-  }, 0);
-  return Number(player.cash || 0) + deeds + market - playerDebt(player);
+  return netWorth(game, player);
+}
+
+// The engine crowns the round-limit winner on the unclamped breakdown total
+// (gameLogic.endForRoundLimit), so the placement order uses the same number:
+// a seat deep in debt stays below a solvent seat instead of tying with it.
+function seatWorthForOrder(game, player) {
+  const breakdown = netWorthBreakdown(game, player);
+  return breakdown ? breakdown.total : netWorth(game, player);
 }
 
 function policyIdForSeat(policyBySeat, seat) {
@@ -68,7 +58,7 @@ function winnerSeatForGame(game) {
 function compareSeatNetWorth(game, winnerSeat, left, right) {
   if (left === winnerSeat) return -1;
   if (right === winnerSeat) return 1;
-  return playerNetWorth(game, game.players[right]) - playerNetWorth(game, game.players[left]);
+  return seatWorthForOrder(game, game.players[right]) - seatWorthForOrder(game, game.players[left]);
 }
 
 function buildPlacementsByPolicy(seatsByPolicy, placementOrder) {
@@ -109,41 +99,39 @@ function bankruptciesByPolicy(game, seatsByPolicy) {
   ]));
 }
 
+// Market P&L is booked on the player's own book: a voluntary sell
+// (marketLogic.applyMarketSell), a forced margin liquidation
+// (marketExpansion.recordForcedMarginPnl) and a bankruptcy liquidation
+// (bankruptcyApi.liquidateMarketPositions) all add to
+// marketPositions[*].realizedPnl. The display ledger is a capped view of the
+// table (economyApi.recordMarketLedger keeps the newest 300 rows) and it never
+// records forced or derivative settlements, so replaying it silently dropped
+// trades. Aggregate the book, and add any explicit settlement rows the
+// ledger carries on top of it.
 function marketPnlByPlayer(game) {
-  const positions = new Map();
-  const realized = new Map();
-  [...(game.marketLedger || [])].reverse().forEach(entry => {
-    if (!['buy', 'sell'].includes(entry?.side)) return;
-    const playerId = entry.playerId;
-    const instrumentId = entry.instrumentId;
-    if (!playerId || !instrumentId) return;
-    const key = `${playerId}:${instrumentId}`;
-    const position = positions.get(key) || { playerId, instrumentId, quantity: 0, cost: 0 };
-    const quantity = Math.max(0, Math.floor(Number(entry.quantity) || 0));
-    const quote = Math.max(0, Number(entry.quote) || 0);
-    const fee = Math.max(0, Number(entry.fee) || 0);
-    if (!quantity || !quote) return;
-    if (entry.side === 'buy') {
-      position.cost += quote * quantity + fee;
-      position.quantity += quantity;
-    } else if (position.quantity > 0) {
-      const sold = Math.min(quantity, position.quantity);
-      const averageCost = position.cost / position.quantity;
-      realized.set(playerId, (realized.get(playerId) || 0) + ((quote - averageCost) * sold) - fee);
-      position.cost = Math.max(0, position.cost - averageCost * sold);
-      position.quantity -= sold;
+  const totals = new Map();
+  for (const player of game.players || []) {
+    let realized = 0;
+    let open = 0;
+    for (const [instrumentId, position] of Object.entries(player.marketPositions || {})) {
+      const quantity = Math.max(0, Number(position?.quantity) || 0);
+      const averageCost = Math.max(0, Number(position?.averageCost) || 0);
+      realized += Number(position?.realizedPnl) || 0;
+      if (!quantity) continue;
+      const quote = Number(game.marketQuotes?.[instrumentId]);
+      const mark = Number.isFinite(quote) && quote > 0 ? quote : averageCost;
+      open += (mark - averageCost) * quantity;
     }
-    positions.set(key, position);
-  });
-  const total = new Map(realized);
-  positions.forEach(position => {
-    if (!position.quantity) return;
-    const quote = Number(game.marketQuotes?.[position.instrumentId]);
-    if (!Number.isFinite(quote) || quote <= 0) return;
-    const openPnl = quote * position.quantity - position.cost;
-    total.set(position.playerId, (total.get(position.playerId) || 0) + openPnl);
-  });
-  return total;
+    totals.set(player.id, realized + open);
+  }
+  for (const entry of game.marketLedger || []) {
+    if (!entry?.playerId) continue;
+    if (['buy', 'sell'].includes(entry.side)) continue;
+    const settled = Number(entry.realizedPnl);
+    if (!Number.isFinite(settled)) continue;
+    totals.set(entry.playerId, (totals.get(entry.playerId) || 0) + settled);
+  }
+  return totals;
 }
 
 function policyMarketPnl(game, seatsByPolicy) {
@@ -192,7 +180,17 @@ function matchFeatureUsage(game) {
   };
 }
 
-export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, decisionTrace, actionLegalityByPolicy = new Map(), strategyMetricsByPolicy = {} }) {
+// How the match ended. 'winner' and 'round-limit' are natural endings the engine
+// crowned; 'step-limit' and 'stall' are harness-censored (the position is
+// unfinished, so it must not feed win-rate or placement statistics).
+export function matchCompletionKind(game, { steps, stepLimit, stalled = false, hasWinner }) {
+  if (stalled) return 'stall';
+  if (game.started) return steps >= stepLimit ? 'step-limit' : 'stall';
+  if (!hasWinner) return 'no-winner';
+  return game.lastEndReason === 'round-limit' ? 'round-limit' : 'winner';
+}
+
+export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, stalled = false, decisionTrace, actionLegalityByPolicy = new Map(), strategyMetricsByPolicy = {} }) {
   const game = room.game;
   const { netWorthByPolicy, seatsByPolicy } = collectPolicyWorth(game, policyBySeat);
   const winnerSeat = winnerSeatForGame(game);
@@ -201,6 +199,7 @@ export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, d
   const legalityByPolicy = buildLegalityByPolicy(seatsByPolicy, actionLegalityByPolicy);
   const marketPnl = policyMarketPnl(game, seatsByPolicy);
   const hasWinner = winnerSeat != null && winnerSeat >= 0;
+  const completionKind = matchCompletionKind(game, { steps, stepLimit, stalled, hasWinner });
   return {
     seed,
     policyBySeat: policyBySeat.map(policy => policy.policyId),
@@ -210,10 +209,13 @@ export function buildMatchResult(room, { seed, policyBySeat, steps, stepLimit, d
     }])),
     ended: !game.started,
     completed: !game.started && hasWinner,
-    censored: Boolean(game.started && steps >= stepLimit),
+    completionKind,
+    censored: completionKind === 'step-limit' || completionKind === 'stall',
     stepLimitReached: Boolean(game.started && steps >= stepLimit),
     steps,
+    stepLimit,
     round: game.roundNumber,
+    endReason: game.lastEndReason || null,
     winnerSeat: hasWinner ? winnerSeat : null,
     winnerPolicyId: hasWinner ? policyBySeat[winnerSeat]?.policyId || null : null,
     placementsByPolicy,

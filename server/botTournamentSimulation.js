@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import { RoomManager } from './gameLogic.js';
-import { buildBotStrategicContext } from './botStrategicContext.js';
+import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { buildMatchResult, safeShadowEvaluationTrace } from './botTournamentResults.js';
 import { stateFingerprint } from './botTournamentState.js';
 import { auctionWillingness } from './botAuctionPolicy.js';
+import { ROUND_LIMIT } from './gameData.js';
 import {
   decideBotAuction,
   isAuctionBotParticipant,
@@ -13,31 +15,133 @@ import {
   selectBotTurnTarget,
 } from './botLogic.js';
 
-export function withSeededSimulationGlobals(seedValue, callback) {
-  const randomInt = crypto.randomInt;
-  const randomUUID = crypto.randomUUID;
-  const now = Date.now;
-  let seed = Number(seedValue) >>> 0;
+// mulberry32: a well-mixed deterministic PRNG. The previous linear congruential
+// generator alternated parity on every draw, and two consecutive dice reduced
+// with % 6 therefore never matched, so the simulator never rolled doubles (F-063).
+function mulberry32(initialState) {
+  let state = initialState | 0;
+  return () => {
+    state = (state + 0x6D2B79F5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+// The PRNG state is 32 bits wide, so a seed outside the unsigned 32-bit range
+// was silently truncated into a different seed's stream: seed 2^32 and seed 0
+// produced the same match. A seed is validated and the validated value is the
+// one that is reported.
+export const MAX_SIMULATION_SEED = 0xFFFFFFFF;
+
+export function normalizeSimulationSeed(seedValue) {
+  const seed = Number(seedValue);
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > MAX_SIMULATION_SEED) {
+    throw new RangeError(`Simulation seed must be an unsigned 32-bit integer (0-${MAX_SIMULATION_SEED})`);
+  }
+  return seed;
+}
+
+// Global functions cannot be replaced per async caller. Serialize unrelated
+// top-level simulations, then dispatch through AsyncLocalStorage so nested
+// scopes get their own seed and stale descendants fall back to native globals.
+const simulationScopeStorage = new AsyncLocalStorage();
+let seededScopeQueue = Promise.resolve();
+
+function createSeededScope(seed, group) {
+  const nextUnitDraw = mulberry32(seed >>> 0);
   let uuidSequence = 0;
-  let simulationTime = 1_700_000_000_000 + (Number(seedValue) || 0);
+  let simulationTime = 1_700_000_000_000 + seed;
   const advanceTime = durationMs => {
     const duration = Number(durationMs);
     if (!Number.isFinite(duration) || duration < 0) throw new RangeError('Simulation time must advance by a finite non-negative duration');
     simulationTime += Math.floor(duration);
   };
-  crypto.randomInt = (min, max) => {
-    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
-    return min + (seed % Math.max(1, max - min));
+  // Same [min, max) contract as crypto.randomInt.
+  return {
+    group,
+    active: true,
+    randomInt: (min, max) => min + Math.floor(nextUnitDraw() * Math.max(1, max - min)),
+    randomUUID: () => `00000000-0000-4000-8000-${String(++uuidSequence).padStart(12, '0')}`,
+    now: () => simulationTime,
+    advanceTime,
   };
-  crypto.randomUUID = () => `00000000-0000-4000-8000-${String(++uuidSequence).padStart(12, '0')}`;
-  Date.now = () => simulationTime;
-  return Promise.resolve().then(() => callback({ advanceTime })).finally(() => {
-    crypto.randomInt = randomInt;
-    crypto.randomUUID = randomUUID;
-    Date.now = now;
+}
+
+function runScopedCallback(group, seed, callback) {
+  const scope = createSeededScope(seed, group);
+  group.pending += 1;
+  return simulationScopeStorage.run(scope, async () => {
+    try {
+      return await callback({ advanceTime: scope.advanceTime });
+    } finally {
+      scope.active = false;
+      group.pending -= 1;
+      if (group.pending === 0) group.resolveFinished();
+    }
   });
 }
 
+async function runSeededGroup(seed, callback) {
+  const originals = { randomInt: crypto.randomInt, randomUUID: crypto.randomUUID, now: Date.now };
+  const readScope = () => {
+    const scope = simulationScopeStorage.getStore();
+    return scope?.active ? scope : null;
+  };
+  crypto.randomInt = (...args) => readScope()?.randomInt(...args) ?? originals.randomInt(...args);
+  crypto.randomUUID = (...args) => readScope()?.randomUUID(...args) ?? originals.randomUUID(...args);
+  Date.now = (...args) => readScope()?.now(...args) ?? originals.now(...args);
+
+  let resolveFinished;
+  const group = {
+    pending: 0,
+    finished: new Promise(resolve => { resolveFinished = resolve; }),
+    resolveFinished: () => resolveFinished(),
+  };
+  try {
+    return await runScopedCallback(group, seed, callback);
+  } finally {
+    // A callback may launch an unawaited nested scope. Keep the dispatchers in
+    // place until every active descendant has finished, even on rejection.
+    await group.finished;
+    crypto.randomInt = originals.randomInt;
+    crypto.randomUUID = originals.randomUUID;
+    Date.now = originals.now;
+  }
+}
+
+export function withSeededSimulationGlobals(seedValue, callback) {
+  const seed = normalizeSimulationSeed(seedValue);
+  const parent = simulationScopeStorage.getStore();
+  if (parent?.active) return runScopedCallback(parent.group, seed, callback);
+  const queued = seededScopeQueue.then(() => runSeededGroup(seed, callback));
+  seededScopeQueue = queued.then(() => undefined, () => undefined);
+  return queued;
+}
+
+// A match ends on its own at ROUND_LIMIT, so the step budget scales with it. A
+// 3-seat planner game spends about 3.7 steps per seat-round (3,000-3,500 steps
+// for 300 rounds); 12 per seat-round leaves roughly 3x headroom for auction
+// bursts. The old fixed 2,000-step budget censored every planner game before the
+// round limit (0 of 24 finished), so win rates described unfinished positions.
+export const STEPS_PER_SEAT_ROUND = 12;
+
+export function defaultStepLimit(seatCount) {
+  const seats = Math.max(2, Math.floor(Number(seatCount)) || 3);
+  return ROUND_LIMIT * seats * STEPS_PER_SEAT_ROUND;
+}
+
+function resolveStepLimit(requested, seatCount) {
+  if (requested == null) return defaultStepLimit(seatCount);
+  const limit = Number(requested);
+  if (!Number.isInteger(limit) || limit < 1) throw new RangeError('stepLimit must be a positive integer');
+  return limit;
+}
+
+// Harness economy, not the shipped room default (F-083): casino, market and
+// globalEvents default ON, startingCash defaults to 500 (roomSettings default
+// is 1500), and seatCount is clamped to 2-3. Tournament numbers describe this
+// variant, so they are not evidence about a default table.
 export function createSimulationRoom({ boardVariant = 'standard-40', settings = {} } = {}) {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'simulation-host', clientId: 'simulation-host', nickname: 'SIM HOST', color: '#d74438', isBot: true, boardVariant });
@@ -145,6 +249,46 @@ function botIdForPolicy(players, policyByPlayer, policyId) {
   return players.find(player => player.isBot && policyByPlayer.get(player.id) === policyId)?.id || null;
 }
 
+// Advisor state that must not survive a match boundary. A shared advisor
+// otherwise carries the previous match's call budget, circuit breaker state
+// and counters into the next one, so a later match falls back to the
+// deterministic planner for reasons that have nothing to do with that match.
+const ADVISOR_MATCH_STATE = {
+  aiCalls: 0,
+  fallbackCalls: 0,
+  failureStreak: 0,
+  circuitOpenUntil: 0,
+  quotaExhausted: false,
+  quotaProbeAt: 0,
+  lastFailure: null
+};
+
+function resetAdvisorForMatch(advisor) {
+  if (!advisor || typeof advisor !== 'object') return advisor;
+  if (advisor.decisionCounts instanceof Map) advisor.decisionCounts.clear();
+  if (Array.isArray(advisor.callTimestamps)) advisor.callTimestamps.length = 0;
+  Object.entries(ADVISOR_MATCH_STATE).forEach(([field, value]) => {
+    if (field in advisor) advisor[field] = value;
+  });
+  const stats = advisor.optionPositionStats;
+  if (stats && typeof stats === 'object') {
+    stats.answers = 0;
+    stats.firstPosition = 0;
+    stats.plannerBest = 0;
+    stats.byPosition = {};
+  }
+  return advisor;
+}
+
+// A policy may carry `createAdvisor`; each match then gets its own advisor, so
+// call timestamps, circuit state, budgets and counters never leak between
+// matches. A policy that only carries an advisor shares that instance, so its
+// per-match state is reset instead of inherited.
+function materializePolicy(policy) {
+  if (typeof policy.createAdvisor === 'function') return { ...policy, advisor: policy.createAdvisor() };
+  return { ...policy, advisor: resetAdvisorForMatch(policy.advisor) };
+}
+
 function clearAdvisorDecisionCounts(policies) {
   for (const advisor of new Set(policies.map(policy => policy.advisor).filter(Boolean))) {
     if (advisor.decisionCounts instanceof Map) advisor.decisionCounts.clear();
@@ -183,7 +327,7 @@ function createAdvisorFacades(policies, seed) {
 
 function createSimulationContext(options, advanceTime) {
   const room = createSimulationRoom({ boardVariant: options.boardVariant, settings: { ...options.settings, seatCount: options.policyBySeat.length } });
-  const policies = policiesInGameOrder(room, options.policyBySeat, options.boardVariant);
+  const policies = policiesInGameOrder(room, options.policyBySeat, options.boardVariant).map(materializePolicy);
   const strategyMetricsByPolicy = Object.fromEntries(policies.map(policy => [policy.policyId, freshPolicyStrategyMetrics()]));
   const actionLegalityByPolicy = instrumentBotActions(room, policies, strategyMetricsByPolicy);
   clearAdvisorDecisionCounts(options.policyBySeat);
@@ -200,19 +344,42 @@ function createSimulationContext(options, advanceTime) {
     advisorByPolicyId: createAdvisorFacades(policies, options.seed),
     decisionTrace: options.captureTrace ? [] : null,
     shadowTraces: options.captureShadowTrace ? [] : null,
+    stepLimit: resolveStepLimit(options.stepLimit, options.policyBySeat.length),
     steps: 0,
     stalls: 0,
+    stalled: false,
+    stallDetail: null,
     consecutiveStalls: 0,
+    auctionOrdinal: 0,
+    auctionKey: null,
+    auctionStartSeat: 0,
     liveAiFallbacks: 0,
     advanceTime,
   };
+}
+
+// Seats respond to an auction in a cycle, never in fixed seat order. A fixed
+// order let seat 0 always open and answer first (one seat won 11 of 12 auctions
+// at cash 1500). The opening seat advances one seat per auction, offset by the
+// match seed; after a bid the next responder is the seat after the bidder.
+export function auctionResponseOrder(context, auction) {
+  const { players } = context.room.game;
+  const key = `${auction.startedAt || 0}:${auction.propertyTile?.index ?? 'x'}`;
+  if (context.auctionKey !== key) {
+    context.auctionKey = key;
+    context.auctionStartSeat = ((Number(context.seed) >>> 0) + context.auctionOrdinal) % players.length;
+    context.auctionOrdinal += 1;
+  }
+  const bidderSeat = players.findIndex(player => player.id === auction.highestBidderId);
+  const first = bidderSeat >= 0 ? bidderSeat + 1 : context.auctionStartSeat;
+  return players.map((_, offset) => players[(first + offset) % players.length]);
 }
 
 function currentBot(context) {
   const { game } = context.room;
   const auction = game.auction;
   return auction?.active
-    ? game.players.find(player => isAuctionBotParticipant(auction, player)
+    ? auctionResponseOrder(context, auction).find(player => isAuctionBotParticipant(auction, player)
       && context.auctionEvaluations.get(player.id) !== simulationAuctionIdentity(auction, player))
     : selectBotTurnTarget(game);
 }
@@ -253,12 +420,28 @@ async function runAuctionAction(context, bot, policy) {
   const auction = game.auction;
   const auctionVersion = simulationAuctionIdentity(auction, bot);
   const projectedValue = auctionWillingness(auction, bot, game);
+  const decisionSequence = Number(game.botDecisionSequence || 0);
+  // The live path (socketRuntime.beginBotAuctionBidUnlocked) hands the advisor
+  // the game and this same set of context fields. Without them the simulated
+  // auction decision ran on a blind baseline: the policy difficulty was
+  // ignored and the reserve was a flat floor.
+  const decisionContext = {
+    botId: bot.id,
+    botBrain: policy.brain || 'no-ai',
+    botDifficulty: policy.difficulty || 'table',
+    gameId: `simulation:${context.room.roomCode || 'match'}:${game.startedAt || 'pending'}`,
+    decisionSequence,
+    ruleVersion: BOT_RULE_VERSION,
+    ...buildBotStrategicContext(game, bot, 'auction', decisionSequence),
+    event: game.globalEvent
+  };
   const choice = await decideBotAuction({
     auction,
     bot,
     startingCash: game.settings.startingCash,
+    game,
     advisor: context.advisorByPolicyId.get(policy.policyId),
-    context: buildBotStrategicContext(game, bot, 'auction', game.botDecisionSequence || 0),
+    context: decisionContext,
   });
   trackLiveAiFallback(context, choice.decision?.fallbackReason);
   if (simulationAuctionIdentity(game.auction, bot) !== auctionVersion) return;
@@ -340,7 +523,7 @@ function recordStall(context, before, bot = null, seat = -1) {
   context.consecutiveStalls += 1;
   if (context.consecutiveStalls >= 8) {
     const detail = stallDiagnostic(context, bot, seat);
-    throw new Error(`Simulation stalled for 8 consecutive steps (seed ${context.seed})${detail}`);
+    throw new SimulationStallError(`Simulation stalled for 8 consecutive steps (seed ${context.seed})${detail}`);
   }
 }
 
@@ -374,16 +557,23 @@ async function runBotStep(context, bot, before) {
   recordStall(context, before, bot, seat);
 }
 
+class SimulationStallError extends Error {}
+
 async function runSimulationSteps(context) {
-  while (context.room.game.started && context.steps < context.stepLimit) {
+  while (context.room.game.started && context.steps < context.stepLimit && !context.stalled) {
     context.advanceTime(1_000);
     const before = stateFingerprint(context.room.game);
     const bot = currentBot(context);
-    if (!bot) {
-      finishNoBotStep(context, before);
-      continue;
+    try {
+      if (!bot) finishNoBotStep(context, before);
+      else await runBotStep(context, bot, before);
+    } catch (error) {
+      // A stall is a measured outcome (completionKind 'stall'), not a crash that
+      // discards every other match in the campaign.
+      if (!(error instanceof SimulationStallError)) throw error;
+      context.stalled = true;
+      context.stallDetail = error.message;
     }
-    await runBotStep(context, bot, before);
   }
 }
 
@@ -411,12 +601,14 @@ function finalizeMatch(context) {
     policyBySeat: context.policies,
     steps: context.steps,
     stepLimit: context.stepLimit,
+    stalled: context.stalled,
     decisionTrace: context.decisionTrace,
     actionLegalityByPolicy: context.actionLegalityByPolicy,
     strategyMetricsByPolicy: context.strategyMetricsByPolicy,
   });
   if (context.shadowTraces) result.shadowTrace = context.shadowTraces.map(trace => linkedShadowTrace(trace, result, context.seed));
   result.stalls = context.stalls;
+  result.stallDetail = context.stallDetail;
   result.liveAiCalls = callCapTotal(context.callCapTrackers, context.initialCapCounts, 'calls');
   result.liveAiCapExhaustions = callCapTotal(context.callCapTrackers, context.initialCapCounts, 'capExhaustions');
   result.liveAiCallCapReached = result.liveAiCapExhaustions > 0;
@@ -429,12 +621,16 @@ function finalizeMatch(context) {
 
 export async function simulateBotMatch(options) {
   validatePolicyBySeat(options.policyBySeat);
+  // The seed is validated and normalized once, so the match reports the seed
+  // that actually ran instead of the raw value that was truncated into it.
+  const seed = normalizeSimulationSeed(options.seed);
   const startedAt = performance.now();
-  const result = await withSeededSimulationGlobals(options.seed, async ({ advanceTime }) => {
-    const context = createSimulationContext(options, advanceTime);
+  const result = await withSeededSimulationGlobals(seed, async ({ advanceTime }) => {
+    const context = createSimulationContext({ ...options, seed }, advanceTime);
     await runSimulationSteps(context);
     return finalizeMatch(context);
   });
+  result.seed = seed;
   result.runtimeMs = Math.max(0, Math.round(performance.now() - startedAt));
   return result;
 }
