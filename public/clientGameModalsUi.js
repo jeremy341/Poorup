@@ -73,6 +73,10 @@ function openChoiceModal(tile) {
         ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, canAfford ? "green" : "red")}
       </div>
       <div class="choice-actions">
+        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
+          <span class="t-label">BUY</span>
+          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
+        </button>
         ${auctionMode
           ? `<button class="btn-dark choice-btn" id="choice-auction">
               <span class="t-label">AUCTION</span>

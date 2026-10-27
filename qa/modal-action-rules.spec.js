@@ -87,3 +87,14 @@ test('desktop 200% equivalent keeps the finance-off controls reachable', async (
   await decline.scrollIntoViewIfNeeded(); await decline.focus(); await expect(decline).toBeFocused(); await expect(decline).toBeInViewport();
   await noPageOverflow(page);
 });
+
+test('purchase choice offers BUY as its one red action beside PASS, with an X that keeps the decision pending', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => window.__ipadModalCapture.openChoice());
+  const card = page.locator('#choice-card'), buy = card.locator('#choice-buy'), pass = card.locator('#choice-pass');
+  await expect(buy).toBeVisible(); await expect(buy).toBeEnabled(); await expect(buy).toHaveClass(/cta-red/); await expect(buy).toContainText('BUY');
+  await expect(pass).toBeVisible(); await expect(pass).not.toHaveClass(/cta-red/);
+  await expect(card.locator('.cta-red')).toHaveCount(1);
+  await expect(card.locator('#choice-dismiss')).toBeVisible();
+  await noPageOverflow(page);
+});
