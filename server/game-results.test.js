@@ -59,19 +59,19 @@ const GOLDEN_ALICE = {
   gamesPlayed: 1, wins: 1, bankruptcies: 0, auctionWins: 2, rentCollected: 610,
   eventSurvival: 3, casinoNet: -50, marketProfit: 90.5, playerLoansGiven: 1,
   playerLoansRepaid: 0, playerLoanDefaults: 1, equityDeals: 1, bankLoansTaken: 1,
-  bankLoanRepayments: 1, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0
+  bankLoanRepayments: 1, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0, patrolVerifiedBest: 0, patrolVerifiedAceRuns: 0
 };
 const GOLDEN_BOB = {
   gamesPlayed: 1, wins: 0, bankruptcies: 1, auctionWins: 0, rentCollected: 0,
   eventSurvival: 0, casinoNet: 0, marketProfit: 0, playerLoansGiven: 1,
   playerLoansRepaid: 1, playerLoanDefaults: 0, equityDeals: 0, bankLoansTaken: 0,
-  bankLoanRepayments: 0, bankLoanDefaults: 1, patrolBest: 0, patrolAceRuns: 0
+  bankLoanRepayments: 0, bankLoanDefaults: 1, patrolBest: 0, patrolAceRuns: 0, patrolVerifiedBest: 0, patrolVerifiedAceRuns: 0
 };
 const GOLDEN_CAROL = {
   gamesPlayed: 1, wins: 0, bankruptcies: 0, auctionWins: 0, rentCollected: 0,
   eventSurvival: 0, casinoNet: 0, marketProfit: 0, playerLoansGiven: 0,
   playerLoansRepaid: 0, playerLoanDefaults: 0, equityDeals: 1, bankLoansTaken: 2,
-  bankLoanRepayments: 0, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0
+  bankLoanRepayments: 0, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0, patrolVerifiedBest: 0, patrolVerifiedAceRuns: 0
 };
 const GOLDEN_PARTICIPANTS = ['1:1500:3:false', '4:0:0:true', '2:500:1:false', '3:10:0:false'];
 const GOLDEN_RECORD = { durationSeconds: 0, roundCount: 12, roomVisibility: 'private', globalEvents: 20, eventCombinations: 10, auctionsCompleted: 2, tradesCompleted: 3, completedAt: '2026-01-01T00:00:00.000Z', matchId: 'match-fixed' };

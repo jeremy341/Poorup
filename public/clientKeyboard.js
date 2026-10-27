@@ -21,6 +21,7 @@ import {
   closeLogDrawer,
   toggleLogDrawerFromKey,
 } from "./clientLogDrawer.js";
+import { dismissBankruptcyModal } from "./clientGameModalsUi.js";
 
 let host = {};
 
@@ -192,12 +193,22 @@ const TOP_SURFACE_ESCAPE = {
   "choice-modal": () => closeSurface("#choice-modal"),
   "auction-modal": () => closeSurface("#auction-modal"),
   "gameover-modal": preventEscape,
-  "bankruptcy-modal": () => closeSurface("#bankruptcy-modal"),
+  "bankruptcy-modal": closeBankruptcyEscape,
   "log-drawer": () => closeLogDrawer(),
 };
 
 function cardModalOpen() {
   return modalOpen("#card-modal");
+}
+
+function closeBankruptcyEscape() {
+  // The voluntary-exit card shares this surface: Escape takes its Keep Playing
+  // path. Debt decisions dismiss silently, exactly like their CLOSE control.
+  if ($("#bank-retire-cancel")) {
+    closeSurface("#bankruptcy-modal", { force: true });
+    return;
+  }
+  dismissBankruptcyModal();
 }
 
 function closeCardModal() {

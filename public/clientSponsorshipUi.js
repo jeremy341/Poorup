@@ -4,6 +4,7 @@
    game surface; the server owns every reservation and forced purchase.
    ============================================================ */
 import { $, esc } from "./clientDom.js";
+import { formatMoney } from "./clientMoney.js";
 import { spriteHTML } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { playerFinanceEnabled, rentShareDisclosure } from "./clientFinanceRules.js";
@@ -134,11 +135,11 @@ function buyerActionsHTML(sponsorship) {
   const buyerContribution = Math.max(0, Number(sponsorship.price || 0) - Number(sponsorship.totalContributed || 0));
   const localCash = Number(state.players[0]?.cash || 0);
   const enabled = playerFinanceEnabled(state.settings) && (buyerCanAcceptEquity(sponsorship, buyerContribution, localCash) || buyerCanAcceptGift(sponsorship));
-  return `<div class="sponsorship-actions"><button class="cta-red" type="button" data-sponsorship-action="accept" ${enabled ? "" : "disabled"}><span class="cta-text cta-text-sm">ACCEPT &amp; BUY</span></button><button class="btn-dark" type="button" data-sponsorship-action="decline"><span class="t-label f11">CANCEL REQUEST</span></button></div>`;
+  return `<div class="sponsorship-actions"><button class="btn-dark" type="button" data-sponsorship-action="decline"><span class="t-label f11">CANCEL REQUEST</span></button><button class="cta-red" type="button" data-sponsorship-action="accept" ${enabled ? "" : "disabled"}><span class="cta-text cta-text-sm">ACCEPT &amp; BUY</span></button></div>`;
 }
 
 function contributorWithdrawalHTML(mine) {
-  return `<div class="sponsorship-actions"><button class="btn-dark" type="button" data-sponsorship-action="withdraw"><span class="t-label f11">WITHDRAW $${Number(mine.amount || 0).toLocaleString()}</span></button></div>`;
+  return `<div class="sponsorship-actions"><button class="btn-dark" type="button" data-sponsorship-action="withdraw"><span class="t-label f11">WITHDRAW ${formatMoney(mine.amount)}</span></button></div>`;
 }
 
 function investorReservationLocked(sponsorship) {

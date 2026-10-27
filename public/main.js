@@ -91,7 +91,9 @@ import {
 } from "./clientRailEvents.js";
 import { configureProfileRender, renderAccountPanel } from "./clientProfileRender.js";
 import {
+  applyPatrolState,
   configureNightShift,
+  handlePatrolDisconnect,
   nightShiftState,
   startNightShift,
   stopNightShift,
@@ -1223,7 +1225,7 @@ function bindDrawerAndBoardModes() {
 }
 
 function bindAmbientExits() {
-  // Parlor Patrol is switched off: its controls stay hidden and unbound.
+  // Keep Patrol controls synchronized with the client feature flag.
   syncParlorPatrolAvailability();
   if (!PARLOR_PATROL_ENABLED) return;
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
@@ -1522,6 +1524,8 @@ configureLobbyUi({
   createRequestId,
 });
 socket?.on("update-state", reconcileParlorEntrySnapshot);
+socket?.on("patrol-state", applyPatrolState);
+socket?.on("disconnect", handlePatrolDisconnect);
 configureNightShift({
   emitServer,
   parlorNotice,

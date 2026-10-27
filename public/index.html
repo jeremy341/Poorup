@@ -190,8 +190,8 @@
               <div class="ts-actions">
                 <button class="cta-red ts-cta ts-play" type="button" id="quick-table-btn" title="Join an open table, or start one"><span data-sprite="crown" data-size="5"></span><span class="cta-text">Play</span></button>
                 <div class="ts-secondary">
-                  <button class="cta-red ts-cta ts-cta-sm" type="button" id="open-create-btn" title="Create a room"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Create Room</span></button>
-                  <button class="cta-red ts-cta ts-cta-sm" type="button" id="open-join-btn" title="Join an existing room"><span data-sprite="arrow" data-size="4"></span><span class="cta-text">Join Room</span></button>
+                  <button class="btn-dark ts-cta ts-cta-sm" type="button" id="open-create-btn" title="Create a room"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Create Room</span></button>
+                  <button class="btn-dark ts-cta ts-cta-sm" type="button" id="open-join-btn" title="Join an existing room"><span data-sprite="arrow" data-size="4"></span><span class="cta-text">Join Room</span></button>
                 </div>
                 <button class="btn-dark ts-join is-hidden" type="button" id="resume-btn"><span class="t-label f13">Resume round</span><span class="t-micro g800">SAVE FOUND</span></button>
               </div>
@@ -253,9 +253,9 @@
             <p class="t-body ink-2 rooms-copy" id="rooms-description">Pick a live table, join with an open seat, or enter a room code.</p>
             <label class="rooms-search" for="rooms-search"><span class="sr-only">Search tables by name</span><input class="field" id="rooms-search" type="search" placeholder="Search tables by name…" autocomplete="off" maxlength="40" /></label>
             <div class="rooms-filters">
-              <button class="btn-dark rooms-filter is-active" type="button" data-filter="all"><span class="t-label f11">ALL</span></button>
-              <button class="btn-dark rooms-filter" type="button" data-filter="open"><span class="t-label f11">OPEN</span></button>
-              <button class="btn-dark rooms-filter" type="button" data-filter="live"><span class="t-label f11">LIVE</span></button>
+              <button class="btn-dark rooms-filter is-active" type="button" data-filter="all" aria-pressed="true"><span class="t-label f11">ALL</span></button>
+              <button class="btn-dark rooms-filter" type="button" data-filter="open" aria-pressed="false"><span class="t-label f11">OPEN</span></button>
+              <button class="btn-dark rooms-filter" type="button" data-filter="live" aria-pressed="false"><span class="t-label f11">LIVE</span></button>
             </div>
             <div class="rooms-list thin-scroll" id="rooms-list"></div>
           </div>
@@ -382,7 +382,7 @@
                 <div class="profile-overview-avatar" id="profile-overview-avatar" aria-hidden="true"></div>
                 <div><div class="t-label f14 g100" id="profile-overview-name">PLAYER</div><div class="t-micro ink-3" id="profile-overview-mode">GUEST MODE</div></div>
               </div>
-              <p class="t-body ink-2 profile-overview-copy" id="profile-overview-copy">This is the name, color, and pixel face other players see at the table.</p>
+              <p class="t-body ink-2 profile-overview-copy" id="profile-overview-copy">Other players see this design's name, color, and pixel face in the lobby. Your hero and header show your player name.</p>
               <button class="cta-red profile-overview-edit" id="profile-overview-edit-btn" type="button"><span class="cta-text cta-text-sm">Edit player design</span></button>
             </section>
             <section class="panel noise pad16 profile-overview-card profile-overview-note">
@@ -415,7 +415,7 @@
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Identity</h2></div>
               <label class="profile-field"><span class="t-label f12 g-muted profile-label">Design Name</span><input id="profile-name" name="designName" class="field" maxlength="12" inputmode="text" autocomplete="off" placeholder="MIDNIGHT SET" /></label>
               <div class="profile-field"><span class="t-label f12 g-muted profile-label">Token Color</span><div class="profile-swatches" id="profile-swatches"></div><label class="profile-custom-color"><span class="t-micro ink-3">custom</span><input type="color" id="profile-color-picker" name="tokenColor" class="color-input" aria-label="Custom token color" value="#d74438" /></label></div>
-              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Live Preview</span><div class="profile-preview-row"><div class="profile-preview-av" id="profile-preview-av"></div><div class="profile-preview-info"><div class="t-label f13" id="profile-preview-name" style="color:#d74438">MARLOWE</div><div class="t-micro ink-3">$1,500 · seat preview</div></div></div></div>
+              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Live Preview</span><div class="profile-preview-row"><div class="profile-preview-av" id="profile-preview-av"></div><div class="profile-preview-info"><div class="pl-name-row"><span class="pl-name-chip" id="profile-preview-chip" style="background:#d74438" aria-hidden="true"></span><span class="t-label f13" id="profile-preview-name">MARLOWE</span></div><div class="t-micro ink-3">$1,500 · seat preview</div></div></div></div>
             </section>
             <section class="panel noise pad16">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Draw Your Face</h2><span class="t-micro ink-3 face-hint">CLICK OR DRAG TO PAINT</span></div>
@@ -472,6 +472,7 @@
     </div>
 
     <div class="view is-hidden" id="view-rankings">
+      <a class="skip-link" href="#rankings-page-content">Skip to main content</a>
         <header class="hdr page-header" data-page-header="rankings">
     <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back data-top-back="home" aria-label="Back to home" title="Back to home"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
     <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rankings" aria-current="page"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
@@ -488,12 +489,12 @@
       <button class="btn-dark audio-toggle" type="button" id="rankings-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rankings-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
     </div>
   </header>
-      <a class="skip-link" href="#rankings-page-content">Skip to main content</a>
       <h1 class="sr-only" id="rankings-page-heading">Global Rankings</h1>
       <main class="social-page-main" id="rankings-page-content" aria-labelledby="rankings-page-heading" tabindex="-1"></main>
     </div>
 
     <div class="view is-hidden" id="view-social">
+      <a class="skip-link" href="#social-page-content">Skip to main content</a>
         <header class="hdr page-header" data-page-header="social">
     <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back data-top-back="home" aria-label="Back to home" title="Back to home"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
     <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="social" aria-current="page"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
@@ -510,12 +511,12 @@
       <button class="btn-dark audio-toggle" type="button" id="social-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="social-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
     </div>
   </header>
-      <a class="skip-link" href="#social-page-content">Skip to main content</a>
       <h1 class="sr-only" id="social-page-heading">Parlor Social</h1>
       <main class="social-page-main" id="social-page-content" aria-labelledby="social-page-heading" tabindex="-1"></main>
     </div>
 
     <div class="view is-hidden" id="view-rules">
+      <a class="skip-link" href="#rules-page-content">Skip to main content</a>
       <header class="hdr page-header" data-page-header="rules">
     <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back data-top-back="home" aria-label="Back to home" title="Back to home"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
     <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rules" aria-current="page"><span class="t-label f11">RULES</span></button></nav>
@@ -532,7 +533,6 @@
       <button class="btn-dark audio-toggle" type="button" id="rules-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rules-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
     </div>
   </header>
-      <a class="skip-link" href="#rules-page-content">Skip to main content</a>
       <main class="rules-page-main" id="rules-page-content" tabindex="-1"></main>
     </div>
 
@@ -621,6 +621,7 @@
                 <div class="admin-provider-layout">
                   <aside class="admin-provider-active panel" aria-label="Active provider">
                     <div class="admin-provider-head"><div class="t-micro g400">ACTIVE PROVIDER</div><span class="admin-provider-state t-label f11" data-admin-provider-state>UNCONFIGURED</span></div>
+                <p class="t-micro ink-3 admin-provider-action-reason" id="admin-provider-save-reason" data-admin-provider-save-reason hidden>Save unavailable: environment profiles are read-only. Create a new profile to change the setup.</p>
                     <h2 class="t-label f12 g100" data-admin-provider-active-label>NO PROFILE ACTIVE</h2>
                     <dl class="admin-provider-facts">
                       <div><dt class="t-micro ink-3">MODEL</dt><dd class="t-label f11" data-admin-provider-active-model>—</dd></div>
@@ -889,7 +890,7 @@
                       <div class="hud-body hud-pool">
                         <span data-sprite="palm" data-size="5"></span>
                         <div>
-                          <div class="t-money pool-val green" id="hud-pool">$0</div>
+                          <div class="t-money pool-val green" id="hud-pool" role="group" aria-label="Vacation Pool">$0</div>
                           <div class="pool-swatches">
                             <span style="background:#d74438"></span><span style="background:#286ea1"></span>
                             <span style="background:#d9a62f"></span><span style="background:#35a653"></span>
@@ -965,7 +966,7 @@
                     <span data-sprite="diamond" data-size="3"></span>
                     <h2 class="t-section g300" id="setup-title">Choose Your Player Appearance</h2>
                     <span class="t-micro ink-3 su-tag">SETUP</span>
-                    <button class="btn-dark setup-close" id="setup-close" type="button" aria-label="Leave appearance setup"><span class="t-label f11">BACK</span></button>
+                    <button class="btn-dark setup-close" id="setup-close" type="button" aria-label="BACK: leave appearance setup"><span class="t-label f11">BACK</span></button>
                   </div>
                   <p class="t-body ink-2 su-copy" id="setup-description">Your active design is ready for this table. Change it only if you want a different look.</p>
 
@@ -1034,7 +1035,7 @@
           </div>
           <div class="rr-foot">
             <button class="cta-red lobby-start-btn" id="lobby-start-btn">
-              <span class="cta-text" style="font-size:24px">Start Round</span>
+              <span class="cta-text">Start Round</span>
             </button>
           </div>
         </section>
@@ -1055,7 +1056,7 @@
 
     <!-- forced buy / auction choice -->
     <div class="popup is-hidden" id="choice-modal" role="dialog" aria-modal="true" aria-labelledby="choice-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="choice-scrim" aria-label="Close"></button>
+      <button class="popup-scrim" id="choice-scrim" aria-label="Close" tabindex="-1" aria-hidden="true"></button>
       <div class="popup-card choice-card panel noise" id="choice-card"></div>
     </div>
 
@@ -1143,7 +1144,7 @@
       <div class="card-gallery-shell panel noise">
         <div class="card-gallery-head">
           <div>
-            <span class="t-micro g400">DESIGN PREVIEW</span>
+            <span class="t-micro g400">EVENT CARDS</span>
             <h2 class="t-section" id="card-gallery-title">Event Cards</h2>
             <p class="t-body ink-3">Every Surprise and Treasure card, shown in the new reveal style.</p>
           </div>

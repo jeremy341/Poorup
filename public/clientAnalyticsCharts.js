@@ -1,5 +1,6 @@
 import { STANDARD_TILES, METRO_TILES } from './clientBoardData.js';
 import { mountChart, disposeChart } from './clientChartMount.js';
+import { formatAdminNumber } from './clientAnalyticsViewModel.js';
 import { finite, formatValue } from './clientChartMath.js';
 import { normalizeChartSpec, preferredChartHeight } from './clientChartRender.js';
 
@@ -38,7 +39,7 @@ function cleanPoints(series) {
 
 function formatNumber(value, maximumFractionDigits = 1) {
   const number = finite(value);
-  return number === null ? 'N/A' : number.toLocaleString(undefined, { maximumFractionDigits });
+  return number === null ? 'N/A' : formatAdminNumber(number, maximumFractionDigits);
 }
 
 function metadataColumns(values) {

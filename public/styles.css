@@ -97,7 +97,7 @@
   --line-subtle: #3a382a;
   --line-default: #5c5033;
   --line-strong: #6b5a36;
-  --line-active: #c88f2e;
+  --line-active: var(--gold-400);
   --line-board: #9b783d;
   --line-shadow: #101916;
 
@@ -133,10 +133,10 @@
   --theme-action-shadow-muted: #3d1c19;
   --music-surface: #071314;
   --music-border: #5c5033;
-  --music-accent: #c88f2e;
+  --music-accent: var(--gold-400);
   --music-text: #e8d3ab;
   --music-muted: #a79d7d;
-  --music-meter: #c88f2e;
+  --music-meter: var(--gold-400);
   --surface-card-highlight: #0b2020;
   --go-shadow-1: #b8863a;
   --go-shadow-2: #8a6321;
@@ -752,6 +752,14 @@ main.privacy-page-main:focus-visible { outline: 2px solid var(--theme-focus, var
   body:not(.theme-motion-paused) .view:not(.is-hidden) :is(
     .theme-petal-a,
     .theme-petal-b,
+/* Non-original themes back the home hero statement (kicker, wordmark, tagline, copy, stat tiles) with a scrim so text holds contrast over the scene art. Dark-text themes take a light scrim; light-text themes keep the dark default. */
+body[data-theme-id]:not([data-theme-id="original"]) #view-home .parlor-statement { background: var(--home-statement-scrim, rgb(9 25 26 / 80%)); box-shadow: 0 0 0 12px var(--home-statement-scrim, rgb(9 25 26 / 80%)); }
+body[data-theme-id="spring"] #view-home .parlor-statement { --home-statement-scrim: rgb(239 247 224 / 86%); }
+body[data-theme-id="summer"] #view-home .parlor-statement { --home-statement-scrim: rgb(255 237 185 / 86%); }
+body[data-theme-id="light"] #view-home .parlor-statement { --home-statement-scrim: rgb(228 245 238 / 88%); }
+body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-signal-line { background: rgb(3 12 16 / 92%); }
+/* Home micro labels: 9px is below legible size; scoped to the home view so the global .t-micro stays as is. */
+#view-home .t-micro { font-size: 11px; }
     .theme-snow-a,
     .theme-snow-b,
     .theme-leaves-a,
@@ -921,6 +929,7 @@ body:not(:has(#view-home:not(.is-hidden))) .operator-chip { display: none; }
    an overflow cue. */
 #view-admin-analytics { height: 100dvh; min-height: 0; overflow: hidden; background: transparent; }
 #view-admin-analytics .hdr { border-bottom-color: var(--line-board); }
+#view-admin-analytics .t-micro { font-size: 11px; }
 body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
   opacity: 0.36;
   --theme-scene-opacity: 0.58;
@@ -1011,6 +1020,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 /* The workspace hugs short content (an empty install, the release card) and fills the window only
    when there is something to draw: a chart, or a rooms list that scrolls. */
 .admin-workspace:has(.admin-panel:not(.is-hidden) .admin-chart-section[data-section-kind="ready"]),
+.admin-provider-action-reason { margin: 0; line-height: 1.45; color: var(--text-muted); }
 .admin-workspace:has(.admin-panel:not(.is-hidden) .admin-chart-section[data-section-kind="loading"][data-has-data="true"]),
 .admin-workspace:has([data-admin-section-panel="rooms"]:not(.is-hidden) [data-rooms-scroll]:not(.is-hidden)) { --fill-basis: 0px; flex: 1 1 0; }
 .admin-chart-section { flex: 1 1 var(--fill-basis); }
@@ -1172,6 +1182,11 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
   .admin-provider-form-grid, .admin-release-fields { grid-template-columns: 1fr; }
   .admin-provider-field-wide { grid-column: auto; }
   .admin-provider-row { grid-template-columns: 1fr; align-items: start; }
+  /* 11px operator text is taller on phones: scroll the console page, keep the report book at a readable height with its pager inside. */
+  #view-admin-analytics { overflow-y: auto; }
+  .admin-analytics-main { grid-template-rows: none; align-content: start; flex: 0 0 auto; overflow: visible; }
+  .admin-analytics-workspace { min-height: auto; }
+  .analytics-report-book { height: clamp(360px, 62dvh, 620px); }
   .admin-provider-row-actions { justify-content: flex-start; }
   .analytics-chart { padding: 8px; }
   .analytics-chart-engine { min-height: 160px; }
@@ -1311,6 +1326,10 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
   font-family: var(--font-body);
   font-size: 9px;
   letter-spacing: 0.03em;
+}
+/* Room, sign-in and appearance dialogs: micro labels read at 11px. */
+:is(#rooms-modal, #account-modal, #setup-wrap) .t-micro {
+  font-size: 11px;
 }
 .t-tile {
   font-family: var(--font-ui);
@@ -1641,7 +1660,7 @@ button[id$="-close"],
 @keyframes home-house-drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
 .view.is-hidden .home-house-drift-track { animation-play-state: paused; }
 .home-sky-atmosphere { position: absolute; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
-/* Parlor Patrol is switched off (PARLOR_PATROL_ENABLED): nothing of it renders or takes focus. */
+/* Hidden Patrol controls must not render or receive focus. */
 [data-parlor-patrol][hidden] { display: none !important; }
 .home-local-time,
 .home-patrol-score {
@@ -1765,25 +1784,25 @@ button[id$="-close"],
 .night-target-left { right: -160px; }
 .night-target-right.is-flight { animation: night-target-flight-right var(--night-flight-duration, 6800ms) linear both; }
 .night-target-left.is-flight { animation: night-target-flight-left var(--night-flight-duration, 6800ms) linear both; }
-.night-target-drop { left: var(--night-drop-left, 50%); top: -96px; }
+.night-target-drop { left: var(--night-drop-left, 50%); top: -64px; }
 .night-target-drop.is-flight { animation: night-target-drop var(--night-flight-duration, 6800ms) linear both; }
 @keyframes night-target-flight-right {
-  0% { opacity: 0; transform: translate3d(-160px, 0, 0); }
+  0% { opacity: 0; transform: translate3d(0, 0, 0); }
   8% { opacity: 0.82; }
   88% { opacity: 0.82; }
-  100% { opacity: 0.82; transform: translate3d(calc(100vw + 180px), 0, 0); }
+  100% { opacity: 0.82; transform: translate3d(calc(var(--night-stage-width, 100vw) + 160px), 0, 0); }
 }
 @keyframes night-target-flight-left {
-  0% { opacity: 0; transform: translate3d(160px, 0, 0); }
+  0% { opacity: 0; transform: translate3d(0, 0, 0); }
   8% { opacity: 0.82; }
   88% { opacity: 0.82; }
-  100% { opacity: 0.82; transform: translate3d(calc(-100vw - 180px), 0, 0); }
+  100% { opacity: 0.82; transform: translate3d(calc(-1 * var(--night-stage-width, 100vw) - 160px), 0, 0); }
 }
 @keyframes night-target-drop {
-  0% { opacity: 0; transform: translate3d(0, -96px, 0) rotate(-8deg); }
+  0% { opacity: 0; transform: translate3d(0, 0, 0) rotate(-8deg); }
   8% { opacity: 0.82; }
-  88% { opacity: 0.82; transform: translate3d(0, calc(100vh - 96px), 0) rotate(8deg); }
-  100% { opacity: 0.82; transform: translate3d(0, calc(100vh + 140px), 0) rotate(-10deg); }
+  88% { opacity: 0.82; transform: translate3d(0, calc((var(--night-stage-height, 100vh) + 76px) * 0.88), 0) rotate(8deg); }
+  100% { opacity: 0.82; transform: translate3d(0, calc(var(--night-stage-height, 100vh) + 76px), 0) rotate(-10deg); }
 }
 .night-target.is-popping { animation: none; pointer-events: none; }
 .night-shift-effect { position: absolute; z-index: 3; width: 64px; height: 64px; opacity: 0; pointer-events: none; }
@@ -1882,7 +1901,7 @@ button[id$="-close"],
   transition: border-color 100ms steps(2, end), background 100ms steps(2, end);
   min-width: 150px;
   flex: 1 1 210px;
-  max-width: 240px;
+  max-width: 300px;
 }
 .pl-tile:hover { border-color: var(--gold-500); background: var(--surface-hover); }
 .pl-tile.is-active { border-color: var(--line-active); box-shadow: var(--shadow-active); background: var(--surface-selected); }
@@ -1910,7 +1929,9 @@ button[id$="-close"],
 }
 .pl-tile.is-active .pl-tile-av { border-color: var(--line-active); }
 .pl-tile-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; text-align: left; }
-.pl-tile-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-primary); }
+.pl-name-chip { flex: 0 0 10px; width: 10px; height: 10px; border: 1px solid var(--line-subtle); }
+.pl-tile-name { min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-tile-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .pl-tile-actions .btn-dark { height: 24px; padding: 0 8px; }
 .pl-tile-actions .t-label { font-size: 10px; }
@@ -1932,6 +1953,7 @@ button[id$="-close"],
 }
 .dd-title { margin-top: 6px; font-size: 17px; line-height: 1.2; color: var(--gold-100); }
 .dd-close { height: 32px; padding: 0 12px; flex-shrink: 0; }
+.dd-mortgage { height: 32px; padding: 0 12px; flex-shrink: 0; }
 
 .dd-stats { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
@@ -1952,7 +1974,7 @@ button[id$="-close"],
 .dd-row-pips { display: flex; gap: 2px; align-items: center; min-width: 46px; }
 .dd-row-rent { font-family: var(--font-numeric); font-size: 13px; font-weight: 700; color: var(--green-status); font-variant-numeric: tabular-nums; }
 .dd-row.is-current .dd-row-rent { color: var(--gold-050); }
-.dd-now { font-size: 6px; color: var(--gold-300); }
+.dd-now { font-size: 11px; color: var(--gold-300); }
 
 .dd-build { margin-top: 16px; }
 .dd-build-msg {
@@ -1998,6 +2020,7 @@ button[id$="-close"],
 .cr-btn { margin-left: auto; padding: 4px 0 0; background: none; border: 0; color: var(--text-muted); letter-spacing: 0.18em; cursor: pointer; }
 .cr-btn:hover, .cr-btn:focus-visible { color: var(--gold-300); outline: none; text-decoration: underline; text-underline-offset: 4px; }
 #card-reveal .cr-card { aspect-ratio: 3 / 2; display: flex; flex-direction: column; cursor: pointer; }
+.cr-btn:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 1px; }
 #card-reveal .cr-body { flex: 1; }
 @keyframes cr-slide-in {
   0% { opacity: 0; transform: translate(56px, -72px) rotate(7deg) scale(.9); }
@@ -2050,7 +2073,7 @@ button[id$="-close"],
 
 /* game over */
 .go-name { font-family: var(--font-display); font-size: 34px; font-weight: 700; line-height: 1; color: var(--gold-050); text-shadow: 0 2px 0 var(--go-shadow-1), 0 4px 0 var(--go-shadow-2); }
-.go-kicker { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.04em; text-transform: uppercase; }
+.go-kicker { font-family: var(--font-pixel); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
 .go-summary { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
 .go-summary-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface-panel-raised); border: 1px solid var(--line-subtle); border-radius: 2px; }
 .go-summary-row.is-winner { border-color: var(--line-active); box-shadow: var(--shadow-active); }
@@ -2262,7 +2285,6 @@ button[id$="-close"],
 @media (prefers-reduced-motion: reduce) {
   .dice-roll-total.is-visible { animation: none; opacity: 1; transform: translate(-50%, -50%); }
 }
-@keyframes event-banner-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .hud-loan-status { display: block; margin-top: 5px; color: var(--red-bright); font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; }
 .board-holder {
   position: relative;
@@ -2313,6 +2335,7 @@ button[id$="-close"],
   transition: background 100ms steps(2, end);
 }
 .tile:hover { background: var(--surface-board-hover); }
+.tile:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: -2px; }
 .tile[aria-disabled="true"] { cursor: default; }
 .tile[aria-disabled="true"]:hover { background: var(--surface-board-tile); }
 .tile[aria-disabled="true"]:focus-visible { outline: 2px solid var(--gold-300); outline-offset: -3px; }
@@ -2322,8 +2345,9 @@ button[id$="-close"],
 .tile-name {
   display: block;
   color: var(--gold-100);
-  font-size: clamp(9px, 1.2cqw, 13px);
+  font-size: clamp(11px, 1.2cqw, 13px);
   line-height: 1.15;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 .tile-price {
@@ -2366,7 +2390,7 @@ button[id$="-close"],
   gap: 4px;
   padding: 4px;
 }
-.tile-face-special .tile-name { font-size: clamp(10px, 1.2cqw, 13px); }
+.tile-face-special .tile-name { font-size: clamp(11px, 1.2cqw, 13px); }
 .tile-icon-large svg { width: 32px; height: 32px; }
 .board-icon-mark { display: block; height: auto; image-rendering: pixelated; }
 .board-icon-chest { width: clamp(26px, 7cqw, 84px); }
@@ -2453,7 +2477,7 @@ button[id$="-close"],
 }
 .piece.is-active {
   z-index: 5;
-  box-shadow: 0 0 0 2px #c88f2e, 0 3px 0 rgb(0 0 0 / 70%);
+  box-shadow: 0 0 0 2px var(--gold-400), 0 3px 0 rgb(0 0 0 / 70%);
 }
 .piece.is-moving {
   z-index: 6;
@@ -2680,6 +2704,7 @@ button[id$="-close"],
 .deed-group { display: grid; gap: 8px; }
 .deed-group-title { margin: 6px 0 0; color: var(--gold-400); }
 .lobby-start-btn { height: 56px; width: 100%; }
+.lobby-start-btn .cta-text { font-size: 24px; }
 .panel-menu { position: absolute; top: 58px; right: 14px; z-index: 68; width: min(360px, calc(100vw - 28px)); padding: 14px; background: var(--surface-panel); border: 1px solid var(--line-active); box-shadow: var(--shadow-panel); }
 .panel-menu.is-hidden { display: none; }
 .panel-menu.is-open { animation: panel-menu-in 140ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) both; }
@@ -2855,7 +2880,7 @@ button[id$="-close"],
 .lobby-player-name { display: flex; align-items: center; gap: 6px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lobby-brain-icon { width: 16px; height: 16px; flex: 0 0 16px; image-rendering: pixelated; }
 .lobby-host-badge { flex: 0 0 auto; padding: 2px 4px; border: 1px solid var(--line-active); line-height: 1; }
-.lobby-player-sub { margin-top: 4px; color: var(--text-muted); font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.04em; text-transform: uppercase; }
+.lobby-player-sub { margin-top: 4px; color: var(--text-muted); font-family: var(--font-pixel); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
 .lobby-ready-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
 
 .settings-rule {
@@ -2975,7 +3000,7 @@ button[id$="-close"],
 .rules-article-head h2 { margin-top: 7px; color: var(--gold-050); }
 .rules-article-summary { max-width: 76ch; margin-top: 10px; }
 .rules-article-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
-.rules-article-body { display: flex; flex-direction: column; gap: 14px; padding-top: 16px; }
+.rules-article-body { display: flex; flex-direction: column; gap: 14px; max-width: 72ch; padding-top: 16px; }
 .rules-article-body h3 { margin-top: 3px; }
 .rules-bullets, .rules-steps { display: flex; flex-direction: column; gap: 9px; padding-left: 20px; margin: 0; color: var(--text-secondary); }
 .rules-bullets li, .rules-steps li { padding-left: 4px; font-family: var(--font-body); font-size: 13px; line-height: 1.45; }
@@ -3177,6 +3202,7 @@ button[id$="-close"],
 .social-context-foot { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; border-top: 1px dashed var(--line-subtle); }
 .recent-players-wrap { display: grid; gap: 9px; }
 .recent-players-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-subtle); }
+.recent-players-clear { display: grid; justify-items: end; gap: 4px; }
 #view-rankings, #view-social { min-height: 0; height: 100vh; overflow: hidden; }
 #view-rankings .social-page-main, #view-social .social-page-main { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 .social-page-main > .social-page-shell { flex: 1; min-height: 0; }
@@ -3223,6 +3249,17 @@ button[id$="-close"],
   .rules-book-spread { display: flex; flex-direction: column; flex: none; min-height: 0; }
   #view-rules .rules-index { flex: 0 0 auto; max-height: 150px; }
   #view-rules .rules-book-page { flex: 0 0 430px; min-height: 430px; }
+}
+/* Short desktop windows (1024x768): the ledger keeps a readable floor and the
+   network rail keeps all five views. Touch tablets keep their own iPad layout. */
+@media (max-height: 800px) and (hover: hover) and (pointer: fine) {
+  #view-rankings .rankings-hero-stats { display: none; }
+  #view-rankings .rankings-search-band.is-search-collapsible { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 4px 10px; }
+  #view-rankings .rankings-search-toggle { display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; }
+  #view-rankings .rankings-search-band.is-search-collapsible .rankings-search { display: none; }
+  #view-rankings .rankings-search-band.is-search-collapsible.is-search-open .rankings-search { display: block; padding: 8px 2px 3px; }
+  #view-rankings .rankings-stage .ranking-list { min-height: 240px; }
+  #view-social .social-context { display: none; }
 }
 .player-profile-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 0; }
 .player-profile-head > div:last-child { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
@@ -3438,15 +3475,19 @@ button[id$="-close"],
   width: 100%;
   transform-origin: left center;
   transform: scaleX(1);
-  background: repeating-linear-gradient(45deg, #c88f2e 0, #c88f2e 6px, #9b783d 6px, #9b783d 12px);
+  background: repeating-linear-gradient(45deg, var(--gold-400) 0, var(--gold-400) 6px, #9b783d 6px, #9b783d 12px);
   transition: transform 60ms linear;
 }
 .auction-bar-fill.is-low { background: repeating-linear-gradient(45deg, #d74438 0, #d74438 6px, #87231e 6px, #87231e 12px); }
 
 .auction-bids { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.auction-bid-btn { height: 56px; flex-direction: column; gap: 2px; }
-.auction-bid-btn .t-label { font-size: 18px; color: var(--cta-label); }
-.auction-bid-btn .t-micro { color: var(--cta-label-muted); }
+.auction-bid-btn { height: 56px; flex-direction: column; gap: 2px; color: var(--text-primary); }
+.auction-bid-btn .t-label { font-size: 18px; color: inherit; }
+.auction-bid-btn .t-micro { color: inherit; }
+.auction-bid-btn:hover:not(:disabled) { color: var(--text-primary); }
+.auction-bid-btn[aria-disabled="true"],
+.auction-bid-btn[aria-disabled="true"]:hover,
+.auction-bid-btn[aria-disabled="true"]:active { cursor: not-allowed; border-color: var(--gold-800); background: var(--surface-disabled); color: var(--text-primary); transform: none; }
 .auction-foot { margin-top: 14px; text-align: center; }
 
 /* ============================================================
@@ -4141,6 +4182,7 @@ button[id$="-close"],
 .profile-preference-row:first-of-type { margin-top: 4px; }
 .profile-preference-row > div { display: flex; flex-direction: column; gap: 5px; }
 #view-profile { height: 100dvh; min-height: 0; overflow: hidden; }
+#view-profile .t-micro { font-size: 11px; }
 #view-profile .profile-main { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .profile-preferences-local { white-space: nowrap; }
 .theme-preference-board { display: grid; gap: 12px; margin-top: 16px; padding: 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
@@ -5074,7 +5116,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .auction-player.is-leading { border-color: var(--line-active); box-shadow: var(--shadow-active); }
 .ap-av { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--surface-inset); border: 1px solid var(--line-subtle); flex-shrink: 0; }
 .ap-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.ap-st { font-size: 6px; }
+.ap-st { font-size: 11px; }
 
 /* ============================================================
    OFFER INBOX
@@ -5980,7 +6022,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #account-modal .account-modal-body { padding: 20px; }
   #account-modal .account-card .t-section { font-size: 18px; }
   #account-modal .account-card .t-label { font-size: 14px; }
-  #account-modal .account-card .t-micro { font-size: 10px; }
+  #account-modal .account-card .t-micro { font-size: 11px; }
   #account-modal .account-card .t-body { font-size: 14px; }
   #account-modal .account-card :is(button, input, select, textarea) { min-height: 48px; }
 
@@ -6199,3 +6241,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #view-rules .rules-book-page { flex: 1 1 0; min-height: 0; }
   #view-rules .rules-book-page-scroll { padding: 14px; }
 }
+
+/* Economy venues (wallet, market, casino, sponsorship, global events): micro captions read at 11px.
+   Scoped here so the global .t-micro rule and every other surface keep their 9px size. */
+:is(#wallet-modal, #market-modal, #casino-modal, #sponsorship-modal, #global-event-banner) :is(.t-micro, .t-micro.ink-3) { font-size: 11px; }

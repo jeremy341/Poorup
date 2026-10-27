@@ -83,11 +83,12 @@ assert.deepEqual({ title: mythical.title, body: mythical.body, playerDisplayName
 assert.equal(ownerEvents.filter(entry => entry.event === 'achievement-unlocked').length, 1);
 assert.equal(notifications.filter(entry => entry.accountId === 'acct_a').length, 2);
 
-// Parlor Patrol is switched off (F-059): no patrol achievement is awarded,
-// whatever the submitted score or ace-run count.
-assert.deepEqual(api.patrolAchievementCandidates({ id: 'acct_a' }, 50, { aceRuns: 0 }), []);
-assert.deepEqual(api.patrolAchievementCandidates({ id: 'acct_a' }, 50, 0, { aceRuns: 0 }), []);
-assert.deepEqual(api.patrolAchievementCandidates({ id: 'acct_a' }, 50, { aceRuns: 3 }), []);
+// Achievement candidates use the server-settled score and clean-wave result.
+const candidateIds = (score, result) => api.patrolAchievementCandidates({ id: 'acct_a' }, score, result).map(candidate => candidate.achievementId);
+assert.deepEqual(candidateIds(9, { aceRuns: 0, cleanRun: false }), []);
+assert.deepEqual(candidateIds(10, { aceRuns: 0, cleanRun: false }), ['patrol-rookie']);
+assert.deepEqual(candidateIds(50, { aceRuns: 3, cleanRun: true }), ['patrol-rookie', 'patrol-regular', 'clean-run', 'patrol-ace']);
+assert.deepEqual(candidateIds(50, { aceRuns: 2, cleanRun: false }), ['patrol-rookie', 'patrol-regular']);
 
 // A store file written by an older build (or a partial write) can hold a null
 // or a non-object entry. Loading it must not crash the server on startup.

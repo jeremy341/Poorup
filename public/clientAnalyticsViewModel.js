@@ -66,5 +66,11 @@ export function normalizeAnalyticsSnapshot(value = {}) {
   };
 }
 
+// One locale-independent formatter for every operator-console number: dot decimal, comma thousands.
+export function formatAdminNumber(value, maximumFractionDigits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 'N/A';
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits }).format(number);
+}
 export function metricValue(entry) { if (!entry || typeof entry !== 'object') return 0; const value = finite(entry.value ?? entry.last ?? entry.total, 0); return value === null ? 0 : value; }
 export function isAnalyticsPath(pathname) { return String(pathname || '').split('?')[0] === '/admin/analytics'; }

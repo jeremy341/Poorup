@@ -4,6 +4,7 @@
    preview, and advanced positions.
    ============================================================ */
 import { $, esc } from "./clientDom.js";
+import { formatMoney } from "./clientMoney.js";
 import { state } from "./clientState.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 import { emitWithTimeout } from "./clientRequestController.js";
@@ -164,7 +165,7 @@ function advancedActionsHTML(id, marketState, position) {
 function marketMovementLabel(summary, { showRound = true } = {}) {
   if (summary.change == null || summary.percentChange == null || summary.previousQuote == null || summary.previousRound == null) return "NO PRIOR ROUND";
   const direction = summary.change > 0 ? "UP" : summary.change < 0 ? "DOWN" : "UNCHANGED";
-  const amount = summary.change > 0 ? `+$${summary.change.toLocaleString()}` : summary.change < 0 ? `-$${Math.abs(summary.change).toLocaleString()}` : "$0";
+  const amount = summary.change > 0 ? `+${formatMoney(summary.change)}` : formatMoney(summary.change);
   const percent = summary.percentChange > 0 ? `+${summary.percentChange.toFixed(1)}%` : `${summary.percentChange.toFixed(1)}%`;
   const movement = `${direction} ${amount} (${percent})`;
   return showRound ? `${movement} VS ROUND ${summary.previousRound}` : movement;
@@ -235,7 +236,7 @@ function marketDeskHTML(marketState) {
   const quantity = Math.max(1, Math.floor(Number(deskDraft?.quantity) || 1));
   const preview = marketPreview(marketState, selectedIndex, quantity, deskDraft?.side || "buy");
   const quoteSummary = marketQuoteSummary(marketState, selectedIndex);
-  const currentQuote = quoteSummary.quote == null ? "PRICE UNAVAILABLE" : `$${quoteSummary.quote.toLocaleString()}`;
+  const currentQuote = quoteSummary.quote == null ? "PRICE UNAVAILABLE" : formatMoney(quoteSummary.quote);
   const movement = marketMovementLabel(quoteSummary);
   const historyLimit = selectedHistoryLimit();
   const points = selectedMarketPoints(marketState, selectedIndex, historyLimit);
@@ -247,10 +248,10 @@ function marketDeskHTML(marketState) {
   const accessibleChartSummary = esc(marketChartSummary(points, MARKET_LABELS[selectedIndex]));
   const ledgerCopy = markers.map(entry => `<li>Round ${Number(entry.roundNumber) || "?"}: ${String(entry.side).toUpperCase()} ${Number(entry.quantity) || 0} at $${Number(entry.quote) || 0}</li>`).join("");
   const signedPnl = position.unrealizedPnl > 0
-    ? `+$${position.unrealizedPnl.toLocaleString()}`
-    : position.unrealizedPnl < 0 ? `-$${Math.abs(position.unrealizedPnl).toLocaleString()}` : "$0";
+    ? `+${formatMoney(position.unrealizedPnl)}`
+    : position.unrealizedPnl < 0 ? formatMoney(position.unrealizedPnl) : "$0";
   const cashValue = Number(state.players[0]?.cash);
-  const cashCopy = Number.isFinite(cashValue) ? `$${Math.max(0, Math.floor(cashValue)).toLocaleString()} CASH ON HAND` : "CASH STATUS UNAVAILABLE";
+  const cashCopy = Number.isFinite(cashValue) ? `${formatMoney(Math.max(0, Math.floor(cashValue)))} CASH ON HAND` : "CASH STATUS UNAVAILABLE";
   const selectedEvent = quoteSummary.eventId ? `GLOBAL EVENT · ${esc(quoteSummary.eventId)}` : "NO ACTIVE EVENT MARKER";
   return `<div class="market-desk-body">
     <div class="market-desk-head"><div><h2 class="t-section g100" id="market-modal-title">Market Desk</h2><p class="t-body ink-2" id="market-modal-description">Shared sector prices and server-settled orders.</p></div>${closeButtonHTML({ id: "market-modal-close", label: "Close market desk" })}</div>
@@ -269,7 +270,7 @@ function marketDeskHTML(marketState) {
         <div class="market-order-fields"><fieldset class="market-order-side"><legend class="t-micro ink-3">ACTION</legend><div role="group" aria-label="Order action"><button class="market-order-side-button${(deskDraft?.side || "buy") === "buy" ? " is-active" : ""}" type="button" data-market-order-side="buy" aria-pressed="${(deskDraft?.side || "buy") === "buy"}">BUY</button><button class="market-order-side-button${deskDraft?.side === "sell" ? " is-active" : ""}" type="button" data-market-order-side="sell" aria-pressed="${deskDraft?.side === "sell"}">SELL</button></div></fieldset><label><span class="t-micro ink-3">UNITS</span><input class="field" id="market-desk-quantity" type="number" min="1" max="1000" value="${quantity}" inputmode="numeric"></label></div>
         <div class="market-order-breakdown" data-market-preview aria-live="polite"><span data-market-quote>QUOTE $${preview.quote.toLocaleString()} / UNIT</span><span data-market-gross>GROSS $${preview.gross.toLocaleString()}</span><span data-market-fee>FEE $${preview.fee.toLocaleString()}</span><span class="market-breakdown-cash" data-market-cash>${cashCopy}</span><strong data-market-total>${deskDraft?.side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} $${preview.net.toLocaleString()}</strong></div>
         ${advancedTools}<p class="t-micro ink-3 economy-note">Existing obligations can block an order before any cash moves.</p>
-        <button class="btn-dark market-order-submit" type="button" id="market-order-submit" data-market-basic-order data-market-id="${selectedIndex}" data-market-side="${deskDraft?.side || "buy"}"${quoteSummary.quote == null ? " disabled" : ""}><span class="t-label f11">${(deskDraft?.side || "buy").toUpperCase()} ${MARKET_LABELS[selectedIndex]}</span></button>
+        <button class="cta-red market-order-submit" type="button" id="market-order-submit" data-market-basic-order data-market-id="${selectedIndex}" data-market-side="${deskDraft?.side || "buy"}"${quoteSummary.quote == null ? " disabled" : ""}><span class="t-label f11">${(deskDraft?.side || "buy").toUpperCase()} ${MARKET_LABELS[selectedIndex]}</span></button>
       </aside>
     </div>
     <details class="market-personal-ledger-disclosure"><summary class="t-micro g300">YOUR TRADES IN THIS RANGE</summary><div class="t-micro ink-3 market-personal-ledger">${ledgerCopy.length ? `<ul>${ledgerCopy}</ul>` : "No personal trades to mark on this chart yet."}</div></details>
@@ -337,10 +338,10 @@ function updateMarketPreview(card) {
   const gross = card.querySelector("[data-market-gross]");
   const fee = card.querySelector("[data-market-fee]");
   const total = card.querySelector("[data-market-total]");
-  if (quote) quote.textContent = `QUOTE $${preview.quote.toLocaleString()} / UNIT`;
-  if (gross) gross.textContent = `GROSS $${preview.gross.toLocaleString()}`;
-  if (fee) fee.textContent = `FEE $${preview.fee.toLocaleString()}`;
-  if (total) total.textContent = `${side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} $${preview.net.toLocaleString()}`;
+  if (quote) quote.textContent = `QUOTE ${formatMoney(preview.quote)} / UNIT`;
+  if (gross) gross.textContent = `GROSS ${formatMoney(preview.gross)}`;
+  if (fee) fee.textContent = `FEE ${formatMoney(preview.fee)}`;
+  if (total) total.textContent = `${side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} ${formatMoney(preview.net)}`;
   card.querySelectorAll("[data-market-order-side]").forEach(button => {
     const selected = button.dataset.marketOrderSide === side;
     button.setAttribute("aria-pressed", String(selected));

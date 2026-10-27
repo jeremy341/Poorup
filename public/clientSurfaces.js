@@ -256,7 +256,7 @@ export function closeSurface(selector, options = {}) {
   if (!surface) return;
   if (!options.force && shouldConfirmSurfaceClose(selector) && surfaceVisible(surface)) {
     const copy = closeConfirmationCopy(selector);
-    openConfirmModal({ ...copy, confirmLabel: "CLOSE WITHOUT ACTION", onConfirm: () => closeSurface(selector, { force: true }) });
+    openConfirmModal({ ...copy, confirmLabel: "CLOSE WITHOUT ACTION", confirmTone: "neutral", onConfirm: () => closeSurface(selector, { force: true }) });
     return false;
   }
   const returnFocus = surfaceReturns.get(selector) || null;
@@ -316,7 +316,7 @@ export function focusSurface(selector, focusSelector) {
  * shared dialog controller so they inherit focus trapping, Escape handling,
  * inert background behaviour, and focus restoration.
  */
-export function openConfirmModal({ title = "Confirm action", message = "", confirmLabel = "CONFIRM", onConfirm } = {}) {
+export function openConfirmModal({ title = "Confirm action", message = "", confirmLabel = "CONFIRM", confirmTone = "red", onConfirm, mark = true } = {}) {
   const card = $("#confirm-card");
   if (!card) return;
   pendingConfirmation = typeof onConfirm === "function" ? onConfirm : null;
@@ -327,12 +327,14 @@ export function openConfirmModal({ title = "Confirm action", message = "", confi
           <div class="t-micro red">CONFIRM ACTION</div>
           <h2 class="t-section g100" id="confirm-title">${esc(title)}</h2>
         </div>
-        <span data-sprite="diamond" data-size="3" aria-hidden="true"></span>
+        ${mark ? '<span data-sprite="diamond" data-size="3" aria-hidden="true"></span>' : ""}
       </div>
       <p class="t-body ink-2 confirm-message" id="confirm-description">${esc(message)}</p>
       <div class="confirm-actions">
         <button class="btn-dark" type="button" id="confirm-cancel"><span class="t-label f11">CANCEL</span></button>
-        <button class="cta-red" type="button" id="confirm-accept"><span class="cta-text cta-text-sm">${esc(confirmLabel)}</span></button>
+        ${confirmTone === "neutral"
+          ? `<button class="btn-dark" type="button" id="confirm-accept"><span class="t-label f11">${esc(confirmLabel)}</span></button>`
+          : `<button class="cta-red" type="button" id="confirm-accept"><span class="cta-text cta-text-sm">${esc(confirmLabel)}</span></button>`}
       </div>
     </div>`;
   hydrateSprites(card);

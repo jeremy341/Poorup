@@ -184,6 +184,8 @@ function cleanAccountStats(stats) {
     bankLoanDefaults: statCount(stats, "bankLoanDefaults"),
     patrolBest: statCount(stats, "patrolBest"),
     patrolAceRuns: statCount(stats, "patrolAceRuns"),
+    patrolVerifiedBest: statCount(stats, "patrolVerifiedBest"),
+    patrolVerifiedAceRuns: statCount(stats, "patrolVerifiedAceRuns"),
   };
 }
 

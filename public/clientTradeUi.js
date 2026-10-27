@@ -1676,8 +1676,8 @@ function tradeModalHTML({ me, other, otherSeed, myDeeds, theirDeeds }) {
       </div>
 
       <div class="trade-actions">
-        <button class="cta-red trade-send" id="trade-send"><span class="cta-text cta-text-sm">${adjustment ? "Send Adjustment" : negotiating ? "Send Counter" : "Send Trade"}</span></button>
         <button class="btn-dark trade-cancel" id="trade-cancel"><span class="t-label f12">Cancel</span></button>
+        <button class="cta-red trade-send" id="trade-send"><span class="cta-text cta-text-sm">${adjustment ? "Send Adjustment" : negotiating ? "Send Counter" : "Send Trade"}</span></button>
       </div>
     </div>`;
 }

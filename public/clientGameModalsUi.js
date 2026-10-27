@@ -12,7 +12,7 @@ import { state } from "./clientState.js";
 import { playerFinanceEnabled } from "./clientFinanceRules.js";
 import { TILES, CHANCE_EVENTS, CHEST_EVENTS } from "./clientBoardData.js";
 import { cardFaceHTML } from "./clientCardsRender.js";
-import { closeSurface, focusSurface, openSurface, syncSurfaceA11y } from "./clientSurfaces.js";
+import { closeSurface, focusSurface, openConfirmModal, openSurface, syncSurfaceA11y } from "./clientSurfaces.js";
 import { emitIntent } from "./clientRequestController.js";
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 import { startAuction } from "./clientAuctionUi.js";
@@ -65,6 +65,7 @@ function openChoiceModal(tile) {
           <div class="t-micro g400">${kindLabel(tile)}</div>
           <h3 class="t-section choice-title" id="choice-card-title">${tile.name}</h3>
         </div>
+        <button class="btn-dark choice-dismiss" id="choice-dismiss" type="button" aria-label="Close choice; the decision stays pending"><span class="t-label f11">X</span></button>
       </div>
       <p class="t-body ink-2 choice-copy">${auctionMode ? "You landed on an unowned lot. Buy it at the listed price, or send it to auction." : "You landed on an unowned lot. Buy it or pass."}</p>
       <div class="choice-rows">
@@ -72,10 +73,6 @@ function openChoiceModal(tile) {
         ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, canAfford ? "green" : "red")}
       </div>
       <div class="choice-actions">
-        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
-          <span class="t-label">BUY</span>
-          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
-        </button>
         ${auctionMode
           ? `<button class="btn-dark choice-btn" id="choice-auction">
               <span class="t-label">AUCTION</span>
@@ -98,6 +95,7 @@ function openChoiceModal(tile) {
     // shared controller confirms that the required decision remains pending.
     scrim.onclick = closeChoiceModalWithoutAction;
   }
+  $("#choice-dismiss").addEventListener("click", closeChoiceModalWithoutAction);
   const buyBtn = $("#choice-buy");
   if (buyBtn) buyBtn.addEventListener("click", event => {
     const statusNode = host.captureActionStatusNode(event.currentTarget);
@@ -446,7 +444,7 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
           <h3 class="t-section bank-title" id="bankruptcy-card-title">$<span class="numeric">${Number(amount || 0).toLocaleString()}</span> due</h3>
         </div>
       </div>
-      <button class="btn-dark bank-dismiss" id="bank-dismiss" type="button" aria-label="Return to the table">CLOSE</button>
+      <button class="btn-dark bank-dismiss" id="bank-dismiss" type="button" aria-label="CLOSE: return to the table">CLOSE</button>
       <p class="t-body ink-2 bank-copy">${bankCopy}</p>
       <div class="bank-actions">
         <button class="btn-dark bank-btn" id="bank-liquidate" type="button"><span class="t-label f12">Holdings</span></button>
@@ -476,6 +474,9 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
     const actions = $("#bankruptcy-modal .bank-actions");
     if (actions && !actions.dataset.armed) {
       actions.dataset.armed = "1";
+      // Name the consequence before the irreversible confirm (sweepCashToCreditor, forfeitOrReleaseProperties, clearQuitObligations).
+      const copy = $("#bankruptcy-modal .bank-copy");
+      if (copy) copy.textContent = "Declaring ends your round now. Your cash and properties pass to the creditor or the bank, your items are sold, and open trades and contracts are cancelled. This cannot be undone.";
       actions.innerHTML = `<button class="cta-red bank-btn" id="bank-declare-confirm"><span class="cta-text cta-text-sm">Confirm Bankruptcy</span></button>
         <button class="btn-dark bank-btn" id="bank-declare-cancel"><span class="t-label f12">Keep Playing</span></button>`;
       // The focused Declare button was just replaced: move focus to the safe
@@ -518,10 +519,24 @@ export function openVoluntaryExitModal() {
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-retire-cancel");
   $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
-  $("#bank-retire-confirm").addEventListener("click", event => {
+  const confirmRetire = event => {
     const statusNode = host.captureActionStatusNode(event.currentTarget);
     closeSurface("#bankruptcy-modal", { force: true });
     bankruptPlayer(0, null, statusNode);
+  };
+  $("#bank-retire-confirm").addEventListener("click", event => {
+    // Retiring is irreversible: the first tap arms it, the second confirms, as with bankruptcy.
+    const actions = $("#bankruptcy-modal .bank-actions");
+    if (actions && !actions.dataset.armed) {
+      actions.dataset.armed = "1";
+      actions.innerHTML = `<button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Confirm Retire</span></button>
+        <button class="btn-dark bank-btn" id="bank-retire-cancel"><span class="t-label f12">Keep Playing</span></button>`;
+      focusSurface("#bankruptcy-modal", "#bank-retire-cancel");
+      $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
+      $("#bank-retire-confirm").addEventListener("click", confirmRetire);
+      return;
+    }
+    confirmRetire(event);
   });
 }
 
@@ -590,7 +605,16 @@ function isMyOwnDebt(debt) {
 
 function onRetireClick() {
   const me = state.players[0];
-  if (me?.spectating || me?.bankrupt) {
+  if (me?.spectating) {
+    openConfirmModal({
+      title: "Leave this table?",
+      message: "Leaving releases your spectator seat and returns you to the homescreen.",
+      confirmLabel: "LEAVE TABLE",
+      onConfirm: () => goHome(),
+    });
+    return;
+  }
+  if (me?.bankrupt) {
     goHome();
     return;
   }

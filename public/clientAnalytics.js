@@ -6,7 +6,7 @@ import { kpiMarkup, escapeHtml, finiteNumber, numberFormat } from './clientAnaly
 import { createAdminOpsController, refreshScrollCues } from './clientAdminConsole.js';
 import { setSectionState, setSectionFailure } from './clientAdminPanelState.js';
 import { formatClock } from './clientAdminPanels.js';
-import { ALLOWED_METRICS, METRIC_LABELS, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
+import { ALLOWED_METRICS, METRIC_LABELS, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, formatAdminNumber } from './clientAnalyticsViewModel.js';
 export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
 export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 

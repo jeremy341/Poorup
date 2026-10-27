@@ -149,11 +149,11 @@ test('an older loan can be negotiated into a current offer without moving cash b
     f.deal.openDealDetails('contract', legacy.id);
   }, { legacy, borrowerId: borrower.id, lenderId: lender.id });
   const card = page.locator('#deal-detail-card'); await expect(card).toContainText('earlier rules');
-  await expect(card.locator('[data-deal-action=back]')).toBeVisible(); await expect(card.locator('[data-deal-action=decline]')).toBeVisible();
+  await expect(card.locator('[data-deal-action=back]')).toHaveCount(0); await expect(card.locator('[data-deal-action=decline]')).toBeVisible();
   const negotiate = card.locator('[data-deal-action=negotiate]'); await expect(negotiate).toBeVisible(); await expect(negotiate).toHaveClass(/cta-red/);
   await expect(card.locator('[data-deal-action=accept]')).toHaveCount(0);
   await shot(page, info, 'legacy-negotiate', 'Older loan with a red Negotiate action', '#deal-detail-card');
-  await card.locator('[data-deal-action=back]').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden();
+  await card.locator('#deal-detail-close').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden();
   expect(game.pendingPlayerContract.id).toBe(originalId);
   await page.evaluate(id => window.__ipadModalCapture.deal.openDealDetails('contract', id), originalId);
   await card.locator('[data-deal-action=negotiate]').click(); await expect(page.locator('#financing-modal')).toBeVisible();
@@ -166,11 +166,117 @@ test('an older loan can be negotiated into a current offer without moving cash b
   expect([borrower.cash, lender.cash]).toEqual([before[0] + 120, before[1] - 120]); await noPageOverflow(page);
 });
 
-test('an offer with Player Finance disabled keeps Back and a red Decline', async ({ page }, info) => {
+test('an offer with Player Finance disabled explains unavailable actions and keeps a red Decline', async ({ page }, info) => {
   await fixture(page);
   await page.evaluate(() => { const f = window.__ipadModalCapture, s = f.state; s.players[0].clientId = s.clientId; s.settings.playerFinance = false; s.playerContractOffer = { id: 'disabled-offer', kind: 'loan', rulesVersion: 2, status: 'pending', fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', fromPlayerName: 'GUEST', toPlayerName: 'HOST', amount: 100, premiumRate: 15, durationRounds: 3 }; f.deal.openDealDetails('contract', 'disabled-offer'); });
-  const card = page.locator('#deal-detail-card'); await expect(card.locator('[data-deal-action=back]')).toBeVisible();
-  await expect(card.locator('[data-deal-action=decline]')).toHaveClass(/cta-red/); await expect(card.locator('[data-deal-action=negotiate]')).toHaveCount(0);
+  const card = page.locator('#deal-detail-card'); await expect(card.locator('[data-deal-action=back]')).toHaveCount(0);
+  for (const action of ['accept', 'negotiate']) {
+    const control = card.locator(`[data-deal-action=${action}]`);
+    await expect(control).toBeDisabled();
+    await expect(control).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
+    await expect(control).toHaveAttribute('title', /Player Finance is off/);
+  }
+  await expect(card.locator('[data-deal-action=decline]')).toHaveClass(/cta-red/);
   await shot(page, info, 'offer-disabled', 'Finance-off offer has a red Decline action', '#deal-detail-card');
-  await card.locator('[data-deal-action=back]').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden(); await noPageOverflow(page);
+  await card.locator('#deal-detail-close').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden(); await noPageOverflow(page);
+});
+
+test('stale offer controls cannot act after finance or ownership changes', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.players[0].clientId = s.clientId;
+    s.settings.playerFinance = true;
+    s.playerContractOffer = { id: 'stale', kind: 'loan', rulesVersion: 2, fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', lastProposerId: 'visual-guest', counterDepth: 0, amount: 100 };
+    window.__dealCalls = [];
+    deal.configureDealUi({ emitServer: (...args) => window.__dealCalls.push(args[0]), openFinancingNegotiation: () => window.__dealCalls.push('editor'), announceActionStatus: () => {}, captureActionStatusNode: () => null, openConfirmModal: options => { window.__dealConfirm = options.onConfirm; } });
+    deal.openDealDetails('contract', 'stale');
+  });
+  const card = page.locator('#deal-detail-card');
+  await page.evaluate(() => { window.__ipadModalCapture.state.settings.playerFinance = false; });
+  await card.locator('[data-deal-action=accept]').click();
+  await card.locator('[data-deal-action=negotiate]').click();
+  expect(await page.evaluate(() => window.__dealCalls)).toEqual([]);
+  await card.locator('[data-deal-action=decline]').click();
+  await page.evaluate(() => { window.__ipadModalCapture.state.playerContractOffer.lastProposerId = 'visual-host'; window.__dealConfirm(); });
+  expect(await page.evaluate(() => window.__dealCalls)).toEqual([]);
+  await card.locator('[data-deal-action=accept]').click();
+  expect(await page.evaluate(() => window.__dealCalls)).toEqual([]);
+});
+
+test('trade actions put the primary action on the right for both roles', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.players[0].clientId = s.clientId;
+    s.pendingTrade = { id: 'order-trade', fromPlayerId: 'visual-guest', toPlayerId: 'visual-host' };
+    deal.openDealDetails('trade', 'order-trade');
+  });
+  const actions = page.locator('#deal-detail-card [data-deal-action]');
+  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['decline', 'negotiate', 'accept']);
+  await expect(actions.last()).toHaveClass(/cta-red/);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.pendingTrade = { id: 'order-trade', fromPlayerId: 'visual-host', toPlayerId: 'visual-guest' };
+    deal.renderDealDetailsIfOpen();
+  });
+  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['cancel', 'adjust']);
+  await expect(actions.last()).toHaveClass(/cta-red/);
+});
+
+test('deal details are informational for outsiders and missing identities', async ({ page }) => {
+  await fixture(page);
+  for (const identity of ['outsider', null]) {
+    for (const kind of ['trade', 'contract']) {
+      for (const finance of [true, false]) {
+        await page.evaluate(({ identity, kind, finance }) => {
+          const { state: s, deal } = window.__ipadModalCapture;
+          s.players[0].clientId = identity ? s.clientId : 'different-client';
+          s.players[0].serverId = identity || 'visual-host';
+          s.settings.playerFinance = finance;
+          const offer = { id: 'spectator-offer', kind: 'loan', rulesVersion: 2, fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', amount: 100 };
+          if (kind === 'trade') s.pendingTrade = offer;
+          else s.playerContractOffer = offer;
+          deal.openDealDetails(kind, offer.id);
+        }, { identity, kind, finance });
+        const card = page.locator('#deal-detail-card');
+        await expect(card).toContainText('OFFER DETAILS');
+        await expect(card.locator('[data-deal-action]')).toHaveCount(0);
+        await expect(card.locator('#deal-detail-close')).toBeEnabled();
+        await card.locator('#deal-detail-close').click();
+      }
+    }
+  }
+});
+
+test('trade negotiation limit is explained for both roles and blocks stale controls', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.players[0].clientId = s.clientId;
+    s.pendingTrade = { id: 'limited-trade', fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', counterDepth: 0 };
+    window.__tradeEditors = 0;
+    deal.configureDealUi({ openTradeNegotiation: () => { window.__tradeEditors++; }, announceActionStatus: () => {}, captureActionStatusNode: () => null });
+    deal.openDealDetails('trade', 'limited-trade');
+  });
+  const card = page.locator('#deal-detail-card');
+  await page.evaluate(() => { window.__ipadModalCapture.state.pendingTrade.counterDepth = 2; });
+  await card.locator('[data-deal-action=negotiate]').click();
+  expect(await page.evaluate(() => window.__tradeEditors)).toBe(0);
+  await page.evaluate(() => window.__ipadModalCapture.deal.renderDealDetailsIfOpen());
+  const actions = card.locator('[data-deal-action]');
+  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['decline', 'negotiate', 'accept']);
+  await expect(card.locator('[data-deal-action=negotiate]')).toBeDisabled();
+  await expect(card.locator('[data-deal-action=negotiate]')).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
+  await expect(card.locator('#deal-unavailable-reason')).toContainText('negotiation limit');
+  await expect(card.locator('[data-deal-action=accept]')).toHaveClass(/cta-red/);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.pendingTrade = { id: 'limited-trade', fromPlayerId: 'visual-host', toPlayerId: 'visual-guest', counterDepth: 2 };
+    deal.renderDealDetailsIfOpen();
+  });
+  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['adjust', 'cancel']);
+  await expect(card.locator('[data-deal-action=adjust]')).toBeDisabled();
+  await expect(card.locator('[data-deal-action=adjust]')).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
+  await expect(card.locator('[data-deal-action=cancel]')).toHaveClass(/cta-red/);
 });

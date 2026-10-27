@@ -392,8 +392,7 @@ function unlockedSet() {
   return state.unlockedAchievements || new Set();
 }
 
-/* Parlor Patrol is switched off: its badges can no longer be earned, so they
-   are listed only for players who already hold them (stored data stays readable). */
+/* If Patrol is disabled, preserve and display badges already earned. */
 function listedAchievements(unlocked) {
   return ACHIEVEMENTS.filter((achievement) => PARLOR_PATROL_ENABLED || achievement.category !== "minigame" || unlocked.has(achievement.id));
 }
@@ -481,12 +480,18 @@ function unlockedStateLabel(unlocked, lockedKind) {
   return "LOCKED";
 }
 
+function achievementProvenance(achievement, unlocked) {
+  if (!unlocked || achievement.category !== "minigame") return "";
+  return state.account?.account ? "MAY INCLUDE LEGACY OR LOCAL UNLOCKS" : "LOCAL UNLOCK";
+}
+
 function achievementCardHTML(achievement, isUnlocked) {
   const isSecretLocked = Boolean(achievement.secret && !isUnlocked);
   const title = isSecretLocked ? "SECRET ACHIEVEMENT" : achievement.title;
   const short = isSecretLocked ? "A hidden parlor record" : achievement.short;
   const stateLabel = unlockedStateLabel(isUnlocked, isSecretLocked);
-  return `<button class="achievement-card rarity-${achievement.rarity.toLowerCase()}${isUnlocked ? " is-unlocked" : ""}${isSecretLocked ? " is-secret" : ""}" type="button" data-achievement-id="${esc(achievement.id)}" aria-haspopup="dialog" aria-label="${esc(`${title}, ${stateLabel}. Open details.`)}"><span class="achievement-icon-wrap">${achievementIconHTML(achievement.id)}</span><span class="achievement-card-main"><span class="achievement-card-top"><span class="t-micro achievement-category">${achievement.category.toUpperCase()}</span><span class="t-micro achievement-rarity rarity-${achievement.rarity.toLowerCase()}">${achievement.rarity}</span></span><strong class="t-label f13 achievement-title">${esc(title)}</strong><span class="t-micro ink-3 achievement-short">${esc(short)}</span></span></button>`;
+  const provenance = achievementProvenance(achievement, isUnlocked);
+  return `<button class="achievement-card rarity-${achievement.rarity.toLowerCase()}${isUnlocked ? " is-unlocked" : ""}${isSecretLocked ? " is-secret" : ""}" type="button" data-achievement-id="${esc(achievement.id)}" aria-haspopup="dialog" aria-label="${esc(`${title}, ${stateLabel}.${provenance ? ` ${provenance}.` : ""} Open details.`)}"><span class="achievement-icon-wrap">${achievementIconHTML(achievement.id)}</span><span class="achievement-card-main"><span class="achievement-card-top"><span class="t-micro achievement-category">${achievement.category.toUpperCase()}</span><span class="t-micro achievement-rarity rarity-${achievement.rarity.toLowerCase()}">${achievement.rarity}</span></span><strong class="t-label f13 achievement-title">${esc(title)}</strong><span class="t-micro ink-3 achievement-short">${esc(short)}</span>${provenance ? `<span class="t-micro ink-3">${esc(provenance)}</span>` : ""}</span></button>`;
 }
 
 function emptyAchievementsHTML() {
@@ -536,7 +541,7 @@ function achievementDetailBits(achievement, unlocked) {
     copy: hidden ? achievement.clue : achievement.detail,
     status: unlockedStateLabel(unlocked, hidden),
     accent: achievementAccent(achievement),
-    note: achievementDetailNote(unlocked, hidden, state.achievementRecords?.get(achievement.id)),
+    note: [achievementDetailNote(unlocked, hidden, state.achievementRecords?.get(achievement.id)), achievementProvenance(achievement, unlocked)].filter(Boolean).join(" · "),
   };
 }
 
@@ -546,7 +551,7 @@ export function openAchievementModal(id, trigger = null) {
   const bits = achievementDetailBits(achievement, state.unlockedAchievements.has(achievement.id));
   const card = $("#achievement-detail-card");
   if (!card) return;
-  card.innerHTML = `<div class="achievement-modal-rail" style="--achievement-accent:${bits.accent}"></div><div class="achievement-detail-body"><div class="achievement-detail-head"><div class="achievement-detail-icon rarity-${achievement.rarity.toLowerCase()}${bits.lockCls}">${achievementIconHTML(achievement.id)}</div><div><div class="achievement-detail-kicker"><span class="t-micro g400">${esc(achievement.category.toUpperCase())}</span><span class="t-micro rarity-${achievement.rarity.toLowerCase()}">${esc(achievement.rarity)}</span></div><h2 class="t-section achievement-detail-title" id="achievement-detail-title">${esc(bits.title)}</h2></div><span class="achievement-detail-state t-micro">${bits.status}</span></div><div class="achievement-detail-copy"><p class="t-body ink-2" id="achievement-detail-description">${esc(bits.copy)}</p><p class="t-micro achievement-detail-note">${bits.note}</p></div><button class="cta-red achievement-detail-close" id="achievement-detail-close" type="button"><span class="cta-text cta-text-sm">CLOSE DETAILS</span></button></div>`;
+  card.innerHTML = `<div class="achievement-modal-rail" style="--achievement-accent:${bits.accent}"></div><div class="achievement-detail-body"><div class="achievement-detail-head"><div class="achievement-detail-icon rarity-${achievement.rarity.toLowerCase()}${bits.lockCls}">${achievementIconHTML(achievement.id)}</div><div><div class="achievement-detail-kicker"><span class="t-micro g400">${esc(achievement.category.toUpperCase())}</span><span class="t-micro rarity-${achievement.rarity.toLowerCase()}">${esc(achievement.rarity)}</span></div><h2 class="t-section achievement-detail-title" id="achievement-detail-title">${esc(bits.title)}</h2></div><span class="achievement-detail-state t-micro">${bits.status}</span></div><div class="achievement-detail-copy"><p class="t-body ink-2" id="achievement-detail-description">${esc(bits.copy)}</p><p class="t-micro achievement-detail-note">${bits.note}</p></div><button class="btn-dark achievement-detail-close" id="achievement-detail-close" type="button"><span class="cta-text cta-text-sm">CLOSE DETAILS</span></button></div>`;
   if (trigger instanceof HTMLElement) setSurfaceReturnFocus(trigger);
   openSurface("#achievement-modal", "#achievement-detail-close", { trigger });
   $("#achievement-detail-close")?.addEventListener("click", closeAchievementModal);

@@ -417,24 +417,29 @@ const gameView = indexHtml.slice(indexHtml.indexOf('id="view-game"'));
 assert.match(gameView.slice(0, 400), /<a class="skip-link" id="skip-to-action" href="#roll-btn">Skip to game action<\/a>/, "skip link precedes every header control");
 assert.doesNotMatch(indexHtml, /id="quick-table-btn"[^>]*>.*\[ C \]/, "Quick table advertises no shortcut (C opens Create)");
 
-/* F-059: Parlor Patrol is switched off, so Ctrl+P is the browser's print
-   shortcut again and Shift+P does nothing on Home. */
+/* Parlor Patrol shortcuts work on Home without claiming Cmd+P. */
 {
   const { readFileSync: readHtml } = await import("node:fs");
   const homeHtml = readHtml(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(homeHtml, /id="home-night-shift-start" data-parlor-patrol hidden/, "the SHIFT+P hint button ships hidden");
+  assert.match(homeHtml, /id="home-night-shift-start" data-parlor-patrol hidden/, "the button starts hidden until initialization");
   surfaces.closeAllSurfaces();
   calls.length = 0;
   state.phase = "home";
   viewHome.classList.remove("is-hidden");
-  for (const mods of [{ ctrlKey: true }, { metaKey: true }]) {
-    const event = { key: "p", code: "KeyP", target: body, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
-    listeners.keydown(event);
-    assert.equal(event.defaultPrevented, false, "Ctrl/Cmd+P is left to the browser (print) while Parlor Patrol is off");
-  }
-  assert.deepEqual(calls, [], "browser chords reach no Home shortcut");
-  listeners.keydown({ key: "P", code: "KeyP", target: body, ctrlKey: false, metaKey: false, altKey: false, shiftKey: true, defaultPrevented: false, preventDefault() {} });
-  assert.ok(!calls.includes("startNightShift"), "no Night Shift start while Parlor Patrol is off");
+  const key = (mods) => ({ key: "p", code: "KeyP", target: body, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+  const meta = key({ metaKey: true });
+  listeners.keydown(meta);
+  assert.equal(meta.defaultPrevented, false, "Cmd+P remains the browser shortcut");
+  calls.length = 0;
+  const ctrl = key({ ctrlKey: true });
+  listeners.keydown(ctrl);
+  assert.equal(ctrl.defaultPrevented, true);
+  assert.deepEqual(calls, ["startNightShift"]);
+  calls.length = 0;
+  const shift = key({ shiftKey: true });
+  listeners.keydown(shift);
+  assert.equal(shift.defaultPrevented, true);
+  assert.deepEqual(calls, ["isNightShiftActive", "startNightShift"]);
   viewHome.classList.add("is-hidden");
   state.phase = "playing";
 }

@@ -280,7 +280,7 @@ function profilePersonalRecordsHTML(ctx) {
 const ECONOMY_STAT_FIELDS = [
   ["CASINO NET", "casinoNet", (value) => `$${value.toLocaleString()}`],
   ["MARKET P/L", "marketProfit", (value) => `$${value.toLocaleString()}`],
-  ...(PARLOR_PATROL_ENABLED ? [["PATROL BEST", "patrolBest"]] : []),
+
   ["BANK LOANS REPAID", "bankLoanRepayments"],
 ];
 
@@ -302,7 +302,13 @@ function statisticsGroupHTML(ctx, fields) {
 }
 
 function statisticsTabsHTML(ctx) {
-  const values = statisticsGroupHTML(ctx, ECONOMY_STAT_FIELDS);
+  const patrolFields = PARLOR_PATROL_ENABLED ? [
+    ["PATROL VERIFIED BEST", "patrolVerifiedBest"],
+    ...(Number(ctx.stats?.patrolBest) > 0 ? [["PATROL LEGACY BEST", "patrolBest"]] : []),
+    ["PATROL VERIFIED ACE RUNS", "patrolVerifiedAceRuns"],
+    ...(Number(ctx.stats?.patrolAceRuns) > 0 ? [["PATROL LEGACY ACE RUNS", "patrolAceRuns"]] : []),
+  ] : [];
+  const values = statisticsGroupHTML(ctx, [...ECONOMY_STAT_FIELDS, ...patrolFields]);
   const activity = statisticsGroupHTML(ctx, ACTIVITY_STAT_FIELDS);
   const tabs = [["results", "RESULTS"], ["economy", "ECONOMY"], ["deals-events", "DEALS &amp; EVENTS"]];
   const buttons = tabs.map(([tab, label], index) => `<button class="profile-stat-tab${index === 0 ? " is-active" : ""}" type="button" role="tab" id="profile-stat-tab-${tab}" aria-selected="${index === 0}" aria-controls="profile-stat-panel-${tab}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-stat-tab="${tab}">${label}</button>`).join("");
@@ -976,7 +982,7 @@ function tileStateLabel(selected, editing) {
 
 function tileSelectHTML(p, i, selected) {
   const entity = { color: p.color, avatarGrid: p.avatarGrid };
-  const name = `<span class="t-label pl-tile-name" style="color:${p.color}">${esc(p.designName)}</span>`;
+  const name = `<span class="pl-name-row"><span class="pl-name-chip" style="background:${p.color}" aria-hidden="true"></span><span class="t-label pl-tile-name">${esc(p.designName)}</span></span>`;
   const av = `<span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span>`;
   if (p.isDraft) {
     return `<div class="pl-tile-select pl-tile-draft" aria-label="Unsaved design preview">${av}<span class="pl-tile-info">${name}<span class="t-micro g400">UNSAVED DRAFT · LIVE PREVIEW</span></span></div>`;
@@ -1064,8 +1070,13 @@ function syncAliasInput(input, signedIn) {
 export function renderGuestAliasField(errorText = "") {
   const signedIn = Boolean(state.account?.account);
   $("#home-alias-form")?.classList.toggle("is-hidden", signedIn);
-  syncAliasInput($("#home-alias"), signedIn);
+  const aliasInput = $("#home-alias");
+  syncAliasInput(aliasInput, signedIn);
   setText("#home-alias-error", errorText);
+  if (aliasInput) {
+    if (errorText) aliasInput.setAttribute("aria-describedby", "home-alias-error");
+    else aliasInput.removeAttribute("aria-describedby");
+  }
 }
 
 export function requireGuestAlias() {
@@ -1126,10 +1137,9 @@ export function updateProfilePreview() {
   const av = $("#profile-preview-av");
   if (av) av.innerHTML = spriteFromGrid(d.grid, 6);
   const nameEl = $("#profile-preview-name");
-  if (nameEl) {
-    nameEl.textContent = (d.designName || "UNTITLED DESIGN").toUpperCase();
-    nameEl.style.color = d.color;
-  }
+  if (nameEl) nameEl.textContent = (d.designName || "UNTITLED DESIGN").toUpperCase();
+  const chipEl = $("#profile-preview-chip");
+  if (chipEl) chipEl.style.background = d.color;
   renderProfileLibrary();
   renderProfileSummary();
 }

@@ -29,18 +29,23 @@ function deedNames(indexes = []) {
   return indexes.map(index => TILES[Number(index)]?.name || `DEED ${index}`).join(", ") || "NONE";
 }
 
-function dealActionButton(action, label, primary = false) {
-  return `<button class="${primary ? "cta-red" : "btn-dark"}" type="button" data-deal-action="${action}">${primary ? `<span class="cta-text cta-text-sm">${label}</span>` : `<span class="t-label f11">${label}</span>`}</button>`;
+function dealActionButton(action, label, primary = false, disabledReason = "") {
+  const disabled = disabledReason ? ` disabled aria-describedby="deal-unavailable-reason" title="${esc(disabledReason)}"` : "";
+  return `<button class="${primary ? "cta-red" : "btn-dark"}" type="button" data-deal-action="${action}"${disabled}>${primary ? `<span class="cta-text cta-text-sm">${label}</span>` : `<span class="t-label f11">${label}</span>`}</button>`;
 }
 
 function tradeDetailHTML(trade) {
-  const mine = trade.toPlayerId === localServerId();
+  const self = localServerId();
+  const participant = Boolean(self && (self === trade.fromPlayerId || self === trade.toPlayerId));
+  const mine = trade.toPlayerId === self;
   const sender = trade.fromPlayerName || "PLAYER";
   const receiver = trade.toPlayerName || "PLAYER";
-  const actions = mine
-    ? `${dealActionButton("accept", "ACCEPT", true)}${dealActionButton("negotiate", "NEGOTIATE")}${dealActionButton("decline", "DECLINE")}`
-    : `${dealActionButton("adjust", "ADJUST", true)}${dealActionButton("cancel", "CANCEL TRADE")}`;
-  return `<div class="deal-detail-body"><div class="deal-detail-head"><div class="deal-detail-title-wrap"><img class="deal-detail-mark" src="/assets/negotiation.svg" alt="" aria-hidden="true"/><div><span class="t-micro g400">TRADE · ${mine ? "NEEDS YOU" : "AWAITING REVIEW"}</span><h2 class="t-section g100" id="deal-detail-title">${esc(sender)} ⇄ ${esc(receiver)}</h2></div></div>${closeButtonHTML({ id: "deal-detail-close", label: "Close deal details" })}</div><div class="deal-detail-grid"><div><span class="t-micro ink-3">SENDER GIVES</span><strong class="t-label f12 g100">$${Number(trade.giveCash || 0).toLocaleString()}</strong><span class="t-micro ink-3">${esc(deedNames(trade.givePropertyIndexes))}</span></div><div><span class="t-micro ink-3">RECEIVER GIVES</span><strong class="t-label f12 green">$${Number(trade.requestCash || 0).toLocaleString()}</strong><span class="t-micro ink-3">${esc(deedNames(trade.requestPropertyIndexes))}</span></div></div><p class="t-body ink-2 deal-detail-copy">Assets move only when accepted.</p><div class="deal-detail-actions">${actions}</div></div>`;
+  const limitReason = Number(trade.counterDepth || 0) >= 2 ? "This offer has reached the negotiation limit." : "";
+  const actions = !participant ? "" : mine
+    ? `${dealActionButton("decline", "DECLINE")}${dealActionButton("negotiate", "NEGOTIATE", false, limitReason)}${dealActionButton("accept", "ACCEPT", true)}`
+    : limitReason ? `${dealActionButton("adjust", "ADJUST", false, limitReason)}${dealActionButton("cancel", "CANCEL TRADE", true)}`
+      : `${dealActionButton("cancel", "CANCEL TRADE")}${dealActionButton("adjust", "ADJUST", true)}`;
+  return `<div class="deal-detail-body"><div class="deal-detail-head"><div class="deal-detail-title-wrap"><img class="deal-detail-mark" src="/assets/negotiation.svg" alt="" aria-hidden="true"/><div><span class="t-micro g400">TRADE · ${participant ? (mine ? "NEEDS YOU" : "AWAITING REVIEW") : "OFFER DETAILS"}</span><h2 class="t-section g100" id="deal-detail-title">${esc(sender)} ⇄ ${esc(receiver)}</h2></div></div>${closeButtonHTML({ id: "deal-detail-close", label: "Close deal details" })}</div><div class="deal-detail-grid"><div><span class="t-micro ink-3">SENDER GIVES</span><strong class="t-label f12 g100">$${Number(trade.giveCash || 0).toLocaleString()}</strong><span class="t-micro ink-3">${esc(deedNames(trade.givePropertyIndexes))}</span></div><div><span class="t-micro ink-3">RECEIVER GIVES</span><strong class="t-label f12 green">$${Number(trade.requestCash || 0).toLocaleString()}</strong><span class="t-micro ink-3">${esc(deedNames(trade.requestPropertyIndexes))}</span></div></div><p class="t-body ink-2 deal-detail-copy"><span id="deal-unavailable-reason">${esc(limitReason)}</span> Assets move only when accepted.</p><div class="deal-detail-actions">${actions}</div></div>`;
 }
 
 function contractTerms(contract) {
@@ -58,27 +63,42 @@ function contractTerms(contract) {
 
 function dealActions(needsResponse) {
   return needsResponse
-    ? `${dealActionButton("accept", "ACCEPT", true)}${dealActionButton("negotiate", "NEGOTIATE")}${dealActionButton("decline", "DECLINE")}`
-    : `${dealActionButton("adjust", "ADJUST", true)}${dealActionButton("cancel", "CANCEL OFFER")}`;
+    ? `${dealActionButton("decline", "DECLINE")}${dealActionButton("negotiate", "NEGOTIATE")}${dealActionButton("accept", "ACCEPT", true)}`
+    : `${dealActionButton("cancel", "CANCEL OFFER")}${dealActionButton("adjust", "ADJUST", true)}`;
 }
 
 function unavailableContractNotice(contract) {
-  if (Number(contract.rulesVersion) !== 2 || contract.kind === "hybrid") return "This offer uses earlier rules. Decline or cancel it, then create a new offer. ";
-  return "Player Finance is off. Decline or cancel this offer. ";
+  if (!playerFinanceEnabled(state.settings)) return "Player Finance is off. Decline or cancel this offer.";
+  if (contract.kind === "loan" && Number(contract.rulesVersion) !== 2 && Number(contract.counterDepth || 0) >= 2) return "This earlier-rules offer has reached the negotiation limit. Decline or cancel it.";
+  return "This offer uses earlier rules or an unsupported type. Decline or cancel it, then create a new offer.";
 }
 
 export function contractDetailHTML(contract) {
   const contractDepth = Math.max(0, Math.floor(Number(contract.counterDepth) || 0));
   const proposerId = contract.lastProposerId || (contractDepth % 2 === 0 ? contract.fromPlayerId : contract.toPlayerId);
-  const needsResponse = proposerId !== localServerId();
+  const self = localServerId();
+  const participant = Boolean(self && (self === contract.fromPlayerId || self === contract.toPlayerId));
+  const needsResponse = proposerId !== self;
   const kind = contractLabel(contract).toUpperCase();
   const terms = contractTerms(contract);
-  const enabled = playerFinanceEnabled(state.settings) && Number(contract.rulesVersion) === 2 && contract.kind !== "hybrid";
+  const supported = Number(contract.rulesVersion) === 2 && contract.kind !== "hybrid" && (contract.kind !== "equity" || isRentShare(contract));
+  const enabled = playerFinanceEnabled(state.settings) && supported;
   const legacyLoan = playerFinanceEnabled(state.settings) && Number(contract.rulesVersion) !== 2 && contract.kind === "loan" && contractDepth < 2;
-  const actions = enabled ? dealActions(needsResponse) : `${dealActionButton("back", "BACK")}${legacyLoan ? dealActionButton(needsResponse ? "negotiate" : "adjust", needsResponse ? "NEGOTIATE" : "ADJUST", true) : ""}${dealActionButton(needsResponse ? "decline" : "cancel", needsResponse ? "DECLINE" : "CANCEL OFFER", !legacyLoan)}`;
+  const atLimit = contractDepth >= 2;
+  const rulesNotice = !participant ? (!playerFinanceEnabled(state.settings) ? "Player Finance is off." : !supported ? "This offer uses earlier rules or an unsupported type." : atLimit ? "This offer has reached the negotiation limit." : "") : enabled && atLimit ? "This offer has reached the negotiation limit." : enabled ? "" : legacyLoan ? "This offer uses earlier rules. Update the terms before sending a new offer." : unavailableContractNotice(contract);
+  const disabledCurrent = !playerFinanceEnabled(state.settings) && supported;
+  const unavailableActions = disabledCurrent
+    ? needsResponse
+      ? `${dealActionButton("accept", "ACCEPT", false, rulesNotice)}${dealActionButton("negotiate", "NEGOTIATE", false, rulesNotice)}`
+      : dealActionButton("adjust", "ADJUST", false, rulesNotice)
+    : legacyLoan ? dealActionButton(needsResponse ? "negotiate" : "adjust", needsResponse ? "NEGOTIATE" : "ADJUST", true) : "";
+  const limitActions = needsResponse
+    ? `${dealActionButton("decline", "DECLINE")}${dealActionButton("negotiate", "NEGOTIATE", false, rulesNotice)}${dealActionButton("accept", "ACCEPT", true)}`
+    : `${dealActionButton("adjust", "ADJUST", false, rulesNotice)}${dealActionButton("cancel", "CANCEL OFFER", true)}`;
+  const dismissal = dealActionButton(needsResponse ? "decline" : "cancel", needsResponse ? "DECLINE" : "CANCEL OFFER", !legacyLoan);
+  const actions = !participant ? "" : enabled ? (atLimit ? limitActions : dealActions(needsResponse)) : legacyLoan ? `${dismissal}${unavailableActions}` : `${unavailableActions}${dismissal}`;
   const disclosure = isRentShare(contract) ? rentShareDisclosure(contract) : collateralCreditSummary(contract);
-  const rulesNotice = enabled ? "" : legacyLoan ? "This offer uses earlier rules. Update the terms before sending a new offer. " : unavailableContractNotice(contract);
-  return `<div class="deal-detail-body"><div class="deal-detail-head"><div class="deal-detail-title-wrap"><img class="deal-detail-mark" src="/assets/negotiation.svg" alt="" aria-hidden="true"/><div><span class="t-micro g400">${kind} · ${needsResponse ? "NEEDS YOU" : "AWAITING REVIEW"}</span><h2 class="t-section g100" id="deal-detail-title">${esc(contract.fromPlayerName || "PLAYER")} → ${esc(contract.toPlayerName || "PLAYER")}</h2></div></div>${closeButtonHTML({ id: "deal-detail-close", label: "Close deal details" })}</div><div class="deal-detail-terms">${terms.map(term => `<span class="deal-term t-label f11 g100">${esc(term)}</span>`).join("")}</div><p class="t-body ink-2 deal-detail-copy">${esc(rulesNotice)}${esc(disclosure)} No cash moves until acceptance.</p><div class="deal-detail-actions">${actions}</div></div>`;
+  return `<div class="deal-detail-body"><div class="deal-detail-head"><div class="deal-detail-title-wrap"><img class="deal-detail-mark" src="/assets/negotiation.svg" alt="" aria-hidden="true"/><div><span class="t-micro g400">${kind} · ${participant ? (needsResponse ? "NEEDS YOU" : "AWAITING REVIEW") : "OFFER DETAILS"}</span><h2 class="t-section g100" id="deal-detail-title">${esc(contract.fromPlayerName || "PLAYER")} → ${esc(contract.toPlayerName || "PLAYER")}</h2></div></div>${closeButtonHTML({ id: "deal-detail-close", label: "Close deal details" })}</div><div class="deal-detail-terms">${terms.map(term => `<span class="deal-term t-label f11 g100">${esc(term)}</span>`).join("")}</div><p class="t-body ink-2 deal-detail-copy"><span id="deal-unavailable-reason">${esc(rulesNotice)}</span> ${esc(disclosure)} No cash moves until acceptance.</p><div class="deal-detail-actions">${actions}</div></div>`;
 }
 
 function findDeal() {
@@ -141,11 +161,23 @@ function sendDealAction(kind, action, deal, statusNode) {
 }
 
 function handleDealAction(action, kind, deal, control) {
-  if (action === "back") return closeDealDetails();
+  const current = findDeal();
+  if (!current?.deal || current.kind !== kind || current.deal.id !== deal.id) return;
+  deal = current.deal;
+  const self = localServerId();
+  const proposer = kind === "trade" ? deal.fromPlayerId : deal.lastProposerId || (Math.max(0, Math.floor(Number(deal.counterDepth) || 0)) % 2 === 0 ? deal.fromPlayerId : deal.toPlayerId);
+  const participant = self && (self === deal.fromPlayerId || self === deal.toPlayerId);
+  const allowed = participant && (proposer === self ? ["adjust", "cancel"] : ["accept", "negotiate", "decline"]).includes(action);
+  if (!allowed) return;
   const statusNode = host.captureActionStatusNode(control);
   const legacyLoanNegotiation = ["negotiate", "adjust"].includes(action) && deal.kind === "loan" && Number(deal.rulesVersion) !== 2 && Number(deal.counterDepth || 0) < 2;
-  if (kind === "contract" && ["accept", "negotiate", "adjust"].includes(action) && (!playerFinanceEnabled(state.settings) || (Number(deal.rulesVersion) !== 2 && !legacyLoanNegotiation) || deal.kind === "hybrid")) {
-    host.announceActionStatus(unavailableContractNotice(deal).trim(), statusNode);
+  const negotiationLimited = ["negotiate", "adjust"].includes(action) && Number(deal.counterDepth || 0) >= 2;
+  if (kind === "trade" && negotiationLimited) {
+    host.announceActionStatus("This offer has reached the negotiation limit.", statusNode);
+    return;
+  }
+  if (kind === "contract" && ["accept", "negotiate", "adjust"].includes(action) && (!playerFinanceEnabled(state.settings) || (Number(deal.rulesVersion) !== 2 && !legacyLoanNegotiation) || deal.kind === "hybrid" || (deal.kind === "equity" && !isRentShare(deal)) || negotiationLimited)) {
+    host.announceActionStatus(negotiationLimited && playerFinanceEnabled(state.settings) ? "This offer has reached the negotiation limit." : unavailableContractNotice(deal), statusNode);
     return;
   }
   if (["negotiate", "adjust"].includes(action)) return openDealEditor(kind, deal);
@@ -157,7 +189,15 @@ function handleDealAction(action, kind, deal, control) {
         ? "The other player will see that this offer was canceled."
         : "Declining closes the current offer and cannot be undone.",
       confirmLabel: action === "cancel" ? "CANCEL DEAL" : "DECLINE DEAL",
-      onConfirm: () => sendDealAction(kind, action, deal, statusNode),
+      onConfirm: () => {
+        const currentDeal = findDeal();
+        const currentSelf = localServerId();
+        if (!currentDeal?.deal || currentDeal.kind !== kind || currentDeal.deal.id !== deal.id || !currentSelf) return;
+        const latest = currentDeal.deal;
+        const latestProposer = kind === "trade" ? latest.fromPlayerId : latest.lastProposerId || (Math.max(0, Math.floor(Number(latest.counterDepth) || 0)) % 2 === 0 ? latest.fromPlayerId : latest.toPlayerId);
+        if (![latest.fromPlayerId, latest.toPlayerId].includes(currentSelf) || (action === "cancel") !== (latestProposer === currentSelf)) return;
+        sendDealAction(kind, action, latest, statusNode);
+      },
     });
     return;
   }

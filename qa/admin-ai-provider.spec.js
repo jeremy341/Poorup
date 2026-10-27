@@ -106,6 +106,10 @@ test.describe('admin AI provider control', () => {
     await page.locator('[data-admin-provider-action="test"]').click();
     await expect(page.locator('[data-admin-provider-test-status]')).toContainText('CHAT COMPLETIONS READY');
     await page.locator('[data-admin-provider-action="activate"]').click();
+    await expect(page.locator('#confirm-title')).toContainText('Activate');
+    await expect(page.locator('#confirm-cancel')).toBeFocused();
+    await expect(page.locator('#confirm-accept')).toHaveText('ACTIVATE PROVIDER');
+    await page.locator('#confirm-accept').click();
     await expect(page.locator('[data-admin-provider-test-status]')).toContainText('PROVIDER ACTIVE');
     expect(writes.map(write => write.path.split('/').pop())).toEqual(['test', 'activate']);
     expect(JSON.stringify(writes)).not.toMatch(/apiKey/);

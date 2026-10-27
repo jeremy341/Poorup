@@ -165,7 +165,7 @@ export function hitHomeHelicopter() {
   try { localStorage.setItem(PATROL_BEST_KEY, String(patrolState.best)); } catch { /* storage unavailable */ }
   playPatrolHitSound();
   hideHomeHelicopter();
-  renderPatrolHud(`TAGGED +100 · BEST ${String(patrolState.best).padStart(3, "0")}`);
+  renderPatrolHud(`TAGGED +100 · LOCAL BEST ${String(patrolState.best).padStart(3, "0")}`);
   homePatrolStatusTimer = setTimeout(() => renderPatrolHud(), 2400);
   setTimeout(() => {
     clearPatrolEffect("#home-patrol-impact");

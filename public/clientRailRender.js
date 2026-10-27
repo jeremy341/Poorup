@@ -10,6 +10,7 @@ import { state } from "./clientState.js";
 import { playerFinanceEnabled, isRentShare, contractLabel, collateralCreditSummary } from "./clientFinanceRules.js";
 import { propertyRowHTML } from "./clientDeedsRender.js";
 import { MARKET_LABELS } from "./clientMarketCatalog.js";
+import { formatMoney } from "./clientMoney.js";
 
 function displayCash(player) {
   return Number(player?.visualCash ?? player?.cash ?? 0).toLocaleString();
@@ -133,7 +134,7 @@ function casinoResultCopy(last) {
   const pocket = Number(last.pocket || 0);
   const net = Number(last.net || 0);
   const sign = Number(last.net) >= 0 ? "+" : "";
-  return "LAST SPIN · " + color + " " + pocket + " · " + sign + "$" + net.toLocaleString();
+  return "LAST SPIN · " + color + " " + pocket + " · " + sign + formatMoney(net);
 }
 
 const CASINO_OFF_HTML = '<section class="economy-empty panel noise"><img src="/assets/casino-wheel.svg" alt="" width="40" height="40"><span class="t-micro g400">OPTIONAL TABLE ADD-ON</span><strong class="t-label f13 g100">CASINO ACCESS IS OFF</strong><p class="t-body ink-2">The host can enable virtual-money European roulette before the round begins.</p></section>';
@@ -157,7 +158,7 @@ function marketRowHTML(id, label, quotes, positions) {
   const quote = Number(quotes[id] || 100);
   const position = positions[id] || {};
   const pnl = Number(position.realizedPnl || 0);
-        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + "$" + pnl.toLocaleString() + ' REALIZED</span></div><strong class="t-label f13 g300">$' + quote.toLocaleString() + '</strong></div>';
+        return '<div class="market-row"><div><strong class="t-label f11 g100">' + label + '</strong><span class="t-micro ink-3">' + Number(position.quantity || 0) + ' UNITS · ' + pnlSign(pnl) + formatMoney(pnl) + ' REALIZED</span></div><strong class="t-label f13 g300">' + formatMoney(quote) + '</strong></div>';
 }
 
 function marketRowsHTML(market) {
@@ -175,7 +176,7 @@ function marketRiskSummaryHTML(market) {
   const shortQuantity = Object.values(market.shorts?.positions || {})
     .reduce((sum, position) => sum + Math.max(0, Math.floor(Number(position?.quantity) || 0)), 0);
   const openOptions = (market.options || []).filter(option => option.status === "open").length;
-  return `<div class="market-risk-strip" aria-label="Market obligations"><div><span class="t-micro ink-3">MARGIN</span><strong class="t-label f11 g100">$${Number(margin.balance || 0).toLocaleString()}</strong><span class="t-micro ink-3">MAINT $${Number(margin.maintenance || 0).toLocaleString()}</span></div><div><span class="t-micro ink-3">RESERVED</span><strong class="t-label f11 g300">$${Number(market.shorts?.reservedCash || 0).toLocaleString()}</strong><span class="t-micro ink-3">CASH HELD</span></div><div><span class="t-micro ink-3">SHORTS</span><strong class="t-label f11 g100">${shortQuantity}</strong><span class="t-micro ink-3">UNITS OPEN</span></div><div><span class="t-micro ink-3">OPTIONS</span><strong class="t-label f11 g100">${openOptions}</strong><span class="t-micro ink-3">POSITIONS OPEN</span></div></div>`;
+  return `<div class="market-risk-strip" aria-label="Market obligations"><div><span class="t-micro ink-3">MARGIN</span><strong class="t-label f11 g100">${formatMoney(margin.balance)}</strong><span class="t-micro ink-3">MAINT ${formatMoney(margin.maintenance)}</span></div><div><span class="t-micro ink-3">RESERVED</span><strong class="t-label f11 g300">${formatMoney(market.shorts?.reservedCash)}</strong><span class="t-micro ink-3">CASH HELD</span></div><div><span class="t-micro ink-3">SHORTS</span><strong class="t-label f11 g100">${shortQuantity}</strong><span class="t-micro ink-3">UNITS OPEN</span></div><div><span class="t-micro ink-3">OPTIONS</span><strong class="t-label f11 g100">${openOptions}</strong><span class="t-micro ink-3">POSITIONS OPEN</span></div></div>`;
 }
 
 function railMarketBodyHTML() {

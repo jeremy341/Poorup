@@ -139,7 +139,7 @@ const PASSING_CORNER_HTML = `<span class="passing-by-corner-layout">
 const PRISON_BARS_HTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
             ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#d74438"/>`).join("")}
             <rect x="0" y="4" width="16" height="1.2" fill="#d74438"/></svg>
-          <span class="t-tile tile-name" style="color:#d74438">PRISON</span>`;
+          <span class="t-tile tile-name" style="color:var(--red-bright)">PRISON</span>`;
 
 function cornerFaceHTML(tile) {
   if (tile.kind === "corner-go") return GO_CORNER_HTML;

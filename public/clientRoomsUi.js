@@ -101,10 +101,15 @@ function renderRoomsList() {
     ? rooms.map(roomRowHTML).join("")
     : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : "NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE."}</div>`;
 
-  document.querySelectorAll(".rooms-filter").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.filter === lobbyState.roomsFilter);
-  });
+  syncRoomsFilterButtons();
+}
 
+function syncRoomsFilterButtons() {
+  document.querySelectorAll(".rooms-filter").forEach((btn) => {
+    const active = btn.dataset.filter === lobbyState.roomsFilter;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", String(active));
+  });
 }
 
 function updateCreateRoomUI() {
@@ -118,7 +123,11 @@ function updateCreateRoomUI() {
   paintCreateCodeStatus(isPrivate, codeValid, settings);
   if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid));
   const createButton = $("#rc-create-btn");
-  if (createButton) createButton.disabled = isPrivate && !codeValid;
+  if (createButton) {
+    createButton.disabled = isPrivate && !codeValid;
+    if (createButton.disabled) createButton.setAttribute("aria-describedby", "rc-code-status");
+    else createButton.removeAttribute("aria-describedby");
+  }
   document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.vis === lobbyState.createRoomSettings.visibility);
   });
@@ -264,6 +273,7 @@ export function openRoomsModal(tab = "browse") {
   lobbyState.roomsFilter = "all";
   lobbyState.roomsQuery = "";
   const search = $("#rooms-search");
+  syncRoomsFilterButtons();
   if (search) search.value = "";
   switchRoomModalTab(tab);
   openSurface("#rooms-modal", tab === "join" ? "#room-join" : "#rooms-close");

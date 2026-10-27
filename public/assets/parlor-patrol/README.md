@@ -3,16 +3,13 @@
 All visual SVGs in this directory are original Poorup artwork. No external
 aircraft or explosion sprites are imported.
 
-**Status: switched off.** The Parlor Patrol / Night Shift microgame is disabled
-(audit F-059). The client constant `PARLOR_PATROL_ENABLED` in
-`public/clientParlorPatrolFlag.js` and the server constant of the same name in
-`server/accountStore.js` are both `false`: no fly-bys, no `Shift+P` / `Ctrl+P`
-chords, no patrol runs, no new patrol scores or achievements, and `patrol` is not
-a ranked leaderboard metric. Stored scores and earned achievements stay readable.
-The notes below describe the feature as it behaves when the constants are `true`.
+**Status: enabled.** Guest runs are local. Signed-in runs use server-controlled
+targets and scoring; earned server-derived scores and achievements can be saved.
+Legacy scores and ace counts remain visible on profiles, while the Patrol
+leaderboard uses only scores from the new server-controlled runs.
 
 These assets power the optional Home-screen Parlor Patrol microgame. They
-remain isolated from the Socket.IO game state and are only active on Home. A
+are active on Home and do not change the multiplayer table state. A
 fly-by starts after about 4 seconds, then short cooldowns keep later passes
 active without turning the skyline into a constant stream.
 
@@ -22,8 +19,7 @@ become hidden and inert. The transparent arcade layer
 runs infinite 60-second waves with an independent score, countdown, and
 three-heart life system. Hostile helicopters, drones, and airplanes that leave
 the screen cost a heart; beacons are optional bonus targets. Escape or
-`EXIT MODE` ends it without changing rooms, accounts, or the normal patrol
-score.
+`EXIT MODE` leaves the mode without changing rooms.
 
 ## Pixel SVGs
 

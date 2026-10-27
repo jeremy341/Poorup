@@ -80,6 +80,26 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
   #view-home .parlor-desk-grid { padding-top: 10px; }
 }
 
+/* Landscape tablet to small desktop: the clock moves to the top-right so it cannot sit on the wordmark. */
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
+  #view-home .home-local-time { left: auto; right: clamp(32px, 5vw, 88px); }
+}
+
+/* Lobby rules rail at the same widths: labels stack above their controls so selects stay inside the rail. */
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
+  #right-rail-lobby .setting-row,
+  #right-rail-lobby .setting-row-num { flex-wrap: wrap; }
+  #right-rail-lobby .setting-row > .setting-label,
+  #right-rail-lobby .setting-row-num > .setting-label { flex: 1 1 150px; min-width: 0; }
+  #right-rail-lobby .setting-control-stack,
+  #right-rail-lobby .setting-row > .setting-select,
+  #right-rail-lobby .setting-row-num > .setting-select { max-width: 100%; }
+  /* Start Round stays on one line; the host's name keeps its full text and the HOST tag drops below it. */
+  #right-rail-lobby .lobby-start-btn .cta-text { font-size: 16px; white-space: nowrap; }
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .pr-nameline { flex-wrap: wrap; }
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .pr-name { flex: 0 1 auto; min-width: 0; }
+}
+
 @media (forced-colors: active) {
   #offer-card .offer-cash,
   #bank-loan-modal .bank-offer-head,

@@ -78,10 +78,9 @@ const num = (value) => Number(value) || 0;
 // the two achievement-derived figures. Replaces a 15-deep nested ternary chain
 // so adding a rank type is one row here, not another ternary arm. The default
 // (unknown metric) is wins, matching the previous final `: Number(wins) || 0`.
-// Parlor Patrol / Night Shift is switched off (audit F-059): the code stays so
-// it can return, but no run starts, no score is recorded and 'patrol' is not a
-// ranked metric. Stored patrolBest / achievements stay readable.
-export const PARLOR_PATROL_ENABLED = false;
+// Keep the server feature flag aligned with the client. New Patrol scores
+// use verified fields; prior records remain available separately.
+export const PARLOR_PATROL_ENABLED = true;
 export const PARLOR_PATROL_OFF_MESSAGE = 'Parlor Patrol is resting for now. Your saved scores are safe.';
 
 const RANKED_LEADERBOARD_METRICS = Object.freeze([
@@ -105,7 +104,7 @@ const METRIC_RESOLVERS = {
   playerloans: (stats) => num(stats.playerLoansGiven),
   equity: (stats) => num(stats.equityDeals),
   loans: (stats) => Math.max(0, num(stats.bankLoanRepayments) * 2 - num(stats.bankLoanDefaults) * 3),
-  patrol: (stats) => num(stats.patrolBest)
+  patrol: (stats) => num(stats.patrolVerifiedBest)
 };
 
 function resolveMetricValue(metric, stats, derived) {
@@ -480,6 +479,7 @@ function leaderboardRow(store, account, metric, options) {
   const tallies = achievementTallies(account, options.since);
   if (metric !== 'patrol' && num(stats.gamesPlayed) < 1) return null;
   if (metric === 'rate' && num(stats.gamesPlayed) < 5) return null;
+  if (metric === 'patrol' && num(stats.patrolVerifiedBest) <= 0) return null;
   return {
     accountId: account.id, displayName: account.displayName, username: account.username,
     color: account.color, avatarGrid: account.avatarGrid,
@@ -581,7 +581,7 @@ const STATS_KEYS = [
   'gamesPlayed', 'wins', 'bankruptcies', 'auctionWins', 'rentCollected',
   'eventSurvival', 'casinoNet', 'marketProfit', 'playerLoansGiven',
   'playerLoansRepaid', 'playerLoanDefaults', 'equityDeals', 'bankLoansTaken',
-  'bankLoanRepayments', 'bankLoanDefaults', 'patrolBest', 'patrolAceRuns'
+  'bankLoanRepayments', 'bankLoanDefaults', 'patrolBest', 'patrolAceRuns', 'patrolVerifiedBest', 'patrolVerifiedAceRuns'
 ];
 
 function sanitizeStats(stats) {
@@ -1194,15 +1194,15 @@ export class AccountStore {
     if (!PARLOR_PATROL_ENABLED) return { success: false, error: PARLOR_PATROL_OFF_MESSAGE };
     const account = this.getAccountById(accountId);
     if (!account) return { success: false, error: 'Account not found.' };
-    const safeScore = clampInt(score, 100000);
+    const safeScore = clampInt(score, Number.MAX_SAFE_INTEGER);
     const safeMisses = clampInt(misses, 999);
     const stats = account.stats || (account.stats = {});
-    const previousBest = Math.max(0, Number(stats.patrolBest) || 0);
+    const previousBest = Math.max(0, Number(stats.patrolVerifiedBest) || 0);
     const beatBest = safeScore > previousBest;
-    stats.patrolBest = Math.max(previousBest, safeScore);
-    stats.patrolAceRuns = Math.max(0, Number(stats.patrolAceRuns) || 0) + (beatBest && previousBest > 0 ? 1 : 0);
+    stats.patrolVerifiedBest = Math.max(previousBest, safeScore);
+    stats.patrolVerifiedAceRuns = Math.max(0, Number(stats.patrolVerifiedAceRuns) || 0) + (beatBest && previousBest > 0 ? 1 : 0);
     this.persist();
-    return { success: true, score: safeScore, misses: safeMisses, best: stats.patrolBest, aceRuns: stats.patrolAceRuns };
+    return { success: true, score: safeScore, misses: safeMisses, best: stats.patrolVerifiedBest, aceRuns: stats.patrolVerifiedAceRuns };
   }
 
   getPublicAccountById(accountId) {
@@ -1306,7 +1306,9 @@ export class AccountStore {
     const stats = {
       ...sanitizeStats({}),
       patrolBest: num(account.stats?.patrolBest),
-      patrolAceRuns: num(account.stats?.patrolAceRuns)
+      patrolAceRuns: num(account.stats?.patrolAceRuns),
+      patrolVerifiedBest: num(account.stats?.patrolVerifiedBest),
+      patrolVerifiedAceRuns: num(account.stats?.patrolVerifiedAceRuns)
     };
     windowRecords(account, since).forEach((record) => {
       const participant = findParticipant(record, account.id);

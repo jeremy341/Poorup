@@ -101,3 +101,27 @@ for (const localId of ["buyer", "investor", "other"]) {
   assert.equal((fundingCard.innerHTML.match(/Collected rent only/g) || []).length, 1);
 }
 console.log("PASS funding risks stay concise for buyer, investor and other players");
+
+// The buyer always has an explicit cancellation, followed by the eligible purchase.
+state.players = [{ serverId: "buyer", cash: 40 }];
+for (const scenario of [
+  { name: "affordable equity", finance: true, mode: "equity", contributed: 20, needed: 40, enabled: true },
+  { name: "unaffordable equity", finance: true, mode: "equity", contributed: 19, needed: 41, enabled: false },
+  { name: "fully funded gift", finance: true, mode: "gift", contributed: 60, needed: 0, enabled: true },
+  { name: "unfunded gift", finance: true, mode: "gift", contributed: 0, needed: 60, enabled: false },
+  { name: "partial gift", finance: true, mode: "gift", contributed: 20, needed: 40, enabled: false },
+  { name: "finance disabled", finance: false, mode: "equity", contributed: 20, needed: 40, enabled: false },
+]) {
+  state.settings = { ...state.settings, playerFinance: scenario.finance };
+  openSponsorshipModal({ mode: scenario.mode, buyerId: "buyer", buyerName: "BUYER", tileIndex: 1, price: 60, totalContributed: scenario.contributed, amountNeeded: scenario.needed, contributions: [] });
+  const buttons = [...fundingCard.innerHTML.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)]
+    .filter((match) => /data-sponsorship-action="(?:accept|decline)"/.test(match[1]));
+  assert.equal(buttons.length, 2, `${scenario.name}: both buyer actions appear`);
+  assert.match(buttons[0][1], /class="btn-dark"[^>]*data-sponsorship-action="decline"/);
+  assert.match(buttons[0][2], /CANCEL REQUEST/);
+  assert.doesNotMatch(buttons[0][1], /\bdisabled\b/);
+  assert.match(buttons[1][1], /class="cta-red"[^>]*data-sponsorship-action="accept"/);
+  assert.match(buttons[1][2], /ACCEPT &amp; BUY/);
+  assert.equal(/\bdisabled\b/.test(buttons[1][1]), !scenario.enabled, `${scenario.name}: purchase eligibility`);
+}
+console.log("PASS buyer actions retain order and eligibility across funding states");

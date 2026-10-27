@@ -103,7 +103,7 @@ const fakeEl = () => {
   return {
     textContent: '', value: '', dataset: {}, disabled: false, children: [], attrs, listeners,
     classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c) },
-    setAttribute: (k, v) => { attrs[k] = String(v); }, getAttribute: k => attrs[k] ?? null, hasAttribute: k => k in attrs,
+    setAttribute: (k, v) => { attrs[k] = String(v); }, removeAttribute: k => { delete attrs[k]; }, getAttribute: k => attrs[k] ?? null, hasAttribute: k => k in attrs,
     querySelector: () => null, querySelectorAll: () => [], append() {}, replaceChildren() {}, focus() {},
     addEventListener: (type, fn) => { listeners[type] = fn; }, reportValidity: () => true, closest: () => null,
   };
@@ -122,7 +122,7 @@ globalThis.fetch = async (path, init) => {
   return { ok: status < 400, status, json: async () => body };
 };
 const { initAdminAiProvider } = await import('./clientAdminAiProvider.js');
-assert.equal(initAdminAiProvider(), true);
+assert.equal(initAdminAiProvider({ confirm: options => options.onConfirm() }), true);
 const AUDIT_WARNING = 'Done, but the audit log could not be saved. Check the audit log file.';
 const providerStatus = () => nodeFor('[data-admin-provider-test-status]');
 const click = async (action) => {
@@ -160,7 +160,7 @@ await click('activate');
 assert.equal(providerStatus().textContent, AUDIT_WARNING);
 routes['POST /admin/ai/providers/p1/activate'] = () => [200, { success: true, active: tested }];
 await click('activate');
-assert.match(providerStatus().textContent, /^PROVIDER ACTIVE/);
+assert.equal(providerStatus().textContent, AUDIT_WARNING, "a second activate on the active provider is ignored, so the status is unchanged");
 
 routes['PATCH /admin/ai/providers/p1'] = () => [200, { success: true, audited: false, profile: tested }];
 await nodeFor('[data-admin-provider-form]').listeners.submit({ preventDefault() {} });

@@ -184,9 +184,9 @@ export function renderAuction() {
 
       <div class="auction-bids">
         ${BID_STEPS.map((inc) => `
-          <button class="cta-red auction-bid-btn" data-bid="${inc}">
-            <span class="t-label">+${inc}</span>
-            <span class="t-micro">RAISE</span>
+          <button class="btn-dark auction-bid-btn" data-bid="${inc}">
+            <span class="t-label">BID</span>
+            <span class="t-micro">+${inc} RAISE</span>
           </button>`).join("")}
       </div>
 
@@ -221,6 +221,11 @@ function renderAuctionTimer(remaining) {
 function renderAuctionBid(a) {
   const bidEl = $("#auction-bid");
   if (bidEl) bidEl.textContent = `${a.bid}`;
+  // Each raise button names the resulting bid, not just the increment.
+  $("#auction-card")?.querySelectorAll("[data-bid] .t-label").forEach((label) => {
+    const inc = Number(label.closest("[data-bid]").dataset.bid);
+    label.textContent = `BID $${(a.bid + inc).toLocaleString()}`;
+  });
 }
 
 function findAuctionLeader(a) {

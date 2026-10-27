@@ -57,7 +57,7 @@ The raster reference contains anti-aliasing and texture, so a single line often 
 | Token | Hex | Use |
 |---|---:|---|
 | `red.action` | `#AF2A21` | Roll Dice button base |
-| `red.bright` | `#D74438` | chance marks, alerts |
+| `red.bright` | `#E36B5F` | chance marks, alerts (CSS `--red-bright`; was `#D74438`, 4.3:1 on surface.panel) |
 | `red.dark` | `#87231E` | red property strips |
 | `green.status` | `#35A653` | online, owned, positive money |
 | `green.property` | `#4B853D` | green property group |
@@ -73,11 +73,13 @@ The raster reference contains anti-aliasing and texture, so a single line often 
 |---|---:|
 | `text.primary` | `#E8D3AB` |
 | `text.secondary` | `#A79D7D` |
-| `text.muted` | `#777564` |
+| `text.muted` | `#A79D7D` |
 | `text.gold` | `#CFA75F` |
 | `text.success` | `#35A653` |
 | `text.danger` | `#D74438` |
 | `text.blue` | `#3C8BC3` |
+
+Contrast (WCAG 2.x, computed from the CSS values): `text.muted` `#A79D7D` is 7.5:1 on `bg.canvas` `#01070A` and 7.0:1 on `surface.panel` `#071314`. The previous value `#777564` measured 4.4:1 and 4.1:1 on the same surfaces, below the 4.5:1 body-text minimum. `red.bright` `#E36B5F` is 6.3:1 on `bg.canvas` and 5.9:1 on `surface.panel`; the previous `#D74438` measured 4.6:1 and 4.3:1.
 
 ---
 

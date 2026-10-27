@@ -1,4 +1,5 @@
 import { state } from './clientState.js';
+import { openConfirmModal } from './clientSurfaces.js';
 import { setSectionState, setSectionFailure } from './clientAdminPanelState.js';
 
 const API_ROOT = '/admin/ai';
@@ -72,12 +73,15 @@ function fillForm(profile) {
   setField('timeoutMs', profile?.timeoutMs || 4000);
   setField('maxDecisionsPerGame', profile?.maxDecisionsPerGame || 240);
   const save = query('[data-admin-provider-save]');
+  const saveReason = query('[data-admin-provider-save-reason]');
   if (save) save.disabled = Boolean(profile?.readOnly);
+  if (save) { if (profile?.readOnly) save.setAttribute('aria-describedby', 'admin-provider-save-reason'); else save.removeAttribute('aria-describedby'); }
+  if (saveReason) saveReason.hidden = !profile?.readOnly;
   const key = field('apiKey');
   if (key) key.placeholder = profile?.readOnly ? 'Environment key is write-only' : profile?.keyConfigured ? 'Leave blank to keep the existing key' : 'Paste a server-side key';
 }
 
-function createButton(label, action, profile, disabled = false) {
+function createButton(label, action, profile, disabled = false, reasonId = '') {
   const button = globalThis.document.createElement('button');
   button.type = 'button';
   button.className = 'btn-dark';
@@ -86,7 +90,16 @@ function createButton(label, action, profile, disabled = false) {
   button.disabled = disabled;
   button.textContent = label;
   button.setAttribute('aria-label', `${label} ${profile.label}`);
+  if (disabled && reasonId) button.setAttribute('aria-describedby', reasonId);
   return button;
+}
+
+// Why ACTIVATE is unavailable for a profile, or '' when it is available.
+function activateBlockReason(profile, model) {
+  if (model.testing || model.saving) return 'Activate unavailable while a test or save is running.';
+  if (model.active?.id === profile.id) return 'Activate unavailable: this profile is already the active provider.';
+  if (!profile.lastTest?.ok) return 'Activate unavailable: test this connection first.';
+  return '';
 }
 
 // The badge answers from the server's own health. Only when no health is known yet does it
@@ -139,7 +152,7 @@ function renderProfiles(model) {
     list.append(empty);
     return;
   }
-  model.profiles.forEach(profile => {
+  model.profiles.forEach((profile, index) => {
     const row = globalThis.document.createElement('article');
     row.className = `admin-provider-row${model.active?.id === profile.id ? ' is-active' : ''}`;
     row.dataset.profileId = profile.id;
@@ -155,9 +168,18 @@ function renderProfiles(model) {
     const actions = globalThis.document.createElement('div');
     actions.className = 'admin-provider-row-actions';
     if (!profile.readOnly) {
+      const reason = activateBlockReason(profile, model);
+      const reasonId = `admin-provider-reason-${index}`;
       actions.append(createButton('EDIT', 'edit', profile));
-      actions.append(createButton('TEST', 'test', profile, model.testing || model.saving));
-      actions.append(createButton('ACTIVATE', 'activate', profile, model.active?.id === profile.id || !profile.lastTest?.ok || model.testing || model.saving));
+      actions.append(createButton('TEST', 'test', profile, model.testing || model.saving, reason ? reasonId : ''));
+      actions.append(createButton('ACTIVATE', 'activate', profile, Boolean(reason), reasonId));
+      if (reason) {
+        const note = globalThis.document.createElement('p');
+        note.className = 'admin-provider-action-reason t-micro ink-3';
+        note.id = reasonId;
+        note.textContent = reason;
+        copy.append(note);
+      }
     } else {
       const badge = globalThis.document.createElement('span');
       badge.className = 't-micro ink-3';
@@ -169,7 +191,7 @@ function renderProfiles(model) {
   });
 }
 
-export function initAdminAiProvider() {
+export function initAdminAiProvider({ confirm = openConfirmModal } = {}) {
   if (globalThis.window?.location?.pathname !== '/admin/analytics') return false;
   const roster = query('[data-admin-provider-roster]');
   if (!roster || !query('[data-admin-provider-form]')) return false;
@@ -290,6 +312,19 @@ export function initAdminAiProvider() {
 
   // A live push before the roster has been read, or while a change is in flight, would pair a health
   // with the profile from before it: keep the health, and draw once the read or the change settles.
+  // Activation changes live bot decisions, so it always goes through the shared confirm surface (CANCEL is focused first).
+  function confirmActivate(id) {
+    const profile = model.profiles.find(entry => entry.id === id);
+    if (!profile || activateBlockReason(profile, model)) return;
+    confirm({
+      title: `Activate ${profile.label}?`,
+      message: 'New bot decisions in live games will use this provider as soon as it is activated.',
+      confirmLabel: 'ACTIVATE PROVIDER',
+      mark: false,
+      onConfirm: () => void activateProfile(id)
+    });
+  }
+
   const onProviderStatus = event => {
     model.provider = mergeProviderHealth(model.provider, event.detail);
     if (model.loaded && !model.saving) renderActive(model);
@@ -309,7 +344,7 @@ export function initAdminAiProvider() {
     const id = button.dataset.profileId;
     if (button.dataset.adminProviderAction === 'edit') { selectProfile(id); field('label')?.focus?.(); }
     if (button.dataset.adminProviderAction === 'test') void testProfile(id);
-    if (button.dataset.adminProviderAction === 'activate') void activateProfile(id);
+    if (button.dataset.adminProviderAction === 'activate') confirmActivate(id);
   });
   fillForm(null);
   globalThis.__poorupAdminAiProvider = Object.freeze({

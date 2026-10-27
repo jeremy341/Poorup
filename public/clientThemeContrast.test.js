@@ -61,6 +61,19 @@ for (const id of THEME_IDS) {
     assert.ok(disabled >= 4.5, `${id} disabled CTA label = ${disabled.toFixed(2)}`);
   });
 
+  check(`${id}: neutral auction bid labels reach 4.5:1 on their button states`, () => {
+    const t = tokensFor(id);
+    for (const [label, surface] of [
+      ["--text-primary", "--surface-button-dark"],
+      ["--text-primary", "--surface-button-hover"],
+      ["--text-primary", "--surface-button-pressed"],
+      ["--text-primary", "--surface-disabled"],
+    ]) {
+      const ratio = contrast(t(label), t(surface));
+      assert.ok(ratio >= 4.5, `${id} ${label} on ${surface} = ${ratio.toFixed(2)}`);
+    }
+  });
+
   check(`${id}: control borders reach 3:1 against input, button and panel surfaces`, () => {
     const t = tokensFor(id);
     for (const surface of ["--surface-input", "--surface-button-dark", "--surface-panel", "--surface-panel-raised", "--surface-panel-deep", "--surface-button-hover"]) {
@@ -85,12 +98,18 @@ check("home hero uses theme text tokens instead of fixed dark-on-scene colours",
 check("CTA labels and sublabels come from opaque tokens, not translucent literals", () => {
   assert.match(rule(".cta-red"), /color:\s*var\(--cta-label\)/);
   assert.match(rule(".cta-red:disabled"), /color:\s*var\(--cta-label-disabled\)/);
-  for (const selector of [".choice-buy .t-micro", ".auction-bid-btn .t-micro", ".dd-build-btn .t-micro"]) {
+  for (const selector of [".choice-buy .t-micro", ".dd-build-btn .t-micro"]) {
     const body = rule(selector);
     assert.match(body, /color:\s*var\(--cta-label-muted\)/, `${selector} must use --cta-label-muted`);
     assert.doesNotMatch(body, /\/\s*\d+%/, `${selector} must not use alpha`);
   }
-  assert.match(rule(".auction-bid-btn .t-label"), /color:\s*var\(--cta-label\)/);
+  assert.match(rule(".btn-dark"), /color:\s*var\(--gold-300\)/);
+  assert.match(rule(".auction-bid-btn"), /color:\s*var\(--text-primary\)/);
+  assert.match(rule(".auction-bid-btn:hover:not(:disabled)"), /color:\s*var\(--text-primary\)/);
+  assert.match(rule('.auction-bid-btn[aria-disabled="true"]'), /color:\s*var\(--text-primary\)/);
+  for (const selector of [".auction-bid-btn .t-label", ".auction-bid-btn .t-micro"]) {
+    assert.match(rule(selector), /color:\s*inherit/, `${selector} must inherit the neutral button color`);
+  }
 });
 
 check("fields and dark buttons draw their border from --line-control", () => {

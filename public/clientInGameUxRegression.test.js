@@ -142,7 +142,12 @@ check("trade offer dismissal persists by room and trade id and remains neutral",
   expectMatch(modals, /dismissTradeOffer/);
   expectMatch(sync, /reconcileTradeOfferDismissal/);
   expectMatch(rail, /state\.offers/);
-  expectMatch(dealUi, /trade\.toPlayerId\s*===\s*localServerId\(\)/);
+  const tradeDetail = dealUi.match(/function tradeDetailHTML\(trade\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(tradeDetail, "trade detail renderer exists");
+  expectMatch(tradeDetail, /const self\s*=\s*localServerId\(\)/);
+  expectMatch(tradeDetail, /trade\.toPlayerId\s*===\s*self/);
+  expectMatch(tradeDetail, /self\s*&&\s*\(self\s*===\s*trade\.fromPlayerId\s*\|\|\s*self\s*===\s*trade\.toPlayerId\)/);
+  expectMatch(tradeDetail, /!participant\s*\?\s*""\s*:/);
   const closeHandler = modals.match(/function closeOfferWithoutResponse\(\)\s*\{[^}]*\}/)?.[0] || "";
   assert.ok(closeHandler, "neutral offer close handler exists");
   assert.doesNotMatch(closeHandler, /emitServer|respond-trade/);

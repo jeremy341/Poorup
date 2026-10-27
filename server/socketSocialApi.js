@@ -13,11 +13,6 @@ import { parseCookieHeader, SESSION_COOKIE_NAME } from './sessionStore.js';
 const SOCIAL_RATE_WINDOW_MS = 60 * 1000;
 const SOCIAL_RATE_LIMIT = 30;
 const CHAT_COOLDOWN_MS = 500;
-// Night Shift can continue through several one-minute waves. Keep one signed
-// run token alive long enough for a normal session without making it durable.
-const PATROL_RUN_MAX_MS = 10 * 60 * 1000;
-const PATROL_RUN_RETENTION_MS = PATROL_RUN_MAX_MS + 30 * 1000;
-const PATROL_RUN_CAP = 2_000;
 const MYTHICAL_ANNOUNCEMENT_KEYS_CAP = 500;
 const UNDELIVERED_ANNOUNCEMENT_CAP = 500;
 const SECRET_ACHIEVEMENT_IDS = new Set([
@@ -32,16 +27,11 @@ function recentTimestamps(buckets, key) {
   return stored.filter(timestamp => now - timestamp < SOCIAL_RATE_WINDOW_MS);
 }
 
-function maxPlausiblePatrolScore(elapsed) {
-  const cappedElapsed = Math.min(elapsed, PATROL_RUN_MAX_MS);
-  const plausible = Math.ceil(cappedElapsed / 250) * 300;
-  return Math.min(100000, Math.max(0, plausible));
-}
-
 function createSocialApi(deps) {
   const { io, accountStore, socialStore, matchStore, achievementStore, sessionStore } = deps;
   const chatLastSent = new Map();
   const patrolRuns = new Map();
+  const completedPatrolRuns = new Map();
   const socialRateBuckets = new Map();
   let lastRateSweepAt = 0;
   const mythicalAnnouncementKeys = new Set();
@@ -390,18 +380,12 @@ function createSocialApi(deps) {
     return null;
   }
 
-  function patrolRunPlausible(elapsed) {
-    if (elapsed < 500) return false;
-    return elapsed <= PATROL_RUN_MAX_MS + 30 * 1000;
-  }
-
   function patrolAchievementCandidates(account, score, result) {
     const candidates = [];
     if (!PARLOR_PATROL_ENABLED) return candidates;
     if (score >= 10) candidates.push({ accountId: account.id, achievementId: 'patrol-rookie', title: 'PATROL ROOKIE', rarity: 'COMMON', body: 'You scored 10 in Parlor Patrol.' });
     if (score >= 50) candidates.push({ accountId: account.id, achievementId: 'patrol-regular', title: 'PATROL REGULAR', rarity: 'UNCOMMON', body: 'You scored 50 in Parlor Patrol.' });
-    // Patrol misses are client-reported; without server-side target outcomes,
-    // they cannot verify a clean-run achievement.
+    if (score > 0 && result.cleanRun === true) candidates.push({ accountId: account.id, achievementId: 'clean-run', title: 'CLEAN RUN', rarity: 'EPIC', body: 'You cleared a wave without missing a target.' });
     if (result.aceRuns >= 3) candidates.push({ accountId: account.id, achievementId: 'patrol-ace', title: 'PATROL ACE', rarity: 'RARE', body: 'You beat your saved personal best three times.' });
     return candidates;
   }
@@ -414,15 +398,43 @@ function createSocialApi(deps) {
     return false;
   }
 
+  // Successful results are replayable for a bounded time without re-settling.
+  function pruneCompletedPatrolRuns() {
+    const cutoff = Date.now() - 5 * 60_000;
+    for (const [token, result] of completedPatrolRuns) {
+      if (result.completedAt <= cutoff) { clearTimeout(result.timer); completedPatrolRuns.delete(token); }
+    }
+  }
+
+  function completedPatrolResult(accountId, token) {
+    pruneCompletedPatrolRuns();
+    const entry = completedPatrolRuns.get(token);
+    return entry?.accountId === accountId ? entry.result : null;
+  }
+
+  function rememberCompletedPatrolResult(accountId, token, result) {
+    pruneCompletedPatrolRuns();
+    while (completedPatrolRuns.size >= 2000) {
+      const oldest = completedPatrolRuns.keys().next().value;
+      clearTimeout(completedPatrolRuns.get(oldest).timer);
+      completedPatrolRuns.delete(oldest);
+    }
+    const entry = { accountId, result, completedAt: Date.now(), timer: null };
+    entry.timer = setTimeout(() => {
+      if (completedPatrolRuns.get(token) === entry) completedPatrolRuns.delete(token);
+    }, 5 * 60_000);
+    entry.timer.unref?.();
+    completedPatrolRuns.set(token, entry);
+  }
+
   function prunePatrolRuns() {
-    const cutoff = Date.now() - PATROL_RUN_RETENTION_MS;
-    patrolRuns.forEach((run, token) => {
-      if (!run || Number(run.startedAt) < cutoff) patrolRuns.delete(token);
-    });
-    while (patrolRuns.size >= PATROL_RUN_CAP) {
-      const oldest = patrolRuns.keys().next().value;
-      if (!oldest) break;
-      patrolRuns.delete(oldest);
+    const now = Date.now();
+    for (const [token, run] of patrolRuns) {
+      if (!run || (run.ended && now - run.endedAt >= 5 * 60_000)
+        || (run.pausedAt != null && (run.initialWaiting ? 0 : (run.pausedTotal || 0)) + now - run.pausedAt >= 5 * 60_000)) {
+        if (run?.timer) clearTimeout(run.timer);
+        patrolRuns.delete(token);
+      }
     }
   }
 
@@ -444,17 +456,18 @@ function createSocialApi(deps) {
     chatBlockedInRoom,
     chatLastSent,
     chatRateLimited,
+    completedPatrolResult,
+    completedPatrolRuns,
     emitSocialUpdate,
-    maxPlausiblePatrolScore,
     notifyAccount,
     patrolAchievementCandidates,
     patrolRunError,
-    patrolRunPlausible,
     prunePatrolRuns,
     patrolRuns,
     publicPlayerCard,
     recentPlayers,
     recordVerifiedAchievement,
+    rememberCompletedPatrolResult,
     socialRateBucketCount: () => socialRateBuckets.size,
     socketsForAccount,
     socialSummary

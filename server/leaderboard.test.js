@@ -25,9 +25,6 @@ const GOLDEN = {
   equity: ['alice:3', 'carol:1', 'bob:0'],
   loans: ['alice:5', 'carol:2', 'bob:0']
 };
-// Parlor Patrol is switched off (F-059): 'patrol' is no longer a ranked metric,
-// but the stored patrolBest stays on the account.
-const DISABLED_PATROL_RANKING = [];
 
 function buildStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-lb-'));
@@ -65,16 +62,20 @@ const store = buildStore();
 for (const metric of Object.keys(GOLDEN)) {
   check(`leaderboard metric ${metric}`, () => assert.deepStrictEqual(rank(store, metric), GOLDEN[metric]));
 }
-check('patrol is not ranked while Parlor Patrol is disabled', () => {
-  assert.strictEqual(PARLOR_PATROL_ENABLED, false);
-  assert.deepStrictEqual(rank(store, 'patrol'), DISABLED_PATROL_RANKING);
-  assert.strictEqual(store.accounts.get('alice').stats.patrolBest, 900, 'stored patrolBest stays readable');
-  assert.ok(!('patrol' in store.getLeaderboardSnapshot(['patrol', 'wins']).metrics));
-  assert.strictEqual(store.recordPatrolResult(store.accounts.get('alice').id, { score: 5000 }).success, false);
-  assert.strictEqual(store.accounts.get('alice').stats.patrolBest, 900, 'no score is recorded while disabled');
+check('patrol ranks server-derived scores while preserving legacy records', () => {
+  assert.strictEqual(PARLOR_PATROL_ENABLED, true);
+  assert.deepStrictEqual(rank(store, 'patrol'), [], 'legacy-only scores do not enter the leaderboard');
+  const alice = store.accounts.get('alice');
+  const bob = store.accounts.get('bob');
+  assert.strictEqual(store.recordPatrolResult(alice.id, { score: 125 }).success, true);
+  assert.strictEqual(store.recordPatrolResult(bob.id, { score: 200 }).success, true);
+  assert.deepStrictEqual(rank(store, 'patrol'), ['bob:200', 'alice:125']);
+  assert.strictEqual(alice.stats.patrolBest, 900, 'legacy personal best remains readable');
+  assert.strictEqual(alice.stats.patrolAceRuns, 3, 'legacy ace count remains readable');
+  assert.deepStrictEqual(store.getLeaderboardSnapshot(['patrol', 'wins']).metrics.patrol.map(row => row.value), [200, 125]);
 });
 check('snapshot exposes the full metric set', () => {
-  assert.deepStrictEqual(Object.keys(store.getLeaderboardSnapshot().metrics), Object.keys(GOLDEN));
+  assert.deepStrictEqual(Object.keys(store.getLeaderboardSnapshot().metrics), [...Object.keys(GOLDEN), 'patrol']);
 });
 check('window stats with no cutoff mirror stored stats', () => {
   const alice = store.accounts.get('alice');

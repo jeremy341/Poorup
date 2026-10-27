@@ -1,5 +1,6 @@
 export const TEST_GROUPS = Object.freeze({
   core: [
+    'server/patrol-authority.test.js', 'public/clientNightShift.test.js', 'public/clientPatrolProvenance.test.js',
     'server/items.test.js', 'server/items-lifecycle.test.js',
     'server/itemRewardsSettings.test.js', 'server/itemSocket.test.js',
     'server/rulesProfiles.test.js', 'server/botFinanceProfiles.test.js',

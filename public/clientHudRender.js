@@ -71,7 +71,8 @@ function renderHudLobby() {
   stopDiceFaceCycle();
   setHtml($("#hud-dice"), `<div class="die-blank">—</div><div class="die-blank">—</div>`);
   $("#roll-btn").disabled = true;
-  setText($("#roll-label"), "Set Rules First");
+  // Matches the rules rail: the host starts from Start Round there, other seats wait for the host.
+  setText($("#roll-label"), state.players[0]?.isHost ? "Press Start Round" : "Host Starts Round");
   renderHudJailButtons(null, true, true);
   renderHudFlightButton(true, true);
 }

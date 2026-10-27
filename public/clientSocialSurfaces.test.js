@@ -23,13 +23,13 @@ function check(name, assertion) {
 }
 
 check("rankingArrowNavigationPreservesExistingMetricSnapshots", () => {
-  assert.equal(surfaces.RANKING_ORDER.length, 14);
-  assert.ok(!surfaces.RANKING_ORDER.includes("patrol"), "Parlor Patrol is switched off, so patrol is not a ranking metric");
+  assert.equal(surfaces.RANKING_ORDER.length, 15);
+  assert.ok(surfaces.RANKING_ORDER.includes("patrol"), "Parlor Patrol is a ranking metric");
   for (const metric of surfaces.RANKING_ORDER) assert.ok(surfaces.RANKING_LABELS[metric]);
   const html = surfaces.rankingMetricNavigationHTML("market");
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"/);
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"/);
-  assert.match(html, /<strong class="t-label f12 g100">11 \/ 14<\/strong>/);
+  assert.match(html, /<strong class="t-label f12 g100">11 \/ 15<\/strong>/);
   assert.doesNotMatch(source, /RANKING_METRIC_FAMILIES|ranking-family-control/);
 });
 
