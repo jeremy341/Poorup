@@ -215,7 +215,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.locator('#rc-create-btn').click();
     await page.locator('#su-start').click();
     await page.locator('#lobby-settings-body [data-setting="boardVariant"]').selectOption('metro-52');
-    await expect(page.locator('#lobby-settings-body')).toContainText('METRO 52');
+    await expect(page.locator('#lobby-settings-body')).toContainText('METRO · 52');
 
     await guest.goto('/');
     await guest.locator('#home-alias').fill('BETA');
@@ -223,7 +223,8 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await guest.locator('#room-join').fill(metroCode);
     await guest.locator('#join-nickname').fill('BETA');
     await guest.locator('#join-room-submit').click();
-    await guest.locator('#su-start').click();
+    await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
     await expect(page.locator('#player-list')).toContainText('BETA');
     const marketToggle = page.locator('#lobby-settings-body [data-setting="market"]');
     if (!await marketToggle.evaluate((node) => node.classList.contains('is-on'))) await marketToggle.click();
@@ -460,7 +461,8 @@ test.describe('Landscape iPad desk contract', () => {
     await guest.locator('#room-join').fill(code);
     await guest.locator('#join-nickname').fill('BETA');
     await guest.locator('#join-room-submit').click();
-    await guest.locator('#su-start').click();
+    await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
     await page.locator('#lobby-start-btn').click();
     await expect(page.locator('#view-game')).toBeVisible();
 

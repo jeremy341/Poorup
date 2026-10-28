@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// U2 browser contracts (F-054, F-080, F-086, F-052, F789-*). The suite measures
+// Browser layout and accessibility contracts. The suite measures
 // real layout, so it runs once on the 1920x1080 desktop project and sets its own
 // viewports; every other project skips it.
 test.beforeEach(({ page }, testInfo) => {
@@ -61,7 +61,7 @@ const documentScroll = (page) => page.evaluate(() => ({
   body: document.body.scrollHeight - innerHeight,
 }));
 
-test.describe("F-054 bounded shell for non-touch 768-1279 landscape", () => {
+test.describe("bounded shell for non-touch 768-1279 landscape", () => {
   for (const [width, height] of [[1024, 768], [1180, 820], [1279, 720], [800, 600]]) {
     test(`${width}x${height}: lobby Start, board and Roll are on the first screen without document scroll`, async ({ page }) => {
       await page.setViewportSize({ width, height });
@@ -83,7 +83,7 @@ test.describe("F-054 bounded shell for non-touch 768-1279 landscape", () => {
 });
 
 test.describe("board tiles", () => {
-  test("F-080: tokens stacked on Start never cover the COLLECT / $200 caption", async ({ page }) => {
+  test("tokens stacked on Start never cover the COLLECT / $200 caption", async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await hostLobby(page, 3);
     await startGame(page);
@@ -97,7 +97,7 @@ test.describe("board tiles", () => {
     expect(overlaps).toBe(0);
   });
 
-  test("F-086: tile captions are at least 11px at 1920x1080 and stay inside their tiles", async ({ page }) => {
+  test("tile captions are at least 11px at 1920x1080 and stay inside their tiles", async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await hostLobby(page, 3);
     await startGame(page);
@@ -120,16 +120,16 @@ test.describe("board tiles", () => {
 });
 
 test.describe("accessible names and live regions", () => {
-  test("F789-07/08/12/14 + F-052: dialog names, stable toggle names, appended chat rows, toast target, tile labels", async ({ page }) => {
+  test("dialog names, stable toggle names, appended chat rows, toast target, tile labels", async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await hostLobby(page, 1);
     await startGame(page);
 
-    // F789-07: both dialogs are named even before they are opened.
+    // Both dialogs are named even before they are opened.
     await expect(page.getByRole("dialog", { name: /social/i, includeHidden: true }).first()).toHaveAttribute("id", "social-modal");
     await expect(page.getByRole("dialog", { name: /global rankings/i, includeHidden: true })).toHaveAttribute("id", "rankings-modal");
 
-    // F789-08: the toggle keeps its name while aria-pressed flips.
+    // The toggle keeps its name while aria-pressed flips.
     const music = page.locator("#game-music-toggle-btn");
     const nameBefore = await music.getAttribute("aria-label");
     const pressedBefore = await music.getAttribute("aria-pressed");
@@ -139,7 +139,7 @@ test.describe("accessible names and live regions", () => {
     expect(nameBefore).toBe("Parlor music");
     await music.click();
 
-    // F789-12: named, focusable log; new rows are appended, old nodes survive.
+    // Named, focusable log; new rows are appended, old nodes survive.
     const chat = page.locator("#chat-body");
     await expect(chat).toHaveAttribute("role", "log");
     await expect(chat).toHaveAttribute("tabindex", "0");
@@ -156,7 +156,7 @@ test.describe("accessible names and live regions", () => {
     await expect(chat.locator("p.chat-line").last()).toContainText("second line");
     await expect(chat.locator('p.chat-line[data-survivor="yes"]')).toHaveCount(1);
 
-    // F789-14: toast dismiss target.
+    // Toast dismiss target.
     const closeSize = await page.evaluate(() => {
       const toast = document.createElement("div");
       toast.className = "parlor-toast";
@@ -169,11 +169,11 @@ test.describe("accessible names and live regions", () => {
     expect(closeSize.w).toBeGreaterThanOrEqual(24);
     expect(closeSize.h).toBeGreaterThanOrEqual(24);
 
-    // F-052: a priced tile names its price; owner/building/mortgage suffixes are covered by the unit contract.
+    // A priced tile names its price; owner/building/mortgage suffixes are covered by the unit contract.
     await expect(page.locator('.tile[data-tile="1"]')).toHaveAttribute("aria-label", /price \$\d+/);
   });
 
-  test("F789-13: reduced motion follows a mid-session media change", async ({ page }) => {
+  test("reduced motion follows a mid-session media change", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto("/");
     const read = () => page.evaluate(async () => (await import("/clientDom.js")).REDUCED_MOTION);

@@ -1,4 +1,4 @@
-# Poorup — Visual Design System
+# Poorup: Visual Design System
 
 Source: derived from the provided 1672×941 desktop screenshot. Values are reconstruction targets from the raster reference, so colors and measurements should be treated as design tokens rather than claims about the original source code.
 
@@ -14,7 +14,7 @@ Core rules:
 4. Geometry is compact, rectangular, and mostly square-cornered.
 5. Borders do more work than shadows.
 6. Status colors are saturated but slightly dirty/muted rather than neon.
-7. UI density is intentionally high.
+7. UI density is high.
 8. Decorative texture is subtle: slight noise, vignette, inner highlights, pixel details.
 9. Main CTA is a large red arcade-style action button.
 10. Avoid modern SaaS styling: no glassmorphism, pill overload, large rounded cards, soft pastel backgrounds, or airy layouts.
@@ -468,9 +468,9 @@ Each normal HUD cell:
 
 ---
 
-## G. Primary CTA — Roll Dice
+## G. Primary CTA: Roll Dice
 
-This is deliberately the brightest and largest UI control.
+This is the brightest and largest UI control.
 
 Approx:
 - height: 100–105 px

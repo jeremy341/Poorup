@@ -27,7 +27,7 @@ async function shot(page,testInfo,id,label,selector){
 
 async function noPageOverflow(page){expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1&&document.documentElement.scrollHeight<=innerHeight+1)).toBe(true);}
 
-test('F01 field preview and server proposal agree for above-deed-price rent shares',async({page},testInfo)=>{
+test('field preview and server proposal agree for above-deed-price rent shares',async({page},testInfo)=>{
   const manager=new RoomManager();
   const room=manager.createRoom({socketId:'fix-host',clientId:'fix-host-client',nickname:'HOST',rulesProfile:'advanced',playerFinance:true});
   room.addOrReconnectPlayer({socketId:'fix-guest',clientId:'fix-guest-client',nickname:'GUEST'});room.startGame();
@@ -55,7 +55,7 @@ test('F01 field preview and server proposal agree for above-deed-price rent shar
   await expect(page.locator('#financing-modal')).toBeHidden();
 });
 
-test('F02 composer send stays visible and dropdowns remain usable',async({page},testInfo)=>{
+test('composer send stays visible and dropdowns remain usable',async({page},testInfo)=>{
   await fixture(page);
   for(const mode of ['equity','loan']){
     await page.evaluate(mode=>window.__ipadModalCapture.trade.openFinancingModal(mode,3),mode);
@@ -89,7 +89,7 @@ test('F02 composer send stays visible and dropdowns remain usable',async({page},
   }
 });
 
-test('F03 full table Social restores network columns and keeps live request and player focus',async({page},testInfo)=>{
+test('full table Social restores network columns and keeps live request and player focus',async({page},testInfo)=>{
   await fixture(page);
   await page.evaluate(()=>{
     const f=window.__ipadModalCapture,s=f.state;
@@ -160,7 +160,7 @@ test('due-card layout is restored while rescue and confirmation still preserve d
   expect(await page.evaluate(()=>window.__ipadModalCapture.state.pendingDebt.amount)).toBe(275);
 });
 
-test('F05 reference prison glyph fits without making corners interactive',async({page},testInfo)=>{
+test('reference prison glyph fits without making corners interactive',async({page},testInfo)=>{
   await fixture(page);
   expect(await page.evaluate(async()=>{
     const f=window.__ipadModalCapture;
@@ -172,7 +172,7 @@ test('F05 reference prison glyph fits without making corners interactive',async(
   await shot(page,testInfo,'prison-reference','Contained prison bars in the reference inspector','#popup-card');
 });
 
-test('F06 direct metric picker retains scope cache and keyboard navigation',async({page},testInfo)=>{
+test('direct metric picker retains scope cache and keyboard navigation',async({page},testInfo)=>{
   await fixture(page);
   await page.evaluate(async()=>{
     const f=window.__ipadModalCapture,s=f.state;
@@ -182,7 +182,7 @@ test('F06 direct metric picker retains scope cache and keyboard navigation',asyn
     s.leaderboard.scope='month';s.leaderboard.metric='wins';s.leaderboard.snapshots.wins=[{accountId:'cached',value:2}];
     f.social.renderRankingsSurface('#rankings-card');f.surfaces.openSurface('#rankings-modal','#rankings-close');
   });
-  const picker=page.locator('#rankings-card [data-ranking-metric]');await expect(picker.locator('option')).toHaveCount(14);
+  const picker=page.locator('#rankings-card [data-ranking-metric]');await expect(picker.locator('option')).toHaveCount(15); // 14 metrics + patrol (PARLOR_PATROL_ENABLED)
   const next=await picker.locator('option').nth(2).getAttribute('value');await picker.selectOption(next);
   await expect(picker).toHaveValue(next);await expect(picker).toBeFocused();
   const state=await page.evaluate(()=>({metric:window.__ipadModalCapture.state.leaderboard.metric,scope:window.__ipadModalCapture.state.leaderboard.scope,cache:window.__ipadModalCapture.state.leaderboard.snapshots.wins,requests:window.__fixRankingRequests}));
@@ -191,7 +191,7 @@ test('F06 direct metric picker retains scope cache and keyboard navigation',asyn
   await shot(page,testInfo,'ranking-picker','Direct metric selection with arrows retained','#rankings-card');await noPageOverflow(page);
 });
 
-test('F07 short flight lists stay compact with a reachable booking action',async({page},testInfo)=>{
+test('short flight lists stay compact with a reachable booking action',async({page},testInfo)=>{
   await fixture(page);
   await page.evaluate(async()=>{
     const f=window.__ipadModalCapture;f.flight=await import('/clientFlightUi.js');

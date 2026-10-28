@@ -14,7 +14,7 @@ To test multiplayer: open two browser tabs (or share the link with a friend), en
 - **CodeScene hotspot refactors:** I wrote many of the original page-specific backends myself. CodeScene flagged some larger or more complex files as hotspots, and I used GPT/Codex to help refactor and split those existing implementations into smaller, focused files. Those modules are often refactorings of my original work, not separate features generated wholesale by AI.
 - **Created by me:** I designed and implemented all of the UI and created all Poorup SVG assets.
 - **Music:** I did not compose the soundtrack. It uses third-party, openly licensed, CC0, or public-domain tracks; sources and license terms are in [the audio credits](public/assets/audio/README.md).
-- **Git history:** I intentionally rewrote the repository history and removed older commits to make the repo cleaner. The current log is not a complete development record.
+- **Git history:** I rewrote the repository history and removed older commits to make the repo cleaner. The current log is not a complete development record.
 
 Development-time AI assistance is separate from the bots available in-game: deterministic NO-AI and configured AI-advisor modes.
 
@@ -44,8 +44,6 @@ npm start
 
 Then open `http://localhost:8080` in your browser (two tabs for a local multiplayer test). A full game needs at least two players; the host starts from the lobby once seats are filled.
 
-For how contributions flow (branches, PRs, CI, reviews), see [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md).
-
 Read the complete rules in the in-game **Rules** surface. Poorup uses Node.js,
 Express, Socket.IO, and a vanilla HTML/CSS/JavaScript client.
 
@@ -54,9 +52,6 @@ Express, Socket.IO, and a vanilla HTML/CSS/JavaScript client.
 Guest play requires no account. Roll, resolve the landed space, and complete any
 required purchase, auction, card, or payment before ending your turn. Build
 evenly across a color group, and use trades or mortgages to manage cash.
-
-See [Privacy & Account Data](/privacy) for account, retention, export, and
-deletion details.
 
 Players have unlimited turn time. A separate inactivity-removal clock and
 vote-kick flow operate during a game.

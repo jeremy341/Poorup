@@ -34,6 +34,7 @@ function seedCaptureState(modules) {
   state.phase = 'playing';
   state.settings.rulesProfile = 'advanced';
   state.settings.playerFinance = true;
+  state.settings.bankLoans = true;
   state.boardVariant = 'standard-40';
   state.settings.auction = false;
   state.settings.trading = true;

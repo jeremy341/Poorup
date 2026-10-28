@@ -1,7 +1,5 @@
 # Search and link previews
 
-What is built in, what you switch on, and what to expect.
-
 ## Switch it on (deploy settings)
 
 Indexing stays off until both of these are set on the server:
@@ -25,7 +23,7 @@ With the two required settings the server serves a `robots.txt` that points at `
 ## After deploying
 
 1. Add the site in Google Search Console and Bing Webmaster Tools, verify it, and submit `https://<your domain>/sitemap.xml`.
-2. Paste the home URL into a link-preview checker (or just a chat app) to see the preview card.
+2. Paste the home URL into a link-preview checker (or a chat app) to see the preview card.
 3. Ask for a re-crawl of `/`, `/about` and `/rules` in Search Console.
 
 ## Pages

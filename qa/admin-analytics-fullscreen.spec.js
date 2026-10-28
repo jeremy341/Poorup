@@ -60,8 +60,6 @@ test.describe('admin analytics window', () => {
     for (const params of urls) for (const dead of ['seasonId', 'eventId', 'rulesetRevision', 'balanceRevision', 'provider']) expect(params.has(dead)).toBe(false);
   });
 
-    // The phone console scrolls as one page (11px operator text is taller), so the pager is brought into view first.
-    await next.scrollIntoViewIfNeeded();
   test('draws its charts without downloading any third-party chart engine', async ({ page }) => {
     const vendorRequests = [];
     page.on('request', request => {

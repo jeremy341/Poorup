@@ -142,9 +142,6 @@ An operator can trigger one bounded pass with `POST /internal/retention/run`
 using `x-poorup-retention-token` (or the maintenance token when no dedicated
 retention token is set). The route is absent when no token is configured.
 
-`/privacy` is the compact factual Privacy & Account Data document. It is not a
-Terms-of-Service route and does not invent operator or mail-provider facts.
-
 `POST /internal/maintenance` is operator-only and requires the
 `x-poorup-maintenance-token` header. Its JSON body accepts `normal`, `draining`,
 or `maintenance`. Draining rejects new rooms, Quick Tables, and round starts
@@ -204,4 +201,4 @@ Account deletion/export scope, session lifetime, legal/support identity and
 copy, analytics retention/disclosure, canonical preview origin/artwork, and
 horizontal persistence are owner decisions. Until each decision has an
 approved contract and source evidence, the corresponding manifest records stay
-`planned` or `deferred`; this document makes no public policy promise for them.
+`planned` or `deferred`, and no public policy promise is made for them.
