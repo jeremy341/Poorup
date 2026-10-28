@@ -1,10 +1,8 @@
 import { OVERVIEW_KPIS } from './clientAnalyticsCatalog.js';
 
-// The six headline tiles. Each shows the number, the change against the previous
-// period when the server sent one, and the real denominator behind a rate. The
-// definition is the tile's title and is also read out to assistive technology.
-// A tile is amber or red only when the server said so (`state`) or sent thresholds
-// to compare against; nothing here invents a limit.
+// The six headline tiles: the number, the change against the previous period (when sent),
+// and the real denominator behind a rate. The definition is the tile title, also read out to AT.
+// Amber or red only when the server says so (`state`) or sends thresholds; nothing invents a limit.
 
 export function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
 
@@ -38,7 +36,7 @@ export function isPercentUnit(unit) { return unit === 'percent' || unit === 'ado
 function scaledPercent(number) { return Math.abs(number) <= 1 ? number * 100 : number; }
 
 function displayValue(value, unit) {
-  if (value === null) return '—';
+  if (value === null) return '-';
   if (isPercentUnit(unit)) return `${numberFormat(scaledPercent(value), 1)}%`;
   if (unit === 'milliseconds') return numberFormat(value, 0);
   if (unit === 'seconds') return numberFormat(value);

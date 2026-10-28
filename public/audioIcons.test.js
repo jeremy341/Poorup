@@ -1,8 +1,6 @@
-// The audio control surfaces (clientAudioControls.js and the header toggle
-// buttons in index.html) load exactly four state icons from /assets. This
-// audit keeps them present, hygiene-clean, and visually consistent: the
-// active state uses the warm parlor palette, the muted state the
-// desaturated one with the red slash.
+// The audio control surfaces (clientAudioControls.js and the header toggle buttons in index.html)
+// load exactly four state icons from /assets. This audit keeps them present, hygiene-clean and
+// visually consistent: active uses the warm parlor palette, muted the desaturated one with a red slash.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

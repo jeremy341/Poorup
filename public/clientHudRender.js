@@ -1,8 +1,5 @@
-/* ============================================================
-   HUD RENDERING: current player, local cash, dice and turn actions.
-   All reads come from
-   clientState; end-of-countdown game actions arrive via hooks.
-   ============================================================ */
+// HUD RENDERING: current player, local cash, dice and turn actions. Reads come from clientState;
+// end-of-countdown game actions arrive via hooks.
 import { $, setHtml, setText } from "./clientDom.js";
 import { state } from "./clientState.js";
 
@@ -69,7 +66,7 @@ function renderHudLobby() {
   if ($("#hud-cash-action")) $("#hud-cash-action").disabled = true;
   setText($("#hud-pool"), "$0");
   stopDiceFaceCycle();
-  setHtml($("#hud-dice"), `<div class="die-blank">—</div><div class="die-blank">—</div>`);
+  setHtml($("#hud-dice"), `<div class="die-blank">-</div><div class="die-blank">-</div>`);
   $("#roll-btn").disabled = true;
   // Matches the rules rail: the host starts from Start Round there, other seats wait for the host.
   setText($("#roll-label"), state.players[0]?.isHost ? "Press Start Round" : "Host Starts Round");
@@ -81,7 +78,7 @@ function renderHudDice(waiting) {
   const container = $("#hud-dice");
   if (waiting) {
     stopDiceFaceCycle();
-    setHtml(container, `<div class="die-blank">—</div><div class="die-blank">—</div>`);
+    setHtml(container, `<div class="die-blank">-</div><div class="die-blank">-</div>`);
     return;
   }
   const animateFaces = state.rolling && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;

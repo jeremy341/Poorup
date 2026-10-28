@@ -1,9 +1,8 @@
 import { ANALYTICS_TABS, resolveTab } from './clientAnalyticsCatalog.js';
 
 // A tablist is a DOM contract: roving tabindex, aria-selected, panel visibility and arrow-key
-// movement. This module owns only that. The console runs two of them (the four surfaces, and the
-// three analytics views); data loading and the URL belong to the console controller, which is
-// told about every change.
+// movement. Only that is owned here. The console runs two of them (the four surfaces and the
+// three analytics views). Data loading and the URL belong to the console controller.
 export const ANALYTICS_PAGES = ANALYTICS_TABS;
 
 export function normalizeAnalyticsPage(page) { return resolveTab(page); }

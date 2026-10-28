@@ -1,7 +1,5 @@
-/* ============================================================
-   BOARD RENDERING: builds the 40 tiles, owner/building marks,
-   and the walking game pieces. Pure view layer over clientState.
-   ============================================================ */
+// BOARD RENDERING: builds the 40 tiles, owner/building marks,
+// and the walking game pieces. Pure view layer over clientState.
 import { $, REDUCED_MOTION, setHtml } from "./clientDom.js";
 import { spriteHTML, avatarHTML } from "./clientSprites.js";
 import {
@@ -213,10 +211,9 @@ function renderTileState(el, tile) {
   el.classList.toggle("is-mortgaged", !!state.mortgaged[tile.i]);
 }
 
-// Ownership pips show the owner's face, not just their color: two seats
-// may share a color once icons (color plus face) are the identity. Markup
-// is memoized by signature exactly like board tokens, so repaints are a
-// cache lookup and any face or color change re-renders by itself.
+// Ownership pips show the owner's face, not just their color: two seats may share a color once
+// the icon (color plus face) is the identity. Markup is memoized by signature like board tokens,
+// so repaints are a cache lookup and any face or color change re-renders by itself.
 function ownerPipMarkup(owner, index) {
   const grid = owner.avatarGrid ? JSON.stringify(owner.avatarGrid) : "";
   return { sig: `${owner.id}:${owner.color}:${index}:${grid}`, markup: avatarHTML(owner, 1, index) };
@@ -497,7 +494,7 @@ function occupantsByPosition() {
 
 function stackOffset(stack, idx, pos, pieceEl) {
   if (Number(pos) === 0 && pieceEl) {
-    // F-080: keep Start tokens clear of the COLLECT / $200 caption.
+    // Keep Start tokens clear of the COLLECT / $200 caption.
     const tile = document.querySelector(`.tile[data-tile="0"]`);
     const caption = tile?.querySelector(".tile-name");
     if (tile && caption) {

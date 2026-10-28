@@ -1,10 +1,8 @@
-/* ============================================================
-   PARLOR SURFACE BINDINGS: the click/submit dispatch handlers for
-   the rankings, social and player-card surfaces (both the in-game
-   modal and the full-page variants) plus the profile player-list.
-   Selector order inside each dispatch chain matches the old
-   if-chain exactly. emitServer and leaveRoomForHome are injected.
-   ============================================================ */
+// PARLOR SURFACE BINDINGS: the click/submit dispatch handlers for
+// the rankings, social and player-card surfaces (both the in-game
+// modal and the full-page variants) plus the profile player-list.
+// Selector order inside each dispatch chain must match the main.js
+// if-chain exactly. emitServer and leaveRoomForHome are injected.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { closeSurface } from "./clientSurfaces.js";

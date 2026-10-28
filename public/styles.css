@@ -1,6 +1,4 @@
-/* ============================================================
-   POORUP — design system tokens
-   ============================================================ */
+/* POORUP: design system tokens */
 @font-face {
   font-family: "Pixelify Sans";
   src: url("/assets/fonts/pixelify-sans-400.woff2") format("woff2");
@@ -146,7 +144,7 @@
   --shadow-inset: inset 0 1px 0 rgb(240 217 172 / 5%);
   --shadow-active: 0 0 8px rgb(200 143 46 / 12%);
 
-  /* F-084: Pixelify Sans fills the uppercase C aperture (reads as O); headings and CTAs use Jersey 15, the logotype keeps Pixelify. */
+  /* Pixelify Sans fills the uppercase C aperture (reads as O); headings and CTAs use Jersey 15, the logotype keeps Pixelify. */
   --font-display: "Jersey 15", "Pixelify Sans", "Courier New", monospace;
   --font-brand: "Pixelify Sans", "Courier New", monospace;
   --font-ui: "Pixelify Sans", "Courier New", monospace;
@@ -191,9 +189,7 @@ a:focus-visible {
   outline-offset: 1px;
 }
 
-/* ============================================================
-   texture / structure helpers
-   ============================================================ */
+/* texture / structure helpers */
 .scanlines {
   position: fixed;
   inset: 0;
@@ -234,11 +230,10 @@ a:focus-visible {
     0 2px 6px rgb(0 0 0 / 38%);
 }
 
-/* ============================================================
-   THEME ENVIRONMENT LAYERS
-   Decorative worlds sit behind the existing Poorup surfaces. They never
-   own input, layout tracks, game state, or semantic status colors.
-   ============================================================ */
+/* THEME ENVIRONMENT LAYERS
+ * Decorative worlds sit behind the existing Poorup surfaces. They never
+ * own input, layout tracks, game state, or semantic status colors.
+ */
 .view { position: relative; z-index: 1; }
 .theme-page-world,
 .theme-home-world,
@@ -348,7 +343,7 @@ a:focus-visible {
 .theme-choice img { display: block; width: 52px; height: 38px; object-fit: cover; image-rendering: pixelated; border: 1px solid var(--line-dark); }
 .theme-choice-copy { display: grid; gap: 4px; min-width: 0; }
 .theme-choice-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
-.theme-choice-description { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-muted); font-family: var(--font-body); font-size: 10px; line-height: 1.25; }
+.theme-choice-description { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-muted); font-family: var(--font-body); font-size: 11px; line-height: 1.25; }
 .theme-choice[aria-checked="true"] .theme-choice-description { color: var(--gold-muted); }
 @media (max-width: 900px) {
   .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -373,48 +368,7 @@ a:focus-visible {
 }
 
 /* Compact global reference music dock. Keep the final control close to the edge. */
-/* ============================================================
-   PRIVACY & ACCOUNT DATA document (privacy.html): a readable column,
-   real link styles, and an internally scrolling main so the body never scrolls.
-   ============================================================ */
-body.privacy-document-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
-.privacy-document-header { flex: 0 0 auto; justify-content: space-between; gap: 12px; }
-.privacy-document-header .hdr-brand { margin-right: auto; text-decoration: none; }
-.privacy-document-header .hdr-brand:hover .hdr-wordmark { color: var(--gold-050); }
-.privacy-back { min-height: 44px; padding: 0 14px; text-decoration: none; }
-main.privacy-page-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 960px; padding: 24px 20px 40px; }
-main.privacy-page-main:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: -2px; }
-.privacy-document { padding: clamp(18px, 3vw, 36px); }
-.privacy-document-intro { display: grid; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid var(--line-subtle); }
-.privacy-document-intro h1 { margin: 0; color: var(--gold-050); font-family: var(--font-display); font-size: clamp(30px, 4.5vw, 44px); font-weight: 400; line-height: 1.05; letter-spacing: 0.02em; }
-.privacy-document-intro p { margin: 0; max-width: 68ch; }
-.privacy-document .t-body { font-size: 15px; line-height: 1.7; }
-.privacy-document .t-micro.ink-3 { font-size: 11px; }
-.privacy-document-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
-.privacy-document-nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; color: var(--gold-100); background: var(--surface-button-dark); border: 1px solid var(--line-control); border-radius: 2px; font: 13px/1 var(--font-ui); text-decoration: none; }
-.privacy-document-nav a:hover { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-button-hover); }
-.privacy-document-body { display: grid; gap: 28px; margin-top: 20px; }
-.privacy-document-body section { display: grid; gap: 10px; scroll-margin-top: 16px; }
-.privacy-document-body h2 { margin: 0; color: var(--gold-100); font-family: var(--font-display); font-size: 24px; font-weight: 400; line-height: 1.15; letter-spacing: 0.03em; text-transform: uppercase; }
-.privacy-document-body p { margin: 0; max-width: 72ch; }
-.privacy-document a:not(.privacy-back):not(.privacy-document-nav a), .privacy-document-footer .text-link { color: var(--gold-100); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; }
-.privacy-document a:hover, .privacy-document-footer .text-link:hover { color: var(--gold-050); }
-.privacy-document a:focus-visible, .privacy-document-footer a:focus-visible, .privacy-back:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 3px; }
-.privacy-retention-table { width: 100%; max-width: 760px; border-collapse: collapse; font-size: 14px; line-height: 1.45; }
-.privacy-retention-table th, .privacy-retention-table td { padding: 10px 12px; text-align: left; vertical-align: top; border: 1px solid var(--line-subtle); }
-.privacy-retention-table thead th { color: var(--gold-300); background: var(--surface-panel-deep); font-family: var(--font-pixel); font-size: 11px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; }
-.privacy-retention-table tbody th { color: var(--gold-100); font-weight: 400; }
-.privacy-retention-table td { color: var(--text-secondary); }
-.privacy-document-footer { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 20px; border-top: 1px solid var(--line-subtle); background: var(--bg-chrome); }
-@media (max-width: 560px) {
-  main.privacy-page-main { padding: 12px 10px 24px; }
-  .privacy-retention-table { font-size: 13px; }
-  .privacy-retention-table th, .privacy-retention-table td { padding: 8px; }
-}
-
-/* ============================================================
-   LEGAL DOCUMENTS - static, policy-gated reading surface
-   ============================================================ */
+/* LEGAL DOCUMENTS - static, policy-gated reading surface */
 .legal-page {
   height: 100%;
   min-height: 100vh;
@@ -505,9 +459,7 @@ main.privacy-page-main:focus-visible { outline: 2px solid var(--theme-focus, var
   padding-inline: 3px;
 }
 
-/* ============================================================
-   LEGAL DOCUMENT SHELL — long-form reading surface
-   ============================================================ */
+/* LEGAL DOCUMENT SHELL: long-form reading surface */
 .legal-shell { height: 100%; min-height: 100dvh; display: flex; flex-direction: column; }
 .legal-header { gap: 14px; }
 .legal-brand { color: inherit; text-decoration: none; }
@@ -633,7 +585,7 @@ main.privacy-page-main:focus-visible { outline: 2px solid var(--theme-focus, var
   .legal-mark::after { left: 8px; top: 6px; }
   .legal-brand .hdr-wordmark { font-size: 26px; }
   .legal-breadcrumb { display: none; }
-  .legal-back { min-height: 40px; padding-inline: 8px; font-size: 10px; }
+  .legal-back { min-height: 40px; padding-inline: 8px; font-size: 11px; }
   .legal-document-main { min-height: auto; overflow: visible; padding: 12px 10px 24px; }
   .legal-hero { padding: 16px; }
   .legal-hero h1 { font-size: 32px; }
@@ -657,9 +609,7 @@ main.privacy-page-main:focus-visible { outline: 2px solid var(--theme-focus, var
 .view { display: flex; flex-direction: column; min-height: 100vh; }
 .view { position: relative; z-index: 1; }
 
-/* ============================================================
-   COSMETIC WORLDS — scenery is always behind the existing controls.
-   ============================================================ */
+/* COSMETIC WORLDS: scenery is always behind the existing controls. */
 .theme-page-world,
 .theme-home-world,
 .theme-board-world {
@@ -752,14 +702,6 @@ main.privacy-page-main:focus-visible { outline: 2px solid var(--theme-focus, var
   body:not(.theme-motion-paused) .view:not(.is-hidden) :is(
     .theme-petal-a,
     .theme-petal-b,
-/* Non-original themes back the home hero statement (kicker, wordmark, tagline, copy, stat tiles) with a scrim so text holds contrast over the scene art. Dark-text themes take a light scrim; light-text themes keep the dark default. */
-body[data-theme-id]:not([data-theme-id="original"]) #view-home .parlor-statement { background: var(--home-statement-scrim, rgb(9 25 26 / 80%)); box-shadow: 0 0 0 12px var(--home-statement-scrim, rgb(9 25 26 / 80%)); }
-body[data-theme-id="spring"] #view-home .parlor-statement { --home-statement-scrim: rgb(239 247 224 / 86%); }
-body[data-theme-id="summer"] #view-home .parlor-statement { --home-statement-scrim: rgb(255 237 185 / 86%); }
-body[data-theme-id="light"] #view-home .parlor-statement { --home-statement-scrim: rgb(228 245 238 / 88%); }
-body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-signal-line { background: rgb(3 12 16 / 92%); }
-/* Home micro labels: 9px is below legible size; scoped to the home view so the global .t-micro stays as is. */
-#view-home .t-micro { font-size: 11px; }
     .theme-snow-a,
     .theme-snow-b,
     .theme-leaves-a,
@@ -773,6 +715,16 @@ body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-signal-line
     .home-house-drift-track
   ) { will-change: transform; }
 }
+/* Disabled until the hero ink is chosen per theme: a light scrim behind light text (spring, summer, light) measures about 1.3:1. */
+/* Non-original themes back the home hero statement (kicker, wordmark, tagline, copy, stat tiles) with a scrim so text holds contrast over the scene art. Dark-text themes take a light scrim; light-text themes keep the dark default.
+body[data-theme-id]:not([data-theme-id="original"]) #view-home .parlor-statement { background: var(--home-statement-scrim, rgb(9 25 26 / 80%)); box-shadow: 0 0 0 12px var(--home-statement-scrim, rgb(9 25 26 / 80%)); }
+body[data-theme-id="spring"] #view-home .parlor-statement { --home-statement-scrim: rgb(239 247 224 / 86%); }
+body[data-theme-id="summer"] #view-home .parlor-statement { --home-statement-scrim: rgb(255 237 185 / 86%); }
+body[data-theme-id="light"] #view-home .parlor-statement { --home-statement-scrim: rgb(228 245 238 / 88%); }
+body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-signal-line { background: rgb(3 12 16 / 92%); }
+*/
+/* Home micro labels: 9px is below legible size; scoped to the home view so the global .t-micro stays as is. */
+#view-home .t-micro { font-size: 11px; }
 /* Four held poses, with a longer first beat; ambient layers ping-pong. */
 @keyframes theme-petal-fall { 0%, 100% { transform: translate3d(0, -6px, 0); } 35% { transform: translate3d(3px, 0, 0); } 55% { transform: translate3d(0, 6px, 0); } 80% { transform: translate3d(-3px, 12px, 0); } }
 @keyframes theme-leaf-fall { 0%, 100% { transform: translate3d(3px, -6px, 0); } 30% { transform: translate3d(0, 0, 0); } 55% { transform: translate3d(-6px, 6px, 0); } 80% { transform: translate3d(-3px, 12px, 0); } }
@@ -840,7 +792,7 @@ body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-patrol-hint
 .theme-choice img { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .theme-choice-copy { display: grid; gap: 4px; min-width: 0; }
 .theme-choice-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
-.theme-choice-description { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-muted); font-family: var(--font-body); font-size: 10px; line-height: 1.25; }
+.theme-choice-description { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-muted); font-family: var(--font-body); font-size: 11px; line-height: 1.25; }
 .theme-choice:has(input:checked) .theme-choice-description { color: var(--gold-muted); }
 .maintenance-banner {
   border-color: var(--line-active);
@@ -888,7 +840,7 @@ body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-patrol-hint
 .maintenance-home[data-maintenance-kind="lockout"] .maintenance-message { font-size: 16px; line-height: 1.4; color: var(--gold-050); overflow-wrap: anywhere; }
 .maintenance-home [data-maintenance-title] { width: fit-content; max-width: 100%; }
 .maintenance-home [data-maintenance-title]:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 4px; }
-/* No sign-in form (not configured): one calm column instead of an empty half. */
+/* No sign-in form (not configured): one calm column, not an empty half. */
 .maintenance-home[data-maintenance-kind="lockout"] .maintenance-card:has(> .maintenance-signin.is-hidden) { grid-template-columns: minmax(0, 1fr); width: min(100%, 600px); }
 .maintenance-note:empty, .maintenance-facts > span:empty { display: none; }
 .maintenance-facts { display: flex; flex-wrap: wrap; gap: 4px 16px; }
@@ -923,10 +875,9 @@ body:not(:has(#view-home:not(.is-hidden))) .operator-chip { display: none; }
   .maintenance-signin-status.is-error { border-color: Highlight; color: CanvasText; }
 }
 /* ---- Operator console (/admin/analytics) -----------------------------------------------
-   A fixed-height shell: header, a row of four surface tabs, then one framed workspace. The
-   document never scrolls. The chart area takes the height that is left; a surface that needs more
-   room than the window gives it (or one list inside it) scrolls, is keyboard reachable, and shows
-   an overflow cue. */
+   Fixed-height shell: header, four surface tabs, then one framed workspace. The document never
+   scrolls. The chart takes the leftover height. A surface or list that needs more room scrolls,
+   stays keyboard reachable and shows an overflow cue. */
 #view-admin-analytics { height: 100dvh; min-height: 0; overflow: hidden; background: transparent; }
 #view-admin-analytics .hdr { border-bottom-color: var(--line-board); }
 #view-admin-analytics .t-micro { font-size: 11px; }
@@ -1020,9 +971,9 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 /* The workspace hugs short content (an empty install, the release card) and fills the window only
    when there is something to draw: a chart, or a rooms list that scrolls. */
 .admin-workspace:has(.admin-panel:not(.is-hidden) .admin-chart-section[data-section-kind="ready"]),
-.admin-provider-action-reason { margin: 0; line-height: 1.45; color: var(--text-muted); }
 .admin-workspace:has(.admin-panel:not(.is-hidden) .admin-chart-section[data-section-kind="loading"][data-has-data="true"]),
 .admin-workspace:has([data-admin-section-panel="rooms"]:not(.is-hidden) [data-rooms-scroll]:not(.is-hidden)) { --fill-basis: 0px; flex: 1 1 0; }
+.admin-provider-action-reason { margin: 0; line-height: 1.45; color: var(--text-muted); }
 .admin-chart-section { flex: 1 1 var(--fill-basis); }
 .admin-chart-section[data-section-kind="ready"] { min-height: 260px; }
 .admin-chart-section > .admin-section-body { display: flex; flex-direction: column; gap: 8px; flex: 1 1 var(--fill-basis); }
@@ -1063,7 +1014,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 .admin-section[data-section="rooms"], .admin-section[data-section="rooms"] > .admin-section-body { flex: 1 1 var(--fill-basis); }
 .admin-rooms-body .admin-scroll { flex: 1 1 var(--fill-basis); max-height: 100%; }
 
-/* Bots & AI: the old provider layout, with one usage line above and a small log below */
+/* Bots & AI: the provider layout, with one usage line above and a small log below */
 .admin-usage-line { display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 0; padding: 8px 12px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
 .admin-usage-line > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .admin-usage-line dt, .admin-usage-line dd { margin: 0; }
@@ -1161,7 +1112,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 
 /* Narrower windows */
 @media (max-width: 1280px) {
-  .pc-svg text { font-size: 10px; }
+  .pc-svg text { font-size: 11px; }
 }
 @media (max-width: 900px) {
   .admin-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -1171,14 +1122,14 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 @media (max-width: 640px) {
   .admin-console { padding: 8px 8px max(10px, env(safe-area-inset-bottom)); gap: 8px; }
   .admin-console-tabs { gap: 4px; padding: 4px; }
-  .admin-console-tab { padding: 0 2px; font-size: 10px; letter-spacing: .02em; }
+  .admin-console-tab { padding: 0 2px; font-size: 11px; letter-spacing: .02em; }
   .admin-workspace { padding: 8px; }
   .admin-toolbar-actions { width: 100%; margin-inline-start: 0; }
   .admin-segmented { flex: 1; }
   .admin-segment { flex: 1; min-width: 0; }
   .admin-toolbar-actions .btn-dark { min-width: 0; }
   .admin-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .analytics-tab { padding: 0 4px; font-size: 10px; }
+  .analytics-tab { padding: 0 4px; font-size: 11px; }
   .admin-provider-form-grid, .admin-release-fields { grid-template-columns: 1fr; }
   .admin-provider-field-wide { grid-column: auto; }
   .admin-provider-row { grid-template-columns: 1fr; align-items: start; }
@@ -1190,7 +1141,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
   .admin-provider-row-actions { justify-content: flex-start; }
   .analytics-chart { padding: 8px; }
   .analytics-chart-engine { min-height: 160px; }
-  .pc-svg text { font-size: 10px; }
+  .pc-svg text { font-size: 11px; }
 }
 /* Very short windows (a 200% zoom, a landscape phone): the whole console is the one scroll surface */
 @media (max-height: 560px) {
@@ -1303,9 +1254,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 .pad16 { padding: 16px; }
 .mt24 { margin-top: 24px; }
 
-/* ============================================================
-   typography
-   ============================================================ */
+/* typography */
 .t-section {
   font-family: var(--font-display);
   font-size: 16px; line-height: 1.2; font-weight: 700;
@@ -1318,13 +1267,13 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 }
 .t-micro {
   font-family: var(--font-pixel);
-  font-size: 9px; line-height: 1.4;
+  font-size: 11px; line-height: 1.4;
   letter-spacing: 0.04em; text-transform: uppercase;
 }
 .t-micro.ink-3,
 .t-micro.g-muted {
   font-family: var(--font-body);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.03em;
 }
 /* Room, sign-in and appearance dialogs: micro labels read at 11px. */
@@ -1402,9 +1351,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 .q-mark { font-family: var(--font-pixel); font-size: 12px; line-height: 1; color: var(--red-bright); }
 .q-lg   { font-size: 30px; }
 
-/* ============================================================
-   controls
-   ============================================================ */
+/* controls */
 .btn-dark {
   display: inline-flex;
   align-items: center;
@@ -1413,7 +1360,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
   background: var(--surface-button-dark);
   border: 1px solid var(--line-control);
   border-radius: 2px;
-  color: var(--gold-300);
+  color: var(--button-dark-label, var(--gold-300));
   transition: border-color 100ms steps(2, end), background 100ms steps(2, end), color 100ms steps(2, end);
 }
 .btn-dark:hover:not(:disabled) { border-color: var(--line-active); color: var(--gold-050); background: var(--surface-button-hover); }
@@ -1480,9 +1427,7 @@ button[id$="-close"],
 .thin-scroll::-webkit-scrollbar-thumb { background: var(--line-subtle); border: 1px solid var(--line-dark); }
 .thin-scroll::-webkit-scrollbar-thumb:hover { background: var(--line-default); }
 
-/* ============================================================
-   animation
-   ============================================================ */
+/* animation */
 @keyframes shake-dice {
   0%   { transform: translate(0, 0) rotate(0deg); }
   25%  { transform: translate(-3px, -2px) rotate(-8deg); }
@@ -1501,9 +1446,7 @@ button[id$="-close"],
 @keyframes boot-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
 .boot-in { animation: boot-in 80ms steps(2, end) both; }
 
-/* ============================================================
-   HEADER (shared chrome)
-   ============================================================ */
+/* HEADER (shared chrome) */
 .hdr, .topnav {
   display: flex;
   align-items: center;
@@ -1639,9 +1582,7 @@ button[id$="-close"],
 .equity-transfer-composer form { display: grid; gap: 10px; padding: 0 12px 12px; }
 .equity-transfer-composer form > button { min-height: 44px; }
 
-/* ============================================================
-   HOME — title screen
-   ============================================================ */
+/* HOME: title screen */
 .home-main { width: 100%; max-width: 1440px; margin: 0 auto; padding: 14px 14px 28px; }
 
 .title-screen {
@@ -1677,7 +1618,7 @@ button[id$="-close"],
   position: absolute; top: calc(5% + 52px); right: clamp(32px, 5vw, 88px); z-index: 3; text-align: right;
   display: inline-flex; align-items: center; justify-content: flex-end; min-height: 44px; padding: 4px 8px;
   border: 1px solid rgb(196 151 74 / 42%); border-radius: 3px; background: rgb(16 20 22 / 82%);
-  font-family: var(--font-numeric); font-size: clamp(10px, 1vw, 13px); letter-spacing: 0.06em;
+  font-family: var(--font-numeric); font-size: clamp(11px, 1vw, 13px); letter-spacing: 0.06em;
   color: var(--gold-muted); text-shadow: 0 2px 0 rgb(0 0 0 / 55%); pointer-events: auto; cursor: pointer; touch-action: manipulation;
 }
 .home-patrol-hint:hover { color: var(--gold-050); border-color: var(--gold-muted); }
@@ -1737,9 +1678,7 @@ button[id$="-close"],
   .home-patrol-smoke.is-burst { animation: none; opacity: 0; transform: none; }
 }
 
-/* ============================================================
-   NIGHT SHIFT — Home-only wave microgame
-   ============================================================ */
+/* NIGHT SHIFT: Home-only wave microgame */
 .night-shift { position: absolute; inset: 0; z-index: 6; pointer-events: none; overflow: hidden; background: transparent; }
 .night-shift-hud {
   position: absolute; inset: 0; z-index: 2;
@@ -1843,8 +1782,8 @@ button[id$="-close"],
   .night-shift-wave-banner.is-announcing { animation: none; opacity: 1; transform: translate3d(-50%, -50%, 0); }
 }
 
-/* Keep one deliberate Home status strip. Legacy dynamic row details remain
-   visually suppressed until their semantic owner is consolidated. */
+/* Keep one Home status strip. Legacy dynamic row details stay visually hidden
+   until their semantic owner is consolidated. */
 #view-game .pr-right,
 .room-state-tag { display: none !important; }
 
@@ -1887,7 +1826,7 @@ button[id$="-close"],
 .pl-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .pl-head-actions .profile-delete { margin-right: 0; }
 .pl-save { min-height: 30px; padding: 0 12px; }
-.pl-save .cta-text { font-size: 10px; }
+.pl-save .cta-text { font-size: 11px; }
 .pl-new { height: 30px; padding: 0 12px; }
 .profile-save-status { min-height: 16px; margin: 4px 0 8px; color: var(--green-status); }
 .pl-list { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1934,14 +1873,12 @@ button[id$="-close"],
 .pl-tile-name { min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-tile-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .pl-tile-actions .btn-dark { height: 24px; padding: 0 8px; }
-.pl-tile-actions .t-label { font-size: 10px; }
+.pl-tile-actions .t-label { font-size: 11px; }
 .pl-tile-actions .pl-delete { color: var(--red-bright); }
 .pl-draft-badge { padding: 3px 5px; border: 1px solid var(--gold-500); white-space: nowrap; }
 .pl-empty { color: var(--text-muted); font-family: var(--font-body); font-size: 12px; padding: 4px 0; }
 
-/* ============================================================
-   DEED DETAIL / HOUSE MANAGER
-   ============================================================ */
+/* DEED DETAIL / HOUSE MANAGER */
 .deed-detail-card { max-width: min(520px, calc(100vw - 32px)); }
 .dd-rail { height: 10px; width: 100%; }
 .dd-body { padding: 16px; }
@@ -2017,7 +1954,7 @@ button[id$="-close"],
 .cr-amount.positive { color: var(--green-status); }
 .cr-amount.negative { color: var(--red-bright); }
 .cr-amount.neutral { color: var(--gold-050); font-size: 16px; }
-.cr-btn { margin-left: auto; padding: 4px 0 0; background: none; border: 0; color: var(--text-muted); letter-spacing: 0.18em; cursor: pointer; }
+.cr-btn { margin-left: auto; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: flex-end; padding: 4px 0 0; background: none; border: 0; color: var(--text-muted); letter-spacing: 0.18em; cursor: pointer; }
 .cr-btn:hover, .cr-btn:focus-visible { color: var(--gold-300); outline: none; text-decoration: underline; text-underline-offset: 4px; }
 #card-reveal .cr-card { aspect-ratio: 3 / 2; display: flex; flex-direction: column; cursor: pointer; }
 .cr-btn:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 1px; }
@@ -2068,7 +2005,7 @@ button[id$="-close"],
   .card-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; }
   .card-gallery-grid .cr-body { padding: 12px 10px; }
   .card-gallery-grid .cr-name { font-size: 13px; }
-  .card-gallery-grid .cr-sequence { font-size: 8px; }
+  .card-gallery-grid .cr-sequence { font-size: 11px; }
 }
 
 /* game over */
@@ -2136,7 +2073,7 @@ button[id$="-close"],
 
 .rm-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; border-bottom: 1px solid var(--line-subtle); }
 .rm-tab { position: relative; min-width: 0; padding: 10px 2px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; transition: background 100ms steps(2, end), color 100ms steps(2, end); cursor: pointer; }
-.rm-tab .t-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: clamp(9px, 1.05vw, 12px); }
+.rm-tab .t-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: clamp(11px, 1.05vw, 12px); }
 .rm-tab.is-active { background: var(--surface-board-hover); color: var(--gold-300); }
 .rm-tab.is-active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--gold-400); }
 
@@ -2185,9 +2122,7 @@ button[id$="-close"],
 .tk-sep { padding-right: 12px; }
 .tk-right { display: none; margin-left: auto; }
 
-/* ============================================================
-   GAME — shell
-   ============================================================ */
+/* GAME: shell */
 .game-main {
   flex: 1;
   display: flex;
@@ -2285,7 +2220,7 @@ button[id$="-close"],
 @media (prefers-reduced-motion: reduce) {
   .dice-roll-total.is-visible { animation: none; opacity: 1; transform: translate(-50%, -50%); }
 }
-.hud-loan-status { display: block; margin-top: 5px; color: var(--red-bright); font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; }
+.hud-loan-status { display: block; margin-top: 5px; color: var(--red-bright); font-family: var(--font-pixel); font-size: 11px; letter-spacing: 0.06em; }
 .board-holder {
   position: relative;
   width: 100%;
@@ -2530,7 +2465,7 @@ button[id$="-close"],
   transform: rotate(7deg);
 }
 
-/* setup overlay — fixed so it centers in the viewport and never clips inside the square board */
+/* setup overlay: fixed so it centers in the viewport and never clips inside the square board */
 .setup-wrap { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .setup-scrim { position: fixed; inset: 0; background: var(--theme-setup-scrim); }
 .setup-card { position: relative; z-index: 2; width: 100%; max-width: 460px; padding: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
@@ -2755,9 +2690,7 @@ button[id$="-close"],
 .prediction-summary-row > div { display: grid; gap: 4px; min-width: 0; }
 .prediction-summary-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ============================================================
-   LOBBY SETTINGS PANEL
-   ============================================================ */
+/* LOBBY SETTINGS PANEL */
 .lobby-section { display: flex; flex-direction: column; gap: 6px; }
 .lobby-section-head {
   display: flex; align-items: center; gap: 8px;
@@ -2778,7 +2711,7 @@ button[id$="-close"],
 }
 .setting-row:hover { background: var(--surface-hover); }
 .setting-label { display: flex; flex-direction: column; gap: 4px; }
-.setting-desc { color: var(--text-muted); font-size: 10px; line-height: 1.4; font-family: var(--font-body); text-transform: none; letter-spacing: 0; }
+.setting-desc { color: var(--text-muted); font-size: 11px; line-height: 1.4; font-family: var(--font-body); text-transform: none; letter-spacing: 0; }
 
 .tog {
   position: relative;
@@ -2938,9 +2871,7 @@ button[id$="-close"],
 }
 .log-n { color: var(--gold-500); }
 
-/* ============================================================
-   tile popup
-   ============================================================ */
+/* tile popup */
 .popup { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .popup-scrim { position: absolute; inset: 0; background: var(--theme-scrim); cursor: pointer; }
 .popup-card { position: relative; z-index: 2; width: 100%; max-width: 440px; overflow: hidden; max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
@@ -2988,8 +2919,8 @@ button[id$="-close"],
 .rules-index-link:hover { color: var(--gold-100); background: var(--surface-button-dark); }
 .rules-index-link.is-active { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); }
 .rules-index-link.is-filtered { display: none; }
-.rules-index-number { color: var(--gold-400); font-family: var(--font-numeric); font-size: 10px; }
-.rules-status { display: inline-flex; align-items: center; min-height: 19px; padding: 2px 5px; font-family: var(--font-body); font-size: 8px; line-height: 1; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--line-subtle); }
+.rules-index-number { color: var(--gold-400); font-family: var(--font-numeric); font-size: 11px; }
+.rules-status { display: inline-flex; align-items: center; min-height: 19px; padding: 2px 5px; font-family: var(--font-body); font-size: 11px; line-height: 1; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--line-subtle); }
 .rules-status-live { color: var(--green-status); border-color: rgb(53 166 83 / 55%); }
 .rules-status-planned { color: var(--gold-300); border-color: var(--line-active); }
 .rules-section-list { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -3007,7 +2938,7 @@ button[id$="-close"],
 .rules-steps { padding: 0; list-style: none; }
 .rules-steps li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
 .rules-steps p { margin-top: 4px; }
-.rules-step-number { color: var(--gold-400); font-family: var(--font-numeric); font-size: 10px; }
+.rules-step-number { color: var(--gold-400); font-family: var(--font-numeric); font-size: 11px; }
 .rules-callout, .rules-warning, .rules-planned, .rules-inline-note { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
 .rules-warning { border-color: var(--red-dark); }
 .rules-warning .t-micro { color: var(--red-bright); }
@@ -3016,7 +2947,7 @@ button[id$="-close"],
 .rules-board-order { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .rules-board-order > div, .rules-term-grid > div, .rules-settings-table > div { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
 .rules-term-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.rules-code-flow { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; padding: 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); color: var(--gold-100); font-family: var(--font-numeric); font-size: 10px; letter-spacing: 0.08em; }
+.rules-code-flow { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; padding: 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); color: var(--gold-100); font-family: var(--font-numeric); font-size: 11px; letter-spacing: 0.08em; }
 .rules-code-flow i { color: var(--gold-400); font-style: normal; }
 .rules-settings-table { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .rules-settings-table .t-body, .rules-term-grid .t-body { color: var(--text-secondary); }
@@ -3078,7 +3009,7 @@ button[id$="-close"],
 .social-player-avatar { width: 38px; height: 38px; flex: 0 0 38px; display: grid; place-items: center; border: 1px solid var(--line-default); }
 .social-player-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .social-player-main strong, .social-player-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.social-player-open { min-height: 32px; padding: 0 9px; flex-shrink: 0; }
+.social-player-open { min-height: 44px; padding: 0 9px; flex-shrink: 0; }
 .social-request-row, .social-invite-row, .social-notification-row { display: grid; gap: 7px; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .social-request-actions { display: flex; gap: 7px; }
 .social-request-actions button { min-height: 34px; padding: 0 10px; }
@@ -3161,7 +3092,7 @@ button[id$="-close"],
 .rankings-stage:focus-visible { outline: 2px solid var(--gold-300); outline-offset: -2px; }
 .rankings-stage .ranking-list { flex: 1; min-height: 0; max-height: none; padding: 12px 14px 16px; overflow-y: auto; overscroll-behavior: contain; }
 .ranking-scopes { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 14px 0; }
-.ranking-scope { min-height: 30px; padding: 4px 8px; color: var(--text-muted); background: transparent; border: 1px solid var(--line-subtle); cursor: pointer; }
+.ranking-scope { min-height: 44px; padding: 4px 8px; color: var(--text-muted); background: transparent; border: 1px solid var(--line-subtle); cursor: pointer; }
 .ranking-scope.is-active { color: var(--gold-100); border-color: var(--gold-300); background: rgba(217,166,47,.08); }
 .rankings-main-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; flex: 1; min-height: 0; }
 .social-network-rail, .social-feed, .social-context { min-height: 0; overflow: hidden; }
@@ -3189,7 +3120,7 @@ button[id$="-close"],
 .social-rail-head { padding: 2px 2px 10px; }
 .social-rail-nav { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .social-rail-nav .social-tab { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 42px; padding: 0 10px; text-align: left; }
-.social-tab-count { min-width: 21px; padding: 2px 5px; color: var(--gold-300); font-family: var(--font-numeric); font-size: 9px; text-align: center; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.social-tab-count { min-width: 21px; padding: 2px 5px; color: var(--gold-300); font-family: var(--font-numeric); font-size: 11px; text-align: center; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .social-tab.is-active .social-tab-count { color: var(--gold-050); border-color: var(--line-active); }
 .social-feed { display: flex; flex-direction: column; background: var(--surface-panel); border-color: var(--line-subtle); }
 .social-feed:focus-visible { outline: 2px solid var(--gold-300); outline-offset: -2px; }
@@ -3334,9 +3265,7 @@ button[id$="-close"],
 .pop-buy { width: 100%; height: 56px; }
 .cta-text-sm { font-size: 14px; }
 
-/* ============================================================
-   trade tab (player list)
-   ============================================================ */
+/* trade tab (player list) */
 .trade-player-row {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 12px;
@@ -3354,9 +3283,7 @@ button[id$="-close"],
 .trade-player-row .btn-dark { height: 32px; padding: 0 12px; flex-shrink: 0; }
 .trade-player-row .btn-dark:disabled { opacity: 0.5; }
 
-/* ============================================================
-   trade modal
-   ============================================================ */
+/* trade modal */
 .trade-card { max-width: 660px; padding: 0; }
 .trade-body { padding: 16px; }
 .trade-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -3390,7 +3317,7 @@ button[id$="-close"],
 .trade-deed:hover { background: var(--surface-hover); }
 .trade-deed.is-selected { border: 2px solid var(--line-active); background: var(--surface-selected); box-shadow: var(--shadow-active); }
 .trade-deed.is-mortgaged { opacity: 0.45; cursor: not-allowed; }
-.trade-deed.is-mortgaged .trade-deed-name::after { content: " · MTG"; color: var(--red-bright); font-size: 9px; }
+.trade-deed.is-mortgaged .trade-deed-name::after { content: " · MTG"; color: var(--red-bright); font-size: 11px; }
 .trade-deed-rail { width: 8px; height: 22px; flex-shrink: 0; border-radius: 1px; }
 .trade-deed-name { flex: 1; min-width: 0; font-family: var(--font-ui); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trade-deed-price { flex-shrink: 0; font-family: var(--font-numeric); font-size: 12px; font-weight: 700; color: var(--gold-300); }
@@ -3411,13 +3338,12 @@ button[id$="-close"],
 .trade-send { flex: 1; height: 52px; }
 .trade-cancel { height: 52px; padding: 0 20px; }
 
-/* ============================================================
-   forced BUY / AUCTION choice
-   ============================================================ */
+/* forced BUY / AUCTION choice */
 .popup-scrim-locked { cursor: not-allowed; }
 .choice-card { max-width: 420px; overflow: hidden; }
 .choice-body { padding: 16px; }
 .choice-head { display: flex; align-items: flex-start; gap: 14px; }
+.choice-dismiss { flex: 0 0 auto; min-width: 44px; min-height: 44px; margin: -6px -6px 0 0; padding: 0; }
 .choice-icon {
   width: 60px; height: 60px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -3426,16 +3352,14 @@ button[id$="-close"],
 .choice-title { margin-top: 6px; font-size: 17px; line-height: 1.2; color: var(--gold-100); }
 .choice-copy { margin-top: 14px; }
 .choice-rows { margin-top: 12px; display: grid; gap: 8px; }
-.choice-actions { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.choice-actions { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 10px; }
 .choice-btn { height: 64px; flex-direction: column; gap: 4px; }
 .choice-btn .t-label { font-size: 14px; }
 .choice-btn .t-micro { color: var(--text-muted); }
 .choice-buy .t-micro { color: var(--cta-label-muted); }
 .choice-note { margin-top: 12px; text-align: center; }
 
-/* ============================================================
-   live AUCTION
-   ============================================================ */
+/* live AUCTION */
 .auction-card { max-width: 460px; overflow: hidden; }
 .auction-rail { height: 10px; width: 100%; }
 .auction-body { padding: 16px; }
@@ -3490,9 +3414,7 @@ button[id$="-close"],
 .auction-bid-btn[aria-disabled="true"]:active { cursor: not-allowed; border-color: var(--gold-800); background: var(--surface-disabled); color: var(--text-primary); transform: none; }
 .auction-foot { margin-top: 14px; text-align: center; }
 
-/* ============================================================
-   responsive
-   ============================================================ */
+/* responsive */
 @media (min-width: 640px) {
   .tk-right { display: flex; }
   .trade-cols { grid-template-columns: 1fr 1fr; }
@@ -3600,7 +3522,7 @@ button[id$="-close"],
   #view-home .title-screen { flex: 0 0 auto; min-height: 0; }
 }
 
-/* F-054: non-touch landscape windows between 768 and 1279 px get the same bounded
+/* Non-touch landscape windows between 768 and 1279 px get the same bounded
    three-column shell as desktop: the document never scrolls, the rails scroll
    internally, and the board and Roll stay on the first screen. */
 @media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) and (not ((hover: none) and (pointer: coarse))) {
@@ -3654,7 +3576,7 @@ button[id$="-close"],
   #view-game .hud .die { width: 28px; height: 28px; padding: 4px; }
 }
 
-/* F-086: at the 1920x1080 design target the board has room for larger tile captions. */
+/* Board tile captions: at the 1920x1080 design target the board has room for larger captions. */
 @media (min-width: 1800px) {
   .tile-name { font-size: clamp(9px, 1.3cqw, 14px); }
   .tile-price { font-size: clamp(10px, 1.35cqw, 15px); }
@@ -3738,9 +3660,7 @@ button[id$="-close"],
   #view-game.is-left-rail-hidden.is-right-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 0; }
 }
 
-/* ============================================================
-   PROFILE EDITOR VIEW
-   ============================================================ */
+/* PROFILE EDITOR VIEW */
 .profile-back { cursor: pointer; }
 .profile-back-arrow {
   font-family: var(--font-display);
@@ -4039,9 +3959,7 @@ button[id$="-close"],
   }
 }
 
-/* ============================================================
-   HOME + PROFILE DESKTOP PASS
-   ============================================================ */
+/* HOME + PROFILE DESKTOP PASS */
 .home-nav {
   display: none;
   align-items: center;
@@ -4163,7 +4081,7 @@ button[id$="-close"],
 }
 .profile-tab:hover { color: var(--gold-100); background: var(--surface-button-dark); }
 .profile-tab.is-active { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); }
-.profile-tab-count { display: inline-block; margin-left: 6px; color: var(--gold-400); font-family: var(--font-numeric); font-size: 9px; }
+.profile-tab-count { display: inline-block; margin-left: 6px; color: var(--gold-400); font-family: var(--font-numeric); font-size: 11px; }
 .profile-tab-panel { margin-top: 16px; animation: profile-panel-in 160ms ease-out both; }
 @keyframes profile-panel-in { from { opacity: 0.55; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .profile-overview-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 16px; }
@@ -4226,9 +4144,7 @@ button[id$="-close"],
   .theme-choice:has(input:checked), .theme-track-choice:has(input:checked) { outline: 2px solid Highlight; }
 }
 
-/* ============================================================
-   PROFILE — ACHIEVEMENT DECK
-   ============================================================ */
+/* PROFILE: ACHIEVEMENT DECK */
 .achievements-panel { border-color: var(--line-board); display: flex; flex-direction: column; max-height: min(720px, max(280px, calc(100vh - 410px))); overflow: hidden; }
 .achievements-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .achievements-intro h2 { margin-top: 7px; color: var(--gold-050); }
@@ -4285,9 +4201,7 @@ button[id$="-close"],
 .achievement-detail-note { margin-top: 12px; color: var(--gold-muted); }
 .achievement-detail-close { width: 100%; min-height: 46px; margin-top: 18px; }
 
-/* ============================================================
-   PROFILE — STATISTICS DECK
-   ============================================================ */
+/* PROFILE: STATISTICS DECK */
 .stats-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 16px; border-color: var(--line-board); }
 .stats-intro h2 { margin-top: 7px; color: var(--gold-050); }
 .stats-intro .t-body { max-width: 66ch; margin-top: 10px; }
@@ -4299,7 +4213,7 @@ button[id$="-close"],
 .profile-stats-kpi strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .profile-stats-categories { margin-top: 12px; border: 1px solid var(--line-subtle); background: var(--surface-panel); }
 .profile-stat-tabs, .profile-history-detail-tabs { display: flex; gap: 4px; min-height: 42px; padding: 4px; overflow-x: auto; background: var(--surface-panel-deep); border-bottom: 1px solid var(--line-subtle); scrollbar-width: thin; }
-.profile-stat-tab, .profile-history-detail-tabs button { flex: 0 0 auto; min-width: 100px; min-height: 36px; padding: 0 12px; color: var(--text-secondary); border: 1px solid transparent; background: transparent; font-family: var(--font-pixel); font-size: 10px; }
+.profile-stat-tab, .profile-history-detail-tabs button { flex: 0 0 auto; min-width: 100px; min-height: 36px; padding: 0 12px; color: var(--text-secondary); border: 1px solid transparent; background: transparent; font-family: var(--font-pixel); font-size: 11px; }
 .profile-stat-tab:hover, .profile-stat-tab.is-active, .profile-history-detail-tabs button[aria-selected="true"] { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); }
 .profile-stat-tab-panel { max-height: min(38dvh, 360px); min-height: 82px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .profile-stat-tab-panel[hidden], .profile-history-details[hidden], .profile-history-details [role="tabpanel"][hidden] { display: none; }
@@ -4331,7 +4245,7 @@ button[id$="-close"],
 .profile-history-toggle-label.is-static { min-width: 0; border-color: transparent; background: transparent; }
 .profile-history-details { border-top: 1px solid var(--line-subtle); }
 .profile-history-detail-tabs { min-height: 38px; }
-.profile-history-detail-tabs button { min-width: 80px; min-height: 32px; font-size: 9px; }
+.profile-history-detail-tabs button { min-width: 80px; min-height: 32px; font-size: 11px; }
 .profile-detail-scroll { max-height: min(52dvh, 460px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .profile-history-details [role="tabpanel"] { padding: 10px; }
 .profile-history-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin: 0; }
@@ -4374,9 +4288,7 @@ button[id$="-close"],
 }
 .pop-icon .board-icon-mark { width: 48px; }
 
-/* ============================================================
-   FINANCING UI MODEL
-   ============================================================ */
+/* FINANCING UI MODEL */
 .right-rail .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .finance-rail-intro { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line-subtle); }
 .finance-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
@@ -4463,7 +4375,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .casino-form fieldset { border: 0; padding: 0; margin: 0; }
 .casino-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 6px; }
 .casino-choice { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 38px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); cursor: pointer; }
-.casino-choice-odds { font: 500 9px var(--font-numeric); color: var(--text-muted); letter-spacing: 0.02em; }
+.casino-choice-odds { font: 500 11px var(--font-numeric); color: var(--text-muted); letter-spacing: 0.02em; }
 .casino-choice:has(input:checked) { border-color: var(--gold-300); box-shadow: inset 0 -2px 0 var(--gold-300); }
 .casino-choice input { position: absolute; opacity: 0; pointer-events: none; }
 .casino-choice-red:has(input:checked) { color: var(--red-bright); }
@@ -4529,7 +4441,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .market-row strong { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .market-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .market-advanced-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(74px, 1fr)); gap: 4px; margin: -3px 0 4px; }
-.market-advanced-actions button { min-height: 26px; padding: 0 5px; color: var(--gold-300); font-family: var(--font-pixel); font-size: 8px; }
+.market-advanced-actions button { min-height: 26px; padding: 0 5px; color: var(--gold-300); font-family: var(--font-pixel); font-size: 11px; }
 .market-expansion-toolbar, .market-derivative-fields { display: grid; gap: 6px; margin-top: 8px; }
 .market-expansion-toolbar { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
 .market-derivative-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -4558,11 +4470,11 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .market-quote-chart { display: block; width: 100%; height: 250px; min-height: 190px; overflow: hidden; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
 .market-history-empty { margin: 0; padding: 12px; color: var(--text-muted); border: 1px dashed var(--line-subtle); }
 .market-advanced-settings { min-width: 0; margin-top: 0; padding: 8px; border: 1px solid var(--line-subtle); background: var(--surface-panel); }
-.market-advanced-settings > summary, .market-advanced-disclosure > summary { min-height: 36px; align-content: center; color: var(--gold-300); cursor: pointer; font: 9px var(--font-pixel); }
+.market-advanced-settings > summary, .market-advanced-disclosure > summary { min-height: 36px; align-content: center; color: var(--gold-300); cursor: pointer; font: 11px var(--font-pixel); }
 .market-advanced-disclosure { min-width: 0; }
 .market-advanced-disclosure .market-desk-actions { margin-top: 5px; }
 .market-advanced-settings summary:focus-visible, .market-advanced-disclosure summary:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 2px; }
-.market-derivatives-unavailable { grid-column: 1 / -1; padding: 7px; color: var(--text-muted); border: 1px solid var(--line-subtle); font: 10px/1.4 var(--font-pixel); }
+.market-derivatives-unavailable { grid-column: 1 / -1; padding: 7px; color: var(--text-muted); border: 1px solid var(--line-subtle); font: 11px/1.4 var(--font-pixel); }
 .market-desk-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin-top: 10px; }
 .market-desk-tools label, .market-desk-option-fields label { display: grid; gap: 5px; }
 .market-desk-tools button { min-height: 44px; padding: 0 12px; }
@@ -4610,7 +4522,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .market-order-side { min-width: 0; margin: 0; padding: 0; border: 0; }
 .market-order-side legend { margin-bottom: 5px; }
 .market-order-side > div { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line-subtle); background: var(--surface-panel); }
-.market-order-side-button { min-height: 44px; color: var(--text-muted); border: 1px solid transparent; background: transparent; font: 10px var(--font-pixel); }
+.market-order-side-button { min-height: 44px; color: var(--text-muted); border: 1px solid transparent; background: transparent; font: 11px var(--font-pixel); }
 .market-order-side-button.is-active { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); box-shadow: inset 0 -2px 0 var(--gold-300); }
 .market-order-side-button:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 2px; }
 .market-order-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 8px 10px; min-height: 96px; margin: 0; padding: 11px; color: var(--gold-100); border: 1px solid var(--line-subtle); background: var(--surface-panel); font: 10px/1.45 var(--font-numeric); font-variant-numeric: tabular-nums; }
@@ -4819,7 +4731,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .financing-contract-grid strong,
 .financing-rights-grid strong { font-variant-numeric: tabular-nums; }
 .financing-checkpoints { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
-.financing-checkpoints > span { padding: 8px; color: var(--text-muted); background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); font-family: var(--font-pixel); font-size: 7px; line-height: 1.4; }
+.financing-checkpoints > span { padding: 8px; color: var(--text-muted); background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); font-family: var(--font-pixel); font-size: 11px; line-height: 1.4; }
 .financing-checkpoints > span.is-paid { color: var(--green-status); border-color: rgb(53 166 83 / 55%); }
 .financing-surface-copy { max-width: 68ch; margin-top: 16px; }
 .financing-surface-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
@@ -4839,7 +4751,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .financing-default-actions > button { min-height: 44px; width: 100%; }
 .financing-number { position: relative; display: flex; align-items: center; }
 .financing-number input { width: 100%; padding-right: 66px; font-variant-numeric: tabular-nums; }
-.financing-number > span { position: absolute; right: 11px; color: var(--gold-500); font-family: var(--font-pixel); font-size: 8px; pointer-events: none; }
+.financing-number > span { position: absolute; right: 11px; color: var(--gold-500); font-family: var(--font-pixel); font-size: 11px; pointer-events: none; }
 .financing-check { display: flex; align-items: center; gap: 9px; min-height: 34px; color: var(--text-muted); cursor: pointer; }
 .financing-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--gold-400); }
 .financing-field input[type="range"] { appearance: none; width: 100%; height: 24px; margin: 2px 0; padding: 0; background: transparent; cursor: pointer; }
@@ -5019,9 +4931,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .home-main { max-width: 2520px; }
 }
 
-/* ============================================================
-   PARLOR DESK HOMEPAGE COMPOSITION
-   ============================================================ */
+/* PARLOR DESK HOMEPAGE COMPOSITION */
 .parlor-desk-grid {
   display: flex;
   flex-direction: column;
@@ -5079,9 +4989,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #view-home .home-entry-desk { zoom: 1.25; }
 }
 
-/* ============================================================
-   MORTGAGE + TILE STATE VISUALS
-   ============================================================ */
+/* MORTGAGE + TILE STATE VISUALS */
 .tile.is-mortgaged .tile-name,
 .tile.is-mortgaged .tile-price,
 .tile.is-mortgaged .tile-icon { opacity: 0.45; }
@@ -5102,9 +5010,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .tile-build.side-right { right: 2px; top: 0; bottom: 0; flex-direction: column; justify-content: center; }
 .deed-mtg { margin-top: 6px; }
 
-/* ============================================================
-   AUCTION BIDDER LIST
-   ============================================================ */
+/* AUCTION BIDDER LIST */
 .auction-players { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
 .auction-player {
   display: flex; align-items: center; gap: 8px;
@@ -5118,9 +5024,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .ap-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .ap-st { font-size: 11px; }
 
-/* ============================================================
-   OFFER INBOX
-   ============================================================ */
+/* OFFER INBOX */
 .offer-card { max-width: 460px; overflow: hidden; }
 .offer-rail { height: 10px; width: 100%; }
 .offer-body { padding: 16px; }
@@ -5133,9 +5037,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .offer-note { margin-top: 12px; text-align: center; }
 @media (max-width: 480px) { .offer-actions { grid-template-columns: 1fr; } }
 
-/* ============================================================
-   BANKRUPTCY
-   ============================================================ */
+/* BANKRUPTCY */
 .bank-body { position: relative; padding: 16px; }
 .bank-dismiss { position: absolute; top: 14px; right: 14px; min-height: 36px; padding: 0 10px; }
 .bank-head { display: flex; align-items: center; gap: 12px; padding-right: 72px; }
@@ -5153,9 +5055,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .hdr-retire:hover:not(:disabled) { border-color: var(--red-action-hover); }
 .hdr-retire:active:not(:disabled) { background: var(--red-action-pressed); }
 
-/* ============================================================
-   LOG DRAWER
-   ============================================================ */
+/* LOG DRAWER */
 .log-drawer {
   position: absolute; inset: 0; z-index: 4;
   width: auto;
@@ -5193,9 +5093,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .hdr-right { gap: 6px; min-width: 0; }
 }
 
-/* ============================================================
-   CREATE ROOM PANEL
-   ============================================================ */
+/* CREATE ROOM PANEL */
 .rc-form { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
 .rc-field { display: block; }
 .rc-field .t-label { display: block; margin-bottom: 6px; }
@@ -5250,12 +5148,10 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .cta-red { background: ButtonFace; color: ButtonText; border-color: CanvasText; }
 }
 
-/* ============================================================
-   LANDSCAPE TABLET DESK — iPad-first composition
-   The board is the primary surface on landscape iPad touch profiles through 1399px.
-   Keep the live round inside the viewport; rails and focused work scroll
-   internally instead of turning the game into a long document.
-   ============================================================ */
+/* LANDSCAPE TABLET DESK: iPad-first composition
+ * The board is the primary surface on landscape iPad touch profiles through 1399px.
+ * Rails and focused work scroll internally, so the live round stays in the viewport.
+ */
 @media (orientation: landscape) and (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {
   html,
   body { min-height: 100%; overflow-x: hidden; }
@@ -5454,7 +5350,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #view-game #hud-cash-action #hud-cash { flex: 1 1 auto; min-width: 0; font-size: clamp(16px, 1.5vw, 18px); }
   #view-game #hud-cash-action [data-sprite="note"] { display: none; }
   #view-game .hud-name { font-size: 20px; }
-  #view-game .hud-note { margin-top: 4px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #view-game .hud-note { margin-top: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #view-game .t-money { font-size: 24px; }
   #view-game .pool-val { font-size: 20px; }
   #view-game .tile-name { font-size: clamp(7px, .95cqw, 9.5px); }
@@ -5607,7 +5503,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .global-event-ribbon-label,
 .global-event-ribbon-cue {
   font-family: var(--font-pixel);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   white-space: nowrap;
 }
@@ -5674,7 +5570,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   letter-spacing: 0.08em;
   color: var(--event-accent, var(--gold-300));
   font-family: var(--font-pixel);
-  font-size: 8px;
+  font-size: 11px;
 }
 .global-event-status-group {
   display: flex;
@@ -5691,7 +5587,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   border: 1px solid var(--line-subtle);
   border-radius: 2px;
   font-family: var(--font-numeric);
-  font-size: 8px;
+  font-size: 11px;
   color: var(--event-accent, var(--gold-300));
   white-space: nowrap;
 }
@@ -5710,7 +5606,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   border-radius: 2px;
   color: var(--gold-100);
   font-family: var(--font-pixel);
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   cursor: pointer;
   transition: background 100ms steps(2, end), border-color 100ms steps(2, end), transform 60ms ease;
@@ -5749,7 +5645,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .global-event-copy {
   margin-top: 2px;
   color: var(--gold-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.3;
 }
 .global-event-effects {
@@ -5769,7 +5665,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   border-radius: 2px;
   letter-spacing: 0.04em;
   font-family: var(--font-numeric);
-  font-size: 8px;
+  font-size: 11px;
 }
 .global-event-trend {
   display: inline-flex;
@@ -5800,7 +5696,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   background: var(--surface-button-dark);
   border: 1px solid var(--line-default);
   font-family: var(--font-pixel);
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   cursor: pointer;
   border-radius: 2px;
@@ -5838,7 +5734,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 }
 .global-event-compact-title {
   font-family: var(--font-display);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--gold-050);
   white-space: nowrap;
@@ -5850,7 +5746,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   flex: 0 0 auto;
   color: var(--gold-300);
   font-family: var(--font-numeric);
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
@@ -5871,7 +5767,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   border: 1px solid var(--line-subtle);
   border-radius: 2px;
   font-family: var(--font-numeric);
-  font-size: 7px;
+  font-size: 11px;
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
@@ -5888,7 +5784,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   border: 1px solid var(--gold-400);
   border-radius: 2px;
   font-family: var(--font-pixel);
-  font-size: 7px;
+  font-size: 11px;
   cursor: pointer;
 }
 .global-event-compact-vote.is-hidden {
@@ -5965,7 +5861,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
     #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
     #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
-    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-micro { font-size: 10px; }
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-micro { font-size: 11px; }
   :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
     #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
     #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
@@ -6137,11 +6033,10 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   #market-modal .market-order-breakdown { gap: 6px 8px; min-height: 82px; padding: 9px; }
 }
 
-/* ============================================================
-   TOUCH TABLET EXTERNAL PAGES — iPad-first reading layout
-   Keep the desktop desk intact; use one intentional vertical scroller
-   per active page and progressively disclose secondary controls.
-   ============================================================ */
+/* TOUCH TABLET EXTERNAL PAGES: iPad-first reading layout
+ * Keep the desktop desk intact. Each active page gets one vertical scroller,
+ * and secondary controls are disclosed progressively.
+ */
 .rankings-search-toggle,
 .rankings-view-tabs,
 .rules-chapters-toggle,
@@ -6245,3 +6140,38 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 /* Economy venues (wallet, market, casino, sponsorship, global events): micro captions read at 11px.
    Scoped here so the global .t-micro rule and every other surface keep their 9px size. */
 :is(#wallet-modal, #market-modal, #casino-modal, #sponsorship-modal, #global-event-banner) :is(.t-micro, .t-micro.ink-3) { font-size: 11px; }
+
+/* Metro has twelve spaces per side, so its captions and artwork must fit
+   the smaller cells independently of the standard board's sizing. */
+.is-metro .tile:not(.is-corner) .tile-name,
+.is-metro .tile-face-special .tile-name { font-size: clamp(6px, 1cqw, 10px); }
+.is-metro .tile-price { font-size: clamp(6px, 1cqw, 10px); }
+.is-metro .airport-mark { width: clamp(14px, 2.6cqw, 24px); }
+.is-metro .board-icon-chest,
+.is-metro .tile-icon-large .board-icon-chest { width: clamp(20px, 4cqw, 36px); }
+.is-metro .board-icon-surprise,
+.is-metro .tile-icon-large .board-icon-surprise { width: clamp(24px, 5cqw, 44px); }
+.is-metro .tile-face-special { gap: 2px; }
+
+/* Reserve a band for the optional Patrol button above the Home desk. */
+@media (min-width: 1280px) and (max-height: 850px) {
+  #view-home .title-screen:has(.home-patrol-hint:not([hidden])) .parlor-desk-grid {
+    padding-top: 120px;
+  }
+}
+
+/* During Night Shift the clock and score occupy opposite ends of the HUD. */
+@media (min-width: 768px) and (orientation: landscape) {
+  .night-shift-open #view-home .home-local-time {
+    left: clamp(32px, 5vw, 88px);
+    right: auto;
+  }
+  .night-shift-open #view-home .home-patrol-score {
+    font-size: clamp(14px, 2vw, 32px);
+  }
+}
+
+#financing-modal .financing-mode-tab:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 2px;
+}

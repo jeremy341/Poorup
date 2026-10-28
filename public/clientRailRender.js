@@ -1,8 +1,6 @@
-/* ============================================================
-   RIGHT RAIL: holdings/deals/activity panel plus the live player-contract
-   rail. Complex computations stay in small helpers so every tab renders from
-   the same server snapshot.
-   ============================================================ */
+// RIGHT RAIL: holdings/deals/activity panel plus the live player-contract
+// rail. Complex computations stay in small helpers so every tab renders from
+// the same server snapshot.
 import { $, esc, setHtml, setText } from "./clientDom.js";
 import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { TILES } from "./clientBoardData.js";
@@ -74,7 +72,7 @@ function bankLoanActionHTML(loan, offer, disabled) {
 
 function activeLoanMetrics(loan) {
   const remaining = `$${Number(loan.remaining || 0).toLocaleString()}`;
-  const dueRound = loan.dueRound || "—";
+  const dueRound = loan.dueRound || "-";
   const collateral = loan.collateralName || "NONE";
   return [["STATUS", String(loan.status).toUpperCase()], ["REMAINING", remaining], ["DUE ROUND", dueRound], ["COLLATERAL", collateral]];
 }
@@ -83,8 +81,8 @@ function offerMetrics(offer) {
   const advance = `$${Number(offer.principal || 0).toLocaleString()}`;
   const totalDue = `$${Number(offer.totalDue || 0).toLocaleString()}`;
   const collateral = offer.collateralName || "NONE";
-  const interestRate = Number(offer.principal) > 0 ? `${(Number(offer.premium || 0) / Number(offer.principal) * 100).toFixed(0)}%` : "—";
-  return [["ADVANCE", advance], ["INTEREST", `$${Number(offer.premium || 0).toLocaleString()} · ${interestRate}`], ["TOTAL DUE", totalDue], ["DUE ROUND", offer.dueRound ?? "—"], ["CURE ROUND", offer.cureRound ?? "—"], ["SEVERITY", String(offer.severity || "—").toUpperCase()], ["COLLATERAL", collateral]];
+  const interestRate = Number(offer.principal) > 0 ? `${(Number(offer.premium || 0) / Number(offer.principal) * 100).toFixed(0)}%` : "-";
+  return [["ADVANCE", advance], ["INTEREST", `$${Number(offer.premium || 0).toLocaleString()} · ${interestRate}`], ["TOTAL DUE", totalDue], ["DUE ROUND", offer.dueRound ?? "-"], ["CURE ROUND", offer.cureRound ?? "-"], ["SEVERITY", String(offer.severity || "-").toUpperCase()], ["COLLATERAL", collateral]];
 }
 
 function bankLoanMetrics(loan, offer) {
@@ -94,7 +92,7 @@ function bankLoanMetrics(loan, offer) {
 }
 
 function paidLoanCopy(loan) {
-  const paidRound = loan.paidRound || "—";
+  const paidRound = loan.paidRound || "-";
   return `PAID IN ROUND ${paidRound} · You may qualify for emergency credit again when cash is low.`;
 }
 
@@ -446,7 +444,7 @@ function contractHybridDetailHTML(contract) {
 }
 
 // Third-party rows are redacted server-side (no amounts), so they render a
-// neutral status line instead of garbage zeros.
+// neutral status line, not garbage zeros.
 function contractDetailRedacted(contract) {
   if (contract.remaining != null) return false;
   return contract.equityShare == null;

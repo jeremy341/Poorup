@@ -1,10 +1,6 @@
-/* ============================================================
-   LOBBY UI: the setup-overlay appearance chooser, the lobby
-   settings rail and the parlor navigation (enter a room, go home).
-   emitServer, updateServerSetting, showView, renderAll, say,
-   renderChat, clearSave, renderPlayers and closeRoomsModal are
-   injected by the entry module.
-   ============================================================ */
+// LOBBY UI: the setup-overlay appearance chooser, the lobby settings rail and
+// parlor navigation. emitServer, updateServerSetting, showView, renderAll, say,
+// renderChat, clearSave, renderPlayers and closeRoomsModal are injected by the entry module.
 import { $, esc, clamp } from "./clientDom.js";
 import {
   state,
@@ -19,6 +15,7 @@ import {
   MAX_PROFILES,
   profileDesignName,
   saveActiveDesignId,
+  hasSavedActiveDesign,
 } from "./clientSanitize.js";
 import { avatarHTML } from "./clientSprites.js";
 import { accountAppearancePayload, saveFaceToAccount } from "./clientAccountAppearance.js";
@@ -156,10 +153,8 @@ export function reconcileParlorEntrySnapshot(snapshot) {
 }
 
 /**
- * Pick open public tables deterministically so Quick Table can fill an
- * existing lobby before creating another one. The server remains
- * authoritative: this is only a preference list and every join is still
- * checked atomically by join-room.
+ * Pick open public tables so Quick Table fills an existing lobby first. This is
+ * only a preference: join-room still checks every join on the server.
  */
 export function chooseQuickTableRoom(rooms = []) {
   return (Array.isArray(rooms) ? rooms : [])
@@ -298,8 +293,8 @@ function tableAppearanceIsDifferent() {
 }
 
 function paintSetupIdentity(choice, meta) {
-  // The active design is the default. The chooser is deliberately opt-in so
-  // joining a table never asks the player to make the same identity decision twice.
+  // The active design is the default. The chooser is opt-in, so joining a table
+  // never asks the player to make the same identity decision twice.
   const selectedName = selectedDesignName(choice, meta);
   const sourceLabel = state.tableAppearanceOverride == null ? "ACTIVE DESIGN" : "THIS TABLE ONLY";
   const activeName = activeDesignName();
@@ -499,7 +494,7 @@ function botBrainControl(settings) {
 
 function renderLobbyRail() {
   // the settings rail owns the right column for both "setup" (choosing
-  // appearance) and "lobby" (configuring rules) — the in-game Holdings
+  // appearance) and "lobby" (configuring rules); the in-game Holdings
   // rail should only ever appear once a round is actually live.
   const preGame = state.phase === "setup" || state.phase === "lobby";
   $("#right-rail-game").classList.toggle("is-hidden", preGame);
@@ -605,16 +600,13 @@ function resetTableForEntry(requestedCode, requestId = "") {
   state.ruleset = null;
   setBoardVariant("standard-40");
   host.rebuildBoard?.();
-  state.phase = "setup";
+  state.phase = appearanceStepSkipped() ? "lobby" : "setup";
   state.tableAppearanceOverride = null;
   state.setupTab = typeof state.appearance === "string" ? "custom" : "preset";
-  // always start the setup/lobby screens from a clean board — otherwise a
-  // finished game's deed ownership, houses and token positions would still
-  // be visible behind the setup overlay after going home and rejoining.
-  // The setup/lobby view must represent only seats acknowledged by the
-  // server. The local buildPlayers helper includes demo CPU seats for the
-  // home preview, so keep just the human placeholder until startGame creates
-  // any configured bots authoritatively.
+  // Start setup and lobby from a clean board. Otherwise a finished game's deeds,
+  // houses and tokens stay visible behind the overlay after going home and rejoining.
+  // Show only server-acknowledged seats. buildPlayers adds demo CPU seats for the
+  // home preview, so keep just the human until startGame creates bots.
   state.players = buildPlayers(activeAppearance(), state.alias).slice(0, 1);
   state.owners = {};
   state.houses = {};
@@ -640,7 +632,7 @@ function resetTableForEntry(requestedCode, requestId = "") {
   stopAuctionTimer();
   host.clearSave();
   closeAllSurfaces();
-  state.log = ["ACTIVE DESIGN READY — ENTER THE PARLOR."];
+  state.log = ["ACTIVE DESIGN READY. ENTER THE PARLOR."];
   host.showView("game");
   host.renderAll();
   focusSurface("#setup-wrap", "#su-start");
@@ -661,7 +653,7 @@ function quickTableFallbackCreate() {
     boardVariant: "standard-40"
   };
   state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
-  parlorNotice("QUICK TABLE", "NO OPEN TABLES — HOSTING A NEW PUBLIC TABLE.");
+  parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE.");
   enterParlor();
 }
 
@@ -674,7 +666,7 @@ function quickTableDirectoryAck(response, requestId) {
   }
   const candidate = chooseQuickTableRoom(response?.rooms)[0];
   if (candidate) {
-    parlorNotice("QUICK TABLE", "OPEN TABLE FOUND — JOINING NOW.");
+    parlorNotice("QUICK TABLE", "OPEN TABLE FOUND. JOINING NOW.");
     enterParlor({ roomId: candidate.roomId });
     return;
   }
@@ -759,12 +751,15 @@ function applyParlorEntryAck(response) {
   state.roomEntryRequestId = "";
   applyCreatedEntryIdentity(response);
   applyEntryVisibility(response);
-  state.phase = "setup";
+  state.phase = appearanceStepSkipped() ? "lobby" : "setup";
   host.renderAll();
   renderTopNav();
+  renderSetup();
+  renderLobbyRail();
   syncServerAppearance();
   applyPendingRoomSettings();
   state.pendingRoomMeta = null;
+  if (state.phase === "lobby") requestAnimationFrame(() => placePieces());
 }
 
 function applyPendingRoomSettings() {
@@ -815,6 +810,8 @@ function enterLobby() {
   // called from the setup overlay "Enter Parlor" button
   if (!requireGuestAlias()) return;
   if (state.roomEntryPending) return;
+  // Confirming a look saves it as the active design, so later tables skip this step.
+  if (!hasSavedActiveDesign(state.profiles)) saveActiveDesignId(state.appearance);
   syncServerAppearance();
     state.phase = "lobby";
     host.renderAll();
@@ -824,7 +821,7 @@ function enterLobby() {
 
 export function goHome() {
   // Release the seat on the server so the room can GC and peers stop
-  // counting a home-screen player as online (A4-F3: ghost seats).
+  // counting a home-screen player as online.
   if (state.phase !== "home") host.emitServer("leave-room", {}, () => {});
   stopAuctionTimer();
   state.busy = false;
@@ -845,7 +842,7 @@ export function goHome() {
   state.botStatus = null;
   state.economySnapshotStatus = "unknown";
   state.globalEventVotePending = false;
-  // Audit #16: home must not keep the previous room's transcript or activity
+  // Home must not keep the previous room's transcript or activity
   // log. Rejoining a room re-seeds both from the server's next snapshot, so
   // emptying here never leaves stale content behind.
   state.messages = [];
@@ -862,15 +859,14 @@ export function goHome() {
   closeAllSurfaces();
   $("#log-drawer").classList.remove("is-open");
   host.closeRoomsModal();
-  // reset right rail visibility to game mode
   $("#right-rail-game").classList.remove("is-hidden");
   $("#right-rail-lobby").classList.add("is-hidden");
   host.showView("home");
 }
 
-// Audit 7.5: one door back to the homescreen. goHome() releases the room
-// seat; a raw showView("home") from a page/rail handler used to leave the
-// seat (and the room's stale transcript) behind when the user was mid-room.
+// One door back to the homescreen. goHome() releases the room
+// seat; a raw showView("home") from a page/rail handler would leave the
+// seat (and the room's stale transcript) behind when the user is mid-room.
 export function leaveRoomForHome() {
   if (state.phase === "playing") {
     host.openConfirmModal({
@@ -1019,6 +1015,12 @@ const applySettingField = (e) => {
   renderLobbyRail();
 };
 
+// Joining a table skips the appearance step once a design is saved. The lobby seat card
+// then carries the same choice and reopens the chooser on request.
+function appearanceStepSkipped() {
+  return hasSavedActiveDesign(state.profiles);
+}
+
 export function bindLobbyUi() {
   $("#su-tabs")?.addEventListener("click", (e) => {
     const tabBtn = e.target.closest("[data-su-tab]");
@@ -1058,8 +1060,8 @@ export function bindLobbyUi() {
 
   // Quick Table prefers an existing open public room and hosts a new public
   // Standard-40 room only when no compatible seat is available. The join is
-  // deliberately raced against the authoritative server, with two bounded
-  // retries for rooms that fill between list-rooms and join-room.
+  // checked by the authoritative server, with two bounded retries for rooms
+  // that fill between list-rooms and join-room.
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
     if (quickTableFlow || state.roomEntryPending) return;

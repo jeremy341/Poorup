@@ -8,7 +8,7 @@ const { tileSupportsInspection } = await import("./clientTileInteraction.js");
 const { state } = await import("./clientState.js");
 const { deedCurrentRentLabel } = await import("./clientDeedsRender.js");
 state.serverTiles = [{ index: 1, currentRent: 77 }];
-assert.equal(deedCurrentRentLabel({ i: 1, kind: "property", group: "brown" }, 2), "$77 / TURN", "current rent uses the server quote rather than a stale local schedule");
+assert.equal(deedCurrentRentLabel({ i: 1, kind: "property", group: "brown" }, 2), "$77", "current rent uses the server quote rather than a stale local schedule");
 state.serverTiles = [];
 
 assert.equal(authoritativeBuildingLevel({ houseCount: 2 }, 0), 2, "server building count overrides stale client zero");

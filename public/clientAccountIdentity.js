@@ -1,8 +1,6 @@
-/* ============================================================
-   ACCOUNT IDENTITY: optional Poorup accounts and the achievement
-   collection. Socket calls and chat announcements are injected by
-   the entry module; profile/home renderers are imported directly.
-   ============================================================ */
+// ACCOUNT IDENTITY: optional Poorup accounts and the achievement
+// collection. Socket calls and chat announcements are injected by
+// the entry module; profile/home renderers are imported directly.
 import { $, esc } from "./clientDom.js";
 import { ACHIEVEMENTS, achievementIconHTML } from "./clientAchievements.js";
 import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";

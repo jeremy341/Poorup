@@ -205,7 +205,7 @@ check('release request: id and minutes-from-now become a trimmed id and an ISO d
   const result = buildMaintenanceRequest({ mode: 'draining', message: '  Back at nine ', releaseId: ' rel-2026.10_a ', deadlineMinutes: '30' }, NOW_MS);
   assert.equal(result.ok, true);
   assert.deepEqual(result.body, { mode: 'draining', message: 'Back at nine', releaseId: 'rel-2026.10_a', deadline: '2026-10-20T12:30:00.000Z' });
-  // Blank optional fields are left out, as the old form did.
+  // Blank optional fields are left out.
   assert.deepEqual(buildMaintenanceRequest({ mode: 'draining', message: '', releaseId: '', deadlineMinutes: '', deadlineAt: '' }, NOW_MS).body, { mode: 'draining' });
   assert.deepEqual(buildMaintenanceRequest({ mode: 'normal', message: 'x', releaseId: 'rel-1', deadlineMinutes: '5' }, NOW_MS).body, { mode: 'normal' }, 'resume carries nothing');
   const maintenance = buildMaintenanceRequest({ mode: 'maintenance', message: 'Back soon', releaseId: 'rel-1', deadlineMinutes: '5' }, NOW_MS);

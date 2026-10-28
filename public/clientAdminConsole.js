@@ -1,14 +1,13 @@
 import { fetchOps, postMaintenance, postLockout, buildMaintenanceRequest, buildLockoutRequest, plainText } from './clientAdminOps.js';
 import { setSectionState, setSectionFailure, syncScrollCue } from './clientAdminPanelState.js';
 import {
-  healthMarkup, roomsMarkup, botsMarkup, auditMarkup, releaseMarkup, releaseActions,
+  healthMarkup, roomsMarkup, botsMarkup, auditMarkup, auditHealthMarkup, releaseMarkup, releaseActions,
   RELEASE_COPY, LOCKOUT_COPY, lockoutView, formatClock, formatStamp, formatCountdown,
 } from './clientAdminPanels.js';
 
-// Operator panels backed by /admin/ops/*: the health verdict (Status), live rooms,
-// bot usage, the change log and the release control. The shell (clientAnalytics.js)
-// tells this controller which section is shown; everything else is owned here:
-// requests, polling, empty/error/unauthorized states and teardown.
+// Operator panels backed by /admin/ops/*: health verdict (Status), live rooms, bot usage,
+// the change log and the release control. The shell (clientAnalytics.js) picks the shown
+// section. This controller owns requests, polling, empty and error states, and teardown.
 
 export const ROOMS_POLL_MS = 15000;
 export const COUNTDOWN_TICK_MS = 1000;
@@ -155,7 +154,7 @@ export function createAdminOpsController({
       retry: () => { void loadAudit(tab); },
       isEmpty: model => model.entries.filter(entry => entry.area === area).length === 0,
       emptyText: area === 'release' ? 'NO RELEASE CHANGES RECORDED' : 'NO PROVIDER CHANGES RECORDED',
-      onModel: model => { const target = find(body(name), '[data-clear]'); if (target) target.innerHTML = auditMarkup(model.entries.filter(entry => entry.area === area)); },
+      onModel: model => { const target = find(body(name), '[data-clear]'); if (target) target.innerHTML = auditHealthMarkup(model.health) + auditMarkup(model.entries.filter(entry => entry.area === area)); },
     });
   }
 
@@ -187,10 +186,9 @@ export function createAdminOpsController({
     }
   }
 
-  // The drain countdown. It reads its target from the markup, so it can only count a
-  // deadline the server reported. When it reaches zero it reads the state back once: the
-  // server ends the drain itself at the deadline, and a read that still says draining is
-  // drawn without a countdown, which is what stops this from looping.
+  // The drain countdown reads its target from the markup, so it only counts a deadline the
+  // server reported. At zero it reads the state back once. The server ends the drain itself, and
+  // a read that still says draining is drawn without a countdown, which stops this from looping.
   function stopCountdown() { if (countdownTimer !== null) { clearInterval(countdownTimer); countdownTimer = null; } }
 
   function tickCountdown() {
@@ -257,7 +255,7 @@ export function createAdminOpsController({
     } else {
       releaseStatus(`NOT APPLIED · ${result.status === 401 || result.status === 403 ? 'ADMIN ACCESS REQUIRED' : result.error}`, 'warning');
     }
-    // Never trust the optimistic path: read the state back from the server either way.
+    // Read the state back from the server either way.
     await Promise.all([loadRelease(), loadAudit('release')]);
     const active = globalThis.document?.activeElement;
     if (!active || active === globalThis.document.body || active.disabled) find(root, '[data-release-summary]')?.focus?.();

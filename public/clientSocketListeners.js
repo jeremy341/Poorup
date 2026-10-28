@@ -1,12 +1,6 @@
-/* ============================================================
-   SOCKET LISTENERS: every socket.on(...) boundary for the client.
-   The listeners update shared state and re-render through hooks
-   injected by the entry module (emitServer, setConnectionStatus,
-   renderAll, say, renderChat, handleRestoreSessionResponse,
-   openChoiceModal, openCardReveal, openOfferModal, serverSyncHost).
-   Event names and payload shapes are byte-identical to the old
-   inline block in main.js.
-   ============================================================ */
+// SOCKET LISTENERS: every socket.on(...) boundary. Listeners update shared state and re-render
+// through hooks from the entry module (emitServer, renderAll, say, openChoiceModal and so on).
+// Event names and payload shapes must stay byte-identical to the inline block in main.js.
 import { state, saveAccountSession, activeAppearance, buildPlayers } from "./clientState.js";
 import { $ } from "./clientDom.js";
 import { afterPieceMovement, applyServerState, markContractOfferAnnounced } from "./clientStateSync.js";
@@ -110,8 +104,8 @@ export function reconcileSignedOutState(message = "This account session ended in
   host.renderAll();
   host.renderSocialSurfaces?.();
   host.closePlayerSurface?.();
-  // A live-room render can persist a guest save; ensure account-owned local
-  // data stays cleared after the render hook has completed.
+  // A live-room render can persist a guest save. Account-owned local data
+  // must stay cleared after the render hook completes.
   clearPrivateStorage();
   if (notify) host.notice("ACCOUNT", message);
 }
@@ -243,7 +237,7 @@ function onBotProviderStatus(status) {
     if (show) banner.textContent = "AI CREDITS EXHAUSTED · BOT IS NOW USING NO-AI MODE";
   }
   if (next.state === "quota-exhausted" && (!previous || previous.state !== next.state || previous.revision !== next.revision)) {
-    // F789-11: informational, so it goes to the polite status region, not the assertive alert one.
+    // Informational, so it goes to the polite status region, not the assertive alert one.
     $("#status-announcer").textContent = "AI credits are exhausted. Bots are now using No-AI mode.";
   }
   host.renderAll();
@@ -323,7 +317,7 @@ function onPlayerContractUpdate({ contract }) {
 
 function onChatMessage({ nickname, text, senderId }) {
   // senderId is the authoritative server player id; nickname matching stays
-  // only as a fallback (A4-F7: duplicate names cross-wire attribution).
+  // only as a fallback, since duplicate names cross-wire attribution.
   const sender = findChatSender(nickname, senderId);
   host.say(text, sender || { name: nickname, textColor: "#a79d7d" });
   host.renderChat();

@@ -1,6 +1,4 @@
-/* ============================================================
-   ACHIEVEMENT CATALOG (client-side definitions + local records)
-   ============================================================ */
+// ACHIEVEMENT CATALOG (client-side definitions + local records)
 import { esc } from "./clientDom.js";
 const ACHIEVEMENT_STORAGE_KEY = "poorup.achievements.v1";
 const ACHIEVEMENTS = [

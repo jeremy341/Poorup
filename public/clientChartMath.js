@@ -1,10 +1,6 @@
-/* ============================================================
-   CHART MATH: pure scale, tick, label and value-format helpers
-   shared by every chart in the app (admin analytics, market desk,
-   match history). No DOM, no globals, so each function is unit
-   testable and the three places that used to format chart values
-   by hand now agree.
-   ============================================================ */
+// CHART MATH: pure scale, tick, label and value-format helpers shared by every chart
+// (admin analytics, market desk, match history). No DOM and no globals, so each function is
+// unit testable, and every value is formatted in one place so the surfaces agree.
 
 export function finite(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -59,11 +55,9 @@ export function barDomain(values, unit) {
 }
 
 /**
- * A y (or value) axis domain with round bounds and tick positions.
- * `zero` forces the baseline into view (bars, shares); otherwise the domain
- * hugs the data with `pad` breathing room so a small trend stays visible.
- * `floor` / `ceil` (see naturalLimits) stop that padding at a limit the data can never cross;
- * `domain: [low, high]` fixes the axis outright and only lays out the ticks.
+ * A y (or value) axis domain with round bounds and tick positions. `zero` forces the
+ * baseline into view. Otherwise `pad` adds room around the data. `floor` and `ceil`
+ * (see naturalLimits) cap that padding, and `domain: [low, high]` fixes the axis.
  */
 export function niceScale(values, { zero = false, targetTicks = 5, pad = 0, floor = null, ceil = null, domain = null } = {}) {
   const numbers = presentNumbers(values);

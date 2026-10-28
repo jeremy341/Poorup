@@ -120,7 +120,7 @@ check("tile-aware labels and ladders name airports and utilities accurately", ()
   state.owners = { 15: "p1", 49: "p1" };
   assert.equal(deedUi.deedCurrentRentLabel(waterworks), "10× DICE ROLL");
   state.owners = { 15: "p1", 37: "p1", 49: "p1" };
-  assert.equal(deedUi.deedCurrentRentLabel(waterworks), "14× DICE ROLL", "Metro-52 third utility steps to 14x (F-014)");
+  assert.equal(deedUi.deedCurrentRentLabel(waterworks), "14× DICE ROLL", "Metro-52 third utility steps to 14x");
   const socketOffer = clientSocket.normalizeTradeOffer({
     id: "socket-only",
     from: "remote-player",

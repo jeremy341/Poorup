@@ -6,7 +6,7 @@ import { kpiMarkup, escapeHtml, finiteNumber, numberFormat } from './clientAnaly
 import { createAdminOpsController, refreshScrollCues } from './clientAdminConsole.js';
 import { setSectionState, setSectionFailure } from './clientAdminPanelState.js';
 import { formatClock } from './clientAdminPanels.js';
-import { ALLOWED_METRICS, METRIC_LABELS, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, formatAdminNumber } from './clientAnalyticsViewModel.js';
+import { ALLOWED_METRICS, METRIC_LABELS, normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath } from './clientAnalyticsViewModel.js';
 export { normalizeAnalyticsQuery, normalizeAnalyticsSnapshot, metricValue, isAnalyticsPath, MIN_COHORT } from './clientAnalyticsViewModel.js';
 export { ANALYTICS_TABS } from './clientAnalyticsCatalog.js';
 
@@ -207,7 +207,7 @@ export function renderAnalyticsSnapshot(value, tab) {
   const markup = statusGridMarkup(snapshot);
   if (markup) { if (grid) grid.innerHTML = markup; query('[data-section="kpis"]')?.classList.remove('is-hidden'); setSectionState(query('[data-section="kpis"]'), 'ready'); }
   else if (active === 'status' || !grid?.innerHTML) {
-    // No figures: say it once, under the views, instead of in a second bar above them.
+    // No figures: say it once, under the views, not in a second bar above them.
     if (grid) grid.innerHTML = '';
     const kpis = query('[data-section="kpis"]');
     setSectionState(kpis, 'empty', { message: 'NO VERIFIED OBSERVATIONS FOR THIS WINDOW' });
@@ -252,7 +252,7 @@ function readUrlFilters() {
   if (!location || !isAnalyticsPath(location.pathname)) return {};
   const params = new URLSearchParams(location.search || '');
   const filters = Object.fromEntries(params.entries());
-  // The old "Bot provider" surface lived at ?admin=provider; it is now part of Bots & AI.
+  // ?admin=provider opens the Bots & AI tab.
   if (!filters.tab && !filters.view && filters.admin === 'provider') filters.tab = 'bots';
   return filters;
 }

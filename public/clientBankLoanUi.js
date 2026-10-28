@@ -20,8 +20,8 @@ function money(value) {
 
 function defaultConsequence(offer) {
   const credit = collateralCreditSummary(offer);
-  if (credit) return `Final deadline: round ${esc(String(offer.cureRound ?? "—"))}. Default transfers pledged deeds. ${esc(credit)}`;
-  const deadline = `Final deadline: round ${esc(String(offer.cureRound ?? "—"))}.`;
+  if (credit) return `Final deadline: round ${esc(String(offer.cureRound ?? "-"))}. Default transfers pledged deeds. ${esc(credit)}`;
+  const deadline = `Final deadline: round ${esc(String(offer.cureRound ?? "-"))}.`;
   return offer.collateralName && offer.collateralName !== "NONE"
     ? `${deadline} If the loan is still unpaid, the bank seizes ${esc(offer.collateralName)}.`
     : `${deadline} Remaining debt enters settlement.`;
@@ -32,7 +32,7 @@ export function bankLoanConfirmationHTML(offer) {
   const collateral = offer.collateralName && offer.collateralName !== "NONE" ? offer.collateralName : "None";
   const interestRate = Number(offer.principal) > 0
     ? `${(Number(offer.premium || 0) / Number(offer.principal) * 100).toFixed(0)}%`
-    : "—";
+    : "-";
   return `<div class="bank-offer-content">
     <header class="bank-offer-head">
       <h2 class="t-section g100" id="bank-loan-title">Emergency bank loan</h2>
@@ -43,7 +43,7 @@ export function bankLoanConfirmationHTML(offer) {
     <p class="t-body ink-2" id="bank-loan-description">You receive <strong class="g100">${money(offer.principal)}</strong> now.</p>
     <dl class="bank-offer-terms">
       <div><dt class="t-body ink-2">Repay</dt><dd class="t-label g100"><strong>${money(offer.totalDue)}</strong><span class="bank-offer-interest t-body ink-2">${money(offer.premium)} interest · ${interestRate}</span></dd></div>
-      <div><dt class="t-body ink-2">Due</dt><dd class="t-label g100">Round ${esc(String(offer.dueRound ?? "—"))}</dd></div>
+      <div><dt class="t-body ink-2">Due</dt><dd class="t-label g100">Round ${esc(String(offer.dueRound ?? "-"))}</dd></div>
       <div class="bank-offer-collateral"><dt class="t-body ink-2">Collateral</dt><dd class="t-label g100">${esc(collateral)}</dd></div>
     </dl>
     <p class="t-body ink-2 bank-offer-consequence">${defaultConsequence(offer)}</p>

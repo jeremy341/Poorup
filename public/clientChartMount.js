@@ -1,11 +1,6 @@
-/* ============================================================
-   CHART MOUNT: the only DOM-touching chart module. Paints the SVG
-   from clientChartRender into a container, repaints when the
-   container is resized, and owns the hover / touch / keyboard
-   readout. Painting is synchronous (no engine to download), so a
-   chart is either drawn or it never mounted; there is no loading
-   or failed-engine state to manage.
-   ============================================================ */
+// CHART MOUNT: the only DOM-touching chart module. Paints the SVG from clientChartRender into a
+// container, repaints on resize, and owns the hover, touch and keyboard readout. Painting is
+// synchronous with no engine to load, so a chart is either drawn or never mounted.
 import {
   normalizeChartSpec, layoutChart, chartSVG, hoverMarkup, nearestIndex, readoutText, preferredChartHeight,
 } from "./clientChartRender.js";

@@ -1,7 +1,5 @@
-/* ============================================================
-   CARD FACE RENDERING: the Surprise/Treasure card art used by the
-   reveal modal and the full-deck gallery.
-   ============================================================ */
+// CARD FACE RENDERING: the Surprise/Treasure card art used by the
+// reveal modal and the full-deck gallery.
 import { esc } from "./clientDom.js";
 import { tileIconHTML } from "./clientBoardRender.js";
 

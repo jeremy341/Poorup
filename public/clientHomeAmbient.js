@@ -1,10 +1,6 @@
-/* ============================================================
-   HOME AMBIENT: the parlor-patrol easter egg (a helicopter fly-by you
-   can tag), the home local-time clock and the SFX ping. Purely visual
-   and timer-based; reads clientState only. hitHomeHelicopter is wired
-   from the home bindings; the clock/helicopter controls are shared with
-   the surface navigation and the night-shift host.
-   ============================================================ */
+// HOME AMBIENT: the parlor-patrol easter egg (a helicopter fly-by you can tag), the home clock and
+// the SFX ping. Purely visual and timer-based; reads clientState only. hitHomeHelicopter is wired from
+// the home bindings. The clock and helicopter controls are shared with surface navigation and night shift.
 import { $, REDUCED_MOTION } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";

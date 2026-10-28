@@ -1,8 +1,6 @@
-/* ============================================================
-   CLIENT SANITIZE: profile / account / preference storage layer.
-   Pure localStorage readers and writers; runtime state lives in
-   clientState.js, which consumes these helpers at boot.
-   ============================================================ */
+// CLIENT SANITIZE: profile / account / preference storage layer.
+// Pure localStorage readers and writers; runtime state lives in
+// clientState.js, which consumes these helpers at boot.
 import { FACE_SIZE } from "./clientSprites.js";
 const PROFILE_KEY = "poorup.profile.v1";   // legacy single profile
 const LIBRARY_KEY = "poorup.profiles.v1";  // array of saved profiles
@@ -117,6 +115,14 @@ function loadActiveDesignId(profiles = []) {
 
 function saveActiveDesignId(choice) {
   try { localStorage.setItem(ACTIVE_DESIGN_KEY, String(choice)); } catch { /* storage unavailable */ }
+}
+
+// A design counts as saved once the player has confirmed one as their active design.
+function hasSavedActiveDesign(profiles = []) {
+  let raw = "";
+  try { raw = String(localStorage.getItem(ACTIVE_DESIGN_KEY) || ""); } catch { /* storage unavailable */ }
+  if (presetDesignIndex(raw) >= 0) return true;
+  return Boolean(raw) && profiles.some((profile) => profile.id === raw);
 }
 
 function loadSoundPreference() {
@@ -392,6 +398,7 @@ export {
   saveProfilesToStorage,
   loadActiveDesignId,
   saveActiveDesignId,
+  hasSavedActiveDesign,
   loadSoundPreference,
   saveSoundPreference,
   loadMusicPreference,

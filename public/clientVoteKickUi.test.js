@@ -79,7 +79,7 @@ assert.equal(listeners.size, 0);
 }
 
 // ---- behaviour: keyed pending choice, rejection text, ineligible seats,
-// text-node patching and closed-vote clearing (F-061 / F-062) ----
+// text-node patching and closed-vote clearing ----
 function richHost() {
   const listeners = new Map();
   const host = {

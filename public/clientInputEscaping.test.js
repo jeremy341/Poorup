@@ -1,6 +1,6 @@
-// Client escaping for player-controlled values (E6-01 sprite colours, E6-02
-// profile ids, E6-07 surrogate-safe names, E6-09 apostrophes in esc). These
-// are escaping and shape checks only: valid input must render exactly as before.
+// Escaping for player-controlled values: sprite colours, profile ids, names with
+// surrogate pairs, and apostrophes. These are escaping and shape checks only:
+// valid input must render exactly as before.
 import assert from 'node:assert/strict';
 
 const values = new Map();

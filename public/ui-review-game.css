@@ -52,3 +52,9 @@
   #right-rail-game .activity-surface .market-row { min-height: 62px; padding: 12px; }
   #right-rail-game .activity-mode-tab { min-height: 48px; font-size: 14px; }
 }
+
+/* Board captions clip to their own tile face, so a long name ends in an ellipsis instead of running into the next tile. */
+#view-game .tile:not(.is-corner) .tile-name { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1100px) {
+  #view-game .tile:not(.is-corner) .tile-name { font-size: 9px; }
+}

@@ -1,4 +1,4 @@
-/* Focused page, social-feed, and lobby refinements from the exported review. */
+/* Focused page, social-feed, and lobby refinements. */
 
 @media (min-width: 1200px) {
   #view-rankings .social-page-main,
@@ -8,8 +8,9 @@
   }
 }
 
-/* The home header already uses this large-desktop scale. Keep navigation stable across pages. */
-@media (min-width: 2400px) and (max-width: 3199px) {
+/* The home header already uses this large-desktop scale (styles.css, min-width 2200px and min-height 1000px).
+   Match its exact condition so navigation stays stable across pages at every large size, including 4K. */
+@media (min-width: 2200px) and (min-height: 1000px) {
   :is(#view-profile, #view-rankings, #view-social, #view-rules, #view-about) > .page-header { zoom: 1.25; }
 }
 
@@ -46,9 +47,9 @@
   background: var(--surface-panel-deep);
 }
 
-#view-rankings .ranking-pagination > button {
+:is(#view-rankings, #rankings-modal) .ranking-pagination > button {
   min-width: 104px;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 #view-rankings .ranking-pagination > span { text-align: center; }
@@ -206,3 +207,9 @@
     flex: 1 1 110px;
   }
 }
+
+/* Rankings, Social and Rules: micro labels sit at the 11px floor, not the 9px base. */
+#view-rankings .t-micro, #view-social .t-micro, #view-rules .t-micro { font-size: 11px; }
+
+/* The 11px micro floor would make the social search label taller, so its line box is pinned to keep the 18px label row aligned with the 18px submit margin. */
+.social-search-label > .t-micro:first-child { line-height: 13px; }

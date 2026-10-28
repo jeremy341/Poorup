@@ -7,7 +7,7 @@ delete globalThis.window;
 
 assert.equal(casinoResultCopy(null), '', 'an unplayed wheel has no filler result');
 assert.equal(casinoResultCopy({ resultColor: 'red', pocket: 7, net: 100 }), 'LAST SPIN · RED 7 · +$100');
-assert.equal(casinoResultCopy({ resultColor: 'black', pocket: 20, net: -10 }), 'LAST SPIN · BLACK 20 · $-10');
+assert.equal(casinoResultCopy({ resultColor: 'black', pocket: 20, net: -10 }), 'LAST SPIN · BLACK 20 · -$10');
 assert.equal(casinoResultCopy({ resultColor: 'green', pocket: 0, net: 0 }), 'LAST SPIN · GREEN 0 · +$0');
 
 const source = fs.readFileSync(new URL('./clientCasinoUi.js', import.meta.url), 'utf8');

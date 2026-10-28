@@ -1,12 +1,6 @@
-/* ============================================================
-   ACCOUNT APPEARANCE: a signed-in player's face and colour live on the
-   server account, so signing in on any browser brings them along.
-   - adoptAccountAppearance() makes the account's face the active design
-     on this browser (saving it into the local library if it is new).
-   - accountAppearancePayload() is what to send when the player picks or
-     saves a design while signed in.
-   The extra saved designs in the local library stay per browser.
-   ============================================================ */
+// ACCOUNT APPEARANCE: a signed-in player's face and color live on the server account.
+// adoptAccountAppearance() makes that face the active design on this browser, and
+// accountAppearancePayload() builds what to send when a design is saved. Extra local designs stay per browser.
 import { state, upsertProfile, getAppearanceMeta, syncLocalAppearance, buildPlayers, saveAccountSession } from "./clientState.js";
 import { saveActiveDesignId, APPEARANCES } from "./clientSanitize.js";
 import { faceGridFromPreset } from "./clientSprites.js";

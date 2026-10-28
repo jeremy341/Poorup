@@ -9,6 +9,13 @@ async function check(name, run) {
   try { await run(); console.log(`PASS ${name}`); } catch (error) { console.error(`FAIL ${name}: ${error.stack || error.message}`); process.exitCode = 1; }
 }
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function waitForCondition(predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`Condition was not met within ${timeoutMs}ms`);
+    await wait(5);
+  }
+}
 
 function el(children = {}, attrs = {}) {
   const attributes = { ...attrs };
@@ -147,7 +154,7 @@ await check('rooms poll on their interval, pause while hidden or not shown, and 
     fetcher: async path => { paths.push(path); return json({ success: true, generatedAt: '2026-09-15T12:00:00.000Z', totals: { rooms: 1 }, rooms: [ROOM('r-0a1b2c', { roomCode: 'LEAKED' })] }); },
   });
   controller.show('rooms');
-  await wait(80);
+  await waitForCondition(() => paths.length >= 3);
   assert.ok(paths.length >= 3, `polled repeatedly (${paths.length})`);
   assert.ok(paths.every(path => path === '/admin/ops/rooms'));
   assert.match(fixture.nodes['[data-rooms-table]'].innerHTML, /r-0a1b2c/);
@@ -161,7 +168,7 @@ await check('rooms poll on their interval, pause while hidden or not shown, and 
   await wait(60);
   assert.equal(paths.length, whileNotShown, 'a view that is not shown makes no requests');
   shown = true;
-  await wait(60);
+  await waitForCondition(() => paths.length > whileNotShown);
   assert.ok(paths.length > whileNotShown, 'and resumes by itself when shown again');
 
   hidden = true;

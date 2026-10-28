@@ -1,8 +1,6 @@
-/* ============================================================
-   WALLET & ITEMS: one focused workbench for private round resources.
-   The shell is client-owned; item mutations and eligibility belong to
-   the server through the injected action seam.
-   ============================================================ */
+// WALLET & ITEMS: one focused workbench for private round resources.
+// The shell is client-owned; item mutations and eligibility belong to
+// the server through the injected action seam.
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";

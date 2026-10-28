@@ -1,9 +1,6 @@
-/* ============================================================
-   SERVER STATE SYNC: the snapshot pipeline. applyServerState walks
-   one server snapshot through per-section syncers in the exact order
-   the original monolith ran them. Anything that renders, queries the
-   DOM, or owns timers lives behind `host` callbacks in main.js.
-   ============================================================ */
+// SERVER STATE SYNC: the snapshot pipeline. applyServerState walks one server snapshot
+// through per-section syncers in the exact order main.js runs them. Anything that renders,
+// queries the DOM or owns timers lives behind `host` callbacks in main.js.
 import { state } from "./clientState.js";
 import { reconcileTradeOfferDismissal } from "./clientTradeOfferDismissal.js";
 import { TILE_COUNT, setBoardVariant } from "./clientBoardData.js";
@@ -77,7 +74,7 @@ function arrayOr(value) {
 }
 
 // Defense in depth: the server hex-normalizes avatar cells, but sprite
-// fills interpolate raw — keep only #rrggbb-or-null cells on ingest so a
+// fills interpolate raw: keep only #rrggbb-or-null cells on ingest so a
 // compromised snapshot can never inject markup into SVG fills.
 function sanitizeAvatarGrid(grid) {
   if (!Array.isArray(grid)) return null;
@@ -479,7 +476,7 @@ function auctionView(auction) {
     bid: num(auction.highestBid),
     leaderId: findLocalPlayerId(auction.highestBidderId),
     // Never fabricate a deadline: without a server endsAt the UI shows
-    // SYNCING instead of counting down a phantom window.
+    // SYNCING, not a countdown of a phantom window.
     deadline: Number.isFinite(endsAt) && endsAt > 0 ? endsAt : null,
     caps: {},
   };
@@ -671,9 +668,9 @@ export function applyServerState(snapshot, host) {
   presentationQueue.receive(state.roomCode, game.presentation, game.startedAt ?? game.presentation?.gameStartedAt ?? 0);
   applyPresentationProjection();
   syncingPresentation = false;
-  // Snapshots update data unconditionally but must not hijack the page —
+  // Snapshots update data unconditionally but must not hijack the page:
   // only re-assert the game view while the player is mid-room-session and
-  // the parlor is the surface actually on screen (A4-F1).
+  // the parlor is the surface actually on screen.
   syncView(host);
   if (!game.presentation) scheduleWalks(movementPlans, host);
   host.renderAll();

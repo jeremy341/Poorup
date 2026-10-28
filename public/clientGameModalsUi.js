@@ -1,11 +1,6 @@
-/* ============================================================
-   GAME MODAL SURFACES: the forced-buy choice card, the bot trade
-   offer inbox, the bankruptcy / voluntary-exit / round-over cards,
-   and the Chance/Chest card reveal + gallery (plus the ?preview=
-   design hook). emitServer, say, renderChat, renderAll, buyTile
-   and startGame are injected by the entry module; markup and
-   socket payloads are the exact old main.js templates.
-   ============================================================ */
+// GAME MODAL SURFACES: forced-buy choice, bot trade offers, bankruptcy and round-over cards,
+// and the Chance/Chest reveal, gallery and ?preview= hook. The entry module injects emitServer,
+// say, renderChat, renderAll, buyTile and startGame. Markup and socket payloads must match main.js.
 import { $, esc } from "./clientDom.js";
 import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";
@@ -73,10 +68,6 @@ function openChoiceModal(tile) {
         ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, canAfford ? "green" : "red")}
       </div>
       <div class="choice-actions">
-        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
-          <span class="t-label">BUY</span>
-          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
-        </button>
         ${auctionMode
           ? `<button class="btn-dark choice-btn" id="choice-auction">
               <span class="t-label">AUCTION</span>
@@ -87,6 +78,10 @@ function openChoiceModal(tile) {
               <span class="t-micro">DECLINE</span>
             </button>${tile.canSeekSponsorship && playerFinanceEnabled(state.settings) ? `<button class="btn-dark choice-btn" id="choice-sponsor"><span class="t-label">PURCHASE FUNDING</span><span class="t-micro">GIFT OR RENT SHARE</span></button>` : ""}`
         }
+        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
+          <span class="t-label">BUY</span>
+          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
+        </button>
       </div>
       <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY · MUST AUCTION") : "Close this card to revisit the choice; PASS is the explicit decline."}</p>
     </div>`;
@@ -95,8 +90,8 @@ function openChoiceModal(tile) {
   const scrim = $("#choice-scrim");
   if (scrim) {
     scrim.classList.toggle("popup-scrim-locked", auctionMode);
-    // Even a locked auction choice can be intentionally dismissed after the
-    // shared controller confirms that the required decision remains pending.
+    // A locked auction choice can still be dismissed once the shared controller
+    // confirms the required decision is pending.
     scrim.onclick = closeChoiceModalWithoutAction;
   }
   $("#choice-dismiss").addEventListener("click", closeChoiceModalWithoutAction);
@@ -252,8 +247,8 @@ function closeChoiceModalAsPass() {
 }
 
 function closeChoiceModalWithoutAction() {
-  // Dismissal is intentionally neutral: leave the pending purchase in place
-  // so only the explicit PASS control can decline the deed.
+  // Dismissal is neutral: it leaves the pending purchase in place, so only
+  // the explicit PASS control can decline the deed.
   closeSurface("#choice-modal");
 }
 

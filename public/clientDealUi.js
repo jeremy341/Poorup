@@ -1,8 +1,6 @@
-/* ============================================================
-   DEAL DETAIL SURFACE: one read-only view for pending trades and player
-   contracts. Editing is delegated to the existing trade/finance editors;
-   this module owns only role-aware actions and focus-safe presentation.
-   ============================================================ */
+// DEAL DETAIL SURFACE: one read-only view for pending trades and player
+// contracts. Editing is delegated to the existing trade/finance editors;
+// it owns only role-aware actions and focus-safe presentation.
 import { $, esc } from "./clientDom.js";
 import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";

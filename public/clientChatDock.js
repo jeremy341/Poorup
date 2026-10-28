@@ -1,8 +1,6 @@
-/* ============================================================
-   CHAT DOCK: the left-rail chat is a closed bar with an unread badge
-   until the player opens it. Messages keep rendering into #chat-body
-   either way; this module only owns open/closed and the badge.
-   ============================================================ */
+// CHAT DOCK: the left-rail chat is a closed bar with an unread badge
+// until the player opens it. Messages keep rendering into #chat-body
+// either way; the dock only owns open/closed and the badge.
 import { $, setText } from "./clientDom.js";
 import { state } from "./clientState.js";
 

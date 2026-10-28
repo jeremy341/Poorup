@@ -1,7 +1,5 @@
-/* ============================================================
-   CASINO DESK: a focused, server-settled wager surface. The Activity rail
-   keeps only odds and the last result; this modal owns the bet form.
-   ============================================================ */
+// CASINO DESK: a focused, server-settled wager surface. The Activity rail
+// keeps only odds and the last result; this modal owns the bet form.
 import { $, esc } from "./clientDom.js";
 import { formatMoney } from "./clientMoney.js";
 import { state } from "./clientState.js";

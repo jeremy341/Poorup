@@ -1,8 +1,6 @@
-/* ============================================================
-   CLIENT STATE: the single shared mutable state object plus the
-   profile/appearance helpers that read or mutate it. Imported by
-   every client module that needs live UI state (mutated in place).
-   ============================================================ */
+// CLIENT STATE: the single shared mutable state object plus the
+// profile/appearance helpers that read or mutate it. Imported by
+// every client module that needs live UI state (mutated in place).
 import {
   APPEARANCES,
   MAX_PROFILES,
@@ -134,8 +132,8 @@ const initialAchievementRecords = loadAchievementRecords();
 
 const state = {
   
-  // Per-tab session id (audit #10): sessionStorage survives reloads but is
-  // fresh for every tab, so two tabs can no longer share — and hijack — one seat.
+  // Per-tab session id: sessionStorage survives reloads but is fresh for
+  // every tab, so two tabs cannot share (and hijack) one seat.
   clientId: loadClientId() || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   account: loadAccountSession(),
   hostId: null,
@@ -144,7 +142,7 @@ const state = {
   pendingRoomMeta: null,
   suppressRoomUpdates: false,
   // Server-minus-local clock skew (ms), refreshed from every snapshot's
-  // serverTime so auction deadlines survive a skewed local clock (audit #18).
+  // serverTime so auction deadlines survive a skewed local clock.
   serverTimeOffset: 0,
   lastConnectionAnnouncement: "",
   previousTurnKey: "",
@@ -171,8 +169,8 @@ const state = {
     activeRounds: 0,
     bypass: false,
   },
-  profileTab: "designs",    // overview | stats | designs | history | account
-  setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
+  profileTab: "overview",   // overview | stats | designs | history | account
+  setupTab: "preset",         // "preset" | "custom": which tab is showing in the setup grid
   profiles: loadProfiles(),   // persisted array of saved player designs
   achievementRecords: initialAchievementRecords,
   unlockedAchievements: new Set(initialAchievementRecords.keys()),
@@ -193,7 +191,7 @@ const state = {
   // A local action stays locked until its acknowledgement or timeout. A
   // server snapshot alone is not proof that the request was accepted.
   pendingAction: null,
-  turnStage: "roll", // roll | end — landing actions happen before explicit end
+  turnStage: "roll", // roll | end; landing actions happen before explicit end
   pool: 0,
   owners: {},
   highlight: null,
@@ -222,7 +220,7 @@ const state = {
   tradeTheirCash: 0,
   houses: {},      // { [tileId]: 0..4 | 5(hotel) }
   mortgaged: {},   // { [tileId]: true }
-  offers: [],      // pending bot→human trade offers
+  offers: [],      // pending trade offers from bots to humans
   pendingTrade: null,
   voteKick: null,
   pendingBuyTile: null, // tile the human must resolve (buy/auction) before ending
@@ -300,7 +298,7 @@ const state = {
     globalEventDuration: 5,
     globalEventMax:  1,
   },
-  log: ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."],
+  log: ["WAITING FOR GAME. CHOOSE YOUR APPEARANCE."],
   activityNotices: [],
   activityRoomCode: "",
   lastGameFeed: [],

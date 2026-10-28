@@ -106,12 +106,10 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
   #bank-loan-modal .bank-offer-terms > div { border-color: CanvasText; }
 }
 
-/* ============================================================
-   IN-GAME RANKINGS / SOCIAL (#rankings-modal, #social-modal): the same render
-   as #view-rankings / #view-social, framed as a fixed-size card with a pinned
-   "Back to table" bar. Only the inner regions scroll; leaving the room is never
-   implied and the game behind the card keeps running.
-   ============================================================ */
+/* IN-GAME RANKINGS / SOCIAL (#rankings-modal, #social-modal): the same render as #view-rankings
+ * and #view-social, framed as a fixed-size card with a pinned "Back to table" bar. Only the inner
+ * regions scroll. Leaving the room is never implied, and the game behind the card keeps running.
+ */
 #rankings-modal .social-surface-card,
 #social-modal .social-surface-card {
   display: flex;
@@ -127,13 +125,13 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
 .social-page-shell.is-modal { flex: 1; gap: 12px; min-height: 0; }
 
 .table-return-bar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; min-width: 0; }
-.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 10px; }
+button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 10px; }
 .table-return-arrow { font-family: var(--font-pixel); font-size: 22px; line-height: 1; color: var(--gold-100); }
 .table-return-btn:hover .table-return-arrow,
 .table-return-btn:focus-visible .table-return-arrow { color: var(--gold-050); }
 .table-return-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* The close button no longer sits in the hero, so the hero keeps the page's three columns. */
+/* The close button sits outside the hero, so the hero keeps the page's three columns. */
 @media (min-width: 1101px) {
   .rankings-page-shell.is-modal .rankings-hero,
   .social-page-shell.is-modal .social-hero { grid-template-columns: auto minmax(0, 1fr) auto; }
@@ -179,3 +177,4 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
   .rankings-page-shell.is-modal .rankings-stage { min-height: 420px; }
   .social-page-shell.is-modal .social-network-grid { min-height: 360px; }
 }
+

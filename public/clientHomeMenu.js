@@ -1,9 +1,6 @@
-/* ============================================================
-   PAGE SETTINGS: the same small popover on every shared page bar. It holds the
-   keyboard-shortcut switch so the bar itself stays quiet. The switch is
-   still the [data-shortcut-toggle] button, so its saved preference and
-   label keep working unchanged.
-   ============================================================ */
+// PAGE SETTINGS: the small popover on every shared page bar. It holds the keyboard-shortcut
+// switch, so the bar itself stays quiet. The switch is still [data-shortcut-toggle], so its saved
+// preference and label keep working unchanged.
 let bound = false;
 let activeButton = null;
 

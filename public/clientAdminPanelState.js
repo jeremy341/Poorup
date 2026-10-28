@@ -1,9 +1,6 @@
-// One loading / empty / error / unauthorized treatment for every console section.
-// A section is `[data-section]` with a `[data-section-state]` message slot and a
-// `[data-section-body]` for the content. Content already on screen stays visible
-// while it refreshes or after a failed refresh, so a flaky network never blanks
-// a table the operator is reading. Unauthorized clears the body: nothing is kept
-// on screen for a session that is no longer an admin.
+// One loading, empty, error and unauthorized treatment for every console section. A section is
+// `[data-section]` with a `[data-section-state]` message slot and a `[data-section-body]`. Content
+// stays on screen through refreshes and failures. Unauthorized clears it, since the session does not carry admin rights.
 
 export const FAILURE_TEXT = Object.freeze({
   401: 'ADMIN ACCOUNT REQUIRED',

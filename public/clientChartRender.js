@@ -1,12 +1,6 @@
-/* ============================================================
-   CHART RENDER: pure spec -> geometry -> SVG string. One renderer
-   for line, area and bar (vertical and horizontal) charts plus a
-   sparkline, used by the admin analytics, the market desk and the
-   match history. Styling lives entirely in CSS classes (pc-*) so
-   the charts follow the theme tokens and forced-colors with no
-   colour lookups in script. Series are told apart by tone AND
-   dash pattern, markers by shape AND label.
-   ============================================================ */
+// CHART RENDER: pure spec, then geometry, then SVG string. One renderer for line, area and
+// bar charts, plus sparklines. Styling lives in pc-* CSS classes, so themes and forced-colors
+// apply with no color lookups here. Series differ by tone and dash pattern, markers by shape and label.
 import {
   finite, clamp, niceScale, naturalLimits, barDomain, linearScale, visibleLabelIndices, truncateLabel, unitKind, formatTick, formatValue,
 } from "./clientChartMath.js";

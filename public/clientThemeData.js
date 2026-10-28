@@ -1,7 +1,5 @@
-/* ============================================================
-   THEME DATA: five original Poorup worlds plus the untouched baseline.
-   This registry is client-only: a theme can never enter room/game state.
-   ============================================================ */
+// THEME DATA: five original Poorup worlds plus the untouched baseline.
+// This registry is client-only: a theme can never enter room/game state.
 
 export const DEFAULT_THEME_ID = "original";
 export const THEME_STORAGE_KEY = "poorup.theme.id.v2";
@@ -130,7 +128,7 @@ const THEMES = [
       "--surface-panel": "#252f2d", "--surface-panel-raised": "#303b34", "--surface-panel-deep": "#141e21",
       "--surface-board-tile": "#1d2b2c", "--surface-board-center": "#2b403a", "--surface-input": "#263633", "--surface-button-dark": "#2a3a35",
       "--text-primary": "#f4e2c5", "--text-secondary": "#c6ab88", "--text-muted": "#a99073",
-      "--gold-050": "#f6d9a4", "--gold-100": "#e9bf82", "--gold-300": "#d28c47", "--gold-400": "#d28a4d", "--gold-500": "#bd7a48", "--gold-muted": "#b89b78",
+      "--gold-050": "#f6d9a4", "--gold-100": "#e9bf82", "--gold-300": "#d28c47", "--button-dark-label": "#e39a55", "--gold-400": "#d28a4d", "--gold-500": "#bd7a48", "--gold-muted": "#b89b78",
       "--line-dark": "#2d3c3a", "--line-subtle": "#5b5d4a", "--line-default": "#80633f", "--line-strong": "#9a7850", "--line-active": "#d3984a", "--line-board": "#b77b4b", "--line-shadow": "#0e1619",
       "--red-action": "#a83729", "--red-action-hover": "#c14732", "--red-action-pressed": "#85261f", "--cta-label": "#fff8e0", "--cta-label-muted": "#fff8e0", "--cta-label-disabled": "#ceb6a4", "--line-control": "#ab895a",
       "--surface-inset": "#172326", "--surface-selected": "#3a4032", "--surface-hover": "#38453b", "--surface-board-hover": "#2b3935", "--surface-avatar": "#202e2d", "--surface-card": "#263532", "--surface-active": "#45513e", "--surface-special": "#3f4b3a", "--surface-board-frame": "#172326",

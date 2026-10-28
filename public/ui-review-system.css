@@ -84,7 +84,7 @@
   display: none;
 }
 
-.maintenance-home[data-maintenance-kind="lockout"] .maintenance-note { display: none; }
+.maintenance-home[data-maintenance-kind="lockout"] .maintenance-note { display: block; }
 .maintenance-brand { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 8px; color: var(--gold-300); font: 30px/1 var(--font-pixel); }
 .maintenance-brand img { image-rendering: pixelated; }
 .maintenance-home[data-maintenance-kind="lockout"] [data-maintenance-title]:focus { outline: none; }
@@ -210,7 +210,7 @@
 }
 
 .ui-error-brand > span { color: var(--gold-300); font-size: 24px; line-height: 1.15; letter-spacing: 0; }
-.ui-error-tagline { display: block; margin-top: 4px; font-size: 9px; color: var(--text-muted); letter-spacing: .05em; }
+.ui-error-tagline { display: block; margin-top: 4px; font-size: 11px; color: var(--text-muted); letter-spacing: .05em; }
 .ui-error-code { margin: 20px 0 12px; color: var(--gold-300); font: clamp(88px, 12vw, 144px)/1 var(--font-pixel); }
 .ui-error-card .ui-error-message { margin-inline: auto; }
 .ui-error-card form { text-align: left; }

@@ -1,8 +1,6 @@
-/* ============================================================
-   SPONSORED PURCHASE SURFACE: a small, escrow-aware contribution flow for
-   an open bank purchase. It never moves a player out of the current lobby or
-   game surface; the server owns every reservation and forced purchase.
-   ============================================================ */
+// SPONSORED PURCHASE SURFACE: a small, escrow-aware contribution flow for
+// an open bank purchase. It never moves a player out of the current lobby or
+// game surface; the server owns every reservation and forced purchase.
 import { $, esc } from "./clientDom.js";
 import { formatMoney } from "./clientMoney.js";
 import { spriteHTML } from "./clientSprites.js";
@@ -57,10 +55,9 @@ export function sponsorshipContributionPayload(amount, sponsorship, contribution
   };
 }
 
-// One id per contribution attempt: a resend of the same attempt (same
-// sponsorship, same amount, no confirmed reply yet) reuses it so the server
-// replays instead of reserving twice; a confirmed contribution clears it so the
-// next top-up gets a fresh id.
+// One id per contribution attempt. A resend of the same attempt (same sponsorship, same amount,
+// no confirmed reply yet) reuses it, so the server replays instead of reserving twice. A confirmed
+// contribution clears it, so the next top-up gets a fresh id.
 export function createContributionAttemptTracker(makeId) {
   let attempt = null;
   return {
@@ -135,7 +132,12 @@ function buyerActionsHTML(sponsorship) {
   const buyerContribution = Math.max(0, Number(sponsorship.price || 0) - Number(sponsorship.totalContributed || 0));
   const localCash = Number(state.players[0]?.cash || 0);
   const enabled = playerFinanceEnabled(state.settings) && (buyerCanAcceptEquity(sponsorship, buyerContribution, localCash) || buyerCanAcceptGift(sponsorship));
-  return `<div class="sponsorship-actions"><button class="btn-dark" type="button" data-sponsorship-action="decline"><span class="t-label f11">CANCEL REQUEST</span></button><button class="cta-red" type="button" data-sponsorship-action="accept" ${enabled ? "" : "disabled"}><span class="cta-text cta-text-sm">ACCEPT &amp; BUY</span></button></div>`;
+  // A disabled Accept says why, visibly and to assistive tech, so it does not read as available.
+  const reason = enabled ? ""
+    : !playerFinanceEnabled(state.settings) ? "Player finance is off for this table, so this request cannot be accepted."
+      : "Accept opens once the sponsors cover the price.";
+  const describedBy = reason ? ' aria-describedby="sponsorship-accept-reason"' : "";
+  return `<div class="sponsorship-actions"><button class="btn-dark" type="button" data-sponsorship-action="decline"><span class="t-label f11">CANCEL REQUEST</span></button><button class="cta-red" type="button" data-sponsorship-action="accept" ${enabled ? "" : "disabled"}${describedBy}><span class="cta-text cta-text-sm">ACCEPT &amp; BUY</span></button></div>${reason ? `<p class="t-micro ink-3 sponsorship-accept-reason" id="sponsorship-accept-reason">${reason}</p>` : ""}`;
 }
 
 function contributorWithdrawalHTML(mine) {

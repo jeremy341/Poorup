@@ -3,12 +3,12 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { test } from 'node:test';
 
-function harness() {
+function harness(sessionValues = new Map(), accountId = 'patrol-account', retryPendingSettlement = null, storageOptions = {}) {
   let source = fs.readFileSync(new URL('./clientNightShift.js', import.meta.url), 'utf8')
     .replace(/^import .*;\r?\n/gm, '')
     .replace(/^export \{.*\};\r?\n/gm, '')
     .replace(/^export /gm, '');
-  source += '\n;globalThis.api = { configureNightShift, startNightShift, stopNightShift, nightShiftState, applyPatrolState, handlePatrolDisconnect: typeof handlePatrolDisconnect === "undefined" ? null : handlePatrolDisconnect };';
+  source += '\n;globalThis.api = { configureNightShift, startNightShift, stopNightShift, nightShiftState, applyPatrolState, handlePatrolDisconnect: typeof handlePatrolDisconnect === "undefined" ? null : handlePatrolDisconnect, handlePatrolReconnect: typeof handlePatrolReconnect === "undefined" ? null : handlePatrolReconnect };';
   const callbacks = [];
   const finishCallbacks = [];
   const finishPackets = [];
@@ -18,12 +18,26 @@ function harness() {
   const classes = { add(name) { classNames.add(name); }, remove(name) { classNames.delete(name); }, contains(name) { return classNames.has(name); } };
   const listeners = {};
   const document = { body: { classList: classes }, hidden: false, querySelector() { return null; }, addEventListener(name, fn) { listeners[name] = fn; } };
-  const storage = { getItem() { return null; }, setItem() {} };
-  const context = { document, localStorage: storage, state: { phase: 'home', account: { account: {} } }, $: () => null, REDUCED_MOTION: false, PARLOR_PATROL_ENABLED: true, hydrateSprites() {}, setTimeout(fn, delay) { timers.push({ fn, delay, active: true }); return timers.length; }, clearTimeout(id) { if (timers[id - 1]) timers[id - 1].active = false; }, setInterval() { intervals += 1; return 1; }, clearInterval() {}, Date, Math, Map };
+  const localValues = storageOptions.localValues || new Map();
+  const storage = {
+    getItem(key) { if (storageOptions.localStorageUnavailable) throw new Error('localStorage unavailable'); return localValues.get(key) || null; },
+    setItem(key, value) { if (storageOptions.localStorageUnavailable) throw new Error('localStorage unavailable'); localValues.set(key, String(value)); },
+    removeItem(key) { if (storageOptions.localStorageUnavailable) throw new Error('localStorage unavailable'); localValues.delete(key); },
+    get length() { return localValues.size; },
+    key(index) { return [...localValues.keys()][index] || null; },
+  };
+  const sessionStorage = {
+    getItem(key) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); return sessionValues.get(key) || null; },
+    setItem(key, value) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); sessionValues.set(key, String(value)); },
+    removeItem(key) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); sessionValues.delete(key); },
+    get length() { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); return sessionValues.size; },
+    key(index) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); return [...sessionValues.keys()][index] || null; },
+  };
+  const context = { document, localStorage: storage, sessionStorage, state: { phase: 'home', account: { account: { id: accountId } } }, $: () => null, REDUCED_MOTION: false, PARLOR_PATROL_ENABLED: true, hydrateSprites() {}, setTimeout(fn, delay) { timers.push({ fn, delay, active: true }); return timers.length; }, clearTimeout(id) { if (timers[id - 1]) timers[id - 1].active = false; }, setInterval() { intervals += 1; return 1; }, clearInterval() {}, Date, Math, Map };
   vm.runInNewContext(source, context);
   const noop = () => {};
-  context.api.configureNightShift({ emitServer(event, payload, callback) { if (event === 'start-patrol-run') callbacks.push(callback); if (event === 'finish-patrol-run') { finishCallbacks.push(callback); finishPackets.push(payload); } }, stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop });
-  return { ...context.api, callbacks, finishCallbacks, finishPackets, timers, document, listeners, classes, storage, clientState: context.state, getIntervals: () => intervals };
+  context.api.configureNightShift({ emitServer(event, payload, callback) { if (event === 'start-patrol-run') callbacks.push(callback); if (event === 'finish-patrol-run') { finishCallbacks.push(callback); finishPackets.push(payload); } }, stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, retryPendingSettlement: retryPendingSettlement || (() => context.api.handlePatrolReconnect()) });
+  return { ...context.api, callbacks, finishCallbacks, finishPackets, timers, document, listeners, classes, storage, sessionStorage, localValues, clientState: context.state, getIntervals: () => intervals };
 }
 
 test('a delayed start response cannot attach its token to a newer run', () => {
@@ -172,7 +186,7 @@ test('leaving before start acknowledgement settles the returned token', () => {
 });
 
 
-test('a settlement timeout allows restart and ignores the stale finish acknowledgement', () => {
+test('a settlement timeout preserves the pending run until reconnect retry succeeds', () => {
   const game = harness();
   game.startNightShift();
   game.callbacks[0]({ success: true, runToken: 'old', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
@@ -181,10 +195,14 @@ test('a settlement timeout allows restart and ignores the stale finish acknowled
   game.timers.filter(timer => timer.delay === 4000 && timer.active).at(-1).fn();
   assert.match(game.nightShiftState.serverRunError, /confirm/i);
   game.startNightShift();
-  assert.equal(game.callbacks.length, 2);
+  assert.equal(game.callbacks.length, 1);
+  assert.equal(game.finishPackets.length, 3);
   game.nightShiftState.best = 10;
   game.finishCallbacks[0]({ success: true, best: 999 });
   assert.equal(game.nightShiftState.best, 10);
+  game.finishCallbacks[2]({ success: true, score: 125, best: 125 });
+  game.startNightShift();
+  assert.equal(game.callbacks.length, 2);
 });
 
 test('a start acknowledgement after the timeout still releases its server token', () => {
@@ -196,20 +214,118 @@ test('a start acknowledgement after the timeout still releases its server token'
   assert.equal(game.finishCallbacks.length, 1);
 });
 
-test('disconnect during exit settlement reports that saving could not be confirmed', () => {
+test('disconnect during exit settlement retries the same token after reconnect', () => {
   const game = harness();
   const notices = [];
-  let start, finish;
+  const starts = [];
+  const finishes = [];
   const noop = () => {};
-  game.configureNightShift({ emitServer(event, payload, callback) { if (event === 'start-patrol-run') start = callback; if (event === 'finish-patrol-run') finish = callback; }, stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: (title, body) => notices.push(body), unlockAchievement: noop });
+  game.configureNightShift({ emitServer(event, payload, callback) { if (event === 'start-patrol-run') starts.push(callback); if (event === 'finish-patrol-run') finishes.push({ payload, callback }); }, stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: (title, body) => notices.push(body), unlockAchievement: noop });
   game.startNightShift();
-  start({ success: true, runToken: 'run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
+  starts[0]({ success: true, runToken: 'run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
   game.stopNightShift();
-  assert.equal(typeof finish, 'function');
+  assert.equal(typeof finishes[0].callback, 'function');
   game.handlePatrolDisconnect();
-  assert.match(notices.at(-1), /could not be confirmed/i);
+  assert.match(notices.at(-1), /reconnect or press shift\+p/i);
+  assert.equal(game.nightShiftState.active, false);
+  assert.equal(starts.length, 1);
+  assert.equal(game.handlePatrolReconnect(), true);
+  assert.equal(finishes.length, 2);
+  assert.equal(finishes[1].payload.runToken, 'run');
+  finishes[1].callback({ success: true, score: 125, best: 125 });
   game.startNightShift();
-  assert.equal(game.nightShiftState.active, true);
+  assert.equal(starts.length, 2, 'a new run can start after the pending score is confirmed');
+});
+
+test('a reloaded tab retries only the pending token for its signed-in account', () => {
+  const sessionValues = new Map();
+  const original = harness(sessionValues, 'account-a');
+  original.startNightShift();
+  original.callbacks[0]({ success: true, runToken: 'account-a-run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
+  original.stopNightShift();
+
+  const authNotReady = harness(sessionValues, null);
+  assert.equal(authNotReady.handlePatrolReconnect(), false);
+  assert.equal(sessionValues.size, 1, 'an unverified session cannot consume or delete the pending token');
+
+  const otherAccount = harness(sessionValues, 'account-b');
+  assert.equal(otherAccount.handlePatrolReconnect(), false);
+  assert.equal(otherAccount.finishPackets.length, 0, 'another account cannot submit the saved token');
+
+  const reloaded = harness(sessionValues, 'account-a');
+  assert.equal(reloaded.handlePatrolReconnect(), true);
+  assert.equal(reloaded.finishPackets.length, 1);
+  assert.equal(reloaded.finishPackets[0].runToken, 'account-a-run');
+  reloaded.finishCallbacks[0]({ success: true, score: 125, best: 125 });
+
+  const settledTab = harness(sessionValues, 'account-a');
+  assert.equal(settledTab.handlePatrolReconnect(), false, 'confirmed settlement clears the saved token');
+});
+
+test('Shift+P preserves a pending token when the auth gate is not ready', () => {
+  const sessionValues = new Map();
+  const original = harness(sessionValues, 'account-a');
+  original.startNightShift();
+  original.callbacks[0]({ success: true, runToken: 'account-a-run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
+  original.stopNightShift();
+
+  let authGateCalls = 0;
+  const retry = harness(sessionValues, 'account-a', () => { authGateCalls += 1; });
+  retry.startNightShift();
+  assert.equal(authGateCalls, 1, 'manual retry uses the same async auth gate as reconnect');
+  assert.equal(retry.finishPackets.length, 0, 'no finish event is sent before auth confirms');
+  assert.equal(sessionValues.size, 1, 'auth-not-ready does not erase the stored token');
+  assert.equal(retry.nightShiftState.active, false, 'retry does not start a new patrol');
+
+  assert.equal(retry.handlePatrolReconnect(), true, 'a later auth-confirmed callback can retry');
+  assert.equal(retry.finishPackets[0].runToken, 'account-a-run');
+});
+
+test('localStorage fallback recovers a pending token without crossing account authorization', () => {
+  const sessionValues = new Map();
+  const localValues = new Map();
+  const storageOptions = { sessionStorageUnavailable: true, localValues };
+  const original = harness(sessionValues, 'account-a', null, storageOptions);
+  original.startNightShift();
+  original.callbacks[0]({ success: true, runToken: 'account-a-run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
+  original.stopNightShift();
+  assert.equal(sessionValues.size, 0);
+  assert.equal([...localValues.keys()].some(key => key.startsWith('poorup.night-shift.pending.v1.account-a.')), true);
+
+  const otherAccount = harness(sessionValues, 'account-b', null, storageOptions);
+  assert.equal(otherAccount.handlePatrolReconnect(), false);
+  assert.equal(otherAccount.finishPackets.length, 0, 'another account cannot submit the fallback token');
+
+  const reloaded = harness(sessionValues, 'account-a', null, storageOptions);
+  assert.equal(reloaded.handlePatrolReconnect(), true);
+  assert.equal(reloaded.finishPackets[0].runToken, 'account-a-run');
+  reloaded.finishCallbacks[0]({ success: true, score: 125, best: 125 });
+  assert.equal([...localValues.keys()].some(key => key.startsWith('poorup.night-shift.pending.v1.account-a.')), false, 'confirmed settlement clears the fallback token');
+});
+
+test('a stale tab retry cannot overwrite a newer shared pending token', async () => {
+  const sessionValues = new Map();
+  const localValues = new Map();
+  const storageOptions = { sessionStorageUnavailable: true, localValues };
+  const tabA = harness(sessionValues, 'account-a', null, storageOptions);
+  tabA.startNightShift();
+  tabA.callbacks[0]({ success: true, runToken: 'older-run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
+  tabA.stopNightShift();
+
+  const staleTab = harness(sessionValues, 'account-a', null, storageOptions);
+  assert.equal(staleTab.handlePatrolReconnect(), true);
+  tabA.finishCallbacks[0]({ success: true, score: 125, best: 125 });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  tabA.startNightShift();
+  tabA.callbacks[1]({ success: true, runToken: 'newer-run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 0, hearts: 3, misses: 0, targets: [], ended: false });
+  tabA.stopNightShift();
+
+  const newerKey = 'poorup.night-shift.pending.v1.account-a.newer-run';
+  assert.equal(JSON.parse(localValues.get(newerKey)).runToken, 'newer-run');
+  staleTab.timers.find(timer => timer.delay === 4000 && timer.active).fn();
+  staleTab.timers.filter(timer => timer.delay === 4000 && timer.active).at(-1).fn();
+  staleTab.startNightShift();
+  assert.equal(JSON.parse(localValues.get(newerKey)).runToken, 'newer-run', 'retrying the old run cannot clobber the newer pending run');
 });
 
 test('a start acknowledgement timeout ends the stalled run and releases a later token', () => {
@@ -237,6 +353,36 @@ test('a lost finish acknowledgement retries the same token once and accepts the 
   assert.equal(game.finishPackets[0].runToken, 'run');
   assert.equal(game.finishPackets[1].runToken, 'run');
   game.finishCallbacks[1]({ success: true, score: 125, best: 125 });
+  game.startNightShift();
+  assert.equal(game.callbacks.length, 2);
+});
+
+test('a retryable save failure retries the same patrol token', () => {
+  const game = harness();
+  game.startNightShift();
+  game.callbacks[0]({ success: true, runToken: 'run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
+  game.stopNightShift();
+  game.finishCallbacks[0]({ success: false, retryable: true, error: 'Save failed' });
+  assert.equal(game.finishPackets.length, 2);
+  assert.equal(game.finishPackets[1].runToken, 'run');
+  game.finishCallbacks[1]({ success: true, score: 125, best: 125 });
+  game.startNightShift();
+  assert.equal(game.callbacks.length, 2);
+});
+
+test('repeated retryable save failures can be retried from Shift+P without starting a new run', () => {
+  const game = harness();
+  game.startNightShift();
+  game.callbacks[0]({ success: true, runToken: 'run', revision: 1, serverTime: Date.now(), wave: 1, endsAt: Date.now() + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false });
+  game.stopNightShift();
+  game.finishCallbacks[0]({ success: false, retryable: true, error: 'Save failed' });
+  game.finishCallbacks[1]({ success: false, retryable: true, error: 'Save failed again' });
+  assert.match(game.nightShiftState.serverRunError, /Shift\+P or reconnect/);
+  game.startNightShift();
+  assert.equal(game.callbacks.length, 1);
+  assert.equal(game.finishPackets.length, 3);
+  assert.equal(game.finishPackets[2].runToken, 'run');
+  game.finishCallbacks[2]({ success: true, score: 125, best: 125 });
   game.startNightShift();
   assert.equal(game.callbacks.length, 2);
 });

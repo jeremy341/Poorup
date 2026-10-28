@@ -1,10 +1,7 @@
-/* ============================================================
-   NIGHT SHIFT: the Ctrl/Shift+P arcade mini-game on Home.
-   Owns the wave timers, spawn queue, hit/miss resolution, the
-   background-tab freeze/resume coordinator, and the run
-   submission. Server calls, achievements, and Home patrol
-   plumbing arrive via host callbacks from the entry module.
-   ============================================================ */
+// NIGHT SHIFT: the Ctrl/Shift+P arcade mini-game on Home.
+// Owns the wave timers, spawn queue, hit/miss resolution, the background-tab
+// freeze/resume coordinator and run submission. Server calls, achievements and
+// Home patrol plumbing come from host callbacks in the entry module.
 import { $, REDUCED_MOTION } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { hydrateSprites } from "./clientSprites.js";
@@ -13,6 +10,8 @@ import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
 const NIGHT_SHIFT_WAVE_MS = 60000;
 const NIGHT_SHIFT_START_HEARTS = 3;
 const NIGHT_SHIFT_BEST_KEY = "poorup.night-shift.best.v1";
+const NIGHT_SHIFT_PENDING_KEY_PREFIX = "poorup.night-shift.pending.v1.";
+const NIGHT_SHIFT_PENDING_TTL_MS = 6 * 60_000;
 let nightShiftWaveTimer = null;
 let nightShiftTickTimer = null;
 let nightShiftStartTimer = null;
@@ -36,6 +35,122 @@ let nightShiftClockOffset = null;
 let nightShiftClockRtt = Infinity;
 let nightShiftSettlement = null;
 try { nightShiftState.best = Number(localStorage.getItem(NIGHT_SHIFT_BEST_KEY)) || 0; } catch { /* storage unavailable */ }
+
+function patrolAccountId() {
+  return String(state.account?.account?.id || "").trim();
+}
+
+function pendingSettlementAccountKey(accountId) {
+  const encodedAccountId = encodeURIComponent(accountId).replace(/\./g, "%2E");
+  return `${NIGHT_SHIFT_PENDING_KEY_PREFIX}${encodedAccountId}`;
+}
+
+function pendingSettlementKey(accountId, token) {
+  return `${pendingSettlementAccountKey(accountId)}.${encodeURIComponent(token)}`;
+}
+
+function pendingSettlementCreatedAt(saved) {
+  const createdAt = Number(saved?.createdAt);
+  return Number.isFinite(createdAt) && createdAt > 0
+    ? createdAt
+    : Math.max(0, Number(saved?.expiresAt) - NIGHT_SHIFT_PENDING_TTL_MS);
+}
+
+function readPendingSettlementRecord(accountId) {
+  const records = [];
+  for (const storageName of ["sessionStorage", "localStorage"]) {
+    try {
+      const storage = globalThis[storageName];
+      if (!storage) continue;
+      const legacyKey = pendingSettlementAccountKey(accountId);
+      const tokenKeyPrefix = `${legacyKey}.`;
+      for (let index = storage.length - 1; index >= 0; index -= 1) {
+        const key = storage.key(index);
+        if (key !== legacyKey && !key?.startsWith(tokenKeyPrefix)) continue;
+        const raw = storage.getItem(key);
+        if (!raw) continue;
+        const saved = JSON.parse(raw);
+        if (saved?.accountId === accountId
+          && typeof saved.runToken === "string"
+          && saved.runToken.length > 0
+          && Number.isFinite(Number(saved.expiresAt))
+          && Number(saved.expiresAt) > Date.now()) {
+          records.push({ ...saved, createdAt: pendingSettlementCreatedAt(saved) });
+        } else {
+          storage.removeItem(key);
+        }
+      }
+    } catch { /* try the other storage area */ }
+  }
+  return records.sort((left, right) => right.createdAt - left.createdAt)[0] || null;
+}
+
+function persistPendingSettlement(settlement) {
+  if (!settlement?.token || !settlement.accountId) return;
+  const key = pendingSettlementKey(settlement.accountId, settlement.token);
+  const createdAt = Number(settlement.createdAt) || Date.now();
+  const value = JSON.stringify({
+    accountId: settlement.accountId,
+    runToken: settlement.token,
+    createdAt,
+    expiresAt: Date.now() + NIGHT_SHIFT_PENDING_TTL_MS,
+  });
+  try {
+    globalThis.sessionStorage.setItem(key, value);
+    try { globalThis.localStorage.removeItem(key); } catch { /* old fallback may remain until expiry */ }
+    return;
+  } catch { /* fall back to durable same-origin storage */ }
+  try { globalThis.localStorage.setItem(key, value); } catch { /* same-page reconnect retry still works */ }
+}
+
+function clearPersistedPendingSettlement(settlement) {
+  if (!settlement?.token || !settlement.accountId) return;
+  const legacyKey = pendingSettlementAccountKey(settlement.accountId);
+  const tokenKeyPrefix = `${legacyKey}.`;
+  for (const storageName of ["sessionStorage", "localStorage"]) {
+    try {
+      const storage = globalThis[storageName];
+      if (!storage) continue;
+      for (let index = storage.length - 1; index >= 0; index -= 1) {
+        const key = storage.key(index);
+        if (key !== legacyKey && !key?.startsWith(tokenKeyPrefix)) continue;
+        const saved = JSON.parse(storage.getItem(key) || "null");
+        const olderThanSettlement = pendingSettlementCreatedAt(saved) <= Number(settlement.createdAt || 0);
+        if (saved?.runToken === settlement.token || olderThanSettlement) storage.removeItem(key);
+      }
+    } catch { /* storage unavailable */ }
+  }
+}
+
+function restorePendingSettlement() {
+  const accountId = patrolAccountId();
+  if (!accountId) return null;
+  const saved = readPendingSettlementRecord(accountId);
+  if (!saved) return null;
+  const settlement = {
+    generation: nightShiftGeneration,
+    account: state.account.account,
+    accountId,
+    createdAt: pendingSettlementCreatedAt(saved),
+    timer: null,
+    sent: false,
+    left: true,
+    token: saved.runToken,
+    awaitingReconnect: true,
+    requestGeneration: 0,
+  };
+  nightShiftSettlement = settlement;
+  nightShiftState.serverRunToken = settlement.token;
+  nightShiftState.serverRunSubmitted = true;
+  return settlement;
+}
+
+export function hasPendingPatrolSettlement() {
+  const accountId = patrolAccountId();
+  if (!accountId) return false;
+  if (nightShiftSettlement?.token && nightShiftSettlement.accountId === accountId) return true;
+  return Boolean(readPendingSettlementRecord(accountId));
+}
 
 let host = {};
 
@@ -206,8 +321,8 @@ function triggerNightShiftHomeEffect(x, y, kind) {
 
 function settleHiddenTarget(timers) {
   // The tab froze mid-flight: remember that this animation finished
-  // while we were away and let the resume coordinator settle it
-  // immediately instead of silently dropping the event.
+  // while the tab was away and let the resume coordinator settle it
+  // immediately, never silently dropping the event.
   timers.endedWhileHidden = true;
 }
 
@@ -489,7 +604,9 @@ function applyRunBest(response) {
 function finishSettlement(settlement, response) {
   if (nightShiftSettlement !== settlement) return;
   clearTimeout(settlement.timer);
+  settlement.timer = null;
   nightShiftSettlement = null;
+  clearPersistedPendingSettlement(settlement);
   if (!response?.success) {
     nightShiftState.serverRunError = String(response?.error || "Could not confirm that the score was saved.").slice(0, 120);
     host.parlorNotice("NIGHT SHIFT", nightShiftState.serverRunError);
@@ -501,7 +618,7 @@ function finishSettlement(settlement, response) {
 
 function beginSettlement() {
   if (nightShiftSettlement) return nightShiftSettlement;
-  const settlement = { generation: nightShiftGeneration, account: state.account?.account, timer: null, sent: false, left: false };
+  const settlement = { generation: nightShiftGeneration, account: state.account?.account, accountId: patrolAccountId(), createdAt: Date.now(), timer: null, sent: false, left: false, token: null, awaitingReconnect: false, requestGeneration: 0 };
   nightShiftSettlement = settlement;
   settlement.timer = setTimeout(() => {
     if (nightShiftSettlement !== settlement) return;
@@ -512,23 +629,48 @@ function beginSettlement() {
   return settlement;
 }
 
+function awaitSettlementReconnect(settlement, message = "Connection lost. Reconnect or press Shift+P to retry the patrol score.") {
+  if (nightShiftSettlement !== settlement) return;
+  clearTimeout(settlement.timer);
+  settlement.timer = null;
+  settlement.requestGeneration += 1;
+  settlement.awaitingReconnect = true;
+  nightShiftState.serverRunError = message;
+  host.parlorNotice("NIGHT SHIFT", message);
+}
+
 function sendSettlement(settlement, token) {
   if (nightShiftSettlement !== settlement || settlement.sent || !token) return;
+  settlement.token = token;
+  settlement.awaitingReconnect = false;
   settlement.sent = true;
   nightShiftState.serverRunSubmitted = true;
+  persistPendingSettlement(settlement);
   clearTimeout(settlement.timer);
+  const requestGeneration = ++settlement.requestGeneration;
   let attempts = 0;
   const send = () => {
-    if (nightShiftSettlement !== settlement) return;
+    if (nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration) return;
     attempts += 1;
     const attempt = attempts;
     settlement.timer = setTimeout(() => {
-      if (nightShiftSettlement !== settlement) return;
+      if (nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration) return;
       if (attempts === 1) { send(); return; }
-      finishSettlement(settlement, { success: false, error: "Could not confirm that the patrol score was saved." });
+      awaitSettlementReconnect(settlement, "Could not confirm the patrol score. Reconnect or press Shift+P to retry.");
     }, 4000);
     host.emitServer("finish-patrol-run", { runToken: token }, (response) => {
+      if (nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration) return;
       if (!response?.success && attempt === 1 && attempts > 1) return;
+      if (!response?.success && response?.retryable && attempt === 1 && attempts === 1) {
+        clearTimeout(settlement.timer);
+        send();
+        return;
+      }
+      if (!response?.success && response?.retryable && attempts > 1) {
+        const error = String(response.error || "Could not save this patrol.").slice(0, 63);
+        awaitSettlementReconnect(settlement, `${error} Press Shift+P or reconnect to retry.`);
+        return;
+      }
       if (!response?.success && attempts > 1) {
         finishSettlement(settlement, { success: false, error: "Could not confirm that the patrol score was saved." });
         return;
@@ -542,6 +684,20 @@ function sendSettlement(settlement, token) {
 function submitNightShiftRun() {
   if (!nightShiftState.serverRunToken || nightShiftState.serverRunSubmitted) return;
   sendSettlement(beginSettlement(), nightShiftState.serverRunToken);
+}
+
+export function handlePatrolReconnect() {
+  let settlement = nightShiftSettlement;
+  if (settlement && settlement.accountId !== patrolAccountId()) {
+    nightShiftSettlement = null;
+    settlement = null;
+  }
+  if (!settlement) settlement = restorePendingSettlement();
+  if (!settlement?.awaitingReconnect || !settlement.token) return false;
+  settlement.sent = false;
+  nightShiftState.serverRunError = null;
+  sendSettlement(settlement, settlement.token);
+  return true;
 }
 
 function saveNightShiftBest() {
@@ -912,7 +1068,8 @@ function nightShiftRunStartAck(response) {
 
 export function handlePatrolDisconnect() {
   if (nightShiftSettlement) {
-    finishSettlement(nightShiftSettlement, { success: false, error: "Connection lost. The patrol score could not be confirmed." });
+    if (nightShiftSettlement.token) awaitSettlementReconnect(nightShiftSettlement);
+    else finishSettlement(nightShiftSettlement, { success: false, error: "Connection lost. The patrol score could not be confirmed." });
   }
   if (!nightShiftState.active || !nightShiftServerRun) return;
   nightShiftGeneration += 1;
@@ -966,7 +1123,17 @@ export function startNightShift() {
   if (!PARLOR_PATROL_ENABLED) return;
   if (state.phase !== "home") return;
   if (nightShiftState.active) return;
-  if (nightShiftSettlement) { host.parlorNotice("NIGHT SHIFT", "Finishing your previous patrol. Please wait."); return; }
+  if (nightShiftSettlement && nightShiftSettlement.accountId !== patrolAccountId()) nightShiftSettlement = null;
+  if (!nightShiftSettlement) restorePendingSettlement();
+  if (nightShiftSettlement) {
+    if (nightShiftSettlement.awaitingReconnect && nightShiftSettlement.token) {
+      host.parlorNotice("NIGHT SHIFT", "Retrying your previous patrol score. Please wait.");
+      host.retryPendingSettlement?.();
+    } else {
+      host.parlorNotice("NIGHT SHIFT", "Finishing your previous patrol. Please wait.");
+    }
+    return;
+  }
   // A stale room session may still emit snapshots while the player is Home.
   // Keep this local arcade layer isolated until the player explicitly joins again.
   clearNightShiftTimers();
@@ -1114,7 +1281,7 @@ function handleNightShiftVisible() {
     return;
   }
   if (!nightShiftState.active) {
-    // Result countdown parked while hidden — re-arm for its remaining time.
+    // Result countdown is parked while hidden; re-arm for its remaining time.
     if (nightShiftResultEndsAt) scheduleNightShiftResult();
     return;
   }

@@ -1,10 +1,8 @@
-/* ============================================================
-   PROFILE BINDINGS: the profile/account/achievements surface
-   bindings plus the design-editor state machine (draft, save,
-   delete, face painting). showView and emitServer are injected by
-   the entry module; every selector, string and payload is the
-   exact old main.js code.
-   ============================================================ */
+// PROFILE BINDINGS: the profile/account/achievements surface
+// bindings plus the design-editor state machine (draft, save,
+// delete, face painting). showView and emitServer are injected by
+// the entry module; every selector, string and payload is the
+// exact main.js code.
 import { $ } from "./clientDom.js";
 import { state, getProfileById, upsertProfile, deleteProfile } from "./clientState.js";
 import { MAX_PROFILES, profileDesignName } from "./clientSanitize.js";
@@ -23,6 +21,7 @@ import {
   setAllProfileHistoryRowsExpanded,
 } from "./clientProfileRender.js";
 import { openConfirmModal } from "./clientSurfaces.js";
+import { setFaceFocus } from "./clientProfileRender.js";
 import {
   openAchievementModal,
   closeAchievementModal,
@@ -391,6 +390,24 @@ function onFaceCellClick(e) {
 function onFaceCellKeydown(e) {
   const cell = e.target.closest(".face-cell");
   if (!cell) return;
+  const step = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] }[e.key];
+  if (step) {
+    e.preventDefault();
+    const canvas = cell.closest("#face-canvas") || cell.parentElement;
+    const cells = [...canvas.querySelectorAll(".face-cell")];
+    const cols = Math.max(...cells.map(c => Number(c.dataset.x))) + 1;
+    const rows = Math.max(...cells.map(c => Number(c.dataset.y))) + 1;
+    const x = Math.min(cols - 1, Math.max(0, Number(cell.dataset.x) + step[0]));
+    const y = Math.min(rows - 1, Math.max(0, Number(cell.dataset.y) + step[1]));
+    const next = canvas.querySelector(`.face-cell[data-x="${x}"][data-y="${y}"]`);
+    if (next) {
+      setFaceFocus(x, y);
+      cells.forEach(c => { c.tabIndex = -1; });
+      next.tabIndex = 0;
+      next.focus();
+    }
+    return;
+  }
   if (e.key !== "Enter" && e.key !== " ") return;
   e.preventDefault();
   paintFaceCell(Number(cell.dataset.x), Number(cell.dataset.y));
@@ -418,7 +435,7 @@ export function bindProfileUi() {
   $("#profile-history-content")?.addEventListener("click", onProfileHistoryClick);
   $("#profile-history-content")?.addEventListener("keydown", onProfileHistoryKeydown);
   $("#profile-history-content")?.addEventListener("change", onProfileHistoryChange);
-  // profile editor — entry points
+  // profile editor: entry points
   document.querySelectorAll("[data-global-profile-trigger]").forEach((button) => {
     button.addEventListener("click", onActiveProfileEditClick);
   });
@@ -462,10 +479,10 @@ export function bindProfileUi() {
   $("#account-logout-btn")?.addEventListener("click", logoutAccount);
   $("#account-scrim")?.addEventListener("click", closeAccountModal);
 
-  // profile editor — delete
+  // profile editor: delete
   $("#profile-delete-btn")?.addEventListener("click", onProfileDeleteBtnClick);
 
-  // profile editor — identity
+  // profile editor: identity
   $("#profile-name")?.addEventListener("input", (e) => {
     state.profileDraft.designName = e.target.value.toUpperCase().slice(0, 12);
     updateProfilePreview();
@@ -481,7 +498,7 @@ export function bindProfileUi() {
     renderProfileEditor();
   });
 
-  // profile editor — face canvas painting (click + drag)
+  // profile editor: face canvas painting (click + drag)
   const faceCanvasEl = $("#face-canvas");
   faceCanvasEl?.addEventListener("mousedown", onFaceMouseDown);
   faceCanvasEl?.addEventListener("mouseover", onFaceMouseOver);
@@ -493,7 +510,7 @@ export function bindProfileUi() {
   window.addEventListener("pointerup", () => { isPainting = false; });
   faceCanvasEl?.addEventListener("dragstart", (e) => e.preventDefault());
 
-  // profile editor — ink palette + tools
+  // profile editor: ink palette + tools
   $("#face-palette")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-ink]");
     if (!btn) return;
@@ -523,7 +540,7 @@ export function bindProfileUi() {
     renderProfileEditor();
   });
 
-  // profile editor — save / cancel / back
+  // profile editor: save / cancel / back
   $("#profile-cancel-btn")?.addEventListener("click", () => closeProfileEditor(false));
   $("#profile-back-btn")?.addEventListener("click", () => closeProfileEditor(false));
 }

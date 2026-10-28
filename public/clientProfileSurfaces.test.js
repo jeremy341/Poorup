@@ -118,7 +118,7 @@ check("collapsedRowShowsLabelledColumnsAndOwnerOnlyCash", () => {
   assert.match(owned, /profile-history-stat"><span class="t-micro ink-3">ENDING CASH<\/span><strong[^>]*>\$1[.,\s]?320</);
   assert.match(owned, /OCT 19, 2026/);
   const publicOnly = profileHistoryRowHTML({ matchId: "public-only", result: "ROUND", endingCash: 9123 }, 0, 1, { accountId: "self" });
-  assert.match(publicOnly, /ENDING CASH<\/span><strong[^>]*>—<span class="sr-only">NOT RECORDED/);
+  assert.match(publicOnly, /ENDING CASH<\/span><strong[^>]*>-<span class="sr-only">NOT RECORDED/);
   assert.doesNotMatch(publicOnly, /9,?123/);
   const bankrupt = profileHistoryRowHTML({ matchId: "b", participants: [{ accountId: "self", bankrupt: true }] }, 0, 1, { accountId: "self" });
   assert.match(bankrupt, /profile-history-row is-bankrupt/);
@@ -290,7 +290,7 @@ check("worthTabShowsAChartHostFinalFiguresAndHonestEmptyStates", () => {
   const html = profileHistoryRowHTML(worthRecord, 0, 1, { accountId: "self", ownerRecord: worthRecord });
   assert.match(html, />NET WORTH</, "the tab exists");
   assert.match(html, /class="profile-history-chart" data-profile-history-chart="worth-1"/);
-  assert.match(html, /FINAL NET WORTH · ME \(you\) —/, "a seat with no value at the end reads as a dash");
+  assert.match(html, /FINAL NET WORTH · ME \(you\) -/, "a seat with no value at the end reads as a dash");
   assert.match(html, /RIVAL \$1[.,\s]?200/);
   assert.match(html, /NET WORTH = CASH \+ DEEDS \+ BUILDINGS − DEBTS/);
   const older = profileHistoryRowHTML({ matchId: "old", participants: worthRecord.participants }, 0, 1, { accountId: "self", ownerRecord: { matchId: "old", participants: worthRecord.participants } });

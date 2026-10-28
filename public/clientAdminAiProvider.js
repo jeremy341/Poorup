@@ -31,7 +31,7 @@ export async function adminRequest(path, { method = 'GET', body, signal, fetcher
   return { ok: response?.ok !== false && payload.success !== false, status, payload };
 }
 
-function formatEndpoint(value) { try { const url = new URL(String(value || '')); return `${url.host}${url.pathname.replace(/\/+$/, '') || '/'}`; } catch { return safeText(value, '—', 120); } }
+function formatEndpoint(value) { try { const url = new URL(String(value || '')); return `${url.host}${url.pathname.replace(/\/+$/, '') || '/'}`; } catch { return safeText(value, '-', 120); } }
 function normalizeProfile(value) {
   if (!value || typeof value !== 'object') return null;
   return {
@@ -102,10 +102,9 @@ function activateBlockReason(profile, model) {
   return '';
 }
 
-// The badge answers from the server's own health. Only when no health is known yet does it
-// describe an active profile by its last test; with no profile at all nothing is configured.
-// A profile the server reports as unconfigured is saved but not in use (for example the
-// config key was missing at boot), which is not the same as nothing being active.
+// The badge answers from the server's own health. Without health, it describes an active profile
+// by its last test. An unconfigured profile is saved but not in use (for example, its config key was
+// missing at boot), which is not the same as having nothing active.
 export function providerBadge(active, health) {
   const reported = safeText(health?.state || '', '', 40).toLowerCase();
   const known = Object.hasOwn(HEALTH_LABELS, reported);
@@ -127,9 +126,9 @@ function renderActive(model) {
   if (badge) { badge.textContent = verdict.label; badge.dataset.state = verdict.state; }
   const set = (selector, value) => { const target = query(selector); if (target) target.textContent = value; };
   set('[data-admin-provider-active-label]', active?.label || 'NO PROFILE ACTIVE');
-  set('[data-admin-provider-active-model]', active?.model || '—');
+  set('[data-admin-provider-active-model]', active?.model || '-');
   set('[data-admin-provider-active-format]', active ? PROTOCOL_LABELS[active.detectedProtocol || active.protocol] : 'AUTO · UNTESTED');
-  set('[data-admin-provider-active-url]', active ? formatEndpoint(active.baseUrl) : '—');
+  set('[data-admin-provider-active-url]', active ? formatEndpoint(active.baseUrl) : '-');
   set('[data-admin-provider-active-key]', active?.keyConfigured ? 'CONFIGURED · WRITE-ONLY' : 'NOT CONFIGURED');
   const note = query('[data-admin-provider-active-note]');
   if (note) {

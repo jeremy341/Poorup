@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-/* Behaviour tests for lane U1a: key gates, focus return, auction surface
+/* Behaviour tests for key gates, focus return, auction surface
    snoozing and bankruptcy inert handling. Executes the real modules against
    a small DOM stub. */
 
@@ -165,7 +165,7 @@ const hidden = (el) => el.classList.contains("is-hidden");
 state.phase = "playing";
 state.players = [{ id: "p1", serverId: "s1", cash: 1500 }];
 
-/* F-008: an auction whose modal is closed must not swallow Space/R. */
+/* An auction whose modal is closed must not swallow Space/R. */
 reset();
 state.auction = { id: "t5:1", tileIndex: 5, active: true, bid: 0, deadline: Date.now() + 5000 };
 press(" ", { code: "Space" });
@@ -181,12 +181,12 @@ press(" ", { code: "Space" });
 press("r");
 assert.deepEqual(calls, [], "Space/R are consumed while the auction modal is open");
 
-/* F-007: a live auction is truthful, so Escape confirms and then snoozes. */
+/* A live auction is truthful, so Escape confirms and then snoozes. */
 state.auction = { id: "t5:1", tileIndex: 5, active: true };
 assert.equal(surfaces.shouldConfirmSurfaceClose("#auction-modal"), true);
 assert.equal(surfaces.hasUnresolvedSurfaceDecision(), true);
 
-/* F-009: Escape goes through the same CLOSE path as the CLOSE button, asks
+/* Escape goes through the same CLOSE path as the CLOSE button, asks
    before leaving a live auction, and returns focus to the HUD action. */
 reset();
 state.auction = { id: "t5:1", tileIndex: 5, active: true };
@@ -205,7 +205,7 @@ assert.equal(document.activeElement, rollBtn, "closing the auction returns focus
 
 /* Focus falls back to the HUD primary action when the invoker was <body>. */
 reset();
-surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel");
+surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel", { allowHome: true });
 assert.equal(document.activeElement.id, "bank-loan-cancel");
 surfaces.closeSurface("#bank-loan-modal");
 assert.equal(document.activeElement, rollBtn, "no invoker: focus lands on the HUD primary action, not <body>");
@@ -215,13 +215,13 @@ reset();
 const hiddenInvoker = body.append(new FakeElement("stale-invoker", { tag: "button" }));
 hiddenInvoker.getClientRects = () => [];
 hiddenInvoker.focus();
-surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel");
+surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel", { allowHome: true });
 surfaces.closeSurface("#bank-loan-modal");
 assert.equal(document.activeElement, rollBtn, "a hidden invoker falls back to the HUD primary action");
 
-/* F2345-02: the bank-loan card belongs to the key gates. */
+/* The bank-loan card belongs to the key gates. */
 reset();
-surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel");
+surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel", { allowHome: true });
 calls.length = 0;
 press(" ", { code: "Space" });
 press("r");
@@ -229,7 +229,7 @@ assert.deepEqual(calls, [], "Space/R never act behind the bank-loan card");
 press("Escape");
 assert.equal(hidden(bankLoanModal), true, "Escape closes the bank-loan card");
 
-/* F2345-01: hiding the bankruptcy card re-applies inert. */
+/* Hiding the bankruptcy card re-applies inert. */
 reset();
 surfaces.openSurface("#bankruptcy-modal", "#bank-liquidate");
 assert.equal(viewGame.inert, true, "game view is inert while the bankruptcy card is open");
@@ -239,7 +239,7 @@ assert.equal(hidden(bankruptcyModal), true);
 assert.equal(viewGame.inert, false, "game view is interactive again once the debt is cleared");
 assert.equal(state.debtRescueDismissed === true, false, "a cleared debt is not a dismissal");
 
-/* ---- Game modal behaviours (F2345-03/05/08/09) ---- */
+/* ---- Game modal behaviours ---- */
 const modals = await import("./clientGameModalsUi.js");
 const { TILES } = await import("./clientBoardData.js");
 const emitted = [];
@@ -253,7 +253,7 @@ modals.configureGameModals({
 const buyable = TILES.find((tile) => tile.kind === "property");
 state.players = [{ id: "p1", serverId: "s1", cash: 5000, name: "ME", color: "#fff", textColor: "#fff" }];
 
-/* F2345-05: arming "Declare" moves focus to "Keep Playing". */
+/* Arming "Declare" moves focus to "Keep Playing". */
 reset();
 modals.openBankruptcyModal(0, 100, null, "Rent is due");
 const declare = document.querySelector("#bank-declare");
@@ -274,7 +274,7 @@ const shortHtml = document.querySelector("#bankruptcy-card").innerHTML;
 assert.match(shortHtml, /CAN'T COVER IT/);
 assert.ok(shortHtml.includes(`$<span class="numeric">${(2000).toLocaleString()}</span> short`), "the shortfall is the bill minus the player's cash");
 
-/* F2345-03: PASS is one request, and a failed ack never reopens a resolved deed. */
+/* PASS is one request, and a failed ack never reopens a resolved deed. */
 reset();
 state.settings.auction = false;
 state.pendingBuyTile = buyable.i;
@@ -295,7 +295,7 @@ pass.click();
 pendingAcks[0]({ success: true });
 assert.equal(emitted.filter((entry) => entry.event === "decline-property").length, 2, "a new PASS can be sent once the previous one settled");
 
-/* F2345-08: Rematch is host-only. */
+/* Rematch is host-only. */
 reset();
 state.players = [{ id: "p1", serverId: "s1", cash: 10, name: "ME", isHost: false, textColor: "#fff" }];
 state.hostId = "someone-else";
@@ -317,7 +317,7 @@ document.querySelector("#go-rematch").click();
 assert.equal(rematchStarts, 1, "the host can start the rematch");
 state.gameOver = null;
 
-/* Round-limit end: the modal says why the richest seat won (F-081). */
+/* Round-limit end: the modal says why the richest seat won. */
 reset();
 modals.showGameOver("ME", "p1", "round-limit");
 assert.match(document.querySelector("#gameover-card").innerHTML, /Round limit reached\. Ranked by net worth\./, "a round-limit end explains the actual winning metric");
@@ -328,7 +328,7 @@ modals.showGameOver("ME", "p1", null);
 assert.doesNotMatch(document.querySelector("#gameover-card").innerHTML, /Round limit reached/, "an ordinary end has no round-limit line");
 state.gameOver = null;
 
-/* F2345-09: the trade-offer card closes when the offer is withdrawn. */
+/* The trade-offer card closes when the offer is withdrawn. */
 reset();
 const offer = { id: "trade-1", from: "p2", giveCash: 50, wantDeeds: [], receivedAt: Date.now() - 10_000 };
 state.players = [{ id: "p1", serverId: "s1", cash: 10, name: "ME" }, { id: "p2", serverId: "s2", name: "THEM", color: "#0f0", textColor: "#0f0" }];
@@ -343,7 +343,7 @@ state.pendingTrade = null; // proposer cancelled; the 15 s inbox grace still lis
 modals.closeOfferIfWithdrawn();
 assert.equal(hidden(offerModal), true, "a withdrawn offer closes the card");
 
-/* F-027: one in-flight request per intent. */
+/* One in-flight request per intent. */
 const { emitIntent, intentInFlight } = await import("./clientRequestController.js");
 const sent = [];
 const acks = [];
@@ -357,7 +357,7 @@ assert.equal(intentInFlight("k"), false);
 assert.equal(emitIntent(send, "k", "repay-player-contract", {}), true, "the next intent goes through after the ack");
 acks[1]({ success: true });
 
-/* F2345-06: a pending bid keeps focus on the pressed control. */
+/* A pending bid keeps focus on the pressed control. */
 reset();
 state.settings.auction = true;
 state.players = [{ id: "p1", serverId: "s1", cash: 1500, name: "ME", textColor: "#fff", color: "#fff" }];
@@ -379,7 +379,7 @@ assert.equal(bidEmits.length, 1, "aria-disabled bid ignores a second activation"
 bidEmits[0]({ success: true });
 auctionUi.stopAuctionTimer();
 
-/* F-053: single-key shortcuts can be switched off (WCAG 2.1.4), persisted per viewer. */
+/* Single-key shortcuts can be switched off (WCAG 2.1.4), persisted per viewer. */
 const prefs = await import("./clientShortcutPrefs.js");
 reset();
 assert.equal(prefs.shortcutsEnabled(), true, "shortcuts default ON");
@@ -402,7 +402,7 @@ assert.doesNotThrow(() => prefs.setShortcutsEnabled(false), "blocked storage nev
 assert.equal((await import("./clientShortcutPrefs.js?blocked")).shortcutsEnabled(), true, "blocked storage falls back to the default");
 prefs.setShortcutsEnabled(true);
 
-/* F-079: the skip link to the HUD action is the first focusable element of the game view. */
+/* The skip link to the HUD action is the first focusable element of the game view. */
 const { skipToGameAction } = await import("./clientKeyboard.js");
 reset();
 skipToGameAction({ preventDefault() {} });
@@ -433,13 +433,22 @@ assert.doesNotMatch(indexHtml, /id="quick-table-btn"[^>]*>.*\[ C \]/, "Quick tab
   calls.length = 0;
   const ctrl = key({ ctrlKey: true });
   listeners.keydown(ctrl);
-  assert.equal(ctrl.defaultPrevented, true);
-  assert.deepEqual(calls, ["startNightShift"]);
+  assert.equal(ctrl.defaultPrevented, false, "Ctrl+P remains the browser print shortcut");
+  assert.deepEqual(calls, []);
   calls.length = 0;
   const shift = key({ shiftKey: true });
   listeners.keydown(shift);
   assert.equal(shift.defaultPrevented, true);
-  assert.deepEqual(calls, ["isNightShiftActive", "startNightShift"]);
+  assert.deepEqual(calls, ["isPanelMenuOpen", "isNightShiftActive", "startNightShift"]);
+  calls.length = 0;
+  surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel", { allowHome: true });
+  const blockedShift = key({ shiftKey: true });
+  listeners.keydown(blockedShift);
+  assert.equal(blockedShift.defaultPrevented, false, "Shift+P does not override an open surface");
+  assert.equal(bankLoanModal.classList.contains("is-hidden"), false);
+  assert.equal(calls.includes("goHome"), false);
+  assert.equal(calls.includes("startNightShift"), false);
+  surfaces.closeAllSurfaces();
   viewHome.classList.add("is-hidden");
   state.phase = "playing";
 }

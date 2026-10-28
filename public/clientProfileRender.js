@@ -1,10 +1,6 @@
-/* ============================================================
-   PROFILE SURFACES: identity display source, profile summary,
-   statistics deck, history rows, library tiles, the face editor
-   canvas renderers, and the guest-alias field. Socket-backed
-   saves and view switching stay in the entry module; the
-   achievements renderer is injected as a host callback.
-   ============================================================ */
+// PROFILE SURFACES: identity display, profile summary, statistics deck, history rows, library
+// tiles, face editor canvas renderers and the guest-alias field. Socket-backed saves and view
+// switching stay in the entry module. The achievements renderer is a host callback.
 import { $, esc } from "./clientDom.js";
 import { state, getProfileById, getAppearanceMeta } from "./clientState.js";
 import { spriteFromGrid, avatarHTML, hydrateSprites } from "./clientSprites.js";
@@ -94,7 +90,10 @@ function renderProfileHero(source, displayName) {
   setHTML("#profile-overview-avatar", heroAvatarMarkup(grid, color, 5));
   replaceText("#profile-hero-name", displayName);
   replaceText("#profile-overview-name", displayName);
-  setText("#profile-hero-handle", account ? `@${account.username}` : "GUEST MODE");
+  // The hero names the player; the subtitle also carries the design name, so a just-saved design is visible here.
+  const designLabel = source.designName ? String(source.designName).toUpperCase() : "";
+  const base = account ? `@${account.username}` : "GUEST MODE";
+  setText("#profile-hero-handle", designLabel ? `${base} · ${designLabel}` : base);
   const stateLabel = $("#profile-hero-state");
   if (stateLabel) {
     stateLabel.textContent = account
@@ -321,10 +320,10 @@ function statisticsTabsHTML(ctx) {
 export function profileStatisticsHTML(ctx) {
   const account = ctx.account;
   const values = [
-    ["ROUNDS", account ? String(ctx.games) : "—", "g100"],
-    ["WINS", account ? String(ctx.wins) : "—", "green"],
-    ["WIN RATE", account ? `${ctx.winShare}%` : "—", "g300"],
-    ["BANKRUPTCIES", account ? String(ctx.bankruptcies) : "—", "g-muted"],
+    ["ROUNDS", account ? String(ctx.games) : "-", "g100"],
+    ["WINS", account ? String(ctx.wins) : "-", "green"],
+    ["WIN RATE", account ? `${ctx.winShare}%` : "-", "g300"],
+    ["BANKRUPTCIES", account ? String(ctx.bankruptcies) : "-", "g-muted"],
   ];
   return `<section class="profile-stats-overview panel noise" aria-label="Statistics overview"><div><span class="t-micro g400">PERFORMANCE</span><h2 class="t-section g100">Statistics</h2></div><div class="profile-stats-headline">${values.map(([label, value, tone]) => `<div class="profile-stats-kpi"><span class="t-micro ink-3">${label}</span><strong class="t-label f18 ${tone}">${value}</strong></div>`).join("")}</div></section>
     <div class="profile-stats-categories">${statisticsTabsHTML(ctx)}</div>`;
@@ -448,8 +447,8 @@ function historyPlayerTags(player, you) {
 function historyPlayerRow(player, accountId) {
   const you = accountId != null && player.accountId === accountId;
   const rank = player.finalPlacement == null ? "NOT RECORDED" : `#${esc(player.finalPlacement)}`;
-  const cash = player.endingCash == null ? "—" : esc(formatHistoryMoney(player.endingCash, "—"));
-  const deeds = player.propertyCount == null ? "—" : `${esc(player.propertyCount)} ${Number(player.propertyCount) === 1 ? "DEED" : "DEEDS"}`;
+  const cash = player.endingCash == null ? "-" : esc(formatHistoryMoney(player.endingCash, "-"));
+  const deeds = player.propertyCount == null ? "-" : `${esc(player.propertyCount)} ${Number(player.propertyCount) === 1 ? "DEED" : "DEEDS"}`;
   return `<li class="profile-history-player${you ? " is-you" : ""}"><strong class="profile-history-player-rank t-label f12">${rank}</strong><span class="profile-history-player-name t-label f12">${esc(player.displayNameAtMatch || "PLAYER")}${historyPlayerTags(player, you)}</span><span class="profile-history-player-cash t-label f12">${cash}</span><span class="profile-history-player-deeds t-micro ink-3">${deeds}</span></li>`;
 }
 
@@ -526,7 +525,7 @@ function historyWorthPanel(recordValue, accountId) {
   const final = spec.series.map((series) => {
     const seat = recordValue.participants.findIndex((participant, index) => index < 6 && (participant?.accountId || `seat-${index}`) === series.id);
     const worth = Array.isArray(last?.worth) ? last.worth[seat] : null;
-    return `${esc(series.name)} ${worth == null ? "—" : esc(formatHistoryMoney(worth))}`;
+    return `${esc(series.name)} ${worth == null ? "-" : esc(formatHistoryMoney(worth))}`;
   }).join(" · ");
   return `<div class="profile-history-chart" data-profile-history-chart="${esc(recordValue.matchId)}"></div><p class="t-micro ink-3 profile-history-chart-note">FINAL NET WORTH · ${final}</p><p class="t-micro ink-3 profile-history-chart-note">NET WORTH = CASH + DEEDS + BUILDINGS − DEBTS · ONE POINT PER ROUND</p>`;
 }
@@ -567,7 +566,7 @@ function ownerDetailsPanels(recordValue, accountId, detailId) {
 
 /** One labelled column of the collapsed row; a missing value reads as a dash but stays announced. */
 function historyStat(label, value) {
-  const shown = value == null ? '—<span class="sr-only">NOT RECORDED</span>' : esc(value);
+  const shown = value == null ? '-<span class="sr-only">NOT RECORDED</span>' : esc(value);
   return `<span class="profile-history-stat"><span class="t-micro ink-3">${label}</span><strong class="t-label f12 g100">${shown}</strong></span>`;
 }
 
@@ -734,10 +733,10 @@ export function profileHistorySummary(history, accountId, ownerRecords = new Map
 function summaryStripHTML(summary) {
   const cells = [
     ["ROUNDS", String(summary.rounds), "g100"],
-    ["WINS", summary.known ? `${summary.wins} · ${summary.winRate}%` : "—", summary.wins ? "green" : "g100"],
-    ["AVG PLACE", summary.averagePlacement === null ? "—" : `#${summary.averagePlacement.toFixed(1)}`, "g100"],
-    ["WIN STREAK", summary.winStreak ? String(summary.winStreak) : "—", summary.winStreak ? "green" : "g100"],
-    ["BEST CASH", summary.bestCash === null ? "—" : formatHistoryMoney(summary.bestCash), "g100"],
+    ["WINS", summary.known ? `${summary.wins} · ${summary.winRate}%` : "-", summary.wins ? "green" : "g100"],
+    ["AVG PLACE", summary.averagePlacement === null ? "-" : `#${summary.averagePlacement.toFixed(1)}`, "g100"],
+    ["WIN STREAK", summary.winStreak ? String(summary.winStreak) : "-", summary.winStreak ? "green" : "g100"],
+    ["BEST CASH", summary.bestCash === null ? "-" : formatHistoryMoney(summary.bestCash), "g100"],
   ];
   const points = summary.cashTrend.filter((cash) => cash !== null).length;
   const trend = points >= 2
@@ -943,7 +942,7 @@ function configureDesignButtons(atCap) {
 }
 
 function emptyLibraryMessage() {
-  return `<p class="pl-empty">No custom designs yet — press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
+  return `<p class="pl-empty">No custom designs yet. Press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
 }
 
 function draftCard() {
@@ -1098,9 +1097,14 @@ function faceSwatchHTML(c, d) {
   return `<button type="button" class="face-swatch${active ? " is-active" : ""}" style="background:${c}" data-ink="${c}" title="${c}" aria-label="Paint color ${c}" aria-pressed="${active}"></button>`;
 }
 
+// One tab stop for the whole face grid (roving focus): the cell last focused, moved with the arrow keys.
+let faceFocus = { x: 0, y: 0 };
+export function setFaceFocus(x, y) { faceFocus = { x, y }; }
+
 function faceCellHTML(c, x, y) {
   const style = c ? `background-color:${c};background-image:none` : "";
-  return `<button type="button" class="face-cell" data-x="${x}" data-y="${y}" style="${style}" aria-label="Paint pixel row ${y + 1} column ${x + 1}"></button>`;
+  const tab = x === faceFocus.x && y === faceFocus.y ? 0 : -1;
+  return `<button type="button" class="face-cell" tabindex="${tab}" data-x="${x}" data-y="${y}" style="${style}" aria-label="Paint pixel row ${y + 1} column ${x + 1}"></button>`;
 }
 
 export function renderProfileEditor() {
@@ -1110,18 +1114,15 @@ export function renderProfileEditor() {
   if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
   const saveLabel = $("#pl-save-btn")?.querySelector(".cta-text");
   if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
-  // identity swatches
   $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map((c) => swatchHTML(c, d)).join("");
   $("#profile-color-picker").value = d.color;
   $("#profile-name").value = d.designName;
 
-  // face palette
   $("#face-palette").innerHTML = FACE_PALETTE.map((c) => faceSwatchHTML(c, d)).join("");
   $("#face-color-picker").value = d.paintColor;
   $("#face-tool-paint").classList.toggle("is-active", d.tool === "paint");
   $("#face-tool-erase").classList.toggle("is-active", d.tool === "erase");
 
-  // pixel canvas
   const canvas = $("#face-canvas");
   canvas.innerHTML = d.grid
     .map((row, y) => row.map((c, x) => faceCellHTML(c, x, y)).join(""))

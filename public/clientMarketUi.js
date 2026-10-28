@@ -1,8 +1,6 @@
-/* ============================================================
-   MARKET DESK: shared-sector quotes, per-player positions, and orders.
-   The rail stays a compact glance surface; this owns selection, history,
-   preview, and advanced positions.
-   ============================================================ */
+// MARKET DESK: shared-sector quotes, per-player positions, and orders.
+// The rail stays a compact glance surface; this owns selection, history,
+// preview, and advanced positions.
 import { $, esc } from "./clientDom.js";
 import { formatMoney } from "./clientMoney.js";
 import { state } from "./clientState.js";
@@ -22,19 +20,23 @@ let selectedHistoryRange = "all";
 let selectedMarketView = "overview";
 let chartContainer = null;
 let marketModalObserver = null;
+let marketSession = 0;
+let pendingBasicOrder = null;
 
 function market() {
   return state.economy?.market || {};
 }
 
 function marketQuantity(card) {
-  const raw = Number(card.querySelector("#market-desk-quantity")?.value) || 1;
-  return Math.max(1, Math.min(1000, Math.floor(raw)));
+  const field = card.querySelector("#market-desk-quantity");
+  const raw = field?.value;
+  const quantity = Number(raw);
+  return raw !== "" && raw != null && Number.isInteger(quantity) && quantity >= 1 && quantity <= 1000 && !field.validity?.badInput ? quantity : null;
 }
 
 export function selectedMarketPoints(marketState, id = selectedIndex, limit = null) {
   const points = (Array.isArray(marketState.quoteHistory) ? marketState.quoteHistory : [])
-    .filter(point => point?.round != null && point?.quotes?.[id] != null && point.quotes[id] !== "" && Number.isFinite(Number(point.round)) && Number.isFinite(Number(point.quotes[id])))
+    .filter(point => point?.round != null && point?.quotes?.[id] != null && (typeof point.quotes[id] !== "string" || point.quotes[id].trim() !== "") && Number.isFinite(Number(point.round)) && Number.isFinite(Number(point.quotes[id])))
     .map(point => ({ round: Number(point.round), value: Number(point.quotes[id]), eventId: point.eventId || null }));
   const count = Number(limit);
   return Number.isInteger(count) && count > 0 ? points.slice(-count) : points;
@@ -48,7 +50,7 @@ function selectedHistoryLimit() {
 export function marketQuoteSummary(marketState, id) {
   const points = selectedMarketPoints(marketState, id);
   const rawQuote = marketState.quotes?.[id];
-  const quoteValue = rawQuote == null ? Number.NaN : Number(rawQuote);
+  const quoteValue = rawQuote == null || (typeof rawQuote === "string" && rawQuote.trim() === "") ? Number.NaN : Number(rawQuote);
   const quote = Number.isFinite(quoteValue) ? Math.max(0, Math.floor(quoteValue)) : null;
   const latestPoint = points.at(-1) || null;
   const roundValue = Number(marketState.round);
@@ -225,7 +227,7 @@ function marketOptionFieldsHTML(isDerivatives) {
 function marketSectorListHTML(marketState) {
   return `<nav class="market-sector-list" aria-label="Market sectors">${Object.entries(MARKET_LABELS).map(([id, label]) => {
     const quote = marketQuoteSummary(marketState, id).quote;
-    return `<button class="market-sector-button${id === selectedIndex ? " is-selected" : ""}" type="button" data-market-sector="${esc(id)}" aria-pressed="${id === selectedIndex}"><span>${esc(label)}</span><span class="market-sector-price">${quote == null ? "—" : `$${quote.toLocaleString()}`}</span></button>`;
+    return `<button class="market-sector-button${id === selectedIndex ? " is-selected" : ""}" type="button" data-market-sector="${esc(id)}" aria-pressed="${id === selectedIndex}"><span>${esc(label)}</span><span class="market-sector-price">${quote == null ? "-" : `$${quote.toLocaleString()}`}</span></button>`;
   }).join("")}</nav>`;
 }
 
@@ -233,7 +235,7 @@ function marketDeskHTML(marketState) {
   const complexity = String(marketState.complexity || "basic").toUpperCase();
   const hasAdvanced = marketComplexityRank(complexity) >= 1;
   const position = marketPositionSummary(marketState, selectedIndex);
-  const quantity = Math.max(1, Math.floor(Number(deskDraft?.quantity) || 1));
+  const quantity = deskDraft?.quantity ?? "1";
   const preview = marketPreview(marketState, selectedIndex, quantity, deskDraft?.side || "buy");
   const quoteSummary = marketQuoteSummary(marketState, selectedIndex);
   const currentQuote = quoteSummary.quote == null ? "PRICE UNAVAILABLE" : formatMoney(quoteSummary.quote);
@@ -267,7 +269,7 @@ function marketDeskHTML(marketState) {
       <aside class="market-trade-ticket" aria-labelledby="market-trade-ticket-title">
         <div class="market-ticket-head"><h3 class="t-label f11 g100" id="market-trade-ticket-title">TRADE TICKET</h3><span class="t-micro g300">SERVER SETTLED</span></div>
         <p class="market-ticket-instrument t-micro ink-2">${MARKET_LABELS[selectedIndex]} · ${currentQuote} PER UNIT</p>
-        <div class="market-order-fields"><fieldset class="market-order-side"><legend class="t-micro ink-3">ACTION</legend><div role="group" aria-label="Order action"><button class="market-order-side-button${(deskDraft?.side || "buy") === "buy" ? " is-active" : ""}" type="button" data-market-order-side="buy" aria-pressed="${(deskDraft?.side || "buy") === "buy"}">BUY</button><button class="market-order-side-button${deskDraft?.side === "sell" ? " is-active" : ""}" type="button" data-market-order-side="sell" aria-pressed="${deskDraft?.side === "sell"}">SELL</button></div></fieldset><label><span class="t-micro ink-3">UNITS</span><input class="field" id="market-desk-quantity" type="number" min="1" max="1000" value="${quantity}" inputmode="numeric"></label></div>
+        <div class="market-order-fields"><fieldset class="market-order-side"><legend class="t-micro ink-3">ACTION</legend><div role="group" aria-label="Order action"><button class="market-order-side-button${(deskDraft?.side || "buy") === "buy" ? " is-active" : ""}" type="button" data-market-order-side="buy" aria-pressed="${(deskDraft?.side || "buy") === "buy"}">BUY</button><button class="market-order-side-button${deskDraft?.side === "sell" ? " is-active" : ""}" type="button" data-market-order-side="sell" aria-pressed="${deskDraft?.side === "sell"}">SELL</button></div></fieldset><label><span class="t-micro ink-3">UNITS</span><input class="field" id="market-desk-quantity" type="number" min="1" max="1000" value="${esc(String(quantity))}" inputmode="numeric" aria-describedby="market-quantity-error" aria-invalid="false"></label></div><p id="market-quantity-error" class="t-micro ink-3" role="status" aria-live="polite"></p>
         <div class="market-order-breakdown" data-market-preview aria-live="polite"><span data-market-quote>QUOTE $${preview.quote.toLocaleString()} / UNIT</span><span data-market-gross>GROSS $${preview.gross.toLocaleString()}</span><span data-market-fee>FEE $${preview.fee.toLocaleString()}</span><span class="market-breakdown-cash" data-market-cash>${cashCopy}</span><strong data-market-total>${deskDraft?.side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} $${preview.net.toLocaleString()}</strong></div>
         ${advancedTools}<p class="t-micro ink-3 economy-note">Existing obligations can block an order before any cash moves.</p>
         <button class="cta-red market-order-submit" type="button" id="market-order-submit" data-market-basic-order data-market-id="${selectedIndex}" data-market-side="${deskDraft?.side || "buy"}"${quoteSummary.quote == null ? " disabled" : ""}><span class="t-label f11">${(deskDraft?.side || "buy").toUpperCase()} ${MARKET_LABELS[selectedIndex]}</span></button>
@@ -333,15 +335,23 @@ function updateMarketPreview(card) {
   const capturedDraft = captureDeskDraft(card) || {};
   const side = deskDraft?.side || capturedDraft.side || "buy";
   deskDraft = { ...capturedDraft, side };
-  const preview = marketPreview(market(), selectedIndex, marketQuantity(card), side);
+  const quantity = marketQuantity(card);
+  const pending = pendingBasicOrder?.session === marketSession;
+  card.querySelectorAll("#market-desk-quantity, #market-workspace-index, [data-market-order-side], [data-market-sector]").forEach(control => { control.disabled = pending; });
+  const currentQuote = marketQuoteSummary(market(), selectedIndex).quote;
+  const preview = quantity == null || currentQuote == null ? null : marketPreview(market(), selectedIndex, quantity, side);
+  const input = card.querySelector("#market-desk-quantity");
+  input?.setAttribute("aria-invalid", String(quantity == null));
+  const error = card.querySelector("#market-quantity-error");
+  if (error) error.textContent = quantity == null ? "Enter a whole number between 1 and 1,000 units." : "";
   const quote = card.querySelector("[data-market-quote]");
   const gross = card.querySelector("[data-market-gross]");
   const fee = card.querySelector("[data-market-fee]");
   const total = card.querySelector("[data-market-total]");
-  if (quote) quote.textContent = `QUOTE ${formatMoney(preview.quote)} / UNIT`;
-  if (gross) gross.textContent = `GROSS ${formatMoney(preview.gross)}`;
-  if (fee) fee.textContent = `FEE ${formatMoney(preview.fee)}`;
-  if (total) total.textContent = `${side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} ${formatMoney(preview.net)}`;
+  if (quote) quote.textContent = currentQuote == null ? "QUOTE UNAVAILABLE" : `QUOTE ${formatMoney(currentQuote)} / UNIT`;
+  if (gross) gross.textContent = `GROSS ${preview ? formatMoney(preview.gross) : "-"}`;
+  if (fee) fee.textContent = `FEE ${preview ? formatMoney(preview.fee) : "-"}`;
+  if (total) total.textContent = `${side === "sell" ? "NET PROCEEDS" : "TOTAL DUE"} ${preview ? formatMoney(preview.net) : "-"}`;
   card.querySelectorAll("[data-market-order-side]").forEach(button => {
     const selected = button.dataset.marketOrderSide === side;
     button.setAttribute("aria-pressed", String(selected));
@@ -349,9 +359,12 @@ function updateMarketPreview(card) {
   });
   const button = card.querySelector("[data-market-basic-order]");
   if (button) {
+    button.disabled = pending || quantity == null || currentQuote == null;
+    if (pending) button.setAttribute("aria-busy", "true");
+    else button.removeAttribute("aria-busy");
     button.dataset.marketSide = side;
     const label = button.querySelector(".t-label");
-    if (label) label.textContent = `${side.toUpperCase()} ${MARKET_LABELS[selectedIndex]}`;
+    if (label) label.textContent = pending ? "PROCESSING…" : `${side.toUpperCase()} ${MARKET_LABELS[selectedIndex]}`;
   }
 }
 
@@ -386,17 +399,18 @@ function renderMarketQuoteChart(card, marketState) {
 }
 
 function onMarketBasicOrder(button, card) {
+  const quantity = marketQuantity(card);
+  if (quantity == null) { updateMarketPreview(card); card.querySelector("#market-desk-quantity")?.focus(); return; }
   if (!markPending(button)) return;
-  const statusNode = host.captureActionStatusNode(button);
+  const session = marketSession;
+  const pending = { session };
+  pendingBasicOrder = pending;
+  updateMarketPreview(card);
   const requestId = host.createRequestId("market");
-  const payload = { instrumentId: selectedIndex, side: button.dataset.marketSide, quantity: marketQuantity(card), requestId };
+  const payload = { instrumentId: selectedIndex, side: button.dataset.marketSide, quantity, requestId };
   emitWithTimeout(host.emitServer, "market-order", payload, {
-    onResponse: response => marketActionResponse(button, statusNode, response),
-    onTimeout: () => {
-      clearPending(button);
-      host.announceActionStatus("Market response timed out. Your ledger will refresh when the connection returns.", statusNode);
-      host.refreshEconomySnapshot?.();
-    }
+    onResponse: response => marketActionResponse(session, button, response, pending),
+    onTimeout: () => marketActionTimeout(session, button, pending),
   });
 }
 
@@ -414,6 +428,7 @@ function renderMarketDesk({ focusId = null } = {}) {
   card.dataset.marketView = selectedMarketView;
   restoreDeskDraft(card);
   bindMarketDesk(card);
+  updateMarketPreview(card);
   renderMarketQuoteChart(card, marketState);
   requestAnimationFrame(() => {
     const body = card.querySelector(".market-desk-body");
@@ -465,10 +480,32 @@ function requestForMarketAction(action, button, card) {
   return MARKET_ACTION_REQUESTS[action]?.(context) || null;
 }
 
-function marketActionResponse(button, statusNode, response) {
+function activeMarketCard(session) {
+  const card = $("#market-card");
+  const modal = $("#market-modal");
+  return session === marketSession && card && modal && !modal.classList.contains("is-hidden") ? card : null;
+}
+
+function finishMarketPending(card, button, pending) {
+  if (pending && pendingBasicOrder === pending) pendingBasicOrder = null;
+  if (button.isConnected) clearPending(button);
+  if (card) updateMarketPreview(card);
+}
+
+function currentMarketStatus(card, button) {
+  const currentButton = button.isConnected ? button : card.querySelector("[data-market-basic-order]");
+  return host.captureActionStatusNode(currentButton);
+}
+
+function marketActionResponse(session, button, response, pending = null) {
+  const card = activeMarketCard(session);
+  if (!card) {
+    if (response?.success !== false) host.refreshEconomySnapshot?.();
+    return;
+  }
+  finishMarketPending(card, button, pending);
   if (response?.success === false) {
-    clearPending(button);
-    host.announceActionStatus(response.error || "Market position could not be updated.", statusNode);
+    host.announceActionStatus(response.error || "Market position could not be updated.", currentMarketStatus(card, button));
     return;
   }
   mergeEconomySnapshot(response);
@@ -476,21 +513,31 @@ function marketActionResponse(button, statusNode, response) {
   host.renderRightRail();
 }
 
+function marketActionTimeout(session, button, pending = null) {
+  const card = activeMarketCard(session);
+  if (card) {
+    finishMarketPending(card, button, pending);
+    host.announceActionStatus("Market response timed out. Your ledger will refresh when the connection returns.", currentMarketStatus(card, button));
+  }
+  host.refreshEconomySnapshot?.();
+}
+
 function onMarketAdvanced(button, card) {
+  if (["open-margin", "open-short", "cover-short", "open-option"].includes(button.dataset.marketAdvanced) && marketQuantity(card) == null) {
+    updateMarketPreview(card);
+    card.querySelector("#market-desk-quantity")?.focus();
+    return;
+  }
   if (!markPending(button)) return;
-  const statusNode = host.captureActionStatusNode(button);
+  const session = marketSession;
   const request = requestForMarketAction(button.dataset.marketAdvanced, button, card);
   if (!request) {
     clearPending(button);
     return;
   }
   emitWithTimeout(host.emitServer, request.eventName, request.payload, {
-    onResponse: response => marketActionResponse(button, statusNode, response),
-    onTimeout: () => {
-      clearPending(button);
-      host.announceActionStatus("Market response timed out. Your ledger will refresh when the connection returns.", statusNode);
-      host.refreshEconomySnapshot?.();
-    }
+    onResponse: response => marketActionResponse(session, button, response),
+    onTimeout: () => marketActionTimeout(session, button),
   });
 }
 
@@ -499,6 +546,8 @@ export function configureMarketUi(hooks) {
 }
 
 export function openMarketDesk(trigger = null) {
+  marketSession += 1;
+  pendingBasicOrder = null;
   deskDraft = null;
   selectedMarketView = "overview";
   renderMarketDesk();
@@ -507,6 +556,8 @@ export function openMarketDesk(trigger = null) {
 }
 
 export function closeMarketDesk() {
+  marketSession += 1;
+  pendingBasicOrder = null;
   disposeMarketChart();
   closeSurface("#market-modal");
 }

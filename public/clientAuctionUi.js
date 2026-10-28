@@ -1,11 +1,6 @@
-/* ============================================================
-   AUCTION: the forced-buy/auction flow's bidding UI. Renders the
-   auction card and its live countdown, and owns the interval that
-   drives it. The tile-popup render helpers are imported; the
-   socket-bound calls (emitServer, say, renderChat) arrive via
-   configureAuctionUi. renderAuction's markup is the exact old
-   main.js template.
-   ============================================================ */
+// AUCTION: the forced-buy/auction bidding UI. Renders the auction card and its live countdown,
+// and owns the interval that drives it. Socket-bound calls (emitServer, say, renderChat) arrive
+// via configureAuctionUi. renderAuction's markup must match the main.js template.
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
@@ -24,7 +19,7 @@ export function configureAuctionUi(hooks) {
 }
 
 const BID_STEPS = [1, 20, 100];
-// Audit #18: single clock for auction deadlines. Matches the server's frame
+// Single clock for auction deadlines. Matches the server's frame
 // once a snapshot has arrived (offset 0 before the first one).
 function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
 let auctionTimer = null;

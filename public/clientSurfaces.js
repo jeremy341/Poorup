@@ -1,9 +1,6 @@
-/* ============================================================
-   SHARED SURFACE / DIALOG CONTROLLER: keep every blocking
-   surface keyboard-safe without coupling the game state machine
-   to a particular modal implementation. parlorNotice is injected
-   by the entry module for the table-notice throttle.
-   ============================================================ */
+// SHARED SURFACE / DIALOG CONTROLLER: keeps every blocking surface keyboard-safe without coupling
+// the game state machine to a modal implementation. The entry module injects parlorNotice for the
+// table-notice throttle.
 import { $, esc } from "./clientDom.js";
 import { hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
@@ -15,7 +12,7 @@ const SURFACE_SELECTORS = [
   "#card-modal", "#card-gallery", "#gameover-modal",
 ];
 
-/* Table popups belong only to a live game — blocked while parked at parlor home. */
+/* Table popups belong only to a live game; blocked while parked at parlor home. */
 const GAME_POPUP = new Set([
   "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal", "#deal-detail-modal",
   "#auction-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#flight-modal", "#market-modal", "#casino-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
@@ -75,7 +72,7 @@ function closeConfirmationCopy(selector) {
     return { title: "Leave this decision open?", message: "Your payment or bankruptcy decision is still required. Close without choosing and the table will keep waiting for you." };
   }
   if (selector === "#auction-modal") {
-    return { title: "Leave the auction?", message: "The auction is still active. Keep this window open to bid or pass, or close it without changing your bid." };
+    return { title: "Leave the auction?", message: "The auction is still active. Keep this window open to keep bidding, or close it without changing your bid." };
   }
   if (selector === "#choice-modal") {
     return { title: "Leave the required choice?", message: "This auction purchase choice is still required. Close without choosing and the table will keep waiting." };
@@ -179,7 +176,7 @@ function blockedAsGamePopup(selector) {
   if (!GAME_POPUP.has(selector)) return false;
   if (state.phase !== "home") return false;
   if (tableNoticeThrottled()) {
-    notice("TABLE NOTICE", "That notice belongs to the table — it can be opened during a game.");
+    notice("TABLE NOTICE", "That notice belongs to the table. It can be opened during a game.");
   }
   return true;
 }

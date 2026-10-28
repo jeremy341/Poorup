@@ -1,8 +1,6 @@
-/* ============================================================
-   SOCIAL SURFACES: friends/rankings/player/rules pages and the
-   parlor toast announcer. Server fetches and view switching are
-   injected by the entry module; everything else is local DOM.
-   ============================================================ */
+// SOCIAL SURFACES: friends/rankings/player/rules pages and the
+// parlor toast announcer. Server fetches and view switching are
+// injected by the entry module; everything else is local DOM.
 import { $, esc } from "./clientDom.js";
 import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
@@ -210,10 +208,9 @@ export function socialPlayerRowHTML(player, actionLabel = "VIEW") {
 }
 
 
-// Inside a game, Rankings and Social render the very same content as their
-// pages. Only the way out differs: the pages leave through the site header, the
-// in-game copy returns to the table. Closing it never leaves the room, and the
-// seat, connection, turn timer and any pending prompt are untouched.
+// Inside a game, Rankings and Social render the same content as their pages. Only the exit
+// differs: pages leave through the site header, while the in-game copy returns to the table.
+// Closing it never leaves the room. The seat, connection, turn timer and pending prompt stay put.
 function tableReturnBarHTML(closeId, label) {
   const room = state.roomCode ? ` · ROOM ${esc(state.roomCode)}` : "";
   return `<div class="table-return-bar"><button class="btn-dark social-close table-return-btn" id="${closeId}" type="button" aria-label="Back to table. Closes ${label}; your seat and the game keep running."><span class="table-return-arrow" aria-hidden="true">‹</span><span class="t-label f11">BACK TO TABLE</span></button><span class="t-micro ink-3 table-return-note">TABLE STAYS LIVE${room} · YOUR SEAT AND TURN ARE UNAFFECTED</span></div>`;
@@ -370,7 +367,7 @@ function applyPublicPlayerCard(response) {
 }
 
 function signinBodyHTML() {
-  return `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p><button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button></div>`;
+  return `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p></div>`;
 }
 
 export function socialGuestGateHTML(surfaceKey = "social") {
@@ -403,7 +400,7 @@ function socialDateLabel(value) {
 }
 
 function invitesBodyHTML(social) {
-  return social.invites?.length ? social.invites.map((invite) => `<div class="social-invite-row"><div><strong class="t-label f12 g100">${esc(invite.roomName || "AFTER HOURS")}</strong><span class="t-micro ink-3">${String(invite.visibility || "public").toUpperCase()} ROOM · EXPIRES ${esc(socialDateLabel(invite.expiresAt) || "—")}</span></div><div class="social-request-actions"><button class="cta-red" type="button" data-social-invite="accept" data-invite-id="${esc(invite.id)}"><span class="cta-text cta-text-sm">JOIN</span></button><button class="btn-dark" type="button" data-social-invite="decline" data-invite-id="${esc(invite.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") : `<p class="t-body ink-3 social-empty">NO ROOM INVITES.</p>`;
+  return social.invites?.length ? social.invites.map((invite) => `<div class="social-invite-row"><div><strong class="t-label f12 g100">${esc(invite.roomName || "AFTER HOURS")}</strong><span class="t-micro ink-3">${String(invite.visibility || "public").toUpperCase()} ROOM · EXPIRES ${esc(socialDateLabel(invite.expiresAt) || "-")}</span></div><div class="social-request-actions"><button class="cta-red" type="button" data-social-invite="accept" data-invite-id="${esc(invite.id)}"><span class="cta-text cta-text-sm">JOIN</span></button><button class="btn-dark" type="button" data-social-invite="decline" data-invite-id="${esc(invite.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") : `<p class="t-body ink-3 social-empty">NO ROOM INVITES.</p>`;
 }
 
 function recentBodyHTML(social) {
@@ -439,8 +436,8 @@ function socialRailContext(signedIn) {
 
 function socialTableContext() {
   const home = state.phase === "home";
-  const roomValue = home ? "—" : esc(state.roomCode || "PUBLIC");
-  const seatedValue = home ? "—" : state.players.length;
+  const roomValue = home ? "-" : esc(state.roomCode || "PUBLIC");
+  const seatedValue = home ? "-" : state.players.length;
   return { roomValue, seatedValue };
 }
 
@@ -628,7 +625,7 @@ function rankingSelfBits(currentRows) {
     ? currentRows.findIndex((row) => row.accountId === selfId || row.accountId === selfUsername || row.username === selfUsername)
     : -1;
   const selfRow = selfIndex >= 0 ? currentRows[selfIndex] : null;
-  const selfRank = selfRow ? `#${selfIndex + 1}` : "—";
+  const selfRank = selfRow ? `#${selfIndex + 1}` : "-";
   return { selfRow, selfRank };
 }
 
@@ -786,7 +783,7 @@ const RULES_SECTIONS = [
     title: "The next legal action is always the priority",
     status: "LIVE",
     summary: "Every turn follows the same short loop, and you cannot skip a purchase, card, auction or payment.",
-    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn. The only clock is inactivity: after 30 seconds with no input (or a hidden game tab) a 3-minute countdown starts, and a player who stays idle through it can be removed from the room.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. Building and selling are available to that player after rolling and until turn end.</li><li>Mortgaging an owned deed may happen on any turn when collateral and debt rules allow it. The server rejects stale or out-of-turn requests for turn-scoped actions.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
+    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn. The only clock is inactivity: after 30 seconds with no input, or at once if the game tab is hidden, a 3-minute countdown starts, and a player who stays idle through it can be removed from the room.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. Building and selling are available to that player after rolling and until turn end.</li><li>Mortgaging an owned deed may happen on any turn when collateral and debt rules allow it. The server rejects stale or out-of-turn requests for turn-scoped actions.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
   },
   {
     id: "cash-bank",
@@ -912,7 +909,7 @@ const RULES_SECTIONS = [
     title: "Every switch has a consequence",
     status: "LIVE",
     summary: "Hosts configure the table before the first round. The active rules snapshot stays visible in the lobby so nobody has to guess what changed.",
-  content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats on Standard 40, up to 6 on Metro 52.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses the provider and falls back automatically to the no-AI House Brain when credits or service fail. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert changes evaluation depth, never legality.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme interest tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">Turn Time</strong><span class="t-body ink-2">Turns have no timer. A player idle for 3 minutes can be removed by inactivity: the countdown starts after 30 seconds without input, or at once if the game tab is hidden, and everyone can see it.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Settle an open payment through legal rescue actions or declare bankruptcy. Human bankrupt players become read-only spectators; bots are eliminated without spectator controls.</span></div></div>`,
+  content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats on Standard 40, up to 6 on Metro 52.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses the provider and falls back automatically to the no-AI House Brain when credits or service fail. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert changes evaluation depth, never legality.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme interest tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">Inactivity</strong><span class="t-body ink-2">Turns have no timer. A player idle for 3 minutes can be removed by inactivity: the countdown starts after 30 seconds without input, or at once if the game tab is hidden, and everyone can see it.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Settle an open payment through legal rescue actions or declare bankruptcy. Human bankrupt players become read-only spectators; bots are eliminated without spectator controls.</span></div></div>`,
   },
   {
     id: "reconnect-accessibility",
@@ -1123,7 +1120,7 @@ function declaredHistoryResult(entry) {
 }
 
 // A bankrupt finish reads BANKRUPT here exactly as it does in the owner's own
-// profile history, instead of a bare placement number.
+// profile history, not a bare placement number.
 function historyRowResult(participant, entry) {
   if (participant?.bankrupt === true) return 'BANKRUPT';
   const placement = placementHistoryResult(participant);
@@ -1189,10 +1186,10 @@ function playerIdentityBits(player) {
 }
 
 function playerFactsBits(player) {
-  const games = player.stats?.gamesPlayed ?? "—";
-  const wins = player.stats?.wins ?? "—";
-  const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "—");
-  const mutual = player.mutualFriends ?? "—";
+  const games = player.stats?.gamesPlayed ?? "-";
+  const wins = player.stats?.wins ?? "-";
+  const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "-");
+  const mutual = player.mutualFriends ?? "-";
   return { games, wins, achievements, mutual };
 }
 

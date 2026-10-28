@@ -44,7 +44,7 @@
       <audio data-music-audio="b" preload="metadata"></audio>
     </div>
 
-    <!-- ============================ HOME VIEW ============================ -->
+    <!-- HOME VIEW -->
     <div class="view" id="view-home">
       <a class="skip-link" id="skip-link" href="#home-main">Skip to main content</a>
       <header class="hdr page-header" data-page-header="home">
@@ -55,7 +55,8 @@
       <div class="home-menu-wrap">
         <button class="btn-dark audio-toggle home-menu-btn" type="button" id="home-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="home-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
         <div class="home-menu is-hidden" id="home-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>          <button class="btn-dark hdr-rules home-menu-item" type="button" id="home-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="home-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
           <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
           <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
@@ -217,7 +218,9 @@
       <div class="home-menu-wrap">
         <button class="btn-dark audio-toggle home-menu-btn" type="button" id="about-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="about-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
         <div class="home-menu is-hidden" id="about-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>          <button class="btn-dark hdr-rules home-menu-item" type="button" id="about-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="about-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
           <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
           <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
@@ -231,7 +234,7 @@
 
     <!-- room browser & room creator modal -->
     <div class="popup is-hidden" id="rooms-modal" role="dialog" aria-modal="true" aria-labelledby="rooms-title-text" aria-describedby="rooms-description" aria-hidden="true">
-      <button class="popup-scrim" id="rooms-scrim" aria-label="Close rooms"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="rooms-scrim" aria-label="Close rooms"></button>
       <div class="popup-card rooms-card panel noise" id="rooms-card">
         <div class="rooms-body">
           <div class="rooms-head">
@@ -324,7 +327,7 @@
       </div>
     </div>
 
-    <!-- ============================ PROFILE VIEW ============================ -->
+    <!-- PROFILE VIEW -->
     <div class="view is-hidden" id="view-profile">
       <a class="skip-link" href="#profile-main">Skip to main content</a>
       <header class="hdr page-header" data-page-header="profile">
@@ -335,7 +338,9 @@
       <div class="home-menu-wrap">
         <button class="btn-dark audio-toggle home-menu-btn" type="button" id="profile-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="profile-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
         <div class="home-menu is-hidden" id="profile-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>          <button class="btn-dark hdr-rules home-menu-item" type="button" id="profile-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="profile-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
           <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
           <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
@@ -366,15 +371,15 @@
         </section>
 
         <nav class="profile-tabs" id="profile-tabs" role="tablist" aria-label="Profile sections" aria-orientation="horizontal">
-          <button class="profile-tab" id="profile-tab-overview" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-overview" data-profile-tab="overview"><span class="t-label f11">OVERVIEW</span></button>
+          <button class="profile-tab is-active" id="profile-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-overview" data-profile-tab="overview"><span class="t-label f11">OVERVIEW</span></button>
           <button class="profile-tab" id="profile-tab-stats" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-stats" data-profile-tab="stats"><span class="t-label f11">STATISTICS</span></button>
-          <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
+          <button class="profile-tab" id="profile-tab-designs" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
           <button class="profile-tab" id="profile-tab-history" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-history" data-profile-tab="history"><span class="t-label f11">HISTORY</span></button>
           <button class="profile-tab" id="profile-tab-achievements" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-achievements" data-profile-tab="achievements"><span class="t-label f11">ACHIEVEMENTS</span><span class="profile-tab-count" id="profile-achievement-count">0/52</span></button>
           <button class="profile-tab" id="profile-tab-account" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-account" data-profile-tab="account"><span class="t-label f11">ACCOUNT &amp; PREFERENCES</span></button>
         </nav>
 
-        <section class="profile-tab-panel is-hidden" id="profile-panel-overview" role="tabpanel" aria-labelledby="profile-tab-overview" tabindex="0">
+        <section class="profile-tab-panel" id="profile-panel-overview" role="tabpanel" aria-labelledby="profile-tab-overview" tabindex="0">
           <div class="profile-overview-grid">
             <section class="panel noise pad16 profile-overview-card">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Your table identity</h2></div>
@@ -400,7 +405,7 @@
           <div id="profile-statistics-content"></div>
         </section>
 
-        <section class="profile-tab-panel" id="profile-panel-designs" role="tabpanel" aria-labelledby="profile-tab-designs" tabindex="0">
+        <section class="profile-tab-panel is-hidden" id="profile-panel-designs" role="tabpanel" aria-labelledby="profile-tab-designs" tabindex="0">
           <section class="panel noise pad16 profile-library-panel" id="profile-library">
             <div class="pl-head">
               <div><div class="t-micro g400">PLAYER DESIGNS</div><div class="t-label f12 g100">Saved profiles</div></div>
@@ -481,7 +486,9 @@
       <div class="home-menu-wrap">
         <button class="btn-dark audio-toggle home-menu-btn" type="button" id="rankings-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="rankings-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
         <div class="home-menu is-hidden" id="rankings-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>          <button class="btn-dark hdr-rules home-menu-item" type="button" id="rankings-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="rankings-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
           <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
           <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
@@ -503,7 +510,9 @@
       <div class="home-menu-wrap">
         <button class="btn-dark audio-toggle home-menu-btn" type="button" id="social-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="social-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
         <div class="home-menu is-hidden" id="social-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>          <button class="btn-dark hdr-rules home-menu-item" type="button" id="social-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="social-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
           <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
           <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
@@ -525,7 +534,9 @@
       <div class="home-menu-wrap">
         <button class="btn-dark audio-toggle home-menu-btn" type="button" id="rules-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="rules-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
         <div class="home-menu is-hidden" id="rules-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>          <button class="btn-dark hdr-rules home-menu-item" type="button" id="rules-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="rules-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
           <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
           <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
@@ -624,9 +635,9 @@
                 <p class="t-micro ink-3 admin-provider-action-reason" id="admin-provider-save-reason" data-admin-provider-save-reason hidden>Save unavailable: environment profiles are read-only. Create a new profile to change the setup.</p>
                     <h2 class="t-label f12 g100" data-admin-provider-active-label>NO PROFILE ACTIVE</h2>
                     <dl class="admin-provider-facts">
-                      <div><dt class="t-micro ink-3">MODEL</dt><dd class="t-label f11" data-admin-provider-active-model>—</dd></div>
+                      <div><dt class="t-micro ink-3">MODEL</dt><dd class="t-label f11" data-admin-provider-active-model>-</dd></div>
                       <div><dt class="t-micro ink-3">FORMAT</dt><dd class="t-label f11" data-admin-provider-active-format>AUTO · UNTESTED</dd></div>
-                      <div><dt class="t-micro ink-3">ENDPOINT</dt><dd class="t-label f11" data-admin-provider-active-url>—</dd></div>
+                      <div><dt class="t-micro ink-3">ENDPOINT</dt><dd class="t-label f11" data-admin-provider-active-url>-</dd></div>
                       <div><dt class="t-micro ink-3">KEY</dt><dd class="t-label f11" data-admin-provider-active-key>NOT CONFIGURED</dd></div>
                     </dl>
                     <p class="t-micro ink-3 admin-provider-active-note" data-admin-provider-active-note>AI failures always return to the deterministic house brain.</p>
@@ -708,37 +719,37 @@
     </div>
 
     <div class="popup is-hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" aria-describedby="account-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="account-scrim" aria-label="Close account dialog"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="account-scrim" aria-label="Close account dialog"></button>
       <div class="popup-card account-card panel noise" id="account-card"></div>
     </div>
 
     <div class="popup is-hidden" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" aria-hidden="true">
-      <button class="popup-scrim" id="confirm-scrim" aria-label="Cancel confirmation"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="confirm-scrim" aria-label="Cancel confirmation"></button>
       <div class="popup-card panel noise confirm-card" id="confirm-card"></div>
     </div>
 
     <!-- achievement detail dialog -->
     <div class="popup is-hidden" id="achievement-modal" role="dialog" aria-modal="true" aria-labelledby="achievement-detail-title" aria-describedby="achievement-detail-description" aria-hidden="true">
-      <button class="popup-scrim" id="achievement-scrim" aria-label="Close achievement details"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="achievement-scrim" aria-label="Close achievement details"></button>
       <div class="popup-card panel noise achievement-detail-modal" id="achievement-detail-card"></div>
     </div>
 
     <div class="popup is-hidden" id="rankings-modal" role="dialog" aria-modal="true" aria-label="Global rankings" aria-labelledby="rankings-modal-title" aria-describedby="rankings-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="rankings-scrim" aria-label="Close rankings"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="rankings-scrim" aria-label="Close rankings"></button>
       <div class="popup-card panel noise social-surface-card" id="rankings-card"></div>
     </div>
 
     <div class="popup is-hidden" id="social-modal" role="dialog" aria-modal="true" aria-label="Social" aria-labelledby="social-modal-title" aria-describedby="social-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="social-scrim" aria-label="Close social panel"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="social-scrim" aria-label="Close social panel"></button>
       <div class="popup-card panel noise social-surface-card" id="social-card"></div>
     </div>
 
     <div class="popup is-hidden" id="player-modal" role="dialog" aria-modal="true" aria-labelledby="player-modal-title" aria-describedby="player-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="player-scrim" aria-label="Close player profile"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="player-scrim" aria-label="Close player profile"></button>
       <div class="popup-card panel noise social-surface-card" id="player-card"></div>
     </div>
 
-    <!-- ============================ GAME VIEW ============================ -->
+    <!-- GAME VIEW -->
     <div class="view is-hidden" id="view-game">
       <a class="skip-link" id="skip-to-action" href="#roll-btn">Skip to game action</a>
       <a class="skip-link" href="#game-main">Skip to main content</a>
@@ -946,7 +957,7 @@
                         <span class="global-event-compact-title" id="global-event-compact-title"></span>
                         <span class="global-event-compact-rounds" id="global-event-compact-rounds"></span>
                         <div class="global-event-compact-effects" id="global-event-compact-effects"></div>
-                        <button class="global-event-compact-vote is-hidden" id="global-event-compact-vote" type="button" aria-controls="global-event-body-wrap" aria-expanded="false" aria-label="Show global event details and voting controls"></button>
+                        <button class="global-event-compact-vote is-hidden" id="global-event-compact-vote" type="button" aria-controls="global-event-body-wrap" aria-expanded="false"></button>
                       </div>
                     </section>
                     <div class="deck deck-chest"><span data-sprite="chest" data-size="5"></span></div>
@@ -999,7 +1010,7 @@
 
         </div>
 
-        <!-- RIGHT RAIL — game mode (holdings) -->
+        <!-- RIGHT RAIL: game mode (holdings) -->
         <section class="panel noise right-rail" id="right-rail-game">
           <div class="rr-head">
             <span data-sprite="diamond" data-size="3"></span>
@@ -1024,7 +1035,7 @@
           </aside>
         </section>
 
-        <!-- RIGHT RAIL — lobby mode (settings) -->
+        <!-- RIGHT RAIL: lobby mode (settings) -->
         <section class="panel noise right-rail is-hidden" id="right-rail-lobby">
           <div class="rr-head">
             <span data-sprite="diamond" data-size="3"></span>
@@ -1044,19 +1055,19 @@
 
     <!-- tile popup -->
     <div class="popup is-hidden" id="popup" role="dialog" aria-modal="true" aria-labelledby="popup-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="popup-scrim" aria-label="Close tile popup"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="popup-scrim" aria-label="Close tile popup"></button>
       <div class="popup-card panel noise" id="popup-card"></div>
     </div>
 
     <!-- trade popup -->
     <div class="popup is-hidden" id="trade-modal" role="dialog" aria-modal="true" aria-labelledby="trade-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="trade-scrim" aria-label="Close trade"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="trade-scrim" aria-label="Close trade"></button>
       <div class="popup-card trade-card panel noise" id="trade-card"></div>
     </div>
 
     <!-- forced buy / auction choice -->
     <div class="popup is-hidden" id="choice-modal" role="dialog" aria-modal="true" aria-labelledby="choice-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="choice-scrim" aria-label="Close" tabindex="-1" aria-hidden="true"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="choice-scrim" aria-label="Close"></button>
       <div class="popup-card choice-card panel noise" id="choice-card"></div>
     </div>
 
@@ -1068,61 +1079,61 @@
 
     <!-- trade offer inbox -->
     <div class="popup is-hidden" id="offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="offer-scrim" aria-label="Close offer"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="offer-scrim" aria-label="Close offer"></button>
       <div class="popup-card offer-card panel noise" id="offer-card"></div>
     </div>
 
     <!-- deed detail / house manager -->
     <div class="popup is-hidden" id="deed-modal" role="dialog" aria-modal="true" aria-labelledby="deed-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="deed-scrim" aria-label="Close deed"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="deed-scrim" aria-label="Close deed"></button>
       <div class="popup-card deed-detail-card panel noise" id="deed-card-detail"></div>
     </div>
 
     <!-- financing surface: player and bank contract actions share the server ledger -->
     <div class="popup is-hidden" id="financing-modal" role="dialog" aria-modal="true" aria-labelledby="financing-card-title" aria-describedby="financing-card-description" aria-hidden="true">
-      <button class="popup-scrim" id="financing-scrim" aria-label="Close financing preview"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="financing-scrim" aria-label="Close financing preview"></button>
       <div class="popup-card financing-card panel noise" id="financing-card"></div>
     </div>
 
     <!-- emergency bank credit confirmation stays separate from player financing -->
     <div class="popup is-hidden" id="bank-loan-modal" role="dialog" aria-modal="true" aria-labelledby="bank-loan-title" aria-describedby="bank-loan-description" aria-hidden="true">
-      <button class="popup-scrim" id="bank-loan-scrim" data-bank-loan-close aria-label="Close bank credit confirmation"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="bank-loan-scrim" data-bank-loan-close aria-label="Close bank credit confirmation"></button>
       <div class="popup-card bank-loan-card panel noise" id="bank-loan-card"></div>
     </div>
 
     <!-- wallet and earned item workbench -->
     <div class="popup is-hidden" id="wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-modal-title" aria-describedby="wallet-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="wallet-scrim" aria-label="Close wallet and items"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="wallet-scrim" aria-label="Close wallet and items"></button>
       <div class="popup-card wallet-card panel noise" id="wallet-card"></div>
     </div>
 
     <!-- airport flight desk -->
     <div class="popup is-hidden" id="flight-modal" role="dialog" aria-modal="true" aria-labelledby="flight-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="flight-scrim" aria-label="Close flight desk"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="flight-scrim" aria-label="Close flight desk"></button>
       <div class="popup-card flight-card panel noise" id="flight-card"></div>
     </div>
 
     <!-- focused advanced market workbench -->
     <div class="popup is-hidden" id="market-modal" role="dialog" aria-modal="true" aria-labelledby="market-modal-title" aria-describedby="market-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="market-scrim" aria-label="Close market desk"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="market-scrim" aria-label="Close market desk"></button>
       <div class="popup-card market-desk-card panel noise" id="market-card"></div>
     </div>
 
     <!-- focused casino wager and settled-result workbench -->
     <div class="popup is-hidden" id="casino-modal" role="dialog" aria-modal="true" aria-labelledby="casino-modal-title" aria-describedby="casino-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="casino-scrim" aria-label="Close casino desk"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="casino-scrim" aria-label="Close casino desk"></button>
       <div class="popup-card casino-desk-card panel noise" id="casino-card"></div>
     </div>
 
     <!-- shared read-only pending deal details -->
     <div class="popup is-hidden" id="deal-detail-modal" role="dialog" aria-modal="true" aria-labelledby="deal-detail-title" aria-hidden="true">
-      <button class="popup-scrim" id="deal-detail-scrim" aria-label="Close deal details"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="deal-detail-scrim" aria-label="Close deal details"></button>
       <div class="popup-card deal-detail-card panel noise" id="deal-detail-card"></div>
     </div>
 
     <!-- sponsored purchase escrow -->
     <div class="popup is-hidden" id="sponsorship-modal" role="dialog" aria-modal="true" aria-labelledby="sponsorship-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="sponsorship-scrim" aria-label="Close sponsorship"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="sponsorship-scrim" aria-label="Close sponsorship"></button>
       <div class="popup-card sponsorship-card panel noise" id="sponsorship-card"></div>
     </div>
 
@@ -1134,7 +1145,7 @@
 
     <!-- chance / chest card reveal -->
     <div class="popup is-hidden" id="card-modal" role="dialog" aria-modal="true" aria-labelledby="card-reveal-title" aria-hidden="true">
-      <button class="popup-scrim" id="card-scrim" aria-label="Close card"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="card-scrim" aria-label="Close card"></button>
       <div class="popup-card card-reveal panel noise" id="card-reveal"></div>
     </div>
 

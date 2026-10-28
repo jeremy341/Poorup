@@ -1,4 +1,4 @@
-/* Economy UI review: local workbench layouts within Poorup's existing parlor palette. */
+/* Economy UI: local workbench layouts within Poorup's existing parlor palette. */
 
 /* Market: a quiet exchange terminal with clear quote, history, and order zones. */
 #market-modal .market-desk-card {
@@ -24,7 +24,7 @@
 }
 #market-modal .market-desk-center { display: grid; grid-template-columns: minmax(150px, 180px) minmax(0, 1fr); align-content: start; gap: 10px 14px; min-width: 0; }
 #market-modal .market-sector-list { grid-row: 1 / span 3; display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-right: 8px; border-right: 1px solid var(--line-subtle); }
-#market-modal .market-sector-button { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 40px; padding: 7px 10px; color: var(--text-secondary); text-align: left; background: transparent; border: 1px solid transparent; font: 10px var(--font-pixel); cursor: pointer; }
+#market-modal .market-sector-button { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 40px; padding: 7px 10px; color: var(--text-secondary); text-align: left; background: transparent; border: 1px solid transparent; font: 11px var(--font-pixel); cursor: pointer; }
 #market-modal .market-sector-button:hover { color: var(--gold-050); background: var(--surface-panel-deep); }
 #market-modal .market-sector-button.is-selected { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); box-shadow: inset 3px 0 0 var(--gold-400); }
 #market-modal .market-sector-button:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: -2px; }

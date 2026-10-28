@@ -1,10 +1,6 @@
-/* ============================================================
-   KEYBOARD: the single window "keydown" controller. Night-shift
-   chords, the surface focus trap, the ordered modal Escape gate
-   chain, and the KEY_ACTIONS shortcuts. Game-bound handlers are
-   injected by the entry module; surface and drawer helpers are
-   imported directly.
-   ============================================================ */
+// KEYBOARD: the single window "keydown" controller. Night-shift chords, the surface focus trap,
+// the ordered modal Escape gate chain and KEY_ACTIONS shortcuts. Game-bound handlers come from
+// the entry module. Surface and drawer helpers are imported directly.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
@@ -62,27 +58,13 @@ function preventEscape(event) {
   event.preventDefault();
 }
 
-function handleCtrlNightShift(event, homeVisible) {
-  // Off: Ctrl+P stays the browser's print shortcut.
-  if (!PARLOR_PATROL_ENABLED) return false;
-  if (!homeVisible) return false;
-  if (state.phase !== "home") return false;
-  if (!keyChord(event, "p", "c")) return false;
-  if (typingTag(event.target)) return false;
-  if (visibleSurfaces().length) return false;
-  event.preventDefault();
-  host.startNightShift();
-  return true;
-}
-
 function handleShiftNightShift(event, homeVisible) {
   if (!PARLOR_PATROL_ENABLED) return false;
-  if (state.phase !== "home") return false;
-  if (host.isNightShiftActive()) return false;
+  if (state.phase !== "home" || !homeVisible || visibleSurfaces().length) return false;
   if (!keyChord(event, "p", "s")) return false;
+  if (isLogDrawerOpen() || host.isPanelMenuOpen?.() || host.isNightShiftActive()) return false;
   if (editableTarget(event.target)) return false;
   event.preventDefault();
-  if (!homeVisible || visibleSurfaces().length) host.goHome();
   host.startNightShift();
   return true;
 }
@@ -136,7 +118,7 @@ function handleNightShiftOpen(event) {
 }
 
 /* Ordered blocking-surface gates: while one is open it consumes
-   every key; Escape runs its closer. Identical order to the old
+   every key; Escape runs its closer. The order must match the
    if-chain so precedence is preserved. */
 const ESCAPE_GATES = [
   { visible: () => modalOpen("#account-modal"), escape: () => host.closeAccountModal() },
@@ -191,6 +173,7 @@ const TOP_SURFACE_ESCAPE = {
   "trade-modal": () => host.closeTradeModal(),
   "popup": () => host.closePopup(),
   "choice-modal": () => closeSurface("#choice-modal"),
+  "offer-modal": () => host.closeOfferWithoutResponse(),
   "auction-modal": () => closeSurface("#auction-modal"),
   "gameover-modal": preventEscape,
   "bankruptcy-modal": closeBankruptcyEscape,
@@ -332,7 +315,6 @@ function handleGameShortcuts(event, target) {
 function onKeyDown(event) {
   const target = event.target;
   const homeVisible = !$("#view-home").classList.contains("is-hidden");
-  if (handleCtrlNightShift(event, homeVisible)) return;
   if (handleShiftNightShift(event, homeVisible)) return;
   const activeSurface = syncSurfaceA11y();
   if (event.key === "Tab" && activeSurface) {

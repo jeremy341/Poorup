@@ -1,9 +1,8 @@
 import { adminRequest } from './clientAdminAiProvider.js';
 
-// Client side of the /admin/ops/* endpoints. Every payload is rebuilt field by field
-// from an explicit allowlist, so nothing the server did not promise can reach the
-// page: a room id that is not a one-way hash, an actor that is not a pseudonym, or a
-// stray field is dropped here, whatever the server sends.
+// Client side of the /admin/ops/* endpoints. Every payload is rebuilt field by field from an
+// explicit allowlist, so nothing the server did not promise reaches the page. Room ids that are
+// not one-way hashes, actors that are not pseudonyms and stray fields are dropped here.
 
 export const OPS_ENDPOINTS = Object.freeze({
   status: '/admin/ops/status',
@@ -133,7 +132,16 @@ export function normalizeOpsAudit(payload) {
         outcome: row.outcome === 'failed' ? 'failed' : 'ok',
       };
     }).filter(row => row.area && row.action),
+    health: normalizeAuditHealth(source.health),
   };
+}
+
+const AUDIT_HEALTH_STATES = ['ok', 'corrupt', 'unreadable'];
+
+// The server reports when the audit file was corrupt (log restarted empty) or unreadable.
+function normalizeAuditHealth(value) {
+  const row = record(value);
+  return { state: oneOf(row.state, AUDIT_HEALTH_STATES, 'ok'), message: plainText(row.message, 240) };
 }
 
 const NORMALIZERS = Object.freeze({ status: normalizeOpsStatus, rooms: normalizeOpsRooms, bots: normalizeOpsBots, audit: normalizeOpsAudit });
