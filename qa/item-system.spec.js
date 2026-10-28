@@ -234,26 +234,23 @@ test('trade actions put the primary action on the right for both roles', async (
 
 test('deal details are informational for outsiders and missing identities', async ({ page }) => {
   await fixture(page);
-  for (const identity of ['outsider', null]) {
-    for (const kind of ['trade', 'contract']) {
-      for (const finance of [true, false]) {
-        await page.evaluate(({ identity, kind, finance }) => {
-          const { state: s, deal } = window.__ipadModalCapture;
-          s.players[0].clientId = identity ? s.clientId : 'different-client';
-          s.players[0].serverId = identity || 'visual-host';
-          s.settings.playerFinance = finance;
-          const offer = { id: 'spectator-offer', kind: 'loan', rulesVersion: 2, fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', amount: 100 };
-          if (kind === 'trade') s.pendingTrade = offer;
-          else s.playerContractOffer = offer;
-          deal.openDealDetails(kind, offer.id);
-        }, { identity, kind, finance });
-        const card = page.locator('#deal-detail-card');
-        await expect(card).toContainText('OFFER DETAILS');
-        await expect(card.locator('[data-deal-action]')).toHaveCount(0);
-        await expect(card.locator('#deal-detail-close')).toBeEnabled();
-        await card.locator('#deal-detail-close').click();
-      }
-    }
+  const cases = ['outsider', null].flatMap(identity => ['trade', 'contract'].flatMap(kind => [true, false].map(finance => ({ identity, kind, finance }))));
+  for (const testCase of cases) {
+    await page.evaluate(({ identity, kind, finance }) => {
+      const { state: s, deal } = window.__ipadModalCapture;
+      s.players[0].clientId = identity ? s.clientId : 'different-client';
+      s.players[0].serverId = identity || 'visual-host';
+      s.settings.playerFinance = finance;
+      const offer = { id: 'spectator-offer', kind: 'loan', rulesVersion: 2, fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', amount: 100 };
+      if (kind === 'trade') s.pendingTrade = offer;
+      else s.playerContractOffer = offer;
+      deal.openDealDetails(kind, offer.id);
+    }, testCase);
+    const card = page.locator('#deal-detail-card');
+    await expect(card).toContainText('OFFER DETAILS');
+    await expect(card.locator('[data-deal-action]')).toHaveCount(0);
+    await expect(card.locator('#deal-detail-close')).toBeEnabled();
+    await card.locator('#deal-detail-close').click();
   }
 });
 

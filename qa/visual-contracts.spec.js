@@ -142,12 +142,12 @@ test.describe("board tiles", () => {
     const result = await page.evaluate(() => {
       let minName = Infinity;
       const escaped = [];
+      const outside = (r, box) => r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
       document.querySelectorAll(".tile").forEach((tile, index) => {
         const box = tile.getBoundingClientRect();
         tile.querySelectorAll(".tile-name, .tile-price").forEach((el) => {
           if (el.matches(".tile-name")) minName = Math.min(minName, Number.parseFloat(getComputedStyle(el).fontSize));
-          const r = el.getBoundingClientRect();
-          if (r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5) escaped.push([index, el.textContent.trim()]);
+          if (outside(el.getBoundingClientRect(), box)) escaped.push([index, el.textContent.trim()]);
         });
       });
       return { minName, escaped };
